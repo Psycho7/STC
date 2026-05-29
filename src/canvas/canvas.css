@@ -1,0 +1,1826 @@
+/* Canvas-layer stylesheet for blueprint visual contracts. */
+
+:root {
+  --ak-bg-canvas: #0f1114;
+  --ak-bg-primary: #1a1c20;
+  --ak-bg-secondary: #232529;
+  --ak-bg-tertiary: #34373d;
+  --ak-surface-light: #f5f4ee;
+  --ak-divider: #3f434a;
+  --ak-divider-strong: #5a5f68;
+  --ak-text-primary: #f2f1ec;
+  --ak-text-secondary: #b0b4bc;
+  --ak-text-disabled: #6b6e73;
+  --ak-text-on-light: #16181c;
+  --ak-text-decoration: #6a6f78;
+  --ak-text-decoration-faint: #3c4047;
+
+  --ak-accent-lime: #cbff40;
+  --ak-accent-lime-bright: #e0ff70;
+  --ak-accent-lime-dim: #7a9c26;
+  --ak-accent-yellow: #fff119;
+  --ak-accent-red: #e1351e;
+  --ak-accent-cyan: #23d5fc;
+  --ak-accent-cyan-soft: #7cdffc;
+  --ak-accent-amber: #e89b1a;
+  --ak-accent-amber-bright: #ffb627;
+  --ak-accent-amber-dim: #8a5c12;
+  --ak-accent-ink: #d8d5cd;
+
+  --font-ui: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", sans-serif;
+  --font-display:
+    "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, serif;
+  --font-display-latin: "Cinzel", "Trajan Pro", "Cormorant Garamond", serif;
+  /* Mono face for technical chrome. CJK glyphs fall through to the UI face so
+     Chinese / Japanese / Russian copy doesn't render as tofu inside mono
+     contexts (rate units, mid pills, micro-labels). */
+  --font-mono:
+    "JetBrains Mono", "DIN Alternate", ui-monospace, "Noto Sans SC",
+    "Source Han Sans SC", "PingFang SC", monospace;
+  --font-num:
+    "Space Grotesk", "JetBrains Mono", "Noto Sans SC", "Source Han Sans SC",
+    monospace;
+
+  /* Aliases for the --ak-font-* names used by canvas component rules. */
+  --ak-font-ui: var(--font-ui);
+  --ak-font-display: var(--font-display);
+  --ak-font-display-latin: var(--font-display-latin);
+  --ak-font-mono: var(--font-mono);
+  --ak-font-num: var(--font-num);
+
+  --blueprint-grid: radial-gradient(
+    circle at 1px 1px,
+    rgba(124, 223, 252, 0.18) 1px,
+    transparent 1px
+  );
+}
+
+.ak-canvas-theme {
+  background: var(--ak-bg-canvas);
+  color: var(--ak-text-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* App shell: the banner and side panels. */
+.ak-app-shell {
+  background: var(--ak-bg-canvas);
+  color: var(--ak-text-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.ak-app-shell [data-testid="side-panel"] {
+  background: var(--ak-bg-primary) !important;
+  border-right: 1px solid var(--ak-divider) !important;
+  color: var(--ak-text-primary);
+  padding: 0;
+  gap: 0;
+  position: relative;
+  overflow: hidden !important;
+}
+
+/* Decorative corner brackets on the side panel frame.
+   The four pseudo elements live on a non-pointer sibling so they never
+   shadow the recipe list. */
+.ak-app-shell [data-testid="side-panel"]::before,
+.ak-app-shell [data-testid="side-panel"]::after {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--ak-accent-lime);
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: 3;
+}
+.ak-app-shell [data-testid="side-panel"]::before {
+  top: 8px;
+  left: 8px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.ak-app-shell [data-testid="side-panel"]::after {
+  bottom: 8px;
+  left: 8px;
+  border-right: 0;
+  border-top: 0;
+}
+
+.ak-app-shell .side-panel-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(180deg, rgba(35, 213, 252, 0.04) 0, transparent 120px),
+    radial-gradient(
+      ellipse 80% 60% at 50% -10%,
+      rgba(203, 255, 64, 0.06) 0,
+      transparent 50%
+    );
+}
+/* Slim brushed-steel scrollbar for the side panel. */
+.ak-app-shell .side-panel-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.ak-app-shell .side-panel-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ak-app-shell .side-panel-scroll::-webkit-scrollbar-thumb {
+  background: var(--ak-divider-strong);
+  border: 2px solid var(--ak-bg-primary);
+}
+.ak-app-shell .side-panel-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ak-text-decoration);
+}
+
+.ak-app-shell [data-testid="side-panel"] .side-panel-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 18px 18px 0;
+  margin: 0;
+  border-bottom: 1px solid var(--ak-divider);
+  position: sticky;
+  top: 0;
+  background: var(--ak-bg-primary);
+  z-index: 2;
+}
+
+.ak-app-shell [data-testid="side-panel"] .side-panel-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--ak-text-secondary);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 10px 20px;
+  cursor: pointer;
+  user-select: none;
+  transform: skewX(-9deg);
+  transform-origin: bottom left;
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  position: relative;
+}
+
+.ak-app-shell [data-testid="side-panel"] .side-panel-tab > span {
+  display: inline-block;
+  transform: skewX(9deg);
+}
+
+.ak-app-shell [data-testid="side-panel"] .side-panel-tab > .count {
+  font-family: var(--font-num);
+  font-size: 10px;
+  color: var(--ak-text-decoration);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.ak-app-shell [data-testid="side-panel"] .side-panel-tab.active {
+  background: var(--ak-accent-lime);
+  color: var(--ak-text-on-light);
+  box-shadow:
+    0 1px 0 var(--ak-accent-lime-bright) inset,
+    0 0 18px rgba(203, 255, 64, 0.18);
+}
+
+.ak-app-shell [data-testid="side-panel"] .side-panel-tab.active > .count {
+  color: var(--ak-text-on-light);
+}
+
+.ak-app-shell [data-testid="side-panel"] .side-panel-tab:not(.active):hover {
+  background: var(--ak-bg-tertiary);
+  color: var(--ak-text-primary);
+}
+
+.ak-app-shell h1,
+.ak-app-shell h2,
+.ak-app-shell h3,
+.ak-app-shell h4 {
+  color: var(--ak-text-primary);
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px 0;
+}
+
+.ak-app-shell h3 {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ak-text-secondary);
+  font-family: var(--font-ui);
+  border-bottom: 1px solid var(--ak-divider);
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+}
+
+.ak-app-shell ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ak-app-shell li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  background: var(--ak-bg-secondary);
+  border: 1px solid var(--ak-divider);
+  border-left: 3px solid var(--ak-accent-lime-dim);
+}
+
+.ak-app-shell label {
+  color: var(--ak-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.ak-app-shell input[type="text"],
+.ak-app-shell input[type="number"],
+.ak-app-shell select,
+.ak-app-shell textarea {
+  background: var(--ak-bg-tertiary);
+  color: var(--ak-text-primary);
+  border: 1px solid var(--ak-divider);
+  padding: 4px 6px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+
+.ak-app-shell input[type="number"] {
+  font-family: var(--font-num);
+  font-weight: 700;
+}
+
+.ak-app-shell input:focus,
+.ak-app-shell select:focus,
+.ak-app-shell textarea:focus {
+  outline: 1px solid var(--ak-accent-cyan);
+  outline-offset: -1px;
+  border-color: var(--ak-accent-cyan);
+}
+
+.ak-app-shell button {
+  background: var(--ak-bg-secondary);
+  color: var(--ak-text-primary);
+  border: 1px solid var(--ak-divider);
+  padding: 4px 10px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+
+.ak-app-shell button:hover:not(:disabled) {
+  background: var(--ak-bg-tertiary);
+  border-color: var(--ak-divider-strong);
+}
+
+.ak-app-shell button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Side panel "Add target / Add input" buttons are styled via .b-add. */
+
+/* The destructive Remove button inside list items keeps the muted treatment. */
+.ak-app-shell li button {
+  background: transparent;
+  border: 1px solid var(--ak-divider);
+  color: var(--ak-text-secondary);
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.ak-app-shell li button:hover:not(:disabled) {
+  color: var(--ak-accent-red);
+  border-color: var(--ak-accent-red);
+  background: rgba(225, 53, 30, 0.08);
+}
+
+/* Status messages (frozen banner / mutation error) keep their semantic colors
+   but on the dark base. */
+.ak-app-shell [data-testid="frozen-banner"] {
+  background: rgba(255, 241, 25, 0.08) !important;
+  color: var(--ak-accent-yellow);
+  border-bottom: 1px solid rgba(255, 241, 25, 0.3);
+}
+
+.ak-app-shell [role="alert"] {
+  background: rgba(225, 53, 30, 0.1) !important;
+  color: var(--ak-accent-red) !important;
+  border-top: 1px solid rgba(225, 53, 30, 0.4) !important;
+}
+
+/* Top bar. */
+.topbar {
+  height: 56px;
+  background: var(--ak-bg-primary);
+  border-bottom: 1px solid var(--ak-divider);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  position: relative;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+  gap: 16px;
+  font-family: var(--font-ui);
+}
+
+.topbar::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ak-accent-lime) 30%,
+    var(--ak-accent-lime) 70%,
+    transparent 100%
+  );
+  opacity: 0.4;
+  z-index: 1;
+}
+
+.topbar .wordmark {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.topbar .wordmark .tri-mark {
+  width: 16px;
+  height: 16px;
+  color: var(--ak-accent-lime);
+  filter: drop-shadow(0 0 6px rgba(203, 255, 64, 0.4));
+}
+
+.topbar .wordmark .zh {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ak-text-primary);
+}
+
+.topbar .wordmark .sep {
+  width: 1px;
+  height: 18px;
+  background: var(--ak-divider-strong);
+  margin: 0 2px;
+}
+
+.topbar .wordmark .latin {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ak-text-secondary);
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.topbar .breadcrumb {
+  margin-left: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.topbar .breadcrumb .sep {
+  color: var(--ak-text-decoration-faint);
+}
+
+.topbar .actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.topbar .stat-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0 10px;
+  height: 28px;
+  line-height: 28px;
+  background: var(--ak-bg-canvas);
+  border: 1px solid var(--ak-divider);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ak-text-secondary);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.topbar .stat-chip .v {
+  color: var(--ak-text-primary);
+  font-weight: 700;
+}
+
+.topbar .stat-chip.warn {
+  border-color: var(--ak-accent-lime);
+  color: var(--ak-accent-lime);
+}
+
+.topbar .stat-chip.warn .v {
+  color: var(--ak-accent-lime-bright);
+}
+
+/* Override the generic .ak-app-shell button rule inside the topbar so the
+   locale switcher + action buttons keep their topbar look. */
+.ak-app-shell .topbar select,
+.ak-app-shell .topbar button {
+  background: var(--ak-bg-canvas);
+  border: 1px solid var(--ak-divider);
+  color: var(--ak-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0 10px;
+  height: 28px;
+  line-height: 26px;
+}
+
+.ak-app-shell .topbar select:hover,
+.ak-app-shell .topbar button:hover {
+  border-color: var(--ak-divider-strong);
+  color: var(--ak-text-primary);
+}
+
+/* Side rail: the editorial list of targets and inputs. */
+.ak-app-shell [data-testid="side-panel"] .boundary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 0 18px;
+  border-bottom: 1px solid var(--ak-divider);
+}
+
+/* Editorial micro-header, e.g. "SET 01 / TARGETS BOUNDARY / 3 / 215". */
+.ak-app-shell [data-testid="side-panel"] .side-section-head {
+  padding: 18px 20px 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  position: relative;
+}
+.ak-app-shell [data-testid="side-panel"] .side-section-head::before {
+  content: "";
+  position: absolute;
+  left: 20px;
+  bottom: 4px;
+  width: 22px;
+  height: 1px;
+  background: var(--ak-accent-lime);
+  opacity: 0.7;
+}
+.ak-app-shell [data-testid="side-panel"] .side-section-head .num {
+  font-family: var(--font-display-latin);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ak-accent-lime);
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  text-shadow: 0 0 12px rgba(203, 255, 64, 0.35);
+}
+.ak-app-shell [data-testid="side-panel"] .side-section-head .label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.ak-app-shell [data-testid="side-panel"] .side-section-head .count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ak-text-decoration-faint);
+  letter-spacing: 0.16em;
+}
+.ak-app-shell [data-testid="side-panel"] .side-section-head .count .v {
+  color: var(--ak-text-primary);
+  font-weight: 700;
+}
+
+/* Eyebrow tagline below the section head. */
+.ak-app-shell [data-testid="side-panel"] .side-section-sub {
+  padding: 0 20px 12px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--ak-text-decoration-faint);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--ak-divider);
+}
+
+/* Flat row list. The b-row class name stays so existing tests keep working, but
+   its look follows the recipe-row pattern: thin dividers, a lime inset on the
+   selected row, and a cyan rate cell on the right. */
+.ak-app-shell [data-testid="side-panel"] .b-row {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: stretch;
+  gap: 12px;
+  padding: 13px 20px 13px 22px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--ak-divider);
+  position: relative;
+  transition:
+    background 140ms ease-out,
+    box-shadow 140ms ease-out;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row::before {
+  /* The lime indicator strip lives on a pseudo so :hover / .selected can
+     fade it in without re-layout. */
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: -1px;
+  width: 4px;
+  background: var(--ak-accent-lime);
+  opacity: 0;
+  box-shadow: 0 0 14px rgba(203, 255, 64, 0.45);
+  transition: opacity 140ms ease-out;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row:hover::before {
+  opacity: 0.45;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row:focus-within {
+  background: var(--ak-bg-secondary);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row:focus-within::before,
+.ak-app-shell [data-testid="side-panel"] .b-row.selected::before {
+  opacity: 1;
+}
+
+/* Slot icon. The 40px sprite sits centered inside a 44px slot with a
+   diagonal corner notch and a soft inner glow keyed off the role. */
+.ak-app-shell [data-testid="side-panel"] .b-row .slot {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1d2025 0%, #14171b 100%);
+  border: 1px solid var(--ak-divider);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+    inset 0 0 14px rgba(35, 213, 252, 0.06);
+  position: relative;
+  clip-path: polygon(
+    7px 0,
+    100% 0,
+    100% calc(100% - 7px),
+    calc(100% - 7px) 100%,
+    0 100%,
+    0 7px
+  );
+}
+.ak-app-shell [data-testid="side-panel"] .b-row[data-is-raw="true"] .slot {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+    inset 0 0 16px rgba(232, 155, 26, 0.12);
+  border-color: rgba(232, 155, 26, 0.35);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .slot .ico {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7));
+}
+/* Placeholder rendered when the icon-lookup chain finds nothing: a sparse
+   cross-hatch so the row still has a visible icon block instead of empty
+   space. Visually distinct from a real sprite so the absence is read as a
+   data gap, not a styling bug. */
+.ak-app-shell [data-testid="side-panel"] .b-row .slot.empty {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      transparent 0 5px,
+      rgba(124, 223, 252, 0.08) 5px 6px
+    ),
+    linear-gradient(135deg, #1d2025 0%, #14171b 100%);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .slot.empty::after {
+  content: "?";
+  font-family: var(--font-display-latin);
+  font-size: 16px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0;
+}
+
+.ak-app-shell [data-testid="side-panel"] .b-row .info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 3px;
+  justify-content: center;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ak-text-primary);
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-tags .sep {
+  color: var(--ak-text-decoration-faint);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-tags .raw,
+.ak-app-shell [data-testid="side-panel"] .b-row .b-tags .dual,
+.ak-app-shell [data-testid="side-panel"] .b-row .b-tags .uncapped {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border: 1px solid var(--ak-divider);
+  letter-spacing: 0.2em;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-tags .raw {
+  color: var(--ak-accent-cyan-soft);
+  border-color: rgba(124, 223, 252, 0.35);
+}
+.ak-app-shell
+  [data-testid="side-panel"]
+  .b-row[data-is-raw="true"]
+  .b-tags
+  .raw {
+  color: var(--ak-accent-amber-bright);
+  border-color: rgba(232, 155, 26, 0.45);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-tags .dual {
+  color: var(--ak-accent-amber);
+  border-color: rgba(232, 155, 26, 0.55);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-tags .uncapped {
+  color: var(--ak-text-decoration);
+  border-color: var(--ak-divider);
+  font-style: normal;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-tags .realized {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border: 1px solid rgba(124, 223, 252, 0.35);
+  letter-spacing: 0.2em;
+  color: var(--ak-accent-cyan-soft);
+  font-style: normal;
+}
+
+/* A prominent "needed N/min" line under the row name for uncapped boundary rows
+   (both auto and explicit-no-cap). The "//" prefix echoes the one on
+   .side-section-sub, and the numeric weight matches the cap readout in the right
+   cell so the needed rate reads as the row's main metric. Capped rows instead
+   keep the smaller .realized chip in .b-tags, since for them the cap itself is
+   the main metric. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-needed {
+  font-family: var(--font-num);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ak-accent-cyan);
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+  margin-top: 2px;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-needed::before {
+  content: "// ";
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ak-text-decoration-faint);
+  letter-spacing: 0.16em;
+}
+
+/* The picker is the row's name surface itself. The row layout is fixed: icon,
+   product-name, item-id, rate, and a remove control. The product-name slot is a
+   native <select> stripped of platform chrome so it reads as the heading line
+   rather than a dropdown. A small persistent caret at the right edge marks the
+   affordance for touch and for first-impression discoverability, without
+   bringing back the boxed-select redundancy an earlier pass had. The <select>
+   stays a real form control, so ARIA, keyboard nav, type-ahead, IME
+   composition, and the mobile native picker all keep working. color-scheme:dark
+   nudges the option menu toward dark chrome wherever browsers honor it. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick {
+  position: relative;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--ak-text-primary);
+  color-scheme: dark;
+  /* Display face, bold, with tight letter-spacing to match .product-name. */
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  padding: 0 14px 0 0;
+  cursor: pointer;
+  width: 100%;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  transition:
+    color 140ms ease-out,
+    text-decoration-color 140ms ease-out;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick select:hover,
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick select:focus {
+  outline: 0;
+  color: var(--ak-text-primary);
+  text-decoration: underline 1px var(--ak-accent-cyan-soft);
+  text-underline-offset: 3px;
+}
+/* Native <option> styling. Browsers vary here, but setting explicit colors
+   unsticks most gtk/chromium menus that otherwise inherit a transparent or
+   unreadable background. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick select option {
+  background: var(--ak-bg-primary);
+  color: var(--ak-text-primary);
+  font-family: var(--font-ui);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+/* A persistent down-caret at the right edge, added for discoverability: the
+   plain row has no chevron because it has no picker. It is kept small and
+   cyan-soft so it whispers at rest and brightens on hover or focus, while still
+   being legible at a glance on touch, where there is no hover state. The faint
+   shadow keeps the triangle readable at 9px without turning it into an
+   attention-grabbing accent. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick::after {
+  content: "▼";
+  position: absolute;
+  right: 0;
+  top: 4px;
+  color: var(--ak-accent-cyan-soft);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  pointer-events: none;
+  letter-spacing: 0;
+  line-height: 1;
+  text-shadow: 0 0 4px rgba(35, 213, 252, 0.35);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick:hover::after,
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick:focus-within::after {
+  color: var(--ak-accent-cyan);
+}
+/* The raw structural id below the name, e.g. `copper_bottle RECIPE`, with the
+   trailing "RECIPE"/"ITEM" caption in its own mono span. The .b-pick-mid alias
+   keeps any in-flight tests passing through the rename. */
+.ak-app-shell [data-testid="side-panel"] .b-row .item-id,
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick-mid {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  color: var(--ak-text-decoration-faint);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  max-width: 100%;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .item-id .mid {
+  margin-left: 8px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.22em;
+}
+
+/* Right-side rate cell: borderless cyan numeric input + /MIN unit. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-rate {
+  grid-column: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  justify-content: center;
+  min-width: 84px;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-rate input {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  outline: 0;
+  color: var(--ak-accent-cyan);
+  font-family: var(--font-num);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  padding: 0 0 2px;
+  width: 84px;
+  text-align: right;
+  transition:
+    border-color 120ms ease-out,
+    color 120ms ease-out;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-rate input::placeholder {
+  color: var(--ak-text-decoration);
+  font-style: italic;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-rate input:focus {
+  border-bottom-color: var(--ak-accent-lime);
+  color: var(--ak-accent-lime-bright);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-rate .unit {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.ak-app-shell [data-testid="side-panel"] .b-row .b-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ak-text-decoration-faint);
+  font-size: 13px;
+  width: 18px;
+  height: 18px;
+  line-height: 14px;
+  padding: 0;
+  text-align: center;
+  opacity: 0;
+  transition:
+    opacity 140ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row:hover .b-remove,
+.ak-app-shell [data-testid="side-panel"] .b-row:focus-within .b-remove {
+  opacity: 1;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-remove:hover {
+  border-color: var(--ak-accent-red);
+  color: var(--ak-accent-red);
+  background: rgba(225, 53, 30, 0.1);
+}
+
+/* Inline duplicate-id error sits below the picker. */
+.ak-app-shell [data-testid="side-panel"] .b-row [role="alert"] {
+  grid-column: 2 / 4;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 4px 8px !important;
+  background: rgba(225, 53, 30, 0.08) !important;
+  color: var(--ak-accent-red) !important;
+  border: 0 !important;
+  border-left: 2px solid var(--ak-accent-red) !important;
+}
+
+/* Empty state inside a section. */
+.ak-app-shell [data-testid="side-panel"] .b-empty {
+  padding: 22px 22px 18px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.12em;
+  line-height: 1.6;
+  border-bottom: 1px dashed var(--ak-divider);
+}
+.ak-app-shell [data-testid="side-panel"] .b-empty::before {
+  content: "// ";
+  color: var(--ak-text-decoration-faint);
+}
+
+/* The "Add target" / "Add input" call to action: a full-width dashed lime button. */
+.ak-app-shell [data-testid="side-panel"] .b-add {
+  appearance: none;
+  display: block;
+  width: calc(100% - 32px);
+  margin: 14px 16px 4px;
+  padding: 10px 14px;
+  background: transparent;
+  border: 1px dashed var(--ak-accent-lime-dim);
+  color: var(--ak-accent-lime);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background 140ms ease-out,
+    border-color 140ms ease-out,
+    color 140ms ease-out,
+    box-shadow 140ms ease-out;
+}
+.ak-app-shell [data-testid="side-panel"] .b-add::before {
+  content: "+";
+  margin-right: 10px;
+  font-family: var(--font-num);
+  font-weight: 700;
+  font-size: 12px;
+}
+.ak-app-shell [data-testid="side-panel"] .b-add:hover {
+  background: rgba(203, 255, 64, 0.08);
+  border-color: var(--ak-accent-lime);
+  color: var(--ak-accent-lime-bright);
+  box-shadow: 0 0 22px rgba(203, 255, 64, 0.12);
+}
+.ak-app-shell [data-testid="side-panel"] .b-add:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Bottom of the rail: vertical fade and a watermarked plan id. */
+.ak-app-shell [data-testid="side-panel"] .side-rail-footer {
+  margin-top: auto;
+  padding: 20px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ak-text-decoration-faint);
+  border-top: 1px solid var(--ak-divider);
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.25));
+}
+.ak-app-shell [data-testid="side-panel"] .side-rail-footer .key {
+  color: var(--ak-text-decoration);
+}
+.ak-app-shell [data-testid="side-panel"] .side-rail-footer .val {
+  color: var(--ak-text-secondary);
+  font-family: var(--font-num);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* SCC loop box. */
+.scc-box {
+  background: rgba(26, 28, 32, 0.55);
+  border: 1px solid var(--ak-divider-strong);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 16px 32px rgba(0, 0, 0, 0.5);
+  position: relative;
+}
+
+.scc-box .header {
+  height: 36px;
+  background: var(--stripe-warning);
+  display: flex;
+  align-items: stretch;
+  padding: 0 6px;
+  gap: 6px;
+}
+
+.scc-box .header .seq {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 900;
+  color: #111;
+  background: #fff;
+  padding: 0 8px;
+  letter-spacing: 0.24em;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.scc-box .header .label {
+  align-self: center;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: #111;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 4px 10px;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scc-box .header .tag {
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #111;
+  background: #fff;
+  padding: 4px 8px;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.scc-box .body {
+  padding: 14px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scc-box .net-ports {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px 14px;
+  flex-wrap: wrap;
+}
+
+.net-port {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--ak-bg-primary);
+  border: 1px solid var(--ak-accent-cyan);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--ak-text-primary);
+}
+
+.net-port .lbl {
+  color: var(--ak-text-secondary);
+}
+
+.net-port .rate {
+  color: var(--ak-accent-cyan);
+  font-family: var(--font-num);
+  font-weight: 700;
+}
+
+.net-port.in {
+  border-left-width: 3px;
+}
+
+.net-port.out {
+  border-right-width: 3px;
+}
+
+/* The return arc ribbon along the right edge of the SCC body. */
+.scc-return {
+  position: absolute;
+  right: 6px;
+  top: 20px;
+  bottom: 20px;
+  width: 56px;
+  pointer-events: none;
+}
+
+.scc-return .tear-chip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: linear-gradient(180deg, #1f2125 0%, #14171b 100%);
+  border: 1px solid var(--ak-accent-red);
+  white-space: nowrap;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    0 0 12px rgba(225, 53, 30, 0.25);
+}
+
+.scc-return .tear-chip .row1 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--ak-accent-red);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.scc-return .tear-chip .row2 {
+  font-family: var(--font-num);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ak-text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.scc-return .tear-chip .row2 .u {
+  font-size: 8px;
+  color: var(--ak-text-secondary);
+  margin-left: 1px;
+}
+
+/* Override React Flow's default light pane / dot grid for the dark theme. */
+.ak-canvas-theme .react-flow__pane,
+.ak-canvas-theme .react-flow {
+  background: var(--ak-bg-canvas);
+}
+
+.ak-canvas-theme .react-flow__attribution {
+  background: rgba(15, 17, 20, 0.6);
+  color: var(--ak-text-decoration);
+}
+
+.ak-canvas-theme .react-flow__attribution a {
+  color: var(--ak-text-secondary);
+}
+
+/* Blueprint-grid dot pattern on the canvas pane. */
+.ak-canvas-theme .react-flow__pane,
+.ak-canvas-theme .react-flow {
+  background-image: var(--blueprint-grid);
+  background-size: 24px 24px;
+}
+
+/* Subtle scanline + vignette overlay across the canvas region. */
+.ak-canvas-theme .canvas-frame {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      ellipse at center,
+      transparent 70%,
+      rgba(0, 0, 0, 0.5) 100%
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 2px,
+      rgba(255, 255, 255, 0.012) 2px 3px
+    );
+  z-index: 5;
+}
+
+/* Corner brackets. */
+.cb {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  z-index: 4;
+}
+.cb::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+}
+.cb.tl::before {
+  border-left: 1.5px solid var(--ak-accent-lime);
+  border-top: 1.5px solid var(--ak-accent-lime);
+}
+.cb.tr::before {
+  border-right: 1.5px solid var(--ak-accent-lime);
+  border-top: 1.5px solid var(--ak-accent-lime);
+}
+.cb.bl::before {
+  border-left: 1.5px solid var(--ak-accent-lime);
+  border-bottom: 1.5px solid var(--ak-accent-lime);
+}
+.cb.br::before {
+  border-right: 1.5px solid var(--ak-accent-lime);
+  border-bottom: 1.5px solid var(--ak-accent-lime);
+}
+.cb.dim::before {
+  border-color: var(--ak-text-decoration);
+}
+
+.ak-canvas-theme .cb.tl {
+  top: 12px;
+  left: 12px;
+}
+.ak-canvas-theme .cb.tr {
+  top: 12px;
+  right: 12px;
+}
+.ak-canvas-theme .cb.bl {
+  bottom: 12px;
+  left: 12px;
+}
+.ak-canvas-theme .cb.br {
+  bottom: 12px;
+  right: 12px;
+}
+
+.ak-canvas-theme .canvas-annot {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 4;
+}
+.ak-canvas-theme .canvas-annot.top-left {
+  top: 32px;
+  left: 32px;
+}
+.ak-canvas-theme .canvas-annot.top-right {
+  top: 32px;
+  right: 32px;
+}
+.ak-canvas-theme .canvas-annot.bottom-right {
+  bottom: 32px;
+  right: 32px;
+}
+
+/* Icon sprite system. */
+/* The source sprite is a WEBP of 64x64 tiles. Canvas.tsx sets --icons-url on
+   .ak-canvas-theme, so every nested .spr inherits the URL through the cascade. */
+.ico {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.ico .spr {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 64px;
+  height: 64px;
+  background-image: var(--icons-url);
+  background-repeat: no-repeat;
+  transform-origin: top left;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+.ico-16 {
+  width: 16px;
+  height: 16px;
+}
+.ico-16 .spr {
+  transform: scale(0.25);
+}
+
+.ico-20 {
+  width: 20px;
+  height: 20px;
+}
+.ico-20 .spr {
+  transform: scale(0.3125);
+}
+
+.ico-24 {
+  width: 24px;
+  height: 24px;
+}
+.ico-24 .spr {
+  transform: scale(0.375);
+}
+
+.ico-28 {
+  width: 28px;
+  height: 28px;
+}
+.ico-28 .spr {
+  transform: scale(0.4375);
+}
+
+.ico-32 {
+  width: 32px;
+  height: 32px;
+}
+.ico-32 .spr {
+  transform: scale(0.5);
+}
+
+.ico-36 {
+  width: 36px;
+  height: 36px;
+}
+.ico-36 .spr {
+  transform: scale(0.5625);
+}
+
+.ico-40 {
+  width: 40px;
+  height: 40px;
+}
+.ico-40 .spr {
+  transform: scale(0.625);
+}
+
+.flow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px;
+  background: linear-gradient(180deg, #1f2125 0%, #14171b 100%);
+  border: 1px solid var(--ak-accent-cyan);
+  font-family: var(--font-num);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ak-accent-cyan);
+  letter-spacing: -0.01em;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 0 12px rgba(35, 213, 252, 0.15);
+}
+
+.flow-chip.red {
+  border-color: var(--ak-accent-red);
+  color: var(--ak-accent-red);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 0 12px rgba(225, 53, 30, 0.18);
+}
+
+.product-node {
+  background: var(--ak-bg-primary);
+  border: 1px solid var(--ak-divider);
+  width: 124px;
+  padding: 8px 10px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.product-node.input {
+  border-left: 3px solid var(--ak-accent-cyan);
+}
+
+.product-node.output.target {
+  border-right: 3px solid var(--ak-accent-lime);
+}
+
+.product-node.output.surplus {
+  border-right: 3px solid var(--ak-accent-amber);
+}
+
+.pn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pn-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  color: var(--ak-text-primary);
+}
+
+.pn-kind {
+  font-family: var(--ak-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--ak-text-decoration);
+  text-transform: uppercase;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.pn-rate {
+  font-family: var(--ak-font-num);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-top: 2px;
+}
+
+.product-node.input .pn-rate {
+  color: var(--ak-accent-cyan);
+}
+
+.product-node.output.target .pn-rate {
+  color: var(--ak-accent-lime);
+}
+
+.product-node.output.surplus .pn-rate {
+  color: var(--ak-accent-amber);
+}
+
+.pn-rate .unit {
+  font-family: var(--ak-font-mono);
+  font-size: 9px;
+  color: var(--ak-text-secondary);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  margin-left: 3px;
+}
+
+.pn-rate.uncapped {
+  font-style: italic;
+  color: var(--ak-text-secondary);
+  font-weight: 500;
+}
+
+.pn-rate__cap {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid var(--ak-divider);
+  font-family: var(--ak-font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  font-style: italic;
+  letter-spacing: 0.05em;
+  color: var(--ak-text-secondary);
+}
+
+.canvas-strip {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 20px;
+  background: var(--ak-bg-primary);
+  border-bottom: 1px solid var(--ak-divider);
+}
+
+.canvas-strip .lbl {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.canvas-strip .val {
+  font-family: var(--font-num);
+  font-size: 18px;
+  color: var(--ak-text-primary);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.canvas-strip .val .unit {
+  font-size: 11px;
+  color: var(--ak-text-secondary);
+  margin-left: 3px;
+  font-weight: 500;
+}
+
+.canvas-strip .sep {
+  width: 1px;
+  height: 30px;
+  background: var(--ak-divider);
+}
+
+.strip-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.recipe-node {
+  background: linear-gradient(180deg, var(--ak-bg-secondary) 0%, #1f2125 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.5) inset,
+    0 8px 16px rgba(0, 0, 0, 0.35);
+  width: 268px;
+  position: relative;
+}
+
+.rn-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  position: relative;
+}
+
+.rn-body::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--ak-divider);
+  opacity: 0.5;
+}
+
+.rn-side {
+  padding: 6px 0;
+}
+
+.rn-side.in {
+  border-right: 0;
+}
+
+.rn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 1;
+  position: relative;
+}
+
+.rn-row.input {
+  padding-left: 14px;
+}
+
+.rn-row.output {
+  padding-right: 14px;
+  flex-direction: row-reverse;
+}
+
+.rn-row.output .rate,
+.rn-row.output .lbl {
+  text-align: right;
+}
+
+.rn-row .ico {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+}
+
+.rn-row .lbl {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ak-text-primary);
+  font-size: 12px;
+}
+
+.rn-row .rate {
+  font-family: var(--font-num);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.rn-row.input .rate {
+  color: var(--ak-text-secondary);
+}
+
+.rn-row.output .rate {
+  color: var(--ak-accent-cyan-soft);
+}
+
+.rn-row.input::before,
+.rn-row.output::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 14px;
+}
+
+.rn-row.input::before {
+  left: -1px;
+  background: var(--ak-text-secondary);
+}
+
+.rn-row.output::after {
+  right: -1px;
+  background: var(--ak-accent-cyan);
+  box-shadow: 0 0 8px rgba(35, 213, 252, 0.5);
+}
+
+.rn-head {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  align-items: stretch;
+  background: linear-gradient(180deg, var(--ak-bg-primary) 0%, #1b1d21 100%);
+  border-bottom: 1px solid var(--ak-divider);
+}
+
+.rn-head .rn-machine-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 6px;
+  border-right: 1px solid var(--ak-divider);
+  background: rgba(0, 0, 0, 0.3);
+  position: relative;
+}
+
+.rn-head .rn-machine-block .machine-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.rn-head .rn-recipe-block {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rn-head .rn-rate-block {
+  padding: 0 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 2px;
+  border-left: 1px solid var(--ak-divider);
+  background: rgba(0, 0, 0, 0.2);
+  min-width: 64px;
+}
+
+.rn-head .rn-rate-block .rate-val {
+  font-family: var(--font-num);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ak-accent-cyan);
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.rn-head .rn-rate-block .rate-lbl {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.rn-head .product {
+  font-family: var(--ak-font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ak-text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rn-head .machine-name {
+  font-family: var(--ak-font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ak-text-secondary);
+  line-height: 1.25;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rn-head .machine-name .cn {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rn-head .machine-name .tier {
+  flex-shrink: 0;
+  font-family: var(--ak-font-mono);
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  padding: 1px 4px;
+  color: var(--ak-accent-lime);
+  border: 1px solid var(--ak-accent-lime-dim);
+  background: transparent;
+}
+
+/* The glow on a selected RecipeNode. */
+.recipe-node.selected {
+  border: 2px solid var(--ak-accent-lime);
+  box-shadow:
+    0 0 0 1px rgba(203, 255, 64, 0.2),
+    0 0 24px rgba(203, 255, 64, 0.15),
+    0 8px 16px rgba(0, 0, 0, 0.5);
+}
+.recipe-node.selected::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  pointer-events: none;
+  border: 1px solid rgba(203, 255, 64, 0.4);
+  opacity: 0.6;
+}
+
+.rn-head .machine-mid {
+  font-family: var(--ak-font-mono);
+  font-size: 8.5px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  line-height: 1;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rn-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  padding: 6px 12px;
+  gap: 8px;
+  border-top: 1px solid var(--ak-divider);
+  background: rgba(0, 0, 0, 0.25);
+  font-family: var(--ak-font-mono);
+  font-size: 9px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-sizing: border-box;
+}
+
+.rn-footer .cycle {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rn-footer .pwr {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--ak-accent-lime);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}

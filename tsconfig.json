@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@aef/schema": [
+        "../tools/extractor/src/schema.ts",
+        "../../tools/extractor/src/schema.ts",
+        "../../../tools/extractor/src/schema.ts"
+      ],
+      "@aef/data/*": [
+        "../data/aef/*",
+        "../../data/aef/*",
+        "../../../data/aef/*"
+      ],
+      "@aef/icons/*": [
+        "../vendor/factoriolab/src/data/aef/*",
+        "../../vendor/factoriolab/src/data/aef/*",
+        "../../../vendor/factoriolab/src/data/aef/*"
+      ]
+    }
+  },
+  "include": ["src", "test", "vite.config.ts", "vitest.config.ts"]
+}
