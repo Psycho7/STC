@@ -1,5 +1,5 @@
 import type { ItemOverride, Plan } from "./plan";
-import type { Target } from "./targets";
+import type { RationalString, Target } from "./targets";
 import { gzipBytes, gunzipBytes } from "./encoding/gzip";
 import { bytesToBase64url, base64urlToBytes } from "./encoding/base64url";
 
@@ -13,6 +13,7 @@ export type PlanWireV1 = {
   title: string;
   targets: Target[];
   itemOverrides?: ItemOverride[];
+  recipeCosts?: Record<string, RationalString>;
 };
 
 export function toWire(plan: Plan): PlanWireV1 {
@@ -29,6 +30,13 @@ export function toWire(plan: Plan): PlanWireV1 {
       a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0,
     );
   }
+  if (plan.recipeCosts && plan.recipeCosts.size > 0) {
+    const entries = [...plan.recipeCosts.entries()]
+      // Omit entries equal to the default cost of 1 to keep hashes terse.
+      .filter(([, v]) => v.num !== v.denom)
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    if (entries.length > 0) wire.recipeCosts = Object.fromEntries(entries);
+  }
   return wire;
 }
 
@@ -42,6 +50,9 @@ export function fromWire(wire: PlanWireV1): Plan {
   };
   if (wire.itemOverrides !== undefined) {
     plan.itemOverrides = wire.itemOverrides;
+  }
+  if (wire.recipeCosts !== undefined) {
+    plan.recipeCosts = new Map(Object.entries(wire.recipeCosts));
   }
   return plan;
 }

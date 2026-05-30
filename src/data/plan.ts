@@ -28,6 +28,10 @@ export type Plan = {
   title: string;
   targets: Target[];
   itemOverrides?: ItemOverride[];
+  // Per-recipe cost overrides for the LP solver, keyed by recipe id. Absent =>
+  // all default costs. A "1/1" entry equals the default and is omitted on the
+  // wire. Power-user surface; no cost-tuning UI.
+  recipeCosts?: Map<string, RationalString>;
 };
 
 // Cap on the URL-fragment payload length. We check it before decompressing so a
