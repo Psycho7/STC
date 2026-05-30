@@ -89,6 +89,7 @@ export function solvePlan(
   pack: RecipePack,
   tConfig: TransportConfig,
   itemOverrides?: ItemOverride[],
+  recipeCosts?: Map<RecipeId, number>,
 ): LogicalGraph {
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
@@ -97,7 +98,12 @@ export function solvePlan(
   const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
   const sccs = tarjanScc(g);
   const c = condense(g, sccs);
-  const lpResult = solveLp({ targets, pack, itemOverrides: itemOverrides ?? [] });
+  const lpResult = solveLp({
+    targets,
+    pack,
+    itemOverrides: itemOverrides ?? [],
+    ...(recipeCosts !== undefined && { recipeCosts }),
+  });
   if (targets.length > 0 && lpResult.rates.size === 0) {
     throw new Error("LP solver: infeasible problem");
   }
@@ -153,6 +159,7 @@ export function solvePlanWithIntermediates(
   pack: RecipePack,
   tConfig: TransportConfig,
   itemOverrides?: ItemOverride[],
+  recipeCosts?: Map<RecipeId, number>,
 ): SolvePlanFull {
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
@@ -161,7 +168,12 @@ export function solvePlanWithIntermediates(
   const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
   const sccs = tarjanScc(g);
   const c = condense(g, sccs);
-  const lpResult = solveLp({ targets, pack, itemOverrides: itemOverrides ?? [] });
+  const lpResult = solveLp({
+    targets,
+    pack,
+    itemOverrides: itemOverrides ?? [],
+    ...(recipeCosts !== undefined && { recipeCosts }),
+  });
   if (targets.length > 0 && lpResult.rates.size === 0) {
     throw new Error("LP solver: infeasible problem");
   }

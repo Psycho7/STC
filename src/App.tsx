@@ -147,11 +147,20 @@ function AppInner() {
           return;
         }
         const nextPlan = outcome.plan;
+        const recipeCosts = nextPlan.recipeCosts
+          ? new Map(
+              [...nextPlan.recipeCosts].map(
+                ([k, v]) =>
+                  [k, Number(v.num) / Number(v.denom)] as [string, number],
+              ),
+            )
+          : undefined;
         const full = solvePlanWithIntermediates(
           nextPlan.targets,
           pack,
           tConfigRef.current,
           nextPlan.itemOverrides ?? [],
+          recipeCosts,
         );
         const laid = await renderFromFull(
           full,
@@ -184,11 +193,20 @@ function AppInner() {
       const error = validatePlan(nextPlan, pack);
       if (error) throw new Error(describePlanLoadError(error));
       const overrides = nextPlan.itemOverrides ?? [];
+      const recipeCosts = nextPlan.recipeCosts
+        ? new Map(
+            [...nextPlan.recipeCosts].map(
+              ([k, v]) =>
+                [k, Number(v.num) / Number(v.denom)] as [string, number],
+            ),
+          )
+        : undefined;
       const full = solvePlanWithIntermediates(
         nextPlan.targets,
         pack,
         tConfigRef.current,
         overrides,
+        recipeCosts,
       );
       const laid = await renderFromFull(full, overrides, nextPlan.targets);
       if (myGen !== solveGen.current) return;
