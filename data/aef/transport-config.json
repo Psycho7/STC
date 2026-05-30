@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "0.2",
+  "source": "lanesPerBlueprintGroup and interGroupGapTiles are placeholders pending empirical AEF calibration (2026-05-11)",
+  "lanesPerBlueprintGroup": 4,
+  "interGroupGapTiles": 2,
+  "carriers": {
+    "belt": { "transportId": "belt", "itemsPerSecondPerLane": 0.5 },
+    "pipe": { "transportId": "pipe", "itemsPerSecondPerLane": 2 }
+  }
+}

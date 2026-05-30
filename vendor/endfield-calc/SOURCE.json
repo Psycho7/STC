@@ -1,0 +1,10 @@
+{
+  "name": "endfield-calc/factoriolab",
+  "repo": "https://github.com/endfield-calc/factoriolab",
+  "upstream": "https://github.com/factoriolab/factoriolab",
+  "commit": "4fc462948fe9f652db20258953dd8dc09b3dfc97",
+  "gameVersion": "v1.2.4",
+  "snapshotPath": "src/data/aef",
+  "snapshotDate": "2026-05-30",
+  "license": "MIT"
+}

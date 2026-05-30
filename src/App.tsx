@@ -454,7 +454,7 @@ function AppInner() {
                 <div>
                   <span className="key">REV · </span>
                   <span className="val">
-                    {pack.source.submoduleSha?.slice(0, 7) ?? "—"}
+                    {pack.source.sourceCommit?.slice(0, 7) ?? "—"}
                   </span>
                 </div>
               </div>
