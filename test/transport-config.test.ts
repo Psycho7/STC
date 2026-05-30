@@ -42,7 +42,7 @@ function mkPack(transportKinds: string[], itemKinds: string[] = []): RecipePack 
     schemaVersion: "0.2",
     source: {
       name: "test",
-      submodulePath: "",
+      sourceRepo: "",
       sourceCommit: "0",
       gameVersion: "x",
       extractedAt: "",

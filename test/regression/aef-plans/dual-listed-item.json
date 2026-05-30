@@ -10,6 +10,7 @@
   "expectations": {
     "minUnits": 3,
     "expectAtLeastOneLoop": false,
-    "expectNoIsolatedUnits": true
+    "expectNoIsolatedUnits": true,
+    "expectInputProductFor": ["copper_nugget"]
   }
 }

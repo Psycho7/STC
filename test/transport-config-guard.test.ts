@@ -44,8 +44,8 @@ function mkPack(
     schemaVersion: "0.2",
     source: {
       name: "test",
-      submodulePath: "",
-      submoduleSha: "0",
+      sourceRepo: "",
+      sourceCommit: "0",
       gameVersion: "x",
       extractedAt: "",
     },

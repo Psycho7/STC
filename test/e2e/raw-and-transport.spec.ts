@@ -21,19 +21,21 @@ function findParentRoot(start: string): string {
 
 // Pack metadata is read from the repo's recipe-pack.json at test load. Doing it
 // at test boot (rather than hard-coding) keeps the URL-hash fixtures aligned
-// with whatever submoduleSha / schemaVersion ships with the build under test.
-type PackMeta = { id: string; schemaVersion: string; submoduleSha: string };
+// with whatever sourceCommit / schemaVersion ships with the build under test.
+// loadPlan validates only schemaVersion, so the third pack-tuple element
+// (legacy submoduleSha, now sourceCommit) is informational.
+type PackMeta = { id: string; schemaVersion: string; sourceCommit: string };
 const PACK_META: PackMeta = (() => {
   const parentRoot = findParentRoot(resolve(import.meta.dirname));
   const packPath = join(parentRoot, "data/aef/recipe-pack.json");
   const raw = JSON.parse(readFileSync(packPath, "utf8")) as {
     schemaVersion: string;
-    source: { name: string; submoduleSha: string };
+    source: { name: string; sourceCommit?: string };
   };
   return {
     id: raw.source.name,
     schemaVersion: raw.schemaVersion,
-    submoduleSha: raw.source.submoduleSha,
+    sourceCommit: raw.source.sourceCommit ?? "",
   };
 })();
 
@@ -69,7 +71,7 @@ async function makeHashForCopperNugget(
   itemOverrides?: ItemOverride[],
 ): Promise<string> {
   const wire: Record<string, unknown> = {
-    pack: [PACK_META.id, PACK_META.schemaVersion, PACK_META.submoduleSha],
+    pack: [PACK_META.id, PACK_META.schemaVersion, PACK_META.sourceCommit],
     title: "",
     targets: [
       { recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },

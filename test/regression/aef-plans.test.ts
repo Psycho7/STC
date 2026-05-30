@@ -44,6 +44,11 @@ type RegressionFixture = {
     // a target, the deliverer must produce a boundary target edge or no rate
     // flows out of the SCC.
     expectTargetOutputDelivered?: boolean;
+    // Optional: assert that each listed itemId surfaces as an inputProduct
+    // render unit. Pins the boundary dual-emission rule: an item that is both
+    // a target and consumed in-plan (via a finite item override) must render
+    // an input node in addition to its output node.
+    expectInputProductFor?: string[];
   };
 };
 
@@ -172,6 +177,20 @@ describe("regression: AEF render-plan fixtures", () => {
               incoming.length,
               `no edge delivers target ${t.recipeId} (item ${outItem}) to ${targetUnitId}`,
             ).toBeGreaterThan(0);
+          }
+        }
+
+        if (fixture.expectations.expectInputProductFor) {
+          const inputItems = new Set(
+            plan.units
+              .filter((u) => u.kind === "inputProduct")
+              .map((u) => (u as { itemId: string }).itemId),
+          );
+          for (const itemId of fixture.expectations.expectInputProductFor) {
+            expect(
+              inputItems.has(itemId),
+              `expected an inputProduct render unit for ${itemId}`,
+            ).toBe(true);
           }
         }
       });
