@@ -200,3 +200,51 @@ describe("solveLp - input guards", () => {
     expect(result.deficit.get("prod")?.valueOf() ?? 0).toBeCloseTo(1, 6);
   });
 });
+
+describe("solveLp - status and softFeasible", () => {
+  it("reports feasible and soft-feasible for the headline plan", () => {
+    const targets: Target[] = [
+      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+    ];
+    const result = solveLp({ targets, pack });
+    expect(result.status).toBe("feasible");
+    expect(result.softFeasible).toBe(true);
+  });
+
+  it("reports empty status and soft-feasible for no targets", () => {
+    const result = solveLp({ targets: [], pack });
+    expect(result.status).toBe("empty");
+    expect(result.softFeasible).toBe(true);
+  });
+
+  it("reports soft-infeasible when an input has no producer", () => {
+    // make_prod runs at the pinned rate (positive rate => status "feasible"),
+    // but its input "mid" has no producer and is non-raw (finite supply 0), so
+    // the LP covers mid via a deficit var. The LP is mathematically feasible
+    // through the deficit var; softFeasible is false because that deficit
+    // survives the demand-met check.
+    const p = {
+      recipes: [
+        {
+          id: "make_prod",
+          category: "material",
+          time: 1,
+          in: [{ item: "mid", qty: 1 }],
+          out: [{ item: "prod", qty: 1 }],
+        },
+      ],
+      items: [
+        { id: "prod", raw: false },
+        { id: "mid", raw: false },
+      ],
+    } as unknown as RecipePack;
+    const targets: Target[] = [
+      { recipeId: "make_prod", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const result = solveLp({ targets, pack: p });
+    expect(result.rates.get("make_prod")?.valueOf() ?? 0).toBeCloseTo(1, 6);
+    expect(result.status).toBe("feasible");
+    expect(result.softFeasible).toBe(false);
+    expect(result.deficit.get("mid")?.valueOf() ?? 0).toBeCloseTo(1, 6);
+  });
+});
