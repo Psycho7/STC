@@ -1,0 +1,14 @@
+{
+  "name": "copper_bottle at 2/sec with copper_nugget capped at half demand (4/sec target -> 2/sec cap)",
+  "targets": [
+    { "recipeId": "copper_bottle", "ratePerSec": { "num": "2", "denom": "1" } }
+  ],
+  "itemOverrides": [
+    { "itemId": "copper_nugget", "ratePerSec": { "num": "2", "denom": "1" } }
+  ],
+  "expectations": {
+    "minUnits": 5,
+    "expectAtLeastOneLoop": false,
+    "expectNoIsolatedUnits": true
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "copper_bottle at 2/sec - default-targets chain, exercises mining + smelting + acid",
+  "targets": [
+    { "recipeId": "copper_bottle", "ratePerSec": { "num": "2", "denom": "1" } }
+  ],
+  "expectations": {
+    "minUnits": 5,
+    "expectAtLeastOneBadge": true,
+    "expectAtLeastOneLoop": false,
+    "expectNoIsolatedUnits": true
+  }
+}

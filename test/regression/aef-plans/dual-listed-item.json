@@ -1,0 +1,16 @@
+{
+  "name": "copper_nugget targeted AND overridden with finite cap, while copper_powder also targets it as a downstream consumer (dual-listed: emits BOTH input and output)",
+  "targets": [
+    { "recipeId": "copper_powder", "ratePerSec": { "num": "1", "denom": "1" } },
+    { "recipeId": "copper_nugget", "ratePerSec": { "num": "1", "denom": "2" } }
+  ],
+  "itemOverrides": [
+    { "itemId": "copper_nugget", "ratePerSec": { "num": "1", "denom": "2" } }
+  ],
+  "expectations": {
+    "minUnits": 3,
+    "expectAtLeastOneLoop": false,
+    "expectNoIsolatedUnits": true,
+    "expectInputProductFor": ["copper_nugget"]
+  }
+}
