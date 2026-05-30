@@ -4,10 +4,9 @@ import type { Recipe, RecipePack } from "@aef/schema";
 import type { TransportConfig } from "../data/transport-config";
 import type { Target } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
-import { buildRecipeGraph } from "./graph";
+import { buildRecipeGraphMulti } from "./graph";
 import { tarjanScc, condense } from "./scc";
-import { topologicalOrder } from "./topo";
-import { walkAndSolve } from "./walk";
+import { solveLp } from "./lp";
 import { articulationPoints } from "./bctree";
 import { pickTearEdges } from "./tear";
 import { replicatePerConsumer } from "./replicate";
@@ -65,7 +64,7 @@ export type SolvePlanFull = {
   torn: TornEdge[];
   recipeById: Map<RecipeId, Recipe>;
   /**
-   * Per-recipe execution rate from walkAndSolve. Zero-rate recipes drop out of
+   * Per-recipe execution rate from the LP solver. Zero-rate recipes drop out of
    * `replicas` (the multipliers map gates them), but this map stays complete so
    * callers can derive per-edge rates without re-running the flow solve.
    */
@@ -95,18 +94,14 @@ export function solvePlan(
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
-  const g = buildRecipeGraph(targets, pack, itemOverrides);
+  const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
   const sccs = tarjanScc(g);
   const c = condense(g, sccs);
-  const topo = topologicalOrder(c);
-  const { rates, tornFlow } = walkAndSolve({
-    g,
-    condensation: c,
-    topo,
-    targets,
-    pack,
-    itemOverrides: itemOverrides ?? [],
-  });
+  const lpResult = solveLp({ targets, pack, itemOverrides: itemOverrides ?? [] });
+  if (targets.length > 0 && lpResult.rates.size === 0) {
+    throw new Error("LP solver: infeasible problem");
+  }
+  const rates = lpResult.rates;
   const aps = articulationPoints(g);
   const rawReplicas = replicatePerConsumer({
     g,
@@ -124,11 +119,10 @@ export function solvePlan(
   // both maps.
   const lanes = ffdPack(replicas, itemById, recipeById, tConfig);
 
-  // Rebuild the TornEdge[] that assembleLogicalGraph needs. walkAndSolve only
-  // hands back tornFlow values keyed by id, but return-arc rendering needs the
-  // full TornEdge objects with their .edge and .sccId fields. AEF has just a
-  // handful of non-trivial SCCs, so re-running pickTearEdges costs almost
-  // nothing.
+  // Rebuild the TornEdge[] that assembleLogicalGraph needs. The LP solver does
+  // not return torn-edge metadata; return-arc rendering needs the full TornEdge
+  // objects with their .edge and .sccId fields. AEF has just a handful of
+  // non-trivial SCCs, so re-running pickTearEdges costs almost nothing.
   const torn: TornEdge[] = [];
   for (const scc of sccs) {
     if (scc.recipeIds.length > 1) {
@@ -140,7 +134,7 @@ export function solvePlan(
     replicas,
     multipliers,
     lanes,
-    tornEdges: [...tornFlow.keys()],
+    tornEdges: torn.map((t) => t.id),
     condensation: c,
     recipeById,
     g,
@@ -164,18 +158,14 @@ export function solvePlanWithIntermediates(
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
-  const g = buildRecipeGraph(targets, pack, itemOverrides);
+  const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
   const sccs = tarjanScc(g);
   const c = condense(g, sccs);
-  const topo = topologicalOrder(c);
-  const { rates, tornFlow } = walkAndSolve({
-    g,
-    condensation: c,
-    topo,
-    targets,
-    pack,
-    itemOverrides: itemOverrides ?? [],
-  });
+  const lpResult = solveLp({ targets, pack, itemOverrides: itemOverrides ?? [] });
+  if (targets.length > 0 && lpResult.rates.size === 0) {
+    throw new Error("LP solver: infeasible problem");
+  }
+  const rates = lpResult.rates;
   const aps = articulationPoints(g);
   const rawReplicas = replicatePerConsumer({
     g,
@@ -203,7 +193,7 @@ export function solvePlanWithIntermediates(
     replicas,
     multipliers,
     lanes,
-    tornEdges: [...tornFlow.keys()],
+    tornEdges: torn.map((t) => t.id),
     condensation: c,
     recipeById,
     g,
