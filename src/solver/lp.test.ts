@@ -3,6 +3,7 @@ import Fraction from "fraction.js";
 import { solveLp } from "./lp";
 import { pack } from "../data/load";
 import type { Target } from "../data/targets";
+import type { RecipePack } from "@aef/schema";
 
 describe("solveLp - scaffold", () => {
   it("returns an empty LpResult on no targets", () => {
@@ -140,5 +141,62 @@ describe("solveLp - precision (mass-balance residual)", () => {
         ).toBeLessThan(1e-6);
       }
     }
+  });
+});
+
+describe("solveLp - input guards", () => {
+  it("clamps negative recipeCost overrides to avoid an unbounded objective", () => {
+    const p = {
+      recipes: [
+        {
+          id: "make_prod",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw_a", qty: 1 }],
+          out: [{ item: "prod", qty: 1 }],
+        },
+      ],
+      items: [
+        { id: "raw_a", raw: true },
+        { id: "prod", raw: false },
+      ],
+    } as unknown as RecipePack;
+    const targets: Target[] = [
+      { recipeId: "make_prod", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const result = solveLp({
+      targets,
+      pack: p,
+      recipeCosts: new Map([["make_prod", -5]]),
+    });
+    const x = result.rates.get("make_prod");
+    expect(x).toBeDefined();
+    expect(x!.equals(new Fraction(1))).toBe(true);
+  });
+
+  it("skips the target pin when the primary output qty is 0", () => {
+    const p = {
+      recipes: [
+        {
+          id: "zero_out",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw_a", qty: 1 }],
+          out: [{ item: "prod", qty: 0 }],
+        },
+      ],
+      items: [
+        { id: "raw_a", raw: true },
+        { id: "prod", raw: false },
+      ],
+    } as unknown as RecipePack;
+    const targets: Target[] = [
+      { recipeId: "zero_out", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const result = solveLp({ targets, pack: p });
+    for (const v of result.rates.values()) {
+      expect(Number.isFinite(v.valueOf())).toBe(true);
+    }
+    expect(result.deficit.get("prod")?.valueOf() ?? 0).toBeCloseTo(1, 6);
   });
 });
