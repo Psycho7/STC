@@ -174,3 +174,143 @@ export function buildRecipeGraph(
 
   return { nodes, outgoing, incoming, depthToItem, depthToRecipe };
 }
+
+// LP variant: identical to buildRecipeGraph except the expansion enumerates ALL
+// non-excluded producers for each consumed item rather than picking one. The
+// per-edge dedup keeps a single edge per (producer, item, consumer) triple.
+export function buildRecipeGraphMulti(
+  targets: Target[],
+  pack: RecipePack,
+  itemOverrides?: ItemOverride[],
+): RecipeGraph {
+  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const targetIds = new Set(targets.map((t) => t.recipeId));
+  const overrides = itemOverrides ?? [];
+
+  for (const t of targets) {
+    if (!recipeById.has(t.recipeId)) throw new UnknownRecipeError(t.recipeId);
+  }
+
+  const producersByItem = new Map<string, string[]>();
+  for (const r of pack.recipes) {
+    for (const o of r.out) {
+      if (!producersByItem.has(o.item)) producersByItem.set(o.item, []);
+      producersByItem.get(o.item)!.push(r.id);
+    }
+  }
+
+  const depthToItem = new Map<string, number>();
+  for (const item of pack.items) {
+    depthToItem.set(item.id, item.raw ? 0 : Number.POSITIVE_INFINITY);
+  }
+  const depthToRecipe = new Map<string, number>();
+  for (const r of pack.recipes) {
+    if (!isExcludedProducer(r))
+      depthToRecipe.set(r.id, Number.POSITIVE_INFINITY);
+  }
+
+  const maxIter = pack.recipes.length + 1;
+  for (let iter = 0, changed = true; changed && iter <= maxIter; iter++) {
+    changed = false;
+    for (const r of pack.recipes) {
+      if (isExcludedProducer(r)) continue;
+      if (
+        (depthToRecipe.get(r.id) ?? Number.POSITIVE_INFINITY) !==
+        Number.POSITIVE_INFINITY
+      )
+        continue;
+      if (r.in.length === 0) {
+        depthToRecipe.set(r.id, 1);
+        changed = true;
+        continue;
+      }
+      let maxIn = 0;
+      let reachable = true;
+      for (const inp of r.in) {
+        const d = depthToItem.get(inp.item) ?? Number.POSITIVE_INFINITY;
+        if (d === Number.POSITIVE_INFINITY) {
+          reachable = false;
+          break;
+        }
+        if (d > maxIn) maxIn = d;
+      }
+      if (reachable) {
+        depthToRecipe.set(r.id, maxIn + 1);
+        changed = true;
+      }
+    }
+    for (const [itemId, producers] of producersByItem) {
+      const current = depthToItem.get(itemId) ?? Number.POSITIVE_INFINITY;
+      if (current !== Number.POSITIVE_INFINITY) continue;
+      let min = Number.POSITIVE_INFINITY;
+      for (const pid of producers) {
+        const r = recipeById.get(pid);
+        if (!r || isExcludedProducer(r)) continue;
+        const d = depthToRecipe.get(pid) ?? Number.POSITIVE_INFINITY;
+        if (d < min) min = d;
+      }
+      if (min < current) {
+        depthToItem.set(itemId, min);
+        changed = true;
+      }
+    }
+  }
+
+  for (const arr of producersByItem.values()) {
+    arr.sort((a, b) => {
+      const da = depthToRecipe.get(a) ?? Number.POSITIVE_INFINITY;
+      const db = depthToRecipe.get(b) ?? Number.POSITIVE_INFINITY;
+      if (da !== db) return da - db;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+  }
+
+  const nodes = new Map<string, Recipe>();
+  const outgoing = new Map<string, RecipeEdge[]>();
+  const incoming = new Map<string, RecipeEdge[]>();
+
+  function ensureNode(id: string): void {
+    if (nodes.has(id)) return;
+    const recipe = recipeById.get(id);
+    if (!recipe) throw new UnknownRecipeError(id);
+    nodes.set(id, recipe);
+    outgoing.set(id, []);
+    incoming.set(id, []);
+  }
+
+  function addEdge(source: string, target: string, item: string): void {
+    const id = `${source}:${item}->${target}`;
+    const edge: RecipeEdge = { id, source, target, item };
+    outgoing.get(source)!.push(edge);
+    incoming.get(target)!.push(edge);
+  }
+
+  const stack: string[] = [];
+  for (const t of targets) {
+    ensureNode(t.recipeId);
+    stack.push(t.recipeId);
+  }
+
+  while (stack.length) {
+    const consumerId = stack.pop()!;
+    const consumer = nodes.get(consumerId)!;
+    for (const inp of consumer.in) {
+      if (effectiveSupply(inp.item, pack, overrides) === Infinity) continue;
+      const candidates = producersByItem.get(inp.item) ?? [];
+      for (const cid of candidates) {
+        const r = recipeById.get(cid);
+        if (!r) continue;
+        if (isExcludedProducer(r) && !targetIds.has(cid)) continue;
+        const wasNew = !nodes.has(cid);
+        ensureNode(cid);
+        const already = (outgoing.get(cid) ?? []).some(
+          (e) => e.target === consumerId && e.item === inp.item,
+        );
+        if (!already) addEdge(cid, consumerId, inp.item);
+        if (wasNew) stack.push(cid);
+      }
+    }
+  }
+
+  return { nodes, outgoing, incoming, depthToItem, depthToRecipe };
+}
