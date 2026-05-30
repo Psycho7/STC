@@ -19,6 +19,12 @@ export type LpResult = {
   deficit: Map<ItemId, Fraction>;
   objectiveValue: number;
   solverWallClockMs: number;
+  // Solver outcome. "infeasible"/"unbounded" come straight from the raw solver
+  // flags; "empty" means feasible but no recipe runs at a positive rate;
+  // "feasible" means at least one recipe runs. softFeasible is false when any
+  // material demand stays unmet (a deficit var survives the >1e-12 filter).
+  status: "feasible" | "infeasible" | "unbounded" | "empty";
+  softFeasible: boolean;
 };
 
 // Model and result shapes accepted by javascript-lp-solver.
@@ -67,6 +73,8 @@ export function solveLp(input: LpInput): LpResult {
       deficit: new Map(),
       objectiveValue: 0,
       solverWallClockMs: performance.now() - t0,
+      status: "empty",
+      softFeasible: true,
     };
   }
 
@@ -202,11 +210,31 @@ export function solveLp(input: LpInput): LpResult {
     if (dv > 1e-12) deficit.set(it.id, new Fraction(dv).simplify(1e-6));
   }
 
+  // Derive status from the chosen raw result. The solver feasible/bounded flags
+  // take precedence; otherwise "empty" when no recipe runs at a positive rate
+  // (same >1e-12 threshold used to build the rates map), else "feasible".
+  let status: LpResult["status"];
+  if (lpResult.feasible === false) {
+    status = "infeasible";
+  } else if (lpResult.bounded === false) {
+    status = "unbounded";
+  } else if (rates.size === 0) {
+    status = "empty";
+  } else {
+    status = "feasible";
+  }
+
+  // softFeasible: no material demand left unmet. A surviving deficit entry (it
+  // passed the >1e-12 filter above) means some item could not be supplied.
+  const softFeasible = deficit.size === 0;
+
   return {
     rates,
     surplus,
     deficit,
     objectiveValue: lpResult.result ?? 0,
     solverWallClockMs: performance.now() - t0,
+    status,
+    softFeasible,
   };
 }
