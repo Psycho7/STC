@@ -12,8 +12,6 @@ import {
 import { collapseSyntheticChains, main as runExtractor } from "./extract.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
-const PACK_PATH = resolve(REPO_ROOT, "data/aef/recipe-pack.json");
-const I18N_PATH = resolve(REPO_ROOT, "data/aef/recipe-pack.i18n.json");
 const TRANSPORT_CONFIG_PATH = resolve(REPO_ROOT, "data/aef/transport-config.json");
 const TRANSPORT_CONFIG_SCHEMA_PATH = resolve(REPO_ROOT, "data/aef/transport-config.schema.json");
 
@@ -21,9 +19,9 @@ let pack: RecipePack;
 let i18n: RecipePackI18n;
 
 beforeAll(async () => {
-  await runExtractor();
-  pack = (await Bun.file(PACK_PATH).json()) as RecipePack;
-  i18n = (await Bun.file(I18N_PATH).json()) as RecipePackI18n;
+  // Build in-memory only; a test run must never rewrite the committed
+  // data/aef/ artifacts.
+  ({ pack, i18n } = await runExtractor({ write: false }));
 });
 
 describe("schema and source provenance", () => {
@@ -406,17 +404,14 @@ describe("transport-config schema and document", () => {
 
 describe("idempotence", () => {
   test("re-running the extractor produces identical output, modulo extractedAt", async () => {
-    const beforePack = await Bun.file(PACK_PATH).text();
-    const beforeI18n = await Bun.file(I18N_PATH).text();
-    await runExtractor();
-    const afterPack = await Bun.file(PACK_PATH).text();
-    const afterI18n = await Bun.file(I18N_PATH).text();
+    const first = await runExtractor({ write: false });
+    const second = await runExtractor({ write: false });
 
-    const stripExtractedAt = (s: string) =>
-      s.replace(/"extractedAt":\s*"[^"]+"/, '"extractedAt":"<elided>"');
+    const serialize = (v: unknown) =>
+      JSON.stringify(v, null, 2).replace(/"extractedAt":\s*"[^"]+"/, '"extractedAt":"<elided>"');
 
-    expect(stripExtractedAt(afterPack)).toBe(stripExtractedAt(beforePack));
-    expect(stripExtractedAt(afterI18n)).toBe(stripExtractedAt(beforeI18n));
+    expect(serialize(second.pack)).toBe(serialize(first.pack));
+    expect(serialize(second.i18n)).toBe(serialize(first.i18n));
   });
 });
 

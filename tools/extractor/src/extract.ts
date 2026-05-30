@@ -30,7 +30,17 @@ const OUTPUT_PATH = resolve(REPO_ROOT, "data/aef/recipe-pack.json");
 const I18N_OUTPUT_PATH = resolve(REPO_ROOT, "data/aef/recipe-pack.i18n.json");
 const GAME_VERSION_KEY = "arknights-endfield";
 
-async function main(): Promise<void> {
+export interface ExtractResult {
+  pack: RecipePack;
+  i18n: RecipePackI18n;
+}
+
+// Build the recipe-pack and i18n sidecar from the vendored upstream snapshot.
+// Writes the artifacts to data/aef/ by default; pass { write: false } to build
+// in-memory only (the test harness uses this so a test run never touches the
+// committed artifacts).
+async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
+  const write = opts.write ?? true;
   const upstream = (await Bun.file(INPUT_PATH).json()) as UpstreamData;
   const sourceMeta = (await Bun.file(resolve(REPO_ROOT, VENDOR_PATH, "SOURCE.json")).json()) as {
     repo: string;
@@ -106,17 +116,21 @@ async function main(): Promise<void> {
 
   const i18n = await buildI18nSidecar(pack, source, dropped);
 
-  await Bun.write(OUTPUT_PATH, JSON.stringify(pack, null, 2) + "\n");
-  await Bun.write(I18N_OUTPUT_PATH, JSON.stringify(i18n, null, 2) + "\n");
+  if (write) {
+    await Bun.write(OUTPUT_PATH, JSON.stringify(pack, null, 2) + "\n");
+    await Bun.write(I18N_OUTPUT_PATH, JSON.stringify(i18n, null, 2) + "\n");
 
-  console.log(`wrote ${OUTPUT_PATH}`);
-  console.log(
-    `  items=${items.length} machines=${machines.length} transports=${transports.length}` +
-      ` recipes=${recipes.length} categories=${pack.categories.length} locations=${pack.locations.length}`,
-  );
-  console.log(`wrote ${I18N_OUTPUT_PATH}`);
-  console.log(`  locales=${i18n.locales.join(",")}`);
-  console.log(`  source: ${pack.source.name}@${sourceMeta.commit.slice(0, 12)} game=${gameVersion}`);
+    console.log(`wrote ${OUTPUT_PATH}`);
+    console.log(
+      `  items=${items.length} machines=${machines.length} transports=${transports.length}` +
+        ` recipes=${recipes.length} categories=${pack.categories.length} locations=${pack.locations.length}`,
+    );
+    console.log(`wrote ${I18N_OUTPUT_PATH}`);
+    console.log(`  locales=${i18n.locales.join(",")}`);
+    console.log(`  source: ${pack.source.name}@${sourceMeta.commit.slice(0, 12)} game=${gameVersion}`);
+  }
+
+  return { pack, i18n };
 }
 
 function toItem(u: UpstreamItem): Item {
