@@ -6,7 +6,7 @@ import type { Target } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { buildRecipeGraphMulti } from "./graph";
 import { tarjanScc, condense } from "./scc";
-import { solveLp } from "./lp";
+import { solveLp, type LpResult } from "./lp";
 import { articulationPoints } from "./bctree";
 import { pickTearEdges } from "./tear";
 import { replicatePerConsumer } from "./replicate";
@@ -22,6 +22,22 @@ import type {
   ReplicaId,
   TornEdge,
 } from "./types";
+
+// Translate the LP solver outcome into a hard error for the unsolvable cases.
+// "empty" (a feasible optimum that runs no recipe) and "feasible" both proceed;
+// only "infeasible"/"unbounded" abort, preserving the historical message string
+// for the infeasible case.
+function assertSolvable(status: LpResult["status"]): void {
+  switch (status) {
+    case "infeasible":
+      throw new Error("LP solver: infeasible problem");
+    case "unbounded":
+      throw new Error("LP solver: unbounded objective");
+    case "empty":
+    case "feasible":
+      return;
+  }
+}
 
 function runBisim(
   g: RecipeGraph,
@@ -104,9 +120,7 @@ export function solvePlan(
     itemOverrides: itemOverrides ?? [],
     ...(recipeCosts !== undefined && { recipeCosts }),
   });
-  if (targets.length > 0 && lpResult.rates.size === 0) {
-    throw new Error("LP solver: infeasible problem");
-  }
+  assertSolvable(lpResult.status);
   const rates = lpResult.rates;
   const aps = articulationPoints(g);
   const rawReplicas = replicatePerConsumer({
@@ -174,9 +188,7 @@ export function solvePlanWithIntermediates(
     itemOverrides: itemOverrides ?? [],
     ...(recipeCosts !== undefined && { recipeCosts }),
   });
-  if (targets.length > 0 && lpResult.rates.size === 0) {
-    throw new Error("LP solver: infeasible problem");
-  }
+  assertSolvable(lpResult.status);
   const rates = lpResult.rates;
   const aps = articulationPoints(g);
   const rawReplicas = replicatePerConsumer({
