@@ -47,7 +47,9 @@ function recipeCostWeight(
   r: Recipe,
   overrides: Map<RecipeId, number> | undefined,
 ): number {
-  if (overrides?.has(r.id)) return overrides.get(r.id)!;
+  // Clamp to non-negative: a negative override would make the objective reward
+  // unbounded execution of this recipe. 0 means "run if useful, no cost".
+  if (overrides?.has(r.id)) return Math.max(0, overrides.get(r.id)!);
   if (r.flags?.includes("target-only")) return 1e6;
   if (r.cost === -1) return 1e6;
   if (r.category === "__domain_transfer") return 1e6;
@@ -142,6 +144,10 @@ export function solveLp(input: LpInput): LpResult {
       const recipe = pack.recipes.find((r) => r.id === t.recipeId);
       if (!recipe || recipe.out.length === 0) continue;
       const primary = recipe.out[0]!;
+      // Guard malformed data: a zero/negative primary qty makes the floor
+      // rate/qty infinite or nonsensical. Skip the pin so unmet demand surfaces
+      // as deficit rather than an infeasible Infinity bound.
+      if (!(primary.qty > 0)) continue;
       const rate = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
       const pinName = `pin_${t.recipeId}`;
       constraints[pinName] = { min: rate / primary.qty };
