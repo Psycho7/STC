@@ -1,0 +1,57 @@
+STC (Standard Template Construct)
+=================================
+
+This project includes data and assets derived from third-party sources. The
+recipe-pack artifacts under data/aef/ (recipe-pack.json, recipe-pack.i18n.json)
+are extracted from the upstream source listed below. The upstream commit the
+snapshot was taken from is recorded in vendor/endfield-calc/SOURCE.json and in
+each artifact's source block.
+
+The planner application does not link, embed, or import third-party source code
+at runtime; third-party material is consumed only as game data and icons.
+
+------------------------------------------------------------------------------
+endfield-calc/factoriolab (vendored snapshot at vendor/endfield-calc/)
+------------------------------------------------------------------------------
+
+Source:    https://github.com/endfield-calc/factoriolab
+Upstream:  https://github.com/factoriolab/factoriolab (Doug Broad)
+Snapshot:  src/data/aef at commit 4fc462948fe9f652db20258953dd8dc09b3dfc97
+License:   MIT (code lineage only; see scope note below)
+
+The MIT License
+
+Copyright (c) 2020-2024 Doug Broad
+Copyright (c) endfield-calc contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+Scope note: the MIT license above covers the FactorioLab/EndfieldLab calculator
+code lineage. It does NOT cover the bundled Arknights: Endfield game data (the
+contents of data.json) or the icon art (icons.webp).
+
+------------------------------------------------------------------------------
+Game content: Arknights: Endfield
+------------------------------------------------------------------------------
+
+All Arknights: Endfield names, recipe identifiers, item icons, and other game
+content referenced via the recipe-pack and the bundled icon sheet belong to
+their respective rights holders (Hypergryph / Gryphline / Yostar). This project
+uses such content solely to plan production chains for the game and claims no
+ownership.

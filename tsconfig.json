@@ -18,21 +18,9 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@aef/schema": [
-        "../tools/extractor/src/schema.ts",
-        "../../tools/extractor/src/schema.ts",
-        "../../../tools/extractor/src/schema.ts"
-      ],
-      "@aef/data/*": [
-        "../data/aef/*",
-        "../../data/aef/*",
-        "../../../data/aef/*"
-      ],
-      "@aef/icons/*": [
-        "../vendor/factoriolab/src/data/aef/*",
-        "../../vendor/factoriolab/src/data/aef/*",
-        "../../../vendor/factoriolab/src/data/aef/*"
-      ]
+      "@aef/schema": ["tools/extractor/src/schema.ts"],
+      "@aef/data/*": ["data/aef/*"],
+      "@aef/icons/*": ["vendor/endfield-calc/*"]
     }
   },
   "include": ["src", "test", "vite.config.ts", "vitest.config.ts"]

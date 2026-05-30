@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AEF Transport Configuration",
+  "type": "object",
+  "required": ["schemaVersion", "source", "lanesPerBlueprintGroup", "interGroupGapTiles", "carriers"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Version of this schema"
+    },
+    "source": {
+      "type": "string",
+      "description": "Source and provenance information for this config"
+    },
+    "lanesPerBlueprintGroup": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of transport lanes allocated per blueprint group"
+    },
+    "interGroupGapTiles": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Gap in tiles between blueprint groups"
+    },
+    "carriers": {
+      "type": "object",
+      "patternProperties": {
+        "^.+$": {
+          "type": "object",
+          "required": ["transportId", "itemsPerSecondPerLane"],
+          "properties": {
+            "transportId": {
+              "type": "string"
+            },
+            "itemsPerSecondPerLane": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

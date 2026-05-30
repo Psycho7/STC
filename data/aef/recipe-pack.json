@@ -1,0 +1,6481 @@
+{
+  "schemaVersion": "0.2",
+  "source": {
+    "name": "endfield-calc/factoriolab",
+    "sourceRepo": "https://github.com/endfield-calc/factoriolab",
+    "sourceCommit": "4fc462948fe9f652db20258953dd8dc09b3dfc97",
+    "gameVersion": "v1.2.4",
+    "extractedAt": "2026-05-30T09:07:52.590Z"
+  },
+  "categories": [
+    {
+      "id": "material",
+      "name": "材料",
+      "icon": "iron_enr"
+    },
+    {
+      "id": "product",
+      "name": "工业产物",
+      "icon": "product"
+    },
+    {
+      "id": "gen-power",
+      "name": "发电",
+      "icon": "power_sta_1"
+    },
+    {
+      "id": "settlement",
+      "name": "据点",
+      "icon": "tundra_coupon"
+    },
+    {
+      "id": "activity",
+      "name": "活动",
+      "icon": "activity"
+    }
+  ],
+  "locations": [
+    {
+      "id": "tundra",
+      "name": "四号谷地",
+      "icon": "tundra"
+    },
+    {
+      "id": "jinlong",
+      "name": "武陵",
+      "icon": "jinlong"
+    }
+  ],
+  "items": [
+    {
+      "id": "plant_moss_seed_1",
+      "name": "荞花种子",
+      "category": "material",
+      "icon": "plant_moss_seed_1",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_moss_1",
+      "name": "荞花",
+      "category": "material",
+      "icon": "plant_moss_1",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_moss_powder_1",
+      "name": "荞花粉末",
+      "category": "material",
+      "icon": "plant_moss_powder_1",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_moss_enr_powder_1",
+      "name": "细磨荞花粉末",
+      "category": "material",
+      "icon": "plant_moss_enr_powder_1",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_moss_seed_3",
+      "name": "砂叶种子",
+      "category": "material",
+      "icon": "plant_moss_seed_3",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_moss_3",
+      "name": "砂叶",
+      "category": "material",
+      "icon": "plant_moss_3",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_moss_powder_3",
+      "name": "砂叶粉末",
+      "category": "material",
+      "icon": "plant_moss_powder_3",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_grass_seed_1",
+      "name": "锦草种子",
+      "category": "material",
+      "icon": "plant_grass_seed_1",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_grass_1",
+      "name": "锦草",
+      "category": "material",
+      "icon": "plant_grass_1",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_grass_powder_1",
+      "name": "锦草粉末",
+      "category": "material",
+      "icon": "plant_grass_powder_1",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "liquid_plant_grass_1",
+      "name": "锦草溶液",
+      "category": "material",
+      "icon": "liquid_plant_grass_1",
+      "row": 0,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "carbon_mtl",
+      "name": "碳块",
+      "category": "material",
+      "icon": "carbon_mtl",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "carbon_powder",
+      "name": "碳粉末",
+      "category": "material",
+      "icon": "carbon_powder",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_moss_seed_2",
+      "name": "柑实种子",
+      "category": "material",
+      "icon": "plant_moss_seed_2",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_moss_2",
+      "name": "柑实",
+      "category": "material",
+      "icon": "plant_moss_2",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_moss_powder_2",
+      "name": "柑实粉末",
+      "category": "material",
+      "icon": "plant_moss_powder_2",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_moss_enr_powder_2",
+      "name": "细磨柑实粉末",
+      "category": "material",
+      "icon": "plant_moss_enr_powder_2",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_bbflower_seed_1",
+      "name": "酮化树种",
+      "category": "material",
+      "icon": "plant_bbflower_seed_1",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_bbflower_1",
+      "name": "酮化灌木",
+      "category": "material",
+      "icon": "plant_bbflower_1",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_bbflower_powder_1",
+      "name": "酮化灌木粉末",
+      "category": "material",
+      "icon": "plant_bbflower_powder_1",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_grass_seed_2",
+      "name": "芽针种子",
+      "category": "material",
+      "icon": "plant_grass_seed_2",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_grass_2",
+      "name": "芽针",
+      "category": "material",
+      "icon": "plant_grass_2",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "plant_grass_powder_2",
+      "name": "芽针粉末",
+      "category": "material",
+      "icon": "plant_grass_powder_2",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "liquid_plant_grass_2",
+      "name": "芽针溶液",
+      "category": "material",
+      "icon": "liquid_plant_grass_2",
+      "row": 1,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "carbon_enr_powder",
+      "name": "致密碳粉末",
+      "category": "material",
+      "icon": "carbon_enr_powder",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "carbon_enr",
+      "name": "稳定碳块",
+      "category": "material",
+      "icon": "carbon_enr",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "originium_ore",
+      "name": "源矿",
+      "category": "material",
+      "icon": "originium_ore",
+      "row": 2,
+      "raw": true,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "crystal_shell",
+      "name": "晶体外壳",
+      "category": "material",
+      "icon": "crystal_shell",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "crystal_powder",
+      "name": "晶体外壳粉末",
+      "category": "material",
+      "icon": "crystal_powder",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "crystal_enr_powder",
+      "name": "致密晶体粉末",
+      "category": "material",
+      "icon": "crystal_enr_powder",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "crystal_enr",
+      "name": "密制晶体",
+      "category": "material",
+      "icon": "crystal_enr",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "originium_powder",
+      "name": "源石粉末",
+      "category": "material",
+      "icon": "originium_powder",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "originium_enr_powder",
+      "name": "致密源石粉末",
+      "category": "material",
+      "icon": "originium_enr_powder",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "quartz_sand",
+      "name": "紫晶矿",
+      "category": "material",
+      "icon": "quartz_sand",
+      "row": 3,
+      "raw": true,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "quartz_glass",
+      "name": "紫晶纤维",
+      "category": "material",
+      "icon": "quartz_glass",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "quartz_powder",
+      "name": "紫晶粉末",
+      "category": "material",
+      "icon": "quartz_powder",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "quartz_enr_powder",
+      "name": "高晶粉末",
+      "category": "material",
+      "icon": "quartz_enr_powder",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "quartz_enr",
+      "name": "高晶纤维",
+      "category": "material",
+      "icon": "quartz_enr",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "glass_bottle",
+      "name": "紫晶质瓶",
+      "category": "material",
+      "icon": "glass_bottle",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "glass_enr_bottle",
+      "name": "高晶质瓶",
+      "category": "material",
+      "icon": "glass_enr_bottle",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "glass_cmpt",
+      "name": "紫晶零件",
+      "category": "material",
+      "icon": "glass_cmpt",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "glass_enr_cmpt",
+      "name": "高晶零件",
+      "category": "material",
+      "icon": "glass_enr_cmpt",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "iron_ore",
+      "name": "蓝铁矿",
+      "category": "material",
+      "icon": "iron_ore",
+      "row": 4,
+      "raw": true,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "iron_nugget",
+      "name": "蓝铁块",
+      "category": "material",
+      "icon": "iron_nugget",
+      "row": 4,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "iron_powder",
+      "name": "蓝铁粉末",
+      "category": "material",
+      "icon": "iron_powder",
+      "row": 4,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "iron_enr_powder",
+      "name": "致密蓝铁粉末",
+      "category": "material",
+      "icon": "iron_enr_powder",
+      "row": 4,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "iron_enr",
+      "name": "钢块",
+      "category": "material",
+      "icon": "iron_enr",
+      "row": 4,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "iron_bottle",
+      "name": "蓝铁瓶",
+      "category": "material",
+      "icon": "iron_bottle",
+      "row": 4,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "iron_enr_bottle",
+      "name": "钢质瓶",
+      "category": "material",
+      "icon": "iron_enr_bottle",
+      "row": 4,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "iron_cmpt",
+      "name": "铁制零件",
+      "category": "material",
+      "icon": "iron_cmpt",
+      "row": 4,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "iron_enr_cmpt",
+      "name": "钢制零件",
+      "category": "material",
+      "icon": "iron_enr_cmpt",
+      "row": 4,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "iron_bottle-liquid_plant_grass_1",
+      "name": "蓝铁瓶(锦草溶液)",
+      "category": "material",
+      "icon": "iron_bottle-liquid_plant_grass_1",
+      "row": 4,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50,
+      "buildIcon": [
+        "iron_bottle",
+        "liquid_plant_grass_1"
+      ]
+    },
+    {
+      "id": "iron_bottle-liquid_plant_grass_2",
+      "name": "蓝铁瓶(芽针溶液)",
+      "category": "material",
+      "icon": "iron_bottle-liquid_plant_grass_2",
+      "row": 4,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50,
+      "buildIcon": [
+        "iron_bottle",
+        "liquid_plant_grass_2"
+      ]
+    },
+    {
+      "id": "copper_ore",
+      "name": "赤铜矿",
+      "category": "material",
+      "icon": "copper_ore",
+      "row": 5,
+      "raw": true,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "copper_nugget",
+      "name": "赤铜块",
+      "category": "material",
+      "icon": "copper_nugget",
+      "row": 5,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "copper_powder",
+      "name": "赤铜粉末",
+      "category": "material",
+      "icon": "copper_powder",
+      "row": 5,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "copper_enr",
+      "name": "赫铜块",
+      "category": "material",
+      "icon": "copper_enr",
+      "row": 5,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "copper_bottle",
+      "name": "赤铜瓶",
+      "category": "material",
+      "icon": "copper_bottle",
+      "row": 5,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "copper_enr_bottle",
+      "name": "赫铜瓶",
+      "category": "material",
+      "icon": "copper_enr_bottle",
+      "row": 5,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "copper_cmpt",
+      "name": "赤铜零件",
+      "category": "material",
+      "icon": "copper_cmpt",
+      "row": 5,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "copper_enr_cmpt",
+      "name": "赫铜零件",
+      "category": "material",
+      "icon": "copper_enr_cmpt",
+      "row": 5,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "copper_bottle-liquid_plant_grass_1",
+      "name": "赤铜瓶(锦草溶液)",
+      "category": "material",
+      "icon": "copper_bottle-liquid_plant_grass_1",
+      "row": 5,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50,
+      "buildIcon": [
+        "copper_bottle",
+        "liquid_plant_grass_1"
+      ]
+    },
+    {
+      "id": "copper_bottle-liquid_plant_grass_2",
+      "name": "赤铜瓶(芽针溶液)",
+      "category": "material",
+      "icon": "copper_bottle-liquid_plant_grass_2",
+      "row": 5,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50,
+      "buildIcon": [
+        "copper_bottle",
+        "liquid_plant_grass_2"
+      ]
+    },
+    {
+      "id": "liquid_copper",
+      "name": "赤铜溶液",
+      "category": "material",
+      "icon": "liquid_copper",
+      "row": 5,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "liquid_copper_enr",
+      "name": "赫铜溶液",
+      "category": "material",
+      "icon": "liquid_copper_enr",
+      "row": 5,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "xiranite_powder",
+      "name": "息壤",
+      "category": "material",
+      "icon": "xiranite_powder",
+      "row": 6,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "xiranite_poly",
+      "name": "壤晶",
+      "category": "material",
+      "icon": "xiranite_poly",
+      "row": 6,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "xiranite_enr_powder",
+      "name": "重息壤",
+      "category": "material",
+      "icon": "xiranite_enr_powder",
+      "row": 6,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "liquid_xiranite",
+      "name": "液化息壤",
+      "category": "material",
+      "icon": "liquid_xiranite",
+      "row": 6,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "liquid_xiranite_enr",
+      "name": "液化重息壤",
+      "category": "material",
+      "icon": "liquid_xiranite_enr",
+      "row": 6,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "liquid_xiranite_poly",
+      "name": "壤晶废液",
+      "category": "material",
+      "icon": "liquid_xiranite_poly",
+      "row": 6,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "liquid_xiranite_lowpoly",
+      "name": "惰性壤晶废液",
+      "category": "material",
+      "icon": "liquid_xiranite_lowpoly",
+      "row": 6,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "liquid_water",
+      "name": "清水",
+      "category": "material",
+      "icon": "liquid_water",
+      "row": 6,
+      "raw": true,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "liquid_acid",
+      "name": "沉积酸",
+      "category": "material",
+      "icon": "liquid_acid",
+      "row": 6,
+      "raw": true,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "liquid_sewage",
+      "name": "污水",
+      "category": "material",
+      "icon": "liquid_sewage",
+      "row": 6,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "bottled_food_1",
+      "name": "柑实罐头",
+      "category": "product",
+      "icon": "bottled_food_1",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "bottled_food_2",
+      "name": "优质柑实罐头",
+      "category": "product",
+      "icon": "bottled_food_2",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "bottled_food_3",
+      "name": "精选柑实罐头",
+      "category": "product",
+      "icon": "bottled_food_3",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "bottled_food_4",
+      "name": "锦草软饮",
+      "category": "product",
+      "icon": "bottled_food_4",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "bottled_food_5",
+      "name": "优质锦草软饮",
+      "category": "product",
+      "icon": "bottled_food_5",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "bottled_rec_hp_1",
+      "name": "荞愈胶囊",
+      "category": "product",
+      "icon": "bottled_rec_hp_1",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "bottled_rec_hp_2",
+      "name": "优质荞愈胶囊",
+      "category": "product",
+      "icon": "bottled_rec_hp_2",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "bottled_rec_hp_3",
+      "name": "精选荞愈胶囊",
+      "category": "product",
+      "icon": "bottled_rec_hp_3",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "bottled_rec_hp_4",
+      "name": "芽针针剂",
+      "category": "product",
+      "icon": "bottled_rec_hp_4",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "bottled_rec_hp_5",
+      "name": "优质芽针针剂",
+      "category": "product",
+      "icon": "bottled_rec_hp_5",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "equip_script_1",
+      "name": "紫晶装备原件",
+      "category": "product",
+      "icon": "equip_script_1",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "equip_script_2",
+      "name": "蓝铁装备原件",
+      "category": "product",
+      "icon": "equip_script_2",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "equip_script_3",
+      "name": "高晶装备原件",
+      "category": "product",
+      "icon": "equip_script_3",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "equip_script_4",
+      "name": "息壤装备原件",
+      "category": "product",
+      "icon": "equip_script_4",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "equip_script_4_1",
+      "name": "赤铜装备原件",
+      "category": "product",
+      "icon": "equip_script_4_1",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "equip_script_4_2",
+      "name": "赫铜装备原件",
+      "category": "product",
+      "icon": "equip_script_4_2",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "proc_battery_1",
+      "name": "低容谷地电池",
+      "category": "product",
+      "icon": "proc_battery_1",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "proc_battery_2",
+      "name": "中容谷地电池",
+      "category": "product",
+      "icon": "proc_battery_2",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "proc_battery_3",
+      "name": "高容谷地电池",
+      "category": "product",
+      "icon": "proc_battery_3",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "proc_battery_4",
+      "name": "低容武陵电池",
+      "category": "product",
+      "icon": "proc_battery_4",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "proc_battery_5",
+      "name": "中容武陵电池",
+      "category": "product",
+      "icon": "proc_battery_5",
+      "row": 3,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "proc_bomb_1",
+      "name": "工业爆炸物",
+      "category": "product",
+      "icon": "proc_bomb_1",
+      "row": 4,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "tundra_coupon",
+      "name": "谷地调度券",
+      "category": "settlement",
+      "icon": "tundra_coupon",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50000000
+    },
+    {
+      "id": "jinlong_coupon",
+      "name": "武陵调度券",
+      "category": "settlement",
+      "icon": "jinlong_coupon",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50000000
+    },
+    {
+      "id": "domain_key_tundra",
+      "name": "超库存传输",
+      "category": "__domain_transfer",
+      "icon": "domain_key_tundra",
+      "row": 999,
+      "raw": true,
+      "transportKind": "belt",
+      "stack": 1
+    }
+  ],
+  "machines": [
+    {
+      "id": "__domain_transfer",
+      "name": "超库存传输",
+      "icon": "__domain_transfer",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 0,
+      "hideRate": true
+    },
+    {
+      "id": "cmpt_mc_1",
+      "name": "配件机",
+      "icon": "cmpt_mc_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 20,
+      "hideRate": false,
+      "size": [
+        3,
+        3
+      ]
+    },
+    {
+      "id": "dismantler_1",
+      "name": "拆解机",
+      "icon": "dismantler_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 20,
+      "hideRate": false,
+      "size": [
+        6,
+        4
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "filling_pd_mc_1",
+      "name": "灌装机",
+      "icon": "filling_pd_mc_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 20,
+      "hideRate": false,
+      "size": [
+        6,
+        4
+      ]
+    },
+    {
+      "id": "furnance_1",
+      "name": "精炼炉",
+      "icon": "furnance_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 5,
+      "hideRate": false,
+      "size": [
+        3,
+        3
+      ]
+    },
+    {
+      "id": "grinder_1",
+      "name": "粉碎机",
+      "icon": "grinder_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 5,
+      "hideRate": false,
+      "size": [
+        3,
+        3
+      ]
+    },
+    {
+      "id": "liquid_clean_gate",
+      "name": "净水节点(污水接入口)",
+      "icon": "liquid_clean_gate",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 0,
+      "hideRate": false,
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "liquid_cleaner_1",
+      "name": "废水处理机",
+      "icon": "liquid_cleaner_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 50,
+      "hideRate": false,
+      "size": [
+        3,
+        3
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "liquid_purifier_1",
+      "name": "提纯机",
+      "icon": "liquid_purifier_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 50,
+      "hideRate": false,
+      "size": [
+        5,
+        5
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "liquid_recycle_gate",
+      "name": "净水节点(产物排出口)",
+      "icon": "liquid_clean_gate",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 0,
+      "hideRate": false,
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "miner_2",
+      "name": "电驱矿机",
+      "icon": "miner_2",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 5,
+      "hideRate": false,
+      "totalRecipe": true
+    },
+    {
+      "id": "miner_3",
+      "name": "二型电驱矿机",
+      "icon": "miner_3",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 10,
+      "hideRate": false,
+      "totalRecipe": true
+    },
+    {
+      "id": "miner_4",
+      "name": "水驱矿机",
+      "icon": "miner_4",
+      "speed": 1,
+      "powerType": "burner",
+      "powerKw": null,
+      "hideRate": false,
+      "locations": [
+        "jinlong"
+      ],
+      "totalRecipe": true
+    },
+    {
+      "id": "mix_pool_1",
+      "name": "反应池",
+      "icon": "mix_pool_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 50,
+      "hideRate": false,
+      "size": [
+        5,
+        5
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "mix_pool_2",
+      "name": "扩容反应池",
+      "icon": "mix_pool_2",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 100,
+      "hideRate": false,
+      "size": [
+        6,
+        5
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "planter_1",
+      "name": "种植机",
+      "icon": "planter_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 20,
+      "hideRate": false,
+      "size": [
+        5,
+        5
+      ]
+    },
+    {
+      "id": "power_sta_1",
+      "name": "热能池",
+      "icon": "power_sta_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 0,
+      "hideRate": false,
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "id": "pump_1",
+      "name": "水泵",
+      "icon": "pump_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 10,
+      "hideRate": false,
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "pump_2",
+      "name": "二型耐酸水泵",
+      "icon": "pump_2",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 20,
+      "hideRate": false,
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "seedcol_1",
+      "name": "采种机",
+      "icon": "seedcol_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 10,
+      "hideRate": false,
+      "size": [
+        5,
+        5
+      ]
+    },
+    {
+      "id": "settlement-jinlong",
+      "name": "据点供货(武陵)",
+      "icon": "jinlong",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 0,
+      "hideRate": true,
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "settlement-jinlong_coupon",
+      "name": "据点供货(武陵)",
+      "icon": "jinlong_coupon",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 0,
+      "hideRate": true,
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "settlement-tundra",
+      "name": "据点供货(四号谷地)",
+      "icon": "tundra",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 0,
+      "hideRate": true,
+      "locations": [
+        "tundra"
+      ]
+    },
+    {
+      "id": "settlement-tundra_coupon",
+      "name": "据点供货(四号谷地)",
+      "icon": "tundra_coupon",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 0,
+      "hideRate": true,
+      "locations": [
+        "tundra"
+      ]
+    },
+    {
+      "id": "shaper_1",
+      "name": "塑形机",
+      "icon": "shaper_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 10,
+      "hideRate": false,
+      "size": [
+        3,
+        3
+      ]
+    },
+    {
+      "id": "thickener_1",
+      "name": "研磨机",
+      "icon": "thickener_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 50,
+      "hideRate": false,
+      "size": [
+        6,
+        4
+      ]
+    },
+    {
+      "id": "tools_asm_mc_1",
+      "name": "封装机",
+      "icon": "tools_asm_mc_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 20,
+      "hideRate": false,
+      "size": [
+        6,
+        4
+      ]
+    },
+    {
+      "id": "winder_1",
+      "name": "装备原件机",
+      "icon": "winder_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 10,
+      "hideRate": false,
+      "size": [
+        6,
+        4
+      ]
+    },
+    {
+      "id": "xiranite_oven_1",
+      "name": "天有洪炉",
+      "icon": "xiranite_oven_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 50,
+      "hideRate": false,
+      "size": [
+        5,
+        5
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    }
+  ],
+  "transports": [
+    {
+      "id": "belt",
+      "kind": "belt",
+      "name": "传送带",
+      "icon": "belt",
+      "speed": 0.5
+    },
+    {
+      "id": "pipe",
+      "kind": "pipe",
+      "name": "管道",
+      "icon": "pipe",
+      "speed": 2
+    }
+  ],
+  "recipes": [
+    {
+      "id": "plant_moss_seed_1",
+      "name": "荞花种子",
+      "category": "material",
+      "icon": "plant_moss_seed_1",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_seed_1",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "seedcol_1"
+      ]
+    },
+    {
+      "id": "plant_moss_1",
+      "name": "荞花",
+      "category": "material",
+      "icon": "plant_moss_1",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_seed_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "planter_1"
+      ]
+    },
+    {
+      "id": "plant_moss_powder_1",
+      "name": "荞花粉末",
+      "category": "material",
+      "icon": "plant_moss_powder_1",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_powder_1",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "plant_moss_enr_powder_1",
+      "name": "细磨荞花粉末",
+      "category": "material",
+      "icon": "plant_moss_enr_powder_1",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_powder_1",
+          "qty": 2
+        },
+        {
+          "item": "plant_moss_powder_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_enr_powder_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "thickener_1"
+      ]
+    },
+    {
+      "id": "plant_moss_seed_3",
+      "name": "砂叶种子",
+      "category": "material",
+      "icon": "plant_moss_seed_3",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_seed_3",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "seedcol_1"
+      ]
+    },
+    {
+      "id": "plant_moss_3",
+      "name": "砂叶",
+      "category": "material",
+      "icon": "plant_moss_3",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_seed_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_3",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "planter_1"
+      ]
+    },
+    {
+      "id": "plant_moss_powder_3",
+      "name": "砂叶粉末",
+      "category": "material",
+      "icon": "plant_moss_powder_3",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_powder_3",
+          "qty": 3
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "plant_grass_seed_1",
+      "name": "锦草种子",
+      "category": "material",
+      "icon": "plant_grass_seed_1",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_seed_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "seedcol_1"
+      ]
+    },
+    {
+      "id": "plant_grass_1",
+      "name": "锦草",
+      "category": "material",
+      "icon": "plant_grass_1",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_seed_1",
+          "qty": 1
+        },
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_1",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "planter_1"
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "plant_grass_powder_1",
+      "name": "锦草粉末",
+      "category": "material",
+      "icon": "plant_grass_powder_1",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_powder_1",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "liquid_plant_grass_1",
+      "name": "锦草溶液",
+      "category": "material",
+      "icon": "liquid_plant_grass_1",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_powder_1",
+          "qty": 1
+        },
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_plant_grass_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "mix_pool_1",
+        "mix_pool_2"
+      ]
+    },
+    {
+      "id": "carbon_powder-plant_moss_powder_1",
+      "name": "碳粉末(荞花粉末)",
+      "category": "material",
+      "icon": "carbon_powder-plant_moss_powder_1",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_powder_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_powder-plant_moss_powder_2",
+      "name": "碳粉末(柑实粉末)",
+      "category": "material",
+      "icon": "carbon_powder-plant_moss_powder_2",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_powder_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_powder-plant_moss_powder_3",
+      "name": "碳粉末(砂叶粉末)",
+      "category": "material",
+      "icon": "carbon_powder-plant_moss_powder_3",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_powder_3",
+          "qty": 3
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_powder",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_powder-plant_grass_powder_1",
+      "name": "碳粉末(锦草粉末)",
+      "category": "material",
+      "icon": "carbon_powder-plant_grass_powder_1",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_powder_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_powder",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_powder-plant_grass_powder_2",
+      "name": "碳粉末(芽针粉末)",
+      "category": "material",
+      "icon": "carbon_powder-plant_grass_powder_2",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_powder_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_powder",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_powder-carbon_mtl",
+      "name": "碳粉末(碳块)",
+      "category": "material",
+      "icon": "carbon_powder-carbon_mtl",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "carbon_mtl",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_powder",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "plant_moss_seed_2",
+      "name": "柑实种子",
+      "category": "material",
+      "icon": "plant_moss_seed_2",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_seed_2",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "seedcol_1"
+      ]
+    },
+    {
+      "id": "plant_moss_2",
+      "name": "柑实",
+      "category": "material",
+      "icon": "plant_moss_2",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_seed_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "planter_1"
+      ]
+    },
+    {
+      "id": "plant_moss_powder_2",
+      "name": "柑实粉末",
+      "category": "material",
+      "icon": "plant_moss_powder_2",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_powder_2",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "plant_moss_enr_powder_2",
+      "name": "细磨柑实粉末",
+      "category": "material",
+      "icon": "plant_moss_enr_powder_2",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_powder_2",
+          "qty": 2
+        },
+        {
+          "item": "plant_moss_powder_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_enr_powder_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "thickener_1"
+      ]
+    },
+    {
+      "id": "plant_bbflower_seed_1",
+      "name": "酮化树种",
+      "category": "material",
+      "icon": "plant_bbflower_seed_1",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_bbflower_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_bbflower_seed_1",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "seedcol_1"
+      ]
+    },
+    {
+      "id": "plant_bbflower_1",
+      "name": "酮化灌木",
+      "category": "material",
+      "icon": "plant_bbflower_1",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_bbflower_seed_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_bbflower_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "planter_1"
+      ]
+    },
+    {
+      "id": "plant_bbflower_powder_1",
+      "name": "酮化灌木粉末",
+      "category": "material",
+      "icon": "plant_bbflower_powder_1",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_bbflower_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_bbflower_powder_1",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "plant_grass_seed_2",
+      "name": "芽针种子",
+      "category": "material",
+      "icon": "plant_grass_seed_2",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_seed_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "seedcol_1"
+      ]
+    },
+    {
+      "id": "plant_grass_2",
+      "name": "芽针",
+      "category": "material",
+      "icon": "plant_grass_2",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_seed_2",
+          "qty": 1
+        },
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_2",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "planter_1"
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "plant_grass_powder_2",
+      "name": "芽针粉末",
+      "category": "material",
+      "icon": "plant_grass_powder_2",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_powder_2",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "liquid_plant_grass_2",
+      "name": "芽针溶液",
+      "category": "material",
+      "icon": "liquid_plant_grass_2",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_powder_2",
+          "qty": 1
+        },
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_plant_grass_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "mix_pool_1",
+        "mix_pool_2"
+      ]
+    },
+    {
+      "id": "carbon_mtl-plant_moss_1",
+      "name": "碳块(荞花)",
+      "category": "material",
+      "icon": "carbon_mtl-plant_moss_1",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_mtl",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_mtl-plant_moss_2",
+      "name": "碳块(柑实)",
+      "category": "material",
+      "icon": "carbon_mtl-plant_moss_2",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_mtl",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_mtl-plant_moss_3",
+      "name": "碳块(砂叶)",
+      "category": "material",
+      "icon": "carbon_mtl-plant_moss_3",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_mtl",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_mtl-plant_grass_1",
+      "name": "碳块(锦草)",
+      "category": "material",
+      "icon": "carbon_mtl-plant_grass_1",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_mtl",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_mtl-plant_grass_2",
+      "name": "碳块(芽针)",
+      "category": "material",
+      "icon": "carbon_mtl-plant_grass_2",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_grass_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_mtl",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "originium_ore",
+      "name": "源矿",
+      "category": "material",
+      "icon": "originium_ore",
+      "row": 2,
+      "time": 3,
+      "in": [],
+      "out": [
+        {
+          "item": "originium_ore",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "miner_2",
+        "miner_3"
+      ],
+      "flags": [
+        "mining"
+      ]
+    },
+    {
+      "id": "crystal_powder-originium_powder",
+      "name": "晶体外壳粉末(源石粉末)",
+      "category": "material",
+      "icon": "crystal_powder-originium_powder",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "originium_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "crystal_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "crystal_powder-crystal_shell",
+      "name": "晶体外壳粉末(晶体外壳)",
+      "category": "material",
+      "icon": "crystal_powder-crystal_shell",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "crystal_shell",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "crystal_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "crystal_shell-originium_ore",
+      "name": "晶体外壳(源矿)",
+      "category": "material",
+      "icon": "crystal_shell-originium_ore",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "originium_ore",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "crystal_shell",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "crystal_shell-crystal_powder",
+      "name": "晶体外壳(晶体外壳粉末)",
+      "category": "material",
+      "icon": "crystal_shell-crystal_powder",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "crystal_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "crystal_shell",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "crystal_enr_powder-crystal_powder",
+      "name": "致密晶体粉末(晶体外壳粉末)",
+      "category": "material",
+      "icon": "crystal_enr_powder-crystal_powder",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "crystal_powder",
+          "qty": 2
+        },
+        {
+          "item": "plant_moss_powder_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "crystal_enr_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "thickener_1"
+      ]
+    },
+    {
+      "id": "crystal_enr",
+      "name": "密制晶体",
+      "category": "material",
+      "icon": "crystal_enr",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "crystal_enr_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "crystal_enr",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "originium_powder",
+      "name": "源石粉末",
+      "category": "material",
+      "icon": "originium_powder",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "originium_ore",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "originium_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "originium_enr_powder",
+      "name": "致密源石粉末",
+      "category": "material",
+      "icon": "originium_enr_powder",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "originium_powder",
+          "qty": 2
+        },
+        {
+          "item": "plant_moss_powder_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "originium_enr_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "thickener_1"
+      ]
+    },
+    {
+      "id": "crystal_enr_powder-originium_enr_powder",
+      "name": "致密晶体粉末(致密源石粉末)",
+      "category": "material",
+      "icon": "crystal_enr_powder-originium_enr_powder",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "originium_enr_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "crystal_enr_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_enr_powder-carbon_powder",
+      "name": "致密碳粉末(碳粉末)",
+      "category": "material",
+      "icon": "carbon_enr_powder-carbon_powder",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "carbon_powder",
+          "qty": 2
+        },
+        {
+          "item": "plant_moss_powder_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_enr_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "thickener_1"
+      ]
+    },
+    {
+      "id": "carbon_enr_powder-plant_moss_enr_powder_1",
+      "name": "致密碳粉末(细磨荞花粉末)",
+      "category": "material",
+      "icon": "carbon_enr_powder-plant_moss_enr_powder_1",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_enr_powder_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_enr_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_enr_powder-plant_moss_enr_powder_2",
+      "name": "致密碳粉末(细磨柑实粉末)",
+      "category": "material",
+      "icon": "carbon_enr_powder-plant_moss_enr_powder_2",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "plant_moss_enr_powder_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_enr_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "carbon_enr",
+      "name": "稳定碳块",
+      "category": "material",
+      "icon": "carbon_enr",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "carbon_enr_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_enr",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "quartz_sand",
+      "name": "紫晶矿",
+      "category": "material",
+      "icon": "quartz_sand",
+      "row": 3,
+      "time": 3,
+      "in": [],
+      "out": [
+        {
+          "item": "quartz_sand",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "miner_2",
+        "miner_3"
+      ],
+      "flags": [
+        "mining"
+      ]
+    },
+    {
+      "id": "quartz_powder",
+      "name": "紫晶粉末",
+      "category": "material",
+      "icon": "quartz_powder",
+      "row": 3,
+      "time": 2,
+      "in": [
+        {
+          "item": "quartz_glass",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "quartz_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "quartz_glass-quartz_sand",
+      "name": "紫晶纤维(紫晶矿)",
+      "category": "material",
+      "icon": "quartz_glass-quartz_sand",
+      "row": 3,
+      "time": 2,
+      "in": [
+        {
+          "item": "quartz_sand",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "quartz_glass",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "quartz_glass-quartz_powder",
+      "name": "紫晶纤维(紫晶粉末)",
+      "category": "material",
+      "icon": "quartz_glass-quartz_powder",
+      "row": 3,
+      "time": 2,
+      "in": [
+        {
+          "item": "quartz_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "quartz_glass",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "quartz_enr_powder",
+      "name": "高晶粉末",
+      "category": "material",
+      "icon": "quartz_enr_powder",
+      "row": 3,
+      "time": 2,
+      "in": [
+        {
+          "item": "quartz_powder",
+          "qty": 2
+        },
+        {
+          "item": "plant_moss_powder_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "quartz_enr_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "thickener_1"
+      ]
+    },
+    {
+      "id": "quartz_enr",
+      "name": "高晶纤维",
+      "category": "material",
+      "icon": "quartz_enr",
+      "row": 3,
+      "time": 2,
+      "in": [
+        {
+          "item": "quartz_enr_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "quartz_enr",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "glass_bottle",
+      "name": "紫晶质瓶",
+      "category": "material",
+      "icon": "glass_bottle",
+      "row": 3,
+      "time": 2,
+      "in": [
+        {
+          "item": "quartz_glass",
+          "qty": 2
+        }
+      ],
+      "out": [
+        {
+          "item": "glass_bottle",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "shaper_1"
+      ]
+    },
+    {
+      "id": "glass_enr_bottle",
+      "name": "高晶质瓶",
+      "category": "material",
+      "icon": "glass_enr_bottle",
+      "row": 3,
+      "time": 2,
+      "in": [
+        {
+          "item": "quartz_enr",
+          "qty": 2
+        }
+      ],
+      "out": [
+        {
+          "item": "glass_enr_bottle",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "shaper_1"
+      ]
+    },
+    {
+      "id": "glass_cmpt",
+      "name": "紫晶零件",
+      "category": "material",
+      "icon": "glass_cmpt",
+      "row": 3,
+      "time": 2,
+      "in": [
+        {
+          "item": "quartz_glass",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "glass_cmpt",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "cmpt_mc_1"
+      ]
+    },
+    {
+      "id": "glass_enr_cmpt",
+      "name": "高晶零件",
+      "category": "material",
+      "icon": "glass_enr_cmpt",
+      "row": 3,
+      "time": 2,
+      "in": [
+        {
+          "item": "quartz_enr",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "glass_enr_cmpt",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "cmpt_mc_1"
+      ]
+    },
+    {
+      "id": "iron_ore",
+      "name": "蓝铁矿",
+      "category": "material",
+      "icon": "iron_ore",
+      "row": 4,
+      "time": 3,
+      "in": [],
+      "out": [
+        {
+          "item": "iron_ore",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "miner_3"
+      ],
+      "flags": [
+        "mining"
+      ]
+    },
+    {
+      "id": "iron_powder",
+      "name": "蓝铁粉末",
+      "category": "material",
+      "icon": "iron_powder",
+      "row": 4,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_nugget",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "iron_nugget-iron_ore",
+      "name": "蓝铁块(蓝铁矿)",
+      "category": "material",
+      "icon": "iron_nugget-iron_ore",
+      "row": 4,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_ore",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_nugget",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "iron_nugget-iron_powder",
+      "name": "蓝铁块(蓝铁粉末)",
+      "category": "material",
+      "icon": "iron_nugget-iron_powder",
+      "row": 4,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_nugget",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "iron_enr_powder",
+      "name": "致密蓝铁粉末",
+      "category": "material",
+      "icon": "iron_enr_powder",
+      "row": 4,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_powder",
+          "qty": 2
+        },
+        {
+          "item": "plant_moss_powder_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_enr_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "thickener_1"
+      ]
+    },
+    {
+      "id": "iron_enr",
+      "name": "钢块",
+      "category": "material",
+      "icon": "iron_enr",
+      "row": 4,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_enr_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_enr",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "iron_bottle",
+      "name": "蓝铁瓶",
+      "category": "material",
+      "icon": "iron_bottle",
+      "row": 4,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_nugget",
+          "qty": 2
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_bottle",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "shaper_1"
+      ]
+    },
+    {
+      "id": "iron_enr_bottle",
+      "name": "钢质瓶",
+      "category": "material",
+      "icon": "iron_enr_bottle",
+      "row": 4,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_enr",
+          "qty": 2
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_enr_bottle",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "shaper_1"
+      ]
+    },
+    {
+      "id": "iron_cmpt",
+      "name": "铁制零件",
+      "category": "material",
+      "icon": "iron_cmpt",
+      "row": 4,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_nugget",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_cmpt",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "cmpt_mc_1"
+      ]
+    },
+    {
+      "id": "iron_enr_cmpt",
+      "name": "钢制零件",
+      "category": "material",
+      "icon": "iron_enr_cmpt",
+      "row": 4,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_enr",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_enr_cmpt",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "cmpt_mc_1"
+      ]
+    },
+    {
+      "id": "iron_bottle-liquid_plant_grass_1",
+      "name": "蓝铁瓶(锦草溶液)",
+      "category": "material",
+      "icon": "iron_bottle-liquid_plant_grass_1",
+      "row": 4,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_bottle",
+          "qty": 1
+        },
+        {
+          "item": "liquid_plant_grass_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_bottle-liquid_plant_grass_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "filling_pd_mc_1"
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "iron_bottle-liquid_plant_grass_2",
+      "name": "蓝铁瓶(芽针溶液)",
+      "category": "material",
+      "icon": "iron_bottle-liquid_plant_grass_2",
+      "row": 4,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_bottle",
+          "qty": 1
+        },
+        {
+          "item": "liquid_plant_grass_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_bottle-liquid_plant_grass_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "filling_pd_mc_1"
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "copper_ore-liquid_water",
+      "name": "赤铜矿",
+      "category": "material",
+      "icon": "copper_ore-liquid_water",
+      "row": 5,
+      "time": 3,
+      "in": [
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_ore",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "miner_4"
+      ],
+      "flags": [
+        "mining"
+      ]
+    },
+    {
+      "id": "copper_powder",
+      "name": "赤铜粉末",
+      "category": "material",
+      "icon": "copper_powder",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_nugget",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "grinder_1"
+      ]
+    },
+    {
+      "id": "copper_nugget",
+      "name": "赤铜块",
+      "category": "material",
+      "icon": "copper_nugget",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_ore",
+          "qty": 1
+        },
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_nugget",
+          "qty": 1
+        },
+        {
+          "item": "liquid_sewage",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "copper_enr",
+      "name": "赫铜块",
+      "category": "material",
+      "icon": "copper_enr",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_copper_enr",
+          "qty": 2
+        },
+        {
+          "item": "iron_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_enr",
+          "qty": 1
+        },
+        {
+          "item": "liquid_sewage",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "mix_pool_1",
+        "mix_pool_2"
+      ]
+    },
+    {
+      "id": "copper_bottle",
+      "name": "赤铜瓶",
+      "category": "material",
+      "icon": "copper_bottle",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_nugget",
+          "qty": 2
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_bottle",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "shaper_1"
+      ]
+    },
+    {
+      "id": "copper_enr_bottle",
+      "name": "赫铜瓶",
+      "category": "material",
+      "icon": "copper_enr_bottle",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_enr",
+          "qty": 2
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_enr_bottle",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "shaper_1"
+      ]
+    },
+    {
+      "id": "copper_cmpt",
+      "name": "赤铜零件",
+      "category": "material",
+      "icon": "copper_cmpt",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_nugget",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_cmpt",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "cmpt_mc_1"
+      ]
+    },
+    {
+      "id": "copper_enr_cmpt",
+      "name": "赫铜零件",
+      "category": "material",
+      "icon": "copper_enr_cmpt",
+      "row": 5,
+      "time": 10,
+      "in": [
+        {
+          "item": "copper_enr",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_enr_cmpt",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "cmpt_mc_1"
+      ]
+    },
+    {
+      "id": "copper_bottle-liquid_plant_grass_1",
+      "name": "赤铜瓶(锦草溶液)",
+      "category": "material",
+      "icon": "copper_bottle-liquid_plant_grass_1",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_bottle",
+          "qty": 1
+        },
+        {
+          "item": "liquid_plant_grass_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_bottle-liquid_plant_grass_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "filling_pd_mc_1"
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "copper_bottle-liquid_plant_grass_2",
+      "name": "赤铜瓶(芽针溶液)",
+      "category": "material",
+      "icon": "copper_bottle-liquid_plant_grass_2",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_bottle",
+          "qty": 1
+        },
+        {
+          "item": "liquid_plant_grass_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_bottle-liquid_plant_grass_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "filling_pd_mc_1"
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "liquid_copper",
+      "name": "赤铜溶液",
+      "category": "material",
+      "icon": "liquid_copper",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_powder",
+          "qty": 1
+        },
+        {
+          "item": "liquid_acid",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_copper",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "mix_pool_1",
+        "mix_pool_2"
+      ]
+    },
+    {
+      "id": "liquid_copper_enr",
+      "name": "赫铜溶液",
+      "category": "material",
+      "icon": "liquid_copper_enr",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_copper",
+          "qty": 4
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_copper_enr",
+          "qty": 1
+        },
+        {
+          "item": "liquid_acid",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "liquid_purifier_1"
+      ]
+    },
+    {
+      "id": "xiranite_powder",
+      "name": "息壤",
+      "category": "material",
+      "icon": "xiranite_powder",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "carbon_enr",
+          "qty": 2
+        },
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "xiranite_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "xiranite_oven_1"
+      ]
+    },
+    {
+      "id": "xiranite_poly",
+      "name": "壤晶",
+      "category": "material",
+      "icon": "xiranite_poly",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_xiranite_poly",
+          "qty": 2
+        },
+        {
+          "item": "iron_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "xiranite_poly",
+          "qty": 1
+        },
+        {
+          "item": "liquid_sewage",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "mix_pool_1",
+        "mix_pool_2"
+      ]
+    },
+    {
+      "id": "xiranite_enr_powder",
+      "name": "重息壤",
+      "category": "material",
+      "icon": "xiranite_enr_powder",
+      "row": 6,
+      "time": 10,
+      "in": [
+        {
+          "item": "xiranite_powder",
+          "qty": 10
+        },
+        {
+          "item": "liquid_xiranite_poly",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "xiranite_enr_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "xiranite_oven_1"
+      ]
+    },
+    {
+      "id": "liquid_xiranite",
+      "name": "液化息壤",
+      "category": "material",
+      "icon": "liquid_xiranite",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "xiranite_powder",
+          "qty": 1
+        },
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "mix_pool_1",
+        "mix_pool_2"
+      ]
+    },
+    {
+      "id": "liquid_xiranite_enr",
+      "name": "液化重息壤",
+      "category": "material",
+      "icon": "liquid_xiranite_enr",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "xiranite_enr_powder",
+          "qty": 1
+        },
+        {
+          "item": "liquid_acid",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_xiranite_enr",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "mix_pool_1",
+        "mix_pool_2"
+      ]
+    },
+    {
+      "id": "liquid_xiranite_poly",
+      "name": "壤晶废液",
+      "category": "material",
+      "icon": "liquid_xiranite_poly",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 1
+        },
+        {
+          "item": "liquid_sewage",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_xiranite_poly",
+          "qty": 1
+        },
+        {
+          "item": "liquid_xiranite_lowpoly",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "mix_pool_1",
+        "mix_pool_2"
+      ]
+    },
+    {
+      "id": "liquid_xiranite_poly-purifier",
+      "name": "壤晶废液(提纯机)",
+      "category": "material",
+      "icon": "liquid_xiranite_poly-liquid_purifier_1",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_xiranite_lowpoly",
+          "qty": 4
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_xiranite_poly",
+          "qty": 1
+        },
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "liquid_purifier_1"
+      ]
+    },
+    {
+      "id": "liquid_water",
+      "name": "清水",
+      "category": "material",
+      "icon": "liquid_water",
+      "row": 6,
+      "time": 1,
+      "in": [],
+      "out": [
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "pump_1"
+      ],
+      "flags": [
+        "mining"
+      ]
+    },
+    {
+      "id": "liquid_acid",
+      "name": "沉积酸",
+      "category": "material",
+      "icon": "liquid_acid",
+      "row": 6,
+      "time": 1,
+      "in": [],
+      "out": [
+        {
+          "item": "liquid_acid",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "pump_2"
+      ],
+      "flags": [
+        "mining"
+      ]
+    },
+    {
+      "id": "liquid_cleaner_1-sewage",
+      "name": "废水处理机(污水)",
+      "category": "material",
+      "icon": "liquid_cleaner_1-liquid_sewage",
+      "row": 999,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_sewage",
+          "qty": 1
+        }
+      ],
+      "out": [],
+      "producers": [
+        "liquid_cleaner_1"
+      ],
+      "usage": 50,
+      "cost": -1
+    },
+    {
+      "id": "liquid_cleaner_1-xiranite_lowpoly",
+      "name": "废水处理机(惰性壤晶废液)",
+      "category": "material",
+      "icon": "liquid_cleaner_1-liquid_xiranite_lowpoly",
+      "row": 999,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_xiranite_lowpoly",
+          "qty": 1
+        }
+      ],
+      "out": [],
+      "producers": [
+        "liquid_cleaner_1"
+      ],
+      "usage": 50,
+      "cost": -1
+    },
+    {
+      "id": "liquid_cleaner_1-xiranite_poly",
+      "name": "废水处理机(壤晶废液)",
+      "category": "material",
+      "icon": "liquid_cleaner_1-liquid_xiranite_poly",
+      "row": 999,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_xiranite_poly",
+          "qty": 1
+        }
+      ],
+      "out": [],
+      "producers": [
+        "liquid_cleaner_1"
+      ],
+      "usage": 50,
+      "cost": -1
+    },
+    {
+      "id": "sewage-treat",
+      "name": "净水节点",
+      "category": "material",
+      "icon": "liquid_sewage-liquid_clean_gate",
+      "row": 999,
+      "time": 1,
+      "in": [
+        {
+          "item": "liquid_sewage",
+          "qty": 2
+        }
+      ],
+      "out": [],
+      "producers": [
+        "liquid_clean_gate"
+      ]
+    },
+    {
+      "id": "sewage-treat-export",
+      "name": "壤晶废液(净水节点)",
+      "category": "material",
+      "icon": "liquid_xiranite_poly-liquid_clean_gate",
+      "row": 999,
+      "time": 60,
+      "in": [
+        {
+          "item": "liquid_sewage",
+          "qty": 360
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_xiranite_poly",
+          "qty": 12
+        }
+      ],
+      "producers": [
+        "liquid_recycle_gate"
+      ]
+    },
+    {
+      "id": "bottled_food_1",
+      "name": "柑实罐头",
+      "category": "product",
+      "icon": "bottled_food_1",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "glass_bottle",
+          "qty": 5
+        },
+        {
+          "item": "plant_moss_powder_2",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_food_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "filling_pd_mc_1"
+      ]
+    },
+    {
+      "id": "bottled_food_2",
+      "name": "优质柑实罐头",
+      "category": "product",
+      "icon": "bottled_food_2",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "iron_bottle",
+          "qty": 10
+        },
+        {
+          "item": "plant_moss_powder_2",
+          "qty": 10
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_food_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "filling_pd_mc_1"
+      ]
+    },
+    {
+      "id": "bottled_food_3",
+      "name": "精选柑实罐头",
+      "category": "product",
+      "icon": "bottled_food_3",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "iron_enr_bottle",
+          "qty": 10
+        },
+        {
+          "item": "plant_moss_enr_powder_2",
+          "qty": 10
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_food_3",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "filling_pd_mc_1"
+      ]
+    },
+    {
+      "id": "bottled_food_4",
+      "name": "锦草软饮",
+      "category": "product",
+      "icon": "bottled_food_4",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "iron_cmpt",
+          "qty": 10
+        },
+        {
+          "item": "iron_bottle-liquid_plant_grass_1",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_food_4",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "bottled_food_5",
+      "name": "优质锦草软饮",
+      "category": "product",
+      "icon": "bottled_food_5",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "copper_cmpt",
+          "qty": 10
+        },
+        {
+          "item": "copper_bottle-liquid_plant_grass_1",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_food_5",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "bottled_rec_hp_1",
+      "name": "荞愈胶囊",
+      "category": "product",
+      "icon": "bottled_rec_hp_1",
+      "row": 1,
+      "time": 10,
+      "in": [
+        {
+          "item": "glass_bottle",
+          "qty": 5
+        },
+        {
+          "item": "plant_moss_powder_1",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_rec_hp_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "filling_pd_mc_1"
+      ]
+    },
+    {
+      "id": "bottled_rec_hp_2",
+      "name": "优质荞愈胶囊",
+      "category": "product",
+      "icon": "bottled_rec_hp_2",
+      "row": 1,
+      "time": 10,
+      "in": [
+        {
+          "item": "iron_bottle",
+          "qty": 10
+        },
+        {
+          "item": "plant_moss_powder_1",
+          "qty": 10
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_rec_hp_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "filling_pd_mc_1"
+      ]
+    },
+    {
+      "id": "bottled_rec_hp_3",
+      "name": "精选荞愈胶囊",
+      "category": "product",
+      "icon": "bottled_rec_hp_3",
+      "row": 1,
+      "time": 10,
+      "in": [
+        {
+          "item": "iron_enr_bottle",
+          "qty": 10
+        },
+        {
+          "item": "plant_moss_enr_powder_1",
+          "qty": 10
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_rec_hp_3",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "filling_pd_mc_1"
+      ]
+    },
+    {
+      "id": "bottled_rec_hp_4",
+      "name": "芽针针剂",
+      "category": "product",
+      "icon": "bottled_rec_hp_4",
+      "row": 1,
+      "time": 10,
+      "in": [
+        {
+          "item": "iron_cmpt",
+          "qty": 10
+        },
+        {
+          "item": "iron_bottle-liquid_plant_grass_2",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_rec_hp_4",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "bottled_rec_hp_5",
+      "name": "优质芽针针剂",
+      "category": "product",
+      "icon": "bottled_rec_hp_5",
+      "row": 1,
+      "time": 10,
+      "in": [
+        {
+          "item": "copper_cmpt",
+          "qty": 10
+        },
+        {
+          "item": "copper_bottle-liquid_plant_grass_2",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_rec_hp_5",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "equip_script_1",
+      "name": "紫晶装备原件",
+      "category": "product",
+      "icon": "equip_script_1",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "crystal_shell",
+          "qty": 5
+        },
+        {
+          "item": "quartz_glass",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "equip_script_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "winder_1"
+      ]
+    },
+    {
+      "id": "equip_script_2",
+      "name": "蓝铁装备原件",
+      "category": "product",
+      "icon": "equip_script_2",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "crystal_shell",
+          "qty": 10
+        },
+        {
+          "item": "iron_nugget",
+          "qty": 10
+        }
+      ],
+      "out": [
+        {
+          "item": "equip_script_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "winder_1"
+      ]
+    },
+    {
+      "id": "equip_script_3",
+      "name": "高晶装备原件",
+      "category": "product",
+      "icon": "equip_script_3",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "crystal_enr",
+          "qty": 10
+        },
+        {
+          "item": "quartz_enr",
+          "qty": 10
+        }
+      ],
+      "out": [
+        {
+          "item": "equip_script_3",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "winder_1"
+      ]
+    },
+    {
+      "id": "equip_script_4",
+      "name": "息壤装备原件",
+      "category": "product",
+      "icon": "equip_script_4",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "crystal_enr",
+          "qty": 10
+        },
+        {
+          "item": "xiranite_powder",
+          "qty": 10
+        }
+      ],
+      "out": [
+        {
+          "item": "equip_script_4",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "winder_1"
+      ]
+    },
+    {
+      "id": "equip_script_4_1",
+      "name": "赤铜装备原件",
+      "category": "product",
+      "icon": "equip_script_4_1",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "copper_cmpt",
+          "qty": 10
+        },
+        {
+          "item": "xiranite_powder",
+          "qty": 10
+        }
+      ],
+      "out": [
+        {
+          "item": "equip_script_4_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "winder_1"
+      ]
+    },
+    {
+      "id": "equip_script_4_2",
+      "name": "赫铜装备原件",
+      "category": "product",
+      "icon": "equip_script_4_2",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "copper_enr_cmpt",
+          "qty": 2
+        },
+        {
+          "item": "xiranite_enr_powder",
+          "qty": 2
+        }
+      ],
+      "out": [
+        {
+          "item": "equip_script_4_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "winder_1"
+      ]
+    },
+    {
+      "id": "proc_battery_1",
+      "name": "低容谷地电池",
+      "category": "product",
+      "icon": "proc_battery_1",
+      "row": 3,
+      "time": 10,
+      "in": [
+        {
+          "item": "glass_cmpt",
+          "qty": 5
+        },
+        {
+          "item": "originium_powder",
+          "qty": 10
+        }
+      ],
+      "out": [
+        {
+          "item": "proc_battery_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "proc_battery_2",
+      "name": "中容谷地电池",
+      "category": "product",
+      "icon": "proc_battery_2",
+      "row": 3,
+      "time": 10,
+      "in": [
+        {
+          "item": "iron_cmpt",
+          "qty": 10
+        },
+        {
+          "item": "originium_powder",
+          "qty": 15
+        }
+      ],
+      "out": [
+        {
+          "item": "proc_battery_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "proc_battery_3",
+      "name": "高容谷地电池",
+      "category": "product",
+      "icon": "proc_battery_3",
+      "row": 3,
+      "time": 10,
+      "in": [
+        {
+          "item": "iron_enr_cmpt",
+          "qty": 10
+        },
+        {
+          "item": "originium_enr_powder",
+          "qty": 15
+        }
+      ],
+      "out": [
+        {
+          "item": "proc_battery_3",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "proc_battery_4",
+      "name": "低容武陵电池",
+      "category": "product",
+      "icon": "proc_battery_4",
+      "row": 3,
+      "time": 10,
+      "in": [
+        {
+          "item": "xiranite_powder",
+          "qty": 5
+        },
+        {
+          "item": "originium_enr_powder",
+          "qty": 15
+        }
+      ],
+      "out": [
+        {
+          "item": "proc_battery_4",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "proc_battery_5",
+      "name": "中容武陵电池",
+      "category": "product",
+      "icon": "proc_battery_5",
+      "row": 3,
+      "time": 10,
+      "in": [
+        {
+          "item": "xiranite_poly",
+          "qty": 5
+        },
+        {
+          "item": "originium_enr_powder",
+          "qty": 20
+        }
+      ],
+      "out": [
+        {
+          "item": "proc_battery_5",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "proc_bomb_1",
+      "name": "工业爆炸物",
+      "category": "product",
+      "icon": "proc_bomb_1",
+      "row": 4,
+      "time": 10,
+      "in": [
+        {
+          "item": "glass_cmpt",
+          "qty": 5
+        },
+        {
+          "item": "plant_bbflower_powder_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "proc_bomb_1",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "power_originium_ore",
+      "name": "发电(源矿)",
+      "category": "gen-power",
+      "icon": "power_sta_1-originium_ore",
+      "row": 0,
+      "time": 8,
+      "in": [
+        {
+          "item": "originium_ore",
+          "qty": 1
+        }
+      ],
+      "out": [],
+      "producers": [
+        "power_sta_1"
+      ],
+      "usage": -50
+    },
+    {
+      "id": "power_proc_battery_1",
+      "name": "发电(低容谷地电池)",
+      "category": "gen-power",
+      "icon": "power_sta_1-proc_battery_1",
+      "row": 1,
+      "time": 40,
+      "in": [
+        {
+          "item": "proc_battery_1",
+          "qty": 1
+        }
+      ],
+      "out": [],
+      "producers": [
+        "power_sta_1"
+      ],
+      "usage": -220
+    },
+    {
+      "id": "power_proc_battery_2",
+      "name": "发电(中容谷地电池)",
+      "category": "gen-power",
+      "icon": "power_sta_1-proc_battery_2",
+      "row": 1,
+      "time": 40,
+      "in": [
+        {
+          "item": "proc_battery_2",
+          "qty": 1
+        }
+      ],
+      "out": [],
+      "producers": [
+        "power_sta_1"
+      ],
+      "usage": -420
+    },
+    {
+      "id": "power_proc_battery_3",
+      "name": "发电(高容谷地电池)",
+      "category": "gen-power",
+      "icon": "power_sta_1-proc_battery_3",
+      "row": 1,
+      "time": 40,
+      "in": [
+        {
+          "item": "proc_battery_3",
+          "qty": 1
+        }
+      ],
+      "out": [],
+      "producers": [
+        "power_sta_1"
+      ],
+      "usage": -1100
+    },
+    {
+      "id": "power_proc_battery_4",
+      "name": "发电(低容武陵电池)",
+      "category": "gen-power",
+      "icon": "power_sta_1-proc_battery_4",
+      "row": 2,
+      "time": 40,
+      "in": [
+        {
+          "item": "proc_battery_4",
+          "qty": 1
+        }
+      ],
+      "out": [],
+      "producers": [
+        "power_sta_1"
+      ],
+      "usage": -1600
+    },
+    {
+      "id": "power_proc_battery_5",
+      "name": "发电(中容武陵电池)",
+      "category": "gen-power",
+      "icon": "power_sta_1-proc_battery_5",
+      "row": 2,
+      "time": 40,
+      "in": [
+        {
+          "item": "proc_battery_5",
+          "qty": 1
+        }
+      ],
+      "out": [],
+      "producers": [
+        "power_sta_1"
+      ],
+      "usage": -3200
+    },
+    {
+      "id": "tundra_coupon-crystal_shell",
+      "name": "谷地调度券(晶体外壳)",
+      "category": "settlement",
+      "icon": "tundra_coupon-crystal_shell",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "crystal_shell",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 150
+    },
+    {
+      "id": "tundra_coupon-glass_bottle",
+      "name": "谷地调度券(紫晶质瓶)",
+      "category": "settlement",
+      "icon": "tundra_coupon-glass_bottle",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "glass_bottle",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 150
+    },
+    {
+      "id": "tundra_coupon-glass_cmpt",
+      "name": "谷地调度券(紫晶零件)",
+      "category": "settlement",
+      "icon": "tundra_coupon-glass_cmpt",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "glass_cmpt",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 150
+    },
+    {
+      "id": "tundra_coupon-iron_cmpt",
+      "name": "谷地调度券(铁制零件)",
+      "category": "settlement",
+      "icon": "tundra_coupon-iron_cmpt",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_cmpt",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 150
+    },
+    {
+      "id": "tundra_coupon-iron_enr_cmpt",
+      "name": "谷地调度券(钢制零件)",
+      "category": "settlement",
+      "icon": "tundra_coupon-iron_enr_cmpt",
+      "row": 0,
+      "time": 2,
+      "in": [
+        {
+          "item": "iron_enr_cmpt",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 3
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 150
+    },
+    {
+      "id": "tundra_coupon-bottled_food_1",
+      "name": "谷地调度券(柑实罐头)",
+      "category": "settlement",
+      "icon": "tundra_coupon-bottled_food_1",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "bottled_food_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 10
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "tundra_coupon-bottled_food_2",
+      "name": "谷地调度券(优质柑实罐头)",
+      "category": "settlement",
+      "icon": "tundra_coupon-bottled_food_2",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "bottled_food_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 27
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "tundra_coupon-bottled_food_3",
+      "name": "谷地调度券(精选柑实罐头)",
+      "category": "settlement",
+      "icon": "tundra_coupon-bottled_food_3",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "bottled_food_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 70
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "tundra_coupon-bottled_rec_hp_1",
+      "name": "谷地调度券(荞愈胶囊)",
+      "category": "settlement",
+      "icon": "tundra_coupon-bottled_rec_hp_1",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "bottled_rec_hp_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 10
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "tundra_coupon-bottled_rec_hp_2",
+      "name": "谷地调度券(优质荞愈胶囊)",
+      "category": "settlement",
+      "icon": "tundra_coupon-bottled_rec_hp_2",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "bottled_rec_hp_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 27
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "tundra_coupon-bottled_rec_hp_3",
+      "name": "谷地调度券(精选荞愈胶囊)",
+      "category": "settlement",
+      "icon": "tundra_coupon-bottled_rec_hp_3",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "bottled_rec_hp_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 70
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "tundra_coupon-proc_battery_1",
+      "name": "谷地调度券(低容谷地电池)",
+      "category": "settlement",
+      "icon": "tundra_coupon-proc_battery_1",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "proc_battery_1",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 16
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "tundra_coupon-proc_battery_2",
+      "name": "谷地调度券(中容谷地电池)",
+      "category": "settlement",
+      "icon": "tundra_coupon-proc_battery_2",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "proc_battery_2",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 30
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "tundra_coupon-proc_battery_3",
+      "name": "谷地调度券(高容谷地电池)",
+      "category": "settlement",
+      "icon": "tundra_coupon-proc_battery_3",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "proc_battery_3",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "tundra_coupon",
+          "qty": 70
+        }
+      ],
+      "producers": [
+        "settlement-tundra_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "jinlong_coupon-copper_cmpt",
+      "name": "武陵调度券(赤铜零件)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-copper_cmpt",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_cmpt",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 150
+    },
+    {
+      "id": "jinlong_coupon-copper_enr_cmpt",
+      "name": "武陵调度券(赫铜零件)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-copper_enr_cmpt",
+      "row": 1,
+      "time": 10,
+      "in": [
+        {
+          "item": "copper_enr_cmpt",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 48
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "jinlong_coupon-xiranite_powder",
+      "name": "武陵调度券(息壤)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-xiranite_powder",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "xiranite_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 150
+    },
+    {
+      "id": "jinlong_coupon-xiranite_enr_powder",
+      "name": "武陵调度券(重息壤)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-xiranite_enr_powder",
+      "row": 1,
+      "time": 10,
+      "in": [
+        {
+          "item": "xiranite_enr_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 27
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "jinlong_coupon-bottled_food_4",
+      "name": "武陵调度券(锦草软饮)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-bottled_food_4",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "bottled_food_4",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 16
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "jinlong_coupon-bottled_food_5",
+      "name": "武陵调度券(优质锦草软饮)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-bottled_food_5",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "bottled_food_5",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 22
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "jinlong_coupon-bottled_rec_hp_4",
+      "name": "武陵调度券(芽针针剂)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-bottled_rec_hp_4",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "bottled_rec_hp_4",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 16
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "jinlong_coupon-bottled_rec_hp_5",
+      "name": "武陵调度券(优质芽针针剂)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-bottled_rec_hp_5",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "bottled_rec_hp_5",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 22
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "jinlong_coupon-proc_battery_4",
+      "name": "武陵调度券(低容武陵电池)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-proc_battery_4",
+      "row": 3,
+      "time": 10,
+      "in": [
+        {
+          "item": "proc_battery_4",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 25
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "jinlong_coupon-proc_battery_5",
+      "name": "武陵调度券(中容武陵电池)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-proc_battery_5",
+      "row": 3,
+      "time": 10,
+      "in": [
+        {
+          "item": "proc_battery_5",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 54
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "transfer_tundra_bottled_food_1",
+      "name": "柑实罐头",
+      "category": "__domain_transfer",
+      "icon": "bottled_food_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_food_1",
+          "qty": 150
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_bottled_food_2",
+      "name": "优质柑实罐头",
+      "category": "__domain_transfer",
+      "icon": "bottled_food_2",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_food_2",
+          "qty": 75
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_bottled_food_3",
+      "name": "精选柑实罐头",
+      "category": "__domain_transfer",
+      "icon": "bottled_food_3",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_food_3",
+          "qty": 30
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_bottled_rec_hp_1",
+      "name": "荞愈胶囊",
+      "category": "__domain_transfer",
+      "icon": "bottled_rec_hp_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_rec_hp_1",
+          "qty": 150
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_bottled_rec_hp_2",
+      "name": "优质荞愈胶囊",
+      "category": "__domain_transfer",
+      "icon": "bottled_rec_hp_2",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_rec_hp_2",
+          "qty": 75
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_bottled_rec_hp_3",
+      "name": "精选荞愈胶囊",
+      "category": "__domain_transfer",
+      "icon": "bottled_rec_hp_3",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "bottled_rec_hp_3",
+          "qty": 30
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_carbon_enr",
+      "name": "稳定碳块",
+      "category": "__domain_transfer",
+      "icon": "carbon_enr",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_enr",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_carbon_enr_powder",
+      "name": "致密碳粉末",
+      "category": "__domain_transfer",
+      "icon": "carbon_enr_powder",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_enr_powder",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_carbon_mtl",
+      "name": "碳块",
+      "category": "__domain_transfer",
+      "icon": "carbon_mtl",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_mtl",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_carbon_powder",
+      "name": "碳粉末",
+      "category": "__domain_transfer",
+      "icon": "carbon_powder",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "carbon_powder",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_crystal_enr",
+      "name": "密制晶体",
+      "category": "__domain_transfer",
+      "icon": "crystal_enr",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "crystal_enr",
+          "qty": 750
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_crystal_enr_powder",
+      "name": "致密晶体粉末",
+      "category": "__domain_transfer",
+      "icon": "crystal_enr_powder",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "crystal_enr_powder",
+          "qty": 750
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_crystal_powder",
+      "name": "晶体外壳粉末",
+      "category": "__domain_transfer",
+      "icon": "crystal_powder",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "crystal_powder",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_crystal_shell",
+      "name": "晶体外壳",
+      "category": "__domain_transfer",
+      "icon": "crystal_shell",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "crystal_shell",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_equip_script_1",
+      "name": "紫晶装备原件",
+      "category": "__domain_transfer",
+      "icon": "equip_script_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "equip_script_1",
+          "qty": 150
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_equip_script_2",
+      "name": "蓝铁装备原件",
+      "category": "__domain_transfer",
+      "icon": "equip_script_2",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "equip_script_2",
+          "qty": 75
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_equip_script_3",
+      "name": "高晶装备原件",
+      "category": "__domain_transfer",
+      "icon": "equip_script_3",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "equip_script_3",
+          "qty": 30
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_glass_bottle",
+      "name": "紫晶质瓶",
+      "category": "__domain_transfer",
+      "icon": "glass_bottle",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "glass_bottle",
+          "qty": 750
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_glass_cmpt",
+      "name": "紫晶零件",
+      "category": "__domain_transfer",
+      "icon": "glass_cmpt",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "glass_cmpt",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_glass_enr_bottle",
+      "name": "高晶质瓶",
+      "category": "__domain_transfer",
+      "icon": "glass_enr_bottle",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "glass_enr_bottle",
+          "qty": 300
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_glass_enr_cmpt",
+      "name": "高晶零件",
+      "category": "__domain_transfer",
+      "icon": "glass_enr_cmpt",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "glass_enr_cmpt",
+          "qty": 750
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_iron_bottle",
+      "name": "蓝铁瓶",
+      "category": "__domain_transfer",
+      "icon": "iron_bottle",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_bottle",
+          "qty": 750
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_iron_cmpt",
+      "name": "铁制零件",
+      "category": "__domain_transfer",
+      "icon": "iron_cmpt",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_cmpt",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_iron_enr",
+      "name": "钢块",
+      "category": "__domain_transfer",
+      "icon": "iron_enr",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_enr",
+          "qty": 750
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_iron_enr_bottle",
+      "name": "钢质瓶",
+      "category": "__domain_transfer",
+      "icon": "iron_enr_bottle",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_enr_bottle",
+          "qty": 300
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_iron_enr_cmpt",
+      "name": "钢制零件",
+      "category": "__domain_transfer",
+      "icon": "iron_enr_cmpt",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_enr_cmpt",
+          "qty": 750
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_iron_enr_powder",
+      "name": "致密蓝铁粉末",
+      "category": "__domain_transfer",
+      "icon": "iron_enr_powder",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_enr_powder",
+          "qty": 750
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_iron_nugget",
+      "name": "蓝铁块",
+      "category": "__domain_transfer",
+      "icon": "iron_nugget",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_nugget",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_iron_powder",
+      "name": "蓝铁粉末",
+      "category": "__domain_transfer",
+      "icon": "iron_powder",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "iron_powder",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_originium_enr_powder",
+      "name": "致密源石粉末",
+      "category": "__domain_transfer",
+      "icon": "originium_enr_powder",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "originium_enr_powder",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_originium_powder",
+      "name": "源石粉末",
+      "category": "__domain_transfer",
+      "icon": "originium_powder",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "originium_powder",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_bbflower_1",
+      "name": "酮化灌木",
+      "category": "__domain_transfer",
+      "icon": "plant_bbflower_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_bbflower_1",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_bbflower_powder_1",
+      "name": "酮化灌木粉末",
+      "category": "__domain_transfer",
+      "icon": "plant_bbflower_powder_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_bbflower_powder_1",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_bbflower_seed_1",
+      "name": "酮化树种",
+      "category": "__domain_transfer",
+      "icon": "plant_bbflower_seed_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_bbflower_seed_1",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_grass_1",
+      "name": "锦草",
+      "category": "__domain_transfer",
+      "icon": "plant_grass_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_1",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_grass_2",
+      "name": "芽针",
+      "category": "__domain_transfer",
+      "icon": "plant_grass_2",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_2",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_grass_powder_1",
+      "name": "锦草粉末",
+      "category": "__domain_transfer",
+      "icon": "plant_grass_powder_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_powder_1",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_grass_powder_2",
+      "name": "芽针粉末",
+      "category": "__domain_transfer",
+      "icon": "plant_grass_powder_2",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_powder_2",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_grass_seed_1",
+      "name": "锦草种子",
+      "category": "__domain_transfer",
+      "icon": "plant_grass_seed_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_seed_1",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_grass_seed_2",
+      "name": "芽针种子",
+      "category": "__domain_transfer",
+      "icon": "plant_grass_seed_2",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_grass_seed_2",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_moss_1",
+      "name": "荞花",
+      "category": "__domain_transfer",
+      "icon": "plant_moss_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_1",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_moss_2",
+      "name": "柑实",
+      "category": "__domain_transfer",
+      "icon": "plant_moss_2",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_2",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_moss_3",
+      "name": "砂叶",
+      "category": "__domain_transfer",
+      "icon": "plant_moss_3",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_3",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_moss_enr_powder_1",
+      "name": "细磨荞花粉末",
+      "category": "__domain_transfer",
+      "icon": "plant_moss_enr_powder_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_enr_powder_1",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_moss_enr_powder_2",
+      "name": "细磨柑实粉末",
+      "category": "__domain_transfer",
+      "icon": "plant_moss_enr_powder_2",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_enr_powder_2",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_moss_powder_1",
+      "name": "荞花粉末",
+      "category": "__domain_transfer",
+      "icon": "plant_moss_powder_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_powder_1",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_moss_powder_2",
+      "name": "柑实粉末",
+      "category": "__domain_transfer",
+      "icon": "plant_moss_powder_2",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_powder_2",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_moss_powder_3",
+      "name": "砂叶粉末",
+      "category": "__domain_transfer",
+      "icon": "plant_moss_powder_3",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_powder_3",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_moss_seed_1",
+      "name": "荞花种子",
+      "category": "__domain_transfer",
+      "icon": "plant_moss_seed_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_seed_1",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_moss_seed_2",
+      "name": "柑实种子",
+      "category": "__domain_transfer",
+      "icon": "plant_moss_seed_2",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_seed_2",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_plant_moss_seed_3",
+      "name": "砂叶种子",
+      "category": "__domain_transfer",
+      "icon": "plant_moss_seed_3",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "plant_moss_seed_3",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_proc_battery_1",
+      "name": "低容谷地电池",
+      "category": "__domain_transfer",
+      "icon": "proc_battery_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "proc_battery_1",
+          "qty": 75
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_proc_battery_2",
+      "name": "中容谷地电池",
+      "category": "__domain_transfer",
+      "icon": "proc_battery_2",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "proc_battery_2",
+          "qty": 75
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_proc_battery_3",
+      "name": "高容谷地电池",
+      "category": "__domain_transfer",
+      "icon": "proc_battery_3",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "proc_battery_3",
+          "qty": 30
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_proc_bomb_1",
+      "name": "工业爆炸物",
+      "category": "__domain_transfer",
+      "icon": "proc_bomb_1",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "proc_bomb_1",
+          "qty": 300
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_quartz_enr",
+      "name": "高晶纤维",
+      "category": "__domain_transfer",
+      "icon": "quartz_enr",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "quartz_enr",
+          "qty": 750
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_quartz_enr_powder",
+      "name": "高晶粉末",
+      "category": "__domain_transfer",
+      "icon": "quartz_enr_powder",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "quartz_enr_powder",
+          "qty": 750
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_quartz_glass",
+      "name": "紫晶纤维",
+      "category": "__domain_transfer",
+      "icon": "quartz_glass",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "quartz_glass",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    },
+    {
+      "id": "transfer_tundra_quartz_powder",
+      "name": "紫晶粉末",
+      "category": "__domain_transfer",
+      "icon": "quartz_powder",
+      "row": 999,
+      "time": 3600,
+      "in": [
+        {
+          "item": "domain_key_tundra",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "quartz_powder",
+          "qty": 1500
+        }
+      ],
+      "producers": [
+        "__domain_transfer"
+      ]
+    }
+  ]
+}

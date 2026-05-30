@@ -1,0 +1,14 @@
+{
+  "name": "@factorio-plan/extractor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "extract": "bun run src/extract.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "typescript": "^5.7.0"
+  }
+}

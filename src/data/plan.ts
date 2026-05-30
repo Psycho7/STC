@@ -58,7 +58,7 @@ export function defaultPlan(pack: RecipePack): Plan {
     pack: {
       id: pack.source.name,
       schemaVersion: pack.schemaVersion,
-      submoduleSha: pack.source.submoduleSha,
+      submoduleSha: pack.source.sourceCommit,
     },
     title: "",
     targets: defaultTargets(),
