@@ -622,20 +622,40 @@ function walkFromTargets(state: ReplicateState): void {
     const consumer = state.g.nodes.get(frame.consumerId);
     if (!consumer) continue;
     for (const inItem of consumer.in) {
-      // Find the producer edge for this input item. The recipe graph already
-      // picked a single producer per item when it was built.
       const incoming = state.g.incoming.get(frame.consumerId) ?? [];
-      const edge = incoming.find((e) => e.item === inItem.item);
-      if (!edge) continue;
-      processProducer(state, {
-        producerId: edge.source,
-        producerItem: edge.item,
-        consumerId: frame.consumerId,
-        consumerReplicaId: frame.consumerReplicaId,
-        consumerRate: frame.consumerRate,
-        consumerGroupId: frame.blueprintGroupId,
-        consumerPath: frame.consumerPath,
-      });
+      const matching = incoming.filter((e) => e.item === inItem.item);
+      if (matching.length === 0) continue;
+
+      // Proportional split: each producer's share = (rate * outQty) / total.
+      // Single-producer case degenerates to share = 1.0.
+      let total = new Fraction(0);
+      const contribs: Array<{
+        edge: (typeof matching)[number];
+        contrib: Fraction;
+      }> = [];
+      for (const e of matching) {
+        const producer = state.g.nodes.get(e.source);
+        const outQty = producer?.out.find((o) => o.item === e.item)?.qty ?? 0;
+        const rate = state.rates.get(e.source) ?? new Fraction(0);
+        const contrib = rate.mul(outQty);
+        contribs.push({ edge: e, contrib });
+        total = total.add(contrib);
+      }
+      if (total.equals(0)) continue;
+
+      for (const { edge, contrib } of contribs) {
+        const share = contrib.div(total);
+        if (share.equals(0)) continue;
+        processProducer(state, {
+          producerId: edge.source,
+          producerItem: edge.item,
+          consumerId: frame.consumerId,
+          consumerReplicaId: frame.consumerReplicaId,
+          consumerRate: frame.consumerRate.mul(share),
+          consumerGroupId: frame.blueprintGroupId,
+          consumerPath: frame.consumerPath,
+        });
+      }
     }
   }
 }
