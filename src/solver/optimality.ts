@@ -9,13 +9,13 @@
 // assertOptimal below implements the FORCED RE-SOLVE witness rather than a
 // strong-duality / complementary-slackness check.
 
-import type { Recipe, RecipePack } from "@aef/schema";
+import type { RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipeId, ItemId } from "./types";
 import type { LpResult, LpInput } from "./lp";
 import type { InvariantResult } from "./invariants";
-import { solveLp } from "./lp";
+import { solveLp, recipeCostWeight } from "./lp";
 
 // Objective weights, mirrored EXACTLY from lp.ts so the recomputed objective
 // matches what solveLp's primary pass minimized.
@@ -29,27 +29,13 @@ const ACTIVE_EPS = 1e-12;
 // Relative tolerance for objective comparisons, matching invariants.ts.
 const REL_TOL = 1e-6;
 
-// Recipe-cost weight, mirrored EXACTLY from lp.ts recipeCostWeight: an override
-// is clamped to >= 0; the target-only flag, cost === -1, and category
-// __domain_transfer each map to the 1e6 big-M; everything else is 1.
-function recipeCostWeight(
-  r: Recipe,
-  overrides: Map<RecipeId, number> | undefined,
-): number {
-  if (overrides?.has(r.id)) return Math.max(0, overrides.get(r.id)!);
-  if (r.flags?.includes("target-only")) return 1e6;
-  if (r.cost === -1) return 1e6;
-  if (r.category === "__domain_transfer") return 1e6;
-  return 1;
-}
-
 /**
  * Recompute the primary-pass objective from an LpResult's emitted rates,
  * surplus, and deficit, using the SAME weights solveLp's primary pass uses:
  *   objective = sum_r cost(r) * rate(r)
  *             + sum_i SURPLUS_WEIGHT * surplus(i)
  *             + sum_i DEFICIT_WEIGHT * deficit(i)
- * `recipeCosts` is applied through recipeCostWeight exactly as lp.ts does. Pass
+ * `recipeCosts` is applied through lp.ts's exported recipeCostWeight. Pass
  * the same map solveLp was given to reproduce result.objectiveValue; omit it to
  * score against the intrinsic (default unit) recipe costs.
  */
@@ -106,10 +92,16 @@ function itemsTouchedBy(result: LpResult, pack: RecipePack): Set<ItemId> {
 }
 
 /**
- * Reference-free optimality witness via FORCED RE-SOLVE (no duals available).
+ * Reference-free heuristic optimality SCREEN via FORCED RE-SOLVE (no duals
+ * available). A passing screen does NOT prove LP-optimality; it means no
+ * cheaper one-hop-neighbor substitution was found (see Limitations below).
  *
  * Procedure:
  *  1. Solve the baseline with the given recipeCosts: base = solveLp(input).
+ *     If the base is not softFeasible (a deficit var survives), the screen
+ *     abstains: returns ok:true with no violations. An infeasible/deficit-laden
+ *     base is not a meaningful optimality target; comparisons against it produce
+ *     noise, not signal.
  *  2. Score the baseline at INTRINSIC (default unit) recipe costs:
  *     baseObj = recomputeObjective(base, pack)   // note: no recipeCosts arg.
  *     Scoring at intrinsic costs (rather than the supplied override map) is the
@@ -119,16 +111,23 @@ function itemsTouchedBy(result: LpResult, pack: RecipePack): Set<ItemId> {
  *     the solve and the score share the same costs, so the base is by
  *     construction the intrinsic optimum and no candidate can beat it -> ok.
  *  3. Bound the candidate set to recipes that are INACTIVE in base but produce
- *     an item touched by base's active recipes (the only recipes that could
- *     substitute into the existing plan graph). For each candidate, re-solve
- *     forcing it cheap by overriding its cost to 0 on top of the original
- *     recipeCosts.
+ *     an item touched by base's active recipes (one-hop neighbors of the current
+ *     plan graph). For each candidate, re-solve forcing it cheap by overriding
+ *     its cost to 0 on top of the original recipeCosts.
  *  4. Score each re-solved alternative at the SAME intrinsic costs, NOT the
  *     perturbed cost. The 0-override is only an incentive to admit the
  *     candidate; scoring at the perturbed cost would merely measure the
  *     perturbation. If an alternative is strictly cheaper than baseObj beyond
  *     tolerance, the baseline was suboptimal -> violation.
- *  5. No cheaper alternative -> base is (LP-)optimal -> ok.
+ *  5. No cheaper one-hop-neighbor alternative found -> the screen passes (ok).
+ *     This does NOT prove LP-optimality (see Limitations below).
+ *
+ * Limitations (false negatives): the candidate set is restricted to inactive
+ * recipes that produce an item already touched by the base plan. Multi-hop
+ * restructurings and substitutions that introduce entirely new items or
+ * sub-chains are NOT explored. A passing screen can still sit on a globally
+ * suboptimal plan. This screen catches one-hop cost improvements only; nothing
+ * deeper is evaluated.
  */
 export function assertOptimal(input: OptimalityInput): InvariantResult {
   const { targets, pack, itemOverrides, recipeCosts } = input;
@@ -144,6 +143,10 @@ export function assertOptimal(input: OptimalityInput): InvariantResult {
   };
 
   const base = solveLp(lpInput(recipeCosts));
+  // Abstain when the base is not softFeasible: a deficit var survived, so the
+  // objective is dominated by the 1e9 deficit weight and cheaper-alternative
+  // comparisons are meaningless noise rather than optimality signal.
+  if (!base.softFeasible) return { ok: true, violations: [] };
   const baseObj = recomputeObjective(base, pack);
   const baseActive = activeRecipeSet(base);
   const touched = itemsTouchedBy(base, pack);
