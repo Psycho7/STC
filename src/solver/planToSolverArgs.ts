@@ -21,6 +21,9 @@ export type SolverArgs = {
 export function planToSolverArgs(plan: Plan): SolverArgs {
   const itemOverrides = plan.itemOverrides ?? [];
 
+  // recipeCosts are coerced to number here via Number(num)/Number(denom).
+  // itemOverrides.ratePerSec (the per-item supply cap) intentionally stays as
+  // RationalString and is coerced downstream (effectiveSupply.ts uses Fraction).
   const recipeCosts = plan.recipeCosts
     ? new Map(
         [...plan.recipeCosts].map(
