@@ -49,7 +49,7 @@ type LpRaw = Record<string, number> & {
 // contract (ADR STC-0005). Synthetic and target-only recipes are pushed to a
 // big-M cost so the LP only runs them when the user pins them or no alternative
 // exists; they are sourced from three distinct pack signals.
-function recipeCostWeight(
+export function recipeCostWeight(
   r: Recipe,
   overrides: Map<RecipeId, number> | undefined,
 ): number {
