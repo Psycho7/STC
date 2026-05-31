@@ -46,7 +46,7 @@ type LpRaw = Record<string, number> & {
 };
 
 // Default cost weights. Relative ordering deficit >> recipe >> surplus is the
-// contract (ADR STC-0005). Synthetic and target-only recipes are pushed to a
+// cost contract. Synthetic and target-only recipes are pushed to a
 // big-M cost so the LP only runs them when the user pins them or no alternative
 // exists; they are sourced from three distinct pack signals.
 export function recipeCostWeight(
