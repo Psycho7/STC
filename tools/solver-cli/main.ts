@@ -3,7 +3,7 @@
 //   bun run tools/solver-cli/main.ts --plan <recipeId=rate,...> [--mode full|rates]
 //   bun run tools/solver-cli/main.ts --hash <planHash>          [--mode full|rates]
 //
-// See tools/solver-cli/README.md for full usage details.
+// Flags and output format are documented inline below.
 
 import Fraction from "fraction.js";
 import { pack } from "../../src/data/load";
