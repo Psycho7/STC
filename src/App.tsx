@@ -157,11 +157,7 @@ function AppInner() {
           itemOverrides,
           recipeCosts,
         );
-        const laid = await renderFromFull(
-          full,
-          nextPlan.itemOverrides ?? [],
-          nextPlan.targets,
-        );
+        const laid = await renderFromFull(full, itemOverrides, targets);
         if (outcome.kind === "seeded") {
           history.replaceState(null, "", "#" + (await encodePlan(nextPlan)));
         }

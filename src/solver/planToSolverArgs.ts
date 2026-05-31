@@ -9,7 +9,7 @@ export type SolverArgs = {
 };
 
 /**
- * Convert a parsed Plan into the argument tuple consumed by solvePlan and
+ * Convert a parsed Plan into the argument tuple consumed by
  * solvePlanWithIntermediates. Centralizes the num/denom -> number coercion
  * (Number(num)/Number(denom)) that both App.tsx call sites previously inlined.
  *
