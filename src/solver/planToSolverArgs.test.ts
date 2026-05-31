@@ -17,7 +17,7 @@ function makePlan(overrides?: Partial<Plan>): Plan {
 }
 
 describe("planToSolverArgs", () => {
-  it("returns targets coerced via Number(num)/Number(denom)", () => {
+  it("passes targets through by reference without transformation", () => {
     const plan = makePlan();
     const { targets } = planToSolverArgs(plan);
     // The helper must return the same Target[] reference (no transformation).
