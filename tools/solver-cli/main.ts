@@ -43,7 +43,10 @@ function parseRateEntry(entry: string): Target | null {
   if (slashIdx !== -1) {
     const num = rateStr.slice(0, slashIdx).trim();
     const denom = rateStr.slice(slashIdx + 1).trim();
+    // Both sides must be non-negative integers; zero denominator is rejected.
     if (!num || !denom) return null;
+    if (!/^\d+$/.test(num) || !/^\d+$/.test(denom)) return null;
+    if (denom === "0") return null;
     return { recipeId, ratePerSec: { num, denom } };
   }
 
@@ -53,6 +56,8 @@ function parseRateEntry(entry: string): Target | null {
   }
 
   // Decimal: split at the point, build num/denom as powers of 10.
+  // Exact only for short decimals (the documented use case); long decimal
+  // inputs may lose precision due to floating-point arithmetic.
   const dot = rateStr.indexOf(".");
   if (dot !== -1 && /^\d+\.\d+$/.test(rateStr)) {
     const intPart = rateStr.slice(0, dot);
@@ -117,10 +122,16 @@ export async function runCli(argv: string[]): Promise<string> {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--hash") {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("--")) return `error: --hash requires a value`;
       hashArg = argv[++i];
     } else if (a === "--plan") {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("--")) return `error: --plan requires a value`;
       planArg = argv[++i];
     } else if (a === "--mode") {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("--")) return `error: --mode requires a value`;
       const m = argv[++i];
       if (m !== "full" && m !== "rates") return `error: --mode must be full or rates, got "${m}"`;
       mode = m;
@@ -189,6 +200,9 @@ export async function runCli(argv: string[]): Promise<string> {
   }
 
   if (mode === "full") {
+    if (lpResult.status !== "feasible") {
+      return `error: cannot run full invariants on a non-feasible solve (status=${lpResult.status})`;
+    }
     // --- Invariants ---
     const massBalance = checkMassBalance(lpResult, pack, targets);
     const targetsMet = checkTargetsMet(lpResult, targets, pack);

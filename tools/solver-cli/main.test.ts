@@ -68,4 +68,38 @@ describe("solver-cli smoke", () => {
     const out = await runCli(["--plan", "xiranite_enr_powder=6/60", "--mode", "rates"]);
     expect(out).toMatch(/^status=feasible/m);
   });
+
+  // --- FIX 2: slash-branch validation ---
+
+  it("rejects zero denominator in rational rate without throwing", async () => {
+    const out = await runCli(["--plan", "xiranite_enr_powder=1/0", "--mode", "rates"]);
+    expect(out).toMatch(/^error:/);
+  });
+
+  it("rejects non-numeric sides in rational rate without throwing", async () => {
+    const out = await runCli(["--plan", "xiranite_enr_powder=abc/def", "--mode", "rates"]);
+    expect(out).toMatch(/^error:/);
+  });
+
+  // --- FIX 1: flag-as-value detection ---
+
+  it("rejects --plan followed immediately by a flag without throwing", async () => {
+    // --plan --mode rates: --mode would be consumed as the plan value without the fix.
+    const out = await runCli(["--plan", "--mode", "rates"]);
+    expect(out).toMatch(/^error:/);
+    expect(out).toContain("--plan requires a value");
+  });
+
+  // --- FIX 3: non-feasible full-mode guard ---
+
+  it("returns clean error for full mode on unknown recipe (non-feasible/empty status)", async () => {
+    // An unknown recipeId produces status=empty from the LP (no matching recipe
+    // in the pack), so solveLp never reaches feasible. Without the guard,
+    // solvePlanWithIntermediates would throw an infeasible exception. We verify
+    // the guard intercepts it and returns a clean error string instead.
+    const out = await runCli(["--plan", "no_such_recipe_id=1", "--mode", "full"]);
+    expect(out).toMatch(/^error:/);
+    expect(out).toContain("cannot run full invariants on a non-feasible solve");
+    // Must not throw -- the test itself would fail if it did.
+  });
 });
