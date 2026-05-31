@@ -22,6 +22,8 @@ Comma-separated list of `recipeId=rate` entries. Accepted rate forms:
 | integer     | `2`           | `{num:"2",denom:"1"}`  |
 | decimal     | `0.1`         | `{num:"1",denom:"10"}` |
 
+Both sides of `num/denom` must be non-negative integers and `denom` must not be `0`; otherwise the CLI exits nonzero with a parse error.
+
 Example:
 
 ```
