@@ -25,6 +25,7 @@ import { pack } from "./data/load";
 import type { LogicalGraph } from "./canvas/layout";
 import { computeInSccRecipes } from "./solver/packSccs";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./solver";
+import { planToSolverArgs } from "./solver/planToSolverArgs";
 import { buildRenderPlan } from "./pipeline/driver";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
@@ -147,19 +148,13 @@ function AppInner() {
           return;
         }
         const nextPlan = outcome.plan;
-        const recipeCosts = nextPlan.recipeCosts
-          ? new Map(
-              [...nextPlan.recipeCosts].map(
-                ([k, v]) =>
-                  [k, Number(v.num) / Number(v.denom)] as [string, number],
-              ),
-            )
-          : undefined;
+        const { targets, itemOverrides, recipeCosts } =
+          planToSolverArgs(nextPlan);
         const full = solvePlanWithIntermediates(
-          nextPlan.targets,
+          targets,
           pack,
           tConfigRef.current,
-          nextPlan.itemOverrides ?? [],
+          itemOverrides,
           recipeCosts,
         );
         const laid = await renderFromFull(
@@ -192,23 +187,16 @@ function AppInner() {
     try {
       const error = validatePlan(nextPlan, pack);
       if (error) throw new Error(describePlanLoadError(error));
-      const overrides = nextPlan.itemOverrides ?? [];
-      const recipeCosts = nextPlan.recipeCosts
-        ? new Map(
-            [...nextPlan.recipeCosts].map(
-              ([k, v]) =>
-                [k, Number(v.num) / Number(v.denom)] as [string, number],
-            ),
-          )
-        : undefined;
+      const { targets, itemOverrides, recipeCosts } =
+        planToSolverArgs(nextPlan);
       const full = solvePlanWithIntermediates(
-        nextPlan.targets,
+        targets,
         pack,
         tConfigRef.current,
-        overrides,
+        itemOverrides,
         recipeCosts,
       );
-      const laid = await renderFromFull(full, overrides, nextPlan.targets);
+      const laid = await renderFromFull(full, itemOverrides, targets);
       if (myGen !== solveGen.current) return;
       fullRef.current = full;
       setPlan(nextPlan);
