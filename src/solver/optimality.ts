@@ -6,8 +6,8 @@
 // `constructor`, so no helper method exposes them either. (Verified by a
 // throwaway probe test that JSON-dumped a solved model at runtime: keys were
 // ["feasible","result","x_make","bounded"].) Because no duals are available,
-// assertOptimal below implements the FORCED RE-SOLVE witness rather than a
-// strong-duality / complementary-slackness check.
+// assertOptimal below implements the FORCED RE-SOLVE heuristic screen rather
+// than a strong-duality / complementary-slackness check.
 
 import type { RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
@@ -17,8 +17,10 @@ import type { LpResult, LpInput } from "./lp";
 import type { InvariantResult } from "./invariants";
 import { solveLp, recipeCostWeight } from "./lp";
 
-// Objective weights, mirrored EXACTLY from lp.ts so the recomputed objective
-// matches what solveLp's primary pass minimized.
+// Surplus/deficit objective weights. These hand-mirror the inline literals in
+// lp.ts (1e-3, 1e9) that solveLp's primary pass minimizes; lp.ts does not
+// export them, so keep them in sync by hand. This is the one remaining drift
+// hazard in this file (recipeCostWeight is imported, not copied).
 const SURPLUS_WEIGHT = 1e-3;
 const DEFICIT_WEIGHT = 1e9;
 
