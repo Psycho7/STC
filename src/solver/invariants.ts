@@ -192,15 +192,16 @@ function recipeIdsInLogical(full: SolvePlanFull): Set<string> {
 }
 
 /**
- * Cross-layer representability between the LP layer (full.rates) and the 2b
- * LogicalGraph (full.logical.nodes):
- *  - every positive-rate recipe must appear as a recipe in the logical graph,
- *    EXCEPT recipes that buildRecipeGraphMulti legitimately excludes: a recipe
- *    in the __domain_transfer category, or a cost === -1 sink recipe. These are
- *    sanctioned boundary/sink recipes and may carry a positive LP rate without
- *    a logical node.
- *  - every recipe node in the logical graph must map back to a positive-rate
- *    recipe in full.rates.
+ * Forward representability from the LP layer (full.rates) to the 2b
+ * LogicalGraph (full.logical.nodes): every positive-rate recipe must appear as
+ * a recipe in the logical graph, EXCEPT recipes that buildRecipeGraphMulti
+ * legitimately excludes: a recipe in the __domain_transfer category, or a
+ * cost === -1 sink recipe. These are sanctioned boundary/sink recipes and may
+ * carry a positive LP rate without a logical node.
+ *
+ * The reverse direction (logical node -> positive LP rate) is intentionally a
+ * separate checker, checkNoOrphanLogicalNodes, because it reports a known
+ * out-of-scope graph-assembly finding on the current pack.
  */
 export function checkRepresentable(full: SolvePlanFull): InvariantResult {
   const violations: string[] = [];
@@ -219,7 +220,24 @@ export function checkRepresentable(full: SolvePlanFull): InvariantResult {
     );
   }
 
-  // Reverse: logical recipe -> must have a positive LP rate.
+  return { ok: violations.length === 0, violations };
+}
+
+/**
+ * Reverse representability: every recipe node in the 2b LogicalGraph
+ * (full.logical.nodes, kind "recipe") must map back to a positive-rate recipe
+ * in full.rates. A node whose recipe has no positive LP rate is an orphan: the
+ * graph assembly materialized a node the LP gave zero (or no) rate.
+ *
+ * This catches zero-rate/orphan recipe nodes produced by the 2b graph
+ * assembly. On the current pack the headline plan legitimately reports
+ * `copper_enr` (a known render/graph-assembly finding, out of scope to fix
+ * here), so this checker is expected to return ok:false there.
+ */
+export function checkNoOrphanLogicalNodes(full: SolvePlanFull): InvariantResult {
+  const violations: string[] = [];
+  const logicalIds = recipeIdsInLogical(full);
+
   for (const recipeId of logicalIds) {
     const rate = full.rates.get(recipeId);
     if (!rate || rate.compare(FRAC_ZERO) <= 0) {
