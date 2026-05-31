@@ -6,6 +6,7 @@ import {
   checkTargetsMet,
   checkRawOnlyBoundary,
   checkRepresentable,
+  checkNoOrphanLogicalNodes,
   type InvariantResult,
 } from "./invariants";
 import { solveLp, type LpResult } from "./lp";
@@ -63,6 +64,19 @@ describe("invariants - headline plan (all checkers pass)", () => {
     const r = checkRepresentable(makeFull());
     expect(r.ok, r.violations.join("\n")).toBe(true);
     expect(r.violations).toEqual([]);
+  });
+});
+
+describe("checkNoOrphanLogicalNodes - known headline finding", () => {
+  // Pins a known out-of-scope graph-assembly orphan: the 2b LogicalGraph
+  // materializes a `copper_enr` recipe node that the LP gives zero rate (the
+  // item copper_enr is consumed by nothing). Fixing the render layer to drop
+  // zero-rate nodes is out of scope here. When that fix lands, flip this
+  // expectation to ok:true.
+  it("flags the copper_enr orphan on the headline plan", () => {
+    const r = checkNoOrphanLogicalNodes(makeFull());
+    expect(r.ok).toBe(false);
+    expect(r.violations.some((v) => v.includes("copper_enr"))).toBe(true);
   });
 });
 
@@ -271,6 +285,18 @@ describe("checkRepresentable - detection power", () => {
     };
     const r = checkRepresentable(corrupted);
     expect(r.violations.some((v) => v.includes(xferId))).toBe(false);
+  });
+});
+
+describe("checkNoOrphanLogicalNodes - detection power", () => {
+  it("flags a logical recipe node that has no positive LP rate", () => {
+    const full = makeFull();
+    // Drop every rate so each logical recipe node becomes an orphan; the
+    // checker must report at least one violation.
+    const stripped: SolvePlanFull = { ...full, rates: new Map() };
+    const r = checkNoOrphanLogicalNodes(stripped);
+    expect(r.ok).toBe(false);
+    expect(r.violations.length).toBeGreaterThan(0);
   });
 });
 
