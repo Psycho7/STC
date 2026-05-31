@@ -35,6 +35,8 @@ import {
   planPassthroughGolden,
   domainTransferExclusion,
   domainTransferExclusionGolden,
+  domainTransferScc,
+  domainTransferSccGolden,
   targetOnlyFlagExclusion,
   targetOnlyFlagExclusionGolden,
   costMinusOneSinkExclusion,
@@ -130,6 +132,10 @@ describe("Scenario 3: equal-cost tie-break", () => {
   });
 
   it("is deterministic: same scenario solved twice yields identical goldens", () => {
+    // equalCostTieBreak is the meaningful determinism target: it exercises the
+    // two-pass lex tie-break (pass 2 minimizes recipe-id rank). A non-deterministic
+    // sort or LP tie-break would flip aaa_producer / zzz_producer across runs.
+    // acyclicSingleProducer has no tie-break ambiguity, so it cannot detect that.
     const r1 = solveLp({ targets: equalCostTieBreak.targets, pack: equalCostTieBreak.pack });
     const r2 = solveLp({ targets: equalCostTieBreak.targets, pack: equalCostTieBreak.pack });
     assertObjective(r1.objectiveValue, r2.objectiveValue);
@@ -176,6 +182,15 @@ describe("Scenario 5: finite cap forces fallback", () => {
   });
 
   it("cap on raw_aprimary=0 forces z_fallback to cover all demand", () => {
+    // Baseline (no cap): lex tie-break picks a_primary; z_fallback stays inactive.
+    // With cap: a_primary is blocked at 0; z_fallback covers all demand.
+    // The companion assertion below makes the cap's binding self-evident.
+    const uncapped = solveLp({
+      targets: finiteCapForcingFallback.targets,
+      pack: finiteCapForcingFallback.pack,
+    });
+    expect(activeList(uncapped)).not.toContain("z_fallback");
+
     const result = solveLp({
       targets: finiteCapForcingFallback.targets,
       pack: finiteCapForcingFallback.pack,
@@ -269,6 +284,38 @@ describe("Scenario 7: big-M cost signals exclude synthetic recipes", () => {
     // r_sink (cost 1e6) must not run.
     expect(activeList(result)).toEqual(costMinusOneSinkExclusionGolden.activeRecipes);
     expect(activeList(result)).not.toContain("r_sink");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 7a: cyclic SCC -- min-floor contract
+// ---------------------------------------------------------------------------
+describe("Scenario 7a: cyclic SCC -- min-floor contract", () => {
+  it("target recipe runs at >= its min-floor even when the SCC creates a deficit", () => {
+    const result = solveLp({
+      targets: domainTransferScc.targets,
+      pack: domainTransferScc.pack,
+    });
+
+    expect(result.status).toBe(domainTransferSccGolden.status);
+    expect(result.softFeasible).toBe(domainTransferSccGolden.softFeasible);
+    assertObjective(result.objectiveValue, domainTransferSccGolden.objectiveValue);
+    expect(activeList(result)).toEqual(domainTransferSccGolden.activeRecipes);
+    // Deficit on target_item because the cycle cannot resolve the demand.
+    expect(result.deficit.has(domainTransferSccGolden.deficitItem)).toBe(true);
+
+    // Pin the min-floor contract: the targeted recipe must run at >= floor.
+    // floor = (ratePerSec.num / ratePerSec.denom) / primaryOutputQty.
+    // This asserts the core invariant from lp.ts: target pin is a MIN, not
+    // equality, so the cycle does not over-constrain the targeted recipe.
+    const t = domainTransferScc.targets[0]!;
+    const recipe = domainTransferScc.pack.recipes.find((r) => r.id === t.recipeId)!;
+    const primaryOutputQty = recipe.out[0]!.qty;
+    const floor =
+      (Number(t.ratePerSec.num) / Number(t.ratePerSec.denom)) / primaryOutputQty;
+    const actual = result.rates.get(t.recipeId)?.valueOf() ?? 0;
+    const slack = floor * 1e-9;
+    expect(actual).toBeGreaterThanOrEqual(floor - slack);
   });
 });
 
