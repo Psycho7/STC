@@ -201,6 +201,61 @@ describe("solveLp - input guards", () => {
   });
 });
 
+describe("solveLp - multiple targets", () => {
+  it("pins every target simultaneously", () => {
+    const targets: Target[] = [
+      { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "2" } },
+      { recipeId: "iron_powder", ratePerSec: { num: "1", denom: "4" } },
+    ];
+    const result = solveLp({ targets, pack });
+    for (const t of targets) {
+      const recipe = pack.recipes.find((r) => r.id === t.recipeId)!;
+      const primary = recipe.out[0]!;
+      const floor =
+        Number(t.ratePerSec.num) / Number(t.ratePerSec.denom) / primary.qty;
+      const x = result.rates.get(t.recipeId);
+      expect(x, `${t.recipeId} must be active`).toBeDefined();
+      expect(x!.valueOf()).toBeGreaterThanOrEqual(floor - 1e-9);
+    }
+  });
+
+  it("sums demand when two distinct target recipes share a primary output item", () => {
+    const p = {
+      recipes: [
+        {
+          id: "prod_a",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw", qty: 1 }],
+          out: [{ item: "shared", qty: 1 }],
+        },
+        {
+          id: "prod_b",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw", qty: 1 }],
+          out: [{ item: "shared", qty: 1 }],
+        },
+      ],
+      items: [
+        { id: "raw", raw: true },
+        { id: "shared", raw: false },
+      ],
+    } as unknown as RecipePack;
+    const targets: Target[] = [
+      { recipeId: "prod_a", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "prod_b", ratePerSec: { num: "2", denom: "1" } },
+    ];
+    const result = solveLp({ targets, pack: p });
+    // Demand on `shared` sums to 1 + 2 = 3, met by both producers at their
+    // pinned floors with no surplus or deficit.
+    expect(result.rates.get("prod_a")?.valueOf() ?? 0).toBeCloseTo(1, 6);
+    expect(result.rates.get("prod_b")?.valueOf() ?? 0).toBeCloseTo(2, 6);
+    expect(result.deficit.get("shared")?.valueOf() ?? 0).toBeCloseTo(0, 6);
+    expect(result.surplus.get("shared")?.valueOf() ?? 0).toBeCloseTo(0, 6);
+  });
+});
+
 describe("solveLp - duplicate targets", () => {
   it("sums duplicate target floors on the same recipe instead of overwriting", () => {
     // make_prod (the target) and alt both produce `prod`. alt is cheaper, so
