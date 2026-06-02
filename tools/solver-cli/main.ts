@@ -20,6 +20,9 @@ import {
 } from "../../src/solver/invariants";
 import { assertOptimal } from "../../src/solver/optimality";
 import { loadPlan, describePlanLoadError } from "../../src/data/plan";
+import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
+import type { ItemOverride } from "../../src/data/plan";
+import type { RecipeId } from "../../src/solver/types";
 
 // ---------------------------------------------------------------------------
 // Rate parsing for --plan
@@ -147,8 +150,12 @@ export async function runCli(argv: string[]): Promise<string> {
     return "error: provide exactly one of --hash or --plan";
   }
 
-  // --- Resolve targets ---
+  // --- Resolve targets and overrides ---
   let targets: Target[];
+  // The --plan path carries no overrides; the --hash path threads whatever the
+  // decoded plan carried so the CLI solve matches what the app produces.
+  let itemOverrides: ItemOverride[] = [];
+  let recipeCosts: Map<RecipeId, number> | undefined;
 
   if (planArg !== undefined) {
     const parsed = parseInlineTargets(planArg);
@@ -161,11 +168,14 @@ export async function runCli(argv: string[]): Promise<string> {
     if (outcome.kind === "error") {
       return `error: failed to decode hash: ${describePlanLoadError(outcome.error)}`;
     }
-    targets = outcome.plan.targets;
+    const args = planToSolverArgs(outcome.plan);
+    targets = args.targets;
+    itemOverrides = args.itemOverrides;
+    recipeCosts = args.recipeCosts;
   }
 
   // --- Run LP ---
-  const lpResult = solveLp({ targets, pack });
+  const lpResult = solveLp({ targets, pack, itemOverrides, recipeCosts });
 
   const lines: string[] = [];
 
@@ -204,9 +214,9 @@ export async function runCli(argv: string[]): Promise<string> {
       return `error: cannot run full invariants on a non-feasible solve (status=${lpResult.status})`;
     }
     // --- Invariants ---
-    const massBalance = checkMassBalance(lpResult, pack, targets);
+    const massBalance = checkMassBalance(lpResult, pack, targets, itemOverrides);
     const targetsMet = checkTargetsMet(lpResult, targets, pack);
-    const rawOnlyBoundary = checkRawOnlyBoundary(lpResult, pack, []);
+    const rawOnlyBoundary = checkRawOnlyBoundary(lpResult, pack, itemOverrides);
     const full = solvePlanWithIntermediates(targets, pack, defaultTransportConfig);
     const representable = checkRepresentable(full);
 
@@ -215,7 +225,7 @@ export async function runCli(argv: string[]): Promise<string> {
     // is a known, documented out-of-scope graph finding and is NOT a CLI error.
     const noOrphanLogicalNodes = checkNoOrphanLogicalNodes(full);
 
-    const optimal = assertOptimal({ targets, pack });
+    const optimal = assertOptimal({ targets, pack, itemOverrides, recipeCosts });
 
     lines.push("# invariants");
     for (const l of fmtVerdict("massBalance", massBalance.ok, massBalance.violations)) lines.push(l);
