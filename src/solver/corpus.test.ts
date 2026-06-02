@@ -131,11 +131,13 @@ describe("Scenario 3: equal-cost tie-break", () => {
     expect(activeList(result)).not.toContain("zzz_producer");
   });
 
-  it("is deterministic: same scenario solved twice yields identical goldens", () => {
-    // equalCostTieBreak is the meaningful determinism target: it exercises the
-    // two-pass lex tie-break (pass 2 minimizes recipe-id rank). A non-deterministic
-    // sort or LP tie-break would flip aaa_producer / zzz_producer across runs.
-    // acyclicSingleProducer has no tie-break ambiguity, so it cannot detect that.
+  it("is repeatable: same scenario solved twice yields identical goldens", () => {
+    // Run-to-run repeatability, not input-order invariance (lp.test.ts covers
+    // the latter by shuffling the recipe/item arrays). equalCostTieBreak is the
+    // meaningful target: it exercises the two-pass lex tie-break (pass 2
+    // minimizes recipe-id rank). A non-deterministic sort or LP tie-break would
+    // flip aaa_producer / zzz_producer across runs. acyclicSingleProducer has no
+    // tie-break ambiguity, so it cannot detect that.
     const r1 = solveLp({ targets: equalCostTieBreak.targets, pack: equalCostTieBreak.pack });
     const r2 = solveLp({ targets: equalCostTieBreak.targets, pack: equalCostTieBreak.pack });
     assertObjective(r1.objectiveValue, r2.objectiveValue);
