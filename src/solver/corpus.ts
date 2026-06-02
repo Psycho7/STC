@@ -84,16 +84,16 @@ export const acyclicSingleProducerGolden = {
 };
 
 // ---------------------------------------------------------------------------
-// Scenario 2: multi-producer cost choice
+// Scenario 2: multi-producer lex tie-break (parallel producers, equal cost)
 //
 // Two producers for "mid": cheap (consumes 1 raw) and pricey (consumes 2 raw).
-// Both have the same default recipe cost weight (1). The LP minimizes recipe
-// runs, so it picks the cheaper one by mass-balance: "cheap" needs fewer raw
-// inputs per unit of "mid" => strictly smaller objective => "cheap" wins.
-//
-// At default intrinsic costs both recipes cost 1 per run, but the LP also
-// minimizes raw supply. The solver picks "cheap" because running "pricey" at
-// rate 1 requires 2 units of raw while "cheap" requires only 1.
+// "raw" is a raw item, so its effective supply is Infinity and the LP builds no
+// mass-balance row for it: raw consumption is unpriced. Both producers
+// therefore cost the same (1 recipe run) and yield the same objective. The
+// winner is decided purely by the pass-2 lex tie-break, which minimizes
+// recipe-id rank: "cheap" (rank 0) beats "pricey" (rank 1). This is the same
+// mechanism as Scenario 3; the differing raw footprints are a red herring
+// because raw never enters the objective.
 //
 // Objective: 2 (target_r + cheap, each at rate 1, cost 1 each).
 // "pricey" must NOT be active.
@@ -134,8 +134,8 @@ export const multiProducerCostChoice = {
 
 export const multiProducerCostChoiceGolden = {
   objectiveValue: 2,
-  // "cheap" wins because it requires fewer raw inputs per unit of "mid".
-  // "pricey" stays inactive.
+  // "cheap" wins the pass-2 lex tie-break (recipe-id rank 0 < "pricey" rank 1);
+  // raw consumption is unpriced, so cost alone does not separate the two.
   activeRecipes: ["cheap", "target_r"],
 };
 
@@ -143,11 +143,11 @@ export const multiProducerCostChoiceGolden = {
 // Scenario 2b: recipeCosts override flips the winner
 //
 // Same pack as scenario 2 but a recipeCosts override raises "cheap" to cost 100.
-// The LP now prefers "pricey" despite its larger raw footprint, because the
-// override cost (100) dominates the normal-cost (1) of "pricey".
-// Objective is reported as the pass-1 primary cost: 100*1 + 1*1 = 101... but
-// wait - raw is Infinity so its mass balance is skipped. Let's trust the solver.
-// Derived by running solveLp with this override and reading result.
+// The pass-1 primary objective now avoids the cost-100 "cheap" and runs
+// "pricey" + "target_r" at cost 1 + 1 = 2, leaving "cheap" inactive. The
+// reported objective is the pass-1 cost cap (2), not 100-something: "cheap"
+// never runs, so its cost never enters the objective. The override has flipped
+// the winner by making "cheap" genuinely more expensive than "pricey".
 // ---------------------------------------------------------------------------
 export const multiProducerCostChoiceWithOverride = {
   pack: multiProducerCostChoice.pack,
