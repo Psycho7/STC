@@ -82,9 +82,8 @@ type OptimalityInput = {
   recipeCosts?: Map<RecipeId, number>;
 };
 
-// Items that appear (as an input or output) in the active recipes of a result.
-function itemsTouchedBy(result: LpResult, pack: RecipePack): Set<ItemId> {
-  const active = activeRecipeSet(result);
+// Items that appear (as an input or output) in the given active recipes.
+function itemsTouchedBy(active: Set<RecipeId>, pack: RecipePack): Set<ItemId> {
   const items = new Set<ItemId>();
   for (const r of pack.recipes) {
     if (!active.has(r.id)) continue;
@@ -156,7 +155,7 @@ export function assertOptimal(input: OptimalityInput): InvariantResult {
   if (!base.softFeasible) return { ok: true, violations: [] };
   const baseObj = recomputeObjective(base, pack);
   const baseActive = activeRecipeSet(base);
-  const touched = itemsTouchedBy(base, pack);
+  const touched = itemsTouchedBy(baseActive, pack);
 
   const tol = Math.max(1, Math.abs(baseObj)) * REL_TOL;
 
