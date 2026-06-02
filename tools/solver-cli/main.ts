@@ -212,7 +212,10 @@ export async function runCli(argv: string[]): Promise<string> {
 
   if (mode === "full") {
     if (lpResult.status !== "feasible") {
-      return `error: cannot run full invariants on a non-feasible solve (status=${lpResult.status})`;
+      // Keep the already-built rates/surplus/deficit diagnostics so a
+      // non-feasible solve still reports why; the leading "error:" preserves
+      // the non-zero exit code.
+      return `error: cannot run full invariants on a non-feasible solve (status=${lpResult.status})\n\n${lines.join("\n")}`;
     }
     // --- Invariants ---
     const massBalance = checkMassBalance(
@@ -227,6 +230,8 @@ export async function runCli(argv: string[]): Promise<string> {
       targets,
       pack,
       defaultTransportConfig,
+      itemOverrides,
+      recipeCosts,
     );
     const representable = checkRepresentable(full);
 
