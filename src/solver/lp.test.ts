@@ -201,6 +201,49 @@ describe("solveLp - input guards", () => {
   });
 });
 
+describe("solveLp - duplicate targets", () => {
+  it("sums duplicate target floors on the same recipe instead of overwriting", () => {
+    // make_prod (the target) and alt both produce `prod`. alt is cheaper, so
+    // the LP would rather run alt for any demand not pinned onto make_prod.
+    // With two make_prod targets (1/s and 2/s) the pin floor must sum to 3;
+    // the old overwrite left it at 2, letting alt cover the remaining 1.
+    const p = {
+      recipes: [
+        {
+          id: "make_prod",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw_a", qty: 1 }],
+          out: [{ item: "prod", qty: 1 }],
+        },
+        {
+          id: "alt",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw_a", qty: 1 }],
+          out: [{ item: "prod", qty: 1 }],
+        },
+      ],
+      items: [
+        { id: "raw_a", raw: true },
+        { id: "prod", raw: false },
+      ],
+    } as unknown as RecipePack;
+    const targets: Target[] = [
+      { recipeId: "make_prod", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "make_prod", ratePerSec: { num: "2", denom: "1" } },
+    ];
+    const result = solveLp({
+      targets,
+      pack: p,
+      recipeCosts: new Map([["alt", 0.5]]),
+    });
+    const x = result.rates.get("make_prod");
+    expect(x).toBeDefined();
+    expect(x!.valueOf()).toBeCloseTo(3, 6);
+  });
+});
+
 describe("solveLp - status and softFeasible", () => {
   it("reports feasible and soft-feasible for the headline plan", () => {
     const targets: Target[] = [

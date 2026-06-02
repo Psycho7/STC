@@ -169,7 +169,11 @@ export function solveLp(input: LpInput): LpResult {
       if (!(primary.qty > 0)) continue;
       const rate = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
       const pinName = `pin_${t.recipeId}`;
-      constraints[pinName] = { min: rate / primary.qty };
+      // Accumulate the floor across duplicate targets on the same recipe rather
+      // than overwriting, mirroring the demand loop above which sums duplicate
+      // target rates onto the same primary item.
+      const existingFloor = constraints[pinName]?.min ?? 0;
+      constraints[pinName] = { min: existingFloor + rate / primary.qty };
       variables[`x_${t.recipeId}`]![pinName] = 1;
     }
 
