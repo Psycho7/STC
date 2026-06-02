@@ -75,7 +75,7 @@ massBalance ok=true|false
 targetsMet ok=true|false
 rawOnlyBoundary ok=true|false
 representable ok=true|false
-noOrphanLogicalNodes ok=true|false   <- expected false on stock pack (copper_enr orphan)
+noOrphanLogicalNodes ok=true|false   <- informational graph finding, never gates the run
 optimal ok=true|false
   violation: <description>           (one line per violation, indented)
 ```
@@ -85,11 +85,10 @@ the denominator is 1.
 
 ## Known findings
 
-`noOrphanLogicalNodes ok=false` is expected on the stock recipe pack. The
-`copper_enr` recipe appears as an orphan node in the logical graph assembly
-even though the LP gives it zero rate. This is a graph-assembly finding that
-is out of scope to fix here. The CLI prints the verdict as-is and does NOT
-exit non-zero because of it.
+`noOrphanLogicalNodes` reports any logical recipe node the LP gives zero rate.
+The CLI prints the verdict as-is and does NOT exit non-zero because of it, so a
+graph-assembly orphan surfaces without failing the run. The stock recipe pack
+currently reports `ok=true`.
 
 ## Exit codes
 

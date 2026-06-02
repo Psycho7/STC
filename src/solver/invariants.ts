@@ -237,9 +237,8 @@ export function checkRepresentable(full: SolvePlanFull): InvariantResult {
  * graph assembly materialized a node the LP gave zero (or no) rate.
  *
  * This catches zero-rate/orphan recipe nodes produced by the 2b graph
- * assembly. On the current pack the headline plan legitimately reports
- * `copper_enr` (a known render/graph-assembly finding, out of scope to fix
- * here), so this checker is expected to return ok:false there.
+ * assembly. The headline plan passes (ok:true): the SCC boundary walk no longer
+ * materializes phantom replicas for zero-rate producers.
  */
 export function checkNoOrphanLogicalNodes(full: SolvePlanFull): InvariantResult {
   const violations: string[] = [];
