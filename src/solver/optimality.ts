@@ -15,14 +15,15 @@ import type { ItemOverride } from "../data/plan";
 import type { RecipeId, ItemId } from "./types";
 import type { LpResult, LpInput } from "./lp";
 import type { InvariantResult } from "./invariants";
-import { solveLp, recipeCostWeight } from "./lp";
+import {
+  solveLp,
+  recipeCostWeight,
+  SURPLUS_WEIGHT,
+  DEFICIT_WEIGHT,
+} from "./lp";
 
-// Surplus/deficit objective weights. These hand-mirror the inline literals in
-// lp.ts (1e-3, 1e9) that solveLp's primary pass minimizes; lp.ts does not
-// export them, so keep them in sync by hand. This is the one remaining drift
-// hazard in this file (recipeCostWeight is imported, not copied).
-const SURPLUS_WEIGHT = 1e-3;
-const DEFICIT_WEIGHT = 1e9;
+// Surplus/deficit objective weights are imported from lp.ts (not copied) so the
+// screen scores against the exact weights solveLp's primary pass minimizes.
 
 // Active-rate threshold, matching the >1e-12 filter solveLp uses when building
 // its rates map. A recipe present in result.rates already passed that filter.

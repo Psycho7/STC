@@ -45,6 +45,13 @@ type LpRaw = Record<string, number> & {
   bounded?: boolean;
 };
 
+// Soft penalty weights for the primary objective. surplus is cheap to leave on
+// the table; deficit is prohibitively expensive so the LP only leaves demand
+// unmet when nothing can satisfy it. Exported so the optimality screen scores
+// against the exact same weights solveLp minimizes, with no hand-mirrored copy.
+export const SURPLUS_WEIGHT = 1e-3;
+export const DEFICIT_WEIGHT = 1e9;
+
 // Default cost weights. Relative ordering deficit >> recipe >> surplus is the
 // cost contract. Synthetic and target-only recipes are pushed to a
 // big-M cost so the LP only runs them when the user pins them or no alternative
@@ -121,8 +128,12 @@ export function solveLp(input: LpInput): LpResult {
     }
 
     for (const it of items) {
-      variables[`surplus_${it.id}`] = { objective: mode === "lex" ? 0 : 1e-3 };
-      variables[`deficit_${it.id}`] = { objective: mode === "lex" ? 0 : 1e9 };
+      variables[`surplus_${it.id}`] = {
+        objective: mode === "lex" ? 0 : SURPLUS_WEIGHT,
+      };
+      variables[`deficit_${it.id}`] = {
+        objective: mode === "lex" ? 0 : DEFICIT_WEIGHT,
+      };
     }
 
     // Mass balance, one equality per finite-supply item.
@@ -173,8 +184,8 @@ export function solveLp(input: LpInput): LpResult {
         if (cost !== 0) variables[`x_${r.id}`]![capName] = cost;
       }
       for (const it of items) {
-        variables[`surplus_${it.id}`]![capName] = 1e-3;
-        variables[`deficit_${it.id}`]![capName] = 1e9;
+        variables[`surplus_${it.id}`]![capName] = SURPLUS_WEIGHT;
+        variables[`deficit_${it.id}`]![capName] = DEFICIT_WEIGHT;
       }
     }
 
