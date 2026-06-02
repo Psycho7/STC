@@ -1,7 +1,9 @@
 import Fraction from "fraction.js";
+import type { Recipe } from "@aef/schema";
 import type {
   Condensation,
   GroupId,
+  RecipeEdge,
   RecipeGraph,
   RecipeId,
   Replica,
@@ -160,6 +162,53 @@ function isInScc(state: ReplicateState, rid: RecipeId): boolean {
 
 function sccIdOf(state: ReplicateState, rid: RecipeId): SccId {
   return state.condensation.sccOfRecipe.get(rid)!;
+}
+
+// ---------------------------------------------------------------------------
+// splitConsumerDemand: proportional per-producer demand split
+// ---------------------------------------------------------------------------
+
+// Split a consumer's per-input demand across the producers of each input item
+// by their LP rate share. For each item the consumer takes, the candidate
+// producer edges are weighted by (producer rate * produced qty); each producer
+// receives that fraction of `consumerRate`. A single producer therefore takes
+// the full rate (share 1), while multiple producers divide it instead of each
+// being sized to the full demand. Both the normal stack walk (all incoming
+// edges) and the SCC boundary walk (external incoming edges only) route through
+// this, so the boundary path no longer over-produces a multi-producer input.
+export function splitConsumerDemand(
+  nodes: Map<RecipeId, Recipe>,
+  rates: Map<RecipeId, Fraction>,
+  consumer: Recipe,
+  candidateEdges: ReadonlyArray<RecipeEdge>,
+  consumerRate: Fraction,
+): Array<{ edge: RecipeEdge; consumerRate: Fraction }> {
+  const out: Array<{ edge: RecipeEdge; consumerRate: Fraction }> = [];
+  for (const inItem of consumer.in) {
+    const matching = candidateEdges.filter((e) => e.item === inItem.item);
+    if (matching.length === 0) continue;
+
+    // Weight each producer by its produced flow (rate * out qty); a producer's
+    // share of the consumer's demand is its weight over the per-item total.
+    let total = new Fraction(0);
+    const contribs: Array<{ edge: RecipeEdge; contrib: Fraction }> = [];
+    for (const e of matching) {
+      const producer = nodes.get(e.source);
+      const outQty = producer?.out.find((o) => o.item === e.item)?.qty ?? 0;
+      const rate = rates.get(e.source) ?? new Fraction(0);
+      const contrib = rate.mul(outQty);
+      contribs.push({ edge: e, contrib });
+      total = total.add(contrib);
+    }
+    if (total.equals(0)) continue;
+
+    for (const { edge, contrib } of contribs) {
+      const share = contrib.div(total);
+      if (share.equals(0)) continue;
+      out.push({ edge, consumerRate: consumerRate.mul(share) });
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -419,19 +468,34 @@ function ensureSccReplicas(
   state.sccMemberReplicas.set(sid, map);
   state.sccCreated.add(sid);
 
-  // Queue up the boundary-input recursion: for every boundary edge
-  // (src, member) where src sits outside this SCC, enqueue a frame so the walk
-  // continues into src's inputs.
+  // Queue up the boundary-input recursion: for each member, split its demand
+  // across the EXTERNAL producers of each input item (sources outside this SCC)
+  // by LP rate share, then enqueue one frame per producer. Splitting here is
+  // what keeps a member fed by a multi-producer input from over-producing: each
+  // external producer gets its share of the member's demand, not the full rate.
+  // Intra-SCC producers are served by the looper/deliverer split above and are
+  // excluded from the boundary frames.
   for (const memberId of scc.recipeIds) {
     const memberReplicaId = map.get(memberId)!;
-    for (const e of state.g.incoming.get(memberId) ?? []) {
-      if (members.has(e.source)) continue;
+    const memberNode = state.g.nodes.get(memberId);
+    if (!memberNode) continue;
+    const memberRate = state.rates.get(memberId) ?? new Fraction(0);
+    const external = (state.g.incoming.get(memberId) ?? []).filter(
+      (e) => !members.has(e.source),
+    );
+    for (const { edge, consumerRate } of splitConsumerDemand(
+      state.g.nodes,
+      state.rates,
+      memberNode,
+      external,
+      memberRate,
+    )) {
       state.boundaryEdges.push({
-        producerId: e.source,
-        producerItem: e.item,
+        producerId: edge.source,
+        producerItem: edge.item,
         consumerId: memberId,
         consumerReplicaId: memberReplicaId,
-        consumerRate: state.rates.get(memberId) ?? new Fraction(0),
+        consumerRate,
         consumerGroupId: groupId,
         consumerPath: [],
       });
@@ -621,41 +685,25 @@ function walkFromTargets(state: ReplicateState): void {
     const frame = state.stack.pop()!;
     const consumer = state.g.nodes.get(frame.consumerId);
     if (!consumer) continue;
-    for (const inItem of consumer.in) {
-      const incoming = state.g.incoming.get(frame.consumerId) ?? [];
-      const matching = incoming.filter((e) => e.item === inItem.item);
-      if (matching.length === 0) continue;
-
-      // Proportional split: each producer's share = (rate * outQty) / total.
-      // Single-producer case degenerates to share = 1.0.
-      let total = new Fraction(0);
-      const contribs: Array<{
-        edge: (typeof matching)[number];
-        contrib: Fraction;
-      }> = [];
-      for (const e of matching) {
-        const producer = state.g.nodes.get(e.source);
-        const outQty = producer?.out.find((o) => o.item === e.item)?.qty ?? 0;
-        const rate = state.rates.get(e.source) ?? new Fraction(0);
-        const contrib = rate.mul(outQty);
-        contribs.push({ edge: e, contrib });
-        total = total.add(contrib);
-      }
-      if (total.equals(0)) continue;
-
-      for (const { edge, contrib } of contribs) {
-        const share = contrib.div(total);
-        if (share.equals(0)) continue;
-        processProducer(state, {
-          producerId: edge.source,
-          producerItem: edge.item,
-          consumerId: frame.consumerId,
-          consumerReplicaId: frame.consumerReplicaId,
-          consumerRate: frame.consumerRate.mul(share),
-          consumerGroupId: frame.blueprintGroupId,
-          consumerPath: frame.consumerPath,
-        });
-      }
+    const incoming = state.g.incoming.get(frame.consumerId) ?? [];
+    // Split this consumer's demand across the producers of each input item by
+    // LP rate share; single-producer items degenerate to the full rate.
+    for (const { edge, consumerRate } of splitConsumerDemand(
+      state.g.nodes,
+      state.rates,
+      consumer,
+      incoming,
+      frame.consumerRate,
+    )) {
+      processProducer(state, {
+        producerId: edge.source,
+        producerItem: edge.item,
+        consumerId: frame.consumerId,
+        consumerReplicaId: frame.consumerReplicaId,
+        consumerRate,
+        consumerGroupId: frame.blueprintGroupId,
+        consumerPath: frame.consumerPath,
+      });
     }
   }
 }

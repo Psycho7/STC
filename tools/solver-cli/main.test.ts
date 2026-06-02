@@ -36,10 +36,11 @@ describe("solver-cli smoke", () => {
     expect(out).toMatch(/^optimal ok=/m);
   });
 
-  it("pins known noOrphanLogicalNodes ok=false for stock pack", async () => {
+  it("reports noOrphanLogicalNodes ok=true for the stock pack", async () => {
     const out = await runCli(HEADLINE_ARGV);
-    // Expected false: copper_enr orphan is a documented graph-assembly finding.
-    expect(out).toMatch(/^noOrphanLogicalNodes ok=false/m);
+    // The copper_enr phantom-replica orphan was resolved by the SCC boundary
+    // demand split; the headline plan now has no orphan logical nodes.
+    expect(out).toMatch(/^noOrphanLogicalNodes ok=true/m);
   });
 
   it("is deterministic: two calls with same args produce identical output", async () => {

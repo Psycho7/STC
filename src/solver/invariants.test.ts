@@ -68,16 +68,15 @@ describe("invariants - headline plan (all checkers pass)", () => {
   });
 });
 
-describe("checkNoOrphanLogicalNodes - known headline finding", () => {
-  // Pins a known out-of-scope graph-assembly orphan: the 2b LogicalGraph
-  // materializes a `copper_enr` recipe node that the LP gives zero rate (the
-  // item copper_enr is consumed by nothing). Fixing the render layer to drop
-  // zero-rate nodes is out of scope here. When that fix lands, flip this
-  // expectation to ok:true.
-  it("flags the copper_enr orphan on the headline plan", () => {
+describe("checkNoOrphanLogicalNodes - headline plan", () => {
+  // The headline plan has no orphan logical nodes. The previously-known
+  // copper_enr orphan was a zero-rate producer that the SCC boundary walk
+  // materialized as a phantom replica; splitting boundary demand by LP rate and
+  // skipping zero-share producers removed it.
+  it("reports no orphans on the headline plan", () => {
     const r = checkNoOrphanLogicalNodes(makeFull());
-    expect(r.ok).toBe(false);
-    expect(r.violations.some((v) => v.includes("copper_enr"))).toBe(true);
+    expect(r.ok, r.violations.join("\n")).toBe(true);
+    expect(r.violations).toEqual([]);
   });
 });
 

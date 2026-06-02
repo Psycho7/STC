@@ -1,0 +1,112 @@
+import { describe, expect, it } from "vitest";
+import Fraction from "fraction.js";
+import type { Recipe } from "@aef/schema";
+import type { RecipeEdge, RecipeId } from "./types";
+import { splitConsumerDemand } from "./replicate";
+
+function recipe(
+  id: string,
+  inItems: Array<{ item: string; qty: number }>,
+  outItems: Array<{ item: string; qty: number }>,
+): Recipe {
+  return {
+    id,
+    category: "material",
+    time: 1,
+    in: inItems,
+    out: outItems,
+  } as unknown as Recipe;
+}
+
+function edge(source: string, item: string): RecipeEdge {
+  return { id: `${source}->${item}`, source, target: "consumer", item };
+}
+
+describe("splitConsumerDemand", () => {
+  it("passes the full rate to a single producer (share 1)", () => {
+    const nodes = new Map<RecipeId, Recipe>([
+      ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
+      ["p1", recipe("p1", [], [{ item: "x", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([["p1", new Fraction(5)]]);
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("p1", "x")],
+      new Fraction(10),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]!.edge.source).toBe("p1");
+    expect(result[0]!.consumerRate.equals(new Fraction(10))).toBe(true);
+  });
+
+  it("divides demand across two producers by LP rate, not full to each", () => {
+    const nodes = new Map<RecipeId, Recipe>([
+      ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
+      ["p1", recipe("p1", [], [{ item: "x", qty: 1 }])],
+      ["p2", recipe("p2", [], [{ item: "x", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["p1", new Fraction(3)],
+      ["p2", new Fraction(1)],
+    ]);
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("p1", "x"), edge("p2", "x")],
+      new Fraction(8),
+    );
+    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    // 8 split 3:1 -> 6 and 2; the bug sized each producer to the full 8.
+    expect(bySource.get("p1")!.equals(new Fraction(6))).toBe(true);
+    expect(bySource.get("p2")!.equals(new Fraction(2))).toBe(true);
+    // Conservation: the shares sum back to the consumer's demand.
+    const sum = result.reduce((a, r) => a.add(r.consumerRate), new Fraction(0));
+    expect(sum.equals(new Fraction(8))).toBe(true);
+  });
+
+  it("weights the split by produced quantity, not just run rate", () => {
+    const nodes = new Map<RecipeId, Recipe>([
+      ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
+      ["p1", recipe("p1", [], [{ item: "x", qty: 2 }])],
+      ["p2", recipe("p2", [], [{ item: "x", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["p1", new Fraction(1)],
+      ["p2", new Fraction(1)],
+    ]);
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("p1", "x"), edge("p2", "x")],
+      new Fraction(9),
+    );
+    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    // Flow weights are 2 and 1 -> 9 split 2:1 -> 6 and 3.
+    expect(bySource.get("p1")!.equals(new Fraction(6))).toBe(true);
+    expect(bySource.get("p2")!.equals(new Fraction(3))).toBe(true);
+  });
+
+  it("emits nothing when no producer carries any rate (no div by zero)", () => {
+    const nodes = new Map<RecipeId, Recipe>([
+      ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
+      ["p1", recipe("p1", [], [{ item: "x", qty: 1 }])],
+      ["p2", recipe("p2", [], [{ item: "x", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["p1", new Fraction(0)],
+      ["p2", new Fraction(0)],
+    ]);
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("p1", "x"), edge("p2", "x")],
+      new Fraction(8),
+    );
+    expect(result).toEqual([]);
+  });
+});

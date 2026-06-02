@@ -220,9 +220,9 @@ export async function runCli(argv: string[]): Promise<string> {
     const full = solvePlanWithIntermediates(targets, pack, defaultTransportConfig);
     const representable = checkRepresentable(full);
 
-    // NOTE: checkNoOrphanLogicalNodes is EXPECTED to return ok=false on the
-    // stock pack due to a copper_enr orphan node in the graph assembly. This
-    // is a known, documented out-of-scope graph finding and is NOT a CLI error.
+    // checkNoOrphanLogicalNodes reports any logical recipe node with no positive
+    // LP rate. Its verdict is printed for visibility; a false verdict is a graph
+    // finding, not a CLI error, so it never gates the run.
     const noOrphanLogicalNodes = checkNoOrphanLogicalNodes(full);
 
     const optimal = assertOptimal({ targets, pack, itemOverrides, recipeCosts });
@@ -232,7 +232,7 @@ export async function runCli(argv: string[]): Promise<string> {
     for (const l of fmtVerdict("targetsMet", targetsMet.ok, targetsMet.violations)) lines.push(l);
     for (const l of fmtVerdict("rawOnlyBoundary", rawOnlyBoundary.ok, rawOnlyBoundary.violations)) lines.push(l);
     for (const l of fmtVerdict("representable", representable.ok, representable.violations)) lines.push(l);
-    // noOrphanLogicalNodes is expected ok=false on the stock pack (copper_enr orphan).
+    // noOrphanLogicalNodes verdict is informational (a graph finding, not an error).
     for (const l of fmtVerdict("noOrphanLogicalNodes", noOrphanLogicalNodes.ok, noOrphanLogicalNodes.violations)) lines.push(l);
     for (const l of fmtVerdict("optimal", optimal.ok, optimal.violations)) lines.push(l);
   }
