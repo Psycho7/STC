@@ -46,6 +46,25 @@ describe("validatePlan - rational wire fields", () => {
     expect(validatePlan(plan, pack)?.kind).toBe("invalid-rational");
   });
 
+  it("rejects a negative target rate", () => {
+    const plan = basePlan();
+    plan.targets = [
+      {
+        recipeId: plan.targets[0]!.recipeId,
+        ratePerSec: { num: "-5", denom: "2" },
+      },
+    ];
+    expect(validatePlan(plan, pack)?.kind).toBe("invalid-rational");
+  });
+
+  it("rejects an item-override cap with a negative denominator", () => {
+    const plan = basePlan();
+    plan.itemOverrides = [
+      { itemId: pack.items[0]!.id, ratePerSec: { num: "1", denom: "-2" } },
+    ];
+    expect(validatePlan(plan, pack)?.kind).toBe("invalid-rational");
+  });
+
   it("rejects an item-override cap with a zero denominator", () => {
     const plan = basePlan();
     plan.itemOverrides = [

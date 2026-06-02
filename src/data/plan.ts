@@ -102,7 +102,11 @@ export function describePlanLoadError(error: PlanLoadError): string {
 // string silently injects NaN/Infinity into the objective and demand.
 function isValidRational(r: RationalString): boolean {
   if (typeof r?.num !== "string" || typeof r?.denom !== "string") return false;
-  if (!/^-?\d+$/.test(r.num) || !/^-?\d+$/.test(r.denom)) return false;
+  // Non-negative integer strings only. A negative numerator or denominator
+  // would pass the finite check yet inject negative demand or a negative supply
+  // cap into the solver. The denominator must also be non-zero, caught here as
+  // a non-finite quotient.
+  if (!/^\d+$/.test(r.num) || !/^\d+$/.test(r.denom)) return false;
   return Number.isFinite(Number(r.num) / Number(r.denom));
 }
 
