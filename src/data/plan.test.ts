@@ -81,6 +81,20 @@ describe("validatePlan - rational wire fields", () => {
     expect(validatePlan(plan, pack)?.kind).toBe("invalid-rational");
   });
 
+  it("rejects a target referencing an unknown recipe", () => {
+    const plan = basePlan();
+    plan.targets = [
+      { recipeId: "no_such_recipe", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    expect(validatePlan(plan, pack)?.kind).toBe("unknown-target-recipe");
+  });
+
+  it("rejects a recipeCost referencing an unknown recipe", () => {
+    const plan = basePlan();
+    plan.recipeCosts = new Map([["no_such_recipe", { num: "5", denom: "2" }]]);
+    expect(validatePlan(plan, pack)?.kind).toBe("unknown-recipe-cost");
+  });
+
   it("rejects a malformed rational end-to-end through loadPlan", async () => {
     const plan = basePlan();
     plan.targets = [

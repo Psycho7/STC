@@ -596,6 +596,9 @@ function processProducer(
   const inItem = consumerRecipe.in.find((x) => x.item === producerItem);
   const outItem = producerRecipe.out.find((x) => x.item === producerItem);
   if (!inItem || !outItem) return;
+  // Guard malformed data: a zero/negative/NaN output qty would throw on the
+  // divide below, mirroring the floor-pin guard in lp.ts.
+  if (!(outItem.qty > 0)) return;
   const pRate = consumerRate
     .mul(new Fraction(inItem.qty))
     .div(new Fraction(outItem.qty));

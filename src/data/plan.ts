@@ -46,7 +46,9 @@ export type PlanLoadError =
   | { kind: "unrecognized-version"; got: number }
   | { kind: "schema-version-mismatch"; planSchema: string; packSchema: string }
   | { kind: "duplicate-target"; recipeId: string }
+  | { kind: "unknown-target-recipe"; recipeId: string }
   | { kind: "target-not-a-producer"; recipeId: string }
+  | { kind: "unknown-recipe-cost"; recipeId: string }
   | { kind: "unknown-item-override"; itemId: string }
   | { kind: "duplicate-item-override"; itemId: string }
   | { kind: "invalid-item-override-plan-flag"; itemId: string; value: unknown }
@@ -82,8 +84,12 @@ export function describePlanLoadError(error: PlanLoadError): string {
       return `Plan schemaVersion ${error.planSchema} does not match pack ${error.packSchema}.`;
     case "duplicate-target":
       return `Duplicate target recipe ${error.recipeId}.`;
+    case "unknown-target-recipe":
+      return `Target references unknown recipe ${error.recipeId}.`;
     case "target-not-a-producer":
       return `Recipe ${error.recipeId} is input-supply metadata, not a selectable target.`;
+    case "unknown-recipe-cost":
+      return `Recipe cost references unknown recipe ${error.recipeId}.`;
     case "unknown-item-override":
       return `Item override references unknown item ${error.itemId}.`;
     case "duplicate-item-override":
@@ -191,10 +197,15 @@ export function validatePlan(
       };
     }
     const recipe = recipeById.get(t.recipeId);
+    // An unknown target recipe otherwise survives to graph construction, where
+    // it throws UnknownRecipeError; reject it here as a structured load error.
+    if (!recipe) {
+      return { kind: "unknown-target-recipe", recipeId: t.recipeId };
+    }
     // __domain_transfer recipes are input-supply metadata, not production steps
     // you can select. This is a second line of defense in case one slips past
     // the picker filter and lands in a plan.
-    if (recipe && isInputSupplyRecipe(recipe)) {
+    if (isInputSupplyRecipe(recipe)) {
       return { kind: "target-not-a-producer", recipeId: t.recipeId };
     }
   }
@@ -230,6 +241,9 @@ export function validatePlan(
   }
   if (plan.recipeCosts) {
     for (const [recipeId, rc] of plan.recipeCosts) {
+      if (!recipeById.has(recipeId)) {
+        return { kind: "unknown-recipe-cost", recipeId };
+      }
       if (!isValidRational(rc)) {
         return {
           kind: "invalid-rational",
