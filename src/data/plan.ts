@@ -49,7 +49,8 @@ export type PlanLoadError =
   | { kind: "target-not-a-producer"; recipeId: string }
   | { kind: "unknown-item-override"; itemId: string }
   | { kind: "duplicate-item-override"; itemId: string }
-  | { kind: "invalid-item-override-plan-flag"; itemId: string; value: unknown };
+  | { kind: "invalid-item-override-plan-flag"; itemId: string; value: unknown }
+  | { kind: "invalid-rational"; field: string; value: RationalString };
 
 export type LoadOutcome =
   | { kind: "loaded"; plan: Plan }
@@ -89,7 +90,20 @@ export function describePlanLoadError(error: PlanLoadError): string {
       return `Item override duplicated for ${error.itemId}.`;
     case "invalid-item-override-plan-flag":
       return `Item override ${error.itemId}: plan must be literal true.`;
+    case "invalid-rational":
+      return `Invalid rational in ${error.field}: ${error.value.num}/${error.value.denom}.`;
   }
+}
+
+// A wire RationalString is well-formed when num and denom are integer strings
+// and num/denom is finite (which also rejects a zero denominator). Validating
+// at the trust boundary keeps a hostile or corrupt hash from reaching the
+// solver, where a zero denominator throws (effectiveSupply) or a non-numeric
+// string silently injects NaN/Infinity into the objective and demand.
+function isValidRational(r: RationalString): boolean {
+  if (typeof r?.num !== "string" || typeof r?.denom !== "string") return false;
+  if (!/^-?\d+$/.test(r.num) || !/^-?\d+$/.test(r.denom)) return false;
+  return Number.isFinite(Number(r.num) / Number(r.denom));
 }
 
 export async function loadPlan(
@@ -165,6 +179,13 @@ export function validatePlan(
       return { kind: "duplicate-target", recipeId: t.recipeId };
     }
     seenTargets.add(t.recipeId);
+    if (!isValidRational(t.ratePerSec)) {
+      return {
+        kind: "invalid-rational",
+        field: `target ${t.recipeId} ratePerSec`,
+        value: t.ratePerSec,
+      };
+    }
     const recipe = recipeById.get(t.recipeId);
     // __domain_transfer recipes are input-supply metadata, not production steps
     // you can select. This is a second line of defense in case one slips past
@@ -194,6 +215,24 @@ export function validatePlan(
         return { kind: "duplicate-item-override", itemId: ov.itemId };
       }
       seenOverrides.add(ov.itemId);
+      if (ov.ratePerSec !== undefined && !isValidRational(ov.ratePerSec)) {
+        return {
+          kind: "invalid-rational",
+          field: `item override ${ov.itemId} ratePerSec`,
+          value: ov.ratePerSec,
+        };
+      }
+    }
+  }
+  if (plan.recipeCosts) {
+    for (const [recipeId, rc] of plan.recipeCosts) {
+      if (!isValidRational(rc)) {
+        return {
+          kind: "invalid-rational",
+          field: `recipe cost ${recipeId}`,
+          value: rc,
+        };
+      }
     }
   }
   return null;
