@@ -69,6 +69,25 @@ export function recipeCostWeight(
   return 1;
 }
 
+// Demand per item: sum over targets of the rate placed on each target recipe's
+// primary output (recipe.out[0]). Duplicate targets on the same primary item
+// accumulate. Shared with the invariant checkers so the LP model and the
+// reference-free checks read demand the same way.
+export function demandByItem(
+  pack: RecipePack,
+  targets: Target[],
+): Map<ItemId, number> {
+  const demand = new Map<ItemId, number>();
+  for (const t of targets) {
+    const recipe = pack.recipes.find((r) => r.id === t.recipeId);
+    if (!recipe || recipe.out.length === 0) continue;
+    const primary = recipe.out[0]!;
+    const rate = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
+    demand.set(primary.item, (demand.get(primary.item) ?? 0) + rate);
+  }
+  return demand;
+}
+
 export function solveLp(input: LpInput): LpResult {
   const t0 = performance.now();
   const { targets, pack, itemOverrides = [] } = input;
@@ -92,6 +111,7 @@ export function solveLp(input: LpInput): LpResult {
   const items = [...pack.items].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
+  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
   // Effective supply per item. Infinity => free boundary; finite => fixed const.
   const supplyById = new Map<ItemId, Fraction | typeof Infinity>();
@@ -99,19 +119,17 @@ export function solveLp(input: LpInput): LpResult {
     supplyById.set(it.id, effectiveSupply(it.id, pack, itemOverrides));
   }
 
-  // Demand per item: net-external demand on each target's primary output.
-  const demand = new Map<ItemId, number>();
-  for (const t of targets) {
-    const recipe = pack.recipes.find((r) => r.id === t.recipeId);
-    if (!recipe || recipe.out.length === 0) continue;
-    const primary = recipe.out[0]!;
-    const rate = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
-    demand.set(primary.item, (demand.get(primary.item) ?? 0) + rate);
-  }
+  const demand = demandByItem(pack, targets);
 
   // Lex rank per recipe (sorted by id) for the pass-2 tie-break.
   const lexRank = new Map<RecipeId, number>();
   recipes.forEach((r, i) => lexRank.set(r.id, i));
+
+  // Per-recipe objective cost, computed once. buildModel reads it in both
+  // passes (variable objective + the pass-2 cost cap) instead of recomputing.
+  const costById = new Map<RecipeId, number>();
+  for (const r of recipes)
+    costById.set(r.id, recipeCostWeight(r, input.recipeCosts));
 
   // Two-pass deterministic solve.
   //  - "primary": minimize weighted recipe cost + soft surplus/deficit penalty.
@@ -122,7 +140,7 @@ export function solveLp(input: LpInput): LpResult {
     const constraints: LpModelConstraints = {};
 
     for (const r of recipes) {
-      const cost = recipeCostWeight(r, input.recipeCosts);
+      const cost = costById.get(r.id)!;
       const rank = lexRank.get(r.id)!;
       variables[`x_${r.id}`] = { objective: mode === "primary" ? cost : rank };
     }
@@ -160,7 +178,7 @@ export function solveLp(input: LpInput): LpResult {
     // without blocking mass-balance from raising production to cover a cycle's
     // internal consumption.
     for (const t of targets) {
-      const recipe = pack.recipes.find((r) => r.id === t.recipeId);
+      const recipe = recipeById.get(t.recipeId);
       if (!recipe || recipe.out.length === 0) continue;
       const primary = recipe.out[0]!;
       // Guard malformed data: a zero/negative primary qty makes the floor
@@ -184,7 +202,7 @@ export function solveLp(input: LpInput): LpResult {
       const capEps = Math.max(Math.abs(costCap) * 1e-9, 1e-9);
       constraints[capName] = { max: costCap + capEps };
       for (const r of recipes) {
-        const cost = recipeCostWeight(r, input.recipeCosts);
+        const cost = costById.get(r.id)!;
         if (cost !== 0) variables[`x_${r.id}`]![capName] = cost;
       }
       for (const it of items) {

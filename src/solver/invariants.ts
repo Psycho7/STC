@@ -3,6 +3,7 @@ import type { RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { LpResult } from "./lp";
+import { demandByItem } from "./lp";
 import type { SolvePlanFull } from "./index";
 import { effectiveSupply } from "./effectiveSupply";
 
@@ -37,20 +38,6 @@ function netProduction(
     net += (out - inq) * rateOf(result, r.id);
   }
   return net;
-}
-
-// Demand per item: sum over targets of the rate placed on the target recipe's
-// primary output item (recipe.out[0]).
-function demandByItem(pack: RecipePack, targets: Target[]): Map<string, number> {
-  const demandOf = new Map<string, number>();
-  for (const t of targets) {
-    const r = pack.recipes.find((x) => x.id === t.recipeId);
-    if (!r || r.out.length === 0) continue;
-    const prim = r.out[0]!;
-    const d = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
-    demandOf.set(prim.item, (demandOf.get(prim.item) ?? 0) + d);
-  }
-  return demandOf;
 }
 
 /**
@@ -240,14 +227,18 @@ export function checkRepresentable(full: SolvePlanFull): InvariantResult {
  * assembly. The headline plan passes (ok:true): the SCC boundary walk no longer
  * materializes phantom replicas for zero-rate producers.
  */
-export function checkNoOrphanLogicalNodes(full: SolvePlanFull): InvariantResult {
+export function checkNoOrphanLogicalNodes(
+  full: SolvePlanFull,
+): InvariantResult {
   const violations: string[] = [];
   const logicalIds = recipeIdsInLogical(full);
 
   for (const recipeId of logicalIds) {
     const rate = full.rates.get(recipeId);
     if (!rate || rate.compare(FRAC_ZERO) <= 0) {
-      violations.push(`logical recipe node ${recipeId} has no positive LP rate`);
+      violations.push(
+        `logical recipe node ${recipeId} has no positive LP rate`,
+      );
     }
   }
 

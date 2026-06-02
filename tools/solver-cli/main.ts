@@ -66,7 +66,9 @@ function parseRateEntry(entry: string): Target | null {
     const intPart = rateStr.slice(0, dot);
     const fracPart = rateStr.slice(dot + 1);
     const denom = String(Math.pow(10, fracPart.length));
-    const num = String(Number(intPart) * Math.pow(10, fracPart.length) + Number(fracPart));
+    const num = String(
+      Number(intPart) * Math.pow(10, fracPart.length) + Number(fracPart),
+    );
     return { recipeId, ratePerSec: { num, denom } };
   }
 
@@ -79,7 +81,8 @@ function parseInlineTargets(spec: string): Target[] | string {
   for (const entry of entries) {
     if (!entry.trim()) continue;
     const t = parseRateEntry(entry.trim());
-    if (!t) return `cannot parse target entry: "${entry.trim()}" (expected recipeId=rate)`;
+    if (!t)
+      return `cannot parse target entry: "${entry.trim()}" (expected recipeId=rate)`;
     targets.push(t);
   }
   if (targets.length === 0) return "no targets parsed from --plan spec";
@@ -90,17 +93,11 @@ function parseInlineTargets(spec: string): Target[] | string {
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
-// Format a Fraction as a stable string. f.n, f.s, f.d are BigInt in fraction.js v5.
-// toFraction() returns "n/d" or just "n" when d === 1n; s is the sign factor.
-// We delegate entirely to toFraction() for an exact, consistent representation.
-function fmtFrac(f: Fraction): string {
-  // toFraction() already handles the sign and omits the denominator when it is 1.
-  return f.toFraction();
-}
-
+// toFraction() returns a stable exact string: "n/d", or just "n" when d === 1n,
+// with the sign already applied.
 function fmtMap(map: Map<string, Fraction>): string[] {
   const keys = [...map.keys()].sort();
-  return keys.map((k) => `${k}=${fmtFrac(map.get(k)!)}`);
+  return keys.map((k) => `${k}=${map.get(k)!.toFraction()}`);
 }
 
 // Format an invariant verdict as a single block of lines.
@@ -126,17 +123,21 @@ export async function runCli(argv: string[]): Promise<string> {
     const a = argv[i];
     if (a === "--hash") {
       const next = argv[i + 1];
-      if (next === undefined || next.startsWith("--")) return `error: --hash requires a value`;
+      if (next === undefined || next.startsWith("--"))
+        return `error: --hash requires a value`;
       hashArg = argv[++i];
     } else if (a === "--plan") {
       const next = argv[i + 1];
-      if (next === undefined || next.startsWith("--")) return `error: --plan requires a value`;
+      if (next === undefined || next.startsWith("--"))
+        return `error: --plan requires a value`;
       planArg = argv[++i];
     } else if (a === "--mode") {
       const next = argv[i + 1];
-      if (next === undefined || next.startsWith("--")) return `error: --mode requires a value`;
+      if (next === undefined || next.startsWith("--"))
+        return `error: --mode requires a value`;
       const m = argv[++i];
-      if (m !== "full" && m !== "rates") return `error: --mode must be full or rates, got "${m}"`;
+      if (m !== "full" && m !== "rates")
+        return `error: --mode must be full or rates, got "${m}"`;
       mode = m;
     } else {
       return `error: unknown argument "${a}"`;
@@ -214,10 +215,19 @@ export async function runCli(argv: string[]): Promise<string> {
       return `error: cannot run full invariants on a non-feasible solve (status=${lpResult.status})`;
     }
     // --- Invariants ---
-    const massBalance = checkMassBalance(lpResult, pack, targets, itemOverrides);
+    const massBalance = checkMassBalance(
+      lpResult,
+      pack,
+      targets,
+      itemOverrides,
+    );
     const targetsMet = checkTargetsMet(lpResult, targets, pack);
     const rawOnlyBoundary = checkRawOnlyBoundary(lpResult, pack, itemOverrides);
-    const full = solvePlanWithIntermediates(targets, pack, defaultTransportConfig);
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+    );
     const representable = checkRepresentable(full);
 
     // checkNoOrphanLogicalNodes reports any logical recipe node with no positive
@@ -225,16 +235,47 @@ export async function runCli(argv: string[]): Promise<string> {
     // finding, not a CLI error, so it never gates the run.
     const noOrphanLogicalNodes = checkNoOrphanLogicalNodes(full);
 
-    const optimal = assertOptimal({ targets, pack, itemOverrides, recipeCosts });
+    const optimal = assertOptimal({
+      targets,
+      pack,
+      itemOverrides,
+      recipeCosts,
+    });
 
     lines.push("# invariants");
-    for (const l of fmtVerdict("massBalance", massBalance.ok, massBalance.violations)) lines.push(l);
-    for (const l of fmtVerdict("targetsMet", targetsMet.ok, targetsMet.violations)) lines.push(l);
-    for (const l of fmtVerdict("rawOnlyBoundary", rawOnlyBoundary.ok, rawOnlyBoundary.violations)) lines.push(l);
-    for (const l of fmtVerdict("representable", representable.ok, representable.violations)) lines.push(l);
+    for (const l of fmtVerdict(
+      "massBalance",
+      massBalance.ok,
+      massBalance.violations,
+    ))
+      lines.push(l);
+    for (const l of fmtVerdict(
+      "targetsMet",
+      targetsMet.ok,
+      targetsMet.violations,
+    ))
+      lines.push(l);
+    for (const l of fmtVerdict(
+      "rawOnlyBoundary",
+      rawOnlyBoundary.ok,
+      rawOnlyBoundary.violations,
+    ))
+      lines.push(l);
+    for (const l of fmtVerdict(
+      "representable",
+      representable.ok,
+      representable.violations,
+    ))
+      lines.push(l);
     // noOrphanLogicalNodes verdict is informational (a graph finding, not an error).
-    for (const l of fmtVerdict("noOrphanLogicalNodes", noOrphanLogicalNodes.ok, noOrphanLogicalNodes.violations)) lines.push(l);
-    for (const l of fmtVerdict("optimal", optimal.ok, optimal.violations)) lines.push(l);
+    for (const l of fmtVerdict(
+      "noOrphanLogicalNodes",
+      noOrphanLogicalNodes.ok,
+      noOrphanLogicalNodes.violations,
+    ))
+      lines.push(l);
+    for (const l of fmtVerdict("optimal", optimal.ok, optimal.violations))
+      lines.push(l);
   }
 
   return lines.join("\n");
@@ -246,12 +287,14 @@ export async function runCli(argv: string[]): Promise<string> {
 
 if (import.meta.main) {
   const argv = process.argv.slice(2);
-  runCli(argv).then((out) => {
-    console.log(out);
-    // Exit non-zero only on an error prefix (bad args / solve throw).
-    if (out.startsWith("error:")) process.exit(1);
-  }).catch((err: unknown) => {
-    console.error("fatal:", err);
-    process.exit(1);
-  });
+  runCli(argv)
+    .then((out) => {
+      console.log(out);
+      // Exit non-zero only on an error prefix (bad args / solve throw).
+      if (out.startsWith("error:")) process.exit(1);
+    })
+    .catch((err: unknown) => {
+      console.error("fatal:", err);
+      process.exit(1);
+    });
 }
