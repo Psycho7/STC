@@ -35,6 +35,7 @@ describe("invariants - headline plan (all checkers pass)", () => {
       solveLp({ targets: headlineTargets, pack }),
       pack,
       headlineTargets,
+      noOverrides,
     );
     expect(r.ok, r.violations.join("\n")).toBe(true);
     expect(r.violations).toEqual([]);
@@ -92,9 +93,42 @@ describe("checkMassBalance - detection power", () => {
       ...good,
       rates: new Map(good.rates).set(target, cur.mul(new Fraction(2))),
     };
-    const r = checkMassBalance(corrupted, pack, headlineTargets);
+    const r = checkMassBalance(corrupted, pack, headlineTargets, noOverrides);
     expect(r.ok).toBe(false);
     expect(r.violations.length).toBeGreaterThan(0);
+  });
+
+  // A non-raw item carrying a plan:true override is an uncapped boundary: the
+  // LP skips its mass-balance row (effectiveSupply === Infinity), so the checker
+  // must skip it too. With the old it.raw skip, the checker built a row the LP
+  // never had and reported a false-positive residual for the boundary item.
+  it("does NOT flag a non-raw plan:true boundary item the LP left uncapped", () => {
+    const p = {
+      recipes: [
+        {
+          id: "sink",
+          category: "material",
+          time: 1,
+          cost: 1,
+          in: [{ item: "prod", qty: 1 }],
+          out: [{ item: "final", qty: 1 }],
+        },
+      ],
+      items: [
+        { id: "prod", raw: false },
+        { id: "final", raw: false },
+      ],
+    } as unknown as typeof pack;
+    // Mark `prod` as an uncapped boundary; the LP draws it freely with no
+    // mass-balance row, so net consumption without a deficit is legitimate.
+    const overrides: ItemOverride[] = [{ itemId: "prod", plan: true }];
+    const targets: Target[] = [
+      { recipeId: "sink", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const result = solveLp({ targets, pack: p, itemOverrides: overrides });
+    const r = checkMassBalance(result, p, targets, overrides);
+    expect(r.ok, r.violations.join("\n")).toBe(true);
+    expect(r.violations).toEqual([]);
   });
 });
 
@@ -306,6 +340,7 @@ describe("InvariantResult shape", () => {
       solveLp({ targets: headlineTargets, pack }),
       pack,
       headlineTargets,
+      noOverrides,
     );
     expect(typeof r.ok).toBe("boolean");
     expect(Array.isArray(r.violations)).toBe(true);

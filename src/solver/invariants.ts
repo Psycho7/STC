@@ -54,22 +54,25 @@ function demandByItem(pack: RecipePack, targets: Target[]): Map<string, number> 
 }
 
 /**
- * Mass balance: for each non-raw item, production - consumption - surplus
- * + deficit - demand must be ~0, scaled by max(1, |demand|). Raw items have
- * Infinity supply (unconstrained boundary) and are skipped. This generalizes
- * the inline "precision (mass-balance residual)" check in lp.test.ts, which
- * uses the residual form `bal - surplus + deficit - demand`.
+ * Mass balance: for each item the LP built a mass-balance row for,
+ * production - consumption - surplus + deficit - demand must be ~0, scaled by
+ * max(1, |demand|). Items whose effective supply is Infinity are free boundary
+ * draws (raw items, or non-raw items carrying a plan:true override); the LP
+ * builds no row for them, so the checker skips them to stay aligned. This
+ * generalizes the inline "precision (mass-balance residual)" check in
+ * lp.test.ts, which uses the residual form `bal - surplus + deficit - demand`.
  */
 export function checkMassBalance(
   result: LpResult,
   pack: RecipePack,
   targets: Target[],
+  overrides: ItemOverride[],
 ): InvariantResult {
   const violations: string[] = [];
   const demandOf = demandByItem(pack, targets);
 
   for (const it of pack.items) {
-    if (it.raw) continue;
+    if (effectiveSupply(it.id, pack, overrides) === Infinity) continue;
     const bal = netProduction(result, pack, it.id);
     const surplus = result.surplus.get(it.id)?.valueOf() ?? 0;
     const deficit = result.deficit.get(it.id)?.valueOf() ?? 0;
