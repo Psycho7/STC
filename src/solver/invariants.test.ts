@@ -244,6 +244,44 @@ describe("checkRawOnlyBoundary - detection power", () => {
     expect(r.violations).toEqual([]);
   });
 
+  // Tolerance scales with the cap magnitude. A 1e6 cap drawn at 1e6 + 0.5 is
+  // over by 0.5, far above a flat 1e-6 absolute slack but well within the
+  // magnitude-scaled slack (1e6 * 1e-6 = 1.0). It must NOT be flagged; the old
+  // flat REL_TOL would have produced a false positive here.
+  it("does NOT flag a large-cap item over by less than the scaled slack", () => {
+    const p = {
+      recipes: [
+        {
+          id: "sink",
+          category: "material",
+          time: 1,
+          in: [{ item: "prod", qty: 1 }],
+          out: [{ item: "final", qty: 1 }],
+        },
+      ],
+      items: [
+        { id: "prod", raw: false },
+        { id: "final", raw: false },
+      ],
+    } as unknown as typeof pack;
+    const overrides: ItemOverride[] = [
+      { itemId: "prod", ratePerSec: { num: "1000000", denom: "1" } },
+    ];
+    const corrupted: LpResult = {
+      // sink draws prod at 1000000.5/sec -> external supply 0.5 over the cap.
+      rates: new Map([["sink", new Fraction(2000001, 2)]]),
+      surplus: new Map(),
+      deficit: new Map(),
+      objectiveValue: 0,
+      solverWallClockMs: 0,
+      status: "feasible",
+      softFeasible: true,
+    };
+    const r = checkRawOnlyBoundary(corrupted, p, overrides);
+    expect(r.ok, r.violations.join("\n")).toBe(true);
+    expect(r.violations).toEqual([]);
+  });
+
   it("flags a capped-override item consumed beyond its cap", () => {
     const p = {
       recipes: [
