@@ -111,8 +111,9 @@ function itemsTouchedBy(result: LpResult, pack: RecipePack): Set<ItemId> {
  *     load-bearing choice: it asks "is this plan minimal in real recipe-run
  *     terms?", so a recipeCosts override that steers solveLp onto a needlessly
  *     long chain becomes detectable. With no override (recipeCosts undefined)
- *     the solve and the score share the same costs, so the base is by
- *     construction the intrinsic optimum and no candidate can beat it -> ok.
+ *     the solve and the score share the same costs, so the base is the
+ *     intrinsic optimum up to the pass-2 lex cost-cap epsilon (see Limitations)
+ *     and in practice no candidate beats it -> ok.
  *  3. Bound the candidate set to recipes that are INACTIVE in base but produce
  *     an item touched by base's active recipes (one-hop neighbors of the current
  *     plan graph). For each candidate, re-solve forcing it cheap by overriding
@@ -125,12 +126,15 @@ function itemsTouchedBy(result: LpResult, pack: RecipePack): Set<ItemId> {
  *  5. No cheaper one-hop-neighbor alternative found -> the screen passes (ok).
  *     This does NOT prove LP-optimality (see Limitations below).
  *
- * Limitations (false negatives): the candidate set is restricted to inactive
+ * Limitations. False negatives: the candidate set is restricted to inactive
  * recipes that produce an item already touched by the base plan. Multi-hop
  * restructurings and substitutions that introduce entirely new items or
- * sub-chains are NOT explored. A passing screen can still sit on a globally
- * suboptimal plan. This screen catches one-hop cost improvements only; nothing
- * deeper is evaluated.
+ * sub-chains are NOT explored, so a passing screen can still sit on a globally
+ * suboptimal plan; it catches one-hop cost improvements only. False positives:
+ * solveLp's pass 2 is capped at the pass-1 cost plus a relative epsilon, so the
+ * base can sit fractionally above the true optimum and a forced re-solve that
+ * lands just below it could, in rare cases, report a spurious violation. The
+ * REL_TOL comparison absorbs the common case.
  */
 export function assertOptimal(input: OptimalityInput): InvariantResult {
   const { targets, pack, itemOverrides, recipeCosts } = input;
