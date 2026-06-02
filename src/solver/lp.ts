@@ -215,6 +215,10 @@ export function solveLp(input: LpInput): LpResult {
     lpResult.result = costCap;
   }
 
+  // The solver returns float primal values; simplify(1e-6) snaps each to a
+  // nearby low-denominator rational. Arithmetic downstream is exact, but the
+  // snapped value itself can sit up to ~1e-6 (relative) off the LP optimum, so
+  // "exact rational" describes the representation, not zero error vs the solve.
   const rates = new Map<RecipeId, Fraction>();
   for (const r of recipes) {
     const v = lpResult[`x_${r.id}`] ?? 0;
