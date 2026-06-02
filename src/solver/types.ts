@@ -25,12 +25,6 @@ export type RecipeGraph = {
   nodes: Map<RecipeId, Recipe>;
   outgoing: Map<RecipeId, RecipeEdge[]>;
   incoming: Map<RecipeId, RecipeEdge[]>;
-  // Raw-distance ranking maps that buildRecipeGraph fills in so pickProducer
-  // can rank candidate producers. An excluded recipe (isExcludedProducer ===
-  // true) gets no entry in depthToRecipe. Items reachable only through
-  // excluded producers or closed cycles stay at Number.POSITIVE_INFINITY.
-  depthToItem: Map<ItemId, number>;
-  depthToRecipe: Map<RecipeId, number>;
 };
 
 export type Scc = {
