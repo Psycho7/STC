@@ -172,7 +172,7 @@ export function buildRecipeGraph(
     }
   }
 
-  return { nodes, outgoing, incoming, depthToItem, depthToRecipe };
+  return { nodes, outgoing, incoming };
 }
 
 // LP variant: identical to buildRecipeGraph except the expansion enumerates ALL
@@ -312,5 +312,5 @@ export function buildRecipeGraphMulti(
     }
   }
 
-  return { nodes, outgoing, incoming, depthToItem, depthToRecipe };
+  return { nodes, outgoing, incoming };
 }
