@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runCli } from "./main";
+import { pack } from "../../src/data/load";
+import { defaultPlan, encodePlan } from "../../src/data/plan";
 
 // Smoke tests for the solver-cli. These call runCli() directly (no process
 // spawning) and assert on the returned string. The headline plan is a single
@@ -91,6 +93,36 @@ describe("solver-cli smoke", () => {
   });
 
   // --- FIX 3: non-feasible full-mode guard ---
+
+  // --- FIX: --hash threads itemOverrides into the solve ---
+
+  it("threads a decoded plan's itemOverrides through the --hash solve", async () => {
+    // Build a plan with a plan:true override on xiranite_powder, a non-raw
+    // direct input of the headline target. The override makes that item a free
+    // boundary, so its producer chain drops out of the solve -- output the
+    // override-free --plan solve of the same target cannot reproduce. Equal
+    // output would mean the override was dropped on the --hash path.
+    const plan = defaultPlan(pack);
+    plan.targets = [
+      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+    ];
+    plan.itemOverrides = [{ itemId: "xiranite_powder", plan: true }];
+    const hash = await encodePlan(plan);
+
+    const withOverride = await runCli(["--hash", hash, "--mode", "rates"]);
+    const noOverride = await runCli([
+      "--plan",
+      "xiranite_enr_powder=6/60",
+      "--mode",
+      "rates",
+    ]);
+
+    expect(withOverride).not.toMatch(/^error:/);
+    expect(withOverride).not.toBe(noOverride);
+    // The override frees xiranite_powder, so its producer is not solved for.
+    expect(noOverride).toMatch(/^xiranite_powder=/m);
+    expect(withOverride).not.toMatch(/^xiranite_powder=/m);
+  });
 
   it("returns clean error for full mode on unknown recipe (non-feasible/empty status)", async () => {
     // An unknown recipeId produces status=empty from the LP (no matching recipe
