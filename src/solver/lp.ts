@@ -198,7 +198,12 @@ export function solveLp(input: LpInput): LpResult {
 
   const pass1 = solver.Solve(buildModel("primary")) as LpRaw;
   let lpResult: LpRaw;
-  if (pass1.feasible === false) {
+  if (pass1.feasible === false || pass1.bounded === false) {
+    // Infeasible or unbounded: skip the lex pass. A non-finite pass-1 objective
+    // would corrupt the pass-2 cost cap, and the status derivation below reads
+    // pass1's feasible/bounded flags directly. (Unbounded is unreachable for a
+    // valid model: every objective coefficient is non-negative under a min
+    // objective, so the optimum is bounded below by 0.)
     lpResult = pass1;
   } else {
     const costCap = pass1.result ?? 0;
