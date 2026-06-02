@@ -170,9 +170,13 @@ export function checkRawOnlyBoundary(
     const cap = effectiveSupply(it.id, pack, overrides);
     if (cap === Infinity) continue; // unlimited external supply: always passes.
 
-    if (externalSupply.valueOf() > cap.valueOf() + REL_TOL) {
+    // Scale the slack by the cap magnitude, matching checkMassBalance and
+    // checkTargetsMet; a flat absolute REL_TOL is too tight on large caps.
+    const capValue = cap.valueOf();
+    const slack = Math.max(1, Math.abs(capValue)) * REL_TOL;
+    if (externalSupply.valueOf() > capValue + slack) {
       violations.push(
-        `item ${it.id} draws external supply ${externalSupply.valueOf()} exceeding cap ${cap.valueOf()}`,
+        `item ${it.id} draws external supply ${externalSupply.valueOf()} exceeding cap ${capValue}`,
       );
     }
   }
