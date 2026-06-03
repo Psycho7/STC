@@ -1,0 +1,12 @@
+{
+  "name": "copper_powder at 1/60 per sec (smallest AEF target)",
+  "targets": [
+    { "recipeId": "copper_powder", "ratePerSec": { "num": "1", "denom": "60" } }
+  ],
+  "expectations": {
+    "minUnits": 2,
+    "expectAtLeastOneBadge": false,
+    "expectAtLeastOneLoop": false,
+    "expectNoIsolatedUnits": true
+  }
+}

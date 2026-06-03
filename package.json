@@ -12,7 +12,6 @@
     "format": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "extract": "bun run tools/extractor/src/extract.ts",
-    "gen:snapshots": "bun run scripts/gen-snapshot-fixtures.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
