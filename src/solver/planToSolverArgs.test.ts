@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { planToSolverArgs } from "./planToSolverArgs";
 import type { Plan } from "../data/plan";
-import type { Target } from "../data/targets";
 
 // Minimal Plan fixture; only the fields planToSolverArgs reads are populated.
 function makePlan(overrides?: Partial<Plan>): Plan {
