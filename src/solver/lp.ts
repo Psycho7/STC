@@ -27,6 +27,12 @@ export type LpResult = {
   softFeasible: boolean;
 };
 
+// The solver port: any function from an LpInput to an LpResult. solveLp is the
+// in-house default implementation. A future vendor solver (e.g. GLPK) is another
+// implementation of this same port - it must map its native output into the
+// LpResult shape. The port keeps the engine choice a non-one-way door.
+export type LpSolver = (input: LpInput) => LpResult;
+
 // Model and result shapes accepted by javascript-lp-solver.
 type LpModelVars = Record<string, Record<string, number>>;
 type LpModelConstraints = Record<

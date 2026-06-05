@@ -6,7 +6,7 @@ import type { Target } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { buildRecipeGraphMulti } from "./graph";
 import { tarjanScc, condense } from "./scc";
-import { solveLp, type LpResult } from "./lp";
+import { solveLp, type LpResult, type LpSolver } from "./lp";
 import { articulationPoints } from "./bctree";
 import { pickTearEdges } from "./tear";
 import { replicatePerConsumer } from "./replicate";
@@ -117,6 +117,7 @@ export function solvePlan(
   tConfig: TransportConfig,
   itemOverrides?: ItemOverride[],
   recipeCosts?: Map<RecipeId, number>,
+  solver: LpSolver = solveLp,
 ): LogicalGraph {
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
@@ -125,7 +126,7 @@ export function solvePlan(
   const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
   const sccs = tarjanScc(g);
   const c = condense(g, sccs);
-  const lpResult = solveLp({
+  const lpResult = solver({
     targets,
     pack,
     itemOverrides: itemOverrides ?? [],
@@ -185,6 +186,7 @@ export function solvePlanWithIntermediates(
   tConfig: TransportConfig,
   itemOverrides?: ItemOverride[],
   recipeCosts?: Map<RecipeId, number>,
+  solver: LpSolver = solveLp,
 ): SolvePlanFull {
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
@@ -193,7 +195,7 @@ export function solvePlanWithIntermediates(
   const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
   const sccs = tarjanScc(g);
   const c = condense(g, sccs);
-  const lpResult = solveLp({
+  const lpResult = solver({
     targets,
     pack,
     itemOverrides: itemOverrides ?? [],
