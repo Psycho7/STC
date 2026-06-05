@@ -14,6 +14,7 @@ import { assignIdealMultipliers, assignMultipliers } from "./multiplier";
 import { ffdPack } from "./ffd";
 import { assembleLogicalGraph } from "./assemble";
 import { bisimQuotient, deriveReplicaEdges, type ClassId } from "./bisim";
+import { assertInvariants } from "./invariants";
 import type {
   Condensation,
   ItemId,
@@ -237,7 +238,7 @@ export function solvePlanWithIntermediates(
     torn,
   });
 
-  return {
+  const full: SolvePlanFull = {
     logical,
     replicas,
     multipliers,
@@ -253,4 +254,10 @@ export function solvePlanWithIntermediates(
       deficits: lpResult.deficit,
     },
   };
+
+  if (import.meta.env.DEV) {
+    assertInvariants(full, lpResult, pack, targets, itemOverrides ?? []);
+  }
+
+  return full;
 }

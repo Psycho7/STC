@@ -244,3 +244,28 @@ export function checkNoOrphanLogicalNodes(
 
   return { ok: violations.length === 0, violations };
 }
+
+/**
+ * Run the four ratified reference-free checkers against a completed solve and
+ * throw if any fails. Intended to be called dev-only (compiled out of release):
+ * a violation is a solver/assembly bug that should never reach a user.
+ * checkNoOrphanLogicalNodes is deliberately omitted (known out-of-scope finding).
+ */
+export function assertInvariants(
+  full: SolvePlanFull,
+  result: LpResult,
+  pack: RecipePack,
+  targets: Target[],
+  overrides: ItemOverride[],
+): void {
+  const violations = [
+    checkMassBalance(result, pack, targets, overrides),
+    checkTargetsMet(result, targets, pack),
+    checkRawOnlyBoundary(result, pack, overrides),
+    checkRepresentable(full),
+  ].flatMap((r) => r.violations);
+
+  if (violations.length > 0) {
+    throw new Error(`solver invariants violated:\n${violations.join("\n")}`);
+  }
+}
