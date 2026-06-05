@@ -16,6 +16,7 @@ import { assembleLogicalGraph } from "./assemble";
 import { bisimQuotient, deriveReplicaEdges, type ClassId } from "./bisim";
 import type {
   Condensation,
+  ItemId,
   RecipeGraph,
   RecipeId,
   Replica,
@@ -98,6 +99,16 @@ export type SolvePlanFull = {
    *  original replica ids in its class.
    */
   classToQuotient: Map<ClassId, ReplicaId>;
+  /**
+   * Feasibility summary lifted from the LP result. `softFeasible` is false when
+   * any material demand stayed unmet; `deficits` lists each unmet item and its
+   * shortfall. Surfaced so the render/UI layer can show an unsatisfiable plan
+   * instead of rendering it as silent success.
+   */
+  feasibility: {
+    softFeasible: boolean;
+    deficits: Map<ItemId, Fraction>;
+  };
 };
 
 export function solvePlan(
@@ -235,5 +246,9 @@ export function solvePlanWithIntermediates(
     idealCount,
     classByReplicaId,
     classToQuotient,
+    feasibility: {
+      softFeasible: lpResult.softFeasible,
+      deficits: lpResult.deficit,
+    },
   };
 }
