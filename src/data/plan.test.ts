@@ -95,6 +95,14 @@ describe("validatePlan - rational wire fields", () => {
     expect(validatePlan(plan, pack)?.kind).toBe("unknown-recipe-cost");
   });
 
+  it("rejects a sink recipe as a target", () => {
+    const plan = basePlan();
+    plan.targets = [
+      { recipeId: "liquid_cleaner_1-sewage", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    expect(validatePlan(plan, pack)?.kind).toBe("target-not-a-producer");
+  });
+
   it("rejects a malformed rational end-to-end through loadPlan", async () => {
     const plan = basePlan();
     plan.targets = [

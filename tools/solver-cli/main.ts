@@ -170,6 +170,9 @@ export async function runCli(argv: string[]): Promise<string> {
     const parsed = parseInlineTargets(planArg);
     if (typeof parsed === "string") return `error: ${parsed}`;
     targets = parsed;
+    const validIds = new Set(pack.recipes.map((r) => r.id));
+    const bad = targets.find((t) => !validIds.has(t.recipeId));
+    if (bad) return `error: target references unknown recipe "${bad.recipeId}"`;
   } else {
     // --hash: decode via the existing loadPlan decoder in src/data/plan.ts.
     // loadPlan expects the hash with or without leading "#"; it accepts "v1.XXX".
@@ -353,8 +356,14 @@ export async function runCli(argv: string[]): Promise<string> {
       "boundaryProductsJustified",
       "internalFlowConservation",
       "consumerInputsSatisfied",
+      "consumerInputsNotOverfed",
+      "targetOutputsSatisfied",
       "noOrphanUnits",
     ];
+    if (results.length !== RENDER_INVARIANT_NAMES.length)
+      throw new Error(
+        `render invariant count drift: ${results.length} results vs ${RENDER_INVARIANT_NAMES.length} labels`,
+      );
     lines.push("# render-invariants");
     for (let i = 0; i < Math.min(results.length, RENDER_INVARIANT_NAMES.length); i++) {
       for (const l of fmtVerdict(
