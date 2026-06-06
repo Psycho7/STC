@@ -23,9 +23,13 @@ import type { Target } from "../data/targets";
  *  - SCC members are always shared: each non-trivial SCC emits exactly one
  *    replica per member, lazily on first reach. Recursing past the SCC follows
  *    its boundary input edges (the edges entering from non-SCC sources).
- *  - Any other producer (not an articulation point, not in an SCC) replicates
- *    per consumer: each consumer call creates its own Replica with that
- *    consumer's rate share.
+ *  - A byproduct-shared producer (one that supplies a multi-member SCC member
+ *    across the boundary via a non-primary output item) emits one shared
+ *    replica at its full LP rate, like an AP. Every reach of it routes here, so
+ *    primary and boundary paths converge on the single replica.
+ *  - Any other producer (not an articulation point, not in an SCC, not
+ *    byproduct-shared) replicates per consumer: each consumer call creates its
+ *    own Replica with that consumer's rate share.
  *
  * The walker is iterative to dodge JS recursion-depth limits on real packs.
  *
@@ -37,9 +41,9 @@ import type { Target } from "../data/targets";
  *   - propagateGroups    pure GroupId derivation
  *
  * plus one private helper, `processProducer`, that walkFromTargets calls once
- * per traversed edge to dispatch the three producer roles (SCC member,
- * AP-shared, per-consumer). It isn't a public seam on purpose: it is stateful
- * glue rather than a concern of its own.
+ * per traversed edge to dispatch the four producer roles (SCC member,
+ * AP-shared, byproduct-shared, per-consumer). It isn't a public seam on
+ * purpose: it is stateful glue rather than a concern of its own.
  *
  * `assignSplitRoles` and `propagateGroups` are exported alongside the public
  * entry so tests can exercise the pure rules without building a full
@@ -81,11 +85,20 @@ type ReplicateState = {
   // Lazy emission caches.
   readonly sccCreated: Set<SccId>;
   readonly apShared: Map<RecipeId, Replica>;
+  readonly byproductShared: Map<RecipeId, Replica>;
   readonly sccMemberReplicas: Map<SccId, Map<RecipeId, ReplicaId>>;
 
   // Lookup tables.
   readonly sccById: Map<SccId, Condensation["sccs"][number]>;
   readonly targetRecipeIds: Set<RecipeId>;
+  // Producers that feed an SCC member across the boundary for an item that is
+  // NOT the producer's primary output (a byproduct supply). Their execution
+  // rate is fixed by their primary-output demand, so they are emitted once as a
+  // shared replica at their full LP rate (the AP-shared discipline) and their
+  // inputs are walked once. That stops the boundary byproduct demand from
+  // minting extra per-consumer copies and recursively re-walking the producer's
+  // own input chain.
+  readonly byproductSharedSources: Set<RecipeId>;
 
   // Worklists.
   readonly stack: Frame[];
@@ -131,6 +144,34 @@ function createReplicateState(args: {
   const targetRecipeIds = new Set<RecipeId>(
     args.targets.map((t) => t.recipeId),
   );
+
+  // Precompute the byproduct-supplier set so the dispatch is order-independent:
+  // every reach of such a producer (primary path or boundary) shares the single
+  // replica. A producer qualifies when it feeds a multi-member SCC member across
+  // the boundary for an item that is not its own primary output.
+  //
+  // Invariant this branch relies on: membership in this set controls dispatch
+  // for EVERY reach of the producer, including any non-byproduct edge to a
+  // non-SCC consumer. That is correct ONLY because the LP solver fixes this
+  // producer's execution rate globally, so emitting it once at its full LP rate
+  // yields the same replica at the same rate that per-consumer scaling would
+  // produce in the single-producer case.
+  const byproductSharedSources = new Set<RecipeId>();
+  for (const s of args.condensation.sccs) {
+    if (s.recipeIds.length <= 1) continue;
+    const members = new Set(s.recipeIds);
+    for (const memberId of s.recipeIds) {
+      for (const e of args.g.incoming.get(memberId) ?? []) {
+        if (members.has(e.source)) continue;
+        const producer = args.g.nodes.get(e.source);
+        const primaryOut = producer?.out[0]?.item;
+        if (primaryOut !== undefined && e.item !== primaryOut) {
+          byproductSharedSources.add(e.source);
+        }
+      }
+    }
+  }
+
   return {
     g: args.g,
     articulation: args.articulation,
@@ -141,9 +182,11 @@ function createReplicateState(args: {
     nextId: 0,
     sccCreated: new Set(),
     apShared: new Map(),
+    byproductShared: new Map(),
     sccMemberReplicas: new Map(),
     sccById,
     targetRecipeIds,
+    byproductSharedSources,
     stack: [],
     boundaryEdges: [],
   };
@@ -565,17 +608,22 @@ function ensureSccReplicas(
 // ---------------------------------------------------------------------------
 
 // Handles a single (producer, consumer, item) edge, called once per traversed
-// edge by walkFromTargets. It isn't a public seam: it owns the three producer
-// cases (SCC member, AP-shared, non-shared per-consumer) and the state
-// mutations each one needs. It sits above walkFromTargets so reading the file
-// top to bottom matches the call order.
+// edge by walkFromTargets. It isn't a public seam: it owns the four producer
+// cases (SCC member, AP-shared, byproduct-shared, non-shared per-consumer) and
+// the state mutations each one needs. It sits above walkFromTargets so reading
+// the file top to bottom matches the call order. Dispatch order: SCC, then AP,
+// then byproduct-shared, then non-shared per-consumer.
 //
-// The three cases:
+// The four cases:
 //   - SCC member: hand off to ensureSccReplicas for lazy emission and do
 //                 nothing else here; ensureSccReplicas enqueues boundary edges
 //                 as needed.
 //   - AP-shared:  emit one shared replica the first time the AP is reached and
 //                 push exactly one upstream frame.
+//   - Byproduct-shared: a producer that supplies a multi-member SCC member
+//                 across the boundary via a non-primary output. Emit one shared
+//                 replica at its full LP rate and push one upstream frame,
+//                 mirroring the AP-shared branch.
 //   - Non-shared: emit a per-consumer replica scaled by this consumer's share
 //                 of the producer, then push an upstream frame that inherits
 //                 the consumer's blueprint group.
@@ -636,6 +684,47 @@ function processProducer(
       state.replicas.push(shared);
       state.apShared.set(producerId, shared);
       // Walk upstream from this shared producer just once.
+      state.stack.push({
+        consumerId: producerId,
+        consumerReplicaId: shared.id,
+        consumerRate: sharedRate,
+        blueprintGroupId: shared.blueprintGroupId,
+        consumerPath: [],
+      });
+    }
+    return;
+  }
+
+  // Byproduct-supplier producer: it feeds an SCC member across the boundary for
+  // a byproduct output, so its run rate is set by its primary-output demand, not
+  // by the byproduct demand. Emit one shared replica at its full LP rate (no
+  // outgoingEdgeFilter, so assembleLogicalGraph fans it out to every consumer,
+  // primary and byproduct alike) and walk its inputs a single time, mirroring the
+  // AP-shared branch. Every reach of this producer routes here, so the primary
+  // path and the boundary path converge on the one shared replica instead of
+  // double-minting per-consumer copies and re-walking its input chain.
+  if (state.byproductSharedSources.has(producerId)) {
+    let shared = state.byproductShared.get(producerId);
+    if (!shared) {
+      const sharedRate = state.rates.get(producerId) ?? new Fraction(0);
+      // Reuse the apShared group role on purpose: both have emit-once shared
+      // semantics, and blueprintGroupId is used only for grouping (not for
+      // dispatch), so the resulting `shared:<id>` group id is fine and no new
+      // GroupRole variant is needed.
+      const sharedGroupId = propagateGroups({
+        kind: "apShared",
+        recipeId: producerId,
+      });
+      shared = {
+        id: newReplicaId(state, `r:${producerId}`),
+        recipeId: producerId,
+        executionRate: sharedRate,
+        consumerPath: [],
+        blueprintGroupId: sharedGroupId,
+        sharedAtArticulation: true,
+      };
+      state.replicas.push(shared);
+      state.byproductShared.set(producerId, shared);
       state.stack.push({
         consumerId: producerId,
         consumerReplicaId: shared.id,
