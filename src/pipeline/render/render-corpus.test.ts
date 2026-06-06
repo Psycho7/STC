@@ -256,10 +256,23 @@ describe("render corpus: RF-1 regression", () => {
 // jinlong_coupon-proc_battery_5 (single-target) and xiranite_poly+iron_powder
 // (multi-target).
 //
-// Residual known-red set: one multi-target plan,
-// proc_battery_5+xiranite_enr_powder, still fails. It traces to a separate
-// inbound-fan-out defect tracked and fixed in a later task; this sweep leaves
-// it red on purpose.
+// Residual known-red set: after the honest classification (see isInvariantThrow
+// below), the swept population is green and three deferred buckets are EXCLUDED
+// and pinned as explicit xfail tests below (each asserts the plan still throws
+// its dev invariant, documents the known-bad state, and will start failing once
+// the defect is fixed):
+//   - proc_battery_5+xiranite_enr_powder (multi-target render inbound-fan-out),
+//   - copper_enr+liquid_xiranite_enr (multi-target solver mass-balance residual),
+//   - 34 transfer_tundra_* single-target plans (DEFERRED_TUNDRA) -- each trips
+//     the SOLVER dev invariant with the same mass-balance residual (~6.67e-4),
+//     one shared solver-residual defect that the old blanket solve-catch
+//     silently skipped (the other 25 transfer_tundra recipes are clean and
+//     stay in the green sweep).
+//
+// The sweep distinguishes a dev-invariant throw (surfaced as a failure) from a
+// genuine infeasibility/unsolvable throw (a legit skip) via isInvariantThrow,
+// so a regression that trips the solver/render dev assertion can no longer hide
+// behind the solve-catch.
 // ---------------------------------------------------------------------------
 
 const SWEEP_TOL = new Fraction(1, 1000000);
@@ -276,9 +289,92 @@ const MULTI_TARGET_PLANS: ReadonlyArray<{
   { name: "copper_enr+liquid_xiranite_enr", recipeIds: ["copper_enr", "liquid_xiranite_enr"] },
 ];
 
+// Known, still-open defects. These are excluded from the green main sweep and
+// pinned as explicit xfail tests below (each PASSES now because the plan still
+// fails; each will START FAILING -- prompting removal -- once the underlying
+// defect is fixed). The reason for each:
+//   - proc_battery_5+xiranite_enr_powder (multi-target): assemble.ts
+//     inbound/intra edge fan-out fails to split SCC consumer stamps (the
+//     liquid_xiranite / lowpoly / poly many-to-many wiring), so the render dev
+//     assertion throws; deferred.
+//   - copper_enr+liquid_xiranite_enr (multi-target): solver mass-balance
+//     residual (~2.4e-4 on liquid_sewage) trips the solver dev invariant
+//     assertion; deferred.
+//   - 34 transfer_tundra_* single-target plans (DEFERRED_TUNDRA below): each
+//     trips the SOLVER dev invariant with an identical mass-balance residual
+//     (~6.67e-4). This is one shared solver-residual defect, same nature as
+//     copper_enr+liquid_xiranite_enr. It was previously hidden by the sweep's
+//     blanket solve-catch (treated as a skip); the honest classification now
+//     surfaces it, so these are pinned here rather than fixed (the solver is
+//     out of scope for this task). Note the other 25 transfer_tundra recipes
+//     solve+render clean and stay IN the green sweep, hence an explicit name
+//     set rather than a prefix match.
+const KNOWN_DEFERRED: ReadonlySet<string> = new Set([
+  "proc_battery_5+xiranite_enr_powder",
+  "copper_enr+liquid_xiranite_enr",
+]);
+
+// The 34 transfer_tundra_* single-target plans that trip the solver dev
+// invariant (shared mass-balance residual ~6.67e-4); deferred, pinned as an
+// xfail below. Listed explicitly because 25 sibling transfer_tundra recipes are
+// clean and remain in the green sweep.
+const DEFERRED_TUNDRA: ReadonlySet<string> = new Set([
+  "transfer_tundra_carbon_enr",
+  "transfer_tundra_carbon_enr_powder",
+  "transfer_tundra_carbon_mtl",
+  "transfer_tundra_carbon_powder",
+  "transfer_tundra_crystal_powder",
+  "transfer_tundra_crystal_shell",
+  "transfer_tundra_glass_cmpt",
+  "transfer_tundra_iron_cmpt",
+  "transfer_tundra_iron_nugget",
+  "transfer_tundra_iron_powder",
+  "transfer_tundra_originium_enr_powder",
+  "transfer_tundra_originium_powder",
+  "transfer_tundra_plant_bbflower_1",
+  "transfer_tundra_plant_bbflower_powder_1",
+  "transfer_tundra_plant_bbflower_seed_1",
+  "transfer_tundra_plant_grass_1",
+  "transfer_tundra_plant_grass_2",
+  "transfer_tundra_plant_grass_powder_1",
+  "transfer_tundra_plant_grass_powder_2",
+  "transfer_tundra_plant_grass_seed_1",
+  "transfer_tundra_plant_grass_seed_2",
+  "transfer_tundra_plant_moss_1",
+  "transfer_tundra_plant_moss_2",
+  "transfer_tundra_plant_moss_3",
+  "transfer_tundra_plant_moss_enr_powder_1",
+  "transfer_tundra_plant_moss_enr_powder_2",
+  "transfer_tundra_plant_moss_powder_1",
+  "transfer_tundra_plant_moss_powder_2",
+  "transfer_tundra_plant_moss_powder_3",
+  "transfer_tundra_plant_moss_seed_1",
+  "transfer_tundra_plant_moss_seed_2",
+  "transfer_tundra_plant_moss_seed_3",
+  "transfer_tundra_quartz_glass",
+  "transfer_tundra_quartz_powder",
+]);
+
+function isDeferred(name: string): boolean {
+  return KNOWN_DEFERRED.has(name) || DEFERRED_TUNDRA.has(name);
+}
+
+// A thrown error counts as a real failure (to be surfaced) only when it is an
+// INVARIANT violation -- the solver dev assertion throws "solver invariants
+// violated:" (src/solver/invariants.ts) and the render dev assertion throws
+// "render invariants violated:" (src/pipeline/render/invariants.ts). A genuinely
+// infeasible/unsolvable LP throws "LP solver: infeasible problem" /
+// "LP solver: unbounded objective" from assertSolvable (src/solver/index.ts);
+// those remain a legit skip.
+function isInvariantThrow(err: unknown): boolean {
+  return String(err).includes("invariants violated");
+}
+
 // Run one plan through solve + render and return the gate failures it produced.
 // Empty array means the plan is clean (or was skipped as non-feasible, in which
-// case skipped is true and the caller should not count it).
+// case skipped is true and the caller should not count it). A solve/render
+// throw caused by a dev invariant assertion is surfaced as a failure, not
+// skipped -- only an infeasibility/unsolvable throw is a legit skip.
 function sweepPlan(
   name: string,
   targets: Target[],
@@ -286,7 +382,14 @@ function sweepPlan(
   let full;
   try {
     full = solvePlanWithIntermediates(targets, pack, defaultTransportConfig, []);
-  } catch {
+  } catch (err) {
+    if (isInvariantThrow(err)) {
+      return {
+        skipped: false,
+        failures: [`${name}: solver-invariant-throw: ${String(err)}`],
+      };
+    }
+    // Infeasible / unsolvable LP: a legit skip.
     return { skipped: true, failures: [] };
   }
   if (!full.feasibility.softFeasible) return { skipped: true, failures: [] };
@@ -297,7 +400,8 @@ function sweepPlan(
   try {
     out = renderPlanFromSolve(full, pack, targets, []);
   } catch (err) {
-    // A feasible plan whose render THROWS is a genuine failure, not a skip.
+    // A feasible plan whose render THROWS the dev render-invariant assertion is
+    // a genuine failure, not a skip.
     failures.push(`${name}: render-crash: ${String(err)}`);
     return { skipped: false, failures };
   }
@@ -345,8 +449,10 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
   it("every feasible plan renders clean and matches LP machine counts", () => {
     const allFailures: string[] = [];
 
-    // Single-target sweep over the whole recipe pack.
+    // Single-target sweep over the whole recipe pack, excluding the deferred
+    // transfer_tundra_* solver-residual family (pinned as an xfail below).
     for (const r of pack.recipes) {
+      if (isDeferred(r.id)) continue;
       const targets: Target[] = [
         { recipeId: r.id, ratePerSec: { num: "1", denom: "1" } },
       ];
@@ -354,8 +460,10 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
       allFailures.push(...failures);
     }
 
-    // Multi-target representative plans.
+    // Multi-target representative plans, excluding the known-deferred set
+    // (those are pinned as xfail tests below).
     for (const mt of MULTI_TARGET_PLANS) {
+      if (isDeferred(mt.name)) continue;
       const targets: Target[] = mt.recipeIds.map((recipeId) => ({
         recipeId,
         ratePerSec: { num: "1", denom: "1" },
@@ -374,5 +482,66 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
       allFailures,
       `${dirtyPlans.length} plan(s) failed the render sweep: ${dirtyPlans.join(", ")}\n${allFailures.join("\n")}`,
     ).toEqual([]);
+  });
+
+  // xfail pins for the two known-deferred multi-target plans. Each asserts the
+  // plan CURRENTLY fails (the dev assertion throws), so these tests PASS now and
+  // document the known-bad state. They will START FAILING -- prompting their
+  // removal -- once the underlying defect is fixed.
+  //
+  // proc_battery_5+xiranite_enr_powder: assemble.ts inbound/intra edge fan-out
+  // fails to split SCC consumer stamps (liquid_xiranite / lowpoly / poly
+  // many-to-many wiring); renderPlanFromSolve throws the render dev assertion.
+  it("xfail (deferred): proc_battery_5+xiranite_enr_powder still throws render invariants", () => {
+    const targets: Target[] = ["proc_battery_5", "xiranite_enr_powder"].map(
+      (recipeId) => ({ recipeId, ratePerSec: { num: "1", denom: "1" } }),
+    );
+    expect(() => {
+      const full = solvePlanWithIntermediates(
+        targets,
+        pack,
+        defaultTransportConfig,
+        [],
+      );
+      renderPlanFromSolve(full, pack, targets, []);
+    }).toThrow(/render invariants violated/);
+  });
+
+  // copper_enr+liquid_xiranite_enr: solver mass-balance residual (~2.4e-4 on
+  // liquid_sewage) trips the solver dev invariant assertion in
+  // solvePlanWithIntermediates.
+  it("xfail (deferred): copper_enr+liquid_xiranite_enr still throws solver invariants", () => {
+    const targets: Target[] = ["copper_enr", "liquid_xiranite_enr"].map(
+      (recipeId) => ({ recipeId, ratePerSec: { num: "1", denom: "1" } }),
+    );
+    expect(() => {
+      const full = solvePlanWithIntermediates(
+        targets,
+        pack,
+        defaultTransportConfig,
+        [],
+      );
+      renderPlanFromSolve(full, pack, targets, []);
+    }).toThrow(/solver invariants violated/);
+  });
+
+  // The 34 deferred transfer_tundra_* single-target plans each trip the solver
+  // dev invariant with an identical mass-balance residual (~6.67e-4). One shared
+  // deferred solver-residual defect, previously hidden by the blanket
+  // solve-catch. This pin asserts each still throws the solver invariant; it
+  // documents the known-bad state and will start failing (per recipe) once the
+  // residual is fixed, prompting removal of that recipe from DEFERRED_TUNDRA.
+  it("xfail (deferred): the 34 transfer_tundra_* plans still throw solver invariants", () => {
+    expect(DEFERRED_TUNDRA.size).toBe(34);
+    for (const recipeId of DEFERRED_TUNDRA) {
+      const targets: Target[] = [
+        { recipeId, ratePerSec: { num: "1", denom: "1" } },
+      ];
+      expect(
+        () =>
+          solvePlanWithIntermediates(targets, pack, defaultTransportConfig, []),
+        `expected ${recipeId} to still throw the solver dev invariant`,
+      ).toThrow(/solver invariants violated/);
+    }
   });
 });
