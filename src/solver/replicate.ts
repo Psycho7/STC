@@ -423,15 +423,41 @@ export function assignSplitRoles(args: {
     : recipeRate.mul(intraFlow).div(totalFlow);
   const delivererRate = recipeRate.sub(looperRate);
 
-  // Filters keep ALL intra edges on the looper (so intra-only secondary
-  // co-products still attach to it) and ALL cross edges on the deliverer.
+  // Filters are built in two passes, keyed by output item:
+  //   - DRIVER item: keep the intra/cross split (its intra edges -> looper, its
+  //     cross edges -> deliverer). The driver's intra consumers map to the loop
+  //     fraction and its cross consumers to the ship fraction of the SAME item,
+  //     so this split is rate-correct and preserves every currently-clean plan.
+  //   - NON-DRIVER (co-product) items: route ALL of that item's edges (both its
+  //     intra and its cross edges) to the LIVE role -- the deliverer when
+  //     delivererRate>0, else the looper. Routing a co-product by its OWN
+  //     intra/cross class can land its edges on a rate-0 split (e.g. looperRate
+  //     ==0 when the driver has no intra flow), starving the co-product consumer
+  //     of the live replica's share and surfacing the live producer's output as
+  //     a phantom surplus. No current co-product is consumed BOTH intra and
+  //     cross, so a single live-role assignment is unambiguous; assigning to
+  //     both roles would double-feed the consumer (tripping the over-fed check).
   const looperFilter = new Set<string>();
-  for (const ie of intraEdges) {
-    looperFilter.add(outgoingEdgeKey(ie.item, ie.target));
-  }
   const delivererFilter = new Set<string>();
+  // liveFilter is the live role's filter: the deliverer when delivererRate>0,
+  // else the looper. Under the shouldSplit gate at least one role rate is
+  // positive, so liveFilter always points at a live replica. Non-driver
+  // (co-product) edges all route here.
+  const liveIsDeliverer = delivererRate.compare(0) > 0;
+  const liveFilter = liveIsDeliverer ? delivererFilter : looperFilter;
+  for (const ie of intraEdges) {
+    if (ie.item === driver) {
+      looperFilter.add(outgoingEdgeKey(ie.item, ie.target));
+    } else {
+      liveFilter.add(outgoingEdgeKey(ie.item, ie.target));
+    }
+  }
   for (const ce of crossEdges) {
-    delivererFilter.add(outgoingEdgeKey(ce.item, ce.target));
+    if (ce.item === driver) {
+      delivererFilter.add(outgoingEdgeKey(ce.item, ce.target));
+    } else {
+      liveFilter.add(outgoingEdgeKey(ce.item, ce.target));
+    }
   }
   // When isTarget is true and there are no cross edges, delivererFilter ends up
   // empty. The deliverer still owns the target-output role; the

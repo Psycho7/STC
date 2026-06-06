@@ -154,6 +154,43 @@ describe("render corpus: per-stamp billing + target-output pins", () => {
   }
 });
 
+// Non-driver co-product routing pins. These three single-target plans each have
+// an SCC member that co-produces a byproduct consumed intra-only while the
+// driver output ships cross/target-out (so looperRate==0). Before the live-role
+// filter fix the byproduct edges landed on the rate-0 looper, leaving the
+// consumer unfed and surfacing a phantom byproduct surplus. They now render
+// clean.
+describe("render corpus: non-driver co-product routing pins", () => {
+  const COPRODUCT_PINS = [
+    "xiranite_poly",
+    "proc_battery_5",
+    "jinlong_coupon-proc_battery_5",
+  ];
+  for (const recipeId of COPRODUCT_PINS) {
+    it(`plan ${recipeId}=1 passes all render invariants`, () => {
+      const targets: Target[] = [
+        { recipeId, ratePerSec: { num: "1", denom: "1" } },
+      ];
+      const full = solvePlanWithIntermediates(
+        targets,
+        pack,
+        defaultTransportConfig,
+        [],
+      );
+      const { plan } = renderPlanFromSolve(full, pack, targets, []);
+      const results = checkRenderPlan({
+        plan,
+        rates: full.rates,
+        pack,
+        targets,
+        itemOverrides: [],
+      });
+      const violations = results.flatMap((r) => r.violations);
+      expect(violations).toEqual([]);
+    });
+  }
+});
+
 // RF-1 regression: the fix routes iron_nugget's producer to its live consumer
 // stamp, so the RF-1 hash plan no longer reports any iron_nugget render
 // violation. Pins the fix against regression on the original reported plan.
@@ -208,19 +245,21 @@ describe("render corpus: RF-1 regression", () => {
 // collected with the plan name and the gate it violated so the assertion message
 // stays a usable oracle.
 //
-// Residual known-red set (NOT fixable in the render layer): every remaining
-// failure traces to a single upstream solver defect -- multi-producer SCC
-// routing for the xiranite_poly liquid loop. xiranite_poly co-produces the
-// looped byproduct liquid_sewage, but replicate's split-replica filter assigns
-// the liquid_sewage outgoing role to a zero-rate split, so the logical graph
-// never wires xiranite_poly's liquid_sewage to its in-loop consumer. The render
-// layer then bills the one wired producer (copper_nugget) the full consumer
-// demand and surfaces xiranite_poly's share as a phantom liquid_sewage surplus.
-// This hits xiranite_poly, proc_battery_5, jinlong_coupon-proc_battery_5
-// (single-target) and proc_battery_5+xiranite_enr_powder, xiranite_poly+iron_powder
-// (multi-target). Fixing it requires a solver-layer change and is tracked
-// separately; the render-layer per-stamp billing + target-output work leaves it
-// red on purpose.
+// The non-driver co-product routing fix (live-role filter in assignSplitRoles)
+// cleared the single-target failures: xiranite_poly co-produces the looped
+// byproduct liquid_sewage, and the split-replica filter used to assign the
+// liquid_sewage role to a zero-rate split so the logical graph never wired
+// xiranite_poly's liquid_sewage to its in-loop consumer (the render layer then
+// billed the one wired producer the full demand and surfaced xiranite_poly's
+// share as a phantom surplus). Routing the non-driver co-product edges to the
+// live split role fixes that, clearing xiranite_poly, proc_battery_5,
+// jinlong_coupon-proc_battery_5 (single-target) and xiranite_poly+iron_powder
+// (multi-target).
+//
+// Residual known-red set: one multi-target plan,
+// proc_battery_5+xiranite_enr_powder, still fails. It traces to a separate
+// inbound-fan-out defect tracked and fixed in a later task; this sweep leaves
+// it red on purpose.
 // ---------------------------------------------------------------------------
 
 const SWEEP_TOL = new Fraction(1, 1000000);
