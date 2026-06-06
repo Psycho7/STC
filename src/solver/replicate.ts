@@ -251,6 +251,15 @@ export function propagateGroups(role: GroupRole): GroupId {
 // and a deliverer). When it splits, it returns the per-role execution rates
 // and the outgoingEdgeFilter sets ready for building those replicas.
 //
+// The split is balanced on a single "split-driving" output item: an output the
+// recipe both feeds intra-SCC and ships cross-boundary. isTarget adds a
+// synthetic cross consumer on the primary output, so a target's primary output
+// can be split-driving. outQtys supplies the per-item produced quantities used
+// to compute that item's produced flow; primaryOutItem is the recipe's primary
+// output and the count==0 fallback balance item when no output is split-driving.
+// The >=2 split-driving case (a co-product role-split, STC-0007) is deferred and
+// guarded by a dev-only assertion.
+//
 // Mass-balance contract: when the result is `split`, looperRate +
 // delivererRate equals the input `recipeRate` (apart from a defensive
 // negative-cross clamp that the exact-rational solver makes unreachable in
@@ -286,36 +295,78 @@ export type SplitDecision =
 
 export function assignSplitRoles(args: {
   recipeRate: Fraction;
-  primaryOutQty: number; // recipe.out[0].qty, or 0 when recipe has no outputs
+  primaryOutItem: string; // recipe.out[0].item, or "" when recipe has no outputs
+  outQtys: Map<string, number>; // produced qty per output item
   intraEdges: ResolvedIntraEdge[];
   crossEdges: RoleEdge[];
   isTarget: boolean;
 }): SplitDecision {
-  const { recipeRate, primaryOutQty, intraEdges, crossEdges, isTarget } = args;
+  const { recipeRate, primaryOutItem, outQtys, intraEdges, crossEdges, isTarget } =
+    args;
   const shouldSplit =
     intraEdges.length > 0 &&
     (crossEdges.length > 0 || isTarget) &&
     recipeRate.compare(0) > 0;
   if (!shouldSplit) return { kind: "single" };
 
-  // intra-flow is the sum over the intra-SCC outgoing edges of
-  // (consumer rate * in-qty for the item).
+  // KD-1: balance the looper/deliverer split PER OUTPUT ITEM, not over the
+  // lumped flow of every outgoing edge. A co-product recipe whose intra edges
+  // include a secondary output item would otherwise have that secondary item's
+  // intra flow wrongly subtracted from the primary item's produced flow,
+  // collapsing the primary cross flow to 0 and zeroing the deliverer.
+  //
+  // An output item is "split-driving" iff it has at least one intra consumer
+  // AND at least one cross consumer. The synthetic target-output role counts as
+  // a cross consumer on the primary output item. STC-0007 (deferred co-product
+  // role-split) covers the >=2 split-driving case; the Task 2 topology
+  // diagnostic confirmed 0 plans currently reach it.
+  const intraItems = new Set(intraEdges.map((e) => e.item));
+  const crossItems = new Set(crossEdges.map((e) => e.item));
+  if (isTarget && primaryOutItem) crossItems.add(primaryOutItem);
+  const drivingItems = [...intraItems].filter((i) => crossItems.has(i));
+
+  if (drivingItems.length >= 2) {
+    if (import.meta.env.DEV) {
+      throw new Error(
+        `assignSplitRoles: recipe producing "${primaryOutItem}" has ${drivingItems.length} ` +
+          `split-driving output items [${drivingItems.join(", ")}]; the co-product ` +
+          `role-split (decision STC-0007) is deferred and only a single split-driving ` +
+          `item is supported.`,
+      );
+    }
+    // Production fallback only (assertion tree-shaken): the DEV assertion is the
+    // real guard, so this branch never fires in prod. Deterministically pick one
+    // driving item below so mass balance still holds without crashing.
+  }
+
+  // Pick the item to balance on:
+  // - count>=1: a split-driving item. Prefer primaryOutItem when it is itself
+  //   split-driving; otherwise take the first driving item (deterministic, and
+  //   only reachable in the DEV-asserted >=2 fallback above).
+  // - count==0 (no split-driving item, but shouldSplit still held): fall back to
+  //   primaryOutItem and balance its own intra flow against its produced flow.
+  const driver = drivingItems.includes(primaryOutItem)
+    ? primaryOutItem
+    : (drivingItems[0] ?? primaryOutItem);
+
+  // intra-flow for the driver item: sum over its intra edges of
+  // (consumer rate * in-qty).
   let intraFlow = new Fraction(0);
   for (const ie of intraEdges) {
+    if (ie.item !== driver) continue;
     intraFlow = intraFlow.add(
       ie.consumerRate.mul(new Fraction(ie.consumerInQty)),
     );
   }
-  // Total produced rate of this recipe's primary output. The split is a
-  // rate-share on outgoing flow, and for AEF recipes the primary output
-  // (recipe.out[0]) is the canonical role-carrier.
+  // Produced rate of the driver output item.
+  const driverOutQty = outQtys.get(driver) ?? 0;
   const producedFlow =
-    primaryOutQty > 0
-      ? recipeRate.mul(new Fraction(primaryOutQty))
+    driverOutQty > 0
+      ? recipeRate.mul(new Fraction(driverOutQty))
       : new Fraction(0);
-  // cross-flow is total-produced minus intra-flow, which covers both the
-  // graph-cross edges and the synthetic target output. Mass balance on the SCC
-  // linear solve guarantees total-produced == intra-flow + cross-flow.
+  // cross-flow is the driver's produced flow minus its intra flow, covering
+  // both its graph-cross edges and the synthetic target output. Mass balance on
+  // the SCC linear solve guarantees produced == intra + cross for the driver.
   let crossFlow = producedFlow.sub(intraFlow);
   // Clamp any tiny negative that a round trip through the solver could in
   // principle introduce. The exact-rational flow solve makes this unreachable
@@ -329,6 +380,8 @@ export function assignSplitRoles(args: {
     : recipeRate.mul(intraFlow).div(totalFlow);
   const delivererRate = recipeRate.sub(looperRate);
 
+  // Filters keep ALL intra edges on the looper (so intra-only secondary
+  // co-products still attach to it) and ALL cross edges on the deliverer.
   const looperFilter = new Set<string>();
   for (const ie of intraEdges) {
     looperFilter.add(outgoingEdgeKey(ie.item, ie.target));
@@ -413,10 +466,13 @@ function ensureSccReplicas(
     const isTarget = state.targetRecipeIds.has(rid);
     const recipeRate = state.rates.get(rid) ?? new Fraction(0);
     const recipe = state.g.nodes.get(rid);
-    const primaryOutQty = recipe?.out[0]?.qty ?? 0;
+    const primaryOutItem = recipe?.out[0]?.item ?? "";
+    const outQtys = new Map<string, number>();
+    for (const o of recipe?.out ?? []) outQtys.set(o.item, o.qty);
     const decision = assignSplitRoles({
       recipeRate,
-      primaryOutQty,
+      primaryOutItem,
+      outQtys,
       intraEdges,
       crossEdges,
       isTarget,

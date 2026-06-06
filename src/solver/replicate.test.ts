@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import type { Recipe } from "@aef/schema";
 import type { RecipeEdge, RecipeId } from "./types";
-import { splitConsumerDemand } from "./replicate";
+import { assignSplitRoles, splitConsumerDemand } from "./replicate";
+import { outgoingEdgeKey } from "./types";
 
 function recipe(
   id: string,
@@ -108,5 +109,93 @@ describe("splitConsumerDemand", () => {
       new Fraction(8),
     );
     expect(result).toEqual([]);
+  });
+});
+
+describe("assignSplitRoles", () => {
+  // Co-product case (KD-1). A single SCC member produces two output items:
+  //   - poly  (primary, out qty 1): consumed BOTH intra (by an SCC member) AND
+  //     cross (by an external consumer) -> the single split-driving item.
+  //   - lowpoly (secondary, out qty 1): consumed intra-only.
+  // The per-item balance must drive looper/deliverer off poly alone, so the
+  // deliverer that owns the poly cross edge keeps a positive rate. The bug
+  // lumped lowpoly's intra flow into poly's produced flow, collapsing crossFlow
+  // to 0 and zeroing the deliverer.
+  it("keeps a positive deliverer for a co-product whose primary is split", () => {
+    const recipeRate = new Fraction(4);
+    const decision = assignSplitRoles({
+      recipeRate,
+      primaryOutItem: "poly",
+      outQtys: new Map([
+        ["poly", 1],
+        ["lowpoly", 1],
+      ]),
+      intraEdges: [
+        {
+          item: "poly",
+          target: "xiranite_poly",
+          consumerRate: new Fraction(3),
+          consumerInQty: 1,
+        },
+        {
+          item: "lowpoly",
+          target: "lowpoly_purifier",
+          consumerRate: new Fraction(4),
+          consumerInQty: 1,
+        },
+      ],
+      crossEdges: [{ item: "poly", target: "xiranite_enr_powder" }],
+      isTarget: false,
+    });
+
+    expect(decision.kind).toBe("split");
+    if (decision.kind !== "split") return;
+    // poly produced flow = 4*1 = 4; poly intra flow = 3*1 = 3; cross = 1.
+    // looperRate = 4 * 3/4 = 3, delivererRate = 4 - 3 = 1.
+    expect(decision.delivererRate.compare(0) > 0).toBe(true);
+    expect(decision.delivererRate.equals(new Fraction(1))).toBe(true);
+    expect(decision.looperRate.equals(new Fraction(3))).toBe(true);
+    // Mass balance preserved.
+    expect(
+      decision.looperRate.add(decision.delivererRate).equals(recipeRate),
+    ).toBe(true);
+    // The primary cross edge is owned by the deliverer.
+    expect(
+      decision.delivererFilter.has(
+        outgoingEdgeKey("poly", "xiranite_enr_powder"),
+      ),
+    ).toBe(true);
+    // Both intra edges (primary AND the intra-only secondary) attach to the
+    // looper filter.
+    expect(decision.looperFilter.has(outgoingEdgeKey("poly", "xiranite_poly"))).toBe(
+      true,
+    );
+    expect(
+      decision.looperFilter.has(outgoingEdgeKey("lowpoly", "lowpoly_purifier")),
+    ).toBe(true);
+  });
+
+  it("treats isTarget as a synthetic cross consumer on the primary item", () => {
+    const recipeRate = new Fraction(2);
+    const decision = assignSplitRoles({
+      recipeRate,
+      primaryOutItem: "poly",
+      outQtys: new Map([["poly", 1]]),
+      intraEdges: [
+        {
+          item: "poly",
+          target: "xiranite_poly",
+          consumerRate: new Fraction(1),
+          consumerInQty: 1,
+        },
+      ],
+      crossEdges: [],
+      isTarget: true,
+    });
+    expect(decision.kind).toBe("split");
+    if (decision.kind !== "split") return;
+    // poly produced = 2; intra = 1; cross (synthetic target) = 1.
+    expect(decision.looperRate.equals(new Fraction(1))).toBe(true);
+    expect(decision.delivererRate.equals(new Fraction(1))).toBe(true);
   });
 });
