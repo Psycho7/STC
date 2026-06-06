@@ -169,20 +169,76 @@ describe("assignSplitRoles", () => {
     expect(
       decision.looperRate.add(decision.delivererRate).equals(recipeRate),
     ).toBe(true);
-    // The primary cross edge is owned by the deliverer.
+    // The primary (driver) cross edge is owned by the deliverer.
     expect(
       decision.delivererFilter.has(
         outgoingEdgeKey("poly", "xiranite_enr_powder"),
       ),
     ).toBe(true);
-    // Both intra edges (primary AND the intra-only secondary) attach to the
-    // looper filter.
+    // The driver item's intra edge stays on the looper (driver keeps the
+    // intra/cross split).
     expect(decision.looperFilter.has(outgoingEdgeKey("poly", "xiranite_poly"))).toBe(
       true,
     );
+    // The non-driver secondary co-product (lowpoly) routes ALL its edges to the
+    // LIVE role. Here delivererRate>0, so lowpoly attaches to the deliverer, not
+    // the looper.
+    expect(
+      decision.delivererFilter.has(outgoingEdgeKey("lowpoly", "lowpoly_purifier")),
+    ).toBe(true);
     expect(
       decision.looperFilter.has(outgoingEdgeKey("lowpoly", "lowpoly_purifier")),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  // Non-driver co-product routing (the xiranite_poly liquid_sewage bug). The
+  // driver output item (xiranite_poly, primary, isTarget) has NO intra
+  // consumer, so looperRate==0 and delivererRate==recipeRate. A SECONDARY
+  // output item (liquid_sewage) is consumed intra-only. Routing liquid_sewage
+  // by its own intra class would land its edges on the dead (rate-0) looper,
+  // starving the consumer of the live replica's share. The fix routes ALL
+  // non-driver co-product edges to the LIVE role (the deliverer here).
+  it("routes a non-driver co-product's edges to the live split role", () => {
+    const recipeRate = new Fraction(1);
+    const decision = assignSplitRoles({
+      recipeRate,
+      primaryOutItem: "xiranite_poly",
+      outQtys: new Map([
+        ["xiranite_poly", 1],
+        ["liquid_sewage", 1],
+      ]),
+      intraEdges: [
+        {
+          item: "liquid_sewage",
+          target: "sewage_consumer_a",
+          consumerRate: new Fraction(1),
+          consumerInQty: 1,
+        },
+        {
+          item: "liquid_sewage",
+          target: "sewage_consumer_b",
+          consumerRate: new Fraction(1),
+          consumerInQty: 1,
+        },
+      ],
+      crossEdges: [],
+      isTarget: true,
+    });
+
+    expect(decision.kind).toBe("split");
+    if (decision.kind !== "split") return;
+    // driver = xiranite_poly (primary, split-driving via synthetic target
+    // cross). It has no intra consumer, so looperRate==0, delivererRate==1.
+    expect(decision.looperRate.equals(new Fraction(0))).toBe(true);
+    expect(decision.delivererRate.equals(new Fraction(1))).toBe(true);
+    // The live role is the deliverer (rate>0). Both liquid_sewage edges must
+    // attach to it, NOT to the dead looper.
+    const sewageA = outgoingEdgeKey("liquid_sewage", "sewage_consumer_a");
+    const sewageB = outgoingEdgeKey("liquid_sewage", "sewage_consumer_b");
+    expect(decision.delivererFilter.has(sewageA)).toBe(true);
+    expect(decision.delivererFilter.has(sewageB)).toBe(true);
+    expect(decision.looperFilter.has(sewageA)).toBe(false);
+    expect(decision.looperFilter.has(sewageB)).toBe(false);
   });
 
   it("treats isTarget as a synthetic cross consumer on the primary item", () => {
