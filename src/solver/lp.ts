@@ -198,6 +198,23 @@ export function solveLp(input: LpInput): LpResult {
       const existingFloor = constraints[pinName]?.min ?? 0;
       constraints[pinName] = { min: existingFloor + rate / primary.qty };
       variables[`x_${t.recipeId}`]![pinName] = 1;
+
+      // Surplus cap on the requested item. The floor above is one-sided, so a
+      // co-product of the target recipe can subsidize over-running it to cover
+      // some other recipe's input, silently over-producing the headline item.
+      // Cap the requested item's surplus to keep production at the requested
+      // rate, leaving the floor and mass-balance's freedom to raise production
+      // for internal consumption intact. eps is a small relative slack tied to
+      // demand on this item so LP float noise does not make the equality model
+      // spuriously infeasible; keep the larger eps when several targets share a
+      // primary item. Keep eps an order of magnitude below the invariant
+      // checkers' REL_TOL (1e-6) so a surplus sitting at the cap never trips the
+      // mass-balance / targets-met residual checks.
+      const surpCap = `surpcap_${primary.item}`;
+      const eps = Math.max(rate / primary.qty, 1) * 1e-7;
+      const existingCap = constraints[surpCap]?.max ?? 0;
+      constraints[surpCap] = { max: Math.max(existingCap, eps) };
+      variables[`surplus_${primary.item}`]![surpCap] = 1;
     }
 
     // Pass 2: freeze pass-1 cost as an upper bound (with a relative epsilon) so

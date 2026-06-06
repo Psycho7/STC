@@ -104,6 +104,17 @@ export function checkTargetsMet(
         `target ${t.recipeId} runs at ${actual}, below floor ${floor}`,
       );
     }
+    // Upper bound: the one-sided floor lets a co-product subsidize over-running
+    // the target, silently over-producing the requested item. The requested
+    // item must not carry meaningful surplus (keyed by item; shared across
+    // duplicate targets on the same primary item, so a per-target read is fine).
+    const surplus = result.surplus.get(primary.item)?.valueOf() ?? 0;
+    const surplusSlack = Math.max(1, Math.abs(floor)) * REL_TOL;
+    if (surplus > surplusSlack) {
+      violations.push(
+        `target ${t.recipeId} over-produces ${primary.item}: surplus ${surplus}`,
+      );
+    }
   }
 
   return { ok: violations.length === 0, violations };
