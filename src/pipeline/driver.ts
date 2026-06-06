@@ -119,7 +119,6 @@ export function buildRenderPlan(
   const edgeRatesByLogicalEdgeId = computeEdgeRates({
     logical,
     replicas: surviving,
-    multipliers,
     recipeById,
     rates,
   });
@@ -189,21 +188,27 @@ export function buildRenderPlan(
 }
 
 /**
- * Works out the demand rate on each edge. For an edge from producer P to
- * consumer C carrying item X, we take the consumer side: how much C needs,
- * `C.executionRate * C.recipe.in[X].qty`. That is the items/sec the consumer
- * pulls and therefore the rate the producer has to deliver. Scoping everything
- * per consumer is what keeps producer and consumer matched 1:1 once replication
- * fans things out.
+ * Works out the demand rate on each edge.
  *
- * Return-arc torn edges (their id contains "->return->") use the same formula.
- * Here the consumer is an SCC member, and the executionRate the flow solve gave
- * it already agrees with the torn-flow rate once the loop converges.
+ * Input-side edges (the consumer recipe lists item X as an input): a consumer
+ * STAMP C demands `C.executionRate * inQty(X)`. When several producer edges feed
+ * the same (stamp, item) group, that demand is split across them in proportion
+ * to each source replica's output of X (`srcStamp.executionRate * outQty(X)`).
+ * A single inbound edge gets share/sum = 1, so it carries the full stamp demand,
+ * keeping single-producer wiring bit-identical. The split guarantees the inbound
+ * edge rates sum to exactly the stamp demand and never overfeed. Degenerate
+ * groups with no positive producer share fall back to an even demand/k split.
+ *
+ * Output-side edges (the consumer recipe lists X only as an output) keep
+ * producer-side billing: `producerRate * outQty(X)`.
+ *
+ * Return-arc torn edges (their id contains "->return->") flow through the same
+ * rules; the SCC member executionRate the flow solve assigned already agrees
+ * with the torn-flow rate once the loop converges.
  */
 function computeEdgeRates(args: {
   logical: LogicalGraph;
   replicas: ReadonlyArray<Replica>;
-  multipliers: ReadonlyMap<ReplicaId, number>;
   recipeById: ReadonlyMap<RecipeId, Recipe>;
   rates: ReadonlyMap<RecipeId, Fraction>;
 }): Map<string, Fraction> {
@@ -213,35 +218,80 @@ function computeEdgeRates(args: {
 
   const result = new Map<string, Fraction>();
   const ZERO = new Fraction(0);
+
+  const itemFor = (port: string): string =>
+    port.startsWith("in:") ? port.slice("in:".length) : port;
+
+  // Pre-pass: group INPUT edges (those the consumer treats as a recipe input)
+  // by (consumer replica safeId, item). Each consumer STAMP's own demand for
+  // an item is split across its inbound edges in proportion to each source
+  // replica's output of that item. With a single inbound edge this collapses to
+  // share/sum = 1, leaving single-producer wiring bit-identical; with several
+  // it apportions the stamp demand so the inbound rates sum to exactly the
+  // stamp demand and never overfeed. Output-side edges (the consumer carries
+  // the item only as an output) keep producer-side billing in the loop below.
+  const inputEdgesByGroup = new Map<
+    string,
+    { edges: typeof logical.edges; inQty: number }
+  >();
+  const groupKey = (target: string, item: string): string => `${target}\0${item}`;
   for (const e of logical.edges) {
-    const item = e.targetPort.startsWith("in:")
-      ? e.targetPort.slice("in:".length)
-      : e.targetPort;
+    const item = itemFor(e.targetPort);
     const consumer = replicaBySafeId.get(e.target);
-    if (!consumer) {
-      result.set(e.id, ZERO);
-      continue;
-    }
+    if (!consumer) continue;
     const recipe = recipeById.get(consumer.recipeId);
-    if (!recipe) {
-      result.set(e.id, ZERO);
-      continue;
-    }
+    if (!recipe) continue;
     const inStoich = recipe.in.find((s) => s.item === item);
+    if (!inStoich) continue;
+    const key = groupKey(e.target, item);
+    const existing = inputEdgesByGroup.get(key);
+    if (existing) existing.edges.push(e);
+    else inputEdgesByGroup.set(key, { edges: [e], inQty: inStoich.qty });
+  }
+
+  // Per-group producer-share split for the input edges.
+  const outputShare = (producer: Replica | undefined, item: string): Fraction => {
+    if (!producer) return ZERO;
+    const prodRecipe = recipeById.get(producer.recipeId);
+    const outStoich = prodRecipe?.out.find((s) => s.item === item);
+    if (!outStoich) return ZERO;
+    return producer.executionRate.mul(new Fraction(outStoich.qty));
+  };
+  for (const [key, group] of inputEdgesByGroup) {
+    const sep = key.indexOf("\0");
+    const targetSafeId = key.slice(0, sep);
+    const item = key.slice(sep + 1);
+    const consumer = replicaBySafeId.get(targetSafeId)!;
+    const demand = consumer.executionRate.mul(new Fraction(group.inQty));
+    const shares = group.edges.map((e) =>
+      outputShare(replicaBySafeId.get(e.source), item),
+    );
+    const shareSum = shares.reduce((acc, s) => acc.add(s), ZERO);
+    const k = group.edges.length;
+    for (let i = 0; i < group.edges.length; i++) {
+      const e = group.edges[i]!;
+      const rate =
+        shareSum.compare(ZERO) > 0
+          ? demand.mul(shares[i]!).div(shareSum)
+          : demand.div(new Fraction(k));
+      result.set(e.id, rate);
+    }
+  }
+
+  // Remaining edges fall into two buckets, mirroring the old control flow:
+  //   - consumer/recipe unresolvable, OR the consumer recipe lists the item as
+  //     an OUTPUT (not an input). The output-side case bills the producer.
+  //   - everything else stays ZERO (as before).
+  for (const e of logical.edges) {
+    if (result.has(e.id)) continue;
+    const item = itemFor(e.targetPort);
     let rate = ZERO;
-    if (inStoich) {
-      // When an SCC member consumer has been split, it only accounts for its
-      // own share of the recipe's execution rate. So whenever the replica
-      // carries a split filter -- or otherwise has a per-replica rate that
-      // differs from the recipe aggregate -- trust its own `executionRate`.
-      // Without a split, fall back to the recipe-aggregate rate; that keeps the
-      // non-split SCC member, the per-consumer producer, and the target paths
-      // producing bit-identical results to before.
-      const consumerRate = consumer.outgoingEdgeFilter
-        ? consumer.executionRate
-        : (rates.get(consumer.recipeId) ?? consumer.executionRate ?? ZERO);
-      rate = consumerRate.mul(new Fraction(inStoich.qty));
-    } else {
+    const consumer = replicaBySafeId.get(e.target);
+    const consumerRecipe = consumer
+      ? recipeById.get(consumer.recipeId)
+      : undefined;
+    if (consumer && consumerRecipe) {
+      // Output-side billing: producer delivers its own output of the item.
       const producer = replicaBySafeId.get(e.source);
       if (producer) {
         const prodRecipe = recipeById.get(producer.recipeId);

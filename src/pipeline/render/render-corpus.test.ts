@@ -1,7 +1,7 @@
 // End-to-end render corpus test.
 //
 // Known-good group: the four feasible closed-form micro-fixtures (chain,
-// multi-producer, byproduct, raw-draw) all pass all five render invariants
+// multi-producer, byproduct, raw-draw) all pass all seven render invariants
 // as confirmed empirically before this file was written.
 //
 // RF-1 regression: the real-pack plan encoded in RF1_HASH contains an
@@ -111,6 +111,49 @@ describe("render corpus: real-pack plans render clean", () => {
   }
 });
 
+// Per-stamp edge-billing + target-output regression pins. One single-target
+// plan per render-defect mechanism the per-stamp edge billing and broadened
+// target-output spare source set close:
+//   - iron_nugget-iron_powder: symmetric SCC whose target item (iron_nugget) is
+//     co-produced by a leaf (iron_nugget-iron_ore); per-stamp producer-share
+//     billing stops the consumer over-feed and the broadened target-output spare
+//     set feeds the target edge from both producers.
+//   - equip_script_4: plant_moss SCC whose consumer used to be billed the recipe
+//     aggregate (double-feeding); per-stamp billing fixes the over-connection.
+//   - xiranite_enr_powder: liquid_xiranite SCC consumer over-fed via the
+//     aggregate rate; per-stamp billing brings inbound flow to exactly demand.
+// All three render with zero invariant violations across all seven checkers.
+describe("render corpus: per-stamp billing + target-output pins", () => {
+  const STAMP_PINS = [
+    "iron_nugget-iron_powder",
+    "equip_script_4",
+    "xiranite_enr_powder",
+  ];
+  for (const recipeId of STAMP_PINS) {
+    it(`plan ${recipeId}=1 passes all render invariants`, () => {
+      const targets: Target[] = [
+        { recipeId, ratePerSec: { num: "1", denom: "1" } },
+      ];
+      const full = solvePlanWithIntermediates(
+        targets,
+        pack,
+        defaultTransportConfig,
+        [],
+      );
+      const { plan } = renderPlanFromSolve(full, pack, targets, []);
+      const results = checkRenderPlan({
+        plan,
+        rates: full.rates,
+        pack,
+        targets,
+        itemOverrides: [],
+      });
+      const violations = results.flatMap((r) => r.violations);
+      expect(violations).toEqual([]);
+    });
+  }
+});
+
 // RF-1 regression: the fix routes iron_nugget's producer to its live consumer
 // stamp, so the RF-1 hash plan no longer reports any iron_nugget render
 // violation. Pins the fix against regression on the original reported plan.
@@ -160,10 +203,24 @@ describe("render corpus: RF-1 regression", () => {
 //       machine graph equals the LP rate (full.rates) within tolerance -- the
 //       machine-count gate that catches producer over-replication.
 //
-// This sweep is INTENTIONALLY RED at the time it is introduced: it captures the
-// known render-replication defect set as a baseline the later fixes drive to
-// zero. Each failure is collected with the plan name and the gate it violated
-// so the assertion message is a usable oracle for the fix tasks.
+// This sweep started INTENTIONALLY RED: it captured the known render-replication
+// defect set as a baseline the fixes drive toward zero. Each failure is
+// collected with the plan name and the gate it violated so the assertion message
+// stays a usable oracle.
+//
+// Residual known-red set (NOT fixable in the render layer): every remaining
+// failure traces to a single upstream solver defect -- multi-producer SCC
+// routing for the xiranite_poly liquid loop. xiranite_poly co-produces the
+// looped byproduct liquid_sewage, but replicate's split-replica filter assigns
+// the liquid_sewage outgoing role to a zero-rate split, so the logical graph
+// never wires xiranite_poly's liquid_sewage to its in-loop consumer. The render
+// layer then bills the one wired producer (copper_nugget) the full consumer
+// demand and surfaces xiranite_poly's share as a phantom liquid_sewage surplus.
+// This hits xiranite_poly, proc_battery_5, jinlong_coupon-proc_battery_5
+// (single-target) and proc_battery_5+xiranite_enr_powder, xiranite_poly+iron_powder
+// (multi-target). Fixing it requires a solver-layer change and is tracked
+// separately; the render-layer per-stamp billing + target-output work leaves it
+// red on purpose.
 // ---------------------------------------------------------------------------
 
 const SWEEP_TOL = new Fraction(1, 1000000);
