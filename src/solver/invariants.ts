@@ -6,6 +6,7 @@ import type { LpResult } from "./lp";
 import { demandByItem } from "./lp";
 import type { SolvePlanFull } from "./index";
 import { effectiveSupply } from "./effectiveSupply";
+import { isExcludedProducer } from "../data/recipe-category";
 
 // Reference-free feasibility invariant checkers. Each function is pure: it
 // derives its verdict only from the inputs handed to it, never from any
@@ -206,9 +207,7 @@ export function checkRepresentable(full: SolvePlanFull): InvariantResult {
     if (rate.compare(FRAC_ZERO) <= 0) continue;
     if (logicalIds.has(recipeId)) continue;
     const recipe = full.recipeById.get(recipeId);
-    const isTransfer = recipe?.category === "__domain_transfer";
-    const isSink = recipe?.cost === -1;
-    if (isTransfer || isSink) continue;
+    if (recipe && isExcludedProducer(recipe)) continue;
     violations.push(
       `positive-rate recipe ${recipeId} has no node in the logical graph`,
     );

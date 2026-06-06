@@ -8,7 +8,7 @@ Related decision: STC-0005 amendment (Prototype 001 GLPK-oracle eval)
 ## Goal
 
 Make the LP solver fail loudly and honestly, verify its own output during
-development, and keep the engine swappable - so that when the render layer is
+development, and keep the engine swappable, so that when the render layer is
 adapted to the LP solver, it builds on a solver that (a) reports unsatisfiable
 requests instead of silently rendering a wrong plan, (b) catches its own
 physically-impossible solves in dev/CI, and (c) can be backed by a different
@@ -41,8 +41,8 @@ items 1 and 4 with reference-independent assertions.
 - Porting the GLPK CI oracle, the de-Angular vendored slice, or the adapter.
 - Dropping exact `Fraction` arithmetic from the production data path (deferred;
   needs its own ADR-level investigation).
-- The `optimality.ts` heuristic re-solve screen in production - it is a non-proof
-  with documented false positives; it stays dev/test-only.
+- The `optimality.ts` heuristic re-solve screen in production: a non-proof
+  with documented false positives, so it stays dev/test-only.
 - The render-pipeline edge-drop bug (RF-1); that belongs to the render phase.
 
 ---
@@ -56,7 +56,7 @@ a `deficit` and reports `status: "feasible"` with `softFeasible: false`
 (`lp.ts`). This is correct, deliberate design. But the production entry points
 `solvePlan` / `solvePlanWithIntermediates` (`index.ts`) call `assertSolvable`
 (which only throws on hard `infeasible`/`unbounded`) and then read only
-`lpResult.rates` - discarding `softFeasible` and `deficit`. A
+`lpResult.rates`, discarding `softFeasible` and `deficit`. A
 `feasible + softFeasible:false` result renders exactly like a fully-satisfiable
 one. An impossible request silently produces a wrong-looking plan.
 
@@ -70,7 +70,7 @@ values already exist on `LpResult`; stop discarding them.
 Surface a feasibility summary on `SolvePlanFull` (the render-feeding entry),
 carrying at least `softFeasible` and the set of deficit items with their
 amounts. `solvePlan` (bare `LogicalGraph` return) is left unchanged unless a
-current caller needs feasibility - to be confirmed during planning by auditing
+current caller needs feasibility, to be confirmed during planning by auditing
 `solvePlan` callers. The render/UI layer consumes this later; this item only
 makes the data reach the boundary.
 
@@ -105,13 +105,13 @@ so they run in dev/test/CI and are compiled out of release.
 
 - Guard behind `import.meta.env.DEV` (Vite statically replaces this; the dead
   branch and the entire `invariants.ts` import graph are tree-shaken out of the
-  release bundle - zero runtime cost and smaller bundle).
+  release bundle, so there is zero runtime cost and a smaller bundle).
 - On failure in dev/test/CI: throw loudly (a failed invariant is a solver bug
   that should never happen, distinct from item 1's expected unsatisfiable
   request). This gates CI.
-- Exact `Fraction` arithmetic is retained in the checkers - the exactness is the
-  point (catches sub-1e-6 drift a float check would miss), and the dev-only
-  guard already removes its release cost.
+- Exact `Fraction` arithmetic is retained in the checkers because it catches
+  sub-1e-6 drift a float check would miss, and the dev-only guard already
+  removes its release cost.
 
 ### Acceptance criteria
 
@@ -129,7 +129,7 @@ so they run in dev/test/CI and are compiled out of release.
 
 The LP objective spans ~12 orders of magnitude (surplus `1e-3`, recipe cost
 medium, big-M `1e6`, deficit `1e9`). `javascript-lp-solver` is a plain float
-simplex with no scaling/presolve - the regime where a wide coefficient range is
+simplex with no scaling/presolve, the regime where a wide coefficient range is
 numerically weakest. The two-pass deterministic solve relies on a tiny relative
 cost-cap epsilon (~`1e-9`) that can be swamped when pass 1 is deficit-dominated
 (`1e9`), making the lex tie-break effectively non-binding. Prototype 001 saw no
@@ -145,7 +145,7 @@ correct (or fails honestly). No behavior change, no runtime cost.
 
 - A deficit-dominated fixture with a tight cost-cap solves to the closed-form
   expected result within the documented tolerance, or reports honest
-  infeasibility - and the assertion pins which.
+  infeasibility, and the assertion pins which.
 - The test is independent of any external solver.
 
 ---
@@ -205,7 +205,7 @@ hidden state. This also lets tests exercise the invariants against an alternate
 solver later.
 
 A vendor implementation must map its native output into `LpResult` shape
-(`status`/`softFeasible`/`deficit`/snapped-`Fraction` rates) - that mapping is
+(`status`/`softFeasible`/`deficit`/snapped-`Fraction` rates). That mapping is
 exactly what a future adapter on the GLPK-oracle branch provides. It is not
 built here.
 
@@ -223,7 +223,7 @@ built here.
 The prototype's `tools/oracle/fixtures/index.ts` + `pack.ts` are hand-authored
 micro-packs, each declaring a closed-form expected answer independent of any
 solver (chain, cyclic-target with declared deficit items, no-producer case). The
-GLPK dependency lives only in the test harnesses, not the fixtures - the fixtures
+GLPK dependency lives only in the test harnesses, not the fixtures; the fixtures
 import only their local pack builder.
 
 ### Change
