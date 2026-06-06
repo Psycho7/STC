@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import type { Recipe } from "@aef/schema";
-import type { RecipeEdge, RecipeId } from "./types";
-import { assignSplitRoles, splitConsumerDemand } from "./replicate";
+import type {
+  Condensation,
+  RecipeEdge,
+  RecipeGraph,
+  RecipeId,
+  SccId,
+} from "./types";
+import {
+  assignSplitRoles,
+  replicatePerConsumer,
+  splitConsumerDemand,
+} from "./replicate";
 import { outgoingEdgeKey } from "./types";
 
 function recipe(
@@ -197,5 +207,116 @@ describe("assignSplitRoles", () => {
     // poly produced = 2; intra = 1; cross (synthetic target) = 1.
     expect(decision.looperRate.equals(new Fraction(1))).toBe(true);
     expect(decision.delivererRate.equals(new Fraction(1))).toBe(true);
+  });
+});
+
+// Builds a RecipeGraph from a node list and (source -> item -> target) edges.
+function buildGraph(
+  nodes: Recipe[],
+  links: Array<{ source: RecipeId; item: string; target: RecipeId }>,
+): RecipeGraph {
+  const nodeMap = new Map<RecipeId, Recipe>(nodes.map((n) => [n.id, n]));
+  const outgoing = new Map<RecipeId, RecipeEdge[]>();
+  const incoming = new Map<RecipeId, RecipeEdge[]>();
+  for (const l of links) {
+    const e: RecipeEdge = {
+      id: `${l.source}->${l.target}:${l.item}`,
+      source: l.source,
+      target: l.target,
+      item: l.item,
+    };
+    (outgoing.get(l.source) ?? outgoing.set(l.source, []).get(l.source)!).push(e);
+    (incoming.get(l.target) ?? incoming.set(l.target, []).get(l.target)!).push(e);
+  }
+  return { nodes: nodeMap, outgoing, incoming };
+}
+
+function condensationOf(sccs: Array<{ id: SccId; recipeIds: RecipeId[] }>): Condensation {
+  const sccOfRecipe = new Map<RecipeId, SccId>();
+  for (const s of sccs) for (const r of s.recipeIds) sccOfRecipe.set(r, s.id);
+  return {
+    sccs,
+    sccOfRecipe,
+    outgoing: new Map(),
+    incoming: new Map(),
+  };
+}
+
+describe("replicatePerConsumer: SCC-boundary byproduct supplier sharing", () => {
+  // Mirrors the real liquid_sewage bug in miniature. A 2-member SCC (m, mloop)
+  // consumes a byproduct item `byp`. `byp` is a SECONDARY output of producer
+  // `bp`, whose PRIMARY output `prim` feeds a non-member consumer `pc`. `bp`'s
+  // run rate is therefore fixed by `prim` demand, not by the SCC's byproduct
+  // demand. `bp` must be emitted once as a shared replica at its full LP rate
+  // (so its machine count == lpRate), and its own input chain (`raw_src`) must
+  // be walked exactly once instead of re-minted per byproduct frame.
+  it("emits the byproduct supplier once at full LP rate, not per byproduct frame", () => {
+    const nodes: Recipe[] = [
+      // SCC members forming a 2-cycle on `loopitem`. `m` also pulls `byp`.
+      recipe("m", [{ item: "loopitem", qty: 1 }, { item: "byp", qty: 1 }], [
+        { item: "mout", qty: 1 },
+      ]),
+      recipe("mloop", [{ item: "mout", qty: 1 }], [{ item: "loopitem", qty: 1 }]),
+      // Byproduct supplier: primary `prim`, secondary `byp`, input `raw`.
+      recipe("bp", [{ item: "raw", qty: 1 }], [
+        { item: "prim", qty: 1 },
+        { item: "byp", qty: 1 },
+      ]),
+      // Non-member consumer of the primary output, so `bp` feeds outside the SCC.
+      recipe("pc", [{ item: "prim", qty: 1 }], [{ item: "pcout", qty: 1 }]),
+      // `bp`'s upstream input source.
+      recipe("raw_src", [], [{ item: "raw", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "mloop", item: "loopitem", target: "m" },
+      { source: "m", item: "mout", target: "mloop" },
+      { source: "bp", item: "byp", target: "m" },
+      { source: "bp", item: "prim", target: "pc" },
+      { source: "raw_src", item: "raw", target: "bp" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:m", recipeIds: ["m", "mloop"] },
+      { id: "scc:bp", recipeIds: ["bp"] },
+      { id: "scc:pc", recipeIds: ["pc"] },
+      { id: "scc:raw_src", recipeIds: ["raw_src"] },
+    ]);
+    // LP rates: pc=2 needs prim=2 -> bp=2 (primary driven). bp also yields byp=2,
+    // exactly covering m's byproduct demand (m=2). raw_src=2 feeds bp.
+    const rates = new Map<RecipeId, Fraction>([
+      ["m", new Fraction(2)],
+      ["mloop", new Fraction(2)],
+      ["bp", new Fraction(2)],
+      ["pc", new Fraction(2)],
+      ["raw_src", new Fraction(2)],
+    ]);
+    const replicas = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+      targets: [{ recipeId: "pc", ratePerSec: { num: "2", denom: "1" } }],
+    });
+
+    const bpReplicas = replicas.filter((r) => r.recipeId === "bp");
+    // Exactly one shared `bp` replica at its full LP rate, feeding both the
+    // primary consumer and the SCC byproduct edge. Without the sharing fix the
+    // byproduct boundary frame mints an extra per-consumer `bp` (and re-walks
+    // its input chain), pushing the summed rate above lp(bp)=2.
+    const bpSum = bpReplicas.reduce(
+      (acc, r) => acc.add(r.executionRate),
+      new Fraction(0),
+    );
+    expect(bpSum.equals(new Fraction(2))).toBe(true);
+    expect(bpReplicas).toHaveLength(1);
+    expect(bpReplicas[0]!.sharedAtArticulation).toBe(true);
+
+    // `bp`'s input chain is walked once: a single `raw_src` replica summing to
+    // its LP rate, never duplicated by repeated byproduct re-walks.
+    const rawReplicas = replicas.filter((r) => r.recipeId === "raw_src");
+    const rawSum = rawReplicas.reduce(
+      (acc, r) => acc.add(r.executionRate),
+      new Fraction(0),
+    );
+    expect(rawSum.equals(new Fraction(2))).toBe(true);
   });
 });
