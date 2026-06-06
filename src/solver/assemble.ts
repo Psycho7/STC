@@ -122,6 +122,13 @@ export function assembleLogicalGraph(args: {
     replicasByRecipeId.set(r.recipeId, arr);
   }
 
+  // Recipe id of EVERY replica, surviving or not. The per-consumer fallback
+  // below uses it to tell whether a producer's designated (but dropped)
+  // consumer was a stamp of the same recipe it is now feeding -- the SCC
+  // looper/deliverer case where the live sibling stamp needs the feed.
+  const recipeIdByReplicaId = new Map<ReplicaId, RecipeId>();
+  for (const r of replicas) recipeIdByReplicaId.set(r.id, r.recipeId);
+
   // Track torn edges so we don't emit them twice, once as a normal edge and
   // once as a return arc. The key is (sccId, source, target, item).
   const tornKey = (
@@ -154,6 +161,16 @@ export function assembleLogicalGraph(args: {
   // producer replica with the consumer replica it feeds, respecting
   // per-consumer scoping.
   const edges: LogicalEdge[] = [];
+  // Per-consumer producers whose designated consumer stamp was a same-recipe
+  // stamp the LP zeroed out (the SCC looper/deliverer case). They are resolved
+  // after the main wiring and the torn arcs, so the re-route only feeds live
+  // sibling stamps that nothing else already fed -- avoiding a double edge when
+  // a live deliverer stamp already has its own designated producer.
+  const pendingReroutes: Array<{
+    producerId: ReplicaId;
+    cRid: RecipeId;
+    item: string;
+  }> = [];
   for (const [pRid, outEdges] of g.outgoing) {
     for (const e of outEdges) {
       const cRid = e.target;
@@ -190,19 +207,40 @@ export function assembleLogicalGraph(args: {
             edges.push(buildEdge(P.id, C.id, item));
           }
         } else {
-          // A per-consumer producer only feeds the one consumer replica it
-          // was created for.
+          // A per-consumer producer normally feeds the one consumer replica it
+          // was created for, found via its consumerPath tail.
           const last = P.consumerPath[P.consumerPath.length - 1];
-          if (!last) continue;
-          const C = consumers.find((c) => c.id === last);
-          if (!C || !survivingIds.has(C.id)) continue;
-          edges.push(buildEdge(P.id, C.id, item));
+          const designated = last
+            ? consumers.find((c) => c.id === last)
+            : undefined;
+          if (designated && survivingIds.has(designated.id)) {
+            edges.push(buildEdge(P.id, designated.id, item));
+          } else if (
+            last !== undefined &&
+            recipeIdByReplicaId.get(last) === cRid
+          ) {
+            // The producer's designated consumer is a stamp of THIS consumer
+            // recipe that the LP zeroed out: the SCC looper/deliverer case. The
+            // canonical "inputs-consumer" stamp ensureSccReplicas picked (the
+            // looper) dropped, leaving a live sibling stamp of the same recipe
+            // that may need the feed. Defer the re-route to the collision-safe
+            // post-pass below.
+            pendingReroutes.push({ producerId: P.id, cRid, item });
+          }
+          // Otherwise the designated consumer belongs to a different recipe
+          // (a secondary/byproduct edge); a sibling producer minted for THIS
+          // recipe carries it, so dropping here avoids double-feeding.
         }
       }
     }
   }
 
-  // Finally, emit one return-arc edge for each torn SCC edge.
+  // Finally, emit return-arc edges for each torn SCC edge. The target recipe
+  // may have been split into several surviving stamps (a looper plus a
+  // deliverer, both consuming the torn item), so the arc fans out to every
+  // surviving consumer stamp rather than a single picked representative;
+  // otherwise a live split stamp is left fed from nothing. computeEdgeRates
+  // scopes each arc to the consumer stamp's own demand.
   for (const te of torn) {
     const srcReplica = pickSccMemberReplica(
       te.edge.source,
@@ -210,19 +248,44 @@ export function assembleLogicalGraph(args: {
       te.edge.item,
       te.edge.target,
     );
-    const tgtReplica = pickSccMemberReplica(te.edge.target, replicasByRecipeId);
-    if (!srcReplica || !tgtReplica) continue;
-    if (!survivingIds.has(srcReplica.id) || !survivingIds.has(tgtReplica.id))
-      continue;
+    if (!srcReplica || !survivingIds.has(srcReplica.id)) continue;
+    const tgtReplicas = (
+      replicasByRecipeId.get(te.edge.target) ?? []
+    ).filter((r) => survivingIds.has(r.id));
+    if (tgtReplicas.length === 0) continue;
     const source = safeId(srcReplica.id);
-    const target = safeId(tgtReplica.id);
-    edges.push({
-      id: `${source}->return->${target}:${te.edge.item}`,
-      source,
-      target,
-      sourcePort: `out:${te.edge.item}`,
-      targetPort: `in:${te.edge.item}`,
-    });
+    for (const tgt of tgtReplicas) {
+      const target = safeId(tgt.id);
+      edges.push({
+        id: `${source}->return->${target}:${te.edge.item}`,
+        source,
+        target,
+        sourcePort: `out:${te.edge.item}`,
+        targetPort: `in:${te.edge.item}`,
+      });
+    }
+  }
+
+  // Collision-safe re-route pass. A live consumer stamp counts as already fed
+  // for an item once any edge above delivers that item to it. Each deferred
+  // re-route then feeds only the surviving sibling stamps still missing that
+  // item, so a live deliverer that already has its own designated producer is
+  // never double-fed, while a live stamp orphaned by a dropped looper gets its
+  // edge. Newly added edges update the fed set so two re-routes can't both
+  // target the same stamp.
+  const fedStampItem = new Set<string>();
+  const fedKey = (target: string, item: string): string => `${target}\0${item}`;
+  for (const e of edges) {
+    fedStampItem.add(fedKey(e.target, e.targetPort.slice("in:".length)));
+  }
+  for (const pr of pendingReroutes) {
+    for (const C of replicasByRecipeId.get(pr.cRid) ?? []) {
+      if (!survivingIds.has(C.id)) continue;
+      const key = fedKey(safeId(C.id), pr.item);
+      if (fedStampItem.has(key)) continue;
+      edges.push(buildEdge(pr.producerId, C.id, pr.item));
+      fedStampItem.add(key);
+    }
   }
 
   return { nodes: [...groupNodes, ...recipeNodes], edges };
