@@ -1,7 +1,7 @@
 // Solver debug CLI.
 // Usage:
-//   bun run tools/solver-cli/main.ts --plan <recipeId=rate,...> [--mode full|rates]
-//   bun run tools/solver-cli/main.ts --hash <planHash>          [--mode full|rates]
+//   bun run tools/solver-cli/main.ts --plan <recipeId=rate,...> [--mode full|rates|render]
+//   bun run tools/solver-cli/main.ts --hash <planHash>          [--mode full|rates|render]
 //
 // Flags and output format are documented inline below.
 
@@ -23,6 +23,14 @@ import { loadPlan, describePlanLoadError } from "../../src/data/plan";
 import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
 import type { ItemOverride } from "../../src/data/plan";
 import type { RecipeId } from "../../src/solver/types";
+import { renderPlanFromSolve } from "../../src/pipeline/driver";
+import { checkRenderPlan } from "../../src/pipeline/render/invariants";
+import {
+  isRecipeUnit,
+  isLoopUnit,
+  isInputProductUnit,
+  isOutputProductUnit,
+} from "../../src/pipeline/types";
 
 // ---------------------------------------------------------------------------
 // Rate parsing for --plan
@@ -117,7 +125,7 @@ export async function runCli(argv: string[]): Promise<string> {
   // --- Arg parse ---
   let hashArg: string | undefined;
   let planArg: string | undefined;
-  let mode: "full" | "rates" = "full";
+  let mode: "full" | "rates" | "render" = "full";
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -136,8 +144,8 @@ export async function runCli(argv: string[]): Promise<string> {
       if (next === undefined || next.startsWith("--"))
         return `error: --mode requires a value`;
       const m = argv[++i];
-      if (m !== "full" && m !== "rates")
-        return `error: --mode must be full or rates, got "${m}"`;
+      if (m !== "full" && m !== "rates" && m !== "render")
+        return `error: --mode must be full, rates, or render, got "${m}"`;
       mode = m;
     } else {
       return `error: unknown argument "${a}"`;
@@ -281,6 +289,82 @@ export async function runCli(argv: string[]): Promise<string> {
       lines.push(l);
     for (const l of fmtVerdict("optimal", optimal.ok, optimal.violations))
       lines.push(l);
+  }
+
+  if (mode === "render") {
+    if (lpResult.status !== "feasible") {
+      return `error: cannot run render checks on a non-feasible solve (status=${lpResult.status})\n\n${lines.join("\n")}`;
+    }
+
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      itemOverrides,
+      recipeCosts,
+    );
+    const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
+
+    const results = checkRenderPlan({
+      plan,
+      rates: lpResult.rates,
+      pack,
+      targets,
+      itemOverrides,
+    });
+
+    // # units block
+    lines.push("# units");
+    const unitLines: string[] = [];
+    for (const u of plan.units) {
+      if (isRecipeUnit(u)) {
+        const rate = lpResult.rates.get(u.recipeId);
+        const rateStr = rate !== undefined ? rate.toFraction() : "0";
+        unitLines.push(`recipe ${u.id} recipeId=${u.recipeId} rate=${rateStr}`);
+      } else if (isLoopUnit(u)) {
+        unitLines.push(`loop ${u.id} sccId=${u.sccId}`);
+      } else if (isInputProductUnit(u)) {
+        unitLines.push(
+          `inputProduct ${u.id} item=${u.itemId} rate=${new Fraction(`${u.rate.num}/${u.rate.denom}`).toFraction()}`,
+        );
+      } else if (isOutputProductUnit(u)) {
+        unitLines.push(
+          `outputProduct ${u.id} item=${u.itemId} rate=${new Fraction(`${u.rate.num}/${u.rate.denom}`).toFraction()}`,
+        );
+      }
+    }
+    for (const l of unitLines.sort()) lines.push(l);
+    lines.push("");
+
+    // # edges block
+    lines.push("# edges");
+    const edgeLines: string[] = [];
+    for (const e of plan.edges) {
+      edgeLines.push(
+        `${e.fromUnit} -> ${e.toUnit} item=${e.item} rate=${e.rate.toFraction()}`,
+      );
+    }
+    for (const l of edgeLines.sort()) lines.push(l);
+    lines.push("");
+
+    // # render-invariants block
+    const RENDER_INVARIANT_NAMES = [
+      "edgeEndpointIntegrity",
+      "boundaryProductsJustified",
+      "internalFlowConservation",
+      "consumerInputsSatisfied",
+      "noOrphanUnits",
+    ];
+    lines.push("# render-invariants");
+    for (let i = 0; i < Math.min(results.length, RENDER_INVARIANT_NAMES.length); i++) {
+      for (const l of fmtVerdict(
+        RENDER_INVARIANT_NAMES[i],
+        results[i].ok,
+        results[i].violations,
+      )) {
+        lines.push(l);
+      }
+    }
   }
 
   return lines.join("\n");

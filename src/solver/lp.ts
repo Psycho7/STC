@@ -5,6 +5,7 @@ import type { Target } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipeId, ItemId } from "./types";
 import { effectiveSupply } from "./effectiveSupply";
+import { isExcludedProducer } from "../data/recipe-category";
 
 export type LpInput = {
   targets: Target[];
@@ -29,7 +30,7 @@ export type LpResult = {
 
 // The solver port: any function from an LpInput to an LpResult. solveLp is the
 // in-house default implementation. A future vendor solver (e.g. GLPK) is another
-// implementation of this same port - it must map its native output into the
+// implementation of this same port. It must map its native output into the
 // LpResult shape. The port keeps the engine choice a non-one-way door.
 export type LpSolver = (input: LpInput) => LpResult;
 
@@ -69,9 +70,7 @@ export function recipeCostWeight(
   // Clamp to non-negative: a negative override would make the objective reward
   // unbounded execution of this recipe. 0 means "run if useful, no cost".
   if (overrides?.has(r.id)) return Math.max(0, overrides.get(r.id)!);
-  if (r.flags?.includes("target-only")) return 1e6;
-  if (r.cost === -1) return 1e6;
-  if (r.category === "__domain_transfer") return 1e6;
+  if (r.flags?.includes("target-only") || isExcludedProducer(r)) return 1e6;
   return 1;
 }
 

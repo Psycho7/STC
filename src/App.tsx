@@ -26,7 +26,7 @@ import type { LogicalGraph } from "./canvas/layout";
 import { computeInSccRecipes } from "./solver/packSccs";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./solver";
 import { planToSolverArgs } from "./solver/planToSolverArgs";
-import { buildRenderPlan } from "./pipeline/driver";
+import { renderPlanFromSolve } from "./pipeline/driver";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { ItemPackProvider } from "./canvas/itemPackContext";
@@ -41,24 +41,7 @@ async function renderFromFull(
   targets: ReadonlyArray<Target>,
 ): Promise<{ nodes: Node[]; edges: Edge[] }> {
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
-  const machineById = new Map(pack.machines.map((m) => [m.id, m]));
-  const { plan } = buildRenderPlan({
-    logical: full.logical,
-    replicas: full.replicas,
-    multipliers: full.multipliers,
-    idealCount: full.idealCount,
-    classByReplicaId: full.classByReplicaId,
-    classToQuotient: full.classToQuotient,
-    condensation: full.condensation,
-    torn: full.torn,
-    recipeById: full.recipeById,
-    rates: full.rates,
-    itemById,
-    machineById,
-    itemOverrides,
-    targets,
-    pack,
-  });
+  const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
   const laid = await layoutRenderPlan({
     plan,
     recipeById: full.recipeById,

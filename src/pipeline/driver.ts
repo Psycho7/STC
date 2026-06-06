@@ -13,6 +13,7 @@ import type { Item, Machine, Recipe, RecipePack } from "@aef/schema";
 import type { LogicalGraph } from "../canvas/layout";
 import type { ItemOverride } from "../data/plan";
 import type { Target } from "../data/targets";
+import type { SolvePlanFull } from "../solver";
 import type {
   Condensation,
   ItemId,
@@ -274,6 +275,37 @@ function computeSccNetIO(args: {
 }): ReadonlyMap<string, { sccId: SccId; netIO: ReadonlyArray<NetIOPort> }> {
   void args;
   return new Map();
+}
+
+/**
+ * Assemble a RenderPipelineInput from solver output and run buildRenderPlan.
+ * Shared by App.tsx and any CLI surface that needs the same render assembly.
+ */
+export function renderPlanFromSolve(
+  full: SolvePlanFull,
+  pack: RecipePack,
+  targets: ReadonlyArray<Target>,
+  itemOverrides: ReadonlyArray<ItemOverride>,
+): RenderPipelineOutput {
+  const itemById = new Map(pack.items.map((i) => [i.id, i]));
+  const machineById = new Map(pack.machines.map((m) => [m.id, m]));
+  return buildRenderPlan({
+    logical: full.logical,
+    replicas: full.replicas,
+    multipliers: full.multipliers,
+    idealCount: full.idealCount,
+    classByReplicaId: full.classByReplicaId,
+    classToQuotient: full.classToQuotient,
+    condensation: full.condensation,
+    torn: full.torn,
+    recipeById: full.recipeById,
+    rates: full.rates,
+    itemById,
+    machineById,
+    itemOverrides,
+    targets,
+    pack,
+  });
 }
 
 // Re-exported here so callers can grab MachineEdge without reaching into

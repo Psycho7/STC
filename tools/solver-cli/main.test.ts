@@ -135,4 +135,13 @@ describe("solver-cli smoke", () => {
     expect(out).toContain("cannot run full invariants on a non-feasible solve");
     // Must not throw -- the test itself would fail if it did.
   });
+
+  it("render mode produces units, edges, and render-invariants blocks", async () => {
+    const out = await runCli(["--plan", "xiranite_enr_powder=0.1", "--mode", "render"]);
+    expect(out).not.toMatch(/^error:/);
+    expect(out).toContain("# units");
+    expect(out).toContain("# edges");
+    expect(out).toContain("# render-invariants");
+    expect(out).toMatch(/edgeEndpointIntegrity ok=/);
+  });
 });

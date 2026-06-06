@@ -1,7 +1,7 @@
 // Hand-authored closed-form fixtures, adopted from prototype 001
 // (tools/oracle/fixtures), stripped of all GLPK/FactorioLab fields. Each fixture
 // declares its expected answer in STC-native terms, derived by hand and
-// independent of solveLp's own output - so a systematically-wrong solver cannot
+// independent of solveLp's own output, so a systematically-wrong solver cannot
 // pass by agreeing with itself. solveLp uses per-EXECUTION stoich; recipe `time`
 // does NOT enter the mass balance, so expected rates are exec/sec.
 
