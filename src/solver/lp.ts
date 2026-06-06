@@ -245,16 +245,19 @@ export function solveLp(input: LpInput): LpResult {
   const rates = new Map<RecipeId, Fraction>();
   for (const r of recipes) {
     const v = lpResult[`x_${r.id}`] ?? 0;
-    if (v > 1e-12) rates.set(r.id, new Fraction(v).simplify(1e-6));
+    const f = new Fraction(v).simplify(1e-6);
+    if (!f.equals(0)) rates.set(r.id, f);
   }
 
   const surplus = new Map<ItemId, Fraction>();
   const deficit = new Map<ItemId, Fraction>();
   for (const it of items) {
     const sv = lpResult[`surplus_${it.id}`] ?? 0;
-    if (sv > 1e-12) surplus.set(it.id, new Fraction(sv).simplify(1e-6));
+    const sf = new Fraction(sv).simplify(1e-6);
+    if (!sf.equals(0)) surplus.set(it.id, sf);
     const dv = lpResult[`deficit_${it.id}`] ?? 0;
-    if (dv > 1e-12) deficit.set(it.id, new Fraction(dv).simplify(1e-6));
+    const df = new Fraction(dv).simplify(1e-6);
+    if (!df.equals(0)) deficit.set(it.id, df);
   }
 
   // Derive status from the chosen raw result. The solver feasible/bounded flags

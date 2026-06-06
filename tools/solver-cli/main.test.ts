@@ -125,14 +125,13 @@ describe("solver-cli smoke", () => {
     expect(withOverride).not.toMatch(/^xiranite_powder=/m);
   });
 
-  it("returns clean error for full mode on unknown recipe (non-feasible/empty status)", async () => {
-    // An unknown recipeId produces status=empty from the LP (no matching recipe
-    // in the pack), so solveLp never reaches feasible. Without the guard,
-    // solvePlanWithIntermediates would throw an infeasible exception. We verify
-    // the guard intercepts it and returns a clean error string instead.
+  it("returns clean error for full mode on unknown recipe", async () => {
+    // An unknown recipeId is rejected up front on the --plan path: the CLI
+    // validates target recipeIds against the pack and returns a clean error
+    // string instead of letting the unknown id escape into the solver.
     const out = await runCli(["--plan", "no_such_recipe_id=1", "--mode", "full"]);
     expect(out).toMatch(/^error:/);
-    expect(out).toContain("cannot run full invariants on a non-feasible solve");
+    expect(out).toContain('unknown recipe "no_such_recipe_id"');
     // Must not throw -- the test itself would fail if it did.
   });
 

@@ -1,7 +1,7 @@
 import type { RecipePack } from "@aef/schema";
 import type { RationalString, Target } from "./targets";
 import { defaultTargets } from "./targets";
-import { isInputSupplyRecipe } from "./recipe-category";
+import { isExcludedProducer } from "./recipe-category";
 import type { PlanWireV1 } from "./plan-wire-v1";
 import {
   decodeWire,
@@ -202,10 +202,11 @@ export function validatePlan(
     if (!recipe) {
       return { kind: "unknown-target-recipe", recipeId: t.recipeId };
     }
-    // __domain_transfer recipes are input-supply metadata, not production steps
-    // you can select. This is a second line of defense in case one slips past
-    // the picker filter and lands in a plan.
-    if (isInputSupplyRecipe(recipe)) {
+    // Input-supply (__domain_transfer) recipes are supply metadata and
+    // cost === -1 recipes are waste sinks; neither is a production step you can
+    // select as a target. This is a second line of defense in case one slips
+    // past the picker filter and lands in a plan.
+    if (isExcludedProducer(recipe)) {
       return { kind: "target-not-a-producer", recipeId: t.recipeId };
     }
   }
