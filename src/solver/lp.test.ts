@@ -299,6 +299,65 @@ describe("solveLp - duplicate targets", () => {
   });
 });
 
+describe("solveLp - headline over-production", () => {
+  it("holds a target at its floor when a co-product could subsidize over-running it", () => {
+    // make_p produces p (the headline) plus a co-product c. make_thing needs
+    // c=6, zz_make_c produces c=1 standalone. With a one-sided floor only, the
+    // LP can cover make_thing's c demand by over-running make_p (cheaper than
+    // running zz_make_c three times), silently producing p surplus. The surplus
+    // cap on the headline item must hold make_p at its floor of x=1. The
+    // standalone producer is named zz_make_c so it lex-sorts after make_p,
+    // ensuring the pass-2 lex tie-break does not incidentally avoid the
+    // over-production the surplus cap is meant to prevent.
+    const p = {
+      recipes: [
+        {
+          id: "make_p",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw", qty: 1 }],
+          out: [
+            { item: "p", qty: 1 },
+            { item: "c", qty: 3 },
+          ],
+        },
+        {
+          id: "make_thing",
+          category: "material",
+          time: 1,
+          in: [{ item: "c", qty: 6 }],
+          out: [{ item: "thing", qty: 1 }],
+        },
+        {
+          id: "zz_make_c",
+          category: "material",
+          time: 1,
+          in: [{ item: "raw", qty: 1 }],
+          out: [{ item: "c", qty: 1 }],
+        },
+      ],
+      items: [
+        { id: "raw", raw: true },
+        { id: "p", raw: false },
+        { id: "c", raw: false },
+        { id: "thing", raw: false },
+      ],
+    } as unknown as RecipePack;
+    const targets: Target[] = [
+      { recipeId: "make_p", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "make_thing", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const result = solveLp({ targets, pack: p });
+    const x = result.rates.get("make_p");
+    expect(x).toBeDefined();
+    // make_p must sit at its floor of 1, not be over-run to 2. The surplus cap
+    // carries a tiny relative eps so the value may exceed 1 by ~1e-6; assert it
+    // is at the floor within that slack rather than exactly 1.
+    expect(x!.valueOf()).toBeCloseTo(1, 5);
+    expect(result.surplus.get("p")?.valueOf() ?? 0).toBeCloseTo(0, 5);
+  });
+});
+
 describe("solveLp - status and softFeasible", () => {
   it("reports feasible and soft-feasible for the headline plan", () => {
     const targets: Target[] = [
