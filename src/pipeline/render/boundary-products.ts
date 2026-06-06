@@ -619,26 +619,33 @@ export function deriveBoundaryProducts(
     addOutgoing(key.slice(0, sep) as MachineVertexId, key.slice(sep + 1), rate);
   }
 
-  const targetRecipeIds = new Set<RecipeId>(targets.map((t) => t.recipeId));
   type TargetStamp = { vertex: MachineRecipeVertex; spare: Fraction };
   const stampsByTargetOutItem = new Map<ItemId, TargetStamp[]>();
+  // Collect target-output spare from EVERY machine vertex that produces a target
+  // item X, not just the target-recipe stamps. When an SCC target recipe
+  // co-produces the looped item with a leaf recipe (e.g. iron_nugget produced by
+  // both iron_nugget-iron_ore and iron_nugget-iron_powder), the leaf's spare
+  // must also reach the target output unit, otherwise the target edge is
+  // under-fed and the leaf's spare surfaces as a phantom surplus. Iterating all
+  // output stoich entries (X may be a co-product, not the primary output)
+  // captures both producers; the proportional distribution below then routes the
+  // declared target rate across their pooled spare.
   for (const v of machineGraph.vertices) {
     if (!isMachineRecipeVertex(v)) continue;
-    if (!targetRecipeIds.has(v.recipeId)) continue;
     const recipe = recipeById.get(v.recipeId);
     if (!recipe) continue;
-    const outStoich = recipe.out[0];
-    if (outStoich === undefined) continue;
-    const outItem = outStoich.item;
-    if (!targetItemSet.has(outItem)) continue;
-    const produced = v.executionRate.mul(new Fraction(outStoich.qty));
-    const outgoing =
-      outgoingRateByVertexItem.get(`${v.id}\0${outItem}`) ?? new Fraction(0);
-    const spare = produced.sub(outgoing);
-    if (spare.compare(0) <= 0) continue;
-    const arr = stampsByTargetOutItem.get(outItem) ?? [];
-    arr.push({ vertex: v, spare });
-    stampsByTargetOutItem.set(outItem, arr);
+    for (const outStoich of recipe.out) {
+      const outItem = outStoich.item;
+      if (!targetItemSet.has(outItem)) continue;
+      const produced = v.executionRate.mul(new Fraction(outStoich.qty));
+      const outgoing =
+        outgoingRateByVertexItem.get(`${v.id}\0${outItem}`) ?? new Fraction(0);
+      const spare = produced.sub(outgoing);
+      if (spare.compare(0) <= 0) continue;
+      const arr = stampsByTargetOutItem.get(outItem) ?? [];
+      arr.push({ vertex: v, spare });
+      stampsByTargetOutItem.set(outItem, arr);
+    }
   }
   for (const [outItem, stamps] of stampsByTargetOutItem) {
     const total = targetRateByItem.get(outItem);

@@ -19,6 +19,8 @@ import {
   isLoopUnit,
 } from "../types";
 
+import { rationalFromString } from "./rational";
+
 export type { InvariantResult };
 
 // Relative tolerance matching the solver invariants module.
@@ -518,6 +520,69 @@ export function checkConsumerInputsNotOverfed(
 }
 
 /**
+ * Target outputs satisfied: for each target recipe, the declared target rate of
+ * its primary output item X must be delivered by edges arriving at the target
+ * output-product unit (`u:out:<X>`). Catches the under-feeding of a target
+ * output edge, the dual of checkBoundaryProductsJustified (which only verifies
+ * such a unit EXISTS, not that it is FED).
+ *
+ * `declared` for X is the sum over targets sharing X of their ratePerSec,
+ * mirroring how boundary-products computes `targetRateByItem`.
+ *
+ * `actual` is the sum of edge.rate over edges whose toUnit is `u:out:<X>` and
+ * whose item is X.
+ *
+ * Shortfall-only: a violation is raised iff actual < declared - slack, with
+ * slack = max(1, declared) * REL_TOL. Excess is left to the over-connection
+ * checkers.
+ */
+export function checkTargetOutputsSatisfied(
+  args: RenderInvariantArgs,
+): InvariantResult {
+  const { plan, pack, targets } = args;
+  const violations: string[] = [];
+
+  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+
+  // declared target rate per primary-output item.
+  const declaredByItem = new Map<ItemId, Fraction>();
+  for (const t of targets) {
+    const recipe = recipeById.get(t.recipeId);
+    if (!recipe) continue;
+    const outItem = recipe.out[0]?.item;
+    if (outItem === undefined) continue;
+    const rate = rationalFromString(t.ratePerSec);
+    declaredByItem.set(outItem, (declaredByItem.get(outItem) ?? FRAC_ZERO).add(rate));
+  }
+
+  // actual inflow into each target output-product unit, keyed by item.
+  const actualByItem = new Map<ItemId, Fraction>();
+  for (const edge of plan.edges) {
+    const declared = declaredByItem.get(edge.item);
+    if (declared === undefined) continue;
+    if (edge.toUnit !== `u:out:${edge.item}`) continue;
+    actualByItem.set(
+      edge.item,
+      (actualByItem.get(edge.item) ?? FRAC_ZERO).add(edge.rate),
+    );
+  }
+
+  for (const [item, declared] of declaredByItem) {
+    const declaredVal = declared.valueOf();
+    const actual = actualByItem.get(item) ?? FRAC_ZERO;
+    const actualVal = actual.valueOf();
+    const slack = Math.max(1, declaredVal) * REL_TOL;
+    if (actualVal < declaredVal - slack) {
+      violations.push(
+        `target output "${item}": expected delivery ${declaredVal} but actual ${actualVal} (target output fed below declared rate)`,
+      );
+    }
+  }
+
+  return { ok: violations.length === 0, violations };
+}
+
+/**
  * Orphan units: every recipe unit must have a positive rate in rates.
  * A recipe unit whose recipeId is absent from rates, or whose rate is <= 0,
  * is an orphan - the render pipeline materialized a unit the solver did not
@@ -543,7 +608,7 @@ export function checkNoOrphanUnits(
 }
 
 /**
- * Run all six render invariant checkers and return their results in stable
+ * Run all seven render invariant checkers and return their results in stable
  * order. Mirrors the solver debug surface that lists verdicts per checker.
  */
 export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
@@ -553,13 +618,14 @@ export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
     checkInternalFlowConservation(args),
     checkConsumerInputsSatisfied(args),
     checkConsumerInputsNotOverfed(args),
+    checkTargetOutputsSatisfied(args),
     checkNoOrphanUnits(args),
   ];
 }
 
 /**
  * Assert all render invariants. Throws a single Error aggregating every
- * violation found across all six checkers. Mirrors assertInvariants in the
+ * violation found across all seven checkers. Mirrors assertInvariants in the
  * solver invariants module.
  */
 export function assertRenderInvariants(args: RenderInvariantArgs): void {

@@ -6,6 +6,7 @@ import {
   checkInternalFlowConservation,
   checkConsumerInputsSatisfied,
   checkConsumerInputsNotOverfed,
+  checkTargetOutputsSatisfied,
   checkNoOrphanUnits,
   checkRenderPlan,
   assertRenderInvariants,
@@ -987,6 +988,86 @@ describe("checkNoOrphanUnits", () => {
   });
 });
 
+describe("checkTargetOutputsSatisfied", () => {
+  const pack = makeFullPack(
+    [{ id: "R", raw: true }, { id: "F" }],
+    [{ id: "recipe-A", in: [{ item: "R", qty: 1 }], out: [{ item: "F", qty: 1 }] }],
+  );
+  const rates: ReadonlyMap<string, Fraction> = new Map([["recipe-A", new Fraction(1)]]);
+  const targets: ReadonlyArray<Target> = [
+    { recipeId: "recipe-A", ratePerSec: { num: "1", denom: "1" } },
+  ];
+
+  function planWithOutEdgeRate(rate: number): RenderPlan {
+    return {
+      units: [
+        { id: "u-A", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
+        { id: "u:out:F", kind: "outputProduct", itemId: "F", count: 1, rate: RATE_ONE, flavor: "target" },
+      ],
+      edges:
+        rate > 0
+          ? [{ fromUnit: "u-A", toUnit: "u:out:F", item: "F", rate: new Fraction(rate), transportKind: "belt" }]
+          : [],
+      containers: [],
+    };
+  }
+
+  it("passes when the target output unit is fed exactly the declared rate", () => {
+    const result = checkTargetOutputsSatisfied({
+      plan: planWithOutEdgeRate(1),
+      rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.violations).toHaveLength(0);
+  });
+
+  it("fails when the target output unit is fed below the declared rate", () => {
+    const result = checkTargetOutputsSatisfied({
+      plan: planWithOutEdgeRate(0.5),
+      rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0]).toContain("F");
+  });
+
+  it("fails when the target output unit receives no edge at all", () => {
+    const result = checkTargetOutputsSatisfied({
+      plan: planWithOutEdgeRate(0),
+      rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0]).toContain("F");
+  });
+
+  it("sums multiple producer edges into the same target output unit", () => {
+    const plan: RenderPlan = {
+      units: [
+        { id: "u-A", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
+        { id: "u-B", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
+        { id: "u:out:F", kind: "outputProduct", itemId: "F", count: 1, rate: RATE_ONE, flavor: "target" },
+      ],
+      edges: [
+        { fromUnit: "u-A", toUnit: "u:out:F", item: "F", rate: new Fraction(1, 2), transportKind: "belt" },
+        { fromUnit: "u-B", toUnit: "u:out:F", item: "F", rate: new Fraction(1, 2), transportKind: "belt" },
+      ],
+      containers: [],
+    };
+    const result = checkTargetOutputsSatisfied({ plan, rates, pack, targets, itemOverrides: [] });
+    expect(result.ok).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // checkRenderPlan and assertRenderInvariants
 // ---------------------------------------------------------------------------
@@ -1012,11 +1093,11 @@ function cleanPlanArgs(): {
     units: [
       { id: "u-in-R", kind: "inputProduct", itemId: "R", count: 1, rate: RATE_ONE },
       { id: "u-A", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
-      { id: "u-out-F", kind: "outputProduct", itemId: "F", count: 1, rate: RATE_ONE, flavor: "target" },
+      { id: "u:out:F", kind: "outputProduct", itemId: "F", count: 1, rate: RATE_ONE, flavor: "target" },
     ],
     edges: [
       { fromUnit: "u-in-R", toUnit: "u-A", item: "R", rate: new Fraction(1), transportKind: "belt" },
-      { fromUnit: "u-A", toUnit: "u-out-F", item: "F", rate: new Fraction(1), transportKind: "belt" },
+      { fromUnit: "u-A", toUnit: "u:out:F", item: "F", rate: new Fraction(1), transportKind: "belt" },
     ],
     containers: [],
   };
@@ -1027,11 +1108,11 @@ function cleanPlanArgs(): {
 }
 
 describe("checkRenderPlan", () => {
-  // Case (b): a fully well-formed minimal plan -> all six results ok === true.
-  it("(b) returns six ok results for a fully clean minimal plan", () => {
+  // Case (b): a fully well-formed minimal plan -> all seven results ok === true.
+  it("(b) returns seven ok results for a fully clean minimal plan", () => {
     const args = cleanPlanArgs();
     const results = checkRenderPlan(args);
-    expect(results).toHaveLength(6);
+    expect(results).toHaveLength(7);
     for (const r of results) {
       expect(r.ok).toBe(true);
       expect(r.violations).toHaveLength(0);
