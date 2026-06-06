@@ -11,6 +11,7 @@
 // so this test pins that iron_nugget no longer triggers any render violation.
 
 import { describe, it, expect } from "vitest";
+import Fraction from "fraction.js";
 import { CLOSED_FORM_FIXTURES } from "../../solver/closed-form-fixtures";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
@@ -20,6 +21,7 @@ import { assertRenderInvariants, checkRenderPlan } from "./invariants";
 import { pack } from "../../data/load";
 import { loadPlan } from "../../data/plan";
 import { planToSolverArgs } from "../../solver/planToSolverArgs";
+import { isMachineRecipeVertex } from "../types";
 
 // RF-1: iron_nugget is an internally balanced intermediate but the render
 // pipeline drops its internal edge, surfacing it as a phantom surplus product
@@ -143,5 +145,138 @@ describe("render corpus: RF-1 regression", () => {
       v.includes("iron_nugget"),
     );
     expect(ironNuggetViolations.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Full-pack + multi-target regression sweep.
+//
+// This is the permanent replacement for the throwaway _sweep.ts / _excess.ts /
+// _classify.ts oracle scripts. It iterates every recipe as a single target at
+// rate 1, plus a small fixed set of representative multi-target plans that
+// exercise shared SCCs / byproducts. For each feasible plan it asserts:
+//   (a) all checkRenderPlan invariants pass (no render-graph defect), and
+//   (b) per recipeId, the sum of MachineRecipeVertex.executionRate over the
+//       machine graph equals the LP rate (full.rates) within tolerance -- the
+//       machine-count gate that catches producer over-replication.
+//
+// This sweep is INTENTIONALLY RED at the time it is introduced: it captures the
+// known render-replication defect set as a baseline the later fixes drive to
+// zero. Each failure is collected with the plan name and the gate it violated
+// so the assertion message is a usable oracle for the fix tasks.
+// ---------------------------------------------------------------------------
+
+const SWEEP_TOL = new Fraction(1, 1000000);
+
+// Representative multi-target plans (owner-approved small scope). These mix a
+// copper-chain target with an xiranite target to exercise shared SCCs and
+// byproduct accounting across more than one target at once.
+const MULTI_TARGET_PLANS: ReadonlyArray<{
+  name: string;
+  recipeIds: ReadonlyArray<string>;
+}> = [
+  { name: "xiranite_poly+iron_powder", recipeIds: ["xiranite_poly", "iron_powder"] },
+  { name: "proc_battery_5+xiranite_enr_powder", recipeIds: ["proc_battery_5", "xiranite_enr_powder"] },
+  { name: "copper_enr+liquid_xiranite_enr", recipeIds: ["copper_enr", "liquid_xiranite_enr"] },
+];
+
+// Run one plan through solve + render and return the gate failures it produced.
+// Empty array means the plan is clean (or was skipped as non-feasible, in which
+// case skipped is true and the caller should not count it).
+function sweepPlan(
+  name: string,
+  targets: Target[],
+): { skipped: boolean; failures: string[] } {
+  let full;
+  try {
+    full = solvePlanWithIntermediates(targets, pack, defaultTransportConfig, []);
+  } catch {
+    return { skipped: true, failures: [] };
+  }
+  if (!full.feasibility.softFeasible) return { skipped: true, failures: [] };
+
+  const failures: string[] = [];
+
+  let out;
+  try {
+    out = renderPlanFromSolve(full, pack, targets, []);
+  } catch (err) {
+    // A feasible plan whose render THROWS is a genuine failure, not a skip.
+    failures.push(`${name}: render-crash: ${String(err)}`);
+    return { skipped: false, failures };
+  }
+  const { plan, machineGraph } = out;
+
+  // Gate (a): render invariants.
+  const results = checkRenderPlan({
+    plan,
+    rates: full.rates,
+    pack,
+    targets,
+    itemOverrides: [],
+  });
+  for (const r of results) {
+    for (const v of r.violations) {
+      failures.push(`${name}: render-invariant: ${v}`);
+    }
+  }
+
+  // Gate (b): machine-count. Per recipeId, sum executionRate over machine
+  // recipe vertices (per-stamp summation, no extra weighting) and compare to
+  // the LP rate.
+  const vtxSum = new Map<string, Fraction>();
+  for (const v of machineGraph.vertices) {
+    if (isMachineRecipeVertex(v)) {
+      vtxSum.set(
+        v.recipeId,
+        (vtxSum.get(v.recipeId) ?? new Fraction(0)).add(v.executionRate),
+      );
+    }
+  }
+  for (const [recipeId, lpRate] of full.rates) {
+    const vs = vtxSum.get(recipeId) ?? new Fraction(0);
+    if (vs.sub(lpRate).abs().compare(SWEEP_TOL) > 0) {
+      failures.push(
+        `${name}: machine-count: recipe "${recipeId}" vtxSum ${vs.toFraction()} != lpRate ${lpRate.toFraction()}`,
+      );
+    }
+  }
+
+  return { skipped: false, failures };
+}
+
+describe("render corpus: full-pack + multi-target regression sweep", () => {
+  it("every feasible plan renders clean and matches LP machine counts", () => {
+    const allFailures: string[] = [];
+
+    // Single-target sweep over the whole recipe pack.
+    for (const r of pack.recipes) {
+      const targets: Target[] = [
+        { recipeId: r.id, ratePerSec: { num: "1", denom: "1" } },
+      ];
+      const { failures } = sweepPlan(r.id, targets);
+      allFailures.push(...failures);
+    }
+
+    // Multi-target representative plans.
+    for (const mt of MULTI_TARGET_PLANS) {
+      const targets: Target[] = mt.recipeIds.map((recipeId) => ({
+        recipeId,
+        ratePerSec: { num: "1", denom: "1" },
+      }));
+      const { failures } = sweepPlan(mt.name, targets);
+      allFailures.push(...failures);
+    }
+
+    // Distinct plan names that produced at least one failure, for a compact
+    // baseline summary in the assertion message.
+    const dirtyPlans = [
+      ...new Set(allFailures.map((f) => f.split(":")[0])),
+    ].sort();
+
+    expect(
+      allFailures,
+      `${dirtyPlans.length} plan(s) failed the render sweep: ${dirtyPlans.join(", ")}\n${allFailures.join("\n")}`,
+    ).toEqual([]);
   });
 });
