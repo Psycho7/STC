@@ -439,6 +439,85 @@ export function checkConsumerInputsSatisfied(
 }
 
 /**
+ * Consumer inputs not overfed: the mirror of checkConsumerInputsSatisfied. For
+ * each running recipe unit, the aggregated inbound edge rate for a required
+ * input item must not EXCEED the expected intake rates(R) * recipe.in[I].qty
+ * beyond the relative tolerance.
+ *
+ * Catches the over-connection half of the render-replication defect family: a
+ * consumer wired to more producer flow than it consumes (double-feeding), e.g.
+ * a per-consumer producer that fans the same item into a single consumer stamp
+ * more than once, or an over-replicated producer whose surplus is mis-routed
+ * back into a live consumer.
+ *
+ * Aggregation by recipeId mirrors checkConsumerInputsSatisfied exactly: inflow
+ * is keyed by "recipeId\0item" over edges whose toUnit resolves to a recipe
+ * unit; both boundary (inputProduct -> recipe) and internal (recipe/loop ->
+ * recipe) edges count. Loop units are not checked here.
+ *
+ * Excess-only: shortfall (actual < expected) is not flagged here; that is the
+ * job of checkConsumerInputsSatisfied.
+ */
+export function checkConsumerInputsNotOverfed(
+  args: RenderInvariantArgs,
+): InvariantResult {
+  const { plan, rates, pack } = args;
+  const violations: string[] = [];
+
+  // Build a lookup from unit id to recipeId for recipe units only.
+  const recipeIdByUnitId = new Map<RenderUnitId, RecipeId>();
+  for (const u of plan.units) {
+    if (isRecipeUnit(u)) {
+      recipeIdByUnitId.set(u.id, u.recipeId);
+    }
+  }
+
+  // Accumulate inflow keyed by "recipeId\0item" to avoid a map-of-maps.
+  // Only edges whose toUnit is a recipe unit are attributed.
+  const inflow = new Map<string, Fraction>();
+  for (const edge of plan.edges) {
+    const recipeId = recipeIdByUnitId.get(edge.toUnit);
+    if (recipeId === undefined) continue;
+    const key = `${recipeId}\0${edge.item}`;
+    inflow.set(key, (inflow.get(key) ?? FRAC_ZERO).add(edge.rate));
+  }
+
+  // Distinct recipeIds present among rendered recipe units.
+  const renderedRecipeIds = new Set(recipeIdByUnitId.values());
+
+  // Fast lookup from recipeId to recipe definition.
+  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+
+  for (const recipeId of renderedRecipeIds) {
+    const rate = rates.get(recipeId);
+    if (!rate) continue; // recipe not running
+
+    const rateVal = rate.valueOf();
+    const rateSlack = Math.max(1, rateVal) * REL_TOL;
+    if (rateVal <= rateSlack) continue; // negligible rate
+
+    const recipe = recipeById.get(recipeId);
+    if (!recipe) continue;
+
+    for (const inp of recipe.in) {
+      const expected = rate.mul(new Fraction(inp.qty));
+      const expectedVal = expected.valueOf();
+      const actual = inflow.get(`${recipeId}\0${inp.item}`) ?? FRAC_ZERO;
+      const actualVal = actual.valueOf();
+      const slack = Math.max(1, expectedVal) * REL_TOL;
+
+      if (actualVal > expectedVal + slack) {
+        violations.push(
+          `recipe "${recipeId}" input "${inp.item}": expected inflow ${expectedVal} but actual ${actualVal} (consumer over-fed / over-connected)`,
+        );
+      }
+    }
+  }
+
+  return { ok: violations.length === 0, violations };
+}
+
+/**
  * Orphan units: every recipe unit must have a positive rate in rates.
  * A recipe unit whose recipeId is absent from rates, or whose rate is <= 0,
  * is an orphan - the render pipeline materialized a unit the solver did not
@@ -464,7 +543,7 @@ export function checkNoOrphanUnits(
 }
 
 /**
- * Run all five render invariant checkers and return their results in stable
+ * Run all six render invariant checkers and return their results in stable
  * order. Mirrors the solver debug surface that lists verdicts per checker.
  */
 export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
@@ -473,13 +552,14 @@ export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
     checkBoundaryProductsJustified(args),
     checkInternalFlowConservation(args),
     checkConsumerInputsSatisfied(args),
+    checkConsumerInputsNotOverfed(args),
     checkNoOrphanUnits(args),
   ];
 }
 
 /**
  * Assert all render invariants. Throws a single Error aggregating every
- * violation found across all five checkers. Mirrors assertInvariants in the
+ * violation found across all six checkers. Mirrors assertInvariants in the
  * solver invariants module.
  */
 export function assertRenderInvariants(args: RenderInvariantArgs): void {

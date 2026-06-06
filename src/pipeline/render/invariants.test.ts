@@ -5,6 +5,7 @@ import {
   checkBoundaryProductsJustified,
   checkInternalFlowConservation,
   checkConsumerInputsSatisfied,
+  checkConsumerInputsNotOverfed,
   checkNoOrphanUnits,
   checkRenderPlan,
   assertRenderInvariants,
@@ -828,6 +829,101 @@ describe("checkConsumerInputsSatisfied", () => {
 });
 
 // ---------------------------------------------------------------------------
+// checkConsumerInputsNotOverfed
+// ---------------------------------------------------------------------------
+
+describe("checkConsumerInputsNotOverfed", () => {
+  // Case (a): recipe R consumes M at qty 1, rate(R)=2, one incoming edge for M
+  // at rate 2 into the recipe unit -- exactly fed. Expect ok === true.
+  it("(a) passes when incoming edge feeds the required input exactly", () => {
+    const pack = makeFullPack(
+      [{ id: "M" }, { id: "F" }],
+      [{ id: "R", in: [{ item: "M", qty: 1 }], out: [{ item: "F", qty: 1 }] }],
+    );
+    const rates: ReadonlyMap<string, Fraction> = new Map([
+      ["R", new Fraction(2)],
+    ]);
+    const plan: RenderPlan = {
+      units: [
+        { id: "u-src", kind: "recipe", recipeId: "R-src", count: 1, multiplicity: RATE_ONE },
+        { id: "u-R", kind: "recipe", recipeId: "R", count: 1, multiplicity: RATE_ONE },
+      ],
+      edges: [
+        {
+          fromUnit: "u-src",
+          toUnit: "u-R",
+          item: "M",
+          rate: new Fraction(2),
+          transportKind: "belt",
+        },
+      ],
+      containers: [],
+    };
+    const result = checkConsumerInputsNotOverfed({
+      plan,
+      rates,
+      pack,
+      targets: [],
+      itemOverrides: [],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.violations).toHaveLength(0);
+  });
+
+  // Case (b) over-connection: recipe R consumes M at qty 1, rate(R)=2 (expects 2
+  // M/s), but TWO incoming edges for M each at rate 2 aggregate to 4 -- double
+  // the required intake. Expect ok === false, violation names R, M, expected 2,
+  // actual 4.
+  it("(b) fails when aggregated inflow exceeds the required input (double-fed)", () => {
+    const pack = makeFullPack(
+      [{ id: "M" }, { id: "F" }],
+      [{ id: "R", in: [{ item: "M", qty: 1 }], out: [{ item: "F", qty: 1 }] }],
+    );
+    const rates: ReadonlyMap<string, Fraction> = new Map([
+      ["R", new Fraction(2)],
+    ]);
+    const plan: RenderPlan = {
+      units: [
+        { id: "u-src-1", kind: "recipe", recipeId: "R-src-1", count: 1, multiplicity: RATE_ONE },
+        { id: "u-src-2", kind: "recipe", recipeId: "R-src-2", count: 1, multiplicity: RATE_ONE },
+        { id: "u-R", kind: "recipe", recipeId: "R", count: 1, multiplicity: RATE_ONE },
+      ],
+      edges: [
+        {
+          fromUnit: "u-src-1",
+          toUnit: "u-R",
+          item: "M",
+          rate: new Fraction(2),
+          transportKind: "belt",
+        },
+        {
+          fromUnit: "u-src-2",
+          toUnit: "u-R",
+          item: "M",
+          rate: new Fraction(2),
+          transportKind: "belt",
+        },
+      ],
+      containers: [],
+    };
+    const result = checkConsumerInputsNotOverfed({
+      plan,
+      rates,
+      pack,
+      targets: [],
+      itemOverrides: [],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0]).toContain("R");
+    expect(result.violations[0]).toContain("M");
+    // Should show expected=2 and actual=4.
+    expect(result.violations[0]).toMatch(/expected.*2/i);
+    expect(result.violations[0]).toMatch(/actual.*4/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // checkNoOrphanUnits
 // ---------------------------------------------------------------------------
 
@@ -931,11 +1027,11 @@ function cleanPlanArgs(): {
 }
 
 describe("checkRenderPlan", () => {
-  // Case (b): a fully well-formed minimal plan -> all five results ok === true.
-  it("(b) returns five ok results for a fully clean minimal plan", () => {
+  // Case (b): a fully well-formed minimal plan -> all six results ok === true.
+  it("(b) returns six ok results for a fully clean minimal plan", () => {
     const args = cleanPlanArgs();
     const results = checkRenderPlan(args);
-    expect(results).toHaveLength(5);
+    expect(results).toHaveLength(6);
     for (const r of results) {
       expect(r.ok).toBe(true);
       expect(r.violations).toHaveLength(0);
