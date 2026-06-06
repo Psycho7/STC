@@ -26,6 +26,7 @@ import type {
 import { PillarsOnly } from "./cluster";
 import { expandMultipliers } from "./expand";
 import { AlwaysFoldRender } from "./render";
+import { assertRenderInvariants } from "./render/invariants";
 import type {
   ContainerId,
   ContainerSet,
@@ -339,7 +340,7 @@ export function renderPlanFromSolve(
 ): RenderPipelineOutput {
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
-  return buildRenderPlan({
+  const output = buildRenderPlan({
     logical: full.logical,
     replicas: full.replicas,
     multipliers: full.multipliers,
@@ -356,6 +357,20 @@ export function renderPlanFromSolve(
     targets,
     pack,
   });
+
+  // Dev/test-only: assert all render invariants, tree-shaken out of production
+  // builds (parity with the solver hook in src/solver/index.ts).
+  if (import.meta.env.DEV) {
+    assertRenderInvariants({
+      plan: output.plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides,
+    });
+  }
+
+  return output;
 }
 
 // Re-exported here so callers can grab MachineEdge without reaching into
