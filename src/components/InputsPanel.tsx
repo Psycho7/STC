@@ -4,6 +4,7 @@ import type { RecipePack } from "@aef/schema";
 import type { ItemOverride } from "../data/plan";
 import type { RationalString } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
+import { formatRationalPerMin, ratePerSecToPerMin } from "../data/rate-format";
 import { iconPosition } from "../canvas/iconSprite";
 
 type Props = {
@@ -26,13 +27,6 @@ type Props = {
 };
 
 const DEBOUNCE_MS = 150;
-
-function ratePerSecToPerMin(rps: RationalString): number {
-  const f = new Fraction(rps.num)
-    .div(new Fraction(rps.denom))
-    .mul(new Fraction(60));
-  return Number(f.valueOf());
-}
 
 // This parser behaves a little differently from the one in TargetsPanel. An
 // empty string means "uncap" (no rate limit). A negative or unparseable input
@@ -249,7 +243,7 @@ export function InputsPanel({
         const displayedRate = localAutoRates.get(itemId) ?? "";
         const realized = realizedRateByItem?.get(itemId);
         const realizedPerMin =
-          realized !== undefined ? ratePerSecToPerMin(realized) : null;
+          realized !== undefined ? formatRationalPerMin(realized) : null;
         return (
           <div
             key={`auto:${itemId}`}
@@ -320,7 +314,7 @@ export function InputsPanel({
         // let the row stay quiet until the next solve finishes.
         const realized = realizedRateByItem?.get(row.itemId);
         const realizedPerMin =
-          realized !== undefined ? ratePerSecToPerMin(realized) : null;
+          realized !== undefined ? formatRationalPerMin(realized) : null;
         return (
           <div
             key={i}

@@ -148,7 +148,9 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
           </div>
         </div>
         <div className="rn-recipe-block">
-          <div className="product">{outputItemName}</div>
+          <div className="product" title={outputItemName}>
+            {outputItemName}
+          </div>
           {machine !== undefined ? (
             <>
               <div className="machine-name">
@@ -208,22 +210,36 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
 
       <div className="rn-body">
         <div className="rn-side in">
-          {ins.map((p) => (
-            <div key={`in-row:${p.item}`} className="rn-row input">
-              <Sprite iconId={p.item} size={20} />
-              <span className="lbl">{i18n.displayName(p.item)}</span>
-              <span className="rate">{rowRateText(p, recipe.time, scale)}</span>
-            </div>
-          ))}
+          {ins.map((p) => {
+            const label = i18n.displayName(p.item);
+            return (
+              <div key={`in-row:${p.item}`} className="rn-row input">
+                <Sprite iconId={p.item} size={20} />
+                <span className="lbl" title={label}>
+                  {label}
+                </span>
+                <span className="rate">
+                  {rowRateText(p, recipe.time, scale)}
+                </span>
+              </div>
+            );
+          })}
         </div>
         <div className="rn-side out">
-          {outs.map((p) => (
-            <div key={`out-row:${p.item}`} className="rn-row output">
-              <Sprite iconId={p.item} size={20} />
-              <span className="lbl">{i18n.displayName(p.item)}</span>
-              <span className="rate">{rowRateText(p, recipe.time, scale)}</span>
-            </div>
-          ))}
+          {outs.map((p) => {
+            const label = i18n.displayName(p.item);
+            return (
+              <div key={`out-row:${p.item}`} className="rn-row output">
+                <Sprite iconId={p.item} size={20} />
+                <span className="lbl" title={label}>
+                  {label}
+                </span>
+                <span className="rate">
+                  {rowRateText(p, recipe.time, scale)}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 

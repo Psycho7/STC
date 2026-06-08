@@ -134,7 +134,9 @@ export default function ProductNode({ data }: NodeProps<ProductNodeType>) {
           );
         })()}
         <div>
-          <div className="pn-name">{displayName}</div>
+          <div className="pn-name" title={displayName}>
+            {displayName}
+          </div>
           {pnKindText !== null ? (
             <div className="pn-kind">{pnKindText}</div>
           ) : null}
