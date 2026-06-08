@@ -25,10 +25,9 @@ import type {
   TornEdge,
 } from "./types";
 
-// Translate the LP solver outcome into a hard error for the unsolvable cases.
-// "empty" (a feasible optimum that runs no recipe) and "feasible" both proceed;
-// only "infeasible"/"unbounded" abort, preserving the historical message string
-// for the infeasible case.
+// Turn the LP outcome into a hard error for the unsolvable cases. "empty" (a
+// feasible optimum running no recipe) and "feasible" both proceed; only
+// "infeasible"/"unbounded" abort.
 function assertSolvable(status: LpResult["status"]): void {
   switch (status) {
     case "infeasible":
@@ -54,10 +53,9 @@ function runBisim(
     rawReplicas.filter((r) => r.sharedAtArticulation).map((r) => r.id),
   );
   // bisimQuotient also produces `quotientEdges` aggregated over (sourceClass,
-  // targetClass, item). We don't thread that into SolvePlanFull right now,
-  // since downstream stages rebuild per-pair flow rates from
-  // assembleLogicalGraph's edge list. It stays on the bisim public API because
-  // the planned K-stamps count badge will want it.
+  // targetClass, item). We don't thread that into SolvePlanFull: downstream
+  // stages rebuild per-pair flow rates from assembleLogicalGraph's edge list. It
+  // stays on the bisim public API for a future K-stamps count badge.
   const { quotientReplicas, classByReplicaId, classToQuotient } = bisimQuotient(
     {
       replicas: rawReplicas,
@@ -69,10 +67,10 @@ function runBisim(
 }
 
 /**
- * Full solver output, returned by `solvePlanWithIntermediates` for callers
- * that feed the render pipeline. `logical` is the same LogicalGraph `solvePlan`
- * returns; the extra fields expose the intermediates the cluster, expand,
- * bisim, and render stages need.
+ * Full solver output, returned by `solvePlanWithIntermediates` for callers that
+ * feed the render pipeline. `logical` is the LogicalGraph `solvePlan` returns;
+ * the extra fields expose the intermediates the cluster, expand, bisim, and
+ * render stages need.
  */
 export type SolvePlanFull = {
   logical: LogicalGraph;
@@ -83,28 +81,27 @@ export type SolvePlanFull = {
   recipeById: Map<RecipeId, Recipe>;
   /**
    * Per-recipe execution rate from the LP solver. Zero-rate recipes drop out of
-   * `replicas` (the multipliers map gates them), but this map stays complete so
+   * `replicas` (gated by the multipliers map), but this map stays complete so
    * callers can derive per-edge rates without re-running the flow solve.
    */
   rates: Map<RecipeId, Fraction>;
   /**
-   * Exact rational machine count per replica, before the ceiling is taken.
-   * It runs in parallel with `multipliers` (which holds the ceiled integer
-   * count) so downstream stages can fold equivalent replicas on the
-   * pre-ceiling rate.
+   * Exact rational machine count per replica, before the ceiling. Runs in
+   * parallel with `multipliers` (the ceiled integer count) so downstream stages
+   * can fold equivalent replicas on the pre-ceiling rate.
    */
   idealCount: Map<ReplicaId, Fraction>;
   classByReplicaId: Map<ReplicaId, ClassId>;
   /** ClassId -> quotient replica id ("q:N"). Paired with classByReplicaId so
-   *  canvas highlighting can map a hovered quotient node back to the set of
-   *  original replica ids in its class.
+   *  canvas highlighting can map a hovered quotient node back to the original
+   *  replica ids in its class.
    */
   classToQuotient: Map<ClassId, ReplicaId>;
   /**
-   * Feasibility summary lifted from the LP result. `softFeasible` is false when
-   * any material demand stayed unmet; `deficits` lists each unmet item and its
+   * Feasibility summary from the LP result. `softFeasible` is false when any
+   * material demand stayed unmet; `deficits` lists each unmet item and its
    * shortfall. Surfaced so the render/UI layer can show an unsatisfiable plan
-   * instead of rendering it as silent success.
+   * instead of silent success.
    */
   feasibility: {
     softFeasible: boolean;
@@ -115,14 +112,14 @@ export type SolvePlanFull = {
 // Shared pipeline behind both entry points. Runs the full solve (graph build,
 // SCC condensation, LP solve, replication, bisim, multiplier assignment, FFD
 // packing, tear-edge rebuild, logical-graph assembly) and returns the assembled
-// SolvePlanFull alongside the raw LpResult. It does NOT run the dev-only
-// invariant assertions: that stays with solvePlanWithIntermediates so solvePlan
-// keeps its lighter contract.
+// SolvePlanFull plus the raw LpResult. It does NOT run the dev-only invariant
+// assertions; those stay with solvePlanWithIntermediates so solvePlan keeps its
+// lighter contract.
 //
-// The TornEdge[] is rebuilt here because the LP solver does not return
-// torn-edge metadata; return-arc rendering needs the full TornEdge objects with
-// their .edge and .sccId fields. AEF has just a handful of non-trivial SCCs, so
-// re-running pickTearEdges costs almost nothing.
+// The TornEdge[] is rebuilt here because the LP solver returns no torn-edge
+// metadata; return-arc rendering needs the full TornEdge objects with their
+// .edge and .sccId fields. AEF has only a handful of non-trivial SCCs, so re-
+// running pickTearEdges costs almost nothing.
 function runSolvePipeline(
   targets: Target[],
   pack: RecipePack,
@@ -201,9 +198,9 @@ function runSolvePipeline(
 }
 
 /**
- * Solve a plan and return just the assembled LogicalGraph. The lighter entry
- * point for callers that do not need the render-pipeline intermediates; it skips
- * the dev-only invariant assertions that solvePlanWithIntermediates runs.
+ * Solve a plan and return just the assembled LogicalGraph. Lighter entry point
+ * for callers that don't need the render-pipeline intermediates; it skips the
+ * dev-only invariant assertions that solvePlanWithIntermediates runs.
  */
 export function solvePlan(
   targets: Target[],

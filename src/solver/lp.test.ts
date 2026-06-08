@@ -110,9 +110,8 @@ describe("solveLp - precision (mass-balance residual)", () => {
     ];
     const result = solveLp({ targets, pack });
 
-    // For each item with finite supply, production - consumption + supply
-    // + deficit - surplus must equal demand. Raw items (Infinity supply) are
-    // unconstrained and skipped.
+    // For each finite-supply item: production - consumption + supply + deficit
+    // - surplus must equal demand. Raw items have infinite supply, so skip them.
     const rate = (id: string) =>
       (result.rates.get(id)?.valueOf() ?? 0) as number;
     const demandOf = new Map<string, number>();
@@ -258,10 +257,10 @@ describe("solveLp - multiple targets", () => {
 
 describe("solveLp - duplicate targets", () => {
   it("sums duplicate target floors on the same recipe instead of overwriting", () => {
-    // make_prod (the target) and alt both produce `prod`. alt is cheaper, so
-    // the LP would rather run alt for any demand not pinned onto make_prod.
-    // With two make_prod targets (1/s and 2/s) the pin floor must sum to 3;
-    // the old overwrite left it at 2, letting alt cover the remaining 1.
+    // make_prod (the target) and the cheaper alt both produce `prod`, so the LP
+    // prefers alt for any demand not pinned onto make_prod. Two make_prod
+    // targets (1/s and 2/s) must sum the pin floor to 3; the old overwrite bug
+    // left it at 2 and let alt cover the remaining 1.
     const p = {
       recipes: [
         {
@@ -301,14 +300,13 @@ describe("solveLp - duplicate targets", () => {
 
 describe("solveLp - headline over-production", () => {
   it("holds a target at its floor when a co-product could subsidize over-running it", () => {
-    // make_p produces p (the headline) plus a co-product c. make_thing needs
-    // c=6, zz_make_c produces c=1 standalone. With a one-sided floor only, the
-    // LP can cover make_thing's c demand by over-running make_p (cheaper than
-    // running zz_make_c three times), silently producing p surplus. The surplus
-    // cap on the headline item must hold make_p at its floor of x=1. The
-    // standalone producer is named zz_make_c so it lex-sorts after make_p,
-    // ensuring the pass-2 lex tie-break does not incidentally avoid the
-    // over-production the surplus cap is meant to prevent.
+    // make_p produces p (the headline) plus co-product c. make_thing needs c=6;
+    // zz_make_c produces c=1 standalone. With only a one-sided floor, the LP
+    // covers make_thing's c demand by over-running make_p (cheaper than three
+    // zz_make_c runs), silently producing p surplus. The surplus cap on the
+    // headline item must hold make_p at its floor of x=1. zz_make_c is named to
+    // lex-sort after make_p so the pass-2 lex tie-break doesn't incidentally
+    // dodge the over-production the cap is meant to prevent.
     const p = {
       recipes: [
         {
@@ -350,9 +348,9 @@ describe("solveLp - headline over-production", () => {
     const result = solveLp({ targets, pack: p });
     const x = result.rates.get("make_p");
     expect(x).toBeDefined();
-    // make_p must sit at its floor of 1, not be over-run to 2. The surplus cap
-    // carries a tiny relative eps so the value may exceed 1 by ~1e-6; assert it
-    // is at the floor within that slack rather than exactly 1.
+    // make_p must sit at its floor of 1, not over-run to 2. The cap carries a
+    // tiny relative eps so the value may exceed 1 by ~1e-6; assert near-floor
+    // within that slack, not exactly 1.
     expect(x!.valueOf()).toBeCloseTo(1, 5);
     expect(result.surplus.get("p")?.valueOf() ?? 0).toBeCloseTo(0, 5);
   });
@@ -376,10 +374,9 @@ describe("solveLp - status and softFeasible", () => {
 
   it("reports soft-infeasible when an input has no producer", () => {
     // make_prod runs at the pinned rate (positive rate => status "feasible"),
-    // but its input "mid" has no producer and is non-raw (finite supply 0), so
-    // the LP covers mid via a deficit var. The LP is mathematically feasible
-    // through the deficit var; softFeasible is false because that deficit
-    // survives the demand-met check.
+    // but its input "mid" is non-raw with no producer (finite supply 0), so the
+    // LP covers mid via a deficit var. That makes the LP feasible but not
+    // softFeasible: the deficit survives the demand-met check.
     const p = {
       recipes: [
         {

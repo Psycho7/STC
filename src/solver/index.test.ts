@@ -9,9 +9,9 @@ import type { LpResult } from "./lp";
 // Force a specific LpResult.status for the infeasible/unbounded throw-arm tests.
 // The LP model puts deficit+surplus slack on every finite-supply item, so the
 // raw solver is always feasible for real recipe-pack data; "infeasible" and
-// "unbounded" cannot be reached through the public API with real packs. The
-// flag lets a test drive solveLp's return through the real entry points while
-// every other test keeps using the real solver.
+// "unbounded" are unreachable through the public API with real packs. The flag
+// overrides solveLp's status on the real entry points while every other test
+// keeps using the real solver.
 const lpStatusOverride = vi.hoisted(() => ({
   status: undefined as LpResult["status"] | undefined,
 }));
@@ -49,9 +49,9 @@ describe("solvePlanWithIntermediates (LP)", () => {
 describe("solver status handling", () => {
   // (b) Empty-but-feasible: a non-empty targets input whose optimum runs zero
   // recipes. The "zero_out" recipe has a primary output qty of 0, so solveLp
-  // skips the target pin (see lp.ts), demand for "prod" becomes pure deficit,
-  // and no x_recipe runs at a positive rate => status "empty", rates empty.
-  // This MUST NOT throw: an empty-but-feasible optimum is a legitimate result.
+  // skips the target pin, demand for "prod" becomes pure deficit, and no
+  // x_recipe runs positive, giving status "empty" with empty rates.
+  // Must not throw: an empty-but-feasible optimum is a legitimate result.
   const emptyFeasiblePack = {
     recipes: [
       {
@@ -94,7 +94,7 @@ describe("solver status handling", () => {
   // (a) Infeasible: status "infeasible" is unreachable through the public API
   // with real packs (universal slack, see the override note above), so the flag
   // forces solveLp's status. Both entry points must surface it as a throw whose
-  // message still matches the historical "infeasible problem" string.
+  // message matches /infeasible/.
   const targets: Target[] = [
     { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
   ];

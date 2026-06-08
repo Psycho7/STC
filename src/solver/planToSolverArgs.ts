@@ -13,17 +13,17 @@ export type SolverArgs = {
  * solvePlanWithIntermediates. Centralizes the num/denom -> number coercion
  * (Number(num)/Number(denom)) that both App.tsx call sites previously inlined.
  *
- * NOTE: the conversion is deliberately lossy in the same way the inline code
- * was -- Number() coercion for rational strings that cannot be represented
- * exactly in IEEE 754 (e.g. 1/3) produces the same repeating-decimal
- * approximation that JS floating-point arithmetic yields.
+ * The conversion is deliberately lossy the same way the inline code was:
+ * Number() coercion of a rational string not exactly representable in IEEE 754
+ * (e.g. 1/3) yields the same repeating-decimal approximation JS float arithmetic
+ * does.
  */
 export function planToSolverArgs(plan: Plan): SolverArgs {
   const itemOverrides = plan.itemOverrides ?? [];
 
   // recipeCosts are coerced to number here via Number(num)/Number(denom).
-  // itemOverrides.ratePerSec (the per-item supply cap) intentionally stays as
-  // RationalString and is coerced downstream (effectiveSupply.ts uses Fraction).
+  // itemOverrides.ratePerSec (the per-item supply cap) stays a RationalString and
+  // is coerced downstream (effectiveSupply.ts uses Fraction).
   const recipeCosts = plan.recipeCosts
     ? new Map(
         [...plan.recipeCosts].map(

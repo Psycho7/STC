@@ -19,7 +19,7 @@ import type { ItemOverride } from "../../data/plan";
 
 const RATE_ONE: RationalString = { num: "1", denom: "1" };
 
-// Minimal RecipePack with items and recipes needed by the boundary checker.
+// Minimal RecipePack with the items and recipes the boundary checker needs.
 function makeFullPack(
   items: Array<{ id: string; raw?: boolean }>,
   recipes: Array<{
@@ -275,7 +275,7 @@ describe("checkEdgeEndpointIntegrity", () => {
     const result = checkEdgeEndpointIntegrity({
       plan,
       rates: emptyRates,
-      // Pack has no items at all -- "unknown-item" is absent.
+      // Pack has no items, so "unknown-item" is absent.
       pack: makePack([]),
       targets: [],
       itemOverrides: [],
@@ -291,9 +291,8 @@ describe("checkEdgeEndpointIntegrity", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkBoundaryProductsJustified", () => {
-  // Case (a): input product for a genuine raw item that is consumed by a recipe.
-  // R is raw -> effectiveSupply is Infinity. The recipe consumes R (consumption
-  // > production = 0), so the inputProduct unit is justified.
+  // Case (a): inputProduct for a raw item consumed by a recipe. R is raw so
+  // effectiveSupply is Infinity, the recipe consumes R, the unit is justified.
   it("(a) passes for an input product backed by a raw item with recipe consumption", () => {
     const pack = makeFullPack(
       [{ id: "R", raw: true }],
@@ -328,8 +327,8 @@ describe("checkBoundaryProductsJustified", () => {
     expect(result.violations).toHaveLength(0);
   });
 
-  // Case (b): output product flavor "target" for an item that is the primary
-  // output of a target recipe.
+  // Case (b): outputProduct flavor "target" for the primary output of a target
+  // recipe.
   it("(b) passes for an output product (target flavor) matching a target recipe primary output", () => {
     const pack = makeFullPack(
       [{ id: "F" }],
@@ -367,9 +366,9 @@ describe("checkBoundaryProductsJustified", () => {
     expect(result.violations).toHaveLength(0);
   });
 
-  // Case (c): output product flavor "surplus" for a genuine byproduct W.
-  // Recipe: R -> F (primary) + W (byproduct). W has no consumers; nothing
-  // demands W; production(W) > consumption(W) + demand(W). Justified.
+  // Case (c): outputProduct flavor "surplus" for a genuine byproduct W.
+  // Recipe R -> F (primary) + W (byproduct). W has no consumers and nothing
+  // demands it, so production(W) > consumption(W) + demand(W). Justified.
   it("(c) passes for an output product (surplus flavor) with genuine overproduction", () => {
     const pack = makeFullPack(
       [{ id: "R", raw: true }, { id: "F" }, { id: "W" }],
@@ -413,10 +412,10 @@ describe("checkBoundaryProductsJustified", () => {
     expect(result.violations).toHaveLength(0);
   });
 
-  // Case (d) RF-1: an intermediate item M that is internally balanced
-  // (recipe-A produces M, recipe-B consumes the same amount), not a target,
-  // not raw. An outputProduct flavor "surplus" for M is unjustified: the net
-  // residual is ~0, not a genuine surplus.
+  // Case (d): intermediate M that is internally balanced (recipe-A produces M,
+  // recipe-B consumes the same amount), not a target and not raw. An
+  // outputProduct flavor "surplus" for M is unjustified because the net residual
+  // is ~0.
   it("(d) fails for an output product (surplus flavor) on an internally balanced intermediate (RF-1)", () => {
     const pack = makeFullPack(
       [{ id: "R", raw: true }, { id: "M" }, { id: "F" }],
@@ -446,7 +445,7 @@ describe("checkBoundaryProductsJustified", () => {
           itemId: "M",
           count: 1,
           rate: RATE_ONE,
-          // Phantom surplus: M is internally balanced but mislabeled as surplus.
+          // Phantom surplus: M is balanced but mislabeled as surplus.
           flavor: "surplus",
         },
       ],
@@ -475,9 +474,9 @@ describe("checkBoundaryProductsJustified", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkInternalFlowConservation", () => {
-  // Case (a): two recipe units connected by an internal edge carrying M at the
-  // correct rate. recipe-b produces R->M at rate 2; recipe-a consumes M->F at
-  // rate 2. The internal edge carries M at rate 2. Expect ok === true.
+  // Case (a): two recipe units joined by an internal edge carrying M at the
+  // right rate. recipe-b produces R->M at rate 2, recipe-a consumes M->F at
+  // rate 2, the edge carries M at rate 2. Expect ok.
   it("(a) passes when internal edge is present and carries the correct rate", () => {
     const pack = makeFullPack(
       [{ id: "R", raw: true }, { id: "M" }, { id: "F" }],
@@ -517,9 +516,9 @@ describe("checkInternalFlowConservation", () => {
     expect(result.violations).toHaveLength(0);
   });
 
-  // Case (b) RF-1 dropped edge: same recipes and rates but the M edge is absent.
-  // prodVisible(M) = 2, consVisible(M) = 2, expected = 2, internalSum(M) = 0.
-  // Expect ok === false, violation mentions "M" and shows the shortfall.
+  // Case (b) dropped edge: same recipes and rates but the M edge is absent.
+  // prodVisible(M)=2, consVisible(M)=2, expected=2, internalSum(M)=0.
+  // Expect failure, violation mentions M and the shortfall.
   it("(b) fails when internal edge is absent (RF-1 dropped edge)", () => {
     const pack = makeFullPack(
       [{ id: "R", raw: true }, { id: "M" }, { id: "F" }],
@@ -537,7 +536,7 @@ describe("checkInternalFlowConservation", () => {
         { id: "u-b", kind: "recipe", recipeId: "recipe-b", count: 1, multiplicity: RATE_ONE },
         { id: "u-a", kind: "recipe", recipeId: "recipe-a", count: 1, multiplicity: RATE_ONE },
       ],
-      // No edges: the M internal edge is missing.
+      // The M internal edge is missing.
       edges: [],
       containers: [],
     };
@@ -551,14 +550,13 @@ describe("checkInternalFlowConservation", () => {
     expect(result.ok).toBe(false);
     expect(result.violations).toHaveLength(1);
     expect(result.violations[0]).toContain("M");
-    // Violation should indicate expected=2 and actual=0.
+    // Violation should show expected=2 and actual=0.
     expect(result.violations[0]).toMatch(/expected.*2/i);
     expect(result.violations[0]).toMatch(/actual.*0/i);
   });
 
-  // Case (c) boundary-only, no false positive: recipe produces M but nothing
-  // internally consumes it (only dumped as surplus). consVisible(M) = 0 so the
-  // checker skips M entirely. Expect ok === true.
+  // Case (c): recipe produces M but nothing internally consumes it (dumped as
+  // surplus). consVisible(M)=0 so the checker skips M. No false positive.
   it("(c) no false positive when item has internal production but zero internal consumption", () => {
     const pack = makeFullPack(
       [{ id: "R", raw: true }, { id: "M" }],
@@ -597,34 +595,32 @@ describe("checkInternalFlowConservation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// SCC / loop unit handling -- conservative false-negative bias
+// SCC / loop unit handling. Biased toward false-negatives.
 //
-// When an SCC is collapsed into a single kind:"loop" unit the recipes inside it
-// vanish from plan.units, so their recipe ids are NOT in renderedRecipeIds.
+// When an SCC collapses into a single kind:"loop" unit, its recipes vanish from
+// plan.units so their ids are not in renderedRecipeIds.
 // checkInternalFlowConservation restricts visible production/consumption to
 // renderedRecipeIds and folds loop netIO ports in; checkConsumerInputsSatisfied
-// only attributes inflow to kind:"recipe" units.  Both choices bias toward
-// false-negatives on loop-hidden flows rather than false-positives.
+// only attributes inflow to kind:"recipe" units. Both choices favor
+// false-negatives on loop-hidden flows over false-positives.
 //
 // Scenario: two cyclic recipes (cycA, cycB) share an internal item C.
 //   cycA: R -> C + F_partial  (rate 1: produces 1 C, consumes 1 R, produces 1 F)
 //   cycB: C -> F              (rate 1: consumes 1 C, produces 1 F)
-// Net boundary crossing: R flows in, F flows out.  C is entirely internal.
-// The RenderPlan represents the SCC as ONE loop unit with netIO = [{R, in}, {F, out}].
-// There are NO recipe units for cycA/cycB.
+// R flows in, F flows out, C is entirely internal. The RenderPlan is ONE loop
+// unit with netIO = [{R, in}, {F, out}] and no recipe units for cycA/cycB.
 // ---------------------------------------------------------------------------
 
 describe("SCC/loop unit: no false positive on loop-internal flow", () => {
-  // Build a pack with items R (raw), C (internal intermediate), F (final output)
-  // and two cyclic recipes that together form a loop.
+  // Pack: R (raw), C (internal intermediate), F (final output) and two cyclic
+  // recipes forming a loop.
   //   cycA: 1 R -> 1 C + 1 F  (rate 1)
   //   cycB: 1 C -> 1 F         (rate 1)
-  // rates contains BOTH recipes so productionByItem/consumptionByItem see C
-  // produced and consumed.  Without the renderedRecipeIds restriction the
-  // checker would compute prodVisible(C)=1, consVisible(C)=1, expected=1 and
-  // flag a shortfall because no internal edge carries C.  With the restriction
-  // renderedRecipeIds is empty (no recipe units), so C is invisible and there
-  // is no false positive.
+  // rates holds both recipes so C reads as produced and consumed. Without the
+  // renderedRecipeIds restriction the checker would get prodVisible(C)=1,
+  // consVisible(C)=1, expected=1 and flag a shortfall (no edge carries C). With
+  // the restriction renderedRecipeIds is empty, C is invisible, no false
+  // positive.
 
   function loopArgs(): Parameters<typeof checkInternalFlowConservation>[0] {
     const pack = makeFullPack(
@@ -645,16 +641,16 @@ describe("SCC/loop unit: no false positive on loop-internal flow", () => {
       ],
     );
 
-    // Both recipes run at rate 1.  C is produced 1/s by cycA and consumed 1/s
-    // by cycB -- entirely internal to the SCC.
+    // Both recipes run at rate 1. C is produced 1/s by cycA and consumed 1/s
+    // by cycB, entirely internal to the SCC.
     const rates: ReadonlyMap<string, Fraction> = new Map([
       ["cycA", new Fraction(1)],
       ["cycB", new Fraction(1)],
     ]);
 
-    // The SCC is collapsed into a single loop unit.  netIO carries only the
+    // The SCC collapses into one loop unit. netIO carries only the
     // boundary-crossing flows: R (in) and F (out, 2/s total from both recipes).
-    // C does NOT appear in netIO because it is internal.
+    // C does not appear in netIO because it is internal.
     const plan: RenderPlan = {
       units: [
         {
@@ -667,15 +663,15 @@ describe("SCC/loop unit: no false positive on loop-internal flow", () => {
             { item: "F", direction: "out", rate: new Fraction(2) },
           ],
         },
-        // Boundary input for the raw item R entering from outside.
+        // Boundary input for raw R.
         { id: "u-in-R", kind: "inputProduct", itemId: "R", count: 1, rate: RATE_ONE },
         // Boundary output for F.
         { id: "u-out-F", kind: "outputProduct", itemId: "F", count: 1, rate: RATE_ONE, flavor: "target" },
       ],
       edges: [
-        // R flows in from the boundary to the loop unit.
+        // R flows in to the loop unit.
         { fromUnit: "u-in-R", toUnit: "u:scc:1", item: "R", rate: new Fraction(1), transportKind: "belt" },
-        // F flows out from the loop unit to the boundary.
+        // F flows out from the loop unit.
         { fromUnit: "u:scc:1", toUnit: "u-out-F", item: "F", rate: new Fraction(2), transportKind: "belt" },
       ],
       containers: [],
@@ -684,22 +680,19 @@ describe("SCC/loop unit: no false positive on loop-internal flow", () => {
     return { plan, rates, pack, targets: [], itemOverrides: [] };
   }
 
-  // KEY ASSERTION: loop-internal item C must NOT be flagged despite rates
-  // showing it produced and consumed, because cycA/cycB have no recipe units
-  // and are therefore excluded from renderedRecipeIds.
-  // If the renderedRecipeIds restriction were removed, prodVisible(C)=1 and
-  // consVisible(C)=1 would give expected=1, and the missing C-edge would
-  // trigger a false-positive violation.
+  // Loop-internal item C must not be flagged despite rates showing it produced
+  // and consumed, because cycA/cycB have no recipe units and so are excluded
+  // from renderedRecipeIds. Drop that restriction and prodVisible(C)=1,
+  // consVisible(C)=1 give expected=1, and the missing C-edge would false-trip.
   it("checkInternalFlowConservation: no false positive for loop-internal item C", () => {
     const result = checkInternalFlowConservation(loopArgs());
     expect(result.ok).toBe(true);
     expect(result.violations).toHaveLength(0);
   });
 
-  // SECONDARY ASSERTION: the loop unit is not a recipe consumer so
-  // checkConsumerInputsSatisfied must also return ok without any violation,
-  // even though the loop unit has an inbound R edge and the loop has no
-  // recipe-unit representation.
+  // The loop unit is not a recipe consumer, so checkConsumerInputsSatisfied
+  // must also pass, even though it has an inbound R edge and no recipe-unit
+  // representation.
   it("checkConsumerInputsSatisfied: loop unit not treated as recipe consumer, no false positive", () => {
     const result = checkConsumerInputsSatisfied(loopArgs());
     expect(result.ok).toBe(true);
@@ -712,8 +705,8 @@ describe("SCC/loop unit: no false positive on loop-internal flow", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkConsumerInputsSatisfied", () => {
-  // Case (a): recipe R consumes M at qty 1, rate(R)=2, one incoming edge for M
-  // at rate 2 into the recipe unit. Expect ok === true.
+  // Case (a): recipe R consumes M at qty 1, rate(R)=2, one incoming M edge at
+  // rate 2. Expect ok.
   it("(a) passes when incoming edge satisfies the required input exactly", () => {
     const pack = makeFullPack(
       [{ id: "M" }, { id: "F" }],
@@ -749,9 +742,8 @@ describe("checkConsumerInputsSatisfied", () => {
     expect(result.violations).toHaveLength(0);
   });
 
-  // Case (b) RF-1 no input: recipe R consumes M at qty 1, rate(R)=2, but NO
-  // incoming edge for M. Expect ok === false, violation names R, M, expected 2,
-  // actual 0.
+  // Case (b) no input: recipe R consumes M at qty 1, rate(R)=2, but no incoming
+  // M edge. Expect failure, violation names R, M, expected 2, actual 0.
   it("(b) fails when recipe unit has no incoming edge for a required input (RF-1)", () => {
     const pack = makeFullPack(
       [{ id: "M" }, { id: "F" }],
@@ -764,7 +756,7 @@ describe("checkConsumerInputsSatisfied", () => {
       units: [
         { id: "u-R", kind: "recipe", recipeId: "R", count: 1, multiplicity: RATE_ONE },
       ],
-      // No edges: M arrives from nowhere.
+      // M arrives from nowhere.
       edges: [],
       containers: [],
     };
@@ -784,9 +776,9 @@ describe("checkConsumerInputsSatisfied", () => {
     expect(result.violations[0]).toMatch(/actual.*0/i);
   });
 
-  // Case (c): recipe R consumes raw item Rraw at qty 1, rate(R)=1. An
-  // inputProduct unit for Rraw feeds an edge into u-R at rate 1. Boundary edge
-  // counts as inflow. Expect ok === true.
+  // Case (c): recipe R consumes raw Rraw at qty 1, rate(R)=1. An inputProduct
+  // unit for Rraw feeds u-R at rate 1, and the boundary edge counts as inflow.
+  // Expect ok.
   it("(c) passes when input is fed by a boundary inputProduct edge", () => {
     const pack = makeFullPack(
       [{ id: "Rraw", raw: true }, { id: "F" }],
@@ -834,8 +826,8 @@ describe("checkConsumerInputsSatisfied", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkConsumerInputsNotOverfed", () => {
-  // Case (a): recipe R consumes M at qty 1, rate(R)=2, one incoming edge for M
-  // at rate 2 into the recipe unit -- exactly fed. Expect ok === true.
+  // Case (a): recipe R consumes M at qty 1, rate(R)=2, one incoming M edge at
+  // rate 2, exactly fed. Expect ok.
   it("(a) passes when incoming edge feeds the required input exactly", () => {
     const pack = makeFullPack(
       [{ id: "M" }, { id: "F" }],
@@ -872,9 +864,8 @@ describe("checkConsumerInputsNotOverfed", () => {
   });
 
   // Case (b) over-connection: recipe R consumes M at qty 1, rate(R)=2 (expects 2
-  // M/s), but TWO incoming edges for M each at rate 2 aggregate to 4 -- double
-  // the required intake. Expect ok === false, violation names R, M, expected 2,
-  // actual 4.
+  // M/s), but two incoming M edges at rate 2 each aggregate to 4, double the
+  // intake. Expect failure, violation names R, M, expected 2, actual 4.
   it("(b) fails when aggregated inflow exceeds the required input (double-fed)", () => {
     const pack = makeFullPack(
       [{ id: "M" }, { id: "F" }],
@@ -929,7 +920,7 @@ describe("checkConsumerInputsNotOverfed", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkNoOrphanUnits", () => {
-  // Case (a): recipe unit whose recipeId has NO entry in rates -> orphan.
+  // Case (a): recipe unit whose recipeId has no entry in rates is an orphan.
   it("(a) fails for a recipe unit whose recipeId is absent from rates", () => {
     const pack = makeFullPack(
       [{ id: "M" }, { id: "F" }],
@@ -1072,9 +1063,9 @@ describe("checkTargetOutputsSatisfied", () => {
 // checkRenderPlan and assertRenderInvariants
 // ---------------------------------------------------------------------------
 
-// Shared factory for the minimal clean plan used by both describe blocks below.
-// Plan: raw item R fed via inputProduct -> recipe-A (R->F) -> outputProduct(target).
-// Returns fresh objects on each call so tests cannot interfere with each other.
+// Minimal clean plan shared by both describe blocks below:
+// raw R via inputProduct -> recipe-A (R->F) -> outputProduct(target).
+// Returns fresh objects each call so tests cannot interfere.
 function cleanPlanArgs(): {
   plan: RenderPlan;
   rates: ReadonlyMap<string, Fraction>;
@@ -1108,7 +1099,7 @@ function cleanPlanArgs(): {
 }
 
 describe("checkRenderPlan", () => {
-  // Case (b): a fully well-formed minimal plan -> all seven results ok === true.
+  // Case (b): a well-formed minimal plan gives all seven results ok.
   it("(b) returns seven ok results for a fully clean minimal plan", () => {
     const args = cleanPlanArgs();
     const results = checkRenderPlan(args);
@@ -1121,19 +1112,19 @@ describe("checkRenderPlan", () => {
 });
 
 describe("assertRenderInvariants", () => {
-  // Case (b) continued: clean plan -> assertRenderInvariants does NOT throw.
+  // Case (b): clean plan, assertRenderInvariants does not throw.
   it("(b) does not throw for a fully clean minimal plan", () => {
     expect(() => assertRenderInvariants(cleanPlanArgs())).not.toThrow();
   });
 
-  // Case (c): plan with one injected orphan unit -> assertRenderInvariants THROWS,
-  // message contains the offending unit id and recipeId.
+  // Case (c): one injected orphan unit, assertRenderInvariants throws with the
+  // offending unit id and recipeId in the message.
   it("(c) throws with aggregated message when plan has an orphan recipe unit", () => {
     const pack = makeFullPack(
       [{ id: "F" }],
       [{ id: "recipe-A", in: [], out: [{ item: "F", qty: 1 }] }],
     );
-    const rates: ReadonlyMap<string, Fraction> = new Map(); // recipe-A not in rates -> orphan
+    const rates: ReadonlyMap<string, Fraction> = new Map(); // recipe-A not in rates: orphan
     const plan: RenderPlan = {
       units: [
         { id: "u-A", kind: "recipe", recipeId: "recipe-A", count: 1, multiplicity: RATE_ONE },
@@ -1145,8 +1136,8 @@ describe("assertRenderInvariants", () => {
     expect(() => assertRenderInvariants(args)).toThrow(/recipe-A/);
   });
 
-  // Case (c) variant: dangling edge endpoint -> assertRenderInvariants THROWS,
-  // message contains the dangling unit id.
+  // Case (c) variant: dangling edge endpoint, assertRenderInvariants throws with
+  // the dangling unit id in the message.
   it("(c) throws with aggregated message when plan has a dangling edge endpoint", () => {
     const pack = makeFullPack([{ id: "iron-ore" }], []);
     const rates: ReadonlyMap<string, Fraction> = new Map();
@@ -1169,26 +1160,26 @@ describe("assertRenderInvariants", () => {
     expect(() => assertRenderInvariants(args)).toThrow(/u-missing/);
   });
 
-  // Case (d): plan with TWO defects from different checkers.
-  // Defect 1 (checkEdgeEndpointIntegrity): dangling edge to "u-dangling".
-  // Defect 2 (checkNoOrphanUnits): recipe unit whose recipeId "recipe-orphan" is absent from rates.
-  // assertRenderInvariants must throw with the aggregator prefix and both details present.
+  // Case (d): two defects from different checkers.
+  // checkEdgeEndpointIntegrity: dangling edge to "u-dangling".
+  // checkNoOrphanUnits: recipe unit whose "recipe-orphan" is absent from rates.
+  // assertRenderInvariants must throw with the aggregator prefix and both details.
   it("(d) throws with violations from multiple checkers in a single error", () => {
     const pack = makeFullPack(
       [{ id: "iron-ore" }],
       [{ id: "recipe-orphan", in: [], out: [{ item: "iron-ore", qty: 1 }] }],
     );
-    // rates is empty: recipe-orphan is absent -> orphan unit.
+    // rates is empty, so recipe-orphan is an orphan unit.
     const rates: ReadonlyMap<string, Fraction> = new Map();
     const plan: RenderPlan = {
       units: [
         // inputProduct provides the fromUnit for the dangling edge.
         { id: "u-input-1", kind: "inputProduct", itemId: "iron-ore", count: 1, rate: RATE_ONE },
-        // recipe unit with no matching rate entry -> orphan.
+        // recipe unit with no matching rate entry: orphan.
         { id: "u-orphan", kind: "recipe", recipeId: "recipe-orphan", count: 1, multiplicity: RATE_ONE },
       ],
       edges: [
-        // toUnit "u-dangling" does not exist in units -> endpoint integrity violation.
+        // toUnit "u-dangling" is not in units: endpoint integrity violation.
         {
           fromUnit: "u-input-1",
           toUnit: "u-dangling",
@@ -1214,11 +1205,11 @@ describe("assertRenderInvariants", () => {
     }
     expect(thrown).toBeInstanceOf(Error);
     const msg = (thrown as Error).message;
-    // Aggregator prefix must be present.
+    // Aggregator prefix.
     expect(msg).toContain("render invariants violated:");
-    // Endpoint integrity violation: dangling unit id.
+    // Endpoint integrity: dangling unit id.
     expect(msg).toContain("u-dangling");
-    // Orphan unit violation: orphan recipeId.
+    // Orphan unit: orphan recipeId.
     expect(msg).toContain("recipe-orphan");
   });
 });

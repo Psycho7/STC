@@ -20,18 +20,18 @@ export type LpResult = {
   deficit: Map<ItemId, Fraction>;
   objectiveValue: number;
   solverWallClockMs: number;
-  // Solver outcome. "infeasible"/"unbounded" come straight from the raw solver
-  // flags; "empty" means feasible but no recipe runs at a positive rate;
-  // "feasible" means at least one recipe runs. softFeasible is false when any
-  // material demand stays unmet (a deficit var survives the >1e-12 filter).
+  // Solver outcome. "infeasible"/"unbounded" come from the raw solver flags.
+  // "empty" is feasible but no recipe runs at a positive rate; "feasible" means
+  // at least one runs. softFeasible is false when any material demand stays unmet
+  // (a deficit var survives the >1e-12 filter).
   status: "feasible" | "infeasible" | "unbounded" | "empty";
   softFeasible: boolean;
 };
 
-// The solver port: any function from an LpInput to an LpResult. solveLp is the
-// in-house default implementation. A future vendor solver (e.g. GLPK) is another
-// implementation of this same port. It must map its native output into the
-// LpResult shape. The port keeps the engine choice a non-one-way door.
+// The solver port: any function from LpInput to LpResult. solveLp is the
+// in-house default. A vendor solver (e.g. GLPK) is another implementation that
+// maps its native output into the LpResult shape, so swapping engines stays a
+// reversible decision.
 export type LpSolver = (input: LpInput) => LpResult;
 
 // Model and result shapes accepted by javascript-lp-solver.
@@ -52,23 +52,22 @@ type LpRaw = Record<string, number> & {
   bounded?: boolean;
 };
 
-// Soft penalty weights for the primary objective. surplus is cheap to leave on
-// the table; deficit is prohibitively expensive so the LP only leaves demand
-// unmet when nothing can satisfy it. Exported so the optimality screen scores
-// against the exact same weights solveLp minimizes, with no hand-mirrored copy.
+// Soft penalty weights for the primary objective. Surplus is cheap to leave on
+// the table; deficit is huge so the LP only leaves demand unmet when nothing can
+// satisfy it. Exported so the optimality screen scores against the same weights
+// solveLp minimizes instead of a hand-copied duplicate.
 export const SURPLUS_WEIGHT = 1e-3;
 export const DEFICIT_WEIGHT = 1e9;
 
-// Default cost weights. Relative ordering deficit >> recipe >> surplus is the
-// cost contract. Synthetic and target-only recipes are pushed to a
-// big-M cost so the LP only runs them when the user pins them or no alternative
-// exists; they are sourced from three distinct pack signals.
+// Default cost weights. The ordering deficit >> recipe >> surplus is the cost
+// contract. Target-only and excluded-producer recipes get a big-M cost so the LP
+// only runs them when the user pins them or no alternative exists.
 export function recipeCostWeight(
   r: Recipe,
   overrides: Map<RecipeId, number> | undefined,
 ): number {
-  // Clamp to non-negative: a negative override would make the objective reward
-  // unbounded execution of this recipe. 0 means "run if useful, no cost".
+  // Clamp to non-negative: a negative override would reward unbounded execution
+  // of this recipe. 0 means "run if useful, no cost".
   if (overrides?.has(r.id)) return Math.max(0, overrides.get(r.id)!);
   if (r.flags?.includes("target-only") || isExcludedProducer(r)) return 1e6;
   return 1;
@@ -76,8 +75,8 @@ export function recipeCostWeight(
 
 // Demand per item: sum over targets of the rate placed on each target recipe's
 // primary output (recipe.out[0]). Duplicate targets on the same primary item
-// accumulate. Shared with the invariant checkers so the LP model and the
-// reference-free checks read demand the same way.
+// accumulate. Shared with the invariant checkers so model and checks read demand
+// the same way.
 export function demandByItem(
   pack: RecipePack,
   targets: Target[],
@@ -118,7 +117,7 @@ export function solveLp(input: LpInput): LpResult {
   );
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
-  // Effective supply per item. Infinity => free boundary; finite => fixed const.
+  // Effective supply per item. Infinity = free boundary; finite = fixed cap.
   const supplyById = new Map<ItemId, Fraction | typeof Infinity>();
   for (const it of items) {
     supplyById.set(it.id, effectiveSupply(it.id, pack, itemOverrides));
@@ -130,8 +129,8 @@ export function solveLp(input: LpInput): LpResult {
   const lexRank = new Map<RecipeId, number>();
   recipes.forEach((r, i) => lexRank.set(r.id, i));
 
-  // Per-recipe objective cost, computed once. buildModel reads it in both
-  // passes (variable objective + the pass-2 cost cap) instead of recomputing.
+  // Per-recipe objective cost, computed once. buildModel reads it in both passes
+  // (variable objective and the pass-2 cost cap) instead of recomputing.
   const costById = new Map<RecipeId, number>();
   for (const r of recipes)
     costById.set(r.id, recipeCostWeight(r, input.recipeCosts));
@@ -178,38 +177,38 @@ export function solveLp(input: LpInput): LpResult {
     }
 
     // Target floor: x_target >= rate / primary.qty (min, NOT equality). A hard
-    // equality over-constrains SCC-self targets (forces residual demand through
-    // __domain_transfer recipes). The min floor preserves user-recipe intent
-    // without blocking mass-balance from raising production to cover a cycle's
-    // internal consumption.
+    // equality over-constrains SCC-self targets, forcing residual demand through
+    // __domain_transfer recipes. The min floor keeps user-recipe intent without
+    // blocking mass-balance from raising production to cover a cycle's internal
+    // consumption.
     for (const t of targets) {
       const recipe = recipeById.get(t.recipeId);
       if (!recipe || recipe.out.length === 0) continue;
       const primary = recipe.out[0]!;
       // Guard malformed data: a zero/negative primary qty makes the floor
-      // rate/qty infinite or nonsensical. Skip the pin so unmet demand surfaces
-      // as deficit rather than an infeasible Infinity bound.
+      // rate/qty infinite or nonsensical. Skip the pin so unmet demand surfaces as
+      // deficit rather than an infeasible Infinity bound.
       if (!(primary.qty > 0)) continue;
       const rate = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
       const pinName = `pin_${t.recipeId}`;
       // Accumulate the floor across duplicate targets on the same recipe rather
-      // than overwriting, mirroring the demand loop above which sums duplicate
-      // target rates onto the same primary item.
+      // than overwriting, like the demand loop above sums duplicate target rates
+      // onto the same primary item.
       const existingFloor = constraints[pinName]?.min ?? 0;
       constraints[pinName] = { min: existingFloor + rate / primary.qty };
       variables[`x_${t.recipeId}`]![pinName] = 1;
 
       // Surplus cap on the requested item. The floor above is one-sided, so a
-      // co-product of the target recipe can subsidize over-running it to cover
-      // some other recipe's input, silently over-producing the headline item.
-      // Cap the requested item's surplus to keep production at the requested
-      // rate, leaving the floor and mass-balance's freedom to raise production
-      // for internal consumption intact. eps is a small relative slack tied to
-      // demand on this item so LP float noise does not make the equality model
-      // spuriously infeasible; keep the larger eps when several targets share a
-      // primary item. Keep eps an order of magnitude below the invariant
-      // checkers' REL_TOL (1e-6) so a surplus sitting at the cap never trips the
-      // mass-balance / targets-met residual checks.
+      // co-product of the target recipe could subsidize over-running it to cover
+      // another recipe's input, silently over-producing the headline item. Cap the
+      // requested item's surplus to hold production at the requested rate, while
+      // leaving the floor and mass-balance free to raise production for internal
+      // consumption. eps is a small relative slack tied to this item's demand so
+      // LP float noise does not make the equality model spuriously infeasible;
+      // keep the larger eps when several targets share a primary item. eps stays
+      // an order of magnitude below the invariant checkers' REL_TOL (1e-6) so a
+      // surplus sitting at the cap never trips the mass-balance / targets-met
+      // residual checks.
       const surpCap = `surpcap_${primary.item}`;
       const eps = Math.max(rate / primary.qty, 1) * 1e-7;
       const existingCap = constraints[surpCap]?.max ?? 0;
@@ -217,8 +216,8 @@ export function solveLp(input: LpInput): LpResult {
       variables[`surplus_${primary.item}`]![surpCap] = 1;
     }
 
-    // Pass 2: freeze pass-1 cost as an upper bound (with a relative epsilon) so
-    // the lex objective only reorders among cost-optimal solutions.
+    // Pass 2: freeze pass-1 cost as an upper bound (with a relative epsilon) so the
+    // lex objective only reorders cost-optimal solutions.
     if (mode === "lex" && costCap !== undefined) {
       const capName = "cost_cap";
       const capEps = Math.max(Math.abs(costCap) * 1e-9, 1e-9);
@@ -241,24 +240,24 @@ export function solveLp(input: LpInput): LpResult {
   if (pass1.feasible === false || pass1.bounded === false) {
     // Infeasible or unbounded: skip the lex pass. A non-finite pass-1 objective
     // would corrupt the pass-2 cost cap, and the status derivation below reads
-    // pass1's feasible/bounded flags directly. (Unbounded is unreachable for a
-    // valid model: every objective coefficient is non-negative under a min
-    // objective, so the optimum is bounded below by 0.)
+    // pass1's feasible/bounded flags directly. (Unbounded can't happen for a valid
+    // model: every objective coefficient is non-negative under a min objective, so
+    // the optimum is bounded below by 0.)
     lpResult = pass1;
   } else {
     const costCap = pass1.result ?? 0;
     const pass2 = solver.Solve(buildModel("lex", costCap)) as LpRaw;
     // If the lex pass fails numerically against the cost cap, keep the feasible
-    // (cost-optimal) pass-1 solution rather than emitting empty result maps.
+    // cost-optimal pass-1 solution rather than emitting empty result maps.
     lpResult = pass2.feasible === false ? pass1 : pass2;
     // Report pass-1's objective; pass-2's "result" is the lex tie-break.
     lpResult.result = costCap;
   }
 
-  // The solver returns float primal values; simplify(1e-6) snaps each to a
-  // nearby low-denominator rational. Arithmetic downstream is exact, but the
-  // snapped value itself can sit up to ~1e-6 (relative) off the LP optimum, so
-  // "exact rational" describes the representation, not zero error vs the solve.
+  // The solver returns float primal values; simplify(1e-6) snaps each to a nearby
+  // low-denominator rational. Downstream arithmetic is exact, but the snapped
+  // value can sit up to ~1e-6 (relative) off the LP optimum, so "exact rational"
+  // describes the representation, not zero error vs the solve.
   const rates = new Map<RecipeId, Fraction>();
   for (const r of recipes) {
     const v = lpResult[`x_${r.id}`] ?? 0;
@@ -278,8 +277,8 @@ export function solveLp(input: LpInput): LpResult {
   }
 
   // Derive status from the chosen raw result. The solver feasible/bounded flags
-  // take precedence; otherwise "empty" when no recipe runs at a positive rate
-  // (same >1e-12 threshold used to build the rates map), else "feasible".
+  // win; otherwise "empty" when no recipe runs at a positive rate (same >1e-12
+  // threshold that built the rates map), else "feasible".
   let status: LpResult["status"];
   if (lpResult.feasible === false) {
     status = "infeasible";
@@ -291,8 +290,8 @@ export function solveLp(input: LpInput): LpResult {
     status = "feasible";
   }
 
-  // softFeasible: no material demand left unmet. A surviving deficit entry (it
-  // passed the >1e-12 filter above) means some item could not be supplied.
+  // softFeasible: no material demand left unmet. A surviving deficit entry (past
+  // the >1e-12 filter above) means some item could not be supplied.
   const softFeasible = deficit.size === 0;
 
   return {

@@ -36,8 +36,8 @@ const RECIPE = {
   out: [{ item: "widget", qty: 1 }],
 } as unknown as Recipe;
 
-// A truncated name in a node is unreadable without a hover tooltip, so each
-// name-bearing span carries a title equal to its full text.
+// A truncated name needs a hover tooltip, so each name-bearing span carries a
+// title equal to its full text.
 test("RecipeNode header and row labels expose the full name via title", () => {
   const props = { data: { recipe: RECIPE } } as unknown as ComponentProps<
     typeof RecipeNode

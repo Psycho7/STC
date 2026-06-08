@@ -13,9 +13,8 @@ import {
 // A per-item override for the production walk, keyed by item id.
 //   plan: true    -> keep walking through this item.
 //   ratePerSec: X -> cap the input boundary at X during rendering.
-// Both fields are optional. There's no `plan: false`; the presence of
-// `plan: true` is itself the signal. If both `plan: true` and `ratePerSec` are
-// set, the rate wins.
+// Both fields are optional. There is no `plan: false`; `plan: true` being
+// present is the signal. If both are set, the rate wins.
 export type ItemOverride = {
   itemId: string;
   plan?: true;
@@ -30,12 +29,12 @@ export type Plan = {
   itemOverrides?: ItemOverride[];
   // Per-recipe cost overrides for the LP solver, keyed by recipe id. Absent =>
   // all default costs. A "1/1" entry equals the default and is omitted on the
-  // wire. Power-user surface; no cost-tuning UI.
+  // wire. Power-user surface, no cost-tuning UI.
   recipeCosts?: Map<string, RationalString>;
 };
 
-// Cap on the URL-fragment payload length. We check it before decompressing so a
-// hostile hash can't blow up memory.
+// Cap on the URL-fragment payload length, checked before decompressing so a
+// hostile hash cannot blow up memory.
 export const MAX_HASH_PAYLOAD_LEN = 16384;
 
 const CURRENT_VERSION = 1;
@@ -104,14 +103,13 @@ export function describePlanLoadError(error: PlanLoadError): string {
 // A wire RationalString is well-formed when num and denom are integer strings
 // and num/denom is finite (which also rejects a zero denominator). Validating
 // at the trust boundary keeps a hostile or corrupt hash from reaching the
-// solver, where a zero denominator throws (effectiveSupply) or a non-numeric
-// string silently injects NaN/Infinity into the objective and demand.
+// solver, where a zero denominator throws (effectiveSupply) and a non-numeric
+// string injects NaN/Infinity into the objective and demand.
 function isValidRational(r: RationalString): boolean {
   if (typeof r?.num !== "string" || typeof r?.denom !== "string") return false;
   // Non-negative integer strings only. A negative numerator or denominator
-  // would pass the finite check yet inject negative demand or a negative supply
-  // cap into the solver. The denominator must also be non-zero, caught here as
-  // a non-finite quotient.
+  // passes the finite check yet injects negative demand or a negative supply
+  // cap. The denominator must be non-zero, caught here as a non-finite quotient.
   if (!/^\d+$/.test(r.num) || !/^\d+$/.test(r.denom)) return false;
   return Number.isFinite(Number(r.num) / Number(r.denom));
 }
@@ -197,15 +195,14 @@ export function validatePlan(
       };
     }
     const recipe = recipeById.get(t.recipeId);
-    // An unknown target recipe otherwise survives to graph construction, where
-    // it throws UnknownRecipeError; reject it here as a structured load error.
+    // An unknown target recipe would otherwise reach graph construction and
+    // throw UnknownRecipeError; reject it here as a structured load error.
     if (!recipe) {
       return { kind: "unknown-target-recipe", recipeId: t.recipeId };
     }
     // Input-supply (__domain_transfer) recipes are supply metadata and
-    // cost === -1 recipes are waste sinks; neither is a production step you can
-    // select as a target. This is a second line of defense in case one slips
-    // past the picker filter and lands in a plan.
+    // cost === -1 recipes are waste sinks; neither is a selectable target.
+    // Second line of defense in case one slips past the picker filter.
     if (isExcludedProducer(recipe)) {
       return { kind: "target-not-a-producer", recipeId: t.recipeId };
     }

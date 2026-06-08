@@ -39,7 +39,7 @@ describe("closed-form fixtures - solveLp matches hand-derived truth", () => {
   }
 });
 
-// Spec item 4: lock the ratified cyclic-target honest-infeasibility contract.
+// Lock the cyclic-target honest-infeasibility contract.
 describe("cyclic-target contract (STC-0005)", () => {
   it("reports unsatisfiable via a deficit on M, not a met target", () => {
     const fx = CYCLIC_TARGET_FIXTURE;

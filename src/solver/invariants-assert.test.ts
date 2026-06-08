@@ -32,7 +32,7 @@ describe("assertInvariants", () => {
     );
     const result = solveLp({ targets: headlineTargets, pack });
     // Zero out every recipe rate: production collapses while the target floor
-    // and demand stand, so checkMassBalance and checkTargetsMet must fire.
+    // and demand remain, so checkMassBalance and checkTargetsMet fire.
     for (const key of [...result.rates.keys()]) {
       result.rates.set(key, new Fraction(0));
     }

@@ -12,9 +12,9 @@ const PACK = {
   recipes: [],
 } as unknown as RecipePack;
 
-// 40/27 items per second -> *60 = 800/9 items per minute, a non-terminating
-// decimal. The realized-demand readout must show the exact fraction (matching
-// the canvas ProductNode), never the raw 88.8888888888889 float.
+// 40/27 per sec * 60 = 800/9 per min, a non-terminating decimal. The
+// realized-demand readout shows the exact fraction (matching the canvas
+// ProductNode), never the raw 88.8888888888889 float.
 test("realized input demand renders as an exact fraction, not a raw float", () => {
   render(
     <LocaleProvider locale="en">
@@ -33,8 +33,8 @@ test("realized input demand renders as an exact fraction, not a raw float", () =
   expect(readout.textContent).not.toMatch(/\d\.\d{3,}/);
 });
 
-// The override-row readout is a separate JSX path from the auto-row above and
-// was changed by the same fix, so cover both override flavors.
+// The override-row readout is a separate JSX path from the auto-row above, so
+// cover both override flavors.
 test("realized demand on an uncapped override row renders as an exact fraction", () => {
   render(
     <LocaleProvider locale="en">

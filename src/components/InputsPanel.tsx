@@ -12,26 +12,24 @@ type Props = {
   onChange: (next: ItemOverride[]) => void;
   pack: RecipePack;
   targetItemIds?: ReadonlySet<string>;
-  // Realized demand per item from the latest render pass, summed over the
-  // outbound boundary-edge rates. When this is present a side row shows the
-  // same number as the matching canvas ProductNode; rows without an entry just
-  // leave the rate slot empty. This value is what we display in place of the
-  // old "UNCAPPED" chip.
+  // Realized demand per item from the latest render pass, summed over outbound
+  // boundary-edge rates. When present, a side row shows the same number as the
+  // matching canvas ProductNode; rows without an entry leave the rate slot
+  // empty. Shown in place of the old "UNCAPPED" chip.
   realizedRateByItem?: ReadonlyMap<string, RationalString>;
-  // Raw items the current plan consumes as assumed-infinite supply. When the
-  // user hasn't declared any explicit overrides we surface these as read-only
-  // auto-rows, so the "raw is unlimited by default" assumption is visible
-  // rather than hidden. Typing a cap into an auto-row promotes it to a real
-  // override, which in turn hides the remaining auto-rows.
+  // Raw items the current plan consumes as assumed-infinite supply. With no
+  // explicit overrides declared, these surface as read-only auto-rows so the
+  // "raw is unlimited by default" assumption is visible. Typing a cap into an
+  // auto-row promotes it to a real override, hiding the remaining auto-rows.
   assumedRawItemIds?: ReadonlyArray<string>;
 };
 
 const DEBOUNCE_MS = 150;
 
-// This parser behaves a little differently from the one in TargetsPanel. An
-// empty string means "uncap" (no rate limit). A negative or unparseable input
-// returns the "INVALID" marker, which lets the caller keep whatever value was
-// there before. A valid rate parses into a RationalString.
+// Behaves a little differently from the parser in TargetsPanel. Empty string
+// means "uncap" (no rate limit). A negative or unparseable input returns the
+// "INVALID" marker, letting the caller keep the prior value. A valid rate parses
+// into a RationalString.
 function parsePerMinToOptional(
   perMinStr: string,
 ): RationalString | undefined | "INVALID" {
@@ -57,9 +55,8 @@ export function InputsPanel({
   assumedRawItemIds,
 }: Props) {
   const i18n = useI18n();
-  // Lexicographically sorted items drive both the picker order and the
-  // first-unused-id pick when the user adds a row. Re-sorting every render is
-  // fine here since there are at most a few hundred items.
+  // Sorted items drive both the picker order and the first-unused-id pick when
+  // the user adds a row. Re-sorting every render is fine at a few hundred items.
   const sortedItems = useMemo(
     () =>
       pack.items
@@ -83,23 +80,21 @@ export function InputsPanel({
   const autoTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
-  // In-flight edit values keyed by row index. A row without an entry here
-  // falls back to the value derived from the prop, so when a new
-  // `itemOverrides` prop comes in the visible rate updates on its own without a
-  // separate sync effect.
+  // In-flight edit values keyed by row index. A row without an entry falls back
+  // to the prop-derived value, so a new `itemOverrides` prop updates the visible
+  // rate without a separate sync effect.
   const [localRates, setLocalRates] = useState<Map<number, string>>(new Map());
-  // In-flight edits for auto-rows, keyed by itemId. When the debounce timer
-  // fires, a valid rate creates a new ItemOverride, so typing on an auto-row
-  // turns it into an explicit override row. The local string only needs to
-  // survive long enough to commit: once the prop list grows, the next render
-  // replaces this auto-row with the new override row and the local entry is
-  // left orphaned.
+  // In-flight edits for auto-rows, keyed by itemId. When the debounce fires, a
+  // valid rate creates a new ItemOverride, turning the auto-row into an explicit
+  // override row. The local string only needs to survive until commit: once the
+  // prop list grows, the next render replaces the auto-row and the local entry
+  // is orphaned.
   const [localAutoRates, setLocalAutoRates] = useState<Map<string, string>>(
     new Map(),
   );
-  // A mirror of the latest `itemOverrides` so that a debounce timer scheduled
-  // during an earlier render commits against the current list rather than the
-  // stale snapshot it captured.
+  // Mirror of the latest `itemOverrides` so a debounce timer scheduled in an
+  // earlier render commits against the current list, not the stale snapshot it
+  // captured.
   const overridesRef = useRef(itemOverrides);
   useEffect(() => {
     overridesRef.current = itemOverrides;
@@ -107,15 +102,15 @@ export function InputsPanel({
 
   function commitRate(rowIdx: number, perMinStr: string) {
     const parsed = parsePerMinToOptional(perMinStr);
-    // On INVALID, quietly keep the prior value. The local edit string stays in
-    // localRates so the user still sees exactly what they typed and can fix it.
+    // On INVALID, keep the prior value. The local edit string stays in
+    // localRates so the user still sees what they typed and can fix it.
     if (parsed === "INVALID") return;
     const current = overridesRef.current;
     const row = current[rowIdx];
     if (!row) return;
     const next = current.slice();
     if (parsed === undefined) {
-      // Uncapped, so drop ratePerSec from the override entirely.
+      // Uncapped: drop ratePerSec from the override.
       next[rowIdx] = { itemId: row.itemId };
     } else {
       next[rowIdx] = { itemId: row.itemId, ratePerSec: parsed };
@@ -131,8 +126,8 @@ export function InputsPanel({
       commitRate(rowIdx, value);
       overrideTimers.current.delete(rowIdx);
       setLocalRates((prev) => {
-        // After a successful commit the prop drives what's shown; on INVALID we
-        // deliberately hold onto the local string so the user can fix the typo.
+        // After a successful commit the prop drives what's shown; on INVALID,
+        // hold onto the local string so the user can fix the typo.
         const parsed = parsePerMinToOptional(value);
         if (parsed === "INVALID") return prev;
         const next = new Map(prev);
@@ -144,9 +139,9 @@ export function InputsPanel({
   }
 
   // Promote an auto-row into a real override entry. Empty or INVALID strings
-  // leave it as an auto-row, since "Unlimited" is the auto state. We guard
-  // against re-adding the same itemId in case the commit races with a prop
-  // update that already inserted the override.
+  // leave it as an auto-row, since "Unlimited" is the auto state. Guard against
+  // re-adding the same itemId in case the commit races with a prop update that
+  // already inserted the override.
   function commitAutoRate(itemId: string, perMinStr: string) {
     const parsed = parsePerMinToOptional(perMinStr);
     if (parsed === "INVALID") return;
@@ -179,7 +174,7 @@ export function InputsPanel({
     const next = itemOverrides.slice();
     const row = next[rowIdx];
     if (!row) return;
-    // Keep any rate the row already had when the user swaps the item.
+    // Keep any rate the row had when the user swaps the item.
     next[rowIdx] = row.ratePerSec
       ? { itemId: newItemId, ratePerSec: row.ratePerSec }
       : { itemId: newItemId };
@@ -310,8 +305,8 @@ export function InputsPanel({
           localRates.get(i) ??
           (row.ratePerSec ? String(ratePerSecToPerMin(row.ratePerSec)) : "");
         // Realized demand from the latest render pass. If the prop is missing
-        // (nothing rendered yet) or the item isn't in the map, show nothing and
-        // let the row stay quiet until the next solve finishes.
+        // (nothing rendered yet) or the item isn't in the map, show nothing
+        // until the next solve finishes.
         const realized = realizedRateByItem?.get(row.itemId);
         const realizedPerMin =
           realized !== undefined ? formatRationalPerMin(realized) : null;

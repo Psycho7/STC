@@ -1,12 +1,12 @@
-// Top-level entry point for turning solver output into something the canvas can
-// draw. It chains the three pipeline stages -- clustering, multiplier expansion,
-// then the always-fold render -- so App.tsx only has to make one call.
+// Turns solver output into something the canvas can draw. Chains the three
+// pipeline stages -- clustering, multiplier expansion, always-fold render -- so
+// App.tsx makes one call.
 //
-// The final stage folds parallel replicas of the same recipe back into a single
-// unit carrying a rational multiplicity. We keep the full machine-graph data
-// around (MachineGraph, MachineVertex with its stampIndex, MachineEdge) between
-// expansion and rendering so the render policy can still see the individual
-// per-replica edges before they get folded together.
+// The final stage folds parallel replicas of the same recipe into one unit with
+// a rational multiplicity. We keep the full machine-graph data (MachineGraph,
+// MachineVertex with its stampIndex, MachineEdge) between expansion and
+// rendering so the render policy still sees the per-replica edges before they
+// fold together.
 
 import Fraction from "fraction.js";
 import type { Item, Machine, Recipe, RecipePack } from "@aef/schema";
@@ -40,9 +40,9 @@ import type {
 } from "./types";
 
 // Replica ids separate their counter with `#`, which the canvas layout treats
-// as a stamp-suffix marker, so assembleLogicalGraph swaps every `#` for a `~`
-// before using the id as a logical node id. We do the same swap here so the
-// driver can match a logical-edge endpoint string back to its replica.
+// as a stamp-suffix marker, so assembleLogicalGraph swaps `#` for `~` before
+// using the id as a logical node id. Same swap here, so the driver can match a
+// logical-edge endpoint string back to its replica.
 function safeId(replicaId: ReplicaId): string {
   return replicaId.replace(/#/g, "~");
 }
@@ -61,15 +61,13 @@ export type RenderPipelineInput = {
   machineById: ReadonlyMap<string, Machine>;
   itemOverrides: ReadonlyArray<ItemOverride>;
   targets: ReadonlyArray<Target>;
-  // The solver hands class ids out as opaque branded strings. We pass both maps
-  // straight through untouched so canvas highlighting can go from a replica id
-  // to its bisimulation class and back to whichever quotient replica stands in
-  // for that class.
+  // The solver hands class ids out as opaque branded strings. Both maps pass
+  // through untouched so canvas highlighting can go from a replica id to its
+  // bisimulation class and back to whichever quotient replica stands in for it.
   classByReplicaId: ReadonlyMap<ReplicaId, string>;
   classToQuotient: ReadonlyMap<string, ReplicaId>;
-  // Just the slice of the pack the render policy needs: it only ever reads
-  // `pack.items` when computing effective supply. Passing it in here saves the
-  // policy from having to rebuild it out of `itemById`.
+  // Just the pack slice the render policy needs: it only reads `pack.items` for
+  // effective supply. Passing it saves rebuilding it from `itemById`.
   pack: Pick<RecipePack, "items">;
 };
 
@@ -83,7 +81,7 @@ export type RenderPipelineOutput = {
 
 /**
  * Run the pipeline over the solver's intermediate results and return a
- * RenderPlan that layoutRenderPlan() can consume directly.
+ * RenderPlan that layoutRenderPlan() consumes directly.
  */
 export function buildRenderPlan(
   input: RenderPipelineInput,
@@ -106,9 +104,8 @@ export function buildRenderPlan(
     pack,
   } = input;
 
-  // Keep only the replicas that survived. assembleLogicalGraph already dropped
-  // zero-rate replicas from the multipliers map, and the pipeline has to work
-  // from that exact same set.
+  // Keep only surviving replicas. assembleLogicalGraph already dropped zero-rate
+  // replicas from the multipliers map, and the pipeline works from that set.
   const surviving = replicas.filter((r) => multipliers.has(r.id));
 
   const containers = PillarsOnly({
@@ -141,10 +138,9 @@ export function buildRenderPlan(
     machineById,
   });
 
-  // Tag every machine vertex with its containerId. For recipe vertices that
-  // comes straight from PillarsOnly's containerByMember map (ReplicaId to
-  // ContainerId). SCC vertices instead resolve through their sccId, since each
-  // SCC container's id is just `loop:<sccId>`.
+  // Tag every machine vertex with its containerId. Recipe vertices read it from
+  // PillarsOnly's containerByMember map (ReplicaId to ContainerId). SCC vertices
+  // resolve through their sccId, since an SCC container's id is `loop:<sccId>`.
   const sccContainerIdBySccId = new Map<SccId, ContainerId>();
   for (const c of containers.containers) {
     if (c.kind === "loop-box") sccContainerIdBySccId.set(c.sccId, c.id);
@@ -191,21 +187,21 @@ export function buildRenderPlan(
 /**
  * Works out the demand rate on each edge.
  *
- * Input-side edges (the consumer recipe lists item X as an input): a consumer
- * STAMP C demands `C.executionRate * inQty(X)`. When several producer edges feed
- * the same (stamp, item) group, that demand is split across them in proportion
- * to each source replica's output of X (`srcStamp.executionRate * outQty(X)`).
- * A single inbound edge gets share/sum = 1, so it carries the full stamp demand,
- * keeping single-producer wiring bit-identical. The split guarantees the inbound
- * edge rates sum to exactly the stamp demand and never overfeed. Degenerate
- * groups with no positive producer share fall back to an even demand/k split.
+ * Input-side edges (consumer recipe lists X as an input): a consumer STAMP C
+ * demands `C.executionRate * inQty(X)`. When several producer edges feed the
+ * same (stamp, item) group, the demand splits across them in proportion to each
+ * source replica's output of X (`srcStamp.executionRate * outQty(X)`). A single
+ * inbound edge gets share/sum = 1 and carries the full stamp demand, keeping
+ * single-producer wiring bit-identical. The split makes inbound rates sum to
+ * exactly the stamp demand and never overfeed. Degenerate groups with no
+ * positive producer share fall back to an even demand/k split.
  *
- * Output-side edges (the consumer recipe lists X only as an output) keep
- * producer-side billing: `producerRate * outQty(X)`.
+ * Output-side edges (consumer lists X only as an output) keep producer-side
+ * billing: `producerRate * outQty(X)`.
  *
- * Return-arc torn edges (their id contains "->return->") flow through the same
- * rules; the SCC member executionRate the flow solve assigned already agrees
- * with the torn-flow rate once the loop converges.
+ * Return-arc torn edges (id contains "->return->") use the same rules; the SCC
+ * member executionRate the flow solve assigned already matches the torn-flow
+ * rate once the loop converges.
  */
 function computeEdgeRates(args: {
   logical: LogicalGraph;
@@ -223,14 +219,14 @@ function computeEdgeRates(args: {
   const itemFor = (port: string): string =>
     port.startsWith("in:") ? port.slice("in:".length) : port;
 
-  // Pre-pass: group INPUT edges (those the consumer treats as a recipe input)
-  // by (consumer replica safeId, item). Each consumer STAMP's own demand for
-  // an item is split across its inbound edges in proportion to each source
-  // replica's output of that item. With a single inbound edge this collapses to
-  // share/sum = 1, leaving single-producer wiring bit-identical; with several
-  // it apportions the stamp demand so the inbound rates sum to exactly the
-  // stamp demand and never overfeed. Output-side edges (the consumer carries
-  // the item only as an output) keep producer-side billing in the loop below.
+  // Pre-pass: group INPUT edges (consumer treats the item as a recipe input) by
+  // (consumer replica safeId, item). Each consumer STAMP's demand for an item
+  // splits across its inbound edges in proportion to each source replica's
+  // output of that item. A single inbound edge collapses to share/sum = 1,
+  // leaving single-producer wiring bit-identical; several edges apportion the
+  // stamp demand so inbound rates sum to exactly the demand and never overfeed.
+  // Output-side edges (consumer carries the item only as an output) keep
+  // producer-side billing in the loop below.
   const inputEdgesByGroup = new Map<
     string,
     { edges: typeof logical.edges; inQty: number }
@@ -279,10 +275,10 @@ function computeEdgeRates(args: {
     }
   }
 
-  // Remaining edges fall into two buckets, mirroring the old control flow:
-  //   - consumer/recipe unresolvable, OR the consumer recipe lists the item as
-  //     an OUTPUT (not an input). The output-side case bills the producer.
-  //   - everything else stays ZERO (as before).
+  // Remaining edges, two buckets:
+  //   - consumer/recipe unresolvable, OR the consumer lists the item as an
+  //     OUTPUT (not an input). The output-side case bills the producer.
+  //   - everything else stays ZERO.
   for (const e of logical.edges) {
     if (result.has(e.id)) continue;
     const item = itemFor(e.targetPort);
@@ -311,12 +307,11 @@ function computeEdgeRates(args: {
 }
 
 /**
- * Builds the metadata for SCC stand-in nodes. Right now assembleLogicalGraph
- * never collapses SCC members into one node -- they each show up as their own
- * recipe vertex inside a loop-box container -- so there is nothing to describe
- * and this returns an empty map. If the upstream layer ever starts emitting a
- * single stand-in node per non-trivial SCC, fill this map in keyed by that
- * node's id.
+ * Builds metadata for SCC stand-in nodes. assembleLogicalGraph never collapses
+ * SCC members into one node -- each shows as its own recipe vertex inside a
+ * loop-box container -- so there is nothing to describe and this returns an
+ * empty map. If the upstream layer ever emits a single stand-in node per
+ * non-trivial SCC, fill this map keyed by that node's id.
  */
 function computeSccNetIO(args: {
   condensation: Condensation;
@@ -330,7 +325,7 @@ function computeSccNetIO(args: {
 
 /**
  * Assemble a RenderPipelineInput from solver output and run buildRenderPlan.
- * Shared by App.tsx and any CLI surface that needs the same render assembly.
+ * Shared by App.tsx and any CLI surface needing the same render assembly.
  */
 export function renderPlanFromSolve(
   full: SolvePlanFull,
@@ -358,7 +353,7 @@ export function renderPlanFromSolve(
     pack,
   });
 
-  // Dev/test-only: assert all render invariants, tree-shaken out of production
+  // Dev/test-only: assert render invariants, tree-shaken out of production
   // builds (parity with the solver hook in src/solver/index.ts).
   if (import.meta.env.DEV) {
     assertRenderInvariants({
@@ -373,6 +368,6 @@ export function renderPlanFromSolve(
   return output;
 }
 
-// Re-exported here so callers can grab MachineEdge without reaching into
-// pipeline/types themselves.
+// Re-exported so callers can grab MachineEdge without reaching into
+// pipeline/types.
 export type { MachineEdge };
