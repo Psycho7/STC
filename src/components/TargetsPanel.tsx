@@ -4,6 +4,7 @@ import type { Recipe, RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
 import { isInputSupplyRecipe, isSinkRecipe } from "../data/recipe-category";
+import { ratePerSecToPerMin } from "../data/rate-format";
 import { iconPosition } from "../canvas/iconSprite";
 
 type Props = {
@@ -17,13 +18,6 @@ type Props = {
 };
 
 const DEBOUNCE_MS = 150;
-
-function ratePerSecToPerMin(rps: { num: string; denom: string }): number {
-  const f = new Fraction(rps.num)
-    .div(new Fraction(rps.denom))
-    .mul(new Fraction(60));
-  return Number(f.valueOf());
-}
 
 // Accepts an items-per-minute value as an integer ("120"), a decimal ("30.5"),
 // or a rational ("1/3"). Returns undefined if it can't parse or the result is
