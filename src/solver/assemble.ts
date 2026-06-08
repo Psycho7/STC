@@ -214,7 +214,29 @@ export function assembleLogicalGraph(args: {
             ? consumers.find((c) => c.id === last)
             : undefined;
           if (designated && survivingIds.has(designated.id)) {
-            edges.push(buildEdge(P.id, designated.id, item));
+            if (designated.outgoingEdgeFilter !== undefined) {
+              // The designated consumer is a SPLIT SCC stamp: only looper and
+              // deliverer replicas carry an outgoingEdgeFilter (single-role SCC
+              // members, AP-shared, and byproduct-shared replicas do not), so it
+              // is the precise discriminator for "this recipe was split into a
+              // looper and a deliverer that both consume this input per unit
+              // rate." A per-consumer producer minted for the canonical looper
+              // must feed EVERY live split sibling, not just the looper --
+              // otherwise the deliverer's demand for this item falls entirely on
+              // the intra-SCC producer, which over-ships while this producer's
+              // unshipped share surfaces as a phantom surplus. The reroute pass
+              // below only covers the case where the designated consumer DROPPED;
+              // this covers the looper surviving. computeEdgeRates splits each
+              // consumer's demand across its inbound edges, so feeding both
+              // siblings never over-feeds.
+              for (const C of consumers) {
+                if (survivingIds.has(C.id) && C.outgoingEdgeFilter !== undefined) {
+                  edges.push(buildEdge(P.id, C.id, item));
+                }
+              }
+            } else {
+              edges.push(buildEdge(P.id, designated.id, item));
+            }
           } else if (
             last !== undefined &&
             recipeIdByReplicaId.get(last) === cRid

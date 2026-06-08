@@ -821,15 +821,33 @@ function walkFromTargets(state: ReplicateState): void {
     }
     const targetGroupId = propagateGroups({ kind: "target", recipeId });
     const targetRate = state.rates.get(recipeId) ?? new Fraction(0);
+    // A target recipe can ALSO be a byproduct-shared source: a non-primary
+    // output of it feeds a multi-member SCC across the boundary (e.g. copper_enr
+    // is a target while its byproduct liquid_sewage feeds the liquid_xiranite
+    // loop). Without this guard the target is seeded here AND minted again by the
+    // byproduct-shared branch in processProducer when the SCC boundary reaches
+    // it, so its entire upstream chain replicates twice (per-consumer
+    // over-replication). Emit it once as a shared replica and register it in the
+    // byproductShared cache so that later reach reuses it instead of re-walking
+    // the chain; the shared flag also lets its byproduct output fan to every SCC
+    // consumer, matching the byproduct-shared discipline.
+    //
+    // NOTE: only the byproduct-shared overlap is deduped here. A target that is
+    // also a plain articulation point would still be double-minted by the
+    // AP-shared branch in processProducer (it runs before the byproductShared
+    // branch and consults only apShared). No such target exists in the current
+    // pack; generalize this guard to apShared too if one ever does.
+    const isByproductShared = state.byproductSharedSources.has(recipeId);
     const rep: Replica = {
       id: newReplicaId(state, `r:${recipeId}`),
       recipeId,
       executionRate: targetRate,
       consumerPath: [],
       blueprintGroupId: targetGroupId,
-      sharedAtArticulation: false,
+      sharedAtArticulation: isByproductShared,
     };
     state.replicas.push(rep);
+    if (isByproductShared) state.byproductShared.set(recipeId, rep);
     state.stack.push({
       consumerId: recipeId,
       consumerReplicaId: rep.id,

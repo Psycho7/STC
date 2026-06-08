@@ -76,9 +76,11 @@ describe("render corpus: known-good fixtures pass all invariants", () => {
 //   - glass_enr_bottle: split-SCC surplus accounting -- per-machine surplus
 //     differencing turned an even whole-unit balance into a phantom surplus
 //     (deriveBoundaryProducts unit-level surplus aggregation).
-// These render with zero invariant violations. (A handful of sweep-dirty plans
-// remain on two deeper, distinct bugs these pins do not cover: multi-producer
-// SCC routing and per-consumer over-replication.)
+// These render with zero invariant violations. (The two deeper bugs the older
+// pins did not cover -- per-consumer over-replication and multi-producer SCC
+// routing -- are now fixed and pinned by the copper_enr+xiranite_poly and
+// crystal_powder-crystal_shell+crystal_shell-crystal_powder plans in the
+// multi-target sweep below.)
 describe("render corpus: real-pack plans render clean", () => {
   const RENDER_PINS = [
     "quartz_powder",
@@ -287,6 +289,18 @@ const MULTI_TARGET_PLANS: ReadonlyArray<{
   { name: "xiranite_poly+iron_powder", recipeIds: ["xiranite_poly", "iron_powder"] },
   { name: "proc_battery_5+xiranite_enr_powder", recipeIds: ["proc_battery_5", "xiranite_enr_powder"] },
   { name: "copper_enr+liquid_xiranite_enr", recipeIds: ["copper_enr", "liquid_xiranite_enr"] },
+  // Two targets sharing a byproduct supplier (both co-produce liquid_sewage):
+  // copper_enr is reached both as a target seed and as a byproduct-shared
+  // source, so its whole upstream copper chain is replicated twice instead of
+  // shared (per-consumer over-replication).
+  { name: "copper_enr+xiranite_poly", recipeIds: ["copper_enr", "xiranite_poly"] },
+  // Two targets that are mutual-recycling members of one SCC: production of the
+  // shared item nets to zero against consumption + demand, but the split-role
+  // surplus accounting surfaces a phantom surplus (multi-producer SCC routing).
+  {
+    name: "crystal_powder-crystal_shell+crystal_shell-crystal_powder",
+    recipeIds: ["crystal_powder-crystal_shell", "crystal_shell-crystal_powder"],
+  },
 ];
 
 // Known, still-open defects. These are excluded from the green main sweep and
