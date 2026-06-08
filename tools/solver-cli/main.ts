@@ -36,11 +36,10 @@ import {
 // Rate parsing for --plan
 // ---------------------------------------------------------------------------
 
-// Parse a single "recipeId=rate" entry.
-// Accepted rate forms:
-//   - "num/denom"  -> RationalString { num, denom } directly.
+// Parse one "recipeId=rate" entry. Rate forms:
+//   - "num/denom"  -> { num, denom } directly.
 //   - integer      -> { num: integer, denom: "1" }.
-//   - decimal      -> { num: d*10^p, denom: 10^p } where p is decimal places.
+//   - decimal      -> { num: d*10^p, denom: 10^p }, p = decimal places.
 // Returns null on parse failure.
 function parseRateEntry(entry: string): Target | null {
   const eq = entry.indexOf("=");
@@ -66,9 +65,8 @@ function parseRateEntry(entry: string): Target | null {
     return { recipeId, ratePerSec: { num: rateStr, denom: "1" } };
   }
 
-  // Decimal: split at the point, build num/denom as powers of 10.
-  // Exact only for short decimals (the documented use case); long decimal
-  // inputs may lose precision due to floating-point arithmetic.
+  // Decimal: split at the point, build num/denom as powers of 10. Exact only for
+  // short decimals; long inputs may lose precision to floating-point arithmetic.
   const dot = rateStr.indexOf(".");
   if (dot !== -1 && /^\d+\.\d+$/.test(rateStr)) {
     const intPart = rateStr.slice(0, dot);
@@ -101,8 +99,8 @@ function parseInlineTargets(spec: string): Target[] | string {
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
-// toFraction() returns a stable exact string: "n/d", or just "n" when d === 1n,
-// with the sign already applied.
+// toFraction() returns a stable exact string: "n/d", or "n" when d === 1n, with
+// the sign already applied.
 function fmtMap(map: Map<string, Fraction>): string[] {
   const keys = [...map.keys()].sort();
   return keys.map((k) => `${k}=${map.get(k)!.toFraction()}`);
@@ -161,8 +159,8 @@ export async function runCli(argv: string[]): Promise<string> {
 
   // --- Resolve targets and overrides ---
   let targets: Target[];
-  // The --plan path carries no overrides; the --hash path threads whatever the
-  // decoded plan carried so the CLI solve matches what the app produces.
+  // --plan carries no overrides; --hash threads whatever the decoded plan
+  // carried so the CLI solve matches the app.
   let itemOverrides: ItemOverride[] = [];
   let recipeCosts: Map<RecipeId, number> | undefined;
 
@@ -174,8 +172,8 @@ export async function runCli(argv: string[]): Promise<string> {
     const bad = targets.find((t) => !validIds.has(t.recipeId));
     if (bad) return `error: target references unknown recipe "${bad.recipeId}"`;
   } else {
-    // --hash: decode via the existing loadPlan decoder in src/data/plan.ts.
-    // loadPlan expects the hash with or without leading "#"; it accepts "v1.XXX".
+    // --hash: decode via loadPlan in src/data/plan.ts. It takes the hash with or
+    // without a leading "#" and accepts "v1.XXX".
     const outcome = await loadPlan(hashArg!, pack);
     if (outcome.kind === "error") {
       return `error: failed to decode hash: ${describePlanLoadError(outcome.error)}`;
@@ -223,9 +221,8 @@ export async function runCli(argv: string[]): Promise<string> {
 
   if (mode === "full") {
     if (lpResult.status !== "feasible") {
-      // Keep the already-built rates/surplus/deficit diagnostics so a
-      // non-feasible solve still reports why; the leading "error:" preserves
-      // the non-zero exit code.
+      // Keep the rates/surplus/deficit diagnostics so a non-feasible solve still
+      // reports why; the leading "error:" preserves the non-zero exit code.
       return `error: cannot run full invariants on a non-feasible solve (status=${lpResult.status})\n\n${lines.join("\n")}`;
     }
     // --- Invariants ---
@@ -247,8 +244,8 @@ export async function runCli(argv: string[]): Promise<string> {
     const representable = checkRepresentable(full);
 
     // checkNoOrphanLogicalNodes reports any logical recipe node with no positive
-    // LP rate. Its verdict is printed for visibility; a false verdict is a graph
-    // finding, not a CLI error, so it never gates the run.
+    // LP rate. Printed for visibility; a false verdict is a graph finding, not a
+    // CLI error, so it never gates the run.
     const noOrphanLogicalNodes = checkNoOrphanLogicalNodes(full);
 
     const optimal = assertOptimal({
@@ -283,7 +280,7 @@ export async function runCli(argv: string[]): Promise<string> {
       representable.violations,
     ))
       lines.push(l);
-    // noOrphanLogicalNodes verdict is informational (a graph finding, not an error).
+    // Informational verdict (a graph finding, not an error).
     for (const l of fmtVerdict(
       "noOrphanLogicalNodes",
       noOrphanLogicalNodes.ok,

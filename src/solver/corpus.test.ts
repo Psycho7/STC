@@ -1,17 +1,16 @@
 // Golden regression oracle for the LP solver topology corpus.
 //
-// Goldens (objectiveValue + activeRecipes) were derived by running solveLp on
-// each fixture and reading actual output. They pin known-good solver behavior
-// so any regression in solver output is caught immediately.
+// Goldens (objectiveValue + activeRecipes) were captured from solveLp output on
+// each fixture. They pin known-good behavior so any solver regression trips.
 //
-// Precision strategy: objectiveValue is compared with a relative tolerance of
-// 1e-9 (applied as Math.abs(actual - expected) / Math.max(1, |expected|) < 1e-9).
-// This avoids float-noise flakiness while still catching real regressions.
-// The tolerance is tighter than the solver's own 1e-6 simplify threshold.
+// objectiveValue uses a 1e-9 relative tolerance
+// (Math.abs(actual - expected) / Math.max(1, |expected|) < 1e-9), which avoids
+// float-noise flakiness and is tighter than the solver's own 1e-6 simplify
+// threshold.
 //
-// Active-set strategy: Array.from(activeRecipeSet(result)).sort() is compared
-// as a sorted string array (exact equality). A change in which recipes run
-// always trips a golden.
+// The active set compares Array.from(activeRecipeSet(result)).sort() as a sorted
+// string array (exact equality), so any change in which recipes run trips a
+// golden.
 
 import { describe, expect, it } from "vitest";
 import { solveLp } from "./lp";
@@ -48,8 +47,8 @@ import {
   feasibleEmptyGolden,
 } from "./corpus";
 
-// Relative tolerance for objectiveValue comparisons.
-// 1e-9 is tighter than the 1e-6 Fraction.simplify threshold in lp.ts.
+// Relative tolerance for objectiveValue; tighter than the 1e-6
+// Fraction.simplify threshold in lp.ts.
 const OBJ_TOL = 1e-9;
 
 function assertObjective(actual: number, expected: number): void {
@@ -133,11 +132,11 @@ describe("Scenario 3: equal-cost tie-break", () => {
 
   it("is repeatable: same scenario solved twice yields identical goldens", () => {
     // Run-to-run repeatability, not input-order invariance (lp.test.ts covers
-    // the latter by shuffling the recipe/item arrays). equalCostTieBreak is the
-    // meaningful target: it exercises the two-pass lex tie-break (pass 2
-    // minimizes recipe-id rank). A non-deterministic sort or LP tie-break would
-    // flip aaa_producer / zzz_producer across runs. acyclicSingleProducer has no
-    // tie-break ambiguity, so it cannot detect that.
+    // the latter by shuffling the recipe/item arrays). equalCostTieBreak
+    // exercises the two-pass lex tie-break (pass 2 minimizes recipe-id rank);
+    // a non-deterministic sort or LP tie-break would flip aaa_producer /
+    // zzz_producer across runs. acyclicSingleProducer has no tie-break
+    // ambiguity, so it cannot detect that.
     const r1 = solveLp({ targets: equalCostTieBreak.targets, pack: equalCostTieBreak.pack });
     const r2 = solveLp({ targets: equalCostTieBreak.targets, pack: equalCostTieBreak.pack });
     assertObjective(r1.objectiveValue, r2.objectiveValue);
@@ -306,10 +305,9 @@ describe("Scenario 7a: cyclic SCC -- min-floor contract", () => {
     // Deficit on target_item because the cycle cannot resolve the demand.
     expect(result.deficit.has(domainTransferSccGolden.deficitItem)).toBe(true);
 
-    // Pin the min-floor contract: the targeted recipe must run at >= floor.
-    // floor = (ratePerSec.num / ratePerSec.denom) / primaryOutputQty.
-    // This asserts the core invariant from lp.ts: target pin is a MIN, not
-    // equality, so the cycle does not over-constrain the targeted recipe.
+    // Pin the min-floor contract: the targeted recipe runs at >= floor, where
+    // floor = (ratePerSec.num / ratePerSec.denom) / primaryOutputQty. The target
+    // pin is a MIN, not equality, so the cycle does not over-constrain it.
     const t = domainTransferScc.targets[0]!;
     const recipe = domainTransferScc.pack.recipes.find((r) => r.id === t.recipeId)!;
     const primaryOutputQty = recipe.out[0]!.qty;
@@ -350,9 +348,9 @@ describe("Scenario 8: deficit (unmet demand)", () => {
 describe("Scenario 9: unbounded status", () => {
   it("documents why 'unbounded' is unreachable via solveLp", () => {
     // Non-negative vars + non-negative objective coefficients + opType:'min'
-    // means the objective is bounded below by 0. javascript-lp-solver only
-    // emits bounded:false in the maximization direction. Status "unbounded"
-    // cannot be reached through solveLp with any recipe pack.
+    // bound the objective below by 0. javascript-lp-solver only emits
+    // bounded:false when maximizing, so "unbounded" is unreachable through
+    // solveLp for any recipe pack.
     expect(SCENARIO_9_UNBOUNDED_UNREACHABLE).toContain("bounded below by 0");
     expect(SCENARIO_9_UNBOUNDED_UNREACHABLE).toContain("minimization");
   });
@@ -368,9 +366,9 @@ describe("Scenario 10: feasible-empty", () => {
       pack: feasibleEmpty.pack,
     });
 
-    // Primary output qty=0 means the target pin is skipped (lp.ts guard:
-    // !(primary.qty > 0)). No recipe is forced active; the LP optimal is
-    // 0 recipe runs. status "empty" and rates.size === 0.
+    // Primary output qty=0 skips the target pin (lp.ts guard !(primary.qty > 0)).
+    // No recipe is forced active; the LP optimum is 0 runs, so status is "empty"
+    // and rates.size === 0.
     expect(result.status).toBe(feasibleEmptyGolden.status);
     expect(result.softFeasible).toBe(feasibleEmptyGolden.softFeasible);
     expect(result.rates.size).toBe(0);

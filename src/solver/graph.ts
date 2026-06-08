@@ -7,8 +7,8 @@ import { effectiveSupply } from "./effectiveSupply";
 import { isExcludedProducer } from "../data/recipe-category";
 
 // Validate targets, index producers by output item, and rank each item's
-// candidate producers by (depth, id). Shared by both graph builders so the
-// ranking is computed identically regardless of how producers are selected.
+// candidate producers by (depth, id). Shared by both graph builders so ranking
+// is identical regardless of how producers are selected.
 function rankProducers(
   targets: Target[],
   pack: RecipePack,
@@ -36,10 +36,10 @@ function rankProducers(
   }
 
   // Raw-distance ranking. depthToItem[i] is the shortest recipe-depth to reach
-  // item i across its non-excluded producers, with raw items sitting at 0.
-  // depthToRecipe[r] is one more than the deepest of r's inputs. Excluded
-  // recipes get no entry and never feed into either depth. Anything reachable
-  // only through a cycle or an excluded producer stays at POSITIVE_INFINITY.
+  // item i across its non-excluded producers, raw items at 0. depthToRecipe[r] is
+  // one more than the deepest of r's inputs. Excluded recipes get no entry and
+  // never feed either depth. Anything reachable only through a cycle or an
+  // excluded producer stays at POSITIVE_INFINITY.
   const depthToItem = new Map<string, number>();
   for (const item of pack.items) {
     depthToItem.set(item.id, item.raw ? 0 : Number.POSITIVE_INFINITY);
@@ -51,8 +51,8 @@ function rankProducers(
   }
 
   // Relax depths to a fixpoint over the non-excluded recipes. The iteration cap
-  // is just a guard against a malformed pack that never converges; a sane pack
-  // settles in roughly the length of its longest acyclic chain.
+  // guards against a malformed pack that never converges; a sane pack settles in
+  // roughly the length of its longest acyclic chain.
   const maxIter = pack.recipes.length + 1;
   for (let iter = 0, changed = true; changed && iter <= maxIter; iter++) {
     changed = false;
@@ -104,7 +104,7 @@ function rankProducers(
   // shallowest acyclic recipe comes first. Excluded recipes (no depthToRecipe
   // entry) and cycle-only ones (POSITIVE_INFINITY) sink to the back, so the
   // exclusion filter drops the excluded ones and a cycle-only recipe only wins
-  // when nothing acyclic is available.
+  // when nothing acyclic exists.
   for (const arr of producersByItem.values()) {
     arr.sort((a, b) => {
       const da = depthToRecipe.get(a) ?? Number.POSITIVE_INFINITY;
@@ -117,12 +117,11 @@ function rankProducers(
   return { recipeById, targetIds, overrides, producersByItem };
 }
 
-// Walk the targets' input cone, attaching producer edges. When multi is false
-// we attach only the shallowest viable producer per consumed item (single
-// winner); when true we attach every non-excluded producer. An excluded recipe
-// is only honored if the user named it as a target (this covers the cost === -1
-// waste-sink carve-out, which lives inside isExcludedProducer). The per-edge
-// dedup keeps a single edge per (producer, item, consumer) triple.
+// Walk the targets' input cone, attaching producer edges. When multi is false,
+// attach only the shallowest viable producer per consumed item; when true,
+// attach every non-excluded producer. An excluded recipe is honored only if the
+// user named it as a target (covers the cost === -1 waste-sink carve-out inside
+// isExcludedProducer). Dedup keeps one edge per (producer, item, consumer).
 function buildGraph(
   targets: Target[],
   pack: RecipePack,
@@ -165,12 +164,12 @@ function buildGraph(
     const consumerId = stack.pop()!;
     const consumer = nodes.get(consumerId)!;
     for (const inp of consumer.in) {
-      // Only stop expanding producers when the boundary supply for this item is
-      // truly unlimited. A finite cap still falls through so the producer stays
-      // in the graph and we can account for any deficit.
+      // Stop expanding producers only when this item's boundary supply is
+      // unlimited. A finite cap falls through so the producer stays in the graph
+      // and any deficit can be accounted for.
       if (effectiveSupply(inp.item, pack, overrides) === Infinity) continue;
-      // producersByItem is pre-sorted by (depth, id). In single mode we keep the
-      // first viable producer; in multi mode we keep them all.
+      // producersByItem is pre-sorted by (depth, id). Single mode keeps the first
+      // viable producer; multi mode keeps them all.
       const candidates = producersByItem.get(inp.item) ?? [];
       for (const cid of candidates) {
         const r = recipeById.get(cid);
@@ -199,8 +198,8 @@ export function buildRecipeGraph(
   return buildGraph(targets, pack, itemOverrides, false);
 }
 
-// LP variant: enumerates ALL non-excluded producers for each consumed item
-// rather than picking one, so the LP can choose among them.
+// LP variant: enumerates all non-excluded producers for each consumed item
+// instead of picking one, so the LP can choose among them.
 export function buildRecipeGraphMulti(
   targets: Target[],
   pack: RecipePack,

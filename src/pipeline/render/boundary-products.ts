@@ -18,16 +18,15 @@ import type { ItemOverride } from "../../data/plan";
 import type { Item, Recipe, RecipePack } from "@aef/schema";
 import { rationalFromString, rationalToString } from "./rational";
 
-// When a raw item is consumed across multiple distinct containers, the
-// renderer emits an aggregate input node `u:in:<item>` that fans out to
-// per-container slice nodes (`u:in:<item>:<container>` for clustered consumers;
-// `u:in:<item>:loose` for consumers with no container). Each slice carries the
-// edges to its own consumers; the aggregate carries the item-level rateCap and
-// the sum of slice rates. When the item is consumed within a single bucket
-// (one container only, or all loose) the renderer emits one node with the
-// legacy `u:in:<item>` id (or `u:in:<item>:<ctr>` when that single bucket is a
-// real container), which keeps unclustered plans byte-identical to the older
-// single-node shape.
+// When a raw item is consumed across several containers, the renderer emits an
+// aggregate input node `u:in:<item>` fanning out to per-container slice nodes
+// (`u:in:<item>:<container>` for clustered consumers; `u:in:<item>:loose` for
+// consumers with no container). Each slice carries its own consumer edges; the
+// aggregate carries the item-level rateCap and the sum of slice rates. When the
+// item is consumed within a single bucket (one container, or all loose) the
+// renderer emits one node with the `u:in:<item>` id (or `u:in:<item>:<ctr>`
+// when that bucket is a real container), keeping unclustered plans
+// byte-identical to the older single-node shape.
 const unitIdForInputAggregate = (item: ItemId): RenderUnitId => `u:in:${item}`;
 const unitIdForInputFanout = (
   item: ItemId,
@@ -62,18 +61,17 @@ export type DeriveBoundaryProductsResult = {
 };
 
 /**
- * Derives boundary input/output product units and the edges that connect them
- * to in-graph machine units. The rules used to live inline in `NoFoldRender`:
- * target items become output products (with their target rate); items consumed
- * in the plan with nonzero `effectiveSupply` become input products (with rate
- * cap when overridden); surplus byproducts become amber output products.
- * Per-consumer flow conservation is preserved when a boundary input coexists
- * with an in-graph producer for the same item.
+ * Derives boundary input/output product units and the edges connecting them to
+ * in-graph machine units. The rules once lived inline in `NoFoldRender`: target
+ * items become output products (at their target rate); items consumed in the
+ * plan with nonzero `effectiveSupply` become input products (with a rate cap
+ * when overridden); surplus byproducts become amber output products.
+ * Per-consumer flow conservation holds when a boundary input coexists with an
+ * in-graph producer for the same item.
  *
- * The function is pure: it never mutates its arguments. `unitIdByVertex` MUST
- * map every machine vertex in `machineGraph` to a render unit id; the caller
- * is responsible for emitting those vertex-level units before calling this
- * helper (since the boundary edges target them by id).
+ * Pure: never mutates its arguments. `unitIdByVertex` MUST map every machine
+ * vertex in `machineGraph` to a render unit id, since boundary edges target
+ * those units by id; the caller emits them before calling this.
  */
 export function deriveBoundaryProducts(
   args: DeriveBoundaryProductsInput,
@@ -92,12 +90,11 @@ export function deriveBoundaryProducts(
 
   // ----- Boundary product units ----------------------------------------------
   //
-  // Output products: one per distinct target item. The target item is the
-  // first output of the target recipe (the solver pins its execution rate via
-  // recipe.out[0]). When two targets share the same out-item (e.g., distinct
-  // recipes that both produce `carbon_mtl`), their rates are summed so the
-  // output product reflects total demand on that item rather than silently
-  // dropping the later target.
+  // Output products: one per distinct target item. The target item is the first
+  // output of the target recipe (the solver pins execution rate via
+  // recipe.out[0]). When two targets share an out-item (e.g. distinct recipes
+  // both producing `carbon_mtl`), their rates sum so the output product holds
+  // total demand instead of dropping the later target.
   const targetRateByItem = new Map<ItemId, Fraction>();
   for (const t of targets) {
     const recipe = recipeById.get(t.recipeId);
@@ -123,10 +120,10 @@ export function deriveBoundaryProducts(
   }
 
   // Input products: one per distinct item consumed in the plan whose
-  // `effectiveSupply` is nonzero (Infinity or a positive Fraction). Zero
-  // supply emits nothing (forces internal build); target items always win
-  // over input products of the same item. The precedence policy lives in
-  // `effectiveSupply`; this policy never inspects `raw` / `plan` directly.
+  // `effectiveSupply` is nonzero (Infinity or positive Fraction). Zero supply
+  // emits nothing (forces internal build); target items win over input products
+  // of the same item. Precedence lives in `effectiveSupply`; this code never
+  // inspects `raw` / `plan` directly.
   const overrideByItem = new Map<ItemId, (typeof itemOverrides)[number]>();
   for (const ov of itemOverrides) overrideByItem.set(ov.itemId, ov);
 
@@ -154,15 +151,14 @@ export function deriveBoundaryProducts(
 
   // ----- Byproduct recapture for unlimited-supply items ----------------------
   //
-  // The recipe graph never wires a producer->consumer edge for an item whose
-  // boundary supply is unlimited (graph.ts stops expanding such inputs), so a
-  // raw item that an in-plan recipe ALSO emits as a byproduct reaches the
-  // render with no machine edge at all: its byproduct production would surface
-  // as a phantom surplus while its in-plan consumers are fed from nothing.
-  // Reconcile by routing the internal byproduct flow to those consumers and
-  // drawing only the remaining demand from the boundary. Scoped to
-  // unlimited-supply items that carry no machine edge, so every graph-wired
-  // item is left untouched.
+  // The recipe graph never wires a producer->consumer edge for an item with
+  // unlimited boundary supply (graph.ts stops expanding such inputs), so a raw
+  // item an in-plan recipe ALSO emits as a byproduct reaches the render with no
+  // machine edge: its byproduct production surfaces as a phantom surplus while
+  // its in-plan consumers are fed from nothing. Reconcile by routing the
+  // internal byproduct flow to those consumers and drawing only the remaining
+  // demand from the boundary. Scoped to unlimited-supply items with no machine
+  // edge, so every graph-wired item stays untouched.
   const machineEdgeItems = new Set<ItemId>();
   for (const e of machineGraph.edges) machineEdgeItems.add(e.item);
 
@@ -210,7 +206,7 @@ export function deriveBoundaryProducts(
     }
   }
 
-  // recaptureItems: items the pass reconciles. recapturedByConsumerVertexItem:
+  // recaptureItems: items this pass reconciles. recapturedByConsumerVertexItem:
   // demand each consumer vertex gets internally (collectConsumed draws only the
   // deficit from the boundary). recaptureSendByVertexItem: production each
   // producer vertex routes out (the surplus pass nets it instead of flagging a
@@ -259,7 +255,7 @@ export function deriveBoundaryProducts(
         (recaptureSendByVertexItem.get(key) ?? new Fraction(0)).add(sendP),
       );
       // Bipartite split: edge(p,c) routes p's share of the recapture to c's
-      // share. Sum over c gives sendP; sum over p gives each consumer's
+      // share. Summing over c gives sendP; over p gives each consumer's
       // recaptured demand. Both endpoints are in-plan recipe/loop units.
       for (const c of consumers) {
         const rate = p.rate
@@ -280,13 +276,12 @@ export function deriveBoundaryProducts(
   }
   for (const e of recaptureEdges) boundaryEdges.push(e);
 
-  // Boundary item := consumed by a machine, not produced by any machine
-  // in the plan, and surfaced by `effectiveSupply` (Infinity or positive
-  // Fraction). Items produced upstream by another in-plan recipe stay
-  // internal. Track each consumer along with the per-consumer rate so the
-  // render policy can later emit a boundary edge from the input product to
-  // that consumer (boundary items have no MachineEdge in the graph since the
-  // solver walk terminated upstream of them).
+  // Boundary item := consumed by a machine, produced by no machine in the plan,
+  // and surfaced by `effectiveSupply` (Infinity or positive Fraction). Items an
+  // in-plan recipe produces upstream stay internal. Track each consumer with
+  // its per-consumer rate so the render policy can emit a boundary edge from the
+  // input product to that consumer (boundary items have no MachineEdge, since
+  // the solver walk terminated upstream of them).
   type BoundaryConsumer = {
     toUnit: RenderUnitId;
     item: ItemId;
@@ -308,12 +303,10 @@ export function deriveBoundaryProducts(
     if (supply !== Infinity && (supply as Fraction).equals(new Fraction(0))) {
       return;
     }
-    // Infinity supply combined with an in-plan producer means the consumer
-    // gets all of its supply internally; the override only marks the item as
-    // a boundary if the planner ever needs to surface it (no in-graph
-    // producer). Skip the boundary input in that case -- unless this is a
-    // recapture item, where the byproduct only partially covers demand and the
-    // deficit must still be drawn from the boundary.
+    // Infinity supply with an in-plan producer means the consumer is fed
+    // internally; skip the boundary input. Exception: a recapture item, whose
+    // byproduct only partially covers demand, so the deficit still draws from
+    // the boundary.
     if (supply === Infinity && producedItems.has(itemId)) {
       if (!recaptureItems.has(itemId)) return;
       const recap =
@@ -326,7 +319,7 @@ export function deriveBoundaryProducts(
     }
     // Finite positive supply -> dual-emit: the boundary input carries the
     // imported portion alongside the in-graph producer's residual edge.
-    // Infinity supply with no in-graph producer -> single-emit (boundary).
+    // Infinity supply with no in-graph producer -> single boundary emit.
     boundaryConsumers.push({ toUnit, item: itemId, rate, containerId });
   };
   for (const v of machineGraph.vertices) {
@@ -340,9 +333,8 @@ export function deriveBoundaryProducts(
         collectConsumed(v.id, stoich.item, toUnit, rate, v.containerId);
       }
     } else if (isMachineSccVertex(v)) {
-      // SCC vertices expose their boundary I/O via netIO; a boundary item
-      // consumed only by an in-loop recipe must still surface as an input
-      // product.
+      // SCC vertices expose boundary I/O via netIO; a boundary item consumed
+      // only by an in-loop recipe must still surface as an input product.
       const toUnit = unitIdByVertex.get(v.id);
       if (toUnit === undefined) continue;
       for (const p of v.netIO) {
@@ -353,19 +345,18 @@ export function deriveBoundaryProducts(
   }
 
   // Precompute realized rates before emitting product units. Each input
-  // ProductNode renders its rate as primary chrome, and the keying is
-  // `(itemId, containerId)` so a high-fan-out raw consumed across multiple
-  // blueprint-group containers emits one node per container, each pinned near
-  // its consumers.
+  // ProductNode shows its rate as primary chrome; keying is `(itemId,
+  // containerId)` so a high-fan-out raw consumed across several blueprint-group
+  // containers emits one node per container, each pinned near its consumers.
   //
-  // The supply cap is item-level (effectiveSupply is keyed by item). To
-  // preserve the mass-balance invariant -- "split input-rate sums equal the
-  // pre-split single-input rate" -- the cap is computed once per item, then
-  // each (item, container) ProductNode receives the per-container slice
+  // The supply cap is item-level (effectiveSupply is keyed by item). To keep
+  // the mass-balance invariant -- split input-rate sums equal the pre-split
+  // single-input rate -- compute the cap once per item, then give each
+  // (item, container) ProductNode the per-container slice
   //   realizedRate(item, ctr) = consumedSupply(item) * containerDemand(item, ctr)
   //                                                     / totalDemand(item)
   // Per-edge rate inside a container is `c.rate * consumedSupply(item) /
-  // totalDemand(item)`, identical to the single-node formula; the split only
+  // totalDemand(item)`, same as the single-node formula; the split just
   // redistributes the same total across more ProductNodes.
   type ConsumerKey = string;
   const consumersByKey = new Map<ConsumerKey, BoundaryConsumer[]>();
@@ -422,8 +413,8 @@ export function deriveBoundaryProducts(
     );
   }
 
-  // Group keys by item so the per-item topology decision (single bucket vs
-  // aggregate + fanout slices) is made once per item.
+  // Group keys by item so the topology decision (single bucket vs aggregate +
+  // fanout slices) is made once per item.
   const keysByItem = new Map<ItemId, ConsumerKey[]>();
   for (const key of consumersByKey.keys()) {
     const itemId = itemByKey.get(key)!;
@@ -434,25 +425,22 @@ export function deriveBoundaryProducts(
 
   const inputProducts: RenderUnitInputProduct[] = [];
   const emittedKeys = new Set<ConsumerKey>();
-  // aggregateIdByItem[item] is set iff that item emitted an aggregate node;
-  // used by the edge emission below to wire aggregate -> fanout slices.
+  // aggregateIdByItem[item] is set iff that item emitted an aggregate node; the
+  // edge emission below uses it to wire aggregate -> fanout slices.
   const aggregateIdByItem = new Map<ItemId, RenderUnitId>();
   const sortedItems = [...keysByItem.keys()].sort();
   for (const itemId of sortedItems) {
-    // Target trumps boundary, but only when the user has NOT explicitly
-    // declared an itemOverride for the same item. With an explicit override,
-    // the item must render BOTH as an input (pinned to the FIRST layer) and as
-    // a target output (pinned to the LAST layer). The original rule still
-    // applies to un-overridden raw targets: the item the user picked as a
-    // target does not also double as a raw boundary input. The rule is
-    // item-level, so it short-circuits all keys for an item uniformly.
+    // Target trumps boundary, but only without an explicit itemOverride for the
+    // item. With an override, the item renders BOTH as an input (pinned FIRST)
+    // and a target output (pinned LAST). Without one, a raw target does not also
+    // double as a raw boundary input. Item-level, so it short-circuits all keys
+    // for the item.
     if (targetItemSet.has(itemId) && !overrideByItem.has(itemId)) continue;
     const ov = overrideByItem.get(itemId);
     const keys = keysByItem.get(itemId)!.slice().sort();
 
     if (keys.length <= 1) {
-      // Single bucket -- emit one node with the legacy/per-container id.
-      // No aggregate fanout needed.
+      // Single bucket: emit one node with the per-container id, no fanout.
       const key = keys[0]!;
       const containerId = containerByKey.get(key);
       const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
@@ -472,10 +460,10 @@ export function deriveBoundaryProducts(
       continue;
     }
 
-    // Multiple buckets -- emit an aggregate node + one fanout slice per
-    // bucket. The aggregate carries the item-level rateCap and total
-    // realized rate; each slice carries only its per-container rate so the
-    // node label reads as a tap rather than another item-level cap.
+    // Multiple buckets: emit an aggregate node plus one fanout slice per bucket.
+    // The aggregate carries the item-level rateCap and total realized rate; each
+    // slice carries only its per-container rate, so the slice label reads as a
+    // tap rather than another item-level cap.
     const aggregateId = unitIdForInputAggregate(itemId);
     aggregateIdByItem.set(itemId, aggregateId);
     const aggregateRate = keys.reduce(
@@ -511,27 +499,25 @@ export function deriveBoundaryProducts(
   }
 
   // Boundary edges connect each emitted input product to its recipe/SCC
-  // consumers, and each target's recipe stamps to the output product. Without
-  // these edges ELK has no signal that product nodes are upstream or downstream
-  // of recipes, so layerConstraint=FIRST/LAST collapses them into shared layers
-  // with the recipes (visible as boundary nodes overlapping the
-  // leftmost/rightmost recipe column).
+  // consumers, and each target recipe's stamps to the output product. Without
+  // them ELK has no signal that product nodes sit upstream or downstream of
+  // recipes, so layerConstraint=FIRST/LAST collapses them into the recipes'
+  // layers (boundary nodes overlap the leftmost/rightmost recipe column).
   //
-  // Per-consumer flow conservation: when both an in-graph producer and a
-  // boundary input feed the same item, the boundary edge to each consumer
-  // must carry the consumer's prorated share of the cap, not the full demand.
-  // Otherwise sum(producer edges -> c) + (boundary edge -> c) overshoots
-  // c's per-input demand.
+  // Per-consumer flow conservation: when an in-graph producer and a boundary
+  // input feed the same item, the boundary edge to each consumer carries the
+  // consumer's prorated share of the cap, not the full demand. Otherwise
+  // sum(producer edges -> c) + (boundary edge -> c) overshoots c's per-input
+  // demand.
   //
-  // Edge rate per consumer = c.rate * (consumedSupply / totalDemand), using
-  // the same per-item consumedSupply that drove the per-container realized
-  // rate above. Special cases:
-  //  - effectiveSupply === Infinity: producer is not in graph, consumedSupply
-  //    collapses to totalDemand, edge rate = c.rate (single-emit preserved).
-  //  - effectiveSupply >= totalDemand (finite cap covers entire demand):
-  //    consumedSupply = totalDemand, edge rate = c.rate; producer's residual
-  //    is 0 (already filtered by the residual-supply pass + zero-rate gate).
-  //  - effectiveSupply == 0: gated upstream (no input product emitted at all).
+  // Edge rate per consumer = c.rate * (consumedSupply / totalDemand), reusing
+  // the per-item consumedSupply from the realized-rate pass above. Cases:
+  //  - effectiveSupply === Infinity: producer not in graph, consumedSupply
+  //    collapses to totalDemand, edge rate = c.rate (single emit preserved).
+  //  - effectiveSupply >= totalDemand (finite cap covers all demand):
+  //    consumedSupply = totalDemand, edge rate = c.rate; producer's residual is
+  //    0 (filtered by the residual-supply pass + zero-rate gate).
+  //  - effectiveSupply == 0: gated upstream (no input product emitted).
   for (const [key, consumers] of consumersByKey) {
     if (!emittedKeys.has(key)) continue;
     const itemId = itemByKey.get(key)!;
@@ -539,12 +525,11 @@ export function deriveBoundaryProducts(
     const item = itemById.get(itemId);
     if (!item) continue;
     const totalDemand = totalDemandByItem.get(itemId)!;
-    // Defensive: avoid 0/0 if all consumer rates collapse to zero.
+    // Avoid 0/0 if all consumer rates collapse to zero.
     if (totalDemand.equals(new Fraction(0))) continue;
     const consumedSupply = consumedSupplyByItem.get(itemId)!;
-    // When an aggregate exists for this item, the per-bucket consumer edges
-    // originate from the fanout slice; otherwise they originate from the
-    // single-bucket node (which carries the legacy id).
+    // With an aggregate, per-bucket consumer edges originate from the fanout
+    // slice; otherwise from the single-bucket node.
     const fromUnit = aggregateIdByItem.has(itemId)
       ? unitIdForInputFanout(itemId, containerId)
       : unitIdForInputSingleBucket(itemId, containerId);
@@ -561,10 +546,10 @@ export function deriveBoundaryProducts(
     }
   }
 
-  // Aggregate -> fanout slice edges: one edge per slice per aggregate-emitting
-  // item, carrying the slice's realized rate. Emitted after the per-bucket
-  // consumer edges so the boundary-edge ordering stays stable (aggregate edges
-  // always trail their item's consumer edges).
+  // Aggregate -> fanout slice edges: one per slice per aggregate-emitting item,
+  // carrying the slice's realized rate. Emitted after the per-bucket consumer
+  // edges so aggregate edges always trail their item's consumer edges (stable
+  // ordering).
   for (const itemId of sortedItems) {
     const aggregateId = aggregateIdByItem.get(itemId);
     if (aggregateId === undefined) continue;
@@ -586,19 +571,18 @@ export function deriveBoundaryProducts(
 
   // Output boundary edges: each target-recipe replica's per-item spare =
   // produced - outgoing machine edges for that item. Replicas with positive
-  // spare get a target edge; the declared rate is distributed across them
-  // proportionally to spare. The rule collapses to the simpler "T/N per stamp"
-  // behavior whenever the target recipe is a leaf - every replica then has full
-  // spare, and equal spare yields equal per-edge rates.
-  // For a target inside a recycling loop (or otherwise feeding internal
-  // consumers), the rule routes the declared net rate to whatever spare
-  // exists. A purely-internal replica (spare <= 0) emits no target edge and
-  // the surplus pass below sees no leftover production from it.
+  // spare get a target edge; the declared rate splits across them in proportion
+  // to spare. For a leaf target recipe this collapses to T/N per stamp: every
+  // replica has full spare, and equal spare yields equal per-edge rates. For a
+  // target inside a recycling loop (or feeding internal consumers), the rule
+  // routes the declared net rate to whatever spare exists; a purely-internal
+  // replica (spare <= 0) emits no target edge and the surplus pass sees no
+  // leftover production from it.
   //
-  // outgoingRateByVertexItem is initialized once here and reused by the
-  // surplus pass below. Both passes need the post-target-emission view of
-  // outgoing flow to avoid double-counting the same production as both
-  // delivered (to the target port) and surplus.
+  // outgoingRateByVertexItem is built once here and reused by the surplus pass.
+  // Both passes need the post-target-emission view of outgoing flow so the same
+  // production is not counted as both delivered (to the target port) and
+  // surplus.
   const outgoingRateByVertexItem = new Map<string, Fraction>();
   const addOutgoing = (
     vertexId: MachineVertexId,
@@ -612,8 +596,8 @@ export function deriveBoundaryProducts(
     );
   };
   for (const e of machineGraph.edges) addOutgoing(e.from, e.item, e.rate);
-  // Recapture edges route byproduct production to in-plan consumers; count
-  // them as outgoing so the surplus pass nets the recaptured amount.
+  // Recapture edges route byproduct production to in-plan consumers; count them
+  // as outgoing so the surplus pass nets the recaptured amount.
   for (const [key, rate] of recaptureSendByVertexItem) {
     const sep = key.indexOf("\0");
     addOutgoing(key.slice(0, sep) as MachineVertexId, key.slice(sep + 1), rate);
@@ -621,15 +605,14 @@ export function deriveBoundaryProducts(
 
   type TargetStamp = { vertex: MachineRecipeVertex; spare: Fraction };
   const stampsByTargetOutItem = new Map<ItemId, TargetStamp[]>();
-  // Collect target-output spare from EVERY machine vertex that produces a target
-  // item X, not just the target-recipe stamps. When an SCC target recipe
-  // co-produces the looped item with a leaf recipe (e.g. iron_nugget produced by
-  // both iron_nugget-iron_ore and iron_nugget-iron_powder), the leaf's spare
-  // must also reach the target output unit, otherwise the target edge is
-  // under-fed and the leaf's spare surfaces as a phantom surplus. Iterating all
-  // output stoich entries (X may be a co-product, not the primary output)
-  // captures both producers; the proportional distribution below then routes the
-  // declared target rate across their pooled spare.
+  // Collect target-output spare from EVERY machine vertex producing target item
+  // X, not just the target-recipe stamps. When an SCC target recipe co-produces
+  // the looped item with a leaf recipe (e.g. iron_nugget from both
+  // iron_nugget-iron_ore and iron_nugget-iron_powder), the leaf's spare must
+  // also reach the target output unit, or the target edge is under-fed and the
+  // leaf's spare becomes a phantom surplus. Iterating all output stoich entries
+  // (X may be a co-product, not the primary output) captures both producers; the
+  // proportional split below then routes the declared rate across pooled spare.
   for (const v of machineGraph.vertices) {
     if (!isMachineRecipeVertex(v)) continue;
     const recipe = recipeById.get(v.recipeId);
@@ -657,9 +640,9 @@ export function deriveBoundaryProducts(
       new Fraction(0),
     );
     if (totalSpare.equals(new Fraction(0))) continue;
-    // Cap distributed at totalSpare so a defensive under-production by the
-    // solver never invents rate downstream. In practice an correct solve
-    // produces totalSpare >= total for any target whose recipe is reachable.
+    // Cap at totalSpare so a solver under-production never invents rate
+    // downstream. A correct solve produces totalSpare >= total for any
+    // reachable target recipe.
     const distributed = total.compare(totalSpare) > 0 ? totalSpare : total;
     for (const s of stamps) {
       const fromUnit = unitIdByVertex.get(s.vertex.id);
@@ -676,12 +659,11 @@ export function deriveBoundaryProducts(
     }
   }
 
-  // Surplus output products: any item a vertex produces beyond its outgoing
-  // consumption (internal MachineEdges + target output edges emitted above)
-  // surfaces as an amber outputProduct on the rightmost layer. This is the
-  // case the pack hits whenever a recipe ships byproducts (e.g.
-  // copper_nugget's liquid_sewage). Without surplus emission, byproducts
-  // silently disappear from the canvas.
+  // Surplus output products: any item produced beyond its outgoing consumption
+  // (internal MachineEdges + the target output edges above) surfaces as an amber
+  // outputProduct on the rightmost layer. Hit whenever a recipe ships byproducts
+  // (e.g. copper_nugget's liquid_sewage). Without it, byproducts vanish from the
+  // canvas.
   const surplusByItem = new Map<ItemId, Fraction>();
   const surplusContributors = new Map<
     ItemId,
@@ -692,9 +674,9 @@ export function deriveBoundaryProducts(
   // slice of the unit's outgoing edges, and a split SCC member's torn-arc edges
   // land unevenly across those machines. Differencing per machine vertex (then
   // keeping only positive residuals) turns that uneven split into a phantom
-  // surplus while the matching per-machine deficits are silently dropped.
-  // Aggregating to the unit -- the level a recipe is actually drawn at -- nets
-  // the slices so only genuine whole-unit overproduction surfaces.
+  // surplus and drops the matching per-machine deficits. Aggregating to the unit
+  // -- the level a recipe is drawn at -- nets the slices so only genuine
+  // whole-unit overproduction surfaces.
   const producedByUnitItem = new Map<string, Fraction>();
   const unitItemKey = (unitId: RenderUnitId, item: ItemId): string =>
     `${unitId}\0${item}`;
@@ -719,8 +701,8 @@ export function deriveBoundaryProducts(
         if (p.direction === "out") addProduced(unitId, p.item, p.rate);
     }
   }
-  // Roll the per-vertex outgoing totals (machine edges + target + recapture
-  // edges) up to their render unit using the same key space.
+  // Roll per-vertex outgoing totals (machine + target + recapture edges) up to
+  // their render unit, same key space.
   const outgoingByUnitItem = new Map<string, Fraction>();
   for (const [key, rate] of outgoingRateByVertexItem) {
     const sep = key.indexOf("\0");

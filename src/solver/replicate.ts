@@ -16,38 +16,35 @@ import type { Target } from "../data/targets";
 /**
  * Per-consumer micro-pipeline replication.
  *
- * The walk follows a few rules:
- *  - Start at each target and recurse upstream over the initial recipe graph.
- *  - Stop recursing at articulation-point recipes; each emits one shared
- *    replica that every downstream consumer reuses.
- *  - SCC members are always shared: each non-trivial SCC emits exactly one
- *    replica per member, lazily on first reach. Recursing past the SCC follows
- *    its boundary input edges (the edges entering from non-SCC sources).
- *  - A byproduct-shared producer (one that supplies a multi-member SCC member
- *    across the boundary via a non-primary output item) emits one shared
- *    replica at its full LP rate, like an AP. Every reach of it routes here, so
- *    primary and boundary paths converge on the single replica.
- *  - Any other producer (not an articulation point, not in an SCC, not
- *    byproduct-shared) replicates per consumer: each consumer call creates its
+ * Walk rules:
+ *  - Start at each target and recurse upstream over the recipe graph.
+ *  - Stop at articulation-point recipes; each emits one shared replica that
+ *    every downstream consumer reuses.
+ *  - SCC members are always shared: each non-trivial SCC emits one replica per
+ *    member, lazily on first reach. Recursing past the SCC follows its boundary
+ *    input edges (edges entering from non-SCC sources).
+ *  - A byproduct-shared producer (supplies a multi-member SCC member across the
+ *    boundary via a non-primary output) emits one shared replica at its full LP
+ *    rate, like an AP. Every reach routes here, so primary and boundary paths
+ *    converge on the single replica.
+ *  - Any other producer replicates per consumer: each consumer call creates its
  *    own Replica with that consumer's rate share.
  *
  * The walker is iterative to dodge JS recursion-depth limits on real packs.
  *
- * `replicatePerConsumer` is the only entry point used outside this module.
- * Internally it hands off to four named sub-orchestrators, one per concern:
+ * `replicatePerConsumer` is the only entry point used outside this module. It
+ * hands off to four sub-orchestrators:
  *   - walkFromTargets    seed and iterative drain
  *   - ensureSccReplicas  per-SCC emission; calls assignSplitRoles per member
  *   - assignSplitRoles   pure looper/deliverer decision
  *   - propagateGroups    pure GroupId derivation
  *
- * plus one private helper, `processProducer`, that walkFromTargets calls once
- * per traversed edge to dispatch the four producer roles (SCC member,
- * AP-shared, byproduct-shared, per-consumer). It isn't a public seam on
- * purpose: it is stateful glue rather than a concern of its own.
+ * plus a private helper `processProducer`, called once per traversed edge to
+ * dispatch the four producer roles (SCC member, AP-shared, byproduct-shared,
+ * per-consumer). It's stateful glue, not a public seam.
  *
- * `assignSplitRoles` and `propagateGroups` are exported alongside the public
- * entry so tests can exercise the pure rules without building a full
- * RecipeGraph fixture.
+ * `assignSplitRoles` and `propagateGroups` are exported so tests can exercise
+ * the pure rules without a full RecipeGraph fixture.
  */
 export function replicatePerConsumer(args: {
   g: RecipeGraph;
@@ -65,9 +62,9 @@ export function replicatePerConsumer(args: {
 // ReplicateState: shared mutable working set
 // ---------------------------------------------------------------------------
 
-// Every piece of mutable working storage the sub-orchestrators share.
-// `createReplicateState` builds it once, and the functions below mutate its
-// caches, replica list, and worklists in place.
+// Mutable working storage the sub-orchestrators share. `createReplicateState`
+// builds it once; the functions below mutate its caches, replica list, and
+// worklists in place.
 type ReplicateState = {
   // Inputs, held as immutable references.
   readonly g: RecipeGraph;
@@ -91,13 +88,12 @@ type ReplicateState = {
   // Lookup tables.
   readonly sccById: Map<SccId, Condensation["sccs"][number]>;
   readonly targetRecipeIds: Set<RecipeId>;
-  // Producers that feed an SCC member across the boundary for an item that is
-  // NOT the producer's primary output (a byproduct supply). Their execution
-  // rate is fixed by their primary-output demand, so they are emitted once as a
-  // shared replica at their full LP rate (the AP-shared discipline) and their
-  // inputs are walked once. That stops the boundary byproduct demand from
-  // minting extra per-consumer copies and recursively re-walking the producer's
-  // own input chain.
+  // Producers that feed an SCC member across the boundary for a non-primary
+  // output (a byproduct supply). Their rate is fixed by their primary-output
+  // demand, so they emit once as a shared replica at full LP rate (AP-shared
+  // discipline) and their inputs are walked once. Stops the boundary byproduct
+  // demand from minting extra per-consumer copies and re-walking the producer's
+  // input chain.
   readonly byproductSharedSources: Set<RecipeId>;
 
   // Worklists.
@@ -105,13 +101,12 @@ type ReplicateState = {
   readonly boundaryEdges: BoundaryEdge[];
 };
 
-// A work item for the iterative walk. Each entry tells the walker to process
-// the inputs of `consumerId`, treating `consumerReplicaId` as the consumer's
-// representative replica. Non-shared producers reached from this consumer
-// inherit `blueprintGroupId` and extend `consumerPath`. `consumerRate` is the
-// per-replica execution rate of `consumerReplicaId`; it is needed so the
-// per-consumer upstream traversal scales by this replica's share rather than
-// the recipe's global rate (which sums across every consumer).
+// A work item for the iterative walk: process the inputs of `consumerId`,
+// treating `consumerReplicaId` as the consumer's representative replica.
+// Non-shared producers reached from here inherit `blueprintGroupId` and extend
+// `consumerPath`. `consumerRate` is this replica's per-replica execution rate,
+// so the upstream traversal scales by this replica's share rather than the
+// recipe's global rate (which sums across every consumer).
 type Frame = {
   consumerId: RecipeId;
   consumerReplicaId: ReplicaId;
@@ -120,8 +115,8 @@ type Frame = {
   consumerPath: ReplicaId[];
 };
 
-// A boundary edge found while emitting an SCC. These are processed after each
-// SCC emission so the iterative walk stays flat.
+// A boundary edge found while emitting an SCC. Processed after each SCC
+// emission so the iterative walk stays flat.
 type BoundaryEdge = {
   producerId: RecipeId;
   producerItem: string;
@@ -145,17 +140,16 @@ function createReplicateState(args: {
     args.targets.map((t) => t.recipeId),
   );
 
-  // Precompute the byproduct-supplier set so the dispatch is order-independent:
-  // every reach of such a producer (primary path or boundary) shares the single
+  // Precompute the byproduct-supplier set so dispatch is order-independent:
+  // every reach of such a producer (primary path or boundary) shares the one
   // replica. A producer qualifies when it feeds a multi-member SCC member across
   // the boundary for an item that is not its own primary output.
   //
-  // Invariant this branch relies on: membership in this set controls dispatch
-  // for EVERY reach of the producer, including any non-byproduct edge to a
-  // non-SCC consumer. That is correct ONLY because the LP solver fixes this
-  // producer's execution rate globally, so emitting it once at its full LP rate
-  // yields the same replica at the same rate that per-consumer scaling would
-  // produce in the single-producer case.
+  // Membership controls dispatch for EVERY reach of the producer, including a
+  // non-byproduct edge to a non-SCC consumer. That holds only because the LP
+  // fixes the producer's rate globally, so emitting once at full LP rate yields
+  // the same replica and rate that per-consumer scaling would in the
+  // single-producer case.
   const byproductSharedSources = new Set<RecipeId>();
   for (const s of args.condensation.sccs) {
     if (s.recipeIds.length <= 1) continue;
@@ -211,14 +205,14 @@ function sccIdOf(state: ReplicateState, rid: RecipeId): SccId {
 // splitConsumerDemand: proportional per-producer demand split
 // ---------------------------------------------------------------------------
 
-// Split a consumer's per-input demand across the producers of each input item
-// by their LP rate share. For each item the consumer takes, the candidate
-// producer edges are weighted by (producer rate * produced qty); each producer
-// receives that fraction of `consumerRate`. A single producer therefore takes
-// the full rate (share 1), while multiple producers divide it instead of each
-// being sized to the full demand. Both the normal stack walk (all incoming
-// edges) and the SCC boundary walk (external incoming edges only) route through
-// this, so the boundary path no longer over-produces a multi-producer input.
+// Split a consumer's per-input demand across each input item's producers by LP
+// rate share. For each input item, candidate producer edges are weighted by
+// (producer rate * produced qty); each producer gets that fraction of
+// `consumerRate`. One producer takes the full rate (share 1); multiple
+// producers divide it instead of each being sized to the full demand. Both the
+// normal stack walk (all incoming edges) and the SCC boundary walk (external
+// incoming only) route through this, so the boundary path no longer
+// over-produces a multi-producer input.
 export function splitConsumerDemand(
   nodes: Map<RecipeId, Recipe>,
   rates: Map<RecipeId, Fraction>,
@@ -231,8 +225,8 @@ export function splitConsumerDemand(
     const matching = candidateEdges.filter((e) => e.item === inItem.item);
     if (matching.length === 0) continue;
 
-    // Weight each producer by its produced flow (rate * out qty); a producer's
-    // share of the consumer's demand is its weight over the per-item total.
+    // Weight each producer by its produced flow (rate * out qty); its share of
+    // the consumer's demand is its weight over the per-item total.
     let total = new Fraction(0);
     const contribs: Array<{ edge: RecipeEdge; contrib: Fraction }> = [];
     for (const e of matching) {
@@ -258,13 +252,12 @@ export function splitConsumerDemand(
 // propagateGroups: GroupId derivation
 // ---------------------------------------------------------------------------
 
-// A replica's blueprintGroupId follows entirely from how it was reached:
+// A replica's blueprintGroupId follows from how it was reached:
 //   - SCC member  -> `scc:${sid}`     (every member of one SCC shares a group)
 //   - AP-shared   -> `shared:${rid}`  (one shared replica per AP recipe)
 //   - Target seed -> `target:${rid}`  (a per-target tree)
 //   - Non-shared  -> inherits the consumer's group (a per-consumer tree)
-// Keeping the rule in one function makes the grouping policy easy to audit: a
-// future change (say, nested groups) lives here and nowhere else.
+// One function so the grouping policy is auditable in one place.
 export type GroupRole =
   | { kind: "scc"; sccId: SccId }
   | { kind: "apShared"; recipeId: RecipeId }
@@ -291,34 +284,32 @@ export function propagateGroups(role: GroupRole): GroupId {
 // A pure decision: given an SCC member's outgoing edges already classified into
 // intra-SCC and cross-boundary roles (plus whether the member is a user
 // target), decide whether to emit ONE replica (single role) or TWO (a looper
-// and a deliverer). When it splits, it returns the per-role execution rates
-// and the outgoingEdgeFilter sets ready for building those replicas.
+// and a deliverer). On a split it returns the per-role execution rates and the
+// outgoingEdgeFilter sets for building those replicas.
 //
-// The split is balanced on a single "split-driving" output item: an output the
-// recipe both feeds intra-SCC and ships cross-boundary. isTarget adds a
-// synthetic cross consumer on the primary output, so a target's primary output
-// can be split-driving. outQtys supplies the per-item produced quantities used
-// to compute that item's produced flow; primaryOutItem is the recipe's primary
-// output and the count==0 fallback balance item when no output is split-driving.
-// The >=2 split-driving case (a co-product role-split, STC-0007) is deferred and
-// guarded by a dev-only assertion.
+// The split balances on one "split-driving" output item: one the recipe both
+// feeds intra-SCC and ships cross-boundary. isTarget adds a synthetic cross
+// consumer on the primary output, so a target's primary output can be
+// split-driving. outQtys gives per-item produced quantities for the
+// produced-flow computation; primaryOutItem is the recipe's primary output and
+// the count==0 fallback balance item when nothing is split-driving. The >=2
+// split-driving case (a co-product role-split) is deferred and guarded by a
+// dev-only assertion.
 //
-// Mass-balance contract: when the result is `split`, looperRate +
-// delivererRate equals the input `recipeRate` (apart from a defensive
-// negative-cross clamp that the exact-rational solver makes unreachable in
-// practice).
+// Mass-balance contract: on a `split`, looperRate + delivererRate equals the
+// input `recipeRate` (apart from a defensive negative-cross clamp the
+// exact-rational solver makes unreachable in practice).
 //
-// It's deliberately a pure function. The role classification is the
-// load-bearing part of the split logic and the highest-value thing to test in
-// isolation. Callers resolve each edge's consumer rate and in-qty once (they
-// own the RecipeGraph) and pass the resolved data in, so no graph access lives
-// here and tests can drive it with hand-built records and no fixtures.
+// Pure on purpose. The role classification is the load-bearing part and the
+// highest-value thing to test in isolation. Callers own the RecipeGraph and
+// resolve each edge's consumer rate and in-qty up front, so no graph access
+// lives here and tests can drive it with hand-built records.
 export type RoleEdge = { item: string; target: RecipeId };
 
-// An intra-SCC outgoing edge with its consumer's per-edge stoichiometry already
-// resolved. The caller multiplies `consumerRate * consumerInQty` per edge to
-// get the intra-side flow share; edges with no resolvable consumer are dropped
-// by the caller, so they never contribute to intraFlow.
+// An intra-SCC outgoing edge with its consumer's per-edge stoichiometry
+// resolved. The caller multiplies `consumerRate * consumerInQty` per edge for
+// the intra-side flow share; edges with no resolvable consumer are dropped by
+// the caller, so they never contribute to intraFlow.
 export type ResolvedIntraEdge = {
   item: string;
   target: RecipeId;
@@ -352,17 +343,16 @@ export function assignSplitRoles(args: {
     recipeRate.compare(0) > 0;
   if (!shouldSplit) return { kind: "single" };
 
-  // KD-1: balance the looper/deliverer split PER OUTPUT ITEM, not over the
-  // lumped flow of every outgoing edge. A co-product recipe whose intra edges
-  // include a secondary output item would otherwise have that secondary item's
-  // intra flow wrongly subtracted from the primary item's produced flow,
-  // collapsing the primary cross flow to 0 and zeroing the deliverer.
+  // Balance the looper/deliverer split PER OUTPUT ITEM, not over the lumped flow
+  // of every outgoing edge. Otherwise a co-product recipe whose intra edges
+  // include a secondary output would have that secondary's intra flow wrongly
+  // subtracted from the primary's produced flow, collapsing the primary cross
+  // flow to 0 and zeroing the deliverer.
   //
   // An output item is "split-driving" iff it has at least one intra consumer
   // AND at least one cross consumer. The synthetic target-output role counts as
-  // a cross consumer on the primary output item. STC-0007 (deferred co-product
-  // role-split) covers the >=2 split-driving case; the Task 2 topology
-  // diagnostic confirmed 0 plans currently reach it.
+  // a cross consumer on the primary output item. The >=2 split-driving case
+  // (deferred co-product role-split) is unreached by any current plan.
   const intraItems = new Set(intraEdges.map((e) => e.item));
   const crossItems = new Set(crossEdges.map((e) => e.item));
   if (isTarget && primaryOutItem) crossItems.add(primaryOutItem);
@@ -377,22 +367,22 @@ export function assignSplitRoles(args: {
           `item is supported.`,
       );
     }
-    // Production fallback only (assertion tree-shaken): the DEV assertion is the
-    // real guard, so this branch never fires in prod. Deterministically pick one
-    // driving item below so mass balance still holds without crashing.
+    // Production fallback only (assertion tree-shaken in prod): the DEV
+    // assertion is the real guard, so this never fires there. Pick one driving
+    // item below deterministically so mass balance still holds without crashing.
   }
 
   // Pick the item to balance on:
   // - count>=1: a split-driving item. Prefer primaryOutItem when it is itself
-  //   split-driving; otherwise take the first driving item (deterministic, and
-  //   only reachable in the DEV-asserted >=2 fallback above).
+  //   split-driving; else take the first driving item (deterministic, reached
+  //   only in the DEV-asserted >=2 fallback above).
   // - count==0 (no split-driving item, but shouldSplit still held): fall back to
   //   primaryOutItem and balance its own intra flow against its produced flow.
   const driver = drivingItems.includes(primaryOutItem)
     ? primaryOutItem
     : (drivingItems[0] ?? primaryOutItem);
 
-  // intra-flow for the driver item: sum over its intra edges of
+  // Driver item's intra flow: sum over its intra edges of
   // (consumer rate * in-qty).
   let intraFlow = new Fraction(0);
   for (const ie of intraEdges) {
@@ -408,13 +398,12 @@ export function assignSplitRoles(args: {
       ? recipeRate.mul(new Fraction(driverOutQty))
       : new Fraction(0);
   // cross-flow is the driver's produced flow minus its intra flow, covering
-  // both its graph-cross edges and the synthetic target output. Mass balance on
-  // the SCC linear solve guarantees produced == intra + cross for the driver.
+  // both its graph-cross edges and the synthetic target output. The SCC linear
+  // solve guarantees produced == intra + cross for the driver.
   let crossFlow = producedFlow.sub(intraFlow);
-  // Clamp any tiny negative that a round trip through the solver could in
-  // principle introduce. The exact-rational flow solve makes this unreachable
-  // in practice; the clamp records the invariant instead of silently dropping
-  // rate.
+  // Clamp any tiny negative a solver round trip could in principle introduce.
+  // The exact-rational flow solve makes this unreachable in practice; the clamp
+  // records the invariant instead of silently dropping rate.
   if (crossFlow.compare(0) < 0) crossFlow = new Fraction(0);
   const totalFlow = intraFlow.add(crossFlow);
 
@@ -424,25 +413,24 @@ export function assignSplitRoles(args: {
   const delivererRate = recipeRate.sub(looperRate);
 
   // Filters are built in two passes, keyed by output item:
-  //   - DRIVER item: keep the intra/cross split (its intra edges -> looper, its
-  //     cross edges -> deliverer). The driver's intra consumers map to the loop
+  //   - DRIVER item: keep the intra/cross split (intra edges -> looper, cross
+  //     edges -> deliverer). The driver's intra consumers map to the loop
   //     fraction and its cross consumers to the ship fraction of the SAME item,
-  //     so this split is rate-correct and preserves every currently-clean plan.
-  //   - NON-DRIVER (co-product) items: route ALL of that item's edges (both its
-  //     intra and its cross edges) to the LIVE role -- the deliverer when
-  //     delivererRate>0, else the looper. Routing a co-product by its OWN
-  //     intra/cross class can land its edges on a rate-0 split (e.g. looperRate
-  //     ==0 when the driver has no intra flow), starving the co-product consumer
-  //     of the live replica's share and surfacing the live producer's output as
-  //     a phantom surplus. No current co-product is consumed BOTH intra and
-  //     cross, so a single live-role assignment is unambiguous; assigning to
-  //     both roles would double-feed the consumer (tripping the over-fed check).
+  //     so the split is rate-correct and preserves every currently-clean plan.
+  //   - NON-DRIVER (co-product) items: route ALL of the item's edges (intra and
+  //     cross) to the LIVE role -- deliverer when delivererRate>0, else looper.
+  //     Routing a co-product by its OWN intra/cross class can land its edges on
+  //     a rate-0 split (e.g. looperRate==0 when the driver has no intra flow),
+  //     starving the co-product consumer of the live replica's share and
+  //     surfacing the live producer's output as a phantom surplus. No current
+  //     co-product is consumed BOTH intra and cross, so one live-role assignment
+  //     is unambiguous; both roles would double-feed (tripping the over-fed check).
   const looperFilter = new Set<string>();
   const delivererFilter = new Set<string>();
-  // liveFilter is the live role's filter: the deliverer when delivererRate>0,
-  // else the looper. Under the shouldSplit gate at least one role rate is
-  // positive, so liveFilter always points at a live replica. Non-driver
-  // (co-product) edges all route here.
+  // liveFilter is the live role's filter: deliverer when delivererRate>0, else
+  // looper. Under the shouldSplit gate at least one role rate is positive, so
+  // liveFilter always points at a live replica. Non-driver (co-product) edges
+  // all route here.
   const liveIsDeliverer = delivererRate.compare(0) > 0;
   const liveFilter = liveIsDeliverer ? delivererFilter : looperFilter;
   for (const ie of intraEdges) {
@@ -459,10 +447,9 @@ export function assignSplitRoles(args: {
       liveFilter.add(outgoingEdgeKey(ce.item, ce.target));
     }
   }
-  // When isTarget is true and there are no cross edges, delivererFilter ends up
-  // empty. The deliverer still owns the target-output role; the
-  // boundary-products pass routes the target edge off this replica's stamps on
-  // its own.
+  // When isTarget is true with no cross edges, delivererFilter ends up empty.
+  // The deliverer still owns the target-output role; the boundary-products pass
+  // routes the target edge off this replica's stamps on its own.
   return {
     kind: "split",
     looperRate,
@@ -476,20 +463,19 @@ export function assignSplitRoles(args: {
 // ensureSccReplicas: per-SCC emission
 // ---------------------------------------------------------------------------
 
-// Emits an SCC's shared replicas exactly once, returning the per-member replica
-// ids keyed by recipe id; later calls return the cached mapping.
+// Emits an SCC's shared replicas once, returning the per-member replica ids
+// keyed by recipe id; later calls return the cached mapping.
 //
 // When an SCC member has both an intra-SCC outgoing edge and a cross-boundary
-// one (or is itself a target, so the boundary-products pass will synthesize a
-// target output edge from its stamps), assignSplitRoles returns a split
-// decision and this function emits two replicas with distinct ids: a "looper"
-// carrying the intra-SCC role and a "deliverer" carrying the cross-boundary
-// role. Each replica's outgoingEdgeFilter scopes its downstream edge fan-out to
-// just its role's edges. The returned map still holds one replica id per recipe
-// (the canonical "inputs-consumer" replica, which is the looper when one
-// exists); the second split replica goes into the replicas array as its own
-// entry so assembleLogicalGraph and deriveReplicaEdges find it through the
-// recipeId index.
+// one (or is itself a target, so the boundary-products pass synthesizes a
+// target output edge from its stamps), assignSplitRoles returns a split and this
+// emits two replicas with distinct ids: a "looper" carrying the intra-SCC role
+// and a "deliverer" carrying the cross-boundary role. Each replica's
+// outgoingEdgeFilter scopes its edge fan-out to its role's edges. The returned
+// map holds one replica id per recipe (the canonical "inputs-consumer", the
+// looper when one exists); the second split replica goes into the replicas array
+// as its own entry so assembleLogicalGraph and deriveReplicaEdges find it through
+// the recipeId index.
 function ensureSccReplicas(
   state: ReplicateState,
   sid: SccId,
@@ -502,17 +488,15 @@ function ensureSccReplicas(
   const map = new Map<RecipeId, ReplicaId>();
 
   for (const rid of scc.recipeIds) {
-    // Split the recipe's outgoing recipe-graph edges into intra-SCC and
-    // cross-boundary roles. Intra edges resolve their consumer's per-edge rate
-    // and in-qty right here so assignSplitRoles can stay graph-free. The
-    // target-output role acts as a virtual cross-boundary signal that fires
-    // when this recipe is a user-declared target (later in the pipeline the
-    // boundary-products pass synthesizes a target output edge from this
-    // recipe's stamps). An edge whose consumer can't be resolved (missing node
-    // or no matching in-stoich) is emitted with zero stoichiometry, so the
-    // looperFilter still gets the edge key while the flow loop sees a zero
-    // contribution; that keeps the malformed-graph handling identical to the
-    // earlier null-skip-but-always-include-in-filter behavior.
+    // Split the recipe's outgoing edges into intra-SCC and cross-boundary roles.
+    // Intra edges resolve their consumer's per-edge rate and in-qty here so
+    // assignSplitRoles stays graph-free. The target-output role is a virtual
+    // cross-boundary signal that fires when this recipe is a user-declared target
+    // (the boundary-products pass later synthesizes a target output edge from its
+    // stamps). An edge whose consumer can't be resolved (missing node or no
+    // matching in-stoich) is emitted with zero stoichiometry, so the looperFilter
+    // still gets the edge key while the flow loop sees a zero contribution -
+    // identical to the earlier null-skip-but-always-include-in-filter behavior.
     const intraEdges: ResolvedIntraEdge[] = [];
     const crossEdges: RoleEdge[] = [];
     for (const e of state.g.outgoing.get(rid) ?? []) {
@@ -584,22 +568,20 @@ function ensureSccReplicas(
     };
     state.replicas.push(deliverer);
     // The looper is the canonical inputs-consumer; the boundary-edge frames
-    // below use it to walk upstream producers. The deliverer is still its own
-    // replica, and assembleLogicalGraph picks it up through the recipeId index
-    // with no extra plumbing.
+    // below use it to walk upstream. The deliverer is still its own replica, and
+    // assembleLogicalGraph picks it up through the recipeId index.
     map.set(rid, looper.id);
   }
 
   state.sccMemberReplicas.set(sid, map);
   state.sccCreated.add(sid);
 
-  // Queue up the boundary-input recursion: for each member, split its demand
-  // across the EXTERNAL producers of each input item (sources outside this SCC)
-  // by LP rate share, then enqueue one frame per producer. Splitting here is
-  // what keeps a member fed by a multi-producer input from over-producing: each
-  // external producer gets its share of the member's demand, not the full rate.
-  // Intra-SCC producers are served by the looper/deliverer split above and are
-  // excluded from the boundary frames.
+  // Queue the boundary-input recursion: for each member, split its demand across
+  // the EXTERNAL producers of each input item (sources outside this SCC) by LP
+  // rate share, then enqueue one frame per producer. The split keeps a member fed
+  // by a multi-producer input from over-producing: each external producer gets
+  // its share, not the full rate. Intra-SCC producers are served by the
+  // looper/deliverer split above and excluded from the boundary frames.
   for (const memberId of scc.recipeIds) {
     const memberReplicaId = map.get(memberId)!;
     const memberNode = state.g.nodes.get(memberId);
@@ -633,26 +615,21 @@ function ensureSccReplicas(
 // processProducer: per-edge producer dispatch (private helper of walkFromTargets)
 // ---------------------------------------------------------------------------
 
-// Handles a single (producer, consumer, item) edge, called once per traversed
-// edge by walkFromTargets. It isn't a public seam: it owns the four producer
-// cases (SCC member, AP-shared, byproduct-shared, non-shared per-consumer) and
-// the state mutations each one needs. It sits above walkFromTargets so reading
-// the file top to bottom matches the call order. Dispatch order: SCC, then AP,
-// then byproduct-shared, then non-shared per-consumer.
+// Handles one (producer, consumer, item) edge, called once per traversed edge by
+// walkFromTargets. Not a public seam: it owns the four producer cases and their
+// state mutations, and sits above walkFromTargets so top-to-bottom reading
+// matches call order. Dispatch order: SCC, AP, byproduct-shared, non-shared.
 //
 // The four cases:
-//   - SCC member: hand off to ensureSccReplicas for lazy emission and do
-//                 nothing else here; ensureSccReplicas enqueues boundary edges
-//                 as needed.
-//   - AP-shared:  emit one shared replica the first time the AP is reached and
-//                 push exactly one upstream frame.
-//   - Byproduct-shared: a producer that supplies a multi-member SCC member
-//                 across the boundary via a non-primary output. Emit one shared
-//                 replica at its full LP rate and push one upstream frame,
-//                 mirroring the AP-shared branch.
-//   - Non-shared: emit a per-consumer replica scaled by this consumer's share
-//                 of the producer, then push an upstream frame that inherits
-//                 the consumer's blueprint group.
+//   - SCC member: hand off to ensureSccReplicas for lazy emission; it enqueues
+//                 boundary edges as needed.
+//   - AP-shared:  emit one shared replica on first reach and push one upstream
+//                 frame.
+//   - Byproduct-shared: supplies a multi-member SCC member across the boundary
+//                 via a non-primary output. Emit one shared replica at full LP
+//                 rate and push one upstream frame, like the AP-shared branch.
+//   - Non-shared: emit a per-consumer replica scaled by this consumer's share,
+//                 then push an upstream frame inheriting the consumer's group.
 function processProducer(
   state: ReplicateState,
   args: {
@@ -678,9 +655,9 @@ function processProducer(
   const producerRecipe = state.g.nodes.get(producerId);
   if (!consumerRecipe || !producerRecipe) return;
 
-  // SCC producer: emit the shared SCC member replicas lazily. There's no
-  // per-consumer recursion into individual members; ensureSccReplicas queues
-  // the boundary edges.
+  // SCC producer: emit the shared SCC member replicas lazily. No per-consumer
+  // recursion into individual members; ensureSccReplicas queues the boundary
+  // edges.
   if (isInScc(state, producerId)) {
     const sid = sccIdOf(state, producerId);
     if (!state.sccCreated.has(sid)) {
@@ -690,7 +667,7 @@ function processProducer(
   }
 
   // Articulation-point producer: emit one shared replica, then walk its inputs
-  // a single time.
+  // once.
   if (state.articulation.has(producerId)) {
     let shared = state.apShared.get(producerId);
     if (!shared) {
@@ -709,7 +686,7 @@ function processProducer(
       };
       state.replicas.push(shared);
       state.apShared.set(producerId, shared);
-      // Walk upstream from this shared producer just once.
+      // Walk upstream from this shared producer once.
       state.stack.push({
         consumerId: producerId,
         consumerReplicaId: shared.id,
@@ -721,22 +698,21 @@ function processProducer(
     return;
   }
 
-  // Byproduct-supplier producer: it feeds an SCC member across the boundary for
-  // a byproduct output, so its run rate is set by its primary-output demand, not
-  // by the byproduct demand. Emit one shared replica at its full LP rate (no
-  // outgoingEdgeFilter, so assembleLogicalGraph fans it out to every consumer,
-  // primary and byproduct alike) and walk its inputs a single time, mirroring the
-  // AP-shared branch. Every reach of this producer routes here, so the primary
-  // path and the boundary path converge on the one shared replica instead of
-  // double-minting per-consumer copies and re-walking its input chain.
+  // Byproduct-supplier producer: feeds an SCC member across the boundary for a
+  // byproduct output, so its run rate is set by primary-output demand, not the
+  // byproduct demand. Emit one shared replica at full LP rate (no
+  // outgoingEdgeFilter, so assembleLogicalGraph fans it to every consumer,
+  // primary and byproduct alike) and walk its inputs once, like the AP-shared
+  // branch. Every reach routes here, so the primary path and the boundary path
+  // converge on the one shared replica instead of double-minting per-consumer
+  // copies and re-walking its input chain.
   if (state.byproductSharedSources.has(producerId)) {
     let shared = state.byproductShared.get(producerId);
     if (!shared) {
       const sharedRate = state.rates.get(producerId) ?? new Fraction(0);
-      // Reuse the apShared group role on purpose: both have emit-once shared
-      // semantics, and blueprintGroupId is used only for grouping (not for
-      // dispatch), so the resulting `shared:<id>` group id is fine and no new
-      // GroupRole variant is needed.
+      // Reuse the apShared group role: both have emit-once shared semantics, and
+      // blueprintGroupId is only for grouping (not dispatch), so the resulting
+      // `shared:<id>` group id is fine and needs no new GroupRole variant.
       const sharedGroupId = propagateGroups({
         kind: "apShared",
         recipeId: producerId,
@@ -762,13 +738,13 @@ function processProducer(
     return;
   }
 
-  // Non-shared producer: a per-consumer replica whose rate scales by this
-  // consumer replica's share rather than the recipe's global rate.
+  // Non-shared producer: a per-consumer replica scaled by this consumer
+  // replica's share, not the recipe's global rate.
   const inItem = consumerRecipe.in.find((x) => x.item === producerItem);
   const outItem = producerRecipe.out.find((x) => x.item === producerItem);
   if (!inItem || !outItem) return;
   // Guard malformed data: a zero/negative/NaN output qty would throw on the
-  // divide below, mirroring the floor-pin guard in lp.ts.
+  // divide below. Mirrors the floor-pin guard in lp.ts.
   if (!(outItem.qty > 0)) return;
   const pRate = consumerRate
     .mul(new Fraction(inItem.qty))
@@ -799,14 +775,13 @@ function processProducer(
 // walkFromTargets: seed + iterative drain
 // ---------------------------------------------------------------------------
 
-// Drives the whole replication. It seeds a replica per target (or shares the
+// Drives the whole replication. Seeds a replica per target (or shares the
 // member's SCC when the target lives inside one), then drains the frame stack
-// and the boundary-edge queue interleaved. Each frame runs its consumer's
-// inputs through processProducer, which covers the three producer cases
-// (SCC member, AP-shared, non-shared per-consumer).
+// and the boundary-edge queue interleaved. Each frame runs its consumer's inputs
+// through processProducer.
 function walkFromTargets(state: ReplicateState): void {
-  // Seed the walk: emit a replica for each target (or its SCC group) and
-  // enqueue the upstream recursion.
+  // Seed the walk: emit a replica per target (or its SCC group) and enqueue the
+  // upstream recursion.
   for (const t of state.targets) {
     const recipeId = t.recipeId;
     if (!state.g.nodes.has(recipeId)) continue;
@@ -815,28 +790,26 @@ function walkFromTargets(state: ReplicateState): void {
       if (!state.sccCreated.has(sid)) {
         ensureSccReplicas(state, sid);
       }
-      // The target simply is the SCC member's replica, and ensureSccReplicas
-      // has already queued the boundary-edge work.
+      // The target is the SCC member's replica; ensureSccReplicas already queued
+      // the boundary-edge work.
       continue;
     }
     const targetGroupId = propagateGroups({ kind: "target", recipeId });
     const targetRate = state.rates.get(recipeId) ?? new Fraction(0);
     // A target recipe can ALSO be a byproduct-shared source: a non-primary
-    // output of it feeds a multi-member SCC across the boundary (e.g. copper_enr
-    // is a target while its byproduct liquid_sewage feeds the liquid_xiranite
-    // loop). Without this guard the target is seeded here AND minted again by the
+    // output feeds a multi-member SCC across the boundary (e.g. copper_enr is a
+    // target while its byproduct liquid_sewage feeds the liquid_xiranite loop).
+    // Without this guard the target is seeded here AND minted again by the
     // byproduct-shared branch in processProducer when the SCC boundary reaches
-    // it, so its entire upstream chain replicates twice (per-consumer
-    // over-replication). Emit it once as a shared replica and register it in the
-    // byproductShared cache so that later reach reuses it instead of re-walking
-    // the chain; the shared flag also lets its byproduct output fan to every SCC
-    // consumer, matching the byproduct-shared discipline.
+    // it, so its whole upstream chain replicates twice. Emit it once as a shared
+    // replica and register it in the byproductShared cache so a later reach
+    // reuses it instead of re-walking the chain; the shared flag also fans its
+    // byproduct output to every SCC consumer.
     //
-    // NOTE: only the byproduct-shared overlap is deduped here. A target that is
-    // also a plain articulation point would still be double-minted by the
-    // AP-shared branch in processProducer (it runs before the byproductShared
-    // branch and consults only apShared). No such target exists in the current
-    // pack; generalize this guard to apShared too if one ever does.
+    // Only the byproduct-shared overlap is deduped here. A target that is also a
+    // plain articulation point would still be double-minted by the AP-shared
+    // branch in processProducer (it runs first and consults only apShared). No
+    // such target exists in the current pack; generalize to apShared if one does.
     const isByproductShared = state.byproductSharedSources.has(recipeId);
     const rep: Replica = {
       id: newReplicaId(state, `r:${recipeId}`),
@@ -859,7 +832,7 @@ function walkFromTargets(state: ReplicateState): void {
 
   // The iterative walk drains `stack` and `boundaryEdges` interleaved.
   while (state.stack.length > 0 || state.boundaryEdges.length > 0) {
-    // Clear any pending boundary edges (from SCC emissions) first so the SCC
+    // Clear pending boundary edges (from SCC emissions) first so the SCC
     // upstream work doesn't starve.
     while (state.boundaryEdges.length > 0) {
       const be = state.boundaryEdges.shift()!;
@@ -878,8 +851,8 @@ function walkFromTargets(state: ReplicateState): void {
     const consumer = state.g.nodes.get(frame.consumerId);
     if (!consumer) continue;
     const incoming = state.g.incoming.get(frame.consumerId) ?? [];
-    // Split this consumer's demand across the producers of each input item by
-    // LP rate share; single-producer items degenerate to the full rate.
+    // Split this consumer's demand across each input item's producers by LP rate
+    // share; single-producer items degenerate to the full rate.
     for (const { edge, consumerRate } of splitConsumerDemand(
       state.g.nodes,
       state.rates,

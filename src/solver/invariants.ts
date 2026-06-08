@@ -8,17 +8,17 @@ import type { SolvePlanFull } from "./index";
 import { effectiveSupply } from "./effectiveSupply";
 import { isExcludedProducer } from "../data/recipe-category";
 
-// Reference-free feasibility invariant checkers. Each function is pure: it
-// derives its verdict only from the inputs handed to it, never from any
-// external golden. The shared result shape carries a boolean verdict and a
-// list of human-readable violation strings (empty when ok).
+// Reference-free feasibility invariant checkers. Each function is pure: its
+// verdict comes only from its inputs, never from an external golden. The shared
+// result shape carries a boolean verdict and a list of violation strings (empty
+// when ok).
 export type InvariantResult = {
   ok: boolean;
   violations: string[];
 };
 
-// Relative tolerance for floating residual comparisons, matching the existing
-// mass-balance test in lp.test.ts.
+// Relative tolerance for floating residual comparisons, matching the mass-balance
+// test in lp.test.ts.
 const REL_TOL = 1e-6;
 
 function rateOf(result: LpResult, recipeId: string): number {
@@ -45,10 +45,9 @@ function netProduction(
  * Mass balance: for each item the LP built a mass-balance row for,
  * production - consumption - surplus + deficit - demand must be ~0, scaled by
  * max(1, |demand|). Items whose effective supply is Infinity are free boundary
- * draws (raw items, or non-raw items carrying a plan:true override); the LP
- * builds no row for them, so the checker skips them to stay aligned. This
- * generalizes the inline "precision (mass-balance residual)" check in
- * lp.test.ts, which uses the residual form `bal - surplus + deficit - demand`.
+ * draws (raw items, or non-raw items with a plan:true override); the LP builds no
+ * row for them, so the checker skips them to stay aligned. Same residual form
+ * `bal - surplus + deficit - demand` as the check in lp.test.ts.
  */
 export function checkMassBalance(
   result: LpResult,
@@ -105,9 +104,9 @@ export function checkTargetsMet(
       );
     }
     // Upper bound: the one-sided floor lets a co-product subsidize over-running
-    // the target, silently over-producing the requested item. The requested
-    // item must not carry meaningful surplus (keyed by item; shared across
-    // duplicate targets on the same primary item, so a per-target read is fine).
+    // the target, silently over-producing the requested item. The requested item
+    // must not carry meaningful surplus (keyed by item; shared across duplicate
+    // targets on the same primary item, so a per-target read is fine).
     const surplus = result.surplus.get(primary.item)?.valueOf() ?? 0;
     const surplusSlack = Math.max(1, Math.abs(floor)) * REL_TOL;
     if (surplus > surplusSlack) {
@@ -121,29 +120,23 @@ export function checkTargetsMet(
 }
 
 /**
- * Raw-only boundary: the external supply a solution draws for each item must
- * not exceed what the item's effective supply permits.
+ * Raw-only boundary: the external supply a solution draws for each item must not
+ * exceed what the item's effective supply permits.
  *
- * Direct supply model (reference-free). For each item:
+ * For each item:
  *   external_supply(item) = consumption(item) - production(item) + surplus(item)
- * i.e. the amount the solution had to draw from outside the system (anything
- * consumed beyond what is produced internally, plus any leftover surplus the
- * boundary pushed in). Assert:
+ * i.e. what the solution drew from outside the system (consumed beyond internal
+ * production, plus any leftover surplus the boundary pushed in). Assert:
  *   external_supply(item) <= effectiveSupply(item) + tol
- *     - effectiveSupply === Infinity  -> always passes (raw or uncapped
- *       boundary; unlimited external supply).
+ *     - effectiveSupply === Infinity  -> always passes (raw/uncapped boundary).
  *     - finite override cap            -> external_supply <= cap + tol.
- *     - plain non-raw (effectiveSupply 0) -> external_supply <= 0 + tol; no
- *       external supply is allowed.
+ *     - plain non-raw (effectiveSupply 0) -> external_supply <= 0 + tol.
  *
- * This subsumes the old Part-1 "positive surplus must be on a boundary item"
- * check: a plain non-raw item with positive surplus yields
- * external_supply = surplus > 0 > 0 + tol, which this single check already
- * flags. Part 1 is therefore removed to avoid double-reporting the same defect.
+ * A plain non-raw item with positive surplus yields external_supply = surplus >
+ * 0 + tol, so this single check also flags any "surplus off a boundary item".
  *
- * Production/consumption are summed in exact Fraction arithmetic over all
- * recipes (same iteration style as checkMassBalance); only the final tolerance
- * comparison drops to number.
+ * Production/consumption are summed in exact Fraction arithmetic over all recipes
+ * (like checkMassBalance); only the final tolerance comparison drops to number.
  */
 export function checkRawOnlyBoundary(
   result: LpResult,
@@ -169,8 +162,8 @@ export function checkRawOnlyBoundary(
     const cap = effectiveSupply(it.id, pack, overrides);
     if (cap === Infinity) continue; // unlimited external supply: always passes.
 
-    // Scale the slack by the cap magnitude, matching checkMassBalance and
-    // checkTargetsMet; a flat absolute REL_TOL is too tight on large caps.
+    // Scale the slack by cap magnitude, like checkMassBalance and checkTargetsMet;
+    // a flat absolute REL_TOL is too tight on large caps.
     const capValue = cap.valueOf();
     const slack = Math.max(1, Math.abs(capValue)) * REL_TOL;
     if (externalSupply.valueOf() > capValue + slack) {
@@ -185,10 +178,10 @@ export function checkRawOnlyBoundary(
 
 const FRAC_ZERO = new Fraction(0);
 
-// Set of recipe ids that the logical graph represents. A LogicalRecipeNode
-// (kind "recipe") carries its recipeId on node.recipe.id; its node.id is a
-// safe-encoded replica id, not the recipeId. A LogicalGroupNode (kind "group")
-// is a container with no recipe of its own, so it contributes nothing here.
+// Set of recipe ids the logical graph represents. A recipe-kind node carries its
+// recipeId on node.recipe.id; its node.id is a safe-encoded replica id, not the
+// recipeId. A group-kind node is a container with no recipe, so it contributes
+// nothing here.
 function recipeIdsInLogical(full: SolvePlanFull): Set<string> {
   const ids = new Set<string>();
   for (const node of full.logical.nodes) {
@@ -198,22 +191,21 @@ function recipeIdsInLogical(full: SolvePlanFull): Set<string> {
 }
 
 /**
- * Forward representability from the LP layer (full.rates) to the 2b
- * LogicalGraph (full.logical.nodes): every positive-rate recipe must appear as
- * a recipe in the logical graph, EXCEPT recipes that buildRecipeGraphMulti
- * legitimately excludes: a recipe in the __domain_transfer category, or a
- * cost === -1 sink recipe. These are sanctioned boundary/sink recipes and may
- * carry a positive LP rate without a logical node.
+ * Forward representability from the LP layer (full.rates) to the logical graph
+ * (full.logical.nodes): every positive-rate recipe must appear as a recipe in
+ * the logical graph, except ones isExcludedProducer covers (__domain_transfer
+ * category or cost === -1 sink). Those are sanctioned boundary/sink recipes and
+ * may carry a positive LP rate without a logical node.
  *
- * The reverse direction (logical node -> positive LP rate) is intentionally a
- * separate checker, checkNoOrphanLogicalNodes, because it reports a known
- * out-of-scope graph-assembly finding on the current pack.
+ * The reverse direction (logical node -> positive LP rate) is a separate checker,
+ * checkNoOrphanLogicalNodes, since it reports a known out-of-scope assembly
+ * finding on the current pack.
  */
 export function checkRepresentable(full: SolvePlanFull): InvariantResult {
   const violations: string[] = [];
   const logicalIds = recipeIdsInLogical(full);
 
-  // Forward: positive-rate recipe -> must be in logical, unless sanctioned.
+  // Positive-rate recipe must be in the logical graph, unless sanctioned.
   for (const [recipeId, rate] of full.rates) {
     if (rate.compare(FRAC_ZERO) <= 0) continue;
     if (logicalIds.has(recipeId)) continue;
@@ -228,14 +220,11 @@ export function checkRepresentable(full: SolvePlanFull): InvariantResult {
 }
 
 /**
- * Reverse representability: every recipe node in the 2b LogicalGraph
- * (full.logical.nodes, kind "recipe") must map back to a positive-rate recipe
- * in full.rates. A node whose recipe has no positive LP rate is an orphan: the
- * graph assembly materialized a node the LP gave zero (or no) rate.
- *
- * This catches zero-rate/orphan recipe nodes produced by the 2b graph
- * assembly. The headline plan passes (ok:true): the SCC boundary walk no longer
- * materializes phantom replicas for zero-rate producers.
+ * Reverse representability: every recipe-kind node in full.logical.nodes must map
+ * back to a positive-rate recipe in full.rates. A node whose recipe has no
+ * positive LP rate is an orphan: the graph assembly materialized a node the LP
+ * gave zero (or no) rate. The headline plan passes (ok:true): the SCC boundary
+ * walk no longer materializes phantom replicas for zero-rate producers.
  */
 export function checkNoOrphanLogicalNodes(
   full: SolvePlanFull,
@@ -256,10 +245,10 @@ export function checkNoOrphanLogicalNodes(
 }
 
 /**
- * Run the four ratified reference-free checkers against a completed solve and
- * throw if any fails. Intended to be called dev-only (compiled out of release):
- * a violation is a solver/assembly bug that should never reach a user.
- * checkNoOrphanLogicalNodes is deliberately omitted (known out-of-scope finding).
+ * Run the four reference-free checkers against a completed solve and throw if any
+ * fails. Dev-only (compiled out of release): a violation is a solver/assembly bug
+ * that should never reach a user. checkNoOrphanLogicalNodes is omitted (known
+ * out-of-scope finding).
  */
 export function assertInvariants(
   full: SolvePlanFull,

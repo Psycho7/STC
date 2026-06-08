@@ -11,16 +11,15 @@ type Props = {
   targets: Target[];
   onChange: (next: Target[]) => void;
   pack: RecipePack;
-  // Recipes the solver cannot handle as targets yet. When this is provided,
-  // handleAdd's auto-pick skips them so the panel never lands the user on one
-  // of these by default.
+  // Recipes the solver cannot handle as targets yet. When provided, handleAdd's
+  // auto-pick skips them so the panel never lands on one by default.
   unsafeRecipes?: ReadonlySet<string>;
 };
 
 const DEBOUNCE_MS = 150;
 
-// Accepts an items-per-minute value as an integer ("120"), a decimal ("30.5"),
-// or a rational ("1/3"). Returns undefined if it can't parse or the result is
+// Accepts an items-per-minute value as an integer ("120"), decimal ("30.5"), or
+// rational ("1/3"). Returns undefined if it can't parse or the result is
 // negative.
 function parsePerMinToRationalPerSec(
   perMinStr: string,
@@ -37,14 +36,12 @@ function parsePerMinToRationalPerSec(
   return { num: n!, denom: d! };
 }
 
-// Decides which recipes are valid to pick as a target. Three are carved out:
-// - `__internal` recipes are synthetic raw sources and should never show up in
-//   the picker.
-// - `__domain_transfer` recipes describe an input-supply mechanism (importing
-//   an item across domains) rather than a production step, so they belong in
-//   the input-supply UI, not the targets dropdown.
-// - Sink recipes (cost === -1) consume items but produce nothing, so declaring
-//   one as a target makes no sense.
+// Which recipes are valid to pick as a target. Carve-outs:
+// - `__internal` recipes are synthetic raw sources; never show them.
+// - `__domain_transfer` recipes import an item across domains, an input-supply
+//   mechanism, not a production step; they belong in the input-supply UI.
+// - Sink recipes (cost === -1) consume items but produce nothing, so they can't
+//   be a target.
 function isPickableTarget(recipe: Recipe): boolean {
   return (
     recipe.category !== "__internal" &&
@@ -68,13 +65,12 @@ export function TargetsPanel({
   const timerRefs = useRef<Map<number, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
-  // In-flight edit values keyed by row index. A row without an entry here falls
-  // back to the value derived from the prop, so when a new `targets` prop comes
-  // in the visible rate updates on its own without a separate sync effect.
+  // In-flight edit values keyed by row index. A row without an entry falls back
+  // to the prop-derived value, so a new `targets` prop updates the visible rate
+  // without a separate sync effect.
   const [localRates, setLocalRates] = useState<Map<number, string>>(new Map());
-  // A mirror of the latest `targets` so that a debounce timer scheduled during
-  // an earlier render commits against the current list rather than the stale
-  // snapshot it captured when the timer was set.
+  // Mirror of the latest `targets` so a debounce timer scheduled in an earlier
+  // render commits against the current list, not the stale snapshot it captured.
   const targetsRef = useRef(targets);
   useEffect(() => {
     targetsRef.current = targets;
@@ -174,11 +170,10 @@ export function TargetsPanel({
       {targets.map((t, i) => {
         const recipe = pack.recipes.find((r) => r.id === t.recipeId);
         const outputItemId = recipe?.out[0]?.item;
-        // Walk a chain of icon fallbacks. Sink recipes (out: []) and
-        // disambiguated variants like "liquid_cleaner_1-sewage" don't match
-        // their own id in the icon sheet, but the recipe usually carries an
-        // explicit compound icon id, and as a last resort the first producer
-        // (machine) icon is a safe stand-in.
+        // Chain of icon fallbacks. Sink recipes (out: []) and disambiguated
+        // variants like "liquid_cleaner_1-sewage" don't match their own id in
+        // the icon sheet, but the recipe usually carries an explicit compound
+        // icon id; as a last resort the first producer (machine) icon stands in.
         const iconPos =
           iconPosition(outputItemId) ??
           iconPosition(recipe?.icon) ??
@@ -202,8 +197,8 @@ export function TargetsPanel({
               <span className="b-pick">
                 <select
                   aria-label={i18n.t("targets.recipe.label")}
-                  // title shows the full localised recipe name on hover, which
-                  // matters when the select truncates long names at narrow widths.
+                  // title shows the full localised recipe name on hover, for
+                  // when the select truncates long names at narrow widths.
                   title={i18n.displayName(t.recipeId)}
                   value={t.recipeId}
                   onChange={(e) => handleRecipeChange(i, e.target.value)}

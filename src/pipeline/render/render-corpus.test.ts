@@ -1,14 +1,13 @@
 // End-to-end render corpus test.
 //
 // Known-good group: the four feasible closed-form micro-fixtures (chain,
-// multi-producer, byproduct, raw-draw) all pass all seven render invariants
-// as confirmed empirically before this file was written.
+// multi-producer, byproduct, raw-draw) all pass the seven render invariants.
 //
-// RF-1 regression: the real-pack plan encoded in RF1_HASH contains an
-// internally balanced intermediate item iron_nugget whose render edge used to
-// be dropped (surfaced as a phantom surplus, consumer fed from nothing). The
-// logical-graph edge wiring now routes the producer to the live consumer stamp,
-// so this test pins that iron_nugget no longer triggers any render violation.
+// RF-1 regression: the real-pack plan in RF1_HASH has an internally balanced
+// intermediate iron_nugget whose render edge used to be dropped (surfaced as a
+// phantom surplus, consumer fed from nothing). The edge wiring now routes the
+// producer to the live consumer stamp, so iron_nugget triggers no render
+// violation.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
@@ -23,13 +22,13 @@ import { loadPlan } from "../../data/plan";
 import { planToSolverArgs } from "../../solver/planToSolverArgs";
 import { isMachineRecipeVertex } from "../types";
 
-// RF-1: iron_nugget is an internally balanced intermediate but the render
-// pipeline drops its internal edge, surfacing it as a phantom surplus product
-// and leaving its consumer (iron_powder) without an input edge.
+// RF-1: iron_nugget is an internally balanced intermediate; the render pipeline
+// used to drop its internal edge, surfacing it as a phantom surplus and leaving
+// its consumer (iron_powder) without an input edge.
 const RF1_HASH =
   "v1.H4sIAAAAAAAACo3NQYvCMBQE4P8y56g1tm6Tf7A3waOIpO-9LMFuE2LEQ8l_l94EXdjbHGa-mZEcXWFPkIl9kJFX5EbaeEcl5hBHN0ChWWsotJ7avTZt78X4fad50I3uetPtmHumxgw79mS-cFYooYwCCygUl3-k3GBPM7JQSPLNsKCYkuTLEMvSVMiuyEHyUQh2xnT_hcXyyjLFJW9Rq_okpPhgyX8I2xdBvwkhx-n_-xa1nusTppb41DIBAAA";
 
-// The four feasible micro-fixtures: chain, multi-producer, byproduct, raw-draw.
+// The four feasible micro-fixtures.
 const FEASIBLE_FIXTURES = CLOSED_FORM_FIXTURES.filter(
   (f) => f.expected.softFeasible,
 );
@@ -62,25 +61,23 @@ describe("render corpus: known-good fixtures pass all invariants", () => {
   }
 });
 
-// Real-pack render regression pins. Each names a single-target plan (rate 1)
-// drawn from the full-recipe sweep's "dirty" set, one per render-drop class
+// Real-pack render pins, one single-target plan (rate 1) per render-drop class
 // fixed here:
 //   - quartz_powder / iron_powder: per-consumer producer wired to a zeroed-out
-//     in-loop consumer stamp (the SCC looper/deliverer case); the live target
-//     stamp got no input edge until the re-route pass (assembleLogicalGraph).
-//   - plant_moss_seed_1: torn SCC return arc that used to fan into only one of
+//     in-loop consumer stamp (SCC looper/deliverer); the live target stamp got
+//     no input edge until the assembleLogicalGraph re-route pass.
+//   - plant_moss_seed_1: torn SCC return arc that fanned into only one of
 //     several live split consumer stamps (assembleLogicalGraph).
-//   - copper_enr: byproduct-as-raw recapture -- liquid_acid is a byproduct of an
+//   - copper_enr: byproduct-as-raw recapture. liquid_acid is a byproduct of an
 //     in-plan recipe yet has unlimited boundary supply, so the graph never
 //     modeled its internal edge (deriveBoundaryProducts recapture pass).
-//   - glass_enr_bottle: split-SCC surplus accounting -- per-machine surplus
+//   - glass_enr_bottle: split-SCC surplus accounting. Per-machine surplus
 //     differencing turned an even whole-unit balance into a phantom surplus
 //     (deriveBoundaryProducts unit-level surplus aggregation).
-// These render with zero invariant violations. (The two deeper bugs the older
-// pins did not cover -- per-consumer over-replication and multi-producer SCC
-// routing -- are now fixed and pinned by the copper_enr+xiranite_poly and
-// crystal_powder-crystal_shell+crystal_shell-crystal_powder plans in the
-// multi-target sweep below.)
+// All render with zero invariant violations. The two deeper bugs (per-consumer
+// over-replication and multi-producer SCC routing) are pinned by the
+// copper_enr+xiranite_poly and crystal_powder-crystal_shell+
+// crystal_shell-crystal_powder multi-target plans below.
 describe("render corpus: real-pack plans render clean", () => {
   const RENDER_PINS = [
     "quartz_powder",
@@ -113,18 +110,17 @@ describe("render corpus: real-pack plans render clean", () => {
   }
 });
 
-// Per-stamp edge-billing + target-output regression pins. One single-target
-// plan per render-defect mechanism the per-stamp edge billing and broadened
-// target-output spare source set close:
+// Per-stamp edge-billing + target-output pins. One single-target plan per
+// defect that per-stamp billing and the broadened target-output spare set fix:
 //   - iron_nugget-iron_powder: symmetric SCC whose target item (iron_nugget) is
-//     co-produced by a leaf (iron_nugget-iron_ore); per-stamp producer-share
-//     billing stops the consumer over-feed and the broadened target-output spare
-//     set feeds the target edge from both producers.
-//   - equip_script_4: plant_moss SCC whose consumer used to be billed the recipe
-//     aggregate (double-feeding); per-stamp billing fixes the over-connection.
+//     co-produced by a leaf (iron_nugget-iron_ore). Per-stamp producer-share
+//     billing stops the consumer over-feed; the broadened spare set feeds the
+//     target edge from both producers.
+//   - equip_script_4: plant_moss SCC whose consumer was billed the recipe
+//     aggregate (double-feeding). Per-stamp billing fixes the over-connection.
 //   - xiranite_enr_powder: liquid_xiranite SCC consumer over-fed via the
-//     aggregate rate; per-stamp billing brings inbound flow to exactly demand.
-// All three render with zero invariant violations across all seven checkers.
+//     aggregate rate. Per-stamp billing brings inbound flow to exactly demand.
+// All three render with zero invariant violations.
 describe("render corpus: per-stamp billing + target-output pins", () => {
   const STAMP_PINS = [
     "iron_nugget-iron_powder",
@@ -156,12 +152,11 @@ describe("render corpus: per-stamp billing + target-output pins", () => {
   }
 });
 
-// Non-driver co-product routing pins. These three single-target plans each have
-// an SCC member that co-produces a byproduct consumed intra-only while the
-// driver output ships cross/target-out (so looperRate==0). Before the live-role
-// filter fix the byproduct edges landed on the rate-0 looper, leaving the
-// consumer unfed and surfacing a phantom byproduct surplus. They now render
-// clean.
+// Non-driver co-product routing pins. Each plan has an SCC member that
+// co-produces a byproduct consumed intra-only while the driver output ships
+// cross/target-out (looperRate==0). Before the live-role filter, the byproduct
+// edges landed on the rate-0 looper, leaving the consumer unfed and surfacing a
+// phantom byproduct surplus. They now render clean.
 describe("render corpus: non-driver co-product routing pins", () => {
   const COPRODUCT_PINS = [
     "xiranite_poly",
@@ -194,8 +189,7 @@ describe("render corpus: non-driver co-product routing pins", () => {
 });
 
 // RF-1 regression: the fix routes iron_nugget's producer to its live consumer
-// stamp, so the RF-1 hash plan no longer reports any iron_nugget render
-// violation. Pins the fix against regression on the original reported plan.
+// stamp, so the RF-1 hash plan reports no iron_nugget render violation.
 describe("render corpus: RF-1 regression", () => {
   it("reports no iron_nugget violation for the RF-1 hash (fixed)", async () => {
     const outcome = await loadPlan(RF1_HASH, pack);
@@ -233,55 +227,51 @@ describe("render corpus: RF-1 regression", () => {
 // ---------------------------------------------------------------------------
 // Full-pack + multi-target regression sweep.
 //
-// This is the permanent replacement for the throwaway _sweep.ts / _excess.ts /
-// _classify.ts oracle scripts. It iterates every recipe as a single target at
-// rate 1, plus a small fixed set of representative multi-target plans that
-// exercise shared SCCs / byproducts. For each feasible plan it asserts:
+// Iterates every recipe as a single target at rate 1, plus a small fixed set of
+// multi-target plans that exercise shared SCCs and byproducts. For each feasible
+// plan it asserts:
 //   (a) all checkRenderPlan invariants pass (no render-graph defect), and
 //   (b) per recipeId, the sum of MachineRecipeVertex.executionRate over the
-//       machine graph equals the LP rate (full.rates) within tolerance -- the
-//       machine-count gate that catches producer over-replication.
+//       machine graph equals the LP rate (full.rates) within tolerance. This
+//       machine-count gate catches producer over-replication.
 //
-// This sweep started INTENTIONALLY RED: it captured the known render-replication
-// defect set as a baseline the fixes drive toward zero. Each failure is
-// collected with the plan name and the gate it violated so the assertion message
-// stays a usable oracle.
+// The sweep started red: it captured the known render-replication defects as a
+// baseline the fixes drive to zero. Each failure carries the plan name and the
+// gate it violated so the assertion message stays a usable oracle.
 //
 // The non-driver co-product routing fix (live-role filter in assignSplitRoles)
 // cleared the single-target failures: xiranite_poly co-produces the looped
-// byproduct liquid_sewage, and the split-replica filter used to assign the
-// liquid_sewage role to a zero-rate split so the logical graph never wired
-// xiranite_poly's liquid_sewage to its in-loop consumer (the render layer then
+// byproduct liquid_sewage, and the split-replica filter assigned the
+// liquid_sewage role to a zero-rate split, so the logical graph never wired
+// xiranite_poly's liquid_sewage to its in-loop consumer. The render layer then
 // billed the one wired producer the full demand and surfaced xiranite_poly's
-// share as a phantom surplus). Routing the non-driver co-product edges to the
-// live split role fixes that, clearing xiranite_poly, proc_battery_5,
+// share as a phantom surplus. Routing the non-driver co-product edges to the
+// live split role clears xiranite_poly, proc_battery_5,
 // jinlong_coupon-proc_battery_5 (single-target) and xiranite_poly+iron_powder
 // (multi-target).
 //
-// Residual known-red set: after the honest classification (see isInvariantThrow
-// below), the swept population is green and three deferred buckets are EXCLUDED
-// and pinned as explicit xfail tests below (each asserts the plan still throws
-// its dev invariant, documents the known-bad state, and will start failing once
+// After isInvariantThrow classification (below) the swept population is green
+// and three deferred buckets are excluded and pinned as xfail tests below (each
+// asserts the plan still throws its dev invariant and will start failing once
 // the defect is fixed):
 //   - proc_battery_5+xiranite_enr_powder (multi-target render inbound-fan-out),
 //   - copper_enr+liquid_xiranite_enr (multi-target solver mass-balance residual),
-//   - 34 transfer_tundra_* single-target plans (DEFERRED_TUNDRA) -- each trips
+//   - 34 transfer_tundra_* single-target plans (DEFERRED_TUNDRA), each tripping
 //     the SOLVER dev invariant with the same mass-balance residual (~6.67e-4),
-//     one shared solver-residual defect that the old blanket solve-catch
-//     silently skipped (the other 25 transfer_tundra recipes are clean and
-//     stay in the green sweep).
+//     one shared solver-residual defect the old blanket solve-catch silently
+//     skipped (the other 25 transfer_tundra recipes are clean and stay green).
 //
-// The sweep distinguishes a dev-invariant throw (surfaced as a failure) from a
-// genuine infeasibility/unsolvable throw (a legit skip) via isInvariantThrow,
-// so a regression that trips the solver/render dev assertion can no longer hide
-// behind the solve-catch.
+// isInvariantThrow separates a dev-invariant throw (surfaced as a failure) from
+// a genuine infeasibility/unsolvable throw (a legit skip), so a regression that
+// trips the solver/render dev assertion can no longer hide behind the
+// solve-catch.
 // ---------------------------------------------------------------------------
 
 const SWEEP_TOL = new Fraction(1, 1000000);
 
-// Representative multi-target plans (owner-approved small scope). These mix a
-// copper-chain target with an xiranite target to exercise shared SCCs and
-// byproduct accounting across more than one target at once.
+// Representative multi-target plans. Each mixes a copper-chain target with an
+// xiranite target to exercise shared SCCs and byproduct accounting across more
+// than one target.
 const MULTI_TARGET_PLANS: ReadonlyArray<{
   name: string;
   recipeIds: ReadonlyArray<string>;
@@ -289,47 +279,44 @@ const MULTI_TARGET_PLANS: ReadonlyArray<{
   { name: "xiranite_poly+iron_powder", recipeIds: ["xiranite_poly", "iron_powder"] },
   { name: "proc_battery_5+xiranite_enr_powder", recipeIds: ["proc_battery_5", "xiranite_enr_powder"] },
   { name: "copper_enr+liquid_xiranite_enr", recipeIds: ["copper_enr", "liquid_xiranite_enr"] },
-  // Two targets sharing a byproduct supplier (both co-produce liquid_sewage):
+  // Two targets sharing a byproduct supplier (both co-produce liquid_sewage).
   // copper_enr is reached both as a target seed and as a byproduct-shared
   // source, so its whole upstream copper chain is replicated twice instead of
   // shared (per-consumer over-replication).
   { name: "copper_enr+xiranite_poly", recipeIds: ["copper_enr", "xiranite_poly"] },
-  // Two targets that are mutual-recycling members of one SCC: production of the
-  // shared item nets to zero against consumption + demand, but the split-role
-  // surplus accounting surfaces a phantom surplus (multi-producer SCC routing).
+  // Two mutual-recycling members of one SCC: production of the shared item nets
+  // to zero against consumption + demand, but split-role surplus accounting
+  // surfaces a phantom surplus (multi-producer SCC routing).
   {
     name: "crystal_powder-crystal_shell+crystal_shell-crystal_powder",
     recipeIds: ["crystal_powder-crystal_shell", "crystal_shell-crystal_powder"],
   },
 ];
 
-// Known, still-open defects. These are excluded from the green main sweep and
-// pinned as explicit xfail tests below (each PASSES now because the plan still
-// fails; each will START FAILING -- prompting removal -- once the underlying
-// defect is fixed). The reason for each:
+// Known, still-open defects. Excluded from the green sweep and pinned as xfail
+// tests below (each passes now because the plan still fails, and will start
+// failing once the defect is fixed):
 //   - proc_battery_5+xiranite_enr_powder (multi-target): assemble.ts
 //     inbound/intra edge fan-out fails to split SCC consumer stamps (the
 //     liquid_xiranite / lowpoly / poly many-to-many wiring), so the render dev
-//     assertion throws; deferred.
+//     assertion throws.
 //   - copper_enr+liquid_xiranite_enr (multi-target): solver mass-balance
-//     residual (~2.4e-4 on liquid_sewage) trips the solver dev invariant
-//     assertion; deferred.
+//     residual (~2.4e-4 on liquid_sewage) trips the solver dev invariant.
 //   - 34 transfer_tundra_* single-target plans (DEFERRED_TUNDRA below): each
 //     trips the SOLVER dev invariant with an identical mass-balance residual
-//     (~6.67e-4). This is one shared solver-residual defect, same nature as
-//     copper_enr+liquid_xiranite_enr. It was previously hidden by the sweep's
-//     blanket solve-catch (treated as a skip); the honest classification now
-//     surfaces it, so these are pinned here rather than fixed (the solver is
-//     out of scope for this task). Note the other 25 transfer_tundra recipes
-//     solve+render clean and stay IN the green sweep, hence an explicit name
-//     set rather than a prefix match.
+//     (~6.67e-4), one shared solver-residual defect, same nature as
+//     copper_enr+liquid_xiranite_enr. The blanket solve-catch used to hide it
+//     as a skip; the classification now surfaces it. Pinned rather than fixed
+//     because the solver is out of scope. The other 25 transfer_tundra recipes
+//     solve+render clean and stay in the green sweep, hence an explicit name set
+//     rather than a prefix match.
 const KNOWN_DEFERRED: ReadonlySet<string> = new Set([
   "proc_battery_5+xiranite_enr_powder",
   "copper_enr+liquid_xiranite_enr",
 ]);
 
 // The 34 transfer_tundra_* single-target plans that trip the solver dev
-// invariant (shared mass-balance residual ~6.67e-4); deferred, pinned as an
+// invariant (shared mass-balance residual ~6.67e-4). Deferred, pinned as an
 // xfail below. Listed explicitly because 25 sibling transfer_tundra recipes are
 // clean and remain in the green sweep.
 const DEFERRED_TUNDRA: ReadonlySet<string> = new Set([
@@ -373,22 +360,21 @@ function isDeferred(name: string): boolean {
   return KNOWN_DEFERRED.has(name) || DEFERRED_TUNDRA.has(name);
 }
 
-// A thrown error counts as a real failure (to be surfaced) only when it is an
-// INVARIANT violation -- the solver dev assertion throws "solver invariants
-// violated:" (src/solver/invariants.ts) and the render dev assertion throws
-// "render invariants violated:" (src/pipeline/render/invariants.ts). A genuinely
-// infeasible/unsolvable LP throws "LP solver: infeasible problem" /
-// "LP solver: unbounded objective" from assertSolvable (src/solver/index.ts);
-// those remain a legit skip.
+// A thrown error counts as a real failure only when it is an invariant
+// violation: the solver dev assertion throws "solver invariants violated:"
+// (src/solver/invariants.ts) and the render dev assertion throws "render
+// invariants violated:" (src/pipeline/render/invariants.ts). A genuinely
+// infeasible/unsolvable LP throws "LP solver: infeasible problem" / "LP solver:
+// unbounded objective" from assertSolvable (src/solver/index.ts), which is a
+// legit skip.
 function isInvariantThrow(err: unknown): boolean {
   return String(err).includes("invariants violated");
 }
 
-// Run one plan through solve + render and return the gate failures it produced.
-// Empty array means the plan is clean (or was skipped as non-feasible, in which
-// case skipped is true and the caller should not count it). A solve/render
-// throw caused by a dev invariant assertion is surfaced as a failure, not
-// skipped -- only an infeasibility/unsolvable throw is a legit skip.
+// Run one plan through solve + render and return its gate failures. Empty array
+// means clean, or skipped as non-feasible (skipped is true and the caller does
+// not count it). A solve/render throw from a dev invariant assertion is
+// surfaced as a failure; only an infeasibility/unsolvable throw is a skip.
 function sweepPlan(
   name: string,
   targets: Target[],
@@ -403,7 +389,7 @@ function sweepPlan(
         failures: [`${name}: solver-invariant-throw: ${String(err)}`],
       };
     }
-    // Infeasible / unsolvable LP: a legit skip.
+    // Infeasible / unsolvable LP: a skip.
     return { skipped: true, failures: [] };
   }
   if (!full.feasibility.softFeasible) return { skipped: true, failures: [] };
@@ -414,8 +400,8 @@ function sweepPlan(
   try {
     out = renderPlanFromSolve(full, pack, targets, []);
   } catch (err) {
-    // A feasible plan whose render THROWS the dev render-invariant assertion is
-    // a genuine failure, not a skip.
+    // A feasible plan whose render throws the dev render-invariant assertion is
+    // a failure, not a skip.
     failures.push(`${name}: render-crash: ${String(err)}`);
     return { skipped: false, failures };
   }
@@ -436,8 +422,7 @@ function sweepPlan(
   }
 
   // Gate (b): machine-count. Per recipeId, sum executionRate over machine
-  // recipe vertices (per-stamp summation, no extra weighting) and compare to
-  // the LP rate.
+  // recipe vertices and compare to the LP rate.
   const vtxSum = new Map<string, Fraction>();
   for (const v of machineGraph.vertices) {
     if (isMachineRecipeVertex(v)) {
@@ -463,7 +448,7 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
   it("every feasible plan renders clean and matches LP machine counts", () => {
     const allFailures: string[] = [];
 
-    // Single-target sweep over the whole recipe pack, excluding the deferred
+    // Single-target sweep over the whole recipe pack, minus the deferred
     // transfer_tundra_* solver-residual family (pinned as an xfail below).
     for (const r of pack.recipes) {
       if (isDeferred(r.id)) continue;
@@ -474,8 +459,7 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
       allFailures.push(...failures);
     }
 
-    // Multi-target representative plans, excluding the known-deferred set
-    // (those are pinned as xfail tests below).
+    // Multi-target plans, minus the known-deferred set (pinned as xfail below).
     for (const mt of MULTI_TARGET_PLANS) {
       if (isDeferred(mt.name)) continue;
       const targets: Target[] = mt.recipeIds.map((recipeId) => ({
@@ -486,8 +470,7 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
       allFailures.push(...failures);
     }
 
-    // Distinct plan names that produced at least one failure, for a compact
-    // baseline summary in the assertion message.
+    // Distinct plan names with at least one failure, for the assertion summary.
     const dirtyPlans = [
       ...new Set(allFailures.map((f) => f.split(":")[0])),
     ].sort();
@@ -499,13 +482,13 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
   });
 
   // xfail pins for the two known-deferred multi-target plans. Each asserts the
-  // plan CURRENTLY fails (the dev assertion throws), so these tests PASS now and
-  // document the known-bad state. They will START FAILING -- prompting their
-  // removal -- once the underlying defect is fixed.
+  // plan currently fails (the dev assertion throws), so these tests pass now and
+  // document the known-bad state. They will start failing once the defect is
+  // fixed.
   //
   // proc_battery_5+xiranite_enr_powder: assemble.ts inbound/intra edge fan-out
   // fails to split SCC consumer stamps (liquid_xiranite / lowpoly / poly
-  // many-to-many wiring); renderPlanFromSolve throws the render dev assertion.
+  // many-to-many wiring), so renderPlanFromSolve throws the render dev assertion.
   it("xfail (deferred): proc_battery_5+xiranite_enr_powder still throws render invariants", () => {
     const targets: Target[] = ["proc_battery_5", "xiranite_enr_powder"].map(
       (recipeId) => ({ recipeId, ratePerSec: { num: "1", denom: "1" } }),
@@ -541,10 +524,10 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
 
   // The 34 deferred transfer_tundra_* single-target plans each trip the solver
   // dev invariant with an identical mass-balance residual (~6.67e-4). One shared
-  // deferred solver-residual defect, previously hidden by the blanket
-  // solve-catch. This pin asserts each still throws the solver invariant; it
-  // documents the known-bad state and will start failing (per recipe) once the
-  // residual is fixed, prompting removal of that recipe from DEFERRED_TUNDRA.
+  // solver-residual defect, previously hidden by the blanket solve-catch. This
+  // pin asserts each still throws the solver invariant and will start failing
+  // (per recipe) once the residual is fixed, prompting removal of that recipe
+  // from DEFERRED_TUNDRA.
   it("xfail (deferred): the 34 transfer_tundra_* plans still throw solver invariants", () => {
     expect(DEFERRED_TUNDRA.size).toBe(34);
     for (const recipeId of DEFERRED_TUNDRA) {

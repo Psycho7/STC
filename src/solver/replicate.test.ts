@@ -123,14 +123,14 @@ describe("splitConsumerDemand", () => {
 });
 
 describe("assignSplitRoles", () => {
-  // Co-product case (KD-1). A single SCC member produces two output items:
+  // Co-product case. One SCC member produces two outputs:
   //   - poly  (primary, out qty 1): consumed BOTH intra (by an SCC member) AND
   //     cross (by an external consumer) -> the single split-driving item.
   //   - lowpoly (secondary, out qty 1): consumed intra-only.
   // The per-item balance must drive looper/deliverer off poly alone, so the
-  // deliverer that owns the poly cross edge keeps a positive rate. The bug
-  // lumped lowpoly's intra flow into poly's produced flow, collapsing crossFlow
-  // to 0 and zeroing the deliverer.
+  // deliverer owning the poly cross edge keeps a positive rate. The bug lumped
+  // lowpoly's intra flow into poly's produced flow, collapsing crossFlow to 0
+  // and zeroing the deliverer.
   it("keeps a positive deliverer for a co-product whose primary is split", () => {
     const recipeRate = new Fraction(4);
     const decision = assignSplitRoles({
@@ -192,12 +192,12 @@ describe("assignSplitRoles", () => {
   });
 
   // Non-driver co-product routing (the xiranite_poly liquid_sewage bug). The
-  // driver output item (xiranite_poly, primary, isTarget) has NO intra
-  // consumer, so looperRate==0 and delivererRate==recipeRate. A SECONDARY
-  // output item (liquid_sewage) is consumed intra-only. Routing liquid_sewage
-  // by its own intra class would land its edges on the dead (rate-0) looper,
-  // starving the consumer of the live replica's share. The fix routes ALL
-  // non-driver co-product edges to the LIVE role (the deliverer here).
+  // driver output (xiranite_poly, primary, isTarget) has NO intra consumer, so
+  // looperRate==0 and delivererRate==recipeRate. A secondary output
+  // (liquid_sewage) is consumed intra-only. Routing liquid_sewage by its own
+  // intra class would land its edges on the dead (rate-0) looper, starving the
+  // consumer of the live replica's share. The fix routes ALL non-driver
+  // co-product edges to the LIVE role (the deliverer here).
   it("routes a non-driver co-product's edges to the live split role", () => {
     const recipeRate = new Fraction(1);
     const decision = assignSplitRoles({
@@ -299,13 +299,12 @@ function condensationOf(sccs: Array<{ id: SccId; recipeIds: RecipeId[] }>): Cond
 }
 
 describe("replicatePerConsumer: SCC-boundary byproduct supplier sharing", () => {
-  // Mirrors the real liquid_sewage bug in miniature. A 2-member SCC (m, mloop)
-  // consumes a byproduct item `byp`. `byp` is a SECONDARY output of producer
-  // `bp`, whose PRIMARY output `prim` feeds a non-member consumer `pc`. `bp`'s
-  // run rate is therefore fixed by `prim` demand, not by the SCC's byproduct
-  // demand. `bp` must be emitted once as a shared replica at its full LP rate
-  // (so its machine count == lpRate), and its own input chain (`raw_src`) must
-  // be walked exactly once instead of re-minted per byproduct frame.
+  // Miniature of the real liquid_sewage bug. A 2-member SCC (m, mloop) consumes
+  // byproduct `byp`, a secondary output of producer `bp` whose primary output
+  // `prim` feeds non-member consumer `pc`. So `bp`'s run rate is fixed by `prim`
+  // demand, not the SCC's byproduct demand. `bp` must emit once as a shared
+  // replica at its full LP rate (machine count == lpRate), and its input chain
+  // (`raw_src`) must be walked exactly once, not re-minted per byproduct frame.
   it("emits the byproduct supplier once at full LP rate, not per byproduct frame", () => {
     const nodes: Recipe[] = [
       // SCC members forming a 2-cycle on `loopitem`. `m` also pulls `byp`.
@@ -354,10 +353,10 @@ describe("replicatePerConsumer: SCC-boundary byproduct supplier sharing", () => 
     });
 
     const bpReplicas = replicas.filter((r) => r.recipeId === "bp");
-    // Exactly one shared `bp` replica at its full LP rate, feeding both the
-    // primary consumer and the SCC byproduct edge. Without the sharing fix the
-    // byproduct boundary frame mints an extra per-consumer `bp` (and re-walks
-    // its input chain), pushing the summed rate above lp(bp)=2.
+    // Exactly one shared `bp` replica at full LP rate, feeding both the primary
+    // consumer and the SCC byproduct edge. Without the sharing fix the byproduct
+    // boundary frame mints an extra per-consumer `bp` (and re-walks its input
+    // chain), pushing the summed rate above lp(bp)=2.
     const bpSum = bpReplicas.reduce(
       (acc, r) => acc.add(r.executionRate),
       new Fraction(0),

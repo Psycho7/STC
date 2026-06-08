@@ -18,9 +18,8 @@ describe("recomputeObjective", () => {
     const result = solveLp({ targets: headline, pack });
     const recomputed = recomputeObjective(result, pack);
     // Self-consistency: the objective recomputed from the emitted
-    // rates/surplus/deficit must agree with what solveLp reported. A relative
-    // tolerance keeps float noise (and the 1e-3 surplus weight) from tripping
-    // the check.
+    // rates/surplus/deficit must match what solveLp reported. A relative
+    // tolerance keeps float noise (and the 1e-3 surplus weight) from tripping it.
     const scale = Math.max(1, Math.abs(result.objectiveValue));
     expect(Math.abs(recomputed - result.objectiveValue) / scale).toBeLessThan(
       1e-6,
@@ -30,10 +29,9 @@ describe("recomputeObjective", () => {
 
 describe("activeRecipeSet", () => {
   it("returns the producer chain on a small acyclic plan", () => {
-    // copper_powder consumes `copper_nugget`, which the recipe `copper_nugget`
-    // builds from raw copper_ore + liquid_water. So the minimal plan is a
-    // two-recipe single-producer chain {copper_powder, copper_nugget}; assert
-    // exactly that active set.
+    // copper_powder consumes `copper_nugget`, built by the `copper_nugget`
+    // recipe from raw copper_ore + liquid_water. The minimal plan is a
+    // two-recipe chain {copper_powder, copper_nugget}; assert exactly that.
     const targets: Target[] = [
       { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "60" } },
     ];
@@ -63,9 +61,9 @@ describe("assertOptimal", () => {
   });
 
   it("abstains (ok:true, no violations) when the base solve is not softFeasible", () => {
-    // Pack: recipe T consumes `need` (not raw, no producer) and produces `prod`.
-    // The LP cannot supply `need`, so a deficit var survives -> softFeasible===false.
-    // assertOptimal should return ok:true with no violations (screen abstains).
+    // Recipe T consumes `need` (non-raw, no producer) and produces `prod`. The
+    // LP cannot supply `need`, so a deficit var survives -> softFeasible===false.
+    // assertOptimal abstains: ok:true with no violations.
     const p = {
       recipes: [
         {
@@ -85,7 +83,7 @@ describe("assertOptimal", () => {
       { recipeId: "T", ratePerSec: { num: "1", denom: "1" } },
     ];
 
-    // Sanity: confirm the base is genuinely not softFeasible.
+    // Confirm the base is genuinely not softFeasible.
     expect(solveLp({ targets, pack: p }).softFeasible).toBe(false);
 
     const res = assertOptimal({ targets, pack: p });
@@ -94,17 +92,15 @@ describe("assertOptimal", () => {
   });
 
   it("detects a planted-suboptimal recipe-cost misconfiguration", () => {
-    // Two chains produce `mid` for the target T:
+    // Two chains produce `mid` for target T:
     //   - mid_cheap:  raw_a -> mid                              (1 recipe run)
     //   - mid_pricey: inter -> mid, plus make_inter: raw_a -> inter (2 runs)
-    // At intrinsic (default unit) costs the cheap chain wins: the plan
-    // {T, mid_cheap} is 2 recipe-runs versus {T, mid_pricey, make_inter} at 3.
-    // A recipeCosts override pins mid_cheap at cost 100, which steers solveLp
-    // onto the pricey 3-run chain. The witness scores at intrinsic costs, so it
-    // sees that forcing mid_cheap active again yields the strictly cheaper
-    // 2-run plan -> the override-driven base is suboptimal -> a violation.
-    // This is a genuine counterexample: if assertOptimal were a vacuous
-    // ok:true stub, this assertion would fail.
+    // At intrinsic (default unit) costs the cheap chain wins: {T, mid_cheap} is
+    // 2 runs vs {T, mid_pricey, make_inter} at 3. A recipeCosts override pins
+    // mid_cheap at cost 100, steering solveLp onto the pricey 3-run chain. The
+    // witness scores at intrinsic costs, so forcing mid_cheap active yields the
+    // cheaper 2-run plan -> the override-driven base is suboptimal -> a
+    // violation. A vacuous ok:true stub would fail this assertion.
     const p = {
       recipes: [
         {
@@ -148,9 +144,9 @@ describe("assertOptimal", () => {
     ];
     const recipeCosts = new Map<string, number>([["mid_cheap", 100]]);
 
-    // Sanity: the base solve under the override really does pick the pricey
-    // 3-run chain (so the scenario is the intended counterexample, not a
-    // degenerate tie or an honest optimum).
+    // Confirm the base solve under the override really picks the pricey 3-run
+    // chain, so this is the intended counterexample and not a degenerate tie or
+    // honest optimum.
     const base = solveLp({ targets, pack: p, recipeCosts });
     expect(base.rates.has("mid_pricey")).toBe(true);
     expect(base.rates.has("mid_cheap")).toBe(false);

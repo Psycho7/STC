@@ -3,11 +3,10 @@ import type { RationalString, Target } from "./targets";
 import { gzipBytes, gunzipBytes } from "./encoding/gzip";
 import { bytesToBase64url, base64urlToBytes } from "./encoding/base64url";
 
-// Wire shape for the current (v1) envelope. We sort by stable keys when
-// encoding so the same plan always produces the same URL hash. Decoding is
-// lenient about unknown fields: optional fields added by a slightly newer build
-// just come through as `undefined`. The actual invariant checks happen in
-// validatePlan.
+// Wire shape for the v1 envelope. Encoding sorts by stable keys so the same
+// plan always produces the same URL hash. Decoding is lenient about unknown
+// fields: optional fields from a newer build come through as `undefined`.
+// Invariant checks happen in validatePlan.
 export type PlanWireV1 = {
   pack: [id: string, schemaVersion: string, sha: string];
   title: string;
@@ -32,7 +31,7 @@ export function toWire(plan: Plan): PlanWireV1 {
   }
   if (plan.recipeCosts && plan.recipeCosts.size > 0) {
     const entries = [...plan.recipeCosts.entries()]
-      // Omit entries equal to the default cost of 1 to keep hashes terse.
+      // Omit entries equal to the default cost of 1 to keep hashes short.
       .filter(([, v]) => v.num !== v.denom)
       .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     if (entries.length > 0) wire.recipeCosts = Object.fromEntries(entries);

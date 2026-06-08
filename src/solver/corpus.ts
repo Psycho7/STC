@@ -1,15 +1,15 @@
-// Curated corpus of small synthetic recipe-pack fixtures, each exercising one
-// solver topology. Used by corpus.test.ts for golden regression: any change to
-// solver output on a known topology must trip a test.
+// Curated small synthetic recipe-pack fixtures, each exercising one solver
+// topology. Used by corpus.test.ts for golden regression: any change to solver
+// output on a known topology must trip a test.
 //
-// Naming convention per fixture:
+// Per-fixture fields:
 //   pack         - minimal RecipePack (cast via `as unknown as RecipePack`)
 //   targets      - Target[] for solveLp
-//   itemOverrides? - ItemOverride[] when the scenario requires supply caps/plan flags
-//   recipeCosts?   - Map<RecipeId, number> when the scenario drives cost overrides
+//   itemOverrides? - ItemOverride[] for supply caps / plan flags
+//   recipeCosts?   - Map<RecipeId, number> for cost overrides
 //
-// All goldens (objectiveValue + active recipe set) are derived by running the
-// actual solver and reading output, never invented from intuition.
+// All goldens (objectiveValue + active recipe set) come from running the actual
+// solver and reading output, never invented.
 
 import type { RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
@@ -20,8 +20,8 @@ import type { RecipeId } from "./types";
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// Minimal pack constructor. The cast lets us omit the non-solver fields
-// (name, icon, producers, locations, etc.) that solveLp never reads.
+// Minimal pack constructor. The cast omits non-solver fields (name, icon,
+// producers, locations, etc.) that solveLp never reads.
 function mkPack(
   recipes: {
     id: string;
@@ -76,7 +76,7 @@ export const acyclicSingleProducer = {
   targets: [{ recipeId: "r_make_b", ratePerSec: rate("1", "1") }],
 };
 
-// Golden for scenario 1 (derived by running solveLp and reading output).
+// Golden for scenario 1 (from solveLp output).
 export const acyclicSingleProducerGolden = {
   objectiveValue: 2,
   // Both chain members run; no alternative for either item.
@@ -86,14 +86,13 @@ export const acyclicSingleProducerGolden = {
 // ---------------------------------------------------------------------------
 // Scenario 2: multi-producer lex tie-break (parallel producers, equal cost)
 //
-// Two producers for "mid": cheap (consumes 1 raw) and pricey (consumes 2 raw).
-// "raw" is a raw item, so its effective supply is Infinity and the LP builds no
-// mass-balance row for it: raw consumption is unpriced. Both producers
-// therefore cost the same (1 recipe run) and yield the same objective. The
-// winner is decided purely by the pass-2 lex tie-break, which minimizes
-// recipe-id rank: "cheap" (rank 0) beats "pricey" (rank 1). This is the same
-// mechanism as Scenario 3; the differing raw footprints are a red herring
-// because raw never enters the objective.
+// Two producers for "mid": cheap (1 raw) and pricey (2 raw). "raw" is raw, so
+// its effective supply is Infinity and the LP builds no mass-balance row for it:
+// raw consumption is unpriced. Both producers cost the same (1 recipe run) and
+// give the same objective, so the pass-2 lex tie-break decides: it minimizes
+// recipe-id rank, "cheap" (rank 0) beats "pricey" (rank 1). Same mechanism as
+// Scenario 3; the differing raw footprints don't matter since raw never enters
+// the objective.
 //
 // Objective: 2 (target_r + cheap, each at rate 1, cost 1 each).
 // "pricey" must NOT be active.
@@ -134,20 +133,20 @@ export const multiProducerCostChoice = {
 
 export const multiProducerCostChoiceGolden = {
   objectiveValue: 2,
-  // "cheap" wins the pass-2 lex tie-break (recipe-id rank 0 < "pricey" rank 1);
-  // raw consumption is unpriced, so cost alone does not separate the two.
+  // "cheap" wins the pass-2 lex tie-break (rank 0 < "pricey" rank 1); raw is
+  // unpriced, so cost alone doesn't separate them.
   activeRecipes: ["cheap", "target_r"],
 };
 
 // ---------------------------------------------------------------------------
 // Scenario 2b: recipeCosts override flips the winner
 //
-// Same pack as scenario 2 but a recipeCosts override raises "cheap" to cost 100.
-// The pass-1 primary objective now avoids the cost-100 "cheap" and runs
-// "pricey" + "target_r" at cost 1 + 1 = 2, leaving "cheap" inactive. The
-// reported objective is the pass-1 cost cap (2), not 100-something: "cheap"
-// never runs, so its cost never enters the objective. The override has flipped
-// the winner by making "cheap" genuinely more expensive than "pricey".
+// Same pack as scenario 2, but a recipeCosts override raises "cheap" to cost
+// 100. Pass-1 now avoids the cost-100 "cheap" and runs "pricey" + "target_r" at
+// cost 1 + 1 = 2, leaving "cheap" inactive. The reported objective is the pass-1
+// cost cap (2), not 100-something: "cheap" never runs, so its cost never enters
+// the objective. The override flips the winner by making "cheap" genuinely
+// dearer than "pricey".
 // ---------------------------------------------------------------------------
 export const multiProducerCostChoiceWithOverride = {
   pack: multiProducerCostChoice.pack,
@@ -164,12 +163,11 @@ export const multiProducerCostChoiceWithOverrideGolden = {
 // ---------------------------------------------------------------------------
 // Scenario 3: equal-cost tie-break
 //
-// Two producers for "mid": "aaa_producer" and "zzz_producer", identical in
-// every way (same category, same inputs, same output qty). Both cost 1 per run.
-// The LP's pass-2 lex tie-break minimizes recipe-id rank (sorted ascending).
-// Sorted by id: "aaa_producer" < "target_r" < "zzz_producer", so lex rank of
-// "aaa_producer" is 0 vs "zzz_producer" at 2. Pass-2 picks "aaa_producer".
-// "zzz_producer" must NOT be active.
+// Two identical producers for "mid": "aaa_producer" and "zzz_producer" (same
+// category, inputs, output qty), both cost 1 per run. The pass-2 lex tie-break
+// minimizes recipe-id rank (sorted ascending). By id: "aaa_producer" <
+// "target_r" < "zzz_producer", so ranks are 0 and 2. Pass-2 picks
+// "aaa_producer". "zzz_producer" must NOT be active.
 // ---------------------------------------------------------------------------
 export const equalCostTieBreak = {
   pack: mkPack(
@@ -207,8 +205,8 @@ export const equalCostTieBreak = {
 
 export const equalCostTieBreakGolden = {
   objectiveValue: 2,
-  // "aaa_producer" wins the lex tie-break (smallest id rank => lowest pass-2 objective).
-  // "zzz_producer" stays inactive.
+  // "aaa_producer" wins the lex tie-break (smallest id rank => lowest pass-2
+  // objective). "zzz_producer" stays inactive.
   activeRecipes: ["aaa_producer", "target_r"],
 };
 
@@ -384,33 +382,23 @@ export const planPassthroughGolden = {
 //
 // r_normal (category "material", cost 1) and r_transfer (category
 // "__domain_transfer", cost 1e6 per recipeCostWeight) both produce "prod" from
-// "raw". Target pins r_normal. The LP minimizes cost: r_normal at cost 1 vs
-// r_transfer at cost 1e6. r_transfer stays inactive.
+// "raw". Target pins r_normal. The LP minimizes cost: 1 vs 1e6, so r_transfer
+// stays inactive.
 //
-// The mass balance for "prod" is satisfied by r_normal alone (pinned). Adding
-// r_transfer would increase the objective by 1e6 per unit. So r_transfer is
-// only chosen when it is the sole producer (unavoidable). Here it is avoidable.
+// The "prod" mass balance is met by the pinned r_normal alone. Adding r_transfer
+// would add 1e6 per unit, so it is only chosen when it is the sole producer
+// (unavoidable). Here it is avoidable.
 //
-// Note on genuine SCC cycles: constructing a cycle (mutual dependency between
-// two items) that the solver "accepts" without __domain_transfer recipes is
-// possible: the mass-balance equalities form a circular system with a free
-// variable. The cycle floor constraint (target pin) then sets the operating
-// point. However, a minimal two-item SCC (A -> B -> A) with a simultaneous
-// target on one of them tests the floor (not equality) semantics documented in
-// lp.ts. Because the SCC topology validation is already covered by the real-
-// pack test in optimality.test.ts and index.test.ts, and the __domain_transfer
-// big-M signal is the core scenario here, we cover the big-M alone and
-// document the SCC limitation below.
-//
-// SCC unreachability note: a genuine SCC where __domain_transfer is strictly
-// unavoidable cannot be constructed with a minimal synthetic pack without also
-// replicating the full cross-domain import chain that exists in the real pack.
-// In the real pack, __domain_transfer recipes bridge two separate domain graphs
-// (e.g. base-game items to Endfield items) and the solver only runs them when
-// the user needs an item from the other domain. Synthesising this with a two-
-// recipe pack would make the __domain_transfer recipe the only producer, which
-// means it is trivially unavoidable rather than being a meaningful SCC test.
-// We therefore assert only the exclusion case (avoidable big-M stays inactive).
+// Why no genuine-SCC variant: a two-item SCC (A -> B -> A) where
+// __domain_transfer is strictly unavoidable can't be built from a minimal
+// synthetic pack without replicating the full cross-domain import chain. In the
+// real pack __domain_transfer bridges two separate domain graphs (e.g. base-game
+// to Endfield items) and only runs when the user needs an item from the other
+// domain; a two-recipe synthetic would make __domain_transfer the only producer,
+// trivially unavoidable rather than a meaningful SCC test. Floor-vs-equality SCC
+// semantics (documented in lp.ts) are already covered by the real-pack tests in
+// optimality.test.ts and index.test.ts, so here we assert only the exclusion
+// case (avoidable big-M stays inactive).
 // ---------------------------------------------------------------------------
 export const domainTransferExclusion = {
   pack: mkPack(
@@ -451,17 +439,16 @@ export const domainTransferExclusionGolden = {
 //   r_scc_target: raw(1) + mid(1) -> target_item(1)   [targeted]
 //   r_scc_cycle:  target_item(1)  -> mid(1)            [cycle back-edge]
 //
-// The cycle creates a mass-balance dependency: mid depends on target_item, which
-// depends on mid. The target's primary output (target_item, qty=1) has demand
-// set to ratePerSec = 1/2 by the LP. Because the SCC exactly recycles mid, the
-// mass-balance equality system cannot satisfy the demand without a deficit on
-// target_item (softFeasible=false). The floor constraint (min, not equality)
-// still forces x_r_scc_target >= ratePerSec / primary.qty = 0.5. This scenario
-// directly exercises the comment in lp.ts: floor is a MIN constraint, not
-// equality, so mass-balance is not over-constrained by the pin.
+// The cycle makes mid depend on target_item, which depends on mid. The LP sets
+// target_item demand to ratePerSec = 1/2. Because the SCC exactly recycles mid,
+// the mass-balance equality system can't meet the demand without a deficit on
+// target_item (softFeasible=false). The floor (min, not equality) still forces
+// x_r_scc_target >= ratePerSec / primary.qty = 0.5. This exercises the lp.ts
+// rule that floor is a MIN constraint, not equality, so the pin doesn't
+// over-constrain mass balance.
 //
-// Golden: both SCC members run at rate 0.5 (floor is binding); deficit on
-// target_item = 0.5 from the unresolvable demand in the cycle.
+// Golden: both SCC members run at rate 0.5 (floor binding); deficit on
+// target_item = 0.5 from the unresolvable cyclic demand.
 // ---------------------------------------------------------------------------
 export const domainTransferScc = {
   pack: mkPack(
@@ -495,8 +482,8 @@ export const domainTransferScc = {
 
 export const domainTransferSccGolden = {
   // Objective dominated by deficit penalty: 1e9 * 0.5 + 0.5 + 0.5 = 500000001,
-  // but solver returns 500000000.5 due to LP floating-point rounding of the
-  // deficit variable. Use the value read directly from solveLp output.
+  // but the solver returns 500000000.5 from LP float rounding of the deficit
+  // variable. Use the value read directly from solveLp output.
   objectiveValue: 500000000.5,
   status: "feasible" as const,
   softFeasible: false,
@@ -629,18 +616,16 @@ export const deficitUnmetDemandGolden = {
 // Scenario 9: unbounded status
 //
 // Status "unbounded" is NOT reachable through solveLp with real or synthetic
-// recipe packs. Explanation:
+// packs:
 //   - All LP variables (recipe rates, surplus, deficit) are non-negative.
-//   - The objective is a MINIMIZATION with strictly positive or big-M weights:
-//     recipe costs >= 0, surplus weight 1e-3 > 0, deficit weight 1e9 > 0.
-//   - A minimization with non-negative variables and non-negative objective
-//     coefficients is bounded below by 0; it cannot go to -infinity.
-//   - The javascript-lp-solver library only emits bounded:false when the
-//     objective is unbounded in the MAX direction. solveLp uses opType:"min",
-//     so the solver never traverses the unbounded direction.
+//   - The objective is a MINIMIZATION with non-negative weights (recipe costs
+//     >= 0, surplus 1e-3, deficit 1e9), so it is bounded below by 0; it cannot
+//     go to -infinity.
+//   - javascript-lp-solver only emits bounded:false when the objective is
+//     unbounded in the MAX direction. solveLp uses opType:"min".
 //
-// Conclusion: unbounded is structurally unreachable via solveLp. We do not
-// fabricate a scenario or a fake LpResult for it.
+// So unbounded is structurally unreachable. No fabricated scenario or fake
+// LpResult for it.
 // ---------------------------------------------------------------------------
 export const SCENARIO_9_UNBOUNDED_UNREACHABLE =
   "Status 'unbounded' is unreachable via solveLp: all vars are non-negative " +
@@ -651,12 +636,12 @@ export const SCENARIO_9_UNBOUNDED_UNREACHABLE =
 // ---------------------------------------------------------------------------
 // Scenario 10: feasible-empty
 //
-// The target recipe "r_zero_out" has primary output qty=0. solveLp's target-
-// floor guard skips the pin constraint (primary.qty must be > 0). Without a
-// pin, no recipe is forced active; the LP optimal is 0 recipe runs with all
-// demand absorbed by deficit. The solver marks the problem feasible but no
-// x_recipe variable exceeds the >1e-12 threshold => rates map is empty =>
-// status === "empty". softFeasible===false because the prod deficit survives.
+// The target recipe "r_zero_out" has primary output qty=0, so solveLp's
+// target-floor guard skips the pin (primary.qty must be > 0). Without a pin no
+// recipe is forced active; the optimal is 0 recipe runs with all demand absorbed
+// by deficit. The solve is feasible but no x_recipe exceeds the >1e-12 threshold
+// => rates map empty => status === "empty". softFeasible===false because the
+// prod deficit survives.
 // ---------------------------------------------------------------------------
 export const feasibleEmpty = {
   pack: mkPack(

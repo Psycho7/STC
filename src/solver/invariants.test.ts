@@ -69,10 +69,10 @@ describe("invariants - headline plan (all checkers pass)", () => {
 });
 
 describe("checkNoOrphanLogicalNodes - headline plan", () => {
-  // The headline plan has no orphan logical nodes. The previously-known
-  // copper_enr orphan was a zero-rate producer that the SCC boundary walk
-  // materialized as a phantom replica; splitting boundary demand by LP rate and
-  // skipping zero-share producers removed it.
+  // The headline plan has no orphan logical nodes. The earlier copper_enr
+  // orphan was a zero-rate producer the SCC boundary walk materialized as a
+  // phantom replica; splitting boundary demand by LP rate and skipping
+  // zero-share producers removed it.
   it("reports no orphans on the headline plan", () => {
     const r = checkNoOrphanLogicalNodes(makeFull());
     expect(r.ok, r.violations.join("\n")).toBe(true);
@@ -82,8 +82,8 @@ describe("checkNoOrphanLogicalNodes - headline plan", () => {
 
 describe("checkMassBalance - detection power", () => {
   // Corrupt a recipe's rate (not surplus) so production/consumption no longer
-  // balances. Mutating surplus would also trip checkRawOnlyBoundary; mutating a
-  // rate isolates the mass-balance residual to this checker.
+  // balances. Mutating surplus would also trip checkRawOnlyBoundary; mutating
+  // a rate isolates the residual to this checker.
   it("flags an injected rate imbalance on a recipe", () => {
     const good = solveLp({ targets: headlineTargets, pack });
     const target = "xiranite_enr_powder";
@@ -97,10 +97,10 @@ describe("checkMassBalance - detection power", () => {
     expect(r.violations.length).toBeGreaterThan(0);
   });
 
-  // A non-raw item carrying a plan:true override is an uncapped boundary: the
-  // LP skips its mass-balance row (effectiveSupply === Infinity), so the checker
-  // must skip it too. With the old it.raw skip, the checker built a row the LP
-  // never had and reported a false-positive residual for the boundary item.
+  // A non-raw item with a plan:true override is an uncapped boundary: the LP
+  // skips its mass-balance row (effectiveSupply === Infinity), so the checker
+  // must skip it too. The old it.raw skip built a row the LP never had and
+  // reported a false-positive residual.
   it("does NOT flag a non-raw plan:true boundary item the LP left uncapped", () => {
     const p = {
       recipes: [
@@ -119,7 +119,7 @@ describe("checkMassBalance - detection power", () => {
       ],
     } as unknown as typeof pack;
     // Mark `prod` as an uncapped boundary; the LP draws it freely with no
-    // mass-balance row, so net consumption without a deficit is legitimate.
+    // mass-balance row, so net consumption without a deficit is fine.
     const overrides: ItemOverride[] = [{ itemId: "prod", plan: true }];
     const targets: Target[] = [
       { recipeId: "sink", ratePerSec: { num: "1", denom: "1" } },
@@ -162,9 +162,9 @@ describe("checkTargetsMet - detection power", () => {
 describe("checkRawOnlyBoundary - detection power", () => {
   it("flags surplus exceeding net production on a non-raw, non-overridden item", () => {
     const good = solveLp({ targets: headlineTargets, pack });
-    // xiranite_enr_powder is non-raw and is fully consumed as the target's
-    // primary output (no spare production), so a large injected surplus on it
-    // is not backed by net production and must be flagged.
+    // xiranite_enr_powder is non-raw and fully consumed as the target's primary
+    // output (no spare production), so a large injected surplus is not backed by
+    // net production and must be flagged.
     const bogusItem = "xiranite_enr_powder";
     const corrupted: LpResult = {
       ...good,
@@ -206,9 +206,9 @@ describe("checkRawOnlyBoundary - detection power", () => {
   });
 
   // A non-raw item with a finite ratePerSec override is a capped boundary:
-  // effectiveSupply returns the cap as a Fraction. Drawing external supply at
-  // or below the cap is legitimate and must NOT be flagged. The old net-based
-  // logic treated any capped item like a 0-supply item -> false positive.
+  // effectiveSupply returns the cap as a Fraction. Drawing external supply at or
+  // below the cap must NOT be flagged. The old net-based logic treated any
+  // capped item like a 0-supply item -> false positive.
   it("does NOT flag a capped-override item consumed within its cap", () => {
     const p = {
       recipes: [
@@ -243,10 +243,10 @@ describe("checkRawOnlyBoundary - detection power", () => {
     expect(r.violations).toEqual([]);
   });
 
-  // Tolerance scales with the cap magnitude. A 1e6 cap drawn at 1e6 + 0.5 is
-  // over by 0.5, far above a flat 1e-6 absolute slack but well within the
-  // magnitude-scaled slack (1e6 * 1e-6 = 1.0). It must NOT be flagged; the old
-  // flat REL_TOL would have produced a false positive here.
+  // Tolerance scales with cap magnitude. A 1e6 cap drawn at 1e6 + 0.5 is over by
+  // 0.5, above a flat 1e-6 absolute slack but within the scaled slack
+  // (1e6 * 1e-6 = 1.0). It must NOT be flagged; the old flat REL_TOL would have
+  // produced a false positive.
   it("does NOT flag a large-cap item over by less than the scaled slack", () => {
     const p = {
       recipes: [

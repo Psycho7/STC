@@ -5,11 +5,8 @@ import { defaultPlan, encodePlan } from "../../src/data/plan";
 
 // Smoke tests for the solver-cli. These call runCli() directly (no process
 // spawning) and assert on the returned string. The headline plan is a single
-// target at 0.1 items/sec, which exercises the full LP -> invariants -> optimality
-// path in a deterministic way.
-
-// NOTE: noOrphanLogicalNodes ok=false is EXPECTED on the stock pack because the
-// copper_enr graph-assembly orphan is a known, documented out-of-scope finding.
+// target at 0.1 items/sec, exercising the full LP -> invariants -> optimality
+// path deterministically.
 
 const HEADLINE_ARGV = ["--plan", "xiranite_enr_powder=0.1", "--mode", "full"];
 
@@ -38,8 +35,8 @@ describe("solver-cli smoke", () => {
 
   it("reports noOrphanLogicalNodes ok=true for the stock pack", async () => {
     const out = await runCli(HEADLINE_ARGV);
-    // The copper_enr phantom-replica orphan was resolved by the SCC boundary
-    // demand split; the headline plan now has no orphan logical nodes.
+    // The SCC boundary demand split resolved the copper_enr phantom-replica
+    // orphan, so the headline plan has no orphan logical nodes.
     expect(out).toMatch(/^noOrphanLogicalNodes ok=true/m);
   });
 
@@ -72,7 +69,7 @@ describe("solver-cli smoke", () => {
     expect(out).toMatch(/^status=feasible/m);
   });
 
-  // --- FIX 2: slash-branch validation ---
+  // --- slash-branch validation ---
 
   it("rejects zero denominator in rational rate without throwing", async () => {
     const out = await runCli(["--plan", "xiranite_enr_powder=1/0", "--mode", "rates"]);
@@ -84,25 +81,23 @@ describe("solver-cli smoke", () => {
     expect(out).toMatch(/^error:/);
   });
 
-  // --- FIX 1: flag-as-value detection ---
+  // --- flag-as-value detection ---
 
   it("rejects --plan followed immediately by a flag without throwing", async () => {
-    // --plan --mode rates: --mode would be consumed as the plan value without the fix.
+    // Without the guard, --mode would be consumed as the --plan value.
     const out = await runCli(["--plan", "--mode", "rates"]);
     expect(out).toMatch(/^error:/);
     expect(out).toContain("--plan requires a value");
   });
 
-  // --- FIX 3: non-feasible full-mode guard ---
-
-  // --- FIX: --hash threads itemOverrides into the solve ---
+  // --- --hash threads itemOverrides into the solve ---
 
   it("threads a decoded plan's itemOverrides through the --hash solve", async () => {
     // Build a plan with a plan:true override on xiranite_powder, a non-raw
-    // direct input of the headline target. The override makes that item a free
-    // boundary, so its producer chain drops out of the solve -- output the
-    // override-free --plan solve of the same target cannot reproduce. Equal
-    // output would mean the override was dropped on the --hash path.
+    // direct input of the headline target. The override frees that item as a
+    // boundary, so its producer chain drops out, which the override-free --plan
+    // solve of the same target cannot reproduce. Equal output would mean the
+    // override was dropped on the --hash path.
     const plan = defaultPlan(pack);
     plan.targets = [
       { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
@@ -120,19 +115,18 @@ describe("solver-cli smoke", () => {
 
     expect(withOverride).not.toMatch(/^error:/);
     expect(withOverride).not.toBe(noOverride);
-    // The override frees xiranite_powder, so its producer is not solved for.
+    // With the override, xiranite_powder's producer is not solved for.
     expect(noOverride).toMatch(/^xiranite_powder=/m);
     expect(withOverride).not.toMatch(/^xiranite_powder=/m);
   });
 
   it("returns clean error for full mode on unknown recipe", async () => {
-    // An unknown recipeId is rejected up front on the --plan path: the CLI
-    // validates target recipeIds against the pack and returns a clean error
-    // string instead of letting the unknown id escape into the solver.
+    // The --plan path validates target recipeIds against the pack and returns a
+    // clean error string instead of letting the unknown id reach the solver.
     const out = await runCli(["--plan", "no_such_recipe_id=1", "--mode", "full"]);
     expect(out).toMatch(/^error:/);
     expect(out).toContain('unknown recipe "no_such_recipe_id"');
-    // Must not throw -- the test itself would fail if it did.
+    // Must not throw; the test would fail if it did.
   });
 
   it("render mode produces units, edges, and render-invariants blocks", async () => {

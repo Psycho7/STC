@@ -8,8 +8,8 @@ import {
   type Plan,
 } from "./plan";
 
-// defaultPlan carries valid targets and a matching schemaVersion, so it is the
-// clean baseline every malformed-rational case mutates one field of.
+// defaultPlan carries valid targets and a matching schemaVersion, the clean
+// baseline each malformed-rational case mutates one field of.
 function basePlan(): Plan {
   return defaultPlan(pack);
 }

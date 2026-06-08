@@ -23,11 +23,10 @@ import { rationalFromString } from "./rational";
 
 export type { InvariantResult };
 
-// Relative tolerance matching the solver invariants module.
+// Relative tolerance, same value the solver invariants use.
 const REL_TOL = 1e-6;
 
-// Uniform args object shared by all render checkers so a future aggregator can
-// call them in a list without per-function signature differences.
+// Shared args object so all checkers have one signature and can be called from a list.
 export type RenderInvariantArgs = {
   plan: RenderPlan;
   rates: ReadonlyMap<RecipeId, Fraction>;
@@ -42,7 +41,7 @@ export type RenderInvariantArgs = {
 
 const FRAC_ZERO = new Fraction(0);
 
-// Build an O(1) lookup map from unit id to unit.
+// Lookup map from unit id to unit.
 export function unitById(plan: RenderPlan): Map<RenderUnitId, RenderUnit> {
   const m = new Map<RenderUnitId, RenderUnit>();
   for (const u of plan.units) {
@@ -51,8 +50,7 @@ export function unitById(plan: RenderPlan): Map<RenderUnitId, RenderUnit> {
   return m;
 }
 
-// Core: sum of out.qty * rate over recipes. When restrict is provided, only
-// recipes whose id is in the set are included.
+// Sum of out.qty * rate over recipes. With restrict, only recipes in the set count.
 function productionByItem(
   rates: ReadonlyMap<RecipeId, Fraction>,
   pack: RecipePack,
@@ -70,8 +68,7 @@ function productionByItem(
   return result;
 }
 
-// Core: sum of in.qty * rate over recipes. When restrict is provided, only
-// recipes whose id is in the set are included.
+// Sum of in.qty * rate over recipes. With restrict, only recipes in the set count.
 function consumptionByItem(
   rates: ReadonlyMap<RecipeId, Fraction>,
   pack: RecipePack,
@@ -89,7 +86,7 @@ function consumptionByItem(
   return result;
 }
 
-// Per item: sum of out.qty * rate over all recipes (exact Fraction arithmetic).
+// Per item: sum of out.qty * rate over all recipes (exact Fraction math).
 export function internalProductionByItem(
   rates: ReadonlyMap<RecipeId, Fraction>,
   pack: RecipePack,
@@ -97,7 +94,7 @@ export function internalProductionByItem(
   return productionByItem(rates, pack);
 }
 
-// Per item: sum of in.qty * rate over all recipes (exact Fraction arithmetic).
+// Per item: sum of in.qty * rate over all recipes (exact Fraction math).
 export function internalConsumptionByItem(
   rates: ReadonlyMap<RecipeId, Fraction>,
   pack: RecipePack,
@@ -105,7 +102,7 @@ export function internalConsumptionByItem(
   return consumptionByItem(rates, pack);
 }
 
-// Per item: production minus consumption (the netProduction pattern as a map).
+// Per item: production minus consumption.
 export function internalNetByItem(
   rates: ReadonlyMap<RecipeId, Fraction>,
   pack: RecipePack,
@@ -130,9 +127,8 @@ export function internalNetByItem(
 // ---------------------------------------------------------------------------
 
 /**
- * Edge endpoint integrity: every edge must reference valid unit ids, carry a
- * positive rate, and label a known item. Catches render-pipeline bugs such as
- * dropped units or mislabeled ids.
+ * Every edge must reference valid unit ids, carry a positive rate, and label a
+ * known item. Catches dropped units and mislabeled ids.
  */
 export function checkEdgeEndpointIntegrity(
   args: RenderInvariantArgs,
@@ -169,26 +165,23 @@ export function checkEdgeEndpointIntegrity(
 }
 
 /**
- * Boundary products justified: every inputProduct and outputProduct unit in the
- * render plan must correspond to a genuine boundary condition in the solve.
+ * Every inputProduct and outputProduct unit must match a real boundary
+ * condition in the solve.
  *
- * - inputProduct for X: justified iff effectiveSupply(X) is Infinity OR a
- *   finite positive (external supply exists) AND the plan actually draws X
- *   from outside, i.e. consumption(X) > production(X) beyond tolerance.
+ * - inputProduct for X: justified iff effectiveSupply(X) is Infinity or finite
+ *   positive AND the plan draws X from outside, i.e. consumption(X) >
+ *   production(X) beyond tolerance.
  *
- * - outputProduct flavor "target" for X: justified iff X is the primary output
- *   of one of the target recipes (i.e. X appears in demandByItem keys).
+ * - outputProduct "target" for X: justified iff X is the primary output of a
+ *   target recipe (X is a demandByItem key).
  *
- * - outputProduct flavor "surplus" for X: justified iff there is genuine net
- *   overproduction beyond demand: production(X) - consumption(X) - demand(X)
- *   exceeds the relative tolerance.
+ * - outputProduct "surplus" for X: justified iff genuine overproduction beyond
+ *   demand: production(X) - consumption(X) - demand(X) exceeds tolerance.
  *
- * Tolerance: relative slack = max(1, |magnitude|) * REL_TOL, consistent with
- * checkRawOnlyBoundary in the solver invariants module.
- *
- * The RF-1 bug: an internally balanced intermediate (production ~= consumption,
- * net residual within tolerance), not a target, appearing as a surplus output
- * product is the canonical violation this checker catches.
+ * Slack = max(1, |magnitude|) * REL_TOL, matching checkRawOnlyBoundary in the
+ * solver invariants. The catch this checker exists for: an internally balanced
+ * intermediate (production ~= consumption, residual within tolerance) that is
+ * not a target showing up as a phantom surplus output.
  */
 export function checkBoundaryProductsJustified(
   args: RenderInvariantArgs,
@@ -204,8 +197,8 @@ export function checkBoundaryProductsJustified(
     if (isInputProductUnit(unit)) {
       const x = unit.itemId;
       const supply = effectiveSupply(x, pack, itemOverrides as ItemOverride[]);
-      // An inputProduct is justified only when there is genuine external supply
-      // and the item is net-consumed (consumption exceeds internal production).
+      // Justified only with real external supply and net consumption (consumption
+      // exceeds internal production).
       const hasExternalSupply =
         supply === Infinity ||
         (supply instanceof Fraction && supply.compare(FRAC_ZERO) > 0);
@@ -215,7 +208,7 @@ export function checkBoundaryProductsJustified(
         );
         continue;
       }
-      // Check that the plan actually draws X from outside: consumption > production.
+      // The plan must draw X from outside: consumption > production.
       const prod = production.get(x) ?? FRAC_ZERO;
       const cons = consumption.get(x) ?? FRAC_ZERO;
       const net = cons.sub(prod); // positive means net external draw
@@ -229,18 +222,17 @@ export function checkBoundaryProductsJustified(
     } else if (isOutputProductUnit(unit)) {
       const x = unit.itemId;
       if (unit.flavor === "target") {
-        // Justified iff X is the primary output of a target recipe.
+        // Justified iff X is a target recipe's primary output.
         if (!demandOf.has(x)) {
           violations.push(
             `outputProduct (target) for "${x}": item is not the primary output of any target recipe`,
           );
         }
       } else {
-        // flavor "surplus": justified iff genuine overproduction beyond demand.
+        // "surplus": justified iff genuine overproduction beyond demand.
         const prod = production.get(x) ?? FRAC_ZERO;
         const cons = consumption.get(x) ?? FRAC_ZERO;
         const demand = demandOf.get(x) ?? 0;
-        // net surplus = production - consumption - demand
         const netSurplus = prod.sub(cons).sub(new Fraction(demand));
         const magnitude = netSurplus.valueOf();
         const slack = Math.max(1, Math.abs(magnitude)) * REL_TOL;
@@ -257,24 +249,22 @@ export function checkBoundaryProductsJustified(
 }
 
 /**
- * Internal flow conservation: for each item with visible internal production
- * AND visible internal consumption, the sum of internal-edge rates carrying
- * that item must be at least min(prodVisible, consVisible) within tolerance.
+ * For each item with visible internal production AND consumption, the sum of
+ * internal-edge rates carrying it must be at least min(prodVisible,
+ * consVisible) within tolerance.
  *
- * "Internal" edges are those whose both endpoints resolve to recipe or loop
- * units (not product units). This catches the dropped-internal-edge half of
- * bug RF-1, where the solve routes an intermediate item entirely inside the
- * plan but the render graph is missing the edge.
+ * "Internal" edges have both endpoints on recipe or loop units, not product
+ * units. This catches a dropped internal edge: the solve routes an intermediate
+ * item entirely inside the plan but the render graph is missing the edge.
  *
- * "Visible production/consumption" for an item X:
- *   - Recipe contribution: sum over recipes whose id appears in the rendered
- *     recipe units (collapsed loop-internal recipes are excluded to avoid
- *     false positives from loop-internal cycle items).
- *   - Loop unit contribution: the netIO ports on each loop unit.
+ * "Visible production/consumption" for item X:
+ *   - Recipe: sum over recipes whose id appears in the rendered recipe units
+ *     (loop-internal recipes are collapsed and excluded, to avoid false
+ *     positives from cycle items).
+ *   - Loop unit: the netIO ports.
  *
- * Shortfall-only: excess internal flow (internalSum > expected) is not
- * flagged. Items with zero visible consumption or zero visible production
- * are skipped.
+ * Shortfall-only: excess internal flow is not flagged. Items with zero visible
+ * production or consumption are skipped.
  */
 export function checkInternalFlowConservation(
   args: RenderInvariantArgs,
@@ -282,8 +272,8 @@ export function checkInternalFlowConservation(
   const { plan, rates, pack } = args;
   const violations: string[] = [];
 
-  // Set of recipeIds that have a rendered recipe unit. Loop-internal recipes
-  // are collapsed into a loop unit and do not appear here.
+  // recipeIds with a rendered recipe unit. Loop-internal recipes collapse into
+  // a loop unit and do not appear here.
   const renderedRecipeIds = new Set<RecipeId>();
   for (const u of plan.units) {
     if (isRecipeUnit(u)) {
@@ -291,8 +281,7 @@ export function checkInternalFlowConservation(
     }
   }
 
-  // Accumulate visible production and consumption restricted to rendered
-  // recipes plus loop unit netIO contributions.
+  // Visible production and consumption: rendered recipes plus loop unit netIO.
   const prodVisible = productionByItem(rates, pack, renderedRecipeIds);
   const consVisible = consumptionByItem(rates, pack, renderedRecipeIds);
 
@@ -316,7 +305,7 @@ export function checkInternalFlowConservation(
     }
   }
 
-  // Build the unit lookup and identify which units are internal (recipe or loop).
+  // Unit lookup; internal units are recipe or loop units.
   const units = unitById(plan);
   const isInternalUnit = (id: RenderUnitId): boolean => {
     const u = units.get(id);
@@ -324,7 +313,7 @@ export function checkInternalFlowConservation(
     return isRecipeUnit(u) || isLoopUnit(u);
   };
 
-  // Sum internal-edge rates per item (both endpoints must be internal units).
+  // Sum internal-edge rates per item (both endpoints internal).
   const internalSum = new Map<ItemId, Fraction>();
   for (const edge of plan.edges) {
     if (isInternalUnit(edge.fromUnit) && isInternalUnit(edge.toUnit)) {
@@ -332,7 +321,7 @@ export function checkInternalFlowConservation(
     }
   }
 
-  // Check each item that has visible activity on both sides.
+  // Check each item with visible activity on both sides.
   const allItems = new Set<ItemId>([
     ...prodVisible.keys(),
     ...consVisible.keys(),
@@ -342,12 +331,12 @@ export function checkInternalFlowConservation(
     const prod = prodVisible.get(item) ?? FRAC_ZERO;
     const cons = consVisible.get(item) ?? FRAC_ZERO;
 
-    // The expected internal flow is min(prod, cons): any excess prod goes to a
-    // boundary output product, any excess cons comes from a boundary input product.
+    // Expected internal flow is min(prod, cons): excess prod goes to a boundary
+    // output product, excess cons comes from a boundary input product.
     const expected = prod.compare(cons) <= 0 ? prod : cons;
     const slack = Math.max(1, expected.valueOf()) * REL_TOL;
 
-    // Skip items whose expected internal flow is negligible (min(prod,cons) <= slack).
+    // Skip items with negligible expected internal flow.
     if (prod.valueOf() <= slack || cons.valueOf() <= slack) continue;
 
     const actual = internalSum.get(item) ?? FRAC_ZERO;
@@ -363,23 +352,19 @@ export function checkInternalFlowConservation(
 }
 
 /**
- * Consumer inputs satisfied: for each running recipe unit, every required
- * input item must have sufficient inflow from edges that arrive at that
- * recipe's units (aggregated across all units sharing the same recipeId).
+ * For each running recipe unit, every required input item must have enough
+ * inflow from edges arriving at that recipe's units (aggregated across units
+ * sharing a recipeId). Catches a consumer fed from nothing: a recipe rendered
+ * with a required input that has no incoming edge.
  *
- * Catches the consumer half of bug RF-1: a recipe rendered with a required
- * input that has no incoming edge (fed from nothing).
+ * Aggregation by recipeId: expected intake for recipe R, item I is
+ * rates(R) * recipe.in[I].qty. Actual inflow is the sum of edge.rate over edges
+ * whose toUnit is a recipe unit with recipeId === R and edge.item === I. Both
+ * boundary (inputProduct -> recipe) and internal (recipe/loop -> recipe) edges
+ * count.
  *
- * Aggregation by recipeId: the total expected intake for recipe R and item I
- * is rates(R) * recipe.in[I].qty. The total actual inflow is the sum of
- * edge.rate over all edges whose toUnit resolves to a recipe unit with
- * recipeId === R and whose edge.item === I. Both boundary (inputProduct ->
- * recipe) and internal (recipe/loop -> recipe) edges count.
- *
- * Loop units are not checked here; their net input ports are handled by the
- * internal flow conservation checker.
- *
- * Shortfall-only: excess inflow is not flagged.
+ * Loop units are skipped; their net input ports go through the internal flow
+ * conservation checker. Shortfall-only: excess inflow is not flagged.
  */
 export function checkConsumerInputsSatisfied(
   args: RenderInvariantArgs,
@@ -387,7 +372,7 @@ export function checkConsumerInputsSatisfied(
   const { plan, rates, pack } = args;
   const violations: string[] = [];
 
-  // Build a lookup from unit id to recipeId for recipe units only.
+  // Lookup from unit id to recipeId, recipe units only.
   const recipeIdByUnitId = new Map<RenderUnitId, RecipeId>();
   for (const u of plan.units) {
     if (isRecipeUnit(u)) {
@@ -395,8 +380,8 @@ export function checkConsumerInputsSatisfied(
     }
   }
 
-  // Accumulate inflow keyed by "recipeId\0item" to avoid a map-of-maps.
-  // Only edges whose toUnit is a recipe unit are attributed.
+  // Inflow keyed by "recipeId\0item" to avoid a map-of-maps. Only edges whose
+  // toUnit is a recipe unit count.
   const inflow = new Map<string, Fraction>();
   for (const edge of plan.edges) {
     const recipeId = recipeIdByUnitId.get(edge.toUnit);
@@ -405,10 +390,9 @@ export function checkConsumerInputsSatisfied(
     inflow.set(key, (inflow.get(key) ?? FRAC_ZERO).add(edge.rate));
   }
 
-  // Distinct recipeIds present among rendered recipe units.
+  // Distinct recipeIds among rendered recipe units.
   const renderedRecipeIds = new Set(recipeIdByUnitId.values());
 
-  // Fast lookup from recipeId to recipe definition.
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
   for (const recipeId of renderedRecipeIds) {
@@ -441,24 +425,20 @@ export function checkConsumerInputsSatisfied(
 }
 
 /**
- * Consumer inputs not overfed: the mirror of checkConsumerInputsSatisfied. For
- * each running recipe unit, the aggregated inbound edge rate for a required
- * input item must not EXCEED the expected intake rates(R) * recipe.in[I].qty
- * beyond the relative tolerance.
+ * Mirror of checkConsumerInputsSatisfied. For each running recipe unit, the
+ * aggregated inbound edge rate for a required input must not exceed the
+ * expected intake rates(R) * recipe.in[I].qty beyond tolerance.
  *
- * Catches the over-connection half of the render-replication defect family: a
- * consumer wired to more producer flow than it consumes (double-feeding), e.g.
- * a per-consumer producer that fans the same item into a single consumer stamp
- * more than once, or an over-replicated producer whose surplus is mis-routed
- * back into a live consumer.
+ * Catches over-connection: a consumer wired to more producer flow than it
+ * consumes (double-feeding), e.g. a producer fanning the same item into one
+ * consumer stamp twice, or an over-replicated producer whose surplus is
+ * misrouted back into a live consumer.
  *
- * Aggregation by recipeId mirrors checkConsumerInputsSatisfied exactly: inflow
- * is keyed by "recipeId\0item" over edges whose toUnit resolves to a recipe
- * unit; both boundary (inputProduct -> recipe) and internal (recipe/loop ->
- * recipe) edges count. Loop units are not checked here.
+ * Aggregation by recipeId mirrors checkConsumerInputsSatisfied: inflow keyed by
+ * "recipeId\0item" over edges whose toUnit is a recipe unit; boundary and
+ * internal edges count. Loop units are skipped.
  *
- * Excess-only: shortfall (actual < expected) is not flagged here; that is the
- * job of checkConsumerInputsSatisfied.
+ * Excess-only: shortfall is left to checkConsumerInputsSatisfied.
  */
 export function checkConsumerInputsNotOverfed(
   args: RenderInvariantArgs,
@@ -466,7 +446,7 @@ export function checkConsumerInputsNotOverfed(
   const { plan, rates, pack } = args;
   const violations: string[] = [];
 
-  // Build a lookup from unit id to recipeId for recipe units only.
+  // Lookup from unit id to recipeId, recipe units only.
   const recipeIdByUnitId = new Map<RenderUnitId, RecipeId>();
   for (const u of plan.units) {
     if (isRecipeUnit(u)) {
@@ -474,8 +454,8 @@ export function checkConsumerInputsNotOverfed(
     }
   }
 
-  // Accumulate inflow keyed by "recipeId\0item" to avoid a map-of-maps.
-  // Only edges whose toUnit is a recipe unit are attributed.
+  // Inflow keyed by "recipeId\0item" to avoid a map-of-maps. Only edges whose
+  // toUnit is a recipe unit count.
   const inflow = new Map<string, Fraction>();
   for (const edge of plan.edges) {
     const recipeId = recipeIdByUnitId.get(edge.toUnit);
@@ -484,10 +464,9 @@ export function checkConsumerInputsNotOverfed(
     inflow.set(key, (inflow.get(key) ?? FRAC_ZERO).add(edge.rate));
   }
 
-  // Distinct recipeIds present among rendered recipe units.
+  // Distinct recipeIds among rendered recipe units.
   const renderedRecipeIds = new Set(recipeIdByUnitId.values());
 
-  // Fast lookup from recipeId to recipe definition.
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
   for (const recipeId of renderedRecipeIds) {
@@ -520,21 +499,17 @@ export function checkConsumerInputsNotOverfed(
 }
 
 /**
- * Target outputs satisfied: for each target recipe, the declared target rate of
- * its primary output item X must be delivered by edges arriving at the target
- * output-product unit (`u:out:<X>`). Catches the under-feeding of a target
- * output edge, the dual of checkBoundaryProductsJustified (which only verifies
- * such a unit EXISTS, not that it is FED).
+ * For each target recipe, the declared rate of its primary output X must be
+ * delivered by edges arriving at the target output-product unit (`u:out:<X>`).
+ * Catches an under-fed target output edge. checkBoundaryProductsJustified only
+ * verifies such a unit exists, not that it is fed.
  *
- * `declared` for X is the sum over targets sharing X of their ratePerSec,
- * mirroring how boundary-products computes `targetRateByItem`.
+ * `declared` for X is the sum of ratePerSec over targets sharing X, the same
+ * way boundary-products builds targetRateByItem. `actual` is the sum of
+ * edge.rate over edges whose toUnit is `u:out:<X>` and item is X.
  *
- * `actual` is the sum of edge.rate over edges whose toUnit is `u:out:<X>` and
- * whose item is X.
- *
- * Shortfall-only: a violation is raised iff actual < declared - slack, with
- * slack = max(1, declared) * REL_TOL. Excess is left to the over-connection
- * checkers.
+ * Shortfall-only: violation iff actual < declared - slack, slack =
+ * max(1, declared) * REL_TOL. Excess is left to the over-connection checkers.
  */
 export function checkTargetOutputsSatisfied(
   args: RenderInvariantArgs,
@@ -544,7 +519,7 @@ export function checkTargetOutputsSatisfied(
 
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
-  // declared target rate per primary-output item.
+  // Declared target rate per primary-output item.
   const declaredByItem = new Map<ItemId, Fraction>();
   for (const t of targets) {
     const recipe = recipeById.get(t.recipeId);
@@ -555,7 +530,7 @@ export function checkTargetOutputsSatisfied(
     declaredByItem.set(outItem, (declaredByItem.get(outItem) ?? FRAC_ZERO).add(rate));
   }
 
-  // actual inflow into each target output-product unit, keyed by item.
+  // Actual inflow into each target output-product unit, keyed by item.
   const actualByItem = new Map<ItemId, Fraction>();
   for (const edge of plan.edges) {
     const declared = declaredByItem.get(edge.item);
@@ -583,10 +558,9 @@ export function checkTargetOutputsSatisfied(
 }
 
 /**
- * Orphan units: every recipe unit must have a positive rate in rates.
- * A recipe unit whose recipeId is absent from rates, or whose rate is <= 0,
- * is an orphan - the render pipeline materialized a unit the solver did not
- * actually run.
+ * Every recipe unit must have a positive rate. A unit whose recipeId is absent
+ * from rates, or whose rate is <= 0, is an orphan: the render pipeline
+ * materialized a unit the solver never ran.
  */
 export function checkNoOrphanUnits(
   args: RenderInvariantArgs,
@@ -608,8 +582,8 @@ export function checkNoOrphanUnits(
 }
 
 /**
- * Run all seven render invariant checkers and return their results in stable
- * order. Mirrors the solver debug surface that lists verdicts per checker.
+ * Run all seven render invariant checkers in stable order. Mirrors the solver
+ * debug surface that lists a verdict per checker.
  */
 export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
   return [
@@ -624,9 +598,8 @@ export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
 }
 
 /**
- * Assert all render invariants. Throws a single Error aggregating every
- * violation found across all seven checkers. Mirrors assertInvariants in the
- * solver invariants module.
+ * Assert all render invariants. Throws one Error aggregating every violation
+ * across the seven checkers. Mirrors assertInvariants in the solver invariants.
  */
 export function assertRenderInvariants(args: RenderInvariantArgs): void {
   const violations = checkRenderPlan(args).flatMap((r) => r.violations);

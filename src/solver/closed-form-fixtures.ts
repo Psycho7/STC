@@ -1,9 +1,8 @@
-// Hand-authored closed-form fixtures, adopted from prototype 001
-// (tools/oracle/fixtures), stripped of all GLPK/FactorioLab fields. Each fixture
-// declares its expected answer in STC-native terms, derived by hand and
-// independent of solveLp's own output, so a systematically-wrong solver cannot
-// pass by agreeing with itself. solveLp uses per-EXECUTION stoich; recipe `time`
-// does NOT enter the mass balance, so expected rates are exec/sec.
+// Hand-authored closed-form fixtures. Each declares its expected answer in
+// STC-native terms, derived by hand and independent of solveLp's output, so a
+// systematically-wrong solver cannot pass by agreeing with itself. solveLp uses
+// per-execution stoich; recipe `time` does NOT enter the mass balance, so
+// expected rates are exec/sec.
 
 import type { Item, Recipe, RecipePack, Stoich } from "@aef/schema";
 import type { Target } from "../data/targets";
@@ -155,10 +154,9 @@ const rawDraw: ClosedFormFixture = {
 };
 
 // Axis 5: cyclic target (2-cycle). make_F: M -> F; make_M: F -> M. No external
-// source of M or F. The target "1 F/sec" is UNSATISFIABLE: make_F pins at 1 to
+// source of M or F. The target "1 F/sec" is unsatisfiable: make_F pins at 1 to
 // balance F demand, but its M input cannot be sourced, so the shortfall lands as
-// a DEFICIT ON M. softFeasible=false. This is the STC-0005 ratified
-// honest-infeasibility contract (spec item 4).
+// a deficit on M. softFeasible=false (honest-infeasibility contract).
 const cyclicTarget: ClosedFormFixture = {
   name: "cyclic-target",
   pack: makePack(
