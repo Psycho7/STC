@@ -124,10 +124,9 @@ describe("render corpus: RF-1 regression", () => {
 // (multi-target).
 //
 // After isInvariantThrow classification (below) the swept population is green
-// and three deferred buckets are excluded and pinned as xfail tests below (each
+// and two deferred buckets are excluded and pinned as xfail tests below (each
 // asserts the plan still throws its dev invariant and will start failing once
 // the defect is fixed):
-//   - proc_battery_5+xiranite_enr_powder (multi-target render inbound-fan-out),
 //   - copper_enr+liquid_xiranite_enr (multi-target solver mass-balance residual),
 //   - 34 transfer_tundra_* single-target plans (DEFERRED_TUNDRA), each tripping
 //     the SOLVER dev invariant with the same mass-balance residual (~6.67e-4),
@@ -174,15 +173,31 @@ const MULTI_TARGET_PLANS: ReadonlyArray<{
   //     chain consumes -> non-shared per-consumer double-mint.
   { name: "carbon_enr+equip_script_4", recipeIds: ["carbon_enr", "equip_script_4"] },
   { name: "iron_nugget-iron_ore+bottled_food_2", recipeIds: ["iron_nugget-iron_ore", "bottled_food_2"] },
+  // Phantom surplus from production split across render units. The surplus pass
+  // differenced produced-vs-outgoing per unit and kept only positive residuals,
+  // so when an item's production splits across units -- a loop recipe torn across
+  // SCC sibling units, or a target item co-produced by an SCC and a leaf recipe
+  // -- one unit's positive residual surfaced as an amber surplus while the
+  // matching per-unit deficit was clamped away. Net production for the item is
+  // exactly its genuine surplus (zero here), so the leftover is phantom. The
+  // surplus pass now emits the genuine surplus (production - consumption -
+  // demand) per item, the same quantity checkBoundaryProductsJustified validates.
+  //   - proc_battery_5+xiranite_enr_powder: liquid_xiranite_poly / lowpoly are
+  //     non-target loop intermediates torn across SCC siblings.
+  //   - copper_powder+equip_script_4: crystal_powder, a non-target loop item with
+  //     a degenerate sub-tolerance residual.
+  //   - carbon_powder-plant_grass_powder_2+plant_grass_2: plant_grass_2 is a
+  //     TARGET loop item.
+  //   - iron_nugget-iron_powder+jinlong_coupon-proc_battery_5: iron_nugget is a
+  //     TARGET item co-produced by an SCC and a separate leaf recipe.
+  { name: "copper_powder+equip_script_4", recipeIds: ["copper_powder", "equip_script_4"] },
+  { name: "carbon_powder-plant_grass_powder_2+plant_grass_2", recipeIds: ["carbon_powder-plant_grass_powder_2", "plant_grass_2"] },
+  { name: "iron_nugget-iron_powder+jinlong_coupon-proc_battery_5", recipeIds: ["iron_nugget-iron_powder", "jinlong_coupon-proc_battery_5"] },
 ];
 
 // Known, still-open defects. Excluded from the green sweep and pinned as xfail
 // tests below (each passes now because the plan still fails, and will start
 // failing once the defect is fixed):
-//   - proc_battery_5+xiranite_enr_powder (multi-target): assemble.ts
-//     inbound/intra edge fan-out fails to split SCC consumer stamps (the
-//     liquid_xiranite / lowpoly / poly many-to-many wiring), so the render dev
-//     assertion throws.
 //   - copper_enr+liquid_xiranite_enr (multi-target): solver mass-balance
 //     residual (~2.4e-4 on liquid_sewage) trips the solver dev invariant.
 //   - 34 transfer_tundra_* single-target plans (DEFERRED_TUNDRA below): each
@@ -194,7 +209,6 @@ const MULTI_TARGET_PLANS: ReadonlyArray<{
 //     solve+render clean and stay in the green sweep, hence an explicit name set
 //     rather than a prefix match.
 const KNOWN_DEFERRED: ReadonlySet<string> = new Set([
-  "proc_battery_5+xiranite_enr_powder",
   "copper_enr+liquid_xiranite_enr",
 ]);
 
@@ -364,29 +378,11 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
     ).toEqual([]);
   });
 
-  // xfail pins for the two known-deferred multi-target plans. Each asserts the
-  // plan currently fails (the dev assertion throws), so these tests pass now and
-  // document the known-bad state. They will start failing once the defect is
+  // xfail pin for the known-deferred multi-target plan. Asserts the plan
+  // currently fails (the dev assertion throws), so this test passes now and
+  // documents the known-bad state. It will start failing once the defect is
   // fixed.
   //
-  // proc_battery_5+xiranite_enr_powder: assemble.ts inbound/intra edge fan-out
-  // fails to split SCC consumer stamps (liquid_xiranite / lowpoly / poly
-  // many-to-many wiring), so renderPlanFromSolve throws the render dev assertion.
-  it("xfail (deferred): proc_battery_5+xiranite_enr_powder still throws render invariants", () => {
-    const targets: Target[] = ["proc_battery_5", "xiranite_enr_powder"].map(
-      (recipeId) => ({ recipeId, ratePerSec: { num: "1", denom: "1" } }),
-    );
-    expect(() => {
-      const full = solvePlanWithIntermediates(
-        targets,
-        pack,
-        defaultTransportConfig,
-        [],
-      );
-      renderPlanFromSolve(full, pack, targets, []);
-    }).toThrow(/render invariants violated/);
-  });
-
   // copper_enr+liquid_xiranite_enr: solver mass-balance residual (~2.4e-4 on
   // liquid_sewage) trips the solver dev invariant assertion in
   // solvePlanWithIntermediates.
