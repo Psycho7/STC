@@ -713,19 +713,93 @@ export function deriveBoundaryProducts(
     const k = unitItemKey(unitId, item);
     outgoingByUnitItem.set(k, (outgoingByUnitItem.get(k) ?? new Fraction(0)).add(rate));
   }
+  // Emit surplus = the genuine overproduction per item, exactly what
+  // checkBoundaryProductsJustified validates: production - consumption - demand
+  // over the whole plan. Vertex execution rates sum to the LP rates per the
+  // machine-count invariant, so this matches the checker's LP-based formula.
+  // Differencing per render unit and keeping only positive residuals overstated
+  // this whenever an item's production is split across units -- a loop recipe
+  // torn across SCC sibling units, or a target item co-produced by an SCC and a
+  // separate leaf recipe -- because the matching per-unit deficit was clamped
+  // away, surfacing a phantom amber surplus. Per-unit positive residuals now only
+  // pick which producing units the surplus edges emanate from; the emitted total
+  // can never exceed the genuine surplus.
+  const producedByItem = new Map<ItemId, Fraction>();
+  const positivesByItem = new Map<
+    ItemId,
+    Array<{ unitId: RenderUnitId; rate: Fraction }>
+  >();
   for (const [key, produced] of producedByUnitItem) {
     const sep = key.indexOf("\0");
     const unitId = key.slice(0, sep) as RenderUnitId;
     const item = key.slice(sep + 1);
-    const outgoing = outgoingByUnitItem.get(key) ?? new Fraction(0);
-    const surplus = produced.sub(outgoing);
-    if (surplus.compare(0) <= 0) continue;
-    surplusByItem.set(
+    producedByItem.set(
       item,
-      (surplusByItem.get(item) ?? new Fraction(0)).add(surplus),
+      (producedByItem.get(item) ?? new Fraction(0)).add(produced),
     );
+    const residual = produced.sub(outgoingByUnitItem.get(key) ?? new Fraction(0));
+    if (residual.compare(0) > 0) {
+      const arr = positivesByItem.get(item) ?? [];
+      arr.push({ unitId, rate: residual });
+      positivesByItem.set(item, arr);
+    }
+  }
+  const consumedByItem = new Map<ItemId, Fraction>();
+  for (const v of machineGraph.vertices) {
+    if (isMachineRecipeVertex(v)) {
+      const recipe = recipeById.get(v.recipeId);
+      if (!recipe) continue;
+      for (const inp of recipe.in)
+        consumedByItem.set(
+          inp.item,
+          (consumedByItem.get(inp.item) ?? new Fraction(0)).add(
+            v.executionRate.mul(new Fraction(inp.qty)),
+          ),
+        );
+    } else if (isMachineSccVertex(v)) {
+      for (const p of v.netIO)
+        if (p.direction === "in")
+          consumedByItem.set(
+            p.item,
+            (consumedByItem.get(p.item) ?? new Fraction(0)).add(p.rate),
+          );
+    }
+  }
+  // REL_TOL mirrors checkBoundaryProductsJustified: a surplus within
+  // max(1,|magnitude|)*REL_TOL of zero is a degenerate-rate / solver residual,
+  // not a genuine byproduct, and the checker would flag it as an RF-1 phantom.
+  const REL_TOL = 1e-6;
+  for (const [item, produced] of producedByItem) {
+    const genuine = produced
+      .sub(consumedByItem.get(item) ?? new Fraction(0))
+      .sub(targetRateByItem.get(item) ?? new Fraction(0));
+    const genuineVal = genuine.valueOf();
+    if (genuineVal <= Math.max(1, Math.abs(genuineVal)) * REL_TOL) continue;
+    const positives = positivesByItem.get(item) ?? [];
+    const positiveSum = positives.reduce(
+      (acc, p) => acc.add(p.rate),
+      new Fraction(0),
+    );
+    surplusByItem.set(item, genuine);
     const arr = surplusContributors.get(item) ?? [];
-    arr.push({ unitId, rate: surplus });
+    // Attribute the surplus edges to the over-producing units (positive
+    // residual), scaled to sum to the genuine surplus. A genuine surplus has at
+    // least one such unit; recapture-netted items can have none, so fall back to
+    // producer share.
+    if (positiveSum.compare(0) > 0) {
+      for (const p of positives) {
+        const rate = genuine.mul(p.rate).div(positiveSum);
+        if (rate.compare(0) > 0) arr.push({ unitId: p.unitId, rate });
+      }
+    } else {
+      for (const [key, prod] of producedByUnitItem) {
+        const sep = key.indexOf("\0");
+        if (key.slice(sep + 1) !== item) continue;
+        const rate = genuine.mul(prod).div(produced);
+        if (rate.compare(0) > 0)
+          arr.push({ unitId: key.slice(0, sep) as RenderUnitId, rate });
+      }
+    }
     surplusContributors.set(item, arr);
   }
   const sortedSurplusItems = [...surplusByItem.keys()].sort();
