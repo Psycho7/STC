@@ -83,6 +83,13 @@ type ReplicateState = {
   readonly sccCreated: Set<SccId>;
   readonly apShared: Map<RecipeId, Replica>;
   readonly byproductShared: Map<RecipeId, Replica>;
+  // Non-SCC target recipes seeded as a full-rate replica in walkFromTargets. A
+  // target is the authoritative full-LP-rate replica of its recipe (the LP rate
+  // already covers the target's own output plus every internal consumer), so a
+  // later reach of it as a producer reuses this replica instead of minting a
+  // second copy. Without it a target that is also an upstream producer of another
+  // target over-replicates its whole chain ~2x.
+  readonly targetSeeded: Map<RecipeId, Replica>;
   readonly sccMemberReplicas: Map<SccId, Map<RecipeId, ReplicaId>>;
 
   // Lookup tables.
@@ -177,6 +184,7 @@ function createReplicateState(args: {
     sccCreated: new Set(),
     apShared: new Map(),
     byproductShared: new Map(),
+    targetSeeded: new Map(),
     sccMemberReplicas: new Map(),
     sccById,
     targetRecipeIds,
@@ -655,6 +663,19 @@ function processProducer(
   const producerRecipe = state.g.nodes.get(producerId);
   if (!consumerRecipe || !producerRecipe) return;
 
+  // Seeded-target producer: this recipe is also a target, already materialized
+  // once at the full LP rate (which covers its own target output plus every
+  // internal consumer). Reuse that replica and mark it shared so
+  // assembleLogicalGraph fans its output to this consumer too, instead of minting
+  // a second copy that would double-produce the item and spill the leftover as a
+  // phantom surplus. Covers a target that is also an articulation point or a
+  // plain per-consumer producer; the byproduct-shared overlap is deduped at seed.
+  const seededTarget = state.targetSeeded.get(producerId);
+  if (seededTarget) {
+    seededTarget.sharedAtArticulation = true;
+    return;
+  }
+
   // SCC producer: emit the shared SCC member replicas lazily. No per-consumer
   // recursion into individual members; ensureSccReplicas queues the boundary
   // edges.
@@ -806,10 +827,12 @@ function walkFromTargets(state: ReplicateState): void {
     // reuses it instead of re-walking the chain; the shared flag also fans its
     // byproduct output to every SCC consumer.
     //
-    // Only the byproduct-shared overlap is deduped here. A target that is also a
-    // plain articulation point would still be double-minted by the AP-shared
-    // branch in processProducer (it runs first and consults only apShared). No
-    // such target exists in the current pack; generalize to apShared if one does.
+    // The byproduct-shared overlap is deduped here so the shared flag is set
+    // before the SCC boundary reach. Every OTHER target-that-is-also-a-producer
+    // overlap (the target is an articulation point, or a plain per-consumer
+    // producer) is deduped lazily by the targetSeeded guard at the top of
+    // processProducer, which reuses this replica and marks it shared on first
+    // reach instead of minting a second copy.
     const isByproductShared = state.byproductSharedSources.has(recipeId);
     const rep: Replica = {
       id: newReplicaId(state, `r:${recipeId}`),
@@ -821,6 +844,7 @@ function walkFromTargets(state: ReplicateState): void {
     };
     state.replicas.push(rep);
     if (isByproductShared) state.byproductShared.set(recipeId, rep);
+    state.targetSeeded.set(recipeId, rep);
     state.stack.push({
       consumerId: recipeId,
       consumerReplicaId: rep.id,

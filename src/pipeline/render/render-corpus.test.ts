@@ -164,6 +164,16 @@ const MULTI_TARGET_PLANS: ReadonlyArray<{
     name: "crystal_powder-crystal_shell+crystal_shell-crystal_powder",
     recipeIds: ["crystal_powder-crystal_shell", "crystal_shell-crystal_powder"],
   },
+  // A target recipe that is ALSO an upstream producer of another target. The
+  // seed loop registers a target only in the byproductShared cache, so a target
+  // reached again as a producer is minted a second time and its whole chain
+  // over-replicates ~2x. Two sub-cases of the same gap:
+  //   - carbon_enr is a (trivial-SCC) articulation producer of the carbon_enr
+  //     that equip_script_4's xiranite chain consumes -> AP-shared double-mint.
+  //   - iron_nugget-iron_ore produces the iron_nugget that bottled_food_2's
+  //     chain consumes -> non-shared per-consumer double-mint.
+  { name: "carbon_enr+equip_script_4", recipeIds: ["carbon_enr", "equip_script_4"] },
+  { name: "iron_nugget-iron_ore+bottled_food_2", recipeIds: ["iron_nugget-iron_ore", "bottled_food_2"] },
 ];
 
 // Known, still-open defects. Excluded from the green sweep and pinned as xfail
