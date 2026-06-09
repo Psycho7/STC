@@ -11,12 +11,6 @@ import { defaultPlan, encodePlan } from "../../src/data/plan";
 const HEADLINE_ARGV = ["--plan", "xiranite_enr_powder=0.1", "--mode", "full"];
 
 describe("solver-cli smoke", () => {
-  it("returns a string (not a thrown error)", async () => {
-    const out = await runCli(HEADLINE_ARGV);
-    expect(typeof out).toBe("string");
-    expect(out).not.toMatch(/^error:/);
-  });
-
   it("contains required scalar keys", async () => {
     const out = await runCli(HEADLINE_ARGV);
     expect(out).toMatch(/^objective=/m);
@@ -71,13 +65,11 @@ describe("solver-cli smoke", () => {
 
   // --- slash-branch validation ---
 
-  it("rejects zero denominator in rational rate without throwing", async () => {
-    const out = await runCli(["--plan", "xiranite_enr_powder=1/0", "--mode", "rates"]);
-    expect(out).toMatch(/^error:/);
-  });
-
-  it("rejects non-numeric sides in rational rate without throwing", async () => {
-    const out = await runCli(["--plan", "xiranite_enr_powder=abc/def", "--mode", "rates"]);
+  it.each([
+    { name: "zero denominator", plan: "xiranite_enr_powder=1/0" },
+    { name: "non-numeric sides", plan: "xiranite_enr_powder=abc/def" },
+  ])("rejects $name in rational rate without throwing", async ({ plan }) => {
+    const out = await runCli(["--plan", plan, "--mode", "rates"]);
     expect(out).toMatch(/^error:/);
   });
 

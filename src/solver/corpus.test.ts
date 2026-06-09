@@ -42,7 +42,6 @@ import {
   costMinusOneSinkExclusionGolden,
   deficitUnmetDemand,
   deficitUnmetDemandGolden,
-  SCENARIO_9_UNBOUNDED_UNREACHABLE,
   feasibleEmpty,
   feasibleEmptyGolden,
 } from "./corpus";
@@ -339,20 +338,6 @@ describe("Scenario 8: deficit (unmet demand)", () => {
     expect(activeList(result)).toEqual(deficitUnmetDemandGolden.activeRecipes);
     // "missing_item" has a positive deficit.
     expect(result.deficit.has(deficitUnmetDemandGolden.deficitItem)).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 9: unbounded (documented as structurally unreachable)
-// ---------------------------------------------------------------------------
-describe("Scenario 9: unbounded status", () => {
-  it("documents why 'unbounded' is unreachable via solveLp", () => {
-    // Non-negative vars + non-negative objective coefficients + opType:'min'
-    // bound the objective below by 0. javascript-lp-solver only emits
-    // bounded:false when maximizing, so "unbounded" is unreachable through
-    // solveLp for any recipe pack.
-    expect(SCENARIO_9_UNBOUNDED_UNREACHABLE).toContain("bounded below by 0");
-    expect(SCENARIO_9_UNBOUNDED_UNREACHABLE).toContain("minimization");
   });
 });
 

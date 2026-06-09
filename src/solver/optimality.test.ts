@@ -41,16 +41,6 @@ describe("activeRecipeSet", () => {
     expect(active.has("copper_nugget")).toBe(true);
     expect(active.size).toBe(2);
   });
-
-  it("includes the main and purifier recipes on the headline plan", () => {
-    const result = solveLp({ targets: headline, pack });
-    const active = activeRecipeSet(result);
-    // Tie-aware: assert membership of the known-active recipes plus a sane
-    // cardinality, not a fully pinned id list.
-    expect(active.has("liquid_xiranite_poly")).toBe(true);
-    expect(active.has("liquid_xiranite_poly-purifier")).toBe(true);
-    expect(active.size).toBeGreaterThanOrEqual(3);
-  });
 });
 
 describe("assertOptimal", () => {

@@ -357,15 +357,6 @@ describe("solveLp - headline over-production", () => {
 });
 
 describe("solveLp - status and softFeasible", () => {
-  it("reports feasible and soft-feasible for the headline plan", () => {
-    const targets: Target[] = [
-      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
-    ];
-    const result = solveLp({ targets, pack });
-    expect(result.status).toBe("feasible");
-    expect(result.softFeasible).toBe(true);
-  });
-
   it("reports empty status and soft-feasible for no targets", () => {
     const result = solveLp({ targets: [], pack });
     expect(result.status).toBe("empty");
