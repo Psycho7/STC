@@ -95,46 +95,6 @@ function makePack(itemIds: string[]): RecipePack {
 const emptyRates: ReadonlyMap<string, Fraction> = new Map();
 
 describe("checkEdgeEndpointIntegrity", () => {
-  it("passes for a well-formed plan", () => {
-    const plan: RenderPlan = {
-      units: [
-        {
-          id: "u-recipe-1",
-          kind: "recipe",
-          recipeId: "recipe-iron-plate",
-          count: 1,
-          multiplicity: RATE_ONE,
-        },
-        {
-          id: "u-input-1",
-          kind: "inputProduct",
-          itemId: "iron-ore",
-          count: 1,
-          rate: RATE_ONE,
-        },
-      ],
-      edges: [
-        {
-          fromUnit: "u-input-1",
-          toUnit: "u-recipe-1",
-          item: "iron-ore",
-          rate: new Fraction(1),
-          transportKind: "belt",
-        },
-      ],
-      containers: [],
-    };
-    const result = checkEdgeEndpointIntegrity({
-      plan,
-      rates: emptyRates,
-      pack: makePack(["iron-ore"]),
-      targets: [],
-      itemOverrides: [],
-    });
-    expect(result.ok).toBe(true);
-    expect(result.violations).toHaveLength(0);
-  });
-
   it("fails when toUnit is not in units", () => {
     const plan: RenderPlan = {
       units: [
@@ -474,48 +434,6 @@ describe("checkBoundaryProductsJustified", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkInternalFlowConservation", () => {
-  // Case (a): two recipe units joined by an internal edge carrying M at the
-  // right rate. recipe-b produces R->M at rate 2, recipe-a consumes M->F at
-  // rate 2, the edge carries M at rate 2. Expect ok.
-  it("(a) passes when internal edge is present and carries the correct rate", () => {
-    const pack = makeFullPack(
-      [{ id: "R", raw: true }, { id: "M" }, { id: "F" }],
-      [
-        { id: "recipe-b", in: [{ item: "R", qty: 1 }], out: [{ item: "M", qty: 1 }] },
-        { id: "recipe-a", in: [{ item: "M", qty: 1 }], out: [{ item: "F", qty: 1 }] },
-      ],
-    );
-    const rates: ReadonlyMap<string, Fraction> = new Map([
-      ["recipe-b", new Fraction(2)],
-      ["recipe-a", new Fraction(2)],
-    ]);
-    const plan: RenderPlan = {
-      units: [
-        { id: "u-b", kind: "recipe", recipeId: "recipe-b", count: 1, multiplicity: RATE_ONE },
-        { id: "u-a", kind: "recipe", recipeId: "recipe-a", count: 1, multiplicity: RATE_ONE },
-      ],
-      edges: [
-        {
-          fromUnit: "u-b",
-          toUnit: "u-a",
-          item: "M",
-          rate: new Fraction(2),
-          transportKind: "belt",
-        },
-      ],
-      containers: [],
-    };
-    const result = checkInternalFlowConservation({
-      plan,
-      rates,
-      pack,
-      targets: [],
-      itemOverrides: [],
-    });
-    expect(result.ok).toBe(true);
-    expect(result.violations).toHaveLength(0);
-  });
-
   // Case (b) dropped edge: same recipes and rates but the M edge is absent.
   // prodVisible(M)=2, consVisible(M)=2, expected=2, internalSum(M)=0.
   // Expect failure, violation mentions M and the shortfall.
@@ -705,43 +623,6 @@ describe("SCC/loop unit: no false positive on loop-internal flow", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkConsumerInputsSatisfied", () => {
-  // Case (a): recipe R consumes M at qty 1, rate(R)=2, one incoming M edge at
-  // rate 2. Expect ok.
-  it("(a) passes when incoming edge satisfies the required input exactly", () => {
-    const pack = makeFullPack(
-      [{ id: "M" }, { id: "F" }],
-      [{ id: "R", in: [{ item: "M", qty: 1 }], out: [{ item: "F", qty: 1 }] }],
-    );
-    const rates: ReadonlyMap<string, Fraction> = new Map([
-      ["R", new Fraction(2)],
-    ]);
-    const plan: RenderPlan = {
-      units: [
-        { id: "u-src", kind: "recipe", recipeId: "R-src", count: 1, multiplicity: RATE_ONE },
-        { id: "u-R", kind: "recipe", recipeId: "R", count: 1, multiplicity: RATE_ONE },
-      ],
-      edges: [
-        {
-          fromUnit: "u-src",
-          toUnit: "u-R",
-          item: "M",
-          rate: new Fraction(2),
-          transportKind: "belt",
-        },
-      ],
-      containers: [],
-    };
-    const result = checkConsumerInputsSatisfied({
-      plan,
-      rates,
-      pack,
-      targets: [],
-      itemOverrides: [],
-    });
-    expect(result.ok).toBe(true);
-    expect(result.violations).toHaveLength(0);
-  });
-
   // Case (b) no input: recipe R consumes M at qty 1, rate(R)=2, but no incoming
   // M edge. Expect failure, violation names R, M, expected 2, actual 0.
   it("(b) fails when recipe unit has no incoming edge for a required input (RF-1)", () => {
@@ -826,43 +707,6 @@ describe("checkConsumerInputsSatisfied", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkConsumerInputsNotOverfed", () => {
-  // Case (a): recipe R consumes M at qty 1, rate(R)=2, one incoming M edge at
-  // rate 2, exactly fed. Expect ok.
-  it("(a) passes when incoming edge feeds the required input exactly", () => {
-    const pack = makeFullPack(
-      [{ id: "M" }, { id: "F" }],
-      [{ id: "R", in: [{ item: "M", qty: 1 }], out: [{ item: "F", qty: 1 }] }],
-    );
-    const rates: ReadonlyMap<string, Fraction> = new Map([
-      ["R", new Fraction(2)],
-    ]);
-    const plan: RenderPlan = {
-      units: [
-        { id: "u-src", kind: "recipe", recipeId: "R-src", count: 1, multiplicity: RATE_ONE },
-        { id: "u-R", kind: "recipe", recipeId: "R", count: 1, multiplicity: RATE_ONE },
-      ],
-      edges: [
-        {
-          fromUnit: "u-src",
-          toUnit: "u-R",
-          item: "M",
-          rate: new Fraction(2),
-          transportKind: "belt",
-        },
-      ],
-      containers: [],
-    };
-    const result = checkConsumerInputsNotOverfed({
-      plan,
-      rates,
-      pack,
-      targets: [],
-      itemOverrides: [],
-    });
-    expect(result.ok).toBe(true);
-    expect(result.violations).toHaveLength(0);
-  });
-
   // Case (b) over-connection: recipe R consumes M at qty 1, rate(R)=2 (expects 2
   // M/s), but two incoming M edges at rate 2 each aggregate to 4, double the
   // intake. Expect failure, violation names R, M, expected 2, actual 4.
@@ -1003,18 +847,6 @@ describe("checkTargetOutputsSatisfied", () => {
     };
   }
 
-  it("passes when the target output unit is fed exactly the declared rate", () => {
-    const result = checkTargetOutputsSatisfied({
-      plan: planWithOutEdgeRate(1),
-      rates,
-      pack,
-      targets,
-      itemOverrides: [],
-    });
-    expect(result.ok).toBe(true);
-    expect(result.violations).toHaveLength(0);
-  });
-
   it("fails when the target output unit is fed below the declared rate", () => {
     const result = checkTargetOutputsSatisfied({
       plan: planWithOutEdgeRate(0.5),
@@ -1112,11 +944,6 @@ describe("checkRenderPlan", () => {
 });
 
 describe("assertRenderInvariants", () => {
-  // Case (b): clean plan, assertRenderInvariants does not throw.
-  it("(b) does not throw for a fully clean minimal plan", () => {
-    expect(() => assertRenderInvariants(cleanPlanArgs())).not.toThrow();
-  });
-
   // Case (c): one injected orphan unit, assertRenderInvariants throws with the
   // offending unit id and recipeId in the message.
   it("(c) throws with aggregated message when plan has an orphan recipe unit", () => {

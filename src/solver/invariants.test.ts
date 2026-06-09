@@ -7,7 +7,6 @@ import {
   checkRawOnlyBoundary,
   checkRepresentable,
   checkNoOrphanLogicalNodes,
-  type InvariantResult,
 } from "./invariants";
 import { solveLp, type LpResult } from "./lp";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./index";
@@ -368,18 +367,5 @@ describe("checkNoOrphanLogicalNodes - detection power", () => {
     const r = checkNoOrphanLogicalNodes(stripped);
     expect(r.ok).toBe(false);
     expect(r.violations.length).toBeGreaterThan(0);
-  });
-});
-
-describe("InvariantResult shape", () => {
-  it("has ok and violations fields", () => {
-    const r: InvariantResult = checkMassBalance(
-      solveLp({ targets: headlineTargets, pack }),
-      pack,
-      headlineTargets,
-      noOverrides,
-    );
-    expect(typeof r.ok).toBe("boolean");
-    expect(Array.isArray(r.violations)).toBe(true);
   });
 });

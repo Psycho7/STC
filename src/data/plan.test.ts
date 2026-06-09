@@ -27,57 +27,60 @@ describe("validatePlan - rational wire fields", () => {
     expect(validatePlan(plan, pack)).toBeNull();
   });
 
-  it("rejects a target rate with a zero denominator", () => {
-    const plan = basePlan();
-    plan.targets = [
-      { recipeId: plan.targets[0]!.recipeId, ratePerSec: { num: "1", denom: "0" } },
-    ];
-    expect(validatePlan(plan, pack)?.kind).toBe("invalid-rational");
-  });
-
-  it("rejects a target rate with a non-numeric numerator", () => {
-    const plan = basePlan();
-    plan.targets = [
-      {
-        recipeId: plan.targets[0]!.recipeId,
-        ratePerSec: { num: "abc", denom: "1" },
+  // Each row mutates one field of a clean basePlan() to carry one malformed
+  // rational; all must fail validation with kind "invalid-rational".
+  it.each([
+    {
+      name: "a target rate with a zero denominator",
+      mutate: (plan: Plan) => {
+        plan.targets = [
+          { recipeId: plan.targets[0]!.recipeId, ratePerSec: { num: "1", denom: "0" } },
+        ];
       },
-    ];
-    expect(validatePlan(plan, pack)?.kind).toBe("invalid-rational");
-  });
-
-  it("rejects a negative target rate", () => {
-    const plan = basePlan();
-    plan.targets = [
-      {
-        recipeId: plan.targets[0]!.recipeId,
-        ratePerSec: { num: "-5", denom: "2" },
+    },
+    {
+      name: "a target rate with a non-numeric numerator",
+      mutate: (plan: Plan) => {
+        plan.targets = [
+          { recipeId: plan.targets[0]!.recipeId, ratePerSec: { num: "abc", denom: "1" } },
+        ];
       },
-    ];
-    expect(validatePlan(plan, pack)?.kind).toBe("invalid-rational");
-  });
-
-  it("rejects an item-override cap with a negative denominator", () => {
+    },
+    {
+      name: "a negative target rate",
+      mutate: (plan: Plan) => {
+        plan.targets = [
+          { recipeId: plan.targets[0]!.recipeId, ratePerSec: { num: "-5", denom: "2" } },
+        ];
+      },
+    },
+    {
+      name: "an item-override cap with a negative denominator",
+      mutate: (plan: Plan) => {
+        plan.itemOverrides = [
+          { itemId: pack.items[0]!.id, ratePerSec: { num: "1", denom: "-2" } },
+        ];
+      },
+    },
+    {
+      name: "an item-override cap with a zero denominator",
+      mutate: (plan: Plan) => {
+        plan.itemOverrides = [
+          { itemId: pack.items[0]!.id, ratePerSec: { num: "1", denom: "0" } },
+        ];
+      },
+    },
+    {
+      name: "a recipeCost with a zero denominator",
+      mutate: (plan: Plan) => {
+        plan.recipeCosts = new Map([
+          [plan.targets[0]!.recipeId, { num: "1", denom: "0" }],
+        ]);
+      },
+    },
+  ])("rejects $name", ({ mutate }) => {
     const plan = basePlan();
-    plan.itemOverrides = [
-      { itemId: pack.items[0]!.id, ratePerSec: { num: "1", denom: "-2" } },
-    ];
-    expect(validatePlan(plan, pack)?.kind).toBe("invalid-rational");
-  });
-
-  it("rejects an item-override cap with a zero denominator", () => {
-    const plan = basePlan();
-    plan.itemOverrides = [
-      { itemId: pack.items[0]!.id, ratePerSec: { num: "1", denom: "0" } },
-    ];
-    expect(validatePlan(plan, pack)?.kind).toBe("invalid-rational");
-  });
-
-  it("rejects a recipeCost with a zero denominator", () => {
-    const plan = basePlan();
-    plan.recipeCosts = new Map([
-      [plan.targets[0]!.recipeId, { num: "1", denom: "0" }],
-    ]);
+    mutate(plan);
     expect(validatePlan(plan, pack)?.kind).toBe("invalid-rational");
   });
 
