@@ -614,6 +614,140 @@ export function checkNoOrphanUnits(
 }
 
 /**
+ * Per-unit Kirchhoff check on producer outflow. Every checker above aggregates
+ * consumer inflow by recipeId or item; none verifies that a render unit ships
+ * no more of an item than it produces. A dropped co-product edge on one sibling
+ * replica leaves the surviving edge over-billed past its producer's capacity,
+ * and a phantom target edge can drain a unit with no real spare; both pass all
+ * the inflow checkers because the consumer side still balances.
+ *
+ * Per-unit production of item X for a recipe unit is derived from its rational
+ * machine count: production = multiplicity * (machineSpeed / recipe.time) *
+ * out.qty. This equals the unit's share of the LP execution rate (the LP rate
+ * is the sum over the units of one recipe), validated against the machine-graph
+ * execution rates. Machine speed comes from the recipe's first producer; an
+ * absent producer or machine defaults speed to 1, the only value the pack uses.
+ *
+ * Two clauses, both relative-tolerance:
+ *   (a) For each recipe unit and each item it produces, the total outgoing edge
+ *       rate of that item from the unit must not exceed the unit's production of
+ *       that item. Catches the over-billed surviving edge.
+ *   (b) Per item, summed over all recipe units, total production must equal the
+ *       total outgoing edge rate from recipe units. Edges into outputProduct
+ *       units of either flavor ("surplus" and "target") count as ordinary
+ *       shipment, so a balanced byproduct that ships its full output into a
+ *       surplus node is clean. Catches production that vanishes off the graph
+ *       with no compensating over-bill elsewhere. (When a vanish is paired with
+ *       an over-bill on the same item the two cancel here and clause (a) is what
+ *       fires; clause (b) is the cheap complement for vanish-without-over-bill.)
+ *
+ * Loop units are skipped: their recipes collapse and have no multiplicity, and
+ * their boundary-crossing flow goes through checkInternalFlowConservation.
+ */
+export function checkUnitOutflowVsProduction(
+  args: RenderInvariantArgs,
+): InvariantResult {
+  const { plan, pack } = args;
+  const violations: string[] = [];
+
+  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const machineById = new Map(pack.machines.map((m) => [m.id, m]));
+
+  const speedOf = (recipe: (typeof pack.recipes)[number]): Fraction => {
+    const producerId = recipe.producers[0];
+    const machine =
+      producerId === undefined ? undefined : machineById.get(producerId);
+    return machine ? new Fraction(machine.speed) : new Fraction(1);
+  };
+
+  // The set of recipe-unit ids, so clause (b) sums outgoing edges only from
+  // recipe units (boundary and loop units do not produce here).
+  const recipeUnitIds = new Set<RenderUnitId>();
+  // Per-unit production of each item, keyed by "unitId\0item".
+  const producedByUnitItem = new Map<string, Fraction>();
+  // Per-item total production, summed over recipe units.
+  const producedByItem = new Map<ItemId, Fraction>();
+
+  for (const unit of plan.units) {
+    if (!isRecipeUnit(unit)) continue;
+    recipeUnitIds.add(unit.id);
+    const recipe = recipeById.get(unit.recipeId);
+    if (!recipe) continue;
+    const multiplicity = rationalFromString(unit.multiplicity);
+    const time = new Fraction(recipe.time);
+    const execRate = multiplicity.mul(speedOf(recipe)).div(time);
+    for (const o of recipe.out) {
+      const produced = execRate.mul(new Fraction(o.qty));
+      const key = `${unit.id}\0${o.item}`;
+      producedByUnitItem.set(
+        key,
+        (producedByUnitItem.get(key) ?? FRAC_ZERO).add(produced),
+      );
+      producedByItem.set(
+        o.item,
+        (producedByItem.get(o.item) ?? FRAC_ZERO).add(produced),
+      );
+    }
+  }
+
+  // Outgoing edge rate per "unitId\0item" and per item, restricted to edges
+  // leaving a recipe unit. Edges into outputProduct units of either flavor
+  // ("surplus" and "target") are ordinary shipments and counted here.
+  const outgoingByUnitItem = new Map<string, Fraction>();
+  const outgoingByItem = new Map<ItemId, Fraction>();
+  for (const edge of plan.edges) {
+    if (!recipeUnitIds.has(edge.fromUnit)) continue;
+    const key = `${edge.fromUnit}\0${edge.item}`;
+    outgoingByUnitItem.set(
+      key,
+      (outgoingByUnitItem.get(key) ?? FRAC_ZERO).add(edge.rate),
+    );
+    outgoingByItem.set(
+      edge.item,
+      (outgoingByItem.get(edge.item) ?? FRAC_ZERO).add(edge.rate),
+    );
+  }
+
+  // Clause (a): no unit ships more of an item than it produces.
+  for (const [key, produced] of producedByUnitItem) {
+    const sep = key.indexOf("\0");
+    const unitId = key.slice(0, sep);
+    const item = key.slice(sep + 1);
+    const outgoing = outgoingByUnitItem.get(key) ?? FRAC_ZERO;
+    const producedVal = produced.valueOf();
+    const outgoingVal = outgoing.valueOf();
+    const slack = Math.max(1, producedVal) * REL_TOL;
+    if (outgoingVal > producedVal + slack) {
+      violations.push(
+        `unit "${unitId}" item "${item}": outgoing ${outgoingVal} exceeds production ${producedVal} (over-billed producer edge)`,
+      );
+    }
+  }
+
+  // Clause (b): per item, total production must equal total outgoing edge rate
+  // from recipe units. Catches production that vanishes off the graph without a
+  // compensating over-bill (an over-bill cancels here and clause (a) fires).
+  const itemsB = new Set<ItemId>([
+    ...producedByItem.keys(),
+    ...outgoingByItem.keys(),
+  ]);
+  for (const item of itemsB) {
+    const produced = producedByItem.get(item) ?? FRAC_ZERO;
+    const outgoing = outgoingByItem.get(item) ?? FRAC_ZERO;
+    const producedVal = produced.valueOf();
+    const outgoingVal = outgoing.valueOf();
+    const slack = Math.max(1, producedVal, outgoingVal) * REL_TOL;
+    if (Math.abs(producedVal - outgoingVal) > slack) {
+      violations.push(
+        `item "${item}": production ${producedVal} != outgoing ${outgoingVal} (production vanished without a compensating over-bill)`,
+      );
+    }
+  }
+
+  return { ok: violations.length === 0, violations };
+}
+
+/**
  * Run all seven render invariant checkers in stable order. Mirrors the solver
  * debug surface that lists a verdict per checker.
  */
