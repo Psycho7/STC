@@ -1,5 +1,6 @@
+import Fraction from "fraction.js";
 import type { Recipe, RecipePack } from "@aef/schema";
-import type { RecipeGraph, RecipeEdge } from "./types";
+import type { RecipeGraph, RecipeEdge, RecipeId } from "./types";
 import { UnknownRecipeError } from "./types";
 import type { Target } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
@@ -206,4 +207,73 @@ export function buildRecipeGraphMulti(
   itemOverrides?: ItemOverride[],
 ): RecipeGraph {
   return buildGraph(targets, pack, itemOverrides, true);
+}
+
+// Close graph membership over the LP support. The walk above only reaches
+// recipes whose output some consumer demands, so a recipe the LP runs purely to
+// absorb co-product overproduction (a disposal absorber) never becomes a node
+// and the render omits a machine the plan requires. After the LP solves, add
+// every positive-rate non-excluded recipe missing from the graph and wire
+// producer edges to its inputs. Two-phase (nodes first, then edges) so a chain
+// of off-graph recipes wires among its own members. Wiring is inputs-only: an
+// absorber's output is by definition undemanded, so no edge ever leaves an
+// augmented node toward a pre-existing one. Mutates g in place: the
+// pipeline hands the same graph object to every downstream stage, and a
+// copy-and-return variant that misses one consumer splits the pipeline across
+// two graphs with no error. Returns the added recipe ids.
+export function augmentGraphWithLpSupport(
+  g: RecipeGraph,
+  rates: Map<RecipeId, Fraction>,
+  pack: RecipePack,
+  targets: Target[],
+  itemOverrides?: ItemOverride[],
+): Set<RecipeId> {
+  const targetIds = new Set(targets.map((t) => t.recipeId));
+  const overrides = itemOverrides ?? [];
+  const added = new Set<RecipeId>();
+
+  for (const r of pack.recipes) {
+    const rate = rates.get(r.id);
+    if (!rate || rate.compare(0) <= 0) continue;
+    if (g.nodes.has(r.id)) continue;
+    // Excluded producers are sanctioned-absent by checkRepresentable; keep the
+    // augmentation aligned with that contract.
+    if (isExcludedProducer(r)) continue;
+    g.nodes.set(r.id, r);
+    g.outgoing.set(r.id, []);
+    g.incoming.set(r.id, []);
+    added.add(r.id);
+  }
+
+  for (const id of added) {
+    const consumer = g.nodes.get(id)!;
+    for (const inp of consumer.in) {
+      // Same boundary rule as the walk: an unlimited-supply item is a raw
+      // boundary feed, not an internal edge.
+      if (effectiveSupply(inp.item, pack, overrides) === Infinity) continue;
+      for (const [pid, producer] of g.nodes) {
+        // Unlike the walk, skip self-edges: a recipe consuming its own output
+        // nets the flow internally and a self-loop adds nothing downstream.
+        if (pid === id) continue;
+        if (!producer.out.some((o) => o.item === inp.item)) continue;
+        // Same exclusion rule as the walk's edge attachment. An augmented node
+        // is non-excluded by construction, so chains stay wireable.
+        if (isExcludedProducer(producer) && !targetIds.has(pid)) continue;
+        const already = (g.outgoing.get(pid) ?? []).some(
+          (e) => e.target === id && e.item === inp.item,
+        );
+        if (already) continue;
+        const edge: RecipeEdge = {
+          id: `${pid}:${inp.item}->${id}`,
+          source: pid,
+          target: id,
+          item: inp.item,
+        };
+        g.outgoing.get(pid)!.push(edge);
+        g.incoming.get(id)!.push(edge);
+      }
+    }
+  }
+
+  return added;
 }
