@@ -170,7 +170,9 @@ export function checkEdgeEndpointIntegrity(
  *
  * - inputProduct for X: justified iff effectiveSupply(X) is Infinity or finite
  *   positive AND the plan draws X from outside, i.e. consumption(X) >
- *   production(X) beyond tolerance.
+ *   production(X) - declaredTargetDemand(X) beyond tolerance. Production
+ *   claimed by a declared target draw never feeds internal consumers, so it is
+ *   subtracted before the comparison.
  *
  * - outputProduct "target" for X: justified iff X is the primary output of a
  *   target recipe (X is a demandByItem key).
@@ -208,10 +210,16 @@ export function checkBoundaryProductsJustified(
         );
         continue;
       }
-      // The plan must draw X from outside: consumption > production.
+      // The plan must draw X from outside: consumption > production left
+      // after the declared target draw. Target-claimed production never feeds
+      // internal consumers, so a raw-also-target item with cons < prod can
+      // still be a justified boundary input.
       const prod = production.get(x) ?? FRAC_ZERO;
       const cons = consumption.get(x) ?? FRAC_ZERO;
-      const net = cons.sub(prod); // positive means net external draw
+      const targetDemand = new Fraction(demandOf.get(x) ?? 0);
+      const availRaw = prod.sub(targetDemand);
+      const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
+      const net = cons.sub(availProd); // positive means net external draw
       const magnitude = net.valueOf();
       const slack = Math.max(1, Math.abs(magnitude)) * REL_TOL;
       if (net.valueOf() <= slack) {
@@ -250,8 +258,10 @@ export function checkBoundaryProductsJustified(
 
 /**
  * For each item with visible internal production AND consumption, the sum of
- * internal-edge rates carrying it must be at least min(prodVisible,
- * consVisible) within tolerance.
+ * internal-edge rates carrying it must be at least
+ * max(0, min(prodVisible - declaredTargetDemand, consVisible)) within
+ * tolerance. Production claimed by a declared target output product is
+ * unavailable for internal routing, so it is subtracted before the min.
  *
  * "Internal" edges have both endpoints on recipe or loop units, not product
  * units. This catches a dropped internal edge: the solve routes an intermediate
@@ -269,8 +279,25 @@ export function checkBoundaryProductsJustified(
 export function checkInternalFlowConservation(
   args: RenderInvariantArgs,
 ): InvariantResult {
-  const { plan, rates, pack } = args;
+  const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
+
+  // Declared target rate per primary-output item, built like
+  // checkTargetOutputsSatisfied: production delivered to a target output
+  // product is unavailable for internal routing.
+  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const declaredByItem = new Map<ItemId, Fraction>();
+  for (const t of targets) {
+    const recipe = recipeById.get(t.recipeId);
+    if (!recipe) continue;
+    const outItem = recipe.out[0]?.item;
+    if (outItem === undefined) continue;
+    const rate = rationalFromString(t.ratePerSec);
+    declaredByItem.set(
+      outItem,
+      (declaredByItem.get(outItem) ?? FRAC_ZERO).add(rate),
+    );
+  }
 
   // recipeIds with a rendered recipe unit. Loop-internal recipes collapse into
   // a loop unit and do not appear here.
@@ -331,9 +358,14 @@ export function checkInternalFlowConservation(
     const prod = prodVisible.get(item) ?? FRAC_ZERO;
     const cons = consVisible.get(item) ?? FRAC_ZERO;
 
-    // Expected internal flow is min(prod, cons): excess prod goes to a boundary
-    // output product, excess cons comes from a boundary input product.
-    const expected = prod.compare(cons) <= 0 ? prod : cons;
+    // Expected internal flow is min(prod - targetDemand, cons) clamped at
+    // zero: target-claimed production never routes internally, excess prod
+    // beyond that goes to a boundary output product, excess cons comes from a
+    // boundary input product. The clamp guards a solver under-production.
+    const targetDemand = declaredByItem.get(item) ?? FRAC_ZERO;
+    const availRaw = prod.sub(targetDemand);
+    const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
+    const expected = availProd.compare(cons) <= 0 ? availProd : cons;
     const slack = Math.max(1, expected.valueOf()) * REL_TOL;
 
     // Skip items with negligible expected internal flow.

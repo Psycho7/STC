@@ -421,3 +421,173 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 1B regression: a RAW item that is ALSO a declared target (e.g. iron_ore in
+// iron_ore+bottled_food_2) used to render with its entire production routed to
+// u:out:<item> and ZERO inflow for its internal consumers (no u:in unit, no
+// boundary edge). The recapture pass now reconciles raw-also-target items with
+// a target-demand-adjusted pool, so consumers draw their deficit from the
+// boundary while the target keeps its declared rate.
+// ---------------------------------------------------------------------------
+describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
+  function renderClean(targets: Target[]) {
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const results = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    });
+    return { plan, violations: results.flatMap((r) => r.violations) };
+  }
+
+  it("iron_ore+bottled_food_2 feeds iron_nugget-iron_ore from the boundary", () => {
+    const targets: Target[] = [
+      { recipeId: "iron_ore", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "bottled_food_2", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const { plan, violations } = renderClean(targets);
+    expect(violations).toEqual([]);
+    // The boundary input unit for iron_ore must exist alongside the target
+    // output unit (dual render: input FIRST, target output LAST).
+    const inUnits = plan.units.filter(
+      (u) => u.kind === "inputProduct" && u.itemId === "iron_ore",
+    );
+    expect(inUnits.length).toBeGreaterThan(0);
+    const outUnits = plan.units.filter(
+      (u) => u.kind === "outputProduct" && u.itemId === "iron_ore",
+    );
+    expect(outUnits.length).toBe(1);
+  });
+
+  it("carbon_enr+liquid_water renders clean (consumption < production case)", () => {
+    const targets: Target[] = [
+      { recipeId: "carbon_enr", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "liquid_water", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const { violations } = renderClean(targets);
+    expect(violations).toEqual([]);
+  });
+
+  it("quartz_sand+bottled_food_1 renders clean", () => {
+    const targets: Target[] = [
+      { recipeId: "quartz_sand", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "bottled_food_1", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const { violations } = renderClean(targets);
+    expect(violations).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Seeded-target co-producer regression: when a target item is co-produced by
+// its own target recipe (pinned at full LP rate by the targetSeeded dedup) and
+// a non-target sibling, splitConsumerDemand used to shrink the sibling to its
+// proportional share, cascading half-rate (or share-rate) vertices down its
+// whole upstream chain and starving the target output.
+// ---------------------------------------------------------------------------
+const MC_TOL = new Fraction(1, 1000000);
+
+function machineCountGaps(targets: Target[]) {
+  const full = solvePlanWithIntermediates(
+    targets,
+    pack,
+    defaultTransportConfig,
+    [],
+  );
+  const out = renderPlanFromSolve(full, pack, targets, []);
+  const vtx = new Map<string, Fraction>();
+  for (const v of out.machineGraph.vertices)
+    if (isMachineRecipeVertex(v))
+      vtx.set(
+        v.recipeId,
+        (vtx.get(v.recipeId) ?? new Fraction(0)).add(v.executionRate),
+      );
+  const gaps: string[] = [];
+  for (const [rid, lp] of full.rates) {
+    const s = vtx.get(rid) ?? new Fraction(0);
+    if (s.sub(lp).abs().compare(MC_TOL) > 0)
+      gaps.push(`${rid}: vtxSum ${s.toFraction()} != lpRate ${lp.toFraction()}`);
+  }
+  const results = checkRenderPlan({
+    plan: out.plan,
+    rates: full.rates,
+    pack,
+    targets,
+    itemOverrides: [],
+  });
+  return { gaps, violations: results.flatMap((r) => r.violations) };
+}
+
+describe("render corpus: seeded-target co-producer keeps siblings at LP rate", () => {
+  it("carbon_enr_powder co-produced by target + sibling replicates at LP rates", () => {
+    const targets: Target[] = [
+      {
+        recipeId: "carbon_enr_powder-plant_moss_enr_powder_1",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+      { recipeId: "carbon_enr", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const { gaps, violations } = machineCountGaps(targets);
+    expect(gaps).toEqual([]);
+    expect(violations).toEqual([]);
+  });
+
+  it("carbon_powder target with equip_script_4 replicates at LP rates", () => {
+    const targets: Target[] = [
+      {
+        recipeId: "carbon_powder-plant_moss_powder_1",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const { gaps, violations } = machineCountGaps(targets);
+    expect(gaps).toEqual([]);
+    expect(violations).toEqual([]);
+  });
+
+  // SCC-resident variant: the target recipe lives inside a production loop
+  // (iron_nugget<->iron_powder) and co-produces iron_nugget with a non-SCC
+  // sibling (iron_nugget-iron_ore). The SCC member ships zero of that output
+  // across the boundary (its whole production is the loop plus the target
+  // output role), so its declared draw must zero its split weight; otherwise
+  // the sibling is share-shrunk and under-fed (vtxSum 221/11 != lpRate 21).
+  it("SCC-resident target co-producing with an external sibling replicates at LP rates", () => {
+    const targets: Target[] = [
+      { recipeId: "iron_nugget-iron_powder", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "bottled_food_2", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const { gaps, violations } = machineCountGaps(targets);
+    expect(gaps).toEqual([]);
+    expect(violations).toEqual([]);
+  });
+});
+
+describe("render corpus: SCC member input dual-fed intra and externally", () => {
+  // crystal_shell<->crystal_powder loop: the target member's crystal_powder
+  // demand is part-fed intra-SCC over the torn arc (191/1784) and part-fed by
+  // the external crystal_powder-originium_powder (1593/1784). The boundary
+  // recursion must mint the external producer net of the intra share; minting
+  // it at the member's full rate over-feeds it and its upstream chain and
+  // surfaces the intra share as a phantom crystal_powder surplus.
+  it("crystal SCC replicates the external powder producer at LP rate", () => {
+    const targets: Target[] = [
+      {
+        recipeId: "crystal_shell-crystal_powder",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const { gaps, violations } = machineCountGaps(targets);
+    expect(gaps).toEqual([]);
+    expect(violations).toEqual([]);
+  });
+});
