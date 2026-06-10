@@ -4,7 +4,7 @@ import type { Recipe, RecipePack } from "@aef/schema";
 import type { TransportConfig } from "../data/transport-config";
 import type { Target } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
-import { buildRecipeGraphMulti } from "./graph";
+import { augmentGraphWithLpSupport, buildRecipeGraphMulti } from "./graph";
 import { tarjanScc, condense } from "./scc";
 import { solveLp, type LpResult, type LpSolver } from "./lp";
 import { articulationPoints } from "./bctree";
@@ -133,8 +133,6 @@ function runSolvePipeline(
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
   const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
-  const sccs = tarjanScc(g);
-  const c = condense(g, sccs);
   const lpResult = solver({
     targets,
     pack,
@@ -143,6 +141,32 @@ function runSolvePipeline(
   });
   assertSolvable(lpResult.status);
   const rates = lpResult.rates;
+  // Close graph membership over the LP support before any graph-derived
+  // structure is computed: a disposal absorber the LP runs is unreachable from
+  // the target cone and would otherwise be missing from the render entirely.
+  const augmented = augmentGraphWithLpSupport(
+    g,
+    rates,
+    pack,
+    targets,
+    itemOverrides,
+  );
+  const sccs = tarjanScc(g);
+  const c = condense(g, sccs);
+  if (import.meta.env.DEV && augmented.size > 0) {
+    // The seeding path treats augmented nodes as singleton SCCs. A mutual cycle
+    // among augmented nodes would route them into the SCC machinery unseeded;
+    // fail loud instead of replicating it wrong.
+    for (const scc of sccs) {
+      if (scc.recipeIds.length <= 1) continue;
+      const hit = scc.recipeIds.find((id) => augmented.has(id));
+      if (hit !== undefined) {
+        throw new Error(
+          `augmented LP-support recipe ${hit} inside multi-member SCC ${scc.id}`,
+        );
+      }
+    }
+  }
   const aps = articulationPoints(g);
   const rawReplicas = replicatePerConsumer({
     g,
@@ -150,6 +174,7 @@ function runSolvePipeline(
     rates,
     condensation: c,
     targets,
+    augmented,
   });
   const { replicas, classByReplicaId, classToQuotient } = runBisim(
     g,

@@ -9,7 +9,7 @@
 // producer to the live consumer stamp, so iron_nugget triggers no render
 // violation.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import Fraction from "fraction.js";
 import { CLOSED_FORM_FIXTURES } from "../../solver/closed-form-fixtures";
 import { solvePlanWithIntermediates } from "../../solver/index";
@@ -18,6 +18,8 @@ import type { Target } from "../../data/targets";
 import { renderPlanFromSolve } from "../driver";
 import { assertRenderInvariants, checkRenderPlan } from "./invariants";
 import { pack } from "../../data/load";
+import { checkRepresentable, checkMassBalance } from "../../solver/invariants";
+import { solveLp } from "../../solver/lp";
 import { loadPlan } from "../../data/plan";
 import { planToSolverArgs } from "../../solver/planToSolverArgs";
 import { isMachineRecipeVertex } from "../types";
@@ -589,5 +591,94 @@ describe("render corpus: SCC member input dual-fed intra and externally", () => 
     const { gaps, violations } = machineCountGaps(targets);
     expect(gaps).toEqual([]);
     expect(violations).toEqual([]);
+  });
+});
+
+describe("render corpus: LP-support closure renders disposal absorbers", () => {
+  // copper_bottle: the LP disposes of over-produced copper_nugget through it,
+  // but no target cone reaches it. Before the closure the render omitted the
+  // machine (machine-count gap) and emitted a phantom copper_nugget surplus.
+  it("copper_nugget disposal plan renders copper_bottle and goes fully clean", () => {
+    const targets: Target[] = [
+      { recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const { gaps, violations } = machineCountGaps(targets);
+    expect(gaps).toEqual([]);
+    expect(violations).toEqual([]);
+
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    expect(checkRepresentable(full).violations).toEqual([]);
+  });
+
+  // The off-graph CHAIN case: originium_powder -> originium_enr_powder ->
+  // proc_battery_5 are all LP-active and all unreachable from the target cone.
+  // This is the only plan that augments the whole chain (augSize == 3), and it
+  // also activates the four AP-flip recipes (carbon_enr, liquid_xiranite,
+  // liquid_xiranite_poly, xiranite_powder) whose articulation status the closure
+  // shifts. The closure renders every augmented recipe and never drops a
+  // previously-correct machine.
+  //
+  // This exact target pair also carries a pre-existing LP-solver mass-balance
+  // residual on originium_powder (~1.2e-6, net -1/833333), the same deferred
+  // solver-residual class pinned as xfail above (transfer_tundra,
+  // copper_enr+liquid_xiranite_enr). The residual is solver-side and orthogonal
+  // to graph membership: solveLp returns it for this plan with or without the
+  // closure, and no residual-free xiranite plan exercises this chain. Under DEV
+  // (the default in tests) solvePlanWithIntermediates runs assertInvariants and
+  // the render driver runs the render-invariant hook, both of which throw on
+  // that tolerated residual before any render-level contract can be asserted.
+  //
+  // To assert the render-level contract the closure exists to satisfy, this test
+  // stubs DEV off for the duration of the solve+render (vi.stubEnv("DEV",
+  // false)), which skips both dev hooks so machineCountGaps and
+  // solvePlanWithIntermediates return normally. The finally block restores the
+  // env so no other test is affected. gaps == [] pins every recipe in the LP
+  // support at vtxSum == lpRate -- the three augmented off-graph chain recipes
+  // AND the four AP-flip recipes -- and violations == [] covers all seven render
+  // checkers. The deferred solver residual is kept visible by checking the raw
+  // LpResult directly: it must be the only mass-balance violation and must name
+  // originium_powder, never a missing-node augmentation failure.
+  it("xiranite chain plan augments and renders the off-graph originium chain", () => {
+    const targets: Target[] = [
+      { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+      {
+        recipeId: "liquid_xiranite_poly-purifier",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+    ];
+
+    vi.stubEnv("DEV", false);
+    try {
+      // DEV is off here, so neither the solver dev assertion nor the render dev
+      // hook throws on the deferred residual; the render-level contract runs.
+      const { gaps, violations } = machineCountGaps(targets);
+      expect(gaps).toEqual([]);
+      expect(violations).toEqual([]);
+
+      const full = solvePlanWithIntermediates(
+        targets,
+        pack,
+        defaultTransportConfig,
+        [],
+      );
+      expect(checkRepresentable(full).violations).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    // The deferred solver residual stays visible and is the only mass-balance
+    // violation: it must name originium_powder and must not be a missing-node
+    // augmentation failure.
+    const lp = solveLp({ targets, pack, itemOverrides: [] });
+    const mb = checkMassBalance(lp, pack, targets, []);
+    expect(mb.violations.length).toBe(1);
+    expect(mb.violations[0]).toMatch(/originium_powder/);
+    expect(mb.violations[0]).not.toMatch(/has no node in the logical graph/);
   });
 });
