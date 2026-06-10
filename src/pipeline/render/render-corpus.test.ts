@@ -682,3 +682,188 @@ describe("render corpus: LP-support closure renders disposal absorbers", () => {
     expect(mb.violations[0]).not.toMatch(/has no node in the logical graph/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Torn-arc regression: intra-SCC demand apportionment.
+//
+// The liquid_xiranite_poly SCC has two live producers of liquid_xiranite_poly
+// (recipes liquid_xiranite_poly and liquid_xiranite_poly-purifier) feeding the
+// intra consumer xiranite_poly AND the cross-boundary consumer
+// xiranite_enr_powder. assignSplitRoles billed EVERY producer the intra
+// consumer's whole demand, driving each producer's cross flow negative; the
+// clamp then zeroed every deliverer and the rendered graph fed
+// xiranite_enr_powder ZERO liquid_xiranite_poly while the LP routes 5x its
+// rate. The fix apportions each intra consumer's demand across the live
+// producers by produced flow, so cross flow stays nonnegative and the
+// deliverers jointly carry the cross demand in production ratio.
+// ---------------------------------------------------------------------------
+describe("torn-arc regression: intra-SCC demand apportionment", () => {
+  const TORN_PLANS: ReadonlyArray<{ name: string; targets: Target[] }> = [
+    {
+      name: "P1",
+      targets: [
+        { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+        {
+          recipeId: "jinlong_coupon-xiranite_enr_powder",
+          ratePerSec: { num: "1", denom: "1" },
+        },
+      ],
+    },
+    {
+      name: "P2",
+      targets: [
+        { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+        {
+          recipeId: "jinlong_coupon-xiranite_enr_powder",
+          ratePerSec: { num: "1", denom: "1" },
+        },
+      ],
+    },
+    {
+      name: "P3",
+      targets: [
+        { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+        { recipeId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "27" } },
+      ],
+    },
+    {
+      name: "P4",
+      targets: [
+        { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+        { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+        {
+          recipeId: "jinlong_coupon-xiranite_enr_powder",
+          ratePerSec: { num: "1", denom: "1" },
+        },
+      ],
+    },
+    {
+      name: "P5",
+      targets: [
+        { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+        { recipeId: "liquid_xiranite_enr", ratePerSec: { num: "1", denom: "27" } },
+      ],
+    },
+  ];
+
+  // Sum the rendered inflow of liquid_xiranite_poly into every recipe unit whose
+  // recipeId is xiranite_enr_powder (its consumer outside the SCC). The
+  // xiranite_enr_powder recipe needs 5 liquid_xiranite_poly per execution, so the
+  // LP-implied inflow is 5 * its LP rate.
+  function liquidInflowIntoEnr(targets: Target[]): {
+    inflow: Fraction;
+    expected: Fraction;
+  } {
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const enrUnitIds = new Set(
+      plan.units
+        .filter((u) => u.kind === "recipe" && u.recipeId === "xiranite_enr_powder")
+        .map((u) => u.id),
+    );
+    let inflow = new Fraction(0);
+    for (const e of plan.edges) {
+      if (e.item !== "liquid_xiranite_poly") continue;
+      if (enrUnitIds.has(e.toUnit)) inflow = inflow.add(e.rate);
+    }
+    const enrRate = full.rates.get("xiranite_enr_powder") ?? new Fraction(0);
+    return { inflow, expected: enrRate.mul(5) };
+  }
+
+  for (const { name, targets } of TORN_PLANS) {
+    it(`${name}: clean and feeds xiranite_enr_powder its LP liquid demand`, () => {
+      const full = solvePlanWithIntermediates(
+        targets,
+        pack,
+        defaultTransportConfig,
+        [],
+      );
+      const { plan } = renderPlanFromSolve(full, pack, targets, []);
+      const violations = checkRenderPlan({
+        plan,
+        rates: full.rates,
+        pack,
+        targets,
+        itemOverrides: [],
+      }).flatMap((r) => r.violations);
+      expect(violations).toEqual([]);
+
+      const { inflow, expected } = liquidInflowIntoEnr(targets);
+      expect(expected.compare(0)).toBeGreaterThan(0);
+      expect(inflow.equals(expected)).toBe(true);
+    });
+  }
+
+  // CONTROL stays clean (it is clean today) and, after the fix, the
+  // cross-boundary liquid_xiranite_poly into xiranite_enr_powder is carried by
+  // BOTH producer recipes in proportion to their LP rates (28/5 : 7/5).
+  it("CONTROL: deliverers carry cross flow in LP-rate proportion", () => {
+    const targets: Target[] = [
+      { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+
+    // Map each rendered recipe unit to its recipeId so cross edges can be
+    // attributed to the producing recipe.
+    const unitRecipe = new Map<string, string>();
+    for (const u of plan.units) {
+      if (u.kind === "recipe") unitRecipe.set(u.id, u.recipeId);
+    }
+    const enrUnitIds = new Set(
+      plan.units
+        .filter((u) => u.kind === "recipe" && u.recipeId === "xiranite_enr_powder")
+        .map((u) => u.id),
+    );
+    const byProducer = new Map<string, Fraction>();
+    for (const e of plan.edges) {
+      if (e.item !== "liquid_xiranite_poly") continue;
+      if (!enrUnitIds.has(e.toUnit)) continue;
+      const producer = unitRecipe.get(e.fromUnit);
+      if (producer === undefined) continue;
+      byProducer.set(
+        producer,
+        (byProducer.get(producer) ?? new Fraction(0)).add(e.rate),
+      );
+    }
+
+    const liquidRate =
+      full.rates.get("liquid_xiranite_poly") ?? new Fraction(0);
+    const purifierRate =
+      full.rates.get("liquid_xiranite_poly-purifier") ?? new Fraction(0);
+    const totalCross = full.rates.get("xiranite_enr_powder")!.mul(5);
+    const totalProd = liquidRate.add(purifierRate);
+    const expectedLiquid = totalCross.mul(liquidRate).div(totalProd);
+    const expectedPurifier = totalCross.mul(purifierRate).div(totalProd);
+
+    expect(
+      (byProducer.get("liquid_xiranite_poly") ?? new Fraction(0)).equals(
+        expectedLiquid,
+      ),
+    ).toBe(true);
+    expect(
+      (
+        byProducer.get("liquid_xiranite_poly-purifier") ?? new Fraction(0)
+      ).equals(expectedPurifier),
+    ).toBe(true);
+  });
+});

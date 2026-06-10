@@ -383,9 +383,27 @@ export function assignSplitRoles(args: {
   intraEdges: ResolvedIntraEdge[];
   crossEdges: RoleEdge[];
   isTarget: boolean;
+  // Per intra-produced item: total intra-consumer demand (counted once per
+  // consumer) and total produced flow across the SCC's intra producers
+  // (zero-rate members contribute zero and self-cancel). When >= 2 producers
+  // feed an item, this recipe is billed only its produced-flow share of the
+  // demand; a single producer's share is 100% and its intra flow caps at
+  // min(demand, production). Absent maps (only the pure unit-test callers)
+  // fall back to the uncapped per-edge consumer-rate sum, matching the
+  // pre-apportionment behavior.
+  intraDemandByItem?: ReadonlyMap<string, Fraction>;
+  intraProdByItem?: ReadonlyMap<string, Fraction>;
 }): SplitDecision {
-  const { recipeRate, primaryOutItem, outQtys, intraEdges, crossEdges, isTarget } =
-    args;
+  const {
+    recipeRate,
+    primaryOutItem,
+    outQtys,
+    intraEdges,
+    crossEdges,
+    isTarget,
+    intraDemandByItem,
+    intraProdByItem,
+  } = args;
   const shouldSplit =
     intraEdges.length > 0 &&
     (crossEdges.length > 0 || isTarget) &&
@@ -431,29 +449,66 @@ export function assignSplitRoles(args: {
     ? primaryOutItem
     : (drivingItems[0] ?? primaryOutItem);
 
-  // Driver item's intra flow: sum over its intra edges of
-  // (consumer rate * in-qty).
-  let intraFlow = new Fraction(0);
-  for (const ie of intraEdges) {
-    if (ie.item !== driver) continue;
-    intraFlow = intraFlow.add(
-      ie.consumerRate.mul(new Fraction(ie.consumerInQty)),
-    );
-  }
   // Produced rate of the driver output item.
   const driverOutQty = outQtys.get(driver) ?? 0;
   const producedFlow =
     driverOutQty > 0
       ? recipeRate.mul(new Fraction(driverOutQty))
       : new Fraction(0);
+  // Driver item's intra flow = this recipe's SHARE of the intra consumers'
+  // demand for the driver, weighted by produced flow across the intra
+  // producers. With >= 2 producers of the driver, billing each the consumers'
+  // whole demand drove cross flow negative and zeroed every deliverer; the
+  // produced-flow share keeps cross flow nonnegative and splits the cross demand
+  // across the deliverers in production ratio. The looped demand is capped at the
+  // total intra production: when an external producer also feeds the item (intra
+  // demand > intra production), the intra producers loop ALL their output and
+  // ship none across the boundary, mirroring the min(netProd, demand) cap the
+  // boundary split uses. When the SCC-wide maps are absent (only the pure
+  // unit-test callers) this falls back to the uncapped per-edge demand sum.
+  // A single intra producer takes the map branch with a 100% share, identical
+  // in result to the old sum whenever demand <= production.
+  let intraFlow: Fraction;
+  const itemDemand = intraDemandByItem?.get(driver);
+  const itemProd = intraProdByItem?.get(driver);
+  if (
+    itemDemand !== undefined &&
+    itemProd !== undefined &&
+    itemProd.compare(0) > 0
+  ) {
+    const looped =
+      itemDemand.compare(itemProd) < 0 ? itemDemand : itemProd;
+    intraFlow = looped.mul(producedFlow).div(itemProd);
+  } else {
+    intraFlow = new Fraction(0);
+    for (const ie of intraEdges) {
+      if (ie.item !== driver) continue;
+      intraFlow = intraFlow.add(
+        ie.consumerRate.mul(new Fraction(ie.consumerInQty)),
+      );
+    }
+  }
   // cross-flow is the driver's produced flow minus its intra flow, covering
   // both its graph-cross edges and the synthetic target output. The SCC linear
   // solve guarantees produced == intra + cross for the driver.
   let crossFlow = producedFlow.sub(intraFlow);
-  // Clamp any tiny negative a solver round trip could in principle introduce.
-  // The exact-rational flow solve makes this unreachable in practice; the clamp
-  // records the invariant instead of silently dropping rate.
-  if (crossFlow.compare(0) < 0) crossFlow = new Fraction(0);
+  // The apportioned branch is nonnegative by construction (looped <= itemProd,
+  // so intraFlow <= producedFlow); a negative cross flow is reachable only via
+  // the legacy per-edge fallback, where billed demand can exceed production.
+  // Surface that loudly in dev so a regression cannot hide behind the clamp;
+  // production builds tree-shake the assertion and keep the clamp for
+  // exact-rational safety.
+  if (crossFlow.compare(0) < 0) {
+    if (import.meta.env.DEV) {
+      throw new Error(
+        `assignSplitRoles: recipe producing "${primaryOutItem}" has negative cross ` +
+          `flow for driver "${driver}" (intra ${intraFlow.toFraction()} > produced ` +
+          `${producedFlow.toFraction()}); only the legacy per-edge fallback can ` +
+          `over-bill intra demand past production.`,
+      );
+    }
+    crossFlow = new Fraction(0);
+  }
   const totalFlow = intraFlow.add(crossFlow);
 
   const looperRate = totalFlow.equals(0)
@@ -540,6 +595,47 @@ function ensureSccReplicas(
   // hands it to splitConsumerDemand so external producers are minted net of
   // what the loop already supplies over the torn arc.
   const intraSupplyByMember = new Map<RecipeId, Map<string, Fraction>>();
+
+  // Per intra-SCC item, the total demand from intra consumers (each consumer
+  // counted once) and the total produced flow from intra producers. When an item
+  // has >= 2 live intra producers, each producer must be billed only its produced
+  // -flow share of the consumers' demand, not every producer the consumer's whole
+  // demand (which drove each producer's cross flow negative, zeroed every
+  // deliverer, and starved the cross consumer). This mirrors the produced-flow
+  // weighting splitConsumerDemand already uses for the boundary split.
+  const intraDemandByItem = new Map<string, Fraction>();
+  const intraProdByItem = new Map<string, Fraction>();
+  {
+    // Items produced by some intra member (so consumer demand for them is
+    // intra-supplied, not boundary-supplied).
+    const intraProducedItems = new Set<string>();
+    for (const rid of scc.recipeIds) {
+      const rate = state.rates.get(rid) ?? new Fraction(0);
+      for (const o of state.g.nodes.get(rid)?.out ?? []) {
+        intraProducedItems.add(o.item);
+        intraProdByItem.set(
+          o.item,
+          (intraProdByItem.get(o.item) ?? new Fraction(0)).add(
+            rate.mul(new Fraction(o.qty)),
+          ),
+        );
+      }
+    }
+    // Each member's demand for an intra-produced input, counted once per
+    // (consumer, item) regardless of how many producers feed it.
+    for (const rid of scc.recipeIds) {
+      const rate = state.rates.get(rid) ?? new Fraction(0);
+      for (const inItem of state.g.nodes.get(rid)?.in ?? []) {
+        if (!intraProducedItems.has(inItem.item)) continue;
+        intraDemandByItem.set(
+          inItem.item,
+          (intraDemandByItem.get(inItem.item) ?? new Fraction(0)).add(
+            rate.mul(new Fraction(inItem.qty)),
+          ),
+        );
+      }
+    }
+  }
 
   for (const rid of scc.recipeIds) {
     // Split the recipe's outgoing edges into intra-SCC and cross-boundary roles.
@@ -628,6 +724,8 @@ function ensureSccReplicas(
       intraEdges,
       crossEdges,
       isTarget,
+      intraDemandByItem,
+      intraProdByItem,
     });
 
     if (decision.kind === "single") {
