@@ -1273,16 +1273,19 @@ describe("checkUnitOutflowVsProduction", () => {
     expect(result.ok).toBe(true);
   });
 
-  // P7: a phantom target edge from a unit with zero true spare. The flow leaves
-  // the producer over-shipped or vanishes with no surplus node.
-  // BASELINE (pre-fix): asserts the bug is still present. When the target-pass
-  // unit-level spare aggregation fix lands, invert this to expect zero violations.
-  it("P7 (plant_moss_seed_3 + plant_moss_powder_3) reports at least one violation", () => {
+  // P7: a phantom target edge from a unit with zero true spare. The target pass
+  // aggregated spare per machine vertex and clamped the negative half of a folded
+  // unit's offsetting stamp residuals, inflating its apparent spare so the split
+  // gave it a target edge it could not back. Aggregating spare per render unit
+  // before the split clears it.
+  // REGRESSION LOCK: was a pre-fix baseline asserting the bug present; inverted
+  // when the target-pass unit-level spare aggregation fix landed.
+  it("P7 (plant_moss_seed_3 + plant_moss_powder_3) reports no violations", () => {
     const result = checkUnitOutflowVsProduction(
       fullPipelineArgs(["plant_moss_seed_3", "plant_moss_powder_3"]),
     );
-    expect(result.ok).toBe(false);
-    expect(result.violations.length).toBeGreaterThan(0);
+    expect(result.violations).toEqual([]);
+    expect(result.ok).toBe(true);
   });
 
   // Real-pack negative controls: two structurally simple single-chain plans

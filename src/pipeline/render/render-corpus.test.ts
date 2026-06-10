@@ -27,6 +27,8 @@ import { solveLp } from "../../solver/lp";
 import { loadPlan } from "../../data/plan";
 import { planToSolverArgs } from "../../solver/planToSolverArgs";
 import { isMachineRecipeVertex } from "../types";
+import { rationalFromString } from "./rational";
+import type { RenderPlan } from "../types";
 
 // RF-1: iron_nugget is an internally balanced intermediate; the render pipeline
 // used to drop its internal edge, surfacing it as a phantom surplus and leaving
@@ -962,6 +964,214 @@ describe("render corpus: co-product fans across sibling replicas (P6)", () => {
       rates: full.rates,
       pack,
       targets: P6_TARGETS,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug 3 (KD-F): the target-output edge pass aggregated spare per MACHINE VERTEX
+// (produced - outgoing, clamping negatives away) before splitting the declared
+// target rate across producers. A folded render unit's stamps get offsetting
+// +/- residuals from the per-stamp consumer wiring; the per-vertex clamp keeps
+// the positive half and inflates that unit's apparent spare, so the
+// proportional split over-feeds it and under-feeds the unit with real spare.
+// The fix aggregates spare per render UNIT (sum produced and outgoing across the
+// unit's stamps first, difference once) before the split.
+//
+// These three plans are the witnesses from the burn-down: a unit with ZERO true
+// spare must get NO target edge, the split must be exact in true-spare
+// proportion, and the per-unit outflow-vs-production checker must stay clean.
+// ---------------------------------------------------------------------------
+describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", () => {
+  // For every recipe unit that produces `item` (across all recipes that output
+  // it as a primary product or co-product), derive (from the rendered plan +
+  // pack, mirroring checkUnitOutflowVsProduction's production formula) its
+  // production of `item`, its consumer-edge outflow (edges to non-output-product
+  // units), its true spare, and its target-edge rate (edges to the u:out:<item>
+  // unit). Optionally restrict to a single recipeId.
+  function producerSpares(
+    plan: RenderPlan,
+    item: string,
+    recipeId?: string,
+  ): Array<{
+    unitId: string;
+    recipeId: string;
+    production: Fraction;
+    consumerOut: Fraction;
+    trueSpare: Fraction;
+    targetEdge: Fraction;
+  }> {
+    const outputUnitIds = new Set(
+      plan.units.filter((u) => u.kind === "outputProduct").map((u) => u.id),
+    );
+    const targetOutputUnitId = plan.units.find(
+      (u) => u.kind === "outputProduct" && u.itemId === item,
+    )?.id;
+    const rows: ReturnType<typeof producerSpares> = [];
+    for (const u of plan.units) {
+      if (u.kind !== "recipe") continue;
+      if (recipeId !== undefined && u.recipeId !== recipeId) continue;
+      const recipe = pack.recipes.find((r) => r.id === u.recipeId);
+      const out = recipe?.out.find((o) => o.item === item);
+      if (!recipe || !out) continue;
+      const producerId = recipe.producers[0];
+      const machine =
+        producerId === undefined
+          ? undefined
+          : pack.machines.find((m) => m.id === producerId);
+      const speed = machine ? new Fraction(machine.speed) : new Fraction(1);
+      const production = rationalFromString(u.multiplicity)
+        .mul(speed)
+        .div(new Fraction(recipe.time))
+        .mul(new Fraction(out.qty));
+      let consumerOut = new Fraction(0);
+      let targetEdge = new Fraction(0);
+      for (const e of plan.edges) {
+        if (e.fromUnit !== u.id || e.item !== item) continue;
+        if (e.toUnit === targetOutputUnitId) targetEdge = targetEdge.add(e.rate);
+        else if (!outputUnitIds.has(e.toUnit))
+          consumerOut = consumerOut.add(e.rate);
+      }
+      rows.push({
+        unitId: u.id,
+        recipeId: u.recipeId,
+        production,
+        consumerOut,
+        trueSpare: production.sub(consumerOut),
+        targetEdge,
+      });
+    }
+    return rows;
+  }
+
+  // P7: plant_moss_seed_3 producers. One producing unit has zero true spare (its
+  // whole production goes to consumer edges) and must get NO target edge; the
+  // unit with full spare (1.0) must carry the entire declared rate.
+  it("P7 [plant_moss_seed_3, plant_moss_powder_3]: zero-spare unit gets no target edge", () => {
+    const targets: Target[] = [
+      { recipeId: "plant_moss_seed_3", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "plant_moss_powder_3", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+
+    const rows = producerSpares(plan, "plant_moss_seed_3");
+    const zeroSpare = rows.filter((r) => r.trueSpare.equals(new Fraction(0)));
+    const withSpare = rows.filter((r) => r.trueSpare.compare(0) > 0);
+    // Structural witness: exactly one zero-spare unit and one spare-bearing unit
+    // with spare 1.0 (the declared rate). Guards the fix against a regression
+    // that also changes the plan shape.
+    expect(zeroSpare.length).toBe(1);
+    expect(withSpare.length).toBe(1);
+    const [zero] = zeroSpare;
+    const [spareBearing] = withSpare;
+    expect(zero!.targetEdge.equals(new Fraction(0))).toBe(true);
+    expect(spareBearing!.trueSpare.equals(new Fraction(1))).toBe(true);
+    expect(spareBearing!.targetEdge.equals(new Fraction(1))).toBe(true);
+
+    // All seven checkRenderPlan checkers clean.
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+  });
+
+  // P8: liquid_xiranite_poly producers. Two units carry true spare 4/5 and 1/5;
+  // the declared rate must split exactly in that proportion (the pre-fix
+  // per-vertex clamp split it 3/4 vs 1/4).
+  it("P8 [xiranite_enr_powder, liquid_xiranite_poly]: target split is exact spare proportion", () => {
+    const targets: Target[] = [
+      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "liquid_xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+
+    const rows = producerSpares(plan, "liquid_xiranite_poly").filter(
+      (r) => r.targetEdge.compare(0) > 0 || r.trueSpare.compare(0) > 0,
+    );
+    const totalSpare = rows.reduce(
+      (acc, r) => acc.add(r.trueSpare),
+      new Fraction(0),
+    );
+    const declared = new Fraction(1);
+    expect(totalSpare.compare(0)).toBeGreaterThan(0);
+    // Each producer's target edge equals its true-spare share of the declared
+    // rate (derived from production minus consumer-edge outflow).
+    for (const r of rows) {
+      const expected = r.trueSpare.mul(declared).div(totalSpare);
+      expect(r.targetEdge.equals(expected)).toBe(true);
+    }
+    // The two spares are exactly 4/5 and 1/5 of the declared rate.
+    const shares = rows
+      .map((r) => r.trueSpare.div(totalSpare))
+      .sort((a, b) => b.compare(a));
+    expect(shares.length).toBe(2);
+    const [hi, lo] = shares;
+    expect(hi!.equals(new Fraction(4, 5))).toBe(true);
+    expect(lo!.equals(new Fraction(1, 5))).toBe(true);
+
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+  });
+
+  // Purifier witness: a folded purifier unit (production 4/5 of
+  // liquid_xiranite_poly) folds two stamps with offsetting +1/6 and -1/30
+  // residuals. The pre-fix per-vertex clamp inflated its spare to 1/6, handing it
+  // 5/31 of the declared rate and over-shipping it past production (0.828 > 0.8).
+  // Per-unit aggregation reports zero outflow-vs-production violations.
+  it("purifier [carbon_enr, liquid_xiranite_poly-purifier]: no outflow-vs-production violation", () => {
+    const targets: Target[] = [
+      { recipeId: "carbon_enr", ratePerSec: { num: "1", denom: "1" } },
+      {
+        recipeId: "liquid_xiranite_poly-purifier",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+
+    const outflow = checkUnitOutflowVsProduction({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    });
+    expect(outflow.violations).toEqual([]);
+
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
       itemOverrides: [],
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);

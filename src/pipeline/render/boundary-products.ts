@@ -3,7 +3,6 @@ import type {
   ContainerId,
   ItemId,
   MachineGraph,
-  MachineRecipeVertex,
   MachineVertexId,
   RecipeId,
   RenderEdge,
@@ -618,40 +617,82 @@ export function deriveBoundaryProducts(
     addOutgoing(key.slice(0, sep) as MachineVertexId, key.slice(sep + 1), rate);
   }
 
-  type TargetStamp = { vertex: MachineRecipeVertex; spare: Fraction };
-  const stampsByTargetOutItem = new Map<ItemId, TargetStamp[]>();
-  // Collect target-output spare from EVERY machine vertex producing target item
-  // X, not just the target-recipe stamps. When an SCC target recipe co-produces
-  // the looped item with a leaf recipe (e.g. iron_nugget from both
-  // iron_nugget-iron_ore and iron_nugget-iron_powder), the leaf's spare must
-  // also reach the target output unit, or the target edge is under-fed and the
-  // leaf's spare becomes a phantom surplus. Iterating all output stoich entries
-  // (X may be a co-product, not the primary output) captures both producers; the
-  // proportional split below then routes the declared rate across pooled spare.
+  type TargetUnitSpare = {
+    unitId: RenderUnitId;
+    vertexId: MachineVertexId;
+    spare: Fraction;
+  };
+  // Aggregate target-output produced and outgoing flow per (render unit, item)
+  // BEFORE differencing, then take the spare once at the unit level. A folded
+  // unit's machine vertices each carry only a per-machine slice of the unit's
+  // outgoing edges, and the per-stamp consumer wiring lands offsetting +/-
+  // residuals across those stamps. Differencing per machine vertex (then keeping
+  // only positive residuals) discards a stamp's deficit and inflates the unit's
+  // apparent spare, so the proportional split below over-feeds it past its
+  // production. Aggregating to the unit -- the level a recipe is drawn at -- nets
+  // the slices so only genuine whole-unit spare reaches the target output. This
+  // mirrors the surplus pass directly below; the two passes must agree.
+  //
+  // Collect from EVERY machine vertex producing target item X, not just the
+  // target-recipe stamps. When an SCC target recipe co-produces the looped item
+  // with a leaf recipe (e.g. iron_nugget from both iron_nugget-iron_ore and
+  // iron_nugget-iron_powder), the leaf's spare must also reach the target output
+  // unit, or the target edge is under-fed and the leaf's spare becomes a phantom
+  // surplus. Iterating all output stoich entries (X may be a co-product, not the
+  // primary output) captures both producers; the proportional split then routes
+  // the declared rate across pooled spare.
+  const targetUnitItemKey = (unitId: RenderUnitId, item: ItemId): string =>
+    `${unitId}\0${item}`;
+  const targetProducedByUnitItem = new Map<string, Fraction>();
+  const targetOutgoingByUnitItem = new Map<string, Fraction>();
+  const targetVertexByUnitItem = new Map<string, MachineVertexId>();
   for (const v of machineGraph.vertices) {
     if (!isMachineRecipeVertex(v)) continue;
     const recipe = recipeById.get(v.recipeId);
     if (!recipe) continue;
+    const unitId = unitIdByVertex.get(v.id);
+    if (unitId === undefined) continue;
     for (const outStoich of recipe.out) {
       const outItem = outStoich.item;
       if (!targetItemSet.has(outItem)) continue;
       const produced = v.executionRate.mul(new Fraction(outStoich.qty));
       const outgoing =
         outgoingRateByVertexItem.get(`${v.id}\0${outItem}`) ?? new Fraction(0);
-      const spare = produced.sub(outgoing);
-      if (spare.compare(0) <= 0) continue;
-      const arr = stampsByTargetOutItem.get(outItem) ?? [];
-      arr.push({ vertex: v, spare });
-      stampsByTargetOutItem.set(outItem, arr);
+      const k = targetUnitItemKey(unitId, outItem);
+      targetProducedByUnitItem.set(
+        k,
+        (targetProducedByUnitItem.get(k) ?? new Fraction(0)).add(produced),
+      );
+      targetOutgoingByUnitItem.set(
+        k,
+        (targetOutgoingByUnitItem.get(k) ?? new Fraction(0)).add(outgoing),
+      );
+      // Any vertex of the unit serves as the addOutgoing key: the surplus pass
+      // rolls outgoingRateByVertexItem up to the unit, so only the per-unit total
+      // matters there.
+      if (!targetVertexByUnitItem.has(k)) targetVertexByUnitItem.set(k, v.id);
     }
   }
-  for (const [outItem, stamps] of stampsByTargetOutItem) {
+  const unitsByTargetOutItem = new Map<ItemId, TargetUnitSpare[]>();
+  for (const [k, produced] of targetProducedByUnitItem) {
+    const sep = k.indexOf("\0");
+    const unitId = k.slice(0, sep) as RenderUnitId;
+    const outItem = k.slice(sep + 1);
+    const vertexId = targetVertexByUnitItem.get(k)!;
+    const outgoing = targetOutgoingByUnitItem.get(k) ?? new Fraction(0);
+    const spare = produced.sub(outgoing);
+    if (spare.compare(0) <= 0) continue;
+    const arr = unitsByTargetOutItem.get(outItem) ?? [];
+    arr.push({ unitId, vertexId, spare });
+    unitsByTargetOutItem.set(outItem, arr);
+  }
+  for (const [outItem, units] of unitsByTargetOutItem) {
     const total = targetRateByItem.get(outItem);
-    if (!total || stamps.length === 0) continue;
+    if (!total || units.length === 0) continue;
     const item = itemById.get(outItem);
     if (!item) continue;
-    const totalSpare = stamps.reduce(
-      (acc, s) => acc.add(s.spare),
+    const totalSpare = units.reduce(
+      (acc, u) => acc.add(u.spare),
       new Fraction(0),
     );
     if (totalSpare.equals(new Fraction(0))) continue;
@@ -659,18 +700,16 @@ export function deriveBoundaryProducts(
     // downstream. A correct solve produces totalSpare >= total for any
     // reachable target recipe.
     const distributed = total.compare(totalSpare) > 0 ? totalSpare : total;
-    for (const s of stamps) {
-      const fromUnit = unitIdByVertex.get(s.vertex.id);
-      if (fromUnit === undefined) continue;
-      const rate = s.spare.mul(distributed).div(totalSpare);
+    for (const u of units) {
+      const rate = u.spare.mul(distributed).div(totalSpare);
       boundaryEdges.push({
-        fromUnit,
+        fromUnit: u.unitId,
         toUnit: unitIdForOutputProduct(outItem),
         item: outItem,
         rate,
         transportKind: item.transportKind,
       });
-      addOutgoing(s.vertex.id, outItem, rate);
+      addOutgoing(u.vertexId, outItem, rate);
     }
   }
 
