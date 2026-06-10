@@ -8,9 +8,15 @@ import {
   checkConsumerInputsNotOverfed,
   checkTargetOutputsSatisfied,
   checkNoOrphanUnits,
+  checkUnitOutflowVsProduction,
   checkRenderPlan,
   assertRenderInvariants,
 } from "./invariants";
+import { CLOSED_FORM_FIXTURES } from "../../solver/closed-form-fixtures";
+import { solvePlanWithIntermediates } from "../../solver/index";
+import { defaultTransportConfig } from "../../data/transport-config";
+import { renderPlanFromSolve } from "../driver";
+import { pack as fullPack } from "../../data/load";
 import type { RenderPlan } from "../types";
 import type { RecipePack } from "@aef/schema";
 import type { RationalString } from "../../data/targets";
@@ -1174,5 +1180,122 @@ describe("assertRenderInvariants", () => {
     expect(msg).toContain("u-dangling");
     // Orphan unit: orphan recipeId.
     expect(msg).toContain("recipe-orphan");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkUnitOutflowVsProduction
+//
+// The seven checkers above all aggregate consumer INFLOW by recipeId or item;
+// none compares a render unit's OUTFLOW against the item it actually produces.
+// This checker derives per-unit production from RenderUnitRecipe.multiplicity
+// (multiplicity * machine speed / recipe time * out.qty, validated to match the
+// LP execution rate) and flags:
+//   (a) a unit shipping more of an item than it produces (a co-product edge
+//       missing from a sibling so the surviving edge over-bills its producer),
+//   (b) per item, production that vanishes off the graph without a compensating
+//       over-bill (total production != total outgoing edge rate from recipe
+//       units; edges into surplus and target output nodes count as shipment).
+// The defects it targets pass all seven existing checkers, so these tests build
+// the offending plans from the real pack via the full pipeline.
+// ---------------------------------------------------------------------------
+
+describe("checkUnitOutflowVsProduction", () => {
+  // The four feasible closed-form micro-fixtures must report zero violations:
+  // every unit ships at most what it produces and unshipped production lands in
+  // a surplus output.
+  const FEASIBLE_FIXTURES = CLOSED_FORM_FIXTURES.filter(
+    (f) => f.expected.softFeasible,
+  );
+
+  for (const fixture of FEASIBLE_FIXTURES) {
+    it(`feasible fixture "${fixture.name}" reports no violations`, () => {
+      const full = solvePlanWithIntermediates(
+        fixture.targets,
+        fixture.pack,
+        defaultTransportConfig,
+        fixture.itemOverrides ?? [],
+      );
+      const { plan } = renderPlanFromSolve(
+        full,
+        fixture.pack,
+        fixture.targets,
+        fixture.itemOverrides ?? [],
+      );
+      const result = checkUnitOutflowVsProduction({
+        plan,
+        rates: full.rates,
+        pack: fixture.pack,
+        targets: fixture.targets,
+        itemOverrides: fixture.itemOverrides ?? [],
+      });
+      expect(result.violations).toEqual([]);
+      expect(result.ok).toBe(true);
+    });
+  }
+
+  // Build a full-pipeline RenderInvariantArgs from real-pack targets at 1/sec.
+  function fullPipelineArgs(recipeIds: string[]): {
+    plan: RenderPlan;
+    rates: ReadonlyMap<string, Fraction>;
+    pack: RecipePack;
+    targets: ReadonlyArray<Target>;
+    itemOverrides: ReadonlyArray<ItemOverride>;
+  } {
+    const targets: Target[] = recipeIds.map((recipeId) => ({
+      recipeId,
+      ratePerSec: { num: "1", denom: "1" },
+    }));
+    const full = solvePlanWithIntermediates(
+      targets,
+      fullPack,
+      defaultTransportConfig,
+      [],
+    );
+    const { plan } = renderPlanFromSolve(full, fullPack, targets, []);
+    return { plan, rates: full.rates, pack: fullPack, targets, itemOverrides: [] };
+  }
+
+  // P6: a sibling replica's co-product edge is dropped, so the surviving edge is
+  // billed past its producer's capacity. Clause (a) catches the over-ship.
+  // BASELINE (pre-fix): asserts the bug is still present. When the co-product
+  // sibling-fanning fix lands, invert this to expect zero violations.
+  it("P6 (xiranite_enr_powder + proc_battery_5) reports at least one violation", () => {
+    const result = checkUnitOutflowVsProduction(
+      fullPipelineArgs([
+        "jinlong_coupon-xiranite_enr_powder",
+        "jinlong_coupon-proc_battery_5",
+      ]),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.violations.length).toBeGreaterThan(0);
+  });
+
+  // P7: a phantom target edge from a unit with zero true spare. The flow leaves
+  // the producer over-shipped or vanishes with no surplus node.
+  // BASELINE (pre-fix): asserts the bug is still present. When the target-pass
+  // unit-level spare aggregation fix lands, invert this to expect zero violations.
+  it("P7 (plant_moss_seed_3 + plant_moss_powder_3) reports at least one violation", () => {
+    const result = checkUnitOutflowVsProduction(
+      fullPipelineArgs(["plant_moss_seed_3", "plant_moss_powder_3"]),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.violations.length).toBeGreaterThan(0);
+  });
+
+  // Real-pack negative controls: two structurally simple single-chain plans
+  // probe-verified clean at baseline (zero violations from this checker AND the
+  // seven existing checkers AND no solver mass-balance residual). They keep this
+  // checker honest on plans the burn-down fixes must not regress.
+  it("clean control plant glass_bottle reports no violations", () => {
+    const result = checkUnitOutflowVsProduction(fullPipelineArgs(["glass_bottle"]));
+    expect(result.violations).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("clean control plant iron_cmpt reports no violations", () => {
+    const result = checkUnitOutflowVsProduction(fullPipelineArgs(["iron_cmpt"]));
+    expect(result.violations).toEqual([]);
+    expect(result.ok).toBe(true);
   });
 });
