@@ -427,6 +427,73 @@ describe("checkBoundaryProductsJustified", () => {
     expect(result.violations).toHaveLength(1);
     expect(result.violations[0]).toContain("M");
   });
+
+  // Raw-also-target with cons < prod: prod 1 is fully claimed by the declared
+  // target draw 1, so the consumer's 0.5 must come from the boundary and the
+  // u:in unit is justified even though cons - prod = -0.5.
+  it("justifies an inputProduct for a raw-also-target item whose production is target-claimed", () => {
+    const pack = makeFullPack(
+      [{ id: "W", raw: true }, { id: "F" }],
+      [
+        { id: "w_extract", in: [], out: [{ item: "W", qty: 1 }] },
+        { id: "w_consumer", in: [{ item: "W", qty: 1 }], out: [{ item: "F", qty: 1 }] },
+      ],
+    );
+    const rates: ReadonlyMap<string, Fraction> = new Map([
+      ["w_extract", new Fraction(1)],
+      ["w_consumer", new Fraction(1, 2)],
+    ]);
+    const plan: RenderPlan = {
+      units: [
+        { id: "u-in-W", kind: "inputProduct", itemId: "W", count: 1, rate: RATE_ONE },
+      ],
+      edges: [],
+      containers: [],
+    };
+    const result = checkBoundaryProductsJustified({
+      plan,
+      rates,
+      pack,
+      targets: [{ recipeId: "w_extract", ratePerSec: RATE_ONE }],
+      itemOverrides: [],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.violations).toHaveLength(0);
+  });
+
+  // Over-produced raw-also-target: prod 3 minus declared draw 1 leaves 2,
+  // which fully covers cons 1, so nothing draws from outside and the u:in
+  // unit is still unjustified. Guards the relaxation against over-subtracting.
+  it("still flags an inputProduct when post-target production covers consumption", () => {
+    const pack = makeFullPack(
+      [{ id: "W", raw: true }, { id: "F" }],
+      [
+        { id: "w_extract", in: [], out: [{ item: "W", qty: 1 }] },
+        { id: "w_consumer", in: [{ item: "W", qty: 1 }], out: [{ item: "F", qty: 1 }] },
+      ],
+    );
+    const rates: ReadonlyMap<string, Fraction> = new Map([
+      ["w_extract", new Fraction(3)],
+      ["w_consumer", new Fraction(1)],
+    ]);
+    const plan: RenderPlan = {
+      units: [
+        { id: "u-in-W", kind: "inputProduct", itemId: "W", count: 1, rate: RATE_ONE },
+      ],
+      edges: [],
+      containers: [],
+    };
+    const result = checkBoundaryProductsJustified({
+      plan,
+      rates,
+      pack,
+      targets: [{ recipeId: "w_extract", ratePerSec: RATE_ONE }],
+      itemOverrides: [],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0]).toContain("W");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -509,6 +576,75 @@ describe("checkInternalFlowConservation", () => {
     });
     expect(result.ok).toBe(true);
     expect(result.violations).toHaveLength(0);
+  });
+
+  // Raw-also-target: w_extract produces W at exactly the declared target rate,
+  // so no production is left for internal routing. The consumer draws from the
+  // boundary; zero internal flow is the only valid render.
+  it("expects zero internal flow when production is fully target-claimed", () => {
+    const pack = makeFullPack(
+      [{ id: "W", raw: true }, { id: "F" }],
+      [
+        { id: "w_extract", in: [], out: [{ item: "W", qty: 1 }] },
+        { id: "w_consumer", in: [{ item: "W", qty: 1 }], out: [{ item: "F", qty: 1 }] },
+      ],
+    );
+    const rates: ReadonlyMap<string, Fraction> = new Map([
+      ["w_extract", new Fraction(1)],
+      ["w_consumer", new Fraction(1, 2)],
+    ]);
+    const plan: RenderPlan = {
+      units: [
+        { id: "u-x", kind: "recipe", recipeId: "w_extract", count: 1, multiplicity: RATE_ONE },
+        { id: "u-c", kind: "recipe", recipeId: "w_consumer", count: 1, multiplicity: RATE_ONE },
+      ],
+      edges: [],
+      containers: [],
+    };
+    const result = checkInternalFlowConservation({
+      plan,
+      rates,
+      pack,
+      targets: [{ recipeId: "w_extract", ratePerSec: RATE_ONE }],
+      itemOverrides: [],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.violations).toHaveLength(0);
+  });
+
+  // Over-produced target: prod 3, declared 1 -> 2 is genuinely routable; with
+  // cons 0.5 the checker must still demand 0.5 of internal flow.
+  it("still demands the routable surplus when production exceeds the target draw", () => {
+    const pack = makeFullPack(
+      [{ id: "W", raw: true }, { id: "F" }],
+      [
+        { id: "w_extract", in: [], out: [{ item: "W", qty: 1 }] },
+        { id: "w_consumer", in: [{ item: "W", qty: 1 }], out: [{ item: "F", qty: 1 }] },
+      ],
+    );
+    const rates: ReadonlyMap<string, Fraction> = new Map([
+      ["w_extract", new Fraction(3)],
+      ["w_consumer", new Fraction(1, 2)],
+    ]);
+    const plan: RenderPlan = {
+      units: [
+        { id: "u-x", kind: "recipe", recipeId: "w_extract", count: 1, multiplicity: RATE_ONE },
+        { id: "u-c", kind: "recipe", recipeId: "w_consumer", count: 1, multiplicity: RATE_ONE },
+      ],
+      edges: [],
+      containers: [],
+    };
+    const result = checkInternalFlowConservation({
+      plan,
+      rates,
+      pack,
+      targets: [{ recipeId: "w_extract", ratePerSec: RATE_ONE }],
+      itemOverrides: [],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0]).toContain("W");
+    expect(result.violations[0]).toMatch(/expected.*0\.5/i);
   });
 });
 

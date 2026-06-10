@@ -90,6 +90,7 @@ type ReplicateState = {
   // second copy. Without it a target that is also an upstream producer of another
   // target over-replicates its whole chain ~2x.
   readonly targetSeeded: Map<RecipeId, Replica>;
+  readonly targetDraw: Map<RecipeId, Fraction>;
   readonly sccMemberReplicas: Map<SccId, Map<RecipeId, ReplicaId>>;
 
   // Lookup tables.
@@ -185,6 +186,7 @@ function createReplicateState(args: {
     apShared: new Map(),
     byproductShared: new Map(),
     targetSeeded: new Map(),
+    targetDraw: new Map(),
     sccMemberReplicas: new Map(),
     sccById,
     targetRecipeIds,
@@ -221,17 +223,40 @@ function sccIdOf(state: ReplicateState, rid: RecipeId): SccId {
 // normal stack walk (all incoming edges) and the SCC boundary walk (external
 // incoming only) route through this, so the boundary path no longer
 // over-produces a multi-producer input.
+//
+// `targetDraw` deducts a seeded-target producer's declared draw (production
+// claimed by the target output product) from its split weight, so co-producing
+// siblings carry the residual demand at full LP rate instead of a proportional
+// share that would leave the item under-produced.
+//
+// `intraSupplyByItem` (flow units per input item) is demand already covered
+// by intra-SCC producers over the torn arc. It converts to rate units via the
+// input qty and is deducted from `consumerRate` per item, clamped at zero, so
+// external candidates cover only the demand the loop does not supply.
 export function splitConsumerDemand(
   nodes: Map<RecipeId, Recipe>,
   rates: Map<RecipeId, Fraction>,
   consumer: Recipe,
   candidateEdges: ReadonlyArray<RecipeEdge>,
   consumerRate: Fraction,
+  targetDraw?: ReadonlyMap<RecipeId, Fraction>,
+  intraSupplyByItem?: ReadonlyMap<string, Fraction>,
 ): Array<{ edge: RecipeEdge; consumerRate: Fraction }> {
   const out: Array<{ edge: RecipeEdge; consumerRate: Fraction }> = [];
   for (const inItem of consumer.in) {
     const matching = candidateEdges.filter((e) => e.item === inItem.item);
     if (matching.length === 0) continue;
+
+    // Net out the intra-SCC supply of this item before splitting: external
+    // producers cover memberDemand minus the torn-arc share, never the
+    // consumer's full rate. Fully-covered items emit no frame at all.
+    let itemRate = consumerRate;
+    const intra = intraSupplyByItem?.get(inItem.item);
+    if (intra !== undefined && inItem.qty > 0) {
+      itemRate = itemRate.sub(intra.div(new Fraction(inItem.qty)));
+      if (itemRate.compare(0) < 0) itemRate = new Fraction(0);
+    }
+    if (itemRate.equals(0)) continue;
 
     // Weight each producer by its produced flow (rate * out qty); its share of
     // the consumer's demand is its weight over the per-item total.
@@ -241,7 +266,17 @@ export function splitConsumerDemand(
       const producer = nodes.get(e.source);
       const outQty = producer?.out.find((o) => o.item === e.item)?.qty ?? 0;
       const rate = rates.get(e.source) ?? new Fraction(0);
-      const contrib = rate.mul(outQty);
+      let contrib = rate.mul(outQty);
+      // A seeded-target producer keeps its full LP rate (the targetSeeded pin
+      // in processProducer), and its declared target draw claims that
+      // production first. Weight it by the remainder only, so co-producing
+      // siblings carry the residual demand at full rate instead of a
+      // proportional share that leaves the item under-produced.
+      const draw = targetDraw?.get(e.source);
+      if (draw !== undefined && producer?.out[0]?.item === e.item) {
+        const avail = contrib.sub(draw);
+        contrib = avail.compare(0) > 0 ? avail : new Fraction(0);
+      }
       contribs.push({ edge: e, contrib });
       total = total.add(contrib);
     }
@@ -250,7 +285,7 @@ export function splitConsumerDemand(
     for (const { edge, contrib } of contribs) {
       const share = contrib.div(total);
       if (share.equals(0)) continue;
-      out.push({ edge, consumerRate: consumerRate.mul(share) });
+      out.push({ edge, consumerRate: itemRate.mul(share) });
     }
   }
   return out;
@@ -494,6 +529,11 @@ function ensureSccReplicas(
   const groupId = propagateGroups({ kind: "scc", sccId: sid });
   const members = new Set(scc.recipeIds);
   const map = new Map<RecipeId, ReplicaId>();
+  // Intra-SCC supply per (consumer member, item), in flow units. Filled while
+  // walking each member's resolved intra edges below; the boundary recursion
+  // hands it to splitConsumerDemand so external producers are minted net of
+  // what the loop already supplies over the torn arc.
+  const intraSupplyByMember = new Map<RecipeId, Map<string, Fraction>>();
 
   for (const rid of scc.recipeIds) {
     // Split the recipe's outgoing edges into intra-SCC and cross-boundary roles.
@@ -530,6 +570,51 @@ function ensureSccReplicas(
     const primaryOutItem = recipe?.out[0]?.item ?? "";
     const outQtys = new Map<string, number>();
     for (const o of recipe?.out ?? []) outQtys.set(o.item, o.qty);
+    // Accumulate this member's intra supply to its intra consumers. An item's
+    // available intra flow is the member's production net of its declared
+    // target draw (the target output claims production first, mirroring the
+    // splitConsumerDemand weight deduction), capped by the intra consumers'
+    // total demand; multiple intra consumers split it in proportion to their
+    // demand. Demand-less items contribute nothing.
+    // Output shipped cross-boundary is not subtracted here: the split model
+    // feeds intra consumers first (mirroring assignSplitRoles' intraFlow), so
+    // cross flow is the remainder after intra demand, never a prior claim.
+    const intraEdgesByItem = new Map<string, ResolvedIntraEdge[]>();
+    for (const ie of intraEdges) {
+      const arr = intraEdgesByItem.get(ie.item) ?? [];
+      arr.push(ie);
+      intraEdgesByItem.set(ie.item, arr);
+    }
+    for (const [item, ies] of intraEdgesByItem) {
+      let totalDemand = new Fraction(0);
+      for (const ie of ies) {
+        totalDemand = totalDemand.add(
+          ie.consumerRate.mul(new Fraction(ie.consumerInQty)),
+        );
+      }
+      if (totalDemand.compare(0) <= 0) continue;
+      let netProd = recipeRate.mul(new Fraction(outQtys.get(item) ?? 0));
+      const draw = state.targetDraw.get(rid);
+      if (draw !== undefined && primaryOutItem === item) {
+        netProd = netProd.sub(draw);
+        if (netProd.compare(0) < 0) netProd = new Fraction(0);
+      }
+      const avail =
+        netProd.compare(totalDemand) < 0 ? netProd : totalDemand;
+      if (avail.compare(0) <= 0) continue;
+      for (const ie of ies) {
+        const share = ie.consumerRate
+          .mul(new Fraction(ie.consumerInQty))
+          .div(totalDemand);
+        const perItem =
+          intraSupplyByMember.get(ie.target) ?? new Map<string, Fraction>();
+        perItem.set(
+          item,
+          (perItem.get(item) ?? new Fraction(0)).add(avail.mul(share)),
+        );
+        intraSupplyByMember.set(ie.target, perItem);
+      }
+    }
     const decision = assignSplitRoles({
       recipeRate,
       primaryOutItem,
@@ -590,6 +675,9 @@ function ensureSccReplicas(
   // by a multi-producer input from over-producing: each external producer gets
   // its share, not the full rate. Intra-SCC producers are served by the
   // looper/deliverer split above and excluded from the boundary frames.
+  // Demand already supplied intra-SCC (the torn-arc share, accumulated above)
+  // is deducted per item, so an external producer of a dual-fed input covers
+  // only the residual demand.
   for (const memberId of scc.recipeIds) {
     const memberReplicaId = map.get(memberId)!;
     const memberNode = state.g.nodes.get(memberId);
@@ -604,6 +692,8 @@ function ensureSccReplicas(
       memberNode,
       external,
       memberRate,
+      state.targetDraw,
+      intraSupplyByMember.get(memberId),
     )) {
       state.boundaryEdges.push({
         producerId: edge.source,
@@ -801,6 +891,27 @@ function processProducer(
 // and the boundary-edge queue interleaved. Each frame runs its consumer's inputs
 // through processProducer.
 function walkFromTargets(state: ReplicateState): void {
+  // Declared draw per seeded target recipe: production claimed by the target
+  // output product. splitConsumerDemand deducts it from that producer's weight,
+  // matching the full-rate pin the targetSeeded guard applies in
+  // processProducer. SCC-resident targets are included too: the looper/deliverer
+  // decision rates derive from the SCC flow solve (intra vs cross flow), so a
+  // target whose output is fully looped ships zero across the boundary to
+  // non-target consumers. Without the deduct its full LP rate is counted as a
+  // split weight there, share-shrinking a co-producing external sibling that
+  // must carry the residual demand at its full LP rate.
+  for (const t of state.targets) {
+    const recipeId = t.recipeId;
+    if (!state.g.nodes.has(recipeId)) continue;
+    const declared = new Fraction(
+      `${t.ratePerSec.num}/${t.ratePerSec.denom}`,
+    );
+    state.targetDraw.set(
+      recipeId,
+      (state.targetDraw.get(recipeId) ?? new Fraction(0)).add(declared),
+    );
+  }
+
   // Seed the walk: emit a replica per target (or its SCC group) and enqueue the
   // upstream recursion.
   for (const t of state.targets) {
@@ -883,6 +994,7 @@ function walkFromTargets(state: ReplicateState): void {
       consumer,
       incoming,
       frame.consumerRate,
+      state.targetDraw,
     )) {
       processProducer(state, {
         producerId: edge.source,

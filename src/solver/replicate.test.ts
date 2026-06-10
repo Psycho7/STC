@@ -120,6 +120,204 @@ describe("splitConsumerDemand", () => {
     );
     expect(result).toEqual([]);
   });
+
+  it("excludes a seeded target's declared draw from the split weights", () => {
+    const nodes = new Map<RecipeId, Recipe>([
+      ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
+      ["pTarget", recipe("pTarget", [], [{ item: "x", qty: 1 }])],
+      ["pSibling", recipe("pSibling", [], [{ item: "x", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["pTarget", new Fraction(2)],
+      ["pSibling", new Fraction(8)],
+    ]);
+    // The target's production (2) is fully claimed by its declared draw (2):
+    // the sibling carries the consumer's whole demand instead of an 8/10 share.
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("pTarget", "x"), edge("pSibling", "x")],
+      new Fraction(8),
+      new Map([["pTarget", new Fraction(2)]]),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]!.edge.source).toBe("pSibling");
+    expect(result[0]!.consumerRate.equals(new Fraction(8))).toBe(true);
+  });
+
+  it("splits the residual when the draw claims only part of the target's production", () => {
+    const nodes = new Map<RecipeId, Recipe>([
+      ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
+      ["pTarget", recipe("pTarget", [], [{ item: "x", qty: 1 }])],
+      ["pSibling", recipe("pSibling", [], [{ item: "x", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["pTarget", new Fraction(3)],
+      ["pSibling", new Fraction(6)],
+    ]);
+    // Weights: target 3-1=2, sibling 6 -> demand 8 splits 2:6.
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("pTarget", "x"), edge("pSibling", "x")],
+      new Fraction(8),
+      new Map([["pTarget", new Fraction(1)]]),
+    );
+    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    expect(bySource.get("pTarget")!.equals(new Fraction(2))).toBe(true);
+    expect(bySource.get("pSibling")!.equals(new Fraction(6))).toBe(true);
+  });
+
+  it("ignores the draw when the edge item is not the target's primary output", () => {
+    const nodes = new Map<RecipeId, Recipe>([
+      ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
+      [
+        "pTarget",
+        recipe("pTarget", [], [
+          { item: "y", qty: 1 },
+          { item: "x", qty: 1 },
+        ]),
+      ],
+      ["pSibling", recipe("pSibling", [], [{ item: "x", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["pTarget", new Fraction(2)],
+      ["pSibling", new Fraction(2)],
+    ]);
+    // The declared draw claims y (out[0]), not x: x splits 2:2 as before.
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("pTarget", "x"), edge("pSibling", "x")],
+      new Fraction(8),
+      new Map([["pTarget", new Fraction(2)]]),
+    );
+    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    expect(bySource.get("pTarget")!.equals(new Fraction(4))).toBe(true);
+    expect(bySource.get("pSibling")!.equals(new Fraction(4))).toBe(true);
+  });
+
+  it("deducts per-item intra supply from the demand before splitting", () => {
+    const nodes = new Map<RecipeId, Recipe>([
+      ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
+      ["p1", recipe("p1", [], [{ item: "x", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([["p1", new Fraction(3, 4)]]);
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("p1", "x")],
+      new Fraction(1),
+      undefined,
+      new Map([["x", new Fraction(1, 4)]]),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]!.consumerRate.equals(new Fraction(3, 4))).toBe(true);
+  });
+
+  it("emits no frame when intra supply covers the whole demand", () => {
+    const nodes = new Map<RecipeId, Recipe>([
+      ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
+      ["p1", recipe("p1", [], [{ item: "x", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([["p1", new Fraction(1)]]);
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("p1", "x")],
+      new Fraction(1),
+      undefined,
+      new Map([["x", new Fraction(2)]]),
+    );
+    expect(result).toHaveLength(0);
+  });
+
+  it("converts intra supply flow into rate units via the input qty", () => {
+    // Demand is 1 (rate) * 2 (in-qty) = 2 flow; intra covers 1 flow, so the
+    // external producer carries rate 1/2, not 1 - 1 = 0.
+    const nodes = new Map<RecipeId, Recipe>([
+      ["consumer", recipe("consumer", [{ item: "x", qty: 2 }], [])],
+      ["p1", recipe("p1", [], [{ item: "x", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([["p1", new Fraction(1)]]);
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("p1", "x")],
+      new Fraction(1),
+      undefined,
+      new Map([["x", new Fraction(1)]]),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]!.consumerRate.equals(new Fraction(1, 2))).toBe(true);
+  });
+
+  it("leaves items without an intra supply entry at the full rate", () => {
+    const nodes = new Map<RecipeId, Recipe>([
+      [
+        "consumer",
+        recipe(
+          "consumer",
+          [
+            { item: "x", qty: 1 },
+            { item: "y", qty: 1 },
+          ],
+          [],
+        ),
+      ],
+      ["p1", recipe("p1", [], [{ item: "x", qty: 1 }])],
+      ["p2", recipe("p2", [], [{ item: "y", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["p1", new Fraction(1)],
+      ["p2", new Fraction(1)],
+    ]);
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("p1", "x"), edge("p2", "y")],
+      new Fraction(1),
+      undefined,
+      new Map([["x", new Fraction(1, 4)]]),
+    );
+    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    expect(bySource.get("p1")!.equals(new Fraction(3, 4))).toBe(true);
+    expect(bySource.get("p2")!.equals(new Fraction(1))).toBe(true);
+  });
+
+  it("splits the netted rate across multiple producers by weight", () => {
+    // Demand 1 minus intra supply 1/4 leaves 3/4, split 3:1 across the
+    // producers -> 9/16 and 3/16. Netting after the split would instead
+    // deduct 1/4 from each share.
+    const nodes = new Map<RecipeId, Recipe>([
+      ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
+      ["p1", recipe("p1", [], [{ item: "x", qty: 1 }])],
+      ["p2", recipe("p2", [], [{ item: "x", qty: 1 }])],
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["p1", new Fraction(3)],
+      ["p2", new Fraction(1)],
+    ]);
+    const result = splitConsumerDemand(
+      nodes,
+      rates,
+      nodes.get("consumer")!,
+      [edge("p1", "x"), edge("p2", "x")],
+      new Fraction(1),
+      undefined,
+      new Map([["x", new Fraction(1, 4)]]),
+    );
+    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    expect(bySource.get("p1")!.equals(new Fraction(9, 16))).toBe(true);
+    expect(bySource.get("p2")!.equals(new Fraction(3, 16))).toBe(true);
+  });
 });
 
 describe("assignSplitRoles", () => {
@@ -373,5 +571,129 @@ describe("replicatePerConsumer: SCC-boundary byproduct supplier sharing", () => 
       new Fraction(0),
     );
     expect(rawSum.equals(new Fraction(2))).toBe(true);
+  });
+});
+
+describe("replicatePerConsumer: SCC intra supply nets the boundary demand", () => {
+  // Miniature of the crystal_shell<->crystal_powder plan. Target member m
+  // (rate 1) consumes `powder` fed BOTH intra-SCC (ploop's torn arc, 1/4) and
+  // externally (pext). The boundary frame for pext must carry the demand net
+  // of the intra share (3/4), not m's full rate. The reverse direction guards
+  // the target-draw netting: m's `shell` production is fully claimed by its
+  // declared draw, so zero shell is available intra and ploop's external
+  // supplier sext must still carry ploop's full demand (1/4) - a deduction
+  // that ignored the draw would mint sext at 0.
+  it("nets the external boundary demand by the intra-SCC supply", () => {
+    const nodes: Recipe[] = [
+      recipe("m", [{ item: "powder", qty: 1 }], [{ item: "shell", qty: 1 }]),
+      recipe("ploop", [{ item: "shell", qty: 1 }], [{ item: "powder", qty: 1 }]),
+      recipe("pext", [{ item: "raw", qty: 1 }], [{ item: "powder", qty: 1 }]),
+      recipe("sext", [{ item: "raw2", qty: 1 }], [{ item: "shell", qty: 1 }]),
+      recipe("raw_src", [], [{ item: "raw", qty: 1 }]),
+      recipe("raw2_src", [], [{ item: "raw2", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "ploop", item: "powder", target: "m" },
+      { source: "m", item: "shell", target: "ploop" },
+      { source: "pext", item: "powder", target: "m" },
+      { source: "sext", item: "shell", target: "ploop" },
+      { source: "raw_src", item: "raw", target: "pext" },
+      { source: "raw2_src", item: "raw2", target: "sext" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:m", recipeIds: ["m", "ploop"] },
+      { id: "scc:pext", recipeIds: ["pext"] },
+      { id: "scc:sext", recipeIds: ["sext"] },
+      { id: "scc:raw_src", recipeIds: ["raw_src"] },
+      { id: "scc:raw2_src", recipeIds: ["raw2_src"] },
+    ]);
+    // LP balance: powder = ploop 1/4 + pext 3/4 = m's demand 1. shell =
+    // m 1 + sext 1/4 vs target draw 1 + ploop 1/4.
+    const rates = new Map<RecipeId, Fraction>([
+      ["m", new Fraction(1)],
+      ["ploop", new Fraction(1, 4)],
+      ["pext", new Fraction(3, 4)],
+      ["sext", new Fraction(1, 4)],
+      ["raw_src", new Fraction(3, 4)],
+      ["raw2_src", new Fraction(1, 4)],
+    ]);
+    const replicas = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+      targets: [{ recipeId: "m", ratePerSec: { num: "1", denom: "1" } }],
+    });
+    const sumOf = (rid: string) =>
+      replicas
+        .filter((r) => r.recipeId === rid)
+        .reduce((acc, r) => acc.add(r.executionRate), new Fraction(0));
+    // External powder producer carries the demand net of the 1/4 intra share.
+    expect(sumOf("pext").equals(new Fraction(3, 4))).toBe(true);
+    // Cascade: pext's upstream chain is sized off the netted rate too.
+    expect(sumOf("raw_src").equals(new Fraction(3, 4))).toBe(true);
+    // m's shell is fully claimed by the target draw, so ploop's external shell
+    // supplier keeps its full demand.
+    expect(sumOf("sext").equals(new Fraction(1, 4))).toBe(true);
+    expect(sumOf("raw2_src").equals(new Fraction(1, 4))).toBe(true);
+  });
+
+  // One under-producing intra producer (p, x flow 1) feeds TWO members with
+  // unequal demand (c1 wants 1, c2 wants 2). The credit must split 1:2
+  // (1/3 to c1, 2/3 to c2), so c1's external supplier carries 1 - 1/3 = 2/3
+  // and c2's carries 2 - 2/3 = 4/3. A non-proportional allocation (full
+  // credit to each) would mint both externals short.
+  it("allocates an under-producing member's supply proportionally to demand", () => {
+    const nodes: Recipe[] = [
+      // 3-member SCC: p -> c1 -> c2 -> p (strongly connected via x, y, z),
+      // plus a second intra x edge p -> c2.
+      recipe("p", [{ item: "z", qty: 2 }], [{ item: "x", qty: 1 }]),
+      recipe("c1", [{ item: "x", qty: 1 }], [{ item: "y", qty: 2 }]),
+      recipe(
+        "c2",
+        [
+          { item: "x", qty: 1 },
+          { item: "y", qty: 1 },
+        ],
+        [{ item: "z", qty: 1 }],
+      ),
+      recipe("ex1", [], [{ item: "x", qty: 1 }]),
+      recipe("ex2", [], [{ item: "x", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "p", item: "x", target: "c1" },
+      { source: "p", item: "x", target: "c2" },
+      { source: "c1", item: "y", target: "c2" },
+      { source: "c2", item: "z", target: "p" },
+      { source: "ex1", item: "x", target: "c1" },
+      { source: "ex2", item: "x", target: "c2" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:p", recipeIds: ["p", "c1", "c2"] },
+      { id: "scc:ex1", recipeIds: ["ex1"] },
+      { id: "scc:ex2", recipeIds: ["ex2"] },
+    ]);
+    // LP balance: x = p 1 + ex1 2/3 + ex2 4/3 = c1 1 + c2 2; y = c1 2 = c2 2;
+    // z = c2 2 = p 2 (all intra, fully covered, no external frames for z/y).
+    const rates = new Map<RecipeId, Fraction>([
+      ["p", new Fraction(1)],
+      ["c1", new Fraction(1)],
+      ["c2", new Fraction(2)],
+      ["ex1", new Fraction(2, 3)],
+      ["ex2", new Fraction(4, 3)],
+    ]);
+    const replicas = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+      targets: [{ recipeId: "c2", ratePerSec: { num: "2", denom: "1" } }],
+    });
+    const sumOf = (rid: string) =>
+      replicas
+        .filter((r) => r.recipeId === rid)
+        .reduce((acc, r) => acc.add(r.executionRate), new Fraction(0));
+    expect(sumOf("ex1").equals(new Fraction(2, 3))).toBe(true);
+    expect(sumOf("ex2").equals(new Fraction(4, 3))).toBe(true);
   });
 });

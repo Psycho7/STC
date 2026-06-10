@@ -218,7 +218,6 @@ export function deriveBoundaryProducts(
   for (const [itemId, producers] of recapProducers) {
     if (machineEdgeItems.has(itemId)) continue;
     if (supplyFor(itemId) !== Infinity) continue;
-    if (targetItemSet.has(itemId)) continue;
     const consumers = recapConsumers.get(itemId);
     if (!consumers || consumers.length === 0) continue;
     const itemMeta = itemById.get(itemId);
@@ -232,10 +231,20 @@ export function deriveBoundaryProducts(
       new Fraction(0),
     );
     if (totalProd.equals(0) || totalDemand.equals(0)) continue;
-    // Recaptured = min(production, demand); any excess production stays surplus,
-    // any excess demand still draws from the boundary.
+    // Production claimed by a declared target output is unavailable for
+    // internal routing; only the remainder recaptures. Non-target items deduct
+    // zero, so their behavior is unchanged. A fully target-claimed item
+    // recaptures 0 and still registers, so collectConsumed bills each
+    // consumer's full demand to the boundary instead of dropping it.
+    const targetDemand = targetRateByItem.get(itemId) ?? new Fraction(0);
+    const availRaw = totalProd.sub(targetDemand);
+    const availProd =
+      availRaw.compare(new Fraction(0)) > 0 ? availRaw : new Fraction(0);
+    // Recaptured = min(available production, demand); any excess production
+    // stays with the target/surplus passes, any excess demand still draws from
+    // the boundary.
     const recaptured =
-      totalProd.compare(totalDemand) <= 0 ? totalProd : totalDemand;
+      availProd.compare(totalDemand) <= 0 ? availProd : totalDemand;
     recaptureItems.add(itemId);
     for (const c of consumers) {
       const key = `${c.vertexId}\0${itemId}`;
@@ -430,12 +439,18 @@ export function deriveBoundaryProducts(
   const aggregateIdByItem = new Map<ItemId, RenderUnitId>();
   const sortedItems = [...keysByItem.keys()].sort();
   for (const itemId of sortedItems) {
-    // Target trumps boundary, but only without an explicit itemOverride for the
-    // item. With an override, the item renders BOTH as an input (pinned FIRST)
-    // and a target output (pinned LAST). Without one, a raw target does not also
-    // double as a raw boundary input. Item-level, so it short-circuits all keys
-    // for the item.
-    if (targetItemSet.has(itemId) && !overrideByItem.has(itemId)) continue;
+    // Target trumps boundary, except when the item has an explicit
+    // itemOverride OR a recapture deficit. In both cases the item renders BOTH
+    // as an input (pinned FIRST) and a target output (pinned LAST): the
+    // override path imports a capped portion, the recapture-deficit path
+    // (raw-also-target) draws the demand its target-claimed production cannot
+    // feed. Item-level, so it short-circuits all keys for the item.
+    if (
+      targetItemSet.has(itemId) &&
+      !overrideByItem.has(itemId) &&
+      !recaptureItems.has(itemId)
+    )
+      continue;
     const ov = overrideByItem.get(itemId);
     const keys = keysByItem.get(itemId)!.slice().sort();
 
