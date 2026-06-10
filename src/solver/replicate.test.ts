@@ -697,3 +697,86 @@ describe("replicatePerConsumer: SCC intra supply nets the boundary demand", () =
     expect(sumOf("ex2").equals(new Fraction(4, 3))).toBe(true);
   });
 });
+
+describe("replicatePerConsumer: augmented LP-support seeds", () => {
+  // Miniature of the copper_bottle disposal case: target `prod` over-runs (LP 3
+  // vs declared 1) and augmented sink `sink` absorbs the excess (LP 1, in: x2).
+  it("seeds an augmented node once at full LP rate as a shared replica", () => {
+    const nodes: Recipe[] = [
+      recipe("prod", [], [{ item: "nug", qty: 1 }]),
+      recipe("sink", [{ item: "nug", qty: 2 }], [{ item: "bottle", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "prod", item: "nug", target: "sink" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:prod", recipeIds: ["prod"] },
+      { id: "scc:sink", recipeIds: ["sink"] },
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["prod", new Fraction(3)],
+      ["sink", new Fraction(1)],
+    ]);
+    const replicas = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+      targets: [{ recipeId: "prod", ratePerSec: { num: "1", denom: "1" } }],
+      augmented: new Set<RecipeId>(["sink"]),
+    });
+
+    const sinkReplicas = replicas.filter((r) => r.recipeId === "sink");
+    expect(sinkReplicas).toHaveLength(1);
+    expect(sinkReplicas[0]!.executionRate.equals(new Fraction(1))).toBe(true);
+    expect(sinkReplicas[0]!.sharedAtArticulation).toBe(true);
+
+    // The producer is the target; the targetSeeded guard reuses its replica
+    // when the sink's frame walks the nug edge, so no second copy appears.
+    const prodReplicas = replicas.filter((r) => r.recipeId === "prod");
+    expect(prodReplicas).toHaveLength(1);
+    expect(prodReplicas[0]!.executionRate.equals(new Fraction(3))).toBe(true);
+  });
+
+  // Miniature of the originium chain: augmented feeder `f` supplies augmented
+  // sink `s`. Without registering seeds in the reuse cache, s's walk frame
+  // re-mints f per-consumer on top of the seed (vtxSum ~ 2x lpRate).
+  it("does not double-mint a chain feeder reached as a producer after seeding", () => {
+    const nodes: Recipe[] = [
+      recipe("t", [], [{ item: "tout", qty: 1 }]),
+      recipe("f", [], [{ item: "a", qty: 1 }]),
+      recipe("s", [{ item: "a", qty: 1 }], [{ item: "b", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [{ source: "f", item: "a", target: "s" }]);
+    const condensation = condensationOf([
+      { id: "scc:t", recipeIds: ["t"] },
+      { id: "scc:f", recipeIds: ["f"] },
+      { id: "scc:s", recipeIds: ["s"] },
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["t", new Fraction(1)],
+      ["f", new Fraction(4)],
+      ["s", new Fraction(4)],
+    ]);
+    const replicas = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+      targets: [{ recipeId: "t", ratePerSec: { num: "1", denom: "1" } }],
+      augmented: new Set<RecipeId>(["f", "s"]),
+    });
+
+    const fReplicas = replicas.filter((r) => r.recipeId === "f");
+    const fSum = fReplicas.reduce(
+      (acc, r) => acc.add(r.executionRate),
+      new Fraction(0),
+    );
+    expect(fReplicas).toHaveLength(1);
+    expect(fSum.equals(new Fraction(4))).toBe(true);
+
+    const sReplicas = replicas.filter((r) => r.recipeId === "s");
+    expect(sReplicas).toHaveLength(1);
+    expect(sReplicas[0]!.executionRate.equals(new Fraction(4))).toBe(true);
+  });
+});

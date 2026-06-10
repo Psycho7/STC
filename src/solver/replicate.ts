@@ -52,6 +52,7 @@ export function replicatePerConsumer(args: {
   rates: Map<RecipeId, Fraction>;
   condensation: Condensation;
   targets: Target[];
+  augmented?: Set<RecipeId>;
 }): Replica[] {
   const state = createReplicateState(args);
   walkFromTargets(state);
@@ -72,6 +73,9 @@ type ReplicateState = {
   readonly rates: Map<RecipeId, Fraction>;
   readonly condensation: Condensation;
   readonly targets: Target[];
+  // Recipes added by the post-LP graph augmentation: positive LP rate but
+  // unreachable from any target cone (disposal absorbers). Seeded like targets.
+  readonly augmented: Set<RecipeId>;
 
   // Output accumulator.
   readonly replicas: Replica[];
@@ -141,6 +145,7 @@ function createReplicateState(args: {
   rates: Map<RecipeId, Fraction>;
   condensation: Condensation;
   targets: Target[];
+  augmented?: Set<RecipeId>;
 }): ReplicateState {
   const sccById = new Map<SccId, Condensation["sccs"][number]>();
   for (const s of args.condensation.sccs) sccById.set(s.id, s);
@@ -180,6 +185,7 @@ function createReplicateState(args: {
     rates: args.rates,
     condensation: args.condensation,
     targets: args.targets,
+    augmented: args.augmented ?? new Set<RecipeId>(),
     replicas: [],
     nextId: 0,
     sccCreated: new Set(),
@@ -961,6 +967,40 @@ function walkFromTargets(state: ReplicateState): void {
       consumerReplicaId: rep.id,
       consumerRate: targetRate,
       blueprintGroupId: targetGroupId,
+      consumerPath: [],
+    });
+  }
+
+  // Seed augmented LP-support nodes. Each is a disposal absorber the LP runs at
+  // a fixed global rate with no target cone reaching it, so it emits once at
+  // full LP rate with shared emit-once semantics (apShared group: grouping
+  // only, not dispatch). Registering the seed in targetSeeded makes the guard
+  // at the top of processProducer reuse it when a chain sibling's frame later
+  // reaches it as a producer; without that reuse the feeder double-mints.
+  // Augmented nodes are singleton SCCs (asserted at the pipeline layer), so no
+  // SCC handling applies here; that also keeps them disjoint from
+  // byproductSharedSources, so unlike the target loop no dedup against the
+  // byproduct-shared cache is needed.
+  for (const recipeId of state.augmented) {
+    if (!state.g.nodes.has(recipeId)) continue;
+    const rate = state.rates.get(recipeId) ?? new Fraction(0);
+    if (rate.compare(0) <= 0) continue;
+    const groupId = propagateGroups({ kind: "apShared", recipeId });
+    const rep: Replica = {
+      id: newReplicaId(state, `r:${recipeId}`),
+      recipeId,
+      executionRate: rate,
+      consumerPath: [],
+      blueprintGroupId: groupId,
+      sharedAtArticulation: true,
+    };
+    state.replicas.push(rep);
+    state.targetSeeded.set(recipeId, rep);
+    state.stack.push({
+      consumerId: recipeId,
+      consumerReplicaId: rep.id,
+      consumerRate: rate,
+      blueprintGroupId: groupId,
       consumerPath: [],
     });
   }
