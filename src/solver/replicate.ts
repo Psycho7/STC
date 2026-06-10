@@ -522,33 +522,35 @@ export function assignSplitRoles(args: {
   //     fraction and its cross consumers to the ship fraction of the SAME item,
   //     so the split is rate-correct and preserves every currently-clean plan.
   //   - NON-DRIVER (co-product) items: route ALL of the item's edges (intra and
-  //     cross) to the LIVE role -- deliverer when delivererRate>0, else looper.
-  //     Routing a co-product by its OWN intra/cross class can land its edges on
-  //     a rate-0 split (e.g. looperRate==0 when the driver has no intra flow),
-  //     starving the co-product consumer of the live replica's share and
-  //     surfacing the live producer's output as a phantom surplus. No current
-  //     co-product is consumed BOTH intra and cross, so one live-role assignment
-  //     is unambiguous; both roles would double-feed (tripping the over-fed check).
+  //     cross) to EVERY live split role (the looper when looperRate>0 and the
+  //     deliverer when delivererRate>0). Both sibling stamps physically
+  //     co-produce the item at their own execution rate, so each must carry a
+  //     logical edge for its share; assigning the edge to only one role drops the
+  //     other sibling's production off the graph and over-bills the wired sibling
+  //     past its own production. computeEdgeRates splits each consumer's demand
+  //     across its inbound edges by producer output share, so fanning to both
+  //     never over-feeds. This mirrors the per-consumer producer fan to every
+  //     live split sibling in assembleLogicalGraph and deriveReplicaEdges.
   const looperFilter = new Set<string>();
   const delivererFilter = new Set<string>();
-  // liveFilter is the live role's filter: deliverer when delivererRate>0, else
-  // looper. Under the shouldSplit gate at least one role rate is positive, so
-  // liveFilter always points at a live replica. Non-driver (co-product) edges
-  // all route here.
-  const liveIsDeliverer = delivererRate.compare(0) > 0;
-  const liveFilter = liveIsDeliverer ? delivererFilter : looperFilter;
+  // liveFilters holds every live role's filter, so non-driver (co-product) edges
+  // fan to all live split siblings. Under the shouldSplit gate at least one role
+  // rate is positive, so liveFilters is non-empty.
+  const liveFilters: Set<string>[] = [];
+  if (looperRate.compare(0) > 0) liveFilters.push(looperFilter);
+  if (delivererRate.compare(0) > 0) liveFilters.push(delivererFilter);
   for (const ie of intraEdges) {
     if (ie.item === driver) {
       looperFilter.add(outgoingEdgeKey(ie.item, ie.target));
     } else {
-      liveFilter.add(outgoingEdgeKey(ie.item, ie.target));
+      for (const f of liveFilters) f.add(outgoingEdgeKey(ie.item, ie.target));
     }
   }
   for (const ce of crossEdges) {
     if (ce.item === driver) {
       delivererFilter.add(outgoingEdgeKey(ce.item, ce.target));
     } else {
-      liveFilter.add(outgoingEdgeKey(ce.item, ce.target));
+      for (const f of liveFilters) f.add(outgoingEdgeKey(ce.item, ce.target));
     }
   }
   // When isTarget is true with no cross edges, delivererFilter ends up empty.

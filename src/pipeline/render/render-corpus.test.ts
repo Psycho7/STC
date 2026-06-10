@@ -16,7 +16,11 @@ import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
 import type { Target } from "../../data/targets";
 import { renderPlanFromSolve } from "../driver";
-import { assertRenderInvariants, checkRenderPlan } from "./invariants";
+import {
+  assertRenderInvariants,
+  checkRenderPlan,
+  checkUnitOutflowVsProduction,
+} from "./invariants";
 import { pack } from "../../data/load";
 import { checkRepresentable, checkMassBalance } from "../../solver/invariants";
 import { solveLp } from "../../solver/lp";
@@ -865,5 +869,101 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
         byProducer.get("liquid_xiranite_poly-purifier") ?? new Fraction(0)
       ).equals(expectedPurifier),
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Co-product sibling-replica fanning regression (P6).
+//
+// liquid_xiranite_poly (in the liquid_xiranite SCC) splits into a looper and a
+// deliverer; both stamps physically co-produce liquid_xiranite_lowpoly. The
+// co-product (non-driver) edge to its intra consumer was routed to only ONE
+// split sibling's outgoingEdgeFilter, so the other sibling's lowpoly production
+// had no logical edge at all: it vanished from the graph while the wired sibling
+// was billed the whole demand past its own production. Fanning the co-product
+// edge across BOTH siblings gives each its share and clears the per-unit
+// outflow-vs-production check for the liquid_xiranite_poly units.
+// ---------------------------------------------------------------------------
+describe("render corpus: co-product fans across sibling replicas (P6)", () => {
+  const P6_TARGETS: Target[] = [
+    {
+      recipeId: "jinlong_coupon-xiranite_enr_powder",
+      ratePerSec: { num: "1", denom: "1" },
+    },
+    {
+      recipeId: "jinlong_coupon-proc_battery_5",
+      ratePerSec: { num: "1", denom: "1" },
+    },
+  ];
+
+  function solveP6() {
+    const full = solvePlanWithIntermediates(
+      P6_TARGETS,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    const { plan } = renderPlanFromSolve(full, pack, P6_TARGETS, []);
+    return { full, plan };
+  }
+
+  // (i) No liquid_xiranite-unit outflow-vs-production violation: every
+  // liquid_xiranite_poly stamp ships at most what it produces, and the
+  // lowpoly/poly co-products no longer vanish off the graph.
+  it("checkUnitOutflowVsProduction reports no liquid_xiranite violations", () => {
+    const { full, plan } = solveP6();
+    const result = checkUnitOutflowVsProduction({
+      plan,
+      rates: full.rates,
+      pack,
+      targets: P6_TARGETS,
+      itemOverrides: [],
+    });
+    const xiranite = result.violations.filter((v) =>
+      v.includes("liquid_xiranite"),
+    );
+    expect(xiranite).toEqual([]);
+    // The full violation list is also empty (no unrelated residual remains).
+    expect(result.violations).toEqual([]);
+  });
+
+  // (ii) Fraction-exact: the total liquid_xiranite_lowpoly shipped out of the
+  // liquid_xiranite_poly units equals their combined production (the LP rate of
+  // liquid_xiranite_poly, since out qty is 1). Derived from full.rates, not
+  // hardcoded.
+  it("total lowpoly shipped equals combined liquid_xiranite_poly production", () => {
+    const { full, plan } = solveP6();
+    const polyUnitIds = new Set(
+      plan.units
+        .filter((u) => u.kind === "recipe" && u.recipeId === "liquid_xiranite_poly")
+        .map((u) => u.id),
+    );
+    let shipped = new Fraction(0);
+    for (const e of plan.edges) {
+      if (e.item !== "liquid_xiranite_lowpoly") continue;
+      if (polyUnitIds.has(e.fromUnit)) shipped = shipped.add(e.rate);
+    }
+    const recipe = pack.recipes.find((r) => r.id === "liquid_xiranite_poly")!;
+    const lowpolyQty = recipe.out.find(
+      (o) => o.item === "liquid_xiranite_lowpoly",
+    )!.qty;
+    const production = (full.rates.get("liquid_xiranite_poly") ?? new Fraction(0)).mul(
+      new Fraction(lowpolyQty),
+    );
+    expect(production.compare(0)).toBeGreaterThan(0);
+    expect(shipped.equals(production)).toBe(true);
+  });
+
+  // (iii) P6 is clean on all 7 checkRenderPlan checkers today and must stay so.
+  it("all seven checkRenderPlan checkers report zero violations", () => {
+    const { full, plan } = solveP6();
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets: P6_TARGETS,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
   });
 });

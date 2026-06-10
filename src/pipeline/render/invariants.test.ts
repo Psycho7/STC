@@ -1256,19 +1256,21 @@ describe("checkUnitOutflowVsProduction", () => {
     return { plan, rates: full.rates, pack: fullPack, targets, itemOverrides: [] };
   }
 
-  // P6: a sibling replica's co-product edge is dropped, so the surviving edge is
-  // billed past its producer's capacity. Clause (a) catches the over-ship.
-  // BASELINE (pre-fix): asserts the bug is still present. When the co-product
-  // sibling-fanning fix lands, invert this to expect zero violations.
-  it("P6 (xiranite_enr_powder + proc_battery_5) reports at least one violation", () => {
+  // P6: a sibling replica's co-product edge used to be dropped, so the surviving
+  // edge was billed past its producer's capacity (clause (a) caught the
+  // over-ship). The co-product sibling-fanning fix in assignSplitRoles now wires
+  // every live split sibling for the co-product, so P6 reports zero violations.
+  // REGRESSION LOCK: was a pre-fix baseline asserting the bug present; inverted
+  // when the fix landed.
+  it("P6 (xiranite_enr_powder + proc_battery_5) reports no violations", () => {
     const result = checkUnitOutflowVsProduction(
       fullPipelineArgs([
         "jinlong_coupon-xiranite_enr_powder",
         "jinlong_coupon-proc_battery_5",
       ]),
     );
-    expect(result.ok).toBe(false);
-    expect(result.violations.length).toBeGreaterThan(0);
+    expect(result.violations).toEqual([]);
+    expect(result.ok).toBe(true);
   });
 
   // P7: a phantom target edge from a unit with zero true spare. The flow leaves
