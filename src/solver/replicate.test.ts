@@ -378,15 +378,16 @@ describe("assignSplitRoles", () => {
     expect(decision.looperFilter.has(outgoingEdgeKey("poly", "xiranite_poly"))).toBe(
       true,
     );
-    // The non-driver secondary co-product (lowpoly) routes ALL its edges to the
-    // LIVE role. Here delivererRate>0, so lowpoly attaches to the deliverer, not
-    // the looper.
+    // The non-driver secondary co-product (lowpoly) fans to EVERY live split
+    // role. Here looperRate>0 and delivererRate>0, so lowpoly attaches to BOTH
+    // the looper and the deliverer: each sibling physically co-produces it and
+    // must carry a logical edge for its share.
     expect(
       decision.delivererFilter.has(outgoingEdgeKey("lowpoly", "lowpoly_purifier")),
     ).toBe(true);
     expect(
       decision.looperFilter.has(outgoingEdgeKey("lowpoly", "lowpoly_purifier")),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   // Non-driver co-product routing (the xiranite_poly liquid_sewage bug). The
