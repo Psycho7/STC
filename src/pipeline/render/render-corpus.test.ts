@@ -15,7 +15,11 @@ import { CLOSED_FORM_FIXTURES } from "../../solver/closed-form-fixtures";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
 import type { Target } from "../../data/targets";
-import { renderPlanFromSolve } from "../driver";
+import {
+  renderPlanFromSolve,
+  capProducerInputOutflow,
+  type CapEdge,
+} from "../driver";
 import {
   assertRenderInvariants,
   checkRenderPlan,
@@ -26,7 +30,7 @@ import { checkRepresentable, checkMassBalance } from "../../solver/invariants";
 import { solveLp } from "../../solver/lp";
 import { loadPlan } from "../../data/plan";
 import { planToSolverArgs } from "../../solver/planToSolverArgs";
-import { isMachineRecipeVertex } from "../types";
+import { isMachineRecipeVertex, isRecipeUnit } from "../types";
 import { rationalFromString } from "./rational";
 import type { RenderPlan } from "../types";
 
@@ -1175,5 +1179,206 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       itemOverrides: [],
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug 2b (Task 5b): torn-arc loop-return edges fanned across sibling stamps +
+// capacity-capped edge billing. liquid_xiranite_poly splits into a looper and a
+// deliverer SCC-member stamp that BOTH own the lowpoly loop edge. The torn-arc
+// pass used to pick a single source stamp and bill the whole loop edge to it,
+// so the sibling stamp produced lowpoly with no edge drawing from it while the
+// picked stamp over-shipped past its production. The consumer's single inbound
+// edge then billed full demand past the wired producer's capacity.
+//
+// The assemble fan now wires EVERY surviving source stamp that owns the loop
+// edge, and computeEdgeRates splits each consumer's demand across its inbound
+// arcs by producer output share, so every liquid_xiranite_poly stamp ships
+// exactly its production. Witnesses: xiranite_poly+xiranite_enr_powder and
+// proc_battery_5+xiranite_enr_powder.
+// ---------------------------------------------------------------------------
+describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", () => {
+  const WITNESSES: ReadonlyArray<{ name: string; recipeIds: string[] }> = [
+    { name: "xiranite_poly+xiranite_enr_powder", recipeIds: ["xiranite_poly", "xiranite_enr_powder"] },
+    { name: "proc_battery_5+xiranite_enr_powder", recipeIds: ["proc_battery_5", "xiranite_enr_powder"] },
+  ];
+
+  for (const w of WITNESSES) {
+    const targets: Target[] = w.recipeIds.map((recipeId) => ({
+      recipeId,
+      ratePerSec: { num: "1", denom: "1" },
+    }));
+
+    function solveWitness() {
+      const full = solvePlanWithIntermediates(
+        targets,
+        pack,
+        defaultTransportConfig,
+        [],
+      );
+      const { plan } = renderPlanFromSolve(full, pack, targets, []);
+      return { full, plan };
+    }
+
+    // (i) checkUnitOutflowVsProduction reports zero violations: no
+    // liquid_xiranite_poly stamp ships more lowpoly than it produces.
+    it(`${w.name}: checkUnitOutflowVsProduction reports zero violations`, () => {
+      const { full, plan } = solveWitness();
+      const result = checkUnitOutflowVsProduction({
+        plan,
+        rates: full.rates,
+        pack,
+        targets,
+        itemOverrides: [],
+      });
+      expect(result.violations).toEqual([]);
+    });
+
+    // (ii) Fraction-exact: for EVERY liquid_xiranite_poly unit, its total
+    // outgoing lowpoly billed rate equals its production (out qty is 1, so
+    // production == that unit's execution rate). Mirrors the P6 production
+    // formula but asserts per unit, not just in aggregate, since the bug was a
+    // per-stamp over-ship that nets out in the total.
+    it(`${w.name}: per-unit lowpoly outflow equals production for every liquid_xiranite_poly unit`, () => {
+      const { plan } = solveWitness();
+      const recipe = pack.recipes.find((r) => r.id === "liquid_xiranite_poly")!;
+      const producerId = recipe.producers[0];
+      const machine =
+        producerId === undefined
+          ? undefined
+          : pack.machines.find((m) => m.id === producerId);
+      const speed = machine ? new Fraction(machine.speed) : new Fraction(1);
+      const lowpolyQty = recipe.out.find(
+        (o) => o.item === "liquid_xiranite_lowpoly",
+      )!.qty;
+
+      const polyUnits = plan.units
+        .filter(isRecipeUnit)
+        .filter((u) => u.recipeId === "liquid_xiranite_poly");
+      expect(polyUnits.length).toBeGreaterThan(0);
+      for (const u of polyUnits) {
+        const production = rationalFromString(u.multiplicity)
+          .mul(speed)
+          .div(new Fraction(recipe.time))
+          .mul(new Fraction(lowpolyQty));
+        let shipped = new Fraction(0);
+        for (const e of plan.edges) {
+          if (e.item !== "liquid_xiranite_lowpoly") continue;
+          if (e.fromUnit === u.id) shipped = shipped.add(e.rate);
+        }
+        expect(production.compare(0)).toBeGreaterThan(0);
+        expect(
+          shipped.equals(production),
+          `${w.name} unit ${u.id}: shipped ${shipped.toFraction()} != production ${production.toFraction()}`,
+        ).toBe(true);
+      }
+    });
+
+    // (iii) All seven checkRenderPlan checkers clean.
+    it(`${w.name}: all seven checkRenderPlan checkers report zero violations`, () => {
+      const { full, plan } = solveWitness();
+      const results = checkRenderPlan({
+        plan,
+        rates: full.rates,
+        pack,
+        targets,
+        itemOverrides: [],
+      });
+      expect(results.length).toBe(7);
+      expect(results.flatMap((r) => r.violations)).toEqual([]);
+    });
+  }
+
+  // Dev-throw seam: after the assemble fan, every consumer of a split-producer
+  // item is wired to all sibling producers, so a consumer with insufficient
+  // total inbound capacity cannot arise on a public-path plan. The capacity
+  // guard's dev-throw is therefore covered by unit-testing the exported pure
+  // helper directly. One producer (cap 1) feeds a consumer demanding 3 with no
+  // sibling to absorb the freed 2: capProducerInputOutflow must throw under DEV,
+  // naming the consumer, item, freed demand, and the dropped-supplier cause.
+  it("capProducerInputOutflow throws under DEV when inbound capacity falls short", () => {
+    const groupKey = "consumerX\0itemY";
+    const edges: CapEdge[] = [
+      {
+        edgeId: "e1",
+        producerId: "p1",
+        groupKey,
+        item: "itemY",
+        rate: new Fraction(3),
+        capacity: new Fraction(1),
+      },
+    ];
+    const result = new Map<string, Fraction>([["e1", new Fraction(3)]]);
+    vi.stubEnv("DEV", true);
+    try {
+      expect(() => capProducerInputOutflow(edges, result)).toThrow(
+        /consumer "consumerX" item "itemY"/,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  // No-op property: when every producer's billed outflow is within capacity the
+  // helper leaves the rates bit-identical (clean plans untouched).
+  it("capProducerInputOutflow is a no-op when no producer is over capacity", () => {
+    const groupKey = "consumerX\0itemY";
+    const edges: CapEdge[] = [
+      {
+        edgeId: "e1",
+        producerId: "p1",
+        groupKey,
+        item: "itemY",
+        rate: new Fraction(2),
+        capacity: new Fraction(5),
+      },
+      {
+        edgeId: "e2",
+        producerId: "p2",
+        groupKey,
+        item: "itemY",
+        rate: new Fraction(1),
+        capacity: new Fraction(4),
+      },
+    ];
+    const result = new Map<string, Fraction>([
+      ["e1", new Fraction(2)],
+      ["e2", new Fraction(1)],
+    ]);
+    capProducerInputOutflow(edges, result);
+    expect(result.get("e1")!.equals(new Fraction(2))).toBe(true);
+    expect(result.get("e2")!.equals(new Fraction(1))).toBe(true);
+  });
+
+  // Redistribution: an over-billed producer (cap 1, billed 3) caps to its
+  // capacity and the freed 2 refills the sibling with spare, exact-rational.
+  it("capProducerInputOutflow caps the saturated producer and refills the sibling", () => {
+    const groupKey = "consumerX\0itemY";
+    const edges: CapEdge[] = [
+      {
+        edgeId: "e1",
+        producerId: "p1",
+        groupKey,
+        item: "itemY",
+        rate: new Fraction(3),
+        capacity: new Fraction(1),
+      },
+      {
+        edgeId: "e2",
+        producerId: "p2",
+        groupKey,
+        item: "itemY",
+        rate: new Fraction(0),
+        capacity: new Fraction(5),
+      },
+    ];
+    const result = new Map<string, Fraction>([
+      ["e1", new Fraction(3)],
+      ["e2", new Fraction(0)],
+    ]);
+    capProducerInputOutflow(edges, result);
+    // p1 capped to 1, p2 absorbs the freed 2. Total demand (3) preserved.
+    expect(result.get("e1")!.equals(new Fraction(1))).toBe(true);
+    expect(result.get("e2")!.equals(new Fraction(2))).toBe(true);
   });
 });

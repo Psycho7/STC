@@ -254,6 +254,9 @@ function computeEdgeRates(args: {
     if (!outStoich) return ZERO;
     return producer.executionRate.mul(new Fraction(outStoich.qty));
   };
+  // Input edges of one item feeding one consumer stamp; collected so the
+  // capacity cap below can see every edge and its producer's output of the item.
+  const capInputs: CapEdge[] = [];
   for (const [key, group] of inputEdgesByGroup) {
     const sep = key.indexOf("\0");
     const targetSafeId = key.slice(0, sep);
@@ -272,8 +275,25 @@ function computeEdgeRates(args: {
           ? demand.mul(shares[i]!).div(shareSum)
           : demand.div(new Fraction(k));
       result.set(e.id, rate);
+      capInputs.push({
+        edgeId: e.id,
+        producerId: e.source,
+        groupKey: `${targetSafeId}\0${item}`,
+        item,
+        rate,
+        capacity: shares[i]!,
+      });
     }
   }
+
+  // Capacity guard: no producer's total billed input-edge outflow of an item may
+  // exceed its production. The share split above already balances this whenever
+  // every sibling producer carries its share, so this is a no-op on well-wired
+  // plans (clean edge rates stay bit-identical). It is the durable backstop for
+  // the bug class where a dropped sibling edge leaves one producer over-billed:
+  // cap the saturated producer and refill the freed consumer demand from sibling
+  // inbound edges with spare capacity.
+  capProducerInputOutflow(capInputs, result);
 
   // Remaining edges, two buckets:
   //   - consumer/recipe unresolvable, OR the consumer lists the item as an
@@ -304,6 +324,190 @@ function computeEdgeRates(args: {
     result.set(e.id, rate);
   }
   return result;
+}
+
+/**
+ * One input edge as the capacity guard sees it: which producer stamp ships the
+ * item, which consumer group it feeds, its current billed rate, and the
+ * producer's total production of the item (its billing capacity).
+ */
+export type CapEdge = {
+  edgeId: string;
+  producerId: string;
+  /** `${consumerSafeId}\0${item}` - the demand group the edge belongs to. */
+  groupKey: string;
+  item: string;
+  rate: Fraction;
+  capacity: Fraction;
+};
+
+const CAP_REL_TOL = 1e-6;
+// Hoisted constants: building a Fraction from the float tolerance is costly, and
+// the cap runs (and scans every producer) on every plan, so construct these once.
+const CAP_REL_TOL_FRAC = new Fraction(CAP_REL_TOL);
+const CAP_ONE = new Fraction(1);
+
+/**
+ * Caps each producer's total billed outflow of an item at its production and
+ * refills the freed consumer demand from sibling inbound edges with spare
+ * capacity. Mutates `result` in place, keyed by edgeId.
+ *
+ * Exact-rational. When no producer is over-billed (every sibling carries its
+ * share, the normal case after the assemble torn-arc fan) this is a no-op and
+ * the edge rates passed in are untouched, so clean plans stay bit-identical.
+ *
+ * Each iteration scales the most-oversubscribed producer down to exactly its
+ * capacity, marks it saturated (it never receives more), and refills the
+ * resulting per-group deficits across that group's other non-saturated edges in
+ * proportion to their producers' remaining spare. Saturating one producer per
+ * iteration bounds the loop by the producer count. A consumer group whose total
+ * sibling spare cannot cover its deficit beyond tolerance signals a dropped
+ * supplier upstream: fail loud in dev, leave the uncapped rates in prod so the
+ * plan still renders.
+ */
+export function capProducerInputOutflow(
+  edges: ReadonlyArray<CapEdge>,
+  result: Map<string, Fraction>,
+): void {
+  const ZERO = new Fraction(0);
+  if (edges.length === 0) return;
+
+  // Working rate per edge (seeded from result, which holds the share split).
+  const rate = new Map<string, Fraction>();
+  for (const e of edges) rate.set(e.edgeId, result.get(e.edgeId) ?? e.rate);
+
+  // Capacity is per (producer stamp, item): one stamp can output several items
+  // and the cap applies to each item's production separately, so key every
+  // per-producer map by `${producerId}\0${item}` rather than the stamp alone.
+  // Keying by the stamp alone would sum a stamp's outflow of distinct items
+  // against one item's capacity and mis-fire on a correctly wired plan.
+  const prodKeyOf = (e: CapEdge): string => `${e.producerId}\0${e.item}`;
+  const capacityOf = new Map<string, Fraction>();
+  const edgesOfProducer = new Map<string, CapEdge[]>();
+  const edgesOfGroup = new Map<string, CapEdge[]>();
+  // Billed outflow per (producer, item), maintained incrementally so the worst-
+  // producer search and the spare lookups stay O(1) instead of re-summing each
+  // producer's edges every pass (the cap runs on every plan, the no-op case
+  // included, so the hot path must not be quadratic).
+  const billed = new Map<string, Fraction>();
+  const edgeKeyOf = new Map<string, string>();
+  for (const e of edges) {
+    const pk = prodKeyOf(e);
+    edgeKeyOf.set(e.edgeId, pk);
+    capacityOf.set(pk, e.capacity);
+    (edgesOfProducer.get(pk) ?? setDefault(edgesOfProducer, pk)).push(e);
+    (edgesOfGroup.get(e.groupKey) ?? setDefault(edgesOfGroup, e.groupKey)).push(e);
+    billed.set(pk, (billed.get(pk) ?? ZERO).add(rate.get(e.edgeId) ?? ZERO));
+  }
+
+  // Set an edge's working rate and keep its producer's billed total in step.
+  const setRate = (edgeId: string, next: Fraction): void => {
+    const pk = edgeKeyOf.get(edgeId);
+    if (pk !== undefined) {
+      const old = rate.get(edgeId) ?? ZERO;
+      billed.set(pk, (billed.get(pk) ?? ZERO).sub(old).add(next));
+    }
+    rate.set(edgeId, next);
+  };
+  const billedOf = (prodKey: string): Fraction => billed.get(prodKey) ?? ZERO;
+  const spareOf = (prodKey: string): Fraction => {
+    const cap = capacityOf.get(prodKey) ?? ZERO;
+    const spare = cap.sub(billedOf(prodKey));
+    return spare.compare(ZERO) > 0 ? spare : ZERO;
+  };
+
+  // Relative tolerance against a magnitude (cap or freed demand).
+  const tolFor = (magnitude: Fraction): Fraction =>
+    CAP_REL_TOL_FRAC.mul(maxFrac(magnitude, CAP_ONE));
+
+  // Fast no-op exit: when no (producer, item) is billed past capacity (the
+  // normal case after the assemble torn-arc fan) there is nothing to cap.
+  let anyOver = false;
+  for (const [pk, cap] of capacityOf) {
+    if (billedOf(pk).sub(cap).compare(tolFor(cap)) > 0) {
+      anyOver = true;
+      break;
+    }
+  }
+  if (!anyOver) return;
+
+  const saturated = new Set<string>();
+  // Bounded by the (producer, item) count: each pass saturates at least one.
+  for (let guard = 0; guard <= capacityOf.size; guard++) {
+    // Most-oversubscribed (producer, item) (largest billed - capacity) past tol.
+    let worst: string | undefined;
+    let worstExcess = ZERO;
+    for (const [pk, cap] of capacityOf) {
+      if (saturated.has(pk)) continue;
+      const excess = billedOf(pk).sub(cap);
+      if (excess.compare(tolFor(cap)) > 0 && excess.compare(worstExcess) > 0) {
+        worst = pk;
+        worstExcess = excess;
+      }
+    }
+    if (worst === undefined) break;
+
+    const cap = capacityOf.get(worst) ?? ZERO;
+    const billedWorst = billedOf(worst);
+    // Scale this producer's edges down to exactly its capacity; collect the
+    // freed demand per consumer group.
+    const freedByGroup = new Map<string, Fraction>();
+    for (const e of edgesOfProducer.get(worst) ?? []) {
+      const old = rate.get(e.edgeId) ?? ZERO;
+      const scaled = billedWorst.compare(ZERO) > 0 ? old.mul(cap).div(billedWorst) : ZERO;
+      const freed = old.sub(scaled);
+      setRate(e.edgeId, scaled);
+      if (freed.compare(ZERO) > 0) {
+        freedByGroup.set(e.groupKey, (freedByGroup.get(e.groupKey) ?? ZERO).add(freed));
+      }
+    }
+    saturated.add(worst);
+
+    // Refill each group's freed demand across its other non-saturated edges, in
+    // proportion to their producers' remaining spare.
+    for (const [groupKey, freed] of freedByGroup) {
+      const siblings = (edgesOfGroup.get(groupKey) ?? []).filter(
+        (e) => !saturated.has(prodKeyOf(e)),
+      );
+      const spares = siblings.map((e) => spareOf(prodKeyOf(e)));
+      const spareSum = spares.reduce((acc, s) => acc.add(s), ZERO);
+      if (spareSum.compare(ZERO) <= 0) {
+        // No sibling can absorb the freed demand: a supplier was dropped.
+        if (freed.compare(tolFor(freed)) > 0) {
+          if (import.meta.env.DEV) {
+            const sep = groupKey.indexOf("\0");
+            const consumer = groupKey.slice(0, sep);
+            const item = groupKey.slice(sep + 1);
+            throw new Error(
+              `capProducerInputOutflow: consumer "${consumer}" item "${item}" has ` +
+                `insufficient inbound capacity; ${freed.toFraction()} of demand cannot ` +
+                `be served after capping producers (dropped supplier upstream)`,
+            );
+          }
+          // Prod: leave the uncapped rates so the plan still renders.
+          return;
+        }
+        continue;
+      }
+      for (let i = 0; i < siblings.length; i++) {
+        const e = siblings[i]!;
+        const add = freed.mul(spares[i]!).div(spareSum);
+        setRate(e.edgeId, (rate.get(e.edgeId) ?? ZERO).add(add));
+      }
+    }
+  }
+
+  for (const e of edges) result.set(e.edgeId, rate.get(e.edgeId) ?? ZERO);
+}
+
+function setDefault<K, V>(map: Map<K, V[]>, key: K): V[] {
+  const arr: V[] = [];
+  map.set(key, arr);
+  return arr;
+}
+
+function maxFrac(a: Fraction, b: Fraction): Fraction {
+  return a.compare(b) >= 0 ? a : b;
 }
 
 /**

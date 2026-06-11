@@ -258,28 +258,41 @@ export function assembleLogicalGraph(args: {
   // stamp rather than one picked representative; else a live split stamp is left
   // fed from nothing. computeEdgeRates scopes each arc to the consumer stamp's
   // own demand.
+  //
+  // The SOURCE recipe may likewise have split into several SCC-member stamps
+  // that all own this loop edge (the looper/deliverer split of a producer whose
+  // byproduct closes the loop). Picking a single source stamp bills its whole
+  // output to that one stamp and leaves the sibling's loop-edge capacity
+  // unwired: the surviving arc over-ships past the picked stamp's production
+  // while the sibling produces with nothing drawn from it. Fan the arc across
+  // EVERY surviving source stamp that owns the loop edge; computeEdgeRates
+  // splits each consumer's demand across its inbound arcs by producer output
+  // share, so no stamp over-ships. When only one source stamp owns the edge the
+  // fan collapses to that stamp, keeping single-source wiring bit-identical.
   for (const te of torn) {
-    const srcReplica = pickSccMemberReplica(
+    const srcReplicas = pickSccMemberReplicas(
       te.edge.source,
       replicasByRecipeId,
       te.edge.item,
       te.edge.target,
-    );
-    if (!srcReplica || !survivingIds.has(srcReplica.id)) continue;
+    ).filter((r) => survivingIds.has(r.id));
+    if (srcReplicas.length === 0) continue;
     const tgtReplicas = (
       replicasByRecipeId.get(te.edge.target) ?? []
     ).filter((r) => survivingIds.has(r.id));
     if (tgtReplicas.length === 0) continue;
-    const source = safeId(srcReplica.id);
-    for (const tgt of tgtReplicas) {
-      const target = safeId(tgt.id);
-      edges.push({
-        id: `${source}->return->${target}:${te.edge.item}`,
-        source,
-        target,
-        sourcePort: `out:${te.edge.item}`,
-        targetPort: `in:${te.edge.item}`,
-      });
+    for (const srcReplica of srcReplicas) {
+      const source = safeId(srcReplica.id);
+      for (const tgt of tgtReplicas) {
+        const target = safeId(tgt.id);
+        edges.push({
+          id: `${source}->return->${target}:${te.edge.item}`,
+          source,
+          target,
+          sourcePort: `out:${te.edge.item}`,
+          targetPort: `in:${te.edge.item}`,
+        });
+      }
     }
   }
 
@@ -344,6 +357,39 @@ function pickSccMemberReplica(
   }
   const shared = arr.find((r) => r.sharedAtArticulation);
   return shared ?? arr[0];
+}
+
+/**
+ * Like pickSccMemberReplica, but returns EVERY SCC-member stamp that owns the
+ * loop edge so the torn-arc fan can split a loop edge across all sibling
+ * producers (the looper/deliverer split of a byproduct producer). Returns the
+ * owners in stamp order. When no stamp carries an outgoingEdgeFilter owning the
+ * edge, falls back to the single representative pickSccMemberReplica chooses, so
+ * the un-split case stays bit-identical.
+ */
+function pickSccMemberReplicas(
+  recipeId: RecipeId,
+  replicasByRecipeId: Map<RecipeId, Replica[]>,
+  edgeItem: string,
+  edgeTarget: RecipeId,
+): Replica[] {
+  const arr = replicasByRecipeId.get(recipeId);
+  if (!arr || arr.length === 0) return [];
+  const key = outgoingEdgeKey(edgeItem, edgeTarget);
+  const owners = arr.filter(
+    (r) =>
+      r.sharedAtArticulation &&
+      r.outgoingEdgeFilter !== undefined &&
+      r.outgoingEdgeFilter.has(key),
+  );
+  if (owners.length > 0) return owners;
+  const single = pickSccMemberReplica(
+    recipeId,
+    replicasByRecipeId,
+    edgeItem,
+    edgeTarget,
+  );
+  return single ? [single] : [];
 }
 
 function labelForGroup(
