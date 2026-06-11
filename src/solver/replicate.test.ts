@@ -699,6 +699,151 @@ describe("replicatePerConsumer: SCC intra supply nets the boundary demand", () =
   });
 });
 
+describe("replicatePerConsumer: duplicate target seeds", () => {
+  // A duplicate-recipe target ([X@1, X@1]) must replicate IDENTICALLY to the
+  // single accumulated target ([X@2]). The LP sums duplicate floors, and the
+  // targetDraw loop accumulates the declared draw, but the seed loop minted one
+  // full-rate replica per array entry and pushed a full upstream walk frame for
+  // each (targetSeeded.set silently overwriting the first), so the recipe and
+  // its whole upstream cone replicated 2x: per-recipeId summed execution rate ==
+  // 2x LP rate and every upstream input over-fed 2x.
+  //
+  // Chain: target `t` (consumes `a`) <- upstream `up` (produces `a`) <- `src`.
+  function dupChainGraph() {
+    const nodes: Recipe[] = [
+      recipe("t", [{ item: "a", qty: 1 }], [{ item: "tout", qty: 1 }]),
+      recipe("up", [{ item: "raw", qty: 1 }], [{ item: "a", qty: 1 }]),
+      recipe("src", [], [{ item: "raw", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "up", item: "a", target: "t" },
+      { source: "src", item: "raw", target: "up" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:t", recipeIds: ["t"] },
+      { id: "scc:up", recipeIds: ["up"] },
+      { id: "scc:src", recipeIds: ["src"] },
+    ]);
+    // LP rate for the accumulated demand t=2: up=2 feeds a, src=2 feeds raw.
+    const rates = new Map<RecipeId, Fraction>([
+      ["t", new Fraction(2)],
+      ["up", new Fraction(2)],
+      ["src", new Fraction(2)],
+    ]);
+    return { g, condensation, rates };
+  }
+
+  const sumOf = (replicas: ReturnType<typeof replicatePerConsumer>, rid: string) =>
+    replicas
+      .filter((r) => r.recipeId === rid)
+      .reduce((acc, r) => acc.add(r.executionRate), new Fraction(0));
+
+  it("a duplicate non-SCC target replicates identically to the accumulated single target", () => {
+    const { g, condensation, rates } = dupChainGraph();
+    const base = {
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+    };
+    const dup = replicatePerConsumer({
+      ...base,
+      targets: [
+        { recipeId: "t", ratePerSec: { num: "1", denom: "1" } },
+        { recipeId: "t", ratePerSec: { num: "1", denom: "1" } },
+      ],
+    });
+
+    // Per recipeId, summed vertex execution rates == LP rate (Fraction-exact).
+    // The bug doubled every one of these to 4.
+    expect(sumOf(dup, "t").equals(new Fraction(2))).toBe(true);
+    expect(sumOf(dup, "up").equals(new Fraction(2))).toBe(true);
+    expect(sumOf(dup, "src").equals(new Fraction(2))).toBe(true);
+
+    // The dup walk emits the same replicas as the single accumulated target.
+    const single = replicatePerConsumer({
+      ...base,
+      targets: [{ recipeId: "t", ratePerSec: { num: "2", denom: "1" } }],
+    });
+    expect(dup).toHaveLength(single.length);
+    expect(sumOf(dup, "t").equals(sumOf(single, "t"))).toBe(true);
+    expect(sumOf(dup, "up").equals(sumOf(single, "up"))).toBe(true);
+    expect(sumOf(dup, "src").equals(sumOf(single, "src"))).toBe(true);
+  });
+
+  it("an SCC-resident duplicate target stays correct (sccCreated dedup)", () => {
+    // 2-member SCC (m, mloop) on `loopitem`; m is the user target. Duplicating
+    // an SCC-resident target is already deduped by sccCreated, so the summed
+    // member rates stay at LP rate. Guards that the seed-loop fix does not
+    // disturb the SCC path.
+    const nodes: Recipe[] = [
+      recipe("m", [{ item: "loopitem", qty: 1 }], [{ item: "mout", qty: 1 }]),
+      recipe("mloop", [{ item: "mout", qty: 1 }], [{ item: "loopitem", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "mloop", item: "loopitem", target: "m" },
+      { source: "m", item: "mout", target: "mloop" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:m", recipeIds: ["m", "mloop"] },
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["m", new Fraction(2)],
+      ["mloop", new Fraction(2)],
+    ]);
+    const replicas = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+      targets: [
+        { recipeId: "m", ratePerSec: { num: "1", denom: "1" } },
+        { recipeId: "m", ratePerSec: { num: "1", denom: "1" } },
+      ],
+    });
+    expect(sumOf(replicas, "m").equals(new Fraction(2))).toBe(true);
+    expect(sumOf(replicas, "mloop").equals(new Fraction(2))).toBe(true);
+  });
+
+  it("a zero-rate second duplicate does not change the rendered plan", () => {
+    // The old seed loop gave the second seed the full LP rate regardless of its
+    // own declared draw; a [t@1, t@0] target must match [t@1].
+    const nodes: Recipe[] = [
+      recipe("t", [{ item: "a", qty: 1 }], [{ item: "tout", qty: 1 }]),
+      recipe("up", [], [{ item: "a", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [{ source: "up", item: "a", target: "t" }]);
+    const condensation = condensationOf([
+      { id: "scc:t", recipeIds: ["t"] },
+      { id: "scc:up", recipeIds: ["up"] },
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["t", new Fraction(1)],
+      ["up", new Fraction(1)],
+    ]);
+    const base = {
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+    };
+    const withZeroDup = replicatePerConsumer({
+      ...base,
+      targets: [
+        { recipeId: "t", ratePerSec: { num: "1", denom: "1" } },
+        { recipeId: "t", ratePerSec: { num: "0", denom: "1" } },
+      ],
+    });
+    const single = replicatePerConsumer({
+      ...base,
+      targets: [{ recipeId: "t", ratePerSec: { num: "1", denom: "1" } }],
+    });
+    expect(withZeroDup).toHaveLength(single.length);
+    expect(sumOf(withZeroDup, "t").equals(new Fraction(1))).toBe(true);
+    expect(sumOf(withZeroDup, "up").equals(new Fraction(1))).toBe(true);
+  });
+});
+
 describe("replicatePerConsumer: augmented LP-support seeds", () => {
   // Miniature of the copper_bottle disposal case: target `prod` over-runs (LP 3
   // vs declared 1) and augmented sink `sink` absorbs the excess (LP 1, in: x2).
