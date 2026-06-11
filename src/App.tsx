@@ -9,6 +9,7 @@ import Canvas from "./canvas/Canvas";
 import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
 import { layoutRenderPlan } from "./canvas/layout";
+import { buildRealizedRateByItem } from "./canvas/productNodeMetadata";
 import {
   describePlanLoadError,
   encodePlan,
@@ -225,21 +226,7 @@ function AppInner() {
   // Flow nodes change.
   const realizedRateByItem = useMemo<
     ReadonlyMap<string, import("./pipeline/types").RationalString>
-  >(() => {
-    const map = new Map<string, import("./pipeline/types").RationalString>();
-    for (const n of nodes) {
-      if (n.type !== "product") continue;
-      const data = n.data as {
-        kind?: string;
-        itemId?: string;
-        rate?: import("./pipeline/types").RationalString;
-      };
-      if (data.kind !== "inputProduct") continue;
-      if (data.itemId === undefined || data.rate === undefined) continue;
-      map.set(data.itemId, data.rate);
-    }
-    return map;
-  }, [nodes]);
+  >(() => buildRealizedRateByItem(nodes), [nodes]);
 
   // Raw items the current plan pulls across the boundary as assumed-infinite
   // supply. InputsPanel surfaces these as auto-rows when the user has declared
