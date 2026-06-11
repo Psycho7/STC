@@ -748,7 +748,7 @@ export function checkUnitOutflowVsProduction(
 }
 
 /**
- * Run all seven render invariant checkers in stable order. Mirrors the solver
+ * Run all eight render invariant checkers in stable order. Mirrors the solver
  * debug surface that lists a verdict per checker.
  */
 export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
@@ -760,12 +760,13 @@ export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
     checkConsumerInputsNotOverfed(args),
     checkTargetOutputsSatisfied(args),
     checkNoOrphanUnits(args),
+    checkUnitOutflowVsProduction(args),
   ];
 }
 
 /**
  * Assert all render invariants. Throws one Error aggregating every violation
- * across the seven checkers. Mirrors assertInvariants in the solver invariants.
+ * across the eight checkers. Mirrors assertInvariants in the solver invariants.
  */
 export function assertRenderInvariants(args: RenderInvariantArgs): void {
   const violations = checkRenderPlan(args).flatMap((r) => r.violations);

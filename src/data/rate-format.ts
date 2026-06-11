@@ -7,7 +7,11 @@ export function formatRatePerMin(itemsPerSec: Fraction): string {
   const value = perMin.valueOf();
   if (!Number.isFinite(value) || value === 0) return "";
   if (perMin.d === 1n) return perMin.n.toString();
-  return value.toFixed(2).replace(/\.?0+$/, "");
+  const fixed = value.toFixed(2).replace(/\.?0+$/, "");
+  // A nonzero rate below 0.005/min rounds to "0" (or "-0") here, which would
+  // render a misleading "0/min" chip. Fall back to the exact fraction.
+  if (fixed === "0" || fixed === "-0") return perMin.toFraction(false);
+  return fixed;
 }
 
 // Per-minute Fraction from a per-second rational. x60 stays exact, so both the

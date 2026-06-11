@@ -1073,15 +1073,34 @@ function cleanPlanArgs(): {
 }
 
 describe("checkRenderPlan", () => {
-  // Case (b): a well-formed minimal plan gives all seven results ok.
-  it("(b) returns seven ok results for a fully clean minimal plan", () => {
+  // Case (b): a well-formed minimal plan gives all eight results ok.
+  it("(b) returns eight ok results for a fully clean minimal plan", () => {
     const args = cleanPlanArgs();
     const results = checkRenderPlan(args);
-    expect(results).toHaveLength(7);
+    expect(results).toHaveLength(8);
     for (const r of results) {
       expect(r.ok).toBe(true);
       expect(r.violations).toHaveLength(0);
     }
+  });
+
+  // The aggregate must surface a checkUnitOutflowVsProduction violation. This
+  // plan over-bills the F producer (recipe-A makes 1 F/sec, the outgoing edge
+  // ships 2) which trips ONLY checkUnitOutflowVsProduction: the target output is
+  // shortfall-only on delivery, the over-feed checker only inspects edges into
+  // recipe units, and the boundary checker accepts the justified target. If the
+  // checker is not in the aggregate list, checkRenderPlan reports it clean.
+  it("surfaces a unit-outflow over-bill through the aggregate", () => {
+    const args = cleanPlanArgs();
+    for (const e of args.plan.edges) {
+      if (e.fromUnit === "u-A") e.rate = new Fraction(2);
+    }
+
+    const results = checkRenderPlan(args);
+    const allViolations = results.flatMap((r) => r.violations);
+    expect(
+      allViolations.some((v) => v.includes("over-billed producer edge")),
+    ).toBe(true);
   });
 });
 

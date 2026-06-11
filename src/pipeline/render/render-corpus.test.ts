@@ -961,7 +961,7 @@ describe("render corpus: co-product fans across sibling replicas (P6)", () => {
   });
 
   // (iii) P6 is clean on all 7 checkRenderPlan checkers today and must stay so.
-  it("all seven checkRenderPlan checkers report zero violations", () => {
+  it("all checkRenderPlan checkers report zero violations", () => {
     const { full, plan } = solveP6();
     const violations = checkRenderPlan({
       plan,
@@ -1080,7 +1080,7 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
     expect(spareBearing!.trueSpare.equals(new Fraction(1))).toBe(true);
     expect(spareBearing!.targetEdge.equals(new Fraction(1))).toBe(true);
 
-    // All seven checkRenderPlan checkers clean.
+    // All checkRenderPlan checkers clean.
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -1274,8 +1274,8 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
       }
     });
 
-    // (iii) All seven checkRenderPlan checkers clean.
-    it(`${w.name}: all seven checkRenderPlan checkers report zero violations`, () => {
+    // (iii) All eight checkRenderPlan checkers clean.
+    it(`${w.name}: all eight checkRenderPlan checkers report zero violations`, () => {
       const { full, plan } = solveWitness();
       const results = checkRenderPlan({
         plan,
@@ -1284,7 +1284,7 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
         targets,
         itemOverrides: [],
       });
-      expect(results.length).toBe(7);
+      expect(results.length).toBe(8);
       expect(results.flatMap((r) => r.violations)).toEqual([]);
     });
   }

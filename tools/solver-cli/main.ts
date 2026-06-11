@@ -356,6 +356,7 @@ export async function runCli(argv: string[]): Promise<string> {
       "consumerInputsNotOverfed",
       "targetOutputsSatisfied",
       "noOrphanUnits",
+      "unitOutflowVsProduction",
     ];
     if (results.length !== RENDER_INVARIANT_NAMES.length)
       throw new Error(
