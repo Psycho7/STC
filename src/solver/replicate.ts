@@ -1029,9 +1029,18 @@ function walkFromTargets(state: ReplicateState): void {
         ensureSccReplicas(state, sid);
       }
       // The target is the SCC member's replica; ensureSccReplicas already queued
-      // the boundary-edge work.
+      // the boundary-edge work. A duplicate SCC-resident target is deduped here
+      // by the sccCreated guard.
       continue;
     }
+    // Dedup duplicate-recipe target entries: the LP rate already covers the
+    // accumulated demand of every entry sharing this recipeId (lp.ts sums
+    // duplicate pin floors; the targetDraw loop above accumulates the declared
+    // draw), so the FIRST occurrence mints the full-rate replica and walks the
+    // upstream cone once. Later duplicate entries reuse that seed; minting a
+    // second full-rate replica and frame per entry would replicate the recipe
+    // and its whole upstream cone an extra time.
+    if (state.targetSeeded.has(recipeId)) continue;
     const targetGroupId = propagateGroups({ kind: "target", recipeId });
     const targetRate = state.rates.get(recipeId) ?? new Fraction(0);
     // A target recipe can ALSO be a byproduct-shared source: a non-primary
