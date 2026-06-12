@@ -578,10 +578,11 @@ export function assignSplitRoles(args: {
 // emits two replicas with distinct ids: a "looper" carrying the intra-SCC role
 // and a "deliverer" carrying the cross-boundary role. Each replica's
 // outgoingEdgeFilter scopes its edge fan-out to its role's edges. The returned
-// map holds one replica id per recipe (the canonical "inputs-consumer", the
-// looper when one exists); the second split replica goes into the replicas array
-// as its own entry so assembleLogicalGraph and deriveReplicaEdges find it through
-// the recipeId index.
+// map holds one replica id per recipe (the canonical "inputs-consumer": the
+// positive-rate role, i.e. the looper when looperRate > 0, else the deliverer);
+// the second split replica goes into the replicas array as its own entry so
+// assembleLogicalGraph and deriveReplicaEdges find it through the recipeId
+// index.
 function ensureSccReplicas(
   state: ReplicateState,
   sid: SccId,
@@ -766,10 +767,19 @@ function ensureSccReplicas(
       outgoingEdgeFilter: decision.delivererFilter,
     };
     state.replicas.push(deliverer);
-    // The looper is the canonical inputs-consumer; the boundary-edge frames
-    // below use it to walk upstream. The deliverer is still its own replica, and
-    // assembleLogicalGraph picks it up through the recipeId index.
-    map.set(rid, looper.id);
+    // The canonical inputs-consumer is the positive-rate role; the boundary
+    // -edge frames below use it to walk upstream, and the multiplier pass drops
+    // zero-rate stamps, so a zero-rate canonical would leave every boundary
+    // -minted producer pointing at a dropped stamp. The looper keeps the role
+    // whenever its rate is positive (bit-identical to the old unconditional
+    // pick); at looperRate 0 the deliverer carries the whole recipeRate > 0
+    // (mass-balance contract of assignSplitRoles) and always survives. The
+    // other split replica is still its own entry, and assembleLogicalGraph
+    // picks it up through the recipeId index.
+    map.set(
+      rid,
+      decision.looperRate.compare(0) > 0 ? looper.id : deliverer.id,
+    );
   }
 
   state.sccMemberReplicas.set(sid, map);

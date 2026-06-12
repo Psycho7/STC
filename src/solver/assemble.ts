@@ -159,10 +159,10 @@ export function assembleLogicalGraph(args: {
   // replica with the consumer replica it feeds, respecting per-consumer scoping.
   const edges: LogicalEdge[] = [];
   // Per-consumer producers whose designated consumer stamp was a same-recipe
-  // stamp the LP zeroed out (the SCC looper/deliverer case). Resolved after the
-  // main wiring and the torn arcs, so the re-route only feeds live sibling stamps
-  // nothing else already fed - avoiding a double edge when a live deliverer stamp
-  // already has its own designated producer.
+  // stamp the LP zeroed out (the SCC looper/deliverer case). Resolved in the
+  // re-route pass after the main wiring and the torn arcs: each deferred
+  // producer fans to every surviving stamp of its consumer recipe, deduping
+  // only exact duplicate edges.
   const pendingReroutes: Array<{
     producerId: ReplicaId;
     cRid: RecipeId;
@@ -296,25 +296,25 @@ export function assembleLogicalGraph(args: {
     }
   }
 
-  // Collision-safe re-route pass. A live consumer stamp counts as already fed
-  // for an item once any edge above delivers that item to it. Each deferred
-  // re-route then feeds only the surviving sibling stamps still missing that
-  // item: a live deliverer that already has its own designated producer is never
-  // double-fed, while a live stamp orphaned by a dropped looper gets its edge.
-  // Newly added edges update the fed set so two re-routes can't target the same
-  // stamp.
-  const fedStampItem = new Set<string>();
-  const fedKey = (target: string, item: string): string => `${target}\0${item}`;
-  for (const e of edges) {
-    fedStampItem.add(fedKey(e.target, e.targetPort.slice("in:".length)));
-  }
+  // Re-route pass: fan each deferred producer to EVERY surviving stamp of its
+  // consumer recipe. Feeding a stamp that already has inbound edges for the
+  // item (its own designated producer, a sibling re-route, or a torn return
+  // arc) is safe: computeEdgeRates splits each stamp's demand across its
+  // inbound edges by producer output share, so fanning redistributes shares
+  // and never over-feeds. The earlier (stamp, item) fed-set guard silently
+  // dropped every producer of a multi-producer input after the first, and
+  // blocked the residual edge of an external producer minted net of intra-SCC
+  // supply when a return arc already delivered the item (the dual-fed case).
+  // Only exact duplicate edges are skipped, by edge id; each pendingReroute
+  // carries a distinct producer replica, so collisions are cheap insurance.
+  const edgeIds = new Set(edges.map((e) => e.id));
   for (const pr of pendingReroutes) {
     for (const C of replicasByRecipeId.get(pr.cRid) ?? []) {
       if (!survivingIds.has(C.id)) continue;
-      const key = fedKey(safeId(C.id), pr.item);
-      if (fedStampItem.has(key)) continue;
-      edges.push(buildEdge(pr.producerId, C.id, pr.item));
-      fedStampItem.add(key);
+      const e = buildEdge(pr.producerId, C.id, pr.item);
+      if (edgeIds.has(e.id)) continue;
+      edges.push(e);
+      edgeIds.add(e.id);
     }
   }
 

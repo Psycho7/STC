@@ -115,6 +115,143 @@ describe("solver status handling", () => {
   });
 });
 
+describe("multi-producer input of a split SCC member (assemble re-route)", () => {
+  // Synthetic SCC fixture: members A+B loop on loop_m/loop_t; A is LP-zeroed
+  // (its scarce input is capped to 0), so B's looper stamp gets rate 0 and the
+  // external producers of B's inputs hang off the split stamps. Item x has TWO
+  // producers: P1 is capped to 1/2 via raw1 and P2 covers the other 1/2. The
+  // re-route used to drop every producer after the first, leaving P2's node
+  // edgeless while B's full x demand was billed to P1.
+  //
+  // P2 carries a cost of 2 so the 1/2-1/2 split is unique-optimal: the LP
+  // prefers the cheaper P1 up to its raw1 cap and P2 carries only the residual.
+  // Without the asymmetry the bounded-draw formulation makes the raw1 draw
+  // optional and the split degenerate, and the test could silently stop
+  // exercising the multi-producer path.
+  const mkPack = (
+    recipes: object[],
+    items: object[],
+  ): RecipePack =>
+    ({
+      recipes: recipes.map((r) => ({ producers: ["m"], ...r })),
+      items: items.map((i) => ({ transportKind: "belt", ...i })),
+      machines: [{ id: "m", speed: 1 }],
+    }) as unknown as RecipePack;
+  const sccPack = mkPack(
+    [
+      {
+        id: "tgt",
+        category: "material",
+        time: 1,
+        in: [{ item: "out_b", qty: 1 }],
+        out: [{ item: "final", qty: 1 }],
+      },
+      {
+        id: "B",
+        category: "material",
+        time: 1,
+        in: [
+          { item: "x", qty: 1 },
+          { item: "loop_t", qty: 1 },
+        ],
+        out: [
+          { item: "out_b", qty: 1 },
+          { item: "loop_m", qty: 1 },
+        ],
+      },
+      {
+        id: "A",
+        category: "material",
+        time: 1,
+        in: [
+          { item: "loop_m", qty: 1 },
+          { item: "scarce", qty: 1 },
+        ],
+        out: [{ item: "loop_t", qty: 1 }],
+      },
+      {
+        id: "E",
+        category: "material",
+        time: 1,
+        in: [{ item: "raw_e", qty: 1 }],
+        out: [{ item: "loop_t", qty: 1 }],
+      },
+      {
+        id: "P1",
+        category: "material",
+        time: 1,
+        in: [{ item: "raw1", qty: 1 }],
+        out: [{ item: "x", qty: 1 }],
+      },
+      {
+        id: "P2",
+        category: "material",
+        time: 1,
+        in: [{ item: "raw2", qty: 1 }],
+        out: [{ item: "x", qty: 1 }],
+      },
+    ],
+    [
+      { id: "final", raw: false },
+      { id: "out_b", raw: false },
+      { id: "x", raw: false },
+      { id: "loop_t", raw: false },
+      { id: "loop_m", raw: false },
+      { id: "scarce", raw: true },
+      { id: "raw_e", raw: true },
+      { id: "raw1", raw: true },
+      { id: "raw2", raw: true },
+    ],
+  );
+  const sccTargets: Target[] = [
+    { recipeId: "tgt", ratePerSec: { num: "1", denom: "1" } },
+  ];
+  const sccOverrides = [
+    { itemId: "scarce", ratePerSec: { num: "0", denom: "1" } },
+    { itemId: "raw1", ratePerSec: { num: "1", denom: "2" } },
+  ];
+  const sccCosts = new Map([["P2", 2]]);
+
+  it("wires BOTH x producers to the surviving B stamp; no surviving node is edgeless", () => {
+    const full = solvePlanWithIntermediates(
+      sccTargets,
+      sccPack,
+      defaultTransportConfig,
+      sccOverrides,
+      sccCosts,
+    );
+    const logical = full.logical;
+    // Both producers run at 1/2.
+    expect(full.rates.get("P1")?.equals(new Fraction(1, 2))).toBe(true);
+    expect(full.rates.get("P2")?.equals(new Fraction(1, 2))).toBe(true);
+
+    // Every surviving recipe node has at least one incident edge.
+    const touched = new Set<string>();
+    for (const e of logical.edges) {
+      touched.add(e.source);
+      touched.add(e.target);
+    }
+    const nodeRecipe = new Map(
+      logical.nodes
+        .filter((n) => n.kind === "recipe")
+        .map((n) => [n.id, (n as { recipe: { id: string } }).recipe.id]),
+    );
+    for (const [id, rid] of nodeRecipe) {
+      expect(touched.has(id), `node ${id} (${rid}) has no edges`).toBe(true);
+    }
+
+    // Both P1 and P2 ship x to a surviving B stamp.
+    const xSources = new Set(
+      logical.edges
+        .filter(
+          (e) => e.sourcePort === "out:x" && nodeRecipe.get(e.target) === "B",
+        )
+        .map((e) => nodeRecipe.get(e.source)),
+    );
+    expect(xSources).toEqual(new Set(["P1", "P2"]));
+  });
+});
+
 describe("replica coverage of the LP solution", () => {
   // Regression: the triple-target plan used to carry a dangling crystal chain
   // at 1/900900 in the rates map; replication is demand-driven and correctly

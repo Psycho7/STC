@@ -699,6 +699,156 @@ describe("replicatePerConsumer: SCC intra supply nets the boundary demand", () =
   });
 });
 
+describe("replicatePerConsumer: canonical inputs-consumer of a split SCC member", () => {
+  // Pin for the zero-rate canonical seed. SCC member B splits into a looper
+  // (intra role) and a deliverer (cross role); when the looper's rate is 0 the
+  // multiplier pass drops its stamp. The boundary-minted per-consumer producers
+  // (P1, P2, E) must carry consumerPath tails to a POSITIVE-rate stamp, else
+  // assembleLogicalGraph has to re-route every one of them through the
+  // dropped-designated fallback.
+  it("boundary-minted producers point at a positive-rate stamp when the looper rate is 0", () => {
+    // 2-member SCC A+B on loop_m/loop_t. B's intra item (loop_m) and cross item
+    // (out_b) are disjoint, so the split balances on the primary out_b whose
+    // intra flow is 0: looperRate 0, delivererRate 1. A is LP-zeroed (its
+    // scarce input is capped to 0); external E covers B's loop_t instead.
+    const nodes: Recipe[] = [
+      recipe("tgt", [{ item: "out_b", qty: 1 }], [{ item: "final", qty: 1 }]),
+      recipe(
+        "B",
+        [
+          { item: "x", qty: 1 },
+          { item: "loop_t", qty: 1 },
+        ],
+        [
+          { item: "out_b", qty: 1 },
+          { item: "loop_m", qty: 1 },
+        ],
+      ),
+      recipe(
+        "A",
+        [
+          { item: "loop_m", qty: 1 },
+          { item: "scarce", qty: 1 },
+        ],
+        [{ item: "loop_t", qty: 1 }],
+      ),
+      recipe("E", [{ item: "raw_e", qty: 1 }], [{ item: "loop_t", qty: 1 }]),
+      recipe("P1", [{ item: "raw1", qty: 1 }], [{ item: "x", qty: 1 }]),
+      recipe("P2", [{ item: "raw2", qty: 1 }], [{ item: "x", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "B", item: "out_b", target: "tgt" },
+      { source: "B", item: "loop_m", target: "A" },
+      { source: "A", item: "loop_t", target: "B" },
+      { source: "E", item: "loop_t", target: "B" },
+      { source: "P1", item: "x", target: "B" },
+      { source: "P2", item: "x", target: "B" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:loop", recipeIds: ["A", "B"] },
+      { id: "scc:tgt", recipeIds: ["tgt"] },
+      { id: "scc:E", recipeIds: ["E"] },
+      { id: "scc:P1", recipeIds: ["P1"] },
+      { id: "scc:P2", recipeIds: ["P2"] },
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["tgt", new Fraction(1)],
+      ["B", new Fraction(1)],
+      ["A", new Fraction(0)],
+      ["E", new Fraction(1)],
+      ["P1", new Fraction(1, 2)],
+      ["P2", new Fraction(1, 2)],
+    ]);
+    const replicas = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+      targets: [{ recipeId: "tgt", ratePerSec: { num: "1", denom: "1" } }],
+    });
+    const byId = new Map(replicas.map((r) => [r.id, r]));
+    const perConsumer = replicas.filter(
+      (r) => ["P1", "P2", "E"].includes(r.recipeId) && !r.sharedAtArticulation,
+    );
+    expect(perConsumer.length).toBeGreaterThan(0);
+    for (const p of perConsumer) {
+      const tail = p.consumerPath[p.consumerPath.length - 1];
+      expect(tail).toBeDefined();
+      const designated = byId.get(tail!);
+      expect(designated).toBeDefined();
+      expect(
+        designated!.executionRate.compare(0) > 0,
+        `producer ${p.id}: designated stamp ${tail} has rate ${designated!.executionRate.toFraction()}`,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps the looper canonical when its rate is positive", () => {
+    // 2-member SCC A+B where B's primary out_b is split-driving: it feeds the
+    // intra consumer A (1 of 2 produced) and the cross consumer tgt. looperRate
+    // = delivererRate = 1/2; the canonical inputs-consumer stays the looper
+    // (the stamp owning the intra out_b edge), bit-identical pre/post fix.
+    const nodes: Recipe[] = [
+      recipe("tgt", [{ item: "out_b", qty: 1 }], [{ item: "final", qty: 1 }]),
+      recipe(
+        "B",
+        [
+          { item: "x", qty: 1 },
+          { item: "loop_t", qty: 1 },
+        ],
+        [{ item: "out_b", qty: 2 }],
+      ),
+      recipe("A", [{ item: "out_b", qty: 1 }], [{ item: "loop_t", qty: 1 }]),
+      recipe("P1", [{ item: "raw1", qty: 1 }], [{ item: "x", qty: 1 }]),
+      recipe("P2", [{ item: "raw2", qty: 1 }], [{ item: "x", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "B", item: "out_b", target: "tgt" },
+      { source: "B", item: "out_b", target: "A" },
+      { source: "A", item: "loop_t", target: "B" },
+      { source: "P1", item: "x", target: "B" },
+      { source: "P2", item: "x", target: "B" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:loop", recipeIds: ["A", "B"] },
+      { id: "scc:tgt", recipeIds: ["tgt"] },
+      { id: "scc:P1", recipeIds: ["P1"] },
+      { id: "scc:P2", recipeIds: ["P2"] },
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["tgt", new Fraction(1)],
+      ["B", new Fraction(1)],
+      ["A", new Fraction(1)],
+      ["P1", new Fraction(1, 2)],
+      ["P2", new Fraction(1, 2)],
+    ]);
+    const replicas = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+      targets: [{ recipeId: "tgt", ratePerSec: { num: "1", denom: "1" } }],
+    });
+    const byId = new Map(replicas.map((r) => [r.id, r]));
+    const looper = replicas.find(
+      (r) =>
+        r.recipeId === "B" &&
+        r.outgoingEdgeFilter !== undefined &&
+        r.outgoingEdgeFilter.has(outgoingEdgeKey("out_b", "A")),
+    );
+    expect(looper).toBeDefined();
+    expect(looper!.executionRate.equals(new Fraction(1, 2))).toBe(true);
+    const perConsumer = replicas.filter(
+      (r) => ["P1", "P2"].includes(r.recipeId) && !r.sharedAtArticulation,
+    );
+    expect(perConsumer.length).toBeGreaterThan(0);
+    for (const p of perConsumer) {
+      const tail = p.consumerPath[p.consumerPath.length - 1];
+      expect(byId.get(tail!)?.id).toBe(looper!.id);
+    }
+  });
+});
+
 describe("replicatePerConsumer: duplicate target seeds", () => {
   // A duplicate-recipe target ([X@1, X@1]) must replicate IDENTICALLY to the
   // single accumulated target ([X@2]). The LP sums duplicate floors, and the
