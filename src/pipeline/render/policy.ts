@@ -62,6 +62,7 @@ export const NoFoldRender: RenderPolicy = (input): RenderPlan => {
     itemById,
     recipeById,
     pack,
+    boundaryShare,
   } = input;
 
   const units: RenderUnit[] = [];
@@ -119,6 +120,7 @@ export const NoFoldRender: RenderPolicy = (input): RenderPlan => {
       recipeById,
       pack,
       unitIdByVertex,
+      boundaryShare,
     });
 
   for (const u of inputProducts) units.push(u);

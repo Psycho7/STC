@@ -243,6 +243,12 @@ export type RenderPolicyInput = {
   // always-fold policy reads it to set RenderUnitRecipe.multiplicity, giving one
   // rational badge per equivalence class instead of N separate stamp vertices.
   idealCount: ReadonlyMap<ReplicaId, Fraction>;
+  // Per finite-capped item the LP drew from the boundary: the fraction of its
+  // consumption in-graph producers cover (boundaryResidualShare). Missing
+  // entries mean share 1 (no boundary contribution). deriveBoundaryProducts
+  // sizes each boundary import as totalDemand * (1 - share) and skips emission
+  // entirely for finite-capped items with no entry (realized draw 0).
+  boundaryShare: ReadonlyMap<ItemId, Fraction>;
 };
 
 export type RenderPolicy = (input: RenderPolicyInput) => RenderPlan;

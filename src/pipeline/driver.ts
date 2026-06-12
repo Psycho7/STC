@@ -64,6 +64,13 @@ export type RenderPipelineInput = {
    * it as the per-consumer demand-split weight.
    */
   supplyShares: ReadonlyMap<string, Fraction>;
+  /**
+   * Per finite-capped item the LP drew from the boundary: the fraction of its
+   * consumption in-graph producers cover (`boundaryResidualShare`). Missing
+   * entries mean share 1. computeEdgeRates nets each consumer's demand by it;
+   * deriveBoundaryProducts sizes the boundary import as the complement.
+   */
+  boundaryShare: ReadonlyMap<ItemId, Fraction>;
   itemById: ReadonlyMap<ItemId, Item>;
   machineById: ReadonlyMap<string, Machine>;
   itemOverrides: ReadonlyArray<ItemOverride>;
@@ -103,6 +110,7 @@ export function buildRenderPlan(
     recipeById,
     rates,
     supplyShares,
+    boundaryShare,
     itemById,
     machineById,
     itemOverrides,
@@ -128,6 +136,7 @@ export function buildRenderPlan(
     recipeById,
     rates,
     supplyShares,
+    boundaryShare,
   });
 
   const sccByLogicalNodeId = computeSccNetIO({
@@ -182,6 +191,7 @@ export function buildRenderPlan(
     recipeById,
     pack,
     idealCount,
+    boundaryShare,
   });
 
   return {
@@ -235,8 +245,10 @@ function computeEdgeRates(args: {
   recipeById: ReadonlyMap<RecipeId, Recipe>;
   rates: ReadonlyMap<RecipeId, Fraction>;
   supplyShares: ReadonlyMap<string, Fraction>;
+  boundaryShare: ReadonlyMap<ItemId, Fraction>;
 }): Map<string, Fraction> {
-  const { logical, replicas, recipeById, rates, supplyShares } = args;
+  const { logical, replicas, recipeById, rates, supplyShares, boundaryShare } =
+    args;
   const replicaBySafeId = new Map<string, Replica>();
   for (const r of replicas) replicaBySafeId.set(safeId(r.id), r);
 
@@ -291,7 +303,12 @@ function computeEdgeRates(args: {
     const targetSafeId = key.slice(0, sep);
     const item = key.slice(sep + 1);
     const consumer = replicaBySafeId.get(targetSafeId)!;
-    const demand = consumer.executionRate.mul(new Fraction(group.inQty));
+    // In-graph producer edges carry only the residual share of the stamp's
+    // demand; the boundary-served fraction (1 - share) arrives via the
+    // boundary input product. Missing entries default to share 1.
+    const demand = consumer.executionRate
+      .mul(new Fraction(group.inQty))
+      .mul(boundaryShare.get(item) ?? CAP_ONE);
     const consumerRate = rates.get(consumer.recipeId);
 
     // Production share per edge (the capacity and the no-record weight).
@@ -625,6 +642,7 @@ export function renderPlanFromSolve(
     recipeById: full.recipeById,
     rates: full.rates,
     supplyShares: full.supplyShares,
+    boundaryShare: full.boundaryShare,
     itemById,
     machineById,
     itemOverrides,

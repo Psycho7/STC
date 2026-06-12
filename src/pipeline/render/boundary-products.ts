@@ -45,6 +45,8 @@ const unitIdForOutputProduct = (item: ItemId): RenderUnitId => `u:out:${item}`;
 const boundaryKey = (item: ItemId, containerId: ContainerId | undefined): string =>
   `${item}\0${containerId ?? ""}`;
 
+const FRAC_ONE = new Fraction(1);
+
 export type DeriveBoundaryProductsInput = {
   machineGraph: MachineGraph;
   targets: ReadonlyArray<Target>;
@@ -53,6 +55,11 @@ export type DeriveBoundaryProductsInput = {
   recipeById: ReadonlyMap<RecipeId, Recipe>;
   pack: Pick<RecipePack, "items">;
   unitIdByVertex: ReadonlyMap<MachineVertexId, RenderUnitId>;
+  // Per finite-capped item the LP drew from the boundary: the fraction of its
+  // consumption in-graph producers cover (boundaryResidualShare). Missing
+  // entries mean realized draw 0: the boundary contributes nothing and no
+  // input product is emitted for the item.
+  boundaryShare: ReadonlyMap<ItemId, Fraction>;
 };
 
 export type DeriveBoundaryProductsResult = {
@@ -85,6 +92,7 @@ export function deriveBoundaryProducts(
     recipeById,
     pack,
     unitIdByVertex,
+    boundaryShare,
   } = args;
 
   const boundaryEdges: RenderEdge[] = [];
@@ -328,8 +336,16 @@ export function deriveBoundaryProducts(
       return;
     }
     // Finite positive supply -> dual-emit: the boundary input carries the
-    // imported portion alongside the in-graph producer's residual edge.
+    // LP-drawn portion (1 - share of demand) alongside the in-graph producer's
+    // residual edges. A finite cap whose realized draw is 0 (no boundaryShare
+    // entry, or a degenerate share of 1) emits neither the input product nor
+    // its boundary edges: forced byproduct production covers the consumption
+    // and the unit would be an unjustified zero-rate import.
     // Infinity supply with no in-graph producer -> single boundary emit.
+    if (supply !== Infinity) {
+      const share = boundaryShare.get(itemId);
+      if (share === undefined || share.compare(FRAC_ONE) >= 0) return;
+    }
     boundaryConsumers.push({ toUnit, item: itemId, rate, containerId });
   };
   for (const v of machineGraph.vertices) {
@@ -396,10 +412,14 @@ export function deriveBoundaryProducts(
     let consumed: Fraction;
     if (supply === Infinity) {
       consumed = totalDemand;
-    } else if ((supply as Fraction).compare(totalDemand) >= 0) {
-      consumed = totalDemand;
     } else {
-      consumed = supply as Fraction;
+      // Finite positive cap: the boundary supplies exactly the LP draw's
+      // fraction of demand, (1 - share). min(cap, totalDemand) is wrong
+      // whenever forced internal byproduct production makes the LP draw less
+      // than the cap. Items with no share entry (draw 0) never reach here:
+      // collectConsumed gates them out of boundaryConsumers.
+      const share = boundaryShare.get(itemId) ?? FRAC_ONE;
+      consumed = totalDemand.mul(FRAC_ONE.sub(share));
     }
     consumedSupplyByItem.set(itemId, consumed);
   }
@@ -530,9 +550,15 @@ export function deriveBoundaryProducts(
   // the per-item consumedSupply from the realized-rate pass above. Cases:
   //  - effectiveSupply === Infinity: producer not in graph, consumedSupply
   //    collapses to totalDemand, edge rate = c.rate (single emit preserved).
-  //  - effectiveSupply >= totalDemand (finite cap covers all demand):
-  //    consumedSupply = totalDemand, edge rate = c.rate; producer's residual is
-  //    0 (filtered by the residual-supply pass + zero-rate gate).
+  //  - finite cap, LP draw covers all demand (share 0): consumedSupply =
+  //    totalDemand, edge rate = c.rate; the in-graph producer runs at 0 and
+  //    emits no unit.
+  //  - finite cap, partial draw (0 < share < 1): consumedSupply =
+  //    totalDemand * (1 - share); each consumer's boundary edge plus its
+  //    residual producer edges (computeEdgeRates nets demand by share) sum to
+  //    its full per-item demand as exact rationals.
+  //  - finite cap, draw 0: gated in collectConsumed (no input product, no
+  //    boundary edges).
   //  - effectiveSupply == 0: gated upstream (no input product emitted).
   for (const [key, consumers] of consumersByKey) {
     if (!emittedKeys.has(key)) continue;

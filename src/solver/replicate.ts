@@ -64,6 +64,7 @@ export function replicatePerConsumer(args: {
   condensation: Condensation;
   targets: Target[];
   augmented?: Set<RecipeId>;
+  boundaryShare?: ReadonlyMap<string, Fraction>;
 }): { replicas: Replica[]; supplyShares: Map<string, Fraction> } {
   const state = createReplicateState(args);
   walkFromTargets(state);
@@ -101,6 +102,12 @@ type ReplicateState = {
   // Recipes added by the post-LP graph augmentation: positive LP rate but
   // unreachable from any target cone (disposal absorbers). Seeded like targets.
   readonly augmented: Set<RecipeId>;
+  // Residual share per finite-capped item the LP drew from the boundary
+  // (boundaryResidualShare): the fraction of the item's consumption in-graph
+  // producers cover. Missing entries default to share 1. splitConsumerDemand
+  // nets each consumer's per-item demand by it, so walk-seeded replica rates
+  // reconcile with the LP when a cap diverts demand to the boundary.
+  readonly boundaryShare: ReadonlyMap<string, Fraction>;
 
   // Output accumulators.
   readonly replicas: Replica[];
@@ -174,6 +181,7 @@ function createReplicateState(args: {
   condensation: Condensation;
   targets: Target[];
   augmented?: Set<RecipeId>;
+  boundaryShare?: ReadonlyMap<string, Fraction>;
 }): ReplicateState {
   const sccById = new Map<SccId, Condensation["sccs"][number]>();
   for (const s of args.condensation.sccs) sccById.set(s.id, s);
@@ -214,6 +222,7 @@ function createReplicateState(args: {
     condensation: args.condensation,
     targets: args.targets,
     augmented: args.augmented ?? new Set<RecipeId>(),
+    boundaryShare: args.boundaryShare ?? new Map<string, Fraction>(),
     replicas: [],
     supplyShares: new Map(),
     nextId: 0,
@@ -306,6 +315,12 @@ function sccIdOf(state: ReplicateState, rid: RecipeId): SccId {
 // by intra-SCC producers over the torn arc. It converts to rate units via the
 // input qty and is deducted from `consumerRate` per item, clamped at zero, so
 // external candidates cover only the demand the loop does not supply.
+//
+// `boundaryShare` (boundaryResidualShare) scales each input item's demand by
+// the fraction in-graph producers cover when the LP drew part of the item's
+// consumption from a finite boundary cap. Missing entries default to share 1.
+// Applied before the intra deduction, so producers are minted at the residual
+// rate the LP actually assigned them.
 export function splitConsumerDemand(
   nodes: Map<RecipeId, Recipe>,
   rates: Map<RecipeId, Fraction>,
@@ -314,16 +329,25 @@ export function splitConsumerDemand(
   consumerRate: Fraction,
   targetDraw?: ReadonlyMap<RecipeId, Fraction>,
   intraSupplyByItem?: ReadonlyMap<string, Fraction>,
+  boundaryShare?: ReadonlyMap<string, Fraction>,
 ): Array<{ edge: RecipeEdge; consumerRate: Fraction }> {
   const out: Array<{ edge: RecipeEdge; consumerRate: Fraction }> = [];
   for (const inItem of consumer.in) {
     const matching = candidateEdges.filter((e) => e.item === inItem.item);
     if (matching.length === 0) continue;
 
+    // Net out the boundary-served fraction first: in-graph producers cover
+    // only share * demand; the rest arrives via the boundary input product.
+    let itemRate = consumerRate;
+    const share = boundaryShare?.get(inItem.item);
+    if (share !== undefined) {
+      itemRate = itemRate.mul(share);
+      if (itemRate.equals(0)) continue;
+    }
+
     // Net out the intra-SCC supply of this item before splitting: external
     // producers cover memberDemand minus the torn-arc share, never the
     // consumer's full rate. Fully-covered items emit no frame at all.
-    let itemRate = consumerRate;
     const intra = intraSupplyByItem?.get(inItem.item);
     if (intra !== undefined && inItem.qty > 0) {
       itemRate = itemRate.sub(intra.div(new Fraction(inItem.qty)));
@@ -883,6 +907,7 @@ function ensureSccReplicas(
       memberRate,
       state.targetDraw,
       intraSupplyByMember.get(memberId),
+      state.boundaryShare,
     )) {
       state.boundaryEdges.push({
         producerId: edge.source,
@@ -1280,6 +1305,8 @@ function walkFromTargets(state: ReplicateState): void {
       incoming,
       frame.consumerRate,
       state.targetDraw,
+      undefined,
+      state.boundaryShare,
     )) {
       processProducer(state, {
         producerId: edge.source,

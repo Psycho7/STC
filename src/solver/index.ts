@@ -7,6 +7,7 @@ import type { ItemOverride } from "../data/plan";
 import { augmentGraphWithLpSupport, buildRecipeGraphMulti } from "./graph";
 import { tarjanScc, condense } from "./scc";
 import { solveLp, type LpResult, type LpSolver } from "./lp";
+import { boundaryResidualShare } from "./boundary-share";
 import { articulationPoints } from "./bctree";
 import { pickTearEdges } from "./tear";
 import { replicatePerConsumer } from "./replicate";
@@ -114,6 +115,14 @@ export type SolvePlanFull = {
    * computeEdgeRates (absent keys fall back to production-share weighting).
    */
   supplyShares: Map<string, Fraction>;
+  /**
+   * Per finite-capped item the LP drew from the boundary: the fraction of its
+   * consumption in-graph producers cover (`boundaryResidualShare`). Missing
+   * entries mean share 1 (no boundary contribution). The render driver nets
+   * consumer demand and boundary-product emission by this map so all layers
+   * share one definition of the cap.
+   */
+  boundaryShare: Map<ItemId, Fraction>;
 };
 
 // Shared pipeline behind both entry points. Runs the full solve (graph build,
@@ -148,6 +157,14 @@ function runSolvePipeline(
   });
   assertSolvable(lpResult.status);
   const rates = lpResult.rates;
+  // Residual share per finite-capped item the LP drew from the boundary. The
+  // walk nets each consumer's per-item demand by it so replica rates (and the
+  // machine counts derived from them) reconcile with the LP solution.
+  const boundaryShare = boundaryResidualShare(
+    pack.recipes,
+    rates,
+    lpResult.draws,
+  );
   // Close graph membership over the LP support before any graph-derived
   // structure is computed: a disposal absorber the LP runs is unreachable from
   // the target cone and would otherwise be missing from the render entirely.
@@ -182,6 +199,7 @@ function runSolvePipeline(
     condensation: c,
     targets,
     augmented,
+    boundaryShare,
   });
   const { replicas, classByReplicaId, classToQuotient } = runBisim(
     g,
@@ -225,6 +243,7 @@ function runSolvePipeline(
       deficits: lpResult.deficit,
     },
     supplyShares,
+    boundaryShare,
   };
 
   return { full, lpResult };
