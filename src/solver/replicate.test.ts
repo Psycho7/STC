@@ -1208,4 +1208,69 @@ describe("replicatePerConsumer: supplyShares committed-flow recording", () => {
       supplyShares.get(supplyShareKey("ap", "py", "w"))!.equals(new Fraction(1)),
     ).toBe(true);
   });
+
+  // (c) Same-key ACCUMULATION: the same (producer, consumer, item) key reached
+  // twice must sum the flows, not overwrite. Consumer c feeds two per-consumer
+  // parents (d1, d2), so c is replicated twice; each c replica's frame walks the
+  // same ap -> c edge for w and records under the one (ap, c, w) key. Each reach
+  // commits 1; an overwrite would leave 1, accumulation leaves 2.
+  it("accumulates when the same (producer, consumer, item) key is reached twice", () => {
+    const nodes: Recipe[] = [
+      recipe(
+        "t",
+        [
+          { item: "a", qty: 1 },
+          { item: "b", qty: 1 },
+        ],
+        [{ item: "final", qty: 1 }],
+      ),
+      recipe("d1", [{ item: "m", qty: 1 }], [{ item: "a", qty: 1 }]),
+      recipe("d2", [{ item: "m", qty: 1 }], [{ item: "b", qty: 1 }]),
+      recipe("c", [{ item: "w", qty: 1 }], [{ item: "m", qty: 1 }]),
+      recipe("ap", [{ item: "raw", qty: 1 }], [{ item: "w", qty: 1 }]),
+      recipe("raw", [], [{ item: "raw", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "d1", item: "a", target: "t" },
+      { source: "d2", item: "b", target: "t" },
+      { source: "c", item: "m", target: "d1" },
+      { source: "c", item: "m", target: "d2" },
+      { source: "ap", item: "w", target: "c" },
+      { source: "raw", item: "raw", target: "ap" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:t", recipeIds: ["t"] },
+      { id: "scc:d1", recipeIds: ["d1"] },
+      { id: "scc:d2", recipeIds: ["d2"] },
+      { id: "scc:c", recipeIds: ["c"] },
+      { id: "scc:ap", recipeIds: ["ap"] },
+      { id: "scc:raw", recipeIds: ["raw"] },
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["t", new Fraction(1)],
+      ["d1", new Fraction(1)],
+      ["d2", new Fraction(1)],
+      ["c", new Fraction(2)],
+      ["ap", new Fraction(2)],
+      ["raw", new Fraction(2)],
+    ]);
+    const { replicas, supplyShares } = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(["ap"]),
+      rates,
+      condensation,
+      targets: [{ recipeId: "t", ratePerSec: { num: "1", denom: "1" } }],
+    });
+    // Guard the premise: c was replicated per-consumer twice, rate 1 each, so
+    // the (ap, c, w) key really was recorded on two separate reaches.
+    const cReplicas = replicas.filter((r) => r.recipeId === "c");
+    expect(cReplicas).toHaveLength(2);
+    for (const r of cReplicas) {
+      expect(r.executionRate.equals(new Fraction(1))).toBe(true);
+    }
+    // Accumulated committed flow: 1 + 1 = 2. Overwrite semantics would leave 1.
+    expect(
+      supplyShares.get(supplyShareKey("ap", "c", "w"))!.equals(new Fraction(2)),
+    ).toBe(true);
+  });
 });

@@ -316,7 +316,7 @@ function computeEdgeRates(args: {
       recipeEdgeCount.set(p.recipeId, (recipeEdgeCount.get(p.recipeId) ?? 0) + 1);
     }
 
-    const weights = group.edges.map((e, i) => {
+    const weights = group.edges.map((_e, i) => {
       const p = producers[i];
       // Unresolvable producer stamp: defer to the production-share fallback
       // (ZERO here), mirroring outputShare's undefined guard.
