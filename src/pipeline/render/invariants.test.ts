@@ -9,6 +9,7 @@ import {
   checkTargetOutputsSatisfied,
   checkNoOrphanUnits,
   checkUnitOutflowVsProduction,
+  checkProductUnitRates,
   checkRenderPlan,
   assertRenderInvariants,
 } from "./invariants";
@@ -17,7 +18,12 @@ import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
 import { renderPlanFromSolve } from "../driver";
 import { pack as fullPack } from "../../data/load";
-import type { RenderPlan } from "../types";
+import type { RenderPlan, RenderUnit, RenderEdge } from "../types";
+import {
+  isInputProductUnit,
+  isOutputProductUnit,
+  isRecipeUnit,
+} from "../types";
 import type { RecipePack } from "@aef/schema";
 import type { RationalString } from "../../data/targets";
 import type { Target } from "../../data/targets";
@@ -1073,11 +1079,11 @@ function cleanPlanArgs(): {
 }
 
 describe("checkRenderPlan", () => {
-  // Case (b): a well-formed minimal plan gives all eight results ok.
-  it("(b) returns eight ok results for a fully clean minimal plan", () => {
+  // Case (b): a well-formed minimal plan gives all nine results ok.
+  it("(b) returns nine ok results for a fully clean minimal plan", () => {
     const args = cleanPlanArgs();
     const results = checkRenderPlan(args);
-    expect(results).toHaveLength(8);
+    expect(results).toHaveLength(9);
     for (const r of results) {
       expect(r.ok).toBe(true);
       expect(r.violations).toHaveLength(0);
@@ -1321,5 +1327,192 @@ describe("checkUnitOutflowVsProduction", () => {
     const result = checkUnitOutflowVsProduction(fullPipelineArgs(["iron_cmpt"]));
     expect(result.violations).toEqual([]);
     expect(result.ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Checker blind-spot regressions (B5L5-c, B5L5-d)
+// ---------------------------------------------------------------------------
+
+// Full-pipeline args for the mutation tests below: solve real-pack targets at
+// 1/sec and clone the plan so mutations never leak between tests.
+function mutableArgs(recipeIds: string[]): {
+  plan: RenderPlan;
+  rates: ReadonlyMap<string, Fraction>;
+  pack: RecipePack;
+  targets: ReadonlyArray<Target>;
+  itemOverrides: ReadonlyArray<ItemOverride>;
+} {
+  const targets: Target[] = recipeIds.map((recipeId) => ({
+    recipeId,
+    ratePerSec: { num: "1", denom: "1" },
+  }));
+  const full = solvePlanWithIntermediates(
+    targets,
+    fullPack,
+    defaultTransportConfig,
+    [],
+  );
+  const { plan } = renderPlanFromSolve(full, fullPack, targets, []);
+  const cloned: RenderPlan = {
+    units: plan.units.map((u) => ({ ...u })) as RenderUnit[],
+    edges: plan.edges.map((e) => ({ ...e })) as RenderEdge[],
+    containers: plan.containers,
+  };
+  return {
+    plan: cloned,
+    rates: full.rates,
+    pack: fullPack,
+    targets,
+    itemOverrides: [],
+  };
+}
+
+function scaleRational(
+  rate: RationalString,
+  factor: number,
+): RationalString {
+  const f = new Fraction(`${rate.num}/${rate.denom}`).mul(factor);
+  return { num: f.n.toString(), denom: f.d.toString() };
+}
+
+describe("checkUnitOutflowVsProduction clause (c): multiplicity anchored on LP rates", () => {
+  // B5L5-c: clauses (a)/(b) reconstruct production from unit.multiplicity, so a
+  // plan whose multiplicity AND outgoing edges are inflated by the same factor
+  // is render-vs-render coherent and was invisible to the checker (the live
+  // B5L5-a defect shipped exactly this shape: iron_ore unit at multiplicity 3
+  // and edge 1/s against LP production 3/4). Clause (c) compares the
+  // multiplicity-derived rate sum per recipe against args.rates.
+  it("fires on a coherently inflated unit (multiplicity and edges x2)", () => {
+    const args = mutableArgs(["copper_nugget"]);
+    const unit = args.plan.units.find(
+      (u) => isRecipeUnit(u) && u.recipeId === "copper_nugget",
+    );
+    if (!unit || !isRecipeUnit(unit)) throw new Error("missing unit");
+    (unit as { multiplicity: RationalString }).multiplicity = scaleRational(
+      unit.multiplicity,
+      2,
+    );
+    for (const e of args.plan.edges) {
+      if (e.fromUnit === unit.id) e.rate = e.rate.mul(2);
+    }
+    const result = checkUnitOutflowVsProduction(args);
+    expect(
+      result.violations.some((v) => v.includes("multiplicity-derived rate")),
+    ).toBe(true);
+  });
+
+  it("clean baseline reports no violations", () => {
+    const result = checkUnitOutflowVsProduction(mutableArgs(["copper_nugget"]));
+    expect(result.violations).toEqual([]);
+  });
+});
+
+describe("checkProductUnitRates: boundary-unit chips and inputProduct edges", () => {
+  // B5L5-d: the displayed rate chips on input/surplus/target product units and
+  // the inputProduct->inputProduct aggregate wiring were validated by no
+  // checker; the corruption classes below all passed the previous eight.
+
+  it("clean single-bucket plan reports no violations", () => {
+    const result = checkProductUnitRates(mutableArgs(["copper_nugget"]));
+    expect(result.violations).toEqual([]);
+  });
+
+  it("fires on an inflated inputProduct rate chip", () => {
+    const args = mutableArgs(["copper_nugget"]);
+    const unit = args.plan.units.find((u) => isInputProductUnit(u));
+    if (!unit || !isInputProductUnit(unit)) throw new Error("missing input");
+    (unit as { rate: RationalString }).rate = scaleRational(unit.rate, 10);
+    const result = checkProductUnitRates(args);
+    expect(result.violations.some((v) => v.includes("rate chip"))).toBe(true);
+  });
+
+  it("fires on an inflated surplus outputProduct rate chip", () => {
+    const args = mutableArgs(["copper_nugget"]);
+    const unit = args.plan.units.find(
+      (u) => isOutputProductUnit(u) && u.flavor === "surplus",
+    );
+    if (!unit || !isOutputProductUnit(unit)) throw new Error("missing surplus");
+    (unit as { rate: RationalString }).rate = scaleRational(unit.rate, 10);
+    const result = checkProductUnitRates(args);
+    expect(
+      result.violations.some((v) => v.includes("outputProduct (surplus)")),
+    ).toBe(true);
+  });
+
+  it("fires on an inflated target outputProduct rate chip", () => {
+    const args = mutableArgs(["copper_nugget"]);
+    const unit = args.plan.units.find(
+      (u) => isOutputProductUnit(u) && u.flavor === "target",
+    );
+    if (!unit || !isOutputProductUnit(unit)) throw new Error("missing target");
+    (unit as { rate: RationalString }).rate = scaleRational(unit.rate, 10);
+    const result = checkProductUnitRates(args);
+    expect(
+      result.violations.some((v) => v.includes("outputProduct (target)")),
+    ).toBe(true);
+  });
+
+  // The aggregate-input plan: liquid_water fans out u:in:liquid_water ->
+  // per-container slices. Both aggregate-edge corruption classes passed every
+  // checker before.
+  it("clean aggregate plan reports no violations", () => {
+    const result = checkProductUnitRates(mutableArgs(["xiranite_enr_powder"]));
+    expect(result.violations).toEqual([]);
+  });
+
+  it("fires on a corrupted aggregate->fanout edge (x10)", () => {
+    const args = mutableArgs(["xiranite_enr_powder"]);
+    const inputIds = new Set(
+      args.plan.units.filter((u) => isInputProductUnit(u)).map((u) => u.id),
+    );
+    const edge = args.plan.edges.find(
+      (e) => e.fromUnit === "u:in:liquid_water" && inputIds.has(e.toUnit),
+    );
+    if (!edge) throw new Error("missing aggregate->fanout edge");
+    edge.rate = edge.rate.mul(10);
+    const result = checkProductUnitRates(args);
+    expect(result.violations.length).toBeGreaterThan(0);
+  });
+
+  it("fires on a dropped aggregate->fanout edge", () => {
+    const args = mutableArgs(["xiranite_enr_powder"]);
+    const inputIds = new Set(
+      args.plan.units.filter((u) => isInputProductUnit(u)).map((u) => u.id),
+    );
+    const idx = args.plan.edges.findIndex(
+      (e) => e.fromUnit === "u:in:liquid_water" && inputIds.has(e.toUnit),
+    );
+    expect(idx).toBeGreaterThanOrEqual(0);
+    (args.plan.edges as RenderEdge[]).splice(idx, 1);
+    const result = checkProductUnitRates(args);
+    expect(result.violations.length).toBeGreaterThan(0);
+  });
+
+  it("fires on a spurious boundary edge into a non-consumer", () => {
+    const args = mutableArgs(["xiranite_enr_powder"]);
+    const recipeById = new Map(fullPack.recipes.map((r) => [r.id, r]));
+    const inU = args.plan.units.find(
+      (u) => isInputProductUnit(u) && !u.isAggregate,
+    );
+    if (!inU || !isInputProductUnit(inU)) throw new Error("missing input");
+    const victim = args.plan.units.find((u) => {
+      if (!isRecipeUnit(u)) return false;
+      const rec = recipeById.get(u.recipeId);
+      return rec !== undefined && !rec.in.some((s) => s.item === inU.itemId);
+    });
+    if (!victim) throw new Error("missing victim");
+    (args.plan.edges as RenderEdge[]).push({
+      fromUnit: inU.id,
+      toUnit: victim.id,
+      item: inU.itemId,
+      rate: new Fraction(7),
+      transportKind: fullPack.items.find((i) => i.id === inU.itemId)!
+        .transportKind,
+    });
+    const result = checkProductUnitRates(args);
+    expect(
+      result.violations.some((v) => v.includes("does not consume")),
+    ).toBe(true);
   });
 });

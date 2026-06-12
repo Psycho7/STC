@@ -1280,8 +1280,8 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
       }
     });
 
-    // (iii) All eight checkRenderPlan checkers clean.
-    it(`${w.name}: all eight checkRenderPlan checkers report zero violations`, () => {
+    // (iii) All nine checkRenderPlan checkers clean.
+    it(`${w.name}: all nine checkRenderPlan checkers report zero violations`, () => {
       const { full, plan } = solveWitness();
       const results = checkRenderPlan({
         plan,
@@ -1290,7 +1290,7 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
         targets,
         itemOverrides: [],
       });
-      expect(results.length).toBe(8);
+      expect(results.length).toBe(9);
       expect(results.flatMap((r) => r.violations)).toEqual([]);
     });
   }

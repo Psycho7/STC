@@ -646,7 +646,7 @@ export function checkNoOrphanUnits(
  * execution rates. Machine speed comes from the recipe's first producer; an
  * absent producer or machine defaults speed to 1, the only value the pack uses.
  *
- * Two clauses, both relative-tolerance:
+ * Three clauses, all relative-tolerance:
  *   (a) For each recipe unit and each item it produces, the total outgoing edge
  *       rate of that item from the unit must not exceed the unit's production of
  *       that item. Catches the over-billed surviving edge.
@@ -658,6 +658,13 @@ export function checkNoOrphanUnits(
  *       with no compensating over-bill elsewhere. (When a vanish is paired with
  *       an over-bill on the same item the two cancel here and clause (a) is what
  *       fires; clause (b) is the cheap complement for vanish-without-over-bill.)
+ *   (c) Per recipe, the multiplicity-derived execution rate summed over the
+ *       recipe's units must equal `args.rates` (LP truth). Clauses (a) and (b)
+ *       reconstruct production from unit.multiplicity, which derives from the
+ *       same idealCount that feeds the edges, so a COHERENTLY inflated plan
+ *       (multiplicity and edges scaled together) is structurally invisible to
+ *       them; anchoring the multiplicity sum on the LP rate closes that
+ *       render-vs-render blind spot.
  *
  * Loop units are skipped: their recipes collapse and have no multiplicity, and
  * their boundary-crossing flow goes through checkInternalFlowConservation.
@@ -665,7 +672,7 @@ export function checkNoOrphanUnits(
 export function checkUnitOutflowVsProduction(
   args: RenderInvariantArgs,
 ): InvariantResult {
-  const { plan, pack, targets } = args;
+  const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
   const scaleFloor = planScaleFloor(pack, targets);
 
@@ -686,6 +693,8 @@ export function checkUnitOutflowVsProduction(
   const producedByUnitItem = new Map<string, Fraction>();
   // Per-item total production, summed over recipe units.
   const producedByItem = new Map<ItemId, Fraction>();
+  // Multiplicity-derived execution rate summed per recipe, for clause (c).
+  const derivedRateByRecipe = new Map<RecipeId, Fraction>();
 
   for (const unit of plan.units) {
     if (!isRecipeUnit(unit)) continue;
@@ -695,6 +704,10 @@ export function checkUnitOutflowVsProduction(
     const multiplicity = rationalFromString(unit.multiplicity);
     const time = new Fraction(recipe.time);
     const execRate = multiplicity.mul(speedOf(recipe)).div(time);
+    derivedRateByRecipe.set(
+      unit.recipeId,
+      (derivedRateByRecipe.get(unit.recipeId) ?? FRAC_ZERO).add(execRate),
+    );
     for (const o of recipe.out) {
       const produced = execRate.mul(new Fraction(o.qty));
       const key = `${unit.id}\0${o.item}`;
@@ -763,11 +776,173 @@ export function checkUnitOutflowVsProduction(
     }
   }
 
+  // Clause (c): per recipe, the multiplicity-derived rate sum must match the
+  // LP rate. A recipe with no rates entry is left to checkNoOrphanUnits.
+  for (const [recipeId, derived] of derivedRateByRecipe) {
+    const lpRate = rates.get(recipeId);
+    if (lpRate === undefined) continue;
+    const derivedVal = derived.valueOf();
+    const lpVal = lpRate.valueOf();
+    const slack = Math.max(scaleFloor, Math.abs(lpVal)) * REL_TOL;
+    if (Math.abs(derivedVal - lpVal) > slack) {
+      violations.push(
+        `recipe "${recipeId}": multiplicity-derived rate ${derivedVal} != LP rate ${lpVal} (unit multiplicities incoherent with the solve)`,
+      );
+    }
+  }
+
   return { ok: violations.length === 0, violations };
 }
 
 /**
- * Run all eight render invariant checkers in stable order. Mirrors the solver
+ * Validates the displayed rate chips on boundary product units and the shape
+ * of edges leaving input products. Every other checker validates flow through
+ * recipe-unit stoichiometry only, so the ProductNode chrome (input demand,
+ * surplus rate, target rate) and inputProduct->inputProduct aggregate wiring
+ * were previously unvalidated; this family of display fields regressed once
+ * before (render-audit "Bug 3") with no checker able to catch it.
+ *
+ * Rules, rate clauses relative-tolerance, structural clauses exact:
+ *   (a) inputProduct rate chip == sum of the unit's outbound edge rates (the
+ *       documented contract of RenderUnitInputProduct.rate).
+ *   (b) fanout inputProduct inbound (its aggregate feed) == its rate chip;
+ *       non-fanout input products (single-bucket nodes and aggregates) accept
+ *       no inbound edges at all.
+ *   (c) every edge leaving an inputProduct must carry the unit's own item and
+ *       land on an inputProduct of the same item (aggregate -> fanout) or on
+ *       a recipe/loop unit that consumes the item per its stoichiometry or
+ *       netIO. Catches a spurious boundary edge into a non-consumer.
+ *   (d) outputProduct "surplus" rate chip == sum of inbound edge rates.
+ *   (e) outputProduct "target" rate chip == the declared target rate for the
+ *       item (sum over targets sharing the primary output).
+ */
+export function checkProductUnitRates(
+  args: RenderInvariantArgs,
+): InvariantResult {
+  const { plan, pack, targets } = args;
+  const violations: string[] = [];
+  const scaleFloor = planScaleFloor(pack, targets);
+  const units = unitById(plan);
+  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+
+  const slackFor = (expected: number): number =>
+    Math.max(scaleFloor, Math.abs(expected)) * REL_TOL;
+
+  // Outbound/inbound edge-rate sums per unit id, restricted to product units.
+  const outboundByUnit = new Map<RenderUnitId, Fraction>();
+  const inboundByUnit = new Map<RenderUnitId, Fraction>();
+  for (const edge of plan.edges) {
+    const from = units.get(edge.fromUnit);
+    if (from && (isInputProductUnit(from) || isOutputProductUnit(from))) {
+      outboundByUnit.set(
+        edge.fromUnit,
+        (outboundByUnit.get(edge.fromUnit) ?? FRAC_ZERO).add(edge.rate),
+      );
+    }
+    const to = units.get(edge.toUnit);
+    if (to && (isInputProductUnit(to) || isOutputProductUnit(to))) {
+      inboundByUnit.set(
+        edge.toUnit,
+        (inboundByUnit.get(edge.toUnit) ?? FRAC_ZERO).add(edge.rate),
+      );
+    }
+  }
+
+  // Declared target rate per primary-output item, the targetRateByItem rule.
+  const declaredByItem = new Map<ItemId, Fraction>();
+  for (const t of targets) {
+    const recipe = recipeById.get(t.recipeId);
+    if (!recipe) continue;
+    const outItem = recipe.out[0]?.item;
+    if (outItem === undefined) continue;
+    const rate = rationalFromString(t.ratePerSec);
+    declaredByItem.set(
+      outItem,
+      (declaredByItem.get(outItem) ?? FRAC_ZERO).add(rate),
+    );
+  }
+
+  const consumesItem = (unit: RenderUnit, item: ItemId): boolean => {
+    if (isRecipeUnit(unit)) {
+      const recipe = recipeById.get(unit.recipeId);
+      return recipe !== undefined && recipe.in.some((s) => s.item === item);
+    }
+    if (isLoopUnit(unit)) {
+      return unit.netIO.some((p) => p.direction === "in" && p.item === item);
+    }
+    return false;
+  };
+
+  for (const unit of plan.units) {
+    if (isInputProductUnit(unit)) {
+      const chip = rationalFromString(unit.rate).valueOf();
+      const outbound = (outboundByUnit.get(unit.id) ?? FRAC_ZERO).valueOf();
+      if (Math.abs(chip - outbound) > slackFor(chip)) {
+        violations.push(
+          `inputProduct "${unit.id}": rate chip ${chip} != outbound edge sum ${outbound}`,
+        );
+      }
+      const inbound = (inboundByUnit.get(unit.id) ?? FRAC_ZERO).valueOf();
+      if (unit.isFanout) {
+        if (Math.abs(chip - inbound) > slackFor(chip)) {
+          violations.push(
+            `inputProduct fanout "${unit.id}": rate chip ${chip} != aggregate inbound ${inbound}`,
+          );
+        }
+      } else if (inbound > slackFor(inbound)) {
+        violations.push(
+          `inputProduct "${unit.id}": unexpected inbound edge flow ${inbound} (only fanout slices are fed)`,
+        );
+      }
+    } else if (isOutputProductUnit(unit)) {
+      const chip = rationalFromString(unit.rate).valueOf();
+      if (unit.flavor === "surplus") {
+        const inbound = (inboundByUnit.get(unit.id) ?? FRAC_ZERO).valueOf();
+        if (Math.abs(chip - inbound) > slackFor(chip)) {
+          violations.push(
+            `outputProduct (surplus) "${unit.id}": rate chip ${chip} != inbound edge sum ${inbound}`,
+          );
+        }
+      } else {
+        const declared = (
+          declaredByItem.get(unit.itemId) ?? FRAC_ZERO
+        ).valueOf();
+        if (Math.abs(chip - declared) > slackFor(declared)) {
+          violations.push(
+            `outputProduct (target) "${unit.id}": rate chip ${chip} != declared target rate ${declared}`,
+          );
+        }
+      }
+    }
+  }
+
+  // Clause (c): structure of edges leaving input products.
+  for (const edge of plan.edges) {
+    const from = units.get(edge.fromUnit);
+    if (!from || !isInputProductUnit(from)) continue;
+    if (edge.item !== from.itemId) {
+      violations.push(
+        `inputProduct "${from.id}": outbound edge carries "${edge.item}" instead of its own item "${from.itemId}"`,
+      );
+      continue;
+    }
+    const to = units.get(edge.toUnit);
+    if (!to) continue; // dangling endpoint is checkEdgeEndpointIntegrity's job
+    const okTarget =
+      (isInputProductUnit(to) && to.itemId === from.itemId) ||
+      consumesItem(to, edge.item);
+    if (!okTarget) {
+      violations.push(
+        `inputProduct "${from.id}": edge to "${edge.toUnit}" lands on a unit that does not consume "${edge.item}"`,
+      );
+    }
+  }
+
+  return { ok: violations.length === 0, violations };
+}
+
+/**
+ * Run all nine render invariant checkers in stable order. Mirrors the solver
  * debug surface that lists a verdict per checker.
  */
 export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
@@ -780,12 +955,13 @@ export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
     checkTargetOutputsSatisfied(args),
     checkNoOrphanUnits(args),
     checkUnitOutflowVsProduction(args),
+    checkProductUnitRates(args),
   ];
 }
 
 /**
  * Assert all render invariants. Throws one Error aggregating every violation
- * across the eight checkers. Mirrors assertInvariants in the solver invariants.
+ * across the nine checkers. Mirrors assertInvariants in the solver invariants.
  */
 export function assertRenderInvariants(args: RenderInvariantArgs): void {
   const violations = checkRenderPlan(args).flatMap((r) => r.violations);
