@@ -2,17 +2,64 @@ import { describe, expect, it } from "vitest";
 import { pack } from "./load";
 import {
   defaultPlan,
+  describePlanLoadError,
   validatePlan,
   loadPlan,
   encodePlan,
   type Plan,
 } from "./plan";
+import { gzipBytes } from "./encoding/gzip";
+import { bytesToBase64url } from "./encoding/base64url";
 
 // defaultPlan carries valid targets and a matching schemaVersion, the clean
 // baseline each malformed-rational case mutates one field of.
 function basePlan(): Plan {
   return defaultPlan(pack);
 }
+
+// Encode an arbitrary JSON value as a well-formed v1 hash so loadPlan's
+// decode step succeeds and the payload's shape reaches the trust boundary.
+async function hashFor(json: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(json));
+  const payload = bytesToBase64url(await gzipBytes(bytes));
+  return `#v1.${payload}`;
+}
+
+function packTuple(): [string, string, string] {
+  return [pack.source.name, pack.schemaVersion, pack.source.sourceCommit];
+}
+
+// B1L1-d trust boundary: a hash that decodes cleanly but carries the wrong
+// JSON shape must come back as a typed LoadOutcome, never a raw TypeError.
+describe("loadPlan - malformed but well-encoded wire payloads", () => {
+  it.each([
+    { name: "a primitive payload", wire: 5 },
+    { name: "an empty object (missing pack tuple)", wire: {} },
+    {
+      name: "a non-array targets field",
+      wire: { pack: null, title: "", targets: 7 },
+    },
+    {
+      name: "a null targets element",
+      wire: { pack: null, title: "", targets: [null] },
+    },
+    {
+      name: "a null itemOverrides element",
+      wire: { pack: null, title: "", targets: [], itemOverrides: [null] },
+    },
+  ])("returns malformed-hash for $name", async ({ wire }) => {
+    const json =
+      typeof wire === "object" && wire !== null && "pack" in wire
+        ? { ...wire, pack: packTuple() }
+        : wire;
+    const outcome = await loadPlan(await hashFor(json), pack);
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error") {
+      expect(outcome.error.kind).toBe("malformed-hash");
+      expect(typeof describePlanLoadError(outcome.error)).toBe("string");
+    }
+  });
+});
 
 describe("validatePlan - rational wire fields", () => {
   it("accepts the default plan", () => {
@@ -132,6 +179,35 @@ describe("validatePlan - rational wire fields", () => {
     expect(outcome.kind).toBe("error");
     if (outcome.kind === "error") {
       expect(outcome.error.kind).toBe("target-not-a-producer");
+    }
+  });
+
+  it("rejects a wire payload with a null target rational and describes it", async () => {
+    const hash = await hashFor({
+      pack: packTuple(),
+      title: "",
+      targets: [{ recipeId: "copper_powder", ratePerSec: null }],
+    });
+    const outcome = await loadPlan(hash, pack);
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error") {
+      expect(outcome.error.kind).toBe("invalid-rational");
+      expect(typeof describePlanLoadError(outcome.error)).toBe("string");
+    }
+  });
+
+  it("rejects a wire payload with a null recipeCost rational and describes it", async () => {
+    const hash = await hashFor({
+      pack: packTuple(),
+      title: "",
+      targets: [],
+      recipeCosts: { copper_powder: null },
+    });
+    const outcome = await loadPlan(hash, pack);
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error") {
+      expect(outcome.error.kind).toBe("invalid-rational");
+      expect(typeof describePlanLoadError(outcome.error)).toBe("string");
     }
   });
 

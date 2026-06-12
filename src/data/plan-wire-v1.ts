@@ -39,6 +39,35 @@ export function toWire(plan: Plan): PlanWireV1 {
   return wire;
 }
 
+// Structural trust boundary for decoded JSON. decodeWire returns whatever the
+// hash carried; before fromWire destructures it and validatePlan iterates it,
+// the container shapes must hold or both throw raw TypeErrors. Field-level
+// semantics (rational validity, known ids) stay in validatePlan.
+export function isWireShaped(x: unknown): x is PlanWireV1 {
+  if (!isRecord(x)) return false;
+  if (
+    !Array.isArray(x.pack) ||
+    x.pack.length !== 3 ||
+    !x.pack.every((s) => typeof s === "string")
+  ) {
+    return false;
+  }
+  if (typeof x.title !== "string") return false;
+  if (!Array.isArray(x.targets) || !x.targets.every(isRecord)) return false;
+  if (
+    x.itemOverrides !== undefined &&
+    (!Array.isArray(x.itemOverrides) || !x.itemOverrides.every(isRecord))
+  ) {
+    return false;
+  }
+  if (x.recipeCosts !== undefined && !isRecord(x.recipeCosts)) return false;
+  return true;
+}
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null && !Array.isArray(x);
+}
+
 export function fromWire(wire: PlanWireV1): Plan {
   const [id, schemaVersion, submoduleSha] = wire.pack;
   const plan: Plan = {

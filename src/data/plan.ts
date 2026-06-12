@@ -7,6 +7,7 @@ import {
   decodeWire,
   encodeWire,
   fromWire,
+  isWireShaped,
   toWire,
 } from "./plan-wire-v1";
 
@@ -51,7 +52,9 @@ export type PlanLoadError =
   | { kind: "unknown-item-override"; itemId: string }
   | { kind: "duplicate-item-override"; itemId: string }
   | { kind: "invalid-item-override-plan-flag"; itemId: string; value: unknown }
-  | { kind: "invalid-rational"; field: string; value: RationalString };
+  // value is unknown, not RationalString: it comes straight off the wire and
+  // may be null or any other JSON shape when the payload is hostile.
+  | { kind: "invalid-rational"; field: string; value: unknown };
 
 export type LoadOutcome =
   | { kind: "loaded"; plan: Plan }
@@ -95,8 +98,16 @@ export function describePlanLoadError(error: PlanLoadError): string {
       return `Item override duplicated for ${error.itemId}.`;
     case "invalid-item-override-plan-flag":
       return `Item override ${error.itemId}: plan must be literal true.`;
-    case "invalid-rational":
-      return `Invalid rational in ${error.field}: ${error.value.num}/${error.value.denom}.`;
+    case "invalid-rational": {
+      // The wire value may be null or mis-shaped; only render num/denom when
+      // both are actually strings, otherwise show the raw JSON.
+      const v = error.value as { num?: unknown; denom?: unknown } | null;
+      const text =
+        typeof v?.num === "string" && typeof v?.denom === "string"
+          ? `${v.num}/${v.denom}`
+          : JSON.stringify(error.value);
+      return `Invalid rational in ${error.field}: ${text}.`;
+    }
   }
 }
 
@@ -155,6 +166,18 @@ export async function loadPlan(
       error: {
         kind: "malformed-hash",
         reason: `wire decode failed: ${(e as Error).message}`,
+      },
+    };
+  }
+  // Trust boundary: decodeWire returns arbitrary JSON. Reject wrong container
+  // shapes here so fromWire's destructuring and validatePlan's iteration only
+  // ever see the typed wire shape; otherwise both leak raw TypeErrors.
+  if (!isWireShaped(wire)) {
+    return {
+      kind: "error",
+      error: {
+        kind: "malformed-hash",
+        reason: "decoded payload is not a v1 plan wire shape",
       },
     };
   }
