@@ -26,6 +26,7 @@ function recipe(
   } as unknown as Recipe;
 }
 
+// buildGraph and condensationOf are kept in sync with the copies in replicate.test.ts.
 function buildGraph(
   nodes: Recipe[],
   links: Array<{ source: RecipeId; item: string; target: RecipeId }>,

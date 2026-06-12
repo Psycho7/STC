@@ -772,8 +772,10 @@ function ensureSccReplicas(
     // zero-rate stamps, so a zero-rate canonical would leave every boundary
     // -minted producer pointing at a dropped stamp. The looper keeps the role
     // whenever its rate is positive (bit-identical to the old unconditional
-    // pick); at looperRate 0 the deliverer carries the whole recipeRate > 0
-    // (mass-balance contract of assignSplitRoles) and always survives. The
+    // pick when looperRate > 0); the deliverer branch is NEW behavior for the
+    // looperRate == 0 case, where it carries the whole recipeRate > 0
+    // (mass-balance contract of assignSplitRoles), always survives, and
+    // avoids the forced reroute in assemble.ts. The
     // other split replica is still its own entry, and assembleLogicalGraph
     // picks it up through the recipeId index.
     map.set(

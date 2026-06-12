@@ -466,6 +466,7 @@ describe("assignSplitRoles", () => {
 });
 
 // Builds a RecipeGraph from a node list and (source -> item -> target) edges.
+// buildGraph and condensationOf are kept in sync with the copies in assemble.test.ts.
 function buildGraph(
   nodes: Recipe[],
   links: Array<{ source: RecipeId; item: string; target: RecipeId }>,
