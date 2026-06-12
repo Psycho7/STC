@@ -1119,6 +1119,19 @@ function processProducer(
       `replicate: self-consuming recipe ${producerId} reached the per-consumer branch; singleton self-loop recipes are unsupported`,
     );
   }
+  // KNOWN LIMIT (latent): the mint below runs once per (consumer, item) reach.
+  // A multi-output producer whose outputs feed DIFFERENT consumers through
+  // DIFFERENT items is therefore minted once per reach, each replica carrying
+  // the full per-item demand, so its replica rate sum exceeds the LP rate and
+  // each replica ships one co-product while the sibling output dangles. The
+  // bisim quotient cannot merge the copies because their out-tags differ.
+  // Co-product sharing exists only for SCC boundaries (byproductSharedSources)
+  // and articulation points (apShared), so today the only protection against
+  // this branch double-minting is pack topology: the shipped pack has no
+  // multi-output producer with 2+ edge-consumed outputs outside those shared
+  // sets. pack-shape.test.ts fails if a pack update ever introduces one; the
+  // real fix is generalizing byproductSharedSources to non-SCC co-product
+  // fan-outs, not scaling the mint below.
   const inItem = consumerRecipe.in.find((x) => x.item === producerItem);
   const outItem = producerRecipe.out.find((x) => x.item === producerItem);
   if (!inItem || !outItem) return;
