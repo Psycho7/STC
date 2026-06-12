@@ -178,8 +178,8 @@ describe("solveLp - precision (mass-balance residual)", () => {
     ];
     const result = solveLp({ targets, pack });
 
-    // For each finite-supply item: production - consumption + supply + deficit
-    // - surplus must equal demand. Raw items have infinite supply, so skip them.
+    // For each finite-supply item: production - consumption + draw - surplus
+    // + deficit must equal demand. Raw items have infinite supply, so skip them.
     const rate = (id: string) =>
       (result.rates.get(id)?.valueOf() ?? 0) as number;
     const demandOf = new Map<string, number>();
@@ -200,7 +200,9 @@ describe("solveLp - precision (mass-balance residual)", () => {
         }
         const surplus = result.surplus.get(it.id)?.valueOf() ?? 0;
         const deficit = result.deficit.get(it.id)?.valueOf() ?? 0;
-        const residual = bal - surplus + deficit - (demandOf.get(it.id) ?? 0);
+        const draw = result.draws.get(it.id)?.valueOf() ?? 0;
+        const residual =
+          bal + draw - surplus + deficit - (demandOf.get(it.id) ?? 0);
         const scale = Math.max(1, Math.abs(demandOf.get(it.id) ?? 0));
         expect(
           Math.abs(residual) / scale,
@@ -797,6 +799,47 @@ describe("solveLp - bounded supply draw", () => {
     expect(result.draws.get("plant_moss_seed_1")!.equals(1)).toBe(true);
     expect(result.surplus.size).toBe(0);
     expectExactlyBalanced(result, pack, targets, overrides);
+  });
+
+  it("drops the draw when the noise sweep zeroes the cap item's only consumer", () => {
+    // rMain anchors the plan scale at 1e6 (noise ceiling 100, T's repair
+    // tolerance 1). rEps is the only consumer of capped M; it covers rUse's
+    // 0.5/s side draw on T at a rate below the ceiling, so the sweep zeroes
+    // it and the repair loop leaves it zeroed (T's 0.5 shortfall sits under
+    // its tolerance). The M draw must go with its consumer: an orphaned draw
+    // reports a pull the surviving solution never consumes and would leak
+    // into surplus.
+    const p = makePack(
+      [
+        { id: "rEps", time: 1, in: { M: 1 }, out: { T: 1 } },
+        { id: "rMain", time: 1, in: { R: 1 }, out: { T: 1 } },
+        { id: "rUse", time: 1, in: { T: 1 }, out: { U: 1 } },
+      ],
+      [
+        { id: "M", stack: 1 },
+        { id: "R", raw: true, stack: 1 },
+        { id: "T", stack: 1 },
+        { id: "U", stack: 1 },
+      ],
+    );
+    const targets: Target[] = [
+      { recipeId: "rMain", ratePerSec: { num: "1000000", denom: "1" } },
+      { recipeId: "rUse", ratePerSec: { num: "1", denom: "2" } },
+    ];
+    const result = solveLp({
+      targets,
+      pack: p,
+      itemOverrides: [{ itemId: "M", ratePerSec: { num: "5", denom: "1" } }],
+      // Free rEps so the LP covers the marginal T from the capped draw
+      // instead of raising rMain.
+      recipeCosts: new Map([["rEps", 0]]),
+    });
+    expect(result.status).toBe("feasible");
+    // The sweep removed the epsilon consumer.
+    expect(result.rates.has("rEps")).toBe(false);
+    // The draw it anchored must not survive it, nor leak into surplus.
+    expect(result.draws.has("M")).toBe(false);
+    expect(result.surplus.get("M")?.valueOf() ?? 0).toBe(0);
   });
 
   it("emits no draw entries without finite positive caps", () => {

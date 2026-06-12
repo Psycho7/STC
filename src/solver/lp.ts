@@ -579,6 +579,26 @@ function extractResult(args: ExtractArgs): LpResult {
   }
   for (const recipeId of zeroed) rates.delete(recipeId);
 
+  // The sweep can zero the only consumer of a finite-capped item, orphaning
+  // its draw: the entry would report a pull the surviving solution never
+  // consumes (violating the draws contract) and leak into surplus. Drop draws
+  // on items no surviving recipe consumes, then refresh the slack the
+  // surplus/deficit derivation below reads so the rows still close exactly.
+  if (draws.size > 0) {
+    const consumedItems = new Set<ItemId>();
+    for (const recipeId of rates.keys()) {
+      const r = recipeById.get(recipeId)!;
+      for (const i of r.in) if (i.qty > 0) consumedItems.add(i.item);
+    }
+    let drawsDropped = false;
+    for (const itemId of draws.keys()) {
+      if (consumedItems.has(itemId)) continue;
+      draws.delete(itemId);
+      drawsDropped = true;
+    }
+    if (drawsDropped) slack = computeSlack();
+  }
+
   // Surplus/deficit from the exact recompute, never from the raw slack
   // variables: the extracted point's rows then close exactly. A material raw
   // deficit surfaces as the recomputed shortfall (or, when the snapped rates
