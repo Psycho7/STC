@@ -1,4 +1,5 @@
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import Fraction from "fraction.js";
 import type { Recipe, Stoich } from "@aef/schema";
 import { measureRecipe } from "./recipeGeometry";
 import { useI18n } from "../data/i18n-context";
@@ -56,19 +57,27 @@ type RecipeNodeData = {
 };
 type RecipeNodeType = Node<RecipeNodeData, "recipe">;
 
-// Per-row rate label: items per cycle over cycle time, scaled by the replica
+// Per-row rate label: items per cycle over cycle time, times the machine speed
+// (the solver runs a machine at speed/time executions per second, so the
+// per-machine port rate is qty * speed / time), scaled by the replica
 // multiplier when the older path supplies one. Rational-multiplicity callers
 // pass multiplier=undefined because the solver already scaled their rates.
+// Exact Fraction math keeps non-integer speeds free of float junk; rates here
+// are non-negative, so serializing .n/.d is safe.
 function rowRateText(
   stoich: Stoich,
   recipeTime: number,
+  speed: Fraction,
   multiplier: number,
 ): string {
-  const rps = {
-    num: String(stoich.qty * multiplier),
-    denom: String(recipeTime),
-  };
-  return formatRationalPerMin(rps);
+  const perSec = new Fraction(stoich.qty)
+    .mul(speed)
+    .mul(multiplier)
+    .div(recipeTime);
+  return formatRationalPerMin({
+    num: perSec.n.toString(),
+    denom: perSec.d.toString(),
+  });
 }
 
 export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
@@ -92,6 +101,10 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
     outputItemId !== undefined ? i18n.displayName(outputItemId) : "";
   const machineName = machine ? i18n.displayName(machine.id) : null;
   const tier = machine ? deriveTier(machine.id) : null;
+  // Same speed factor the solver applies (multiplier.ts); a missing machine
+  // record (corrupt fixture) falls back to 1, the only value the pack uses.
+  const speed =
+    machine !== undefined ? new Fraction(machine.speed) : new Fraction(1);
   // Later sprite wiring reads this attribute; falls back to the raw producer id
   // when the machine record is missing (corrupt fixture).
   const machineIconKey = machine?.icon ?? producerId ?? "";
@@ -108,16 +121,13 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
     badgeText = `x${multiplier}`;
   }
 
-  // Header rate column: outputs[0] qty over recipe.time, times 60, scaled by the
-  // older multiplier path. Empty string hides the value when there is no primary
-  // output.
+  // Header rate column: outputs[0] qty times machine speed over recipe.time,
+  // times 60, scaled by the older multiplier path. Empty string hides the value
+  // when there is no primary output.
   const primaryOut = outs[0];
   const rateValText =
     primaryOut !== undefined
-      ? formatRationalPerMin({
-          num: String(primaryOut.qty * scale),
-          denom: String(recipe.time),
-        })
+      ? rowRateText(primaryOut, recipe.time, speed, scale)
       : "";
 
   return (
@@ -212,7 +222,7 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
                   {label}
                 </span>
                 <span className="rate">
-                  {rowRateText(p, recipe.time, scale)}
+                  {rowRateText(p, recipe.time, speed, scale)}
                 </span>
               </div>
             );
@@ -228,7 +238,7 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
                   {label}
                 </span>
                 <span className="rate">
-                  {rowRateText(p, recipe.time, scale)}
+                  {rowRateText(p, recipe.time, speed, scale)}
                 </span>
               </div>
             );
