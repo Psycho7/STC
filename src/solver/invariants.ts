@@ -3,7 +3,7 @@ import type { RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { LpResult } from "./lp";
-import { demandByItem } from "./lp";
+import { demandByItem, toleranceScaleFloor } from "./lp";
 import type { SolvePlanFull } from "./index";
 import { effectiveSupply } from "./effectiveSupply";
 import { isExcludedProducer } from "../data/recipe-category";
@@ -44,9 +44,11 @@ function netProduction(
 /**
  * Mass balance: for each item the LP built a mass-balance row for,
  * production - consumption - surplus + deficit - demand must be ~0, scaled by
- * max(1, |demand|). Items whose effective supply is Infinity are free boundary
- * draws (raw items, or non-raw items with a plan:true override); the LP builds no
- * row for them, so the checker skips them to stay aligned. Same residual form
+ * max(scaleFloor, |demand|), where scaleFloor is the plan-magnitude tolerance
+ * floor shared with the extraction hygiene gate (toleranceScaleFloor). Items
+ * whose effective supply is Infinity are free boundary draws (raw items, or
+ * non-raw items with a plan:true override); the LP builds no row for them, so
+ * the checker skips them to stay aligned. Same residual form
  * `bal - surplus + deficit - demand` as the check in lp.test.ts.
  */
 export function checkMassBalance(
@@ -57,6 +59,7 @@ export function checkMassBalance(
 ): InvariantResult {
   const violations: string[] = [];
   const demandOf = demandByItem(pack, targets);
+  const scaleFloor = toleranceScaleFloor(demandOf);
 
   for (const it of pack.items) {
     if (effectiveSupply(it.id, pack, overrides) === Infinity) continue;
@@ -65,7 +68,7 @@ export function checkMassBalance(
     const deficit = result.deficit.get(it.id)?.valueOf() ?? 0;
     const demand = demandOf.get(it.id) ?? 0;
     const residual = bal - surplus + deficit - demand;
-    const scale = Math.max(1, Math.abs(demand));
+    const scale = Math.max(scaleFloor, Math.abs(demand));
     if (Math.abs(residual) / scale >= REL_TOL) {
       violations.push(`mass-balance residual for ${it.id}: ${residual}`);
     }
@@ -86,6 +89,7 @@ export function checkTargetsMet(
   pack: RecipePack,
 ): InvariantResult {
   const violations: string[] = [];
+  const scaleFloor = toleranceScaleFloor(demandByItem(pack, targets));
 
   for (const t of targets) {
     const recipe = pack.recipes.find((r) => r.id === t.recipeId);
@@ -97,7 +101,7 @@ export function checkTargetsMet(
     const floor = rate / primary.qty;
     const actual = rateOf(result, t.recipeId);
     // Allow a relative slack so float noise at the floor is not a violation.
-    const slack = Math.max(1, Math.abs(floor)) * REL_TOL;
+    const slack = Math.max(scaleFloor, Math.abs(floor)) * REL_TOL;
     if (actual < floor - slack) {
       violations.push(
         `target ${t.recipeId} runs at ${actual}, below floor ${floor}`,
@@ -106,7 +110,10 @@ export function checkTargetsMet(
     // Upper bound: the one-sided floor lets a co-product subsidize over-running
     // the target, silently over-producing the requested item. The requested item
     // must not carry meaningful surplus (keyed by item; shared across duplicate
-    // targets on the same primary item, so a per-target read is fine).
+    // targets on the same primary item, so a per-target read is fine). The
+    // slack keeps the absolute floor of 1: the LP's surplus cap grants the
+    // targeted item an eps of max(floor, 1) * 1e-7, so a plan-magnitude floor
+    // here could tag a surplus legitimately sitting at that cap.
     const surplus = result.surplus.get(primary.item)?.valueOf() ?? 0;
     const surplusSlack = Math.max(1, Math.abs(floor)) * REL_TOL;
     if (surplus > surplusSlack) {

@@ -12,6 +12,7 @@ import type {
 } from "../types";
 import { isMachineRecipeVertex, isMachineSccVertex } from "../types";
 import { effectiveSupply } from "../../solver/effectiveSupply";
+import { toleranceScaleFloor } from "../../solver/lp";
 import type { Target } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { Item, Recipe, RecipePack } from "@aef/schema";
@@ -820,15 +821,22 @@ export function deriveBoundaryProducts(
     }
   }
   // REL_TOL mirrors checkBoundaryProductsJustified: a surplus within
-  // max(1,|magnitude|)*REL_TOL of zero is a degenerate-rate / solver residual,
-  // not a genuine byproduct, and the checker would flag it as an RF-1 phantom.
+  // max(scaleFloor,|magnitude|)*REL_TOL of zero is a degenerate-rate / solver
+  // residual, not a genuine byproduct, and the checker would flag it as an
+  // RF-1 phantom. scaleFloor is the same plan-magnitude tolerance floor the
+  // checkers use; suppressing with an absolute floor of 1 would swallow every
+  // byproduct of a sub-unit plan and trip the production-vanish checker.
   const REL_TOL = 1e-6;
+  const scaleFloor = toleranceScaleFloor(
+    new Map([...targetRateByItem].map(([item, rate]) => [item, rate.valueOf()])),
+  );
   for (const [item, produced] of producedByItem) {
     const genuine = produced
       .sub(consumedByItem.get(item) ?? new Fraction(0))
       .sub(targetRateByItem.get(item) ?? new Fraction(0));
     const genuineVal = genuine.valueOf();
-    if (genuineVal <= Math.max(1, Math.abs(genuineVal)) * REL_TOL) continue;
+    if (genuineVal <= Math.max(scaleFloor, Math.abs(genuineVal)) * REL_TOL)
+      continue;
     const positives = positivesByItem.get(item) ?? [];
     const positiveSum = positives.reduce(
       (acc, p) => acc.add(p.rate),

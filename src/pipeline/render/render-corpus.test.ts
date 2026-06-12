@@ -475,6 +475,37 @@ describe("render corpus: seeded-target co-producer keeps siblings at LP rate", (
   });
 });
 
+describe("render corpus: tiny plan clears sub-unit checker tolerances", () => {
+  // A legitimately tiny plan (liquid_copper at 1e-6/s) renders correct output
+  // whose every magnitude sits at or below the checkers' old absolute 1e-6
+  // tolerance floor, so predicates that REQUIRE a magnitude above slack (e.g.
+  // checkBoundaryProductsJustified's net-consumed test) misfired on clean
+  // plans and the DEV render hook crashed them. The tolerance scale floor is
+  // now relative to the plan's own magnitude, so the same correct output
+  // passes every checker.
+  it("liquid_copper at 1e-6/s solves and renders with zero violations", () => {
+    const targets: Target[] = [
+      { recipeId: "liquid_copper", ratePerSec: { num: "1", denom: "1000000" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    expect(full.feasibility.softFeasible).toBe(true);
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+  });
+});
+
 describe("render corpus: SCC member input dual-fed intra and externally", () => {
   // crystal_shell<->crystal_powder loop: the target member's crystal_powder
   // demand is part-fed intra-SCC over the torn arc (191/1784) and part-fed by

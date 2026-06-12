@@ -4,7 +4,7 @@ import type { Target } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { InvariantResult } from "../../solver/invariants";
 import { effectiveSupply } from "../../solver/effectiveSupply";
-import { demandByItem } from "../../solver/lp";
+import { demandByItem, toleranceScaleFloor } from "../../solver/lp";
 import type {
   RenderPlan,
   RenderUnitId,
@@ -25,6 +25,17 @@ export type { InvariantResult };
 
 // Relative tolerance, same value the solver invariants use.
 const REL_TOL = 1e-6;
+
+// Plan-magnitude floor for tolerance scales, shared with the solver checkers
+// and the extraction hygiene gate. Sub-unit plans shrink the floor to their
+// own magnitude; an absolute floor of 1 would exceed everything a tiny plan
+// produces and misfire predicates that require a magnitude above slack.
+function planScaleFloor(
+  pack: RecipePack,
+  targets: ReadonlyArray<Target>,
+): number {
+  return toleranceScaleFloor(demandByItem(pack, targets as Target[]));
+}
 
 // Shared args object so all checkers have one signature and can be called from a list.
 export type RenderInvariantArgs = {
@@ -180,8 +191,8 @@ export function checkEdgeEndpointIntegrity(
  * - outputProduct "surplus" for X: justified iff genuine overproduction beyond
  *   demand: production(X) - consumption(X) - demand(X) exceeds tolerance.
  *
- * Slack = max(1, |magnitude|) * REL_TOL, matching checkRawOnlyBoundary in the
- * solver invariants. The catch this checker exists for: an internally balanced
+ * Slack = max(scaleFloor, |magnitude|) * REL_TOL with the shared plan-magnitude
+ * floor. The catch this checker exists for: an internally balanced
  * intermediate (production ~= consumption, residual within tolerance) that is
  * not a target showing up as a phantom surplus output.
  */
@@ -194,6 +205,7 @@ export function checkBoundaryProductsJustified(
   const production = internalProductionByItem(rates, pack);
   const consumption = internalConsumptionByItem(rates, pack);
   const demandOf = demandByItem(pack, targets as Target[]);
+  const scaleFloor = planScaleFloor(pack, targets);
 
   for (const unit of plan.units) {
     if (isInputProductUnit(unit)) {
@@ -221,7 +233,7 @@ export function checkBoundaryProductsJustified(
       const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
       const net = cons.sub(availProd); // positive means net external draw
       const magnitude = net.valueOf();
-      const slack = Math.max(1, Math.abs(magnitude)) * REL_TOL;
+      const slack = Math.max(scaleFloor, Math.abs(magnitude)) * REL_TOL;
       if (net.valueOf() <= slack) {
         violations.push(
           `inputProduct for "${x}": item is not net-consumed from outside (consumption - production = ${magnitude})`,
@@ -243,7 +255,7 @@ export function checkBoundaryProductsJustified(
         const demand = demandOf.get(x) ?? 0;
         const netSurplus = prod.sub(cons).sub(new Fraction(demand));
         const magnitude = netSurplus.valueOf();
-        const slack = Math.max(1, Math.abs(magnitude)) * REL_TOL;
+        const slack = Math.max(scaleFloor, Math.abs(magnitude)) * REL_TOL;
         if (magnitude <= slack) {
           violations.push(
             `outputProduct (surplus) for "${x}": no genuine surplus (production - consumption - demand = ${magnitude}); unjustified surplus unit (RF-1 phantom)`,
@@ -281,6 +293,7 @@ export function checkInternalFlowConservation(
 ): InvariantResult {
   const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
+  const scaleFloor = planScaleFloor(pack, targets);
 
   // Declared target rate per primary-output item, built like
   // checkTargetOutputsSatisfied: production delivered to a target output
@@ -366,7 +379,7 @@ export function checkInternalFlowConservation(
     const availRaw = prod.sub(targetDemand);
     const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
     const expected = availProd.compare(cons) <= 0 ? availProd : cons;
-    const slack = Math.max(1, expected.valueOf()) * REL_TOL;
+    const slack = Math.max(scaleFloor, expected.valueOf()) * REL_TOL;
 
     // Skip items with negligible expected internal flow.
     if (prod.valueOf() <= slack || cons.valueOf() <= slack) continue;
@@ -401,8 +414,9 @@ export function checkInternalFlowConservation(
 export function checkConsumerInputsSatisfied(
   args: RenderInvariantArgs,
 ): InvariantResult {
-  const { plan, rates, pack } = args;
+  const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
+  const scaleFloor = planScaleFloor(pack, targets);
 
   // Lookup from unit id to recipeId, recipe units only.
   const recipeIdByUnitId = new Map<RenderUnitId, RecipeId>();
@@ -432,7 +446,7 @@ export function checkConsumerInputsSatisfied(
     if (!rate) continue; // recipe not running
 
     const rateVal = rate.valueOf();
-    const rateSlack = Math.max(1, rateVal) * REL_TOL;
+    const rateSlack = Math.max(scaleFloor, rateVal) * REL_TOL;
     if (rateVal <= rateSlack) continue; // negligible rate
 
     const recipe = recipeById.get(recipeId);
@@ -443,7 +457,7 @@ export function checkConsumerInputsSatisfied(
       const expectedVal = expected.valueOf();
       const actual = inflow.get(`${recipeId}\0${inp.item}`) ?? FRAC_ZERO;
       const actualVal = actual.valueOf();
-      const slack = Math.max(1, expectedVal) * REL_TOL;
+      const slack = Math.max(scaleFloor, expectedVal) * REL_TOL;
 
       if (actualVal < expectedVal - slack) {
         violations.push(
@@ -475,8 +489,9 @@ export function checkConsumerInputsSatisfied(
 export function checkConsumerInputsNotOverfed(
   args: RenderInvariantArgs,
 ): InvariantResult {
-  const { plan, rates, pack } = args;
+  const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
+  const scaleFloor = planScaleFloor(pack, targets);
 
   // Lookup from unit id to recipeId, recipe units only.
   const recipeIdByUnitId = new Map<RenderUnitId, RecipeId>();
@@ -506,7 +521,7 @@ export function checkConsumerInputsNotOverfed(
     if (!rate) continue; // recipe not running
 
     const rateVal = rate.valueOf();
-    const rateSlack = Math.max(1, rateVal) * REL_TOL;
+    const rateSlack = Math.max(scaleFloor, rateVal) * REL_TOL;
     if (rateVal <= rateSlack) continue; // negligible rate
 
     const recipe = recipeById.get(recipeId);
@@ -517,7 +532,7 @@ export function checkConsumerInputsNotOverfed(
       const expectedVal = expected.valueOf();
       const actual = inflow.get(`${recipeId}\0${inp.item}`) ?? FRAC_ZERO;
       const actualVal = actual.valueOf();
-      const slack = Math.max(1, expectedVal) * REL_TOL;
+      const slack = Math.max(scaleFloor, expectedVal) * REL_TOL;
 
       if (actualVal > expectedVal + slack) {
         violations.push(
@@ -548,6 +563,7 @@ export function checkTargetOutputsSatisfied(
 ): InvariantResult {
   const { plan, pack, targets } = args;
   const violations: string[] = [];
+  const scaleFloor = planScaleFloor(pack, targets);
 
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
@@ -578,7 +594,7 @@ export function checkTargetOutputsSatisfied(
     const declaredVal = declared.valueOf();
     const actual = actualByItem.get(item) ?? FRAC_ZERO;
     const actualVal = actual.valueOf();
-    const slack = Math.max(1, declaredVal) * REL_TOL;
+    const slack = Math.max(scaleFloor, declaredVal) * REL_TOL;
     if (actualVal < declaredVal - slack) {
       violations.push(
         `target output "${item}": expected delivery ${declaredVal} but actual ${actualVal} (target output fed below declared rate)`,
@@ -647,8 +663,9 @@ export function checkNoOrphanUnits(
 export function checkUnitOutflowVsProduction(
   args: RenderInvariantArgs,
 ): InvariantResult {
-  const { plan, pack } = args;
+  const { plan, pack, targets } = args;
   const violations: string[] = [];
+  const scaleFloor = planScaleFloor(pack, targets);
 
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
@@ -716,7 +733,7 @@ export function checkUnitOutflowVsProduction(
     const outgoing = outgoingByUnitItem.get(key) ?? FRAC_ZERO;
     const producedVal = produced.valueOf();
     const outgoingVal = outgoing.valueOf();
-    const slack = Math.max(1, producedVal) * REL_TOL;
+    const slack = Math.max(scaleFloor, producedVal) * REL_TOL;
     if (outgoingVal > producedVal + slack) {
       violations.push(
         `unit "${unitId}" item "${item}": outgoing ${outgoingVal} exceeds production ${producedVal} (over-billed producer edge)`,
@@ -736,7 +753,7 @@ export function checkUnitOutflowVsProduction(
     const outgoing = outgoingByItem.get(item) ?? FRAC_ZERO;
     const producedVal = produced.valueOf();
     const outgoingVal = outgoing.valueOf();
-    const slack = Math.max(1, producedVal, outgoingVal) * REL_TOL;
+    const slack = Math.max(scaleFloor, producedVal, outgoingVal) * REL_TOL;
     if (Math.abs(producedVal - outgoingVal) > slack) {
       violations.push(
         `item "${item}": production ${producedVal} != outgoing ${outgoingVal} (production vanished without a compensating over-bill)`,

@@ -80,6 +80,18 @@ export function recipeCostWeight(
   return 1;
 }
 
+// Scale floor for relative residual tolerances: min(1, largest per-item
+// demand). Plans at unit scale and above keep the historical absolute floor of
+// 1; sub-unit plans shrink the floor to the plan's own magnitude so a 1e-6
+// relative tolerance keeps meaning at tiny scales instead of swallowing the
+// whole plan. Shared by the extraction hygiene gate and the invariant checkers
+// (solver and render) so all of them tag at the same threshold.
+export function toleranceScaleFloor(demand: Map<ItemId, number>): number {
+  let maxDemand = 0;
+  for (const d of demand.values()) maxDemand = Math.max(maxDemand, Math.abs(d));
+  return maxDemand > 0 ? Math.min(1, maxDemand) : 1;
+}
+
 // Demand per item: sum over targets of the rate placed on each target recipe's
 // primary output (recipe.out[0]). Duplicate targets on the same primary item
 // accumulate. Shared with the invariant checkers so model and checks read demand
@@ -473,8 +485,9 @@ function extractResult(args: ExtractArgs): LpResult {
   };
 
   // checkMassBalance mirror: the residual tolerance the checkers tag at.
+  const scaleFloor = toleranceScaleFloor(demand);
   const mbTol = (itemId: ItemId): number =>
-    Math.max(1, Math.abs(demand.get(itemId) ?? 0)) * MB_REL_TOL;
+    Math.max(scaleFloor, Math.abs(demand.get(itemId) ?? 0)) * MB_REL_TOL;
 
   // Repair loop: zeroing candidates (or snapping a pin) must not leave an item
   // with a raw-clean negative slack the checkers would tag. First re-admit
