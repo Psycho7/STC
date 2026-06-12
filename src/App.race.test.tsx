@@ -90,7 +90,9 @@ test("second edit during an in-flight solve keeps both edits and the hash", asyn
   expect(inputs[0]!.value).toBe("600");
   expect(inputs[1]!.value).toBe("99");
 
-  // Release both solves in order; the newest generation wins.
+  // Release both solves in order; the newest generation wins. The shift order
+  // (solve 1 before solve 2) is what makes the solveGen guard deterministic
+  // here - reordering would silently invert the stale-result scenario.
   layoutGate.pending.shift()!();
   layoutGate.pending.shift()!();
 

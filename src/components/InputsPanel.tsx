@@ -82,6 +82,11 @@ export function InputsPanel({
   const overrideTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
+  // Auto-row timers have no clearPendingEdit analog: nothing cancels them when
+  // auto-rows transition out (e.g. an override appears and hides the rows).
+  // Intentional gap - a late fire is a no-op because commitAutoRate's
+  // duplicate guard skips items that already have an override, and an empty or
+  // INVALID value never mutates the list.
   const autoTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
@@ -98,11 +103,11 @@ export function InputsPanel({
   const [localAutoRates, setLocalAutoRates] = useState<Map<string, string>>(
     new Map(),
   );
-  function commitRate(itemId: string, perMinStr: string) {
+  // Returns false only on INVALID, so the caller keeps the prior value and
+  // the local edit string for the user to fix.
+  function commitRate(itemId: string, perMinStr: string): boolean {
     const parsed = parsePerMinToOptional(perMinStr);
-    // On INVALID, keep the prior value. The local edit string stays in
-    // localRates so the user still sees what they typed and can fix it.
-    if (parsed === "INVALID") return;
+    if (parsed === "INVALID") return false;
     onChange((current) => {
       const idx = current.findIndex((o) => o.itemId === itemId);
       // Row removed while the edit was pending: no-op (same reference).
@@ -116,19 +121,19 @@ export function InputsPanel({
       }
       return next;
     });
+    return true;
   }
 
   function scheduleCommit(itemId: string, value: string) {
     const existing = overrideTimers.current.get(itemId);
     if (existing) clearTimeout(existing);
     const id = setTimeout(() => {
-      commitRate(itemId, value);
+      const committed = commitRate(itemId, value);
       overrideTimers.current.delete(itemId);
+      // After a successful commit the prop drives what's shown; on INVALID,
+      // hold onto the local string so the user can fix the typo.
+      if (!committed) return;
       setLocalRates((prev) => {
-        // After a successful commit the prop drives what's shown; on INVALID,
-        // hold onto the local string so the user can fix the typo.
-        const parsed = parsePerMinToOptional(value);
-        if (parsed === "INVALID") return prev;
         const next = new Map(prev);
         next.delete(itemId);
         return next;
