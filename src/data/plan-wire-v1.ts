@@ -7,6 +7,13 @@ import { bytesToBase64url, base64urlToBytes } from "./encoding/base64url";
 // plan always produces the same URL hash. Decoding is lenient about unknown
 // fields: optional fields from a newer build come through as `undefined`.
 // Invariant checks happen in validatePlan.
+//
+// Canonical order is the designed contract (decided wont-fix): the user's
+// panel row order is purely presentational, is NOT carried on the wire, and
+// cannot be restored on decode. Sharing or reloading a plan reorders targets
+// and itemOverrides into canonical sorted order. Preserving row order would
+// either break canonical hashing (stop sorting) or churn the wire format
+// (a permutation field) for a cosmetic property.
 export type PlanWireV1 = {
   pack: [id: string, schemaVersion: string, sha: string];
   title: string;
