@@ -9,7 +9,12 @@ import { iconPosition } from "../canvas/iconSprite";
 
 type Props = {
   itemOverrides: ItemOverride[];
-  onChange: (next: ItemOverride[]) => void;
+  // Changes are emitted as functional updaters applied by the owner against
+  // its authoritative list, never as snapshots of the prop: a debounced commit
+  // built from a stale prop can otherwise drop a concurrent edit or resurrect
+  // a removed row. An updater that finds nothing to change must return its
+  // input unchanged (same reference) so the owner can skip a no-op commit.
+  onChange: (update: (current: ItemOverride[]) => ItemOverride[]) => void;
   pack: RecipePack;
   targetItemIds?: ReadonlySet<string>;
   // Realized demand per item from the latest render pass, summed over outbound
@@ -93,30 +98,24 @@ export function InputsPanel({
   const [localAutoRates, setLocalAutoRates] = useState<Map<string, string>>(
     new Map(),
   );
-  // Mirror of the latest `itemOverrides` so a debounce timer scheduled in an
-  // earlier render commits against the current list, not the stale snapshot it
-  // captured.
-  const overridesRef = useRef(itemOverrides);
-  useEffect(() => {
-    overridesRef.current = itemOverrides;
-  }, [itemOverrides]);
-
   function commitRate(itemId: string, perMinStr: string) {
     const parsed = parsePerMinToOptional(perMinStr);
     // On INVALID, keep the prior value. The local edit string stays in
     // localRates so the user still sees what they typed and can fix it.
     if (parsed === "INVALID") return;
-    const current = overridesRef.current;
-    const idx = current.findIndex((o) => o.itemId === itemId);
-    if (idx < 0) return;
-    const next = current.slice();
-    if (parsed === undefined) {
-      // Uncapped: drop ratePerSec from the override.
-      next[idx] = { itemId };
-    } else {
-      next[idx] = { itemId, ratePerSec: parsed };
-    }
-    onChange(next);
+    onChange((current) => {
+      const idx = current.findIndex((o) => o.itemId === itemId);
+      // Row removed while the edit was pending: no-op (same reference).
+      if (idx < 0) return current;
+      const next = current.slice();
+      if (parsed === undefined) {
+        // Uncapped: drop ratePerSec from the override.
+        next[idx] = { itemId };
+      } else {
+        next[idx] = { itemId, ratePerSec: parsed };
+      }
+      return next;
+    });
   }
 
   function scheduleCommit(itemId: string, value: string) {
@@ -166,9 +165,11 @@ export function InputsPanel({
     const parsed = parsePerMinToOptional(perMinStr);
     if (parsed === "INVALID") return;
     if (parsed === undefined) return;
-    const current = overridesRef.current;
-    if (current.some((o) => o.itemId === itemId)) return;
-    onChange([...current, { itemId, ratePerSec: parsed }]);
+    onChange((current) =>
+      current.some((o) => o.itemId === itemId)
+        ? current
+        : [...current, { itemId, ratePerSec: parsed }],
+    );
   }
 
   function handleAutoRateChange(itemId: string, value: string) {
@@ -203,29 +204,36 @@ export function InputsPanel({
       });
       scheduleCommit(newItemId, pendingValue);
     }
-    const next = itemOverrides.slice();
-    const idx = next.findIndex((o) => o.itemId === oldItemId);
-    if (idx < 0) return;
-    const row = next[idx]!;
-    // Keep any rate the row had when the user swaps the item.
-    next[idx] = row.ratePerSec
-      ? { itemId: newItemId, ratePerSec: row.ratePerSec }
-      : { itemId: newItemId };
-    onChange(next);
+    onChange((current) => {
+      const idx = current.findIndex((o) => o.itemId === oldItemId);
+      if (idx < 0) return current;
+      if (current.some((o) => o.itemId === newItemId)) return current;
+      const next = current.slice();
+      const row = next[idx]!;
+      // Keep any rate the row had when the user swaps the item.
+      next[idx] = row.ratePerSec
+        ? { itemId: newItemId, ratePerSec: row.ratePerSec }
+        : { itemId: newItemId };
+      return next;
+    });
   }
 
   function handleRemove(itemId: string) {
     setDuplicateError(null);
     clearPendingEdit(itemId);
-    onChange(itemOverrides.filter((o) => o.itemId !== itemId));
+    onChange((current) => {
+      const next = current.filter((o) => o.itemId !== itemId);
+      return next.length === current.length ? current : next;
+    });
   }
 
   function handleAdd() {
-    const used = new Set(itemOverrides.map((o) => o.itemId));
-    const candidate = sortedItems.find((it) => !used.has(it.id));
-    if (!candidate) return;
-    const next: ItemOverride[] = [...itemOverrides, { itemId: candidate.id }];
-    onChange(next);
+    onChange((current) => {
+      const used = new Set(current.map((o) => o.itemId));
+      const candidate = sortedItems.find((it) => !used.has(it.id));
+      if (!candidate) return current;
+      return [...current, { itemId: candidate.id }];
+    });
   }
 
   useEffect(() => {

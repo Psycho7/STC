@@ -9,7 +9,12 @@ import { iconPosition } from "../canvas/iconSprite";
 
 type Props = {
   targets: Target[];
-  onChange: (next: Target[]) => void;
+  // Changes are emitted as functional updaters applied by the owner against
+  // its authoritative list, never as snapshots of the prop: a debounced commit
+  // built from a stale prop can otherwise drop a concurrent edit or resurrect
+  // a removed row. An updater that finds nothing to change must return its
+  // input unchanged (same reference) so the owner can skip a no-op commit.
+  onChange: (update: (current: Target[]) => Target[]) => void;
   pack: RecipePack;
   // Recipes the solver cannot handle as targets yet. When provided, handleAdd's
   // auto-pick skips them so the panel never lands on one by default.
@@ -70,22 +75,18 @@ export function TargetsPanel({
   // without a separate sync effect. Keying by id (not row index) keeps a
   // pending edit attached to its row across removals and reorders.
   const [localRates, setLocalRates] = useState<Map<string, string>>(new Map());
-  // Mirror of the latest `targets` so a debounce timer scheduled in an earlier
-  // render commits against the current list, not the stale snapshot it captured.
-  const targetsRef = useRef(targets);
-  useEffect(() => {
-    targetsRef.current = targets;
-  }, [targets]);
 
   function commitRate(recipeId: string, perMinStr: string) {
     const parsed = parsePerMinToRationalPerSec(perMinStr);
     if (!parsed) return;
-    const current = targetsRef.current;
-    const idx = current.findIndex((t) => t.recipeId === recipeId);
-    if (idx < 0) return;
-    const next = current.slice();
-    next[idx] = { ...next[idx]!, ratePerSec: parsed };
-    onChange(next);
+    onChange((current) => {
+      const idx = current.findIndex((t) => t.recipeId === recipeId);
+      // Row removed while the edit was pending: no-op (same reference).
+      if (idx < 0) return current;
+      const next = current.slice();
+      next[idx] = { ...next[idx]!, ratePerSec: parsed };
+      return next;
+    });
   }
 
   function scheduleCommit(recipeId: string, value: string) {
@@ -144,30 +145,37 @@ export function TargetsPanel({
       });
       scheduleCommit(newRecipeId, pendingValue);
     }
-    const next = targets.slice();
-    const idx = next.findIndex((t) => t.recipeId === oldRecipeId);
-    if (idx < 0) return;
-    next[idx] = { ...next[idx]!, recipeId: newRecipeId };
-    onChange(next);
+    onChange((current) => {
+      const idx = current.findIndex((t) => t.recipeId === oldRecipeId);
+      if (idx < 0) return current;
+      if (current.some((t) => t.recipeId === newRecipeId)) return current;
+      const next = current.slice();
+      next[idx] = { ...next[idx]!, recipeId: newRecipeId };
+      return next;
+    });
   }
 
   function handleRemove(recipeId: string) {
     setDuplicateError(null);
     clearPendingEdit(recipeId);
-    onChange(targets.filter((t) => t.recipeId !== recipeId));
+    onChange((current) => {
+      const next = current.filter((t) => t.recipeId !== recipeId);
+      return next.length === current.length ? current : next;
+    });
   }
 
   function handleAdd() {
-    const used = new Set(targets.map((t) => t.recipeId));
-    const candidate = pickableRecipes.find(
-      (r) => !used.has(r.id) && !unsafeRecipes?.has(r.id),
-    );
-    if (!candidate) return;
-    const next: Target[] = [
-      ...targets,
-      { recipeId: candidate.id, ratePerSec: { num: "0", denom: "1" } },
-    ];
-    onChange(next);
+    onChange((current) => {
+      const used = new Set(current.map((t) => t.recipeId));
+      const candidate = pickableRecipes.find(
+        (r) => !used.has(r.id) && !unsafeRecipes?.has(r.id),
+      );
+      if (!candidate) return current;
+      return [
+        ...current,
+        { recipeId: candidate.id, ratePerSec: { num: "0", denom: "1" } },
+      ];
+    });
   }
 
   useEffect(() => {

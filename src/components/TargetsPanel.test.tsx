@@ -72,9 +72,9 @@ test("pending rate edit lands on the edited target after removing a row above", 
       <LocaleProvider locale="en">
         <TargetsPanel
           targets={t}
-          onChange={(next) => {
-            latest = next;
-            setT(next);
+          onChange={(update) => {
+            latest = update(latest);
+            setT(latest);
           }}
           pack={PACK}
         />
@@ -107,7 +107,9 @@ test("removing the row with the pending edit cancels its debounce", () => {
       <LocaleProvider locale="en">
         <TargetsPanel
           targets={t}
-          onChange={(next) => {
+          onChange={(update) => {
+            const next = update(latest);
+            if (next === latest) return; // owner-side no-op skip, like App
             emissions.push(next);
             latest = next;
             setT(next);
@@ -131,6 +133,45 @@ test("removing the row with the pending edit cancels its debounce", () => {
   });
 });
 
+// Async parent harness modelling App: updaters are applied against an
+// authoritative list immediately, but the prop re-render lags behind by a
+// simulated solve delay. The removed row must never reappear in any applied
+// state, no matter how stale the prop snapshot is when the debounce fires.
+test("pending edit plus remove does not resurrect the removed row", () => {
+  let authoritative: Target[] = [
+    { recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } },
+    { recipeId: "r_gadget", ratePerSec: { num: "2", denom: "1" } },
+  ];
+  const applied: string[][] = [];
+  function Parent() {
+    const [t, setT] = useState(authoritative);
+    return (
+      <LocaleProvider locale="en">
+        <TargetsPanel
+          targets={t}
+          onChange={(update) => {
+            authoritative = update(authoritative);
+            applied.push(authoritative.map((x) => x.recipeId));
+            // Solve + layout latency before the prop catches up.
+            setTimeout(() => setT(authoritative), 120);
+          }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  // Type into row 1, then remove row 0 before the debounce fires.
+  fireEvent.change(rateInputs()[1]!, { target: { value: "600" } });
+  fireEvent.click(screen.getAllByTestId("remove-target")[0]!);
+  act(() => vi.advanceTimersByTime(1000));
+
+  expect(authoritative).toEqual([
+    { recipeId: "r_gadget", ratePerSec: { num: "10", denom: "1" } },
+  ]);
+  for (const ids of applied) expect(ids).not.toContain("r_widget");
+});
+
 // An in-flight rate edit follows the row when the user swaps its recipe.
 test("pending rate edit follows the row across a recipe swap", () => {
   let latest: Target[] = [
@@ -142,9 +183,9 @@ test("pending rate edit follows the row across a recipe swap", () => {
       <LocaleProvider locale="en">
         <TargetsPanel
           targets={t}
-          onChange={(next) => {
-            latest = next;
-            setT(next);
+          onChange={(update) => {
+            latest = update(latest);
+            setT(latest);
           }}
           pack={PACK}
         />

@@ -85,9 +85,9 @@ test("pending cap edit lands on the edited item after removing a row above", () 
       <LocaleProvider locale="en">
         <InputsPanel
           itemOverrides={o}
-          onChange={(next) => {
-            latest = next;
-            setO(next);
+          onChange={(update) => {
+            latest = update(latest);
+            setO(latest);
           }}
           pack={PACK3}
         />

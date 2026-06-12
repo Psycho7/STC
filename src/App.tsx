@@ -61,6 +61,10 @@ export default function App() {
 
 function AppInner() {
   const [plan, setPlan] = useState<Plan | null>(null);
+  // Authoritative copy of the plan, kept in lockstep with the `plan` state.
+  // Mutation handlers read and write it synchronously so a commit never builds
+  // on a stale snapshot while a solve is still in flight.
+  const planRef = useRef<Plan | null>(null);
   const [logical, setLogical] = useState<LogicalGraph | null>(null);
   // Which section anchor is in view inside the side rail. Drives the skewed-tab
   // highlight so it reads as a "you-are-here" pill, not a toggle. Computed by an
@@ -110,6 +114,10 @@ function AppInner() {
   const solveGen = useRef(0);
   const tConfigRef = useRef(loadTransportConfig(defaultTransportConfig, pack));
   const inSccRecipes = useMemo(() => computeInSccRecipes(pack), []);
+  // Accepted transient: this recomputes from the synchronously committed plan,
+  // so ProductNode override chips on the still-stale canvas nodes update
+  // against the new overrides during the solve window. Sub-second cosmetic
+  // mismatch that self-heals when the new render lands.
   const itemPackValue = useMemo(
     () => ({
       itemById: new Map(pack.items.map((i) => [i.id, i])),
@@ -145,6 +153,7 @@ function AppInner() {
         }
         if (cancelled) return;
         fullRef.current = full;
+        planRef.current = nextPlan;
         setPlan(nextPlan);
         setLogical(full.logical);
         setNodes(laid.nodes);
@@ -159,12 +168,28 @@ function AppInner() {
     };
   }, [setNodes, setEdges]);
 
-  async function applyPlan(nextPlan: Plan): Promise<void> {
+  // Commit the plan (user intent) synchronously, then kick off the async
+  // solve + layout for the derived state. On a solver failure the committed
+  // plan stays put and the error banner is the signal; the canvas keeps the
+  // last good render. The URL hash updates on solve success only.
+  function commitPlan(nextPlan: Plan): void {
+    const error = validatePlan(nextPlan, pack);
+    if (error) {
+      setMutationError(new Error(describePlanLoadError(error)));
+      return;
+    }
+    planRef.current = nextPlan;
+    setPlan(nextPlan);
+    void scheduleSolve(nextPlan);
+  }
+
+  // Async derived-state refresh for an already-committed plan. solveGen is
+  // last-write-wins: every solve corresponds to a committed plan, so the
+  // newest generation's render is always the right one to keep.
+  async function scheduleSolve(nextPlan: Plan): Promise<void> {
     const myGen = ++solveGen.current;
     setPending(true);
     try {
-      const error = validatePlan(nextPlan, pack);
-      if (error) throw new Error(describePlanLoadError(error));
       const { targets, itemOverrides, recipeCosts } =
         planToSolverArgs(nextPlan);
       const full = solvePlanWithIntermediates(
@@ -177,7 +202,6 @@ function AppInner() {
       const laid = await renderFromFull(full, itemOverrides, targets);
       if (myGen !== solveGen.current) return;
       fullRef.current = full;
-      setPlan(nextPlan);
       setLogical(full.logical);
       setNodes(laid.nodes);
       setEdges(laid.edges);
@@ -193,14 +217,25 @@ function AppInner() {
     }
   }
 
-  async function handleTargetsChange(nextTargets: Target[]) {
-    if (!plan) return;
-    await applyPlan({ ...plan, targets: nextTargets });
+  function handleTargetsChange(update: (current: Target[]) => Target[]): void {
+    const current = planRef.current;
+    if (!current) return;
+    const nextTargets = update(current.targets);
+    // Same reference back means the updater had nothing to do (for example a
+    // debounced edit whose row was removed); skip the no-op solve.
+    if (nextTargets === current.targets) return;
+    commitPlan({ ...current, targets: nextTargets });
   }
 
-  async function handleItemOverridesChange(next: ItemOverride[]) {
-    if (!plan) return;
-    await applyPlan({ ...plan, itemOverrides: next });
+  function handleItemOverridesChange(
+    update: (current: ItemOverride[]) => ItemOverride[],
+  ): void {
+    const current = planRef.current;
+    if (!current) return;
+    const curOverrides = current.itemOverrides ?? [];
+    const nextOverrides = update(curOverrides);
+    if (nextOverrides === curOverrides) return;
+    commitPlan({ ...current, itemOverrides: nextOverrides });
   }
 
   const i18n = useI18n();
