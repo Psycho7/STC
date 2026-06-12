@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useNodesState,
   useEdgesState,
@@ -112,6 +112,13 @@ function AppInner() {
   const [initialError, setInitialError] = useState<Error | null>(null);
   const [mutationError, setMutationError] = useState<Error | null>(null);
   const solveGen = useRef(0);
+  // The hash the app last handled: written by itself (history.replaceState on
+  // solve success) or already picked up by loadFromHash. The hashchange
+  // handler compares against it so app-initiated writes and spurious events
+  // for the current hash never re-trigger a load. replaceState fires no
+  // hashchange event, so for self-writes this is belt-and-braces; it becomes
+  // load-bearing if a hash write ever switches to a location.hash assignment.
+  const lastHandledHashRef = useRef<string | null>(null);
   const tConfigRef = useRef(loadTransportConfig(defaultTransportConfig, pack));
   const inSccRecipes = useMemo(() => computeInSccRecipes(pack), []);
   // Accepted transient: this recomputes from the synchronously committed plan,
@@ -127,14 +134,28 @@ function AppInner() {
     [plan],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
+  // Load a plan from a URL hash, solve it, and swap the whole app state to it.
+  // Serves both the mount-time load and hashchange navigation (pasting another
+  // plan's #v1.* URL into the address bar). It joins the solveGen last-write-
+  // wins flow: a navigation invalidates any in-flight commit solve and vice
+  // versa, so the newest intent always owns the rendered state. Load errors go
+  // to initialError on mount (nothing is rendered yet) and to the dismissible
+  // mutationError banner on navigation (the old plan stays up).
+  const loadFromHash = useCallback(
+    async (hash: string, source: "mount" | "navigation"): Promise<void> => {
+      const myGen = ++solveGen.current;
+      // Mark the hash as handled up front: even if the load fails, re-running
+      // it for the same hash would only fail again.
+      lastHandledHashRef.current = hash;
+      const fail = (e: Error) => {
+        if (myGen !== solveGen.current) return;
+        if (source === "mount") setInitialError(e);
+        else setMutationError(e);
+      };
       try {
-        const outcome = await loadPlan(window.location.hash, pack);
+        const outcome = await loadPlan(hash, pack);
         if (outcome.kind === "error") {
-          if (cancelled) return;
-          setInitialError(new Error(describePlanLoadError(outcome.error)));
+          fail(new Error(describePlanLoadError(outcome.error)));
           return;
         }
         const nextPlan = outcome.plan;
@@ -149,24 +170,37 @@ function AppInner() {
         );
         const laid = await renderFromFull(full, itemOverrides, targets);
         if (outcome.kind === "seeded") {
-          history.replaceState(null, "", "#" + (await encodePlan(nextPlan)));
+          const newHash = "#" + (await encodePlan(nextPlan));
+          if (myGen !== solveGen.current) return;
+          lastHandledHashRef.current = newHash;
+          history.replaceState(null, "", newHash);
         }
-        if (cancelled) return;
+        if (myGen !== solveGen.current) return;
         fullRef.current = full;
         planRef.current = nextPlan;
         setPlan(nextPlan);
         setLogical(full.logical);
         setNodes(laid.nodes);
         setEdges(laid.edges);
+        if (source === "navigation") setMutationError(null);
       } catch (e) {
-        if (cancelled) return;
-        setInitialError(e as Error);
+        fail(e as Error);
       }
+    },
+    [setNodes, setEdges],
+  );
+
+  useEffect(() => {
+    void (async () => {
+      await loadFromHash(window.location.hash, "mount");
     })();
-    return () => {
-      cancelled = true;
+    const onHashChange = () => {
+      if (window.location.hash === lastHandledHashRef.current) return;
+      void loadFromHash(window.location.hash, "navigation");
     };
-  }, [setNodes, setEdges]);
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [loadFromHash]);
 
   // Commit the plan (user intent) synchronously, then kick off the async
   // solve + layout for the derived state. On a solver failure the committed
@@ -206,9 +240,10 @@ function AppInner() {
       setNodes(laid.nodes);
       setEdges(laid.edges);
       setMutationError(null);
-      const newHash = await encodePlan(nextPlan);
+      const newHash = "#" + (await encodePlan(nextPlan));
       if (myGen !== solveGen.current) return;
-      history.replaceState(null, "", "#" + newHash);
+      lastHandledHashRef.current = newHash;
+      history.replaceState(null, "", newHash);
     } catch (e) {
       if (myGen !== solveGen.current) return;
       setMutationError(e as Error);
