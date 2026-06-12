@@ -14,6 +14,7 @@ import type { LogicalGraph } from "../canvas/layout";
 import type { ItemOverride } from "../data/plan";
 import type { Target } from "../data/targets";
 import type { SolvePlanFull } from "../solver";
+import { supplyShareKey } from "../solver/replicate";
 import type {
   Condensation,
   ItemId,
@@ -57,6 +58,12 @@ export type RenderPipelineInput = {
   torn: ReadonlyArray<TornEdge>;
   recipeById: ReadonlyMap<RecipeId, Recipe>;
   rates: ReadonlyMap<RecipeId, Fraction>;
+  /**
+   * Committed producer-recipe -> consumer-recipe item flow (items/s), keyed by
+   * `supplyShareKey`. Recorded for shared producers only; computeEdgeRates uses
+   * it as the per-consumer demand-split weight.
+   */
+  supplyShares: ReadonlyMap<string, Fraction>;
   itemById: ReadonlyMap<ItemId, Item>;
   machineById: ReadonlyMap<string, Machine>;
   itemOverrides: ReadonlyArray<ItemOverride>;
@@ -95,6 +102,7 @@ export function buildRenderPlan(
     torn,
     recipeById,
     rates,
+    supplyShares,
     itemById,
     machineById,
     itemOverrides,
@@ -119,6 +127,7 @@ export function buildRenderPlan(
     replicas: surviving,
     recipeById,
     rates,
+    supplyShares,
   });
 
   const sccByLogicalNodeId = computeSccNetIO({
@@ -189,12 +198,29 @@ export function buildRenderPlan(
  *
  * Input-side edges (consumer recipe lists X as an input): a consumer STAMP C
  * demands `C.executionRate * inQty(X)`. When several producer edges feed the
- * same (stamp, item) group, the demand splits across them in proportion to each
- * source replica's output of X (`srcStamp.executionRate * outQty(X)`). A single
- * inbound edge gets share/sum = 1 and carries the full stamp demand, keeping
+ * same (stamp, item) group, the demand splits across them by a per-edge weight.
+ * The default weight is the source replica's output of X
+ * (`srcStamp.executionRate * outQty(X)`, "production share"). A single inbound
+ * edge gets share/sum = 1 and carries the full stamp demand, keeping
  * single-producer wiring bit-identical. The split makes inbound rates sum to
  * exactly the stamp demand and never overfeed. Degenerate groups with no
  * positive producer share fall back to an even demand/k split.
+ *
+ * SHARED producers (SCC members, AP-shared, byproduct-shared, seeded targets)
+ * emit once at full LP rate, so their production-share over-counts a producer
+ * that serves several consumers: each group would bill it its whole output.
+ * `supplyShares` carries replicate's recorded committed flow from that producer
+ * RECIPE to this consumer RECIPE; the per-edge weight becomes that recorded
+ * flow, scaled into this stamp's units and apportioned within the recipe's
+ * stamps present in the group. The recorded flow is constant across a consumer
+ * recipe's stamps (replicate splits by global LP rates), so
+ * `recordedStampFlow = flow * consumerStamp.executionRate /
+ * rates(consumerRecipe)`. When the SAME producer recipe has several stamps
+ * (looper + deliverer) in one group, that recorded flow is split among them by
+ * their production shares (`recipeShareSum` = sum of those stamps' output of X
+ * in the group), so a split producer keeps its production-ratio split and a
+ * single-stamp recipe reduces exactly to the recorded flow. Producers with no
+ * recorded share keep the production-share weight.
  *
  * Output-side edges (consumer lists X only as an output) keep producer-side
  * billing: `producerRate * outQty(X)`.
@@ -208,8 +234,9 @@ function computeEdgeRates(args: {
   replicas: ReadonlyArray<Replica>;
   recipeById: ReadonlyMap<RecipeId, Recipe>;
   rates: ReadonlyMap<RecipeId, Fraction>;
+  supplyShares: ReadonlyMap<string, Fraction>;
 }): Map<string, Fraction> {
-  const { logical, replicas, recipeById, rates } = args;
+  const { logical, replicas, recipeById, rates, supplyShares } = args;
   const replicaBySafeId = new Map<string, Replica>();
   for (const r of replicas) replicaBySafeId.set(safeId(r.id), r);
 
@@ -246,7 +273,9 @@ function computeEdgeRates(args: {
     else inputEdgesByGroup.set(key, { edges: [e], inQty: inStoich.qty });
   }
 
-  // Per-group producer-share split for the input edges.
+  // A producer stamp's production of an item: rate * out qty. The billing
+  // capacity AND the default demand-split weight for a producer with no
+  // recorded supply share.
   const outputShare = (producer: Replica | undefined, item: string): Fraction => {
     if (!producer) return ZERO;
     const prodRecipe = recipeById.get(producer.recipeId);
@@ -263,16 +292,61 @@ function computeEdgeRates(args: {
     const item = key.slice(sep + 1);
     const consumer = replicaBySafeId.get(targetSafeId)!;
     const demand = consumer.executionRate.mul(new Fraction(group.inQty));
-    const shares = group.edges.map((e) =>
-      outputShare(replicaBySafeId.get(e.source), item),
-    );
-    const shareSum = shares.reduce((acc, s) => acc.add(s), ZERO);
+    const consumerRate = rates.get(consumer.recipeId);
+
+    // Production share per edge (the capacity and the no-record weight).
+    const producers = group.edges.map((e) => replicaBySafeId.get(e.source));
+    const shares = producers.map((p) => outputShare(p, item));
+
+    // For a producer RECIPE with a recorded committed flow to this consumer
+    // recipe, the recorded flow is apportioned within that recipe's stamps in
+    // this group by their production shares. Precompute, per producer recipe
+    // id, the sum of those stamps' production share and the stamp count, so a
+    // split producer (looper + deliverer both present) keeps its production
+    // ratio instead of an even 50/50 split.
+    const recipeShareSum = new Map<RecipeId, Fraction>();
+    const recipeEdgeCount = new Map<RecipeId, number>();
+    for (let i = 0; i < producers.length; i++) {
+      const p = producers[i];
+      if (!p) continue;
+      recipeShareSum.set(
+        p.recipeId,
+        (recipeShareSum.get(p.recipeId) ?? ZERO).add(shares[i]!),
+      );
+      recipeEdgeCount.set(p.recipeId, (recipeEdgeCount.get(p.recipeId) ?? 0) + 1);
+    }
+
+    const weights = group.edges.map((e, i) => {
+      const p = producers[i];
+      // Unresolvable producer stamp: defer to the production-share fallback
+      // (ZERO here), mirroring outputShare's undefined guard.
+      if (!p) return ZERO;
+      const flow =
+        consumerRate !== undefined && consumerRate.compare(ZERO) > 0
+          ? supplyShares.get(supplyShareKey(p.recipeId, consumer.recipeId, item))
+          : undefined;
+      // No recorded share (per-consumer producer, or zero consumer rate): the
+      // production share already equals committed supply.
+      if (flow === undefined) return shares[i]!;
+      // Recorded recipe-level flow scaled into this stamp's units.
+      const recordedStampFlow = flow.mul(consumer.executionRate).div(consumerRate!);
+      const rShareSum = recipeShareSum.get(p.recipeId) ?? ZERO;
+      if (rShareSum.compare(ZERO) > 0) {
+        return recordedStampFlow.mul(shares[i]!).div(rShareSum);
+      }
+      // All sibling stamps of this recipe have zero production share: split the
+      // recorded flow evenly among them.
+      const count = recipeEdgeCount.get(p.recipeId) ?? 1;
+      return recordedStampFlow.div(new Fraction(count));
+    });
+
+    const weightSum = weights.reduce((acc, w) => acc.add(w), ZERO);
     const k = group.edges.length;
     for (let i = 0; i < group.edges.length; i++) {
       const e = group.edges[i]!;
       const rate =
-        shareSum.compare(ZERO) > 0
-          ? demand.mul(shares[i]!).div(shareSum)
+        weightSum.compare(ZERO) > 0
+          ? demand.mul(weights[i]!).div(weightSum)
           : demand.div(new Fraction(k));
       result.set(e.id, rate);
       capInputs.push({
@@ -550,6 +624,7 @@ export function renderPlanFromSolve(
     torn: full.torn,
     recipeById: full.recipeById,
     rates: full.rates,
+    supplyShares: full.supplyShares,
     itemById,
     machineById,
     itemOverrides,

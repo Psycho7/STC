@@ -12,6 +12,7 @@ import {
   assignSplitRoles,
   replicatePerConsumer,
   splitConsumerDemand,
+  supplyShareKey,
 } from "./replicate";
 import { outgoingEdgeKey } from "./types";
 
@@ -544,7 +545,7 @@ describe("replicatePerConsumer: SCC-boundary byproduct supplier sharing", () => 
       ["pc", new Fraction(2)],
       ["raw_src", new Fraction(2)],
     ]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation: new Set<RecipeId>(),
       rates,
@@ -619,7 +620,7 @@ describe("replicatePerConsumer: SCC intra supply nets the boundary demand", () =
       ["raw_src", new Fraction(3, 4)],
       ["raw2_src", new Fraction(1, 4)],
     ]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation: new Set<RecipeId>(),
       rates,
@@ -684,7 +685,7 @@ describe("replicatePerConsumer: SCC intra supply nets the boundary demand", () =
       ["ex1", new Fraction(2, 3)],
       ["ex2", new Fraction(4, 3)],
     ]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation: new Set<RecipeId>(),
       rates,
@@ -760,7 +761,7 @@ describe("replicatePerConsumer: canonical inputs-consumer of a split SCC member"
       ["P1", new Fraction(1, 2)],
       ["P2", new Fraction(1, 2)],
     ]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation: new Set<RecipeId>(),
       rates,
@@ -823,7 +824,7 @@ describe("replicatePerConsumer: canonical inputs-consumer of a split SCC member"
       ["P1", new Fraction(1, 2)],
       ["P2", new Fraction(1, 2)],
     ]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation: new Set<RecipeId>(),
       rates,
@@ -884,7 +885,10 @@ describe("replicatePerConsumer: duplicate target seeds", () => {
     return { g, condensation, rates };
   }
 
-  const sumOf = (replicas: ReturnType<typeof replicatePerConsumer>, rid: string) =>
+  const sumOf = (
+    replicas: ReturnType<typeof replicatePerConsumer>["replicas"],
+    rid: string,
+  ) =>
     replicas
       .filter((r) => r.recipeId === rid)
       .reduce((acc, r) => acc.add(r.executionRate), new Fraction(0));
@@ -897,7 +901,7 @@ describe("replicatePerConsumer: duplicate target seeds", () => {
       rates,
       condensation,
     };
-    const dup = replicatePerConsumer({
+    const { replicas: dup } = replicatePerConsumer({
       ...base,
       targets: [
         { recipeId: "t", ratePerSec: { num: "1", denom: "1" } },
@@ -912,7 +916,7 @@ describe("replicatePerConsumer: duplicate target seeds", () => {
     expect(sumOf(dup, "src").equals(new Fraction(2))).toBe(true);
 
     // The dup walk emits the same replicas as the single accumulated target.
-    const single = replicatePerConsumer({
+    const { replicas: single } = replicatePerConsumer({
       ...base,
       targets: [{ recipeId: "t", ratePerSec: { num: "2", denom: "1" } }],
     });
@@ -942,7 +946,7 @@ describe("replicatePerConsumer: duplicate target seeds", () => {
       ["m", new Fraction(2)],
       ["mloop", new Fraction(2)],
     ]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation: new Set<RecipeId>(),
       rates,
@@ -978,14 +982,14 @@ describe("replicatePerConsumer: duplicate target seeds", () => {
       rates,
       condensation,
     };
-    const withZeroDup = replicatePerConsumer({
+    const { replicas: withZeroDup } = replicatePerConsumer({
       ...base,
       targets: [
         { recipeId: "t", ratePerSec: { num: "1", denom: "1" } },
         { recipeId: "t", ratePerSec: { num: "0", denom: "1" } },
       ],
     });
-    const single = replicatePerConsumer({
+    const { replicas: single } = replicatePerConsumer({
       ...base,
       targets: [{ recipeId: "t", ratePerSec: { num: "1", denom: "1" } }],
     });
@@ -1014,7 +1018,7 @@ describe("replicatePerConsumer: augmented LP-support seeds", () => {
       ["prod", new Fraction(3)],
       ["sink", new Fraction(1)],
     ]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation: new Set<RecipeId>(),
       rates,
@@ -1055,7 +1059,7 @@ describe("replicatePerConsumer: augmented LP-support seeds", () => {
       ["f", new Fraction(4)],
       ["s", new Fraction(4)],
     ]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation: new Set<RecipeId>(),
       rates,
@@ -1075,5 +1079,133 @@ describe("replicatePerConsumer: augmented LP-support seeds", () => {
     const sReplicas = replicas.filter((r) => r.recipeId === "s");
     expect(sReplicas).toHaveLength(1);
     expect(sReplicas[0]!.executionRate.equals(new Fraction(4))).toBe(true);
+  });
+});
+
+describe("replicatePerConsumer: supplyShares committed-flow recording", () => {
+  // (a) Intra-SCC byproduct producer feeding two sibling members at unequal
+  // demand. The recorded (producer, consumer, item) flows must be
+  // demand-proportional and sum to the producer's production net of target
+  // draw. Reuses the under-producing 3-member SCC: p produces x (rate 1,
+  // production 1), c1 demands 1, c2 demands 2, so the 1 unit of x splits 1:2.
+  it("records intra-SCC supply demand-proportionally, summing to production", () => {
+    const nodes: Recipe[] = [
+      recipe("p", [{ item: "z", qty: 2 }], [{ item: "x", qty: 1 }]),
+      recipe("c1", [{ item: "x", qty: 1 }], [{ item: "y", qty: 2 }]),
+      recipe(
+        "c2",
+        [
+          { item: "x", qty: 1 },
+          { item: "y", qty: 1 },
+        ],
+        [{ item: "z", qty: 1 }],
+      ),
+      recipe("ex1", [], [{ item: "x", qty: 1 }]),
+      recipe("ex2", [], [{ item: "x", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "p", item: "x", target: "c1" },
+      { source: "p", item: "x", target: "c2" },
+      { source: "c1", item: "y", target: "c2" },
+      { source: "c2", item: "z", target: "p" },
+      { source: "ex1", item: "x", target: "c1" },
+      { source: "ex2", item: "x", target: "c2" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:p", recipeIds: ["p", "c1", "c2"] },
+      { id: "scc:ex1", recipeIds: ["ex1"] },
+      { id: "scc:ex2", recipeIds: ["ex2"] },
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["p", new Fraction(1)],
+      ["c1", new Fraction(1)],
+      ["c2", new Fraction(2)],
+      ["ex1", new Fraction(2, 3)],
+      ["ex2", new Fraction(4, 3)],
+    ]);
+    const { supplyShares } = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+      targets: [{ recipeId: "c2", ratePerSec: { num: "2", denom: "1" } }],
+    });
+    const toC1 = supplyShares.get(supplyShareKey("p", "c1", "x"));
+    const toC2 = supplyShares.get(supplyShareKey("p", "c2", "x"));
+    expect(toC1).toBeDefined();
+    expect(toC2).toBeDefined();
+    // Demand-proportional 1:2.
+    expect(toC1!.equals(new Fraction(1, 3))).toBe(true);
+    expect(toC2!.equals(new Fraction(2, 3))).toBe(true);
+    // Sum to p's production (1), which here is below total demand (3).
+    expect(toC1!.add(toC2!).equals(new Fraction(1))).toBe(true);
+  });
+
+  // (b) An articulation-point producer feeding two distinct consumers records
+  // each consumer's committed share under its own key, and a producer reached
+  // twice for the SAME consumer accumulates. Diamond: target t consumes x and y;
+  // px (x) and py (y) both consume w from the shared AP `ap`; raw feeds ap. t
+  // also draws w directly, and is reached as a w-consumer once via the seed
+  // frame.
+  it("records each consumer's share for a shared AP producer and accumulates", () => {
+    const nodes: Recipe[] = [
+      recipe(
+        "t",
+        [
+          { item: "x", qty: 1 },
+          { item: "y", qty: 1 },
+          { item: "w", qty: 1 },
+        ],
+        [{ item: "final", qty: 1 }],
+      ),
+      recipe("px", [{ item: "w", qty: 1 }], [{ item: "x", qty: 1 }]),
+      recipe("py", [{ item: "w", qty: 1 }], [{ item: "y", qty: 1 }]),
+      recipe("ap", [{ item: "raw", qty: 1 }], [{ item: "w", qty: 1 }]),
+      recipe("raw", [], [{ item: "raw", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "px", item: "x", target: "t" },
+      { source: "py", item: "y", target: "t" },
+      { source: "ap", item: "w", target: "t" },
+      { source: "ap", item: "w", target: "px" },
+      { source: "ap", item: "w", target: "py" },
+      { source: "raw", item: "raw", target: "ap" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:t", recipeIds: ["t"] },
+      { id: "scc:px", recipeIds: ["px"] },
+      { id: "scc:py", recipeIds: ["py"] },
+      { id: "scc:ap", recipeIds: ["ap"] },
+      { id: "scc:raw", recipeIds: ["raw"] },
+    ]);
+    // t=1 needs x=1, y=1, w=1; px=1, py=1; ap supplies w to t(1)+px(1)+py(1)=3.
+    const rates = new Map<RecipeId, Fraction>([
+      ["t", new Fraction(1)],
+      ["px", new Fraction(1)],
+      ["py", new Fraction(1)],
+      ["ap", new Fraction(3)],
+      ["raw", new Fraction(3)],
+    ]);
+    const { replicas, supplyShares } = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(["ap"]),
+      rates,
+      condensation,
+      targets: [{ recipeId: "t", ratePerSec: { num: "1", denom: "1" } }],
+    });
+    // The AP is emitted once at its full LP rate.
+    const apReplicas = replicas.filter((r) => r.recipeId === "ap");
+    expect(apReplicas).toHaveLength(1);
+    expect(apReplicas[0]!.executionRate.equals(new Fraction(3))).toBe(true);
+    // Each consumer's committed w supply is recorded under its own key.
+    expect(
+      supplyShares.get(supplyShareKey("ap", "t", "w"))!.equals(new Fraction(1)),
+    ).toBe(true);
+    expect(
+      supplyShares.get(supplyShareKey("ap", "px", "w"))!.equals(new Fraction(1)),
+    ).toBe(true);
+    expect(
+      supplyShares.get(supplyShareKey("ap", "py", "w"))!.equals(new Fraction(1)),
+    ).toBe(true);
   });
 });

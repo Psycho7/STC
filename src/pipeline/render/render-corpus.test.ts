@@ -1014,9 +1014,15 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
     expect(violations).toEqual([]);
   });
 
-  // P8: liquid_xiranite_poly producers. Two units carry true spare 4/5 and 1/5;
-  // the declared rate must split exactly in that proportion (the pre-fix
-  // per-vertex clamp split it 3/4 vs 1/4).
+  // P8: liquid_xiranite_poly producers, with liquid_xiranite_poly itself a
+  // target. The two SCC producers (the poly recipe and the purifier) feed the
+  // cross-boundary consumer xiranite_enr_powder. The supplyShares apportionment
+  // (F7) splits that demand by each producer's committed flow net of the poly
+  // recipe's own target draw, so the purifier's whole output is consumed by the
+  // cross + intra edges (zero spare, no target edge) and the dedicated poly
+  // recipe carries the entire declared target rate. The target edge still equals
+  // each producer's true-spare share of the declared rate (Bug 3 fix:
+  // per-render-unit aggregation, not the pre-fix per-vertex clamp).
   it("P8 [xiranite_enr_powder, liquid_xiranite_poly]: target split is exact spare proportion", () => {
     const targets: Target[] = [
       { recipeId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
@@ -1030,7 +1036,8 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
     );
     const { plan } = renderPlanFromSolve(full, pack, targets, []);
 
-    const rows = producerSpares(plan, "liquid_xiranite_poly").filter(
+    const allRows = producerSpares(plan, "liquid_xiranite_poly");
+    const rows = allRows.filter(
       (r) => r.targetEdge.compare(0) > 0 || r.trueSpare.compare(0) > 0,
     );
     const totalSpare = rows.reduce(
@@ -1045,14 +1052,19 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       const expected = r.trueSpare.mul(declared).div(totalSpare);
       expect(r.targetEdge.equals(expected)).toBe(true);
     }
-    // The two spares are exactly 4/5 and 1/5 of the declared rate.
-    const shares = rows
-      .map((r) => r.trueSpare.div(totalSpare))
-      .sort((a, b) => b.compare(a));
-    expect(shares.length).toBe(2);
-    const [hi, lo] = shares;
-    expect(hi!.equals(new Fraction(4, 5))).toBe(true);
-    expect(lo!.equals(new Fraction(1, 5))).toBe(true);
+    // The purifier is fully consumed by its cross + intra edges (zero spare, no
+    // target edge); only the dedicated liquid_xiranite_poly recipe carries spare,
+    // and it equals the whole declared rate.
+    const purifier = allRows.find(
+      (r) => r.recipeId === "liquid_xiranite_poly-purifier",
+    );
+    expect(purifier).toBeDefined();
+    expect(purifier!.trueSpare.equals(new Fraction(0))).toBe(true);
+    expect(purifier!.targetEdge.equals(new Fraction(0))).toBe(true);
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.recipeId).toBe("liquid_xiranite_poly");
+    expect(rows[0]!.trueSpare.equals(declared)).toBe(true);
+    expect(rows[0]!.targetEdge.equals(declared)).toBe(true);
 
     const violations = checkRenderPlan({
       plan,
@@ -1303,5 +1315,179 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
     // p1 capped to 1, p2 absorbs the freed 2. Total demand (3) preserved.
     expect(result.get("e1")!.equals(new Fraction(1))).toBe(true);
     expect(result.get("e2")!.equals(new Fraction(2))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared byproduct supplier apportionment (plan:true override).
+//
+// With liquid_water planned in-graph, the SCC-resident purifier supplies its
+// water byproduct to several sibling SCC members at once. replicate computes
+// the exact per-consumer committed supply, but the replica contract used to
+// drop it; computeEdgeRates then weighted the purifier's edge in EVERY consumer
+// group by its FULL water production, over-billing it several times over and
+// dead-ending capProducerInputOutflow (DEV throw, Kirchhoff-violating rates in
+// prod). The supplyShares channel carries the committed flows into the edge
+// split, so the purifier is billed exactly its production and each consumer's
+// inflow equals its LP demand.
+// ---------------------------------------------------------------------------
+describe("render corpus: shared byproduct supplier apportionment (plan:true override)", () => {
+  const WATER_OVERRIDE = [{ itemId: "liquid_water", plan: true as const }];
+
+  // Sum rendered liquid_water flow per producing / consuming recipe id.
+  function waterFlowsByRecipe(targets: Target[]) {
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      WATER_OVERRIDE,
+    );
+    const { plan } = renderPlanFromSolve(full, pack, targets, WATER_OVERRIDE);
+    const unitRecipe = new Map<string, string>();
+    for (const u of plan.units) {
+      if (u.kind === "recipe") unitRecipe.set(u.id, u.recipeId);
+    }
+    const outflow = new Map<string, Fraction>();
+    const inflow = new Map<string, Fraction>();
+    for (const e of plan.edges) {
+      if (e.item !== "liquid_water") continue;
+      const from = unitRecipe.get(e.fromUnit);
+      if (from !== undefined) {
+        outflow.set(from, (outflow.get(from) ?? new Fraction(0)).add(e.rate));
+      }
+      const to = unitRecipe.get(e.toUnit);
+      if (to !== undefined) {
+        inflow.set(to, (inflow.get(to) ?? new Fraction(0)).add(e.rate));
+      }
+    }
+    return { full, outflow, inflow };
+  }
+
+  // Per-producer Kirchhoff: every recipe shipping water ships exactly its LP
+  // production (rate * out qty), surplus and target edges included.
+  function expectWaterOutflowMatchesProduction(
+    full: ReturnType<typeof solvePlanWithIntermediates>,
+    outflow: ReadonlyMap<string, Fraction>,
+  ): void {
+    expect(outflow.size).toBeGreaterThan(0);
+    for (const [rid, shipped] of outflow) {
+      const recipe = full.recipeById.get(rid)!;
+      const outQty = recipe.out.find((o) => o.item === "liquid_water")!.qty;
+      const production = full.rates.get(rid)!.mul(new Fraction(outQty));
+      expect(
+        shipped.equals(production),
+        `producer ${rid}: shipped ${shipped.toFraction()} != production ${production.toFraction()}`,
+      ).toBe(true);
+    }
+  }
+
+  // Per-consumer demand: every recipe drawing water draws exactly its LP demand
+  // (rate * in qty).
+  function expectWaterInflowMatchesDemand(
+    full: ReturnType<typeof solvePlanWithIntermediates>,
+    inflow: ReadonlyMap<string, Fraction>,
+  ): void {
+    expect(inflow.size).toBeGreaterThan(0);
+    for (const [rid, fed] of inflow) {
+      const recipe = full.recipeById.get(rid)!;
+      const inQty = recipe.in.find((s) => s.item === "liquid_water")!.qty;
+      const demand = full.rates.get(rid)!.mul(new Fraction(inQty));
+      expect(
+        fed.equals(demand),
+        `consumer ${rid}: fed ${fed.toFraction()} != demand ${demand.toFraction()}`,
+      ).toBe(true);
+    }
+  }
+
+  // B4L4-b filed repro. At HEAD the purifier's 4 water edges summed to 3.2x its
+  // production and capProducerInputOutflow dead-ended with a DEV throw inside
+  // renderPlanFromSolve.
+  it("xiranite_poly@1/s + planned water: exact per-recipe water flows, no DEV throw", () => {
+    const targets: Target[] = [
+      { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const { full, outflow, inflow } = waterFlowsByRecipe(targets);
+    expectWaterOutflowMatchesProduction(full, outflow);
+    expectWaterInflowMatchesDemand(full, inflow);
+  });
+
+  // The report's second reproducer of the same mechanism.
+  it("proc_battery_5@1/s + planned water: exact per-recipe water flows, no DEV throw", () => {
+    const targets: Target[] = [
+      { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const { full, outflow, inflow } = waterFlowsByRecipe(targets);
+    expectWaterOutflowMatchesProduction(full, outflow);
+    expectWaterInflowMatchesDemand(full, inflow);
+  });
+
+  // Combined worst case: the torn P2 plan plus the water override. The purifier
+  // is role-split into two stamps (looper + deliverer) and its water byproduct
+  // fans BOTH stamps into several interlocking consumer groups, so the recorded
+  // recipe-level flow must additionally be apportioned across the split stamps
+  // by their output shares. Pins the within-recipe apportionment and the
+  // cross-boundary split divergence in one plan.
+  it("P2-torn + planned water: split purifier stamps bill water within production", () => {
+    const targets: Target[] = [
+      { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+      {
+        recipeId: "jinlong_coupon-xiranite_enr_powder",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+    ];
+    const { full, outflow } = waterFlowsByRecipe(targets);
+    expectWaterOutflowMatchesProduction(full, outflow);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Edge-rate bit-identity guard. NOT a TDD red test: it passes both before and
+// after the supplyShares weighting change. It pins the exact edge-rate
+// Fractions of one clean corpus plan (copper_enr_cmpt has a single producer
+// per input plus the liquid_copper <-> liquid_copper_enr loop, so it exercises
+// both the fallback and the recorded single-edge paths) as literal expected
+// values, so any future change to the edge-weighting that disturbs clean
+// wiring fails loudly here.
+// ---------------------------------------------------------------------------
+describe("render corpus: edge-rate bit-identity guard (copper_enr_cmpt)", () => {
+  it("copper_enr_cmpt@1/s edge rates match the pinned literal snapshot", () => {
+    const targets: Target[] = [
+      { recipeId: "copper_enr_cmpt", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const unitLabel = new Map<string, string>();
+    for (const u of plan.units) {
+      unitLabel.set(u.id, u.kind === "recipe" ? u.recipeId : `${u.kind}:${u.id}`);
+    }
+    const lines = plan.edges
+      .map(
+        (e) =>
+          `${unitLabel.get(e.fromUnit)} -> ${unitLabel.get(e.toUnit)} ` +
+          `[${e.item}] ${e.rate.toFraction()}`,
+      )
+      .sort();
+    expect(lines).toEqual([
+      "copper_enr -> copper_enr_cmpt [copper_enr] 5",
+      "copper_enr -> outputProduct:u:surplus:liquid_sewage [liquid_sewage] 5",
+      "copper_enr_cmpt -> outputProduct:u:out:copper_enr_cmpt [copper_enr_cmpt] 1",
+      "copper_nugget -> copper_powder [copper_nugget] 40",
+      "copper_nugget -> outputProduct:u:surplus:liquid_sewage [liquid_sewage] 40",
+      "copper_powder -> liquid_copper [copper_powder] 40",
+      "inputProduct:u:in:copper_ore -> copper_nugget [copper_ore] 40",
+      "inputProduct:u:in:iron_ore -> iron_nugget-iron_ore [iron_ore] 5",
+      "inputProduct:u:in:liquid_acid -> liquid_copper [liquid_acid] 30",
+      "inputProduct:u:in:liquid_water -> copper_nugget [liquid_water] 40",
+      "iron_nugget-iron_ore -> iron_powder [iron_nugget] 5",
+      "iron_powder -> copper_enr [iron_powder] 5",
+      "liquid_copper -> liquid_copper_enr [liquid_copper] 40",
+      "liquid_copper_enr -> copper_enr [liquid_copper_enr] 10",
+      "liquid_copper_enr -> liquid_copper [liquid_acid] 10",
+    ]);
   });
 });

@@ -32,6 +32,17 @@ import type { Target } from "../data/targets";
  *
  * The walker is iterative to dodge JS recursion-depth limits on real packs.
  *
+ * Besides the replicas, the walk records `supplyShares`: the committed item
+ * flow (items/s) from each SHARED producer recipe to each consumer recipe,
+ * keyed by `supplyShareKey`. Shared producers (SCC members, AP-shared,
+ * byproduct-shared, seeded targets) emit once at full LP rate, so their
+ * executionRate says nothing about how much any single consumer draws; only
+ * the walk knows that apportionment, and computeEdgeRates needs it as the
+ * demand-split weight. Per-consumer (non-shared) producers are deliberately
+ * NOT recorded: their executionRate * outQty already equals their committed
+ * supply, and the absence keeps the driver's fallback path (and clean
+ * single-producer wiring) bit-identical.
+ *
  * `replicatePerConsumer` is the only entry point used outside this module. It
  * hands off to four sub-orchestrators:
  *   - walkFromTargets    seed and iterative drain
@@ -53,10 +64,24 @@ export function replicatePerConsumer(args: {
   condensation: Condensation;
   targets: Target[];
   augmented?: Set<RecipeId>;
-}): Replica[] {
+}): { replicas: Replica[]; supplyShares: Map<string, Fraction> } {
   const state = createReplicateState(args);
   walkFromTargets(state);
-  return state.replicas;
+  return { replicas: state.replicas, supplyShares: state.supplyShares };
+}
+
+/**
+ * Key of one `supplyShares` entry: committed flow from a producer recipe to a
+ * consumer recipe for one item. Recipe-keyed on purpose: recipe ids are stable
+ * across the bisim quotient and assemble's split-sibling fan/reroutes, so the
+ * driver can recover per-stamp weights without any id translation.
+ */
+export function supplyShareKey(
+  producerRecipeId: RecipeId,
+  consumerRecipeId: RecipeId,
+  item: string,
+): string {
+  return `${producerRecipeId}\0${consumerRecipeId}\0${item}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,8 +102,11 @@ type ReplicateState = {
   // unreachable from any target cone (disposal absorbers). Seeded like targets.
   readonly augmented: Set<RecipeId>;
 
-  // Output accumulator.
+  // Output accumulators.
   readonly replicas: Replica[];
+  // Committed item flow (items/s) from a shared producer recipe to a consumer
+  // recipe, keyed by supplyShareKey. Accumulated across reaches.
+  readonly supplyShares: Map<string, Fraction>;
 
   // Id minting.
   nextId: number;
@@ -187,6 +215,7 @@ function createReplicateState(args: {
     targets: args.targets,
     augmented: args.augmented ?? new Set<RecipeId>(),
     replicas: [],
+    supplyShares: new Map(),
     nextId: 0,
     sccCreated: new Set(),
     apShared: new Map(),
@@ -204,6 +233,44 @@ function createReplicateState(args: {
 
 function newReplicaId(state: ReplicateState, prefix: string): ReplicaId {
   return `${prefix}#${state.nextId++}`;
+}
+
+// Accumulate one committed-flow record (items/s) into supplyShares.
+function recordSupplyShare(
+  state: ReplicateState,
+  producerId: RecipeId,
+  consumerId: RecipeId,
+  item: string,
+  flow: Fraction,
+): void {
+  const key = supplyShareKey(producerId, consumerId, item);
+  state.supplyShares.set(
+    key,
+    (state.supplyShares.get(key) ?? new Fraction(0)).add(flow),
+  );
+}
+
+// Record a shared producer's committed flow to one consumer reach: the
+// consumer's split rate times its in-stoich of the item. Skips defensively
+// when the consumer has no matching in-stoich (splitConsumerDemand only emits
+// matching edges, so this is unreachable on the walk paths that call it).
+function recordConsumerSupply(
+  state: ReplicateState,
+  producerId: RecipeId,
+  consumerId: RecipeId,
+  item: string,
+  consumerRate: Fraction,
+  consumerRecipe: Recipe,
+): void {
+  const inQty = consumerRecipe.in.find((x) => x.item === item)?.qty;
+  if (inQty === undefined) return;
+  recordSupplyShare(
+    state,
+    producerId,
+    consumerId,
+    item,
+    consumerRate.mul(new Fraction(inQty)),
+  );
 }
 
 function isInScc(state: ReplicateState, rid: RecipeId): boolean {
@@ -718,6 +785,10 @@ function ensureSccReplicas(
           (perItem.get(item) ?? new Fraction(0)).add(avail.mul(share)),
         );
         intraSupplyByMember.set(ie.target, perItem);
+        // The intra apportionment is also this member's committed supply to
+        // the consumer; record it so computeEdgeRates weights the member's
+        // edge by the committed flow instead of its full production.
+        recordSupplyShare(state, rid, ie.target, item, avail.mul(share));
       }
     }
     const decision = assignSplitRoles({
@@ -846,6 +917,16 @@ function ensureSccReplicas(
 //                 rate and push one upstream frame, like the AP-shared branch.
 //   - Non-shared: emit a per-consumer replica scaled by this consumer's share,
 //                 then push an upstream frame inheriting the consumer's group.
+//
+// Every SHARED branch (seeded target, SCC, AP, byproduct-shared) records the
+// consumer's committed flow into supplyShares before its early return, on
+// EVERY reach (not only the reach that mints the replica). processProducer
+// dispatches exactly one branch per call (guard order: targetSeeded, SCC, AP,
+// byproductShared, per-consumer), so each reach records exactly once; a recipe
+// MAY appear in several caches (a target that is also a byproduct-shared
+// source, an AP that is also a byproduct source) and the first-firing guard
+// wins. The per-consumer branch records nothing: its replica's
+// executionRate * outQty already IS its committed supply.
 function processProducer(
   state: ReplicateState,
   args: {
@@ -881,6 +962,14 @@ function processProducer(
   const seededTarget = state.targetSeeded.get(producerId);
   if (seededTarget) {
     seededTarget.sharedAtArticulation = true;
+    recordConsumerSupply(
+      state,
+      producerId,
+      consumerId,
+      producerItem,
+      consumerRate,
+      consumerRecipe,
+    );
     return;
   }
 
@@ -888,6 +977,14 @@ function processProducer(
   // recursion into individual members; ensureSccReplicas queues the boundary
   // edges.
   if (isInScc(state, producerId)) {
+    recordConsumerSupply(
+      state,
+      producerId,
+      consumerId,
+      producerItem,
+      consumerRate,
+      consumerRecipe,
+    );
     const sid = sccIdOf(state, producerId);
     if (!state.sccCreated.has(sid)) {
       ensureSccReplicas(state, sid);
@@ -898,6 +995,14 @@ function processProducer(
   // Articulation-point producer: emit one shared replica, then walk its inputs
   // once.
   if (state.articulation.has(producerId)) {
+    recordConsumerSupply(
+      state,
+      producerId,
+      consumerId,
+      producerItem,
+      consumerRate,
+      consumerRecipe,
+    );
     let shared = state.apShared.get(producerId);
     if (!shared) {
       const sharedRate = state.rates.get(producerId) ?? new Fraction(0);
@@ -936,6 +1041,14 @@ function processProducer(
   // converge on the one shared replica instead of double-minting per-consumer
   // copies and re-walking its input chain.
   if (state.byproductSharedSources.has(producerId)) {
+    recordConsumerSupply(
+      state,
+      producerId,
+      consumerId,
+      producerItem,
+      consumerRate,
+      consumerRecipe,
+    );
     let shared = state.byproductShared.get(producerId);
     if (!shared) {
       const sharedRate = state.rates.get(producerId) ?? new Fraction(0);

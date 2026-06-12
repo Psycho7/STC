@@ -107,6 +107,13 @@ export type SolvePlanFull = {
     softFeasible: boolean;
     deficits: Map<ItemId, Fraction>;
   };
+  /**
+   * Committed producer-recipe -> consumer-recipe item flow (items/s), keyed by
+   * `supplyShareKey` from replicate.ts. Recorded for SHARED producers only;
+   * the render driver uses it as the per-consumer demand-split weight in
+   * computeEdgeRates (absent keys fall back to production-share weighting).
+   */
+  supplyShares: Map<string, Fraction>;
 };
 
 // Shared pipeline behind both entry points. Runs the full solve (graph build,
@@ -168,7 +175,7 @@ function runSolvePipeline(
     }
   }
   const aps = articulationPoints(g);
-  const rawReplicas = replicatePerConsumer({
+  const { replicas: rawReplicas, supplyShares } = replicatePerConsumer({
     g,
     articulation: aps,
     rates,
@@ -217,6 +224,7 @@ function runSolvePipeline(
       softFeasible: lpResult.softFeasible,
       deficits: lpResult.deficit,
     },
+    supplyShares,
   };
 
   return { full, lpResult };
