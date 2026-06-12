@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { useState } from "react";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import type { RecipePack } from "@aef/schema";
 import { InputsPanel } from "./InputsPanel";
 import { LocaleProvider } from "../data/i18n-context";
@@ -112,13 +118,73 @@ test("pending cap edit lands on the edited item after removing a row above", () 
   });
 });
 
+// A cap typed into an auto-row promotes it to an override; when that override
+// is later removed, the reborn auto-row must be back to Unlimited, not show
+// the stale typed text (which a >150ms pause would silently re-commit).
+test("orphaned auto-row text does not resurrect after override removal", () => {
+  vi.useFakeTimers();
+  const updaters: Array<(cur: ItemOverride[]) => ItemOverride[]> = [];
+  const ui = (overrides: ItemOverride[]) => (
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={overrides}
+        onChange={(u) => updaters.push(u)}
+        pack={PACK}
+        assumedRawItemIds={["widget"]}
+        realizedRateByItem={new Map()}
+      />
+    </LocaleProvider>
+  );
+  const { rerender } = render(ui([]));
+  const input = screen.getByTestId("input-auto-row").querySelector("input")!;
+  fireEvent.change(input, { target: { value: "100" } });
+  act(() => vi.advanceTimersByTime(200));
+  // The commit emits an updater adding the override: 100/min = 5/3 per sec.
+  expect(updaters.length).toBe(1);
+  expect(updaters[0]!([])).toEqual([
+    { itemId: "widget", ratePerSec: { num: "5", denom: "3" } },
+  ]);
+  // Solve lands; the override row replaces the auto-row.
+  rerender(ui([{ itemId: "widget", ratePerSec: { num: "5", denom: "3" } }]));
+  // The override is removed elsewhere; the auto-row is reborn.
+  rerender(ui([]));
+  const reborn = screen.getByTestId("input-auto-row").querySelector("input")!;
+  expect(reborn.value).toBe("");
+  expect(reborn.placeholder).toMatch(/unlimited/i);
+});
+
+// INVALID text in an auto-row stays visible after the debounce so the user
+// can fix the typo; nothing is committed.
+test("invalid auto-row text is kept after the debounce with no commit", () => {
+  vi.useFakeTimers();
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={onChange}
+        pack={PACK}
+        assumedRawItemIds={["widget"]}
+        realizedRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  const input = screen.getByTestId("input-auto-row").querySelector("input")!;
+  fireEvent.change(input, { target: { value: "1/" } });
+  act(() => vi.advanceTimersByTime(200));
+  expect(input.value).toBe("1/");
+  expect(onChange).not.toHaveBeenCalled();
+});
+
 // Pin: the keep-on-INVALID behavior of override rows must survive the rekeying.
 test("invalid cap text in an override row is kept after the debounce", () => {
   vi.useFakeTimers();
   render(
     <LocaleProvider locale="en">
       <InputsPanel
-        itemOverrides={[{ itemId: "widget", ratePerSec: { num: "1", denom: "1" } }]}
+        itemOverrides={[
+          { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
+        ]}
         onChange={() => {}}
         pack={PACK}
       />
@@ -135,7 +201,9 @@ test("realized demand on a capped override row renders as an exact fraction", ()
   render(
     <LocaleProvider locale="en">
       <InputsPanel
-        itemOverrides={[{ itemId: "widget", ratePerSec: { num: "1", denom: "1" } }]}
+        itemOverrides={[
+          { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
+        ]}
         onChange={() => {}}
         pack={PACK}
         realizedRateByItem={new Map([["widget", { num: "40", denom: "27" }]])}

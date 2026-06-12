@@ -227,7 +227,8 @@ export function TargetsPanel({
           iconPosition(recipe?.producers?.[0]) ??
           iconPosition(t.recipeId);
         const displayedRate =
-          localRates.get(t.recipeId) ?? String(ratePerSecToPerMin(t.ratePerSec));
+          localRates.get(t.recipeId) ??
+          String(ratePerSecToPerMin(t.ratePerSec));
         return (
           <div key={t.recipeId} className="b-row" data-testid="target-row">
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
@@ -248,7 +249,9 @@ export function TargetsPanel({
                   // when the select truncates long names at narrow widths.
                   title={i18n.displayName(t.recipeId)}
                   value={t.recipeId}
-                  onChange={(e) => handleRecipeChange(t.recipeId, e.target.value)}
+                  onChange={(e) =>
+                    handleRecipeChange(t.recipeId, e.target.value)
+                  }
                 >
                   {pickableRecipes.map((r) => (
                     <option key={r.id} value={r.id}>

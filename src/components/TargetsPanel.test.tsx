@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { useState } from "react";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import type { RecipePack } from "@aef/schema";
 import { TargetsPanel } from "./TargetsPanel";
 import { LocaleProvider } from "../data/i18n-context";
@@ -218,7 +224,9 @@ test("locale-comma rate text is kept after the debounce with no commit", () => {
   render(
     <LocaleProvider locale="en">
       <TargetsPanel
-        targets={[{ recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } }]}
+        targets={[
+          { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+        ]}
         onChange={onChange}
         pack={PACK}
       />

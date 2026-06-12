@@ -160,16 +160,18 @@ export function InputsPanel({
   // Promote an auto-row into a real override entry. Empty or INVALID strings
   // leave it as an auto-row, since "Unlimited" is the auto state. Guard against
   // re-adding the same itemId in case the commit races with a prop update that
-  // already inserted the override.
-  function commitAutoRate(itemId: string, perMinStr: string) {
+  // already inserted the override. Returns false only on INVALID, so the
+  // caller keeps the local text for the user to fix.
+  function commitAutoRate(itemId: string, perMinStr: string): boolean {
     const parsed = parsePerMinToOptional(perMinStr);
-    if (parsed === "INVALID") return;
-    if (parsed === undefined) return;
+    if (parsed === "INVALID") return false;
+    if (parsed === undefined) return true;
     onChange((current) =>
       current.some((o) => o.itemId === itemId)
         ? current
         : [...current, { itemId, ratePerSec: parsed }],
     );
+    return true;
   }
 
   function handleAutoRateChange(itemId: string, value: string) {
@@ -177,8 +179,17 @@ export function InputsPanel({
     const existing = autoTimers.current.get(itemId);
     if (existing) clearTimeout(existing);
     const id = setTimeout(() => {
-      commitAutoRate(itemId, value);
+      const committed = commitAutoRate(itemId, value);
       autoTimers.current.delete(itemId);
+      // Prune the in-flight text once it has been handled: a valid commit
+      // turns the row into an override, so a later auto-row rebirth for this
+      // item must come back as Unlimited, not redisplay the stale cap.
+      if (!committed) return;
+      setLocalAutoRates((prev) => {
+        const next = new Map(prev);
+        next.delete(itemId);
+        return next;
+      });
     }, DEBOUNCE_MS);
     autoTimers.current.set(itemId, id);
   }
