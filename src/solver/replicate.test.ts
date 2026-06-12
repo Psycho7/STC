@@ -1274,3 +1274,54 @@ describe("replicatePerConsumer: supplyShares committed-flow recording", () => {
     ).toBe(true);
   });
 });
+
+describe("replicatePerConsumer: self-consuming recipe guard", () => {
+  // A self-consuming recipe (same item in `in` and `out`, catalyst pattern) is
+  // a singleton SCC, so isInScc never intercepts its self-loop edge and it
+  // falls through to the non-shared branch, which re-enqueues the recipe as
+  // its own consumer with rate scaled by inQty/outQty each round -- never zero
+  // under exact Fractions, so the walk never terminates. The guard converts
+  // that hang into a loud error.
+  //
+  // RED-STATE WARNING: without the guard this test does NOT fail by vitest
+  // timeout. The runaway loop is synchronous, so the worker's event loop never
+  // gets to fire testTimeout; the run hangs while allocating replicas.
+  // Reproduce the red state only via an externally bounded run, e.g.
+  //   timeout 30 bunx vitest run src/solver/replicate.test.ts -t "self-consuming"
+  // (exit 124 = killed), and never run the full suite with the guard absent.
+  it("throws on a self-consuming recipe instead of replicating forever", () => {
+    const nodes: Recipe[] = [
+      recipe(
+        "grow",
+        [
+          { item: "seed", qty: 1 },
+          { item: "catalyst", qty: 1 },
+        ],
+        [{ item: "catalyst", qty: 2 }],
+      ),
+      recipe("use", [{ item: "catalyst", qty: 1 }], [{ item: "prod", qty: 1 }]),
+    ];
+    const g = buildGraph(nodes, [
+      { source: "grow", item: "catalyst", target: "grow" },
+      { source: "grow", item: "catalyst", target: "use" },
+    ]);
+    const condensation = condensationOf([
+      { id: "scc:grow", recipeIds: ["grow"] },
+      { id: "scc:use", recipeIds: ["use"] },
+    ]);
+    const rates = new Map<RecipeId, Fraction>([
+      ["grow", new Fraction(1)],
+      ["use", new Fraction(1)],
+    ]);
+    expect(() =>
+      replicatePerConsumer({
+        g,
+        articulation: new Set<RecipeId>(),
+        rates,
+        condensation,
+        targets: [{ recipeId: "use", ratePerSec: { num: "1", denom: "1" } }],
+        augmented: new Set<RecipeId>(),
+      }),
+    ).toThrow(/self-consuming/);
+  });
+});

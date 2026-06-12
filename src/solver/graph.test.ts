@@ -121,3 +121,22 @@ describe("augmentGraphWithLpSupport", () => {
     ).toBe(edgesBefore);
   });
 });
+
+describe("pack census: self-consuming recipes", () => {
+  // Deliberately STRICTER than the runtime guard in replicate.ts: the guard
+  // only rejects a self-consuming recipe that reaches the per-consumer branch
+  // (a singleton SCC), while this census flags ALL self-consuming recipes,
+  // including multi-member-SCC ones the shared replication branches would
+  // handle. It is a pack-update tripwire: if a catalyst-style recipe is ever
+  // added on purpose, updating this census (after verifying solver support)
+  // is the documented escape hatch.
+  it("no recipe lists the same item in both in and out", () => {
+    const offenders = pack.recipes
+      .filter((r) => {
+        const outs = new Set(r.out.map((o) => o.item));
+        return r.in.some((i) => outs.has(i.item));
+      })
+      .map((r) => r.id);
+    expect(offenders).toEqual([]);
+  });
+});

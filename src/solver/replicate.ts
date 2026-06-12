@@ -1082,6 +1082,17 @@ function processProducer(
 
   // Non-shared producer: a per-consumer replica scaled by this consumer
   // replica's share, not the recipe's global rate.
+  //
+  // A self-consuming recipe (same item in `in` and `out`) reaches here as its
+  // own consumer: it is a singleton SCC, so none of the shared branches above
+  // intercept its self-loop edge, and the per-consumer mint below would
+  // re-enqueue it forever (the rate scales by inQty/outQty each round and
+  // never reaches zero under exact Fractions). Fail loud instead of hanging.
+  if (producerId === consumerId) {
+    throw new Error(
+      `replicate: self-consuming recipe ${producerId} reached the per-consumer branch; singleton self-loop recipes are unsupported`,
+    );
+  }
   const inItem = consumerRecipe.in.find((x) => x.item === producerItem);
   const outItem = producerRecipe.out.find((x) => x.item === producerItem);
   if (!inItem || !outItem) return;
