@@ -16,9 +16,6 @@ type Props = {
   // input unchanged (same reference) so the owner can skip a no-op commit.
   onChange: (update: (current: Target[]) => Target[]) => void;
   pack: RecipePack;
-  // Recipes the solver cannot handle as targets yet. When provided, handleAdd's
-  // auto-pick skips them so the panel never lands on one by default.
-  unsafeRecipes?: ReadonlySet<string>;
 };
 
 const DEBOUNCE_MS = 150;
@@ -55,12 +52,7 @@ function isPickableTarget(recipe: Recipe): boolean {
   );
 }
 
-export function TargetsPanel({
-  targets,
-  onChange,
-  pack,
-  unsafeRecipes,
-}: Props) {
+export function TargetsPanel({ targets, onChange, pack }: Props) {
   const i18n = useI18n();
   const pickableRecipes = pack.recipes.filter(isPickableTarget);
   const [duplicateError, setDuplicateError] = useState<{
@@ -174,9 +166,7 @@ export function TargetsPanel({
   function handleAdd() {
     onChange((current) => {
       const used = new Set(current.map((t) => t.recipeId));
-      const candidate = pickableRecipes.find(
-        (r) => !used.has(r.id) && !unsafeRecipes?.has(r.id),
-      );
+      const candidate = pickableRecipes.find((r) => !used.has(r.id));
       if (!candidate) return current;
       return [
         ...current,

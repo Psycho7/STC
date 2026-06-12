@@ -24,7 +24,6 @@ import {
 import type { Target } from "./data/targets";
 import { pack } from "./data/load";
 import type { LogicalGraph } from "./canvas/layout";
-import { computeInSccRecipes } from "./solver/packSccs";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./solver";
 import { planToSolverArgs } from "./solver/planToSolverArgs";
 import { renderPlanFromSolve } from "./pipeline/driver";
@@ -120,7 +119,6 @@ function AppInner() {
   // load-bearing if a hash write ever switches to a location.hash assignment.
   const lastHandledHashRef = useRef<string | null>(null);
   const tConfigRef = useRef(loadTransportConfig(defaultTransportConfig, pack));
-  const inSccRecipes = useMemo(() => computeInSccRecipes(pack), []);
   // Accepted transient: this recomputes from the synchronously committed plan,
   // so ProductNode override chips on the still-stale canvas nodes update
   // against the new overrides during the solve window. Sub-second cosmetic
@@ -481,7 +479,6 @@ function AppInner() {
                   targets={plan.targets}
                   pack={pack}
                   onChange={handleTargetsChange}
-                  unsafeRecipes={inSccRecipes}
                 />
               </div>
               <div id="side-inputs">

@@ -300,3 +300,65 @@ test("recipe picker excludes every no-output recipe in the real pack", () => {
     expect(options, r.id).not.toContain(r.id);
   }
 });
+
+// Add must keep seeding rows while unused pickable recipes remain (a vestigial
+// solver gate used to make it silently no-op far short of the pickable count)
+// and its auto-pick must never land on a no-output recipe.
+test("Add keeps working past 60 rows and never seeds a no-output recipe", () => {
+  let latest: Target[] = [];
+  function Parent() {
+    const [t, setT] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <TargetsPanel
+          targets={t}
+          onChange={(update) => {
+            latest = update(latest);
+            setT(latest);
+          }}
+          pack={realPack}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  const addButton = screen.getByRole("button", { name: "Add target" });
+  for (let i = 1; i <= 60; i++) {
+    fireEvent.click(addButton);
+    expect(latest.length, `after click ${i}`).toBe(i);
+  }
+  const noOut = new Set(
+    realPack.recipes.filter((r) => r.out.length === 0).map((r) => r.id),
+  );
+  for (const t of latest) {
+    expect(noOut.has(t.recipeId), t.recipeId).toBe(false);
+  }
+});
+
+// Exhaustion semantics: Add no-ops only once every pickable recipe is used.
+test("Add no-ops only when every pickable recipe is used", () => {
+  let latest: Target[] = [];
+  function Parent() {
+    const [t, setT] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <TargetsPanel
+          targets={t}
+          onChange={(update) => {
+            latest = update(latest);
+            setT(latest);
+          }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  const addButton = screen.getByRole("button", { name: "Add target" });
+  for (let i = 1; i <= 3; i++) {
+    fireEvent.click(addButton);
+    expect(latest.length, `after click ${i}`).toBe(i);
+  }
+  fireEvent.click(addButton);
+  expect(latest.length).toBe(3);
+});

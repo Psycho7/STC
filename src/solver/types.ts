@@ -100,13 +100,6 @@ export class UnknownRecipeError extends Error {
   }
 }
 
-export class SingularSccError extends Error {
-  constructor(public sccId: SccId) {
-    super(`SCC ${sccId} is under-determined; mass-balance system is singular`);
-    this.name = "SingularSccError";
-  }
-}
-
 export class InconsistentSccError extends Error {
   constructor(public sccId: SccId) {
     super(
