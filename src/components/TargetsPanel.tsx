@@ -59,16 +59,17 @@ export function TargetsPanel({
   const i18n = useI18n();
   const pickableRecipes = pack.recipes.filter(isPickableTarget);
   const [duplicateError, setDuplicateError] = useState<{
-    rowIdx: number;
+    rowId: string;
     recipeId: string;
   } | null>(null);
-  const timerRefs = useRef<Map<number, ReturnType<typeof setTimeout>>>(
+  const timerRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
-  // In-flight edit values keyed by row index. A row without an entry falls back
+  // In-flight edit values keyed by recipeId. A row without an entry falls back
   // to the prop-derived value, so a new `targets` prop updates the visible rate
-  // without a separate sync effect.
-  const [localRates, setLocalRates] = useState<Map<number, string>>(new Map());
+  // without a separate sync effect. Keying by id (not row index) keeps a
+  // pending edit attached to its row across removals and reorders.
+  const [localRates, setLocalRates] = useState<Map<string, string>>(new Map());
   // Mirror of the latest `targets` so a debounce timer scheduled in an earlier
   // render commits against the current list, not the stale snapshot it captured.
   const targetsRef = useRef(targets);
@@ -76,53 +77,84 @@ export function TargetsPanel({
     targetsRef.current = targets;
   }, [targets]);
 
-  function commitRate(rowIdx: number, perMinStr: string) {
+  function commitRate(recipeId: string, perMinStr: string) {
     const parsed = parsePerMinToRationalPerSec(perMinStr);
     if (!parsed) return;
     const current = targetsRef.current;
-    const t = current[rowIdx];
-    if (!t) return;
+    const idx = current.findIndex((t) => t.recipeId === recipeId);
+    if (idx < 0) return;
     const next = current.slice();
-    next[rowIdx] = { ...t, ratePerSec: parsed };
+    next[idx] = { ...next[idx]!, ratePerSec: parsed };
     onChange(next);
   }
 
-  function handleRateChange(rowIdx: number, value: string) {
-    setLocalRates((prev) => new Map(prev).set(rowIdx, value));
-    const existing = timerRefs.current.get(rowIdx);
+  function scheduleCommit(recipeId: string, value: string) {
+    const existing = timerRefs.current.get(recipeId);
     if (existing) clearTimeout(existing);
     const id = setTimeout(() => {
-      commitRate(rowIdx, value);
-      timerRefs.current.delete(rowIdx);
+      commitRate(recipeId, value);
+      timerRefs.current.delete(recipeId);
       setLocalRates((prev) => {
         const next = new Map(prev);
-        next.delete(rowIdx);
+        next.delete(recipeId);
         return next;
       });
     }, DEBOUNCE_MS);
-    timerRefs.current.set(rowIdx, id);
+    timerRefs.current.set(recipeId, id);
   }
 
-  function handleRecipeChange(rowIdx: number, newRecipeId: string) {
-    const dup = targets.some(
-      (t, i) => i !== rowIdx && t.recipeId === newRecipeId,
-    );
+  function handleRateChange(recipeId: string, value: string) {
+    setLocalRates((prev) => new Map(prev).set(recipeId, value));
+    scheduleCommit(recipeId, value);
+  }
+
+  // Drop the pending debounce timer and in-flight edit text for a row that is
+  // going away, so a stale entry can never fire against (or redisplay on) a
+  // later row that reuses the same id.
+  function clearPendingEdit(recipeId: string) {
+    const existing = timerRefs.current.get(recipeId);
+    if (existing) clearTimeout(existing);
+    timerRefs.current.delete(recipeId);
+    setLocalRates((prev) => {
+      if (!prev.has(recipeId)) return prev;
+      const next = new Map(prev);
+      next.delete(recipeId);
+      return next;
+    });
+  }
+
+  function handleRecipeChange(oldRecipeId: string, newRecipeId: string) {
+    const dup = targets.some((t) => t.recipeId === newRecipeId);
     if (dup) {
-      setDuplicateError({ rowIdx, recipeId: newRecipeId });
+      setDuplicateError({ rowId: oldRecipeId, recipeId: newRecipeId });
       return;
     }
     setDuplicateError(null);
+    // An in-flight rate edit follows the row to its new id.
+    const pendingValue = localRates.get(oldRecipeId);
+    const pendingTimer = timerRefs.current.get(oldRecipeId);
+    if (pendingTimer) clearTimeout(pendingTimer);
+    timerRefs.current.delete(oldRecipeId);
+    if (pendingValue !== undefined) {
+      setLocalRates((prev) => {
+        const next = new Map(prev);
+        next.delete(oldRecipeId);
+        next.set(newRecipeId, pendingValue);
+        return next;
+      });
+      scheduleCommit(newRecipeId, pendingValue);
+    }
     const next = targets.slice();
-    const t = next[rowIdx];
-    if (!t) return;
-    next[rowIdx] = { ...t, recipeId: newRecipeId };
+    const idx = next.findIndex((t) => t.recipeId === oldRecipeId);
+    if (idx < 0) return;
+    next[idx] = { ...next[idx]!, recipeId: newRecipeId };
     onChange(next);
   }
 
-  function handleRemove(rowIdx: number) {
+  function handleRemove(recipeId: string) {
     setDuplicateError(null);
-    const next = targets.filter((_, i) => i !== rowIdx);
-    onChange(next);
+    clearPendingEdit(recipeId);
+    onChange(targets.filter((t) => t.recipeId !== recipeId));
   }
 
   function handleAdd() {
@@ -167,7 +199,7 @@ export function TargetsPanel({
             : "No declared outputs yet — use the action below"}
         </div>
       ) : null}
-      {targets.map((t, i) => {
+      {targets.map((t) => {
         const recipe = pack.recipes.find((r) => r.id === t.recipeId);
         const outputItemId = recipe?.out[0]?.item;
         // Chain of icon fallbacks. Sink recipes (out: []) and disambiguated
@@ -180,9 +212,9 @@ export function TargetsPanel({
           iconPosition(recipe?.producers?.[0]) ??
           iconPosition(t.recipeId);
         const displayedRate =
-          localRates.get(i) ?? String(ratePerSecToPerMin(t.ratePerSec));
+          localRates.get(t.recipeId) ?? String(ratePerSecToPerMin(t.ratePerSec));
         return (
-          <div key={i} className="b-row" data-testid="target-row">
+          <div key={t.recipeId} className="b-row" data-testid="target-row">
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
               {iconPos !== undefined ? (
                 <span className="ico ico-40">
@@ -201,7 +233,7 @@ export function TargetsPanel({
                   // when the select truncates long names at narrow widths.
                   title={i18n.displayName(t.recipeId)}
                   value={t.recipeId}
-                  onChange={(e) => handleRecipeChange(i, e.target.value)}
+                  onChange={(e) => handleRecipeChange(t.recipeId, e.target.value)}
                 >
                   {pickableRecipes.map((r) => (
                     <option key={r.id} value={r.id}>
@@ -214,7 +246,7 @@ export function TargetsPanel({
                 {t.recipeId}
                 <span className="mid">RECIPE</span>
               </div>
-              {duplicateError?.rowIdx === i && (
+              {duplicateError?.rowId === t.recipeId && (
                 <span role="alert">
                   {i18n.t("targets.duplicate", {
                     recipeId: duplicateError.recipeId,
@@ -228,14 +260,14 @@ export function TargetsPanel({
                 inputMode="decimal"
                 aria-label={i18n.t("targets.rate.label")}
                 value={displayedRate}
-                onChange={(e) => handleRateChange(i, e.target.value)}
+                onChange={(e) => handleRateChange(t.recipeId, e.target.value)}
               />
               <span className="unit">{i18n.t("targets.rate.unit")}</span>
             </div>
             <button
               className="b-remove"
               data-testid="remove-target"
-              onClick={() => handleRemove(i)}
+              onClick={() => handleRemove(t.recipeId)}
               aria-label={i18n.t("targets.remove.label")}
             >
               ×

@@ -71,19 +71,20 @@ export function InputsPanel({
   }, [pack]);
 
   const [duplicateError, setDuplicateError] = useState<{
-    rowIdx: number;
+    rowId: string;
     itemId: string;
   } | null>(null);
-  const overrideTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(
+  const overrideTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
   const autoTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
-  // In-flight edit values keyed by row index. A row without an entry falls back
+  // In-flight edit values keyed by itemId. A row without an entry falls back
   // to the prop-derived value, so a new `itemOverrides` prop updates the visible
-  // rate without a separate sync effect.
-  const [localRates, setLocalRates] = useState<Map<number, string>>(new Map());
+  // rate without a separate sync effect. Keying by id (not row index) keeps a
+  // pending edit attached to its row across removals and reorders.
+  const [localRates, setLocalRates] = useState<Map<string, string>>(new Map());
   // In-flight edits for auto-rows, keyed by itemId. When the debounce fires, a
   // valid rate creates a new ItemOverride, turning the auto-row into an explicit
   // override row. The local string only needs to survive until commit: once the
@@ -100,42 +101,61 @@ export function InputsPanel({
     overridesRef.current = itemOverrides;
   }, [itemOverrides]);
 
-  function commitRate(rowIdx: number, perMinStr: string) {
+  function commitRate(itemId: string, perMinStr: string) {
     const parsed = parsePerMinToOptional(perMinStr);
     // On INVALID, keep the prior value. The local edit string stays in
     // localRates so the user still sees what they typed and can fix it.
     if (parsed === "INVALID") return;
     const current = overridesRef.current;
-    const row = current[rowIdx];
-    if (!row) return;
+    const idx = current.findIndex((o) => o.itemId === itemId);
+    if (idx < 0) return;
     const next = current.slice();
     if (parsed === undefined) {
       // Uncapped: drop ratePerSec from the override.
-      next[rowIdx] = { itemId: row.itemId };
+      next[idx] = { itemId };
     } else {
-      next[rowIdx] = { itemId: row.itemId, ratePerSec: parsed };
+      next[idx] = { itemId, ratePerSec: parsed };
     }
     onChange(next);
   }
 
-  function handleRateChange(rowIdx: number, value: string) {
-    setLocalRates((prev) => new Map(prev).set(rowIdx, value));
-    const existing = overrideTimers.current.get(rowIdx);
+  function scheduleCommit(itemId: string, value: string) {
+    const existing = overrideTimers.current.get(itemId);
     if (existing) clearTimeout(existing);
     const id = setTimeout(() => {
-      commitRate(rowIdx, value);
-      overrideTimers.current.delete(rowIdx);
+      commitRate(itemId, value);
+      overrideTimers.current.delete(itemId);
       setLocalRates((prev) => {
         // After a successful commit the prop drives what's shown; on INVALID,
         // hold onto the local string so the user can fix the typo.
         const parsed = parsePerMinToOptional(value);
         if (parsed === "INVALID") return prev;
         const next = new Map(prev);
-        next.delete(rowIdx);
+        next.delete(itemId);
         return next;
       });
     }, DEBOUNCE_MS);
-    overrideTimers.current.set(rowIdx, id);
+    overrideTimers.current.set(itemId, id);
+  }
+
+  function handleRateChange(itemId: string, value: string) {
+    setLocalRates((prev) => new Map(prev).set(itemId, value));
+    scheduleCommit(itemId, value);
+  }
+
+  // Drop the pending debounce timer and in-flight edit text for a row that is
+  // going away, so a stale entry can never fire against (or redisplay on) a
+  // later row that reuses the same id.
+  function clearPendingEdit(itemId: string) {
+    const existing = overrideTimers.current.get(itemId);
+    if (existing) clearTimeout(existing);
+    overrideTimers.current.delete(itemId);
+    setLocalRates((prev) => {
+      if (!prev.has(itemId)) return prev;
+      const next = new Map(prev);
+      next.delete(itemId);
+      return next;
+    });
   }
 
   // Promote an auto-row into a real override entry. Empty or INVALID strings
@@ -162,29 +182,42 @@ export function InputsPanel({
     autoTimers.current.set(itemId, id);
   }
 
-  function handleItemChange(rowIdx: number, newItemId: string) {
-    const dup = itemOverrides.some(
-      (o, i) => i !== rowIdx && o.itemId === newItemId,
-    );
+  function handleItemChange(oldItemId: string, newItemId: string) {
+    const dup = itemOverrides.some((o) => o.itemId === newItemId);
     if (dup) {
-      setDuplicateError({ rowIdx, itemId: newItemId });
+      setDuplicateError({ rowId: oldItemId, itemId: newItemId });
       return;
     }
     setDuplicateError(null);
+    // An in-flight cap edit follows the row to its new id.
+    const pendingValue = localRates.get(oldItemId);
+    const pendingTimer = overrideTimers.current.get(oldItemId);
+    if (pendingTimer) clearTimeout(pendingTimer);
+    overrideTimers.current.delete(oldItemId);
+    if (pendingValue !== undefined) {
+      setLocalRates((prev) => {
+        const next = new Map(prev);
+        next.delete(oldItemId);
+        next.set(newItemId, pendingValue);
+        return next;
+      });
+      scheduleCommit(newItemId, pendingValue);
+    }
     const next = itemOverrides.slice();
-    const row = next[rowIdx];
-    if (!row) return;
+    const idx = next.findIndex((o) => o.itemId === oldItemId);
+    if (idx < 0) return;
+    const row = next[idx]!;
     // Keep any rate the row had when the user swaps the item.
-    next[rowIdx] = row.ratePerSec
+    next[idx] = row.ratePerSec
       ? { itemId: newItemId, ratePerSec: row.ratePerSec }
       : { itemId: newItemId };
     onChange(next);
   }
 
-  function handleRemove(rowIdx: number) {
+  function handleRemove(itemId: string) {
     setDuplicateError(null);
-    const next = itemOverrides.filter((_, i) => i !== rowIdx);
-    onChange(next);
+    clearPendingEdit(itemId);
+    onChange(itemOverrides.filter((o) => o.itemId !== itemId));
   }
 
   function handleAdd() {
@@ -295,14 +328,14 @@ export function InputsPanel({
           </div>
         );
       })}
-      {itemOverrides.map((row, i) => {
+      {itemOverrides.map((row) => {
         const item = itemById.get(row.itemId);
         const isRaw = item?.raw === true;
         const isAlsoTarget = targetItemIds?.has(row.itemId) === true;
         const iconPos = iconPosition(item?.icon ?? row.itemId);
         const uncapped = row.ratePerSec === undefined;
         const displayedRate =
-          localRates.get(i) ??
+          localRates.get(row.itemId) ??
           (row.ratePerSec ? String(ratePerSecToPerMin(row.ratePerSec)) : "");
         // Realized demand from the latest render pass. If the prop is missing
         // (nothing rendered yet) or the item isn't in the map, show nothing
@@ -312,7 +345,7 @@ export function InputsPanel({
           realized !== undefined ? formatRationalPerMin(realized) : null;
         return (
           <div
-            key={i}
+            key={row.itemId}
             className="b-row"
             data-testid="input-row"
             data-is-raw={isRaw ? "true" : "false"}
@@ -334,7 +367,7 @@ export function InputsPanel({
                   aria-label={i18n.t("inputs.item.label")}
                   title={i18n.displayName(row.itemId)}
                   value={row.itemId}
-                  onChange={(e) => handleItemChange(i, e.target.value)}
+                  onChange={(e) => handleItemChange(row.itemId, e.target.value)}
                 >
                   {sortedItems.map((it) => (
                     <option key={it.id} value={it.id}>
@@ -369,7 +402,7 @@ export function InputsPanel({
                 {row.itemId}
                 <span className="mid">ITEM</span>
               </div>
-              {duplicateError?.rowIdx === i && (
+              {duplicateError?.rowId === row.itemId && (
                 <span role="alert">{i18n.t("inputs.duplicate")}</span>
               )}
             </div>
@@ -384,14 +417,14 @@ export function InputsPanel({
                     : i18n.t("inputs.rate.placeholder")
                 }
                 value={displayedRate}
-                onChange={(e) => handleRateChange(i, e.target.value)}
+                onChange={(e) => handleRateChange(row.itemId, e.target.value)}
               />
               <span className="unit">{i18n.t("inputs.rate.unit")}</span>
             </div>
             <button
               className="b-remove"
               data-testid="remove-input"
-              onClick={() => handleRemove(i)}
+              onClick={() => handleRemove(row.itemId)}
               aria-label={i18n.t("inputs.remove.label")}
             >
               ×
