@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import Fraction from "fraction.js";
 import { solvePlan, solvePlanWithIntermediates } from "./index";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
@@ -110,6 +111,65 @@ describe("solver status handling", () => {
       ).toThrow(/infeasible/);
     } finally {
       lpStatusOverride.status = undefined;
+    }
+  });
+});
+
+describe("replica coverage of the LP solution", () => {
+  // Regression: the triple-target plan used to carry a dangling crystal chain
+  // at 1/900900 in the rates map; replication is demand-driven and correctly
+  // minted zero replicas for it, leaving positive-rate recipes with no
+  // machines. The extraction sweep now removes the chain, so every surviving
+  // rate must be fully covered by replicas.
+  //
+  // Plan scale, derived: pin floors are 1 for all three targets (primary out
+  // qty 1, rate 1/s); per-item demand is liquid_xiranite_poly = 2 (both
+  // xiranite recipes share that primary item) and equip_script_4 = 1; so
+  // planScale = max(1, floors, demands) = 2. The sweep ceiling is
+  // 1e-4 * planScale; the phantom pair at 1/900900 (~1.11e-6) sits below the
+  // ceiling for ANY planScale >= 1, so removal does not depend on the
+  // shared-primary coincidence raising planScale to 2.
+  it("triple-target xiranite plan: replica rate sums equal every LP rate", () => {
+    const targets: Target[] = [
+      {
+        recipeId: "liquid_xiranite_poly-purifier",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+      { recipeId: "liquid_xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+
+    const zero = new Fraction(0);
+    const sums = new Map<string, Fraction>();
+    for (const rep of full.replicas) {
+      sums.set(
+        rep.recipeId,
+        (sums.get(rep.recipeId) ?? zero).add(rep.executionRate),
+      );
+    }
+    const relTol = new Fraction(1, 1000000000000);
+    for (const [recipeId, lpRate] of full.rates) {
+      const sum = sums.get(recipeId) ?? zero;
+      const diff = sum.sub(lpRate).abs();
+      const scale = lpRate.abs().compare(1) > 0 ? lpRate.abs() : new Fraction(1);
+      expect(
+        diff.div(scale).compare(relTol) <= 0,
+        `recipe ${recipeId}: replica sum ${sum.toFraction()} != lp ${lpRate.toFraction()}`,
+      ).toBe(true);
+    }
+    for (const [recipeId, sum] of sums) {
+      if (!full.rates.has(recipeId)) {
+        expect(
+          sum.equals(0),
+          `replicas exist for ${recipeId} with no LP rate`,
+        ).toBe(true);
+      }
     }
   });
 });

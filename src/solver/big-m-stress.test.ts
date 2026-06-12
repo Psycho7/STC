@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import { solveLp } from "./lp";
 import { makePack } from "./closed-form-fixtures";
+import { pack } from "../data/load";
+import { isExcludedProducer } from "../data/recipe-category";
 import type { Target } from "../data/targets";
 
 // Deficit-dominated plus tight cost-cap stress case.
@@ -44,4 +46,28 @@ describe("big-M numerical conditioning", () => {
     expect(r.rates.get("b1")!.equals(new Fraction(2))).toBe(true);
     expect((r.rates.get("b2") ?? new Fraction(0)).equals(new Fraction(0))).toBe(true);
   });
+});
+
+// Pass-2 lex leak at extreme target scales. The lex pass's cost_cap row grows
+// with target scale, and the solver's internal relative feasibility tolerance
+// (~3e-9 of the row total) at costCap >= ~1e9 buys big-M (cost 1e6) recipes
+// enough rate to clear extraction. No big-M (target-only / excluded-producer)
+// recipe is pinned here, so none may appear in the rates map at any scale.
+describe("big-M pass-2 lex leak at extreme scales", () => {
+  const bigMIds = new Set(
+    pack.recipes
+      .filter((r) => r.flags?.includes("target-only") || isExcludedProducer(r))
+      .map((r) => r.id),
+  );
+
+  for (const scale of ["100000000", "1000000000"]) {
+    it(`glass_enr_bottle at ${scale}/s admits no big-M recipe`, () => {
+      const targets: Target[] = [
+        { recipeId: "glass_enr_bottle", ratePerSec: { num: scale, denom: "1" } },
+      ];
+      const r = solveLp({ targets, pack, itemOverrides: [] });
+      const leaked = [...r.rates.keys()].filter((id) => bigMIds.has(id));
+      expect(leaked).toEqual([]);
+    });
+  }
 });

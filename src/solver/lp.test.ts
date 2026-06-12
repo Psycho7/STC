@@ -1,9 +1,69 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
-import { solveLp } from "./lp";
+import { solveLp, type LpResult } from "./lp";
+import { makePack } from "./closed-form-fixtures";
+import { effectiveSupply } from "./effectiveSupply";
 import { pack } from "../data/load";
 import type { Target } from "../data/targets";
 import type { RecipePack } from "@aef/schema";
+
+// Exact per-item mass-balance residual over the extracted result:
+// production - consumption - surplus + deficit - demand + supply, in Fraction
+// arithmetic, for every finite-supply item. The extraction recomputes
+// surplus/deficit from the final rates, so a hygienic result closes every row
+// to exactly zero.
+function exactResiduals(
+  result: LpResult,
+  p: RecipePack,
+  targets: Target[],
+): Map<string, Fraction> {
+  const zero = new Fraction(0);
+  const demand = new Map<string, Fraction>();
+  for (const t of targets) {
+    const recipe = p.recipes.find((r) => r.id === t.recipeId);
+    if (!recipe || recipe.out.length === 0) continue;
+    const item = recipe.out[0]!.item;
+    const rate = new Fraction(`${t.ratePerSec.num}/${t.ratePerSec.denom}`);
+    demand.set(item, (demand.get(item) ?? zero).add(rate));
+  }
+  const residuals = new Map<string, Fraction>();
+  for (const it of p.items) {
+    const supply = effectiveSupply(it.id, p, []);
+    if (supply === Infinity) continue;
+    let bal = zero;
+    for (const r of p.recipes) {
+      const rate = result.rates.get(r.id);
+      if (!rate) continue;
+      const out = r.out.find((o) => o.item === it.id)?.qty ?? 0;
+      const inq = r.in.find((i) => i.item === it.id)?.qty ?? 0;
+      if (out !== inq) bal = bal.add(rate.mul(out - inq));
+    }
+    const surplus = result.surplus.get(it.id) ?? zero;
+    const deficit = result.deficit.get(it.id) ?? zero;
+    residuals.set(
+      it.id,
+      bal
+        .sub(surplus)
+        .add(deficit)
+        .sub(demand.get(it.id) ?? zero)
+        .add(supply),
+    );
+  }
+  return residuals;
+}
+
+function expectExactlyBalanced(
+  result: LpResult,
+  p: RecipePack,
+  targets: Target[],
+): void {
+  for (const [itemId, residual] of exactResiduals(result, p, targets)) {
+    expect(
+      residual.equals(0),
+      `exact residual for ${itemId}: ${residual.toFraction()}`,
+    ).toBe(true);
+  }
+}
 
 describe("solveLp - scaffold", () => {
   it("returns an empty LpResult on no targets", () => {
@@ -391,5 +451,172 @@ describe("solveLp - status and softFeasible", () => {
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(false);
     expect(result.deficit.get("mid")?.valueOf() ?? 0).toBeCloseTo(1, 6);
+  });
+});
+
+describe("solveLp - tiny rates (sub-1e-6 extraction)", () => {
+  it("keeps a tiny pinned target rate instead of snapping it to zero", () => {
+    const p = makePack(
+      [{ id: "a", time: 1, in: { R: 1 }, out: { F: 1 } }],
+      [
+        { id: "F", stack: 1 },
+        { id: "R", raw: true, stack: 1 },
+      ],
+    );
+    const targets: Target[] = [
+      { recipeId: "a", ratePerSec: { num: "1", denom: "10000000" } },
+    ];
+    const result = solveLp({ targets, pack: p });
+    expect(result.status).toBe("feasible");
+    const x = result.rates.get("a");
+    expect(x).toBeDefined();
+    expect(x!.equals(new Fraction(1, 10000000))).toBe(true);
+    expect(result.softFeasible).toBe(true);
+  });
+
+  it("reports a material deficit for an unproducible input at a tiny rate", () => {
+    // X has no producer and no external supply; the solver pays the 1e9 deficit
+    // penalty for it. softFeasible must come from that raw signal, not from a
+    // deficit map censored by an absolute snap.
+    const p = makePack(
+      [{ id: "a", time: 1, in: { X: 1 }, out: { F: 1 } }],
+      [
+        { id: "F", stack: 1 },
+        { id: "X", stack: 1 },
+      ],
+    );
+    const targets: Target[] = [
+      { recipeId: "a", ratePerSec: { num: "1", denom: "10000000" } },
+    ];
+    const result = solveLp({ targets, pack: p });
+    expect(result.softFeasible).toBe(false);
+    const dx = result.deficit.get("X");
+    expect(dx).toBeDefined();
+    expect(dx!.equals(new Fraction(1, 10000000))).toBe(true);
+  });
+});
+
+describe("solveLp - exact pin-floor extraction", () => {
+  it("snaps the pinned rate onto the exact floor 1/1500, not a nearby rational", () => {
+    // The raw float primal sits ~4.5e-7 above 1/1500, inside the solver's
+    // internal tolerance; a floor-blind snap lands on 1/1499. The extraction
+    // must recognize the pin floor and return it exactly, and the recomputed
+    // surplus must close every finite-supply row exactly.
+    const p = makePack(
+      [
+        { id: "a", time: 1, in: { M: 3 }, out: { F: 1 } },
+        { id: "b", time: 1, in: { R: 7 }, out: { M: 2 } },
+      ],
+      [
+        { id: "F", stack: 1 },
+        { id: "M", stack: 1 },
+        { id: "R", raw: true, stack: 1 },
+      ],
+    );
+    const targets: Target[] = [
+      { recipeId: "a", ratePerSec: { num: "1", denom: "1500" } },
+    ];
+    const result = solveLp({ targets, pack: p });
+    const x = result.rates.get("a");
+    expect(x).toBeDefined();
+    expect(x!.equals(new Fraction(1, 1500))).toBe(true);
+    expectExactlyBalanced(result, p, targets);
+  });
+
+  it("real pack: qty-150 transfer at 0.1/s extracts exactly the 1/1500 floor", () => {
+    // transfer_tundra_bottled_food_1 outputs 150 bottled_food_1 per execution,
+    // so a 0.1/s target pins the floor at 1/1500. The wrong-rational class
+    // (1/1499) was the dominant solver-residual value in the pairwise sweep.
+    const targets: Target[] = [
+      {
+        recipeId: "transfer_tundra_bottled_food_1",
+        ratePerSec: { num: "1", denom: "10" },
+      },
+    ];
+    const result = solveLp({ targets, pack });
+    const x = result.rates.get("transfer_tundra_bottled_food_1");
+    expect(x).toBeDefined();
+    expect(x!.equals(new Fraction(1, 1500))).toBe(true);
+  });
+});
+
+describe("solveLp - phantom epsilon chains", () => {
+  it("drops the dangling crystal chain from the triple-target xiranite plan", () => {
+    // The raw solve carries crystal_powder-crystal_shell and
+    // crystal_shell-originium_ore at ~1/900900 (1.11e-6, just above the old
+    // absolute snap radius) with no positive-rate consumer of the chain's net
+    // output: a mass-balance violation baked into the extracted point. The
+    // noise sweep must remove both, and every finite-supply row must close
+    // exactly.
+    const targets: Target[] = [
+      {
+        recipeId: "liquid_xiranite_poly-purifier",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+      { recipeId: "liquid_xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const result = solveLp({ targets, pack });
+    expect(result.rates.has("crystal_powder-crystal_shell")).toBe(false);
+    expect(result.rates.has("crystal_shell-originium_ore")).toBe(false);
+    expectExactlyBalanced(result, pack, targets);
+  });
+
+  it("control: equip_script_4@1/s keeps exactly the pre-hygiene support set", () => {
+    // Anchored epsilon chains (a live consumer covers the chain head's output)
+    // must not survive the relative snap: the support set of this plan is
+    // pinned so flow-anchored junk cannot land silently.
+    const targets: Target[] = [
+      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const result = solveLp({ targets, pack });
+    expect([...result.rates.keys()].sort()).toEqual([
+      "carbon_enr",
+      "carbon_enr_powder-carbon_powder",
+      "carbon_mtl-plant_grass_1",
+      "carbon_powder-carbon_mtl",
+      "crystal_enr",
+      "crystal_enr_powder-originium_enr_powder",
+      "equip_script_4",
+      "originium_enr_powder",
+      "originium_powder",
+      "plant_grass_1",
+      "plant_grass_seed_1",
+      "plant_moss_3",
+      "plant_moss_powder_3",
+      "plant_moss_seed_3",
+      "xiranite_powder",
+    ]);
+  });
+});
+
+describe("solveLp - infeasible result contract", () => {
+  it("returns empty maps and softFeasible:false on a pinned-infeasible solve", () => {
+    // rB forces 50 X/s co-product while the target on rX caps X's surplus at
+    // ~eps: infeasible BY the pinned surplus-cap contract (overproduce-and-
+    // discard is deliberately rejected). The raw solver object carries junk
+    // partial values; none of it may leak into the result maps.
+    const p = makePack(
+      [
+        { id: "rB", time: 1, in: { R: 1 }, out: { B: 1, X: 5 } },
+        { id: "rX", time: 1, in: { S: 1 }, out: { X: 1 } },
+      ],
+      [
+        { id: "B", stack: 1 },
+        { id: "X", stack: 1 },
+        { id: "R", raw: true, stack: 1 },
+        { id: "S", raw: true, stack: 1 },
+      ],
+    );
+    const targets: Target[] = [
+      { recipeId: "rB", ratePerSec: { num: "10", denom: "1" } },
+      { recipeId: "rX", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const result = solveLp({ targets, pack: p });
+    expect(result.status).toBe("infeasible");
+    expect(result.softFeasible).toBe(false);
+    expect(result.rates.size).toBe(0);
+    expect(result.surplus.size).toBe(0);
+    expect(result.deficit.size).toBe(0);
   });
 });
