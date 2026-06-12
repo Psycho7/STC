@@ -325,7 +325,12 @@ function AppInner() {
   if (!plan || !logical) return <div>{i18n.t("app.loading")}</div>;
 
   const targetCount = plan.targets.length;
-  const recipeCount = logical.nodes.length;
+  // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
+  // with per-replica kind:"recipe" stamps, so neither the raw length nor the
+  // recipe-stamp count matches what a RECIPES chip claims to show.
+  const recipeCount = new Set(
+    logical.nodes.flatMap((n) => (n.kind === "recipe" ? [n.recipe.id] : [])),
+  ).size;
 
   return (
     <div

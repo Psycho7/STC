@@ -91,7 +91,12 @@ export default function Canvas({
       <div className="canvas-annot top-left">
         BLUEPRINT VIEW · LEFT ALIGN GUIDES
       </div>
-      <div className="canvas-annot top-right">{`REPLICAS:${nodes.length}`}</div>
+      {/* Rendered recipe units only: the node array also carries group
+          containers and product chips, and clustering may aggregate replicas
+          into class units - hence UNITS, not REPLICAS. */}
+      <div className="canvas-annot top-right">
+        {`UNITS:${nodes.filter((n) => n.type === "recipe").length}`}
+      </div>
       <div className="canvas-annot bottom-right">STATUS · READY</div>
     </div>
   );
