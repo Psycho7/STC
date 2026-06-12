@@ -34,6 +34,14 @@ test("formatRatePerMin never renders -0 for a tiny negative rate", () => {
   expect(formatRatePerMin(new Fraction("-1").div("20000"))).toBe("-3/1000");
 });
 
+test("formatRatePerMin keeps the sign on a negative whole per-minute rate", () => {
+  // fraction.js v5 keeps the sign in .s with .n absolute; the integer branch
+  // must not read .n alone or -2/s would render as "120".
+  expect(formatRatePerMin(new Fraction(-2))).toBe("-120");
+  // Negative non-integer rates already go through the sign-correct decimal branch.
+  expect(formatRatePerMin(new Fraction("-1").div("40"))).toBe("-1.5");
+});
+
 test("ratePerSecToPerMin converts a per-sec rational to a per-minute number", () => {
   expect(ratePerSecToPerMin({ num: "2", denom: "1" })).toBe(120);
   expect(ratePerSecToPerMin({ num: "1", denom: "3" })).toBe(20);

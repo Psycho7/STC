@@ -6,7 +6,9 @@ export function formatRatePerMin(itemsPerSec: Fraction): string {
   const perMin = itemsPerSec.mul(60);
   const value = perMin.valueOf();
   if (!Number.isFinite(value) || value === 0) return "";
-  if (perMin.d === 1n) return perMin.n.toString();
+  // toFraction keeps the sign; reading .n alone would drop it (fraction.js v5
+  // keeps the sign in .s with .n absolute). For d === 1 this is the plain integer.
+  if (perMin.d === 1n) return perMin.toFraction(false);
   const fixed = value.toFixed(2).replace(/\.?0+$/, "");
   // A nonzero rate below 0.005/min rounds to "0" (or "-0") here, which would
   // render a misleading "0/min" chip. Fall back to the exact fraction.
