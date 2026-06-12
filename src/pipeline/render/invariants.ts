@@ -23,8 +23,10 @@ import { rationalFromString } from "./rational";
 
 export type { InvariantResult };
 
-// Relative tolerance, same value the solver invariants use.
-const REL_TOL = 1e-6;
+// Relative tolerance, same value the solver invariants use. Exported so
+// boundary-products suppresses phantom surpluses at the exact threshold
+// checkBoundaryProductsJustified tags at.
+export const REL_TOL = 1e-6;
 
 // Plan-magnitude floor for tolerance scales, shared with the solver checkers
 // and the extraction hygiene gate. Sub-unit plans shrink the floor to their

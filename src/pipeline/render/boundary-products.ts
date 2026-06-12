@@ -17,6 +17,7 @@ import type { Target } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { Item, Recipe, RecipePack } from "@aef/schema";
 import { rationalFromString, rationalToString } from "./rational";
+import { REL_TOL } from "./invariants";
 
 // When a raw item is consumed across several containers, the renderer emits an
 // aggregate input node `u:in:<item>` fanning out to per-container slice nodes
@@ -820,13 +821,12 @@ export function deriveBoundaryProducts(
           );
     }
   }
-  // REL_TOL mirrors checkBoundaryProductsJustified: a surplus within
+  // REL_TOL is checkBoundaryProductsJustified's tolerance: a surplus within
   // max(scaleFloor,|magnitude|)*REL_TOL of zero is a degenerate-rate / solver
   // residual, not a genuine byproduct, and the checker would flag it as an
   // RF-1 phantom. scaleFloor is the same plan-magnitude tolerance floor the
   // checkers use; suppressing with an absolute floor of 1 would swallow every
   // byproduct of a sub-unit plan and trip the production-vanish checker.
-  const REL_TOL = 1e-6;
   const scaleFloor = toleranceScaleFloor(
     new Map([...targetRateByItem].map(([item, rate]) => [item, rate.valueOf()])),
   );

@@ -391,7 +391,7 @@ function extractResult(args: ExtractArgs): LpResult {
   let planScale = 1;
   for (const f of floorByRecipe.values())
     planScale = Math.max(planScale, f.valueOf());
-  for (const d of demand.values()) planScale = Math.max(planScale, d);
+  for (const d of demand.values()) planScale = Math.max(planScale, Math.abs(d));
 
   const plainSnap = (v: number): Fraction =>
     new Fraction(v).simplify(Math.min(SNAP_REL, Math.abs(v) * SNAP_REL));
@@ -492,8 +492,9 @@ function extractResult(args: ExtractArgs): LpResult {
   // Repair loop: zeroing candidates (or snapping a pin) must not leave an item
   // with a raw-clean negative slack the checkers would tag. First re-admit
   // zeroed producers of a broken item (their removal caused the shortfall),
-  // then revert floor snaps on its producers to the plain relative snap. Each
-  // round shrinks one of the two sets, so the loop terminates.
+  // then revert floor snaps on its producers to the plain relative snap. The
+  // loop never grows either set and each round shrinks exactly one of them,
+  // so it terminates in at most |zeroed| + |floorSnapped| iterations.
   let slack = computeSlack();
   for (;;) {
     const broken: ItemId[] = [];
