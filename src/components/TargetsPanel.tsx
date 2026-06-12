@@ -76,9 +76,12 @@ export function TargetsPanel({
   // pending edit attached to its row across removals and reorders.
   const [localRates, setLocalRates] = useState<Map<string, string>>(new Map());
 
-  function commitRate(recipeId: string, perMinStr: string) {
+  // Returns true iff the text parsed, regardless of whether the row still
+  // exists: valid text must always be pruned from localRates, while INVALID
+  // text is kept so the user can finish what they were typing.
+  function commitRate(recipeId: string, perMinStr: string): boolean {
     const parsed = parsePerMinToRationalPerSec(perMinStr);
-    if (!parsed) return;
+    if (!parsed) return false;
     onChange((current) => {
       const idx = current.findIndex((t) => t.recipeId === recipeId);
       // Row removed while the edit was pending: no-op (same reference).
@@ -87,14 +90,18 @@ export function TargetsPanel({
       next[idx] = { ...next[idx]!, ratePerSec: parsed };
       return next;
     });
+    return true;
   }
 
   function scheduleCommit(recipeId: string, value: string) {
     const existing = timerRefs.current.get(recipeId);
     if (existing) clearTimeout(existing);
     const id = setTimeout(() => {
-      commitRate(recipeId, value);
+      const committed = commitRate(recipeId, value);
       timerRefs.current.delete(recipeId);
+      // After a successful commit the prop drives what's shown; on a failed
+      // parse, hold onto the local string so the user can fix the typo.
+      if (!committed) return;
       setLocalRates((prev) => {
         const next = new Map(prev);
         next.delete(recipeId);

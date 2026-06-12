@@ -172,6 +172,65 @@ test("pending edit plus remove does not resurrect the removed row", () => {
   for (const ids of applied) expect(ids).not.toContain("r_widget");
 });
 
+// Unparseable in-progress text must survive the debounce: the user is mid-way
+// through typing a rational and the field must not snap back to the prop.
+test("invalid rate text is kept after the debounce, then commits once valid", () => {
+  let latest: Target[] = [
+    { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+  ];
+  const emissions: Target[][] = [];
+  function Parent() {
+    const [t, setT] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <TargetsPanel
+          targets={t}
+          onChange={(update) => {
+            const next = update(latest);
+            if (next === latest) return;
+            emissions.push(next);
+            latest = next;
+            setT(next);
+          }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  const input = rateInputs()[0]!;
+  expect(input.value).toBe("120");
+  fireEvent.change(input, { target: { value: "1/" } });
+  act(() => vi.advanceTimersByTime(200));
+  expect(input.value).toBe("1/");
+  expect(emissions.length).toBe(0);
+  // Completing the rational commits exactly once: 1/3 per min = 1/180 per sec.
+  fireEvent.change(input, { target: { value: "1/3" } });
+  act(() => vi.advanceTimersByTime(200));
+  expect(emissions.length).toBe(1);
+  expect(latest).toEqual([
+    { recipeId: "r_widget", ratePerSec: { num: "1", denom: "180" } },
+  ]);
+});
+
+test("locale-comma rate text is kept after the debounce with no commit", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[{ recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } }]}
+        onChange={onChange}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "1,5" } });
+  act(() => vi.advanceTimersByTime(200));
+  expect(input.value).toBe("1,5");
+  expect(onChange).not.toHaveBeenCalled();
+});
+
 // An in-flight rate edit follows the row when the user swaps its recipe.
 test("pending rate edit follows the row across a recipe swap", () => {
   let latest: Target[] = [
