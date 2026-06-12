@@ -360,7 +360,7 @@ export function InputsPanel({
         const uncapped = row.ratePerSec === undefined;
         const displayedRate =
           localRates.get(row.itemId) ??
-          (row.ratePerSec ? String(ratePerSecToPerMin(row.ratePerSec)) : "");
+          (row.ratePerSec ? ratePerSecToPerMin(row.ratePerSec) : "");
         // Realized demand from the latest render pass. If the prop is missing
         // (nothing rendered yet) or the item isn't in the map, show nothing
         // until the next solve finishes.

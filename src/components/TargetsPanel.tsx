@@ -228,7 +228,7 @@ export function TargetsPanel({
           iconPosition(t.recipeId);
         const displayedRate =
           localRates.get(t.recipeId) ??
-          String(ratePerSecToPerMin(t.ratePerSec));
+          ratePerSecToPerMin(t.ratePerSec);
         return (
           <div key={t.recipeId} className="b-row" data-testid="target-row">
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>

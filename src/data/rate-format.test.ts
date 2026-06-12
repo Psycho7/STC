@@ -42,7 +42,32 @@ test("formatRatePerMin keeps the sign on a negative whole per-minute rate", () =
   expect(formatRatePerMin(new Fraction("-1").div("40"))).toBe("-1.5");
 });
 
-test("ratePerSecToPerMin converts a per-sec rational to a per-minute number", () => {
-  expect(ratePerSecToPerMin({ num: "2", denom: "1" })).toBe(120);
-  expect(ratePerSecToPerMin({ num: "1", denom: "3" })).toBe(20);
+test("ratePerSecToPerMin converts a per-sec rational to per-minute input text", () => {
+  expect(ratePerSecToPerMin({ num: "2", denom: "1" })).toBe("120");
+  expect(ratePerSecToPerMin({ num: "1", denom: "3" })).toBe("20");
+  // Ordinary fractional rates stay plain decimals.
+  expect(ratePerSecToPerMin({ num: "1", denom: "40" })).toBe("1.5");
+});
+
+// The panel parsers (new Fraction(text)) reject exponent notation, so the
+// display text must never go exponential or the next edit silently reverts.
+// Tiny values fall back to the exact fraction form ("1/10000000"), which the
+// parsers accept; huge integers stringify in full digits.
+test("ratePerSecToPerMin round-trips a tiny rate through the panel parser", () => {
+  // per-min 0.0000001 -> per-sec 1/600000000. Number stringification would
+  // emit "1e-7", which Fraction cannot parse.
+  const rps = { num: "1", denom: "600000000" };
+  const text = ratePerSecToPerMin(rps);
+  const reparsed = new Fraction(text).div(60);
+  expect(reparsed.equals(new Fraction("1/600000000"))).toBe(true);
+});
+
+test("ratePerSecToPerMin round-trips a huge rate through the panel parser", () => {
+  // per-min 1e21 -> Number stringification would emit "1e+21".
+  const rps = { num: "1000000000000000000000", denom: "60" };
+  const text = ratePerSecToPerMin(rps);
+  const reparsed = new Fraction(text).div(60);
+  expect(
+    reparsed.equals(new Fraction("1000000000000000000000").div(60)),
+  ).toBe(true);
 });
