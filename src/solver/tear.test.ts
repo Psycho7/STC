@@ -111,6 +111,9 @@ describe("pickTearEdges computes a feedback arc set", () => {
       const density = 0.1 + rnd() * 0.5;
       for (let a = 0; a < n; a++) {
         for (let b = 0; b < n; b++) {
+          // Self-loops (a === b) are 90% suppressed and excluded from the
+          // property by the <2-member SCC guard (intentionally under-
+          // represented; singleton self-loops are the replicate guard's turf).
           if (a === b && rnd() > 0.1) continue;
           if (rnd() < density) edges.push([a, b]);
         }

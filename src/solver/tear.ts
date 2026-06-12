@@ -46,6 +46,9 @@ export function pickTearEdges(scc: Scc, g: RecipeGraph): TornEdge[] {
   // survived untorn. Each edge object is visited exactly once by the DFS, so
   // backEdges has no repeats; sort by id for a stable output order (assemble
   // emits return arcs in torn order, which feeds layout).
+  // The (source, item, target) triple is unique per graph: both edge builders
+  // (buildGraph and augmentGraphWithLpSupport) skip an edge when one with the
+  // same source, item, and target already exists, so this id cannot collide.
   const torn: TornEdge[] = backEdges.map((e) => ({
     id: `${e.source} ${e.item} ${e.target}`,
     edge: e,
