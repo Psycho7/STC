@@ -95,6 +95,24 @@ test("malformed hash via hashchange shows the error banner and keeps the plan", 
   expect(screen.getAllByTestId("target-row").length).toBe(3);
 });
 
+test("hashchange to a valid hash recovers from a bad mount hash", async () => {
+  // Mount with a malformed hash: the initial-load error screen takes over.
+  window.location.hash = "#v1.%%%not-base64%%%";
+  render(<App />);
+
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toMatch(/hash|plan|load|solver/i);
+
+  // Address-bar navigation to a valid plan hash must leave the error screen
+  // and render that plan.
+  window.location.hash = await encodePlanB();
+
+  await waitFor(() =>
+    expect(screen.getAllByTestId("target-row").length).toBe(2),
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
 test("app-initiated hash writes do not re-trigger a load", async () => {
   render(<App />);
 

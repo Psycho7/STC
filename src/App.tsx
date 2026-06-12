@@ -182,7 +182,12 @@ function AppInner() {
         setLogical(full.logical);
         setNodes(laid.nodes);
         setEdges(laid.edges);
-        if (source === "navigation") setMutationError(null);
+        if (source === "navigation") {
+          setMutationError(null);
+          // A bad mount hash leaves the initial error screen up; a later
+          // successful navigation must clear it so the loaded plan renders.
+          setInitialError(null);
+        }
       } catch (e) {
         fail(e as Error);
       }
