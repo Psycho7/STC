@@ -252,6 +252,76 @@ describe("multi-producer input of a split SCC member (assemble re-route)", () =>
   });
 });
 
+describe("torn feedback covers every intra-SCC logical cycle", () => {
+  // Regression: the old tear picked the min-qty edge of each back edge's
+  // fundamental cycle instead of the back edge itself, so chords through the
+  // back edge's endpoints survived untorn. On proc_battery_5 the 4-member
+  // xiranite SCC kept a full directed 3-cycle (xiranite_poly ->
+  // liquid_xiranite_poly -> liquid_xiranite_poly-purifier -> xiranite_poly)
+  // in the assembled graph as plain (non-return) edges.
+  it("proc_battery_5: non-return intra-SCC logical edges are acyclic", () => {
+    const targets: Target[] = [
+      { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    const recipeOfReplica = new Map(
+      full.replicas.map((r) => [r.id, r.recipeId]),
+    );
+
+    let multiSccs = 0;
+    for (const scc of full.condensation.sccs) {
+      if (scc.recipeIds.length < 2) continue;
+      multiSccs++;
+      const members = new Set<string>(scc.recipeIds);
+      // Project non-return logical edges between member replicas onto recipe
+      // ids; post-fix this is a subgraph of the untorn intra-SCC recipe graph,
+      // so it must be acyclic.
+      const out = new Map<string, string[]>();
+      for (const m of scc.recipeIds) out.set(m, []);
+      for (const e of full.logical.edges) {
+        if (e.id.includes("->return->")) continue;
+        const src = recipeOfReplica.get(e.source);
+        const tgt = recipeOfReplica.get(e.target);
+        if (src === undefined || tgt === undefined) continue;
+        if (!members.has(src) || !members.has(tgt)) continue;
+        out.get(src)!.push(tgt);
+      }
+
+      // Iterative three-color DFS cycle check over the projection.
+      const color = new Map<string, number>();
+      for (const m of scc.recipeIds) color.set(m, 0);
+      let cyclic = false;
+      for (const start of scc.recipeIds) {
+        if (color.get(start) !== 0) continue;
+        const stack: Array<{ v: string; i: number }> = [{ v: start, i: 0 }];
+        color.set(start, 1);
+        while (stack.length && !cyclic) {
+          const f = stack[stack.length - 1]!;
+          const nbrs = out.get(f.v) ?? [];
+          if (f.i >= nbrs.length) {
+            color.set(f.v, 2);
+            stack.pop();
+            continue;
+          }
+          const w = nbrs[f.i++]!;
+          if (color.get(w) === 1) cyclic = true;
+          else if (color.get(w) === 0) {
+            color.set(w, 1);
+            stack.push({ v: w, i: 0 });
+          }
+        }
+      }
+      expect(cyclic, `SCC ${scc.id} keeps an untorn logical cycle`).toBe(false);
+    }
+    expect(multiSccs).toBeGreaterThan(0);
+  });
+});
+
 describe("replica coverage of the LP solution", () => {
   // Regression: the triple-target plan used to carry a dangling crystal chain
   // at 1/900900 in the rates map; replication is demand-driven and correctly

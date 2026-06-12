@@ -802,6 +802,77 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Back-edge tearing lock: pickTearEdges tears DFS back edges, which provably
+// covers every directed cycle of a multi-member SCC. Lock that on the witness
+// plans (including the formerly deferred torn-arc pair): the full solve +
+// render completes clean, every multi-member SCC contributes at least one
+// torn edge, and the rendered liquid_xiranite_poly inflow into
+// xiranite_enr_powder stays exactly its LP demand (5 per execution).
+// ---------------------------------------------------------------------------
+describe("torn-arc coverage: back-edge tearing on witness plans", () => {
+  const WITNESS_PLANS: ReadonlyArray<{ name: string; recipeIds: string[] }> = [
+    { name: "proc_battery_5", recipeIds: ["proc_battery_5"] },
+    { name: "xiranite_enr_powder", recipeIds: ["xiranite_enr_powder"] },
+    { name: "pair", recipeIds: ["proc_battery_5", "xiranite_enr_powder"] },
+    { name: "CONTROL", recipeIds: ["xiranite_poly", "xiranite_enr_powder"] },
+  ];
+
+  for (const { name, recipeIds } of WITNESS_PLANS) {
+    it(`${name}: clean render, every multi-member SCC torn, exact enr inflow`, () => {
+      const targets: Target[] = recipeIds.map((recipeId) => ({
+        recipeId,
+        ratePerSec: { num: "1", denom: "1" },
+      }));
+      const full = solvePlanWithIntermediates(
+        targets,
+        pack,
+        defaultTransportConfig,
+        [],
+      );
+      const { plan } = renderPlanFromSolve(full, pack, targets, []);
+      const violations = checkRenderPlan({
+        plan,
+        rates: full.rates,
+        pack,
+        targets,
+        itemOverrides: [],
+      }).flatMap((r) => r.violations);
+      expect(violations).toEqual([]);
+
+      // Every multi-member SCC must own at least one torn (return-arc) edge.
+      const multiSccs = full.condensation.sccs.filter(
+        (s) => s.recipeIds.length > 1,
+      );
+      expect(multiSccs.length).toBeGreaterThan(0);
+      for (const scc of multiSccs) {
+        expect(
+          full.torn.some((t) => t.sccId === scc.id),
+          `SCC ${scc.id} has no torn edge`,
+        ).toBe(true);
+      }
+
+      // Inflow equality on the cross-boundary consumer (when rendered).
+      const enrUnitIds = new Set(
+        plan.units
+          .filter(
+            (u) => u.kind === "recipe" && u.recipeId === "xiranite_enr_powder",
+          )
+          .map((u) => u.id),
+      );
+      if (enrUnitIds.size > 0) {
+        let inflow = new Fraction(0);
+        for (const e of plan.edges) {
+          if (e.item !== "liquid_xiranite_poly") continue;
+          if (enrUnitIds.has(e.toUnit)) inflow = inflow.add(e.rate);
+        }
+        const enrRate = full.rates.get("xiranite_enr_powder") ?? new Fraction(0);
+        expect(inflow.equals(enrRate.mul(5))).toBe(true);
+      }
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Co-product sibling-replica fanning regression (P6).
 //
 // liquid_xiranite_poly (in the liquid_xiranite SCC) splits into a looper and a
