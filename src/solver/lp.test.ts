@@ -5,10 +5,11 @@ import { makePack } from "./closed-form-fixtures";
 import { effectiveSupply } from "./effectiveSupply";
 import { pack } from "../data/load";
 import type { Target } from "../data/targets";
+import type { ItemOverride } from "../data/plan";
 import type { RecipePack } from "@aef/schema";
 
 // Exact per-item mass-balance residual over the extracted result:
-// production - consumption - surplus + deficit - demand + supply, in Fraction
+// production - consumption + draw - surplus + deficit - demand, in Fraction
 // arithmetic, for every finite-supply item. The extraction recomputes
 // surplus/deficit from the final rates, so a hygienic result closes every row
 // to exactly zero.
@@ -16,6 +17,7 @@ function exactResiduals(
   result: LpResult,
   p: RecipePack,
   targets: Target[],
+  overrides: ItemOverride[] = [],
 ): Map<string, Fraction> {
   const zero = new Fraction(0);
   const demand = new Map<string, Fraction>();
@@ -28,7 +30,7 @@ function exactResiduals(
   }
   const residuals = new Map<string, Fraction>();
   for (const it of p.items) {
-    const supply = effectiveSupply(it.id, p, []);
+    const supply = effectiveSupply(it.id, p, overrides);
     if (supply === Infinity) continue;
     let bal = zero;
     for (const r of p.recipes) {
@@ -43,10 +45,10 @@ function exactResiduals(
     residuals.set(
       it.id,
       bal
+        .add(result.draws.get(it.id) ?? zero)
         .sub(surplus)
         .add(deficit)
-        .sub(demand.get(it.id) ?? zero)
-        .add(supply),
+        .sub(demand.get(it.id) ?? zero),
     );
   }
   return residuals;
@@ -56,8 +58,14 @@ function expectExactlyBalanced(
   result: LpResult,
   p: RecipePack,
   targets: Target[],
+  overrides: ItemOverride[] = [],
 ): void {
-  for (const [itemId, residual] of exactResiduals(result, p, targets)) {
+  for (const [itemId, residual] of exactResiduals(
+    result,
+    p,
+    targets,
+    overrides,
+  )) {
     expect(
       residual.equals(0),
       `exact residual for ${itemId}: ${residual.toFraction()}`,
@@ -618,5 +626,189 @@ describe("solveLp - infeasible result contract", () => {
     expect(result.rates.size).toBe(0);
     expect(result.surplus.size).toBe(0);
     expect(result.deficit.size).toBe(0);
+    expect(result.draws.size).toBe(0);
+  });
+});
+
+describe("solveLp - bounded supply draw", () => {
+  // a: 1 M -> 1 F. M is non-raw with a finite supply cap. The cap is a bounded
+  // draw variable (0..cap), not a forced injection: the LP draws exactly what
+  // it consumes and the unconsumed cap remainder produces no phantom surplus.
+  const capPack = makePack(
+    [{ id: "a", time: 1, in: { M: 1 }, out: { F: 1 } }],
+    [
+      { id: "F", stack: 1 },
+      { id: "M", stack: 1 },
+    ],
+  );
+  const capTargets: Target[] = [
+    { recipeId: "a", ratePerSec: { num: "4", denom: "1" } },
+  ];
+
+  it("draws exactly what is consumed when the cap exceeds need", () => {
+    const overrides: ItemOverride[] = [
+      { itemId: "M", ratePerSec: { num: "10", denom: "1" } },
+    ];
+    const result = solveLp({
+      targets: capTargets,
+      pack: capPack,
+      itemOverrides: overrides,
+    });
+    expect(result.status).toBe("feasible");
+    expect(result.softFeasible).toBe(true);
+    expect(result.rates.get("a")!.equals(4)).toBe(true);
+    // No phantom cap-minus-need surplus on M.
+    expect(result.surplus.get("M")?.valueOf() ?? 0).toBe(0);
+    expect(result.draws.get("M")!.equals(4)).toBe(true);
+    expectExactlyBalanced(result, capPack, capTargets, overrides);
+  });
+
+  it("keeps the draw within a huge cap instead of injecting it", () => {
+    const overrides: ItemOverride[] = [
+      { itemId: "M", ratePerSec: { num: "1000000", denom: "1" } },
+    ];
+    const result = solveLp({
+      targets: capTargets,
+      pack: capPack,
+      itemOverrides: overrides,
+    });
+    expect(result.status).toBe("feasible");
+    expect(result.draws.get("M")!.equals(4)).toBe(true);
+    expect(result.surplus.get("M")?.valueOf() ?? 0).toBe(0);
+    expectExactlyBalanced(result, capPack, capTargets, overrides);
+  });
+
+  it("draws up to the cap and produces the remainder when the cap is below demand", () => {
+    const p = makePack(
+      [
+        { id: "a", time: 1, in: { M: 1 }, out: { F: 1 } },
+        { id: "b", time: 1, in: { R: 1 }, out: { M: 1 } },
+      ],
+      [
+        { id: "F", stack: 1 },
+        { id: "M", stack: 1 },
+        { id: "R", raw: true, stack: 1 },
+      ],
+    );
+    const overrides: ItemOverride[] = [
+      { itemId: "M", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const result = solveLp({
+      targets: capTargets,
+      pack: p,
+      itemOverrides: overrides,
+    });
+    expect(result.status).toBe("feasible");
+    expect(result.rates.get("a")!.equals(4)).toBe(true);
+    // The free draw substitutes for production first; b covers the remainder.
+    expect(result.rates.get("b")!.equals(3)).toBe(true);
+    // Draw snaps to the exact cap Fraction.
+    expect(result.draws.get("M")!.equals(1)).toBe(true);
+    expectExactlyBalanced(result, p, capTargets, overrides);
+  });
+
+  it("keeps the draw at the LP value below the cap when byproduct production covers part of demand", () => {
+    // main is pinned at 4 by its P target and co-produces M at 4; zz_use
+    // consumes M at 8. The draw covers only the uncovered 4, NOT
+    // min(cap, demand) = 8: drawing more would force the forced byproduct
+    // into costed surplus.
+    const p = makePack(
+      [
+        { id: "main", time: 1, in: { R: 1 }, out: { P: 1, M: 1 } },
+        { id: "zz_use", time: 1, in: { M: 2 }, out: { Q: 1 } },
+      ],
+      [
+        { id: "P", stack: 1 },
+        { id: "M", stack: 1 },
+        { id: "Q", stack: 1 },
+        { id: "R", raw: true, stack: 1 },
+      ],
+    );
+    const targets: Target[] = [
+      { recipeId: "main", ratePerSec: { num: "4", denom: "1" } },
+      { recipeId: "zz_use", ratePerSec: { num: "4", denom: "1" } },
+    ];
+    const overrides: ItemOverride[] = [
+      { itemId: "M", ratePerSec: { num: "10", denom: "1" } },
+    ];
+    const result = solveLp({ targets, pack: p, itemOverrides: overrides });
+    expect(result.status).toBe("feasible");
+    expect(result.rates.get("main")!.equals(4)).toBe(true);
+    expect(result.rates.get("zz_use")!.equals(4)).toBe(true);
+    expect(result.draws.get("M")!.equals(4)).toBe(true);
+    expectExactlyBalanced(result, p, targets, overrides);
+  });
+
+  it("is feasible for every cap value on a targeted DUAL item with no other consumer", () => {
+    // glass_enr_bottle targeted at 2/s with a finite cap on the same item: the
+    // pin floor is satisfied by production and the LP keeps draw at 0 because
+    // a positive draw could only exit through the eps-capped surplus. Under
+    // the old forced-injection row this was hard-infeasible for every cap.
+    const targets: Target[] = [
+      { recipeId: "glass_enr_bottle", ratePerSec: { num: "2", denom: "1" } },
+    ];
+    for (const [num, denom] of [
+      ["10", "1"],
+      ["2", "1"],
+      ["1", "1"],
+      ["1", "100"],
+    ] as const) {
+      const overrides: ItemOverride[] = [
+        { itemId: "glass_enr_bottle", ratePerSec: { num, denom } },
+      ];
+      const result = solveLp({ targets, pack, itemOverrides: overrides });
+      expect(result.status, `cap ${num}/${denom} must be feasible`).toBe(
+        "feasible",
+      );
+      const x = result.rates.get("glass_enr_bottle");
+      expect(x).toBeDefined();
+      expect(x!.valueOf()).toBeGreaterThanOrEqual(2);
+      expect(result.draws.get("glass_enr_bottle")?.valueOf() ?? 0).toBe(0);
+      // Pinned disposal-absorber contract intact: surplus stays within the
+      // surpcap eps (max(floor, 1) * 1e-7 = 2e-7).
+      expect(
+        result.surplus.get("glass_enr_bottle")?.valueOf() ?? 0,
+      ).toBeLessThanOrEqual(2e-7);
+    }
+  });
+
+  it("does not recruit consumers to launder a forced inflow", () => {
+    // Cap 10/s on the targeted plant_moss_seed_1: the old forced injection
+    // recruited plant_moss_1 at 10 exec/s (x20 machines) purely to consume the
+    // inflow. Under the bounded draw nothing is forced in; the LP uses the
+    // free external supply in place of internal cycle production (the drawn
+    // seed feeds plant_moss_1's consumption), so the seed/moss cycle drops to
+    // the pin floor: seed at 1 (rate 2 / out qty 2), moss at 1, draw exactly
+    // the cycle's internal seed consumption of 1. Control (no override) runs
+    // both at 2.
+    const targets: Target[] = [
+      { recipeId: "plant_moss_seed_1", ratePerSec: { num: "2", denom: "1" } },
+    ];
+    const overrides: ItemOverride[] = [
+      { itemId: "plant_moss_seed_1", ratePerSec: { num: "10", denom: "1" } },
+    ];
+    const control = solveLp({ targets, pack });
+    expect(control.rates.get("plant_moss_1")!.equals(2)).toBe(true);
+    expect(control.rates.get("plant_moss_seed_1")!.equals(2)).toBe(true);
+    const result = solveLp({ targets, pack, itemOverrides: overrides });
+    expect(result.status).toBe("feasible");
+    expect(result.rates.get("plant_moss_seed_1")!.equals(1)).toBe(true);
+    expect(result.rates.get("plant_moss_1")!.equals(1)).toBe(true);
+    expect(result.draws.get("plant_moss_seed_1")!.equals(1)).toBe(true);
+    expect(result.surplus.size).toBe(0);
+    expectExactlyBalanced(result, pack, targets, overrides);
+  });
+
+  it("emits no draw entries without finite positive caps", () => {
+    const noOverride = solveLp({ targets: capTargets, pack: capPack });
+    expect(noOverride.draws.size).toBe(0);
+    // A cap of 0 forces internal build (here: deficit) and emits no draw.
+    const zeroCap = solveLp({
+      targets: capTargets,
+      pack: capPack,
+      itemOverrides: [{ itemId: "M", ratePerSec: { num: "0", denom: "1" } }],
+    });
+    expect(zeroCap.draws.size).toBe(0);
+    expect(zeroCap.softFeasible).toBe(false);
   });
 });

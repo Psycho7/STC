@@ -130,6 +130,60 @@ describe("checkMassBalance - detection power", () => {
   });
 });
 
+describe("checkMassBalance - bounded supply draw", () => {
+  // copper_powder @1/60 with copper_nugget capped at 10/s: the LP covers the
+  // nugget consumption with a bounded boundary draw. The checker must mirror
+  // the draw term of the mass-balance row; the old supply-blind residual was
+  // exactly -cap on every correct finite-cap solve.
+  const capTargets: Target[] = [
+    { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "60" } },
+  ];
+  const capOverrides: ItemOverride[] = [
+    { itemId: "copper_nugget", ratePerSec: { num: "10", denom: "1" } },
+  ];
+
+  it("passes on a finite-cap solve and reports the consumed draw", () => {
+    const result = solveLp({
+      targets: capTargets,
+      pack,
+      itemOverrides: capOverrides,
+    });
+    const r = checkMassBalance(result, pack, capTargets, capOverrides);
+    expect(r.ok, r.violations.join("\n")).toBe(true);
+    expect(r.violations).toEqual([]);
+    // The free draw covers exactly what production does not: the whole nugget
+    // consumption of 1/60 exec/s * 1 nugget.
+    const draw = result.draws.get("copper_nugget");
+    expect(draw).toBeDefined();
+    expect(draw!.equals(new Fraction(1, 60))).toBe(true);
+  });
+
+  it("flags a corrupted draws entry that breaks the row", () => {
+    const good = solveLp({
+      targets: capTargets,
+      pack,
+      itemOverrides: capOverrides,
+    });
+    const corrupted: LpResult = {
+      ...good,
+      draws: new Map(good.draws).set("copper_nugget", new Fraction(5)),
+    };
+    const r = checkMassBalance(corrupted, pack, capTargets, capOverrides);
+    expect(r.ok).toBe(false);
+    expect(r.violations.some((v) => v.includes("copper_nugget"))).toBe(true);
+  });
+
+  it("solvePlanWithIntermediates does not throw on a finite cap under DEV invariants", () => {
+    const full = solvePlanWithIntermediates(
+      capTargets,
+      pack,
+      defaultTransportConfig,
+      capOverrides,
+    );
+    expect(full.logical.nodes.length).toBeGreaterThan(0);
+  });
+});
+
 describe("checkTargetsMet - detection power", () => {
   it("flags a target running below its floor rate", () => {
     const good = solveLp({ targets: headlineTargets, pack });
@@ -194,6 +248,7 @@ describe("checkRawOnlyBoundary - detection power", () => {
       rates: new Map([["sink", new Fraction(1)]]),
       surplus: new Map(),
       deficit: new Map(),
+      draws: new Map(),
       objectiveValue: 0,
       solverWallClockMs: 0,
       status: "feasible",
@@ -232,6 +287,7 @@ describe("checkRawOnlyBoundary - detection power", () => {
       rates: new Map([["sink", new Fraction(1)]]),
       surplus: new Map(),
       deficit: new Map(),
+      draws: new Map(),
       objectiveValue: 0,
       solverWallClockMs: 0,
       status: "feasible",
@@ -270,6 +326,7 @@ describe("checkRawOnlyBoundary - detection power", () => {
       rates: new Map([["sink", new Fraction(2000001, 2)]]),
       surplus: new Map(),
       deficit: new Map(),
+      draws: new Map(),
       objectiveValue: 0,
       solverWallClockMs: 0,
       status: "feasible",
@@ -304,6 +361,7 @@ describe("checkRawOnlyBoundary - detection power", () => {
       rates: new Map([["sink", new Fraction(10)]]),
       surplus: new Map(),
       deficit: new Map(),
+      draws: new Map(),
       objectiveValue: 0,
       solverWallClockMs: 0,
       status: "feasible",

@@ -43,13 +43,15 @@ function netProduction(
 
 /**
  * Mass balance: for each item the LP built a mass-balance row for,
- * production - consumption - surplus + deficit - demand must be ~0, scaled by
- * max(scaleFloor, |demand|), where scaleFloor is the plan-magnitude tolerance
- * floor shared with the extraction hygiene gate (toleranceScaleFloor). Items
+ * production - consumption + draw - surplus + deficit - demand must be ~0,
+ * scaled by max(scaleFloor, |demand|), where scaleFloor is the plan-magnitude
+ * tolerance floor shared with the extraction hygiene gate
+ * (toleranceScaleFloor). The draw term mirrors the LP's bounded boundary draw
+ * for finite-capped items (result.draws; absent entries count as 0). Items
  * whose effective supply is Infinity are free boundary draws (raw items, or
  * non-raw items with a plan:true override); the LP builds no row for them, so
  * the checker skips them to stay aligned. Same residual form
- * `bal - surplus + deficit - demand` as the check in lp.test.ts.
+ * `bal + draw - surplus + deficit - demand` as the check in lp.test.ts.
  */
 export function checkMassBalance(
   result: LpResult,
@@ -66,8 +68,9 @@ export function checkMassBalance(
     const bal = netProduction(result, pack, it.id);
     const surplus = result.surplus.get(it.id)?.valueOf() ?? 0;
     const deficit = result.deficit.get(it.id)?.valueOf() ?? 0;
+    const draw = result.draws.get(it.id)?.valueOf() ?? 0;
     const demand = demandOf.get(it.id) ?? 0;
-    const residual = bal - surplus + deficit - demand;
+    const residual = bal + draw - surplus + deficit - demand;
     const scale = Math.max(scaleFloor, Math.abs(demand));
     if (Math.abs(residual) / scale >= REL_TOL) {
       violations.push(`mass-balance residual for ${it.id}: ${residual}`);

@@ -18,6 +18,10 @@ export type LpResult = {
   rates: Map<RecipeId, Fraction>;
   surplus: Map<ItemId, Fraction>;
   deficit: Map<ItemId, Fraction>;
+  // External boundary draw per finite-capped item: how much of the item's cap
+  // the solution actually pulled in (0 <= draw <= cap). Items without a finite
+  // positive cap never appear. Zero draws are omitted.
+  draws: Map<ItemId, Fraction>;
   objectiveValue: number;
   solverWallClockMs: number;
   // Solver outcome. "infeasible"/"unbounded" come from the raw solver flags;
@@ -120,6 +124,7 @@ export function solveLp(input: LpInput): LpResult {
       rates: new Map(),
       surplus: new Map(),
       deficit: new Map(),
+      draws: new Map(),
       objectiveValue: 0,
       solverWallClockMs: performance.now() - t0,
       status: "empty",
@@ -177,14 +182,22 @@ export function solveLp(input: LpInput): LpResult {
       };
     }
 
-    // Mass balance, one equality per finite-supply item.
+    // Mass balance, one equality per finite-supply item:
+    //   production - consumption + draw - surplus + deficit = demand
+    // A finite positive cap is a bounded draw variable (0..cap), never a
+    // forced injection: the LP pulls in only what the solution consumes, so an
+    // unconsumed cap remainder produces neither phantom surplus nor recruited
+    // consumers. The draw costs 0 in both passes (raw boundary draws are free,
+    // so a capped draw is too); cap 0 emits no variable, keeping no-override
+    // models identical to before. Where production and draw are cost-equal the
+    // solve prefers the draw (use external supply first); a recipe-cost
+    // override of 0 ties with the free draw and the pick is solver-arbitrary
+    // (the lex pass ranks only recipes). Accepted corner.
     for (const it of items) {
       const supply = supplyById.get(it.id)!;
       if (supply === Infinity) continue;
       const cn = `mb_${it.id}`;
-      constraints[cn] = {
-        equal: (demand.get(it.id) ?? 0) - (supply as Fraction).valueOf(),
-      };
+      constraints[cn] = { equal: demand.get(it.id) ?? 0 };
       for (const r of recipes) {
         const outQty = r.out.find((o) => o.item === it.id)?.qty ?? 0;
         const inQty = r.in.find((i) => i.item === it.id)?.qty ?? 0;
@@ -193,6 +206,15 @@ export function solveLp(input: LpInput): LpResult {
       }
       variables[`surplus_${it.id}`]![cn] = -1;
       variables[`deficit_${it.id}`]![cn] = 1;
+      const cap = (supply as Fraction).valueOf();
+      if (cap > 0) {
+        variables[`draw_${it.id}`] = {
+          objective: 0,
+          [cn]: 1,
+          [`drawcap_${it.id}`]: 1,
+        };
+        constraints[`drawcap_${it.id}`] = { max: cap };
+      }
     }
 
     // Target floor: x_target >= rate / primary.qty (min, NOT equality). A hard
@@ -275,13 +297,13 @@ export function solveLp(input: LpInput): LpResult {
 
   // Status gate: a failed solve leaves arbitrary partial variable values on the
   // raw result object, so extraction must not run on it. Return empty maps and
-  // an honest softFeasible:false. (Future result maps, e.g. boundary draws,
-  // join this return and the empty-targets return above together.)
+  // an honest softFeasible:false.
   if (lpResult.feasible === false || lpResult.bounded === false) {
     return {
       rates: new Map(),
       surplus: new Map(),
       deficit: new Map(),
+      draws: new Map(),
       objectiveValue: lpResult.result ?? 0,
       solverWallClockMs: performance.now() - t0,
       status: lpResult.feasible === false ? "infeasible" : "unbounded",
@@ -429,6 +451,28 @@ function extractResult(args: ExtractArgs): LpResult {
     rates.set(r.id, plainSnap(v));
   }
 
+  // Bounded boundary draws for finite positive caps. A raw primal within snap
+  // radius of the cap snaps onto the exact cap Fraction (the draw commonly
+  // saturates its bound, and the float must not round to a nearby rational);
+  // anything else gets the plain relative snap. Zero draws are omitted. The
+  // extracted draws join the exact slack recompute below, so the reported
+  // rows close exactly against the reported draws.
+  const draws = new Map<ItemId, Fraction>();
+  for (const it of items) {
+    const supply = supplyById.get(it.id)!;
+    if (supply === Infinity) continue;
+    const cap = supply as Fraction;
+    const capValue = cap.valueOf();
+    if (!(capValue > 0)) continue;
+    const v = lpResult[`draw_${it.id}`] ?? 0;
+    if (v <= RATE_ZERO) continue;
+    if (Math.abs(v - capValue) <= Math.max(SNAP_REL, SNAP_REL * capValue)) {
+      draws.set(it.id, cap);
+    } else {
+      draws.set(it.id, plainSnap(v));
+    }
+  }
+
   // Noise-sweep candidates: every positive rate at or below the ceiling,
   // regardless of graph connectivity (an epsilon chain can be anchored on a
   // live consumer), except pinned recipes, whose floors are user intent. All
@@ -441,10 +485,10 @@ function extractResult(args: ExtractArgs): LpResult {
     if (rate.valueOf() <= ceiling) zeroed.add(recipeId);
   }
 
-  // Exact per-item slack over the active rates: production - consumption -
-  // (demand - supply). Mirror of the mb_ row built above (forced-injection
-  // supply semantics); a reformulation of the row must change this recompute
-  // in the same commit.
+  // Exact per-item slack over the active rates: production - consumption +
+  // draw - demand. Mirror of the mb_ row built above (bounded-draw supply
+  // semantics); a reformulation of the row must change this recompute in the
+  // same commit.
   const computeSlack = (): Map<ItemId, Fraction> => {
     const net = new Map<ItemId, Fraction>();
     for (const [recipeId, rate] of rates) {
@@ -466,8 +510,8 @@ function extractResult(args: ExtractArgs): LpResult {
       slackByItem.set(
         it.id,
         (net.get(it.id) ?? FRAC_ZERO)
-          .sub(demandExact.get(it.id) ?? FRAC_ZERO)
-          .add(supply as Fraction),
+          .add(draws.get(it.id) ?? FRAC_ZERO)
+          .sub(demandExact.get(it.id) ?? FRAC_ZERO),
       );
     }
     return slackByItem;
@@ -561,6 +605,7 @@ function extractResult(args: ExtractArgs): LpResult {
     rates,
     surplus,
     deficit,
+    draws,
     objectiveValue: lpResult.result ?? 0,
     solverWallClockMs: performance.now() - t0,
     status: rates.size === 0 ? "empty" : "feasible",
