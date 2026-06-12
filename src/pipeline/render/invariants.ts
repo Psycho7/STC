@@ -862,10 +862,16 @@ export function checkProductUnitRates(
     );
   }
 
+  // Consumed-item sets per recipe, built once so the clause (c) edge loop
+  // resolves consumption in O(1) instead of scanning recipe.in per edge.
+  const consumedByRecipe = new Map<string, Set<ItemId>>();
+  for (const recipe of pack.recipes) {
+    consumedByRecipe.set(recipe.id, new Set(recipe.in.map((s) => s.item)));
+  }
+
   const consumesItem = (unit: RenderUnit, item: ItemId): boolean => {
     if (isRecipeUnit(unit)) {
-      const recipe = recipeById.get(unit.recipeId);
-      return recipe !== undefined && recipe.in.some((s) => s.item === item);
+      return consumedByRecipe.get(unit.recipeId)?.has(item) ?? false;
     }
     if (isLoopUnit(unit)) {
       return unit.netIO.some((p) => p.direction === "in" && p.item === item);

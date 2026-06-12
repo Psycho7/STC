@@ -3,6 +3,7 @@ import type { Recipe } from "@aef/schema";
 import type {
   Condensation,
   GroupId,
+  ItemId,
   RecipeEdge,
   RecipeGraph,
   RecipeId,
@@ -64,7 +65,7 @@ export function replicatePerConsumer(args: {
   condensation: Condensation;
   targets: Target[];
   augmented?: Set<RecipeId>;
-  boundaryShare?: ReadonlyMap<string, Fraction>;
+  boundaryShare?: ReadonlyMap<ItemId, Fraction>;
 }): { replicas: Replica[]; supplyShares: Map<string, Fraction> } {
   const state = createReplicateState(args);
   walkFromTargets(state);
@@ -107,7 +108,7 @@ type ReplicateState = {
   // producers cover. Missing entries default to share 1. splitConsumerDemand
   // nets each consumer's per-item demand by it, so walk-seeded replica rates
   // reconcile with the LP when a cap diverts demand to the boundary.
-  readonly boundaryShare: ReadonlyMap<string, Fraction>;
+  readonly boundaryShare: ReadonlyMap<ItemId, Fraction>;
 
   // Output accumulators.
   readonly replicas: Replica[];
@@ -181,7 +182,7 @@ function createReplicateState(args: {
   condensation: Condensation;
   targets: Target[];
   augmented?: Set<RecipeId>;
-  boundaryShare?: ReadonlyMap<string, Fraction>;
+  boundaryShare?: ReadonlyMap<ItemId, Fraction>;
 }): ReplicateState {
   const sccById = new Map<SccId, Condensation["sccs"][number]>();
   for (const s of args.condensation.sccs) sccById.set(s.id, s);
@@ -222,7 +223,7 @@ function createReplicateState(args: {
     condensation: args.condensation,
     targets: args.targets,
     augmented: args.augmented ?? new Set<RecipeId>(),
-    boundaryShare: args.boundaryShare ?? new Map<string, Fraction>(),
+    boundaryShare: args.boundaryShare ?? new Map<ItemId, Fraction>(),
     replicas: [],
     supplyShares: new Map(),
     nextId: 0,
