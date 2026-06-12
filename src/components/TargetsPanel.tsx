@@ -45,8 +45,8 @@ function parsePerMinToRationalPerSec(
 // - `__internal` recipes are synthetic raw sources; never show them.
 // - `__domain_transfer` recipes import an item across domains, an input-supply
 //   mechanism, not a production step; they belong in the input-supply UI.
-// - Sink recipes (cost === -1) consume items but produce nothing, so they can't
-//   be a target.
+// - Sink recipes (out: []) consume items but produce nothing, so a target
+//   rate is undefined for them.
 function isPickableTarget(recipe: Recipe): boolean {
   return (
     recipe.category !== "__internal" &&

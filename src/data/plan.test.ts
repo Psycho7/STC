@@ -106,6 +106,35 @@ describe("validatePlan - rational wire fields", () => {
     expect(validatePlan(plan, pack)?.kind).toBe("target-not-a-producer");
   });
 
+  // No-output pure consumers carry no cost sentinel, so the gate must key on
+  // the empty output list; a target rate is undefined for such a recipe.
+  it.each([
+    "sewage-treat",
+    "power_originium_ore",
+    "power_proc_battery_1",
+    "power_proc_battery_2",
+    "power_proc_battery_3",
+    "power_proc_battery_4",
+    "power_proc_battery_5",
+  ])("rejects no-output recipe %s as a target", (recipeId) => {
+    const plan = basePlan();
+    plan.targets = [{ recipeId, ratePerSec: { num: "1", denom: "1" } }];
+    expect(validatePlan(plan, pack)?.kind).toBe("target-not-a-producer");
+  });
+
+  it("rejects a wire payload targeting a no-output recipe end-to-end", async () => {
+    const plan = basePlan();
+    plan.targets = [
+      { recipeId: "sewage-treat", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const hash = await encodePlan(plan);
+    const outcome = await loadPlan(hash, pack);
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error") {
+      expect(outcome.error.kind).toBe("target-not-a-producer");
+    }
+  });
+
   it("rejects a malformed rational end-to-end through loadPlan", async () => {
     const plan = basePlan();
     plan.targets = [

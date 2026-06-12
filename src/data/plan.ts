@@ -1,7 +1,7 @@
 import type { RecipePack } from "@aef/schema";
 import type { RationalString, Target } from "./targets";
 import { defaultTargets } from "./targets";
-import { isExcludedProducer } from "./recipe-category";
+import { isExcludedProducer, isSinkRecipe } from "./recipe-category";
 import type { PlanWireV1 } from "./plan-wire-v1";
 import {
   decodeWire,
@@ -86,7 +86,7 @@ export function describePlanLoadError(error: PlanLoadError): string {
     case "unknown-target-recipe":
       return `Target references unknown recipe ${error.recipeId}.`;
     case "target-not-a-producer":
-      return `Recipe ${error.recipeId} is input-supply metadata, not a selectable target.`;
+      return `Recipe ${error.recipeId} cannot be a target: supply metadata or no outputs.`;
     case "unknown-recipe-cost":
       return `Recipe cost references unknown recipe ${error.recipeId}.`;
     case "unknown-item-override":
@@ -201,9 +201,10 @@ export function validatePlan(
       return { kind: "unknown-target-recipe", recipeId: t.recipeId };
     }
     // Input-supply (__domain_transfer) recipes are supply metadata and
-    // cost === -1 recipes are waste sinks; neither is a selectable target.
-    // Second line of defense in case one slips past the picker filter.
-    if (isExcludedProducer(recipe)) {
+    // no-output recipes (waste sinks, pure consumers) have no defined target
+    // rate; neither is a selectable target. Second line of defense in case
+    // one slips past the picker filter.
+    if (isExcludedProducer(recipe) || isSinkRecipe(recipe)) {
       return { kind: "target-not-a-producer", recipeId: t.recipeId };
     }
   }

@@ -9,6 +9,7 @@ import {
   screen,
 } from "@testing-library/react";
 import type { RecipePack } from "@aef/schema";
+import { pack as realPack } from "../data/load";
 import { TargetsPanel } from "./TargetsPanel";
 import { LocaleProvider } from "../data/i18n-context";
 import type { Target } from "../data/targets";
@@ -269,4 +270,33 @@ test("pending rate edit follows the row across a recipe swap", () => {
   expect(latest).toEqual([
     { recipeId: "r_gadget", ratePerSec: { num: "33", denom: "20" } },
   ]);
+});
+
+// Real-pack picker gate: no-output recipes (waste sinks and pure consumers
+// like sewage-treat and the power_* battery burners) must never appear in the
+// recipe dropdown - a target rate is undefined for a recipe with no outputs.
+test("recipe picker excludes every no-output recipe in the real pack", () => {
+  const firstPickable = realPack.recipes.find(
+    (r) =>
+      r.category !== "__internal" &&
+      r.category !== "__domain_transfer" &&
+      r.out.length > 0,
+  )!;
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[
+          { recipeId: firstPickable.id, ratePerSec: { num: "1", denom: "1" } },
+        ]}
+        onChange={() => {}}
+        pack={realPack}
+      />
+    </LocaleProvider>,
+  );
+  const options = screen
+    .getAllByRole("option")
+    .map((o) => (o as HTMLOptionElement).value);
+  for (const r of realPack.recipes.filter((x) => x.out.length === 0)) {
+    expect(options, r.id).not.toContain(r.id);
+  }
 });
