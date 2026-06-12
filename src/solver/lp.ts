@@ -20,10 +20,13 @@ export type LpResult = {
   deficit: Map<ItemId, Fraction>;
   objectiveValue: number;
   solverWallClockMs: number;
-  // Solver outcome. "infeasible"/"unbounded" come from the raw solver flags.
+  // Solver outcome. "infeasible"/"unbounded" come from the raw solver flags;
+  // for those, rates/surplus/deficit are always empty (a failed solve leaves
+  // junk partial values that must not leak) and softFeasible is always false.
   // "empty" is feasible but no recipe runs at a positive rate; "feasible" means
-  // at least one runs. softFeasible is false when any material demand stays unmet
-  // (a deficit var survives the >1e-12 filter).
+  // at least one runs. softFeasible is false when any material demand stays
+  // unmet, judged from the raw pre-snap deficit variables (the solver pays
+  // 1e9/unit for them), not from the extracted deficit map.
   status: "feasible" | "infeasible" | "unbounded" | "empty";
   softFeasible: boolean;
 };
@@ -59,6 +62,10 @@ type LpRaw = Record<string, number> & {
 export const SURPLUS_WEIGHT = 1e-3;
 export const DEFICIT_WEIGHT = 1e9;
 
+// Big-M cost for target-only and excluded-producer recipes. Exported so the
+// extraction's pass-2 leak filter and recipeCostWeight key on the same value.
+export const BIG_M_COST = 1e6;
+
 // Default cost weights. The ordering deficit >> recipe >> surplus is the cost
 // contract. Target-only and excluded-producer recipes get a big-M cost so the LP
 // only runs them when the user pins them or no alternative exists.
@@ -69,7 +76,7 @@ export function recipeCostWeight(
   // Clamp to non-negative: a negative override would reward unbounded execution
   // of this recipe. 0 means "run if useful, no cost".
   if (overrides?.has(r.id)) return Math.max(0, overrides.get(r.id)!);
-  if (r.flags?.includes("target-only") || isExcludedProducer(r)) return 1e6;
+  if (r.flags?.includes("target-only") || isExcludedProducer(r)) return BIG_M_COST;
   return 1;
 }
 
@@ -239,7 +246,7 @@ export function solveLp(input: LpInput): LpResult {
   let lpResult: LpRaw;
   if (pass1.feasible === false || pass1.bounded === false) {
     // Infeasible or unbounded: skip the lex pass. A non-finite pass-1 objective
-    // would corrupt the pass-2 cost cap, and the status derivation below reads
+    // would corrupt the pass-2 cost cap, and the status gate below reads
     // pass1's feasible/bounded flags directly. (Unbounded can't happen for a valid
     // model: every objective coefficient is non-negative under a min objective, so
     // the optimum is bounded below by 0.)
@@ -254,45 +261,287 @@ export function solveLp(input: LpInput): LpResult {
     lpResult.result = costCap;
   }
 
-  // The solver returns float primal values; simplify(1e-6) snaps each to a nearby
-  // low-denominator rational. Downstream arithmetic is exact, but the snapped
-  // value can sit up to ~1e-6 (relative) off the LP optimum, so "exact rational"
-  // describes the representation, not zero error vs the solve.
+  // Status gate: a failed solve leaves arbitrary partial variable values on the
+  // raw result object, so extraction must not run on it. Return empty maps and
+  // an honest softFeasible:false. (Future result maps, e.g. boundary draws,
+  // join this return and the empty-targets return above together.)
+  if (lpResult.feasible === false || lpResult.bounded === false) {
+    return {
+      rates: new Map(),
+      surplus: new Map(),
+      deficit: new Map(),
+      objectiveValue: lpResult.result ?? 0,
+      solverWallClockMs: performance.now() - t0,
+      status: lpResult.feasible === false ? "infeasible" : "unbounded",
+      softFeasible: false,
+    };
+  }
+
+  return extractResult({
+    lpResult,
+    pass1,
+    recipes,
+    items,
+    recipeById,
+    supplyById,
+    costById,
+    demand,
+    targets,
+    t0,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Post-solve extraction hygiene
+// ---------------------------------------------------------------------------
+
+// Constants for the extraction hygiene pass.
+//  - SNAP_REL: snap radius for rational extraction. Applied relatively
+//    (min(SNAP_REL, |v|*SNAP_REL)), so values >= 1 keep the historical 1e-6
+//    absolute radius while sub-unit rates snap proportionally and survive with
+//    their magnitude intact.
+//  - RATE_ZERO: hard zero floor; raw primals at or below it are solver dust.
+//  - NOISE_CEILING_REL: noise-sweep candidate ceiling relative to plan scale.
+//    Deliberately decoupled from (two decades above) the snap radius: epsilon
+//    chains exist precisely because they exceed the snap radius (1/900900).
+//  - MB_REL_TOL: mirror of the invariant checkers' REL_TOL. Residuals the
+//    extraction leaves unreported must stay below what checkMassBalance tags.
+//  - DEFICIT_MATERIAL_REL: materiality threshold for raw deficit variables,
+//    relative to the item's demand.
+const SNAP_REL = 1e-6;
+const RATE_ZERO = 1e-12;
+const NOISE_CEILING_REL = 1e-4;
+const MB_REL_TOL = 1e-6;
+const DEFICIT_MATERIAL_REL = 1e-9;
+
+const FRAC_ZERO = new Fraction(0);
+
+type ExtractArgs = {
+  lpResult: LpRaw;
+  pass1: LpRaw;
+  recipes: Recipe[];
+  items: RecipePack["items"];
+  recipeById: Map<string, Recipe>;
+  supplyById: Map<ItemId, Fraction | typeof Infinity>;
+  costById: Map<RecipeId, number>;
+  demand: Map<ItemId, number>;
+  targets: Target[];
+  t0: number;
+};
+
+// Turn the raw float primals of a feasible solve into an exact, self-consistent
+// LpResult. Ordered hygiene pass:
+//   1. snap rates (pass-2 big-M filter, exact pin-floor re-snap, relative snap)
+//   2. tentatively zero sub-noise rates (flow-blind candidate set)
+//   3. recompute per-item slack exactly; re-admit or revert whatever the
+//      checkers would tag (in-pass checkMassBalance-tolerance gate)
+//   4. derive surplus/deficit from the recompute and softFeasible from the raw
+//      pre-snap deficit variables
+function extractResult(args: ExtractArgs): LpResult {
+  const {
+    lpResult,
+    pass1,
+    recipes,
+    items,
+    recipeById,
+    supplyById,
+    costById,
+    demand,
+    targets,
+    t0,
+  } = args;
+
+  // Exact pin floor per recipe and exact demand per item: rational mirrors of
+  // the pin block and demandByItem (same skip rules, duplicate targets
+  // accumulate). The model floats lose exactness; extraction snaps back onto
+  // these.
+  const floorByRecipe = new Map<RecipeId, Fraction>();
+  const demandExact = new Map<ItemId, Fraction>();
+  for (const t of targets) {
+    const recipe = recipeById.get(t.recipeId);
+    if (!recipe || recipe.out.length === 0) continue;
+    const primary = recipe.out[0]!;
+    const rate = new Fraction(`${t.ratePerSec.num}/${t.ratePerSec.denom}`);
+    demandExact.set(
+      primary.item,
+      (demandExact.get(primary.item) ?? FRAC_ZERO).add(rate),
+    );
+    if (!(primary.qty > 0)) continue;
+    const floor = rate.div(primary.qty);
+    if (floor.compare(0) <= 0) continue;
+    floorByRecipe.set(
+      t.recipeId,
+      (floorByRecipe.get(t.recipeId) ?? FRAC_ZERO).add(floor),
+    );
+  }
+
+  // Plan scale: the magnitude this plan operates at; sizes the noise ceiling.
+  let planScale = 1;
+  for (const f of floorByRecipe.values())
+    planScale = Math.max(planScale, f.valueOf());
+  for (const d of demand.values()) planScale = Math.max(planScale, d);
+
+  const plainSnap = (v: number): Fraction =>
+    new Fraction(v).simplify(Math.min(SNAP_REL, Math.abs(v) * SNAP_REL));
+
+  // Rate extraction. A pinned recipe within radius of its exact floor snaps
+  // onto the floor itself: the raw float can otherwise round to an adjacent
+  // rational (1/1499 against a 1/1500 floor). On pass-2 results, big-M recipes
+  // that pass 1 kept at zero are dropped: the lex cost_cap row magnitude grows
+  // with target scale and the solver's internal relative tolerance can buy
+  // them a tiny positive rate, while a legitimate big-M activation (a pin)
+  // forces pass-1 positivity too.
+  const isPass2 = lpResult !== pass1;
   const rates = new Map<RecipeId, Fraction>();
+  const floorSnapped = new Set<RecipeId>();
   for (const r of recipes) {
     const v = lpResult[`x_${r.id}`] ?? 0;
-    const f = new Fraction(v).simplify(1e-6);
-    if (!f.equals(0)) rates.set(r.id, f);
+    if (v <= RATE_ZERO) continue;
+    if (
+      isPass2 &&
+      costById.get(r.id)! >= BIG_M_COST &&
+      (pass1[`x_${r.id}`] ?? 0) <= RATE_ZERO
+    ) {
+      continue;
+    }
+    const floor = floorByRecipe.get(r.id);
+    if (
+      floor !== undefined &&
+      Math.abs(v - floor.valueOf()) <=
+        Math.max(SNAP_REL, SNAP_REL * Math.abs(v))
+    ) {
+      rates.set(r.id, floor);
+      floorSnapped.add(r.id);
+      continue;
+    }
+    rates.set(r.id, plainSnap(v));
   }
 
+  // Noise-sweep candidates: every positive rate at or below the ceiling,
+  // regardless of graph connectivity (an epsilon chain can be anchored on a
+  // live consumer), except pinned recipes, whose floors are user intent. All
+  // candidates are tentatively zeroed; the repair loop below re-admits exactly
+  // those whose removal breaks mass balance beyond checker tolerance.
+  const zeroed = new Set<RecipeId>();
+  const ceiling = NOISE_CEILING_REL * planScale;
+  for (const [recipeId, rate] of rates) {
+    if (floorByRecipe.has(recipeId)) continue;
+    if (rate.valueOf() <= ceiling) zeroed.add(recipeId);
+  }
+
+  // Exact per-item slack over the active rates: production - consumption -
+  // (demand - supply). Mirror of the mb_ row built above (forced-injection
+  // supply semantics); a reformulation of the row must change this recompute
+  // in the same commit.
+  const computeSlack = (): Map<ItemId, Fraction> => {
+    const net = new Map<ItemId, Fraction>();
+    for (const [recipeId, rate] of rates) {
+      if (zeroed.has(recipeId)) continue;
+      const r = recipeById.get(recipeId)!;
+      for (const o of r.out) {
+        if (o.qty === 0) continue;
+        net.set(o.item, (net.get(o.item) ?? FRAC_ZERO).add(rate.mul(o.qty)));
+      }
+      for (const i of r.in) {
+        if (i.qty === 0) continue;
+        net.set(i.item, (net.get(i.item) ?? FRAC_ZERO).sub(rate.mul(i.qty)));
+      }
+    }
+    const slackByItem = new Map<ItemId, Fraction>();
+    for (const it of items) {
+      const supply = supplyById.get(it.id)!;
+      if (supply === Infinity) continue;
+      slackByItem.set(
+        it.id,
+        (net.get(it.id) ?? FRAC_ZERO)
+          .sub(demandExact.get(it.id) ?? FRAC_ZERO)
+          .add(supply as Fraction),
+      );
+    }
+    return slackByItem;
+  };
+
+  // Material deficit: the raw pre-snap deficit variable is the honest signal
+  // (the solver pays DEFICIT_WEIGHT per unit for it); snap- or sweep-induced
+  // negative slack has a raw value of ~0.
+  const hasMaterialRawDeficit = (itemId: ItemId): boolean => {
+    const dv = lpResult[`deficit_${itemId}`] ?? 0;
+    return (
+      dv >
+      Math.max(RATE_ZERO, DEFICIT_MATERIAL_REL * Math.max(1, demand.get(itemId) ?? 0))
+    );
+  };
+
+  // checkMassBalance mirror: the residual tolerance the checkers tag at.
+  const mbTol = (itemId: ItemId): number =>
+    Math.max(1, Math.abs(demand.get(itemId) ?? 0)) * MB_REL_TOL;
+
+  // Repair loop: zeroing candidates (or snapping a pin) must not leave an item
+  // with a raw-clean negative slack the checkers would tag. First re-admit
+  // zeroed producers of a broken item (their removal caused the shortfall),
+  // then revert floor snaps on its producers to the plain relative snap. Each
+  // round shrinks one of the two sets, so the loop terminates.
+  let slack = computeSlack();
+  for (;;) {
+    const broken: ItemId[] = [];
+    for (const [itemId, s] of slack) {
+      if (s.compare(0) >= 0) continue;
+      if (hasMaterialRawDeficit(itemId)) continue;
+      if (Math.abs(s.valueOf()) < mbTol(itemId)) continue;
+      broken.push(itemId);
+    }
+    if (broken.length === 0) break;
+    const producesBroken = (recipeId: RecipeId): boolean => {
+      const r = recipeById.get(recipeId)!;
+      return r.out.some((o) => o.qty > 0 && broken.includes(o.item));
+    };
+    const readmit = [...zeroed].filter(producesBroken);
+    if (readmit.length > 0) {
+      for (const recipeId of readmit) zeroed.delete(recipeId);
+      slack = computeSlack();
+      continue;
+    }
+    const reverts = [...floorSnapped].filter(producesBroken);
+    if (reverts.length > 0) {
+      for (const recipeId of reverts) {
+        floorSnapped.delete(recipeId);
+        rates.set(recipeId, plainSnap(lpResult[`x_${recipeId}`] ?? 0));
+      }
+      slack = computeSlack();
+      continue;
+    }
+    // Nothing left to repair with: leave the residual unreported, no worse
+    // than the pre-hygiene extraction.
+    if (import.meta.env.DEV) {
+      console.warn(
+        `solveLp extraction left residuals beyond checker tolerance on: ${broken.join(", ")}`,
+      );
+    }
+    break;
+  }
+  for (const recipeId of zeroed) rates.delete(recipeId);
+
+  // Surplus/deficit from the exact recompute, never from the raw slack
+  // variables: the extracted point's rows then close exactly. A material raw
+  // deficit surfaces as the recomputed shortfall (or, when the snapped rates
+  // happen to cover it, as the snapped raw value so the unmet-demand signal
+  // survives). Non-material negative slack is snap drift below every checker
+  // tolerance (enforced by the repair loop) and reports neither.
   const surplus = new Map<ItemId, Fraction>();
   const deficit = new Map<ItemId, Fraction>();
-  for (const it of items) {
-    const sv = lpResult[`surplus_${it.id}`] ?? 0;
-    const sf = new Fraction(sv).simplify(1e-6);
-    if (!sf.equals(0)) surplus.set(it.id, sf);
-    const dv = lpResult[`deficit_${it.id}`] ?? 0;
-    const df = new Fraction(dv).simplify(1e-6);
-    if (!df.equals(0)) deficit.set(it.id, df);
+  let softFeasible = true;
+  for (const [itemId, s] of slack) {
+    const material = hasMaterialRawDeficit(itemId);
+    if (material) softFeasible = false;
+    if (s.compare(0) > 0) surplus.set(itemId, s);
+    if (!material) continue;
+    if (s.compare(0) < 0) {
+      deficit.set(itemId, s.neg());
+    } else {
+      const df = plainSnap(lpResult[`deficit_${itemId}`] ?? 0);
+      if (!df.equals(0)) deficit.set(itemId, df);
+    }
   }
-
-  // Derive status from the chosen raw result. The solver feasible/bounded flags
-  // win; otherwise "empty" when no recipe runs at a positive rate (same >1e-12
-  // threshold that built the rates map), else "feasible".
-  let status: LpResult["status"];
-  if (lpResult.feasible === false) {
-    status = "infeasible";
-  } else if (lpResult.bounded === false) {
-    status = "unbounded";
-  } else if (rates.size === 0) {
-    status = "empty";
-  } else {
-    status = "feasible";
-  }
-
-  // softFeasible: no material demand left unmet. A surviving deficit entry (past
-  // the >1e-12 filter above) means some item could not be supplied.
-  const softFeasible = deficit.size === 0;
 
   return {
     rates,
@@ -300,7 +549,7 @@ export function solveLp(input: LpInput): LpResult {
     deficit,
     objectiveValue: lpResult.result ?? 0,
     solverWallClockMs: performance.now() - t0,
-    status,
+    status: rates.size === 0 ? "empty" : "feasible",
     softFeasible,
   };
 }
