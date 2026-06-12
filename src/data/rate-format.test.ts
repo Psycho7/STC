@@ -71,3 +71,14 @@ test("ratePerSecToPerMin round-trips a huge rate through the panel parser", () =
     reparsed.equals(new Fraction("1000000000000000000000").div(60)),
   ).toBe(true);
 });
+
+test("ratePerSecToPerMin round-trips a beyond-double rate through the panel parser", () => {
+  // per-min 1e309 overflows Number to Infinity; String(Infinity) = "Infinity"
+  // has no exponent marker, so the e/E check alone would emit text the panel
+  // parsers reject. Must fall back to the exact fraction form.
+  const perMinDigits = `1${"0".repeat(309)}`;
+  const rps = { num: perMinDigits, denom: "60" };
+  const text = ratePerSecToPerMin(rps);
+  const reparsed = new Fraction(text).div(60);
+  expect(reparsed.equals(new Fraction(perMinDigits).div(60))).toBe(true);
+});

@@ -33,9 +33,10 @@ export function formatRationalPerMin(rps: {
 }
 
 // Items-per-minute input text (per-second rational x60) for editable rate
-// inputs. The panel parsers (new Fraction(text)) reject exponent notation, so
-// when Number stringification would go exponential (below ~1e-6 or at 1e21
-// and beyond) fall back to the exact fraction form ("1/10000000"), which the
+// inputs. The panel parsers (new Fraction(text)) reject exponent notation and
+// non-finite text, so when Number stringification would go exponential (below
+// ~1e-6 or at 1e21 and beyond) or overflow to "Infinity" (at ~1.8e308 and
+// beyond) fall back to the exact fraction form ("1/10000000"), which the
 // parsers accept; otherwise a non-reparseable display silently reverts the
 // next edit. Read-only readouts use formatRationalPerMin instead so they stay
 // exact and match the canvas.
@@ -44,7 +45,10 @@ export function ratePerSecToPerMin(rps: {
   denom: string;
 }): string {
   const perMin = perMinFromRational(rps);
-  const text = String(perMin.valueOf());
-  if (!text.includes("e") && !text.includes("E")) return text;
+  const value = perMin.valueOf();
+  const text = String(value);
+  if (Number.isFinite(value) && !text.includes("e") && !text.includes("E")) {
+    return text;
+  }
   return perMin.toFraction(false);
 }
