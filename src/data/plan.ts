@@ -29,8 +29,9 @@ export type Plan = {
   targets: Target[];
   itemOverrides?: ItemOverride[];
   // Per-recipe cost overrides for the LP solver, keyed by recipe id. Absent =>
-  // all default costs. A "1/1" entry equals the default and is omitted on the
-  // wire. Power-user surface, no cost-tuning UI.
+  // all default costs. Every entry rides the wire, including "1/1": big-M
+  // recipes default to 1e6, so a 1/1 override there is meaningful. Power-user
+  // surface, no cost-tuning UI.
   recipeCosts?: Map<string, RationalString>;
 };
 

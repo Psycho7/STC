@@ -30,11 +30,15 @@ export function toWire(plan: Plan): PlanWireV1 {
     );
   }
   if (plan.recipeCosts && plan.recipeCosts.size > 0) {
-    const entries = [...plan.recipeCosts.entries()]
-      // Omit entries equal to the default cost of 1 to keep hashes short.
-      .filter(([, v]) => v.num !== v.denom)
-      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-    if (entries.length > 0) wire.recipeCosts = Object.fromEntries(entries);
+    // Every override goes on the wire, including 1/1. The default cost is not
+    // uniformly 1: target-only and excluded-producer recipes default to the
+    // big-M cost, so a 1/1 override on them is load-bearing and dropping it
+    // would silently change the shared plan's solve. toWire has no pack
+    // access, so it cannot tell which case it is looking at.
+    const entries = [...plan.recipeCosts.entries()].sort((a, b) =>
+      a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0,
+    );
+    wire.recipeCosts = Object.fromEntries(entries);
   }
   return wire;
 }
