@@ -3,7 +3,11 @@ import Fraction from "fraction.js";
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
-import { isInputSupplyRecipe, isSinkRecipe } from "../data/recipe-category";
+import {
+  hasPositivePrimaryQty,
+  isInputSupplyRecipe,
+  isSinkRecipe,
+} from "../data/recipe-category";
 import { ratePerSecToPerMin } from "../data/rate-format";
 import { iconPosition } from "../canvas/iconSprite";
 
@@ -44,11 +48,14 @@ function parsePerMinToRationalPerSec(
 //   mechanism, not a production step; they belong in the input-supply UI.
 // - Sink recipes (out: []) consume items but produce nothing, so a target
 //   rate is undefined for them.
+// - A zero-qty primary output produces none of the item the target names, so
+//   the rate is meaningless; validatePlan rejects it as a second line.
 function isPickableTarget(recipe: Recipe): boolean {
   return (
     recipe.category !== "__internal" &&
     !isInputSupplyRecipe(recipe) &&
-    !isSinkRecipe(recipe)
+    !isSinkRecipe(recipe) &&
+    hasPositivePrimaryQty(recipe)
   );
 }
 

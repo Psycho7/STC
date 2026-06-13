@@ -24,3 +24,12 @@ export function isExcludedProducer(recipe: Recipe): boolean {
 export function isSinkRecipe(recipe: Recipe): boolean {
   return recipe.out.length === 0;
 }
+
+// A target rate is measured against a recipe's primary output (out[0]). A zero
+// or negative primary qty means the recipe yields none of the item the target
+// asks for, so it can never satisfy a target rate; the solver would silently
+// absorb the demand through a boundary draw rather than producing it. Real
+// packs should never carry this, but a corrupt pack or hostile plan can.
+export function hasPositivePrimaryQty(recipe: Recipe): boolean {
+  return recipe.out.length > 0 && recipe.out[0]!.qty > 0;
+}

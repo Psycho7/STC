@@ -1,7 +1,11 @@
 import type { RecipePack } from "@aef/schema";
 import type { RationalString, Target } from "./targets";
 import { defaultTargets } from "./targets";
-import { isExcludedProducer, isSinkRecipe } from "./recipe-category";
+import {
+  hasPositivePrimaryQty,
+  isExcludedProducer,
+  isSinkRecipe,
+} from "./recipe-category";
 import type { PlanWireV1 } from "./plan-wire-v1";
 import {
   decodeWire,
@@ -49,6 +53,7 @@ export type PlanLoadError =
   | { kind: "duplicate-target"; recipeId: string }
   | { kind: "unknown-target-recipe"; recipeId: string }
   | { kind: "target-not-a-producer"; recipeId: string }
+  | { kind: "target-primary-zero-qty"; recipeId: string; itemId: string }
   | { kind: "unknown-recipe-cost"; recipeId: string }
   | { kind: "unknown-item-override"; itemId: string }
   | { kind: "duplicate-item-override"; itemId: string }
@@ -91,6 +96,8 @@ export function describePlanLoadError(error: PlanLoadError): string {
       return `Target references unknown recipe ${error.recipeId}.`;
     case "target-not-a-producer":
       return `Recipe ${error.recipeId} cannot be a target: supply metadata or no outputs.`;
+    case "target-primary-zero-qty":
+      return `Recipe ${error.recipeId} cannot be a target: its primary output ${error.itemId} has zero quantity, so it produces none of the requested item.`;
     case "unknown-recipe-cost":
       return `Recipe cost references unknown recipe ${error.recipeId}.`;
     case "unknown-item-override":
@@ -230,6 +237,17 @@ export function validatePlan(
     // one slips past the picker filter.
     if (isExcludedProducer(recipe) || isSinkRecipe(recipe)) {
       return { kind: "target-not-a-producer", recipeId: t.recipeId };
+    }
+    // A recipe with outputs but a zero/negative primary qty produces none of
+    // the item the target rate names. Left to the solver it gets no pin floor
+    // and the demand is silently absorbed by a boundary draw; reject it here so
+    // the unsatisfiable target surfaces instead.
+    if (!hasPositivePrimaryQty(recipe)) {
+      return {
+        kind: "target-primary-zero-qty",
+        recipeId: t.recipeId,
+        itemId: recipe.out[0]!.item,
+      };
     }
   }
   if (plan.itemOverrides) {

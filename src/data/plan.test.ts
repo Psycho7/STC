@@ -10,6 +10,7 @@ import {
 } from "./plan";
 import { gzipBytes } from "./encoding/gzip";
 import { bytesToBase64url } from "./encoding/base64url";
+import { makePack } from "../solver/closed-form-fixtures";
 
 // defaultPlan carries valid targets and a matching schemaVersion, the clean
 // baseline each malformed-rational case mutates one field of.
@@ -143,6 +144,20 @@ describe("validatePlan - rational wire fields", () => {
     const plan = basePlan();
     plan.recipeCosts = new Map([["no_such_recipe", { num: "5", denom: "2" }]]);
     expect(validatePlan(plan, pack)?.kind).toBe("unknown-recipe-cost");
+  });
+
+  // A recipe with outputs but a zero-qty primary produces none of the item the
+  // target names. The real pack carries no such recipe, so use a synthetic one.
+  it("rejects a target whose recipe primary output has zero qty", () => {
+    const malformed = makePack(
+      [{ id: "rZero", time: 1, in: { R: 1 }, out: { X: 0 } }],
+      [{ id: "R", raw: true }, { id: "X" }],
+    );
+    const plan = defaultPlan(malformed);
+    plan.targets = [{ recipeId: "rZero", ratePerSec: { num: "1", denom: "1" } }];
+    const error = validatePlan(plan, malformed);
+    expect(error?.kind).toBe("target-primary-zero-qty");
+    expect(error && describePlanLoadError(error)).toContain("X");
   });
 
   it("rejects a sink recipe as a target", () => {
