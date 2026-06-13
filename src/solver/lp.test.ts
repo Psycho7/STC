@@ -842,6 +842,43 @@ describe("solveLp - bounded supply draw", () => {
     expect(result.surplus.get("M")?.valueOf() ?? 0).toBe(0);
   });
 
+  it("keeps a demand-bearing draw with no surviving consumer", () => {
+    // rBad's primary out qty is 0, so it gets no pin floor and no surplus cap
+    // (the malformed-data guard in the pin block), yet its target still
+    // registers demand on T. No recipe consumes T and rBad produces none, so
+    // the capped draw is the sole supply meeting T's demand. The orphan-draw
+    // drop must NOT remove it: dropping it would silently unmeet the demand and
+    // leave an unreported negative-slack residual. (For a well-formed target the
+    // pin floor + surplus cap squeeze any draw on a demanded item to ~0, so this
+    // malformed corner is the only path that reaches a demand-bearing draw.)
+    const p = makePack(
+      [
+        { id: "rMain", time: 1, in: { R: 1 }, out: { F: 1 } },
+        { id: "rBad", time: 1, in: { R: 1 }, out: { T: 0 } },
+      ],
+      [
+        { id: "R", raw: true, stack: 1 },
+        { id: "F", stack: 1 },
+        { id: "T", stack: 1 },
+      ],
+    );
+    const result = solveLp({
+      targets: [
+        { recipeId: "rMain", ratePerSec: { num: "1", denom: "1" } },
+        { recipeId: "rBad", ratePerSec: { num: "1", denom: "1" } },
+      ],
+      pack: p,
+      itemOverrides: [{ itemId: "T", ratePerSec: { num: "1", denom: "1" } }],
+    });
+    expect(result.status).toBe("feasible");
+    // The draw feeding T's demand survives, exactly matching the demand.
+    expect(result.draws.get("T")?.valueOf() ?? 0).toBe(1);
+    // No spurious surplus or deficit, and the demand is reported as met.
+    expect(result.surplus.has("T")).toBe(false);
+    expect(result.deficit.has("T")).toBe(false);
+    expect(result.softFeasible).toBe(true);
+  });
+
   it("emits no draw entries without finite positive caps", () => {
     const noOverride = solveLp({ targets: capTargets, pack: capPack });
     expect(noOverride.draws.size).toBe(0);

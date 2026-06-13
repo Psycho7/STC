@@ -584,6 +584,17 @@ function extractResult(args: ExtractArgs): LpResult {
   // consumes (violating the draws contract) and leak into surplus. Drop draws
   // on items no surviving recipe consumes, then refresh the slack the
   // surplus/deficit derivation below reads so the rows still close exactly.
+  //
+  // A draw on an item that carries external demand is NOT orphaned: it feeds
+  // the target directly through the mb row (draw - demand), so it is kept. This
+  // also bounds the drop. Post-drop slack on an item with no surviving consumer
+  // is production - demand (the consumption term is zero by the drop condition,
+  // and the draw is gone), so it can only go negative when demand > 0 - exactly
+  // the case excluded here. The drop therefore can never create a shortfall the
+  // (already-converged) repair loop would need to re-enter for. (For a
+  // well-formed target the pin floor plus surplus cap already squeeze any draw
+  // on its demanded item to ~0; the demand>0 case here is the malformed
+  // zero-primary-qty target guarded at the pin block above.)
   if (draws.size > 0) {
     const consumedItems = new Set<ItemId>();
     for (const recipeId of rates.keys()) {
@@ -593,6 +604,7 @@ function extractResult(args: ExtractArgs): LpResult {
     let drawsDropped = false;
     for (const itemId of draws.keys()) {
       if (consumedItems.has(itemId)) continue;
+      if (!(demandExact.get(itemId) ?? FRAC_ZERO).equals(0)) continue;
       draws.delete(itemId);
       drawsDropped = true;
     }
