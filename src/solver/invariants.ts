@@ -167,7 +167,12 @@ export function checkRawOnlyBoundary(
       if (inq !== 0) consumption = consumption.add(new Fraction(inq).mul(rate));
     }
     const surplus = result.surplus.get(it.id) ?? new Fraction(0);
-    const externalSupply = consumption.sub(production).add(surplus);
+    // A reported deficit is acknowledged unmet demand, not a boundary draw: it
+    // closes the mass-balance row, so it must also offset the external-supply
+    // estimate, or an honestly deficit-flagged shortfall would read here as an
+    // illegal raw draw.
+    const deficit = result.deficit.get(it.id) ?? new Fraction(0);
+    const externalSupply = consumption.sub(production).add(surplus).sub(deficit);
 
     const cap = effectiveSupply(it.id, pack, overrides);
     if (cap === Infinity) continue; // unlimited external supply: always passes.

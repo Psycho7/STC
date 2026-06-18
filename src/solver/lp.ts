@@ -115,6 +115,27 @@ export function demandByItem(
   return demand;
 }
 
+// Primary-pass objective recomputed from a raw solve's float primals, using the
+// same weights buildModel("primary") minimizes: sum_r cost(r)*x_r +
+// SURPLUS_WEIGHT*surplus + DEFICIT_WEIGHT*deficit. Infinite-supply items carry no
+// surplus/deficit variable in the model, so the `?? 0` contributes nothing for
+// them, matching the model. Draw variables cost 0 and are omitted. Used to verify
+// the lex pass stayed within the cost cap the engine may not have enforced.
+function primaryObjective(
+  raw: LpRaw,
+  recipes: Recipe[],
+  items: RecipePack["items"],
+  costById: Map<RecipeId, number>,
+): number {
+  let total = 0;
+  for (const r of recipes) total += costById.get(r.id)! * (raw[`x_${r.id}`] ?? 0);
+  for (const it of items) {
+    total += SURPLUS_WEIGHT * (raw[`surplus_${it.id}`] ?? 0);
+    total += DEFICIT_WEIGHT * (raw[`deficit_${it.id}`] ?? 0);
+  }
+  return total;
+}
+
 export function solveLp(input: LpInput): LpResult {
   const t0 = performance.now();
   const { targets, pack, itemOverrides = [] } = input;
@@ -261,7 +282,16 @@ export function solveLp(input: LpInput): LpResult {
     // lex objective only reorders cost-optimal solutions.
     if (mode === "lex" && costCap !== undefined) {
       const capName = "cost_cap";
-      const capEps = Math.max(Math.abs(costCap) * 1e-9, 1e-9);
+      // Relative tie-break slack, clamped at the top end. The relative term
+      // keeps the cap epsilon proportional to the objective for normal plans,
+      // but a large recipeCost override (or a huge big-M sum) inflates costCap
+      // enough that the slack grows large enough to let pass-2 under-produce an
+      // unrelated active recipe. Clamp at 1e-3 - the slack a 1e6 big-M costCap
+      // already produces, clean at unit scale - so an override-inflated
+      // objective cannot loosen the cap further; pass-2 then fails the cap and
+      // the solve falls back to the cost-optimal pass-1 (handled at the call
+      // site, where pass2.feasible === false keeps pass1).
+      const capEps = Math.min(Math.max(Math.abs(costCap) * 1e-9, 1e-9), 1e-3);
       constraints[capName] = { max: costCap + capEps };
       for (const r of recipes) {
         const cost = costById.get(r.id)!;
@@ -288,9 +318,21 @@ export function solveLp(input: LpInput): LpResult {
   } else {
     const costCap = pass1.result ?? 0;
     const pass2 = solver.Solve(buildModel("lex", costCap)) as LpRaw;
-    // If the lex pass fails numerically against the cost cap, keep the feasible
-    // cost-optimal pass-1 solution rather than emitting empty result maps.
-    lpResult = pass2.feasible === false ? pass1 : pass2;
+    // Enforce the cost cap the engine may not have. The lex pass must only
+    // reorder cost-optimal solutions, so its true cost must EQUAL pass-1's. But
+    // javascript-lp-solver polices the cost_cap and mass-balance rows with an
+    // absolute 1e-8 tolerance against coefficients up to 1e9 (deficit) / 1e6
+    // (big-M); on that unscaled spread it can admit a pass-2 that either pays a
+    // big-M transfer above the cap (cost too HIGH) or leaves an equality row
+    // unsatisfied without paying the deficit penalty (cost too LOW) - both drop a
+    // real producer. Recompute pass-2's true primary objective and keep it only
+    // when it matches pass-1's within tolerance; otherwise fall back to the
+    // validated cost-optimal pass-1. Also covers "pass-2 numerically infeasible".
+    const pass2Cost = primaryObjective(pass2, recipes, items, costById);
+    const costTol = Math.max(Math.abs(costCap) * 1e-6, 1e-6);
+    const pass2Valid =
+      pass2.feasible !== false && Math.abs(pass2Cost - costCap) <= costTol;
+    lpResult = pass2Valid ? pass2 : pass1;
     // Report pass-1's objective; pass-2's "result" is the lex tie-break.
     lpResult.result = costCap;
   }
@@ -430,7 +472,17 @@ function extractResult(args: ExtractArgs): LpResult {
   const floorSnapped = new Set<RecipeId>();
   for (const r of recipes) {
     const v = lpResult[`x_${r.id}`] ?? 0;
-    if (v <= RATE_ZERO) continue;
+    const floor = floorByRecipe.get(r.id);
+    if (v <= RATE_ZERO) {
+      // A pinned target whose primal the engine omitted (javascript-lp-solver
+      // drops primals below its ~1e-7 internal tolerance, so an ultra-low-rate
+      // pin reads as 0) must still run at its exact pin floor: the pin is user
+      // intent, not solver dust. Without this the dependent chain vanishes and
+      // the solve reports "empty". Not added to floorSnapped - there is no raw
+      // primal to revert to, and a target floor must hold regardless.
+      if (floor !== undefined) rates.set(r.id, floor);
+      continue;
+    }
     if (
       isPass2 &&
       costById.get(r.id)! >= BIG_M_COST &&
@@ -438,7 +490,6 @@ function extractResult(args: ExtractArgs): LpResult {
     ) {
       continue;
     }
-    const floor = floorByRecipe.get(r.id);
     if (
       floor !== undefined &&
       Math.abs(v - floor.valueOf()) <=
@@ -540,6 +591,7 @@ function extractResult(args: ExtractArgs): LpResult {
   // loop never grows either set and each round shrinks exactly one of them,
   // so it terminates in at most |zeroed| + |floorSnapped| iterations.
   let slack = computeSlack();
+  const forcedDeficit = new Set<ItemId>();
   for (;;) {
     const broken: ItemId[] = [];
     for (const [itemId, s] of slack) {
@@ -568,11 +620,15 @@ function extractResult(args: ExtractArgs): LpResult {
       slack = computeSlack();
       continue;
     }
-    // Nothing left to repair with: leave the residual unreported, no worse
-    // than the pre-hygiene extraction.
+    // Nothing can close these rows: no producer to re-admit, no snap to loosen.
+    // Report the shortfall honestly as a deficit (softFeasible goes false in the
+    // surplus/deficit derivation below) instead of swallowing a broken row and
+    // claiming the plan is feasible. The broken slack is negative by construction
+    // here, so the derivation reports -slack as the deficit.
+    for (const itemId of broken) forcedDeficit.add(itemId);
     if (import.meta.env.DEV) {
       console.warn(
-        `solveLp extraction left residuals beyond checker tolerance on: ${broken.join(", ")}`,
+        `solveLp extraction reporting unmet demand as deficit on: ${broken.join(", ")}`,
       );
     }
     break;
@@ -622,12 +678,13 @@ function extractResult(args: ExtractArgs): LpResult {
   let softFeasible = true;
   for (const [itemId, s] of slack) {
     const material = hasMaterialRawDeficit(itemId);
-    if (material) softFeasible = false;
+    const forced = forcedDeficit.has(itemId);
+    if (material || forced) softFeasible = false;
     if (s.compare(0) > 0) surplus.set(itemId, s);
-    if (!material) continue;
+    if (!material && !forced) continue;
     if (s.compare(0) < 0) {
       deficit.set(itemId, s.neg());
-    } else {
+    } else if (material) {
       const df = plainSnap(lpResult[`deficit_${itemId}`] ?? 0);
       if (!df.equals(0)) deficit.set(itemId, df);
     }

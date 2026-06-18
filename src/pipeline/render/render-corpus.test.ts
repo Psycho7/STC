@@ -557,26 +557,24 @@ describe("render corpus: LP-support closure renders disposal absorbers", () => {
   // shifts. The closure renders every augmented recipe and never drops a
   // previously-correct machine.
   //
-  // This exact target pair also carries a pre-existing LP-solver mass-balance
-  // residual on originium_powder (~1.2e-6, net -1/833333), the same deferred
-  // solver-residual class pinned as xfail above (transfer_tundra,
-  // copper_enr+liquid_xiranite_enr). The residual is solver-side and orthogonal
-  // to graph membership: solveLp returns it for this plan with or without the
-  // closure, and no residual-free xiranite plan exercises this chain. Under DEV
-  // (the default in tests) solvePlanWithIntermediates runs assertInvariants and
-  // the render driver runs the render-invariant hook, both of which throw on
-  // that tolerated residual before any render-level contract can be asserted.
+  // This exact target pair cannot fully supply originium_powder (~1.2e-6, net
+  // -1/833333): the extraction snap cannot close the row exactly, so solveLp now
+  // reports the shortfall as an honest deficit (softFeasible=false) rather than a
+  // silent residual. The four solver invariants therefore pass; but under DEV
+  // (the default in tests) the render driver's render-invariant hook still flags
+  // the sub-tolerance under-supply on the rendered originium chain before any
+  // render-level contract can be asserted.
   //
   // To assert the render-level contract the closure exists to satisfy, this test
   // stubs DEV off for the duration of the solve+render (vi.stubEnv("DEV",
-  // false)), which skips both dev hooks so machineCountGaps and
+  // false)), which skips the render dev hook so machineCountGaps and
   // solvePlanWithIntermediates return normally. The finally block restores the
   // env so no other test is affected. gaps == [] pins every recipe in the LP
   // support at vtxSum == lpRate -- the three augmented off-graph chain recipes
   // AND the four AP-flip recipes -- and violations == [] covers all seven render
-  // checkers. The deferred solver residual is kept visible by checking the raw
-  // LpResult directly: it must be the only mass-balance violation and must name
-  // originium_powder, never a missing-node augmentation failure.
+  // checkers. The deficit is checked directly on the raw LpResult: mass balance
+  // closes, softFeasible is false, and the unmet demand names originium_powder,
+  // never a missing-node augmentation failure.
   it("xiranite chain plan augments and renders the off-graph originium chain", () => {
     const targets: Target[] = [
       { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
@@ -605,14 +603,15 @@ describe("render corpus: LP-support closure renders disposal absorbers", () => {
       vi.unstubAllEnvs();
     }
 
-    // The deferred solver residual stays visible and is the only mass-balance
-    // violation: it must name originium_powder and must not be a missing-node
-    // augmentation failure.
+    // The deferred originium_powder shortfall is now reported honestly: solveLp
+    // closes the mass-balance row with a deficit and flags softFeasible=false
+    // instead of leaving a silent residual the checkers tag. Mass balance passes,
+    // and the unmet demand surfaces as a deficit on originium_powder - never as a
+    // missing-node augmentation failure.
     const lp = solveLp({ targets, pack, itemOverrides: [] });
-    const mb = checkMassBalance(lp, pack, targets, []);
-    expect(mb.violations.length).toBe(1);
-    expect(mb.violations[0]).toMatch(/originium_powder/);
-    expect(mb.violations[0]).not.toMatch(/has no node in the logical graph/);
+    expect(checkMassBalance(lp, pack, targets, []).violations).toEqual([]);
+    expect(lp.softFeasible).toBe(false);
+    expect([...lp.deficit.keys()]).toContain("originium_powder");
   });
 });
 
