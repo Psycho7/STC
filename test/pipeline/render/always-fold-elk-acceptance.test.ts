@@ -51,6 +51,8 @@ function buildAlwaysFoldPlan(): RenderPlan {
     torn: full.torn,
     recipeById: full.recipeById,
     rates: full.rates,
+    supplyShares: full.supplyShares,
+    boundaryShare: full.boundaryShare,
     itemById,
     machineById,
     itemOverrides,
@@ -66,6 +68,7 @@ function buildAlwaysFoldPlan(): RenderPlan {
     recipeById: full.recipeById,
     pack,
     idealCount: full.idealCount,
+    boundaryShare: full.boundaryShare,
   };
   return AlwaysFoldRender(policyInput);
 }

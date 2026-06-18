@@ -58,7 +58,7 @@ describe("pickTearEdges", () => {
     expect(tears.length).toBe(1);
     expect(tears[0]!.edge.item).toBe("z");
   });
-  it("ties broken lexicographically by (source, item, target)", () => {
+  it("tears the DFS back edge of a symmetric 2-cycle (deterministic by recipe order)", () => {
     const g = gWithEdges([
       ["a", "b", "x", 1],
       ["b", "a", "y", 1],
@@ -66,6 +66,9 @@ describe("pickTearEdges", () => {
     const scc: Scc = { id: "a", recipeIds: ["a", "b"] };
     const tears = pickTearEdges(scc, g);
     expect(tears.length).toBe(1);
-    expect(tears[0]!.edge.source).toBe("a"); // "a" < "b" lex
+    // DFS starts at the first SCC member ("a") and descends a->b; b->a closes
+    // the cycle back to the gray root, so it is the back edge that gets torn.
+    expect(tears[0]!.edge.source).toBe("b");
+    expect(tears[0]!.edge.item).toBe("y");
   });
 });

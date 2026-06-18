@@ -44,8 +44,6 @@ function makeGraph(): RecipeGraph {
     nodes,
     outgoing,
     incoming,
-    depthToItem: new Map(),
-    depthToRecipe: new Map(),
   };
 }
 

@@ -3,6 +3,7 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TargetsPanel } from "../src/components/TargetsPanel";
 import { defaultTargets } from "../src/data/targets";
+import type { Target } from "../src/data/targets";
 import { pack } from "../src/data/load";
 
 afterEach(() => cleanup());
@@ -23,27 +24,25 @@ describe("TargetsPanel", () => {
   it("Add target button appends a new target", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
-    render(<TargetsPanel targets={[]} onChange={onChange} pack={pack} />);
+    const targets: Target[] = [];
+    render(<TargetsPanel targets={targets} onChange={onChange} pack={pack} />);
     await user.click(screen.getByRole("button", { name: /添加目标/ }));
     expect(onChange).toHaveBeenCalledTimes(1);
-    const next = onChange.mock.calls[0]![0];
+    const next = onChange.mock.calls[0]![0](targets);
     expect(next.length).toBe(1);
   });
 
   it("Remove button removes a target", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
+    const targets = defaultTargets();
     render(
-      <TargetsPanel
-        targets={defaultTargets()}
-        onChange={onChange}
-        pack={pack}
-      />,
+      <TargetsPanel targets={targets} onChange={onChange} pack={pack} />,
     );
     const removeButtons = screen.getAllByTestId("remove-target");
     await user.click(removeButtons[0]!);
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange.mock.calls[0]![0].length).toBe(2);
+    expect(onChange.mock.calls[0]![0](targets).length).toBe(2);
   });
 
   it("rate edit calls onChange after 150ms debounce", () => {
@@ -113,22 +112,4 @@ describe("TargetsPanel", () => {
     expect(optionValues).toContain(positiveCases[0]!.id);
   });
 
-  it("does not render the legacy 'SCC' tag for unsafeRecipes entries", () => {
-    // The old UI rendered <span class="dual">SCC</span> for any recipe in
-    // unsafeRecipes. Those targets now solve cleanly, so the warning chip was
-    // dropped. The prop itself stays - handleAdd still uses it to skip
-    // land-mines during auto-pick.
-    const onChange = vi.fn();
-    const targets = defaultTargets();
-    const firstRecipeId = targets[0]!.recipeId;
-    render(
-      <TargetsPanel
-        targets={targets}
-        onChange={onChange}
-        pack={pack}
-        unsafeRecipes={new Set([firstRecipeId])}
-      />,
-    );
-    expect(screen.queryByText(/^SCC$/)).toBeNull();
-  });
 });

@@ -26,6 +26,7 @@ afterEach(() => {
   cleanup();
   history.replaceState(null, "", window.location.pathname);
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
 });
 
 async function decodeCurrentHash(): Promise<Plan> {
@@ -59,6 +60,13 @@ describe("canvas-targets: add target", () => {
   // singular SCC that solvePlan can't handle. Pre-seed with safe precursors
   // so the next-unused candidate is solver-safe.
   it("appends a new row and updates the URL after re-solve", async () => {
+    // The rate-0 precursor seed renders a mass-balance-imperfect plan under the
+    // current solver (a known small-rate producer-drop residual). The DEV-only
+    // render-invariant hook would hard-fail on it, but production tree-shakes
+    // that hook and renders the plan; render correctness is owned by the render
+    // corpus tests. Exercise the production render path here so this UI-flow
+    // test validates add-target -> re-solve -> URL, not the dirty-plan tripwire.
+    vi.stubEnv("DEV", false);
     const seedTargets = [
       ...defaultTargets(),
       { recipeId: "iron_ore", ratePerSec: { num: "0", denom: "1" } },

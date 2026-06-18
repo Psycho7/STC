@@ -51,7 +51,8 @@ describe("assignSplitRoles", () => {
   it("returns single when there are no intra-SCC outgoing edges", () => {
     const d = assignSplitRoles({
       recipeRate: new Fraction(2),
-      primaryOutQty: 1,
+      primaryOutItem: "x",
+      outQtys: new Map([["x", 1]]),
       intraEdges: [],
       crossEdges: [{ item: "x", target: "C" }],
       isTarget: false,
@@ -62,7 +63,8 @@ describe("assignSplitRoles", () => {
   it("returns single when intra exists but no cross and not a target", () => {
     const d = assignSplitRoles({
       recipeRate: new Fraction(2),
-      primaryOutQty: 1,
+      primaryOutItem: "x",
+      outQtys: new Map([["x", 1]]),
       intraEdges: [intra("x", "M", new Fraction(1), 1)],
       crossEdges: [],
       isTarget: false,
@@ -73,7 +75,8 @@ describe("assignSplitRoles", () => {
   it("returns single when recipeRate is zero (no flow to split)", () => {
     const d = assignSplitRoles({
       recipeRate: new Fraction(0),
-      primaryOutQty: 1,
+      primaryOutItem: "x",
+      outQtys: new Map([["x", 1]]),
       intraEdges: [intra("x", "M", new Fraction(1), 1)],
       crossEdges: [{ item: "x", target: "C" }],
       isTarget: false,
@@ -86,7 +89,8 @@ describe("assignSplitRoles", () => {
     // consumes 1 plant/sec; cross consumer DOWN consumes 1 plant/sec.
     const d = assignSplitRoles({
       recipeRate: new Fraction(2),
-      primaryOutQty: 1,
+      primaryOutItem: "plant",
+      outQtys: new Map([["plant", 1]]),
       intraEdges: [intra("plant", "PICKER", new Fraction(1), 1)],
       crossEdges: [{ item: "plant", target: "DOWN" }],
       isTarget: false,
@@ -107,7 +111,8 @@ describe("assignSplitRoles", () => {
     // but the deliverer still owns the synthetic target output role.
     const d = assignSplitRoles({
       recipeRate: new Fraction(2),
-      primaryOutQty: 1,
+      primaryOutItem: "a",
+      outQtys: new Map([["a", 1]]),
       intraEdges: [intra("a", "M2", new Fraction(1), 1)],
       crossEdges: [],
       isTarget: true,
@@ -129,7 +134,8 @@ describe("assignSplitRoles", () => {
     // Looper rate = 4 * 1/4 = 1; deliverer = 4 - 1 = 3.
     const d = assignSplitRoles({
       recipeRate: new Fraction(4),
-      primaryOutQty: 1,
+      primaryOutItem: "x",
+      outQtys: new Map([["x", 1]]),
       intraEdges: [intra("x", "I", new Fraction(1), 1)],
       crossEdges: [{ item: "x", target: "C" }],
       isTarget: false,
@@ -146,7 +152,8 @@ describe("assignSplitRoles", () => {
     // distinguishes them correctly under parallel-edge-shaped fixtures.
     const d = assignSplitRoles({
       recipeRate: new Fraction(2),
-      primaryOutQty: 1,
+      primaryOutItem: "a",
+      outQtys: new Map([["a", 1]]),
       intraEdges: [
         intra("a", "M1", new Fraction(1, 2), 1),
         intra("a", "M2", new Fraction(1, 2), 1),
@@ -160,23 +167,21 @@ describe("assignSplitRoles", () => {
     expect([...d.delivererFilter]).toEqual(["a|D"]);
   });
 
-  it("clamps negative cross-flow to zero (defensive invariant)", () => {
-    // Engineer a case where intraFlow > producedFlow (impossible in practice
-    // for a well-formed solve, but the clamp is documented). Setting
-    // primaryOutQty=1 and recipeRate=1 yields producedFlow=1; the intra side
-    // claims 2 plants/sec consumed. crossFlow would be -1; clamp -> 0.
-    const d = assignSplitRoles({
-      recipeRate: new Fraction(1),
-      primaryOutQty: 1,
-      intraEdges: [intra("x", "M", new Fraction(2), 1)],
-      crossEdges: [{ item: "x", target: "C" }],
-      isTarget: false,
-    });
-    expect(d.kind).toBe("split");
-    if (d.kind !== "split") return;
-    // totalFlow == intra (cross clamped to 0), so the whole recipe rate is
-    // attributed to the looper.
-    expect(d.looperRate.equals(new Fraction(1))).toBe(true);
-    expect(d.delivererRate.equals(new Fraction(0))).toBe(true);
+  it("throws in DEV when intra flow over-bills production (negative cross flow)", () => {
+    // Engineer intraFlow > producedFlow: recipeRate 1 * outQty 1 = produced 1,
+    // but the intra side claims 2/sec consumed, so crossFlow would be -1. The
+    // exact-rational solver makes this unreachable for a well-formed solve, so
+    // the contract treats it as an invariant violation and throws under DEV
+    // (the prod build clamps the cross flow to zero as a silent fallback).
+    expect(() =>
+      assignSplitRoles({
+        recipeRate: new Fraction(1),
+        primaryOutItem: "x",
+        outQtys: new Map([["x", 1]]),
+        intraEdges: [intra("x", "M", new Fraction(2), 1)],
+        crossEdges: [{ item: "x", target: "C" }],
+        isTarget: false,
+      }),
+    ).toThrow(/negative cross/);
   });
 });
