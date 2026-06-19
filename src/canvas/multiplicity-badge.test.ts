@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { formatMultiplicityBadge } from "./multiplicity-badge";
 
 test("whole multiplicities show no decimals; exactly 1 hides the badge", () => {
@@ -28,4 +28,18 @@ test("near-1 multiplicities keep ordinary rounding", () => {
   expect(formatMultiplicityBadge({ num: "100001", denom: "100000" })).toBe(
     "x1.00",
   );
+});
+
+test("recurring decimals round to two places", () => {
+  // 4/3 = 1.333... and 1/7 = 0.142857... exercise the non-terminating-repetend
+  // input class that the terminating fixtures above do not.
+  expect(formatMultiplicityBadge({ num: "4", denom: "3" })).toBe("x1.33");
+  expect(formatMultiplicityBadge({ num: "1", denom: "7" })).toBe("x0.14");
+});
+
+test("K = 0 returns 'x0' and warns (defensive zero guard)", () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  expect(formatMultiplicityBadge({ num: "0", denom: "1" })).toBe("x0");
+  expect(warn).toHaveBeenCalled();
+  warn.mockRestore();
 });

@@ -18,6 +18,17 @@ test("formatRatePerMin keeps a normal sub-unit rate unchanged", () => {
   expect(formatRatePerMin(new Fraction("1").div("600"))).toBe("0.1");
 });
 
+test("formatRatePerMin rounds a >1 non-whole per-minute value to two decimals", () => {
+  // 1/7 per sec * 60 = 60/7 = 8.5714..., toFixed(2) then trailing-zero trim.
+  expect(formatRatePerMin(new Fraction(1, 7))).toBe("8.57");
+});
+
+test("formatRationalPerMin does not suppress an exact-zero rational", () => {
+  // The rational layer renders "0" rather than the empty-string suppression
+  // formatRatePerMin applies to Fraction zero.
+  expect(formatRationalPerMin({ num: "0", denom: "1" })).toBe("0");
+});
+
 test("formatRatePerMin returns empty for exact zero", () => {
   expect(formatRatePerMin(new Fraction(0))).toBe("");
 });

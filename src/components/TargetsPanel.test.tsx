@@ -335,6 +335,28 @@ test("Add keeps working past 60 rows and never seeds a no-output recipe", () => 
   }
 });
 
+// Selecting a recipe already used by another row is rejected inline: an alert
+// names the duplicate recipe and no change commits.
+test("duplicate recipe selection shows an inline alert and does not commit", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[
+          { recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } },
+          { recipeId: "r_gadget", ratePerSec: { num: "1", denom: "1" } },
+        ]}
+        onChange={onChange}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const selects = screen.getAllByLabelText(/recipe/i);
+  fireEvent.change(selects[1]!, { target: { value: "r_widget" } });
+  expect(onChange).not.toHaveBeenCalled();
+  expect(screen.getByRole("alert").textContent).toMatch(/r_widget/);
+});
+
 // Exhaustion semantics: Add no-ops only once every pickable recipe is used.
 test("Add no-ops only when every pickable recipe is used", () => {
   let latest: Target[] = [];
