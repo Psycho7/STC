@@ -8,6 +8,12 @@ export default mergeConfig(
       environment: "jsdom",
       setupFiles: ["./test/setup.ts", "./test/encoding-test-env.ts"],
       globals: false,
+      // The colocated src/ suite includes solve-heavy LP tests (the full-pack
+      // render corpus sweep, large add-target flows) and integration tests that
+      // wait up to 10s. They clear the 5s default locally but not on the slower
+      // CI runner, so give every test and hook generous headroom.
+      testTimeout: 30000,
+      hookTimeout: 30000,
       // Two Vitest suites run together: the borrowed suite under test/ and the
       // LP-solver's colocated suite under src/ (plus the solver-cli tool test).
       // STC vendors the bun:test extractor at tools/extractor/ (run via
