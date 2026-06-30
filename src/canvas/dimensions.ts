@@ -3,14 +3,14 @@
 // rendering both read these constants directly so they stay locked together,
 // with no CSS-in-JS or build step in between.
 
-// Recipe-node geometry. .recipe-node is 268px wide. The header has no explicit
+// Recipe-node geometry. .recipe-node is 300px wide. The header has no explicit
 // height, but its recipe-block stack (product 17px + machine-name 11px +
 // machine-mid 8.5px + roughly 10px of top/bottom padding) comes to about 80px.
 // A row is 5+5 padding plus a 12px text line, so 22px. The footer is 6+6 padding
 // plus a 9px line at about 1.4 line-height, so roughly 26px. Header and footer
 // fall back to these reasonable defaults wherever flex auto-sizing would
 // otherwise decide the height.
-export const RECIPE_WIDTH = 268;
+export const RECIPE_WIDTH = 300;
 export const RECIPE_HEADER_HEIGHT = 80;
 export const RECIPE_ROW_HEIGHT = 22;
 export const RECIPE_FOOTER_HEIGHT = 26;

@@ -30,13 +30,13 @@ describe("StatsStrip", () => {
 
     const targetSlot = slots[0]!;
     expect(targetSlot.querySelector(".lbl")?.textContent).toBe("输出");
-    expect(targetSlot.querySelector(".val")?.textContent).toBe("2target");
-    expect(targetSlot.querySelector(".val .unit")?.textContent).toBe("target");
+    expect(targetSlot.querySelector(".val")?.textContent).toBe("2目标");
+    expect(targetSlot.querySelector(".val .unit")?.textContent).toBe("目标");
 
     const supplySlot = slots[1]!;
     expect(supplySlot.querySelector(".lbl")?.textContent).toBe("输入");
-    expect(supplySlot.querySelector(".val")?.textContent).toBe("4supply");
-    expect(supplySlot.querySelector(".val .unit")?.textContent).toBe("supply");
+    expect(supplySlot.querySelector(".val")?.textContent).toBe("4供给");
+    expect(supplySlot.querySelector(".val .unit")?.textContent).toBe("供给");
   });
 
   it("shows zero counts for a plan with no targets and no overrides", () => {
@@ -48,7 +48,7 @@ describe("StatsStrip", () => {
     };
     const { container } = render(<StatsStrip plan={empty} />);
     const slots = container.querySelectorAll(".strip-stat");
-    expect(slots[0]?.querySelector(".val")?.textContent).toBe("0target");
-    expect(slots[1]?.querySelector(".val")?.textContent).toBe("0supply");
+    expect(slots[0]?.querySelector(".val")?.textContent).toBe("0目标");
+    expect(slots[1]?.querySelector(".val")?.textContent).toBe("0供给");
   });
 });

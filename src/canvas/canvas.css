@@ -1197,6 +1197,31 @@
   color: var(--ak-text-secondary);
 }
 
+/* Dark-theme the zoom/fit/lock Controls cluster so the default white buttons
+   don't clash with the blueprint canvas. */
+.ak-canvas-theme .react-flow__controls {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--ak-divider);
+}
+
+.ak-canvas-theme .react-flow__controls-button {
+  background: var(--ak-bg-secondary);
+  border-bottom: 1px solid var(--ak-divider);
+  color: var(--ak-text-secondary);
+}
+
+.ak-canvas-theme .react-flow__controls-button:hover {
+  background: var(--ak-bg-tertiary);
+}
+
+.ak-canvas-theme .react-flow__controls-button svg {
+  fill: var(--ak-text-secondary);
+}
+
+.ak-canvas-theme .react-flow__controls-button:hover svg {
+  fill: var(--ak-accent-lime);
+}
+
 /* Blueprint-grid dot pattern on the canvas pane. */
 .ak-canvas-theme .react-flow__pane,
 .ak-canvas-theme .react-flow {
@@ -1548,7 +1573,7 @@
     0 1px 0 rgba(255, 255, 255, 0.04) inset,
     0 -1px 0 rgba(0, 0, 0, 0.5) inset,
     0 8px 16px rgba(0, 0, 0, 0.35);
-  width: 268px;
+  width: 300px;
   position: relative;
 }
 

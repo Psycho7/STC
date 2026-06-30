@@ -1,5 +1,6 @@
 import {
   ReactFlow,
+  Controls,
   type Node,
   type Edge,
   type OnNodesChange,
@@ -82,7 +83,10 @@ export default function Canvas({
         {...(onEdgesChange ? { onEdgesChange } : {})}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-      />
+        fitView
+      >
+        <Controls />
+      </ReactFlow>
       <div className="canvas-frame" aria-hidden="true" />
       <div className="cb tl" aria-hidden="true" />
       <div className="cb tr" aria-hidden="true" />
