@@ -36,6 +36,12 @@ const nodeTypes = {
 };
 const edgeTypes = { item: ItemEdge };
 
+// Let fitView zoom far enough out that a big production graph fits on screen.
+// React Flow's default minZoom of 0.5 clamps the fit, so large plans overflow
+// the viewport and get cut off; 0.05 lets the whole graph shrink to fit. Padding
+// keeps a small margin around the fitted graph so nodes do not touch the frame.
+const FIT_VIEW_OPTIONS = { padding: 0.12 };
+
 interface CanvasProps {
   nodes: Node[];
   edges: Edge[];
@@ -84,6 +90,8 @@ export default function Canvas({
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
+        minZoom={0.05}
+        fitViewOptions={FIT_VIEW_OPTIONS}
       >
         <Controls />
       </ReactFlow>
