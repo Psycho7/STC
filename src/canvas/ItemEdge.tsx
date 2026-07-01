@@ -2,6 +2,7 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   getSmoothStepPath,
+  useStore,
   type EdgeProps,
 } from "@xyflow/react";
 import type Fraction from "fraction.js";
@@ -35,6 +36,12 @@ const BELT_STROKE = "#666";
 const PIPE_STROKE = "#0891b2";
 const PIPE_DASH = "4 2";
 
+// Below this zoom the rate chips are dropped. On a dense plan the fit-to-view
+// zoom lands well under this, so the overview reads as clean lines; zooming in
+// to inspect a section brings the chips back. Reading transform[2] (zoom only)
+// re-renders the edge on zoom changes but not on pan.
+const LABEL_MIN_ZOOM = 0.6;
+
 type StrokeStyle = { stroke: string; strokeDasharray?: string };
 
 function strokeForKind(kind: TransportKindId | undefined): StrokeStyle {
@@ -57,13 +64,15 @@ export default function ItemEdge({
   style,
 }: EdgeProps) {
   const edgeData = data as ItemEdgeData | undefined;
+  const zoom = useStore((state) => state.transform[2]);
   const i18n = useI18n();
   const rateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
   const unit = i18n.t("canvas.rate.unit");
   // The chip body shows the icon plus rate and unit, nothing more. The full
   // "Name x rate/min" string goes onto aria-label and title so screen readers
   // and the browser's hover tooltip still name the item.
-  const chipText = edgeData && rateStr ? `${rateStr}${unit}` : "";
+  const chipText =
+    edgeData && rateStr && zoom >= LABEL_MIN_ZOOM ? `${rateStr}${unit}` : "";
   const fullLabel =
     edgeData && rateStr
       ? `${i18n.displayName(edgeData.item)} x ${rateStr}${unit}`

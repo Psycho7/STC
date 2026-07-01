@@ -158,6 +158,18 @@ export const ROOT_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
   "elk.edgeRouting": "ORTHOGONAL",
   "elk.spacing.nodeNode": String(NODE_NODE_SPACING),
   "elk.layered.spacing.nodeNodeBetweenLayers": String(BETWEEN_LAYERS_SPACING),
+  // Declutter knobs for dense plans. Left-to-right layering plus per-item ports
+  // otherwise fans out into long crossing edges on big graphs. Extra
+  // thoroughness spends more sweep iterations minimizing crossings;
+  // NETWORK_SIMPLEX node placement pulls layers tighter so edges span less
+  // empty space; the edge spacing keeps routed edges clear of node bodies and
+  // of each other so parallel runs read as separate lines.
+  "elk.layered.thoroughness": "10",
+  "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+  "elk.spacing.edgeNode": "24",
+  "elk.spacing.edgeEdge": "16",
+  "elk.layered.spacing.edgeNodeBetweenLayers": "24",
+  "elk.layered.spacing.edgeEdgeBetweenLayers": "16",
 };
 
 const RECIPE_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {

@@ -34,7 +34,7 @@ function makeEdge(data: ItemEdgeData): Edge {
   };
 }
 
-function renderEdge(data: ItemEdgeData) {
+function renderEdge(data: ItemEdgeData, zoom?: number) {
   return render(
     <LocaleProvider locale="en">
       <div style={{ width: 800, height: 600 }}>
@@ -42,6 +42,9 @@ function renderEdge(data: ItemEdgeData) {
           nodes={NODES}
           edges={[makeEdge(data)]}
           edgeTypes={edgeTypes}
+          {...(zoom !== undefined
+            ? { defaultViewport: { x: 0, y: 0, zoom } }
+            : {})}
         />
       </div>
     </LocaleProvider>,
@@ -141,6 +144,27 @@ describe("canvas/ItemEdge", () => {
     const label = await findLabel();
     expect(label).not.toBeNull();
     expect(label!.querySelector(".ico.ico-16")).toBeNull();
+  });
+});
+
+describe("canvas/ItemEdge zoom gating", () => {
+  it("hides the label when zoomed below the threshold", async () => {
+    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 0.4);
+    const label = await findLabel();
+    expect(label).toBeNull();
+  });
+
+  it("shows the label at the threshold zoom", async () => {
+    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 0.6);
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.textContent).toBe("120/min");
+  });
+
+  it("shows the label when zoomed in", async () => {
+    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 1.5);
+    const label = await findLabel();
+    expect(label).not.toBeNull();
   });
 });
 
