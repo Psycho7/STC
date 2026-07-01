@@ -107,9 +107,11 @@ describe("TargetsPanel / synthetic-category filter", () => {
     const addButton = screen.getByRole("button", { name: /add/i });
     addButton.click();
     expect(onChange).toHaveBeenCalledTimes(1);
-    const nextTargets = onChange.mock.calls[0]![0] as Array<{
-      recipeId: string;
-    }>;
+    const nextTargets = (
+      onChange.mock.calls[0]![0] as (
+        c: Array<{ recipeId: string }>,
+      ) => Array<{ recipeId: string }>
+    )([]);
     expect(nextTargets[0]!.recipeId).toBe("real_recipe");
   });
 });

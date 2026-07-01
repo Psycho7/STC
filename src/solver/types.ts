@@ -25,12 +25,6 @@ export type RecipeGraph = {
   nodes: Map<RecipeId, Recipe>;
   outgoing: Map<RecipeId, RecipeEdge[]>;
   incoming: Map<RecipeId, RecipeEdge[]>;
-  // Raw-distance ranking maps that buildRecipeGraph fills in so pickProducer
-  // can rank candidate producers. An excluded recipe (isExcludedProducer ===
-  // true) gets no entry in depthToRecipe. Items reachable only through
-  // excluded producers or closed cycles stay at Number.POSITIVE_INFINITY.
-  depthToItem: Map<ItemId, number>;
-  depthToRecipe: Map<RecipeId, number>;
 };
 
 export type Scc = {
@@ -59,21 +53,20 @@ export type Replica = {
   blueprintGroupId: GroupId;
   sharedAtArticulation: boolean;
   // When an SCC member recipe carries both an intra-SCC and a cross-boundary
-  // outgoing-edge role (or is itself a target whose output crosses the SCC
-  // boundary), `replicatePerConsumer` emits two split replicas for it. Each
-  // split lists the (item, target-recipe) keys it owns in
-  // `outgoingEdgeFilter`. Any downstream stage that fans a shared producer out
-  // to its consumers (assembleLogicalGraph, deriveReplicaEdges, and the
-  // boundary-edge emission in replicate.ts) has to intersect against this
-  // filter so a split replica projects only its own role's edges. When it is
-  // undefined, the replica owns every outgoing recipe-graph edge of its recipe
-  // (the single-role, non-split case).
+  // outgoing-edge role (or is a target whose output crosses the SCC boundary),
+  // `replicatePerConsumer` emits two split replicas for it. Each split lists the
+  // (item, target-recipe) keys it owns in `outgoingEdgeFilter`. Any downstream
+  // stage that fans a shared producer out to its consumers (assembleLogicalGraph,
+  // deriveReplicaEdges, the boundary-edge emission in replicate.ts) must
+  // intersect against this filter so a split replica projects only its own role's
+  // edges. When undefined, the replica owns every outgoing recipe-graph edge of
+  // its recipe (the single-role, non-split case).
   outgoingEdgeFilter?: ReadonlySet<string>;
 };
 
 /**
  * Builds the canonical key used in `Replica.outgoingEdgeFilter`. Pairing the
- * carried item with the consumer recipe id lets a planter that has several
+ * carried item with the consumer recipe id lets a producer with several
  * outgoing-edge roles route each per-role replica exactly.
  */
 export const outgoingEdgeKey = (item: ItemId, target: RecipeId): string =>
@@ -104,13 +97,6 @@ export class UnknownRecipeError extends Error {
   ) {
     super(reason);
     this.name = "UnknownRecipeError";
-  }
-}
-
-export class SingularSccError extends Error {
-  constructor(public sccId: SccId) {
-    super(`SCC ${sccId} is under-determined; mass-balance system is singular`);
-    this.name = "SingularSccError";
   }
 }
 

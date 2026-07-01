@@ -5,14 +5,14 @@ import { outgoingEdgeKey } from "../types";
 
 /**
  * Build the ReplicaEdge list from a RecipeGraph and its replicas, matching the
- * per-consumer routing that assembleLogicalGraph uses. A producer shared at an
- * articulation point fans out to every consumer-replica of the recipe; a
- * per-consumer producer routes only to the one consumer it was replicated for,
- * which is the last entry of its consumerPath.
+ * per-consumer routing assembleLogicalGraph uses. A producer shared at an
+ * articulation point fans out to every consumer-replica of the recipe; a per-
+ * consumer producer routes only to the one consumer it was replicated for, the
+ * last entry of its consumerPath.
  *
  * Each edge's rate is the consumer-side demand (consumer.executionRate * in.qty),
- * so the rates of all edges arriving at a consumer-replica add up to that
- * replica's actual input requirement.
+ * so all edges arriving at a consumer-replica sum to that replica's input
+ * requirement.
  */
 export function deriveReplicaEdges(
   g: RecipeGraph,
@@ -38,8 +38,8 @@ export function deriveReplicaEdges(
 
       for (const P of producers) {
         // Respect a split replica's outgoing-edge ownership so the bisim
-        // signatures can tell the two halves apart: one carries the intra-SCC
-        // edge, the other the cross-boundary edge.
+        // signatures can tell the two halves apart: one carries the intra-SCC edge,
+        // the other the cross-boundary edge.
         if (
           P.outgoingEdgeFilter !== undefined &&
           !P.outgoingEdgeFilter.has(outgoingEdgeKey(item, cRid))
@@ -58,14 +58,25 @@ export function deriveReplicaEdges(
         } else {
           const last = P.consumerPath[P.consumerPath.length - 1];
           if (!last) continue;
-          const C = consumers.find((c) => c.id === last);
-          if (!C) continue;
-          edges.push({
-            source: P.id,
-            target: C.id,
-            item,
-            rate: C.executionRate.mul(new Fraction(inQty)),
-          });
+          const designated = consumers.find((c) => c.id === last);
+          if (!designated) continue;
+          // Mirror assembleLogicalGraph: when the designated consumer is a split
+          // SCC stamp (discriminated by carrying an outgoingEdgeFilter, which only
+          // looper/deliverer replicas do), a per-consumer producer feeds every
+          // split sibling of the recipe, not just the canonical looper. Keeps the
+          // bisim signatures aligned with the logical graph's routing.
+          const fanTo =
+            designated.outgoingEdgeFilter !== undefined
+              ? consumers.filter((c) => c.outgoingEdgeFilter !== undefined)
+              : [designated];
+          for (const C of fanTo) {
+            edges.push({
+              source: P.id,
+              target: C.id,
+              item,
+              rate: C.executionRate.mul(new Fraction(inQty)),
+            });
+          }
         }
       }
     }

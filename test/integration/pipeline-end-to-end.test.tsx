@@ -57,6 +57,8 @@ describe("integration: render plan emits only MVP unit kinds", () => {
       torn: full.torn,
       recipeById: full.recipeById,
       rates: full.rates,
+      supplyShares: full.supplyShares,
+      boundaryShare: full.boundaryShare,
       itemById: new Map(pack.items.map((i) => [i.id, i])),
       machineById: new Map(pack.machines.map((m) => [m.id, m])),
       itemOverrides: [],

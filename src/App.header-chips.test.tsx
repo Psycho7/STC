@@ -1,0 +1,62 @@
+// @vitest-environment jsdom
+//
+// Header RECIPES chip semantics: it must count distinct recipe ids in the
+// logical graph, not raw logical.nodes.length, which mixes kind:"group"
+// containers with per-replica kind:"recipe" stamps. The crystal_enr plan is
+// the canonical fixture: 11 logical nodes (3 groups + 8 recipe stamps) but
+// only 7 distinct recipes.
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+
+vi.mock("./canvas/layout", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("./canvas/layout")>();
+  return {
+    ...orig,
+    layoutRenderPlan: vi.fn(async () => ({ nodes: [], edges: [] })),
+  };
+});
+
+import App from "./App";
+import { defaultPlan, encodePlan, validatePlan } from "./data/plan";
+import { pack } from "./data/load";
+
+beforeEach(() => {
+  // @xyflow/react's canvas requires ResizeObserver; jsdom has none, and
+  // without the stub React 19 tears the whole tree down on mount.
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  window.location.hash = "";
+  // Pin the locale; App's LocaleProvider defaults to zh otherwise.
+  window.localStorage.setItem("aef.locale", "en");
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  window.location.hash = "";
+});
+
+test("RECIPES chip counts distinct recipe ids, not logical nodes", async () => {
+  const plan = {
+    ...defaultPlan(pack),
+    targets: [
+      { recipeId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } },
+    ],
+  };
+  expect(validatePlan(plan, pack)).toBeNull();
+  window.location.hash = "#" + (await encodePlan(plan));
+
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+
+  await waitFor(() => {
+    const header = screen.getByTestId("header-strip");
+    expect(header.textContent).toContain("RECIPES 7");
+  });
+});

@@ -45,8 +45,6 @@ function buildG(
     nodes: nodes as unknown as Map<string, never>,
     outgoing,
     incoming,
-    depthToItem: new Map(),
-    depthToRecipe: new Map(),
   } as RecipeGraph;
 }
 
@@ -87,7 +85,7 @@ describe("replicatePerConsumer", () => {
       ["P", new Fraction(2)],
     ]);
     const condensation = trivialCondensation(["P", "A", "B"]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation,
       rates,
@@ -120,7 +118,7 @@ describe("replicatePerConsumer", () => {
       ["P", new Fraction(2)],
     ]);
     const condensation = trivialCondensation(["P", "A", "B"]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation,
       rates,
@@ -146,7 +144,7 @@ describe("replicatePerConsumer", () => {
       ["SINK", new Fraction(1, 4)],
     ]);
     const condensation = trivialCondensation(["U", "SINK"]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation,
       rates,
@@ -189,7 +187,7 @@ describe("replicatePerConsumer", () => {
       outgoing: new Map([["M1", new Set()]]),
       incoming: new Map([["M1", new Set()]]),
     };
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation,
       rates,
@@ -271,7 +269,7 @@ describe("replicatePerConsumer", () => {
       ["Y", new Fraction(1)],
     ]);
     const condensation = trivialCondensation(["R", "Q", "P", "X", "Y"]);
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation,
       rates,
@@ -343,7 +341,7 @@ describe("replicatePerConsumer", () => {
         ["DOWN", new Set(["PICKER"])],
       ]),
     };
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation,
       rates,
@@ -425,7 +423,7 @@ describe("replicatePerConsumer", () => {
         ["DC", new Set(["M1"])],
       ]),
     };
-    const replicas = replicatePerConsumer({
+    const { replicas } = replicatePerConsumer({
       g,
       articulation,
       rates,

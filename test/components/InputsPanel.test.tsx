@@ -90,7 +90,9 @@ describe("InputsPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: /添加输入/ }));
     expect(onChange).toHaveBeenCalledTimes(1);
-    const next = onChange.mock.calls[0]![0] as ItemOverride[];
+    const next = (
+      onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
+    )(overrides);
     expect(next.length).toBe(2);
     expect(next[1]).toEqual({ itemId: "copper_plate" });
   });
@@ -135,7 +137,9 @@ describe("InputsPanel", () => {
       expect(onChange).not.toHaveBeenCalled();
       vi.advanceTimersByTime(150);
       expect(onChange).toHaveBeenCalledTimes(1);
-      const next = onChange.mock.calls[0]![0] as ItemOverride[];
+      const next = (
+        onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
+      )(overrides);
       expect(next).toEqual([{ itemId: "copper_ore" }]);
     } finally {
       vi.useRealTimers();
@@ -185,7 +189,9 @@ describe("InputsPanel", () => {
     const removeButtons = screen.getAllByTestId("remove-input");
     await user.click(removeButtons[1]!);
     expect(onChange).toHaveBeenCalledTimes(1);
-    const next = onChange.mock.calls[0]![0] as ItemOverride[];
+    const next = (
+      onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
+    )(overrides);
     expect(next).toEqual([{ itemId: "copper_ore" }, { itemId: "zinc" }]);
   });
 
@@ -316,7 +322,9 @@ describe("InputsPanel", () => {
       fireEvent.change(input, { target: { value: "180" } });
       vi.advanceTimersByTime(150);
       expect(onChange).toHaveBeenCalledTimes(1);
-      const next = onChange.mock.calls[0]![0] as ItemOverride[];
+      const next = (
+        onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
+      )([]);
       // 180/min -> 3/s = "3/1".
       expect(next).toEqual([
         { itemId: "copper_ore", ratePerSec: { num: "3", denom: "1" } },

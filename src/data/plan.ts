@@ -1,21 +1,25 @@
 import type { RecipePack } from "@aef/schema";
 import type { RationalString, Target } from "./targets";
 import { defaultTargets } from "./targets";
-import { isInputSupplyRecipe } from "./recipe-category";
+import {
+  hasPositivePrimaryQty,
+  isExcludedProducer,
+  isSinkRecipe,
+} from "./recipe-category";
 import type { PlanWireV1 } from "./plan-wire-v1";
 import {
   decodeWire,
   encodeWire,
   fromWire,
+  isWireShaped,
   toWire,
 } from "./plan-wire-v1";
 
 // A per-item override for the production walk, keyed by item id.
 //   plan: true    -> keep walking through this item.
 //   ratePerSec: X -> cap the input boundary at X during rendering.
-// Both fields are optional. There's no `plan: false`; the presence of
-// `plan: true` is itself the signal. If both `plan: true` and `ratePerSec` are
-// set, the rate wins.
+// Both fields are optional. There is no `plan: false`; `plan: true` being
+// present is the signal. If both are set, the rate wins.
 export type ItemOverride = {
   itemId: string;
   plan?: true;
@@ -28,10 +32,15 @@ export type Plan = {
   title: string;
   targets: Target[];
   itemOverrides?: ItemOverride[];
+  // Per-recipe cost overrides for the LP solver, keyed by recipe id. Absent =>
+  // all default costs. Every entry rides the wire, including "1/1": big-M
+  // recipes default to 1e6, so a 1/1 override there is meaningful. Power-user
+  // surface, no cost-tuning UI.
+  recipeCosts?: Map<string, RationalString>;
 };
 
-// Cap on the URL-fragment payload length. We check it before decompressing so a
-// hostile hash can't blow up memory.
+// Cap on the URL-fragment payload length, checked before decompressing so a
+// hostile hash cannot blow up memory.
 export const MAX_HASH_PAYLOAD_LEN = 16384;
 
 const CURRENT_VERSION = 1;
@@ -42,10 +51,16 @@ export type PlanLoadError =
   | { kind: "unrecognized-version"; got: number }
   | { kind: "schema-version-mismatch"; planSchema: string; packSchema: string }
   | { kind: "duplicate-target"; recipeId: string }
+  | { kind: "unknown-target-recipe"; recipeId: string }
   | { kind: "target-not-a-producer"; recipeId: string }
+  | { kind: "target-primary-zero-qty"; recipeId: string; itemId: string }
+  | { kind: "unknown-recipe-cost"; recipeId: string }
   | { kind: "unknown-item-override"; itemId: string }
   | { kind: "duplicate-item-override"; itemId: string }
-  | { kind: "invalid-item-override-plan-flag"; itemId: string; value: unknown };
+  | { kind: "invalid-item-override-plan-flag"; itemId: string; value: unknown }
+  // value is unknown, not RationalString: it comes straight off the wire and
+  // may be null or any other JSON shape when the payload is hostile.
+  | { kind: "invalid-rational"; field: string; value: unknown };
 
 export type LoadOutcome =
   | { kind: "loaded"; plan: Plan }
@@ -77,15 +92,45 @@ export function describePlanLoadError(error: PlanLoadError): string {
       return `Plan schemaVersion ${error.planSchema} does not match pack ${error.packSchema}.`;
     case "duplicate-target":
       return `Duplicate target recipe ${error.recipeId}.`;
+    case "unknown-target-recipe":
+      return `Target references unknown recipe ${error.recipeId}.`;
     case "target-not-a-producer":
-      return `Recipe ${error.recipeId} is input-supply metadata, not a selectable target.`;
+      return `Recipe ${error.recipeId} cannot be a target: supply metadata or no outputs.`;
+    case "target-primary-zero-qty":
+      return `Recipe ${error.recipeId} cannot be a target: its primary output ${error.itemId} has zero quantity, so it produces none of the requested item.`;
+    case "unknown-recipe-cost":
+      return `Recipe cost references unknown recipe ${error.recipeId}.`;
     case "unknown-item-override":
       return `Item override references unknown item ${error.itemId}.`;
     case "duplicate-item-override":
       return `Item override duplicated for ${error.itemId}.`;
     case "invalid-item-override-plan-flag":
       return `Item override ${error.itemId}: plan must be literal true.`;
+    case "invalid-rational": {
+      // The wire value may be null or mis-shaped; only render num/denom when
+      // both are actually strings, otherwise show the raw JSON.
+      const v = error.value as { num?: unknown; denom?: unknown } | null;
+      const text =
+        typeof v?.num === "string" && typeof v?.denom === "string"
+          ? `${v.num}/${v.denom}`
+          : JSON.stringify(error.value);
+      return `Invalid rational in ${error.field}: ${text}.`;
+    }
   }
+}
+
+// A wire RationalString is well-formed when num and denom are integer strings
+// and num/denom is finite (which also rejects a zero denominator). Validating
+// at the trust boundary keeps a hostile or corrupt hash from reaching the
+// solver, where a zero denominator throws (effectiveSupply) and a non-numeric
+// string injects NaN/Infinity into the objective and demand.
+function isValidRational(r: RationalString): boolean {
+  if (typeof r?.num !== "string" || typeof r?.denom !== "string") return false;
+  // Non-negative integer strings only. A negative numerator or denominator
+  // passes the finite check yet injects negative demand or a negative supply
+  // cap. The denominator must be non-zero, caught here as a non-finite quotient.
+  if (!/^\d+$/.test(r.num) || !/^\d+$/.test(r.denom)) return false;
+  return Number.isFinite(Number(r.num) / Number(r.denom));
 }
 
 export async function loadPlan(
@@ -132,6 +177,18 @@ export async function loadPlan(
       },
     };
   }
+  // Trust boundary: decodeWire returns arbitrary JSON. Reject wrong container
+  // shapes here so fromWire's destructuring and validatePlan's iteration only
+  // ever see the typed wire shape; otherwise both leak raw TypeErrors.
+  if (!isWireShaped(wire)) {
+    return {
+      kind: "error",
+      error: {
+        kind: "malformed-hash",
+        reason: "decoded payload is not a v1 plan wire shape",
+      },
+    };
+  }
   const plan = fromWire(wire);
   const error = validatePlan(plan, pack);
   if (error) return { kind: "error", error };
@@ -161,12 +218,36 @@ export function validatePlan(
       return { kind: "duplicate-target", recipeId: t.recipeId };
     }
     seenTargets.add(t.recipeId);
+    if (!isValidRational(t.ratePerSec)) {
+      return {
+        kind: "invalid-rational",
+        field: `target ${t.recipeId} ratePerSec`,
+        value: t.ratePerSec,
+      };
+    }
     const recipe = recipeById.get(t.recipeId);
-    // __domain_transfer recipes are input-supply metadata, not production steps
-    // you can select. This is a second line of defense in case one slips past
-    // the picker filter and lands in a plan.
-    if (recipe && isInputSupplyRecipe(recipe)) {
+    // An unknown target recipe would otherwise reach graph construction and
+    // throw UnknownRecipeError; reject it here as a structured load error.
+    if (!recipe) {
+      return { kind: "unknown-target-recipe", recipeId: t.recipeId };
+    }
+    // Input-supply (__domain_transfer) recipes are supply metadata and
+    // no-output recipes (waste sinks, pure consumers) have no defined target
+    // rate; neither is a selectable target. Second line of defense in case
+    // one slips past the picker filter.
+    if (isExcludedProducer(recipe) || isSinkRecipe(recipe)) {
       return { kind: "target-not-a-producer", recipeId: t.recipeId };
+    }
+    // A recipe with outputs but a zero/negative primary qty produces none of
+    // the item the target rate names. Left to the solver it gets no pin floor
+    // and the demand is silently absorbed by a boundary draw; reject it here so
+    // the unsatisfiable target surfaces instead.
+    if (!hasPositivePrimaryQty(recipe)) {
+      return {
+        kind: "target-primary-zero-qty",
+        recipeId: t.recipeId,
+        itemId: recipe.out[0]!.item,
+      };
     }
   }
   if (plan.itemOverrides) {
@@ -190,6 +271,27 @@ export function validatePlan(
         return { kind: "duplicate-item-override", itemId: ov.itemId };
       }
       seenOverrides.add(ov.itemId);
+      if (ov.ratePerSec !== undefined && !isValidRational(ov.ratePerSec)) {
+        return {
+          kind: "invalid-rational",
+          field: `item override ${ov.itemId} ratePerSec`,
+          value: ov.ratePerSec,
+        };
+      }
+    }
+  }
+  if (plan.recipeCosts) {
+    for (const [recipeId, rc] of plan.recipeCosts) {
+      if (!recipeById.has(recipeId)) {
+        return { kind: "unknown-recipe-cost", recipeId };
+      }
+      if (!isValidRational(rc)) {
+        return {
+          kind: "invalid-rational",
+          field: `recipe cost ${recipeId}`,
+          value: rc,
+        };
+      }
     }
   }
   return null;

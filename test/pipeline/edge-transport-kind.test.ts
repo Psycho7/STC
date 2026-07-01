@@ -264,6 +264,8 @@ describe("buildRenderPlan / RenderEdge.transportKind end-to-end", () => {
       torn: full.torn,
       recipeById: full.recipeById,
       rates: full.rates,
+      supplyShares: full.supplyShares,
+      boundaryShare: full.boundaryShare,
       itemById,
       machineById: new Map(pack.machines.map((m) => [m.id, m])),
       itemOverrides: [],

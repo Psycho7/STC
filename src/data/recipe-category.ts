@@ -16,10 +16,20 @@ export function isExcludedProducer(recipe: Recipe): boolean {
   return isInputSupplyRecipe(recipe) || recipe.cost === -1;
 }
 
-// A sink recipe consumes an item and produces nothing back, like the
-// liquid_cleaner_1 treatment recipes. It carries the same cost === -1 sentinel
-// that isExcludedProducer keys on, but the picker calls this predicate directly
-// so it doesn't have to reach into solver-side helpers.
+// A sink recipe consumes items and produces nothing back. A target rate is
+// undefined for such a recipe, so it can never be a target. The empty output
+// list covers both the cost === -1 liquid_cleaner_1 waste sinks and the
+// cost-less pure consumers (sewage-treat, power_originium_ore,
+// power_proc_battery_1..5), which carry no sentinel at all.
 export function isSinkRecipe(recipe: Recipe): boolean {
-  return recipe.cost === -1;
+  return recipe.out.length === 0;
+}
+
+// A target rate is measured against a recipe's primary output (out[0]). A zero
+// or negative primary qty means the recipe yields none of the item the target
+// asks for, so it can never satisfy a target rate; the solver would silently
+// absorb the demand through a boundary draw rather than producing it. Real
+// packs should never carry this, but a corrupt pack or hostile plan can.
+export function hasPositivePrimaryQty(recipe: Recipe): boolean {
+  return recipe.out.length > 0 && recipe.out[0]!.qty > 0;
 }

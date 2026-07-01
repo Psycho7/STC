@@ -1,18 +1,25 @@
 import type { ItemOverride, Plan } from "./plan";
-import type { Target } from "./targets";
+import type { RationalString, Target } from "./targets";
 import { gzipBytes, gunzipBytes } from "./encoding/gzip";
 import { bytesToBase64url, base64urlToBytes } from "./encoding/base64url";
 
-// Wire shape for the current (v1) envelope. We sort by stable keys when
-// encoding so the same plan always produces the same URL hash. Decoding is
-// lenient about unknown fields: optional fields added by a slightly newer build
-// just come through as `undefined`. The actual invariant checks happen in
-// validatePlan.
+// Wire shape for the v1 envelope. Encoding sorts by stable keys so the same
+// plan always produces the same URL hash. Decoding is lenient about unknown
+// fields: optional fields from a newer build come through as `undefined`.
+// Invariant checks happen in validatePlan.
+//
+// Canonical order is the designed contract (decided wont-fix): the user's
+// panel row order is purely presentational, is NOT carried on the wire, and
+// cannot be restored on decode. Sharing or reloading a plan reorders targets
+// and itemOverrides into canonical sorted order. Preserving row order would
+// either break canonical hashing (stop sorting) or churn the wire format
+// (a permutation field) for a cosmetic property.
 export type PlanWireV1 = {
   pack: [id: string, schemaVersion: string, sha: string];
   title: string;
   targets: Target[];
   itemOverrides?: ItemOverride[];
+  recipeCosts?: Record<string, RationalString>;
 };
 
 export function toWire(plan: Plan): PlanWireV1 {
@@ -29,7 +36,47 @@ export function toWire(plan: Plan): PlanWireV1 {
       a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0,
     );
   }
+  if (plan.recipeCosts && plan.recipeCosts.size > 0) {
+    // Every override goes on the wire, including 1/1. The default cost is not
+    // uniformly 1: target-only and excluded-producer recipes default to the
+    // big-M cost, so a 1/1 override on them is load-bearing and dropping it
+    // would silently change the shared plan's solve. toWire has no pack
+    // access, so it cannot tell which case it is looking at.
+    const entries = [...plan.recipeCosts.entries()].sort((a, b) =>
+      a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0,
+    );
+    wire.recipeCosts = Object.fromEntries(entries);
+  }
   return wire;
+}
+
+// Structural trust boundary for decoded JSON. decodeWire returns whatever the
+// hash carried; before fromWire destructures it and validatePlan iterates it,
+// the container shapes must hold or both throw raw TypeErrors. Field-level
+// semantics (rational validity, known ids) stay in validatePlan.
+export function isWireShaped(x: unknown): x is PlanWireV1 {
+  if (!isRecord(x)) return false;
+  if (
+    !Array.isArray(x.pack) ||
+    x.pack.length !== 3 ||
+    !x.pack.every((s) => typeof s === "string")
+  ) {
+    return false;
+  }
+  if (typeof x.title !== "string") return false;
+  if (!Array.isArray(x.targets) || !x.targets.every(isRecord)) return false;
+  if (
+    x.itemOverrides !== undefined &&
+    (!Array.isArray(x.itemOverrides) || !x.itemOverrides.every(isRecord))
+  ) {
+    return false;
+  }
+  if (x.recipeCosts !== undefined && !isRecord(x.recipeCosts)) return false;
+  return true;
+}
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null && !Array.isArray(x);
 }
 
 export function fromWire(wire: PlanWireV1): Plan {
@@ -42,6 +89,9 @@ export function fromWire(wire: PlanWireV1): Plan {
   };
   if (wire.itemOverrides !== undefined) {
     plan.itemOverrides = wire.itemOverrides;
+  }
+  if (wire.recipeCosts !== undefined) {
+    plan.recipeCosts = new Map(Object.entries(wire.recipeCosts));
   }
   return plan;
 }

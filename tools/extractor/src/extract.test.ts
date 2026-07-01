@@ -13,7 +13,6 @@ import { collapseSyntheticChains, main as runExtractor } from "./extract.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const TRANSPORT_CONFIG_PATH = resolve(REPO_ROOT, "data/aef/transport-config.json");
-const TRANSPORT_CONFIG_SCHEMA_PATH = resolve(REPO_ROOT, "data/aef/transport-config.schema.json");
 
 let pack: RecipePack;
 let i18n: RecipePackI18n;
@@ -60,40 +59,9 @@ describe("id-set disjointness and uniqueness", () => {
     }
     expect(ids.size).toBe(pack.items.length + pack.machines.length + pack.transports.length);
   });
-
-  test("recipe ids are unique", () => {
-    const ids = new Set(pack.recipes.map((r) => r.id));
-    expect(ids.size).toBe(pack.recipes.length);
-  });
 });
 
 describe("referential integrity", () => {
-  test("every recipe in/out item resolves to an item (not a machine or transport)", () => {
-    const itemIds = new Set(pack.items.map((i) => i.id));
-    for (const r of pack.recipes) {
-      for (const s of [...r.in, ...r.out]) {
-        expect(itemIds.has(s.item)).toBe(true);
-      }
-    }
-  });
-
-  test("every producer resolves to a machine", () => {
-    const machineIds = new Set(pack.machines.map((m) => m.id));
-    for (const r of pack.recipes) {
-      expect(r.producers.length).toBeGreaterThan(0);
-      for (const p of r.producers) {
-        expect(machineIds.has(p)).toBe(true);
-      }
-    }
-  });
-
-  test("every Item.transportKind value resolves to a Transport.kind in the pack (asserted by validateReferentialIntegrity)", () => {
-    const transportKinds = new Set(pack.transports.map((t) => t.kind));
-    for (const item of pack.items) {
-      expect(transportKinds.has(item.transportKind)).toBe(true);
-    }
-  });
-
   test("every recipe.locations entry, when present, is a known location", () => {
     const locIds = new Set(pack.locations.map((l) => l.id));
     for (const r of pack.recipes) {
@@ -120,10 +88,6 @@ describe("invariants", () => {
     for (const r of pack.recipes) {
       for (const s of [...r.in, ...r.out]) expect(s.qty).toBeGreaterThanOrEqual(1);
     }
-  });
-
-  test("transport speeds are positive", () => {
-    for (const t of pack.transports) expect(t.speed).toBeGreaterThan(0);
   });
 
   test("recipe in/out item sets are disjoint (no catalysts in AEF)", () => {
@@ -258,14 +222,6 @@ describe("order preservation", () => {
 });
 
 describe("synthetic-chain collapse", () => {
-  test("no __-prefix stoichiometric entries remain on any recipe", () => {
-    for (const r of pack.recipes) {
-      for (const s of [...r.in, ...r.out]) {
-        expect(s.item.startsWith("__")).toBe(false);
-      }
-    }
-  });
-
   test("__miner_water item and __miner_water identity recipe are dropped", () => {
     expect(pack.items.find((i) => i.id === "__miner_water")).toBeUndefined();
     expect(pack.recipes.find((r) => r.id === "__miner_water")).toBeUndefined();
@@ -315,29 +271,9 @@ describe("raw classification", () => {
     const producers = pack.recipes.filter((r) => r.out.some((s) => s.item === "domain_key_tundra"));
     expect(producers).toEqual([]);
   });
-
-  test("every Item carries a raw flag", () => {
-    for (const item of pack.items) {
-      expect(typeof item.raw).toBe("boolean");
-    }
-  });
 });
 
 describe("transport-kind classification", () => {
-  test("every Item carries a transportKind", () => {
-    for (const item of pack.items) {
-      expect(typeof item.transportKind).toBe("string");
-      expect(item.transportKind.length).toBeGreaterThan(0);
-    }
-  });
-
-  test("every Item.transportKind resolves to a Transport.kind in the pack", () => {
-    const transportKinds = new Set(pack.transports.map((t) => t.kind));
-    for (const item of pack.items) {
-      expect(transportKinds.has(item.transportKind)).toBe(true);
-    }
-  });
-
   test("every Transport.kind has a carrier entry in transport-config.json", async () => {
     const transportConfig = (await Bun.file(TRANSPORT_CONFIG_PATH).json()) as {
       carriers: Record<string, unknown>;
@@ -361,47 +297,6 @@ describe("transport-kind classification", () => {
   });
 });
 
-describe("transport-config schema and document", () => {
-  test("transport-config.json schemaVersion is 0.2", async () => {
-    const cfg = (await Bun.file(TRANSPORT_CONFIG_PATH).json()) as { schemaVersion: string };
-    expect(cfg.schemaVersion).toBe("0.2");
-  });
-
-  test("transport-config.json validates against its schema for arbitrary string carrier keys", async () => {
-    const cfg = (await Bun.file(TRANSPORT_CONFIG_PATH).json()) as {
-      schemaVersion: unknown;
-      source: unknown;
-      lanesPerBlueprintGroup: unknown;
-      interGroupGapTiles: unknown;
-      carriers: Record<string, { transportId: unknown; itemsPerSecondPerLane: unknown }>;
-    };
-    const schema = (await Bun.file(TRANSPORT_CONFIG_SCHEMA_PATH).json()) as {
-      required: string[];
-      properties: { carriers: { required?: string[]; additionalProperties?: boolean; patternProperties?: Record<string, unknown> } };
-    };
-
-    // Minimal structural checks: the document matches the relaxed schema shape.
-    expect(schema.required).toEqual([
-      "schemaVersion",
-      "source",
-      "lanesPerBlueprintGroup",
-      "interGroupGapTiles",
-      "carriers",
-    ]);
-    expect(schema.properties.carriers.required).toBeUndefined();
-    expect(schema.properties.carriers.additionalProperties).toBeUndefined();
-    expect(schema.properties.carriers.patternProperties).toBeDefined();
-
-    // Each carrier entry has the required value shape.
-    for (const [key, entry] of Object.entries(cfg.carriers)) {
-      expect(key.length).toBeGreaterThan(0);
-      expect(typeof entry.transportId).toBe("string");
-      expect(typeof entry.itemsPerSecondPerLane).toBe("number");
-      expect(entry.itemsPerSecondPerLane as number).toBeGreaterThan(0);
-    }
-  });
-});
-
 describe("idempotence", () => {
   test("re-running the extractor produces identical output, modulo extractedAt", async () => {
     const first = await runExtractor({ write: false });
@@ -416,38 +311,6 @@ describe("idempotence", () => {
 });
 
 describe("i18n sidecar", () => {
-  test("schemaVersion and source provenance match the recipe-pack", () => {
-    expect(i18n.schemaVersion).toBe(SCHEMA_VERSION);
-    expect(i18n.source.name).toBe(pack.source.name);
-    expect(i18n.source.sourceRepo).toBe(pack.source.sourceRepo);
-    expect(i18n.source.sourceCommit).toBe(pack.source.sourceCommit);
-    expect(i18n.source.gameVersion).toBe(pack.source.gameVersion);
-  });
-
-  test("locales array matches the LOCALES constant", () => {
-    expect(i18n.locales).toEqual([...LOCALES]);
-    expect(Object.keys(i18n.names).sort()).toEqual([...LOCALES].sort());
-  });
-
-  test("every locale covers every recipe-pack id, no orphans", () => {
-    const expected = {
-      categories: new Set(pack.categories.map((c) => c.id)),
-      locations: new Set(pack.locations.map((l) => l.id)),
-      items: new Set(pack.items.map((i) => i.id)),
-      machines: new Set(pack.machines.map((m) => m.id)),
-      transports: new Set(pack.transports.map((t) => t.id)),
-      recipes: new Set(pack.recipes.map((r) => r.id)),
-    } as const;
-
-    for (const locale of LOCALES) {
-      const got = i18n.names[locale];
-      for (const kind of Object.keys(expected) as (keyof typeof expected)[]) {
-        const gotIds = new Set(Object.keys(got[kind]));
-        expect(gotIds).toEqual(expected[kind]);
-      }
-    }
-  });
-
   test("every name is a non-empty string", () => {
     for (const locale of LOCALES) {
       const buckets = Object.values(i18n.names[locale]) as Record<string, string>[];

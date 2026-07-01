@@ -43,6 +43,7 @@ function makeInput(
     recipeById: new Map(),
     pack: { items: [] },
     idealCount,
+    boundaryShare: new Map(),
   };
 }
 
@@ -428,6 +429,7 @@ describe("AlwaysFoldRender - boundary products parity with NoFoldRender", () => 
       recipeById,
       pack: { items: [...itemById.values()] },
       idealCount,
+      boundaryShare: new Map(),
     };
 
     const fold = AlwaysFoldRender(input);

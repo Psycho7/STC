@@ -50,7 +50,9 @@ jobs:
     name: Deploy to Cloudflare Pages
     needs: build
     runs-on: ubuntu-latest
-    # Only after CI passes, and skip PRs from forks where secrets are unavailable.
+    # Deploy pushes and same-repo PRs (fork PRs lack secrets) to the stc-preview
+    # project, giving each branch its own preview domain. The production stc
+    # project stays reserved for manual deploys.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
@@ -68,4 +70,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=stc --branch=${{ github.head_ref || github.ref_name }}
+          command: pages deploy dist --project-name=stc-preview --branch=${{ github.head_ref || github.ref_name }}

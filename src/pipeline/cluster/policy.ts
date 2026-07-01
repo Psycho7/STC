@@ -13,10 +13,13 @@ export type { ClusteringPolicy };
 /**
  * The simplest clustering policy we run today. It boxes up loops and nothing
  * else: one loop-box container for each non-trivial SCC (the ones with more than
- * one recipe). It does not make a blueprint-group container per target, so
- * target recipes just render as plain nodes on the rightmost layer next to
- * everything else. Shared utilities and any recipe that isn't part of an SCC
- * stay at the top level.
+ * one recipe) whose SURVIVING replicas still span at least two distinct
+ * recipes. The static condensation alone is not enough: the LP can deactivate
+ * all but one member of an SCC, and a lone survivor participates in no
+ * rendered cycle, so boxing it would draw a "loop" around a single node. It
+ * does not make a blueprint-group container per target, so target recipes just
+ * render as plain nodes on the rightmost layer next to everything else. Shared
+ * utilities and any recipe that isn't part of an SCC stay at the top level.
  */
 export const PillarsOnly: ClusteringPolicy = (
   input: ClusteringPolicyInput,
@@ -32,17 +35,23 @@ export const PillarsOnly: ClusteringPolicy = (
   }
 
   const loopMembers = new Map<string, ReplicaId[]>();
+  const survivingRecipes = new Map<string, Set<string>>();
   for (const r of replicas) {
     const sccId = recipeToSccId.get(r.recipeId);
     if (sccId === undefined) continue;
     const arr = loopMembers.get(sccId) ?? [];
     arr.push(r.id);
     loopMembers.set(sccId, arr);
+    const recipes = survivingRecipes.get(sccId) ?? new Set<string>();
+    recipes.add(r.recipeId);
+    survivingRecipes.set(sccId, recipes);
   }
 
   const containers: Container[] = [];
   const containerByMember = new Map<ReplicaId, ContainerId>();
-  const sccIds = [...loopMembers.keys()].sort();
+  const sccIds = [...loopMembers.keys()]
+    .filter((sccId) => (survivingRecipes.get(sccId)?.size ?? 0) >= 2)
+    .sort();
   for (const sccId of sccIds) {
     const members = (loopMembers.get(sccId) ?? []).slice().sort();
     const id = `loop:${sccId}`;

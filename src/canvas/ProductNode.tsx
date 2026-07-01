@@ -8,16 +8,15 @@ import { buildPnKind } from "./productNodeMetadata";
 import type { PortTransportKinds } from "./layout";
 import { iconPosition } from "./iconSprite";
 
-// Data shape accepted by ProductNode. The component branches on `kind`, and for
-// outputs on `flavor`, to choose the look and the handle direction:
-//  - inputProduct (cyan): one right-side source handle that downstream consumer
-//    recipes connect to. `rate` is the realized demand and is always present;
-//    `rateCap` is an optional user-set cap shown as a secondary chip next to the
-//    primary rate.
-//  - outputProduct, flavor "target" (lime): one left-side target handle that
-//    upstream producer recipes connect to. `rate` is always present.
-//  - outputProduct, flavor "surplus" (amber): same shape as target, used for
-//    byproducts that are produced but not fully consumed.
+// Data shape accepted by ProductNode. The component branches on `kind` (and on
+// `flavor` for outputs) to pick the look and handle direction:
+//  - inputProduct (cyan): one right-side source handle for downstream consumer
+//    recipes. `rate` is the realized demand, always present; `rateCap` is an
+//    optional user-set cap shown as a secondary chip.
+//  - outputProduct, "target" (lime): one left-side target handle for upstream
+//    producer recipes. `rate` always present.
+//  - outputProduct, "surplus" (amber): same shape as target, for byproducts
+//    produced but not fully consumed.
 export type ProductNodeData =
   | {
       kind: "inputProduct";
@@ -25,8 +24,8 @@ export type ProductNodeData =
       rate: RationalString;
       rateCap?: RationalString;
       // Per-container fanout slices have an inbound edge from the item's
-      // aggregate node, so they render an extra target handle on the left to
-      // receive that edge.
+      // aggregate node, so they render an extra left target handle to receive
+      // it.
       isFanout?: boolean;
       portTransportKinds?: PortTransportKinds;
     }
@@ -61,14 +60,14 @@ export default function ProductNode({ data }: NodeProps<ProductNodeType>) {
   const isInput = data.kind === "inputProduct";
 
   // The pn-kind caption comes from the shared helper. If the item is missing
-  // from the pack (corrupt data), fall back to nothing rather than break.
+  // from the pack (corrupt data), fall back to nothing.
   const pnKindText = item ? buildPnKind(data, item, overrides) : null;
 
-  // Primary rate value. For inputs this is the realized demand; for outputs it
-  // is the target or surplus rate.
+  // Primary rate. For inputs this is realized demand; for outputs the target or
+  // surplus rate.
   const rateValue = formatRationalPerMin(data.rate);
-  // Secondary cap chip, inputs only. Shows up when the user set a finite
-  // ratePerSec through an ItemOverride.
+  // Secondary cap chip, inputs only. Present when the user set a finite
+  // ratePerSec via an ItemOverride.
   const capValue =
     isInput && data.rateCap !== undefined
       ? formatRationalPerMin(data.rateCap)
@@ -134,7 +133,9 @@ export default function ProductNode({ data }: NodeProps<ProductNodeType>) {
           );
         })()}
         <div>
-          <div className="pn-name">{displayName}</div>
+          <div className="pn-name" title={displayName}>
+            {displayName}
+          </div>
           {pnKindText !== null ? (
             <div className="pn-kind">{pnKindText}</div>
           ) : null}

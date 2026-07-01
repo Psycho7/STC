@@ -4,10 +4,10 @@ import type { Recipe, RecipePack } from "@aef/schema";
 import type { TransportConfig } from "../data/transport-config";
 import type { Target } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
-import { buildRecipeGraph } from "./graph";
+import { augmentGraphWithLpSupport, buildRecipeGraphMulti } from "./graph";
 import { tarjanScc, condense } from "./scc";
-import { topologicalOrder } from "./topo";
-import { walkAndSolve } from "./walk";
+import { solveLp, type LpResult, type LpSolver } from "./lp";
+import { boundaryResidualShare } from "./boundary-share";
 import { articulationPoints } from "./bctree";
 import { pickTearEdges } from "./tear";
 import { replicatePerConsumer } from "./replicate";
@@ -15,14 +15,31 @@ import { assignIdealMultipliers, assignMultipliers } from "./multiplier";
 import { ffdPack } from "./ffd";
 import { assembleLogicalGraph } from "./assemble";
 import { bisimQuotient, deriveReplicaEdges, type ClassId } from "./bisim";
+import { assertInvariants } from "./invariants";
 import type {
   Condensation,
+  ItemId,
   RecipeGraph,
   RecipeId,
   Replica,
   ReplicaId,
   TornEdge,
 } from "./types";
+
+// Turn the LP outcome into a hard error for the unsolvable cases. "empty" (a
+// feasible optimum running no recipe) and "feasible" both proceed; only
+// "infeasible"/"unbounded" abort.
+function assertSolvable(status: LpResult["status"]): void {
+  switch (status) {
+    case "infeasible":
+      throw new Error("LP solver: infeasible problem");
+    case "unbounded":
+      throw new Error("LP solver: unbounded objective");
+    case "empty":
+    case "feasible":
+      return;
+  }
+}
 
 function runBisim(
   g: RecipeGraph,
@@ -37,10 +54,9 @@ function runBisim(
     rawReplicas.filter((r) => r.sharedAtArticulation).map((r) => r.id),
   );
   // bisimQuotient also produces `quotientEdges` aggregated over (sourceClass,
-  // targetClass, item). We don't thread that into SolvePlanFull right now,
-  // since downstream stages rebuild per-pair flow rates from
-  // assembleLogicalGraph's edge list. It stays on the bisim public API because
-  // the planned K-stamps count badge will want it.
+  // targetClass, item). We don't thread that into SolvePlanFull: downstream
+  // stages rebuild per-pair flow rates from assembleLogicalGraph's edge list. It
+  // stays on the bisim public API for a future K-stamps count badge.
   const { quotientReplicas, classByReplicaId, classToQuotient } = bisimQuotient(
     {
       replicas: rawReplicas,
@@ -52,10 +68,10 @@ function runBisim(
 }
 
 /**
- * Full solver output, returned by `solvePlanWithIntermediates` for callers
- * that feed the render pipeline. `logical` is the same LogicalGraph `solvePlan`
- * returns; the extra fields expose the intermediates the cluster, expand,
- * bisim, and render stages need.
+ * Full solver output, returned by `solvePlanWithIntermediates` for callers that
+ * feed the render pipeline. `logical` is the LogicalGraph `solvePlan` returns;
+ * the extra fields expose the intermediates the cluster, expand, bisim, and
+ * render stages need.
  */
 export type SolvePlanFull = {
   logical: LogicalGraph;
@@ -65,124 +81,125 @@ export type SolvePlanFull = {
   torn: TornEdge[];
   recipeById: Map<RecipeId, Recipe>;
   /**
-   * Per-recipe execution rate from walkAndSolve. Zero-rate recipes drop out of
-   * `replicas` (the multipliers map gates them), but this map stays complete so
+   * Per-recipe execution rate from the LP solver. Zero-rate recipes drop out of
+   * `replicas` (gated by the multipliers map), but this map stays complete so
    * callers can derive per-edge rates without re-running the flow solve.
    */
   rates: Map<RecipeId, Fraction>;
   /**
-   * Exact rational machine count per replica, before the ceiling is taken.
-   * It runs in parallel with `multipliers` (which holds the ceiled integer
-   * count) so downstream stages can fold equivalent replicas on the
-   * pre-ceiling rate.
+   * Exact rational machine count per replica, before the ceiling. Runs in
+   * parallel with `multipliers` (the ceiled integer count) so downstream stages
+   * can fold equivalent replicas on the pre-ceiling rate.
    */
   idealCount: Map<ReplicaId, Fraction>;
   classByReplicaId: Map<ReplicaId, ClassId>;
   /** ClassId -> quotient replica id ("q:N"). Paired with classByReplicaId so
-   *  canvas highlighting can map a hovered quotient node back to the set of
-   *  original replica ids in its class.
+   *  canvas highlighting can map a hovered quotient node back to the original
+   *  replica ids in its class.
    */
   classToQuotient: Map<ClassId, ReplicaId>;
+  /**
+   * Feasibility summary from the LP result. `softFeasible` is false when any
+   * material demand stayed unmet; `deficits` lists each unmet item and its
+   * shortfall. Surfaced so the render/UI layer can show an unsatisfiable plan
+   * instead of silent success.
+   */
+  feasibility: {
+    softFeasible: boolean;
+    deficits: Map<ItemId, Fraction>;
+  };
+  /**
+   * Committed producer-recipe -> consumer-recipe item flow (items/s), keyed by
+   * `supplyShareKey` from replicate.ts. Recorded for SHARED producers only;
+   * the render driver uses it as the per-consumer demand-split weight in
+   * computeEdgeRates (absent keys fall back to production-share weighting).
+   */
+  supplyShares: Map<string, Fraction>;
+  /**
+   * Per finite-capped item the LP drew from the boundary: the fraction of its
+   * consumption in-graph producers cover (`boundaryResidualShare`). Missing
+   * entries mean share 1 (no boundary contribution). The render driver nets
+   * consumer demand and boundary-product emission by this map so all layers
+   * share one definition of the cap.
+   */
+  boundaryShare: Map<ItemId, Fraction>;
 };
 
-export function solvePlan(
+// Shared pipeline behind both entry points. Runs the full solve (graph build,
+// SCC condensation, LP solve, replication, bisim, multiplier assignment, FFD
+// packing, tear-edge rebuild, logical-graph assembly) and returns the assembled
+// SolvePlanFull plus the raw LpResult. It does NOT run the dev-only invariant
+// assertions; those stay with solvePlanWithIntermediates so solvePlan keeps its
+// lighter contract.
+//
+// The TornEdge[] is rebuilt here because the LP solver returns no torn-edge
+// metadata; return-arc rendering needs the full TornEdge objects with their
+// .edge and .sccId fields. AEF has only a handful of non-trivial SCCs, so re-
+// running pickTearEdges costs almost nothing.
+function runSolvePipeline(
   targets: Target[],
   pack: RecipePack,
   tConfig: TransportConfig,
-  itemOverrides?: ItemOverride[],
-): LogicalGraph {
+  itemOverrides: ItemOverride[] | undefined,
+  recipeCosts: Map<RecipeId, number> | undefined,
+  solver: LpSolver,
+): { full: SolvePlanFull; lpResult: LpResult } {
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
-  const g = buildRecipeGraph(targets, pack, itemOverrides);
-  const sccs = tarjanScc(g);
-  const c = condense(g, sccs);
-  const topo = topologicalOrder(c);
-  const { rates, tornFlow } = walkAndSolve({
-    g,
-    condensation: c,
-    topo,
+  const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
+  const lpResult = solver({
     targets,
     pack,
     itemOverrides: itemOverrides ?? [],
+    ...(recipeCosts !== undefined && { recipeCosts }),
   });
-  const aps = articulationPoints(g);
-  const rawReplicas = replicatePerConsumer({
-    g,
-    articulation: aps,
+  assertSolvable(lpResult.status);
+  const rates = lpResult.rates;
+  // Residual share per finite-capped item the LP drew from the boundary. The
+  // walk nets each consumer's per-item demand by it so replica rates (and the
+  // machine counts derived from them) reconcile with the LP solution.
+  const boundaryShare = boundaryResidualShare(
+    pack.recipes,
     rates,
-    condensation: c,
+    lpResult.draws,
+  );
+  // Close graph membership over the LP support before any graph-derived
+  // structure is computed: a disposal absorber the LP runs is unreachable from
+  // the target cone and would otherwise be missing from the render entirely.
+  const augmented = augmentGraphWithLpSupport(
+    g,
+    rates,
+    pack,
     targets,
-  });
-  const { replicas } = runBisim(g, rawReplicas);
-  const multipliers = assignMultipliers(replicas, machineById, recipeById);
-  // solvePlan skips assignIdealMultipliers (and its idealCount map) on
-  // purpose: this entry point returns only a LogicalGraph and never feeds the
-  // render pipeline's expandMultipliers stage, so the fractional ideal count
-  // would just be thrown away. solvePlanWithIntermediates is the one that needs
-  // both maps.
-  const lanes = ffdPack(replicas, itemById, recipeById, tConfig);
-
-  // Rebuild the TornEdge[] that assembleLogicalGraph needs. walkAndSolve only
-  // hands back tornFlow values keyed by id, but return-arc rendering needs the
-  // full TornEdge objects with their .edge and .sccId fields. AEF has just a
-  // handful of non-trivial SCCs, so re-running pickTearEdges costs almost
-  // nothing.
-  const torn: TornEdge[] = [];
-  for (const scc of sccs) {
-    if (scc.recipeIds.length > 1) {
-      torn.push(...pickTearEdges(scc, g));
+    itemOverrides,
+  );
+  const sccs = tarjanScc(g);
+  const c = condense(g, sccs);
+  if (import.meta.env.DEV && augmented.size > 0) {
+    // The seeding path treats augmented nodes as singleton SCCs. A mutual cycle
+    // among augmented nodes would route them into the SCC machinery unseeded;
+    // fail loud instead of replicating it wrong.
+    for (const scc of sccs) {
+      if (scc.recipeIds.length <= 1) continue;
+      const hit = scc.recipeIds.find((id) => augmented.has(id));
+      if (hit !== undefined) {
+        throw new Error(
+          `augmented LP-support recipe ${hit} inside multi-member SCC ${scc.id}`,
+        );
+      }
     }
   }
-
-  return assembleLogicalGraph({
-    replicas,
-    multipliers,
-    lanes,
-    tornEdges: [...tornFlow.keys()],
-    condensation: c,
-    recipeById,
-    g,
-    torn,
-  });
-}
-
-/**
- * Mirrors `solvePlan` but also returns the intermediate artifacts the render
- * pipeline (cluster, expand, bisim, render) needs. It's a separate entry point
- * so existing callers and tests of `solvePlan` stay untouched; the computation
- * is the same and only the return shape differs.
- */
-export function solvePlanWithIntermediates(
-  targets: Target[],
-  pack: RecipePack,
-  tConfig: TransportConfig,
-  itemOverrides?: ItemOverride[],
-): SolvePlanFull {
-  const machineById = new Map(pack.machines.map((m) => [m.id, m]));
-  const itemById = new Map(pack.items.map((i) => [i.id, i]));
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
-
-  const g = buildRecipeGraph(targets, pack, itemOverrides);
-  const sccs = tarjanScc(g);
-  const c = condense(g, sccs);
-  const topo = topologicalOrder(c);
-  const { rates, tornFlow } = walkAndSolve({
-    g,
-    condensation: c,
-    topo,
-    targets,
-    pack,
-    itemOverrides: itemOverrides ?? [],
-  });
   const aps = articulationPoints(g);
-  const rawReplicas = replicatePerConsumer({
+  const { replicas: rawReplicas, supplyShares } = replicatePerConsumer({
     g,
     articulation: aps,
     rates,
     condensation: c,
     targets,
+    augmented,
+    boundaryShare,
   });
   const { replicas, classByReplicaId, classToQuotient } = runBisim(
     g,
@@ -203,14 +220,14 @@ export function solvePlanWithIntermediates(
     replicas,
     multipliers,
     lanes,
-    tornEdges: [...tornFlow.keys()],
+    tornEdges: torn.map((t) => t.id),
     condensation: c,
     recipeById,
     g,
     torn,
   });
 
-  return {
+  const full: SolvePlanFull = {
     logical,
     replicas,
     multipliers,
@@ -221,5 +238,65 @@ export function solvePlanWithIntermediates(
     idealCount,
     classByReplicaId,
     classToQuotient,
+    feasibility: {
+      softFeasible: lpResult.softFeasible,
+      deficits: lpResult.deficit,
+    },
+    supplyShares,
+    boundaryShare,
   };
+
+  return { full, lpResult };
+}
+
+/**
+ * Solve a plan and return just the assembled LogicalGraph. Lighter entry point
+ * for callers that don't need the render-pipeline intermediates; it skips the
+ * dev-only invariant assertions that solvePlanWithIntermediates runs.
+ */
+export function solvePlan(
+  targets: Target[],
+  pack: RecipePack,
+  tConfig: TransportConfig,
+  itemOverrides?: ItemOverride[],
+  recipeCosts?: Map<RecipeId, number>,
+  solver: LpSolver = solveLp,
+): LogicalGraph {
+  return runSolvePipeline(
+    targets,
+    pack,
+    tConfig,
+    itemOverrides,
+    recipeCosts,
+    solver,
+  ).full.logical;
+}
+
+/**
+ * Like `solvePlan` but also returns the intermediate artifacts the render
+ * pipeline (cluster, expand, bisim, render) needs, and runs the reference-free
+ * invariant assertions in dev/test builds.
+ */
+export function solvePlanWithIntermediates(
+  targets: Target[],
+  pack: RecipePack,
+  tConfig: TransportConfig,
+  itemOverrides?: ItemOverride[],
+  recipeCosts?: Map<RecipeId, number>,
+  solver: LpSolver = solveLp,
+): SolvePlanFull {
+  const { full, lpResult } = runSolvePipeline(
+    targets,
+    pack,
+    tConfig,
+    itemOverrides,
+    recipeCosts,
+    solver,
+  );
+
+  if (import.meta.env.DEV) {
+    assertInvariants(full, lpResult, pack, targets, itemOverrides ?? []);
+  }
+
+  return full;
 }
