@@ -1182,6 +1182,21 @@
   margin-left: 1px;
 }
 
+/* Ego-network highlight: hovering a node or a trunk lights its neighbourhood
+   and marks everything else `dimmed`. The class lands on React Flow's node /
+   edge wrappers (Canvas maps it onto the node/edge objects). The transition
+   lives on the base wrappers so both fading out and returning ease smoothly. */
+.ak-canvas-theme .react-flow__node,
+.ak-canvas-theme .react-flow__edge {
+  transition: opacity 120ms ease-out;
+}
+.ak-canvas-theme .react-flow__node.dimmed {
+  opacity: 0.18;
+}
+.ak-canvas-theme .react-flow__edge.dimmed {
+  opacity: 0.12;
+}
+
 /* Override React Flow's default light pane / dot grid for the dark theme. */
 .ak-canvas-theme .react-flow__pane,
 .ak-canvas-theme .react-flow {

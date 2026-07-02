@@ -138,6 +138,16 @@ describe("layout-invariants: root layout options", () => {
       String(BETWEEN_LAYERS_SPACING),
     );
   });
+
+  it("cycleBreaking strategy = DEPTH_FIRST", () => {
+    const g = renderPlanToElkGraph(buildInput());
+    expect(g.layoutOptions?.["elk.layered.cycleBreaking.strategy"]).toBe(
+      "DEPTH_FIRST",
+    );
+    expect(ROOT_LAYOUT_OPTIONS["elk.layered.cycleBreaking.strategy"]).toBe(
+      "DEPTH_FIRST",
+    );
+  });
 });
 
 describe("layout-invariants: pinned unit dimensions", () => {

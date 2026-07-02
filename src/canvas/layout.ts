@@ -41,6 +41,7 @@ import {
   loopBoxDimensions,
 } from "./dimensions";
 import { measureRecipe } from "./recipeGeometry";
+import { routeBusEdges } from "./busRouting";
 import type {
   Container,
   ContainerId,
@@ -170,6 +171,11 @@ export const ROOT_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
   "elk.spacing.edgeEdge": "16",
   "elk.layered.spacing.edgeNodeBetweenLayers": "24",
   "elk.layered.spacing.edgeEdgeBetweenLayers": "16",
+  // Cycle-breaking strategy. DEPTH_FIRST reverses fewer arcs than the default
+  // GREEDY heuristic on this graph's recycle/byproduct family, so those edges
+  // stay forward and span fewer layers. On the repro census this drops the
+  // long-edge (>820px) count 14 -> 9 and the max span 5507 -> 4334.
+  "elk.layered.cycleBreaking.strategy": "DEPTH_FIRST",
 };
 
 const RECIPE_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
@@ -400,24 +406,17 @@ function inputProductUnitToElk(
 ): ElkNode {
   // Aggregate and single-bucket input products sit on the leftmost layer with a
   // single source port on the east side. Fanout slices skip the FIRST-layer
-  // constraint so ELK can drop each one near its container, and they add a sink
+  // constraint so ELK can drop each one near its consumers, and they add a sink
   // port on the west side to receive the edge from the aggregate.
-  //
-  // The "loose" fanout slice (no containerId; its consumers live outside any
-  // blueprint group) has no container tugging it leftward, so the edges out to
-  // its right-side consumers would otherwise let ELK shove it far right next to
-  // them. Pinning loose slices to layer 1, just right of the aggregate on FIRST,
-  // keeps them beside the aggregate as visual taps instead of drifting across
-  // the canvas.
   //
   // So the input products fall into three tiers:
   //   - Aggregate (isAggregate): FIRST_SEPARATE, its own layer ahead of FIRST,
   //     so the aggregate -> fanout edge is a valid forward edge into FIRST or
   //     beyond. ELK does not support a FIRST-to-FIRST edge.
-  //   - Loose fanout slice (isFanout, id ends with ":loose"): FIRST, pinned next
-  //     to the aggregate so it doesn't drift right toward its loose consumers.
-  //   - Clustered fanout slice (isFanout): unconstrained, so ELK settles it near
-  //     its loop-box container on its own.
+  //   - Fanout slice (isFanout): unconstrained, so ELK barycenters each slice
+  //     (per-container or per-consumer tap) next to the consumers it feeds
+  //     instead of pinning it beside the aggregate. This collapses the long
+  //     boundary-supply edges.
   //   - Single-bucket input (neither isFanout nor isAggregate): FIRST, the older
   //     placement for items with one bucket or no fanouts at all.
   let layoutOptions: ElkNode["layoutOptions"];
@@ -427,11 +426,6 @@ function inputProductUnitToElk(
       [ELK_LAYER_CONSTRAINT_KEY]: ELK_LAYER_FIRST_SEPARATE,
     };
   } else if (!u.isFanout) {
-    layoutOptions = {
-      ...RECIPE_LAYOUT_OPTIONS,
-      [ELK_LAYER_CONSTRAINT_KEY]: ELK_LAYER_FIRST,
-    };
-  } else if (u.id.endsWith(":loose")) {
     layoutOptions = {
       ...RECIPE_LAYOUT_OPTIONS,
       [ELK_LAYER_CONSTRAINT_KEY]: ELK_LAYER_FIRST,
@@ -746,5 +740,9 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
 }> {
   const elkGraph = renderPlanToElkGraph(input);
   const laid = (await elk.layout(elkGraph)) as ElkGraph;
-  return fromElkRenderLayout(laid, input);
+  const { nodes, edges } = fromElkRenderLayout(laid, input);
+  // Classify long / boundary-feeder edges into bus trunks after layout, so the
+  // pass sees final absolute node positions when it measures spans and picks
+  // each trunk's lane.
+  return { nodes, edges: routeBusEdges(nodes, edges) };
 }

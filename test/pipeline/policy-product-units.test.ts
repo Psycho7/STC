@@ -1415,7 +1415,7 @@ describe("render policy / input fan-out per container", () => {
     expect(inputs[0]!.rate).toEqual({ num: "2", denom: "1" });
   });
 
-  it("regression: loose consumers (no containerId) keep the legacy u:in:<item> id and collapse to one node", () => {
+  it("loose consumers (no containerId) each get their own tap slice under an aggregate", () => {
     const [v_a, v_b] = makeConsumers({}); // both undefined containerId
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
@@ -1435,11 +1435,72 @@ describe("render policy / input fan-out per container", () => {
     const inputs = plan.units
       .filter(isInputProductUnit)
       .filter((u) => u.itemId === "water");
-    expect(inputs.length).toBe(1);
-    expect(inputs[0]!.id).toBe("u:in:water");
+    // Each loose consumer gets its own tap slice keyed by its consumer unit id;
+    // the aggregate keeps the legacy bare id.
+    const ids = inputs.map((u) => u.id).sort();
+    expect(ids).toEqual([
+      "u:in:water",
+      "u:in:water:tap:u:v_a",
+      "u:in:water:tap:u:v_b",
+    ]);
+    const byId = new Map(inputs.map((u) => [u.id, u]));
+    expect(byId.get("u:in:water")!.isAggregate).toBe(true);
+    expect(byId.get("u:in:water")!.isFanout).toBeUndefined();
+    const tapA = byId.get("u:in:water:tap:u:v_a")!;
+    const tapB = byId.get("u:in:water:tap:u:v_b")!;
+    expect(tapA.isFanout).toBe(true);
+    expect(tapB.isFanout).toBe(true);
+    // (b) tap rates sum exactly to the aggregate rate (rational equality).
+    const aggRate = byId.get("u:in:water")!.rate;
+    const tapSum = new Fraction(`${tapA.rate.num}/${tapA.rate.denom}`).add(
+      new Fraction(`${tapB.rate.num}/${tapB.rate.denom}`),
+    );
+    expect(
+      tapSum.equals(new Fraction(`${aggRate.num}/${aggRate.denom}`)),
+    ).toBe(true);
+    // Aggregate -> tap edges (one per slice).
+    const aggregateOut = plan.edges.filter(
+      (e) => e.fromUnit === "u:in:water" && e.item === "water",
+    );
+    expect(aggregateOut.map((e) => e.toUnit).sort()).toEqual([
+      "u:in:water:tap:u:v_a",
+      "u:in:water:tap:u:v_b",
+    ]);
+    // Each tap carries only its own consumer edge.
+    const aEdges = plan.edges.filter(
+      (e) => e.fromUnit === "u:in:water:tap:u:v_a" && e.item === "water",
+    );
+    const bEdges = plan.edges.filter(
+      (e) => e.fromUnit === "u:in:water:tap:u:v_b" && e.item === "water",
+    );
+    expect(aEdges.map((e) => e.toUnit)).toEqual(["u:v_a"]);
+    expect(bEdges.map((e) => e.toUnit)).toEqual(["u:v_b"]);
   });
 
-  it("mixed grouped + loose consumer: aggregate + grouped fanout + loose fanout (loose carries explicit 'loose' suffix)", () => {
+  it("single lone loose consumer collapses to legacy u:in:water with no aggregate", () => {
+    const [v_a] = makeConsumers({}); // single loose consumer
+    const plan = NoFoldRender({
+      containers: { containers: [], containerByMember: new Map() },
+      idealCount: new Map(),
+      machineGraph: { vertices: [v_a!], edges: [] },
+      targets: [{ recipeId: "r_a", ratePerSec: { num: "1", denom: "1" } }],
+      itemOverrides: [],
+      itemById,
+      recipeById,
+      pack: { items: [...itemById.values()] },
+      // water is raw with no override -> Infinity supply; share unused.
+      boundaryShare: new Map(),
+    });
+    const inputs = plan.units
+      .filter(isInputProductUnit)
+      .filter((u) => u.itemId === "water");
+    expect(inputs.length).toBe(1);
+    expect(inputs[0]!.id).toBe("u:in:water");
+    expect(inputs[0]!.isAggregate).toBeUndefined();
+    expect(inputs[0]!.isFanout).toBeUndefined();
+  });
+
+  it("mixed grouped + loose consumer: aggregate + grouped fanout + per-consumer tap slice", () => {
     const [v_a, v_b] = makeConsumers({ containerA: "grp:A" }); // B undefined
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
@@ -1460,20 +1521,20 @@ describe("render policy / input fan-out per container", () => {
       .filter(isInputProductUnit)
       .filter((u) => u.itemId === "water");
     const ids = inputs.map((u) => u.id).sort();
-    // Aggregate keeps the bare `u:in:water` id; loose bucket gets the
-    // explicit `:loose` suffix to avoid colliding with the aggregate.
+    // Aggregate keeps the bare `u:in:water` id; the loose consumer gets its own
+    // tap slice keyed by its consumer unit id (no shared `:loose` bucket).
     expect(ids).toEqual([
       "u:in:water",
       "u:in:water:grp:A",
-      "u:in:water:loose",
+      "u:in:water:tap:u:v_b",
     ]);
     const byId = new Map(inputs.map((u) => [u.id, u]));
     expect(byId.get("u:in:water")!.isFanout).toBeUndefined();
     expect(byId.get("u:in:water:grp:A")!.isFanout).toBe(true);
-    expect(byId.get("u:in:water:loose")!.isFanout).toBe(true);
-    // Loose fanout carries the loose consumer's edge.
+    expect(byId.get("u:in:water:tap:u:v_b")!.isFanout).toBe(true);
+    // Tap slice carries the loose consumer's edge.
     const looseEdges = plan.edges.filter(
-      (e) => e.fromUnit === "u:in:water:loose" && e.item === "water",
+      (e) => e.fromUnit === "u:in:water:tap:u:v_b" && e.item === "water",
     );
     expect(looseEdges.map((e) => e.toUnit)).toEqual(["u:v_b"]);
   });

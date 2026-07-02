@@ -10,6 +10,7 @@ import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRatePerMin } from "../data/rate-format";
 import { iconPosition } from "./iconSprite";
+import { itemColor } from "./itemColor";
 
 export type ItemEdgeData = {
   item: ItemId;
@@ -28,9 +29,12 @@ export type ItemEdgeData = {
   isTearEdge?: boolean;
 };
 
-// Stroke style per transport kind. Belt is the default solid stroke; pipe is a
-// dashed cyan stroke that reuses the input-product accent color. Unknown kinds
-// fall through to the belt default on purpose. The real guard against bad data
+// Fallback stroke per transport kind, used only when an edge carries no item id
+// (older fixtures and tests). Belt is a solid gray stroke; pipe is a dashed cyan
+// stroke that reuses the input-product accent color. When an item id is present
+// the stroke color instead comes from itemColor so the same item reads the same
+// on every edge kind; the pipe dash is preserved either way. Unknown kinds fall
+// through to the belt default on purpose. The real guard against bad data
 // happens at load time; this render-time fallback just keeps the UI alive.
 const BELT_STROKE = "#666";
 const PIPE_STROKE = "#0891b2";
@@ -40,15 +44,19 @@ const PIPE_DASH = "4 2";
 // zoom lands well under this, so the overview reads as clean lines; zooming in
 // to inspect a section brings the chips back. Reading transform[2] (zoom only)
 // re-renders the edge on zoom changes but not on pan.
-const LABEL_MIN_ZOOM = 0.6;
+export const LABEL_MIN_ZOOM = 0.6;
 
 type StrokeStyle = { stroke: string; strokeDasharray?: string };
 
-function strokeForKind(kind: TransportKindId | undefined): StrokeStyle {
+export function strokeForKind(
+  kind: TransportKindId | undefined,
+  itemId?: ItemId,
+): StrokeStyle {
+  const stroke = itemId !== undefined ? itemColor(itemId) : undefined;
   if (kind === "pipe") {
-    return { stroke: PIPE_STROKE, strokeDasharray: PIPE_DASH };
+    return { stroke: stroke ?? PIPE_STROKE, strokeDasharray: PIPE_DASH };
   }
-  return { stroke: BELT_STROKE };
+  return { stroke: stroke ?? BELT_STROKE };
 }
 
 export default function ItemEdge({
@@ -100,7 +108,7 @@ export default function ItemEdge({
   const labelX = fallbackLabelX;
   const labelY = useTargetY ? targetY : useSourceY ? sourceY : fallbackLabelY;
 
-  const kindStyle = strokeForKind(edgeData?.transportKind);
+  const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
   // A caller-supplied style wins over the kind default, so later overrides for
   // hover, tear edges, or cross-group edges take effect without this file
   // having to know about them.
