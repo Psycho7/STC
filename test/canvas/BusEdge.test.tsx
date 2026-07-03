@@ -7,6 +7,7 @@ import type { BusEdgeData } from "../../src/canvas/busRouting";
 import type { ItemEdgeData } from "../../src/canvas/ItemEdge";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
+import { expectRightwardFinish } from "./pathAssertions";
 
 afterEach(() => {
   cleanup();
@@ -78,14 +79,8 @@ describe("canvas/BusEdge", () => {
     // The lane run sits at laneY = 500 (appears as the y of the lane points).
     expect(d).toContain(",500");
     // The path enters the target with a final rightward horizontal so the arrow
-    // points right: the last two points share a y and x increases.
-    const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
-      (m) => ({ x: Number(m[1]), y: Number(m[2]) }),
-    );
-    const a = pts[pts.length - 2]!;
-    const b = pts[pts.length - 1]!;
-    expect(b.y).toBe(a.y);
-    expect(b.x).toBeGreaterThan(a.x);
+    // points right.
+    expectRightwardFinish(d);
   });
 
   it("draws a junction dot at the branch point (riseX - CHAMFER, laneY)", async () => {

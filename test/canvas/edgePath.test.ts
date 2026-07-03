@@ -11,26 +11,7 @@ import {
   PORT_STUB,
   CHAMFER,
 } from "../../src/canvas/edgePath";
-
-// The last "L x,y" of a path is a rightward horizontal iff its y equals the
-// previous point's y and its x is greater. This regex captures the last two
-// points and the assertions below check the relationship.
-function lastTwoPoints(
-  d: string,
-): { x0: number; y0: number; x1: number; y1: number } {
-  const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
-    (m) => ({ x: Number(m[1]), y: Number(m[2]) }),
-  );
-  const a = pts[pts.length - 2]!;
-  const b = pts[pts.length - 1]!;
-  return { x0: a.x, y0: a.y, x1: b.x, y1: b.y };
-}
-
-function expectRightwardFinish(d: string) {
-  const { x0, y0, x1, y1 } = lastTwoPoints(d);
-  expect(y1).toBe(y0); // horizontal
-  expect(x1).toBeGreaterThan(x0); // rightward
-}
+import { parsePoints, expectRightwardFinish } from "./pathAssertions";
 
 describe("chamferStepPath", () => {
   it("draws a plain straight line when the endpoints share a y", () => {
@@ -132,9 +113,7 @@ describe("chamferStepPath", () => {
       targetX: 0,
       targetY: 20,
     });
-    const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
-      (m) => ({ x: Number(m[1]), y: Number(m[2]) }),
-    );
+    const pts = parsePoints(d);
     // Right column (source stub out to the rail) and left column (rail down to
     // target), each three points; y must be monotonic across each (no spike).
     const isMonotonic = (ys: number[]) =>
@@ -177,6 +156,82 @@ describe("chamferBusPath", () => {
       laneY: 100,
     });
     // No throw, no NaN, and still finishes rightward into the target.
+    expect(path).not.toMatch(/NaN/);
+    expectRightwardFinish(path);
+  });
+
+  it("routes a backward member (target left of source) through the lane", () => {
+    // gap = -200 <= 0: drop one stub+chamfer inside the source, run the lane
+    // leftward, rise one stub+chamfer inside the target, finish rightward.
+    const { path, dropX, riseX, junction } = chamferBusPath({
+      sourceX: 200,
+      sourceY: 0,
+      targetX: 0,
+      targetY: 20,
+      laneY: 200,
+    });
+    expect(path).toBe(
+      "M 200,0 L 224,0 L 232,8 L 232,192 L 224,200 L -24,200 L -32,192 L -32,28 L -24,20 L 0,20",
+    );
+    expect(dropX).toBe(232);
+    expect(riseX).toBe(-32);
+    expect(riseX).toBeLessThan(dropX); // lane runs leftward
+    expect(junction).toEqual({ x: -24, y: 200 });
+    expect(path).not.toMatch(/NaN/);
+    expectRightwardFinish(path);
+  });
+
+  it("collapses drop and rise onto the midpoint in a narrow forward gap", () => {
+    // gap 32 < budget 64 (= 2*(24+8)): scale 0.5, chamfer 4. Drop and rise
+    // columns land on the corridor midpoint as a hairpin: chamfer in, straight
+    // down to the lane apex, straight back up the same column, chamfer out.
+    const { path, dropX, riseX, junction } = chamferBusPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 32,
+      targetY: 20,
+      laneY: 200,
+    });
+    expect(path).toBe("M 0,0 L 12,0 L 16,4 L 16,200 L 16,24 L 20,20 L 32,20");
+    expect(dropX).toBe(16);
+    expect(riseX).toBe(16); // midpoint collapse
+    // Junction dot sits on the actual hairpin apex vertex.
+    expect(junction).toEqual({ x: 16, y: 200 });
+    expect(path).not.toMatch(/NaN/);
+    // No zero-length segments (consecutive identical points) and no zero-area
+    // spurs (an immediate A -> B -> A retrace) anywhere in the path.
+    const pts = parsePoints(path);
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1]!;
+      const b = pts[i]!;
+      expect(a.x === b.x && a.y === b.y).toBe(false);
+    }
+    for (let i = 2; i < pts.length; i++) {
+      const a = pts[i - 2]!;
+      const c = pts[i]!;
+      expect(a.x === c.x && a.y === c.y).toBe(false);
+    }
+    expectRightwardFinish(path);
+  });
+
+  it("draws a flat rise when laneY === targetY (no 16px spike)", () => {
+    // The BusEdge laneY-missing fallback sets laneY = targetY. The rise column
+    // then has zero height and must collapse to a flat horizontal instead of
+    // spiking a chamfer above and below the lane.
+    const { path, riseX } = chamferBusPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 300,
+      targetY: 100,
+      laneY: 100,
+    });
+    // Every point from the rise column onward (x >= riseX - CHAMFER) sits flat
+    // on the lane; y never departs from 100, so there is no spike.
+    const riseAndAfter = parsePoints(path).filter(
+      (p) => p.x >= riseX - CHAMFER,
+    );
+    expect(riseAndAfter.length).toBeGreaterThan(1);
+    expect(riseAndAfter.every((p) => p.y === 100)).toBe(true);
     expect(path).not.toMatch(/NaN/);
     expectRightwardFinish(path);
   });

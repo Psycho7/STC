@@ -34,18 +34,55 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-// One chamfered vertical column, entered from the left at y0 and exited to the
-// right at y1: horizontal into the column, chamfer, vertical run, chamfer out.
-// Shared by the forward step and both bus lane transitions (drop and rise); the
-// backward-detour columns exit leftward instead and stay inline.
-function chamferColumn(x: number, y0: number, y1: number, chamfer: number): string {
+// One chamfered vertical column, entered at y0 and exited at y1: horizontal into
+// the column, chamfer, vertical run, chamfer out. entryDir/exitDir pick which
+// side each horizontal leg leaves on (-1 = left, +1 = right): the entry point is
+// (x + entryDir*chamfer, y0) and the exit point (x + exitDir*chamfer, y1). The
+// defaults (-1, +1) enter from the left and exit to the right, matching the
+// forward step and the wide bus drop/rise. The backward detour columns pass
+// (-1, -1) and (+1, +1) so both legs stay on one side. When the vertical run is
+// too short to fit two chamfers (|y1 - y0| <= 2*chamfer) the column collapses to
+// a two-point diagonal (a flat horizontal when y0 === y1), skipping the run.
+function chamferColumn(
+  x: number,
+  y0: number,
+  y1: number,
+  chamfer: number,
+  entryDir = -1,
+  exitDir = 1,
+): string {
+  if (Math.abs(y1 - y0) <= 2 * chamfer) {
+    return (
+      ` L ${r(x + entryDir * chamfer)},${r(y0)}` +
+      ` L ${r(x + exitDir * chamfer)},${r(y1)}`
+    );
+  }
   const dir = y1 > y0 ? 1 : -1;
   return (
-    ` L ${r(x - chamfer)},${r(y0)}` +
+    ` L ${r(x + entryDir * chamfer)},${r(y0)}` +
     ` L ${r(x)},${r(y0 + dir * chamfer)}` +
     ` L ${r(x)},${r(y1 - dir * chamfer)}` +
-    ` L ${r(x + chamfer)},${r(y1)}`
+    ` L ${r(x + exitDir * chamfer)},${r(y1)}`
   );
+}
+
+// Join a point list into an SVG path string, rounding every coordinate and
+// skipping consecutive duplicates (degenerate hairpin legs can land two points
+// on the same vertex, and a repeated point would be a stray zero-length
+// segment in the emitted `d`).
+function pathFromPoints(pts: ReadonlyArray<readonly [number, number]>): string {
+  let path = "";
+  let px = NaN;
+  let py = NaN;
+  for (const [x, y] of pts) {
+    const rx = r(x);
+    const ry = r(y);
+    if (rx === px && ry === py) continue;
+    path += path === "" ? `M ${rx},${ry}` : ` L ${rx},${ry}`;
+    px = rx;
+    py = ry;
+  }
+  return path;
 }
 
 // chamferStepPath: forward step, small-dy diagonal, narrow-gap degradation, and
@@ -89,18 +126,13 @@ export function chamferStepPath(args: {
         ` L ${r(tx)},${r(ty)}`;
       return [d, r((xr + xl) / 2), r(railY)];
     }
-    const dir1 = railY > sy ? 1 : -1; // source stub -> rail
-    const dir2 = ty > railY ? 1 : -1; // rail -> target level
+    // Right column exits leftward (-1, -1) onto the rail, left column enters
+    // leftward (+1, +1) off it; the leftward lane run is the implicit segment
+    // between the right column's exit and the left column's entry.
     const d =
       `M ${r(sx)},${r(sy)}` +
-      ` L ${r(xr - CHAMFER)},${r(sy)}` +
-      ` L ${r(xr)},${r(sy + dir1 * CHAMFER)}` +
-      ` L ${r(xr)},${r(railY - dir1 * CHAMFER)}` +
-      ` L ${r(xr - CHAMFER)},${r(railY)}` +
-      ` L ${r(xl + CHAMFER)},${r(railY)}` +
-      ` L ${r(xl)},${r(railY + dir2 * CHAMFER)}` +
-      ` L ${r(xl)},${r(ty - dir2 * CHAMFER)}` +
-      ` L ${r(xl + CHAMFER)},${r(ty)}` +
+      chamferColumn(xr, sy, railY, CHAMFER, -1, -1) +
+      chamferColumn(xl, railY, ty, CHAMFER, 1, 1) +
       ` L ${r(tx)},${r(ty)}`;
     // Label rides the leftward detour rail, at its midpoint.
     return [d, r((xr + xl) / 2), r(railY)];
@@ -161,14 +193,77 @@ export function chamferBusPath(args: {
   junction: { x: number; y: number };
 } {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty, laneY } = args;
-  // Drop and rise columns sit one stub plus one chamfer inside each port, so the
-  // horizontal run leaving/entering the handle is exactly PORT_STUB long.
+  const gap = tx - sx;
+  // Budget for a full symmetric shape: a stub plus a chamfer on each side.
+  const budget = 2 * (PORT_STUB + CHAMFER);
+
+  // Backward: target at or left of source. Drop one stub+chamfer inside the
+  // source, run the lane leftward, rise one stub+chamfer inside the target. The
+  // lane run reverses (riseX < dropX) but the final stub into the target still
+  // finishes rightward. laneDir flips the junction to the lane's leftward side.
+  if (gap <= 0) {
+    const dropX = sx + PORT_STUB + CHAMFER;
+    const riseX = tx - PORT_STUB - CHAMFER;
+    const laneDir = -1;
+    const path =
+      `M ${r(sx)},${r(sy)}` +
+      chamferColumn(dropX, sy, laneY, CHAMFER, -1, -1) +
+      chamferColumn(riseX, laneY, ty, CHAMFER, 1, 1) +
+      ` L ${r(tx)},${r(ty)}`;
+    return {
+      path,
+      dropX: r(dropX),
+      riseX: r(riseX),
+      junction: { x: r(riseX - laneDir * CHAMFER), y: r(laneY) },
+    };
+  }
+
+  // Narrow forward gap: too little room for two full stub+chamfer columns and a
+  // lane run between them, so scale the chamfer by gap/budget (same idiom as the
+  // forward step) and collapse both columns onto the corridor midpoint
+  // (dropX === riseX), drawing a hairpin at x = mid: chamfer in, straight down
+  // to the lane apex, straight back up the same column, chamfer out. The up-leg
+  // exactly overlaps the down-leg along x = mid, so it strokes as one line
+  // (an offset bevel there would read as a zero-area spur). Each chamfer is
+  // dropped when its vertical leg is too short to fit one (same guard as
+  // chamferColumn), going straight into/out of the column instead.
+  if (gap < budget) {
+    const scale = gap / budget;
+    const chamfer = CHAMFER * scale;
+    const mid = (sx + tx) / 2;
+    const dirDown = laneY > sy ? 1 : -1; // source level -> lane apex
+    const dirUp = ty > laneY ? 1 : -1; // lane apex -> target level
+    const pts: Array<readonly [number, number]> = [[sx, sy]];
+    if (Math.abs(laneY - sy) > 2 * chamfer) {
+      pts.push([mid - chamfer, sy], [mid, sy + dirDown * chamfer]);
+    } else {
+      pts.push([mid, sy]);
+    }
+    pts.push([mid, laneY]);
+    if (Math.abs(ty - laneY) > 2 * chamfer) {
+      pts.push([mid, ty - dirUp * chamfer], [mid + chamfer, ty]);
+    } else {
+      pts.push([mid, ty]);
+    }
+    pts.push([tx, ty]);
+    return {
+      path: pathFromPoints(pts),
+      dropX: r(mid),
+      riseX: r(mid),
+      // The junction dot sits on the actual hairpin apex vertex.
+      junction: { x: r(mid), y: r(laneY) },
+    };
+  }
+
+  // Wide forward gap: full symmetric drop-lane-rise. Drop and rise columns sit
+  // one stub plus one chamfer inside each port, so the horizontal run
+  // leaving/entering the handle is exactly PORT_STUB long. Normally the lane is
+  // below both endpoints (drop down, rise up); when targetY is at or below the
+  // lane the rise simply chamfers the other way. chamferColumn derives each turn
+  // direction from its own y0 -> y1.
   const dropX = sx + PORT_STUB + CHAMFER;
   const riseX = tx - PORT_STUB - CHAMFER;
-  // Normally the lane is below both endpoints (drop down, rise up). When targetY
-  // is at or below the lane the rise simply chamfers the other way; there is
-  // never a turn at the port itself. chamferColumn derives each turn direction
-  // from its own y0 -> y1.
+  const laneDir = 1;
   const path =
     `M ${r(sx)},${r(sy)}` +
     chamferColumn(dropX, sy, laneY, CHAMFER) +
@@ -178,6 +273,6 @@ export function chamferBusPath(args: {
     path,
     dropX: r(dropX),
     riseX: r(riseX),
-    junction: { x: r(riseX - CHAMFER), y: r(laneY) },
+    junction: { x: r(riseX - laneDir * CHAMFER), y: r(laneY) },
   };
 }
