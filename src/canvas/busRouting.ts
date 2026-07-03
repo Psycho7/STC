@@ -185,17 +185,26 @@ export function routeBusEdges(
   });
 }
 
-function hasItem(edge: Edge): boolean {
-  const item = (edge.data as { item?: unknown } | undefined)?.item;
-  return typeof item === "string";
-}
-
 // assignBendColumns: stagger the bend column of forward item edges that share a
 // corridor so their vertical runs do not overlap into one blurred line. Pure and
 // deterministic. Runs after routeBusEdges, so it only sees still-type:"item"
 // edges (bus members were already retyped) and skips backward / zero-gap edges.
 // Non-member edges pass through by reference; members get { bendX } merged onto
 // their data (consumed by chamferStepPath).
+//
+// Banding: candidates are bucketed by their source LAYER, keyed on the source's
+// absolute left edge (quantized to the pixel). Same-layer nodes share that left
+// edge regardless of node width, so mixed-width sources (a ~148px product and a
+// 300px recipe in one column) land in one band and fan against each other rather
+// than splitting into independent bands that can pick coincident columns.
+//
+// Corridor: a band fans across the first inter-layer gap right of its source
+// layer, not the whole source->target span. groupLeft is the band's rightmost
+// source edge; groupRight is the nearest node left-edge strictly right of
+// groupLeft (the next node column, node-free by construction). This keeps every
+// vertical run clear of intermediate node boxes, including the box a
+// layer-skipping edge would otherwise cross. When no node lies right of groupLeft
+// the corridor falls back to the nearest target left edge.
 export function assignBendColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -205,35 +214,44 @@ export function assignBendColumns(
 
   const margin = PORT_STUB + CHAMFER;
 
-  // Group candidate edges by their source-right x (quantized to the pixel).
-  // Edges leaving the same layer share the same corridor band, so this buckets
-  // them together regardless of which target layer they reach.
+  // All node left edges, sorted and de-duplicated once, so each band can find
+  // the next node column right of its source layer in one scan.
+  const nodeLeftEdges = [
+    ...new Set(nodes.map((n) => absoluteLeft(n, byId))),
+  ].sort((a, b) => a - b);
+
+  // Group candidate edges by their source layer (the source's absolute left
+  // edge, quantized to the pixel). Edges leaving the same layer share a corridor
+  // regardless of which target layer they reach or how wide their source is.
   type Cand = { id: string; sourceRight: number; targetLeft: number };
   const groups = new Map<number, Cand[]>();
   for (const edge of edges) {
-    if (edge.type !== undefined && edge.type !== "item") continue;
-    if (!hasItem(edge)) continue;
+    if (edge.type !== "item") continue; // only forward item edges get staggered
+    if (edgeItem(edge) === undefined) continue;
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) continue;
-    const sourceRight = absoluteLeft(source, byId) + nodeWidth(source);
+    const sourceLeft = absoluteLeft(source, byId);
+    const sourceRight = sourceLeft + nodeWidth(source);
     const targetLeft = absoluteLeft(target, byId);
     if (targetLeft - sourceRight <= 0) continue; // backward / zero-gap edge
-    const band = Math.round(sourceRight);
+    const band = Math.round(sourceLeft);
     const list = groups.get(band) ?? [];
     list.push({ id: edge.id, sourceRight, targetLeft });
     groups.set(band, list);
   }
 
-  // Fan each band's members across the middle of its shared corridor. The
-  // corridor spans from the band's rightmost source edge to its nearest target
-  // so every member can host a bend inside it; margins keep the columns off the
-  // port stubs on both sides. pitch = usable width / (n + 1) leaves symmetric
+  // Fan each band's members across its shared corridor. groupLeft is the band's
+  // rightmost source edge; groupRight is the next node column right of it (or the
+  // nearest target when the band skips no column). Margins keep the columns off
+  // the port stubs on both sides; pitch = usable width / (n + 1) leaves symmetric
   // gaps at both ends.
   const bendById = new Map<string, number>();
   for (const list of groups.values()) {
     const groupLeft = Math.max(...list.map((c) => c.sourceRight));
-    const groupRight = Math.min(...list.map((c) => c.targetLeft));
+    const nextColLeft = nodeLeftEdges.find((x) => x > groupLeft);
+    const groupRight =
+      nextColLeft ?? Math.min(...list.map((c) => c.targetLeft));
     const usable = groupRight - groupLeft - 2 * margin;
     if (usable <= 0) continue; // corridor too tight; keep the default midpoints
     const sorted = [...list].sort((a, b) =>

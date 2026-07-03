@@ -306,4 +306,83 @@ describe("assignBendColumns", () => {
     expect(out[0]).toBe(busEdge);
     expect(out[1]).toBe(backwardEdge);
   });
+
+  it("bands mixed-width sources of one layer together (finding 2)", () => {
+    // A product source (width 148 -> right 148) and a recipe source (width 300
+    // -> right 300) share the same source layer (left x = 0) and both feed the
+    // next layer at x = 500. Banding by source LEFT (not source right) puts them
+    // in ONE band so they fan against each other and land on DISTINCT columns
+    // inside the shared first gap [300, 500]; the old source-right banding split
+    // them into independent bands that could pick coincident columns.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      inputProductNode("sp", "b", 0, 0), // right 0 + 148 = 148
+      recipeNode("sr", 0, 300, r), //         right 0 + 300 = 300
+      recipeNode("t1", 500, 0, r),
+      recipeNode("t2", 500, 300, r),
+    ];
+    const edges = [mkEdge("eP", "sp", "t1", "b"), mkEdge("eR", "sr", "t2", "b")];
+    const out = assignBendColumns(nodes, edges);
+    const bp = bendOf(out, "eP");
+    const br = bendOf(out, "eR");
+    const margin = PORT_STUB + CHAMFER;
+    expect(bp).toBeDefined();
+    expect(br).toBeDefined();
+    // Corridor is the shared first gap: rightmost source edge (300) to the next
+    // node column (500). Both bends sit inside it, and they are distinct.
+    for (const b of [bp!, br!]) {
+      expect(b).toBeGreaterThan(300 + margin);
+      expect(b).toBeLessThan(500 - margin);
+    }
+    expect(bp).not.toBe(br);
+  });
+
+  it("keeps a layer-skipping bend clear of the intermediate node (finding 3)", () => {
+    // A forward item edge from layer 0 to layer 2, with a node occupying layer 1
+    // between them. Span 820 - 300 = 520 stays <= BUS_SPAN_THRESHOLD so the edge
+    // is a plain item edge, not a bus member. Its bend must land in the first gap
+    // (before the layer-1 column), never inside the intermediate node box.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const midLeft = 410;
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r), //          right 300
+      recipeNode("mid", midLeft, 0, r), //  layer-1 column at 410
+      recipeNode("t", 820, 200, r), //      layer-2 target
+    ];
+    const span = 820 - 300;
+    expect(span).toBeLessThanOrEqual(BUS_SPAN_THRESHOLD);
+    const out = assignBendColumns(nodes, [mkEdge("e0", "s", "t", "b")]);
+    const b = bendOf(out, "e0");
+    expect(b).toBeDefined();
+    // Strictly left of the intermediate node's left edge.
+    expect(b!).toBeLessThan(midLeft);
+  });
+
+  it("assigns bends to every member when one target is adjacent (finding 5)", () => {
+    // One band mixing a short-span "adjacent" edge (its target's left edge sits
+    // within the band's widest source span, so it is <= groupLeft) with several
+    // far-target edges. The corridor is the first NODE-free gap right of the
+    // source layer, so the adjacent target no longer collapses the whole band's
+    // corridor: every member still receives a distinct bend. The old min-target
+    // corridor went to the near target (200), driving usable negative and
+    // dropping bends for the whole band, far edges included.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("sR", 0, 0, r), //          width 300 -> right 300 (sets groupLeft)
+      inputProductNode("sP", "b", 0, 400), // width 148 -> right 148
+      recipeNode("near", 200, 400, r), //     adjacent target, left 200 <= 300
+      recipeNode("far1", 1000, 0, r),
+      recipeNode("far2", 1000, 400, r),
+    ];
+    const edges = [
+      mkEdge("eFar1", "sR", "far1", "b"),
+      mkEdge("eFar2", "sP", "far2", "b"),
+      mkEdge("eNear", "sP", "near", "b"),
+    ];
+    const out = assignBendColumns(nodes, edges);
+    const bends = ["eFar1", "eFar2", "eNear"].map((id) => bendOf(out, id));
+    for (const b of bends) expect(b).toBeDefined();
+    // No whole-band dropout, and all three bends are distinct.
+    expect(new Set(bends).size).toBe(3);
+  });
 });
