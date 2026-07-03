@@ -11,10 +11,12 @@ import type { Edge } from "@xyflow/react";
 
 import {
   routeBusEdges,
+  assignBendColumns,
   BUS_SPAN_THRESHOLD,
   LANE_TOP_OFFSET,
   LANE_SPACING,
 } from "../../src/canvas/busRouting";
+import { PORT_STUB, CHAMFER } from "../../src/canvas/edgePath";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import type {
   RFAnyNode,
@@ -230,5 +232,78 @@ describe("routeBusEdges", () => {
     expect(project(routeBusEdges(nodes, edges))).toEqual(
       project(routeBusEdges(nodes, edges)),
     );
+  });
+});
+
+function bendOf(edges: Edge[], id: string): number | undefined {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { bendX?: number }
+    | undefined;
+  return d?.bendX;
+}
+
+describe("assignBendColumns", () => {
+  it("fans bend columns across the shared corridor for a same-source group", () => {
+    // Source right edge at x = 0 + 300 = 300; targets at x = 500 (left edge),
+    // so the corridor is [300, 500], usable = 200 - 2*(24+8) = 136.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", 500, 0, r),
+      recipeNode("t2", 500, 200, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const out = assignBendColumns(nodes, edges);
+    const b0 = bendOf(out, "e0")!;
+    const b1 = bendOf(out, "e1")!;
+    const margin = PORT_STUB + CHAMFER;
+    // Both inside the corridor margins.
+    for (const b of [b0, b1]) {
+      expect(b).toBeGreaterThan(300 + margin);
+      expect(b).toBeLessThan(500 - margin);
+    }
+    // Distinct, evenly pitched slots: e0 sorts first (slot 1), e1 second.
+    expect(b0).toBeLessThan(b1);
+    const pitch = (200 - 2 * margin) / 3;
+    expect(b0).toBeCloseTo(300 + margin + pitch, 6);
+    expect(b1).toBeCloseTo(300 + margin + 2 * pitch, 6);
+  });
+
+  it("is deterministic across shuffled input order", () => {
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", 500, 0, r),
+      recipeNode("t2", 500, 200, r),
+      recipeNode("t3", 500, 400, r),
+    ];
+    const ordered = [
+      mkEdge("e0", "s", "t1", "b"),
+      mkEdge("e1", "s", "t2", "b"),
+      mkEdge("e2", "s", "t3", "b"),
+    ];
+    const shuffled = [ordered[2]!, ordered[0]!, ordered[1]!];
+    const a = assignBendColumns(nodes, ordered);
+    const b = assignBendColumns(nodes, shuffled);
+    for (const id of ["e0", "e1", "e2"]) {
+      expect(bendOf(a, id)).toBe(bendOf(b, id));
+    }
+  });
+
+  it("leaves bus and backward edges untouched", () => {
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", 500, 0, r),
+      recipeNode("back", 0, 200, r), // target left of source -> backward
+    ];
+    const busEdge: Edge = { ...mkEdge("bus0", "s", "t", "b"), type: "bus" };
+    const backwardEdge = mkEdge("bwd0", "t", "back", "b"); // t right of back
+    const out = assignBendColumns(nodes, [busEdge, backwardEdge]);
+    expect(bendOf(out, "bus0")).toBeUndefined();
+    expect(bendOf(out, "bwd0")).toBeUndefined();
+    // Untouched edges pass through by reference.
+    expect(out[0]).toBe(busEdge);
+    expect(out[1]).toBe(backwardEdge);
   });
 });

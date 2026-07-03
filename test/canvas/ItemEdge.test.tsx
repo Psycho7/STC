@@ -3,6 +3,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import ItemEdge, { type ItemEdgeData } from "../../src/canvas/ItemEdge";
+import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
 
 afterEach(() => {
@@ -128,6 +129,15 @@ describe("canvas/ItemEdge", () => {
     expect(label).not.toBeNull();
     expect(label!.classList.contains("flow-chip")).toBe(true);
     expect(label!.classList.contains("red")).toBe(true);
+  });
+
+  it("sets --chip-accent to itemColor of the edge item", async () => {
+    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) });
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.style.getPropertyValue("--chip-accent")).toBe(
+      itemColor("Iron Plate"),
+    );
   });
 
   it("renders an .ico-16 .spr sprite for a known item id inside the flow-chip", async () => {

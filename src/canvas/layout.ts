@@ -41,7 +41,7 @@ import {
   loopBoxDimensions,
 } from "./dimensions";
 import { measureRecipe } from "./recipeGeometry";
-import { routeBusEdges } from "./busRouting";
+import { assignBendColumns, routeBusEdges } from "./busRouting";
 import type {
   Container,
   ContainerId,
@@ -743,6 +743,10 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   const { nodes, edges } = fromElkRenderLayout(laid, input);
   // Classify long / boundary-feeder edges into bus trunks after layout, so the
   // pass sees final absolute node positions when it measures spans and picks
-  // each trunk's lane.
-  return { nodes, edges: routeBusEdges(nodes, edges) };
+  // each trunk's lane. Then stagger the bend columns of the remaining
+  // still-type:"item" edges so their vertical runs fan out instead of stacking.
+  return {
+    nodes,
+    edges: assignBendColumns(nodes, routeBusEdges(nodes, edges)),
+  };
 }

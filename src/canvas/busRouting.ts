@@ -12,6 +12,11 @@
 // Nodes are read only for geometry (absolute positions and sizes); they pass
 // through untouched. Bus-member edges are retyped `type: "bus"` and get
 // `{ laneY, trunkKey }` merged onto their existing `data`.
+//
+// This module hosts both whole-graph pre-render routing passes: routeBusEdges
+// (bus classification + lane assignment) and assignBendColumns (bend-column
+// stagger for forward item edges). Both read node geometry and merge routing
+// fields onto edge `data`.
 
 import type { Edge } from "@xyflow/react";
 
@@ -20,6 +25,7 @@ import {
   RECIPE_WIDTH,
   loopBoxDimensions,
 } from "./dimensions";
+import { CHAMFER, PORT_STUB } from "./edgePath";
 import { measureRecipe } from "./recipeGeometry";
 import type { RFAnyNode } from "./layout";
 
@@ -176,5 +182,72 @@ export function routeBusEdges(
       type: "bus",
       data: { ...edge.data, laneY, trunkKey },
     };
+  });
+}
+
+function hasItem(edge: Edge): boolean {
+  const item = (edge.data as { item?: unknown } | undefined)?.item;
+  return typeof item === "string";
+}
+
+// assignBendColumns: stagger the bend column of forward item edges that share a
+// corridor so their vertical runs do not overlap into one blurred line. Pure and
+// deterministic. Runs after routeBusEdges, so it only sees still-type:"item"
+// edges (bus members were already retyped) and skips backward / zero-gap edges.
+// Non-member edges pass through by reference; members get { bendX } merged onto
+// their data (consumed by chamferStepPath).
+export function assignBendColumns(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): Edge[] {
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+
+  const margin = PORT_STUB + CHAMFER;
+
+  // Group candidate edges by their source-right x (quantized to the pixel).
+  // Edges leaving the same layer share the same corridor band, so this buckets
+  // them together regardless of which target layer they reach.
+  type Cand = { id: string; sourceRight: number; targetLeft: number };
+  const groups = new Map<number, Cand[]>();
+  for (const edge of edges) {
+    if (edge.type !== undefined && edge.type !== "item") continue;
+    if (!hasItem(edge)) continue;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) continue;
+    const sourceRight = absoluteLeft(source, byId) + nodeWidth(source);
+    const targetLeft = absoluteLeft(target, byId);
+    if (targetLeft - sourceRight <= 0) continue; // backward / zero-gap edge
+    const band = Math.round(sourceRight);
+    const list = groups.get(band) ?? [];
+    list.push({ id: edge.id, sourceRight, targetLeft });
+    groups.set(band, list);
+  }
+
+  // Fan each band's members across the middle of its shared corridor. The
+  // corridor spans from the band's rightmost source edge to its nearest target
+  // so every member can host a bend inside it; margins keep the columns off the
+  // port stubs on both sides. pitch = usable width / (n + 1) leaves symmetric
+  // gaps at both ends.
+  const bendById = new Map<string, number>();
+  for (const list of groups.values()) {
+    const groupLeft = Math.max(...list.map((c) => c.sourceRight));
+    const groupRight = Math.min(...list.map((c) => c.targetLeft));
+    const usable = groupRight - groupLeft - 2 * margin;
+    if (usable <= 0) continue; // corridor too tight; keep the default midpoints
+    const sorted = [...list].sort((a, b) =>
+      a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    );
+    const pitch = usable / (sorted.length + 1);
+    sorted.forEach((c, i) => {
+      bendById.set(c.id, groupLeft + margin + pitch * (i + 1));
+    });
+  }
+
+  return edges.map((edge) => {
+    const bendX = bendById.get(edge.id);
+    if (bendX === undefined) return edge;
+    return { ...edge, data: { ...edge.data, bendX } };
   });
 }

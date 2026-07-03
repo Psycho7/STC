@@ -1,7 +1,6 @@
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  getSmoothStepPath,
   useStore,
   type EdgeProps,
 } from "@xyflow/react";
@@ -9,6 +8,7 @@ import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRatePerMin } from "../data/rate-format";
+import { chamferStepPath } from "./edgePath";
 import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
 
@@ -27,6 +27,9 @@ export type ItemEdgeData = {
   // Nothing sets it yet because SCC self-edges currently collapse into the loop
   // unit, so this is here ahead of the producer wiring that will fill it in.
   isTearEdge?: boolean;
+  // Bend column x assigned by the stagger pass (assignBendColumns). Optional:
+  // when absent the path builder centers the bend at the corridor midpoint.
+  bendX?: number;
 };
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
@@ -65,8 +68,6 @@ export default function ItemEdge({
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
   data,
   markerEnd,
   style,
@@ -86,23 +87,22 @@ export default function ItemEdge({
       ? `${i18n.displayName(edgeData.item)} x ${rateStr}${unit}`
       : "";
 
-  const [edgePath, fallbackLabelX, fallbackLabelY] = getSmoothStepPath({
+  const [edgePath, fallbackLabelX, fallbackLabelY] = chamferStepPath({
     sourceX,
     sourceY,
-    sourcePosition,
     targetX,
     targetY,
-    targetPosition,
+    ...(edgeData?.bendX !== undefined ? { bendX: edgeData.bendX } : {}),
   });
 
-  // Center the label in the corridor between layers, at the smooth-step
-  // midpoint. An earlier version nudged the chip toward the source or target
-  // based on labelSide, which left chips touching the neighboring node and hard
-  // to read. Once the corridor is wide enough, the midpoint sits cleanly in the
-  // gap. labelSide still rides along on the edge data for routing logic later,
-  // but it no longer moves the label's x/y here. Pinning labelY keeps the chip
-  // on the source's horizontal line so a vertically routed smooth-step does not
-  // drop the label into the bend.
+  // Center the label in the corridor between layers, at the bend column the
+  // path builder reports. An earlier version nudged the chip toward the source
+  // or target based on labelSide, which left chips touching the neighboring node
+  // and hard to read. Once the corridor is wide enough, the bend column sits
+  // cleanly in the gap. labelSide still rides along on the edge data for routing
+  // logic later, but it no longer moves the label's x/y here. Pinning labelY
+  // keeps the chip on the source's or target's horizontal line so a vertically
+  // routed step does not drop the label into the bend.
   const useTargetY = edgeData?.labelSide === "target";
   const useSourceY = edgeData?.labelSide === "source";
   const labelX = fallbackLabelX;
@@ -138,6 +138,9 @@ export default function ItemEdge({
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
               whiteSpace: "nowrap",
+              ...(edgeData
+                ? { ["--chip-accent" as string]: itemColor(edgeData.item) }
+                : {}),
             }}
           >
             {edgeData

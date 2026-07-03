@@ -5,6 +5,7 @@ import Fraction from "fraction.js";
 import BusEdge from "../../src/canvas/BusEdge";
 import type { BusEdgeData } from "../../src/canvas/busRouting";
 import type { ItemEdgeData } from "../../src/canvas/ItemEdge";
+import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
 
 afterEach(() => {
@@ -65,7 +66,7 @@ async function findEdgePath(): Promise<SVGPathElement> {
 }
 
 describe("canvas/BusEdge", () => {
-  it("routes the path drop -> trunk run -> rise through data.laneY", async () => {
+  it("routes the path drop -> lane run -> rise through data.laneY", async () => {
     renderEdge({
       item: "Iron Plate",
       rate: new Fraction(2, 1),
@@ -74,12 +75,20 @@ describe("canvas/BusEdge", () => {
     });
     const path = await findEdgePath();
     const d = path.getAttribute("d") ?? "";
-    // Drop to the lane, run along it, then rise into the target.
-    expect(d).toContain("V 500");
-    expect(d).toMatch(/H\s-?\d/);
+    // The lane run sits at laneY = 500 (appears as the y of the lane points).
+    expect(d).toContain(",500");
+    // The path enters the target with a final rightward horizontal so the arrow
+    // points right: the last two points share a y and x increases.
+    const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
+      (m) => ({ x: Number(m[1]), y: Number(m[2]) }),
+    );
+    const a = pts[pts.length - 2]!;
+    const b = pts[pts.length - 1]!;
+    expect(b.y).toBe(a.y);
+    expect(b.x).toBeGreaterThan(a.x);
   });
 
-  it("draws a junction dot at the branch point (targetX, laneY)", async () => {
+  it("draws a junction dot at the branch point (riseX - CHAMFER, laneY)", async () => {
     renderEdge({
       item: "Iron Plate",
       rate: new Fraction(2, 1),
@@ -131,6 +140,26 @@ describe("canvas/BusEdge trunk labels", () => {
     );
     await findEdgePath();
     expect(chips()).toHaveLength(2);
+  });
+
+  it("sets --chip-accent to itemColor of the edge item on both chips", async () => {
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(2, 1),
+        laneY: 500,
+        trunkKey: "Iron Plate|src",
+      },
+      1,
+    );
+    await findEdgePath();
+    const labels = chips();
+    expect(labels).toHaveLength(2);
+    for (const label of labels) {
+      expect(label.style.getPropertyValue("--chip-accent")).toBe(
+        itemColor("Iron Plate"),
+      );
+    }
   });
 
   it("renders no chips below the zoom threshold", async () => {

@@ -1422,15 +1422,15 @@
   gap: 6px;
   padding: 3px 7px;
   background: linear-gradient(180deg, #1f2125 0%, #14171b 100%);
-  border: 1px solid var(--ak-accent-cyan);
+  border: 1px solid var(--chip-accent, var(--ak-accent-cyan));
   font-family: var(--font-num);
   font-size: 11px;
   font-weight: 700;
-  color: var(--ak-accent-cyan);
+  color: var(--ak-text-primary);
   letter-spacing: -0.01em;
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.4),
-    0 0 12px rgba(35, 213, 252, 0.15);
+    0 0 12px rgba(0, 0, 0, 0.4);
 }
 
 .flow-chip.red {
