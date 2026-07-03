@@ -1,11 +1,15 @@
 import { BaseEdge, EdgeLabelRenderer, useStore, type EdgeProps } from "@xyflow/react";
-import { LABEL_MIN_ZOOM, strokeForKind, type ItemEdgeData } from "./ItemEdge";
+import {
+  LABEL_MIN_ZOOM,
+  chipAccentStyle,
+  strokeForKind,
+  type ItemEdgeData,
+} from "./ItemEdge";
 import type { BusEdgeData } from "./busRouting";
 import { chamferBusPath } from "./edgePath";
 import { useI18n } from "../data/i18n-context";
 import { formatRatePerMin } from "../data/rate-format";
 import { iconPosition } from "./iconSprite";
-import { itemColor } from "./itemColor";
 
 // Radius of the junction dot each bus edge draws at its own branch point, where
 // it leaves the shared trunk lane to rise into its target.
@@ -76,9 +80,7 @@ export default function BusEdge({
           position: "absolute",
           transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
           whiteSpace: "nowrap",
-          ...(edgeData
-            ? { ["--chip-accent" as string]: itemColor(edgeData.item) }
-            : {}),
+          ...chipAccentStyle(edgeData?.item),
         }}
       >
         {iconPos !== undefined ? (

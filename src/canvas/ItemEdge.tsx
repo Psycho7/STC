@@ -49,6 +49,15 @@ const PIPE_DASH = "4 2";
 // re-renders the edge on zoom changes but not on pan.
 export const LABEL_MIN_ZOOM = 0.6;
 
+// Inline style carrying the chip's accent color as the --chip-accent custom
+// property, or an empty object when there is no item to color by. Both edge
+// components spread this onto their flow-chip so the chip tints to the item.
+export function chipAccentStyle(item?: ItemId): React.CSSProperties {
+  return item !== undefined
+    ? { ["--chip-accent" as string]: itemColor(item) }
+    : {};
+}
+
 type StrokeStyle = { stroke: string; strokeDasharray?: string };
 
 export function strokeForKind(
@@ -138,9 +147,7 @@ export default function ItemEdge({
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
               whiteSpace: "nowrap",
-              ...(edgeData
-                ? { ["--chip-accent" as string]: itemColor(edgeData.item) }
-                : {}),
+              ...chipAccentStyle(edgeData?.item),
             }}
           >
             {edgeData
