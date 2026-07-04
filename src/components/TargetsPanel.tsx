@@ -270,15 +270,9 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
           {pickableRecipes.length}
         </span>
       </div>
-      <div className="side-section-sub">
-        {"// declared output rates · items per minute"}
-      </div>
+      <div className="side-section-sub">{i18n.t("targets.head.sub")}</div>
       {targets.length === 0 ? (
-        <div className="b-empty">
-          {i18n.locale === "zh"
-            ? "未声明任何目标产物 — 点击下方按钮添加"
-            : "No declared outputs yet — use the action below"}
-        </div>
+        <div className="b-empty">{i18n.t("targets.empty")}</div>
       ) : null}
       {targets.map((t) => {
         const recipe = pack.recipes.find((r) => r.id === t.recipeId);

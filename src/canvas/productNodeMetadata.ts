@@ -2,6 +2,7 @@ import type { Item } from "@aef/schema";
 import type { Node } from "@xyflow/react";
 import { formatRationalPerMin } from "../data/rate-format";
 import type { ItemOverride } from "../data/plan";
+import type { I18nIndex } from "../data/i18n";
 import type { RationalString } from "../pipeline/types";
 import type { ProductNodeData } from "./ProductNode";
 
@@ -33,7 +34,9 @@ export function buildRealizedRateByItem(
 // Inputs read "<Direction> <Classification>" (the rate now lives in its own
 // pn-rate row rather than this caption); outputs read
 // "<Direction> <Classification> <Rate>". The parts are joined by a middle-dot
-// separator (the same character the format strings below use literally).
+// separator. The direction and classification words are localized through the
+// i18n table; the numeric rate and the "/min" unit stay literal, matching the
+// pn-rate row on the same card.
 //
 // Direction is "In" for an inputProduct and "Out" for an outputProduct.
 // For an inputProduct, the classification is "raw" when item.raw is true and
@@ -45,12 +48,19 @@ export function buildRealizedRateByItem(
 export function buildPnKind(
   data: ProductNodeData,
   item: Item,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _overrides: ItemOverride[],
+  i18n: I18nIndex,
 ): string {
   if (data.kind === "inputProduct") {
-    const classification = item.raw ? "raw" : "import";
-    return `In · ${classification}`;
+    const classification = i18n.t(
+      item.raw ? "product.class.raw" : "product.class.import",
+    );
+    return `${i18n.t("product.dir.in")} · ${classification}`;
   }
-  return `Out · ${data.flavor} · ${formatRationalPerMin(data.rate)}/min`;
+  const flavor = i18n.t(
+    data.flavor === "surplus"
+      ? "product.flavor.surplus"
+      : "product.flavor.target",
+  );
+  return `${i18n.t("product.dir.out")} · ${flavor} · ${formatRationalPerMin(data.rate)}/min`;
 }

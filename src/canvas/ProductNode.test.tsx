@@ -51,3 +51,13 @@ test("an unselected product node carries no selected class", () => {
     "selected",
   );
 });
+
+// UX-20: the "In / raw" caption is a node internal that must localize. In zh
+// the direction and classification words come from the i18n table.
+test("input caption localizes the direction and classification in zh", () => {
+  const { container } = wrap(<ProductNode {...inputProps()} />, "zh");
+  const kind = container.querySelector(".pn-kind")?.textContent ?? "";
+  expect(kind).toContain("输入");
+  expect(kind).toContain("原料");
+  expect(kind).not.toMatch(/In|raw/);
+});

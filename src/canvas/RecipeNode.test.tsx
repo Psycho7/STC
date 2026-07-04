@@ -197,6 +197,26 @@ test("an unselected node carries no selected class", () => {
   );
 });
 
+// UX-20: the UPM unit label is a load-bearing node internal and must localize.
+// In zh it renders the localized units-per-minute abbreviation, not "UPM".
+test("UPM label localizes under zh", () => {
+  const props = {
+    data: { recipe: RECIPE },
+  } as unknown as ComponentProps<typeof RecipeNode>;
+  const { container } = render(
+    <ReactFlowProvider>
+      <LocaleProvider locale="zh">
+        <ItemPackProvider value={packWithSpeed(1)}>
+          <RecipeNode {...props} />
+        </ItemPackProvider>
+      </LocaleProvider>
+    </ReactFlowProvider>,
+  );
+  const lbl = container.querySelector(".rate-lbl")?.textContent;
+  expect(lbl).toBe("件/分");
+  expect(lbl).not.toBe("UPM");
+});
+
 // A corrupt fixture can reference a missing machine; the rate falls back to
 // speed 1 instead of crashing.
 test("missing machine record falls back to speed 1", () => {

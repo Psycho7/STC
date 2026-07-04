@@ -625,3 +625,30 @@ test("duplicate recipe selection shows an inline alert and does not commit", () 
   expect(onChange).not.toHaveBeenCalled();
   expect(screen.getByRole("alert").textContent).toMatch(/r_widget/);
 });
+
+// UX-20: the unit-convention subtitle is the only on-screen statement of the
+// items-per-minute unit, so it must localize. Under zh it renders the localized
+// line, not the English fallback.
+test("unit-convention subtitle localizes under zh", () => {
+  const { container } = render(
+    <LocaleProvider locale="zh">
+      <TargetsPanel targets={[]} onChange={vi.fn()} pack={PACK} />
+    </LocaleProvider>,
+  );
+  const sub = container.querySelector(".side-section-sub")?.textContent ?? "";
+  expect(sub).toContain("件 / 分钟");
+  expect(sub).not.toMatch(/items per minute/);
+});
+
+// The empty-target placeholder was a zh-else-English ternary; it now routes
+// through the i18n table so ja/ru get their own copy too. Assert the zh string.
+test("empty-target placeholder localizes under zh", () => {
+  const { container } = render(
+    <LocaleProvider locale="zh">
+      <TargetsPanel targets={[]} onChange={vi.fn()} pack={PACK} />
+    </LocaleProvider>,
+  );
+  expect(container.querySelector(".b-empty")?.textContent).toBe(
+    "未声明任何目标产物 — 点击下方按钮添加",
+  );
+});

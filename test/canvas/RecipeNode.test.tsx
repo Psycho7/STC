@@ -336,7 +336,9 @@ describe("RecipeNode", () => {
       expect(footer).not.toBeNull();
       const cycle = footer!.querySelector(".cycle");
       expect(cycle).not.toBeNull();
-      expect(cycle!.textContent).toBe("2.4s · cycle");
+      // The cycle caption localizes; the harness renders under the default zh
+      // locale, so the label reads in zh.
+      expect(cycle!.textContent).toBe("2.4秒 · 周期");
       const pwr = footer!.querySelector(".pwr");
       expect(pwr).not.toBeNull();
       expect(pwr!.textContent).toBe("");

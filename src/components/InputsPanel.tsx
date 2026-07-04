@@ -344,11 +344,7 @@ export function InputsPanel({
         {"// boundary import budget · raw + cross-domain"}
       </div>
       {showEmptyState ? (
-        <div className="b-empty">
-          {i18n.locale === "zh"
-            ? "未配置任何输入 — 全部按 raw 自动求解"
-            : "No declared inputs — defaults to raw-source feed"}
-        </div>
+        <div className="b-empty">{i18n.t("inputs.empty")}</div>
       ) : null}
       {autoRows.map((itemId) => {
         const item = itemById.get(itemId);

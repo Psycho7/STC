@@ -64,7 +64,7 @@ export default function ProductNode({
 
   // The pn-kind caption comes from the shared helper. If the item is missing
   // from the pack (corrupt data), fall back to nothing.
-  const pnKindText = item ? buildPnKind(data, item, overrides) : null;
+  const pnKindText = item ? buildPnKind(data, item, overrides, i18n) : null;
 
   // Primary rate. For inputs this is realized demand; for outputs the target or
   // surplus rate.

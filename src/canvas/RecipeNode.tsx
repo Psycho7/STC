@@ -206,11 +206,11 @@ export default function RecipeNode({
         </div>
         <div className="rn-rate-block">
           <div className="rate-val">{rateValText}</div>
-          <div className="rate-lbl">UPM</div>
+          <div className="rate-lbl">{i18n.t("node.upm")}</div>
           {rateValText !== "" ? (
             <div className="rate-sub">
               <span className="rate-sub-val">{perMachineText}</span>
-              <span className="rate-sub-ea">ea</span>
+              <span className="rate-sub-ea">{i18n.t("node.each")}</span>
               {badgeText !== null ? (
                 <span className="rate-sub-mult">{badgeText}</span>
               ) : null}
@@ -314,7 +314,7 @@ export default function RecipeNode({
       {/* Footer: left half shows cycle time; right half (.pwr) is reserved for
           power. */}
       <div className="rn-footer">
-        <div className="cycle">{recipe.time}s · cycle</div>
+        <div className="cycle">{i18n.t("node.cycle", { time: recipe.time })}</div>
         <div className="pwr" />
       </div>
 

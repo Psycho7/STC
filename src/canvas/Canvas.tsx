@@ -277,6 +277,21 @@ function CanvasInner({
   }, [cancelPendingHover]);
   useEffect(() => cancelPendingHover, [cancelPendingHover]);
 
+  // The Controls buttons and MiniMap pull their aria-labels from React Flow's
+  // ariaLabelConfig (the <Controls> component only exposes the container label
+  // directly), so localize them here rather than leaving the built-in English.
+  const ariaLabelConfig = useMemo(
+    () => ({
+      "controls.ariaLabel": i18n.t("canvas.controls.panel"),
+      "controls.zoomIn.ariaLabel": i18n.t("canvas.controls.zoom_in"),
+      "controls.zoomOut.ariaLabel": i18n.t("canvas.controls.zoom_out"),
+      "controls.fitView.ariaLabel": i18n.t("canvas.controls.fit_view"),
+      "controls.interactive.ariaLabel": i18n.t("canvas.controls.interactive"),
+      "minimap.ariaLabel": i18n.t("canvas.minimap"),
+    }),
+    [i18n],
+  );
+
   const adjacency = useMemo<Adjacency>(() => {
     const edgesByNode = new Map<string, string[]>();
     const endpointsByEdge = new Map<string, [string, string]>();
@@ -426,13 +441,14 @@ function CanvasInner({
         onEdgeMouseLeave={clearHover}
         onPaneClick={clearHover}
         minZoom={0.05}
+        ariaLabelConfig={ariaLabelConfig}
         // Keep nodes mouse-draggable and Tab-focusable (tabIndex stays 0), but
         // stop the arrow keys from nudging a selected node out of the ELK
         // layout. React Flow gates the arrow-key move handler on this flag; it
         // leaves keyboard focus traversal intact.
         disableKeyboardA11y
       >
-        <Controls />
+        <Controls aria-label={i18n.t("canvas.controls.panel")} />
         {nodes.length > MINIMAP_MIN_NODES ? (
           <MiniMap
             pannable

@@ -1,4 +1,10 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import { loadI18n, type I18nIndex, type Locale } from "./i18n";
 
@@ -47,6 +53,14 @@ export function LocaleProvider({
   const [locale, setLocaleState] = useState<Locale>(
     () => forcedLocale ?? readStoredLocale() ?? "zh",
   );
+  // Keep the document language in sync with the active locale so screen readers
+  // pronounce the UI with the right rules and index.html's static lang="en" no
+  // longer misdescribes a zh/ja/ru session.
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.lang = locale;
+    }
+  }, [locale]);
   const value = useMemo<LocaleContextValue>(
     () => ({
       locale,
