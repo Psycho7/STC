@@ -26,7 +26,13 @@ import {
   RECIPE_WIDTH,
   loopBoxDimensions,
 } from "./dimensions";
-import { CHAMFER, PORT_STUB, chamferStepPath } from "./edgePath";
+import {
+  CHAMFER,
+  PORT_STUB,
+  chamferStepPath,
+  clearRailY,
+  type ObstacleRect,
+} from "./edgePath";
 import { measureRecipe } from "./recipeGeometry";
 import { orderByItem } from "./orderByItem";
 import type { RFAnyNode } from "./layout";
@@ -561,6 +567,57 @@ export function assignBendColumns(
     const bendX = bendById.get(edge.id);
     if (bendX === undefined) return edge;
     return { ...edge, data: { ...edge.data, bendX } };
+  });
+}
+
+// clampBackwardRails: give each backward item edge's detour rail a y that clears
+// the cards it horizontally spans, so a recycle rail no longer slices through
+// its own source / target cards or the columns between them. Mirrors the bus
+// lane band's obstacle avoidance (clearRailY): all node rectangles are the
+// obstacles, and the rail moves just clear of the ones its horizontal run
+// crosses. Threads { railY } onto the affected edges; every other edge passes
+// through by reference. Runs after assignEntryColumns so it sees the entry
+// column that fixes the rail's left end.
+export function clampBackwardRails(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): Edge[] {
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+
+  const obstacles: ObstacleRect[] = nodes.map((n) => {
+    const left = absoluteLeft(n, byId);
+    const top = absoluteTop(n, byId);
+    return { left, right: left + nodeWidth(n), top, bottom: top + nodeHeight(n) };
+  });
+
+  const railYByIndex = new Map<number, number>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "item") return;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) return;
+    if (nodeGap(source, target, byId) > 0) return; // forward edges keep the step
+    const item = edgeItem(edge);
+    const sx = absoluteLeft(source, byId) + nodeWidth(source);
+    const tx = absoluteLeft(target, byId);
+    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
+    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    // Rail x-span mirrors chamferStepPath's backward branch: one stub right of
+    // the source port to the entry column (or one stub before the target port).
+    const xr = sx + PORT_STUB;
+    const xl =
+      (edge.data as { entryX?: number } | undefined)?.entryX ?? tx - PORT_STUB;
+    const preferredY = sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2;
+    const railY = clearRailY(preferredY, xl, xr, obstacles);
+    if (railY !== preferredY) railYByIndex.set(index, railY);
+  });
+
+  if (railYByIndex.size === 0) return edges.map((e) => e);
+  return edges.map((edge, index) => {
+    const railY = railYByIndex.get(index);
+    if (railY === undefined) return edge;
+    return { ...edge, data: { ...edge.data, railY } };
   });
 }
 

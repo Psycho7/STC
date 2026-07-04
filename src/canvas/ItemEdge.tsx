@@ -40,6 +40,10 @@ export type ItemEdgeData = {
   // here. Optional: when absent each path builder falls back to its default
   // column just before the target port.
   entryX?: number;
+  // Backward-detour rail y staked out by clampBackwardRails so the rail clears
+  // the cards it spans. chamferStepPath reads it in its backward branch.
+  // Optional: absent for forward edges and un-clamped backward edges.
+  railY?: number;
   // Set by fromElkRenderLayout when this edge's consumer (target unit) has two
   // or more inputs. It gates the icon-only entry chip pinned at the target port,
   // which names the entering line right at the node where several inputs meet.
@@ -256,6 +260,7 @@ export default function ItemEdge({
     targetY,
     ...(edgeData?.bendX !== undefined ? { bendX: edgeData.bendX } : {}),
     ...(edgeData?.entryX !== undefined ? { entryX: edgeData.entryX } : {}),
+    ...(edgeData?.railY !== undefined ? { railY: edgeData.railY } : {}),
   });
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);

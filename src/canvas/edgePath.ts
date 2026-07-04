@@ -34,6 +34,44 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+// An axis-aligned card rectangle in absolute graph coordinates, for rail
+// obstacle avoidance.
+export type ObstacleRect = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
+// Choose a backward-detour rail y clear of every card the rail horizontally
+// spans. The rail runs at `preferredY` between xLo and xHi; a card whose x-range
+// overlaps [xLo, xHi] and whose y-extent contains preferredY would be sliced.
+// When that happens the rail moves to just above every spanned card
+// (min top - gap) or just below every spanned card (max bottom + gap), whichever
+// is the smaller move, so it clears all of them at once -- the same idea as the
+// bus lane band, which sits clear of the nodes it would otherwise cross. Cards
+// outside the x-span are ignored because the horizontal rail never reaches them.
+// Pure.
+export function clearRailY(
+  preferredY: number,
+  xLo: number,
+  xHi: number,
+  obstacles: ReadonlyArray<ObstacleRect>,
+  gap = CHAMFER,
+): number {
+  const lo = Math.min(xLo, xHi);
+  const hi = Math.max(xLo, xHi);
+  const spanned = obstacles.filter((o) => o.right > lo && o.left < hi);
+  if (spanned.length === 0) return preferredY;
+  const hits = spanned.some(
+    (o) => preferredY >= o.top && preferredY <= o.bottom,
+  );
+  if (!hits) return preferredY;
+  const aboveY = Math.min(...spanned.map((o) => o.top)) - gap;
+  const belowY = Math.max(...spanned.map((o) => o.bottom)) + gap;
+  return preferredY - aboveY <= belowY - preferredY ? aboveY : belowY;
+}
+
 // One chamfered vertical column, entered at y0 and exited at y1: horizontal into
 // the column, chamfer, vertical run, chamfer out. entryDir/exitDir pick which
 // side each horizontal leg leaves on (-1 = left, +1 = right): the entry point is
@@ -130,6 +168,10 @@ export function chamferStepPath(args: {
   targetY: number;
   bendX?: number;
   entryX?: number;
+  // Backward-detour rail y override, staked out by clampBackwardRails so the rail
+  // routes clear of the cards it spans. Absent for direct callers, which keep the
+  // midway default and their byte-for-byte pinned paths.
+  railY?: number;
 }): [path: string, labelX: number, labelY: number] {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty, bendX } = args;
   const gap = tx - sx;
@@ -148,8 +190,12 @@ export function chamferStepPath(args: {
     // byte identical.
     const xl = args.entryX ?? tx - PORT_STUB;
     // Rail midway between the endpoints. When they share a y the midpoint would
-    // sit on top of both stubs, so drop the rail below to keep it visible.
-    const railY = sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2;
+    // sit on top of both stubs, so drop the rail below to keep it visible. A
+    // threaded railY (from clampBackwardRails) overrides this to clear spanned
+    // cards.
+    const railY =
+      args.railY ??
+      (sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2);
     // Small detour height: the rail sits within a chamfer of the source level,
     // so a full chamfered column would invert and backtrack (a zigzag spike).
     // Collapse each column to a single apex bevel (peak out at the column x, no

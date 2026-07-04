@@ -44,6 +44,7 @@ import { measureRecipe } from "./recipeGeometry";
 import {
   assignBendColumns,
   assignEntryColumns,
+  clampBackwardRails,
   deconflictChipAnchors,
   routeBusEdges,
 } from "./busRouting";
@@ -890,9 +891,12 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
     nodes,
     edges: deconflictChipAnchors(
       nodes,
-      assignBendColumns(
+      clampBackwardRails(
         nodes,
-        assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+        assignBendColumns(
+          nodes,
+          assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+        ),
       ),
     ),
   };
