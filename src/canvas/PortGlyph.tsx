@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
-import type { TransportKindId } from "../pipeline/types";
+import type { ItemId, TransportKindId } from "../pipeline/types";
+import { itemColor } from "./itemColor";
 
 // An 8px overlay glyph drawn next to each React Flow Handle. Its shape depends
 // on the port's transportKind:
@@ -42,23 +43,31 @@ export function PortGlyph({
   kind,
   side,
   top,
+  item,
 }: {
   kind: TransportKindId | undefined;
   side: PortGlyphSide;
   top: number;
+  // When present, the glyph tints to the item's stable color so the port pairs
+  // by hue with its entering / leaving edge and the matching node row. The
+  // shape still comes from the transport kind (belt square / pipe circle); only
+  // the fill (belt) or border color (pipe) changes. Absent on older fixtures and
+  // tests, which keep the neutral gray / cyan defaults.
+  item?: ItemId;
 }) {
   const g = glyphKind(kind);
   if (g === null) return null;
+  const accent = item !== undefined ? itemColor(item) : undefined;
   const style: CSSProperties =
     g === "belt"
       ? {
           ...baseStyle(side, top),
-          background: BELT_FILL,
+          background: accent ?? BELT_FILL,
         }
       : {
           ...baseStyle(side, top),
           background: "transparent",
-          border: `1.5px solid ${PIPE_STROKE}`,
+          border: `1.5px solid ${accent ?? PIPE_STROKE}`,
           borderRadius: "50%",
         };
   return <span data-glyph={g} style={style} />;

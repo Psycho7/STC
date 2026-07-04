@@ -8,6 +8,8 @@ import {
 import Fraction from "fraction.js";
 import type { Recipe } from "@aef/schema";
 import RecipeNode from "../../src/canvas/RecipeNode";
+import { PortGlyph } from "../../src/canvas/PortGlyph";
+import { itemColor } from "../../src/canvas/itemColor";
 import LoopNode, {
   type LoopNodeData,
   type LoopNodeType,
@@ -212,6 +214,62 @@ describe("LoopNode port glyphs", () => {
     };
     const { container } = renderLoop(data);
     expect(container.querySelectorAll("[data-glyph]")).toHaveLength(0);
+  });
+});
+
+// jsdom serializes an hsl(...) color to its rgb(...) form when it lands on a
+// standard property (background / border-color). Push the expected itemColor
+// through the same DOM normalization so the assertion compares like for like.
+function normalizeColor(css: string): string {
+  const el = document.createElement("div");
+  el.style.background = css;
+  return el.style.background;
+}
+
+describe("PortGlyph item color", () => {
+  it("colors a belt glyph's fill by itemColor while keeping the square shape", () => {
+    const { container } = render(
+      <PortGlyph kind="belt" side="left" top={10} item="copper_nugget" />,
+    );
+    const glyph = container.querySelector<HTMLElement>('[data-glyph="belt"]');
+    expect(glyph).not.toBeNull();
+    expect(glyph!.style.background).toBe(
+      normalizeColor(itemColor("copper_nugget")),
+    );
+    // Square shape: no border-radius applied.
+    expect(glyph!.style.borderRadius).toBe("");
+  });
+
+  it("colors a pipe glyph's border by itemColor while keeping the circle shape", () => {
+    const { container } = render(
+      <PortGlyph kind="pipe" side="right" top={10} item="water" />,
+    );
+    const glyph = container.querySelector<HTMLElement>('[data-glyph="pipe"]');
+    expect(glyph).not.toBeNull();
+    expect(glyph!.style.borderColor).toBe(normalizeColor(itemColor("water")));
+    // Circle shape preserved.
+    expect(glyph!.style.borderRadius).toBe("50%");
+    expect(glyph!.style.background).toBe("transparent");
+  });
+
+  it("falls back to the neutral belt fill when item is omitted (shape by kind)", () => {
+    const { container } = render(
+      <PortGlyph kind="belt" side="left" top={10} />,
+    );
+    const glyph = container.querySelector<HTMLElement>('[data-glyph="belt"]');
+    expect(glyph).not.toBeNull();
+    // #666 default, normalized by jsdom to rgb form.
+    expect(glyph!.style.background).toBe(normalizeColor("#666"));
+  });
+
+  it("keeps shape driven by kind even when item is present (pipe stays a circle)", () => {
+    const { container } = render(
+      <PortGlyph kind="pipe" side="left" top={10} item="copper_nugget" />,
+    );
+    expect(
+      container.querySelector('[data-glyph="pipe"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('[data-glyph="belt"]')).toBeNull();
   });
 });
 

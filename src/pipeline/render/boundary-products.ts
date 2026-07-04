@@ -19,31 +19,47 @@ import type { Item, Recipe, RecipePack } from "@aef/schema";
 import { rationalFromString, rationalToString } from "./rational";
 import { REL_TOL } from "./invariants";
 
-// When a raw item is consumed across several containers, the renderer emits an
-// aggregate input node `u:in:<item>` fanning out to per-container slice nodes
-// (`u:in:<item>:<container>` for clustered consumers; `u:in:<item>:loose` for
-// consumers with no container). Each slice carries its own consumer edges; the
-// aggregate carries the item-level rateCap and the sum of slice rates. When the
-// item is consumed within a single bucket (one container, or all loose) the
-// renderer emits one node with the `u:in:<item>` id (or `u:in:<item>:<ctr>`
-// when that bucket is a real container), keeping unclustered plans
-// byte-identical to the older single-node shape.
+// When a raw item is consumed across several buckets, the renderer emits an
+// aggregate input node `u:in:<item>` fanning out to per-bucket slice nodes. A
+// bucket is either a real container (`u:in:<item>:<container>`) or a single
+// loose consumer with no container (a "tap": `u:in:<item>:tap:<consumerUnit>`).
+// Loose consumers no longer share one bucket; each gets its own tap so a later
+// layout pass can pin it next to its consumer. Each slice carries its own
+// consumer edges; the aggregate carries the item-level rateCap and the sum of
+// slice rates. When the item is consumed within a single bucket (one container,
+// or a lone loose consumer) the renderer emits one node with the `u:in:<item>`
+// id (or `u:in:<item>:<ctr>` when that bucket is a real container), keeping
+// unclustered plans byte-identical to the older single-node shape.
+type BoundaryBucket =
+  | { kind: "container"; containerId: ContainerId }
+  | { kind: "tap"; consumerUnit: RenderUnitId };
+const bucketFor = (
+  containerId: ContainerId | undefined,
+  consumerUnit: RenderUnitId,
+): BoundaryBucket =>
+  containerId === undefined
+    ? { kind: "tap", consumerUnit }
+    : { kind: "container", containerId };
 const unitIdForInputAggregate = (item: ItemId): RenderUnitId => `u:in:${item}`;
 const unitIdForInputFanout = (
   item: ItemId,
-  containerId: ContainerId | undefined,
+  bucket: BoundaryBucket,
 ): RenderUnitId =>
-  containerId === undefined
-    ? `u:in:${item}:loose`
-    : `u:in:${item}:${containerId}`;
+  bucket.kind === "container"
+    ? `u:in:${item}:${bucket.containerId}`
+    : `u:in:${item}:tap:${bucket.consumerUnit}`;
 const unitIdForInputSingleBucket = (
   item: ItemId,
-  containerId: ContainerId | undefined,
+  bucket: BoundaryBucket,
 ): RenderUnitId =>
-  containerId === undefined ? `u:in:${item}` : `u:in:${item}:${containerId}`;
+  bucket.kind === "container"
+    ? `u:in:${item}:${bucket.containerId}`
+    : `u:in:${item}`;
 const unitIdForOutputProduct = (item: ItemId): RenderUnitId => `u:out:${item}`;
-const boundaryKey = (item: ItemId, containerId: ContainerId | undefined): string =>
-  `${item}\0${containerId ?? ""}`;
+const boundaryKey = (item: ItemId, bucket: BoundaryBucket): string =>
+  bucket.kind === "container"
+    ? `${item}\0c\0${bucket.containerId}`
+    : `${item}\0t\0${bucket.consumerUnit}`;
 
 const FRAC_ONE = new Fraction(1);
 
@@ -387,15 +403,16 @@ export function deriveBoundaryProducts(
   type ConsumerKey = string;
   const consumersByKey = new Map<ConsumerKey, BoundaryConsumer[]>();
   const itemByKey = new Map<ConsumerKey, ItemId>();
-  const containerByKey = new Map<ConsumerKey, ContainerId | undefined>();
+  const bucketByKey = new Map<ConsumerKey, BoundaryBucket>();
   const totalDemandByItem = new Map<ItemId, Fraction>();
   for (const c of boundaryConsumers) {
-    const k = boundaryKey(c.item, c.containerId);
+    const bucket = bucketFor(c.containerId, c.toUnit);
+    const k = boundaryKey(c.item, bucket);
     const arr = consumersByKey.get(k) ?? [];
     arr.push(c);
     consumersByKey.set(k, arr);
     itemByKey.set(k, c.item);
-    containerByKey.set(k, c.containerId);
+    bucketByKey.set(k, bucket);
     totalDemandByItem.set(
       c.item,
       (totalDemandByItem.get(c.item) ?? new Fraction(0)).add(c.rate),
@@ -476,12 +493,12 @@ export function deriveBoundaryProducts(
     const keys = keysByItem.get(itemId)!.slice().sort();
 
     if (keys.length <= 1) {
-      // Single bucket: emit one node with the per-container id, no fanout.
+      // Single bucket: emit one node with the per-bucket id, no fanout.
       const key = keys[0]!;
-      const containerId = containerByKey.get(key);
+      const bucket = bucketByKey.get(key)!;
       const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
       const base: Omit<RenderUnitInputProduct, "rateCap"> = {
-        id: unitIdForInputSingleBucket(itemId, containerId),
+        id: unitIdForInputSingleBucket(itemId, bucket),
         kind: "inputProduct",
         itemId,
         count: 1,
@@ -520,10 +537,10 @@ export function deriveBoundaryProducts(
         : aggregateBase,
     );
     for (const key of keys) {
-      const containerId = containerByKey.get(key);
+      const bucket = bucketByKey.get(key)!;
       const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
       inputProducts.push({
-        id: unitIdForInputFanout(itemId, containerId),
+        id: unitIdForInputFanout(itemId, bucket),
         kind: "inputProduct",
         itemId,
         count: 1,
@@ -563,7 +580,7 @@ export function deriveBoundaryProducts(
   for (const [key, consumers] of consumersByKey) {
     if (!emittedKeys.has(key)) continue;
     const itemId = itemByKey.get(key)!;
-    const containerId = containerByKey.get(key);
+    const bucket = bucketByKey.get(key)!;
     const item = itemById.get(itemId);
     if (!item) continue;
     const totalDemand = totalDemandByItem.get(itemId)!;
@@ -573,8 +590,8 @@ export function deriveBoundaryProducts(
     // With an aggregate, per-bucket consumer edges originate from the fanout
     // slice; otherwise from the single-bucket node.
     const fromUnit = aggregateIdByItem.has(itemId)
-      ? unitIdForInputFanout(itemId, containerId)
-      : unitIdForInputSingleBucket(itemId, containerId);
+      ? unitIdForInputFanout(itemId, bucket)
+      : unitIdForInputSingleBucket(itemId, bucket);
     for (const c of consumers) {
       // Multiply before divide to keep precision under exact rationals.
       const rate = c.rate.mul(consumedSupply).div(totalDemand);
@@ -599,11 +616,11 @@ export function deriveBoundaryProducts(
     if (!item) continue;
     const keys = keysByItem.get(itemId)!.slice().sort();
     for (const key of keys) {
-      const containerId = containerByKey.get(key);
+      const bucket = bucketByKey.get(key)!;
       const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
       boundaryEdges.push({
         fromUnit: aggregateId,
-        toUnit: unitIdForInputFanout(itemId, containerId),
+        toUnit: unitIdForInputFanout(itemId, bucket),
         item: itemId,
         rate: realizedRate,
         transportKind: item.transportKind,

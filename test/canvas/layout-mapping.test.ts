@@ -141,7 +141,7 @@ describe("renderPlanToElkGraph: unit dimensions", () => {
     expect(node?.height).toBe(geom.height);
   });
 
-  it("ports are WEST in / EAST out, FIXED_ORDER, non-zero dims", () => {
+  it("ports are WEST in / EAST out, FIXED_SIDE, non-zero dims", () => {
     const recipe = mkRecipe("r:a", ["i1", "i2"], ["o1"]);
     const plan: RenderPlan = {
       units: [mkRecipeUnit("u:a", "r:a")],
@@ -154,8 +154,11 @@ describe("renderPlanToElkGraph: unit dimensions", () => {
       itemById: new Map(),
     });
     const node = findChild(graph, "u:a");
+    // FIXED_SIDE pins each port to its side but lets ELK order the ports within
+    // a side to minimize crossings; the resolved order is read back after
+    // layout as inputOrder / outputOrder.
     expect(node?.layoutOptions?.["org.eclipse.elk.portConstraints"]).toBe(
-      "FIXED_ORDER",
+      "FIXED_SIDE",
     );
     const ports = node?.ports ?? [];
     expect(ports).toHaveLength(3);
@@ -362,6 +365,56 @@ describe("layoutRenderPlan: end-to-end", () => {
     expect((groupRF?.width ?? 0) >= RECIPE_WIDTH).toBe(true);
   });
 
+  it("resolves inputOrder to the producers' vertical order (crossing-free ports)", async () => {
+    // Two producers each feed one input of a two-input consumer. The consumer's
+    // recipe.in declaration order is [x, y], but we wire pA -> in:y and
+    // pB -> in:x. Under FIXED_SIDE ELK reorders the consumer's west ports so the
+    // entering edges do not cross, which means the resolved inputOrder must list
+    // the two inputs in the same top-to-bottom order as their producers. We do
+    // not assume which producer ELK puts on top; instead we assert inputOrder
+    // agrees with the producers' resolved y coordinates.
+    const consumer = mkRecipe("r:cons", ["x", "y"], []);
+    const prodX = mkRecipe("r:px", [], ["x"]);
+    const prodY = mkRecipe("r:py", [], ["y"]);
+    const plan: RenderPlan = {
+      units: [
+        mkRecipeUnit("u:cons", "r:cons"),
+        mkRecipeUnit("u:px", "r:px"),
+        mkRecipeUnit("u:py", "r:py"),
+      ],
+      edges: [mkEdge("u:px", "u:cons", "x"), mkEdge("u:py", "u:cons", "y")],
+      containers: [],
+    };
+    const result = await layoutRenderPlan({
+      plan,
+      recipeById: new Map([
+        ["r:cons", consumer],
+        ["r:px", prodX],
+        ["r:py", prodY],
+      ]),
+      itemById: new Map(),
+    });
+    const cons = result.nodes.find((n) => n.id === "u:cons");
+    const px = result.nodes.find((n) => n.id === "u:px");
+    const py = result.nodes.find((n) => n.id === "u:py");
+    expect(cons).toBeDefined();
+    // The resolved input order, top to bottom.
+    const inputOrder = (cons as { data: { inputOrder?: string[] } }).data
+      .inputOrder;
+    expect(inputOrder).toBeDefined();
+    expect([...inputOrder!].sort()).toEqual(["x", "y"]);
+    // Producer feeding the item at slot 0 must sit at or above the producer
+    // feeding the item at slot 1 (smaller y = higher on screen). This is the
+    // crossing-free property: port order tracks producer order.
+    const producerYByItem: Record<string, number> = {
+      x: px!.position.y,
+      y: py!.position.y,
+    };
+    expect(producerYByItem[inputOrder![0]!]!).toBeLessThanOrEqual(
+      producerYByItem[inputOrder![1]!]!,
+    );
+  });
+
   it("treats a loop-box container's loop unit as a single sized outer node", async () => {
     const interior = { width: 240, height: 180 };
     const loopContainer: LoopBoxContainer = {
@@ -401,6 +454,84 @@ describe("layoutRenderPlan: end-to-end", () => {
     const loopRF = laid.nodes.find((n) => n.id === "l:0");
     expect(loopRF?.type).toBe("loop");
     expect((loopRF as { parentId?: string }).parentId).toBe("lc:1");
+  });
+});
+
+describe("fromElkRenderLayout: multiInputTarget flag", () => {
+  it("sets multiInputTarget on edges into a >=2-input recipe unit and not into a 1-input unit", () => {
+    // One source with two outputs feeds a two-input consumer and a one-input
+    // consumer. The edge into the two-input consumer must carry the flag; the
+    // edge into the one-input consumer must not.
+    const src = mkRecipe("r:src", [], ["a", "b"]);
+    const twoIn = mkRecipe("r:two", ["a", "b"], []);
+    const oneIn = mkRecipe("r:one", ["a"], []);
+    const plan: RenderPlan = {
+      units: [
+        mkRecipeUnit("u:src", "r:src"),
+        mkRecipeUnit("u:two", "r:two"),
+        mkRecipeUnit("u:one", "r:one"),
+      ],
+      edges: [mkEdge("u:src", "u:two", "a"), mkEdge("u:src", "u:one", "a")],
+      containers: [],
+    };
+    const input: LayoutInput = {
+      plan,
+      recipeById: new Map([
+        ["r:src", src],
+        ["r:two", twoIn],
+        ["r:one", oneIn],
+      ]),
+      itemById: new Map(),
+    };
+    const graph = renderPlanToElkGraph(input);
+    const laid: ElkGraph = {
+      ...graph,
+      children: graph.children.map((c, i) => ({ ...c, x: i * 300, y: 0 })),
+      edges: graph.edges,
+    };
+    const { edges } = fromElkRenderLayout(laid, input);
+    const toTwo = edges.find((e) => e.target === "u:two");
+    const toOne = edges.find((e) => e.target === "u:one");
+    expect(toTwo).toBeDefined();
+    expect(toOne).toBeDefined();
+    expect(
+      (toTwo!.data as { multiInputTarget?: true }).multiInputTarget,
+    ).toBe(true);
+    expect(
+      (toOne!.data as { multiInputTarget?: true }).multiInputTarget,
+    ).toBeUndefined();
+  });
+
+  it("sets multiInputTarget on an edge into a >=2-input loop unit", () => {
+    // A producer feeds one net-IO input of a loop that has two net-IO inputs.
+    const prod = mkRecipe("r:p", [], ["water"]);
+    const loop = mkLoopUnit("l:0", "scc:1", [
+      { item: "water", direction: "in", rate: new Fraction(1) },
+      { item: "acid", direction: "in", rate: new Fraction(1) },
+      { item: "steam", direction: "out", rate: new Fraction(1) },
+    ]);
+    const plan: RenderPlan = {
+      units: [mkRecipeUnit("u:p", "r:p"), loop],
+      edges: [mkEdge("u:p", "l:0", "water")],
+      containers: [],
+    };
+    const input: LayoutInput = {
+      plan,
+      recipeById: new Map([["r:p", prod]]),
+      itemById: new Map(),
+    };
+    const graph = renderPlanToElkGraph(input);
+    const laid: ElkGraph = {
+      ...graph,
+      children: graph.children.map((c, i) => ({ ...c, x: i * 300, y: 0 })),
+      edges: graph.edges,
+    };
+    const { edges } = fromElkRenderLayout(laid, input);
+    const toLoop = edges.find((e) => e.target === "l:0");
+    expect(toLoop).toBeDefined();
+    expect(
+      (toLoop!.data as { multiInputTarget?: true }).multiInputTarget,
+    ).toBe(true);
   });
 });
 

@@ -138,6 +138,16 @@ describe("layout-invariants: root layout options", () => {
       String(BETWEEN_LAYERS_SPACING),
     );
   });
+
+  it("cycleBreaking strategy = DEPTH_FIRST", () => {
+    const g = renderPlanToElkGraph(buildInput());
+    expect(g.layoutOptions?.["elk.layered.cycleBreaking.strategy"]).toBe(
+      "DEPTH_FIRST",
+    );
+    expect(ROOT_LAYOUT_OPTIONS["elk.layered.cycleBreaking.strategy"]).toBe(
+      "DEPTH_FIRST",
+    );
+  });
 });
 
 describe("layout-invariants: pinned unit dimensions", () => {
@@ -179,11 +189,14 @@ describe("layout-invariants: ports", () => {
     expect(portCount).toBe(6);
   });
 
-  it("every unit uses FIXED_ORDER portConstraints", () => {
+  it("every unit uses FIXED_SIDE portConstraints", () => {
+    // FIXED_SIDE keeps inputs on the WEST side and outputs on the EAST side
+    // while letting ELK order the ports within each side to minimize crossings.
+    // The per-side order is read back after layout as inputOrder / outputOrder.
     const g = renderPlanToElkGraph(buildInput());
     for (const node of g.children) {
       expect(node.layoutOptions?.["org.eclipse.elk.portConstraints"]).toBe(
-        "FIXED_ORDER",
+        "FIXED_SIDE",
       );
     }
   });

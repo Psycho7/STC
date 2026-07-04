@@ -5,6 +5,7 @@ import type { Recipe } from "@aef/schema";
 import {
   ELK_LAYER_CONSTRAINT_KEY,
   ELK_LAYER_FIRST,
+  ELK_LAYER_FIRST_SEPARATE,
   ELK_LAYER_LAST,
   layoutRenderPlan,
   renderPlanToElkGraph,
@@ -104,6 +105,65 @@ describe("layout / product-unit ELK layer pinning", () => {
     // Recipe nodes should NOT carry the pin so ELK can place them mid-graph.
     expect(
       recipeNode!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY],
+    ).toBeUndefined();
+  });
+
+  it("pins aggregate to FIRST_SEPARATE, single-bucket input to FIRST, output to LAST, and leaves fanout tap slices unconstrained", () => {
+    const aggregateUnit: RenderUnitInputProduct = {
+      id: "u:in:water",
+      kind: "inputProduct",
+      itemId: "water",
+      count: 1,
+      rate: { num: "1", denom: "1" },
+      isAggregate: true,
+    };
+    const tapUnit: RenderUnitInputProduct = {
+      id: "u:in:water:tap:u:v_b",
+      kind: "inputProduct",
+      itemId: "water",
+      count: 1,
+      rate: { num: "1", denom: "1" },
+      isFanout: true,
+    };
+    // A legacy loose-suffixed fanout slice must also be unconstrained once the
+    // dedicated `:loose` pinning branch is gone.
+    const looseUnit: RenderUnitInputProduct = {
+      id: "u:in:water:loose",
+      kind: "inputProduct",
+      itemId: "water",
+      count: 1,
+      rate: { num: "1", denom: "1" },
+      isFanout: true,
+    };
+    const fanoutPlan: RenderPlan = {
+      units: [aggregateUnit, tapUnit, looseUnit, inputUnit, outputUnit],
+      edges: [],
+      containers: [],
+    };
+    const elk = renderPlanToElkGraph({
+      plan: fanoutPlan,
+      recipeById: new Map([[recipe.id, recipe]]),
+      itemById: new Map(),
+    });
+    const byId = new Map<string, (typeof elk.children)[number]>();
+    for (const c of elk.children) byId.set(c.id, c);
+
+    expect(byId.get(aggregateUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY]).toBe(
+      ELK_LAYER_FIRST_SEPARATE,
+    );
+    expect(byId.get(inputUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY]).toBe(
+      ELK_LAYER_FIRST,
+    );
+    expect(byId.get(outputUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY]).toBe(
+      ELK_LAYER_LAST,
+    );
+    // Fanout tap slices carry no layer constraint so ELK barycenters them
+    // next to their consumers instead of pinning them beside the aggregate.
+    expect(
+      byId.get(tapUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY],
+    ).toBeUndefined();
+    expect(
+      byId.get(looseUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY],
     ).toBeUndefined();
   });
 

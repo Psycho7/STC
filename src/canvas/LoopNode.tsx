@@ -4,7 +4,10 @@ import { loopBoxDimensions, LOOP_BOX_PADDING } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRatePerMin } from "../data/rate-format";
 import { PortGlyph } from "./PortGlyph";
+import { itemColor } from "./itemColor";
 import type { PortTransportKinds } from "./layout";
+import type { ItemId } from "../pipeline/types";
+import { orderByItem } from "./orderByItem";
 
 export type LoopNodeNetIO = {
   item: string;
@@ -20,16 +23,38 @@ export type LoopNodeData = {
   tearArc?: { fromY: number; toY: number };
   // Per-port transport kind, keyed by Handle id ("in:<item>" / "out:<item>").
   portTransportKinds?: PortTransportKinds;
+  // ELK-resolved per-side port order (item ids, top to bottom) attached by the
+  // layout pass. Net-port rows, Handles and glyphs render in this order so each
+  // entering edge's y-slot matches its arrival order. Absent on older fixtures /
+  // tests, where we fall back to netIO declaration order.
+  inputOrder?: ItemId[];
+  outputOrder?: ItemId[];
 };
 
 export type LoopNodeType = Node<LoopNodeData, "loop">;
 
 export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
-  const { sccId, netIO, interior, tearArc, portTransportKinds } = data;
+  const {
+    sccId,
+    netIO,
+    interior,
+    tearArc,
+    portTransportKinds,
+    inputOrder,
+    outputOrder,
+  } = data;
   const i18n = useI18n();
   const { width, height } = loopBoxDimensions(interior);
-  const ins = netIO.filter((p) => p.direction === "in");
-  const outs = netIO.filter((p) => p.direction === "out");
+  // Net-IO ports in ELK-resolved arrival order (falls back to declaration
+  // order). Row i, Handle i and glyph i then describe the same item.
+  const ins = orderByItem(
+    netIO.filter((p) => p.direction === "in"),
+    inputOrder,
+  );
+  const outs = orderByItem(
+    netIO.filter((p) => p.direction === "out"),
+    outputOrder,
+  );
 
   // Tear-arc path: one quadratic curve drawn just inside the right edge of the
   // interior, joining two y-coordinates. The exact geometry is rough for now;
@@ -95,7 +120,14 @@ export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
 
       <div className="net-ports">
         {ins.map((p) => (
-          <div className="net-port in" key={`np-in:${p.item}`}>
+          // --row-accent tints the port box's emphasized left border to the
+          // item color (canvas.css reads it in .net-port.in) so the net-IO row
+          // pairs by hue with its entering edge and port glyph.
+          <div
+            className="net-port in"
+            key={`np-in:${p.item}`}
+            style={{ ["--row-accent" as string]: itemColor(p.item) }}
+          >
             <span className="lbl">{i18n.displayName(p.item)}</span>
             <span className="rate">
               {formatRatePerMin(p.rate)}
@@ -104,7 +136,14 @@ export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
           </div>
         ))}
         {outs.map((p) => (
-          <div className="net-port out" key={`np-out:${p.item}`}>
+          // --row-accent tints the port box's emphasized right border to the
+          // item color (canvas.css reads it in .net-port.out) so the net-IO row
+          // pairs by hue with its leaving edge and port glyph.
+          <div
+            className="net-port out"
+            key={`np-out:${p.item}`}
+            style={{ ["--row-accent" as string]: itemColor(p.item) }}
+          >
             <span className="lbl">{i18n.displayName(p.item)}</span>
             <span className="rate">
               {formatRatePerMin(p.rate)}
@@ -143,6 +182,7 @@ export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
           kind={portTransportKinds?.get(`in:${p.item}`)}
           side="left"
           top={LOOP_BOX_PADDING + 8 + i * 18}
+          item={p.item}
         />
       ))}
 
@@ -161,6 +201,7 @@ export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
           kind={portTransportKinds?.get(`out:${p.item}`)}
           side="right"
           top={LOOP_BOX_PADDING + 8 + i * 18}
+          item={p.item}
         />
       ))}
     </div>

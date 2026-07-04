@@ -3,6 +3,8 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import ItemEdge, { type ItemEdgeData } from "../../src/canvas/ItemEdge";
+import { pathMidpoint } from "../../src/canvas/edgePath";
+import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
 
 afterEach(() => {
@@ -34,7 +36,7 @@ function makeEdge(data: ItemEdgeData): Edge {
   };
 }
 
-function renderEdge(data: ItemEdgeData) {
+function renderEdge(data: ItemEdgeData, zoom?: number) {
   return render(
     <LocaleProvider locale="en">
       <div style={{ width: 800, height: 600 }}>
@@ -42,6 +44,9 @@ function renderEdge(data: ItemEdgeData) {
           nodes={NODES}
           edges={[makeEdge(data)]}
           edgeTypes={edgeTypes}
+          {...(zoom !== undefined
+            ? { defaultViewport: { x: 0, y: 0, zoom } }
+            : {})}
         />
       </div>
     </LocaleProvider>,
@@ -127,6 +132,15 @@ describe("canvas/ItemEdge", () => {
     expect(label!.classList.contains("red")).toBe(true);
   });
 
+  it("sets --chip-accent to itemColor of the edge item", async () => {
+    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) });
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.style.getPropertyValue("--chip-accent")).toBe(
+      itemColor("Iron Plate"),
+    );
+  });
+
   it("renders an .ico-16 .spr sprite for a known item id inside the flow-chip", async () => {
     renderEdge({ item: "belt", rate: new Fraction(1, 1) });
     const label = await findLabel();
@@ -144,41 +158,142 @@ describe("canvas/ItemEdge", () => {
   });
 });
 
+async function findEntry(): Promise<HTMLElement | null> {
+  let entry: HTMLElement | null = null;
+  await waitFor(() => {
+    entry = document.querySelector<HTMLElement>(
+      '[data-testid="item-edge-entry-e1"]',
+    );
+    const edgePath = document.querySelector(".react-flow__edge");
+    expect(edgePath).not.toBeNull();
+  });
+  return entry;
+}
+
+describe("canvas/ItemEdge entry chip", () => {
+  it("renders an icon-only entry chip when multiInputTarget and zoom >= gate", async () => {
+    renderEdge(
+      { item: "belt", rate: new Fraction(1), multiInputTarget: true },
+      0.6,
+    );
+    const entry = await findEntry();
+    expect(entry).not.toBeNull();
+    expect(entry!.classList.contains("flow-chip")).toBe(true);
+    expect(entry!.classList.contains("entry")).toBe(true);
+    // Icon-only: the sprite is present and there is no rate text in the body.
+    expect(entry!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
+    expect(entry!.textContent).toBe("");
+  });
+
+  it("names the item on title and aria-label", async () => {
+    renderEdge(
+      { item: "belt", rate: new Fraction(1), multiInputTarget: true },
+      0.6,
+    );
+    const entry = await findEntry();
+    expect(entry).not.toBeNull();
+    // The rate is per-second * 60; Fraction(1) -> 60/min. The exact item name
+    // comes from i18n, so only the "Name x <rate>/min" tail is pinned here.
+    expect(entry!.getAttribute("title")).toMatch(/ x 60\/min$/);
+    expect(entry!.getAttribute("aria-label")).toBe(entry!.getAttribute("title"));
+  });
+
+  it("sets --chip-accent to itemColor of the edge item", async () => {
+    renderEdge(
+      { item: "belt", rate: new Fraction(1), multiInputTarget: true },
+      0.6,
+    );
+    const entry = await findEntry();
+    expect(entry).not.toBeNull();
+    expect(entry!.style.getPropertyValue("--chip-accent")).toBe(
+      itemColor("belt"),
+    );
+  });
+
+  it("does not render the entry chip when multiInputTarget is absent", async () => {
+    renderEdge({ item: "belt", rate: new Fraction(1) }, 0.6);
+    const entry = await findEntry();
+    expect(entry).toBeNull();
+  });
+
+  it("does not render the entry chip when zoom is below the gate", async () => {
+    renderEdge(
+      { item: "belt", rate: new Fraction(1), multiInputTarget: true },
+      0.4,
+    );
+    const entry = await findEntry();
+    expect(entry).toBeNull();
+  });
+});
+
+describe("canvas/ItemEdge zoom gating", () => {
+  it("hides the label when zoomed below the threshold", async () => {
+    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 0.4);
+    const label = await findLabel();
+    expect(label).toBeNull();
+  });
+
+  it("shows the label at the threshold zoom", async () => {
+    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 0.6);
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.textContent).toBe("120/min");
+  });
+
+  it("shows the label when zoomed in", async () => {
+    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 1.5);
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+  });
+});
+
 describe("canvas/ItemEdge label placement", () => {
   function transformFor(label: HTMLElement): string {
     return label.style.transform;
   }
 
-  it("places the label on the target-side horizontal when labelSide is 'target'", async () => {
-    renderEdge({
-      item: "Iron Plate",
-      rate: new Fraction(2, 1),
-      labelSide: "target",
-    });
+  it("anchors the label at the path midpoint regardless of labelSide", async () => {
+    // Nodes at different y so the drawn path bends: the length midpoint's y
+    // then differs from targetY, which is where the old labelSide override
+    // pinned the chip. labelSide is set to prove it no longer moves the label.
+    const nodes: Node[] = [
+      { id: "src", position: { x: 0, y: 0 }, data: { label: "src" } },
+      { id: "tgt", position: { x: 300, y: 100 }, data: { label: "tgt" } },
+    ];
+    render(
+      <LocaleProvider locale="en">
+        <div style={{ width: 800, height: 600 }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={[
+              makeEdge({
+                item: "Iron Plate",
+                rate: new Fraction(2, 1),
+                labelSide: "target",
+              }),
+            ]}
+            edgeTypes={edgeTypes}
+          />
+        </div>
+      </LocaleProvider>,
+    );
     const label = await findLabel();
     expect(label).not.toBeNull();
-    // NODES: src.x=0, tgt.x=300, both y=0. React Flow handle offsets shift
-    // these to handle centres; we assert the label's translate Y matches
-    // targetY rather than midpoint Y to confirm it sits on the target stub.
-    const t = transformFor(label!);
-    // The label transform contains "translate(<x>px, <y>px)"; with both nodes
-    // at y=0, both source and target stubs share y=0, so the discriminator is
-    // the x coordinate biased toward targetX (around 3/4 of the way across).
-    // Match the structural shape: it includes the targetX-biased coordinate.
-    expect(t).toMatch(/translate\(.+px,.+px\)/);
-    expect(t).not.toBe("translate(-50%, -50%) translate(NaNpx, NaNpx)");
-  });
-
-  it("places the label on the source-side horizontal when labelSide is 'source'", async () => {
-    renderEdge({
-      item: "Iron Plate",
-      rate: new Fraction(2, 1),
-      labelSide: "source",
-    });
-    const label = await findLabel();
-    expect(label).not.toBeNull();
-    const t = transformFor(label!);
-    expect(t).toMatch(/translate\(.+px,.+px\)/);
+    // The rendered edge path and the chip share the same graph coordinate
+    // space, so the chip's translate must equal pathMidpoint of the drawn d.
+    const path = document.querySelector<SVGPathElement>(
+      ".react-flow__edge-path",
+    );
+    expect(path).not.toBeNull();
+    const d = path!.getAttribute("d")!;
+    const [mx, my] = pathMidpoint(d);
+    expect(transformFor(label!)).toBe(
+      `translate(-50%, -50%) translate(${mx}px, ${my}px)`,
+    );
+    // The old behavior pinned y to targetY (the path's final point) when
+    // labelSide was "target"; the midpoint anchor must not do that here.
+    const ty = Number(d.match(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/)![2]);
+    expect(my).not.toBe(ty);
   });
 
   it("falls back to the smoothstep midpoint when labelSide is undefined", async () => {

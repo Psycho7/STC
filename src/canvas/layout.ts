@@ -41,6 +41,11 @@ import {
   loopBoxDimensions,
 } from "./dimensions";
 import { measureRecipe } from "./recipeGeometry";
+import {
+  assignBendColumns,
+  assignEntryColumns,
+  routeBusEdges,
+} from "./busRouting";
 import type {
   Container,
   ContainerId,
@@ -158,10 +163,39 @@ export const ROOT_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
   "elk.edgeRouting": "ORTHOGONAL",
   "elk.spacing.nodeNode": String(NODE_NODE_SPACING),
   "elk.layered.spacing.nodeNodeBetweenLayers": String(BETWEEN_LAYERS_SPACING),
+  // Declutter knobs for dense plans. Left-to-right layering plus per-item ports
+  // otherwise fans out into long crossing edges on big graphs. Extra
+  // thoroughness spends more sweep iterations minimizing crossings;
+  // NETWORK_SIMPLEX node placement pulls layers tighter so edges span less
+  // empty space; the edge spacing keeps routed edges clear of node bodies and
+  // of each other so parallel runs read as separate lines.
+  "elk.layered.thoroughness": "10",
+  "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+  "elk.spacing.edgeNode": "24",
+  "elk.spacing.edgeEdge": "16",
+  "elk.layered.spacing.edgeNodeBetweenLayers": "24",
+  "elk.layered.spacing.edgeEdgeBetweenLayers": "16",
+  // Cycle-breaking strategy. DEPTH_FIRST reverses fewer arcs than the default
+  // GREEDY heuristic on this graph's recycle/byproduct family, so those edges
+  // stay forward and span fewer layers. On the repro census this drops the
+  // long-edge (>820px) count 14 -> 9 and the max span 5507 -> 4334.
+  "elk.layered.cycleBreaking.strategy": "DEPTH_FIRST",
 };
 
+// FIXED_SIDE pins each port to its declared side (WEST inputs / EAST outputs)
+// but lets ELK choose the per-side vertical order to minimize edge crossings.
+// Recipe and loop nodes carry multiple ports per side, so this is where the
+// arrival-sorted port order comes from: ELK reorders the west/east ports so the
+// entering edges approach in parallel instead of braiding in front of the node.
+// The resolved order is read back after layout in resolvePortOrders and handed
+// to the node components as inputOrder / outputOrder.
+//
+// Product units carry a single port per side, so FIXED_SIDE and FIXED_ORDER are
+// behaviorally identical there. They share this one constant (least churn: no
+// separate options object and no extra branch) and the per-port "elk.port.index"
+// hint set in makePort is simply ignored under FIXED_SIDE.
 const RECIPE_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
-  "org.eclipse.elk.portConstraints": "FIXED_ORDER",
+  "org.eclipse.elk.portConstraints": "FIXED_SIDE",
 };
 
 // Per-node ELK layer constraints that pin boundary product units to the leftmost
@@ -191,12 +225,20 @@ export type PortTransportKinds = ReadonlyMap<string, TransportKindId>;
 // the layout-stage type level, and the production paths always provide it
 // through `unitToRFNode`. Tests that want the "no glyphs" path should pass
 // `new Map()` themselves.
+// `inputOrder` / `outputOrder` carry the ELK-resolved per-side port order (the
+// item id of each west / east port, top to bottom). The node components render
+// their rows, Handles and glyphs in this order so the y-slot of each entering
+// edge lines up with its arrival, instead of the recipe's declaration order.
+// Optional: paths that build a node without a laid-out ELK graph (older fixtures
+// and tests) omit them, and the components fall back to declaration order.
 export type RFRecipeNode = RFNode<
   {
     recipe: Recipe;
     kind: "recipe";
     portTransportKinds: PortTransportKinds;
     multiplicity: RationalString;
+    inputOrder?: ItemId[];
+    outputOrder?: ItemId[];
   },
   "recipe"
 >;
@@ -206,6 +248,8 @@ export type RFLoopNode = RFNode<
     netIO: RenderUnitLoop["netIO"];
     interior: LoopInteriorSize;
     portTransportKinds: PortTransportKinds;
+    inputOrder?: ItemId[];
+    outputOrder?: ItemId[];
   },
   "loop"
 >;
@@ -346,12 +390,15 @@ function makePort(
   return port;
 }
 
-// FIXED_ORDER plus the per-port "elk.port.index" hint decide vertical
-// placement, so we never set port.y here. On the React side the Handle takes its
-// visual top offset from `measureRecipe(recipe).inHandleYs[i] / outHandleYs[i]`,
-// and ELK is trusted to line ports up by index on each side. The lockstep
-// guarantee between layout and rendering is therefore about the outer box and
-// the port ordering, not the absolute per-port y that ELK reports.
+// Ports are emitted in recipe.in / recipe.out declaration order here; under
+// FIXED_SIDE ELK is free to reorder them within each side to minimize crossings,
+// so declaration order is only the starting point. We never set port.y. On the
+// React side the Handle takes its visual top offset from
+// `measureRecipe(recipe).inHandleYs[i] / outHandleYs[i]`, indexed by the
+// resolved slot i, and the row at slot i shows whichever item resolvePortOrders
+// assigned to that slot. The lockstep guarantee between layout and rendering is
+// therefore about the outer box and the resolved per-side order, not the
+// absolute per-port y that ELK reports.
 function buildRecipePorts(
   unitId: string,
   recipe: Recipe,
@@ -388,24 +435,17 @@ function inputProductUnitToElk(
 ): ElkNode {
   // Aggregate and single-bucket input products sit on the leftmost layer with a
   // single source port on the east side. Fanout slices skip the FIRST-layer
-  // constraint so ELK can drop each one near its container, and they add a sink
+  // constraint so ELK can drop each one near its consumers, and they add a sink
   // port on the west side to receive the edge from the aggregate.
-  //
-  // The "loose" fanout slice (no containerId; its consumers live outside any
-  // blueprint group) has no container tugging it leftward, so the edges out to
-  // its right-side consumers would otherwise let ELK shove it far right next to
-  // them. Pinning loose slices to layer 1, just right of the aggregate on FIRST,
-  // keeps them beside the aggregate as visual taps instead of drifting across
-  // the canvas.
   //
   // So the input products fall into three tiers:
   //   - Aggregate (isAggregate): FIRST_SEPARATE, its own layer ahead of FIRST,
   //     so the aggregate -> fanout edge is a valid forward edge into FIRST or
   //     beyond. ELK does not support a FIRST-to-FIRST edge.
-  //   - Loose fanout slice (isFanout, id ends with ":loose"): FIRST, pinned next
-  //     to the aggregate so it doesn't drift right toward its loose consumers.
-  //   - Clustered fanout slice (isFanout): unconstrained, so ELK settles it near
-  //     its loop-box container on its own.
+  //   - Fanout slice (isFanout): unconstrained, so ELK barycenters each slice
+  //     (per-container or per-consumer tap) next to the consumers it feeds
+  //     instead of pinning it beside the aggregate. This collapses the long
+  //     boundary-supply edges.
   //   - Single-bucket input (neither isFanout nor isAggregate): FIRST, the older
   //     placement for items with one bucket or no fanouts at all.
   let layoutOptions: ElkNode["layoutOptions"];
@@ -415,11 +455,6 @@ function inputProductUnitToElk(
       [ELK_LAYER_CONSTRAINT_KEY]: ELK_LAYER_FIRST_SEPARATE,
     };
   } else if (!u.isFanout) {
-    layoutOptions = {
-      ...RECIPE_LAYOUT_OPTIONS,
-      [ELK_LAYER_CONSTRAINT_KEY]: ELK_LAYER_FIRST,
-    };
-  } else if (u.id.endsWith(":loose")) {
     layoutOptions = {
       ...RECIPE_LAYOUT_OPTIONS,
       [ELK_LAYER_CONSTRAINT_KEY]: ELK_LAYER_FIRST,
@@ -580,6 +615,7 @@ export function fromElkRenderLayout(
       rate: Fraction;
       transportKind?: TransportKindId;
       labelSide?: "source" | "target";
+      multiInputTarget?: true;
     } = {
       item: itemId,
       rate,
@@ -589,6 +625,19 @@ export function fromElkRenderLayout(
     }
     if (renderEdge?.labelSide !== undefined) {
       edgeData.labelSide = renderEdge.labelSide;
+    }
+    // Flag edges whose consumer takes two or more inputs so ItemEdge can pin an
+    // icon-only identity chip at the target port. The edge itself does not know
+    // the consumer's in-degree, so we resolve it here from the target unit.
+    // Bus members: every edge is still type "item" at this point; routeBusEdges
+    // runs later (in layoutRenderPlan) and retypes long / boundary-feeder edges
+    // to type "bus", which BusEdge renders. BusEdge's rise chip already sits
+    // near the target, so a multiInputTarget flag left on a bus member is inert
+    // (ItemEdge is the only reader). Setting it uniformly here keeps this pass
+    // free of any bus-classification dependency.
+    const targetUnit = unitById.get(targetNode);
+    if (targetUnit !== undefined && inputCountOf(targetUnit, recipeById) >= 2) {
+      edgeData.multiInputTarget = true;
     }
     return {
       id: e.id,
@@ -622,6 +671,42 @@ function portKindsFromElkNode(node: ElkNode): PortTransportKinds {
   return out;
 }
 
+// Read the ELK-resolved per-side port order back off a laid-out node. Under
+// FIXED_SIDE ELK assigns each port a y within the node (relative to the node
+// origin) that reflects the crossing-minimized order it chose; sorting the west
+// ports by that y gives the top-to-bottom input order, and likewise for the east
+// outputs. The item id is recovered from the port id ("<unitId>.in:<item>" ->
+// "<item>"); ports whose id is neither ".in:" nor ".out:" are ignored.
+//
+// Ports without a numeric y (synthetic ELK graphs in unit tests never run the
+// real layout, so their ports keep no coordinates) fall back to y=0, which makes
+// the sort stable and preserves the emitted declaration order. That keeps the
+// resolved order equal to declaration order on those paths.
+function resolvePortOrders(node: ElkNode): {
+  inputOrder: ItemId[];
+  outputOrder: ItemId[];
+} {
+  const ins: { item: ItemId; y: number }[] = [];
+  const outs: { item: ItemId; y: number }[] = [];
+  for (const p of node.ports ?? []) {
+    const id = p.id ?? "";
+    const dot = id.indexOf(".");
+    const handleId = dot >= 0 ? id.slice(dot + 1) : id;
+    const y = typeof p.y === "number" ? p.y : 0;
+    if (handleId.startsWith("in:")) {
+      ins.push({ item: handleId.slice("in:".length), y });
+    } else if (handleId.startsWith("out:")) {
+      outs.push({ item: handleId.slice("out:".length), y });
+    }
+  }
+  ins.sort((a, b) => a.y - b.y);
+  outs.sort((a, b) => a.y - b.y);
+  return {
+    inputOrder: ins.map((e) => e.item),
+    outputOrder: outs.map((e) => e.item),
+  };
+}
+
 function parseElkEdgeIndex(id: string): number | null {
   // renderEdgeToElk writes ids shaped like "e:<index>:<from>-><to>:<item>".
   if (!id.startsWith("e:")) return null;
@@ -638,6 +723,27 @@ function portToItem(port: string): string {
   return port;
 }
 
+// Number of distinct inputs a unit consumes, used to decide whether its
+// entering edges get an identity chip. Recipe units count their recipe.in
+// ports; loop units count their net-IO "in" ports; product units are boundary
+// sinks that never take two inputs, so they report zero.
+function inputCountOf(
+  unit: RenderUnit,
+  recipeById: ReadonlyMap<RecipeId, Recipe>,
+): number {
+  switch (unit.kind) {
+    case "recipe": {
+      const recipe = recipeById.get(unit.recipeId);
+      return recipe ? recipe.in.length : 0;
+    }
+    case "loop":
+      return unit.netIO.filter((p) => p.direction === "in").length;
+    case "inputProduct":
+    case "outputProduct":
+      return 0;
+  }
+}
+
 function unitToRFNode(
   laidChild: ElkNode,
   unit: RenderUnit,
@@ -652,6 +758,7 @@ function unitToRFNode(
   switch (unit.kind) {
     case "recipe": {
       const recipe = requireRecipe(recipeById, unit.recipeId);
+      const { inputOrder, outputOrder } = resolvePortOrders(laidChild);
       return {
         id: unit.id,
         type: "recipe",
@@ -661,12 +768,15 @@ function unitToRFNode(
           kind: "recipe",
           portTransportKinds,
           multiplicity: unit.multiplicity,
+          inputOrder,
+          outputOrder,
         },
       } satisfies RFRecipeNode;
     }
     case "loop": {
       const interior =
         interiorByLoopId.get(unit.sccId) ?? DEFAULT_LOOP_INTERIOR;
+      const { inputOrder, outputOrder } = resolvePortOrders(laidChild);
       return {
         id: unit.id,
         type: "loop",
@@ -676,6 +786,8 @@ function unitToRFNode(
           netIO: unit.netIO,
           interior,
           portTransportKinds,
+          inputOrder,
+          outputOrder,
         },
       } satisfies RFLoopNode;
     }
@@ -734,5 +846,18 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
 }> {
   const elkGraph = renderPlanToElkGraph(input);
   const laid = (await elk.layout(elkGraph)) as ElkGraph;
-  return fromElkRenderLayout(laid, input);
+  const { nodes, edges } = fromElkRenderLayout(laid, input);
+  // Classify long / boundary-feeder edges into bus trunks after layout, so the
+  // pass sees final absolute node positions when it measures spans and picks
+  // each trunk's lane. Then stake out per-target entry columns in each node's
+  // gutter (backward rails and bus rises) so entering runs stay parallel, and
+  // stagger the bend columns of the remaining still-type:"item" edges so their
+  // vertical runs fan out instead of stacking (clamped clear of every gutter).
+  return {
+    nodes,
+    edges: assignBendColumns(
+      nodes,
+      assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+    ),
+  };
 }

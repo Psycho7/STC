@@ -32,6 +32,10 @@ export type UiKey =
   | "inputs.duplicate"
   | "inputs.unlimited"
   | "inputs.needed"
+  | "stats.output"
+  | "stats.output.unit"
+  | "stats.input"
+  | "stats.input.unit"
   | "side.nav.label";
 
 export type I18nIndex = {
@@ -74,6 +78,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "该物品已声明",
     "inputs.unlimited": "无限",
     "inputs.needed": "需求 {rate}/分",
+    "stats.output": "输出",
+    "stats.output.unit": "目标",
+    "stats.input": "输入",
+    "stats.input.unit": "供给",
     "side.nav.label": "边界面板分区",
   },
   en: {
@@ -107,6 +115,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "Item already declared",
     "inputs.unlimited": "Unlimited",
     "inputs.needed": "needed {rate}/min",
+    "stats.output": "Output",
+    "stats.output.unit": "targets",
+    "stats.input": "Input",
+    "stats.input.unit": "supply",
     "side.nav.label": "Boundary panel sections",
   },
   ja: {
@@ -140,6 +152,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "このアイテムは既に登録されています",
     "inputs.unlimited": "無制限",
     "inputs.needed": "必要 {rate}/分",
+    "stats.output": "出力",
+    "stats.output.unit": "ターゲット",
+    "stats.input": "入力",
+    "stats.input.unit": "供給",
     "side.nav.label": "境界パネルのセクション",
   },
   ru: {
@@ -173,6 +189,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "Предмет уже объявлен",
     "inputs.unlimited": "Без ограничений",
     "inputs.needed": "нужно {rate}/мин",
+    "stats.output": "Выход",
+    "stats.output.unit": "цели",
+    "stats.input": "Вход",
+    "stats.input.unit": "ресурсы",
     "side.nav.label": "Разделы боковой панели",
   },
 };

@@ -1119,12 +1119,17 @@
   font-weight: 700;
 }
 
+/* --row-accent (set inline by LoopNode from itemColor) tints only the
+   emphasized accent border of each net-IO port box to its item; the other three
+   borders stay cyan, and the fallback keeps older paths that omit it unchanged. */
 .net-port.in {
   border-left-width: 3px;
+  border-left-color: var(--row-accent, var(--ak-accent-cyan));
 }
 
 .net-port.out {
   border-right-width: 3px;
+  border-right-color: var(--row-accent, var(--ak-accent-cyan));
 }
 
 /* The return arc ribbon along the right edge of the SCC body. */
@@ -1182,6 +1187,21 @@
   margin-left: 1px;
 }
 
+/* Ego-network highlight: hovering a node or a trunk lights its neighbourhood
+   and marks everything else `dimmed`. The class lands on React Flow's node /
+   edge wrappers (Canvas maps it onto the node/edge objects). The transition
+   lives on the base wrappers so both fading out and returning ease smoothly. */
+.ak-canvas-theme .react-flow__node,
+.ak-canvas-theme .react-flow__edge {
+  transition: opacity 120ms ease-out;
+}
+.ak-canvas-theme .react-flow__node.dimmed {
+  opacity: 0.18;
+}
+.ak-canvas-theme .react-flow__edge.dimmed {
+  opacity: 0.12;
+}
+
 /* Override React Flow's default light pane / dot grid for the dark theme. */
 .ak-canvas-theme .react-flow__pane,
 .ak-canvas-theme .react-flow {
@@ -1195,6 +1215,31 @@
 
 .ak-canvas-theme .react-flow__attribution a {
   color: var(--ak-text-secondary);
+}
+
+/* Dark-theme the zoom/fit/lock Controls cluster so the default white buttons
+   don't clash with the blueprint canvas. */
+.ak-canvas-theme .react-flow__controls {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--ak-divider);
+}
+
+.ak-canvas-theme .react-flow__controls-button {
+  background: var(--ak-bg-secondary);
+  border-bottom: 1px solid var(--ak-divider);
+  color: var(--ak-text-secondary);
+}
+
+.ak-canvas-theme .react-flow__controls-button:hover {
+  background: var(--ak-bg-tertiary);
+}
+
+.ak-canvas-theme .react-flow__controls-button svg {
+  fill: var(--ak-text-secondary);
+}
+
+.ak-canvas-theme .react-flow__controls-button:hover svg {
+  fill: var(--ak-accent-lime);
 }
 
 /* Blueprint-grid dot pattern on the canvas pane. */
@@ -1382,15 +1427,26 @@
   gap: 6px;
   padding: 3px 7px;
   background: linear-gradient(180deg, #1f2125 0%, #14171b 100%);
-  border: 1px solid var(--ak-accent-cyan);
+  border: 1px solid var(--chip-accent, var(--ak-accent-cyan));
   font-family: var(--font-num);
   font-size: 11px;
   font-weight: 700;
-  color: var(--ak-accent-cyan);
+  color: var(--ak-text-primary);
   letter-spacing: -0.01em;
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.4),
-    0 0 12px rgba(35, 213, 252, 0.15);
+    0 0 12px rgba(0, 0, 0, 0.4);
+  transition: opacity 120ms ease-out;
+}
+
+/* Chips need their own dim rule: EdgeLabelRenderer portals them into a separate
+   DOM layer outside the React Flow edge wrapper, so the wrapper's
+   .react-flow__edge.dimmed fade never reaches them. Canvas threads the edge's
+   dim state through edge data; the edge components map it onto this class so a
+   chip fades in step with its edge (same opacity as the edge, same transition
+   duration/easing as the wrapper). */
+.flow-chip.dimmed {
+  opacity: 0.12;
 }
 
 .flow-chip.red {
@@ -1399,6 +1455,14 @@
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.4),
     0 0 12px rgba(225, 53, 30, 0.18);
+}
+
+/* Compact icon-only variant used by ItemEdge's entry chip, pinned at a target
+   port. It drops the label padding and gap so the sprite reads as a small
+   identity dot beside the node rather than a full rate chip. */
+.flow-chip.entry {
+  padding: 2px;
+  gap: 0;
 }
 
 .product-node {
@@ -1548,7 +1612,7 @@
     0 1px 0 rgba(255, 255, 255, 0.04) inset,
     0 -1px 0 rgba(0, 0, 0, 0.5) inset,
     0 8px 16px rgba(0, 0, 0, 0.35);
-  width: 268px;
+  width: 300px;
   position: relative;
 }
 
@@ -1644,14 +1708,17 @@
   height: 14px;
 }
 
+/* --row-accent (set inline by RecipeNode from itemColor) tints the accent tab
+   to the row's item so the row pairs by hue with its edge and port glyph; the
+   fixed defaults keep older render paths that omit it unchanged. */
 .rn-row.input::before {
   left: -1px;
-  background: var(--ak-text-secondary);
+  background: var(--row-accent, var(--ak-text-secondary));
 }
 
 .rn-row.output::after {
   right: -1px;
-  background: var(--ak-accent-cyan);
+  background: var(--row-accent, var(--ak-accent-cyan));
   box-shadow: 0 0 8px rgba(35, 213, 252, 0.5);
 }
 

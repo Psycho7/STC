@@ -7,6 +7,7 @@ import {
 } from "@xyflow/react";
 import type { Item, Machine, Recipe } from "@aef/schema";
 import RecipeNode from "../../src/canvas/RecipeNode";
+import { itemColor } from "../../src/canvas/itemColor";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import {
   ItemPackProvider,
@@ -86,6 +87,8 @@ type RecipeNodeData = {
   multiplier?: number;
   expanded?: boolean;
   kind?: "recipe";
+  inputOrder?: string[];
+  outputOrder?: string[];
 };
 type RecipeNodeType = RFNode<RecipeNodeData, "recipe">;
 
@@ -199,7 +202,7 @@ describe("RecipeNode", () => {
     }
   });
 
-  it("renders per-row handles with handle id in:${item} / out:${item} positioned at measureRecipe(recipe).in/outHandleYs[i]", () => {
+  it("fallback path (no inputOrder): per-row handles keep declaration order at measureRecipe(recipe).in/outHandleYs[i]", () => {
     const { container } = renderRecipe({
       recipe: multiRowRecipe,
       kind: "recipe",
@@ -226,6 +229,38 @@ describe("RecipeNode", () => {
     expect(outputHandles[0]!.style.top).toBe(`${geom.outHandleYs[0]}px`);
   });
 
+  it("reordered path (inputOrder present): handles and rows follow the resolved order, rates track each item", () => {
+    // The resolved order reverses the declaration order [copper_nugget,
+    // copper_ore-liquid_water]. The handle at slot i and the row at slot i must
+    // both describe the item at inputOrder[i], and each row keeps its own qty
+    // (copper_nugget qty=1 -> 60/min, copper_ore-liquid_water qty=2 -> 120/min).
+    const { container } = renderRecipe({
+      recipe: multiRowRecipe,
+      kind: "recipe",
+      multiplier: 1,
+      inputOrder: ["copper_ore-liquid_water", "copper_nugget"],
+    });
+    const inputHandles = container.querySelectorAll<HTMLElement>(
+      'div[data-handlepos="left"]',
+    );
+    expect(inputHandles.length).toBe(2);
+    const geom = measureRecipe(multiRowRecipe);
+    const expectedInIds = ["in:copper_ore-liquid_water", "in:copper_nugget"];
+    inputHandles.forEach((handle, i) => {
+      expect(handle.getAttribute("data-handleid")).toBe(expectedInIds[i]);
+      expect(handle.style.top).toBe(`${geom.inHandleYs[i]}px`);
+    });
+    // Rows in the same reversed order, each paired with its own rate.
+    const inputLbls = Array.from(
+      container.querySelectorAll(".rn-side.in .rn-row.input .lbl"),
+    ).map((el) => el.textContent);
+    const inputRates = Array.from(
+      container.querySelectorAll(".rn-side.in .rn-row.input .rate"),
+    ).map((el) => el.textContent);
+    expect(inputLbls).toEqual(["赤铜矿", "赤铜块"]);
+    expect(inputRates).toEqual(["120", "60"]);
+  });
+
   it("each row's .lbl shows the zh-CN item name and .rate shows the per-min formatted value", () => {
     const { container } = renderRecipe({
       recipe: multiRowRecipe,
@@ -250,6 +285,29 @@ describe("RecipeNode", () => {
     ).map((el) => el.textContent);
     expect(inputRates).toEqual(["60", "120"]);
     expect(outputRates).toEqual(["60"]);
+  });
+
+  it("tints each row's --row-accent custom property to the item color", () => {
+    const { container } = renderRecipe({
+      recipe: multiRowRecipe,
+      kind: "recipe",
+      multiplier: 1,
+    });
+    // Rows render in declaration order here (no inputOrder). Each row's inline
+    // --row-accent must equal itemColor(item) so canvas.css can tint the accent
+    // tab; the custom property is stored verbatim, so a direct string compare
+    // holds.
+    const inputAccents = Array.from(
+      container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input"),
+    ).map((r) => r.style.getPropertyValue("--row-accent"));
+    expect(inputAccents).toEqual([
+      itemColor("copper_nugget"),
+      itemColor("copper_ore-liquid_water"),
+    ]);
+    const outputAccents = Array.from(
+      container.querySelectorAll<HTMLElement>(".rn-side.out .rn-row.output"),
+    ).map((r) => r.style.getPropertyValue("--row-accent"));
+    expect(outputAccents).toEqual([itemColor("copper_powder")]);
   });
 
   describe("footer", () => {
