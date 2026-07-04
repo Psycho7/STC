@@ -125,13 +125,16 @@ async function edgeEl(container: HTMLElement, id: string): Promise<HTMLElement> 
 }
 
 describe("canvas/focus-dim", () => {
-  it("dims a non-adjacent node but not an adjacent one on node hover", () => {
+  it("dims a non-adjacent node but not an adjacent one on node hover", async () => {
     const { container } = renderCanvas();
     // Hover node "a": adjacent to b and c (edges e1, e2); "d" is not adjacent.
+    // The hover registers after a short intent delay, so wait for the dim.
     fireEvent.mouseEnter(nodeEl(container, "a"));
+    await waitFor(() => {
+      expect(nodeEl(container, "d").classList.contains("dimmed")).toBe(true);
+    });
     expect(nodeEl(container, "b").classList.contains("dimmed")).toBe(false);
     expect(nodeEl(container, "a").classList.contains("dimmed")).toBe(false);
-    expect(nodeEl(container, "d").classList.contains("dimmed")).toBe(true);
   });
 
   it("keeps a same-trunk sibling edge undimmed on bus-edge hover", async () => {
@@ -161,10 +164,12 @@ describe("canvas/focus-dim", () => {
     ).toBe(false);
   });
 
-  it("clears all dimmed classes on mouse leave", () => {
+  it("clears all dimmed classes on mouse leave", async () => {
     const { container } = renderCanvas();
     fireEvent.mouseEnter(nodeEl(container, "a"));
-    expect(nodeEl(container, "d").classList.contains("dimmed")).toBe(true);
+    await waitFor(() => {
+      expect(nodeEl(container, "d").classList.contains("dimmed")).toBe(true);
+    });
     fireEvent.mouseLeave(nodeEl(container, "a"));
     expect(container.querySelectorAll(".dimmed")).toHaveLength(0);
   });
@@ -209,10 +214,12 @@ describe("canvas/focus-dim", () => {
     }
   });
 
-  it("clears all dimmed classes on pane click", () => {
+  it("clears all dimmed classes on pane click", async () => {
     const { container } = renderCanvas();
     fireEvent.mouseEnter(nodeEl(container, "a"));
-    expect(nodeEl(container, "d").classList.contains("dimmed")).toBe(true);
+    await waitFor(() => {
+      expect(nodeEl(container, "d").classList.contains("dimmed")).toBe(true);
+    });
     const pane = container.querySelector<HTMLElement>(".react-flow__pane");
     expect(pane).not.toBeNull();
     fireEvent.click(pane!);

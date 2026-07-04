@@ -8,7 +8,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./canvas.css";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RecipeNode from "./RecipeNode";
 import GroupNode from "./GroupNode";
 import LoopNode from "./LoopNode";
@@ -44,6 +44,11 @@ const edgeTypes = { item: ItemEdge, bus: BusEdge };
 // keeps a small margin around the fitted graph so nodes do not touch the frame.
 const FIT_VIEW_OPTIONS = { padding: 0.12 };
 
+// Delay before a hover registers, so sweeping the pointer across the canvas does
+// not strobe the dim state on every element crossed. A leave within the window
+// cancels the pending hover.
+const HOVER_INTENT_MS = 150;
+
 interface CanvasProps {
   nodes: Node[];
   edges: Edge[];
@@ -76,6 +81,10 @@ function withDimmed(className: string | undefined): string {
   return className ? `${className} dimmed` : "dimmed";
 }
 
+function withLitContainer(className: string | undefined): string {
+  return className ? `${className} lit-container` : "lit-container";
+}
+
 export default function Canvas({
   nodes,
   edges,
@@ -84,6 +93,32 @@ export default function Canvas({
 }: CanvasProps) {
   const i18n = useI18n();
   const [hovered, setHovered] = useState<Hovered>(null);
+
+  // Hover intent: a pending timer holds the next hover for HOVER_INTENT_MS. A
+  // leave (or a new enter) cancels any pending timer so quick pointer travel
+  // never settles the dim state.
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingHover = useCallback(() => {
+    if (hoverTimer.current !== null) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  }, []);
+  const scheduleHover = useCallback(
+    (next: Hovered) => {
+      cancelPendingHover();
+      hoverTimer.current = setTimeout(() => {
+        hoverTimer.current = null;
+        setHovered(next);
+      }, HOVER_INTENT_MS);
+    },
+    [cancelPendingHover],
+  );
+  const clearHover = useCallback(() => {
+    cancelPendingHover();
+    setHovered(null);
+  }, [cancelPendingHover]);
+  useEffect(() => cancelPendingHover, [cancelPendingHover]);
 
   const adjacency = useMemo<Adjacency>(() => {
     const edgesByNode = new Map<string, string[]>();
@@ -157,10 +192,14 @@ export default function Canvas({
   const displayNodes = useMemo<Node[]>(() => {
     if (!focus || !litContainers) return nodes;
     return nodes.map((node) => {
-      const lit =
-        focus.nodeIds.has(node.id) ||
-        (node.type === "group" && litContainers.has(node.id));
-      return lit ? node : { ...node, className: withDimmed(node.className) };
+      if (focus.nodeIds.has(node.id)) return node;
+      // A container lit only because a child is focused keeps a lit border but a
+      // still-translucent fill, so it does not read as a bright empty slab over
+      // its dimmed members.
+      if (node.type === "group" && litContainers.has(node.id)) {
+        return { ...node, className: withLitContainer(node.className) };
+      }
+      return { ...node, className: withDimmed(node.className) };
     });
   }, [nodes, focus, litContainers]);
 
@@ -182,7 +221,10 @@ export default function Canvas({
   }, [edges, focus]);
 
   return (
-    <div className="ak-canvas-theme" style={canvasThemeStyle}>
+    <div
+      className={focus ? "ak-canvas-theme hover-active" : "ak-canvas-theme"}
+      style={canvasThemeStyle}
+    >
       <div
         style={{
           position: "absolute",
@@ -213,11 +255,16 @@ export default function Canvas({
         {...(onEdgesChange ? { onEdgesChange } : {})}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        onNodeMouseEnter={(_, node) => setHovered({ kind: "node", id: node.id })}
-        onNodeMouseLeave={() => setHovered(null)}
-        onEdgeMouseEnter={(_, edge) => setHovered({ kind: "edge", id: edge.id })}
-        onEdgeMouseLeave={() => setHovered(null)}
-        onPaneClick={() => setHovered(null)}
+        onNodeMouseEnter={(_, node) => {
+          // Group boxes are hover-inert: they own no edges, so lighting one dims
+          // the whole graph for zero payoff. Skip them entirely.
+          if (node.type === "group") return;
+          scheduleHover({ kind: "node", id: node.id });
+        }}
+        onNodeMouseLeave={clearHover}
+        onEdgeMouseEnter={(_, edge) => scheduleHover({ kind: "edge", id: edge.id })}
+        onEdgeMouseLeave={clearHover}
+        onPaneClick={clearHover}
         fitView
         minZoom={0.05}
         fitViewOptions={FIT_VIEW_OPTIONS}

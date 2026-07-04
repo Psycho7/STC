@@ -1237,10 +1237,25 @@
   transition: opacity 120ms ease-out;
 }
 .ak-canvas-theme .react-flow__node.dimmed {
-  opacity: 0.18;
+  opacity: 0.4;
 }
 .ak-canvas-theme .react-flow__edge.dimmed {
-  opacity: 0.12;
+  opacity: 0.3;
+}
+
+/* A container lit only because a child is focused: keep it visible with a lit
+   border but a more translucent fill, so the box does not dominate its own
+   dimmed members. */
+.ak-canvas-theme .react-flow__node-group.lit-container {
+  border-color: var(--ak-accent-cyan-soft);
+  background: rgba(26, 28, 32, 0.32);
+}
+
+/* During any hover session, non-dimmed edges get a thicker, brighter stroke so
+   the lit flow is traceable end to end instead of staying a 1px hairline. */
+.ak-canvas-theme.hover-active .react-flow__edge:not(.dimmed) path {
+  stroke-width: 2.25px;
+  filter: brightness(1.35);
 }
 
 /* Override React Flow's default light pane / dot grid for the dark theme. */
@@ -1487,7 +1502,7 @@
    chip fades in step with its edge (same opacity as the edge, same transition
    duration/easing as the wrapper). */
 .flow-chip.dimmed {
-  opacity: 0.12;
+  opacity: 0.3;
 }
 
 .flow-chip.red {
