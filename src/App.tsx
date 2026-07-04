@@ -38,6 +38,7 @@ import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
+import { displayedInputCount } from "./components/InputsPanel";
 import { iconSheetUrl } from "./canvas/iconSprite";
 
 // Run the render pipeline over a SolvePlanFull and turn it into React Flow nodes
@@ -483,7 +484,7 @@ function AppInner() {
         ) : null}
       </div>
       <ItemPackProvider value={itemPackValue}>
-        <StatsStrip plan={plan} />
+        <StatsStrip plan={plan} assumedRawItemIds={assumedRawItemIds} />
         <div
           style={{
             flex: 1,
@@ -556,7 +557,10 @@ function AppInner() {
                 >
                   <span>{i18n.t("inputs.title")}</span>
                   <span className="count">
-                    {(plan.itemOverrides ?? []).length}
+                    {displayedInputCount(
+                      plan.itemOverrides ?? [],
+                      assumedRawItemIds,
+                    )}
                   </span>
                 </a>
               </nav>

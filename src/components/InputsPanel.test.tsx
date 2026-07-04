@@ -9,7 +9,7 @@ import {
   screen,
 } from "@testing-library/react";
 import type { RecipePack } from "@aef/schema";
-import { InputsPanel } from "./InputsPanel";
+import { InputsPanel, displayedInputCount } from "./InputsPanel";
 import { LocaleProvider } from "../data/i18n-context";
 import type { ItemOverride } from "../data/plan";
 
@@ -35,6 +35,30 @@ function rateInputs(): HTMLInputElement[] {
     .getAllByRole("textbox")
     .filter((el) => el instanceof HTMLInputElement) as HTMLInputElement[];
 }
+
+// The supply counters must count the rows the panel actually renders: with no
+// overrides, the assumed-raw auto-rows are on screen, so a count of 0 lies.
+test("supply head count includes assumed-raw auto rows, not just overrides", () => {
+  const { container } = render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={() => {}}
+        pack={PACK3}
+        assumedRawItemIds={["widget", "gadget"]}
+        realizedRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  const v = container.querySelector(".side-section-head .count .v");
+  expect(v?.textContent).toBe("2");
+});
+
+test("displayedInputCount sums overrides and auto rows", () => {
+  expect(displayedInputCount([], ["a", "b", "c"])).toBe(3);
+  expect(displayedInputCount([{ itemId: "a" }], ["a", "b", "c"])).toBe(1);
+  expect(displayedInputCount([], [])).toBe(0);
+});
 
 // 40/27 per sec * 60 = 800/9 per min, a non-terminating decimal. The
 // realized-demand readout shows the exact fraction (matching the canvas

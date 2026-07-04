@@ -31,6 +31,19 @@ type Props = {
 
 const DEBOUNCE_MS = 150;
 
+// Number of input rows the panel actually shows: explicit overrides plus the
+// assumed-raw auto-rows surfaced when nothing is capped. The supply counters
+// (stats strip, side tab, section head) route through this so none of them can
+// report 0 while auto-rows are on screen.
+export function displayedInputCount(
+  itemOverrides: ReadonlyArray<{ itemId: string }>,
+  assumedRawItemIds: ReadonlyArray<string> | undefined,
+): number {
+  const autoCount =
+    itemOverrides.length > 0 ? 0 : (assumedRawItemIds?.length ?? 0);
+  return itemOverrides.length + autoCount;
+}
+
 // Behaves a little differently from the parser in TargetsPanel. Empty string
 // means "uncap" (no rate limit). A negative or unparseable input returns the
 // "INVALID" marker, letting the caller keep the prior value. A valid rate parses
@@ -273,7 +286,9 @@ export function InputsPanel({
         <span className="num">SUP · 02</span>
         <span className="label">INPUT SUPPLY</span>
         <span className="count">
-          <span className="v">{itemOverrides.length}</span>
+          <span className="v">
+            {displayedInputCount(itemOverrides, assumedRawItemIds)}
+          </span>
           {" / "}
           {sortedItems.length}
         </span>
