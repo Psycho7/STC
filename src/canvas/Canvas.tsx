@@ -49,9 +49,15 @@ const FIT_VIEW_OPTIONS = { padding: 0.12 };
 // cancels the pending hover.
 const HOVER_INTENT_MS = 150;
 
+// The solve + layout lifecycle state surfaced by the status annotation and the
+// header chip. READY = idle, SOLVING = a generation is in flight, ERROR = the
+// last solve or load failed.
+export type CanvasStatus = "READY" | "SOLVING" | "ERROR";
+
 interface CanvasProps {
   nodes: Node[];
   edges: Edge[];
+  status?: CanvasStatus;
   onNodesChange?: OnNodesChange<Node>;
   onEdgesChange?: OnEdgesChange<Edge>;
 }
@@ -88,6 +94,7 @@ function withLitContainer(className: string | undefined): string {
 export default function Canvas({
   nodes,
   edges,
+  status = "READY",
   onNodesChange,
   onEdgesChange,
 }: CanvasProps) {
@@ -285,7 +292,7 @@ export default function Canvas({
       <div className="canvas-annot top-right">
         {`UNITS:${nodes.filter((n) => n.type === "recipe").length}`}
       </div>
-      <div className="canvas-annot bottom-right">STATUS · READY</div>
+      <div className="canvas-annot bottom-right">{`STATUS · ${status}`}</div>
     </div>
   );
 }

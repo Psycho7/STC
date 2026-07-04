@@ -5,7 +5,7 @@ import {
   type Node,
   type Edge,
 } from "@xyflow/react";
-import Canvas from "./canvas/Canvas";
+import Canvas, { type CanvasStatus } from "./canvas/Canvas";
 import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
 import { layoutRenderPlan } from "./canvas/layout";
@@ -104,10 +104,10 @@ function AppInner() {
   const fullRef = useRef<SolvePlanFull | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  // `pending` is written by every async mutation handler below. Its one reader
-  // (the canvas toolbar's fixture-button disabled state) is gone, but the
-  // writers stay so a future status indicator can hook in.
-  const [, setPending] = useState(false);
+  // `pending` is true while a solve + layout generation is in flight. It drives
+  // the header status chip and the canvas status annotation (SOLVING), so both
+  // load and mutation paths must set and clear it.
+  const [pending, setPending] = useState(false);
   const [initialError, setInitialError] = useState<Error | null>(null);
   const [mutationError, setMutationError] = useState<Error | null>(null);
   const solveGen = useRef(0);
@@ -142,6 +142,7 @@ function AppInner() {
   const loadFromHash = useCallback(
     async (hash: string, source: "mount" | "navigation"): Promise<void> => {
       const myGen = ++solveGen.current;
+      setPending(true);
       // Mark the hash as handled up front: even if the load fails, re-running
       // it for the same hash would only fail again.
       lastHandledHashRef.current = hash;
@@ -188,6 +189,8 @@ function AppInner() {
         }
       } catch (e) {
         fail(e as Error);
+      } finally {
+        if (myGen === solveGen.current) setPending(false);
       }
     },
     [setNodes, setEdges],
@@ -327,6 +330,14 @@ function AppInner() {
   }
   if (!plan || !logical) return <div>{i18n.t("app.loading")}</div>;
 
+  // An in-flight generation reads as SOLVING even if the previous one errored
+  // (a retry is under way); a settled error reads as ERROR; otherwise READY.
+  const status: CanvasStatus = pending
+    ? "SOLVING"
+    : mutationError
+      ? "ERROR"
+      : "READY";
+
   const targetCount = plan.targets.length;
   // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
   // with per-replica kind:"recipe" stamps, so neither the raw length nor the
@@ -370,7 +381,17 @@ function AppInner() {
             <span className="stat-chip">
               RECIPES <span className="v">{recipeCount}</span>
             </span>
-            <span className="stat-chip warn">RDY</span>
+            <span
+              className={
+                status === "ERROR"
+                  ? "stat-chip err"
+                  : status === "SOLVING"
+                    ? "stat-chip warn"
+                    : "stat-chip"
+              }
+            >
+              {status}
+            </span>
             <LocaleSwitcher />
           </div>
         </div>
@@ -509,6 +530,7 @@ function AppInner() {
             <Canvas
               nodes={nodes}
               edges={edges}
+              status={status}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
             />

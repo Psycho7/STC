@@ -107,6 +107,19 @@ function isDimmed(container: HTMLElement, id: string): boolean {
   return el?.className.includes("dimmed") ?? false;
 }
 
+test("status annotation reflects the status prop", () => {
+  const { container } = render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={[]} edges={[]} status="SOLVING" />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+  expect(container.querySelector(".canvas-annot.bottom-right")?.textContent).toBe(
+    "STATUS · SOLVING",
+  );
+});
+
 test("hovering a group node is inert and dims nothing", () => {
   vi.useFakeTimers();
   const { container } = renderCanvas(HOVER_NODES, []);

@@ -17,8 +17,29 @@ vi.mock("./canvas/layout", async (importOriginal) => {
 });
 
 import App from "./App";
+import { layoutRenderPlan } from "./canvas/layout";
 import { defaultPlan, encodePlan, validatePlan } from "./data/plan";
 import { pack } from "./data/load";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+async function encodedDefaultHash(): Promise<string> {
+  return "#" + (await encodePlan(defaultPlan(pack)));
+}
+
+async function encodedCrystalHash(): Promise<string> {
+  const plan = {
+    ...defaultPlan(pack),
+    targets: [{ recipeId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } }],
+  };
+  return "#" + (await encodePlan(plan));
+}
 
 beforeEach(() => {
   // @xyflow/react's canvas requires ResizeObserver; jsdom has none, and
@@ -58,5 +79,56 @@ test("RECIPES chip counts distinct recipe ids, not logical nodes", async () => {
   await waitFor(() => {
     const header = screen.getByTestId("header-strip");
     expect(header.textContent).toContain("RECIPES 7");
+  });
+});
+
+test("header status chip reads READY after a successful load", async () => {
+  window.location.hash = await encodedDefaultHash();
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => {
+    expect(screen.getByTestId("header-strip").textContent).toContain("READY");
+  });
+});
+
+test("header status chip reads ERROR when a navigation load fails", async () => {
+  window.location.hash = await encodedDefaultHash();
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => {
+    expect(screen.getByTestId("header-strip").textContent).toContain("READY");
+  });
+
+  window.location.hash = "#v1.this-is-not-a-valid-plan-hash";
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("header-strip").textContent).toContain("ERROR");
+  });
+});
+
+test("loadFromHash shows SOLVING during navigation then returns to READY", async () => {
+  window.location.hash = await encodedDefaultHash();
+  render(<App />);
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => {
+    expect(screen.getByTestId("header-strip").textContent).toContain("READY");
+  });
+
+  // Hold the next layout so the SOLVING window stays open long enough to assert.
+  const gate = deferred<{ nodes: []; edges: [] }>();
+  vi.mocked(layoutRenderPlan).mockImplementationOnce(() => gate.promise);
+
+  window.location.hash = await encodedCrystalHash();
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("header-strip").textContent).toContain("SOLVING");
+  });
+
+  gate.resolve({ nodes: [], edges: [] });
+
+  await waitFor(() => {
+    expect(screen.getByTestId("header-strip").textContent).toContain("READY");
   });
 });

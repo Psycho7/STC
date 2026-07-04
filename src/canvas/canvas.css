@@ -459,6 +459,11 @@
   color: var(--ak-accent-lime-bright);
 }
 
+.topbar .stat-chip.err {
+  border-color: var(--ak-accent-red);
+  color: var(--ak-accent-red);
+}
+
 /* Override the generic .ak-app-shell button rule inside the topbar so the
    locale switcher + action buttons keep their topbar look. */
 .ak-app-shell .topbar select,
