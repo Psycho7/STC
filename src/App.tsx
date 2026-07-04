@@ -398,7 +398,7 @@ function AppInner() {
     if (!current) return;
     const nextTargets = update(current.targets);
     // Same reference back means the updater had nothing to do (for example a
-    // debounced edit whose row was removed); skip the no-op solve.
+    // blur commit whose row was removed); skip the no-op solve.
     if (nextTargets === current.targets) return;
     commitPlan({ ...current, targets: nextTargets });
   }
