@@ -76,6 +76,7 @@ export default function BusEdge({
       text={chipText}
       label={fullLabel}
       tear={edgeData?.isTearEdge}
+      dimmed={edgeData?.dimmed}
     />
   );
 

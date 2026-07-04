@@ -169,7 +169,15 @@ export default function Canvas({
     return edges.map((edge) =>
       focus.edgeIds.has(edge.id)
         ? edge
-        : { ...edge, className: withDimmed(edge.className) },
+        : {
+            ...edge,
+            className: withDimmed(edge.className),
+            // The edge label chips (rate / entry / bus drop-rise) portal out of
+            // this wrapper via EdgeLabelRenderer, so the wrapper's `dimmed`
+            // class never fades them. Thread the dim through edge data; the
+            // chips map it onto their own .flow-chip.dimmed rule.
+            data: { ...edge.data, dimmed: true },
+          },
     );
   }, [edges, focus]);
 

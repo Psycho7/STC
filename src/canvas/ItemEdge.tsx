@@ -46,6 +46,11 @@ export type ItemEdgeData = {
   // Single-input consumers leave it unset, so their lone entering line needs no
   // extra identity chip. Optional and defaults to falsy.
   multiInputTarget?: true;
+  // Set by Canvas's hover focus on every non-focused edge. The chips read it
+  // because EdgeLabelRenderer portals them outside the edge wrapper that carries
+  // the `dimmed` class, so the wrapper's fade never reaches them; the chip's own
+  // .flow-chip.dimmed rule does. Optional and defaults to falsy (idle / lit).
+  dimmed?: boolean;
 };
 
 // Horizontal inset of the entry chip from the target port, in graph units. The
@@ -87,7 +92,9 @@ export function chipAccentStyle(item?: ItemId): React.CSSProperties {
 // the full "Name x rate/min" string on aria-label and title, with an optional
 // 16px item sprite followed by the optional chip text. `tear` switches to the
 // red tear-edge variant; `extraClass` appends a modifier class (the entry
-// chip's "entry").
+// chip's "entry"); `dimmed` appends the `dimmed` class so a chip fades with its
+// edge under the hover ego-network (the edge wrapper's own dim never reaches the
+// portaled chip).
 export function FlowChip({
   testId,
   x,
@@ -97,6 +104,7 @@ export function FlowChip({
   label,
   tear,
   extraClass,
+  dimmed,
 }: {
   testId: string;
   x: number;
@@ -106,6 +114,7 @@ export function FlowChip({
   label: string;
   tear?: boolean | undefined;
   extraClass?: string | undefined;
+  dimmed?: boolean | undefined;
 }) {
   const pos = item !== undefined ? iconPosition(item) : undefined;
   return (
@@ -115,7 +124,8 @@ export function FlowChip({
         className={
           "nodrag nopan flow-chip" +
           (tear ? " red" : "") +
-          (extraClass !== undefined ? ` ${extraClass}` : "")
+          (extraClass !== undefined ? ` ${extraClass}` : "") +
+          (dimmed ? " dimmed" : "")
         }
         aria-label={label}
         title={label}
@@ -216,6 +226,7 @@ export default function ItemEdge({
           text={chipText}
           label={fullLabel}
           tear={edgeData?.isTearEdge}
+          dimmed={edgeData?.dimmed}
         />
       ) : null}
       {/* Entry chip: an icon-only mini chip pinned at the target port, rendered
@@ -235,6 +246,7 @@ export default function ItemEdge({
           item={edgeData.item}
           label={fullLabel}
           extraClass="entry"
+          dimmed={edgeData.dimmed}
         />
       ) : null}
     </>

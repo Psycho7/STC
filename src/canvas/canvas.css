@@ -1436,6 +1436,17 @@
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.4),
     0 0 12px rgba(0, 0, 0, 0.4);
+  transition: opacity 120ms ease-out;
+}
+
+/* Chips need their own dim rule: EdgeLabelRenderer portals them into a separate
+   DOM layer outside the React Flow edge wrapper, so the wrapper's
+   .react-flow__edge.dimmed fade never reaches them. Canvas threads the edge's
+   dim state through edge data; the edge components map it onto this class so a
+   chip fades in step with its edge (same opacity as the edge, same transition
+   duration/easing as the wrapper). */
+.flow-chip.dimmed {
+  opacity: 0.12;
 }
 
 .flow-chip.red {

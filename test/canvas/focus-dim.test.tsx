@@ -49,18 +49,51 @@ const EDGES: Edge[] = [
   // Two bus edges fan out of "a" on the same trunk.
   { id: "e1", type: "bus", source: "a", target: "b", data: busData("Iron|a") },
   { id: "e2", type: "bus", source: "a", target: "c", data: busData("Iron|a") },
-  // An unrelated item edge into "c" from "d" on no trunk.
+  // An unrelated item edge into "c" from "d" on no trunk. multiInputTarget is
+  // set so it draws both a rate chip and an entry chip, letting the dim tests
+  // exercise every chip kind (rate / entry / bus drop-rise).
   {
     id: "e3",
     type: "item",
     source: "d",
     target: "c",
-    data: { item: "Copper", rate: new Fraction(1, 1) } as unknown as Record<
-      string,
-      unknown
-    >,
+    data: {
+      item: "Copper",
+      rate: new Fraction(1, 1),
+      multiInputTarget: true,
+    } as unknown as Record<string, unknown>,
   },
 ];
+
+// Every chip testId in the fixture, grouped by which edge owns it. Chips render
+// through EdgeLabelRenderer (a portal outside the edge wrapper), so the
+// wrapper's `dimmed` class cannot fade them; each chip must carry its own.
+const BUS_CHIP_IDS = [
+  "bus-edge-label-e1-drop",
+  "bus-edge-label-e1-rise",
+  "bus-edge-label-e2-drop",
+  "bus-edge-label-e2-rise",
+];
+const ITEM_CHIP_IDS = ["item-edge-label-e3", "item-edge-entry-e3"];
+const ALL_CHIP_IDS = [...BUS_CHIP_IDS, ...ITEM_CHIP_IDS];
+
+// Chips mount a beat after the edges, once React Flow has placed the labels.
+// Wait for every chip in the fixture before reading dim classes.
+async function waitForChips(container: HTMLElement): Promise<void> {
+  await waitFor(() => {
+    for (const id of ALL_CHIP_IDS) {
+      expect(
+        container.querySelector(`[data-testid="${id}"]`),
+      ).not.toBeNull();
+    }
+  });
+}
+
+function chipDimmed(container: HTMLElement, id: string): boolean {
+  const el = container.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+  expect(el).not.toBeNull();
+  return el!.classList.contains("dimmed");
+}
 
 function renderCanvas() {
   return render(
@@ -134,6 +167,46 @@ describe("canvas/focus-dim", () => {
     expect(nodeEl(container, "d").classList.contains("dimmed")).toBe(true);
     fireEvent.mouseLeave(nodeEl(container, "a"));
     expect(container.querySelectorAll(".dimmed")).toHaveLength(0);
+  });
+
+  it("dims the rate and entry chips of an unrelated edge on node hover", async () => {
+    const { container } = renderCanvas();
+    await waitForChips(container);
+    // Hover node "a": e1/e2 (adjacent) light, e3 (into c from d) dims. e3's rate
+    // and entry chips must dim with it; e1/e2's bus chips stay lit.
+    fireEvent.mouseEnter(nodeEl(container, "a"));
+    await waitFor(() => {
+      for (const id of ITEM_CHIP_IDS) {
+        expect(chipDimmed(container, id)).toBe(true);
+      }
+    });
+    for (const id of BUS_CHIP_IDS) {
+      expect(chipDimmed(container, id)).toBe(false);
+    }
+  });
+
+  it("dims the bus drop/rise chips of an unrelated trunk on node hover", async () => {
+    const { container } = renderCanvas();
+    await waitForChips(container);
+    // Hover node "d": only e3 (d -> c) lights; the "Iron|a" trunk (e1, e2) dims.
+    // Every bus chip must dim; e3's rate and entry chips stay lit.
+    fireEvent.mouseEnter(nodeEl(container, "d"));
+    await waitFor(() => {
+      for (const id of BUS_CHIP_IDS) {
+        expect(chipDimmed(container, id)).toBe(true);
+      }
+    });
+    for (const id of ITEM_CHIP_IDS) {
+      expect(chipDimmed(container, id)).toBe(false);
+    }
+  });
+
+  it("carries no dimmed chip class while idle", async () => {
+    const { container } = renderCanvas();
+    await waitForChips(container);
+    for (const id of ALL_CHIP_IDS) {
+      expect(chipDimmed(container, id)).toBe(false);
+    }
   });
 
   it("clears all dimmed classes on pane click", () => {
