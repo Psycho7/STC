@@ -133,8 +133,8 @@ describe("canvas-targets: remove target", () => {
   });
 });
 
-describe("canvas-targets: rate edit debounce", () => {
-  it("URL does not update until 150ms after a rate edit", async () => {
+describe("canvas-targets: rate edit commit", () => {
+  it("URL updates on blur, not while typing", async () => {
     render(<App />);
     await waitFor(
       () => {
@@ -144,17 +144,13 @@ describe("canvas-targets: rate edit debounce", () => {
     );
     const hashBefore = window.location.hash;
 
-    vi.useFakeTimers();
-    try {
-      const inputs = screen.getAllByLabelText("速率");
-      fireEvent.change(inputs[0]!, { target: { value: "240" } });
-      expect(window.location.hash).toBe(hashBefore);
-      await vi.advanceTimersByTimeAsync(150);
-      await vi.runAllTimersAsync();
-    } finally {
-      vi.useRealTimers();
-    }
+    const inputs = screen.getAllByLabelText("速率");
+    // Typing alone must not commit or rewrite the hash.
+    fireEvent.change(inputs[0]!, { target: { value: "240" } });
+    expect(window.location.hash).toBe(hashBefore);
 
+    // Blur commits the edit, which re-solves and rewrites the hash.
+    fireEvent.blur(inputs[0]!);
     await waitFor(
       () => {
         expect(window.location.hash).not.toBe(hashBefore);
@@ -185,7 +181,7 @@ describe("canvas-targets: pre-seeded boot", () => {
 });
 
 describe("canvas-targets: rapid edits race", () => {
-  it("the second edit's value lands in the URL (stale first solve is cancelled)", async () => {
+  it("the final typed value lands in the URL (intermediate keystrokes never commit)", async () => {
     render(<App />);
     await waitFor(
       () => {
@@ -194,17 +190,11 @@ describe("canvas-targets: rapid edits race", () => {
       { timeout: 5000 },
     );
 
-    vi.useFakeTimers();
-    try {
-      const inputs = screen.getAllByLabelText("速率");
-      fireEvent.change(inputs[0]!, { target: { value: "100" } });
-      await vi.advanceTimersByTimeAsync(100);
-      fireEvent.change(inputs[0]!, { target: { value: "200" } });
-      await vi.advanceTimersByTimeAsync(150);
-      await vi.runAllTimersAsync();
-    } finally {
-      vi.useRealTimers();
-    }
+    const inputs = screen.getAllByLabelText("速率");
+    // Two keystrokes, then a single blur: only the final value is committed.
+    fireEvent.change(inputs[0]!, { target: { value: "100" } });
+    fireEvent.change(inputs[0]!, { target: { value: "200" } });
+    fireEvent.blur(inputs[0]!);
 
     await waitFor(
       () => {

@@ -2,7 +2,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { useState } from "react";
 import {
-  act,
   cleanup,
   fireEvent,
   render,
@@ -100,14 +99,43 @@ test("realized demand on an uncapped override row renders as the shared decimal"
   expect(readout.textContent).not.toMatch(/\d\.\d{3,}/);
 });
 
-// Synchronous parent harness: a pending cap edit must land on the item the
-// user edited, not whatever row slid into that index after a removal.
-test("pending cap edit lands on the edited item after removing a row above", () => {
-  vi.useFakeTimers();
+// Typing a cap does not commit until blur.
+test("typing a cap does not commit; blur commits it", () => {
+  let latest: ItemOverride[] = [{ itemId: "widget" }];
+  const emissions: ItemOverride[][] = [];
+  function Parent() {
+    const [o, setO] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={o}
+          onChange={(update) => {
+            const next = update(latest);
+            if (next === latest) return;
+            emissions.push(next);
+            latest = next;
+            setO(latest);
+          }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "120" } });
+  expect(emissions.length).toBe(0);
+  fireEvent.blur(input);
+  // 120/min = 2/1 per sec.
+  expect(latest).toEqual([
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
+  ]);
+});
+
+// Blur with an empty cap uncaps the override (empty means Unlimited here).
+test("blurring an emptied cap uncaps the override", () => {
   let latest: ItemOverride[] = [
-    { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
-    { itemId: "gadget", ratePerSec: { num: "2", denom: "1" } },
-    { itemId: "sprocket", ratePerSec: { num: "3", denom: "1" } },
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
   ];
   function Parent() {
     const [o, setO] = useState(latest);
@@ -119,34 +147,57 @@ test("pending cap edit lands on the edited item after removing a row above", () 
             latest = update(latest);
             setO(latest);
           }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "" } });
+  fireEvent.blur(input);
+  expect(latest).toEqual([{ itemId: "widget" }]);
+});
+
+// Removing a row with an uncommitted cap edit must never commit that edit.
+test("removing a row with an uncommitted edit does not commit it", () => {
+  vi.useFakeTimers();
+  let latest: ItemOverride[] = [
+    { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
+    { itemId: "gadget", ratePerSec: { num: "2", denom: "1" } },
+    { itemId: "sprocket", ratePerSec: { num: "3", denom: "1" } },
+  ];
+  const emissions: ItemOverride[][] = [];
+  function Parent() {
+    const [o, setO] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={o}
+          onChange={(update) => {
+            const next = update(latest);
+            if (next === latest) return;
+            emissions.push(next);
+            latest = next;
+            setO(latest);
+          }}
           pack={PACK3}
         />
       </LocaleProvider>
     );
   }
   render(<Parent />);
-  // Type 99/min into row 1 (gadget)...
-  fireEvent.change(rateInputs()[1]!, { target: { value: "99" } });
-  // ...then remove row 0 (widget) within the debounce window.
+  // Type into row 0 (widget) but never blur; then remove it.
+  fireEvent.change(rateInputs()[0]!, { target: { value: "999" } });
   fireEvent.click(screen.getAllByTestId("remove-input")[0]!);
-  act(() => vi.advanceTimersByTime(200));
-
   expect(latest.map((o) => o.itemId)).toEqual(["gadget", "sprocket"]);
-  expect(latest.find((o) => o.itemId === "gadget")!.ratePerSec).toEqual({
-    num: "33",
-    denom: "20",
-  });
-  expect(latest.find((o) => o.itemId === "sprocket")!.ratePerSec).toEqual({
-    num: "3",
-    denom: "1",
-  });
+  expect(emissions.length).toBe(1);
 });
 
-// A cap typed into an auto-row promotes it to an override; when that override
-// is later removed, the reborn auto-row must be back to Unlimited, not show
-// the stale typed text (which a >150ms pause would silently re-commit).
+// A cap typed into an auto-row promotes it to an override on blur; when that
+// override is later removed, the reborn auto-row must be back to Unlimited, not
+// show the stale typed text.
 test("orphaned auto-row text does not resurrect after override removal", () => {
-  vi.useFakeTimers();
   const updaters: Array<(cur: ItemOverride[]) => ItemOverride[]> = [];
   const ui = (overrides: ItemOverride[]) => (
     <LocaleProvider locale="en">
@@ -162,7 +213,7 @@ test("orphaned auto-row text does not resurrect after override removal", () => {
   const { rerender } = render(ui([]));
   const input = screen.getByTestId("input-auto-row").querySelector("input")!;
   fireEvent.change(input, { target: { value: "100" } });
-  act(() => vi.advanceTimersByTime(200));
+  fireEvent.blur(input);
   // The commit emits an updater adding the override: 100/min = 5/3 per sec.
   expect(updaters.length).toBe(1);
   expect(updaters[0]!([])).toEqual([
@@ -177,10 +228,9 @@ test("orphaned auto-row text does not resurrect after override removal", () => {
   expect(reborn.placeholder).toMatch(/unlimited/i);
 });
 
-// INVALID text in an auto-row stays visible after the debounce so the user
-// can fix the typo; nothing is committed.
-test("invalid auto-row text is kept after the debounce with no commit", () => {
-  vi.useFakeTimers();
+// INVALID text in an auto-row stays visible after blur so the user can fix the
+// typo; nothing is committed.
+test("invalid auto-row text is kept on blur with no commit", () => {
   const onChange = vi.fn();
   render(
     <LocaleProvider locale="en">
@@ -195,14 +245,13 @@ test("invalid auto-row text is kept after the debounce with no commit", () => {
   );
   const input = screen.getByTestId("input-auto-row").querySelector("input")!;
   fireEvent.change(input, { target: { value: "1/" } });
-  act(() => vi.advanceTimersByTime(200));
+  fireEvent.blur(input);
   expect(input.value).toBe("1/");
   expect(onChange).not.toHaveBeenCalled();
 });
 
-// Pin: the keep-on-INVALID behavior of override rows must survive the rekeying.
-test("invalid cap text in an override row is kept after the debounce", () => {
-  vi.useFakeTimers();
+// Pin: the keep-on-INVALID behavior of override rows survives the rewrite.
+test("invalid cap text in an override row is kept on blur", () => {
   render(
     <LocaleProvider locale="en">
       <InputsPanel
@@ -217,8 +266,42 @@ test("invalid cap text in an override row is kept after the debounce", () => {
   const input = rateInputs()[0]!;
   expect(input.value).toBe("60");
   fireEvent.change(input, { target: { value: "1/" } });
-  act(() => vi.advanceTimersByTime(200));
+  fireEvent.blur(input);
   expect(input.value).toBe("1/");
+});
+
+// Navigation remounts the panel via a plan-identity key, discarding an
+// uncommitted cap edit.
+test("uncommitted cap edit is discarded when the plan changes", () => {
+  function Parent() {
+    const [epoch, setEpoch] = useState(0);
+    const [o, setO] = useState<ItemOverride[]>([
+      { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
+    ]);
+    return (
+      <LocaleProvider locale="en">
+        <button
+          data-testid="navigate"
+          onClick={() => {
+            setO([{ itemId: "widget", ratePerSec: { num: "1", denom: "1" } }]);
+            setEpoch((e) => e + 1);
+          }}
+        />
+        <InputsPanel
+          key={epoch}
+          itemOverrides={o}
+          onChange={() => {}}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "777" } });
+  expect(input.value).toBe("777");
+  fireEvent.click(screen.getByTestId("navigate"));
+  expect(rateInputs()[0]!.value).toBe("60");
 });
 
 test("realized demand on a capped override row renders as the shared decimal", () => {

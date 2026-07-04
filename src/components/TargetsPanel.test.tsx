@@ -69,119 +69,31 @@ function rateInputs(): HTMLInputElement[] {
     .filter((el) => el instanceof HTMLInputElement) as HTMLInputElement[];
 }
 
-// Synchronous parent harness: applies every change immediately, the best case
-// for the panel. Guards the index-keying leg of the wrong-row defect.
-test("pending rate edit lands on the edited target after removing a row above", () => {
-  let latest: Target[] = targets3();
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
-      <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            latest = update(latest);
-            setT(latest);
-          }}
-          pack={PACK}
-        />
-      </LocaleProvider>
-    );
-  }
-  render(<Parent />);
-  // Type 99/min into row 1 (r_gadget)...
-  fireEvent.change(rateInputs()[1]!, { target: { value: "99" } });
-  // ...then remove row 0 (r_widget) within the debounce window.
-  fireEvent.click(screen.getAllByTestId("remove-target")[0]!);
-  act(() => vi.advanceTimersByTime(200));
-
-  expect(latest.map((t) => t.recipeId)).toEqual(["r_gadget", "r_sprocket"]);
-  const gadget = latest.find((t) => t.recipeId === "r_gadget")!;
-  const sprocket = latest.find((t) => t.recipeId === "r_sprocket")!;
-  // 99/min = 33/20 per sec, on the row the user actually edited.
-  expect(gadget.ratePerSec).toEqual({ num: "33", denom: "20" });
-  expect(sprocket.ratePerSec).toEqual({ num: "1", denom: "4" });
-});
-
-// Removing the row that itself has a pending edit must cancel the edit: no
-// commit may fire for a recipe that is gone.
-test("removing the row with the pending edit cancels its debounce", () => {
-  let latest: Target[] = targets3();
-  const emissions: Target[][] = [];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
-      <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            const next = update(latest);
-            if (next === latest) return; // owner-side no-op skip, like App
-            emissions.push(next);
-            latest = next;
-            setT(next);
-          }}
-          pack={PACK}
-        />
-      </LocaleProvider>
-    );
-  }
-  render(<Parent />);
-  fireEvent.change(rateInputs()[0]!, { target: { value: "999" } });
-  fireEvent.click(screen.getAllByTestId("remove-target")[0]!);
-  act(() => vi.advanceTimersByTime(200));
-
-  expect(latest.map((t) => t.recipeId)).toEqual(["r_gadget", "r_sprocket"]);
-  // Exactly one emission: the removal. The orphaned rate edit never commits.
-  expect(emissions.length).toBe(1);
-  expect(latest.find((t) => t.recipeId === "r_gadget")!.ratePerSec).toEqual({
-    num: "1",
-    denom: "2",
-  });
-});
-
-// Async parent harness modelling App: updaters are applied against an
-// authoritative list immediately, but the prop re-render lags behind by a
-// simulated solve delay. The removed row must never reappear in any applied
-// state, no matter how stale the prop snapshot is when the debounce fires.
-test("pending edit plus remove does not resurrect the removed row", () => {
-  let authoritative: Target[] = [
-    { recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } },
-    { recipeId: "r_gadget", ratePerSec: { num: "2", denom: "1" } },
-  ];
-  const applied: string[][] = [];
-  function Parent() {
-    const [t, setT] = useState(authoritative);
-    return (
-      <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            authoritative = update(authoritative);
-            applied.push(authoritative.map((x) => x.recipeId));
-            // Solve + layout latency before the prop catches up.
-            setTimeout(() => setT(authoritative), 120);
-          }}
-          pack={PACK}
-        />
-      </LocaleProvider>
-    );
-  }
-  render(<Parent />);
-  // Type into row 1, then remove row 0 before the debounce fires.
-  fireEvent.change(rateInputs()[1]!, { target: { value: "600" } });
-  fireEvent.click(screen.getAllByTestId("remove-target")[0]!);
+// Typing alone must never commit: the whole point of moving off the debounce is
+// that no half-typed magnitude reaches the solver.
+test("typing a rate does not commit, even after time passes", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[
+          { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+        ]}
+        onChange={onChange}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "0" } });
+  fireEvent.change(input, { target: { value: "0." } });
+  fireEvent.change(input, { target: { value: "0.5" } });
   act(() => vi.advanceTimersByTime(1000));
-
-  expect(authoritative).toEqual([
-    { recipeId: "r_gadget", ratePerSec: { num: "10", denom: "1" } },
-  ]);
-  for (const ids of applied) expect(ids).not.toContain("r_widget");
+  expect(onChange).not.toHaveBeenCalled();
+  expect(input.value).toBe("0.5");
 });
 
-// Unparseable in-progress text must survive the debounce: the user is mid-way
-// through typing a rational and the field must not snap back to the prop.
-test("invalid rate text is kept after the debounce, then commits once valid", () => {
+test("blur commits the parsed value exactly once", () => {
   let latest: Target[] = [
     { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
   ];
@@ -206,45 +118,122 @@ test("invalid rate text is kept after the debounce, then commits once valid", ()
   }
   render(<Parent />);
   const input = rateInputs()[0]!;
-  expect(input.value).toBe("120");
+  fireEvent.change(input, { target: { value: "99" } });
+  fireEvent.blur(input);
+  expect(emissions.length).toBe(1);
+  // 99/min = 33/20 per sec.
+  expect(latest).toEqual([
+    { recipeId: "r_widget", ratePerSec: { num: "33", denom: "20" } },
+  ]);
+});
+
+test("Enter commits the parsed value", () => {
+  let latest: Target[] = [
+    { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+  ];
+  function Parent() {
+    const [t, setT] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <TargetsPanel
+          targets={t}
+          onChange={(update) => {
+            latest = update(latest);
+            setT(latest);
+          }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "45" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  // 45/min = 3/4 per sec.
+  expect(latest).toEqual([
+    { recipeId: "r_widget", ratePerSec: { num: "3", denom: "4" } },
+  ]);
+});
+
+// The committed text is kept verbatim: a valid "1/3" is not re-serialized into a
+// 16-digit float, and an invalid in-progress "1/" survives a blur without
+// committing so the user can keep typing.
+test("invalid text stays put on blur; a valid rational commits and keeps its text", () => {
+  let latest: Target[] = [
+    { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+  ];
+  const emissions: Target[][] = [];
+  function Parent() {
+    const [t, setT] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <TargetsPanel
+          targets={t}
+          onChange={(update) => {
+            const next = update(latest);
+            if (next === latest) return;
+            emissions.push(next);
+            latest = next;
+            setT(next);
+          }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "1/" } });
-  act(() => vi.advanceTimersByTime(200));
+  fireEvent.blur(input);
   expect(input.value).toBe("1/");
   expect(emissions.length).toBe(0);
-  // Completing the rational commits exactly once: 1/3 per min = 1/180 per sec.
   fireEvent.change(input, { target: { value: "1/3" } });
-  act(() => vi.advanceTimersByTime(200));
+  fireEvent.blur(input);
   expect(emissions.length).toBe(1);
+  // 1/3 per min = 1/180 per sec.
   expect(latest).toEqual([
     { recipeId: "r_widget", ratePerSec: { num: "1", denom: "180" } },
   ]);
-  // The field keeps the committed "1/3" rather than re-serializing 1/180 per sec
-  // into a 16-digit float like "0.3333333333333333".
+  // Field keeps "1/3", not "0.3333333333333333".
   expect(input.value).toBe("1/3");
 });
 
-test("locale-comma rate text is kept after the debounce with no commit", () => {
-  const onChange = vi.fn();
-  render(
-    <LocaleProvider locale="en">
-      <TargetsPanel
-        targets={[
-          { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
-        ]}
-        onChange={onChange}
-        pack={PACK}
-      />
-    </LocaleProvider>,
-  );
+// A re-blur without a fresh edit does not re-commit: exactly one solve per edit.
+test("blurring again without editing does not emit a second commit", () => {
+  let latest: Target[] = [
+    { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+  ];
+  const emissions: Target[][] = [];
+  function Parent() {
+    const [t, setT] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <TargetsPanel
+          targets={t}
+          onChange={(update) => {
+            const next = update(latest);
+            if (next === latest) return;
+            emissions.push(next);
+            latest = next;
+            setT(next);
+          }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
   const input = rateInputs()[0]!;
-  fireEvent.change(input, { target: { value: "1,5" } });
-  act(() => vi.advanceTimersByTime(200));
-  expect(input.value).toBe("1,5");
-  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.change(input, { target: { value: "99" } });
+  fireEvent.blur(input);
+  fireEvent.blur(input);
+  expect(emissions.length).toBe(1);
 });
 
-// An in-flight rate edit follows the row when the user swaps its recipe.
-test("pending rate edit follows the row across a recipe swap", () => {
+// An in-flight (uncommitted) rate edit follows the row when the user swaps its
+// recipe, then commits to the new id on blur.
+test("uncommitted rate edit follows the row across a recipe swap", () => {
   let latest: Target[] = [
     { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
   ];
@@ -269,10 +258,77 @@ test("pending rate edit follows the row across a recipe swap", () => {
   fireEvent.change(select, { target: { value: "r_gadget" } });
   // The typed text is still shown on the swapped row.
   expect(rateInputs()[0]!.value).toBe("99");
-  act(() => vi.advanceTimersByTime(200));
+  fireEvent.blur(rateInputs()[0]!);
   expect(latest).toEqual([
     { recipeId: "r_gadget", ratePerSec: { num: "33", denom: "20" } },
   ]);
+});
+
+// Removing a row that has an uncommitted edit must never commit that edit.
+test("removing a row with an uncommitted edit does not commit it", () => {
+  let latest: Target[] = targets3();
+  const emissions: Target[][] = [];
+  function Parent() {
+    const [t, setT] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <TargetsPanel
+          targets={t}
+          onChange={(update) => {
+            const next = update(latest);
+            if (next === latest) return;
+            emissions.push(next);
+            latest = next;
+            setT(next);
+          }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  // Type into row 0 but never blur; then remove it.
+  fireEvent.change(rateInputs()[0]!, { target: { value: "999" } });
+  fireEvent.click(screen.getAllByTestId("remove-target")[0]!);
+  expect(latest.map((t) => t.recipeId)).toEqual(["r_gadget", "r_sprocket"]);
+  // Exactly one emission: the removal. The orphaned edit never commits.
+  expect(emissions.length).toBe(1);
+});
+
+// Replacing the plan (navigation) remounts the panel via a plan-identity key,
+// discarding any uncommitted local edit: the field falls back to the newly
+// loaded value rather than showing leftover text.
+test("uncommitted edit is discarded when the plan changes", () => {
+  function Parent() {
+    const [epoch, setEpoch] = useState(0);
+    const [t, setT] = useState<Target[]>([
+      { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+    ]);
+    return (
+      <LocaleProvider locale="en">
+        <button
+          data-testid="navigate"
+          onClick={() => {
+            setT([{ recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } }]);
+            setEpoch((e) => e + 1);
+          }}
+        />
+        <TargetsPanel
+          key={epoch}
+          targets={t}
+          onChange={() => {}}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "777" } });
+  expect(input.value).toBe("777");
+  // Navigate: new plan value is 60/min (1/s), and the stale "777" is dropped.
+  fireEvent.click(screen.getByTestId("navigate"));
+  expect(rateInputs()[0]!.value).toBe("60");
 });
 
 // Real-pack picker gate: no-output recipes (waste sinks and pure consumers
@@ -298,7 +354,8 @@ test("recipe picker excludes every no-output recipe in the real pack", () => {
   );
   const options = screen
     .getAllByRole("option")
-    .map((o) => (o as HTMLOptionElement).value);
+    .map((o) => (o as HTMLOptionElement).value)
+    .filter((v) => v !== "");
   for (const r of realPack.recipes.filter((x) => x.out.length === 0)) {
     expect(options, r.id).not.toContain(r.id);
   }
@@ -358,32 +415,4 @@ test("duplicate recipe selection shows an inline alert and does not commit", () 
   fireEvent.change(selects[1]!, { target: { value: "r_widget" } });
   expect(onChange).not.toHaveBeenCalled();
   expect(screen.getByRole("alert").textContent).toMatch(/r_widget/);
-});
-
-// Exhaustion semantics: Add no-ops only once every pickable recipe is used.
-test("Add no-ops only when every pickable recipe is used", () => {
-  let latest: Target[] = [];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
-      <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            latest = update(latest);
-            setT(latest);
-          }}
-          pack={PACK}
-        />
-      </LocaleProvider>
-    );
-  }
-  render(<Parent />);
-  const addButton = screen.getByRole("button", { name: "Add target" });
-  for (let i = 1; i <= 3; i++) {
-    fireEvent.click(addButton);
-    expect(latest.length, `after click ${i}`).toBe(i);
-  }
-  fireEvent.click(addButton);
-  expect(latest.length).toBe(3);
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import Fraction from "fraction.js";
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
@@ -14,15 +14,13 @@ import { iconPosition } from "../canvas/iconSprite";
 type Props = {
   targets: Target[];
   // Changes are emitted as functional updaters applied by the owner against
-  // its authoritative list, never as snapshots of the prop: a debounced commit
-  // built from a stale prop can otherwise drop a concurrent edit or resurrect
-  // a removed row. An updater that finds nothing to change must return its
-  // input unchanged (same reference) so the owner can skip a no-op commit.
+  // its authoritative list, never as snapshots of the prop: a commit built from
+  // a stale prop can otherwise drop a concurrent edit or resurrect a removed
+  // row. An updater that finds nothing to change must return its input unchanged
+  // (same reference) so the owner can skip a no-op commit.
   onChange: (update: (current: Target[]) => Target[]) => void;
   pack: RecipePack;
 };
-
-const DEBOUNCE_MS = 150;
 
 // Accepts an items-per-minute value as an integer ("120"), decimal ("30.5"), or
 // rational ("1/3"). Returns undefined if it can't parse or the result is
@@ -66,24 +64,28 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     rowId: string;
     recipeId: string;
   } | null>(null);
-  const timerRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  );
   // In-flight edit values keyed by recipeId. A row without an entry falls back
   // to the prop-derived value, so a new `targets` prop updates the visible rate
-  // without a separate sync effect. Keying by id (not row index) keeps a
-  // pending edit attached to its row across removals and reorders.
+  // without a separate sync effect. Keying by id (not row index) keeps an
+  // uncommitted edit attached to its row across removals and reorders. The text
+  // is committed only on blur or Enter, and the committed string is kept here as
+  // the display value (re-serializing ratePerSec would turn "1/3" into a float).
   const [localRates, setLocalRates] = useState<Map<string, string>>(new Map());
+  // Recipe ids whose localRates text has not yet been committed. Guards the
+  // blur/Enter commit so re-blurring an unedited field never re-fires a solve.
+  // The owner remounts this panel (via a key keyed on plan identity) when it
+  // navigates to a new plan, which drops all uncommitted local edit state, so
+  // there is no cross-plan carryover to clear here.
+  const dirty = useRef<Set<string>>(new Set());
 
-  // Returns true iff the text parsed, regardless of whether the row still
-  // exists: valid text must always be pruned from localRates, while INVALID
-  // text is kept so the user can finish what they were typing.
+  // Returns true iff the text parsed. Invalid text is left in place so the user
+  // can finish typing; a failed parse never mutates the plan.
   function commitRate(recipeId: string, perMinStr: string): boolean {
     const parsed = parsePerMinToRationalPerSec(perMinStr);
     if (!parsed) return false;
     onChange((current) => {
       const idx = current.findIndex((t) => t.recipeId === recipeId);
-      // Row removed while the edit was pending: no-op (same reference).
+      // Row removed since the edit: no-op (same reference).
       if (idx < 0) return current;
       const next = current.slice();
       next[idx] = { ...next[idx]!, ratePerSec: parsed };
@@ -92,32 +94,25 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     return true;
   }
 
-  function scheduleCommit(recipeId: string, value: string) {
-    const existing = timerRefs.current.get(recipeId);
-    if (existing) clearTimeout(existing);
-    const id = setTimeout(() => {
-      commitRate(recipeId, value);
-      timerRefs.current.delete(recipeId);
-      // Keep the committed text as the display value: re-serializing
-      // t.ratePerSec would rewrite an exact "1/3" into a 16-digit float. A
-      // failed parse likewise keeps the local string so the user can fix the
-      // typo. (Navigation resets localRates; that is handled by the panel owner.)
-    }, DEBOUNCE_MS);
-    timerRefs.current.set(recipeId, id);
-  }
-
   function handleRateChange(recipeId: string, value: string) {
+    dirty.current.add(recipeId);
     setLocalRates((prev) => new Map(prev).set(recipeId, value));
-    scheduleCommit(recipeId, value);
   }
 
-  // Drop the pending debounce timer and in-flight edit text for a row that is
-  // going away, so a stale entry can never fire against (or redisplay on) a
-  // later row that reuses the same id.
+  // Commit the row's uncommitted text on blur or Enter. Only a dirty row emits,
+  // and a successful parse clears the dirty flag so the same text is not
+  // committed twice; an unparseable value leaves the row dirty and untouched.
+  function commitFromLocal(recipeId: string) {
+    if (!dirty.current.has(recipeId)) return;
+    const value = localRates.get(recipeId);
+    if (value === undefined) return;
+    if (commitRate(recipeId, value)) dirty.current.delete(recipeId);
+  }
+
+  // Drop the in-flight edit text and dirty flag for a row that is going away, so
+  // a stale entry can never redisplay on a later row that reuses the same id.
   function clearPendingEdit(recipeId: string) {
-    const existing = timerRefs.current.get(recipeId);
-    if (existing) clearTimeout(existing);
-    timerRefs.current.delete(recipeId);
+    dirty.current.delete(recipeId);
     setLocalRates((prev) => {
       if (!prev.has(recipeId)) return prev;
       const next = new Map(prev);
@@ -133,19 +128,18 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
       return;
     }
     setDuplicateError(null);
-    // An in-flight rate edit follows the row to its new id.
+    // An uncommitted rate edit follows the row to its new id, dirty flag and all,
+    // so the user can still blur to commit it under the swapped recipe.
     const pendingValue = localRates.get(oldRecipeId);
-    const pendingTimer = timerRefs.current.get(oldRecipeId);
-    if (pendingTimer) clearTimeout(pendingTimer);
-    timerRefs.current.delete(oldRecipeId);
     if (pendingValue !== undefined) {
+      const wasDirty = dirty.current.delete(oldRecipeId);
+      if (wasDirty) dirty.current.add(newRecipeId);
       setLocalRates((prev) => {
         const next = new Map(prev);
         next.delete(oldRecipeId);
         next.set(newRecipeId, pendingValue);
         return next;
       });
-      scheduleCommit(newRecipeId, pendingValue);
     }
     onChange((current) => {
       const idx = current.findIndex((t) => t.recipeId === oldRecipeId);
@@ -177,14 +171,6 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
       ];
     });
   }
-
-  useEffect(() => {
-    const timers = timerRefs.current;
-    return () => {
-      for (const id of timers.values()) clearTimeout(id);
-      timers.clear();
-    };
-  }, []);
 
   return (
     <div className="boundary-section" data-testid="targets-section">
@@ -272,6 +258,10 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                 aria-label={i18n.t("targets.rate.label")}
                 value={displayedRate}
                 onChange={(e) => handleRateChange(t.recipeId, e.target.value)}
+                onBlur={() => commitFromLocal(t.recipeId)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitFromLocal(t.recipeId);
+                }}
               />
               <span className="unit">{i18n.t("targets.rate.unit")}</span>
             </div>

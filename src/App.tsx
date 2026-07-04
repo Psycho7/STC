@@ -182,6 +182,11 @@ function AppInner() {
   // (both the load and the mutation solve paths). Canvas re-fits the viewport on
   // each bump so plan edits and hash navigation frame the new graph.
   const [layoutGeneration, setLayoutGeneration] = useState(0);
+  // Bumped only when the whole plan is replaced by a load (mount or hash
+  // navigation), never by a mutation commit. The panels reset their uncommitted
+  // local edits when it changes, so a freshly loaded plan never shows leftover
+  // text from the previous one.
+  const [planEpoch, setPlanEpoch] = useState(0);
   const [initialError, setInitialError] = useState<Error | null>(null);
   const [mutationError, setMutationError] = useState<Error | null>(null);
   const solveGen = useRef(0);
@@ -256,6 +261,7 @@ function AppInner() {
         setNodes(laid.nodes);
         setEdges(laid.edges);
         setLayoutGeneration((g) => g + 1);
+        setPlanEpoch((e) => e + 1);
         if (source === "navigation") {
           setMutationError(null);
           // A bad mount hash leaves the initial error screen up; a later
@@ -599,6 +605,7 @@ function AppInner() {
               </nav>
               <div id="side-targets">
                 <TargetsPanel
+                  key={planEpoch}
                   targets={plan.targets}
                   pack={pack}
                   onChange={handleTargetsChange}
@@ -606,6 +613,7 @@ function AppInner() {
               </div>
               <div id="side-inputs">
                 <InputsPanel
+                  key={planEpoch}
                   itemOverrides={plan.itemOverrides ?? []}
                   onChange={handleItemOverridesChange}
                   pack={pack}

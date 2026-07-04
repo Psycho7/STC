@@ -135,7 +135,7 @@ describe("InputsPanel", () => {
       const input = screen.getAllByLabelText("速率")[0]!;
       fireEvent.change(input, { target: { value: "" } });
       expect(onChange).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(150);
+      fireEvent.blur(input);
       expect(onChange).toHaveBeenCalledTimes(1);
       const next = (
         onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
@@ -320,7 +320,7 @@ describe("InputsPanel", () => {
       );
       const input = screen.getAllByLabelText("速率")[0]!;
       fireEvent.change(input, { target: { value: "180" } });
-      vi.advanceTimersByTime(150);
+      fireEvent.blur(input);
       expect(onChange).toHaveBeenCalledTimes(1);
       const next = (
         onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]

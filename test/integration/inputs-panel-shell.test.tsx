@@ -54,16 +54,11 @@ describe("inputs-panel-shell: side-panel layout", () => {
     );
     const hashBefore = window.location.hash;
 
-    vi.useFakeTimers();
-    try {
-      const rateInputs = screen.getAllByLabelText("速率");
-      const inputRate = rateInputs[rateInputs.length - 1]!;
-      fireEvent.change(inputRate, { target: { value: "300" } });
-      await vi.advanceTimersByTimeAsync(150);
-      await vi.runAllTimersAsync();
-    } finally {
-      vi.useRealTimers();
-    }
+    const rateInputs = screen.getAllByLabelText("速率");
+    const inputRate = rateInputs[rateInputs.length - 1]!;
+    fireEvent.change(inputRate, { target: { value: "300" } });
+    // Commit on blur re-solves and rewrites the URL.
+    fireEvent.blur(inputRate);
 
     await waitFor(
       () => {
