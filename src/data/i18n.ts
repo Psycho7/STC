@@ -16,6 +16,8 @@ export type UiKey =
   | "app.error.corrupt"
   | "app.error.reset"
   | "app.error.solver"
+  | "app.error.infeasible"
+  | "app.error.infeasible.generic"
   | "app.error.dismiss"
   | "app.frozen.notice"
   | "app.frozen.edit"
@@ -66,6 +68,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.corrupt": "此分享链接已损坏，或来自更新版本的规划器。",
     "app.error.reset": "从新方案开始",
     "app.error.solver": "求解器错误: {message}",
+    "app.error.infeasible": "无可行方案，涉及：{items}。请提高供给上限或降低目标产量。",
+    "app.error.infeasible.generic": "当前目标与供给上限下无可行方案。",
     "app.error.dismiss": "关闭",
     "app.frozen.notice":
       "这是一个已冻结的 v1 方案。编辑会丢弃它并清空目标列表。",
@@ -109,6 +113,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "This share link is damaged or from a newer version of the planner.",
     "app.error.reset": "Start with a fresh plan",
     "app.error.solver": "Solver error: {message}",
+    "app.error.infeasible":
+      "No feasible plan involving: {items}. Raise the supply caps or lower the targets.",
+    "app.error.infeasible.generic":
+      "No feasible plan for the current targets and supply caps.",
     "app.error.dismiss": "Dismiss",
     "app.frozen.notice":
       "This is a frozen v1 plan. Editing will discard it and start an empty target list.",
@@ -152,6 +160,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "この共有リンクは破損しているか、新しいバージョンのプランナーのものです。",
     "app.error.reset": "新しいプランで開始",
     "app.error.solver": "ソルバーエラー: {message}",
+    "app.error.infeasible":
+      "実行可能な計画がありません（対象: {items}）。供給上限を上げるか、ターゲットを下げてください。",
+    "app.error.infeasible.generic":
+      "現在のターゲットと供給上限では実行可能な計画がありません。",
     "app.error.dismiss": "閉じる",
     "app.frozen.notice":
       "これは凍結された v1 プランです。編集すると破棄され、空のターゲットリストが開始されます。",
@@ -195,6 +207,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "Эта ссылка повреждена или создана в более новой версии планировщика.",
     "app.error.reset": "Начать с нового плана",
     "app.error.solver": "Ошибка решателя: {message}",
+    "app.error.infeasible":
+      "Нет допустимого плана для: {items}. Повысьте лимиты поставок или снизьте цели.",
+    "app.error.infeasible.generic":
+      "Нет допустимого плана для текущих целей и лимитов поставок.",
     "app.error.dismiss": "Закрыть",
     "app.frozen.notice":
       "Это замороженный план v1. Редактирование удалит его и начнёт пустой список целей.",

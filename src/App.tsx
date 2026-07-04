@@ -31,7 +31,11 @@ import {
 import type { Target } from "./data/targets";
 import { pack } from "./data/load";
 import type { LogicalGraph } from "./canvas/layout";
-import { solvePlanWithIntermediates, type SolvePlanFull } from "./solver";
+import {
+  LpInfeasibleError,
+  solvePlanWithIntermediates,
+  type SolvePlanFull,
+} from "./solver";
 import { planToSolverArgs } from "./solver/planToSolverArgs";
 import { renderPlanFromSolve } from "./pipeline/driver";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
@@ -92,6 +96,14 @@ const splashDetailStyle: CSSProperties = {
   opacity: 0.7,
   wordBreak: "break-word",
 };
+
+// A dismissible banner error. "load" wraps a hash-decode / validation failure
+// (the pasted link, not the solver); "solver" wraps an exception thrown while
+// solving a valid plan, which the render layer maps to localized copy (naming
+// the implicated items for an LpInfeasibleError).
+type BannerError =
+  | { kind: "load"; message: string }
+  | { kind: "solver"; error: unknown };
 
 type SideSection = "targets" | "inputs";
 
@@ -188,7 +200,14 @@ function AppInner() {
   // text from the previous one.
   const [planEpoch, setPlanEpoch] = useState(0);
   const [initialError, setInitialError] = useState<Error | null>(null);
-  const [mutationError, setMutationError] = useState<Error | null>(null);
+  const [mutationError, setMutationError] = useState<BannerError | null>(null);
+  // True while the rendered canvas is stale relative to the latest committed
+  // intent: a mutation or navigation solve failed and the old graph is still on
+  // screen. It stays true after the banner is dismissed, so the ERROR status
+  // (header chip + canvas annotation) and the disabled Copy-share button remain
+  // as the persistent "this is not what you asked for" cue until the next
+  // successful solve clears it.
+  const [stale, setStale] = useState(false);
   const solveGen = useRef(0);
   // The hash the app last handled: written by itself (history.replaceState on
   // solve success) or already picked up by loadFromHash. The hashchange
@@ -225,15 +244,31 @@ function AppInner() {
       // Mark the hash as handled up front: even if the load fails, re-running
       // it for the same hash would only fail again.
       lastHandledHashRef.current = hash;
-      const fail = (e: Error) => {
+      // A load/validation failure is the pasted link's fault; a solve exception
+      // is a valid plan the solver could not satisfy. They route to different
+      // banner wrappers. On mount there is no canvas yet, so both land on the
+      // full-screen initial-error surface instead of the dismissible banner.
+      const failLoad = (message: string) => {
         if (myGen !== solveGen.current) return;
-        if (source === "mount") setInitialError(e);
-        else setMutationError(e);
+        if (source === "mount") setInitialError(new Error(message));
+        else {
+          setMutationError({ kind: "load", message });
+          setStale(true);
+        }
+      };
+      const failSolve = (e: unknown) => {
+        if (myGen !== solveGen.current) return;
+        if (source === "mount") {
+          setInitialError(e instanceof Error ? e : new Error(String(e)));
+        } else {
+          setMutationError({ kind: "solver", error: e });
+          setStale(true);
+        }
       };
       try {
         const outcome = await loadPlan(hash, pack);
         if (outcome.kind === "error") {
-          fail(new Error(describePlanLoadError(outcome.error)));
+          failLoad(describePlanLoadError(outcome.error));
           return;
         }
         const nextPlan = outcome.plan;
@@ -262,6 +297,8 @@ function AppInner() {
         setEdges(laid.edges);
         setLayoutGeneration((g) => g + 1);
         setPlanEpoch((e) => e + 1);
+        // A fresh render is authoritative: the canvas now matches the plan.
+        setStale(false);
         if (source === "navigation") {
           setMutationError(null);
           // A bad mount hash leaves the initial error screen up; a later
@@ -269,7 +306,7 @@ function AppInner() {
           setInitialError(null);
         }
       } catch (e) {
-        fail(e as Error);
+        failSolve(e);
       } finally {
         if (myGen === solveGen.current) setPending(false);
       }
@@ -307,7 +344,10 @@ function AppInner() {
   function commitPlan(nextPlan: Plan): void {
     const error = validatePlan(nextPlan, pack);
     if (error) {
-      setMutationError(new Error(describePlanLoadError(error)));
+      // A rejected edit is a plan-validity problem (the load wrapper), and the
+      // canvas keeps the last good render, so mark it stale.
+      setMutationError({ kind: "load", message: describePlanLoadError(error) });
+      setStale(true);
       return;
     }
     planRef.current = nextPlan;
@@ -339,13 +379,15 @@ function AppInner() {
       setEdges(laid.edges);
       setLayoutGeneration((g) => g + 1);
       setMutationError(null);
+      setStale(false);
       const newHash = "#" + (await encodePlan(nextPlan));
       if (myGen !== solveGen.current) return;
       lastHandledHashRef.current = newHash;
       history.replaceState(null, "", newHash);
     } catch (e) {
       if (myGen !== solveGen.current) return;
-      setMutationError(e as Error);
+      setMutationError({ kind: "solver", error: e });
+      setStale(true);
     } finally {
       if (myGen === solveGen.current) setPending(false);
     }
@@ -436,12 +478,29 @@ function AppInner() {
   }
 
   // An in-flight generation reads as SOLVING even if the previous one errored
-  // (a retry is under way); a settled error reads as ERROR; otherwise READY.
-  const status: CanvasStatus = pending
-    ? "SOLVING"
-    : mutationError
-      ? "ERROR"
-      : "READY";
+  // (a retry is under way); a stale canvas reads as ERROR and stays ERROR after
+  // the banner is dismissed until the next successful solve; otherwise READY.
+  const status: CanvasStatus = pending ? "SOLVING" : stale ? "ERROR" : "READY";
+
+  // Localized banner copy. Load/validation failures use the load wrapper; a
+  // solver exception maps to a body that names the implicated items when it is
+  // an infeasibility, falling back to the raw solver message otherwise.
+  const bannerText = (err: BannerError): string => {
+    if (err.kind === "load") return i18n.t("app.error.load", { message: err.message });
+    const e = err.error;
+    if (e instanceof LpInfeasibleError) {
+      const ids =
+        e.cappedItemIds.length > 0 ? e.cappedItemIds : e.targetItemIds;
+      if (ids.length > 0) {
+        const items = ids.map((id) => i18n.displayName(id)).join(", ");
+        return i18n.t("app.error.infeasible", { items });
+      }
+      return i18n.t("app.error.infeasible.generic");
+    }
+    return i18n.t("app.error.solver", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+  };
 
   const targetCount = plan.targets.length;
   // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
@@ -501,21 +560,14 @@ function AppInner() {
           </div>
         </div>
         {mutationError ? (
-          <div
-            role="alert"
-            style={{
-              padding: "6px 10px",
-              background: "#fee",
-              color: "#900",
-              borderTop: "1px solid #f99",
-              fontSize: 13,
-            }}
-          >
-            {i18n.t("app.error.solver", { message: mutationError.message })}
+          <div role="alert" className="app-error-banner">
+            <span className="app-error-banner-body">
+              {bannerText(mutationError)}
+            </span>
             <button
               type="button"
+              className="app-error-banner-dismiss"
               onClick={() => setMutationError(null)}
-              style={{ marginLeft: 8 }}
             >
               {i18n.t("app.error.dismiss")}
             </button>

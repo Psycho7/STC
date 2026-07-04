@@ -399,6 +399,10 @@ function CanvasInner({
           type="button"
           data-testid="copy-share"
           onClick={handleCopyShare}
+          // While the canvas is stale (last solve failed), the URL still encodes
+          // the previous plan, so sharing it would hand out a plan that is not
+          // what is on screen. Disable copy until a successful solve clears it.
+          disabled={status === "ERROR"}
           aria-label={copyLabel}
         >
           {copyLabel}

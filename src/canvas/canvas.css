@@ -920,6 +920,39 @@
   letter-spacing: 0.02em;
   text-align: right;
 }
+
+/* Dismissible mutation-error banner under the header, themed for the dark shell
+   (was a light #fee/#900/#f99 element that read as a crash). */
+.ak-app-shell .app-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(225, 53, 30, 0.14);
+  border-top: 1px solid var(--ak-accent-red);
+  color: var(--ak-accent-red);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+.ak-app-shell .app-error-banner-body {
+  flex: 1;
+  min-width: 0;
+}
+.ak-app-shell .app-error-banner-dismiss {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--ak-accent-red);
+  color: var(--ak-accent-red);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.ak-app-shell .app-error-banner-dismiss:hover {
+  background: rgba(225, 53, 30, 0.22);
+}
 .ak-app-shell [data-testid="side-panel"] .b-row .b-rate .unit {
   font-family: var(--font-mono);
   font-size: 9px;

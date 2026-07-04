@@ -177,6 +177,28 @@ test("status annotation reflects the status prop", () => {
   );
 });
 
+test("copy-share button is disabled while the canvas is stale (ERROR status)", () => {
+  const { container } = render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={[]} edges={[]} status="ERROR" />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+  const btn = container.querySelector(
+    '[data-testid="copy-share"]',
+  ) as HTMLButtonElement;
+  expect(btn.disabled).toBe(true);
+});
+
+test("copy-share button is enabled when the canvas is current (READY status)", () => {
+  const { container } = renderCanvas([], []);
+  const btn = container.querySelector(
+    '[data-testid="copy-share"]',
+  ) as HTMLButtonElement;
+  expect(btn.disabled).toBe(false);
+});
+
 test("hovering a group node is inert and dims nothing", () => {
   vi.useFakeTimers();
   const { container } = renderCanvas(HOVER_NODES, []);
