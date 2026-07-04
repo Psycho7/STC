@@ -1,6 +1,9 @@
 import {
   ReactFlow,
+  ReactFlowProvider,
   Controls,
+  useReactFlow,
+  useNodesInitialized,
   type Node,
   type Edge,
   type OnNodesChange,
@@ -49,6 +52,10 @@ const FIT_VIEW_OPTIONS = { padding: 0.12 };
 // cancels the pending hover.
 const HOVER_INTENT_MS = 150;
 
+// Debounce for the ResizeObserver re-fit so dragging the window edge (a burst of
+// resize callbacks) coalesces into a single fitView instead of thrashing.
+const RESIZE_REFIT_MS = 100;
+
 // The solve + layout lifecycle state surfaced by the status annotation and the
 // header chip. READY = idle, SOLVING = a generation is in flight, ERROR = the
 // last solve or load failed.
@@ -58,6 +65,10 @@ interface CanvasProps {
   nodes: Node[];
   edges: Edge[];
   status?: CanvasStatus;
+  // Monotonically increasing counter bumped by App on every applied solve +
+  // layout. A change means the node/edge arrays are a fresh plan, so the
+  // viewport re-fits (once measured) rather than staying on the old camera.
+  layoutGeneration?: number;
   onNodesChange?: OnNodesChange<Node>;
   onEdgesChange?: OnEdgesChange<Edge>;
 }
@@ -95,15 +106,72 @@ function withLitContainer(className: string | undefined): string {
 // default label.
 const COPY_FEEDBACK_MS = 1500;
 
-export default function Canvas({
+// Wrap the canvas in a ReactFlowProvider so CanvasInner can reach the React Flow
+// instance (useReactFlow) and the node-measurement signal (useNodesInitialized)
+// to drive imperative fitView on plan changes and container resizes.
+export default function Canvas(props: CanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <CanvasInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function CanvasInner({
   nodes,
   edges,
   status = "READY",
+  layoutGeneration = 0,
   onNodesChange,
   onEdgesChange,
 }: CanvasProps) {
   const i18n = useI18n();
   const [hovered, setHovered] = useState<Hovered>(null);
+  const { fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Re-fit the viewport once per layout generation, but only after React Flow
+  // has measured the new nodes (async): fitting synchronously on the prop change
+  // would frame zero-size nodes. `fittedGen` guards against re-fitting on the
+  // repeated nodesInitialized signals within one generation (hover re-renders,
+  // for example).
+  const fittedGen = useRef<number | null>(null);
+  useEffect(() => {
+    if (!nodesInitialized) return;
+    if (fittedGen.current === layoutGeneration) return;
+    fittedGen.current = layoutGeneration;
+    void fitView(FIT_VIEW_OPTIONS);
+  }, [nodesInitialized, layoutGeneration, fitView]);
+
+  // Re-fit when the canvas container changes size (window resize, side-panel
+  // toggle) so the graph keeps filling the pane instead of drifting into a
+  // corner. Debounced so a drag-resize does not fire a fit on every frame.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // ResizeObserver fires once with the initial size on observe(); the
+    // generation effect already frames the first render, so skip that callback
+    // and re-fit only on genuine later size changes.
+    let seenInitial = false;
+    const observer = new ResizeObserver(() => {
+      if (!seenInitial) {
+        seenInitial = true;
+        return;
+      }
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void fitView(FIT_VIEW_OPTIONS);
+      }, RESIZE_REFIT_MS);
+    });
+    observer.observe(el);
+    return () => {
+      if (timer !== null) clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [fitView]);
 
   // Transient result of the last copy-share click. "copied" / "failed" replace
   // the button label for COPY_FEEDBACK_MS so the click is never silent, then it
@@ -274,6 +342,7 @@ export default function Canvas({
 
   return (
     <div
+      ref={containerRef}
       className={focus ? "ak-canvas-theme hover-active" : "ak-canvas-theme"}
       style={canvasThemeStyle}
     >
@@ -313,9 +382,7 @@ export default function Canvas({
         onEdgeMouseEnter={(_, edge) => scheduleHover({ kind: "edge", id: edge.id })}
         onEdgeMouseLeave={clearHover}
         onPaneClick={clearHover}
-        fitView
         minZoom={0.05}
-        fitViewOptions={FIT_VIEW_OPTIONS}
       >
         <Controls />
       </ReactFlow>

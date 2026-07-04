@@ -178,6 +178,10 @@ function AppInner() {
   // the header status chip and the canvas status annotation (SOLVING), so both
   // load and mutation paths must set and clear it.
   const [pending, setPending] = useState(false);
+  // Monotonic counter bumped whenever a fresh layout is applied to the canvas
+  // (both the load and the mutation solve paths). Canvas re-fits the viewport on
+  // each bump so plan edits and hash navigation frame the new graph.
+  const [layoutGeneration, setLayoutGeneration] = useState(0);
   const [initialError, setInitialError] = useState<Error | null>(null);
   const [mutationError, setMutationError] = useState<Error | null>(null);
   const solveGen = useRef(0);
@@ -251,6 +255,7 @@ function AppInner() {
         setLogical(full.logical);
         setNodes(laid.nodes);
         setEdges(laid.edges);
+        setLayoutGeneration((g) => g + 1);
         if (source === "navigation") {
           setMutationError(null);
           // A bad mount hash leaves the initial error screen up; a later
@@ -326,6 +331,7 @@ function AppInner() {
       setLogical(full.logical);
       setNodes(laid.nodes);
       setEdges(laid.edges);
+      setLayoutGeneration((g) => g + 1);
       setMutationError(null);
       const newHash = "#" + (await encodePlan(nextPlan));
       if (myGen !== solveGen.current) return;
@@ -627,6 +633,7 @@ function AppInner() {
               nodes={nodes}
               edges={edges}
               status={status}
+              layoutGeneration={layoutGeneration}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
             />

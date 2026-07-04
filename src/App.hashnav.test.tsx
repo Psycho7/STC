@@ -33,6 +33,17 @@ vi.mock("./canvas/layout", async (importOriginal) => {
   };
 });
 
+// Stub Canvas so the test can read the layoutGeneration prop App threads into
+// it. The real Canvas mounts React Flow, which is irrelevant to hash-nav
+// behaviour and only slows these tests down.
+const canvasSpy = vi.hoisted(() => ({ layoutGeneration: -1 }));
+vi.mock("./canvas/Canvas", () => ({
+  default: (props: { layoutGeneration?: number }) => {
+    canvasSpy.layoutGeneration = props.layoutGeneration ?? -1;
+    return null;
+  },
+}));
+
 import App from "./App";
 import { defaultPlan, encodePlan, validatePlan } from "./data/plan";
 import { pack } from "./data/load";
@@ -85,6 +96,22 @@ test("hashchange navigation to another plan's hash swaps the rendered plan", asy
   await waitFor(() =>
     expect(screen.getAllByTestId("target-row").length).toBe(2),
   );
+});
+
+test("hash navigation bumps the layout generation", async () => {
+  render(<App />);
+
+  const rowsA = await screen.findAllByTestId("target-row");
+  expect(rowsA.length).toBe(3);
+  await waitFor(() => expect(window.location.hash).not.toBe(""));
+  const genAfterMount = canvasSpy.layoutGeneration;
+  expect(genAfterMount).toBeGreaterThan(0);
+
+  window.location.hash = await encodePlanB();
+  await waitFor(() =>
+    expect(screen.getAllByTestId("target-row").length).toBe(2),
+  );
+  expect(canvasSpy.layoutGeneration).toBeGreaterThan(genAfterMount);
 });
 
 test("malformed hash via hashchange shows the error banner and keeps the plan", async () => {

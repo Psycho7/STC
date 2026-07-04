@@ -12,6 +12,20 @@ import Canvas from "./Canvas";
 import { ItemPackProvider, type ItemPackContextValue } from "./itemPackContext";
 import { LocaleProvider } from "../data/i18n-context";
 
+// The camera-refit effect drives fitView imperatively off the React Flow
+// instance and the node-measurement signal. jsdom never measures nodes, so the
+// real useNodesInitialized stays false and fitView is a real no-op; mock both to
+// make the fit deterministic and spy-able.
+const fitViewSpy = vi.hoisted(() => vi.fn());
+vi.mock("@xyflow/react", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("@xyflow/react")>();
+  return {
+    ...orig,
+    useReactFlow: () => ({ fitView: fitViewSpy }),
+    useNodesInitialized: () => true,
+  };
+});
+
 const PACK = {
   itemById: new Map(),
   overrides: [],
@@ -54,6 +68,7 @@ const NODES: Node[] = [
 ];
 
 beforeEach(() => {
+  fitViewSpy.mockClear();
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -247,6 +262,57 @@ test("copy share button shows a failure state when the write is rejected", async
     await Promise.resolve();
   });
   expect(btn.textContent).toMatch(/failed/i);
+});
+
+test("fitView runs once per layout generation", () => {
+  const wrap = (gen: number) => (
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={NODES} edges={[]} layoutGeneration={gen} />
+      </ItemPackProvider>
+    </LocaleProvider>
+  );
+  const { rerender } = render(wrap(1));
+  // Initial mount fits the first generation once.
+  expect(fitViewSpy).toHaveBeenCalledTimes(1);
+  // A re-render with the same generation must not re-fit.
+  rerender(wrap(1));
+  expect(fitViewSpy).toHaveBeenCalledTimes(1);
+  // A new generation re-fits exactly once.
+  rerender(wrap(2));
+  expect(fitViewSpy).toHaveBeenCalledTimes(2);
+});
+
+test("a container resize triggers a debounced re-fit", () => {
+  vi.useFakeTimers();
+  let observed: (() => void) | null = null;
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(cb: () => void) {
+        observed = cb;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={NODES} edges={[]} layoutGeneration={1} />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+  fitViewSpy.mockClear();
+  // The first callback is the initial observe() and is skipped; a genuine later
+  // resize fits once, after the debounce window.
+  act(() => observed?.());
+  act(() => {
+    observed?.();
+    vi.advanceTimersByTime(100);
+  });
+  expect(fitViewSpy).toHaveBeenCalledTimes(1);
 });
 
 test("HUD chip shows UNITS counting only recipe-type nodes", () => {
