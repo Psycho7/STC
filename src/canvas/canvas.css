@@ -1778,6 +1778,23 @@
   box-shadow: 0 0 8px rgba(35, 213, 252, 0.5);
 }
 
+/* Machine-count multiplicity badge. Uses the lime tier chip treatment for a
+   readable, on-theme chip instead of the dead light-theme inline color:#444. */
+.rn-mult-badge {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-family: var(--font-num);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 5px;
+  color: var(--ak-accent-lime);
+  border: 1px solid var(--ak-accent-lime-dim);
+  background: rgba(0, 0, 0, 0.35);
+  letter-spacing: 0.04em;
+}
+
 .rn-head {
   display: grid;
   grid-template-columns: 52px 1fr auto;

@@ -81,6 +81,20 @@ test("speed composes with the legacy multiplier path", () => {
   expect(rows).toEqual(["60", "60"]);
 });
 
+// The machine-count badge must be theme-styled (readable contrast), not the
+// dead light-theme inline color:#444 / fontSize:11.
+test("multiplicity badge carries a class and no inline color or font size", () => {
+  const props = {
+    data: { recipe: RECIPE, multiplier: 3 },
+  } as unknown as ComponentProps<typeof RecipeNode>;
+  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
+  const badge = container.querySelector(".rn-mult-badge");
+  expect(badge).not.toBeNull();
+  expect(badge!.textContent).toBe("x3");
+  expect((badge as HTMLElement).style.color).toBe("");
+  expect((badge as HTMLElement).style.fontSize).toBe("");
+});
+
 // A corrupt fixture can reference a missing machine; the rate falls back to
 // speed 1 instead of crashing.
 test("missing machine record falls back to speed 1", () => {

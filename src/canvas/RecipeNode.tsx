@@ -294,17 +294,7 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
       </div>
 
       {badgeText !== null ? (
-        <span
-          style={{
-            position: "absolute",
-            top: 4,
-            right: 6,
-            fontSize: 11,
-            color: "#444",
-          }}
-        >
-          {badgeText}
-        </span>
+        <span className="rn-mult-badge">{badgeText}</span>
       ) : null}
     </div>
   );
