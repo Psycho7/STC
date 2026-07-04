@@ -1119,12 +1119,17 @@
   font-weight: 700;
 }
 
+/* --row-accent (set inline by LoopNode from itemColor) tints only the
+   emphasized accent border of each net-IO port box to its item; the other three
+   borders stay cyan, and the fallback keeps older paths that omit it unchanged. */
 .net-port.in {
   border-left-width: 3px;
+  border-left-color: var(--row-accent, var(--ak-accent-cyan));
 }
 
 .net-port.out {
   border-right-width: 3px;
+  border-right-color: var(--row-accent, var(--ak-accent-cyan));
 }
 
 /* The return arc ribbon along the right edge of the SCC body. */
@@ -1441,6 +1446,14 @@
     0 0 12px rgba(225, 53, 30, 0.18);
 }
 
+/* Compact icon-only variant used by ItemEdge's entry chip, pinned at a target
+   port. It drops the label padding and gap so the sprite reads as a small
+   identity dot beside the node rather than a full rate chip. */
+.flow-chip.entry {
+  padding: 2px;
+  gap: 0;
+}
+
 .product-node {
   background: var(--ak-bg-primary);
   border: 1px solid var(--ak-divider);
@@ -1684,14 +1697,17 @@
   height: 14px;
 }
 
+/* --row-accent (set inline by RecipeNode from itemColor) tints the accent tab
+   to the row's item so the row pairs by hue with its edge and port glyph; the
+   fixed defaults keep older render paths that omit it unchanged. */
 .rn-row.input::before {
   left: -1px;
-  background: var(--ak-text-secondary);
+  background: var(--row-accent, var(--ak-text-secondary));
 }
 
 .rn-row.output::after {
   right: -1px;
-  background: var(--ak-accent-cyan);
+  background: var(--row-accent, var(--ak-accent-cyan));
   box-shadow: 0 0 8px rgba(35, 213, 252, 0.5);
 }
 

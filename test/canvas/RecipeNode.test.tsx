@@ -7,6 +7,7 @@ import {
 } from "@xyflow/react";
 import type { Item, Machine, Recipe } from "@aef/schema";
 import RecipeNode from "../../src/canvas/RecipeNode";
+import { itemColor } from "../../src/canvas/itemColor";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import {
   ItemPackProvider,
@@ -284,6 +285,29 @@ describe("RecipeNode", () => {
     ).map((el) => el.textContent);
     expect(inputRates).toEqual(["60", "120"]);
     expect(outputRates).toEqual(["60"]);
+  });
+
+  it("tints each row's --row-accent custom property to the item color", () => {
+    const { container } = renderRecipe({
+      recipe: multiRowRecipe,
+      kind: "recipe",
+      multiplier: 1,
+    });
+    // Rows render in declaration order here (no inputOrder). Each row's inline
+    // --row-accent must equal itemColor(item) so canvas.css can tint the accent
+    // tab; the custom property is stored verbatim, so a direct string compare
+    // holds.
+    const inputAccents = Array.from(
+      container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input"),
+    ).map((r) => r.style.getPropertyValue("--row-accent"));
+    expect(inputAccents).toEqual([
+      itemColor("copper_nugget"),
+      itemColor("copper_ore-liquid_water"),
+    ]);
+    const outputAccents = Array.from(
+      container.querySelectorAll<HTMLElement>(".rn-side.out .rn-row.output"),
+    ).map((r) => r.style.getPropertyValue("--row-accent"));
+    expect(outputAccents).toEqual([itemColor("copper_powder")]);
   });
 
   describe("footer", () => {

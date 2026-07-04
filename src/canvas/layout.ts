@@ -615,6 +615,7 @@ export function fromElkRenderLayout(
       rate: Fraction;
       transportKind?: TransportKindId;
       labelSide?: "source" | "target";
+      multiInputTarget?: true;
     } = {
       item: itemId,
       rate,
@@ -624,6 +625,19 @@ export function fromElkRenderLayout(
     }
     if (renderEdge?.labelSide !== undefined) {
       edgeData.labelSide = renderEdge.labelSide;
+    }
+    // Flag edges whose consumer takes two or more inputs so ItemEdge can pin an
+    // icon-only identity chip at the target port. The edge itself does not know
+    // the consumer's in-degree, so we resolve it here from the target unit.
+    // Bus members: every edge is still type "item" at this point; routeBusEdges
+    // runs later (in layoutRenderPlan) and retypes long / boundary-feeder edges
+    // to type "bus", which BusEdge renders. BusEdge's rise chip already sits
+    // near the target, so a multiInputTarget flag left on a bus member is inert
+    // (ItemEdge is the only reader). Setting it uniformly here keeps this pass
+    // free of any bus-classification dependency.
+    const targetUnit = unitById.get(targetNode);
+    if (targetUnit !== undefined && inputCountOf(targetUnit, recipeById) >= 2) {
+      edgeData.multiInputTarget = true;
     }
     return {
       id: e.id,
@@ -707,6 +721,27 @@ function portToItem(port: string): string {
   if (port.startsWith("out:")) return port.slice("out:".length);
   if (port.startsWith("in:")) return port.slice("in:".length);
   return port;
+}
+
+// Number of distinct inputs a unit consumes, used to decide whether its
+// entering edges get an identity chip. Recipe units count their recipe.in
+// ports; loop units count their net-IO "in" ports; product units are boundary
+// sinks that never take two inputs, so they report zero.
+function inputCountOf(
+  unit: RenderUnit,
+  recipeById: ReadonlyMap<RecipeId, Recipe>,
+): number {
+  switch (unit.kind) {
+    case "recipe": {
+      const recipe = recipeById.get(unit.recipeId);
+      return recipe ? recipe.in.length : 0;
+    }
+    case "loop":
+      return unit.netIO.filter((p) => p.direction === "in").length;
+    case "inputProduct":
+    case "outputProduct":
+      return 0;
+  }
 }
 
 function unitToRFNode(

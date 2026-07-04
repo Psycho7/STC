@@ -457,6 +457,84 @@ describe("layoutRenderPlan: end-to-end", () => {
   });
 });
 
+describe("fromElkRenderLayout: multiInputTarget flag", () => {
+  it("sets multiInputTarget on edges into a >=2-input recipe unit and not into a 1-input unit", () => {
+    // One source with two outputs feeds a two-input consumer and a one-input
+    // consumer. The edge into the two-input consumer must carry the flag; the
+    // edge into the one-input consumer must not.
+    const src = mkRecipe("r:src", [], ["a", "b"]);
+    const twoIn = mkRecipe("r:two", ["a", "b"], []);
+    const oneIn = mkRecipe("r:one", ["a"], []);
+    const plan: RenderPlan = {
+      units: [
+        mkRecipeUnit("u:src", "r:src"),
+        mkRecipeUnit("u:two", "r:two"),
+        mkRecipeUnit("u:one", "r:one"),
+      ],
+      edges: [mkEdge("u:src", "u:two", "a"), mkEdge("u:src", "u:one", "a")],
+      containers: [],
+    };
+    const input: LayoutInput = {
+      plan,
+      recipeById: new Map([
+        ["r:src", src],
+        ["r:two", twoIn],
+        ["r:one", oneIn],
+      ]),
+      itemById: new Map(),
+    };
+    const graph = renderPlanToElkGraph(input);
+    const laid: ElkGraph = {
+      ...graph,
+      children: graph.children.map((c, i) => ({ ...c, x: i * 300, y: 0 })),
+      edges: graph.edges,
+    };
+    const { edges } = fromElkRenderLayout(laid, input);
+    const toTwo = edges.find((e) => e.target === "u:two");
+    const toOne = edges.find((e) => e.target === "u:one");
+    expect(toTwo).toBeDefined();
+    expect(toOne).toBeDefined();
+    expect(
+      (toTwo!.data as { multiInputTarget?: true }).multiInputTarget,
+    ).toBe(true);
+    expect(
+      (toOne!.data as { multiInputTarget?: true }).multiInputTarget,
+    ).toBeUndefined();
+  });
+
+  it("sets multiInputTarget on an edge into a >=2-input loop unit", () => {
+    // A producer feeds one net-IO input of a loop that has two net-IO inputs.
+    const prod = mkRecipe("r:p", [], ["water"]);
+    const loop = mkLoopUnit("l:0", "scc:1", [
+      { item: "water", direction: "in", rate: new Fraction(1) },
+      { item: "acid", direction: "in", rate: new Fraction(1) },
+      { item: "steam", direction: "out", rate: new Fraction(1) },
+    ]);
+    const plan: RenderPlan = {
+      units: [mkRecipeUnit("u:p", "r:p"), loop],
+      edges: [mkEdge("u:p", "l:0", "water")],
+      containers: [],
+    };
+    const input: LayoutInput = {
+      plan,
+      recipeById: new Map([["r:p", prod]]),
+      itemById: new Map(),
+    };
+    const graph = renderPlanToElkGraph(input);
+    const laid: ElkGraph = {
+      ...graph,
+      children: graph.children.map((c, i) => ({ ...c, x: i * 300, y: 0 })),
+      edges: graph.edges,
+    };
+    const { edges } = fromElkRenderLayout(laid, input);
+    const toLoop = edges.find((e) => e.target === "l:0");
+    expect(toLoop).toBeDefined();
+    expect(
+      (toLoop!.data as { multiInputTarget?: true }).multiInputTarget,
+    ).toBe(true);
+  });
+});
+
 describe("fromElkRenderLayout", () => {
   it("applies markerEnd ArrowClosed to every edge", () => {
     const recipe = mkRecipe("r:a", ["x"], ["x"]);

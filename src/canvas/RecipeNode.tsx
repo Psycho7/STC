@@ -12,6 +12,7 @@ import { orderByItem } from "./orderByItem";
 import { formatMultiplicityBadge } from "./multiplicity-badge";
 import { useItemPack } from "./itemPackContext";
 import { iconPosition } from "./iconSprite";
+import { itemColor } from "./itemColor";
 
 // Looks up the sprite position by icon id and renders an <ico><spr> pair.
 // Returns null when no position is found, so the slot collapses instead of
@@ -211,6 +212,7 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
           kind={portTransportKinds?.get(`in:${p.item}`)}
           side="left"
           top={geom.inHandleYs[i]!}
+          item={p.item}
         />
       ))}
       {outs.map((p, i) => {
@@ -231,6 +233,7 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
           kind={portTransportKinds?.get(`out:${p.item}`)}
           side="right"
           top={geom.outHandleYs[i]!}
+          item={p.item}
         />
       ))}
 
@@ -239,7 +242,14 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
           {ins.map((p) => {
             const label = i18n.displayName(p.item);
             return (
-              <div key={`in-row:${p.item}`} className="rn-row input">
+              // --row-accent tints the row's left accent tab to the item color
+              // (canvas.css reads it in .rn-row.input::before) so the row pairs
+              // by hue with its entering edge and port glyph.
+              <div
+                key={`in-row:${p.item}`}
+                className="rn-row input"
+                style={{ ["--row-accent" as string]: itemColor(p.item) }}
+              >
                 <Sprite iconId={p.item} size={20} />
                 <span className="lbl" title={label}>
                   {label}
@@ -255,7 +265,14 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
           {outs.map((p) => {
             const label = i18n.displayName(p.item);
             return (
-              <div key={`out-row:${p.item}`} className="rn-row output">
+              // --row-accent tints the row's right accent tab to the item color
+              // (canvas.css reads it in .rn-row.output::after) so the row pairs
+              // by hue with its leaving edge and port glyph.
+              <div
+                key={`out-row:${p.item}`}
+                className="rn-row output"
+                style={{ ["--row-accent" as string]: itemColor(p.item) }}
+              >
                 <Sprite iconId={p.item} size={20} />
                 <span className="lbl" title={label}>
                   {label}

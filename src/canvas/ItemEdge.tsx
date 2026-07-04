@@ -36,7 +36,18 @@ export type ItemEdgeData = {
   // here. Optional: when absent each path builder falls back to its default
   // column just before the target port.
   entryX?: number;
+  // Set by fromElkRenderLayout when this edge's consumer (target unit) has two
+  // or more inputs. It gates the icon-only entry chip pinned at the target port,
+  // which names the entering line right at the node where several inputs meet.
+  // Single-input consumers leave it unset, so their lone entering line needs no
+  // extra identity chip. Optional and defaults to falsy.
+  multiInputTarget?: true;
 };
+
+// Horizontal inset of the entry chip from the target port, in graph units. The
+// chip sits just outside the node on the entering leg so it reads as belonging
+// to that line without overlapping the port glyph.
+const ENTRY_CHIP_OFFSET = 12;
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
 // (older fixtures and tests). Belt is a solid gray stroke; pipe is a dashed cyan
@@ -171,6 +182,40 @@ export default function ItemEdge({
                 })()
               : null}
             {chipText}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
+      {/* Entry chip: an icon-only mini chip pinned at the target port, rendered
+          only when the consumer has two or more inputs (multiInputTarget) and
+          the zoom is above the same LABEL_MIN_ZOOM gate the rate chip uses. It
+          reuses the flow-chip + sprite idiom but drops the rate text; the full
+          "Name x rate/min" still rides on title / aria-label so hovering or a
+          screen reader names the item. The rate chip at the bend column is
+          untouched: this chip only adds identity at the node where several
+          inputs braid together. --chip-accent tints it to the item so the chip,
+          the entering line, and the matching input row all read as one color. */}
+      {edgeData?.multiInputTarget && zoom >= LABEL_MIN_ZOOM ? (
+        <EdgeLabelRenderer>
+          <div
+            data-testid={`item-edge-entry-${id}`}
+            className="nodrag nopan flow-chip entry"
+            aria-label={fullLabel}
+            title={fullLabel}
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${targetX - ENTRY_CHIP_OFFSET}px, ${targetY}px)`,
+              whiteSpace: "nowrap",
+              ...chipAccentStyle(edgeData.item),
+            }}
+          >
+            {(() => {
+              const pos = iconPosition(edgeData.item);
+              return pos !== undefined ? (
+                <span className="ico ico-16">
+                  <span className="spr" style={{ backgroundPosition: pos }} />
+                </span>
+              ) : null;
+            })()}
           </div>
         </EdgeLabelRenderer>
       ) : null}
