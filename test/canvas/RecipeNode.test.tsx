@@ -127,13 +127,15 @@ function renderRecipe(
 
 describe("RecipeNode", () => {
   it("renders a kind: 'recipe' unit with the legacy multiplier badge when multiplier > 1 and not expanded", () => {
-    renderRecipe({
+    // The count now also appears in the per-machine secondary line, so target
+    // the corner badge element rather than a bare text match.
+    const { container } = renderRecipe({
       recipe,
       kind: "recipe",
       multiplier: 3,
       expanded: false,
     });
-    expect(screen.getByText("x3")).toBeInTheDocument();
+    expect(container.querySelector(".rn-mult-badge")?.textContent).toBe("x3");
   });
 
   it("renders a kind: 'recipe' unit without a badge when multiplier is 1", () => {
@@ -147,12 +149,14 @@ describe("RecipeNode", () => {
   });
 
   it("preserves backward-compat on-main shape: { recipe, multiplier, expanded } with no kind", () => {
-    renderRecipe({
+    // The count now also appears in the per-machine secondary line, so target
+    // the corner badge element rather than a bare text match.
+    const { container } = renderRecipe({
       recipe,
       multiplier: 4,
       expanded: false,
     });
-    expect(screen.getByText("x4")).toBeInTheDocument();
+    expect(container.querySelector(".rn-mult-badge")?.textContent).toBe("x4");
   });
 
   it("hides legacy badge when expanded is true even if multiplier > 1", () => {

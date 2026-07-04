@@ -1421,6 +1421,7 @@
 .ak-canvas-theme.zoom-low .rn-footer,
 .ak-canvas-theme.zoom-low .rn-head .machine-name,
 .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-lbl,
+.ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-sub,
 .ak-canvas-theme.zoom-low .item-id {
   display: none;
 }
@@ -2004,6 +2005,37 @@
   color: var(--ak-text-secondary);
   letter-spacing: 0.18em;
   text-transform: uppercase;
+}
+
+/* Per-machine secondary under the aggregate header value: the single-machine
+   rate, a scope label ("ea" = each machine), and the machine-count badge, so
+   the aggregate primary stays reconcilable to one machine's throughput. */
+.rn-head .rn-rate-block .rate-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 2px;
+  font-family: var(--font-num);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--ak-text-secondary);
+}
+
+.rn-head .rn-rate-block .rate-sub .rate-sub-val {
+  font-weight: 700;
+}
+
+.rn-head .rn-rate-block .rate-sub .rate-sub-ea {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ak-text-decoration);
+}
+
+.rn-head .rn-rate-block .rate-sub .rate-sub-mult {
+  font-weight: 700;
+  color: var(--ak-accent-lime);
 }
 
 .rn-head .product {
