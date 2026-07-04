@@ -77,6 +77,19 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
   // navigates to a new plan, which drops all uncommitted local edit state, so
   // there is no cross-plan carryover to clear here.
   const dirty = useRef<Set<string>>(new Set());
+  // Recipe ids whose last commit attempt failed to parse. Drives the input's
+  // aria-invalid flag and the inline error message. Typing clears the flag; a
+  // successful commit or a blur-revert clears it too.
+  const [invalidIds, setInvalidIds] = useState<Set<string>>(new Set());
+  function markInvalid(recipeId: string, on: boolean) {
+    setInvalidIds((prev) => {
+      if (on === prev.has(recipeId)) return prev;
+      const next = new Set(prev);
+      if (on) next.add(recipeId);
+      else next.delete(recipeId);
+      return next;
+    });
+  }
 
   // Returns true iff the text parsed. Invalid text is left in place so the user
   // can finish typing; a failed parse never mutates the plan.
@@ -96,23 +109,44 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
 
   function handleRateChange(recipeId: string, value: string) {
     dirty.current.add(recipeId);
+    // Typing clears any prior invalid cue; the value is re-checked on commit.
+    markInvalid(recipeId, false);
     setLocalRates((prev) => new Map(prev).set(recipeId, value));
   }
 
-  // Commit the row's uncommitted text on blur or Enter. Only a dirty row emits,
-  // and a successful parse clears the dirty flag so the same text is not
-  // committed twice; an unparseable value leaves the row dirty and untouched.
-  function commitFromLocal(recipeId: string) {
+  // Commit the row's uncommitted text on blur (revert=true) or Enter
+  // (revert=false). Only a dirty row acts; a successful parse commits and clears
+  // the dirty/invalid flags. On a failed parse, Enter surfaces the invalid cue
+  // and keeps the bad text so the user can fix it, while a blur reverts the
+  // field to its last-good value so it never sticks on rejected input.
+  function commitFromLocal(recipeId: string, revert: boolean) {
     if (!dirty.current.has(recipeId)) return;
     const value = localRates.get(recipeId);
     if (value === undefined) return;
-    if (commitRate(recipeId, value)) dirty.current.delete(recipeId);
+    if (commitRate(recipeId, value)) {
+      dirty.current.delete(recipeId);
+      markInvalid(recipeId, false);
+      return;
+    }
+    if (revert) {
+      dirty.current.delete(recipeId);
+      markInvalid(recipeId, false);
+      setLocalRates((prev) => {
+        if (!prev.has(recipeId)) return prev;
+        const next = new Map(prev);
+        next.delete(recipeId);
+        return next;
+      });
+    } else {
+      markInvalid(recipeId, true);
+    }
   }
 
   // Drop the in-flight edit text and dirty flag for a row that is going away, so
   // a stale entry can never redisplay on a later row that reuses the same id.
   function clearPendingEdit(recipeId: string) {
     dirty.current.delete(recipeId);
+    markInvalid(recipeId, false);
     setLocalRates((prev) => {
       if (!prev.has(recipeId)) return prev;
       const next = new Map(prev);
@@ -256,14 +290,30 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                 type="text"
                 inputMode="decimal"
                 aria-label={i18n.t("targets.rate.label")}
+                aria-invalid={invalidIds.has(t.recipeId) ? true : undefined}
+                aria-describedby={
+                  invalidIds.has(t.recipeId)
+                    ? `t-rate-err-${t.recipeId}`
+                    : undefined
+                }
+                className={invalidIds.has(t.recipeId) ? "invalid" : undefined}
                 value={displayedRate}
                 onChange={(e) => handleRateChange(t.recipeId, e.target.value)}
-                onBlur={() => commitFromLocal(t.recipeId)}
+                onBlur={() => commitFromLocal(t.recipeId, true)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") commitFromLocal(t.recipeId);
+                  if (e.key === "Enter") commitFromLocal(t.recipeId, false);
                 }}
               />
               <span className="unit">{i18n.t("targets.rate.unit")}</span>
+              {invalidIds.has(t.recipeId) ? (
+                <span
+                  className="b-rate-err"
+                  id={`t-rate-err-${t.recipeId}`}
+                  data-testid="rate-invalid"
+                >
+                  {i18n.t("rate.invalid")}
+                </span>
+              ) : null}
             </div>
             <button
               className="b-remove"

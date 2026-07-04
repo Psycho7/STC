@@ -228,9 +228,9 @@ test("orphaned auto-row text does not resurrect after override removal", () => {
   expect(reborn.placeholder).toMatch(/unlimited/i);
 });
 
-// INVALID text in an auto-row stays visible after blur so the user can fix the
-// typo; nothing is committed.
-test("invalid auto-row text is kept on blur with no commit", () => {
+// INVALID text in an auto-row surfaces the invalid cue on Enter and stays
+// visible so the user can fix the typo; nothing is committed.
+test("Enter on invalid auto-row text shows the cue and keeps the text", () => {
   const onChange = vi.fn();
   render(
     <LocaleProvider locale="en">
@@ -245,13 +245,14 @@ test("invalid auto-row text is kept on blur with no commit", () => {
   );
   const input = screen.getByTestId("input-auto-row").querySelector("input")!;
   fireEvent.change(input, { target: { value: "1/" } });
-  fireEvent.blur(input);
+  fireEvent.keyDown(input, { key: "Enter" });
   expect(input.value).toBe("1/");
+  expect(input.getAttribute("aria-invalid")).toBe("true");
   expect(onChange).not.toHaveBeenCalled();
 });
 
-// Pin: the keep-on-INVALID behavior of override rows survives the rewrite.
-test("invalid cap text in an override row is kept on blur", () => {
+// Blur on an invalid cap reverts the field to the last-good value.
+test("blur on invalid cap reverts an override row to its last-good value", () => {
   render(
     <LocaleProvider locale="en">
       <InputsPanel
@@ -267,7 +268,32 @@ test("invalid cap text in an override row is kept on blur", () => {
   expect(input.value).toBe("60");
   fireEvent.change(input, { target: { value: "1/" } });
   fireEvent.blur(input);
-  expect(input.value).toBe("1/");
+  expect(input.value).toBe("60");
+  expect(input.getAttribute("aria-invalid")).toBeNull();
+});
+
+// An empty auto-row is the Unlimited state, not an error: blur leaves it empty
+// and un-flagged, and the placeholder explains the default.
+test("an empty auto-row stays Unlimited with no invalid cue", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={onChange}
+        pack={PACK}
+        assumedRawItemIds={["widget"]}
+        realizedRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  const input = screen.getByTestId("input-auto-row").querySelector("input")!;
+  expect(input.placeholder).toMatch(/unlimited/i);
+  fireEvent.change(input, { target: { value: "" } });
+  fireEvent.blur(input);
+  expect(input.value).toBe("");
+  expect(input.getAttribute("aria-invalid")).toBeNull();
+  expect(onChange).not.toHaveBeenCalled();
 });
 
 // Navigation remounts the panel via a plan-identity key, discarding an

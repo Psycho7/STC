@@ -903,6 +903,23 @@
   border-bottom-color: var(--ak-accent-lime);
   color: var(--ak-accent-lime-bright);
 }
+/* Rejected rate input: red accent on the field plus a small inline message so
+   the panel and canvas never silently disagree about a swallowed value. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-rate input.invalid,
+.ak-app-shell [data-testid="side-panel"] .b-row .b-rate input.invalid:focus {
+  border-bottom-color: var(--ak-accent-red);
+  color: var(--ak-accent-red);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-rate .b-rate-err {
+  margin-top: 2px;
+  max-width: 96px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.25;
+  color: var(--ak-accent-red);
+  letter-spacing: 0.02em;
+  text-align: right;
+}
 .ak-app-shell [data-testid="side-panel"] .b-row .b-rate .unit {
   font-family: var(--font-mono);
   font-size: 9px;

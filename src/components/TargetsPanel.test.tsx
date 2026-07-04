@@ -156,10 +156,10 @@ test("Enter commits the parsed value", () => {
   ]);
 });
 
-// The committed text is kept verbatim: a valid "1/3" is not re-serialized into a
-// 16-digit float, and an invalid in-progress "1/" survives a blur without
-// committing so the user can keep typing.
-test("invalid text stays put on blur; a valid rational commits and keeps its text", () => {
+// The committed text is kept verbatim on Enter: a valid "1/3" is not
+// re-serialized into a 16-digit float, and an invalid in-progress "1/" survives
+// an Enter (with the invalid cue) so the user can keep typing.
+test("Enter keeps invalid text with an invalid cue; a valid rational commits and keeps its text", () => {
   let latest: Target[] = [
     { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
   ];
@@ -185,11 +185,12 @@ test("invalid text stays put on blur; a valid rational commits and keeps its tex
   render(<Parent />);
   const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "1/" } });
-  fireEvent.blur(input);
+  fireEvent.keyDown(input, { key: "Enter" });
   expect(input.value).toBe("1/");
+  expect(input.getAttribute("aria-invalid")).toBe("true");
   expect(emissions.length).toBe(0);
   fireEvent.change(input, { target: { value: "1/3" } });
-  fireEvent.blur(input);
+  fireEvent.keyDown(input, { key: "Enter" });
   expect(emissions.length).toBe(1);
   // 1/3 per min = 1/180 per sec.
   expect(latest).toEqual([
@@ -197,6 +198,79 @@ test("invalid text stays put on blur; a valid rational commits and keeps its tex
   ]);
   // Field keeps "1/3", not "0.3333333333333333".
   expect(input.value).toBe("1/3");
+  // The valid commit cleared the invalid cue.
+  expect(input.getAttribute("aria-invalid")).toBeNull();
+});
+
+// A commit attempt on unparseable text surfaces a visible, localized invalid
+// state instead of silently keeping the old value with no cue.
+test("Enter on unparseable text sets aria-invalid and shows an inline message", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[
+          { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+        ]}
+        onChange={onChange}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "12,5" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.getAttribute("aria-invalid")).toBe("true");
+  expect(screen.getByTestId("rate-invalid").textContent!.length).toBeGreaterThan(
+    0,
+  );
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+// Blur on an unparseable entry drops the bad text and restores the last-good
+// value, so the field never sticks on rejected input.
+test("blur on unparseable text reverts the field to the last-good value", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[
+          { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+        ]}
+        onChange={onChange}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  expect(input.value).toBe("120");
+  fireEvent.change(input, { target: { value: "12,5" } });
+  fireEvent.blur(input);
+  expect(input.value).toBe("120");
+  expect(input.getAttribute("aria-invalid")).toBeNull();
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+// An emptied target rate is invalid (a target needs a rate); it is not silently
+// ignored like the Inputs panel's empty=Unlimited.
+test("empty target rate is treated as invalid on Enter", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[
+          { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+        ]}
+        onChange={onChange}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.getAttribute("aria-invalid")).toBe("true");
+  expect(onChange).not.toHaveBeenCalled();
 });
 
 // A re-blur without a fresh edit does not re-commit: exactly one solve per edit.

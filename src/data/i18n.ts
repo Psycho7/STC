@@ -36,6 +36,7 @@ export type UiKey =
   | "inputs.duplicate"
   | "inputs.unlimited"
   | "inputs.needed"
+  | "rate.invalid"
   | "stats.output"
   | "stats.output.unit"
   | "stats.input"
@@ -86,6 +87,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "该物品已声明",
     "inputs.unlimited": "无限",
     "inputs.needed": "需求 {rate}/分",
+    "rate.invalid": "请输入数字，例如 30 或 1/3",
     "stats.output": "输出",
     "stats.output.unit": "目标",
     "stats.input": "输入",
@@ -128,6 +130,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "Item already declared",
     "inputs.unlimited": "Unlimited",
     "inputs.needed": "needed {rate}/min",
+    "rate.invalid": "Enter a number, e.g. 30 or 1/3",
     "stats.output": "Output",
     "stats.output.unit": "targets",
     "stats.input": "Input",
@@ -170,6 +173,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "このアイテムは既に登録されています",
     "inputs.unlimited": "無制限",
     "inputs.needed": "必要 {rate}/分",
+    "rate.invalid": "数値を入力してください（例: 30 や 1/3）",
     "stats.output": "出力",
     "stats.output.unit": "ターゲット",
     "stats.input": "入力",
@@ -212,6 +216,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "Предмет уже объявлен",
     "inputs.unlimited": "Без ограничений",
     "inputs.needed": "нужно {rate}/мин",
+    "rate.invalid": "Введите число, например 30 или 1/3",
     "stats.output": "Выход",
     "stats.output.unit": "цели",
     "stats.input": "Вход",

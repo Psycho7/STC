@@ -112,6 +112,19 @@ export function InputsPanel({
   // is no cross-plan carryover to clear here.
   const dirty = useRef<Set<string>>(new Set());
   const dirtyAuto = useRef<Set<string>>(new Set());
+  // Item ids whose last commit attempt failed to parse (INVALID). Drives the
+  // input's aria-invalid flag and the inline error message. Shared across auto
+  // and override rows since an item is only ever one or the other at a time.
+  const [invalidIds, setInvalidIds] = useState<Set<string>>(new Set());
+  function markInvalid(itemId: string, on: boolean) {
+    setInvalidIds((prev) => {
+      if (on === prev.has(itemId)) return prev;
+      const next = new Set(prev);
+      if (on) next.add(itemId);
+      else next.delete(itemId);
+      return next;
+    });
+  }
 
   // Returns false only on INVALID, so the caller keeps the prior value and the
   // local edit string for the user to fix.
@@ -136,23 +149,42 @@ export function InputsPanel({
 
   function handleRateChange(itemId: string, value: string) {
     dirty.current.add(itemId);
+    markInvalid(itemId, false);
     setLocalRates((prev) => new Map(prev).set(itemId, value));
   }
 
-  // Commit an override row's uncommitted text on blur or Enter. Only a dirty row
-  // emits; a valid parse (including empty = uncap) clears the dirty flag, an
-  // INVALID value leaves the row dirty and untouched.
-  function commitFromLocal(itemId: string) {
+  // Commit an override row's uncommitted text on blur (revert=true) or Enter
+  // (revert=false). A valid parse (including empty = uncap) commits and clears
+  // the flags. On INVALID, Enter surfaces the cue and keeps the text; blur
+  // reverts the field to its last-good value.
+  function commitFromLocal(itemId: string, revert: boolean) {
     if (!dirty.current.has(itemId)) return;
     const value = localRates.get(itemId);
     if (value === undefined) return;
-    if (commitRate(itemId, value)) dirty.current.delete(itemId);
+    if (commitRate(itemId, value)) {
+      dirty.current.delete(itemId);
+      markInvalid(itemId, false);
+      return;
+    }
+    if (revert) {
+      dirty.current.delete(itemId);
+      markInvalid(itemId, false);
+      setLocalRates((prev) => {
+        if (!prev.has(itemId)) return prev;
+        const next = new Map(prev);
+        next.delete(itemId);
+        return next;
+      });
+    } else {
+      markInvalid(itemId, true);
+    }
   }
 
   // Drop the in-flight edit text and dirty flag for a row that is going away, so
   // a stale entry can never redisplay on a later row that reuses the same id.
   function clearPendingEdit(itemId: string) {
     dirty.current.delete(itemId);
+    markInvalid(itemId, false);
     setLocalRates((prev) => {
       if (!prev.has(itemId)) return prev;
       const next = new Map(prev);
@@ -180,31 +212,47 @@ export function InputsPanel({
 
   function handleAutoRateChange(itemId: string, value: string) {
     dirtyAuto.current.add(itemId);
+    markInvalid(itemId, false);
     setLocalAutoRates((prev) => new Map(prev).set(itemId, value));
   }
 
-  // Commit an auto-row's uncommitted text on blur or Enter. A non-empty valid
-  // value promotes the auto-row into an override; carry its committed text over
-  // to localRates so the new override row shows what the user typed instead of
-  // the re-serialized Fraction. An empty value is a no-op (stays Unlimited). An
-  // INVALID value leaves the row dirty and untouched.
-  function commitAutoFromLocal(itemId: string) {
-    if (!dirtyAuto.current.has(itemId)) return;
-    const value = localAutoRates.get(itemId);
-    if (value === undefined) return;
-    if (!commitAutoRate(itemId, value)) return;
-    dirtyAuto.current.delete(itemId);
-    if (value.trim() !== "") {
-      setLocalRates((prev) => new Map(prev).set(itemId, value));
-    }
-    // Prune the in-flight auto text so a later auto-row rebirth comes back as
-    // Unlimited, not a stale cap.
+  // Prune the in-flight auto text so a later auto-row rebirth comes back as
+  // Unlimited, not a stale cap.
+  function dropAutoText(itemId: string) {
     setLocalAutoRates((prev) => {
       if (!prev.has(itemId)) return prev;
       const next = new Map(prev);
       next.delete(itemId);
       return next;
     });
+  }
+
+  // Commit an auto-row's uncommitted text on blur (revert=true) or Enter
+  // (revert=false). A non-empty valid value promotes the auto-row into an
+  // override; carry its committed text over to localRates so the new override
+  // row shows what the user typed instead of the re-serialized Fraction. An
+  // empty value is a no-op (stays Unlimited). On INVALID, Enter surfaces the cue
+  // and keeps the text; blur reverts the field to Unlimited (empty).
+  function commitAutoFromLocal(itemId: string, revert: boolean) {
+    if (!dirtyAuto.current.has(itemId)) return;
+    const value = localAutoRates.get(itemId);
+    if (value === undefined) return;
+    if (commitAutoRate(itemId, value)) {
+      dirtyAuto.current.delete(itemId);
+      markInvalid(itemId, false);
+      if (value.trim() !== "") {
+        setLocalRates((prev) => new Map(prev).set(itemId, value));
+      }
+      dropAutoText(itemId);
+      return;
+    }
+    if (revert) {
+      dirtyAuto.current.delete(itemId);
+      markInvalid(itemId, false);
+      dropAutoText(itemId);
+    } else {
+      markInvalid(itemId, true);
+    }
   }
 
   function handleItemChange(oldItemId: string, newItemId: string) {
@@ -340,15 +388,29 @@ export function InputsPanel({
                 type="text"
                 inputMode="decimal"
                 aria-label={i18n.t("inputs.rate.label")}
+                aria-invalid={invalidIds.has(itemId) ? true : undefined}
+                aria-describedby={
+                  invalidIds.has(itemId) ? `i-rate-err-${itemId}` : undefined
+                }
+                className={invalidIds.has(itemId) ? "invalid" : undefined}
                 placeholder={i18n.t("inputs.unlimited")}
                 value={displayedRate}
                 onChange={(e) => handleAutoRateChange(itemId, e.target.value)}
-                onBlur={() => commitAutoFromLocal(itemId)}
+                onBlur={() => commitAutoFromLocal(itemId, true)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") commitAutoFromLocal(itemId);
+                  if (e.key === "Enter") commitAutoFromLocal(itemId, false);
                 }}
               />
               <span className="unit">{i18n.t("inputs.rate.unit")}</span>
+              {invalidIds.has(itemId) ? (
+                <span
+                  className="b-rate-err"
+                  id={`i-rate-err-${itemId}`}
+                  data-testid="rate-invalid"
+                >
+                  {i18n.t("rate.invalid")}
+                </span>
+              ) : null}
             </div>
           </div>
         );
@@ -436,6 +498,13 @@ export function InputsPanel({
                 type="text"
                 inputMode="decimal"
                 aria-label={i18n.t("inputs.rate.label")}
+                aria-invalid={invalidIds.has(row.itemId) ? true : undefined}
+                aria-describedby={
+                  invalidIds.has(row.itemId)
+                    ? `i-rate-err-${row.itemId}`
+                    : undefined
+                }
+                className={invalidIds.has(row.itemId) ? "invalid" : undefined}
                 placeholder={
                   uncapped
                     ? i18n.t("inputs.unlimited")
@@ -443,12 +512,21 @@ export function InputsPanel({
                 }
                 value={displayedRate}
                 onChange={(e) => handleRateChange(row.itemId, e.target.value)}
-                onBlur={() => commitFromLocal(row.itemId)}
+                onBlur={() => commitFromLocal(row.itemId, true)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") commitFromLocal(row.itemId);
+                  if (e.key === "Enter") commitFromLocal(row.itemId, false);
                 }}
               />
               <span className="unit">{i18n.t("inputs.rate.unit")}</span>
+              {invalidIds.has(row.itemId) ? (
+                <span
+                  className="b-rate-err"
+                  id={`i-rate-err-${row.itemId}`}
+                  data-testid="rate-invalid"
+                >
+                  {i18n.t("rate.invalid")}
+                </span>
+              ) : null}
             </div>
             <button
               className="b-remove"
