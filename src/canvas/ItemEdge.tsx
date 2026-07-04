@@ -22,9 +22,9 @@ export type ItemEdgeData = {
   // of throwing.
   transportKind?: TransportKindId;
   // Fan-in/fan-out side hint stamped by assignLabelSides in the render
-  // pipeline. It no longer moves the label: the rate chip always sits at the
-  // path midpoint chamferStepPath reports. Kept on the data so the producer
-  // stays wired and routing logic can still read it.
+  // pipeline. Nothing reads it anymore: the rate chip always sits at the path
+  // midpoint chamferStepPath reports. Retained on the data only for potential
+  // future routing use.
   labelSide?: "source" | "target";
   // Set when this edge is the chosen tear edge of an SCC, which switches the
   // label chip to its red variant. It is optional and defaults to falsy.
@@ -189,8 +189,8 @@ export default function ItemEdge({
   // polyline (50% of cumulative length), so the chip always sits on the line
   // it labels. Earlier versions nudged the chip toward the source or target
   // based on labelSide, which pinned it onto a port stub and off the visible
-  // run of the path; labelSide still rides along on the edge data but no
-  // longer moves the label.
+  // run of the path; labelSide is no longer read here or anywhere else, and is
+  // retained on the edge data only for potential future routing.
   const [edgePath, labelX, labelY] = chamferStepPath({
     sourceX,
     sourceY,
