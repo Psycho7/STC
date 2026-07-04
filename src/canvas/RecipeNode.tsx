@@ -6,7 +6,9 @@ import { useI18n } from "../data/i18n-context";
 import { PortGlyph } from "./PortGlyph";
 import { formatRationalPerMin } from "../data/rate-format";
 import type { PortTransportKinds } from "./layout";
+import type { ItemId } from "../pipeline/types";
 import type { RationalString } from "../data/targets";
+import { orderByItem } from "./orderByItem";
 import { formatMultiplicityBadge } from "./multiplicity-badge";
 import { useItemPack } from "./itemPackContext";
 import { iconPosition } from "./iconSprite";
@@ -54,6 +56,13 @@ type RecipeNodeData = {
   // "in:copper_ore", "out:copper_powder"). Optional so older fixtures and tests
   // keep working without it.
   portTransportKinds?: PortTransportKinds;
+  // ELK-resolved per-side port order (item ids, top to bottom) attached by the
+  // layout pass. When present, rows / handles / glyphs render in this order so
+  // each entering edge's y-slot matches its arrival order; when absent (older
+  // fixtures, boot path) we fall back to recipe.in / recipe.out declaration
+  // order.
+  inputOrder?: ItemId[];
+  outputOrder?: ItemId[];
 };
 type RecipeNodeType = Node<RecipeNodeData, "recipe">;
 
@@ -81,12 +90,22 @@ function rowRateText(
 }
 
 export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
-  const { recipe, multiplier, multiplicity, expanded, portTransportKinds } =
-    data;
+  const {
+    recipe,
+    multiplier,
+    multiplicity,
+    expanded,
+    portTransportKinds,
+    inputOrder,
+    outputOrder,
+  } = data;
   const i18n = useI18n();
   const { machineById } = useItemPack();
-  const ins = recipe.in;
-  const outs = recipe.out;
+  // Rows in ELK-resolved arrival order (falls back to declaration order). The
+  // handle at geom.inHandleYs[i] and the row at slot i describe the same item,
+  // and each row carries its own stoich for the rate text.
+  const ins = orderByItem(recipe.in, inputOrder);
+  const outs = orderByItem(recipe.out, outputOrder);
   const geom = measureRecipe(recipe);
   const scale = typeof multiplier === "number" ? multiplier : 1;
 
@@ -94,9 +113,12 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
   const producerId = recipe.producers[0];
   const machine =
     producerId !== undefined ? machineById.get(producerId) : undefined;
-  // The header product line is the first output's display name. Multiple
-  // outputs are not handled yet.
-  const outputItemId = outs[0]?.item;
+  // The header product line is the first output's display name. This is the
+  // recipe's declared primary output (recipe.out[0]), not the reordered
+  // top-of-column output: the header identifies the recipe, while `outs` only
+  // controls the arrival-sorted side-column order. Multiple outputs are not
+  // handled yet.
+  const outputItemId = recipe.out[0]?.item;
   const outputItemName =
     outputItemId !== undefined ? i18n.displayName(outputItemId) : "";
   const machineName = machine ? i18n.displayName(machine.id) : null;
@@ -123,8 +145,9 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
 
   // Header rate column: outputs[0] qty times machine speed over recipe.time,
   // times 60, scaled by the older multiplier path. Empty string hides the value
-  // when there is no primary output.
-  const primaryOut = outs[0];
+  // when there is no primary output. Uses recipe.out[0] (declared primary), not
+  // the reordered side-column top, for the same reason as the header product.
+  const primaryOut = recipe.out[0];
   const rateValText =
     primaryOut !== undefined
       ? rowRateText(primaryOut, recipe.time, speed, scale)

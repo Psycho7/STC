@@ -141,7 +141,7 @@ describe("renderPlanToElkGraph: unit dimensions", () => {
     expect(node?.height).toBe(geom.height);
   });
 
-  it("ports are WEST in / EAST out, FIXED_ORDER, non-zero dims", () => {
+  it("ports are WEST in / EAST out, FIXED_SIDE, non-zero dims", () => {
     const recipe = mkRecipe("r:a", ["i1", "i2"], ["o1"]);
     const plan: RenderPlan = {
       units: [mkRecipeUnit("u:a", "r:a")],
@@ -154,8 +154,11 @@ describe("renderPlanToElkGraph: unit dimensions", () => {
       itemById: new Map(),
     });
     const node = findChild(graph, "u:a");
+    // FIXED_SIDE pins each port to its side but lets ELK order the ports within
+    // a side to minimize crossings; the resolved order is read back after
+    // layout as inputOrder / outputOrder.
     expect(node?.layoutOptions?.["org.eclipse.elk.portConstraints"]).toBe(
-      "FIXED_ORDER",
+      "FIXED_SIDE",
     );
     const ports = node?.ports ?? [];
     expect(ports).toHaveLength(3);
@@ -360,6 +363,56 @@ describe("layoutRenderPlan: end-to-end", () => {
       expect((m as { parentId?: string }).parentId).toBe("g:1");
     }
     expect((groupRF?.width ?? 0) >= RECIPE_WIDTH).toBe(true);
+  });
+
+  it("resolves inputOrder to the producers' vertical order (crossing-free ports)", async () => {
+    // Two producers each feed one input of a two-input consumer. The consumer's
+    // recipe.in declaration order is [x, y], but we wire pA -> in:y and
+    // pB -> in:x. Under FIXED_SIDE ELK reorders the consumer's west ports so the
+    // entering edges do not cross, which means the resolved inputOrder must list
+    // the two inputs in the same top-to-bottom order as their producers. We do
+    // not assume which producer ELK puts on top; instead we assert inputOrder
+    // agrees with the producers' resolved y coordinates.
+    const consumer = mkRecipe("r:cons", ["x", "y"], []);
+    const prodX = mkRecipe("r:px", [], ["x"]);
+    const prodY = mkRecipe("r:py", [], ["y"]);
+    const plan: RenderPlan = {
+      units: [
+        mkRecipeUnit("u:cons", "r:cons"),
+        mkRecipeUnit("u:px", "r:px"),
+        mkRecipeUnit("u:py", "r:py"),
+      ],
+      edges: [mkEdge("u:px", "u:cons", "x"), mkEdge("u:py", "u:cons", "y")],
+      containers: [],
+    };
+    const result = await layoutRenderPlan({
+      plan,
+      recipeById: new Map([
+        ["r:cons", consumer],
+        ["r:px", prodX],
+        ["r:py", prodY],
+      ]),
+      itemById: new Map(),
+    });
+    const cons = result.nodes.find((n) => n.id === "u:cons");
+    const px = result.nodes.find((n) => n.id === "u:px");
+    const py = result.nodes.find((n) => n.id === "u:py");
+    expect(cons).toBeDefined();
+    // The resolved input order, top to bottom.
+    const inputOrder = (cons as { data: { inputOrder?: string[] } }).data
+      .inputOrder;
+    expect(inputOrder).toBeDefined();
+    expect([...inputOrder!].sort()).toEqual(["x", "y"]);
+    // Producer feeding the item at slot 0 must sit at or above the producer
+    // feeding the item at slot 1 (smaller y = higher on screen). This is the
+    // crossing-free property: port order tracks producer order.
+    const producerYByItem: Record<string, number> = {
+      x: px!.position.y,
+      y: py!.position.y,
+    };
+    expect(producerYByItem[inputOrder![0]!]!).toBeLessThanOrEqual(
+      producerYByItem[inputOrder![1]!]!,
+    );
   });
 
   it("treats a loop-box container's loop unit as a single sized outer node", async () => {
