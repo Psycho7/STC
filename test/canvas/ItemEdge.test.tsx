@@ -3,6 +3,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import ItemEdge, { type ItemEdgeData } from "../../src/canvas/ItemEdge";
+import { pathMidpoint } from "../../src/canvas/edgePath";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
 
@@ -251,36 +252,48 @@ describe("canvas/ItemEdge label placement", () => {
     return label.style.transform;
   }
 
-  it("places the label on the target-side horizontal when labelSide is 'target'", async () => {
-    renderEdge({
-      item: "Iron Plate",
-      rate: new Fraction(2, 1),
-      labelSide: "target",
-    });
+  it("anchors the label at the path midpoint regardless of labelSide", async () => {
+    // Nodes at different y so the drawn path bends: the length midpoint's y
+    // then differs from targetY, which is where the old labelSide override
+    // pinned the chip. labelSide is set to prove it no longer moves the label.
+    const nodes: Node[] = [
+      { id: "src", position: { x: 0, y: 0 }, data: { label: "src" } },
+      { id: "tgt", position: { x: 300, y: 100 }, data: { label: "tgt" } },
+    ];
+    render(
+      <LocaleProvider locale="en">
+        <div style={{ width: 800, height: 600 }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={[
+              makeEdge({
+                item: "Iron Plate",
+                rate: new Fraction(2, 1),
+                labelSide: "target",
+              }),
+            ]}
+            edgeTypes={edgeTypes}
+          />
+        </div>
+      </LocaleProvider>,
+    );
     const label = await findLabel();
     expect(label).not.toBeNull();
-    // NODES: src.x=0, tgt.x=300, both y=0. React Flow handle offsets shift
-    // these to handle centres; we assert the label's translate Y matches
-    // targetY rather than midpoint Y to confirm it sits on the target stub.
-    const t = transformFor(label!);
-    // The label transform contains "translate(<x>px, <y>px)"; with both nodes
-    // at y=0, both source and target stubs share y=0, so the discriminator is
-    // the x coordinate biased toward targetX (around 3/4 of the way across).
-    // Match the structural shape: it includes the targetX-biased coordinate.
-    expect(t).toMatch(/translate\(.+px,.+px\)/);
-    expect(t).not.toBe("translate(-50%, -50%) translate(NaNpx, NaNpx)");
-  });
-
-  it("places the label on the source-side horizontal when labelSide is 'source'", async () => {
-    renderEdge({
-      item: "Iron Plate",
-      rate: new Fraction(2, 1),
-      labelSide: "source",
-    });
-    const label = await findLabel();
-    expect(label).not.toBeNull();
-    const t = transformFor(label!);
-    expect(t).toMatch(/translate\(.+px,.+px\)/);
+    // The rendered edge path and the chip share the same graph coordinate
+    // space, so the chip's translate must equal pathMidpoint of the drawn d.
+    const path = document.querySelector<SVGPathElement>(
+      ".react-flow__edge-path",
+    );
+    expect(path).not.toBeNull();
+    const d = path!.getAttribute("d")!;
+    const [mx, my] = pathMidpoint(d);
+    expect(transformFor(label!)).toBe(
+      `translate(-50%, -50%) translate(${mx}px, ${my}px)`,
+    );
+    // The old behavior pinned y to targetY (the path's final point) when
+    // labelSide was "target"; the midpoint anchor must not do that here.
+    const ty = Number(d.match(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/)![2]);
+    expect(my).not.toBe(ty);
   });
 
   it("falls back to the smoothstep midpoint when labelSide is undefined", async () => {

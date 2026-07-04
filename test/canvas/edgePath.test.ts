@@ -8,10 +8,23 @@ import { describe, it, expect } from "vitest";
 import {
   chamferStepPath,
   chamferBusPath,
+  pathMidpoint,
   PORT_STUB,
   CHAMFER,
 } from "../../src/canvas/edgePath";
 import { parsePoints, expectRightwardFinish } from "./pathAssertions";
+
+describe("pathMidpoint", () => {
+  it("returns the center of a single-segment path", () => {
+    expect(pathMidpoint("M 0,0 L 10,0")).toEqual([5, 0]);
+  });
+
+  it("returns the point at half the cumulative length of a polyline", () => {
+    // Two segments of length 10 and 30: half of 40 lands 10 into the second
+    // segment, at (10, 10).
+    expect(pathMidpoint("M 0,0 L 10,0 L 10,30")).toEqual([10, 10]);
+  });
+});
 
 describe("chamferStepPath", () => {
   it("draws a plain straight line when the endpoints share a y", () => {
@@ -44,7 +57,7 @@ describe("chamferStepPath", () => {
   });
 
   it("honors an explicit bendX inside the corridor", () => {
-    const [d, lx] = chamferStepPath({
+    const [d, lx, ly] = chamferStepPath({
       sourceX: 0,
       sourceY: 0,
       targetX: 200,
@@ -52,7 +65,32 @@ describe("chamferStepPath", () => {
       bendX: 60,
     });
     expect(d).toBe("M 0,0 L 52,0 L 60,8 L 60,92 L 68,100 L 200,100");
+    // Label anchor at 50% of cumulative length. Segments: 52, 8*sqrt(2), 84,
+    // 8*sqrt(2), 132; total ~290.63, half ~145.31. Cumulative through the top
+    // chamfer is ~63.31, so the anchor lands 82 into the 84-long vertical run:
+    // x = 60 (the bend column), y = 8 + 82 = 90.
     expect(lx).toBe(60);
+    expect(ly).toBe(90);
+    expectRightwardFinish(d);
+  });
+
+  it("anchors the label on the target-side horizontal when the bend is early", () => {
+    // bendX 100 pushes the bend far left of the 600-wide corridor, so more
+    // than half the path length lies on the target-side horizontal rail.
+    // Path: M 0,0 L 92,0 L 100,8 L 100,32 L 108,40 L 600,40. Segments: 92,
+    // 8*sqrt(2), 24, 8*sqrt(2), 492; total ~630.63, half ~315.31. Cumulative
+    // through the bottom chamfer is ~138.63, so the anchor lands ~176.69 into
+    // the final rail: x = 108 + 176.69 = 284.69, y = 40 (the target level).
+    const [d, lx, ly] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 600,
+      targetY: 40,
+      bendX: 100,
+    });
+    expect(d).toBe("M 0,0 L 92,0 L 100,8 L 100,32 L 108,40 L 600,40");
+    expect(lx).toBe(284.69);
+    expect(ly).toBe(40);
     expectRightwardFinish(d);
   });
 
@@ -118,8 +156,10 @@ describe("chamferStepPath", () => {
     expect(d).toBe(
       "M 200,0 L 216,0 L 224,8 L 224,42 L 216,50 L -32,50 L -40,58 L -40,92 L -32,100 L 0,100",
     );
-    // Label rides the detour rail midpoint between the two columns.
-    expect(lx).toBe(92);
+    // Label anchor at 50% of cumulative length, on the leftward detour rail.
+    // entryX lengthens the final target stub to 32 (vs 16 out of the source),
+    // so the length midpoint sits at x = 84, left of the column midpoint 92.
+    expect(lx).toBe(84);
     expect(ly).toBe(50);
     expectRightwardFinish(d);
   });

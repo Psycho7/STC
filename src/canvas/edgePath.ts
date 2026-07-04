@@ -85,10 +85,44 @@ function pathFromPoints(pts: ReadonlyArray<readonly [number, number]>): string {
   return path;
 }
 
+// pathMidpoint: the point at 50% of the cumulative polyline length of an
+// absolute "M x,y L x,y ..." path string, the only form this module emits.
+// Walks the segments accumulating length until half the total is covered, then
+// interpolates within the covering segment; a single-segment path degenerates
+// to that segment's center. Coordinates come back through r() so anchors stay
+// as stable as the path coordinates they derive from.
+export function pathMidpoint(d: string): [number, number] {
+  const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
+    (m) => [Number(m[1]), Number(m[2])] as const,
+  );
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    total += Math.hypot(
+      pts[i]![0] - pts[i - 1]![0],
+      pts[i]![1] - pts[i - 1]![1],
+    );
+  }
+  let remaining = total / 2;
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1]!;
+    const [x1, y1] = pts[i]!;
+    const seg = Math.hypot(x1 - x0, y1 - y0);
+    if (seg >= remaining) {
+      const t = seg === 0 ? 0 : remaining / seg;
+      return [r(x0 + t * (x1 - x0)), r(y0 + t * (y1 - y0))];
+    }
+    remaining -= seg;
+  }
+  // Zero-length path (never emitted here): fall back to the first point.
+  return [r(pts[0]![0]), r(pts[0]![1])];
+}
+
 // chamferStepPath: forward step, small-dy diagonal, narrow-gap degradation, and
 // backward S/C detour, all sharing the same chamfer convention. Returns the SVG
-// path plus a fallback label anchor (the caller may override the y via
-// labelSide). The final segment is always a rightward horizontal into target.
+// path plus the label anchor at the geometric midpoint of the drawn polyline
+// (50% of cumulative length, via pathMidpoint), so the chip always sits on the
+// line it labels. The final segment is always a rightward horizontal into
+// target.
 export function chamferStepPath(args: {
   sourceX: number;
   sourceY: number;
@@ -131,7 +165,7 @@ export function chamferStepPath(args: {
         ` L ${r(xl)},${r((railY + ty) / 2)}` +
         ` L ${r(xl + CHAMFER)},${r(ty)}` +
         ` L ${r(tx)},${r(ty)}`;
-      return [d, r((xr + xl) / 2), r(railY)];
+      return [d, ...pathMidpoint(d)];
     }
     // Right column exits leftward (-1, -1) onto the rail, left column enters
     // leftward (+1, +1) off it; the leftward lane run is the implicit segment
@@ -141,8 +175,9 @@ export function chamferStepPath(args: {
       chamferColumn(xr, sy, railY, CHAMFER, -1, -1) +
       chamferColumn(xl, railY, ty, CHAMFER, 1, 1) +
       ` L ${r(tx)},${r(ty)}`;
-    // Label rides the leftward detour rail, at its midpoint.
-    return [d, r((xr + xl) / 2), r(railY)];
+    // Anchor at the length midpoint; on a typical detour (long leftward rail,
+    // short end columns) that puts the label on the rail.
+    return [d, ...pathMidpoint(d)];
   }
 
   // Forward. Scale the stub+chamfer budget down proportionally when the gap is
@@ -158,11 +193,11 @@ export function chamferStepPath(args: {
   const hi = tx - stub - chamfer;
   const mid = (sx + tx) / 2;
   const bx = lo < hi ? (bendX !== undefined ? clamp(bendX, lo, hi) : mid) : mid;
-  const midY = (sy + ty) / 2;
 
   // Same rail: a plain straight line, no vertical offset at all.
   if (sy === ty) {
-    return [`M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`, r(bx), r(sy)];
+    const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
+    return [d, ...pathMidpoint(d)];
   }
 
   // Small dy: a vertical run plus two chamfers will not fit between the rails, so
@@ -173,13 +208,13 @@ export function chamferStepPath(args: {
       ` L ${r(bx - chamfer)},${r(sy)}` +
       ` L ${r(bx + chamfer)},${r(ty)}` +
       ` L ${r(tx)},${r(ty)}`;
-    return [d, r(bx), r(midY)];
+    return [d, ...pathMidpoint(d)];
   }
 
   // Normal forward step: H run, chamfer, V run, chamfer, H run into target.
   const d =
     `M ${r(sx)},${r(sy)}` + chamferColumn(bx, sy, ty, chamfer) + ` L ${r(tx)},${r(ty)}`;
-  return [d, r(bx), r(midY)];
+  return [d, ...pathMidpoint(d)];
 }
 
 // chamferBusPath: a bus-trunk member. Exits the source rightward, chamfers down

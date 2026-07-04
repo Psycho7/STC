@@ -21,6 +21,10 @@ export type ItemEdgeData = {
   // the belt default; an unknown value also lands on the belt default instead
   // of throwing.
   transportKind?: TransportKindId;
+  // Fan-in/fan-out side hint stamped by assignLabelSides in the render
+  // pipeline. It no longer moves the label: the rate chip always sits at the
+  // path midpoint chamferStepPath reports. Kept on the data so the producer
+  // stays wired and routing logic can still read it.
   labelSide?: "source" | "target";
   // Set when this edge is the chosen tear edge of an SCC, which switches the
   // label chip to its red variant. It is optional and defaults to falsy.
@@ -171,7 +175,13 @@ export default function ItemEdge({
       ? `${i18n.displayName(edgeData.item)} x ${rateStr}${unit}`
       : "";
 
-  const [edgePath, fallbackLabelX, fallbackLabelY] = chamferStepPath({
+  // The path builder anchors the label at the geometric midpoint of the drawn
+  // polyline (50% of cumulative length), so the chip always sits on the line
+  // it labels. Earlier versions nudged the chip toward the source or target
+  // based on labelSide, which pinned it onto a port stub and off the visible
+  // run of the path; labelSide still rides along on the edge data but no
+  // longer moves the label.
+  const [edgePath, labelX, labelY] = chamferStepPath({
     sourceX,
     sourceY,
     targetX,
@@ -179,19 +189,6 @@ export default function ItemEdge({
     ...(edgeData?.bendX !== undefined ? { bendX: edgeData.bendX } : {}),
     ...(edgeData?.entryX !== undefined ? { entryX: edgeData.entryX } : {}),
   });
-
-  // Center the label in the corridor between layers, at the bend column the
-  // path builder reports. An earlier version nudged the chip toward the source
-  // or target based on labelSide, which left chips touching the neighboring node
-  // and hard to read. Once the corridor is wide enough, the bend column sits
-  // cleanly in the gap. labelSide still rides along on the edge data for routing
-  // logic later, but it no longer moves the label's x/y here. Pinning labelY
-  // keeps the chip on the source's or target's horizontal line so a vertically
-  // routed step does not drop the label into the bend.
-  const useTargetY = edgeData?.labelSide === "target";
-  const useSourceY = edgeData?.labelSide === "source";
-  const labelX = fallbackLabelX;
-  const labelY = useTargetY ? targetY : useSourceY ? sourceY : fallbackLabelY;
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
   // A caller-supplied style wins over the kind default, so later overrides for
