@@ -254,7 +254,11 @@ export type RFLoopNode = RFNode<
   "loop"
 >;
 export type RFContainerNode = RFNode<
-  { containerKind: Container["kind"]; containerId: ContainerId },
+  {
+    containerKind: Container["kind"];
+    containerId: ContainerId;
+    memberCount: number;
+  },
   "group"
 >;
 export type RFProductNode = RFNode<
@@ -331,7 +335,10 @@ export function renderPlanToElkGraph(input: LayoutInput): ElkGraph {
       id: container.id,
       children: members.map(unitToElk),
       layoutOptions: {
-        "org.eclipse.elk.padding": "[top=12,left=12,bottom=12,right=12]",
+        // Reserve a taller top band for the caption strip so a member card
+        // flush against the corner cannot cover the "LOOP - N" label; keep the
+        // other sides tight so members do not leave large empty quadrants.
+        "org.eclipse.elk.padding": "[top=28,left=10,bottom=10,right=10]",
       },
     });
   }
@@ -565,11 +572,18 @@ export function fromElkRenderLayout(
     if (container) {
       const w = top.width ?? 0;
       const h = top.height ?? 0;
+      const memberCount = (top.children ?? []).filter((child) =>
+        unitById.has(child.id),
+      ).length;
       nodes.push({
         id: container.id,
         type: "group",
         position: { x: top.x ?? 0, y: top.y ?? 0 },
-        data: { containerKind: container.kind, containerId: container.id },
+        data: {
+          containerKind: container.kind,
+          containerId: container.id,
+          memberCount,
+        },
         // Group bounding boxes carry their size both as top-level width/height
         // (what React Flow checks to treat the node as initialized) and on style.
         width: w,

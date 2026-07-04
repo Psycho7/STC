@@ -1018,6 +1018,47 @@
   letter-spacing: 0;
 }
 
+/* Dark theme for container group boxes (SCC loops). React Flow ships a light
+   translucent default for .react-flow__node-group; the designed .scc-box theme
+   below is unreachable while net-IO is stubbed, so the live 'group' node path
+   is themed here reusing the same palette. */
+.react-flow__node-group {
+  background: rgba(26, 28, 32, 0.55);
+  border: 1px solid var(--ak-divider-strong);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.rf-group-box {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+}
+
+.rf-group-caption {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ak-text-secondary);
+  background: rgba(0, 0, 0, 0.28);
+  border-bottom: 1px solid var(--ak-divider);
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* SCC loop box. */
 .scc-box {
   background: rgba(26, 28, 32, 0.55);
