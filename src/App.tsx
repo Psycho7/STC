@@ -93,6 +93,37 @@ const splashDetailStyle: CSSProperties = {
   wordBreak: "break-word",
 };
 
+type SideSection = "targets" | "inputs";
+
+// Document order of the side-rail sections. Ties in visibility resolve toward
+// the earlier section, so a fully-visible later section never steals the
+// highlight from an equally-visible earlier one.
+const SIDE_SECTION_ORDER: SideSection[] = ["targets", "inputs"];
+
+function toSideSection(elementId: string): SideSection | null {
+  if (elementId === "side-inputs") return "inputs";
+  if (elementId === "side-targets") return "targets";
+  return null;
+}
+
+// Pick the section to highlight from a batch of IntersectionObserver readings.
+// Highest intersection ratio wins; equal ratios resolve by document order.
+// Returns null when nothing is intersecting so the caller keeps the last pick.
+export function pickActiveSection(
+  entries: ReadonlyArray<{ id: string; ratio: number }>,
+): SideSection | null {
+  let best: SideSection | null = null;
+  let bestRatio = 0;
+  for (const section of SIDE_SECTION_ORDER) {
+    const entry = entries.find((e) => toSideSection(e.id) === section);
+    if (entry && entry.ratio > bestRatio) {
+      bestRatio = entry.ratio;
+      best = section;
+    }
+  }
+  return best;
+}
+
 export default function App() {
   return (
     <LocaleProvider>
@@ -111,9 +142,7 @@ function AppInner() {
   // Which section anchor is in view inside the side rail. Drives the skewed-tab
   // highlight so it reads as a "you-are-here" pill, not a toggle. Computed by an
   // IntersectionObserver watching the two section anchors.
-  const [activeSection, setActiveSection] = useState<"targets" | "inputs">(
-    "targets",
-  );
+  const [activeSection, setActiveSection] = useState<SideSection>("targets");
   useEffect(() => {
     // jsdom (the vitest environment) lacks IntersectionObserver. Bail quietly:
     // the highlight is decorative, so the rest of the side rail still renders.
@@ -125,16 +154,14 @@ function AppInner() {
       (entries) => {
         // Pick whichever section overlaps the rail viewport more. Ignoring
         // non-intersecting entries keeps the highlight steady when one section
-        // has scrolled fully out of view.
-        let bestId: "targets" | "inputs" | null = null;
-        let bestRatio = 0;
-        for (const e of entries) {
-          if (e.intersectionRatio > bestRatio) {
-            bestRatio = e.intersectionRatio;
-            bestId = e.target.id === "side-inputs" ? "inputs" : "targets";
-          }
-        }
-        if (bestId) setActiveSection(bestId);
+        // has scrolled fully out of view; ties resolve by document order.
+        const pick = pickActiveSection(
+          entries.map((e) => ({
+            id: e.target.id,
+            ratio: e.intersectionRatio,
+          })),
+        );
+        if (pick) setActiveSection(pick);
       },
       { threshold: [0, 0.25, 0.5, 0.75, 1] },
     );

@@ -16,7 +16,7 @@ vi.mock("./canvas/layout", async (importOriginal) => {
   };
 });
 
-import App from "./App";
+import App, { pickActiveSection } from "./App";
 import { layoutRenderPlan } from "./canvas/layout";
 import { defaultPlan, encodePlan, validatePlan } from "./data/plan";
 import { pack } from "./data/load";
@@ -61,6 +61,44 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   window.location.hash = "";
+});
+
+test("pickActiveSection resolves equal ratios by document order", () => {
+  // Inputs reported first, both fully visible: the earlier section (targets)
+  // must still win.
+  expect(
+    pickActiveSection([
+      { id: "side-inputs", ratio: 1 },
+      { id: "side-targets", ratio: 1 },
+    ]),
+  ).toBe("targets");
+});
+
+test("pickActiveSection does not let a later fully-visible section win", () => {
+  expect(
+    pickActiveSection([
+      { id: "side-targets", ratio: 1 },
+      { id: "side-inputs", ratio: 1 },
+    ]),
+  ).toBe("targets");
+});
+
+test("pickActiveSection picks the higher-ratio section", () => {
+  expect(
+    pickActiveSection([
+      { id: "side-targets", ratio: 0.3 },
+      { id: "side-inputs", ratio: 0.9 },
+    ]),
+  ).toBe("inputs");
+});
+
+test("pickActiveSection returns null when nothing intersects", () => {
+  expect(
+    pickActiveSection([
+      { id: "side-targets", ratio: 0 },
+      { id: "side-inputs", ratio: 0 },
+    ]),
+  ).toBeNull();
 });
 
 test("RECIPES chip counts distinct recipe ids, not logical nodes", async () => {
