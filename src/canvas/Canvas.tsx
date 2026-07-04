@@ -426,6 +426,11 @@ function CanvasInner({
         onEdgeMouseLeave={clearHover}
         onPaneClick={clearHover}
         minZoom={0.05}
+        // Keep nodes mouse-draggable and Tab-focusable (tabIndex stays 0), but
+        // stop the arrow keys from nudging a selected node out of the ELK
+        // layout. React Flow gates the arrow-key move handler on this flag; it
+        // leaves keyboard focus traversal intact.
+        disableKeyboardA11y
       >
         <Controls />
         {nodes.length > MINIMAP_MIN_NODES ? (

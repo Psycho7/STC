@@ -2081,6 +2081,16 @@
   background: transparent;
 }
 
+/* React Flow's shipped style.css suppresses the node focus outline
+   (.react-flow__node.selectable:focus-visible { outline: none }). Restore a
+   visible ring so keyboard users can see which canvas node holds focus; the
+   cyan accent reads on the dark blueprint background. Scoped under the theme
+   container and matching .selectable so it outranks the library rule. */
+.ak-canvas-theme .react-flow__node.selectable:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
+
 /* The glow on a selected RecipeNode. */
 .recipe-node.selected {
   border: 2px solid var(--ak-accent-lime);
@@ -2096,6 +2106,18 @@
   pointer-events: none;
   border: 1px solid rgba(203, 255, 64, 0.4);
   opacity: 0.6;
+}
+
+/* Selection treatment for a boundary product card. Unlike the recipe card it
+   has no lime identity, so the ring uses the cyan accent as a neutral
+   "selected" cue that reads on the dark canvas without fighting the per-flavor
+   accent borders. */
+.product-node.selected {
+  border-color: var(--ak-accent-cyan);
+  box-shadow:
+    0 0 0 1px rgba(124, 223, 252, 0.25),
+    0 0 18px rgba(124, 223, 252, 0.18),
+    0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 .rn-footer {

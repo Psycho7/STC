@@ -52,7 +52,10 @@ function flavorMarker(data: ProductNodeData): string {
   return "outputProduct";
 }
 
-export default function ProductNode({ data }: NodeProps<ProductNodeType>) {
+export default function ProductNode({
+  data,
+  selected,
+}: NodeProps<ProductNodeType>) {
   const i18n = useI18n();
   const { itemById, overrides } = useItemPack();
   const item = itemById.get(data.itemId);
@@ -78,7 +81,9 @@ export default function ProductNode({ data }: NodeProps<ProductNodeType>) {
       data-testid="product-node"
       data-flavor={flavorMarker(data)}
       data-item-id={data.itemId}
-      className={chromeClasses(data)}
+      className={
+        selected ? `${chromeClasses(data)} selected` : chromeClasses(data)
+      }
     >
       {isInput ? (
         <>

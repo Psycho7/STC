@@ -91,7 +91,10 @@ function rowRateText(
   });
 }
 
-export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
+export default function RecipeNode({
+  data,
+  selected,
+}: NodeProps<RecipeNodeType>) {
   const {
     recipe,
     multiplier,
@@ -174,7 +177,7 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
     <div
       data-testid="recipe-node"
       data-recipe-id={recipe.id}
-      className="recipe-node"
+      className={selected ? "recipe-node selected" : "recipe-node"}
       style={{
         position: "relative",
         width: geom.width,

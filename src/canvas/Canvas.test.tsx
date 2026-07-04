@@ -164,6 +164,21 @@ test("canvas theme container carries the derived zoom-band class", () => {
   expect(theme.className).not.toContain("zoom-mid");
 });
 
+// UX-18: arrow keys must not move focused nodes, but Tab must still traverse
+// them. React Flow's disableKeyboardA11y kills the arrow-key drag handler while
+// leaving tabIndex=0 on the node wrapper. The a11y node description (which
+// documents the arrow-key move) is only wired when keyboard a11y is on, so its
+// absence is a reliable proxy that the flag is set.
+test("nodes stay Tab-focusable while arrow-key movement is disabled", () => {
+  const { container } = renderCanvas(NODES, []);
+  const node = container.querySelector(
+    '.react-flow__node[data-id="u1"]',
+  ) as HTMLElement;
+  expect(node).not.toBeNull();
+  expect(node.tabIndex).toBe(0);
+  expect(node.getAttribute("aria-describedby")).toBeNull();
+});
+
 test("status annotation reflects the status prop", () => {
   const { container } = render(
     <LocaleProvider locale="en">

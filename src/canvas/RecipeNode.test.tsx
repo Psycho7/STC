@@ -173,6 +173,30 @@ test("fractional multiplicity shows the small aggregate, not the per-machine rat
   expect(rows).toEqual(["0.06", "0.06"]);
 });
 
+// React Flow puts the `selected` flag on the wrapper and passes it as a
+// NodeProp; the inner .recipe-node must forward it so the crafted
+// .recipe-node.selected lime treatment can fire (it was dead CSS before).
+test("selected prop forwards the selected class onto the card", () => {
+  const props = {
+    data: { recipe: RECIPE },
+    selected: true,
+  } as unknown as ComponentProps<typeof RecipeNode>;
+  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
+  expect(container.querySelector(".recipe-node")?.className).toContain(
+    "selected",
+  );
+});
+
+test("an unselected node carries no selected class", () => {
+  const props = {
+    data: { recipe: RECIPE },
+  } as unknown as ComponentProps<typeof RecipeNode>;
+  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
+  expect(container.querySelector(".recipe-node")?.className).not.toContain(
+    "selected",
+  );
+});
+
 // A corrupt fixture can reference a missing machine; the rate falls back to
 // speed 1 instead of crashing.
 test("missing machine record falls back to speed 1", () => {
