@@ -96,16 +96,12 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     const existing = timerRefs.current.get(recipeId);
     if (existing) clearTimeout(existing);
     const id = setTimeout(() => {
-      const committed = commitRate(recipeId, value);
+      commitRate(recipeId, value);
       timerRefs.current.delete(recipeId);
-      // After a successful commit the prop drives what's shown; on a failed
-      // parse, hold onto the local string so the user can fix the typo.
-      if (!committed) return;
-      setLocalRates((prev) => {
-        const next = new Map(prev);
-        next.delete(recipeId);
-        return next;
-      });
+      // Keep the committed text as the display value: re-serializing
+      // t.ratePerSec would rewrite an exact "1/3" into a 16-digit float. A
+      // failed parse likewise keeps the local string so the user can fix the
+      // typo. (Navigation resets localRates; that is handled by the panel owner.)
     }, DEBOUNCE_MS);
     timerRefs.current.set(recipeId, id);
   }

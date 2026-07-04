@@ -141,16 +141,12 @@ export function InputsPanel({
     const existing = overrideTimers.current.get(itemId);
     if (existing) clearTimeout(existing);
     const id = setTimeout(() => {
-      const committed = commitRate(itemId, value);
+      commitRate(itemId, value);
       overrideTimers.current.delete(itemId);
-      // After a successful commit the prop drives what's shown; on INVALID,
-      // hold onto the local string so the user can fix the typo.
-      if (!committed) return;
-      setLocalRates((prev) => {
-        const next = new Map(prev);
-        next.delete(itemId);
-        return next;
-      });
+      // Keep the committed text as the display value: re-serializing
+      // ratePerSec would rewrite an exact "1/3" into a 16-digit float. On
+      // INVALID it likewise stays so the user can fix the typo. (Navigation
+      // resets localRates; that is handled by the panel owner.)
     }, DEBOUNCE_MS);
     overrideTimers.current.set(itemId, id);
   }
@@ -199,10 +195,15 @@ export function InputsPanel({
     const id = setTimeout(() => {
       const committed = commitAutoRate(itemId, value);
       autoTimers.current.delete(itemId);
-      // Prune the in-flight text once it has been handled: a valid commit
-      // turns the row into an override, so a later auto-row rebirth for this
-      // item must come back as Unlimited, not redisplay the stale cap.
       if (!committed) return;
+      // A non-empty valid value promotes the auto-row into an override; carry
+      // its committed text over to localRates so the new override row shows what
+      // the user typed instead of the re-serialized Fraction. An empty value is
+      // a no-op (stays Unlimited). Either way prune the in-flight auto text so a
+      // later auto-row rebirth comes back as Unlimited, not a stale cap.
+      if (value.trim() !== "") {
+        setLocalRates((prev) => new Map(prev).set(itemId, value));
+      }
       setLocalAutoRates((prev) => {
         const next = new Map(prev);
         next.delete(itemId);

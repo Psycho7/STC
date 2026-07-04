@@ -218,6 +218,9 @@ test("invalid rate text is kept after the debounce, then commits once valid", ()
   expect(latest).toEqual([
     { recipeId: "r_widget", ratePerSec: { num: "1", denom: "180" } },
   ]);
+  // The field keeps the committed "1/3" rather than re-serializing 1/180 per sec
+  // into a 16-digit float like "0.3333333333333333".
+  expect(input.value).toBe("1/3");
 });
 
 test("locale-comma rate text is kept after the debounce with no commit", () => {

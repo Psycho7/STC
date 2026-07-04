@@ -1,19 +1,42 @@
 import Fraction from "fraction.js";
 
+// Strip a trailing fractional zero run (and a bare trailing dot) from a decimal
+// string, leaving integers untouched. "0.0050" -> "0.005", "8.50" -> "8.5",
+// "3.00" -> "3". Guarded on a "." so it never eats an integer's zeros.
+function trimZeros(s: string): string {
+  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
+}
+
+// One shared decimal formatter for every displayed per-minute rate, so chips,
+// nodes, and the sidebar never disagree (a fraction next to a decimal) or
+// overstate a tiny rate. At or above 0.01 two decimals suffice; below it the
+// rounding used to double the value ("0.01" for 0.005) or flip to a vulgar
+// fraction ("3/625"), so pick enough decimals to keep roughly two significant
+// figures instead -- never exponential, never a slash.
+function formatDecimal(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 0.01) return trimZeros(value.toFixed(2));
+  const decimals = Math.floor(-Math.log10(abs)) + 2;
+  return trimZeros(value.toFixed(Math.min(decimals, 100)));
+}
+
+// Shared per-minute core: an exact integer stays exact (and keeps its sign --
+// fraction.js v5 holds the sign in .s with .n absolute, so reading .n alone
+// would drop it), a non-finite value falls back to the exact fraction, and
+// everything else routes through the one decimal formatter.
+function formatPerMin(perMin: Fraction): string {
+  const value = perMin.valueOf();
+  if (!Number.isFinite(value)) return perMin.toFraction(false);
+  if (perMin.d === 1n) return perMin.toFraction(false);
+  return formatDecimal(value);
+}
+
 // Items-per-second to items-per-minute (x60 stays exact) formatted for display
 // next to a `/min` suffix. Returns "" for zero so the caller can drop the label.
 export function formatRatePerMin(itemsPerSec: Fraction): string {
   const perMin = itemsPerSec.mul(60);
-  const value = perMin.valueOf();
-  if (!Number.isFinite(value) || value === 0) return "";
-  // toFraction keeps the sign; reading .n alone would drop it (fraction.js v5
-  // keeps the sign in .s with .n absolute). For d === 1 this is the plain integer.
-  if (perMin.d === 1n) return perMin.toFraction(false);
-  const fixed = value.toFixed(2).replace(/\.?0+$/, "");
-  // A nonzero rate below 0.005/min rounds to "0" (or "-0") here, which would
-  // render a misleading "0/min" chip. Fall back to the exact fraction.
-  if (fixed === "0" || fixed === "-0") return perMin.toFraction(false);
-  return fixed;
+  if (perMin.valueOf() === 0) return "";
+  return formatPerMin(perMin);
 }
 
 // Full-precision per-minute rate for hover tooltips: the un-rounded value the
@@ -39,14 +62,17 @@ function perMinFromRational(rps: { num: string; denom: string }): Fraction {
   return new Fraction(rps.num).div(new Fraction(rps.denom)).mul(60);
 }
 
-// RationalString version, for the ProductNode rate-cap and target-rate display.
-// Whole per-minute values come out as a plain integer; anything else as a
-// reduced "num/denom" fraction.
+// RationalString version, for the ProductNode boundary cards, recipe port rows,
+// and the sidebar demand lines. Routes through the same decimal core as the
+// canvas chips so the two never disagree; an exact-zero rational renders "0"
+// (a definite readout) rather than the empty string the chip formatter uses.
 export function formatRationalPerMin(rps: {
   num: string;
   denom: string;
 }): string {
-  return perMinFromRational(rps).toFraction(false);
+  const perMin = perMinFromRational(rps);
+  if (perMin.valueOf() === 0) return "0";
+  return formatPerMin(perMin);
 }
 
 // Items-per-minute input text (per-second rational x60) for editable rate

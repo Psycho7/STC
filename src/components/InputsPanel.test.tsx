@@ -60,10 +60,10 @@ test("displayedInputCount sums overrides and auto rows", () => {
   expect(displayedInputCount([], [])).toBe(0);
 });
 
-// 40/27 per sec * 60 = 800/9 per min, a non-terminating decimal. The
-// realized-demand readout shows the exact fraction (matching the canvas
-// ProductNode), never the raw 88.8888888888889 float.
-test("realized input demand renders as an exact fraction, not a raw float", () => {
+// 40/27 per sec * 60 = 800/9 = 88.888.../min. The realized-demand readout now
+// shares the canvas chip's decimal formatter, so it shows "88.89" -- never a
+// vulgar fraction next to decimals, never the raw 88.8888888888889 float.
+test("realized input demand renders as the shared decimal, not a fraction", () => {
   render(
     <LocaleProvider locale="en">
       <InputsPanel
@@ -77,13 +77,13 @@ test("realized input demand renders as an exact fraction, not a raw float", () =
   );
 
   const readout = screen.getByTestId("input-realized-rate");
-  expect(readout.textContent).toContain("800/9");
+  expect(readout.textContent).toContain("88.89");
   expect(readout.textContent).not.toMatch(/\d\.\d{3,}/);
 });
 
 // The override-row readout is a separate JSX path from the auto-row above, so
 // cover both override flavors.
-test("realized demand on an uncapped override row renders as an exact fraction", () => {
+test("realized demand on an uncapped override row renders as the shared decimal", () => {
   render(
     <LocaleProvider locale="en">
       <InputsPanel
@@ -96,7 +96,7 @@ test("realized demand on an uncapped override row renders as an exact fraction",
   );
 
   const readout = screen.getByTestId("input-realized-rate");
-  expect(readout.textContent).toContain("800/9");
+  expect(readout.textContent).toContain("88.89");
   expect(readout.textContent).not.toMatch(/\d\.\d{3,}/);
 });
 
@@ -221,7 +221,7 @@ test("invalid cap text in an override row is kept after the debounce", () => {
   expect(input.value).toBe("1/");
 });
 
-test("realized demand on a capped override row renders as an exact fraction", () => {
+test("realized demand on a capped override row renders as the shared decimal", () => {
   render(
     <LocaleProvider locale="en">
       <InputsPanel
@@ -236,6 +236,6 @@ test("realized demand on a capped override row renders as an exact fraction", ()
   );
 
   const readout = screen.getByTestId("input-realized-rate");
-  expect(readout.textContent).toContain("800/9");
+  expect(readout.textContent).toContain("88.89");
   expect(readout.textContent).not.toMatch(/\d\.\d{3,}/);
 });
