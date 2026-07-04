@@ -182,6 +182,20 @@ export const ROOT_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
   "elk.layered.cycleBreaking.strategy": "DEPTH_FIRST",
 };
 
+// Wrapping folds an otherwise single wide band of layers into stacked rows to
+// hit a target aspect ratio, so a dense plan lands close to the pane's ~1.6:1
+// shape instead of a ~6:1 smear that fit-zooms below legibility. It only applies
+// to large plans: a small chain already fits at a readable zoom, and wrapping it
+// would fold a clean left-to-right flow into needless rows (and break the
+// leftmost-input / rightmost-output reading). WRAP_MIN_UNITS is the size above
+// which the flat band gets illegibly wide; below it the layered flow stays a
+// single left-to-right band.
+const WRAP_MIN_UNITS = 16;
+const WRAP_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
+  "elk.aspectRatio": "1.6",
+  "elk.layered.wrapping.strategy": "MULTI_EDGE",
+};
+
 // FIXED_SIDE pins each port to its declared side (WEST inputs / EAST outputs)
 // but lets ELK choose the per-side vertical order to minimize edge crossings.
 // Recipe and loop nodes carry multiple ports per side, so this is where the
@@ -352,9 +366,13 @@ export function renderPlanToElkGraph(input: LayoutInput): ElkGraph {
     renderEdgeToElk(e, i),
   );
 
+  const wrap = plan.units.length >= WRAP_MIN_UNITS;
   return {
     id: "root",
-    layoutOptions: { ...ROOT_LAYOUT_OPTIONS },
+    layoutOptions: {
+      ...ROOT_LAYOUT_OPTIONS,
+      ...(wrap ? WRAP_LAYOUT_OPTIONS : {}),
+    },
     children: rootChildren,
     edges: elkEdges,
   };
