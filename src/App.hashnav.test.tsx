@@ -10,7 +10,13 @@
 // does. layoutRenderPlan is mocked to an instantly-resolving spy so "how many
 // solves ran" is observable as its call count.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 const layoutSpy = vi.hoisted(() => ({
   calls: 0,
@@ -111,6 +117,37 @@ test("hashchange to a valid hash recovers from a bad mount hash", async () => {
     expect(screen.getAllByTestId("target-row").length).toBe(2),
   );
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("a bad mount hash shows a themed recovery screen with a human message", async () => {
+  window.location.hash = "#v1.%%%not-base64%%%";
+  render(<App />);
+
+  const alert = await screen.findByRole("alert");
+  // Rendered inside the themed app shell, not a bare white page.
+  expect(alert.closest(".ak-app-shell")).not.toBeNull();
+  // Primary line is the human message, with the technical detail demoted but
+  // still present.
+  expect(alert.textContent).toContain("damaged");
+  expect(alert.textContent).toMatch(/hash|parse/i);
+  // Recovery action present.
+  expect(
+    screen.getByRole("button", { name: /fresh plan/i }),
+  ).not.toBeNull();
+});
+
+test("the fresh-plan recovery action clears the hash and loads the default plan", async () => {
+  window.location.hash = "#v1.%%%not-base64%%%";
+  render(<App />);
+  await screen.findByRole("alert");
+
+  fireEvent.click(screen.getByRole("button", { name: /fresh plan/i }));
+
+  await waitFor(() =>
+    expect(screen.getAllByTestId("target-row").length).toBe(3),
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(window.location.hash).not.toContain("%%%");
 });
 
 test("app-initiated hash writes do not re-trigger a load", async () => {

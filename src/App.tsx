@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   useNodesState,
   useEdgesState,
@@ -49,6 +56,41 @@ async function renderFromFull(
   });
   return { nodes: laid.nodes as Node[], edges: laid.edges };
 }
+
+// Loading and error surfaces render inside the themed .ak-app-shell so there is
+// no unstyled white page. These lay out a centered card; the shell class
+// supplies the dark background and text color.
+const splashStyle: CSSProperties = {
+  width: "100vw",
+  height: "100vh",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 24,
+  boxSizing: "border-box",
+};
+
+const splashCardStyle: CSSProperties = {
+  maxWidth: 420,
+  display: "flex",
+  flexDirection: "column",
+  gap: 12,
+  padding: 20,
+  textAlign: "center",
+};
+
+const splashTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: 15,
+  fontWeight: 700,
+};
+
+const splashDetailStyle: CSSProperties = {
+  margin: 0,
+  fontSize: 12,
+  opacity: 0.7,
+  wordBreak: "break-word",
+};
 
 export default function App() {
   return (
@@ -196,6 +238,17 @@ function AppInner() {
     [setNodes, setEdges],
   );
 
+  // Recover from a damaged share link: drop the hash and load the default plan
+  // so the user is not stranded on the error screen having to hand-edit the URL.
+  const handleReset = useCallback(() => {
+    history.replaceState(
+      null,
+      "",
+      window.location.pathname + window.location.search,
+    );
+    void loadFromHash("", "navigation");
+  }, [loadFromHash]);
+
   useEffect(() => {
     void (async () => {
       await loadFromHash(window.location.hash, "mount");
@@ -323,12 +376,24 @@ function AppInner() {
 
   if (initialError) {
     return (
-      <div role="alert">
-        {i18n.t("app.error.load", { message: initialError.message })}
+      <div className="ak-app-shell" style={splashStyle}>
+        <div role="alert" style={splashCardStyle}>
+          <p style={splashTitleStyle}>{i18n.t("app.error.corrupt")}</p>
+          <p style={splashDetailStyle}>{initialError.message}</p>
+          <button type="button" onClick={handleReset}>
+            {i18n.t("app.error.reset")}
+          </button>
+        </div>
       </div>
     );
   }
-  if (!plan || !logical) return <div>{i18n.t("app.loading")}</div>;
+  if (!plan || !logical) {
+    return (
+      <div className="ak-app-shell" style={splashStyle}>
+        <div>{i18n.t("app.loading")}</div>
+      </div>
+    );
+  }
 
   // An in-flight generation reads as SOLVING even if the previous one errored
   // (a retry is under way); a settled error reads as ERROR; otherwise READY.
