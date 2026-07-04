@@ -1391,7 +1391,9 @@
   z-index: 4;
 }
 .ak-canvas-theme .canvas-annot.top-left {
-  top: 32px;
+  /* Cleared below the copy-share button (top:8 + button height) so the two no
+     longer overlap in the corner. */
+  top: 44px;
   left: 32px;
 }
 .ak-canvas-theme .canvas-annot.top-right {

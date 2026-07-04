@@ -91,6 +91,10 @@ function withLitContainer(className: string | undefined): string {
   return className ? `${className} lit-container` : "lit-container";
 }
 
+// How long the copy button holds its transient result before reverting to the
+// default label.
+const COPY_FEEDBACK_MS = 1500;
+
 export default function Canvas({
   nodes,
   edges,
@@ -100,6 +104,47 @@ export default function Canvas({
 }: CanvasProps) {
   const i18n = useI18n();
   const [hovered, setHovered] = useState<Hovered>(null);
+
+  // Transient result of the last copy-share click. "copied" / "failed" replace
+  // the button label for COPY_FEEDBACK_MS so the click is never silent, then it
+  // reverts to "idle".
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashCopyState = useCallback((next: "copied" | "failed") => {
+    setCopyState(next);
+    if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => {
+      copyTimer.current = null;
+      setCopyState("idle");
+    }, COPY_FEEDBACK_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+    },
+    [],
+  );
+  const handleCopyShare = useCallback(() => {
+    // navigator.clipboard is absent in non-secure contexts (plain-http LAN) and
+    // in jsdom. Surface that as a failure rather than a silent no-op.
+    const clipboard = navigator.clipboard;
+    if (!clipboard) {
+      flashCopyState("failed");
+      return;
+    }
+    clipboard.writeText(window.location.href).then(
+      () => flashCopyState("copied"),
+      () => flashCopyState("failed"),
+    );
+  }, [flashCopyState]);
+  const copyLabel =
+    copyState === "copied"
+      ? i18n.t("canvas.copy_share.copied")
+      : copyState === "failed"
+        ? i18n.t("canvas.copy_share.failed")
+        : i18n.t("canvas.copy_share");
 
   // Hover intent: a pending timer holds the next hover for HOVER_INTENT_MS. A
   // leave (or a new enter) cancels any pending timer so quick pointer travel
@@ -244,15 +289,11 @@ export default function Canvas({
       >
         <button
           type="button"
-          onClick={() => {
-            // navigator.clipboard is missing in jsdom and in non-secure
-            // browser contexts, so optional-chain it and let the click quietly
-            // do nothing there.
-            void navigator.clipboard?.writeText(window.location.href);
-          }}
-          aria-label={i18n.t("canvas.copy_share")}
+          data-testid="copy-share"
+          onClick={handleCopyShare}
+          aria-label={copyLabel}
         >
-          {i18n.t("canvas.copy_share")}
+          {copyLabel}
         </button>
       </div>
       <ReactFlow

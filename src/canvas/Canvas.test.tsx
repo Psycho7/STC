@@ -68,7 +68,18 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  Object.defineProperty(navigator, "clipboard", {
+    value: undefined,
+    configurable: true,
+  });
 });
+
+function setClipboard(clipboard: unknown): void {
+  Object.defineProperty(navigator, "clipboard", {
+    value: clipboard,
+    configurable: true,
+  });
+}
 
 // Two standalone recipes plus a container box, used by the hover tests.
 const HOVER_NODES: Node[] = [
@@ -186,6 +197,56 @@ test("a container lit because of a focused child gets the lit-container class", 
   const g1 = container.querySelector('[data-id="g1"]')!;
   expect(g1.className).toContain("lit-container");
   expect(g1.className).not.toContain("dimmed");
+});
+
+test("copy share button flips to a copied state then reverts", async () => {
+  vi.useFakeTimers();
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  setClipboard({ writeText });
+  const { container } = renderCanvas([], []);
+  const btn = container.querySelector(
+    '[data-testid="copy-share"]',
+  ) as HTMLElement;
+  await act(async () => {
+    fireEvent.click(btn);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(writeText).toHaveBeenCalledWith(window.location.href);
+  expect(btn.textContent).toMatch(/copied/i);
+  act(() => {
+    vi.advanceTimersByTime(1500);
+  });
+  expect(btn.textContent).not.toMatch(/copied/i);
+});
+
+test("copy share button shows a failure state when the clipboard API is missing", () => {
+  vi.useFakeTimers();
+  setClipboard(undefined);
+  const { container } = renderCanvas([], []);
+  const btn = container.querySelector(
+    '[data-testid="copy-share"]',
+  ) as HTMLElement;
+  act(() => {
+    fireEvent.click(btn);
+  });
+  expect(btn.textContent).toMatch(/failed/i);
+});
+
+test("copy share button shows a failure state when the write is rejected", async () => {
+  vi.useFakeTimers();
+  const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+  setClipboard({ writeText });
+  const { container } = renderCanvas([], []);
+  const btn = container.querySelector(
+    '[data-testid="copy-share"]',
+  ) as HTMLElement;
+  await act(async () => {
+    fireEvent.click(btn);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(btn.textContent).toMatch(/failed/i);
 });
 
 test("HUD chip shows UNITS counting only recipe-type nodes", () => {
