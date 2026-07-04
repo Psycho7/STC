@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import type { Recipe, RecipePack } from "@aef/schema";
 import { TargetsPanel } from "../../src/components/TargetsPanel";
@@ -90,10 +90,11 @@ describe("TargetsPanel / synthetic-category filter", () => {
     expect(optionValues).not.toContain("transfer_tundra_a");
   });
 
-  it("does not auto-pick a '__domain_transfer' recipe as a default add target", () => {
+  it("Add opens a draft whose recipe picker excludes '__domain_transfer' recipes", () => {
     const onChange = vi.fn();
     // Pack where the only un-targeted recipes are a transfer recipe and a real
-    // one; the auto-pick must land on the real one.
+    // one; the draft picker must offer only the real one, and Add alone must not
+    // commit anything.
     const pack: RecipePack = {
       ...mixedPack,
       recipes: [
@@ -105,13 +106,14 @@ describe("TargetsPanel / synthetic-category filter", () => {
       <TargetsPanel targets={[]} onChange={onChange} pack={pack} />,
     );
     const addButton = screen.getByRole("button", { name: /add/i });
-    addButton.click();
-    expect(onChange).toHaveBeenCalledTimes(1);
-    const nextTargets = (
-      onChange.mock.calls[0]![0] as (
-        c: Array<{ recipeId: string }>,
-      ) => Array<{ recipeId: string }>
-    )([]);
-    expect(nextTargets[0]!.recipeId).toBe("real_recipe");
+    fireEvent.click(addButton);
+    // Clicking Add creates a local draft only; no commit.
+    expect(onChange).not.toHaveBeenCalled();
+    const draftRow = screen.getByTestId("target-draft-row");
+    const optionValues = Array.from(
+      draftRow.querySelectorAll("option"),
+    ).map((o) => (o as HTMLOptionElement).value);
+    expect(optionValues).not.toContain("transfer_tundra_a");
+    expect(optionValues).toContain("real_recipe");
   });
 });

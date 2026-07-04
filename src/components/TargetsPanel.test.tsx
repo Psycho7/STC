@@ -7,6 +7,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
 import type { RecipePack } from "@aef/schema";
 import { pack as realPack } from "../data/load";
@@ -435,10 +436,29 @@ test("recipe picker excludes every no-output recipe in the real pack", () => {
   }
 });
 
-// Add must keep seeding rows while unused pickable recipes remain (a vestigial
-// solver gate used to make it silently no-op far short of the pickable count)
-// and its auto-pick must never land on a no-output recipe.
-test("Add keeps working past 60 rows and never seeds a no-output recipe", () => {
+// D4: clicking Add creates a local draft row and does not touch the plan.
+test("clicking Add creates a draft row without committing", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel targets={[]} onChange={onChange} pack={PACK} />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add target" }));
+  expect(screen.getAllByTestId("target-draft-row").length).toBe(1);
+  expect(screen.queryAllByTestId("target-row").length).toBe(0);
+  expect(onChange).not.toHaveBeenCalled();
+  // The draft recipe select defaults to the "choose a recipe" placeholder.
+  const draftRow = screen.getByTestId("target-draft-row");
+  const select = within(draftRow).getByLabelText(
+    /recipe/i,
+  ) as HTMLSelectElement;
+  expect(select.value).toBe("");
+});
+
+// D4: a draft commits exactly once, when it has both a recipe and a nonzero
+// rate, and the draft row is then replaced by a committed target row.
+test("a draft commits once a recipe and a nonzero rate are set", () => {
   let latest: Target[] = [];
   function Parent() {
     const [t, setT] = useState(latest);
@@ -450,23 +470,63 @@ test("Add keeps working past 60 rows and never seeds a no-output recipe", () => 
             latest = update(latest);
             setT(latest);
           }}
-          pack={realPack}
+          pack={PACK}
         />
       </LocaleProvider>
     );
   }
   render(<Parent />);
-  const addButton = screen.getByRole("button", { name: "Add target" });
-  for (let i = 1; i <= 60; i++) {
-    fireEvent.click(addButton);
-    expect(latest.length, `after click ${i}`).toBe(i);
-  }
-  const noOut = new Set(
-    realPack.recipes.filter((r) => r.out.length === 0).map((r) => r.id),
+  fireEvent.click(screen.getByRole("button", { name: "Add target" }));
+  const draftRow = screen.getByTestId("target-draft-row");
+  fireEvent.change(within(draftRow).getByLabelText(/recipe/i), {
+    target: { value: "r_widget" },
+  });
+  // A recipe alone does not commit.
+  expect(latest.length).toBe(0);
+  const rate = within(draftRow).getByLabelText(/rate/i);
+  fireEvent.change(rate, { target: { value: "60" } });
+  fireEvent.blur(rate);
+  // 60/min = 1/1 per sec.
+  expect(latest).toEqual([
+    { recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } },
+  ]);
+  expect(screen.queryAllByTestId("target-draft-row").length).toBe(0);
+  expect(screen.getAllByTestId("target-row").length).toBe(1);
+});
+
+// A draft with a recipe but a zero rate contributes nothing, so it must not
+// commit or churn a re-solve.
+test("a draft with a recipe but a zero rate does not commit", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel targets={[]} onChange={onChange} pack={PACK} />
+    </LocaleProvider>,
   );
-  for (const t of latest) {
-    expect(noOut.has(t.recipeId), t.recipeId).toBe(false);
-  }
+  fireEvent.click(screen.getByRole("button", { name: "Add target" }));
+  const draftRow = screen.getByTestId("target-draft-row");
+  fireEvent.change(within(draftRow).getByLabelText(/recipe/i), {
+    target: { value: "r_widget" },
+  });
+  const rate = within(draftRow).getByLabelText(/rate/i);
+  fireEvent.change(rate, { target: { value: "0" } });
+  fireEvent.blur(rate);
+  expect(onChange).not.toHaveBeenCalled();
+  expect(screen.getAllByTestId("target-draft-row").length).toBe(1);
+});
+
+// Removing a draft is a purely local action: the plan is never touched.
+test("removing a draft never touches the plan", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel targets={[]} onChange={onChange} pack={PACK} />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add target" }));
+  fireEvent.click(screen.getByTestId("remove-draft"));
+  expect(onChange).not.toHaveBeenCalled();
+  expect(screen.queryAllByTestId("target-draft-row").length).toBe(0);
 });
 
 // Selecting a recipe already used by another row is rejected inline: an alert

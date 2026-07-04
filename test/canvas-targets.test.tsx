@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -55,11 +56,10 @@ describe("canvas-targets: no-hash boot", () => {
 });
 
 describe("canvas-targets: add target", () => {
-  // TargetsPanel.handleAdd picks pack.recipes.find((r) => !used.has(r.id))
-  // as the new target. From defaultTargets(), that lands on a recipe in a
-  // singular SCC that solvePlan can't handle. Pre-seed with safe precursors
-  // so the next-unused candidate is solver-safe.
-  it("appends a new row and updates the URL after re-solve", async () => {
+  // Add now creates a local draft row; the plan is only touched once the draft
+  // has both a chosen recipe and a committed nonzero rate. Pre-seed safe
+  // precursors so the first draft-pickable recipe is solver-safe.
+  it("opens a draft, then commits and updates the URL once recipe+rate are set", async () => {
     // The rate-0 precursor seed renders a mass-balance-imperfect plan under the
     // current solver (a known small-rate producer-drop residual). The DEV-only
     // render-invariant hook would hard-fail on it, but production tree-shakes
@@ -90,6 +90,22 @@ describe("canvas-targets: add target", () => {
     const hashBefore = window.location.hash;
 
     await user.click(screen.getByRole("button", { name: /添加目标/ }));
+
+    // A draft row appears; the committed target rows are unchanged.
+    const draftRow = await screen.findByTestId("target-draft-row");
+    expect(screen.getAllByTestId("target-row").length).toBe(rowsBefore);
+    expect(window.location.hash).toBe(hashBefore);
+
+    // Choose the first offered recipe (solver-safe by construction) and commit a
+    // rate: the draft promotes to a target and the URL re-solves.
+    const select = within(draftRow).getByLabelText(
+      /配方/,
+    ) as HTMLSelectElement;
+    const firstOption = Array.from(select.options).find((o) => o.value !== "")!;
+    fireEvent.change(select, { target: { value: firstOption.value } });
+    const rate = within(draftRow).getByLabelText(/速率/);
+    fireEvent.change(rate, { target: { value: "60" } });
+    fireEvent.blur(rate);
 
     await waitFor(
       () => {

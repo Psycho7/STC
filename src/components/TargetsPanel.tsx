@@ -194,16 +194,42 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     });
   }
 
+  // Clicking Add creates a local draft row instead of committing an arbitrary
+  // first-pack-order recipe at rate 0. A draft never touches the plan until it
+  // has both a chosen recipe and a committed nonzero rate; drafts are local
+  // state, so navigation (which remounts the panel) drops them.
+  const [drafts, setDrafts] = useState<
+    Array<{ id: string; recipeId: string; rate: string }>
+  >([]);
+  const draftSeq = useRef(0);
+
   function handleAdd() {
-    onChange((current) => {
-      const used = new Set(current.map((t) => t.recipeId));
-      const candidate = pickableRecipes.find((r) => !used.has(r.id));
-      if (!candidate) return current;
-      return [
-        ...current,
-        { recipeId: candidate.id, ratePerSec: { num: "0", denom: "1" } },
-      ];
-    });
+    const id = `draft:${draftSeq.current++}`;
+    setDrafts((prev) => [...prev, { id, recipeId: "", rate: "" }]);
+  }
+
+  function removeDraft(id: string) {
+    setDrafts((prev) => prev.filter((d) => d.id !== id));
+  }
+
+  // Apply an edited draft: promote it into a real target once it carries a
+  // recipe and a committed nonzero rate (dropping the draft), otherwise just
+  // store the updated draft. A nonzero rate is required so an empty or 0 draft
+  // never churns a re-solve for a row that renders nothing.
+  function applyDraft(next: { id: string; recipeId: string; rate: string }) {
+    const parsed = parsePerMinToRationalPerSec(next.rate);
+    const ready =
+      next.recipeId !== "" && parsed !== undefined && parsed.num !== "0";
+    if (ready) {
+      onChange((current) =>
+        current.some((t) => t.recipeId === next.recipeId)
+          ? current
+          : [...current, { recipeId: next.recipeId, ratePerSec: parsed }],
+      );
+      removeDraft(next.id);
+    } else {
+      setDrafts((prev) => prev.map((d) => (d.id === next.id ? next : d)));
+    }
   }
 
   return (
@@ -319,6 +345,83 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
               className="b-remove"
               data-testid="remove-target"
               onClick={() => handleRemove(t.recipeId)}
+              aria-label={i18n.t("targets.remove.label")}
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+      {drafts.map((draft) => {
+        // Recipes free to pick in this draft: pickable ones not already used by
+        // a committed target or another draft (the draft's own choice stays).
+        const takenElsewhere = new Set<string>([
+          ...targets.map((t) => t.recipeId),
+          ...drafts.filter((d) => d.id !== draft.id).map((d) => d.recipeId),
+        ]);
+        const options = pickableRecipes.filter(
+          (r) => !takenElsewhere.has(r.id) || r.id === draft.recipeId,
+        );
+        const iconPos =
+          draft.recipeId !== ""
+            ? (iconPosition(
+                pack.recipes.find((r) => r.id === draft.recipeId)?.out[0]?.item,
+              ) ?? iconPosition(draft.recipeId))
+            : undefined;
+        return (
+          <div key={draft.id} className="b-row" data-testid="target-draft-row">
+            <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
+              {iconPos !== undefined ? (
+                <span className="ico ico-40">
+                  <span
+                    className="spr"
+                    style={{ backgroundPosition: iconPos }}
+                  />
+                </span>
+              ) : null}
+            </span>
+            <div className="info">
+              <span className="b-pick">
+                <select
+                  aria-label={i18n.t("targets.recipe.label")}
+                  value={draft.recipeId}
+                  onChange={(e) =>
+                    applyDraft({ ...draft, recipeId: e.target.value })
+                  }
+                >
+                  <option value="">{i18n.t("targets.recipe.choose")}</option>
+                  {options.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {i18n.displayName(r.id)}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            </div>
+            <div className="b-rate">
+              <input
+                type="text"
+                inputMode="decimal"
+                aria-label={i18n.t("targets.rate.label")}
+                value={draft.rate}
+                onChange={(e) =>
+                  setDrafts((prev) =>
+                    prev.map((d) =>
+                      d.id === draft.id ? { ...d, rate: e.target.value } : d,
+                    ),
+                  )
+                }
+                onBlur={() => applyDraft(draft)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") applyDraft(draft);
+                }}
+              />
+              <span className="unit">{i18n.t("targets.rate.unit")}</span>
+            </div>
+            <button
+              className="b-remove"
+              data-testid="remove-draft"
+              onClick={() => removeDraft(draft.id)}
               aria-label={i18n.t("targets.remove.label")}
             >
               ×

@@ -9,6 +9,7 @@ export type UiKey =
   | "targets.rate.unit"
   | "targets.rate.label"
   | "targets.recipe.label"
+  | "targets.recipe.choose"
   | "targets.remove.label"
   | "targets.duplicate"
   | "app.loading"
@@ -61,6 +62,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "件 / 分钟",
     "targets.rate.label": "速率",
     "targets.recipe.label": "配方",
+    "targets.recipe.choose": "选择配方…",
     "targets.remove.label": "删除目标",
     "targets.duplicate": "配方 ID 重复: {recipeId}",
     "app.loading": "正在加载布局...",
@@ -105,6 +107,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "items / minute",
     "targets.rate.label": "rate",
     "targets.recipe.label": "recipe",
+    "targets.recipe.choose": "Choose a recipe...",
     "targets.remove.label": "remove target",
     "targets.duplicate": "Duplicate recipe id: {recipeId}",
     "app.loading": "Loading layout...",
@@ -152,6 +155,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "個 / 分",
     "targets.rate.label": "レート",
     "targets.recipe.label": "レシピ",
+    "targets.recipe.choose": "レシピを選択…",
     "targets.remove.label": "ターゲットを削除",
     "targets.duplicate": "レシピ ID の重複: {recipeId}",
     "app.loading": "レイアウトを読み込み中...",
@@ -199,6 +203,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "шт. / мин",
     "targets.rate.label": "скорость",
     "targets.recipe.label": "рецепт",
+    "targets.recipe.choose": "Выберите рецепт…",
     "targets.remove.label": "удалить цель",
     "targets.duplicate": "Дублирующийся ID рецепта: {recipeId}",
     "app.loading": "Загрузка макета...",
