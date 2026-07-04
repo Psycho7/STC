@@ -30,6 +30,12 @@ export type ItemEdgeData = {
   // Bend column x assigned by the stagger pass (assignBendColumns). Optional:
   // when absent the path builder centers the bend at the corridor midpoint.
   bendX?: number;
+  // Entry-gutter column x assigned by the stagger pass (assignEntryColumns).
+  // Two consumers read it: chamferStepPath places a backward edge's left rail
+  // here, and chamferBusPath (via BusEdge) places a bus member's rise column
+  // here. Optional: when absent each path builder falls back to its default
+  // column just before the target port.
+  entryX?: number;
 };
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
@@ -102,6 +108,7 @@ export default function ItemEdge({
     targetX,
     targetY,
     ...(edgeData?.bendX !== undefined ? { bendX: edgeData.bendX } : {}),
+    ...(edgeData?.entryX !== undefined ? { entryX: edgeData.entryX } : {}),
   });
 
   // Center the label in the corridor between layers, at the bend column the

@@ -95,6 +95,7 @@ export function chamferStepPath(args: {
   targetX: number;
   targetY: number;
   bendX?: number;
+  entryX?: number;
 }): [path: string, labelX: number, labelY: number] {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty, bendX } = args;
   const gap = tx - sx;
@@ -105,7 +106,13 @@ export function chamferStepPath(args: {
   // target, then back to the target level and a final rightward stub in.
   if (gap <= 0) {
     const xr = sx + PORT_STUB; // right vertical column, one stub out of source
-    const xl = tx - PORT_STUB; // left vertical column, one stub before target
+    // Left vertical column, the run that enters the target's Left port. The
+    // entry-gutter pass (assignEntryColumns in busRouting) stakes this out as a
+    // per-edge staggered column so two backward rails into one node never
+    // overlap; absent that hint it falls back to a single stub before the port,
+    // which keeps every direct (un-routed) caller and its pinned test byte for
+    // byte identical.
+    const xl = args.entryX ?? tx - PORT_STUB;
     // Rail midway between the endpoints. When they share a y the midpoint would
     // sit on top of both stubs, so drop the rail below to keep it visible.
     const railY = sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2;
@@ -186,6 +193,7 @@ export function chamferBusPath(args: {
   targetX: number;
   targetY: number;
   laneY: number;
+  entryX?: number;
 }): {
   path: string;
   dropX: number;
@@ -203,7 +211,12 @@ export function chamferBusPath(args: {
   // finishes rightward. laneDir flips the junction to the lane's leftward side.
   if (gap <= 0) {
     const dropX = sx + PORT_STUB + CHAMFER;
-    const riseX = tx - PORT_STUB - CHAMFER;
+    // Rise column, the run that climbs the target's Left-port gutter off the
+    // lane. The entry-gutter pass stakes it out as a per-edge staggered column
+    // (see assignEntryColumns) so two rises into one node never coincide; absent
+    // that hint it falls back to one stub+chamfer inside the port, keeping every
+    // direct caller and its pinned test byte for byte identical.
+    const riseX = args.entryX ?? tx - PORT_STUB - CHAMFER;
     const laneDir = -1;
     const path =
       `M ${r(sx)},${r(sy)}` +
@@ -262,7 +275,10 @@ export function chamferBusPath(args: {
   // lane the rise simply chamfers the other way. chamferColumn derives each turn
   // direction from its own y0 -> y1.
   const dropX = sx + PORT_STUB + CHAMFER;
-  const riseX = tx - PORT_STUB - CHAMFER;
+  // Rise column: the entry-gutter pass may stagger it (see assignEntryColumns);
+  // absent that hint it falls back to one stub+chamfer inside the target port,
+  // keeping direct callers and pinned tests byte for byte identical.
+  const riseX = args.entryX ?? tx - PORT_STUB - CHAMFER;
   const laneDir = 1;
   const path =
     `M ${r(sx)},${r(sy)}` +

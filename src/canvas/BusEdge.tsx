@@ -48,6 +48,7 @@ export default function BusEdge({
     targetX,
     targetY,
     laneY,
+    ...(edgeData?.entryX !== undefined ? { entryX: edgeData.entryX } : {}),
   });
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);

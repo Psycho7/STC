@@ -103,6 +103,27 @@ describe("chamferStepPath", () => {
     expectRightwardFinish(d);
   });
 
+  it("routes a backward edge's left rail through an explicit entryX gutter column", () => {
+    // The entry-gutter pass stakes out the left rail at a staggered column so two
+    // backward rails into one node do not overlap. entryX = -40 moves the rail
+    // one slot left of the default (tx - PORT_STUB = -24); the run still enters
+    // the target with a final rightward stub.
+    const [d, lx, ly] = chamferStepPath({
+      sourceX: 200,
+      sourceY: 0,
+      targetX: 0,
+      targetY: 100,
+      entryX: -40,
+    });
+    expect(d).toBe(
+      "M 200,0 L 216,0 L 224,8 L 224,42 L 216,50 L -32,50 L -40,58 L -40,92 L -32,100 L 0,100",
+    );
+    // Label rides the detour rail midpoint between the two columns.
+    expect(lx).toBe(92);
+    expect(ly).toBe(50);
+    expectRightwardFinish(d);
+  });
+
   it("does not backtrack on a backward edge with a small |dy| (< 4*CHAMFER)", () => {
     // |ty - sy| = 20 < 32 (= 4*CHAMFER): the detour rail sits within a chamfer
     // of the source level, so the old full-chamfer columns would invert into a
@@ -143,6 +164,28 @@ describe("chamferBusPath", () => {
     expect(riseX).toBe(268);
     // Junction sits on the lane just before the rise chamfer.
     expect(junction).toEqual({ x: 260, y: 200 });
+    expectRightwardFinish(path);
+  });
+
+  it("rises through an explicit entryX gutter column on a wide forward gap", () => {
+    // The entry-gutter pass may stagger the rise so two rises into one node do
+    // not coincide. entryX = 250 moves the rise right of the default
+    // (tx - PORT_STUB - CHAMFER = 268); drop, lane run, and final rightward stub
+    // are otherwise unchanged and the junction tracks the moved rise.
+    const { path, dropX, riseX, junction } = chamferBusPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 300,
+      targetY: 20,
+      laneY: 200,
+      entryX: 250,
+    });
+    expect(path).toBe(
+      "M 0,0 L 24,0 L 32,8 L 32,192 L 40,200 L 242,200 L 250,192 L 250,28 L 258,20 L 300,20",
+    );
+    expect(dropX).toBe(32);
+    expect(riseX).toBe(250);
+    expect(junction).toEqual({ x: 242, y: 200 });
     expectRightwardFinish(path);
   });
 

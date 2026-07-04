@@ -185,6 +185,203 @@ export function routeBusEdges(
   });
 }
 
+// -- Entry gutter -------------------------------------------------------------
+//
+// Every node reserves a vertical band [nodeLeft - G, nodeLeft] in front of its
+// Left (input) ports, its "entry gutter". The band's job is to own the corridor
+// immediately in front of a consumer so foreign vertical runs (another node's
+// bend column, backward rail, or bus rise) stay out of it; only an edge's own
+// final leg into this node may enter the band (its horizontal final leg
+// unavoidably crosses the x-band, which is fine -- verticals belonging to OTHER
+// nodes' edges are what we eliminate).
+//
+// Width. The tightest thing the band must hold is one vertical run sitting a
+// PORT_STUB inside the port plus a CHAMFER bevel, so the base band is
+// PORT_STUB + CHAMFER -- the same value assignBendColumns already used as its
+// corridor margin. A node that hosts several staggered entry columns (multiple
+// backward rails or bus rises into one node) widens the band by one slot pitch
+// per extra column so every column fits with clear air between the bevels. The
+// pitch is 2*CHAMFER so adjacent columns' CHAMFER-wide bevels never touch.
+// Width scales with the node's own gutter in-degree rather than a global max, so
+// a node with a single entry keeps the minimal band (and its geometry stays
+// byte-identical to the pre-gutter default).
+export const ENTRY_GUTTER_MIN = PORT_STUB + CHAMFER; // 32
+export const ENTRY_SLOT_PITCH = 2 * CHAMFER; // 16
+
+// Band width for a node hosting `columnCount` staggered entry columns. Zero or
+// one column -> the minimal band; each extra column adds one pitch.
+export function gutterWidth(columnCount: number): number {
+  return ENTRY_GUTTER_MIN + Math.max(0, columnCount - 1) * ENTRY_SLOT_PITCH;
+}
+
+// An entry-gutter rectangle in absolute coordinates: the band [left, right] in
+// x and the node's vertical extent padded by CHAMFER in y. Foreign vertical
+// runs must not fall strictly inside this rect.
+export type GutterRect = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
+// Node-gap between a (source, target) pair, floored the same way as edgeSpan but
+// signed: <= 0 means the target sits at or left of the source (a backward edge
+// under ELK's cycle reversal). chamferBusPath's own gap (tx - sx, port to port)
+// equals this because sources are Right-handles and targets Left-handles.
+function nodeGap(
+  source: RFAnyNode,
+  target: RFAnyNode,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): number {
+  const sourceRight = absoluteLeft(source, byId) + nodeWidth(source);
+  return absoluteLeft(target, byId) - sourceRight;
+}
+
+// Does an edge occupy a vertical column inside its target's entry gutter? A
+// backward forward-item edge routes a left rail one stub before the port; a bus
+// member rises up the gutter -- except the narrow-forward bus hairpin, which
+// collapses onto the corridor midpoint far from the gutter (chamferBusPath's
+// gap < budget branch) and so claims no column here. Returns true for the edges
+// that both consume a gutter slot and count toward the band's width.
+function occupiesGutterColumn(
+  edge: Edge,
+  source: RFAnyNode,
+  target: RFAnyNode,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): boolean {
+  const gap = nodeGap(source, target, byId);
+  if (edge.type === "bus") {
+    const budget = 2 * (PORT_STUB + CHAMFER);
+    return gap <= 0 || gap >= budget; // narrow-forward hairpin claims no column
+  }
+  if (edge.type === "item") return gap <= 0; // backward rail
+  return false;
+}
+
+// Resolved input-port index of an edge at its target, or -1 when unknown. Only
+// recipe/loop nodes carry the ELK-resolved `inputOrder`; product targets have a
+// single port. Used to order a target's staggered entry columns top to bottom.
+function inputPortIndex(target: RFAnyNode, item: string | undefined): number {
+  if (item === undefined) return -1;
+  if (target.type !== "recipe" && target.type !== "loop") return -1;
+  const order = target.data.inputOrder;
+  return order ? order.indexOf(item) : -1;
+}
+
+// Count of gutter columns each target node hosts, keyed by node id. Both passes
+// derive it from the same rule (occupiesGutterColumn) so their views of every
+// node's band width agree without threading a shared structure between them.
+function gutterColumnCounts(
+  edges: ReadonlyArray<Edge>,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const edge of edges) {
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) continue;
+    if (!occupiesGutterColumn(edge, source, target, byId)) continue;
+    counts.set(edge.target, (counts.get(edge.target) ?? 0) + 1);
+  }
+  return counts;
+}
+
+// entryGutterRects: the absolute gutter rectangle of every node, exported for
+// the structural tests so they check against the same band geometry this
+// module computes.
+export function entryGutterRects(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): Map<string, GutterRect> {
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+  const counts = gutterColumnCounts(edges, byId);
+  const rects = new Map<string, GutterRect>();
+  for (const node of nodes) {
+    const left = absoluteLeft(node, byId);
+    const top = absoluteTop(node, byId);
+    const g = gutterWidth(counts.get(node.id) ?? 0);
+    rects.set(node.id, {
+      left: left - g,
+      right: left,
+      top: top - CHAMFER,
+      bottom: top + nodeHeight(node) + CHAMFER,
+    });
+  }
+  return rects;
+}
+
+// assignEntryColumns: give every gutter-occupying edge (backward item rail or
+// bus rise) a per-target staggered column x, merged as { entryX } onto its data
+// and consumed by chamferStepPath / chamferBusPath. Columns of one target are
+// ordered by resolved input-port index so the entering runs form a monotonic
+// fan that does not self-cross inside the band: the topmost port takes the
+// leftmost column and the bottom port the rightmost (one stub before the port,
+// which is the pre-gutter default, so a single-entry node is unchanged).
+//
+// Pure and deterministic: the column of an edge depends only on its target and
+// port rank, never on edge order. Runs after routeBusEdges (so bus members are
+// already retyped) and leaves every non-gutter edge untouched by reference.
+export function assignEntryColumns(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): Edge[] {
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+
+  // Bucket gutter edges by target, remembering each one's original index so the
+  // emitted array can be rebuilt in place.
+  type Slot = {
+    index: number;
+    edge: Edge;
+    portIndex: number;
+    item: string | undefined;
+  };
+  const byTarget = new Map<string, Slot[]>();
+  edges.forEach((edge, index) => {
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) return;
+    if (!occupiesGutterColumn(edge, source, target, byId)) return;
+    const item = edgeItem(edge);
+    const list = byTarget.get(edge.target) ?? [];
+    list.push({ index, edge, portIndex: inputPortIndex(target, item), item });
+    byTarget.set(edge.target, list);
+  });
+
+  // Assign one column per gutter edge. Sort each target's edges by port index
+  // (ports with a known index first, ascending), then item id, then edge id, so
+  // the mapping from port order to column x is deterministic. rank 0 (topmost
+  // port) takes the leftmost column; rank k-1 sits at the pre-gutter default.
+  const entryXByIndex = new Map<number, number>();
+  for (const [targetId, list] of byTarget) {
+    const target = byId.get(targetId)!;
+    const left = absoluteLeft(target, byId);
+    const k = list.length;
+    const sorted = [...list].sort((a, b) => {
+      const ai = a.portIndex < 0 ? Infinity : a.portIndex;
+      const bi = b.portIndex < 0 ? Infinity : b.portIndex;
+      if (ai !== bi) return ai - bi;
+      if (a.item !== b.item) return (a.item ?? "") < (b.item ?? "") ? -1 : 1;
+      return a.edge.id < b.edge.id ? -1 : 1;
+    });
+    sorted.forEach((slot, rank) => {
+      const fromRight = k - 1 - rank; // topmost port -> largest offset (leftmost)
+      entryXByIndex.set(
+        slot.index,
+        left - PORT_STUB - fromRight * ENTRY_SLOT_PITCH,
+      );
+    });
+  }
+
+  if (entryXByIndex.size === 0) return edges.map((e) => e);
+  return edges.map((edge, index) => {
+    const entryX = entryXByIndex.get(index);
+    if (entryX === undefined) return edge;
+    return { ...edge, data: { ...edge.data, entryX } };
+  });
+}
+
 // assignBendColumns: stagger the bend column of forward item edges that share a
 // corridor so their vertical runs do not overlap into one blurred line. Pure and
 // deterministic. Runs after routeBusEdges, so it only sees still-type:"item"
@@ -205,6 +402,15 @@ export function routeBusEdges(
 // vertical run clear of intermediate node boxes, including the box a
 // layer-skipping edge would otherwise cross. When no node lies right of groupLeft
 // the corridor falls back to the nearest target left edge.
+//
+// Gutter clamp (against the entry-gutter bands above): the right corridor bound
+// is not a fixed margin but
+// the next column's actual entry gutter. A next-column node hosting several
+// staggered entry columns owns a wider band (gutterWidth), and a bend vertical
+// dropped inside it would cross that node's entering runs. So the right margin
+// is the widest gutter among next-column nodes whose vertical extent overlaps
+// the band's own y-span -- a y-aware check, not just x, so a wide gutter on a
+// node in a distant row does not needlessly squeeze the corridor.
 export function assignBendColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -212,7 +418,21 @@ export function assignBendColumns(
   const byId = new Map<string, RFAnyNode>();
   for (const n of nodes) byId.set(n.id, n);
 
-  const margin = PORT_STUB + CHAMFER;
+  const leftMargin = ENTRY_GUTTER_MIN; // keeps columns off the source port stubs
+
+  // Per-node geometry plus entry-gutter width, so the fan can look up the band a
+  // next-column node reserves and whether it shares the candidate's rows.
+  const gutterCounts = gutterColumnCounts(edges, byId);
+  type NodeGeom = { left: number; top: number; bottom: number; gutter: number };
+  const geom: NodeGeom[] = nodes.map((n) => {
+    const top = absoluteTop(n, byId);
+    return {
+      left: absoluteLeft(n, byId),
+      top,
+      bottom: top + nodeHeight(n),
+      gutter: gutterWidth(gutterCounts.get(n.id) ?? 0),
+    };
+  });
 
   // All node left edges, sorted and de-duplicated once, so each band can find
   // the next node column right of its source layer in one scan.
@@ -223,7 +443,15 @@ export function assignBendColumns(
   // Group candidate edges by their source layer (the source's absolute left
   // edge, quantized to the pixel). Edges leaving the same layer share a corridor
   // regardless of which target layer they reach or how wide their source is.
-  type Cand = { id: string; sourceRight: number; targetLeft: number };
+  // yLo/yHi is the candidate's conservative vertical span (source row through
+  // target row) used for the y-aware gutter clamp below.
+  type Cand = {
+    id: string;
+    sourceRight: number;
+    targetLeft: number;
+    yLo: number;
+    yHi: number;
+  };
   const groups = new Map<number, Cand[]>();
   for (const edge of edges) {
     if (edge.type !== "item") continue; // only forward item edges get staggered
@@ -235,31 +463,49 @@ export function assignBendColumns(
     const sourceRight = sourceLeft + nodeWidth(source);
     const targetLeft = absoluteLeft(target, byId);
     if (targetLeft - sourceRight <= 0) continue; // backward / zero-gap edge
+    const sourceTop = absoluteTop(source, byId);
+    const targetTop = absoluteTop(target, byId);
+    const yLo = Math.min(sourceTop, targetTop);
+    const yHi = Math.max(
+      sourceTop + nodeHeight(source),
+      targetTop + nodeHeight(target),
+    );
     const band = Math.round(sourceLeft);
     const list = groups.get(band) ?? [];
-    list.push({ id: edge.id, sourceRight, targetLeft });
+    list.push({ id: edge.id, sourceRight, targetLeft, yLo, yHi });
     groups.set(band, list);
   }
 
   // Fan each band's members across its shared corridor. groupLeft is the band's
   // rightmost source edge; groupRight is the next node column right of it (or the
-  // nearest target when the band skips no column). Margins keep the columns off
-  // the port stubs on both sides; pitch = usable width / (n + 1) leaves symmetric
-  // gaps at both ends.
+  // nearest target when the band skips no column). The left margin keeps columns
+  // off the source port stubs; the right margin is the widest entry gutter among
+  // next-column nodes sharing the band's rows, so no bend vertical lands inside a
+  // foreign gutter. pitch = usable width / (n + 1) leaves symmetric end gaps.
   const bendById = new Map<string, number>();
   for (const list of groups.values()) {
     const groupLeft = Math.max(...list.map((c) => c.sourceRight));
     const nextColLeft = nodeLeftEdges.find((x) => x > groupLeft);
     const groupRight =
       nextColLeft ?? Math.min(...list.map((c) => c.targetLeft));
-    const usable = groupRight - groupLeft - 2 * margin;
+    // Band y-span: the union of member vertical spans. A next-column node whose
+    // padded extent overlaps it could be crossed by one of these bends.
+    const bandLo = Math.min(...list.map((c) => c.yLo));
+    const bandHi = Math.max(...list.map((c) => c.yHi));
+    let rightMargin = ENTRY_GUTTER_MIN;
+    for (const g of geom) {
+      if (Math.round(g.left) !== Math.round(groupRight)) continue;
+      if (g.bottom + CHAMFER < bandLo || g.top - CHAMFER > bandHi) continue;
+      if (g.gutter > rightMargin) rightMargin = g.gutter;
+    }
+    const usable = groupRight - groupLeft - leftMargin - rightMargin;
     if (usable <= 0) continue; // corridor too tight; keep the default midpoints
     const sorted = [...list].sort((a, b) =>
       a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
     );
     const pitch = usable / (sorted.length + 1);
     sorted.forEach((c, i) => {
-      bendById.set(c.id, groupLeft + margin + pitch * (i + 1));
+      bendById.set(c.id, groupLeft + leftMargin + pitch * (i + 1));
     });
   }
 

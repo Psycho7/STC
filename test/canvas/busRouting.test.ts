@@ -12,6 +12,10 @@ import type { Edge } from "@xyflow/react";
 import {
   routeBusEdges,
   assignBendColumns,
+  assignEntryColumns,
+  entryGutterRects,
+  gutterWidth,
+  ENTRY_SLOT_PITCH,
   BUS_SPAN_THRESHOLD,
   LANE_TOP_OFFSET,
   LANE_SPACING,
@@ -384,5 +388,125 @@ describe("assignBendColumns", () => {
     for (const b of bends) expect(b).toBeDefined();
     // No whole-band dropout, and all three bends are distinct.
     expect(new Set(bends).size).toBe(3);
+  });
+});
+
+function entryOf(edges: Edge[], id: string): number | undefined {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { entryX?: number }
+    | undefined;
+  return d?.entryX;
+}
+
+// A recipe node carrying an explicit resolved input-port order, so the entry
+// column ordering (by port index) is exercised against a known top-to-bottom
+// port layout instead of the fallback item-id order.
+const orderedRecipeNode = (
+  id: string,
+  x: number,
+  y: number,
+  ins: string[],
+): RFRecipeNode => {
+  const base = recipeNode(id, x, y, mkRecipe(id, ins, []));
+  return { ...base, data: { ...base.data, inputOrder: ins } };
+};
+
+describe("assignEntryColumns", () => {
+  it("gives two backward rails into one node distinct, port-ordered columns", () => {
+    // M hosts two backward rails (its sources sit to the right, so both edges
+    // reverse into M). inputOrder ["p","q"] puts port p on top. The topmost port
+    // takes the leftmost column; the bottom port sits at the pre-gutter default
+    // (targetLeft - PORT_STUB), so the two rails never overlap.
+    const nodes: RFAnyNode[] = [
+      orderedRecipeNode("m", 0, 0, ["p", "q"]),
+      recipeNode("rp", 500, 0, mkRecipe("rp", [], ["p"])),
+      recipeNode("rq", 500, 200, mkRecipe("rq", [], ["q"])),
+    ];
+    const edges = [mkEdge("eP", "rp", "m", "p"), mkEdge("eQ", "rq", "m", "q")];
+    const out = assignEntryColumns(nodes, edges);
+    const xP = entryOf(out, "eP");
+    const xQ = entryOf(out, "eQ");
+    expect(xP).toBeDefined();
+    expect(xQ).toBeDefined();
+    expect(xP).not.toBe(xQ);
+    expect(xQ).toBe(0 - PORT_STUB); // bottom port at the default column
+    expect(xP).toBe(0 - PORT_STUB - ENTRY_SLOT_PITCH); // top port one slot left
+    expect(xP! < xQ!).toBe(true); // higher port sits further left
+  });
+
+  it("gives two bus rises into one node distinct, port-ordered columns", () => {
+    // Two wide-forward bus members feed M from the far left, so both rise up M's
+    // gutter. They take staggered columns ordered by port index, same as rails.
+    const nodes: RFAnyNode[] = [
+      orderedRecipeNode("m", 1000, 0, ["p", "q"]),
+      recipeNode("sp", 0, 0, mkRecipe("sp", [], ["p"])),
+      recipeNode("sq", 0, 200, mkRecipe("sq", [], ["q"])),
+    ];
+    const busP: Edge = { ...mkEdge("eP", "sp", "m", "p"), type: "bus" };
+    const busQ: Edge = { ...mkEdge("eQ", "sq", "m", "q"), type: "bus" };
+    const out = assignEntryColumns(nodes, [busP, busQ]);
+    const xP = entryOf(out, "eP");
+    const xQ = entryOf(out, "eQ");
+    expect(xP).toBeDefined();
+    expect(xQ).toBeDefined();
+    expect(xP).not.toBe(xQ);
+    expect(xQ).toBe(1000 - PORT_STUB);
+    expect(xP).toBe(1000 - PORT_STUB - ENTRY_SLOT_PITCH);
+    expect(xP! < xQ!).toBe(true);
+  });
+
+  it("assigns entry columns deterministically across shuffled input order", () => {
+    const nodes: RFAnyNode[] = [
+      orderedRecipeNode("m", 1000, 0, ["p", "q"]),
+      recipeNode("sp", 0, 0, mkRecipe("sp", [], ["p"])),
+      recipeNode("sq", 0, 200, mkRecipe("sq", [], ["q"])),
+    ];
+    const eP: Edge = { ...mkEdge("eP", "sp", "m", "p"), type: "bus" };
+    const eQ: Edge = { ...mkEdge("eQ", "sq", "m", "q"), type: "bus" };
+    const a = assignEntryColumns(nodes, [eP, eQ]);
+    const b = assignEntryColumns(nodes, [eQ, eP]);
+    for (const id of ["eP", "eQ"]) {
+      expect(entryOf(a, id)).toBe(entryOf(b, id));
+    }
+  });
+
+  it("keeps forward bend verticals out of an inflated next-column gutter", () => {
+    // M sits in the next column and hosts four backward rails, so its entry
+    // gutter widens to gutterWidth(4). Four forward edges skip M to layer 2;
+    // every one of their bend columns must stay left of M's gutter so no
+    // vertical run crosses M's entering rails.
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, mkRecipe("s", [], ["b"])), // right edge 300
+      orderedRecipeNode("m", 600, 0, ["b", "w", "x", "y", "z"]),
+      recipeNode("t1", 1200, 0, mkRecipe("t1", ["b"], [])),
+      recipeNode("t2", 1200, 200, mkRecipe("t2", ["b"], [])),
+      recipeNode("t3", 1200, 400, mkRecipe("t3", ["b"], [])),
+      recipeNode("t4", 1200, 600, mkRecipe("t4", ["b"], [])),
+      recipeNode("r1", 1000, 0, mkRecipe("r1", [], ["w"])),
+      recipeNode("r2", 1000, 100, mkRecipe("r2", [], ["x"])),
+      recipeNode("r3", 1000, 250, mkRecipe("r3", [], ["y"])),
+      recipeNode("r4", 1000, 350, mkRecipe("r4", [], ["z"])),
+    ];
+    const edges = [
+      mkEdge("f1", "s", "t1", "b"),
+      mkEdge("f2", "s", "t2", "b"),
+      mkEdge("f3", "s", "t3", "b"),
+      mkEdge("f4", "s", "t4", "b"),
+      // Backward rails into M inflate its gutter to gutterWidth(4).
+      mkEdge("w", "r1", "m", "w"),
+      mkEdge("x", "r2", "m", "x"),
+      mkEdge("y", "r3", "m", "y"),
+      mkEdge("z", "r4", "m", "z"),
+    ];
+    const out = assignBendColumns(nodes, edges);
+    const rects = entryGutterRects(nodes, edges);
+    const mRect = rects.get("m")!;
+    expect(mRect.right - mRect.left).toBe(gutterWidth(4));
+    for (const id of ["f1", "f2", "f3", "f4"]) {
+      const b = bendOf(out, id);
+      expect(b).toBeDefined();
+      // Strictly left of M's gutter band -> the bend vertical never enters it.
+      expect(b! < mRect.left).toBe(true);
+    }
   });
 });
