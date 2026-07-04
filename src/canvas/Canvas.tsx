@@ -2,6 +2,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   Controls,
+  MiniMap,
   useReactFlow,
   useNodesInitialized,
   useStore,
@@ -117,6 +118,26 @@ export function zoomBand(zoom: number): "" | "zoom-low" | "zoom-mid" {
   if (zoom < 0.4) return "zoom-low";
   if (zoom < 0.8) return "zoom-mid";
   return "";
+}
+
+// Above this node count the overview minimap appears. Small plans fit legibly
+// on their own, so the minimap is only worth its footprint on the dense plans
+// that overflow a readable-zoom viewport.
+const MINIMAP_MIN_NODES = 15;
+
+// Minimap node fill by role, so the overview reads recipes, boundary products,
+// and loop containers apart. Literal colors (not CSS vars): the minimap paints
+// them as SVG fill attributes, where var() does not resolve. These track the
+// canvas palette: a light gray card, a cyan boundary chip, a dim container.
+const MINIMAP_RECIPE = "#5a5f68";
+const MINIMAP_PRODUCT = "#7cdffc";
+const MINIMAP_CONTAINER = "#343841";
+const MINIMAP_MASK = "rgba(15, 17, 20, 0.72)";
+
+function minimapNodeColor(node: Node): string {
+  if (node.type === "product") return MINIMAP_PRODUCT;
+  if (node.type === "group" || node.type === "loop") return MINIMAP_CONTAINER;
+  return MINIMAP_RECIPE;
 }
 
 // Wrap the canvas in a ReactFlowProvider so CanvasInner can reach the React Flow
@@ -403,6 +424,14 @@ function CanvasInner({
         minZoom={0.05}
       >
         <Controls />
+        {nodes.length > MINIMAP_MIN_NODES ? (
+          <MiniMap
+            pannable
+            zoomable
+            nodeColor={minimapNodeColor}
+            maskColor={MINIMAP_MASK}
+          />
+        ) : null}
       </ReactFlow>
       <div className="canvas-frame" aria-hidden="true" />
       <div className="cb tl" aria-hidden="true" />

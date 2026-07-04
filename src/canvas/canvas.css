@@ -1312,18 +1312,40 @@
   background: var(--ak-bg-secondary);
   border-bottom: 1px solid var(--ak-divider);
   color: var(--ak-text-secondary);
+  /* React Flow ships 16px buttons; enlarge past the 24px minimum hit target so
+     the fit-view escape hatch is easy to find and press. */
+  width: 26px;
+  height: 26px;
 }
 
 .ak-canvas-theme .react-flow__controls-button:hover {
   background: var(--ak-bg-tertiary);
 }
 
+/* Brighten the glyphs to the primary text token so the strip reads against the
+   near-black canvas instead of the low-contrast default. */
 .ak-canvas-theme .react-flow__controls-button svg {
-  fill: var(--ak-text-secondary);
+  fill: var(--ak-text-primary);
+  max-width: 60%;
+  max-height: 60%;
 }
 
 .ak-canvas-theme .react-flow__controls-button:hover svg {
   fill: var(--ak-accent-lime);
+}
+
+/* Dark-theme the overview minimap so it matches the blueprint canvas: a
+   canvas-toned panel with a divider border. The node fills and mask color come
+   from props (SVG fill attributes cannot resolve CSS vars); this styles the
+   surrounding panel. */
+.ak-canvas-theme .react-flow__minimap {
+  background: var(--ak-bg-secondary);
+  border: 1px solid var(--ak-divider);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+.ak-canvas-theme .react-flow__minimap svg {
+  border-radius: 2px;
 }
 
 /* Blueprint-grid dot pattern on the canvas pane. */
