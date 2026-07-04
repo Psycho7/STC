@@ -53,10 +53,57 @@ test("supply head count includes assumed-raw auto rows, not just overrides", () 
   expect(v?.textContent).toBe("2");
 });
 
-test("displayedInputCount sums overrides and auto rows", () => {
+test("displayedInputCount counts overrides plus non-overridden auto rows", () => {
   expect(displayedInputCount([], ["a", "b", "c"])).toBe(3);
-  expect(displayedInputCount([{ itemId: "a" }], ["a", "b", "c"])).toBe(1);
+  // "a" is overridden, so it counts once (as an override), and b + c stay as
+  // auto rows: 1 override + 2 auto = 3.
+  expect(displayedInputCount([{ itemId: "a" }], ["a", "b", "c"])).toBe(3);
+  // A non-raw override adds to the three auto rows: 1 + 3 = 4.
+  expect(displayedInputCount([{ itemId: "z" }], ["a", "b", "c"])).toBe(4);
   expect(displayedInputCount([], [])).toBe(0);
+});
+
+// D5: an override on one item must not hide the assumed-raw auto-rows for the
+// items that still have no explicit override.
+test("assumed-raw items without an override stay visible alongside an override", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[{ itemId: "widget" }]}
+        onChange={() => {}}
+        pack={PACK3}
+        assumedRawItemIds={["widget", "gadget", "sprocket"]}
+        realizedRateByItem={
+          new Map([
+            ["gadget", { num: "1", denom: "1" }],
+            ["sprocket", { num: "2", denom: "1" }],
+          ])
+        }
+      />
+    </LocaleProvider>,
+  );
+  const autoRows = screen.getAllByTestId("input-auto-row");
+  // widget is the override; gadget + sprocket remain auto-rows with demand.
+  expect(autoRows.map((r) => r.getAttribute("data-item-id"))).toEqual([
+    "gadget",
+    "sprocket",
+  ]);
+  expect(screen.getAllByTestId("input-row").length).toBe(1);
+  // Counter reflects the union (1 override + 2 auto = 3).
+  const { container } = render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[{ itemId: "widget" }]}
+        onChange={() => {}}
+        pack={PACK3}
+        assumedRawItemIds={["widget", "gadget", "sprocket"]}
+        realizedRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  expect(
+    container.querySelector(".side-section-head .count .v")?.textContent,
+  ).toBe("3");
 });
 
 // 40/27 per sec * 60 = 800/9 = 88.888.../min. The realized-demand readout now

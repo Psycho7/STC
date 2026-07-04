@@ -256,17 +256,21 @@ describe("InputsPanel", () => {
     expect(rateInputs[0]!.getAttribute("placeholder")).toBe("无限");
   });
 
-  it("auto-rows: hidden when itemOverrides is non-empty (explicit overrides win)", () => {
+  it("auto-rows: assumed-raw items without an override stay visible alongside overrides", () => {
     const onChange = vi.fn();
     render(
       <InputsPanel
         itemOverrides={[{ itemId: "copper_ore" }]}
         onChange={onChange}
         pack={fixturePack}
-        assumedRawItemIds={["iron_ore"]}
+        assumedRawItemIds={["copper_ore", "iron_ore"]}
       />,
     );
-    expect(screen.queryAllByTestId("input-auto-row").length).toBe(0);
+    // copper_ore is overridden (an input-row); iron_ore has no override and
+    // stays an auto-row instead of disappearing.
+    const autoRows = screen.getAllByTestId("input-auto-row");
+    expect(autoRows.length).toBe(1);
+    expect(autoRows[0]!.getAttribute("data-item-id")).toBe("iron_ore");
     expect(screen.getAllByTestId("input-row").length).toBe(1);
   });
 

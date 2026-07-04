@@ -29,16 +29,19 @@ type Props = {
   assumedRawItemIds?: ReadonlyArray<string>;
 };
 
-// Number of input rows the panel actually shows: explicit overrides plus the
-// assumed-raw auto-rows surfaced when nothing is capped. The supply counters
-// (stats strip, side tab, section head) route through this so none of them can
-// report 0 while auto-rows are on screen.
+// Number of input rows the panel actually shows: explicit overrides plus every
+// assumed-raw item that does not yet have an override (those still render as
+// auto-rows). The supply counters (stats strip, side tab, section head) route
+// through this so none of them can report 0 while auto-rows are on screen, and
+// an overridden raw item is counted once (as its override), never twice.
 export function displayedInputCount(
   itemOverrides: ReadonlyArray<{ itemId: string }>,
   assumedRawItemIds: ReadonlyArray<string> | undefined,
 ): number {
-  const autoCount =
-    itemOverrides.length > 0 ? 0 : (assumedRawItemIds?.length ?? 0);
+  const overrideIds = new Set(itemOverrides.map((o) => o.itemId));
+  const autoCount = (assumedRawItemIds ?? []).filter(
+    (id) => !overrideIds.has(id),
+  ).length;
   return itemOverrides.length + autoCount;
 }
 
@@ -306,9 +309,14 @@ export function InputsPanel({
     });
   }
 
-  const hasOverrides = itemOverrides.length > 0;
-  const autoRows = !hasOverrides ? (assumedRawItemIds ?? []) : [];
-  const showEmptyState = !hasOverrides && autoRows.length === 0;
+  // Auto-rows are every assumed-raw item WITHOUT an explicit override, shown
+  // regardless of how many overrides exist. Capping one item no longer hides the
+  // realized demand of the remaining raw inputs.
+  const overrideIds = new Set(itemOverrides.map((o) => o.itemId));
+  const autoRows = (assumedRawItemIds ?? []).filter(
+    (id) => !overrideIds.has(id),
+  );
+  const showEmptyState = itemOverrides.length === 0 && autoRows.length === 0;
 
   return (
     <div className="boundary-section" data-testid="inputs-section">
