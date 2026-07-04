@@ -53,6 +53,13 @@
     rgba(124, 223, 252, 0.18) 1px,
     transparent 1px
   );
+  /* Half-strength grid for the mid-zoom LOD band, so the dots stop outcompeting
+     the shrunken graph without disappearing entirely. */
+  --blueprint-grid-faint: radial-gradient(
+    circle at 1px 1px,
+    rgba(124, 223, 252, 0.09) 1px,
+    transparent 1px
+  );
 }
 
 .ak-canvas-theme {
@@ -1269,9 +1276,13 @@
 }
 
 /* During any hover session, non-dimmed edges get a thicker, brighter stroke so
-   the lit flow is traceable end to end instead of staying a 1px hairline. */
+   the lit flow is traceable end to end instead of staying a hairline. The width
+   scales relative to the edge's zoom-compensated --edge-base-width so the lit
+   edge always dominates its dimmed neighbours; the 2.25px floor preserves the
+   emphasis at zoom 1 where the base is only 1px. !important beats the inline
+   strokeWidth the edge sets from the same custom property. */
 .ak-canvas-theme.hover-active .react-flow__edge:not(.dimmed) path {
-  stroke-width: 2.25px;
+  stroke-width: max(2.25px, calc(var(--edge-base-width, 1px) * 1.6)) !important;
   filter: brightness(1.35);
 }
 
@@ -1320,6 +1331,41 @@
 .ak-canvas-theme .react-flow {
   background-image: var(--blueprint-grid);
   background-size: 24px 24px;
+}
+
+/* Low-zoom LOD (zoom < 0.4): at the dense-plan fit zoom the per-machine metadata
+   and card chrome render below legibility, so read cards as solid brighter
+   blocks with firm borders, drop the sub-legible text layers, and clear the dot
+   grid so structure leads. The .zoom-low / .zoom-mid classes carry two classes
+   in the first compound selector, so they outrank the single-class base rules
+   above regardless of order. */
+.ak-canvas-theme.zoom-low .recipe-node {
+  background: var(--ak-bg-secondary);
+  border-color: var(--ak-divider-strong);
+}
+.ak-canvas-theme.zoom-low .product-node {
+  border-color: var(--ak-divider-strong);
+}
+.ak-canvas-theme.zoom-low .rn-footer,
+.ak-canvas-theme.zoom-low .rn-head .machine-name,
+.ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-lbl,
+.ak-canvas-theme.zoom-low .item-id {
+  display: none;
+}
+.ak-canvas-theme.zoom-low .react-flow__pane,
+.ak-canvas-theme.zoom-low .react-flow {
+  background-image: none;
+}
+
+/* Mid-zoom LOD (0.4-0.8): a lighter touch. Keep the detail text but firm up card
+   borders and drop the grid to half strength so the graph still leads. */
+.ak-canvas-theme.zoom-mid .recipe-node,
+.ak-canvas-theme.zoom-mid .product-node {
+  border-color: var(--ak-divider-strong);
+}
+.ak-canvas-theme.zoom-mid .react-flow__pane,
+.ak-canvas-theme.zoom-mid .react-flow {
+  background-image: var(--blueprint-grid-faint);
 }
 
 /* Subtle scanline + vignette overlay across the canvas region. */

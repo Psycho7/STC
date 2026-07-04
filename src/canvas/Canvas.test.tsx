@@ -8,7 +8,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { Edge, Node } from "@xyflow/react";
 import type { Recipe } from "@aef/schema";
-import Canvas from "./Canvas";
+import Canvas, { zoomBand } from "./Canvas";
 import { ItemPackProvider, type ItemPackContextValue } from "./itemPackContext";
 import { LocaleProvider } from "../data/i18n-context";
 
@@ -132,6 +132,37 @@ function isDimmed(container: HTMLElement, id: string): boolean {
   const el = container.querySelector(`[data-id="${id}"]`);
   return el?.className.includes("dimmed") ?? false;
 }
+
+test("zoomBand derives the low / mid / clear bands from zoom", () => {
+  expect(zoomBand(0.1)).toBe("zoom-low");
+  expect(zoomBand(0.39)).toBe("zoom-low");
+  // 0.4 is the low/mid boundary: no longer low.
+  expect(zoomBand(0.4)).toBe("zoom-mid");
+  expect(zoomBand(0.6)).toBe("zoom-mid");
+  expect(zoomBand(0.79)).toBe("zoom-mid");
+  // At and above 0.8 no band class applies (full detail).
+  expect(zoomBand(0.8)).toBe("");
+  expect(zoomBand(1)).toBe("");
+  expect(zoomBand(2)).toBe("");
+});
+
+test("canvas theme container carries the derived zoom-band class", () => {
+  // jsdom's React Flow store initialises the transform to zoom 1, so the derived
+  // band is clear: the container keeps just the base theme class (no zoom-low /
+  // zoom-mid), proving the band output is wired onto the same element as
+  // hover-active without leaking a band at full zoom.
+  const { container } = render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={[]} edges={[]} />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+  const theme = container.querySelector(".ak-canvas-theme")!;
+  expect(theme.className).toBe("ak-canvas-theme");
+  expect(theme.className).not.toContain("zoom-low");
+  expect(theme.className).not.toContain("zoom-mid");
+});
 
 test("status annotation reflects the status prop", () => {
   const { container } = render(

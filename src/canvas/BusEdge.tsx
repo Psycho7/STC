@@ -2,6 +2,7 @@ import { BaseEdge, useStore, type EdgeProps } from "@xyflow/react";
 import {
   FlowChip,
   LABEL_MIN_ZOOM,
+  edgeStrokeWidth,
   strokeForKind,
   type ItemEdgeData,
 } from "./ItemEdge";
@@ -51,8 +52,14 @@ export default function BusEdge({
   });
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
-  // A caller-supplied style wins over the kind default, matching ItemEdge.
-  const mergedStyle: React.CSSProperties = { ...kindStyle, ...(style ?? {}) };
+  // Zoom-compensated base width published as --edge-base-width, matching
+  // ItemEdge. A caller-supplied style still wins over these defaults.
+  const mergedStyle: React.CSSProperties = {
+    ...kindStyle,
+    ["--edge-base-width" as string]: `${edgeStrokeWidth(zoom)}px`,
+    strokeWidth: "var(--edge-base-width)",
+    ...(style ?? {}),
+  };
 
   const rateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
   const unit = i18n.t("canvas.rate.unit");
@@ -77,6 +84,7 @@ export default function BusEdge({
       label={fullLabel}
       tear={edgeData?.isTearEdge}
       dimmed={edgeData?.dimmed}
+      zoom={zoom}
     />
   );
 

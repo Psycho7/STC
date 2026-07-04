@@ -44,6 +44,7 @@ function renderEdge(data: ItemEdgeData, zoom?: number) {
           nodes={NODES}
           edges={[makeEdge(data)]}
           edgeTypes={edgeTypes}
+          minZoom={0.05}
           {...(zoom !== undefined
             ? { defaultViewport: { x: 0, y: 0, zoom } }
             : {})}
@@ -219,7 +220,7 @@ describe("canvas/ItemEdge entry chip", () => {
   it("does not render the entry chip when zoom is below the gate", async () => {
     renderEdge(
       { item: "belt", rate: new Fraction(1), multiInputTarget: true },
-      0.4,
+      0.3,
     );
     const entry = await findEntry();
     expect(entry).toBeNull();
@@ -228,13 +229,13 @@ describe("canvas/ItemEdge entry chip", () => {
 
 describe("canvas/ItemEdge zoom gating", () => {
   it("hides the label when zoomed below the threshold", async () => {
-    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 0.4);
+    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 0.3);
     const label = await findLabel();
     expect(label).toBeNull();
   });
 
   it("shows the label at the threshold zoom", async () => {
-    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 0.6);
+    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 0.35);
     const label = await findLabel();
     expect(label).not.toBeNull();
     expect(label!.textContent).toBe("120/min");

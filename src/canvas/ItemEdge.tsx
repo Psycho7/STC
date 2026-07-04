@@ -69,11 +69,39 @@ const BELT_STROKE = "#666";
 const PIPE_STROKE = "#0891b2";
 const PIPE_DASH = "4 2";
 
-// Below this zoom the rate chips are dropped. On a dense plan the fit-to-view
-// zoom lands well under this, so the overview reads as clean lines; zooming in
-// to inspect a section brings the chips back. Reading transform[2] (zoom only)
-// re-renders the edge on zoom changes but not on pan.
-export const LABEL_MIN_ZOOM = 0.6;
+// Below this zoom the rate chips are dropped. Dense plans now fit at roughly
+// 0.35-0.55, so the gate sits just under that band: chips appear at the new
+// dense-plan fit zooms instead of only after zooming in. Below the gate the
+// overview reads as clean lines. Reading transform[2] (zoom only) re-renders the
+// edge on zoom changes but not on pan.
+export const LABEL_MIN_ZOOM = 0.35;
+
+// Physical stroke-width bounds. Edge strokes are drawn in graph units, so the
+// pane zoom scales them: at fit zoom a 1-unit stroke is a sub-pixel hairline. To
+// keep edges visible the width is set to 1/zoom (so it renders near-constant on
+// screen), clamped to this physical-pixel range so it neither vanishes at low
+// zoom nor bloats into a slab. Exposed on the path as --edge-base-width so the
+// hover emphasis rule can scale relative to it.
+const MIN_EDGE_PX = 1;
+const MAX_EDGE_PX = 3;
+
+// Zoom-compensated stroke width in physical px, clamped to [MIN_EDGE_PX,
+// MAX_EDGE_PX]. At zoom 1 this is 1px (unchanged from the default).
+export function edgeStrokeWidth(zoom: number): number {
+  return Math.min(MAX_EDGE_PX, Math.max(MIN_EDGE_PX, 1 / zoom));
+}
+
+// Counter-scale for edge-label chips below zoom 1. Chips live in the
+// EdgeLabelRenderer, which scales with the pane, so at fit zoom a 16px chip
+// shrinks below legibility. Scaling by 1/zoom keeps the on-screen size roughly
+// constant; the clamp caps the boost so chips never balloon on tiny plans. At
+// the LABEL_MIN_ZOOM gate (0.35) the 2x cap yields ~11px effective, above the
+// ~10px legibility floor.
+const MAX_CHIP_SCALE = 2;
+
+export function chipCounterScale(zoom: number): number {
+  return zoom < 1 ? Math.min(MAX_CHIP_SCALE, 1 / zoom) : 1;
+}
 
 // Inline style carrying the chip's accent color as the --chip-accent custom
 // property, or an empty object when there is no item to color by. Both edge
@@ -105,6 +133,7 @@ export function FlowChip({
   tear,
   extraClass,
   dimmed,
+  zoom,
 }: {
   testId: string;
   x: number;
@@ -115,8 +144,17 @@ export function FlowChip({
   tear?: boolean | undefined;
   extraClass?: string | undefined;
   dimmed?: boolean | undefined;
+  // Live pane zoom, used to counter-scale the chip so it stays legible at the
+  // dense-plan fit zoom. Optional: callers without a zoom leave the chip at its
+  // natural size (scale 1).
+  zoom?: number | undefined;
 }) {
   const pos = item !== undefined ? iconPosition(item) : undefined;
+  // Counter-scale about the chip centre. translate(-50%,-50%) translate(x,y)
+  // already centres the box on (x, y); appending scale() with the default
+  // (centre) transform-origin keeps that anchor and only grows the chip.
+  const scale = zoom !== undefined ? chipCounterScale(zoom) : 1;
+  const scalePart = scale !== 1 ? ` scale(${scale})` : "";
   return (
     <EdgeLabelRenderer>
       <div
@@ -131,7 +169,7 @@ export function FlowChip({
         title={label}
         style={{
           position: "absolute",
-          transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
+          transform: `translate(-50%, -50%) translate(${x}px, ${y}px)${scalePart}`,
           whiteSpace: "nowrap",
           ...chipAccentStyle(item),
         }}
@@ -201,10 +239,16 @@ export default function ItemEdge({
   });
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
-  // A caller-supplied style wins over the kind default, so later overrides for
-  // hover, tear edges, or cross-group edges take effect without this file
-  // having to know about them.
-  const mergedStyle: React.CSSProperties = { ...kindStyle, ...(style ?? {}) };
+  // Zoom-compensated base width, published as --edge-base-width so the hover
+  // emphasis CSS can scale relative to it. A caller-supplied style wins over
+  // these defaults, so later overrides for hover, tear edges, or cross-group
+  // edges take effect without this file having to know about them.
+  const mergedStyle: React.CSSProperties = {
+    ...kindStyle,
+    ["--edge-base-width" as string]: `${edgeStrokeWidth(zoom)}px`,
+    strokeWidth: "var(--edge-base-width)",
+    ...(style ?? {}),
+  };
 
   return (
     <>
@@ -227,6 +271,7 @@ export default function ItemEdge({
           label={fullLabel}
           tear={edgeData?.isTearEdge}
           dimmed={edgeData?.dimmed}
+          zoom={zoom}
         />
       ) : null}
       {/* Entry chip: an icon-only mini chip pinned at the target port, rendered
@@ -247,6 +292,7 @@ export default function ItemEdge({
           label={fullLabel}
           extraClass="entry"
           dimmed={edgeData.dimmed}
+          zoom={zoom}
         />
       ) : null}
     </>

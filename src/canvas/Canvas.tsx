@@ -4,6 +4,7 @@ import {
   Controls,
   useReactFlow,
   useNodesInitialized,
+  useStore,
   type Node,
   type Edge,
   type OnNodesChange,
@@ -106,6 +107,18 @@ function withLitContainer(className: string | undefined): string {
 // default label.
 const COPY_FEEDBACK_MS = 1500;
 
+// Level-of-detail band derived from the live React Flow zoom. At the fit zoom of
+// a dense plan (roughly 0.35-0.55) per-machine metadata and card chrome shrink
+// below legibility, so the canvas theme container carries a band class that
+// canvas.css uses to brighten cards, drop sub-legible text layers, and fade the
+// dot grid. "zoom-low" is the aggressive overview treatment (< 0.4), "zoom-mid"
+// a lighter touch (0.4-0.8), and "" leaves full detail at higher zoom.
+export function zoomBand(zoom: number): "" | "zoom-low" | "zoom-mid" {
+  if (zoom < 0.4) return "zoom-low";
+  if (zoom < 0.8) return "zoom-mid";
+  return "";
+}
+
 // Wrap the canvas in a ReactFlowProvider so CanvasInner can reach the React Flow
 // instance (useReactFlow) and the node-measurement signal (useNodesInitialized)
 // to drive imperative fitView on plan changes and container resizes.
@@ -130,6 +143,9 @@ function CanvasInner({
   const { fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const containerRef = useRef<HTMLDivElement>(null);
+  // Live zoom drives the low-zoom LOD band on the theme container. Reading
+  // transform[2] (zoom only) re-renders on zoom changes but not on pan.
+  const zoom = useStore((state) => state.transform[2]);
 
   // Re-fit the viewport once per layout generation, but only after React Flow
   // has measured the new nodes (async): fitting synchronously on the prop change
@@ -343,7 +359,9 @@ function CanvasInner({
   return (
     <div
       ref={containerRef}
-      className={focus ? "ak-canvas-theme hover-active" : "ak-canvas-theme"}
+      className={["ak-canvas-theme", zoomBand(zoom), focus ? "hover-active" : ""]
+        .filter(Boolean)
+        .join(" ")}
       style={canvasThemeStyle}
     >
       <div
