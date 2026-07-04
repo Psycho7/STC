@@ -7,7 +7,7 @@ import {
 import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
-import { formatRatePerMin } from "../data/rate-format";
+import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 import { chamferStepPath } from "./edgePath";
 import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
@@ -154,6 +154,7 @@ export function FlowChip({
   item,
   text,
   label,
+  title,
   tear,
   extraClass,
   dimmed,
@@ -165,6 +166,9 @@ export function FlowChip({
   item?: ItemId | undefined;
   text?: string | undefined;
   label: string;
+  // Hover-tooltip text. Defaults to `label`; edges pass the exact, un-rounded
+  // rate here so hovering reveals the precise value the rounded chip text hides.
+  title?: string | undefined;
   tear?: boolean | undefined;
   extraClass?: string | undefined;
   dimmed?: boolean | undefined;
@@ -190,7 +194,7 @@ export function FlowChip({
           (dimmed ? " dimmed" : "")
         }
         aria-label={label}
-        title={label}
+        title={title ?? label}
         style={{
           position: "absolute",
           transform: `translate(-50%, -50%) translate(${x}px, ${y}px)${scalePart}`,
@@ -237,14 +241,19 @@ export default function ItemEdge({
   const i18n = useI18n();
   const rateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
   const unit = i18n.t("canvas.rate.unit");
-  // The chip body shows the icon plus rate and unit, nothing more. The full
-  // "Name x rate/min" string goes onto aria-label and title so screen readers
-  // and the browser's hover tooltip still name the item.
+  // The chip body shows the icon plus the rounded rate and unit, nothing more.
+  // The full "Name x rate/min" string rides on aria-label so a screen reader can
+  // name the item, and a separate tooltip carries the exact, un-rounded rate the
+  // rounding hides (chips now accept pointer events, so hovering shows it).
   const chipText =
     edgeData && rateStr && zoom >= LABEL_MIN_ZOOM ? `${rateStr}${unit}` : "";
   const fullLabel =
     edgeData && rateStr
       ? `${i18n.displayName(edgeData.item)} x ${rateStr}${unit}`
+      : "";
+  const exactTitle =
+    edgeData && rateStr
+      ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(edgeData.rate)}${unit}`
       : "";
 
   // The path builder anchors the label at the geometric midpoint of the drawn
@@ -281,6 +290,7 @@ export default function ItemEdge({
         id={id}
         path={edgePath}
         style={mergedStyle}
+        {...(fullLabel ? { "aria-label": fullLabel } : {})}
         {...(edgeData?.transportKind !== undefined
           ? { "data-transport-kind": edgeData.transportKind }
           : {})}
@@ -294,6 +304,7 @@ export default function ItemEdge({
           item={edgeData?.item}
           text={chipText}
           label={fullLabel}
+          title={exactTitle}
           tear={edgeData?.isTearEdge}
           dimmed={edgeData?.dimmed}
           zoom={zoom}
@@ -303,8 +314,9 @@ export default function ItemEdge({
           only when the consumer has two or more inputs (multiInputTarget) and
           the zoom is above the same LABEL_MIN_ZOOM gate the rate chip uses. It
           reuses the flow-chip + sprite idiom but drops the rate text; the full
-          "Name x rate/min" still rides on title / aria-label so hovering or a
-          screen reader names the item. The rate chip at the bend column is
+          "Name x rate/min" rides on aria-label and the exact rate on the hover
+          tooltip so hovering or a screen reader names the item. The rate chip at
+          the bend column is
           untouched: this chip only adds identity at the node where several
           inputs braid together. --chip-accent tints it to the item so the chip,
           the entering line, and the matching input row all read as one color. */}
@@ -314,6 +326,7 @@ export default function ItemEdge({
           {...entryChipAnchor(targetX, targetY, edgeData.entryChipDy)}
           item={edgeData.item}
           label={fullLabel}
+          title={exactTitle}
           extraClass="entry"
           dimmed={edgeData.dimmed}
           zoom={zoom}

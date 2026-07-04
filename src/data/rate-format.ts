@@ -16,6 +16,23 @@ export function formatRatePerMin(itemsPerSec: Fraction): string {
   return fixed;
 }
 
+// Full-precision per-minute rate for hover tooltips: the un-rounded value the
+// 2-decimal display formatter hides. Uses the plain decimal when stringifying it
+// does not go exponential (the common case, a clean single value with no "/min"
+// double-slash), else the exact reduced fraction. Returns "" for zero so the
+// caller can drop the tooltip rate entirely.
+export function formatRateExactPerMin(itemsPerSec: Fraction): string {
+  const perMin = itemsPerSec.mul(60);
+  const value = perMin.valueOf();
+  if (!Number.isFinite(value) || value === 0) {
+    return value === 0 ? "" : perMin.toFraction(false);
+  }
+  const text = String(value);
+  return text.includes("e") || text.includes("E")
+    ? perMin.toFraction(false)
+    : text;
+}
+
 // Per-minute Fraction from a per-second rational. x60 stays exact, so both the
 // fraction and numeric formatters below build on this.
 function perMinFromRational(rps: { num: string; denom: string }): Fraction {

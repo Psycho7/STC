@@ -1576,6 +1576,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* Re-enable pointer events (the edgelabel-renderer sets none) so the native
+     title tooltip shows the exact rate on hover. The nodrag/nopan classes keep
+     React Flow's own drag/pan from being hijacked by the chip. */
+  pointer-events: auto;
   padding: 3px 7px;
   background: linear-gradient(180deg, #1f2125 0%, #14171b 100%);
   border: 1px solid var(--chip-accent, var(--ak-accent-cyan));

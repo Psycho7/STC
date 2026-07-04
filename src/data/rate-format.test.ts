@@ -1,10 +1,33 @@
 import { expect, test } from "vitest";
 import Fraction from "fraction.js";
 import {
+  formatRateExactPerMin,
   formatRatePerMin,
   formatRationalPerMin,
   ratePerSecToPerMin,
 } from "./rate-format";
+
+test("formatRateExactPerMin reveals the un-rounded value the display rounds", () => {
+  // 1/7 per sec * 60 = 60/7 = 8.571428..., which formatRatePerMin rounds to
+  // "8.57"; the exact tooltip shows the full-precision decimal instead.
+  expect(formatRateExactPerMin(new Fraction(1, 7))).toBe(String(60 / 7));
+  // A tiny rate the display would show as a fraction still reads exactly.
+  expect(formatRateExactPerMin(new Fraction("1").div("12000"))).toBe(
+    String((1 / 12000) * 60),
+  );
+});
+
+test("formatRateExactPerMin returns empty for exact zero", () => {
+  expect(formatRateExactPerMin(new Fraction(0))).toBe("");
+});
+
+test("formatRateExactPerMin never returns exponential text", () => {
+  // 1/600000000 per sec * 60 = 1e-7 per min; String() would go exponential, so
+  // the exact fraction form is used instead.
+  const out = formatRateExactPerMin(new Fraction("1").div("600000000"));
+  expect(out.includes("e")).toBe(false);
+  expect(out.includes("E")).toBe(false);
+});
 
 test("formatRationalPerMin shows a non-terminating rate as an exact fraction", () => {
   // 40/27 per sec * 60 = 800/9 per min (non-terminating decimal).

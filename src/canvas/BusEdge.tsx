@@ -9,7 +9,7 @@ import {
 import type { BusEdgeData } from "./busRouting";
 import { chamferBusPath } from "./edgePath";
 import { useI18n } from "../data/i18n-context";
-import { formatRatePerMin } from "../data/rate-format";
+import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
 // Radius of the junction dot each bus edge draws at its own branch point, where
 // it leaves the shared trunk lane to rise into its target.
@@ -85,6 +85,10 @@ export default function BusEdge({
     edgeData && dropRateStr
       ? `${i18n.displayName(edgeData.item)} x ${dropRateStr}${unit}${countMarker}`
       : "";
+  const dropTitle =
+    edgeData && dropRateStr && totalRate
+      ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(totalRate)}${unit}${countMarker}`
+      : "";
 
   // Rise chip: each member draws its own, showing that member's share. Members
   // sharing a rise anchor are staggered down the lane (riseStagger) so they
@@ -94,6 +98,10 @@ export default function BusEdge({
   const riseLabel =
     edgeData && memberRateStr
       ? `${i18n.displayName(edgeData.item)} x ${memberRateStr}${unit}`
+      : "";
+  const riseTitle =
+    edgeData && memberRateStr
+      ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(edgeData.rate)}${unit}`
       : "";
   const riseY = laneY + (edgeData?.riseStagger ?? 0) * RISE_CHIP_STAGGER;
 
@@ -105,6 +113,7 @@ export default function BusEdge({
     y: number,
     text: string,
     label: string,
+    title: string,
   ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
@@ -113,6 +122,7 @@ export default function BusEdge({
       item={edgeData?.item}
       text={text}
       label={label}
+      title={title}
       tear={edgeData?.isTearEdge}
       dimmed={edgeData?.dimmed}
       zoom={zoom}
@@ -125,6 +135,7 @@ export default function BusEdge({
         id={id}
         path={path}
         style={mergedStyle}
+        {...(riseLabel ? { "aria-label": riseLabel } : {})}
         {...(markerEnd ? { markerEnd } : {})}
       />
       <circle
@@ -135,9 +146,11 @@ export default function BusEdge({
         fill={kindStyle.stroke}
       />
       {isOwner && dropText
-        ? renderChip("drop", dropX, laneY, dropText, dropLabel)
+        ? renderChip("drop", dropX, laneY, dropText, dropLabel, dropTitle)
         : null}
-      {riseText ? renderChip("rise", riseX, riseY, riseText, riseLabel) : null}
+      {riseText
+        ? renderChip("rise", riseX, riseY, riseText, riseLabel, riseTitle)
+        : null}
     </>
   );
 }
