@@ -46,6 +46,10 @@ export type ItemEdgeData = {
   // Single-input consumers leave it unset, so their lone entering line needs no
   // extra identity chip. Optional and defaults to falsy.
   multiInputTarget?: true;
+  // Vertical nudge for the midpoint rate chip, assigned by deconflictChipAnchors
+  // when the chip would otherwise land on top of another edge's chip. Added to
+  // the label y so the two chips clear each other. Optional and defaults to 0.
+  labelDy?: number;
   // Set by Canvas's hover focus on every non-focused edge. The chips read it
   // because EdgeLabelRenderer portals them outside the edge wrapper that carries
   // the `dimmed` class, so the wrapper's fade never reaches them; the chip's own
@@ -265,7 +269,7 @@ export default function ItemEdge({
         <FlowChip
           testId={`item-edge-label-${id}`}
           x={labelX}
-          y={labelY}
+          y={labelY + (edgeData?.labelDy ?? 0)}
           item={edgeData?.item}
           text={chipText}
           label={fullLabel}

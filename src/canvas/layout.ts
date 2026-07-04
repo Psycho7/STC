@@ -44,6 +44,7 @@ import { measureRecipe } from "./recipeGeometry";
 import {
   assignBendColumns,
   assignEntryColumns,
+  deconflictChipAnchors,
   routeBusEdges,
 } from "./busRouting";
 import type {
@@ -887,9 +888,12 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   // vertical runs fan out instead of stacking (clamped clear of every gutter).
   return {
     nodes,
-    edges: assignBendColumns(
+    edges: deconflictChipAnchors(
       nodes,
-      assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+      assignBendColumns(
+        nodes,
+        assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+      ),
     ),
   };
 }
