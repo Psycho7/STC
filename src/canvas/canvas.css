@@ -795,6 +795,11 @@
   text-decoration: underline 1px var(--ak-accent-cyan-soft);
   text-underline-offset: 3px;
 }
+/* Keyboard focus gets a real ring; the underline stays as the secondary cue. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick select:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
 /* Native <option> styling. Browsers vary here, but setting explicit colors
    unsticks most gtk/chromium menus that otherwise inherit a transparent or
    unreadable background. */
@@ -905,27 +910,34 @@
   right: 6px;
   background: transparent;
   border: 1px solid transparent;
-  color: var(--ak-text-decoration-faint);
-  font-size: 13px;
-  width: 18px;
-  height: 18px;
-  line-height: 14px;
+  color: var(--ak-text-decoration);
+  font-size: 15px;
+  width: 24px;
+  height: 24px;
+  line-height: 22px;
   padding: 0;
   text-align: center;
-  opacity: 0;
+  /* Kept at a low but visible opacity at rest so touch users (no hover) can see
+     the affordance; hover/focus brings it to full. */
+  opacity: 0.4;
   transition:
     opacity 140ms ease-out,
     color 120ms ease-out,
     border-color 120ms ease-out;
 }
 .ak-app-shell [data-testid="side-panel"] .b-row:hover .b-remove,
-.ak-app-shell [data-testid="side-panel"] .b-row:focus-within .b-remove {
+.ak-app-shell [data-testid="side-panel"] .b-row:focus-within .b-remove,
+.ak-app-shell [data-testid="side-panel"] .b-row .b-remove:focus-visible {
   opacity: 1;
 }
 .ak-app-shell [data-testid="side-panel"] .b-row .b-remove:hover {
   border-color: var(--ak-accent-red);
   color: var(--ak-accent-red);
   background: rgba(225, 53, 30, 0.1);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-remove:focus-visible {
+  outline: 1px solid var(--ak-accent-red);
+  outline-offset: 1px;
 }
 
 /* Inline duplicate-id error sits below the picker. */
