@@ -365,7 +365,7 @@ describe("RecipeNode", () => {
       producers: ["mixer"],
     };
 
-    it("renders machine-icon data attribute, .product, .cn, .tier, and .machine-mid for a tiered producer", () => {
+    it("renders machine-icon data attribute, .product, .cn, and .tier for a tiered producer", () => {
       const machine = makeMachine("assembler-t1", "asm-icon");
       const { container } = renderRecipe(
         { recipe: tieredRecipe, kind: "recipe", multiplier: 1 },
@@ -385,9 +385,8 @@ describe("RecipeNode", () => {
       expect(nameRow).not.toBeNull();
       expect(nameRow!.querySelector(".cn")?.textContent).toBe("assembler-t1");
       expect(nameRow!.querySelector(".tier")?.textContent).toBe("T1");
-      expect(head!.querySelector(".machine-mid")?.textContent).toBe(
-        "assembler-t1",
-      );
+      // The raw machine id line is dropped in favor of the localized name.
+      expect(head!.querySelector(".machine-mid")).toBeNull();
     });
 
     it("omits the .tier chip when machine id has no -t\\d+ suffix", () => {
@@ -401,11 +400,11 @@ describe("RecipeNode", () => {
       );
       const head = container.querySelector(".rn-head");
       expect(head!.querySelector(".machine-name .tier")).toBeNull();
-      // .cn and .machine-mid still rendered.
+      // .cn still rendered; the raw machine id line is gone.
       expect(head!.querySelector(".machine-name .cn")?.textContent).toBe(
         "mixer",
       );
-      expect(head!.querySelector(".machine-mid")?.textContent).toBe("mixer");
+      expect(head!.querySelector(".machine-mid")).toBeNull();
     });
 
     it("falls back to producers[0] for machine-icon data attribute when machine icon is absent and skips name/mid lines", () => {

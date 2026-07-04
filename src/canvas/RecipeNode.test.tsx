@@ -95,6 +95,16 @@ test("multiplicity badge carries a class and no inline color or font size", () =
   expect((badge as HTMLElement).style.fontSize).toBe("");
 });
 
+// The raw machine id (e.g. "mk1") reads as debug output; the localized machine
+// name already identifies the producer, so the mono id line is dropped.
+test("recipe node does not render the raw machine id line", () => {
+  const props = {
+    data: { recipe: RECIPE, multiplier: 1 },
+  } as unknown as ComponentProps<typeof RecipeNode>;
+  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
+  expect(container.querySelector(".machine-mid")).toBeNull();
+});
+
 // A corrupt fixture can reference a missing machine; the rate falls back to
 // speed 1 instead of crashing.
 test("missing machine record falls back to speed 1", () => {

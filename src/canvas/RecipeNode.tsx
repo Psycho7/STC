@@ -179,13 +179,10 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
             {outputItemName}
           </div>
           {machine !== undefined ? (
-            <>
-              <div className="machine-name">
-                <span className="cn">{machineName}</span>
-                {tier !== null ? <span className="tier">{tier}</span> : null}
-              </div>
-              <div className="machine-mid">{machine.id}</div>
-            </>
+            <div className="machine-name">
+              <span className="cn">{machineName}</span>
+              {tier !== null ? <span className="tier">{tier}</span> : null}
+            </div>
           ) : null}
         </div>
         <div className="rn-rate-block">
