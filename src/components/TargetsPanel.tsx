@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Fraction from "fraction.js";
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
@@ -60,6 +60,33 @@ function isPickableTarget(recipe: Recipe): boolean {
 export function TargetsPanel({ targets, onChange, pack }: Props) {
   const i18n = useI18n();
   const pickableRecipes = pack.recipes.filter(isPickableTarget);
+  // Locale-aware compare for both the option order within a group and the group
+  // order itself, so the dropdown scans by the displayed name in every locale.
+  const collator = useMemo(
+    () => new Intl.Collator(i18n.locale),
+    [i18n.locale],
+  );
+  // Group pickable recipes by pack category and sort each group by localized
+  // display name; order the groups by their (localized-compared) label. Reused
+  // by both the committed-target select and the draft select.
+  function groupRecipes(recipes: Recipe[]) {
+    const byCategory = new Map<string, Recipe[]>();
+    for (const r of recipes) {
+      const arr = byCategory.get(r.category);
+      if (arr) arr.push(r);
+      else byCategory.set(r.category, [r]);
+    }
+    return [...byCategory.entries()]
+      .map(([category, group]) => ({
+        category,
+        recipes: group
+          .slice()
+          .sort((a, b) =>
+            collator.compare(i18n.displayName(a.id), i18n.displayName(b.id)),
+          ),
+      }))
+      .sort((a, b) => collator.compare(a.category, b.category));
+  }
   const [duplicateError, setDuplicateError] = useState<{
     rowId: string;
     recipeId: string;
@@ -292,10 +319,14 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                     handleRecipeChange(t.recipeId, e.target.value)
                   }
                 >
-                  {pickableRecipes.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {i18n.displayName(r.id)}
-                    </option>
+                  {groupRecipes(pickableRecipes).map((g) => (
+                    <optgroup key={g.category} label={g.category}>
+                      {g.recipes.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {i18n.displayName(r.id)}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </span>
@@ -390,10 +421,14 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                   }
                 >
                   <option value="">{i18n.t("targets.recipe.choose")}</option>
-                  {options.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {i18n.displayName(r.id)}
-                    </option>
+                  {groupRecipes(options).map((g) => (
+                    <optgroup key={g.category} label={g.category}>
+                      {g.recipes.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {i18n.displayName(r.id)}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </span>

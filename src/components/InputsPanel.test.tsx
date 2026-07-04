@@ -8,6 +8,7 @@ import {
   screen,
 } from "@testing-library/react";
 import type { RecipePack } from "@aef/schema";
+import { pack as realPack } from "../data/load";
 import { InputsPanel, displayedInputCount } from "./InputsPanel";
 import { LocaleProvider } from "../data/i18n-context";
 import type { ItemOverride } from "../data/plan";
@@ -375,6 +376,36 @@ test("uncommitted cap edit is discarded when the plan changes", () => {
   expect(input.value).toBe("777");
   fireEvent.click(screen.getByTestId("navigate"));
   expect(rateInputs()[0]!.value).toBe("60");
+});
+
+// UX-17: the item picker is ordered by the localized display name it shows, not
+// by internal id, so non-English locales get a scannable list.
+test("item picker options are sorted by localized display name, not id", () => {
+  render(
+    <LocaleProvider locale="zh">
+      <InputsPanel
+        itemOverrides={[{ itemId: realPack.items[0]!.id }]}
+        onChange={() => {}}
+        pack={realPack}
+        realizedRateByItem={new Map()}
+      />
+    </LocaleProvider>,
+  );
+  const select = screen.getByRole("combobox") as HTMLSelectElement;
+  const options = [...select.querySelectorAll("option")];
+  const texts = options.map((o) => o.textContent ?? "");
+  const collator = new Intl.Collator("zh");
+  // The visible names (option text = localized display name) are in sorted
+  // order.
+  expect(texts).toEqual([...texts].sort((a, b) => collator.compare(a, b)));
+  // And that order differs from the old internal-id sort, proving the key moved
+  // off the id.
+  const values = options.map((o) => o.value);
+  const idSorted = realPack.items
+    .map((it) => it.id)
+    .slice()
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  expect(values).not.toEqual(idSorted);
 });
 
 test("realized demand on a capped override row renders as the shared decimal", () => {

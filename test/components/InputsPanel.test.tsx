@@ -75,11 +75,13 @@ describe("InputsPanel", () => {
     expect(screen.getAllByTestId("input-row").length).toBe(2);
   });
 
-  it("Add input button appends a new row with first unused itemId (lex-sorted)", async () => {
+  it("Add input button appends a new row with first unused item by display name", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
-    // Existing: copper_ore. Lex-sorted items: copper_ore, copper_plate, iron_ore, zinc.
-    // First unused -> "copper_plate".
+    // The picker orders by localized (zh, the default) display name, not id:
+    // copper_ore ("赤铜矿"), iron_ore ("蓝铁矿"), then copper_plate / zinc (which
+    // fall back to their ids). copper_ore is taken, so the first unused is
+    // "iron_ore".
     const overrides: ItemOverride[] = [{ itemId: "copper_ore" }];
     render(
       <InputsPanel
@@ -94,7 +96,7 @@ describe("InputsPanel", () => {
       onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
     )(overrides);
     expect(next.length).toBe(2);
-    expect(next[1]).toEqual({ itemId: "copper_plate" });
+    expect(next[1]).toEqual({ itemId: "iron_ore" });
   });
 
   it("duplicate itemId selection surfaces per-row error and does not call onChange", async () => {

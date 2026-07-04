@@ -529,6 +529,81 @@ test("removing a draft never touches the plan", () => {
   expect(screen.queryAllByTestId("target-draft-row").length).toBe(0);
 });
 
+// UX-17: recipe options are grouped by pack category via <optgroup> and sorted
+// by localized display name within each group; groups themselves are ordered by
+// their localized label.
+const GROUPED_PACK = {
+  items: [
+    { id: "zed", icon: "zed" },
+    { id: "apple", icon: "apple" },
+    { id: "mango", icon: "mango" },
+    { id: "beta", icon: "beta" },
+  ],
+  recipes: [
+    {
+      id: "r_zed",
+      category: "product",
+      in: [],
+      out: [{ item: "zed", qty: 1 }],
+      time: 1,
+      producers: [],
+      cost: 1,
+    },
+    {
+      id: "r_apple",
+      category: "product",
+      in: [],
+      out: [{ item: "apple", qty: 1 }],
+      time: 1,
+      producers: [],
+      cost: 1,
+    },
+    {
+      id: "r_mango",
+      category: "material",
+      in: [],
+      out: [{ item: "mango", qty: 1 }],
+      time: 1,
+      producers: [],
+      cost: 1,
+    },
+    {
+      id: "r_beta",
+      category: "material",
+      in: [],
+      out: [{ item: "beta", qty: 1 }],
+      time: 1,
+      producers: [],
+      cost: 1,
+    },
+  ],
+} as unknown as RecipePack;
+
+test("recipe options are grouped by category and sorted by display name", () => {
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[{ recipeId: "r_apple", ratePerSec: { num: "1", denom: "1" } }]}
+        onChange={vi.fn()}
+        pack={GROUPED_PACK}
+      />
+    </LocaleProvider>,
+  );
+  const select = screen.getByRole("combobox") as HTMLSelectElement;
+  const groups = [...select.querySelectorAll("optgroup")];
+  // Groups ordered by localized label: material before product.
+  expect(groups.map((g) => g.label)).toEqual(["material", "product"]);
+  // Options within each group sorted by localized display name (id fallback).
+  const materialOpts = [...groups[0]!.querySelectorAll("option")].map(
+    (o) => (o as HTMLOptionElement).value,
+  );
+  const productOpts = [...groups[1]!.querySelectorAll("option")].map(
+    (o) => (o as HTMLOptionElement).value,
+  );
+  expect(materialOpts).toEqual(["r_beta", "r_mango"]);
+  expect(productOpts).toEqual(["r_apple", "r_zed"]);
+});
+
 // Selecting a recipe already used by another row is rejected inline: an alert
 // names the duplicate recipe and no change commits.
 test("duplicate recipe selection shows an inline alert and does not commit", () => {
