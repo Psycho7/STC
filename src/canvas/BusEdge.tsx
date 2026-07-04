@@ -1,7 +1,7 @@
-import { BaseEdge, EdgeLabelRenderer, useStore, type EdgeProps } from "@xyflow/react";
+import { BaseEdge, useStore, type EdgeProps } from "@xyflow/react";
 import {
+  FlowChip,
   LABEL_MIN_ZOOM,
-  chipAccentStyle,
   strokeForKind,
   type ItemEdgeData,
 } from "./ItemEdge";
@@ -9,7 +9,6 @@ import type { BusEdgeData } from "./busRouting";
 import { chamferBusPath } from "./edgePath";
 import { useI18n } from "../data/i18n-context";
 import { formatRatePerMin } from "../data/rate-format";
-import { iconPosition } from "./iconSprite";
 
 // Radius of the junction dot each bus edge draws at its own branch point, where
 // it leaves the shared trunk lane to rise into its target.
@@ -66,32 +65,18 @@ export default function BusEdge({
       ? `${i18n.displayName(edgeData.item)} x ${rateStr}${unit}`
       : "";
 
-  const iconPos = edgeData ? iconPosition(edgeData.item) : undefined;
-
   // One chip at the drop point (where the flow enters the trunk) and one at the
   // rise point (where it leaves toward the target). Both sit on the lane.
   const renderChip = (suffix: string, x: number, y: number) => (
-    <EdgeLabelRenderer>
-      <div
-        data-testid={`bus-edge-label-${id}-${suffix}`}
-        className={"nodrag nopan flow-chip" + (edgeData?.isTearEdge ? " red" : "")}
-        aria-label={fullLabel}
-        title={fullLabel}
-        style={{
-          position: "absolute",
-          transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
-          whiteSpace: "nowrap",
-          ...chipAccentStyle(edgeData?.item),
-        }}
-      >
-        {iconPos !== undefined ? (
-          <span className="ico ico-16">
-            <span className="spr" style={{ backgroundPosition: iconPos }} />
-          </span>
-        ) : null}
-        {chipText}
-      </div>
-    </EdgeLabelRenderer>
+    <FlowChip
+      testId={`bus-edge-label-${id}-${suffix}`}
+      x={x}
+      y={y}
+      item={edgeData?.item}
+      text={chipText}
+      label={fullLabel}
+      tear={edgeData?.isTearEdge}
+    />
   );
 
   return (

@@ -75,6 +75,64 @@ export function chipAccentStyle(item?: ItemId): React.CSSProperties {
     : {};
 }
 
+// FlowChip: the shared EdgeLabelRenderer chip every edge label uses -- the rate
+// chip at ItemEdge's bend column, the icon-only entry chip at a multi-input
+// target port, and BusEdge's drop / rise chips on the trunk lane. One place
+// owns the DOM contract: a nodrag/nopan .flow-chip div centered on (x, y) by
+// the double translate, tinted to the item through chipAccentStyle, carrying
+// the full "Name x rate/min" string on aria-label and title, with an optional
+// 16px item sprite followed by the optional chip text. `tear` switches to the
+// red tear-edge variant; `extraClass` appends a modifier class (the entry
+// chip's "entry").
+export function FlowChip({
+  testId,
+  x,
+  y,
+  item,
+  text,
+  label,
+  tear,
+  extraClass,
+}: {
+  testId: string;
+  x: number;
+  y: number;
+  item?: ItemId | undefined;
+  text?: string | undefined;
+  label: string;
+  tear?: boolean | undefined;
+  extraClass?: string | undefined;
+}) {
+  const pos = item !== undefined ? iconPosition(item) : undefined;
+  return (
+    <EdgeLabelRenderer>
+      <div
+        data-testid={testId}
+        className={
+          "nodrag nopan flow-chip" +
+          (tear ? " red" : "") +
+          (extraClass !== undefined ? ` ${extraClass}` : "")
+        }
+        aria-label={label}
+        title={label}
+        style={{
+          position: "absolute",
+          transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
+          whiteSpace: "nowrap",
+          ...chipAccentStyle(item),
+        }}
+      >
+        {pos !== undefined ? (
+          <span className="ico ico-16">
+            <span className="spr" style={{ backgroundPosition: pos }} />
+          </span>
+        ) : null}
+        {text}
+      </div>
+    </EdgeLabelRenderer>
+  );
+}
+
 type StrokeStyle = { stroke: string; strokeDasharray?: string };
 
 export function strokeForKind(
@@ -153,37 +211,15 @@ export default function ItemEdge({
         {...(markerEnd ? { markerEnd } : {})}
       />
       {chipText ? (
-        <EdgeLabelRenderer>
-          <div
-            data-testid={`item-edge-label-${id}`}
-            className={
-              "nodrag nopan flow-chip" + (edgeData?.isTearEdge ? " red" : "")
-            }
-            aria-label={fullLabel}
-            title={fullLabel}
-            style={{
-              position: "absolute",
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              whiteSpace: "nowrap",
-              ...chipAccentStyle(edgeData?.item),
-            }}
-          >
-            {edgeData
-              ? (() => {
-                  const pos = iconPosition(edgeData.item);
-                  return pos !== undefined ? (
-                    <span className="ico ico-16">
-                      <span
-                        className="spr"
-                        style={{ backgroundPosition: pos }}
-                      />
-                    </span>
-                  ) : null;
-                })()
-              : null}
-            {chipText}
-          </div>
-        </EdgeLabelRenderer>
+        <FlowChip
+          testId={`item-edge-label-${id}`}
+          x={labelX}
+          y={labelY}
+          item={edgeData?.item}
+          text={chipText}
+          label={fullLabel}
+          tear={edgeData?.isTearEdge}
+        />
       ) : null}
       {/* Entry chip: an icon-only mini chip pinned at the target port, rendered
           only when the consumer has two or more inputs (multiInputTarget) and
@@ -195,29 +231,14 @@ export default function ItemEdge({
           inputs braid together. --chip-accent tints it to the item so the chip,
           the entering line, and the matching input row all read as one color. */}
       {edgeData?.multiInputTarget && zoom >= LABEL_MIN_ZOOM ? (
-        <EdgeLabelRenderer>
-          <div
-            data-testid={`item-edge-entry-${id}`}
-            className="nodrag nopan flow-chip entry"
-            aria-label={fullLabel}
-            title={fullLabel}
-            style={{
-              position: "absolute",
-              transform: `translate(-50%, -50%) translate(${targetX - ENTRY_CHIP_OFFSET}px, ${targetY}px)`,
-              whiteSpace: "nowrap",
-              ...chipAccentStyle(edgeData.item),
-            }}
-          >
-            {(() => {
-              const pos = iconPosition(edgeData.item);
-              return pos !== undefined ? (
-                <span className="ico ico-16">
-                  <span className="spr" style={{ backgroundPosition: pos }} />
-                </span>
-              ) : null;
-            })()}
-          </div>
-        </EdgeLabelRenderer>
+        <FlowChip
+          testId={`item-edge-entry-${id}`}
+          x={targetX - ENTRY_CHIP_OFFSET}
+          y={targetY}
+          item={edgeData.item}
+          label={fullLabel}
+          extraClass="entry"
+        />
       ) : null}
     </>
   );
