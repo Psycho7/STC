@@ -46,6 +46,11 @@ export type ItemEdgeData = {
   // Single-input consumers leave it unset, so their lone entering line needs no
   // extra identity chip. Optional and defaults to falsy.
   multiInputTarget?: true;
+  // Vertical stack offset for the entry chip, assigned by deconflictChipAnchors
+  // when several arrivals at one target node would otherwise pin their entry
+  // chips to overlapping anchors. Added to the port y so the chips stack in
+  // arrival order instead of coinciding. Optional and defaults to 0.
+  entryChipDy?: number;
   // Vertical nudge for the midpoint rate chip, assigned by deconflictChipAnchors
   // when the chip would otherwise land on top of another edge's chip. Added to
   // the label y so the two chips clear each other. Optional and defaults to 0.
@@ -61,6 +66,17 @@ export type ItemEdgeData = {
 // chip sits just outside the node on the entering leg so it reads as belonging
 // to that line without overlapping the port glyph.
 const ENTRY_CHIP_OFFSET = 12;
+
+// Anchor for an entry chip: one inset left of the target port, at the port y
+// plus the stack offset deconflictChipAnchors assigned (0 when the chip is the
+// only arrival, so it stays pinned to its port). Pure so it can be unit-tested.
+export function entryChipAnchor(
+  targetX: number,
+  targetY: number,
+  stackDy = 0,
+): { x: number; y: number } {
+  return { x: targetX - ENTRY_CHIP_OFFSET, y: targetY + stackDy };
+}
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
 // (older fixtures and tests). Belt is a solid gray stroke; pipe is a dashed cyan
@@ -290,8 +306,7 @@ export default function ItemEdge({
       {edgeData?.multiInputTarget && zoom >= LABEL_MIN_ZOOM ? (
         <FlowChip
           testId={`item-edge-entry-${id}`}
-          x={targetX - ENTRY_CHIP_OFFSET}
-          y={targetY}
+          {...entryChipAnchor(targetX, targetY, edgeData.entryChipDy)}
           item={edgeData.item}
           label={fullLabel}
           extraClass="entry"
