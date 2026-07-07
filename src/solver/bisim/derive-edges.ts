@@ -1,85 +1,32 @@
 import Fraction from "fraction.js";
 import type { ReplicaEdge } from "./types";
 import type { RecipeGraph, Replica } from "../types";
-import { outgoingEdgeKey } from "../types";
+import { wireConnections } from "../wiring";
 
 /**
- * Build the ReplicaEdge list from a RecipeGraph and its replicas, matching the
- * per-consumer routing assembleLogicalGraph uses. A producer shared at an
- * articulation point fans out to every consumer-replica of the recipe; a per-
- * consumer producer routes only to the one consumer it was replicated for, the
- * last entry of its consumerPath.
- *
- * Each edge's rate is the consumer-side demand (consumer.executionRate * in.qty),
- * so all edges arriving at a consumer-replica sum to that replica's input
- * requirement.
+ * Build the ReplicaEdge list from a RecipeGraph and its replicas: the shared
+ * replica-wiring rule (wiring.ts) run in its pre-quotient mode, priced for the
+ * bisim signatures. Each edge's rate is the consumer-side demand
+ * (consumer.executionRate * in.qty), so all edges arriving at a
+ * consumer-replica sum to that replica's input requirement.
  */
 export function deriveReplicaEdges(
   g: RecipeGraph,
   replicas: ReadonlyArray<Replica>,
 ): ReplicaEdge[] {
-  const replicasByRecipeId = new Map<string, Replica[]>();
-  for (const r of replicas) {
-    const arr = replicasByRecipeId.get(r.recipeId) ?? [];
-    arr.push(r);
-    replicasByRecipeId.set(r.recipeId, arr);
-  }
-
+  const replicaById = new Map(replicas.map((r) => [r.id, r]));
   const edges: ReplicaEdge[] = [];
-  for (const [pRid, outEdges] of g.outgoing) {
-    const producers = replicasByRecipeId.get(pRid) ?? [];
-    for (const e of outEdges) {
-      const cRid = e.target;
-      const item = e.item;
-      const consumers = replicasByRecipeId.get(cRid) ?? [];
-      if (producers.length === 0 || consumers.length === 0) continue;
-      const inQty = inQtyForRecipe(g, cRid, item);
-      if (inQty === undefined) continue;
-
-      for (const P of producers) {
-        // Respect a split replica's outgoing-edge ownership so the bisim
-        // signatures can tell the two halves apart: one carries the intra-SCC edge,
-        // the other the cross-boundary edge.
-        if (
-          P.outgoingEdgeFilter !== undefined &&
-          !P.outgoingEdgeFilter.has(outgoingEdgeKey(item, cRid))
-        ) {
-          continue;
-        }
-        if (P.sharedAtArticulation) {
-          for (const C of consumers) {
-            edges.push({
-              source: P.id,
-              target: C.id,
-              item,
-              rate: C.executionRate.mul(new Fraction(inQty)),
-            });
-          }
-        } else {
-          const last = P.consumerPath[P.consumerPath.length - 1];
-          if (!last) continue;
-          const designated = consumers.find((c) => c.id === last);
-          if (!designated) continue;
-          // Mirror assembleLogicalGraph: when the designated consumer is a split
-          // SCC stamp (discriminated by carrying an outgoingEdgeFilter, which only
-          // looper/deliverer replicas do), a per-consumer producer feeds every
-          // split sibling of the recipe, not just the canonical looper. Keeps the
-          // bisim signatures aligned with the logical graph's routing.
-          const fanTo =
-            designated.outgoingEdgeFilter !== undefined
-              ? consumers.filter((c) => c.outgoingEdgeFilter !== undefined)
-              : [designated];
-          for (const C of fanTo) {
-            edges.push({
-              source: P.id,
-              target: C.id,
-              item,
-              rate: C.executionRate.mul(new Fraction(inQty)),
-            });
-          }
-        }
-      }
-    }
+  for (const c of wireConnections(g, replicas)) {
+    const consumer = replicaById.get(c.consumerId);
+    if (consumer === undefined) continue;
+    const inQty = inQtyForRecipe(g, consumer.recipeId, c.item);
+    if (inQty === undefined) continue;
+    edges.push({
+      source: c.producerId,
+      target: c.consumerId,
+      item: c.item,
+      rate: consumer.executionRate.mul(new Fraction(inQty)),
+    });
   }
   return edges;
 }
