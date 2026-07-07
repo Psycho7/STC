@@ -15,11 +15,11 @@ import { CLOSED_FORM_FIXTURES } from "../../solver/closed-form-fixtures";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
 import type { Target } from "../../data/targets";
+import { renderPlanFromSolve } from "../driver";
 import {
-  renderPlanFromSolve,
   capProducerInputOutflow,
   type CapEdge,
-} from "../driver";
+} from "../expand/edge-rates";
 import {
   assertRenderInvariants,
   checkRenderPlan,

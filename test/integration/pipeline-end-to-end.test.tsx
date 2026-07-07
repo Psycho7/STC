@@ -25,13 +25,19 @@ describe("integration: App boots end-to-end via the new pipeline", () => {
     };
     try {
       const result = render(<App />);
-      await waitFor(() => {
-        expect(result.queryByText("正在加载布局...")).toBeNull();
-      });
-      const nodes = result.container.querySelectorAll(
-        ".react-flow__node[data-id]",
+      // The loading splash clears as soon as the plan solves, but React Flow
+      // nodes only mount after the async layout pass lands, so poll for the
+      // nodes themselves instead of asserting once after the splash goes away.
+      await waitFor(
+        () => {
+          expect(result.queryByText("正在加载布局...")).toBeNull();
+          const nodes = result.container.querySelectorAll(
+            ".react-flow__node[data-id]",
+          );
+          expect(nodes.length).toBeGreaterThan(0);
+        },
+        { timeout: 10_000 },
       );
-      expect(nodes.length).toBeGreaterThan(0);
       expect(consoleErrors).toEqual([]);
     } finally {
       console.error = originalError;

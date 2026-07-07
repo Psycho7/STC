@@ -255,7 +255,6 @@ function runSolvePipeline(
     replicas,
     multipliers,
     lanes,
-    tornEdges: torn.map((t) => t.id),
     condensation: c,
     recipeById,
     g,
