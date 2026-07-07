@@ -7,29 +7,47 @@ import GroupNode, { groupCaption } from "./GroupNode";
 afterEach(cleanup);
 
 test("groupCaption prefers an explicit label", () => {
-  expect(groupCaption({ label: "My Group", containerId: "loop:scc-1" })).toBe(
-    "My Group",
+  expect(
+    groupCaption({ label: "My Group", containerId: "loop:scc-1", memberCount: 3 }),
+  ).toBe("My Group");
+});
+
+test("groupCaption renders a human LOOP caption from the member count", () => {
+  expect(groupCaption({ containerId: "loop:scc-1", memberCount: 3 })).toBe(
+    "LOOP · 3",
   );
 });
 
-test("groupCaption derives a caption from containerId, stripping loop: prefix", () => {
+test("groupCaption falls back to the containerId when no member count is present", () => {
   expect(groupCaption({ containerId: "loop:scc-1" })).toBe("scc-1");
 });
 
-test("groupCaption leaves a non-loop containerId intact", () => {
-  expect(groupCaption({ containerId: "scc-1" })).toBe("scc-1");
-});
-
-test("groupCaption returns empty when neither label nor containerId is present", () => {
+test("groupCaption returns empty when nothing identifying is present", () => {
   expect(groupCaption({})).toBe("");
 });
 
-// The render pipeline supplies { containerKind, containerId } and no label;
-// the box must still caption (regression: it rendered captionless).
-test("GroupNode renders a caption for pipeline container data", () => {
+// The render pipeline supplies { containerKind, containerId, memberCount } and
+// no label; the box must caption with the human LOOP label, not the raw id.
+test("GroupNode renders a human caption for pipeline container data", () => {
   const props = {
-    data: { containerKind: "loop-box", containerId: "loop:scc-1" },
+    data: {
+      containerKind: "loop-box",
+      containerId: "loop:scc-1",
+      memberCount: 4,
+    },
   } as unknown as ComponentProps<typeof GroupNode>;
   const { container } = render(<GroupNode {...props} />);
-  expect(container.textContent).toContain("scc-1");
+  expect(container.textContent).toContain("LOOP · 4");
+});
+
+// Theming is CSS-driven: the caption carries a class rather than inline
+// light-theme styles.
+test("GroupNode caption carries a class and no inline color", () => {
+  const props = {
+    data: { containerKind: "loop-box", containerId: "loop:scc-1", memberCount: 2 },
+  } as unknown as ComponentProps<typeof GroupNode>;
+  const { container } = render(<GroupNode {...props} />);
+  const caption = container.querySelector(".rf-group-caption");
+  expect(caption).not.toBeNull();
+  expect((caption as HTMLElement).style.color).toBe("");
 });

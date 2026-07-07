@@ -10,7 +10,13 @@
 // does. layoutRenderPlan is mocked to an instantly-resolving spy so "how many
 // solves ran" is observable as its call count.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 const layoutSpy = vi.hoisted(() => ({
   calls: 0,
@@ -26,6 +32,17 @@ vi.mock("./canvas/layout", async (importOriginal) => {
     }),
   };
 });
+
+// Stub Canvas so the test can read the layoutGeneration prop App threads into
+// it. The real Canvas mounts React Flow, which is irrelevant to hash-nav
+// behaviour and only slows these tests down.
+const canvasSpy = vi.hoisted(() => ({ layoutGeneration: -1 }));
+vi.mock("./canvas/Canvas", () => ({
+  default: (props: { layoutGeneration?: number }) => {
+    canvasSpy.layoutGeneration = props.layoutGeneration ?? -1;
+    return null;
+  },
+}));
 
 import App from "./App";
 import { defaultPlan, encodePlan, validatePlan } from "./data/plan";
@@ -81,6 +98,22 @@ test("hashchange navigation to another plan's hash swaps the rendered plan", asy
   );
 });
 
+test("hash navigation bumps the layout generation", async () => {
+  render(<App />);
+
+  const rowsA = await screen.findAllByTestId("target-row");
+  expect(rowsA.length).toBe(3);
+  await waitFor(() => expect(window.location.hash).not.toBe(""));
+  const genAfterMount = canvasSpy.layoutGeneration;
+  expect(genAfterMount).toBeGreaterThan(0);
+
+  window.location.hash = await encodePlanB();
+  await waitFor(() =>
+    expect(screen.getAllByTestId("target-row").length).toBe(2),
+  );
+  expect(canvasSpy.layoutGeneration).toBeGreaterThan(genAfterMount);
+});
+
 test("malformed hash via hashchange shows the error banner and keeps the plan", async () => {
   render(<App />);
 
@@ -111,6 +144,37 @@ test("hashchange to a valid hash recovers from a bad mount hash", async () => {
     expect(screen.getAllByTestId("target-row").length).toBe(2),
   );
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("a bad mount hash shows a themed recovery screen with a human message", async () => {
+  window.location.hash = "#v1.%%%not-base64%%%";
+  render(<App />);
+
+  const alert = await screen.findByRole("alert");
+  // Rendered inside the themed app shell, not a bare white page.
+  expect(alert.closest(".ak-app-shell")).not.toBeNull();
+  // Primary line is the human message, with the technical detail demoted but
+  // still present.
+  expect(alert.textContent).toContain("damaged");
+  expect(alert.textContent).toMatch(/hash|parse/i);
+  // Recovery action present.
+  expect(
+    screen.getByRole("button", { name: /fresh plan/i }),
+  ).not.toBeNull();
+});
+
+test("the fresh-plan recovery action clears the hash and loads the default plan", async () => {
+  window.location.hash = "#v1.%%%not-base64%%%";
+  render(<App />);
+  await screen.findByRole("alert");
+
+  fireEvent.click(screen.getByRole("button", { name: /fresh plan/i }));
+
+  await waitFor(() =>
+    expect(screen.getAllByTestId("target-row").length).toBe(3),
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(window.location.hash).not.toContain("%%%");
 });
 
 test("app-initiated hash writes do not re-trigger a load", async () => {

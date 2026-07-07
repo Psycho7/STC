@@ -53,6 +53,13 @@
     rgba(124, 223, 252, 0.18) 1px,
     transparent 1px
   );
+  /* Half-strength grid for the mid-zoom LOD band, so the dots stop outcompeting
+     the shrunken graph without disappearing entirely. */
+  --blueprint-grid-faint: radial-gradient(
+    circle at 1px 1px,
+    rgba(124, 223, 252, 0.09) 1px,
+    transparent 1px
+  );
 }
 
 .ak-canvas-theme {
@@ -459,6 +466,11 @@
   color: var(--ak-accent-lime-bright);
 }
 
+.topbar .stat-chip.err {
+  border-color: var(--ak-accent-red);
+  color: var(--ak-accent-red);
+}
+
 /* Override the generic .ak-app-shell button rule inside the topbar so the
    locale switcher + action buttons keep their topbar look. */
 .ak-app-shell .topbar select,
@@ -790,6 +802,11 @@
   text-decoration: underline 1px var(--ak-accent-cyan-soft);
   text-underline-offset: 3px;
 }
+/* Keyboard focus gets a real ring; the underline stays as the secondary cue. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick select:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
 /* Native <option> styling. Browsers vary here, but setting explicit colors
    unsticks most gtk/chromium menus that otherwise inherit a transparent or
    unreadable background. */
@@ -876,7 +893,7 @@
     color 120ms ease-out;
 }
 .ak-app-shell [data-testid="side-panel"] .b-row .b-rate input::placeholder {
-  color: var(--ak-text-decoration);
+  color: var(--ak-text-secondary);
   font-style: italic;
   font-size: 12px;
   letter-spacing: 0.06em;
@@ -885,6 +902,56 @@
 .ak-app-shell [data-testid="side-panel"] .b-row .b-rate input:focus {
   border-bottom-color: var(--ak-accent-lime);
   color: var(--ak-accent-lime-bright);
+}
+/* Rejected rate input: red accent on the field plus a small inline message so
+   the panel and canvas never silently disagree about a swallowed value. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-rate input.invalid,
+.ak-app-shell [data-testid="side-panel"] .b-row .b-rate input.invalid:focus {
+  border-bottom-color: var(--ak-accent-red);
+  color: var(--ak-accent-red);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-rate .b-rate-err {
+  margin-top: 2px;
+  max-width: 96px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.25;
+  color: var(--ak-accent-red);
+  letter-spacing: 0.02em;
+  text-align: right;
+}
+
+/* Dismissible mutation-error banner under the header, themed for the dark shell
+   (was a light #fee/#900/#f99 element that read as a crash). */
+.ak-app-shell .app-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(225, 53, 30, 0.14);
+  border-top: 1px solid var(--ak-accent-red);
+  color: var(--ak-accent-red);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+.ak-app-shell .app-error-banner-body {
+  flex: 1;
+  min-width: 0;
+}
+.ak-app-shell .app-error-banner-dismiss {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--ak-accent-red);
+  color: var(--ak-accent-red);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.ak-app-shell .app-error-banner-dismiss:hover {
+  background: rgba(225, 53, 30, 0.22);
 }
 .ak-app-shell [data-testid="side-panel"] .b-row .b-rate .unit {
   font-family: var(--font-mono);
@@ -900,27 +967,34 @@
   right: 6px;
   background: transparent;
   border: 1px solid transparent;
-  color: var(--ak-text-decoration-faint);
-  font-size: 13px;
-  width: 18px;
-  height: 18px;
-  line-height: 14px;
+  color: var(--ak-text-decoration);
+  font-size: 15px;
+  width: 24px;
+  height: 24px;
+  line-height: 22px;
   padding: 0;
   text-align: center;
-  opacity: 0;
+  /* Kept at a low but visible opacity at rest so touch users (no hover) can see
+     the affordance; hover/focus brings it to full. */
+  opacity: 0.4;
   transition:
     opacity 140ms ease-out,
     color 120ms ease-out,
     border-color 120ms ease-out;
 }
 .ak-app-shell [data-testid="side-panel"] .b-row:hover .b-remove,
-.ak-app-shell [data-testid="side-panel"] .b-row:focus-within .b-remove {
+.ak-app-shell [data-testid="side-panel"] .b-row:focus-within .b-remove,
+.ak-app-shell [data-testid="side-panel"] .b-row .b-remove:focus-visible {
   opacity: 1;
 }
 .ak-app-shell [data-testid="side-panel"] .b-row .b-remove:hover {
   border-color: var(--ak-accent-red);
   color: var(--ak-accent-red);
   background: rgba(225, 53, 30, 0.1);
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-remove:focus-visible {
+  outline: 1px solid var(--ak-accent-red);
+  outline-offset: 1px;
 }
 
 /* Inline duplicate-id error sits below the picker. */
@@ -1016,6 +1090,47 @@
   font-family: var(--font-num);
   font-weight: 700;
   letter-spacing: 0;
+}
+
+/* Dark theme for container group boxes (SCC loops). React Flow ships a light
+   translucent default for .react-flow__node-group; the designed .scc-box theme
+   below is unreachable while net-IO is stubbed, so the live 'group' node path
+   is themed here reusing the same palette. */
+.react-flow__node-group {
+  background: rgba(26, 28, 32, 0.55);
+  border: 1px solid var(--ak-divider-strong);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.rf-group-box {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+}
+
+.rf-group-caption {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ak-text-secondary);
+  background: rgba(0, 0, 0, 0.28);
+  border-bottom: 1px solid var(--ak-divider);
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* SCC loop box. */
@@ -1196,10 +1311,29 @@
   transition: opacity 120ms ease-out;
 }
 .ak-canvas-theme .react-flow__node.dimmed {
-  opacity: 0.18;
+  opacity: 0.4;
 }
 .ak-canvas-theme .react-flow__edge.dimmed {
-  opacity: 0.12;
+  opacity: 0.3;
+}
+
+/* A container lit only because a child is focused: keep it visible with a lit
+   border but a more translucent fill, so the box does not dominate its own
+   dimmed members. */
+.ak-canvas-theme .react-flow__node-group.lit-container {
+  border-color: var(--ak-accent-cyan-soft);
+  background: rgba(26, 28, 32, 0.32);
+}
+
+/* During any hover session, non-dimmed edges get a thicker, brighter stroke so
+   the lit flow is traceable end to end instead of staying a hairline. The width
+   scales relative to the edge's zoom-compensated --edge-base-width so the lit
+   edge always dominates its dimmed neighbours; the 2.25px floor preserves the
+   emphasis at zoom 1 where the base is only 1px. !important beats the inline
+   strokeWidth the edge sets from the same custom property. */
+.ak-canvas-theme.hover-active .react-flow__edge:not(.dimmed) path {
+  stroke-width: max(2.25px, calc(var(--edge-base-width, 1px) * 1.6)) !important;
+  filter: brightness(1.35);
 }
 
 /* Override React Flow's default light pane / dot grid for the dark theme. */
@@ -1228,18 +1362,40 @@
   background: var(--ak-bg-secondary);
   border-bottom: 1px solid var(--ak-divider);
   color: var(--ak-text-secondary);
+  /* React Flow ships 16px buttons; enlarge past the 24px minimum hit target so
+     the fit-view escape hatch is easy to find and press. */
+  width: 26px;
+  height: 26px;
 }
 
 .ak-canvas-theme .react-flow__controls-button:hover {
   background: var(--ak-bg-tertiary);
 }
 
+/* Brighten the glyphs to the primary text token so the strip reads against the
+   near-black canvas instead of the low-contrast default. */
 .ak-canvas-theme .react-flow__controls-button svg {
-  fill: var(--ak-text-secondary);
+  fill: var(--ak-text-primary);
+  max-width: 60%;
+  max-height: 60%;
 }
 
 .ak-canvas-theme .react-flow__controls-button:hover svg {
   fill: var(--ak-accent-lime);
+}
+
+/* Dark-theme the overview minimap so it matches the blueprint canvas: a
+   canvas-toned panel with a divider border. The node fills and mask color come
+   from props (SVG fill attributes cannot resolve CSS vars); this styles the
+   surrounding panel. */
+.ak-canvas-theme .react-flow__minimap {
+  background: var(--ak-bg-secondary);
+  border: 1px solid var(--ak-divider);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+.ak-canvas-theme .react-flow__minimap svg {
+  border-radius: 2px;
 }
 
 /* Blueprint-grid dot pattern on the canvas pane. */
@@ -1247,6 +1403,42 @@
 .ak-canvas-theme .react-flow {
   background-image: var(--blueprint-grid);
   background-size: 24px 24px;
+}
+
+/* Low-zoom LOD (zoom < 0.4): at the dense-plan fit zoom the per-machine metadata
+   and card chrome render below legibility, so read cards as solid brighter
+   blocks with firm borders, drop the sub-legible text layers, and clear the dot
+   grid so structure leads. The .zoom-low / .zoom-mid classes carry two classes
+   in the first compound selector, so they outrank the single-class base rules
+   above regardless of order. */
+.ak-canvas-theme.zoom-low .recipe-node {
+  background: var(--ak-bg-secondary);
+  border-color: var(--ak-divider-strong);
+}
+.ak-canvas-theme.zoom-low .product-node {
+  border-color: var(--ak-divider-strong);
+}
+.ak-canvas-theme.zoom-low .rn-footer,
+.ak-canvas-theme.zoom-low .rn-head .machine-name,
+.ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-lbl,
+.ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-sub,
+.ak-canvas-theme.zoom-low .item-id {
+  display: none;
+}
+.ak-canvas-theme.zoom-low .react-flow__pane,
+.ak-canvas-theme.zoom-low .react-flow {
+  background-image: none;
+}
+
+/* Mid-zoom LOD (0.4-0.8): a lighter touch. Keep the detail text but firm up card
+   borders and drop the grid to half strength so the graph still leads. */
+.ak-canvas-theme.zoom-mid .recipe-node,
+.ak-canvas-theme.zoom-mid .product-node {
+  border-color: var(--ak-divider-strong);
+}
+.ak-canvas-theme.zoom-mid .react-flow__pane,
+.ak-canvas-theme.zoom-mid .react-flow {
+  background-image: var(--blueprint-grid-faint);
 }
 
 /* Subtle scanline + vignette overlay across the canvas region. */
@@ -1330,7 +1522,9 @@
   z-index: 4;
 }
 .ak-canvas-theme .canvas-annot.top-left {
-  top: 32px;
+  /* Cleared below the copy-share button (top:8 + button height) so the two no
+     longer overlap in the corner. */
+  top: 44px;
   left: 32px;
 }
 .ak-canvas-theme .canvas-annot.top-right {
@@ -1421,10 +1615,22 @@
   transform: scale(0.625);
 }
 
+/* Lift the chip layer above node cards. EdgeLabelRenderer portals every chip
+   into .react-flow__edgelabel-renderer, which React Flow paints below the node
+   layer, so rate and entry chips vanished under any card they crossed. Raising
+   the whole label layer keeps chips readable where the graph is densest. */
+.ak-canvas-theme .react-flow__edgelabel-renderer {
+  z-index: 6;
+}
+
 .flow-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* Re-enable pointer events (the edgelabel-renderer sets none) so the native
+     title tooltip shows the exact rate on hover. The nodrag/nopan classes keep
+     React Flow's own drag/pan from being hijacked by the chip. */
+  pointer-events: auto;
   padding: 3px 7px;
   background: linear-gradient(180deg, #1f2125 0%, #14171b 100%);
   border: 1px solid var(--chip-accent, var(--ak-accent-cyan));
@@ -1446,7 +1652,7 @@
    chip fades in step with its edge (same opacity as the edge, same transition
    duration/easing as the wrapper). */
 .flow-chip.dimmed {
-  opacity: 0.12;
+  opacity: 0.3;
 }
 
 .flow-chip.red {
@@ -1504,9 +1710,9 @@
 
 .pn-kind {
   font-family: var(--ak-font-mono);
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.14em;
-  color: var(--ak-text-decoration);
+  color: var(--ak-text-secondary);
   text-transform: uppercase;
   line-height: 1;
   margin-top: 2px;
@@ -1722,6 +1928,23 @@
   box-shadow: 0 0 8px rgba(35, 213, 252, 0.5);
 }
 
+/* Machine-count multiplicity badge. Uses the lime tier chip treatment for a
+   readable, on-theme chip instead of the dead light-theme inline color:#444. */
+.rn-mult-badge {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-family: var(--font-num);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 5px;
+  color: var(--ak-accent-lime);
+  border: 1px solid var(--ak-accent-lime-dim);
+  background: rgba(0, 0, 0, 0.35);
+  letter-spacing: 0.04em;
+}
+
 .rn-head {
   display: grid;
   grid-template-columns: 52px 1fr auto;
@@ -1778,10 +2001,41 @@
 
 .rn-head .rn-rate-block .rate-lbl {
   font-family: var(--font-mono);
-  font-size: 8px;
-  color: var(--ak-text-decoration);
+  font-size: 10px;
+  color: var(--ak-text-secondary);
   letter-spacing: 0.18em;
   text-transform: uppercase;
+}
+
+/* Per-machine secondary under the aggregate header value: the single-machine
+   rate, a scope label ("ea" = each machine), and the machine-count badge, so
+   the aggregate primary stays reconcilable to one machine's throughput. */
+.rn-head .rn-rate-block .rate-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 2px;
+  font-family: var(--font-num);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--ak-text-secondary);
+}
+
+.rn-head .rn-rate-block .rate-sub .rate-sub-val {
+  font-weight: 700;
+}
+
+.rn-head .rn-rate-block .rate-sub .rate-sub-ea {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ak-text-decoration);
+}
+
+.rn-head .rn-rate-block .rate-sub .rate-sub-mult {
+  font-weight: 700;
+  color: var(--ak-accent-lime);
 }
 
 .rn-head .product {
@@ -1827,6 +2081,16 @@
   background: transparent;
 }
 
+/* React Flow's shipped style.css suppresses the node focus outline
+   (.react-flow__node.selectable:focus-visible { outline: none }). Restore a
+   visible ring so keyboard users can see which canvas node holds focus; the
+   cyan accent reads on the dark blueprint background. Scoped under the theme
+   container and matching .selectable so it outranks the library rule. */
+.ak-canvas-theme .react-flow__node.selectable:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
+
 /* The glow on a selected RecipeNode. */
 .recipe-node.selected {
   border: 2px solid var(--ak-accent-lime);
@@ -1844,17 +2108,16 @@
   opacity: 0.6;
 }
 
-.rn-head .machine-mid {
-  font-family: var(--ak-font-mono);
-  font-size: 8.5px;
-  color: var(--ak-text-decoration);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  line-height: 1;
-  margin-top: 1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Selection treatment for a boundary product card. Unlike the recipe card it
+   has no lime identity, so the ring uses the cyan accent as a neutral
+   "selected" cue that reads on the dark canvas without fighting the per-flavor
+   accent borders. */
+.product-node.selected {
+  border-color: var(--ak-accent-cyan);
+  box-shadow:
+    0 0 0 1px rgba(124, 223, 252, 0.25),
+    0 0 18px rgba(124, 223, 252, 0.18),
+    0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 .rn-footer {
@@ -1877,6 +2140,8 @@
 .rn-footer .cycle {
   flex: 1 1 0;
   min-width: 0;
+  font-size: 10px;
+  color: var(--ak-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

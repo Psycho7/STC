@@ -127,13 +127,15 @@ function renderRecipe(
 
 describe("RecipeNode", () => {
   it("renders a kind: 'recipe' unit with the legacy multiplier badge when multiplier > 1 and not expanded", () => {
-    renderRecipe({
+    // The count now also appears in the per-machine secondary line, so target
+    // the corner badge element rather than a bare text match.
+    const { container } = renderRecipe({
       recipe,
       kind: "recipe",
       multiplier: 3,
       expanded: false,
     });
-    expect(screen.getByText("x3")).toBeInTheDocument();
+    expect(container.querySelector(".rn-mult-badge")?.textContent).toBe("x3");
   });
 
   it("renders a kind: 'recipe' unit without a badge when multiplier is 1", () => {
@@ -147,12 +149,14 @@ describe("RecipeNode", () => {
   });
 
   it("preserves backward-compat on-main shape: { recipe, multiplier, expanded } with no kind", () => {
-    renderRecipe({
+    // The count now also appears in the per-machine secondary line, so target
+    // the corner badge element rather than a bare text match.
+    const { container } = renderRecipe({
       recipe,
       multiplier: 4,
       expanded: false,
     });
-    expect(screen.getByText("x4")).toBeInTheDocument();
+    expect(container.querySelector(".rn-mult-badge")?.textContent).toBe("x4");
   });
 
   it("hides legacy badge when expanded is true even if multiplier > 1", () => {
@@ -332,7 +336,9 @@ describe("RecipeNode", () => {
       expect(footer).not.toBeNull();
       const cycle = footer!.querySelector(".cycle");
       expect(cycle).not.toBeNull();
-      expect(cycle!.textContent).toBe("2.4s · cycle");
+      // The cycle caption localizes; the harness renders under the default zh
+      // locale, so the label reads in zh.
+      expect(cycle!.textContent).toBe("2.4秒 · 周期");
       const pwr = footer!.querySelector(".pwr");
       expect(pwr).not.toBeNull();
       expect(pwr!.textContent).toBe("");
@@ -365,7 +371,7 @@ describe("RecipeNode", () => {
       producers: ["mixer"],
     };
 
-    it("renders machine-icon data attribute, .product, .cn, .tier, and .machine-mid for a tiered producer", () => {
+    it("renders machine-icon data attribute, .product, .cn, and .tier for a tiered producer", () => {
       const machine = makeMachine("assembler-t1", "asm-icon");
       const { container } = renderRecipe(
         { recipe: tieredRecipe, kind: "recipe", multiplier: 1 },
@@ -385,9 +391,8 @@ describe("RecipeNode", () => {
       expect(nameRow).not.toBeNull();
       expect(nameRow!.querySelector(".cn")?.textContent).toBe("assembler-t1");
       expect(nameRow!.querySelector(".tier")?.textContent).toBe("T1");
-      expect(head!.querySelector(".machine-mid")?.textContent).toBe(
-        "assembler-t1",
-      );
+      // The raw machine id line is dropped in favor of the localized name.
+      expect(head!.querySelector(".machine-mid")).toBeNull();
     });
 
     it("omits the .tier chip when machine id has no -t\\d+ suffix", () => {
@@ -401,11 +406,11 @@ describe("RecipeNode", () => {
       );
       const head = container.querySelector(".rn-head");
       expect(head!.querySelector(".machine-name .tier")).toBeNull();
-      // .cn and .machine-mid still rendered.
+      // .cn still rendered; the raw machine id line is gone.
       expect(head!.querySelector(".machine-name .cn")?.textContent).toBe(
         "mixer",
       );
-      expect(head!.querySelector(".machine-mid")?.textContent).toBe("mixer");
+      expect(head!.querySelector(".machine-mid")).toBeNull();
     });
 
     it("falls back to producers[0] for machine-icon data attribute when machine icon is absent and skips name/mid lines", () => {

@@ -9,16 +9,25 @@ export type UiKey =
   | "targets.rate.unit"
   | "targets.rate.label"
   | "targets.recipe.label"
+  | "targets.recipe.choose"
   | "targets.remove.label"
   | "targets.duplicate"
+  | "targets.head.sub"
+  | "targets.empty"
   | "app.loading"
   | "app.error.load"
+  | "app.error.corrupt"
+  | "app.error.reset"
   | "app.error.solver"
+  | "app.error.infeasible"
+  | "app.error.infeasible.generic"
   | "app.error.dismiss"
   | "app.frozen.notice"
   | "app.frozen.edit"
   | "app.locale.label"
   | "canvas.copy_share"
+  | "canvas.copy_share.copied"
+  | "canvas.copy_share.failed"
   | "inputs.title"
   | "inputs.item.label"
   | "inputs.rate.label"
@@ -32,6 +41,23 @@ export type UiKey =
   | "inputs.duplicate"
   | "inputs.unlimited"
   | "inputs.needed"
+  | "inputs.empty"
+  | "node.upm"
+  | "node.each"
+  | "node.cycle"
+  | "product.dir.in"
+  | "product.dir.out"
+  | "product.class.raw"
+  | "product.class.import"
+  | "product.flavor.target"
+  | "product.flavor.surplus"
+  | "canvas.controls.panel"
+  | "canvas.controls.zoom_in"
+  | "canvas.controls.zoom_out"
+  | "canvas.controls.fit_view"
+  | "canvas.controls.interactive"
+  | "canvas.minimap"
+  | "rate.invalid"
   | "stats.output"
   | "stats.output.unit"
   | "stats.input"
@@ -54,17 +80,26 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "件 / 分钟",
     "targets.rate.label": "速率",
     "targets.recipe.label": "配方",
+    "targets.recipe.choose": "选择配方…",
     "targets.remove.label": "删除目标",
     "targets.duplicate": "配方 ID 重复: {recipeId}",
+    "targets.head.sub": "// 声明产出速率 · 件 / 分钟",
+    "targets.empty": "未声明任何目标产物 — 点击下方按钮添加",
     "app.loading": "正在加载布局...",
     "app.error.load": "加载方案失败: {message}",
+    "app.error.corrupt": "此分享链接已损坏，或来自更新版本的规划器。",
+    "app.error.reset": "从新方案开始",
     "app.error.solver": "求解器错误: {message}",
+    "app.error.infeasible": "无可行方案，涉及：{items}。请提高供给上限或降低目标产量。",
+    "app.error.infeasible.generic": "当前目标与供给上限下无可行方案。",
     "app.error.dismiss": "关闭",
     "app.frozen.notice":
       "这是一个已冻结的 v1 方案。编辑会丢弃它并清空目标列表。",
     "app.frozen.edit": "编辑",
     "app.locale.label": "语言",
     "canvas.copy_share": "复制分享链接",
+    "canvas.copy_share.copied": "已复制",
+    "canvas.copy_share.failed": "复制失败",
     "inputs.title": "输入",
     "inputs.item.label": "物品",
     "inputs.rate.label": "速率",
@@ -78,6 +113,23 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "该物品已声明",
     "inputs.unlimited": "无限",
     "inputs.needed": "需求 {rate}/分",
+    "inputs.empty": "未配置任何输入 — 全部按 raw 自动求解",
+    "node.upm": "件/分",
+    "node.each": "单台",
+    "node.cycle": "{time}秒 · 周期",
+    "product.dir.in": "输入",
+    "product.dir.out": "输出",
+    "product.class.raw": "原料",
+    "product.class.import": "进口",
+    "product.flavor.target": "目标",
+    "product.flavor.surplus": "过剩",
+    "canvas.controls.panel": "控制面板",
+    "canvas.controls.zoom_in": "放大",
+    "canvas.controls.zoom_out": "缩小",
+    "canvas.controls.fit_view": "适应视图",
+    "canvas.controls.interactive": "切换交互",
+    "canvas.minimap": "缩略图",
+    "rate.invalid": "请输入数字，例如 30 或 1/3",
     "stats.output": "输出",
     "stats.output.unit": "目标",
     "stats.input": "输入",
@@ -91,17 +143,29 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "items / minute",
     "targets.rate.label": "rate",
     "targets.recipe.label": "recipe",
+    "targets.recipe.choose": "Choose a recipe...",
     "targets.remove.label": "remove target",
     "targets.duplicate": "Duplicate recipe id: {recipeId}",
+    "targets.head.sub": "// declared output rates · items per minute",
+    "targets.empty": "No declared outputs yet — use the action below",
     "app.loading": "Loading layout...",
     "app.error.load": "Failed to load plan: {message}",
+    "app.error.corrupt":
+      "This share link is damaged or from a newer version of the planner.",
+    "app.error.reset": "Start with a fresh plan",
     "app.error.solver": "Solver error: {message}",
+    "app.error.infeasible":
+      "No feasible plan involving: {items}. Raise the supply caps or lower the targets.",
+    "app.error.infeasible.generic":
+      "No feasible plan for the current targets and supply caps.",
     "app.error.dismiss": "Dismiss",
     "app.frozen.notice":
       "This is a frozen v1 plan. Editing will discard it and start an empty target list.",
     "app.frozen.edit": "Edit",
     "app.locale.label": "Language",
     "canvas.copy_share": "Copy share URL",
+    "canvas.copy_share.copied": "Copied",
+    "canvas.copy_share.failed": "Copy failed",
     "inputs.title": "Inputs",
     "inputs.item.label": "Item",
     "inputs.rate.label": "Rate",
@@ -115,6 +179,23 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "Item already declared",
     "inputs.unlimited": "Unlimited",
     "inputs.needed": "needed {rate}/min",
+    "inputs.empty": "No declared inputs — defaults to raw-source feed",
+    "node.upm": "UPM",
+    "node.each": "ea",
+    "node.cycle": "{time}s · cycle",
+    "product.dir.in": "In",
+    "product.dir.out": "Out",
+    "product.class.raw": "raw",
+    "product.class.import": "import",
+    "product.flavor.target": "target",
+    "product.flavor.surplus": "surplus",
+    "canvas.controls.panel": "Control panel",
+    "canvas.controls.zoom_in": "Zoom in",
+    "canvas.controls.zoom_out": "Zoom out",
+    "canvas.controls.fit_view": "Fit view",
+    "canvas.controls.interactive": "Toggle interactivity",
+    "canvas.minimap": "Mini map",
+    "rate.invalid": "Enter a number, e.g. 30 or 1/3",
     "stats.output": "Output",
     "stats.output.unit": "targets",
     "stats.input": "Input",
@@ -128,17 +209,29 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "個 / 分",
     "targets.rate.label": "レート",
     "targets.recipe.label": "レシピ",
+    "targets.recipe.choose": "レシピを選択…",
     "targets.remove.label": "ターゲットを削除",
     "targets.duplicate": "レシピ ID の重複: {recipeId}",
+    "targets.head.sub": "// 宣言された産出レート · 個 / 分",
+    "targets.empty": "宣言されたターゲットはまだありません — 下のボタンで追加",
     "app.loading": "レイアウトを読み込み中...",
     "app.error.load": "プランの読み込みに失敗しました: {message}",
+    "app.error.corrupt":
+      "この共有リンクは破損しているか、新しいバージョンのプランナーのものです。",
+    "app.error.reset": "新しいプランで開始",
     "app.error.solver": "ソルバーエラー: {message}",
+    "app.error.infeasible":
+      "実行可能な計画がありません（対象: {items}）。供給上限を上げるか、ターゲットを下げてください。",
+    "app.error.infeasible.generic":
+      "現在のターゲットと供給上限では実行可能な計画がありません。",
     "app.error.dismiss": "閉じる",
     "app.frozen.notice":
       "これは凍結された v1 プランです。編集すると破棄され、空のターゲットリストが開始されます。",
     "app.frozen.edit": "編集",
     "app.locale.label": "言語",
     "canvas.copy_share": "共有 URL をコピー",
+    "canvas.copy_share.copied": "コピーしました",
+    "canvas.copy_share.failed": "コピー失敗",
     "inputs.title": "入力",
     "inputs.item.label": "アイテム",
     "inputs.rate.label": "レート",
@@ -152,6 +245,23 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "このアイテムは既に登録されています",
     "inputs.unlimited": "無制限",
     "inputs.needed": "必要 {rate}/分",
+    "inputs.empty": "宣言された入力はありません — すべて raw 供給として解決",
+    "node.upm": "個/分",
+    "node.each": "1台",
+    "node.cycle": "{time}秒 · サイクル",
+    "product.dir.in": "入力",
+    "product.dir.out": "出力",
+    "product.class.raw": "原料",
+    "product.class.import": "輸入",
+    "product.flavor.target": "目標",
+    "product.flavor.surplus": "余剰",
+    "canvas.controls.panel": "コントロールパネル",
+    "canvas.controls.zoom_in": "拡大",
+    "canvas.controls.zoom_out": "縮小",
+    "canvas.controls.fit_view": "全体表示",
+    "canvas.controls.interactive": "操作の切替",
+    "canvas.minimap": "ミニマップ",
+    "rate.invalid": "数値を入力してください（例: 30 や 1/3）",
     "stats.output": "出力",
     "stats.output.unit": "ターゲット",
     "stats.input": "入力",
@@ -165,17 +275,29 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "шт. / мин",
     "targets.rate.label": "скорость",
     "targets.recipe.label": "рецепт",
+    "targets.recipe.choose": "Выберите рецепт…",
     "targets.remove.label": "удалить цель",
     "targets.duplicate": "Дублирующийся ID рецепта: {recipeId}",
+    "targets.head.sub": "// заявленные скорости вывода · шт. / мин",
+    "targets.empty": "Цели ещё не заданы — используйте кнопку ниже",
     "app.loading": "Загрузка макета...",
     "app.error.load": "Не удалось загрузить план: {message}",
+    "app.error.corrupt":
+      "Эта ссылка повреждена или создана в более новой версии планировщика.",
+    "app.error.reset": "Начать с нового плана",
     "app.error.solver": "Ошибка решателя: {message}",
+    "app.error.infeasible":
+      "Нет допустимого плана для: {items}. Повысьте лимиты поставок или снизьте цели.",
+    "app.error.infeasible.generic":
+      "Нет допустимого плана для текущих целей и лимитов поставок.",
     "app.error.dismiss": "Закрыть",
     "app.frozen.notice":
       "Это замороженный план v1. Редактирование удалит его и начнёт пустой список целей.",
     "app.frozen.edit": "Изменить",
     "app.locale.label": "Язык",
     "canvas.copy_share": "Скопировать ссылку",
+    "canvas.copy_share.copied": "Скопировано",
+    "canvas.copy_share.failed": "Не удалось скопировать",
     "inputs.title": "Входы",
     "inputs.item.label": "Предмет",
     "inputs.rate.label": "Скорость",
@@ -189,6 +311,23 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.duplicate": "Предмет уже объявлен",
     "inputs.unlimited": "Без ограничений",
     "inputs.needed": "нужно {rate}/мин",
+    "inputs.empty": "Входы не заданы — по умолчанию сырьевой источник",
+    "node.upm": "шт/мин",
+    "node.each": "ед.",
+    "node.cycle": "{time}с · цикл",
+    "product.dir.in": "Вход",
+    "product.dir.out": "Выход",
+    "product.class.raw": "сырьё",
+    "product.class.import": "импорт",
+    "product.flavor.target": "цель",
+    "product.flavor.surplus": "избыток",
+    "canvas.controls.panel": "Панель управления",
+    "canvas.controls.zoom_in": "Приблизить",
+    "canvas.controls.zoom_out": "Отдалить",
+    "canvas.controls.fit_view": "Вписать в экран",
+    "canvas.controls.interactive": "Переключить интерактивность",
+    "canvas.minimap": "Мини-карта",
+    "rate.invalid": "Введите число, например 30 или 1/3",
     "stats.output": "Выход",
     "stats.output.unit": "цели",
     "stats.input": "Вход",

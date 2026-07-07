@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
 import type { ItemOverride } from "../data/plan";
@@ -10,10 +10,10 @@ import { iconPosition } from "../canvas/iconSprite";
 type Props = {
   itemOverrides: ItemOverride[];
   // Changes are emitted as functional updaters applied by the owner against
-  // its authoritative list, never as snapshots of the prop: a debounced commit
-  // built from a stale prop can otherwise drop a concurrent edit or resurrect
-  // a removed row. An updater that finds nothing to change must return its
-  // input unchanged (same reference) so the owner can skip a no-op commit.
+  // its authoritative list, never as snapshots of the prop: a commit built from
+  // a stale prop can otherwise drop a concurrent edit or resurrect a removed
+  // row. An updater that finds nothing to change must return its input unchanged
+  // (same reference) so the owner can skip a no-op commit.
   onChange: (update: (current: ItemOverride[]) => ItemOverride[]) => void;
   pack: RecipePack;
   targetItemIds?: ReadonlySet<string>;
@@ -29,7 +29,21 @@ type Props = {
   assumedRawItemIds?: ReadonlyArray<string>;
 };
 
-const DEBOUNCE_MS = 150;
+// Number of input rows the panel actually shows: explicit overrides plus every
+// assumed-raw item that does not yet have an override (those still render as
+// auto-rows). The supply counters (stats strip, side tab, section head) route
+// through this so none of them can report 0 while auto-rows are on screen, and
+// an overridden raw item is counted once (as its override), never twice.
+export function displayedInputCount(
+  itemOverrides: ReadonlyArray<{ itemId: string }>,
+  assumedRawItemIds: ReadonlyArray<string> | undefined,
+): number {
+  const overrideIds = new Set(itemOverrides.map((o) => o.itemId));
+  const autoCount = (assumedRawItemIds ?? []).filter(
+    (id) => !overrideIds.has(id),
+  ).length;
+  return itemOverrides.length + autoCount;
+}
 
 // Behaves a little differently from the parser in TargetsPanel. Empty string
 // means "uncap" (no rate limit). A negative or unparseable input returns the
@@ -60,14 +74,23 @@ export function InputsPanel({
   assumedRawItemIds,
 }: Props) {
   const i18n = useI18n();
+  // Locale-aware compare so the picker scans by the displayed name, not the
+  // internal id, in every locale.
+  const collator = useMemo(
+    () => new Intl.Collator(i18n.locale),
+    [i18n.locale],
+  );
   // Sorted items drive both the picker order and the first-unused-id pick when
-  // the user adds a row. Re-sorting every render is fine at a few hundred items.
+  // the user adds a row. Ordered by localized display name (the name shown), not
+  // internal id. Re-sorting every render is fine at a few hundred items.
   const sortedItems = useMemo(
     () =>
       pack.items
         .slice()
-        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
-    [pack],
+        .sort((a, b) =>
+          collator.compare(i18n.displayName(a.id), i18n.displayName(b.id)),
+        ),
+    [pack, collator, i18n],
   );
   const itemById = useMemo(() => {
     const m = new Map<string, (typeof pack.items)[number]>();
@@ -79,38 +102,50 @@ export function InputsPanel({
     rowId: string;
     itemId: string;
   } | null>(null);
-  const overrideTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  );
-  // Auto-row timers have no clearPendingEdit analog: nothing cancels them when
-  // auto-rows transition out (e.g. an override appears and hides the rows).
-  // Intentional gap - a late fire is a no-op because commitAutoRate's
-  // duplicate guard skips items that already have an override, and an empty or
-  // INVALID value never mutates the list.
-  const autoTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  );
   // In-flight edit values keyed by itemId. A row without an entry falls back
   // to the prop-derived value, so a new `itemOverrides` prop updates the visible
-  // rate without a separate sync effect. Keying by id (not row index) keeps a
-  // pending edit attached to its row across removals and reorders.
+  // rate without a separate sync effect. Keying by id (not row index) keeps an
+  // uncommitted edit attached to its row across removals and reorders. Text is
+  // committed only on blur or Enter; the committed string is kept here as the
+  // display value (re-serializing ratePerSec would turn "1/3" into a float).
   const [localRates, setLocalRates] = useState<Map<string, string>>(new Map());
-  // In-flight edits for auto-rows, keyed by itemId. When the debounce fires, a
-  // valid rate creates a new ItemOverride, turning the auto-row into an explicit
-  // override row. The local string only needs to survive until commit: once the
-  // prop list grows, the next render replaces the auto-row and the local entry
-  // is orphaned.
+  // In-flight edits for auto-rows, keyed by itemId. On commit a valid rate
+  // creates a new ItemOverride, turning the auto-row into an explicit override
+  // row. The local string only needs to survive until commit: once the prop list
+  // grows, the next render replaces the auto-row and the local entry is orphaned.
   const [localAutoRates, setLocalAutoRates] = useState<Map<string, string>>(
     new Map(),
   );
-  // Returns false only on INVALID, so the caller keeps the prior value and
-  // the local edit string for the user to fix.
+  // Item ids whose local text has not yet been committed, one set per row kind.
+  // Guards the blur/Enter commit so re-blurring an unedited field never re-fires
+  // a solve.
+  // The owner remounts this panel (via a key keyed on plan identity) when it
+  // navigates to a new plan, dropping all uncommitted local edit state, so there
+  // is no cross-plan carryover to clear here.
+  const dirty = useRef<Set<string>>(new Set());
+  const dirtyAuto = useRef<Set<string>>(new Set());
+  // Item ids whose last commit attempt failed to parse (INVALID). Drives the
+  // input's aria-invalid flag and the inline error message. Shared across auto
+  // and override rows since an item is only ever one or the other at a time.
+  const [invalidIds, setInvalidIds] = useState<Set<string>>(new Set());
+  function markInvalid(itemId: string, on: boolean) {
+    setInvalidIds((prev) => {
+      if (on === prev.has(itemId)) return prev;
+      const next = new Set(prev);
+      if (on) next.add(itemId);
+      else next.delete(itemId);
+      return next;
+    });
+  }
+
+  // Returns false only on INVALID, so the caller keeps the prior value and the
+  // local edit string for the user to fix.
   function commitRate(itemId: string, perMinStr: string): boolean {
     const parsed = parsePerMinToOptional(perMinStr);
     if (parsed === "INVALID") return false;
     onChange((current) => {
       const idx = current.findIndex((o) => o.itemId === itemId);
-      // Row removed while the edit was pending: no-op (same reference).
+      // Row removed since the edit: no-op (same reference).
       if (idx < 0) return current;
       const next = current.slice();
       if (parsed === undefined) {
@@ -124,36 +159,44 @@ export function InputsPanel({
     return true;
   }
 
-  function scheduleCommit(itemId: string, value: string) {
-    const existing = overrideTimers.current.get(itemId);
-    if (existing) clearTimeout(existing);
-    const id = setTimeout(() => {
-      const committed = commitRate(itemId, value);
-      overrideTimers.current.delete(itemId);
-      // After a successful commit the prop drives what's shown; on INVALID,
-      // hold onto the local string so the user can fix the typo.
-      if (!committed) return;
+  function handleRateChange(itemId: string, value: string) {
+    dirty.current.add(itemId);
+    markInvalid(itemId, false);
+    setLocalRates((prev) => new Map(prev).set(itemId, value));
+  }
+
+  // Commit an override row's uncommitted text on blur (revert=true) or Enter
+  // (revert=false). A valid parse (including empty = uncap) commits and clears
+  // the flags. On INVALID, Enter surfaces the cue and keeps the text; blur
+  // reverts the field to its last-good value.
+  function commitFromLocal(itemId: string, revert: boolean) {
+    if (!dirty.current.has(itemId)) return;
+    const value = localRates.get(itemId);
+    if (value === undefined) return;
+    if (commitRate(itemId, value)) {
+      dirty.current.delete(itemId);
+      markInvalid(itemId, false);
+      return;
+    }
+    if (revert) {
+      dirty.current.delete(itemId);
+      markInvalid(itemId, false);
       setLocalRates((prev) => {
+        if (!prev.has(itemId)) return prev;
         const next = new Map(prev);
         next.delete(itemId);
         return next;
       });
-    }, DEBOUNCE_MS);
-    overrideTimers.current.set(itemId, id);
+    } else {
+      markInvalid(itemId, true);
+    }
   }
 
-  function handleRateChange(itemId: string, value: string) {
-    setLocalRates((prev) => new Map(prev).set(itemId, value));
-    scheduleCommit(itemId, value);
-  }
-
-  // Drop the pending debounce timer and in-flight edit text for a row that is
-  // going away, so a stale entry can never fire against (or redisplay on) a
-  // later row that reuses the same id.
+  // Drop the in-flight edit text and dirty flag for a row that is going away, so
+  // a stale entry can never redisplay on a later row that reuses the same id.
   function clearPendingEdit(itemId: string) {
-    const existing = overrideTimers.current.get(itemId);
-    if (existing) clearTimeout(existing);
-    overrideTimers.current.delete(itemId);
+    dirty.current.delete(itemId);
+    markInvalid(itemId, false);
     setLocalRates((prev) => {
       if (!prev.has(itemId)) return prev;
       const next = new Map(prev);
@@ -180,23 +223,48 @@ export function InputsPanel({
   }
 
   function handleAutoRateChange(itemId: string, value: string) {
+    dirtyAuto.current.add(itemId);
+    markInvalid(itemId, false);
     setLocalAutoRates((prev) => new Map(prev).set(itemId, value));
-    const existing = autoTimers.current.get(itemId);
-    if (existing) clearTimeout(existing);
-    const id = setTimeout(() => {
-      const committed = commitAutoRate(itemId, value);
-      autoTimers.current.delete(itemId);
-      // Prune the in-flight text once it has been handled: a valid commit
-      // turns the row into an override, so a later auto-row rebirth for this
-      // item must come back as Unlimited, not redisplay the stale cap.
-      if (!committed) return;
-      setLocalAutoRates((prev) => {
-        const next = new Map(prev);
-        next.delete(itemId);
-        return next;
-      });
-    }, DEBOUNCE_MS);
-    autoTimers.current.set(itemId, id);
+  }
+
+  // Prune the in-flight auto text so a later auto-row rebirth comes back as
+  // Unlimited, not a stale cap.
+  function dropAutoText(itemId: string) {
+    setLocalAutoRates((prev) => {
+      if (!prev.has(itemId)) return prev;
+      const next = new Map(prev);
+      next.delete(itemId);
+      return next;
+    });
+  }
+
+  // Commit an auto-row's uncommitted text on blur (revert=true) or Enter
+  // (revert=false). A non-empty valid value promotes the auto-row into an
+  // override; carry its committed text over to localRates so the new override
+  // row shows what the user typed instead of the re-serialized Fraction. An
+  // empty value is a no-op (stays Unlimited). On INVALID, Enter surfaces the cue
+  // and keeps the text; blur reverts the field to Unlimited (empty).
+  function commitAutoFromLocal(itemId: string, revert: boolean) {
+    if (!dirtyAuto.current.has(itemId)) return;
+    const value = localAutoRates.get(itemId);
+    if (value === undefined) return;
+    if (commitAutoRate(itemId, value)) {
+      dirtyAuto.current.delete(itemId);
+      markInvalid(itemId, false);
+      if (value.trim() !== "") {
+        setLocalRates((prev) => new Map(prev).set(itemId, value));
+      }
+      dropAutoText(itemId);
+      return;
+    }
+    if (revert) {
+      dirtyAuto.current.delete(itemId);
+      markInvalid(itemId, false);
+      dropAutoText(itemId);
+    } else {
+      markInvalid(itemId, true);
+    }
   }
 
   function handleItemChange(oldItemId: string, newItemId: string) {
@@ -206,19 +274,17 @@ export function InputsPanel({
       return;
     }
     setDuplicateError(null);
-    // An in-flight cap edit follows the row to its new id.
+    // An uncommitted cap edit follows the row to its new id, dirty flag and all.
     const pendingValue = localRates.get(oldItemId);
-    const pendingTimer = overrideTimers.current.get(oldItemId);
-    if (pendingTimer) clearTimeout(pendingTimer);
-    overrideTimers.current.delete(oldItemId);
     if (pendingValue !== undefined) {
+      const wasDirty = dirty.current.delete(oldItemId);
+      if (wasDirty) dirty.current.add(newItemId);
       setLocalRates((prev) => {
         const next = new Map(prev);
         next.delete(oldItemId);
         next.set(newItemId, pendingValue);
         return next;
       });
-      scheduleCommit(newItemId, pendingValue);
     }
     onChange((current) => {
       const idx = current.findIndex((o) => o.itemId === oldItemId);
@@ -252,20 +318,14 @@ export function InputsPanel({
     });
   }
 
-  useEffect(() => {
-    const oTimers = overrideTimers.current;
-    const aTimers = autoTimers.current;
-    return () => {
-      for (const id of oTimers.values()) clearTimeout(id);
-      oTimers.clear();
-      for (const id of aTimers.values()) clearTimeout(id);
-      aTimers.clear();
-    };
-  }, []);
-
-  const hasOverrides = itemOverrides.length > 0;
-  const autoRows = !hasOverrides ? (assumedRawItemIds ?? []) : [];
-  const showEmptyState = !hasOverrides && autoRows.length === 0;
+  // Auto-rows are every assumed-raw item WITHOUT an explicit override, shown
+  // regardless of how many overrides exist. Capping one item no longer hides the
+  // realized demand of the remaining raw inputs.
+  const overrideIds = new Set(itemOverrides.map((o) => o.itemId));
+  const autoRows = (assumedRawItemIds ?? []).filter(
+    (id) => !overrideIds.has(id),
+  );
+  const showEmptyState = itemOverrides.length === 0 && autoRows.length === 0;
 
   return (
     <div className="boundary-section" data-testid="inputs-section">
@@ -273,7 +333,9 @@ export function InputsPanel({
         <span className="num">SUP · 02</span>
         <span className="label">INPUT SUPPLY</span>
         <span className="count">
-          <span className="v">{itemOverrides.length}</span>
+          <span className="v">
+            {displayedInputCount(itemOverrides, assumedRawItemIds)}
+          </span>
           {" / "}
           {sortedItems.length}
         </span>
@@ -282,11 +344,7 @@ export function InputsPanel({
         {"// boundary import budget · raw + cross-domain"}
       </div>
       {showEmptyState ? (
-        <div className="b-empty">
-          {i18n.locale === "zh"
-            ? "未配置任何输入 — 全部按 raw 自动求解"
-            : "No declared inputs — defaults to raw-source feed"}
-        </div>
+        <div className="b-empty">{i18n.t("inputs.empty")}</div>
       ) : null}
       {autoRows.map((itemId) => {
         const item = itemById.get(itemId);
@@ -343,11 +401,29 @@ export function InputsPanel({
                 type="text"
                 inputMode="decimal"
                 aria-label={i18n.t("inputs.rate.label")}
+                aria-invalid={invalidIds.has(itemId) ? true : undefined}
+                aria-describedby={
+                  invalidIds.has(itemId) ? `i-rate-err-${itemId}` : undefined
+                }
+                className={invalidIds.has(itemId) ? "invalid" : undefined}
                 placeholder={i18n.t("inputs.unlimited")}
                 value={displayedRate}
                 onChange={(e) => handleAutoRateChange(itemId, e.target.value)}
+                onBlur={() => commitAutoFromLocal(itemId, true)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitAutoFromLocal(itemId, false);
+                }}
               />
               <span className="unit">{i18n.t("inputs.rate.unit")}</span>
+              {invalidIds.has(itemId) ? (
+                <span
+                  className="b-rate-err"
+                  id={`i-rate-err-${itemId}`}
+                  data-testid="rate-invalid"
+                >
+                  {i18n.t("rate.invalid")}
+                </span>
+              ) : null}
             </div>
           </div>
         );
@@ -435,6 +511,13 @@ export function InputsPanel({
                 type="text"
                 inputMode="decimal"
                 aria-label={i18n.t("inputs.rate.label")}
+                aria-invalid={invalidIds.has(row.itemId) ? true : undefined}
+                aria-describedby={
+                  invalidIds.has(row.itemId)
+                    ? `i-rate-err-${row.itemId}`
+                    : undefined
+                }
+                className={invalidIds.has(row.itemId) ? "invalid" : undefined}
                 placeholder={
                   uncapped
                     ? i18n.t("inputs.unlimited")
@@ -442,8 +525,21 @@ export function InputsPanel({
                 }
                 value={displayedRate}
                 onChange={(e) => handleRateChange(row.itemId, e.target.value)}
+                onBlur={() => commitFromLocal(row.itemId, true)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitFromLocal(row.itemId, false);
+                }}
               />
               <span className="unit">{i18n.t("inputs.rate.unit")}</span>
+              {invalidIds.has(row.itemId) ? (
+                <span
+                  className="b-rate-err"
+                  id={`i-rate-err-${row.itemId}`}
+                  data-testid="rate-invalid"
+                >
+                  {i18n.t("rate.invalid")}
+                </span>
+              ) : null}
             </div>
             <button
               className="b-remove"

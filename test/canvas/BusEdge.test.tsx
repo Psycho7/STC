@@ -48,6 +48,7 @@ function renderEdge(data: BusData, zoom?: number) {
           nodes={NODES}
           edges={[makeEdge(data)]}
           edgeTypes={edgeTypes}
+          minZoom={0.05}
           {...(zoom !== undefined
             ? { defaultViewport: { x: 0, y: 0, zoom } }
             : {})}
@@ -131,7 +132,7 @@ describe("canvas/BusEdge trunk labels", () => {
         laneY: 500,
         trunkKey: "Iron Plate|src",
       },
-      0.6,
+      0.35,
     );
     await findEdgePath();
     expect(chips()).toHaveLength(2);
@@ -165,7 +166,7 @@ describe("canvas/BusEdge trunk labels", () => {
         laneY: 500,
         trunkKey: "Iron Plate|src",
       },
-      0.4,
+      0.3,
     );
     await findEdgePath();
     expect(chips()).toHaveLength(0);

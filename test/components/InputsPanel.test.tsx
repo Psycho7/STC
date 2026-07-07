@@ -75,11 +75,13 @@ describe("InputsPanel", () => {
     expect(screen.getAllByTestId("input-row").length).toBe(2);
   });
 
-  it("Add input button appends a new row with first unused itemId (lex-sorted)", async () => {
+  it("Add input button appends a new row with first unused item by display name", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
-    // Existing: copper_ore. Lex-sorted items: copper_ore, copper_plate, iron_ore, zinc.
-    // First unused -> "copper_plate".
+    // The picker orders by localized (zh, the default) display name, not id:
+    // copper_ore ("赤铜矿"), iron_ore ("蓝铁矿"), then copper_plate / zinc (which
+    // fall back to their ids). copper_ore is taken, so the first unused is
+    // "iron_ore".
     const overrides: ItemOverride[] = [{ itemId: "copper_ore" }];
     render(
       <InputsPanel
@@ -94,7 +96,7 @@ describe("InputsPanel", () => {
       onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
     )(overrides);
     expect(next.length).toBe(2);
-    expect(next[1]).toEqual({ itemId: "copper_plate" });
+    expect(next[1]).toEqual({ itemId: "iron_ore" });
   });
 
   it("duplicate itemId selection surfaces per-row error and does not call onChange", async () => {
@@ -135,7 +137,7 @@ describe("InputsPanel", () => {
       const input = screen.getAllByLabelText("速率")[0]!;
       fireEvent.change(input, { target: { value: "" } });
       expect(onChange).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(150);
+      fireEvent.blur(input);
       expect(onChange).toHaveBeenCalledTimes(1);
       const next = (
         onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
@@ -256,17 +258,21 @@ describe("InputsPanel", () => {
     expect(rateInputs[0]!.getAttribute("placeholder")).toBe("无限");
   });
 
-  it("auto-rows: hidden when itemOverrides is non-empty (explicit overrides win)", () => {
+  it("auto-rows: assumed-raw items without an override stay visible alongside overrides", () => {
     const onChange = vi.fn();
     render(
       <InputsPanel
         itemOverrides={[{ itemId: "copper_ore" }]}
         onChange={onChange}
         pack={fixturePack}
-        assumedRawItemIds={["iron_ore"]}
+        assumedRawItemIds={["copper_ore", "iron_ore"]}
       />,
     );
-    expect(screen.queryAllByTestId("input-auto-row").length).toBe(0);
+    // copper_ore is overridden (an input-row); iron_ore has no override and
+    // stays an auto-row instead of disappearing.
+    const autoRows = screen.getAllByTestId("input-auto-row");
+    expect(autoRows.length).toBe(1);
+    expect(autoRows[0]!.getAttribute("data-item-id")).toBe("iron_ore");
     expect(screen.getAllByTestId("input-row").length).toBe(1);
   });
 
@@ -320,7 +326,7 @@ describe("InputsPanel", () => {
       );
       const input = screen.getAllByLabelText("速率")[0]!;
       fireEvent.change(input, { target: { value: "180" } });
-      vi.advanceTimersByTime(150);
+      fireEvent.blur(input);
       expect(onChange).toHaveBeenCalledTimes(1);
       const next = (
         onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]

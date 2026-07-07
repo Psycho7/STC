@@ -1,14 +1,22 @@
 import type { Plan } from "../data/plan";
 import { useI18n } from "../data/i18n-context";
+import { displayedInputCount } from "../components/InputsPanel";
 
 type StatsStripProps = {
   plan: Plan;
+  assumedRawItemIds?: ReadonlyArray<string>;
 };
 
-export default function StatsStrip({ plan }: StatsStripProps) {
+export default function StatsStrip({
+  plan,
+  assumedRawItemIds,
+}: StatsStripProps) {
   const i18n = useI18n();
   const targetCount = plan.targets.length;
-  const supplyCount = plan.itemOverrides?.length ?? 0;
+  const supplyCount = displayedInputCount(
+    plan.itemOverrides ?? [],
+    assumedRawItemIds,
+  );
 
   return (
     <div className="canvas-strip" data-testid="stats-strip">

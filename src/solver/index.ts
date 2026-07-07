@@ -26,13 +26,48 @@ import type {
   TornEdge,
 } from "./types";
 
+// Thrown when the LP has no feasible solution. Carries the best-effort set of
+// implicated ids so the UI can name what went wrong, but holds NO user-facing
+// strings itself: the presentation layer localizes these ids. `cappedItemIds`
+// are the finite supply caps present in the model (a too-low cap is the common
+// cause); `targetItemIds` are the requested target outputs.
+export class LpInfeasibleError extends Error {
+  readonly cappedItemIds: readonly string[];
+  readonly targetItemIds: readonly string[];
+  constructor(
+    cappedItemIds: readonly string[],
+    targetItemIds: readonly string[],
+  ) {
+    super("LP solver: infeasible problem");
+    this.name = "LpInfeasibleError";
+    this.cappedItemIds = cappedItemIds;
+    this.targetItemIds = targetItemIds;
+  }
+}
+
 // Turn the LP outcome into a hard error for the unsolvable cases. "empty" (a
 // feasible optimum running no recipe) and "feasible" both proceed; only
-// "infeasible"/"unbounded" abort.
-function assertSolvable(status: LpResult["status"]): void {
+// "infeasible"/"unbounded" abort. The infeasible case derives a cheap,
+// best-effort list of implicated items from the model inputs (no solver
+// diagnostics rebuild): the finite supply caps and the target outputs.
+function assertSolvable(
+  status: LpResult["status"],
+  targets: Target[],
+  itemOverrides: ItemOverride[] | undefined,
+  recipeById: Map<RecipeId, Recipe>,
+): void {
   switch (status) {
-    case "infeasible":
-      throw new Error("LP solver: infeasible problem");
+    case "infeasible": {
+      const cappedItemIds = (itemOverrides ?? [])
+        .filter((o) => o.ratePerSec !== undefined)
+        .map((o) => o.itemId);
+      const targetItemIds: string[] = [];
+      for (const t of targets) {
+        const out = recipeById.get(t.recipeId)?.out[0]?.item;
+        if (out !== undefined) targetItemIds.push(out);
+      }
+      throw new LpInfeasibleError(cappedItemIds, targetItemIds);
+    }
     case "unbounded":
       throw new Error("LP solver: unbounded objective");
     case "empty":
@@ -155,7 +190,7 @@ function runSolvePipeline(
     itemOverrides: itemOverrides ?? [],
     ...(recipeCosts !== undefined && { recipeCosts }),
   });
-  assertSolvable(lpResult.status);
+  assertSolvable(lpResult.status, targets, itemOverrides, recipeById);
   const rates = lpResult.rates;
   // Residual share per finite-capped item the LP drew from the boundary. The
   // walk nets each consumer's per-item demand by it so replica rates (and the

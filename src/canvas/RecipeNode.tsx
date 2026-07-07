@@ -69,20 +69,21 @@ type RecipeNodeType = Node<RecipeNodeData, "recipe">;
 
 // Per-row rate label: items per cycle over cycle time, times the machine speed
 // (the solver runs a machine at speed/time executions per second, so the
-// per-machine port rate is qty * speed / time), scaled by the replica
-// multiplier when the older path supplies one. Rational-multiplicity callers
-// pass multiplier=undefined because the solver already scaled their rates.
-// Exact Fraction math keeps non-integer speeds free of float junk; rates here
-// are non-negative, so serializing .n/.d is safe.
+// per-machine port rate is qty * speed / time), times the `scale` factor. The
+// render-pipeline path passes the solved rational multiplicity so rows and the
+// header show the aggregate flow across all machines (matching the edge chips);
+// scale=1 yields the per-machine figure. Exact Fraction math keeps non-integer
+// speeds and multiplicities free of float junk; rates here are non-negative, so
+// serializing .n/.d is safe.
 function rowRateText(
   stoich: Stoich,
   recipeTime: number,
   speed: Fraction,
-  multiplier: number,
+  scale: Fraction,
 ): string {
   const perSec = new Fraction(stoich.qty)
     .mul(speed)
-    .mul(multiplier)
+    .mul(scale)
     .div(recipeTime);
   return formatRationalPerMin({
     num: perSec.n.toString(),
@@ -90,7 +91,10 @@ function rowRateText(
   });
 }
 
-export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
+export default function RecipeNode({
+  data,
+  selected,
+}: NodeProps<RecipeNodeType>) {
   const {
     recipe,
     multiplier,
@@ -108,7 +112,16 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
   const ins = orderByItem(recipe.in, inputOrder);
   const outs = orderByItem(recipe.out, outputOrder);
   const geom = measureRecipe(recipe);
-  const scale = typeof multiplier === "number" ? multiplier : 1;
+  // Aggregate scale across all machines. The render-pipeline path supplies a
+  // rational `multiplicity`; the older boot path an integer `multiplier`; a
+  // node with neither runs a single machine. Rows and the header multiply by
+  // this so the node's numbers match its incident edge chips.
+  const perMachine = new Fraction(1);
+  const scale: Fraction = multiplicity
+    ? new Fraction(`${multiplicity.num}/${multiplicity.denom}`)
+    : typeof multiplier === "number"
+      ? new Fraction(multiplier)
+      : perMachine;
 
   // The machine shown is producers[0]. Multiple producers are not handled yet.
   const producerId = recipe.producers[0];
@@ -144,21 +157,27 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
     badgeText = `x${multiplier}`;
   }
 
-  // Header rate column: outputs[0] qty times machine speed over recipe.time,
-  // times 60, scaled by the older multiplier path. Empty string hides the value
-  // when there is no primary output. Uses recipe.out[0] (declared primary), not
-  // the reordered side-column top, for the same reason as the header product.
+  // Header rate column. The primary value is the aggregate (per-machine x
+  // scale); the secondary line keeps the per-machine figure so the aggregate
+  // stays reconcilable to one machine's throughput. Empty string hides the
+  // value when there is no primary output. Uses recipe.out[0] (declared
+  // primary), not the reordered side-column top, for the same reason as the
+  // header product.
   const primaryOut = recipe.out[0];
   const rateValText =
     primaryOut !== undefined
       ? rowRateText(primaryOut, recipe.time, speed, scale)
+      : "";
+  const perMachineText =
+    primaryOut !== undefined
+      ? rowRateText(primaryOut, recipe.time, speed, perMachine)
       : "";
 
   return (
     <div
       data-testid="recipe-node"
       data-recipe-id={recipe.id}
-      className="recipe-node"
+      className={selected ? "recipe-node selected" : "recipe-node"}
       style={{
         position: "relative",
         width: geom.width,
@@ -179,18 +198,24 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
             {outputItemName}
           </div>
           {machine !== undefined ? (
-            <>
-              <div className="machine-name">
-                <span className="cn">{machineName}</span>
-                {tier !== null ? <span className="tier">{tier}</span> : null}
-              </div>
-              <div className="machine-mid">{machine.id}</div>
-            </>
+            <div className="machine-name">
+              <span className="cn">{machineName}</span>
+              {tier !== null ? <span className="tier">{tier}</span> : null}
+            </div>
           ) : null}
         </div>
         <div className="rn-rate-block">
           <div className="rate-val">{rateValText}</div>
-          <div className="rate-lbl">UPM</div>
+          <div className="rate-lbl">{i18n.t("node.upm")}</div>
+          {rateValText !== "" ? (
+            <div className="rate-sub">
+              <span className="rate-sub-val">{perMachineText}</span>
+              <span className="rate-sub-ea">{i18n.t("node.each")}</span>
+              {badgeText !== null ? (
+                <span className="rate-sub-mult">{badgeText}</span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -289,22 +314,12 @@ export default function RecipeNode({ data }: NodeProps<RecipeNodeType>) {
       {/* Footer: left half shows cycle time; right half (.pwr) is reserved for
           power. */}
       <div className="rn-footer">
-        <div className="cycle">{recipe.time}s · cycle</div>
+        <div className="cycle">{i18n.t("node.cycle", { time: recipe.time })}</div>
         <div className="pwr" />
       </div>
 
       {badgeText !== null ? (
-        <span
-          style={{
-            position: "absolute",
-            top: 4,
-            right: 6,
-            fontSize: 11,
-            color: "#444",
-          }}
-        >
-          {badgeText}
-        </span>
+        <span className="rn-mult-badge">{badgeText}</span>
       ) : null}
     </div>
   );

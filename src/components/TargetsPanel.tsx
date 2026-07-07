@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Fraction from "fraction.js";
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
@@ -14,15 +14,13 @@ import { iconPosition } from "../canvas/iconSprite";
 type Props = {
   targets: Target[];
   // Changes are emitted as functional updaters applied by the owner against
-  // its authoritative list, never as snapshots of the prop: a debounced commit
-  // built from a stale prop can otherwise drop a concurrent edit or resurrect
-  // a removed row. An updater that finds nothing to change must return its
-  // input unchanged (same reference) so the owner can skip a no-op commit.
+  // its authoritative list, never as snapshots of the prop: a commit built from
+  // a stale prop can otherwise drop a concurrent edit or resurrect a removed
+  // row. An updater that finds nothing to change must return its input unchanged
+  // (same reference) so the owner can skip a no-op commit.
   onChange: (update: (current: Target[]) => Target[]) => void;
   pack: RecipePack;
 };
-
-const DEBOUNCE_MS = 150;
 
 // Accepts an items-per-minute value as an integer ("120"), decimal ("30.5"), or
 // rational ("1/3"). Returns undefined if it can't parse or the result is
@@ -62,28 +60,72 @@ function isPickableTarget(recipe: Recipe): boolean {
 export function TargetsPanel({ targets, onChange, pack }: Props) {
   const i18n = useI18n();
   const pickableRecipes = pack.recipes.filter(isPickableTarget);
+  // Locale-aware compare for both the option order within a group and the group
+  // order itself, so the dropdown scans by the displayed name in every locale.
+  const collator = useMemo(
+    () => new Intl.Collator(i18n.locale),
+    [i18n.locale],
+  );
+  // Group pickable recipes by pack category and sort each group by localized
+  // display name; order the groups by their (localized-compared) label. Reused
+  // by both the committed-target select and the draft select.
+  function groupRecipes(recipes: Recipe[]) {
+    const byCategory = new Map<string, Recipe[]>();
+    for (const r of recipes) {
+      const arr = byCategory.get(r.category);
+      if (arr) arr.push(r);
+      else byCategory.set(r.category, [r]);
+    }
+    return [...byCategory.entries()]
+      .map(([category, group]) => ({
+        category,
+        recipes: group
+          .slice()
+          .sort((a, b) =>
+            collator.compare(i18n.displayName(a.id), i18n.displayName(b.id)),
+          ),
+      }))
+      .sort((a, b) => collator.compare(a.category, b.category));
+  }
   const [duplicateError, setDuplicateError] = useState<{
     rowId: string;
     recipeId: string;
   } | null>(null);
-  const timerRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  );
   // In-flight edit values keyed by recipeId. A row without an entry falls back
   // to the prop-derived value, so a new `targets` prop updates the visible rate
-  // without a separate sync effect. Keying by id (not row index) keeps a
-  // pending edit attached to its row across removals and reorders.
+  // without a separate sync effect. Keying by id (not row index) keeps an
+  // uncommitted edit attached to its row across removals and reorders. The text
+  // is committed only on blur or Enter, and the committed string is kept here as
+  // the display value (re-serializing ratePerSec would turn "1/3" into a float).
   const [localRates, setLocalRates] = useState<Map<string, string>>(new Map());
+  // Recipe ids whose localRates text has not yet been committed. Guards the
+  // blur/Enter commit so re-blurring an unedited field never re-fires a solve.
+  // The owner remounts this panel (via a key keyed on plan identity) when it
+  // navigates to a new plan, which drops all uncommitted local edit state, so
+  // there is no cross-plan carryover to clear here.
+  const dirty = useRef<Set<string>>(new Set());
+  // Recipe ids whose last commit attempt failed to parse. Drives the input's
+  // aria-invalid flag and the inline error message. Typing clears the flag; a
+  // successful commit or a blur-revert clears it too.
+  const [invalidIds, setInvalidIds] = useState<Set<string>>(new Set());
+  function markInvalid(recipeId: string, on: boolean) {
+    setInvalidIds((prev) => {
+      if (on === prev.has(recipeId)) return prev;
+      const next = new Set(prev);
+      if (on) next.add(recipeId);
+      else next.delete(recipeId);
+      return next;
+    });
+  }
 
-  // Returns true iff the text parsed, regardless of whether the row still
-  // exists: valid text must always be pruned from localRates, while INVALID
-  // text is kept so the user can finish what they were typing.
+  // Returns true iff the text parsed. Invalid text is left in place so the user
+  // can finish typing; a failed parse never mutates the plan.
   function commitRate(recipeId: string, perMinStr: string): boolean {
     const parsed = parsePerMinToRationalPerSec(perMinStr);
     if (!parsed) return false;
     onChange((current) => {
       const idx = current.findIndex((t) => t.recipeId === recipeId);
-      // Row removed while the edit was pending: no-op (same reference).
+      // Row removed since the edit: no-op (same reference).
       if (idx < 0) return current;
       const next = current.slice();
       next[idx] = { ...next[idx]!, ratePerSec: parsed };
@@ -92,36 +134,46 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     return true;
   }
 
-  function scheduleCommit(recipeId: string, value: string) {
-    const existing = timerRefs.current.get(recipeId);
-    if (existing) clearTimeout(existing);
-    const id = setTimeout(() => {
-      const committed = commitRate(recipeId, value);
-      timerRefs.current.delete(recipeId);
-      // After a successful commit the prop drives what's shown; on a failed
-      // parse, hold onto the local string so the user can fix the typo.
-      if (!committed) return;
+  function handleRateChange(recipeId: string, value: string) {
+    dirty.current.add(recipeId);
+    // Typing clears any prior invalid cue; the value is re-checked on commit.
+    markInvalid(recipeId, false);
+    setLocalRates((prev) => new Map(prev).set(recipeId, value));
+  }
+
+  // Commit the row's uncommitted text on blur (revert=true) or Enter
+  // (revert=false). Only a dirty row acts; a successful parse commits and clears
+  // the dirty/invalid flags. On a failed parse, Enter surfaces the invalid cue
+  // and keeps the bad text so the user can fix it, while a blur reverts the
+  // field to its last-good value so it never sticks on rejected input.
+  function commitFromLocal(recipeId: string, revert: boolean) {
+    if (!dirty.current.has(recipeId)) return;
+    const value = localRates.get(recipeId);
+    if (value === undefined) return;
+    if (commitRate(recipeId, value)) {
+      dirty.current.delete(recipeId);
+      markInvalid(recipeId, false);
+      return;
+    }
+    if (revert) {
+      dirty.current.delete(recipeId);
+      markInvalid(recipeId, false);
       setLocalRates((prev) => {
+        if (!prev.has(recipeId)) return prev;
         const next = new Map(prev);
         next.delete(recipeId);
         return next;
       });
-    }, DEBOUNCE_MS);
-    timerRefs.current.set(recipeId, id);
+    } else {
+      markInvalid(recipeId, true);
+    }
   }
 
-  function handleRateChange(recipeId: string, value: string) {
-    setLocalRates((prev) => new Map(prev).set(recipeId, value));
-    scheduleCommit(recipeId, value);
-  }
-
-  // Drop the pending debounce timer and in-flight edit text for a row that is
-  // going away, so a stale entry can never fire against (or redisplay on) a
-  // later row that reuses the same id.
+  // Drop the in-flight edit text and dirty flag for a row that is going away, so
+  // a stale entry can never redisplay on a later row that reuses the same id.
   function clearPendingEdit(recipeId: string) {
-    const existing = timerRefs.current.get(recipeId);
-    if (existing) clearTimeout(existing);
-    timerRefs.current.delete(recipeId);
+    dirty.current.delete(recipeId);
+    markInvalid(recipeId, false);
     setLocalRates((prev) => {
       if (!prev.has(recipeId)) return prev;
       const next = new Map(prev);
@@ -137,19 +189,18 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
       return;
     }
     setDuplicateError(null);
-    // An in-flight rate edit follows the row to its new id.
+    // An uncommitted rate edit follows the row to its new id, dirty flag and all,
+    // so the user can still blur to commit it under the swapped recipe.
     const pendingValue = localRates.get(oldRecipeId);
-    const pendingTimer = timerRefs.current.get(oldRecipeId);
-    if (pendingTimer) clearTimeout(pendingTimer);
-    timerRefs.current.delete(oldRecipeId);
     if (pendingValue !== undefined) {
+      const wasDirty = dirty.current.delete(oldRecipeId);
+      if (wasDirty) dirty.current.add(newRecipeId);
       setLocalRates((prev) => {
         const next = new Map(prev);
         next.delete(oldRecipeId);
         next.set(newRecipeId, pendingValue);
         return next;
       });
-      scheduleCommit(newRecipeId, pendingValue);
     }
     onChange((current) => {
       const idx = current.findIndex((t) => t.recipeId === oldRecipeId);
@@ -170,25 +221,43 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     });
   }
 
+  // Clicking Add creates a local draft row instead of committing an arbitrary
+  // first-pack-order recipe at rate 0. A draft never touches the plan until it
+  // has both a chosen recipe and a committed nonzero rate; drafts are local
+  // state, so navigation (which remounts the panel) drops them.
+  const [drafts, setDrafts] = useState<
+    Array<{ id: string; recipeId: string; rate: string }>
+  >([]);
+  const draftSeq = useRef(0);
+
   function handleAdd() {
-    onChange((current) => {
-      const used = new Set(current.map((t) => t.recipeId));
-      const candidate = pickableRecipes.find((r) => !used.has(r.id));
-      if (!candidate) return current;
-      return [
-        ...current,
-        { recipeId: candidate.id, ratePerSec: { num: "0", denom: "1" } },
-      ];
-    });
+    const id = `draft:${draftSeq.current++}`;
+    setDrafts((prev) => [...prev, { id, recipeId: "", rate: "" }]);
   }
 
-  useEffect(() => {
-    const timers = timerRefs.current;
-    return () => {
-      for (const id of timers.values()) clearTimeout(id);
-      timers.clear();
-    };
-  }, []);
+  function removeDraft(id: string) {
+    setDrafts((prev) => prev.filter((d) => d.id !== id));
+  }
+
+  // Apply an edited draft: promote it into a real target once it carries a
+  // recipe and a committed nonzero rate (dropping the draft), otherwise just
+  // store the updated draft. A nonzero rate is required so an empty or 0 draft
+  // never churns a re-solve for a row that renders nothing.
+  function applyDraft(next: { id: string; recipeId: string; rate: string }) {
+    const parsed = parsePerMinToRationalPerSec(next.rate);
+    const ready =
+      next.recipeId !== "" && parsed !== undefined && parsed.num !== "0";
+    if (ready) {
+      onChange((current) =>
+        current.some((t) => t.recipeId === next.recipeId)
+          ? current
+          : [...current, { recipeId: next.recipeId, ratePerSec: parsed }],
+      );
+      removeDraft(next.id);
+    } else {
+      setDrafts((prev) => prev.map((d) => (d.id === next.id ? next : d)));
+    }
+  }
 
   return (
     <div className="boundary-section" data-testid="targets-section">
@@ -201,15 +270,9 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
           {pickableRecipes.length}
         </span>
       </div>
-      <div className="side-section-sub">
-        {"// declared output rates · items per minute"}
-      </div>
+      <div className="side-section-sub">{i18n.t("targets.head.sub")}</div>
       {targets.length === 0 ? (
-        <div className="b-empty">
-          {i18n.locale === "zh"
-            ? "未声明任何目标产物 — 点击下方按钮添加"
-            : "No declared outputs yet — use the action below"}
-        </div>
+        <div className="b-empty">{i18n.t("targets.empty")}</div>
       ) : null}
       {targets.map((t) => {
         const recipe = pack.recipes.find((r) => r.id === t.recipeId);
@@ -250,10 +313,14 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                     handleRecipeChange(t.recipeId, e.target.value)
                   }
                 >
-                  {pickableRecipes.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {i18n.displayName(r.id)}
-                    </option>
+                  {groupRecipes(pickableRecipes).map((g) => (
+                    <optgroup key={g.category} label={g.category}>
+                      {g.recipes.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {i18n.displayName(r.id)}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </span>
@@ -274,15 +341,116 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                 type="text"
                 inputMode="decimal"
                 aria-label={i18n.t("targets.rate.label")}
+                aria-invalid={invalidIds.has(t.recipeId) ? true : undefined}
+                aria-describedby={
+                  invalidIds.has(t.recipeId)
+                    ? `t-rate-err-${t.recipeId}`
+                    : undefined
+                }
+                className={invalidIds.has(t.recipeId) ? "invalid" : undefined}
                 value={displayedRate}
                 onChange={(e) => handleRateChange(t.recipeId, e.target.value)}
+                onBlur={() => commitFromLocal(t.recipeId, true)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitFromLocal(t.recipeId, false);
+                }}
               />
               <span className="unit">{i18n.t("targets.rate.unit")}</span>
+              {invalidIds.has(t.recipeId) ? (
+                <span
+                  className="b-rate-err"
+                  id={`t-rate-err-${t.recipeId}`}
+                  data-testid="rate-invalid"
+                >
+                  {i18n.t("rate.invalid")}
+                </span>
+              ) : null}
             </div>
             <button
               className="b-remove"
               data-testid="remove-target"
               onClick={() => handleRemove(t.recipeId)}
+              aria-label={i18n.t("targets.remove.label")}
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+      {drafts.map((draft) => {
+        // Recipes free to pick in this draft: pickable ones not already used by
+        // a committed target or another draft (the draft's own choice stays).
+        const takenElsewhere = new Set<string>([
+          ...targets.map((t) => t.recipeId),
+          ...drafts.filter((d) => d.id !== draft.id).map((d) => d.recipeId),
+        ]);
+        const options = pickableRecipes.filter(
+          (r) => !takenElsewhere.has(r.id) || r.id === draft.recipeId,
+        );
+        const iconPos =
+          draft.recipeId !== ""
+            ? (iconPosition(
+                pack.recipes.find((r) => r.id === draft.recipeId)?.out[0]?.item,
+              ) ?? iconPosition(draft.recipeId))
+            : undefined;
+        return (
+          <div key={draft.id} className="b-row" data-testid="target-draft-row">
+            <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
+              {iconPos !== undefined ? (
+                <span className="ico ico-40">
+                  <span
+                    className="spr"
+                    style={{ backgroundPosition: iconPos }}
+                  />
+                </span>
+              ) : null}
+            </span>
+            <div className="info">
+              <span className="b-pick">
+                <select
+                  aria-label={i18n.t("targets.recipe.label")}
+                  value={draft.recipeId}
+                  onChange={(e) =>
+                    applyDraft({ ...draft, recipeId: e.target.value })
+                  }
+                >
+                  <option value="">{i18n.t("targets.recipe.choose")}</option>
+                  {groupRecipes(options).map((g) => (
+                    <optgroup key={g.category} label={g.category}>
+                      {g.recipes.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {i18n.displayName(r.id)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </span>
+            </div>
+            <div className="b-rate">
+              <input
+                type="text"
+                inputMode="decimal"
+                aria-label={i18n.t("targets.rate.label")}
+                value={draft.rate}
+                onChange={(e) =>
+                  setDrafts((prev) =>
+                    prev.map((d) =>
+                      d.id === draft.id ? { ...d, rate: e.target.value } : d,
+                    ),
+                  )
+                }
+                onBlur={() => applyDraft(draft)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") applyDraft(draft);
+                }}
+              />
+              <span className="unit">{i18n.t("targets.rate.unit")}</span>
+            </div>
+            <button
+              className="b-remove"
+              data-testid="remove-draft"
+              onClick={() => removeDraft(draft.id)}
               aria-label={i18n.t("targets.remove.label")}
             >
               ×

@@ -2,17 +2,22 @@ import { BaseEdge, useStore, type EdgeProps } from "@xyflow/react";
 import {
   FlowChip,
   LABEL_MIN_ZOOM,
+  edgeStrokeWidth,
   strokeForKind,
   type ItemEdgeData,
 } from "./ItemEdge";
 import type { BusEdgeData } from "./busRouting";
 import { chamferBusPath } from "./edgePath";
 import { useI18n } from "../data/i18n-context";
-import { formatRatePerMin } from "../data/rate-format";
+import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
 // Radius of the junction dot each bus edge draws at its own branch point, where
 // it leaves the shared trunk lane to rise into its target.
 const JUNCTION_RADIUS = 3;
+
+// Vertical step, in graph units, between rise chips that share an anchor. One
+// step is a bit more than a chip's own height so staggered chips never touch.
+const RISE_CHIP_STAGGER = 18;
 
 // BusEdge renders a bus-trunk member via chamferBusPath: exit the source
 // rightward, chamfer down into the shared lane, run along it, then chamfer up
@@ -51,32 +56,76 @@ export default function BusEdge({
   });
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
-  // A caller-supplied style wins over the kind default, matching ItemEdge.
-  const mergedStyle: React.CSSProperties = { ...kindStyle, ...(style ?? {}) };
+  // Zoom-compensated base width published as --edge-base-width, matching
+  // ItemEdge. A caller-supplied style still wins over these defaults.
+  const mergedStyle: React.CSSProperties = {
+    ...kindStyle,
+    ["--edge-base-width" as string]: `${edgeStrokeWidth(zoom)}px`,
+    strokeWidth: "var(--edge-base-width)",
+    ...(style ?? {}),
+  };
 
-  const rateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
   const unit = i18n.t("canvas.rate.unit");
-  // The chip body shows the icon plus rate and unit; the full "Name x rate/min"
-  // string goes onto aria-label and title, matching ItemEdge.
-  const chipText =
-    edgeData && rateStr && zoom >= LABEL_MIN_ZOOM ? `${rateStr}${unit}` : "";
-  const fullLabel =
-    edgeData && rateStr
-      ? `${i18n.displayName(edgeData.item)} x ${rateStr}${unit}`
+  const showChips = edgeData !== undefined && zoom >= LABEL_MIN_ZOOM;
+
+  // Drop chip: only the elected trunk owner draws it, and it shows the summed
+  // trunk rate (busTotalRate) plus a count marker when the trunk has several
+  // members. A lone member is its own owner with count 1, so it reads exactly
+  // like a plain item edge. Non-owner members suppress the drop chip, which is
+  // what collapses the old N-deep stack of one-member-share chips into a single
+  // truthful total on the shared lane.
+  const isOwner = edgeData?.busChipOwner ?? true;
+  const totalRate = edgeData?.busTotalRate ?? edgeData?.rate;
+  const memberCount = edgeData?.busMemberCount ?? 1;
+  const dropRateStr = totalRate ? formatRatePerMin(totalRate) : "";
+  const countMarker = memberCount > 1 ? ` x${memberCount}` : "";
+  const dropText =
+    showChips && dropRateStr ? `${dropRateStr}${unit}${countMarker}` : "";
+  const dropLabel =
+    edgeData && dropRateStr
+      ? `${i18n.displayName(edgeData.item)} x ${dropRateStr}${unit}${countMarker}`
       : "";
+  const dropTitle =
+    edgeData && dropRateStr && totalRate
+      ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(totalRate)}${unit}${countMarker}`
+      : "";
+
+  // Rise chip: each member draws its own, showing that member's share. Members
+  // sharing a rise anchor are staggered down the lane (riseStagger) so they
+  // never stack on top of one another.
+  const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
+  const riseText = showChips && memberRateStr ? `${memberRateStr}${unit}` : "";
+  const riseLabel =
+    edgeData && memberRateStr
+      ? `${i18n.displayName(edgeData.item)} x ${memberRateStr}${unit}`
+      : "";
+  const riseTitle =
+    edgeData && memberRateStr
+      ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(edgeData.rate)}${unit}`
+      : "";
+  const riseY = laneY + (edgeData?.riseStagger ?? 0) * RISE_CHIP_STAGGER;
 
   // One chip at the drop point (where the flow enters the trunk) and one at the
   // rise point (where it leaves toward the target). Both sit on the lane.
-  const renderChip = (suffix: string, x: number, y: number) => (
+  const renderChip = (
+    suffix: string,
+    x: number,
+    y: number,
+    text: string,
+    label: string,
+    title: string,
+  ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
       x={x}
       y={y}
       item={edgeData?.item}
-      text={chipText}
-      label={fullLabel}
+      text={text}
+      label={label}
+      title={title}
       tear={edgeData?.isTearEdge}
       dimmed={edgeData?.dimmed}
+      zoom={zoom}
     />
   );
 
@@ -86,6 +135,7 @@ export default function BusEdge({
         id={id}
         path={path}
         style={mergedStyle}
+        {...(riseLabel ? { "aria-label": riseLabel } : {})}
         {...(markerEnd ? { markerEnd } : {})}
       />
       <circle
@@ -95,12 +145,12 @@ export default function BusEdge({
         r={JUNCTION_RADIUS}
         fill={kindStyle.stroke}
       />
-      {chipText ? (
-        <>
-          {renderChip("drop", dropX, laneY)}
-          {renderChip("rise", riseX, laneY)}
-        </>
-      ) : null}
+      {isOwner && dropText
+        ? renderChip("drop", dropX, laneY, dropText, dropLabel, dropTitle)
+        : null}
+      {riseText
+        ? renderChip("rise", riseX, riseY, riseText, riseLabel, riseTitle)
+        : null}
     </>
   );
 }

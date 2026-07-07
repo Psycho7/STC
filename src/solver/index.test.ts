@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import Fraction from "fraction.js";
-import { solvePlan, solvePlanWithIntermediates } from "./index";
+import { LpInfeasibleError, solvePlan, solvePlanWithIntermediates } from "./index";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
 import type { Target } from "../data/targets";
@@ -109,6 +109,36 @@ describe("solver status handling", () => {
       expect(() =>
         solvePlan(targets, pack, defaultTransportConfig),
       ).toThrow(/infeasible/);
+    } finally {
+      lpStatusOverride.status = undefined;
+    }
+  });
+
+  // The infeasible error carries the implicated ids (no UI strings): the finite
+  // supply caps in the model plus the target outputs, so the UI can name the
+  // offending item(s) without rebuilding solver diagnostics.
+  it("infeasible error names the capped supply item and target output", () => {
+    lpStatusOverride.status = "infeasible";
+    const overrides = [
+      { itemId: "liquid_water", ratePerSec: { num: "0", denom: "1" } },
+    ];
+    try {
+      let caught: unknown;
+      try {
+        solvePlanWithIntermediates(
+          targets,
+          pack,
+          defaultTransportConfig,
+          overrides,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(LpInfeasibleError);
+      const err = caught as LpInfeasibleError;
+      expect(err.cappedItemIds).toContain("liquid_water");
+      // xiranite_enr_powder's primary output is the implicated target item.
+      expect(err.targetItemIds).toContain("xiranite_enr_powder");
     } finally {
       lpStatusOverride.status = undefined;
     }

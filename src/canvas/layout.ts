@@ -44,6 +44,8 @@ import { measureRecipe } from "./recipeGeometry";
 import {
   assignBendColumns,
   assignEntryColumns,
+  clampBackwardRails,
+  deconflictChipAnchors,
   routeBusEdges,
 } from "./busRouting";
 import type {
@@ -182,6 +184,20 @@ export const ROOT_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
   "elk.layered.cycleBreaking.strategy": "DEPTH_FIRST",
 };
 
+// Wrapping folds an otherwise single wide band of layers into stacked rows to
+// hit a target aspect ratio, so a dense plan lands close to the pane's ~1.6:1
+// shape instead of a ~6:1 smear that fit-zooms below legibility. It only applies
+// to large plans: a small chain already fits at a readable zoom, and wrapping it
+// would fold a clean left-to-right flow into needless rows (and break the
+// leftmost-input / rightmost-output reading). WRAP_MIN_UNITS is the size above
+// which the flat band gets illegibly wide; below it the layered flow stays a
+// single left-to-right band.
+const WRAP_MIN_UNITS = 16;
+const WRAP_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
+  "elk.aspectRatio": "1.6",
+  "elk.layered.wrapping.strategy": "MULTI_EDGE",
+};
+
 // FIXED_SIDE pins each port to its declared side (WEST inputs / EAST outputs)
 // but lets ELK choose the per-side vertical order to minimize edge crossings.
 // Recipe and loop nodes carry multiple ports per side, so this is where the
@@ -254,7 +270,11 @@ export type RFLoopNode = RFNode<
   "loop"
 >;
 export type RFContainerNode = RFNode<
-  { containerKind: Container["kind"]; containerId: ContainerId },
+  {
+    containerKind: Container["kind"];
+    containerId: ContainerId;
+    memberCount: number;
+  },
   "group"
 >;
 export type RFProductNode = RFNode<
@@ -331,7 +351,10 @@ export function renderPlanToElkGraph(input: LayoutInput): ElkGraph {
       id: container.id,
       children: members.map(unitToElk),
       layoutOptions: {
-        "org.eclipse.elk.padding": "[top=12,left=12,bottom=12,right=12]",
+        // Reserve a taller top band for the caption strip so a member card
+        // flush against the corner cannot cover the "LOOP - N" label; keep the
+        // other sides tight so members do not leave large empty quadrants.
+        "org.eclipse.elk.padding": "[top=28,left=10,bottom=10,right=10]",
       },
     });
   }
@@ -345,9 +368,13 @@ export function renderPlanToElkGraph(input: LayoutInput): ElkGraph {
     renderEdgeToElk(e, i),
   );
 
+  const wrap = plan.units.length >= WRAP_MIN_UNITS;
   return {
     id: "root",
-    layoutOptions: { ...ROOT_LAYOUT_OPTIONS },
+    layoutOptions: {
+      ...ROOT_LAYOUT_OPTIONS,
+      ...(wrap ? WRAP_LAYOUT_OPTIONS : {}),
+    },
     children: rootChildren,
     edges: elkEdges,
   };
@@ -565,11 +592,18 @@ export function fromElkRenderLayout(
     if (container) {
       const w = top.width ?? 0;
       const h = top.height ?? 0;
+      const memberCount = (top.children ?? []).filter((child) =>
+        unitById.has(child.id),
+      ).length;
       nodes.push({
         id: container.id,
         type: "group",
         position: { x: top.x ?? 0, y: top.y ?? 0 },
-        data: { containerKind: container.kind, containerId: container.id },
+        data: {
+          containerKind: container.kind,
+          containerId: container.id,
+          memberCount,
+        },
         // Group bounding boxes carry their size both as top-level width/height
         // (what React Flow checks to treat the node as initialized) and on style.
         width: w,
@@ -855,9 +889,15 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   // vertical runs fan out instead of stacking (clamped clear of every gutter).
   return {
     nodes,
-    edges: assignBendColumns(
+    edges: deconflictChipAnchors(
       nodes,
-      assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+      clampBackwardRails(
+        nodes,
+        assignBendColumns(
+          nodes,
+          assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+        ),
+      ),
     ),
   };
 }

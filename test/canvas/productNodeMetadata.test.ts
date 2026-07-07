@@ -3,6 +3,11 @@ import type { Item } from "@aef/schema";
 import { buildPnKind } from "../../src/canvas/productNodeMetadata";
 import type { ProductNodeData } from "../../src/canvas/ProductNode";
 import type { ItemOverride } from "../../src/data/plan";
+import { loadI18n } from "../../src/data/i18n";
+
+// The caption words are localized; these fixtures pin the English table so the
+// expectations stay the readable "In · raw" / "Out · target" strings.
+const en = loadI18n("en");
 
 function rawItem(id: string): Item {
   return {
@@ -35,7 +40,7 @@ describe("buildPnKind", () => {
       itemId: "iron-ore",
       rate: { num: "2", denom: "1" },
     };
-    expect(buildPnKind(data, rawItem("iron-ore"), [])).toBe("In · raw");
+    expect(buildPnKind(data, rawItem("iron-ore"), [], en)).toBe("In · raw");
   });
 
   it("renders raw input caption identically when cap is set (cap moved out of caption)", () => {
@@ -45,7 +50,7 @@ describe("buildPnKind", () => {
       rate: { num: "4", denom: "1" },
       rateCap: { num: "4", denom: "1" },
     };
-    expect(buildPnKind(data, rawItem("iron-ore"), [])).toBe("In · raw");
+    expect(buildPnKind(data, rawItem("iron-ore"), [], en)).toBe("In · raw");
   });
 
   it("renders import input caption when item is not raw", () => {
@@ -58,7 +63,7 @@ describe("buildPnKind", () => {
     const overrides: ItemOverride[] = [
       { itemId: "iron-plate", ratePerSec: { num: "2", denom: "1" } },
     ];
-    expect(buildPnKind(data, nonRawItem("iron-plate"), overrides)).toBe(
+    expect(buildPnKind(data, nonRawItem("iron-plate"), overrides, en)).toBe(
       "In · import",
     );
   });
@@ -70,7 +75,7 @@ describe("buildPnKind", () => {
       rate: { num: "8", denom: "5" },
       flavor: "target",
     };
-    expect(buildPnKind(data, nonRawItem("iron-plate"), [])).toBe(
+    expect(buildPnKind(data, nonRawItem("iron-plate"), [], en)).toBe(
       "Out · target · 96/min",
     );
   });
@@ -82,7 +87,7 @@ describe("buildPnKind", () => {
       rate: { num: "1", denom: "5" },
       flavor: "surplus",
     };
-    expect(buildPnKind(data, nonRawItem("iron-plate"), [])).toBe(
+    expect(buildPnKind(data, nonRawItem("iron-plate"), [], en)).toBe(
       "Out · surplus · 12/min",
     );
   });

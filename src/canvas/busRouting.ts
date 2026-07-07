@@ -19,14 +19,22 @@
 // fields onto edge `data`.
 
 import type { Edge } from "@xyflow/react";
+import Fraction from "fraction.js";
 
 import {
   BETWEEN_LAYERS_SPACING,
   RECIPE_WIDTH,
   loopBoxDimensions,
 } from "./dimensions";
-import { CHAMFER, PORT_STUB } from "./edgePath";
+import {
+  CHAMFER,
+  PORT_STUB,
+  chamferStepPath,
+  clearRailY,
+  type ObstacleRect,
+} from "./edgePath";
 import { measureRecipe } from "./recipeGeometry";
+import { orderByItem } from "./orderByItem";
 import type { RFAnyNode } from "./layout";
 
 // A "long" edge reaches past two full layers. One layer is a column gap plus a
@@ -44,7 +52,26 @@ export const LANE_SPACING = 28;
 export type BusEdgeData = {
   laneY: number;
   trunkKey: string;
+  // Trunk aggregate stamped by routeBusEdges. busTotalRate is the summed rate of
+  // every member of this trunk and busMemberCount how many members there are;
+  // busChipOwner marks the single member elected to draw the trunk's one drop
+  // chip (showing the total, plus the count when > 1). The other members
+  // suppress their drop chip, so the shared lane shows its true total once
+  // instead of one member's share stacked N times.
+  busTotalRate?: Fraction;
+  busMemberCount?: number;
+  busChipOwner?: boolean;
+  // Vertical stagger rank for a rise chip that shares its (riseX, laneY) anchor
+  // with other members' rises (assigned by deconflictChipAnchors). Default 0.
+  riseStagger?: number;
 };
+
+// Read a Fraction rate off an edge's data, or undefined when it is absent or not
+// a Fraction (older fixtures may omit it).
+function edgeRate(edge: Edge): Fraction | undefined {
+  const rate = (edge.data as { rate?: unknown } | undefined)?.rate;
+  return rate instanceof Fraction ? rate : undefined;
+}
 
 // Absolute left-edge x for a node. Container children store a parent-relative
 // position, so resolve one level of `parentId` and add the parent's own x.
@@ -171,8 +198,28 @@ export function routeBusEdges(
     laneYByTrunk.set(trunkKey, bandTop + slot * LANE_SPACING);
   });
 
-  // Second pass: emit. Members are retyped and get the lane fields merged;
-  // everything else is returned as-is.
+  // Aggregate each trunk: sum member rates, count members, and elect the member
+  // that owns the trunk's single drop chip (the lexicographically smallest edge
+  // id, so the choice is deterministic across runs regardless of edge order).
+  const trunkTotal = new Map<string, Fraction>();
+  const trunkCount = new Map<string, number>();
+  const trunkOwner = new Map<string, string>();
+  trunkKeyByEdgeIndex.forEach((trunkKey, index) => {
+    const edge = edges[index]!;
+    const rate = edgeRate(edge) ?? new Fraction(0);
+    trunkTotal.set(
+      trunkKey,
+      (trunkTotal.get(trunkKey) ?? new Fraction(0)).add(rate),
+    );
+    trunkCount.set(trunkKey, (trunkCount.get(trunkKey) ?? 0) + 1);
+    const owner = trunkOwner.get(trunkKey);
+    if (owner === undefined || edge.id < owner) {
+      trunkOwner.set(trunkKey, edge.id);
+    }
+  });
+
+  // Second pass: emit. Members are retyped and get the lane + trunk-aggregate
+  // fields merged; everything else is returned as-is.
   return edges.map((edge, index) => {
     const trunkKey = trunkKeyByEdgeIndex.get(index);
     if (trunkKey === undefined) return edge;
@@ -180,7 +227,14 @@ export function routeBusEdges(
     return {
       ...edge,
       type: "bus",
-      data: { ...edge.data, laneY, trunkKey },
+      data: {
+        ...edge.data,
+        laneY,
+        trunkKey,
+        busTotalRate: trunkTotal.get(trunkKey)!,
+        busMemberCount: trunkCount.get(trunkKey)!,
+        busChipOwner: edge.id === trunkOwner.get(trunkKey),
+      },
     };
   });
 }
@@ -513,5 +567,272 @@ export function assignBendColumns(
     const bendX = bendById.get(edge.id);
     if (bendX === undefined) return edge;
     return { ...edge, data: { ...edge.data, bendX } };
+  });
+}
+
+// clampBackwardRails: give each backward item edge's detour rail a y that clears
+// the cards it horizontally spans, so a recycle rail no longer slices through
+// its own source / target cards or the columns between them. Mirrors the bus
+// lane band's obstacle avoidance (clearRailY): all node rectangles are the
+// obstacles, and the rail moves just clear of the ones its horizontal run
+// crosses. Threads { railY } onto the affected edges; every other edge passes
+// through by reference. Runs after assignEntryColumns so it sees the entry
+// column that fixes the rail's left end.
+export function clampBackwardRails(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): Edge[] {
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+
+  const obstacles: ObstacleRect[] = nodes.map((n) => {
+    const left = absoluteLeft(n, byId);
+    const top = absoluteTop(n, byId);
+    return { left, right: left + nodeWidth(n), top, bottom: top + nodeHeight(n) };
+  });
+
+  const railYByIndex = new Map<number, number>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "item") return;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) return;
+    if (nodeGap(source, target, byId) > 0) return; // forward edges keep the step
+    const item = edgeItem(edge);
+    const sx = absoluteLeft(source, byId) + nodeWidth(source);
+    const tx = absoluteLeft(target, byId);
+    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
+    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    // Rail x-span mirrors chamferStepPath's backward branch: one stub right of
+    // the source port to the entry column (or one stub before the target port).
+    const xr = sx + PORT_STUB;
+    const xl =
+      (edge.data as { entryX?: number } | undefined)?.entryX ?? tx - PORT_STUB;
+    const preferredY = sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2;
+    const railY = clearRailY(preferredY, xl, xr, obstacles);
+    if (railY !== preferredY) railYByIndex.set(index, railY);
+  });
+
+  if (railYByIndex.size === 0) return edges.map((e) => e);
+  return edges.map((edge, index) => {
+    const railY = railYByIndex.get(index);
+    if (railY === undefined) return edge;
+    return { ...edge, data: { ...edge.data, railY } };
+  });
+}
+
+// -- Chip de-confliction -----------------------------------------------------
+//
+// Two coincident chips read as one, and on a bus lane the surviving chip lied
+// about the flow. deconflictChipAnchors runs last (after routeBusEdges,
+// assignEntryColumns, and assignBendColumns, so it sees the final laneY, entryX,
+// and bendX) and threads two offsets:
+//   - riseStagger: bus members whose rise chip shares a (riseX, laneY) anchor
+//     get a stagger rank, so BusEdge steps them down the lane instead of
+//     stacking them. (Drop chips are already collapsed to one owner per trunk by
+//     routeBusEdges.)
+//   - labelDy: forward item edges whose reconstructed midpoint anchor lands on
+//     top of one already placed get a downward nudge, so ItemEdge's midpoint
+//     chip clears its neighbour.
+// Pure and deterministic: anchors are reconstructed from node geometry with the
+// same path builder the components use, and both passes order by edge id.
+
+// Chip-collision box for the greedy midpoint nudge, in graph units. Two
+// midpoint anchors closer than this in both axes are treated as overlapping; a
+// colliding chip is bumped down one step until it clears.
+const CHIP_COLLIDE_X = 60;
+const CHIP_COLLIDE_Y = 20;
+const CHIP_NUDGE_STEP = 22;
+
+// Minimum vertical pitch between two entry chips arriving at one node: a chip's
+// own height plus a 2px breathing gap, in graph units. Entry chips whose port
+// anchors sit closer than this (same-item duplicates share a port y outright)
+// are stacked down to this pitch so none coincide.
+const ENTRY_CHIP_HEIGHT = 20;
+export const ENTRY_CHIP_MIN_GAP = ENTRY_CHIP_HEIGHT + 2;
+
+// Push a column of arrival y-anchors (given in arrival order) down just enough
+// that each sits at least ENTRY_CHIP_MIN_GAP below the previous one, so equal or
+// too-close anchors never coincide while their order is preserved. The first
+// anchor is never moved. Pure.
+export function stackEntryAnchors(ys: readonly number[]): number[] {
+  const out: number[] = [];
+  let prev = -Infinity;
+  for (const y of ys) {
+    const placed = Math.max(y, prev + ENTRY_CHIP_MIN_GAP);
+    out.push(placed);
+    prev = placed;
+  }
+  return out;
+}
+
+// Node-local y of the port carrying `item` on the given side, or the node's
+// vertical center when the port cannot be resolved (product / loop node, or a
+// missing item / order). Mirrors RecipeNode's handle placement: handles sit in
+// the ELK-resolved row order, so the row index is the item's position in the
+// ordered rows.
+function portOffsetY(
+  node: RFAnyNode,
+  item: string | undefined,
+  side: "in" | "out",
+): number {
+  if (node.type === "recipe" && item !== undefined) {
+    const recipe = node.data.recipe;
+    const rows = side === "in" ? recipe.in : recipe.out;
+    const order = side === "in" ? node.data.inputOrder : node.data.outputOrder;
+    const idx = orderByItem(rows, order).findIndex((r) => r.item === item);
+    if (idx >= 0) {
+      const geom = measureRecipe(recipe);
+      const ys = side === "in" ? geom.inHandleYs : geom.outHandleYs;
+      const y = ys[idx];
+      if (y !== undefined) return y;
+    }
+  }
+  return nodeHeight(node) / 2;
+}
+
+export function deconflictChipAnchors(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): Edge[] {
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+
+  // Bus rise chips: bucket members by their (riseX, laneY) anchor and rank each
+  // collision group by edge id. riseX mirrors chamferBusPath: the staggered
+  // entry column when present, else one stub+chamfer inside the target port.
+  const riseStaggerByIndex = new Map<number, number>();
+  const riseGroups = new Map<string, Array<{ index: number; id: string }>>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "bus") return;
+    const target = byId.get(edge.target);
+    if (target === undefined) return;
+    const data = edge.data as { entryX?: number; laneY?: number } | undefined;
+    if (data?.laneY === undefined) return;
+    const riseX =
+      data.entryX ?? absoluteLeft(target, byId) - PORT_STUB - CHAMFER;
+    const key = Math.round(riseX) + "|" + Math.round(data.laneY);
+    const list = riseGroups.get(key) ?? [];
+    list.push({ index, id: edge.id });
+    riseGroups.set(key, list);
+  });
+  for (const list of riseGroups.values()) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    list.forEach((m, rank) => riseStaggerByIndex.set(m.index, rank));
+  }
+
+  // Item midpoint chips: reconstruct each forward item edge's label anchor from
+  // node geometry (via the same chamferStepPath the component draws) and greedily
+  // nudge a chip down when it collides with one already placed. Ordering by edge
+  // id keeps the placement deterministic.
+  const labelDyByIndex = new Map<number, number>();
+  const placed: Array<[number, number]> = [];
+  const items = edges
+    .map((edge, index) => ({ edge, index }))
+    .filter((e) => e.edge.type === "item")
+    .sort((a, b) =>
+      a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0,
+    );
+  for (const { edge, index } of items) {
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) continue;
+    const item = edgeItem(edge);
+    const sx = absoluteLeft(source, byId) + nodeWidth(source);
+    const tx = absoluteLeft(target, byId);
+    if (tx - sx <= 0) continue; // backward rails label elsewhere; skip
+    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
+    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    const bendX = (edge.data as { bendX?: number } | undefined)?.bendX;
+    const [, lx, ly] = chamferStepPath({
+      sourceX: sx,
+      sourceY: sy,
+      targetX: tx,
+      targetY: ty,
+      ...(bendX !== undefined ? { bendX } : {}),
+    });
+    let dy = 0;
+    while (
+      placed.some(
+        ([px, py]) =>
+          Math.abs(px - lx) < CHIP_COLLIDE_X &&
+          Math.abs(py - (ly + dy)) < CHIP_COLLIDE_Y,
+      )
+    ) {
+      dy += CHIP_NUDGE_STEP;
+    }
+    if (dy !== 0) labelDyByIndex.set(index, dy);
+    placed.push([lx, ly + dy]);
+  }
+
+  // Entry chips: every forward item edge flagged multiInputTarget pins an
+  // icon-only chip just left of its target port. Chips arriving at one node
+  // (same-item duplicates share a port y outright, adjacent ports sit a row
+  // apart) collide, so bucket them per target, order by port index then edge id,
+  // and stack their port anchors down to a clear pitch. The threaded dy is the
+  // push each chip received off its own port y.
+  const entryDyByIndex = new Map<number, number>();
+  type EntrySlot = { index: number; id: string; port: number; anchorY: number };
+  const entryByTarget = new Map<string, EntrySlot[]>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "item") return;
+    const data = edge.data as { multiInputTarget?: unknown } | undefined;
+    if (data?.multiInputTarget !== true) return;
+    const target = byId.get(edge.target);
+    if (target === undefined) return;
+    const item = edgeItem(edge);
+    const anchorY = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    const list = entryByTarget.get(edge.target) ?? [];
+    list.push({
+      index,
+      id: edge.id,
+      port: inputPortIndex(target, item),
+      anchorY,
+    });
+    entryByTarget.set(edge.target, list);
+  });
+  for (const list of entryByTarget.values()) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => {
+      const ap = a.port < 0 ? Infinity : a.port;
+      const bp = b.port < 0 ? Infinity : b.port;
+      if (ap !== bp) return ap - bp;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    const stacked = stackEntryAnchors(list.map((s) => s.anchorY));
+    list.forEach((s, i) => {
+      const dy = stacked[i]! - s.anchorY;
+      if (dy !== 0) entryDyByIndex.set(s.index, dy);
+    });
+  }
+
+  if (
+    riseStaggerByIndex.size === 0 &&
+    labelDyByIndex.size === 0 &&
+    entryDyByIndex.size === 0
+  ) {
+    return edges.map((e) => e);
+  }
+  return edges.map((edge, index) => {
+    const riseStagger = riseStaggerByIndex.get(index);
+    const labelDy = labelDyByIndex.get(index);
+    const entryChipDy = entryDyByIndex.get(index);
+    if (
+      riseStagger === undefined &&
+      labelDy === undefined &&
+      entryChipDy === undefined
+    ) {
+      return edge;
+    }
+    return {
+      ...edge,
+      data: {
+        ...edge.data,
+        ...(riseStagger !== undefined ? { riseStagger } : {}),
+        ...(labelDy !== undefined ? { labelDy } : {}),
+        ...(entryChipDy !== undefined ? { entryChipDy } : {}),
+      },
+    };
   });
 }

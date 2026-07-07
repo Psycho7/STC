@@ -1,6 +1,11 @@
 import {
   ReactFlow,
+  ReactFlowProvider,
   Controls,
+  MiniMap,
+  useReactFlow,
+  useNodesInitialized,
+  useStore,
   type Node,
   type Edge,
   type OnNodesChange,
@@ -8,7 +13,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./canvas.css";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RecipeNode from "./RecipeNode";
 import GroupNode from "./GroupNode";
 import LoopNode from "./LoopNode";
@@ -44,9 +49,28 @@ const edgeTypes = { item: ItemEdge, bus: BusEdge };
 // keeps a small margin around the fitted graph so nodes do not touch the frame.
 const FIT_VIEW_OPTIONS = { padding: 0.12 };
 
+// Delay before a hover registers, so sweeping the pointer across the canvas does
+// not strobe the dim state on every element crossed. A leave within the window
+// cancels the pending hover.
+const HOVER_INTENT_MS = 150;
+
+// Debounce for the ResizeObserver re-fit so dragging the window edge (a burst of
+// resize callbacks) coalesces into a single fitView instead of thrashing.
+const RESIZE_REFIT_MS = 100;
+
+// The solve + layout lifecycle state surfaced by the status annotation and the
+// header chip. READY = idle, SOLVING = a generation is in flight, ERROR = the
+// last solve or load failed.
+export type CanvasStatus = "READY" | "SOLVING" | "ERROR";
+
 interface CanvasProps {
   nodes: Node[];
   edges: Edge[];
+  status?: CanvasStatus;
+  // Monotonically increasing counter bumped by App on every applied solve +
+  // layout. A change means the node/edge arrays are a fresh plan, so the
+  // viewport re-fits (once measured) rather than staying on the old camera.
+  layoutGeneration?: number;
   onNodesChange?: OnNodesChange<Node>;
   onEdgesChange?: OnEdgesChange<Edge>;
 }
@@ -76,14 +100,197 @@ function withDimmed(className: string | undefined): string {
   return className ? `${className} dimmed` : "dimmed";
 }
 
-export default function Canvas({
+function withLitContainer(className: string | undefined): string {
+  return className ? `${className} lit-container` : "lit-container";
+}
+
+// How long the copy button holds its transient result before reverting to the
+// default label.
+const COPY_FEEDBACK_MS = 1500;
+
+// Level-of-detail band derived from the live React Flow zoom. At the fit zoom of
+// a dense plan (roughly 0.35-0.55) per-machine metadata and card chrome shrink
+// below legibility, so the canvas theme container carries a band class that
+// canvas.css uses to brighten cards, drop sub-legible text layers, and fade the
+// dot grid. "zoom-low" is the aggressive overview treatment (< 0.4), "zoom-mid"
+// a lighter touch (0.4-0.8), and "" leaves full detail at higher zoom.
+export function zoomBand(zoom: number): "" | "zoom-low" | "zoom-mid" {
+  if (zoom < 0.4) return "zoom-low";
+  if (zoom < 0.8) return "zoom-mid";
+  return "";
+}
+
+// Above this node count the overview minimap appears. Small plans fit legibly
+// on their own, so the minimap is only worth its footprint on the dense plans
+// that overflow a readable-zoom viewport.
+const MINIMAP_MIN_NODES = 15;
+
+// Minimap node fill by role, so the overview reads recipes, boundary products,
+// and loop containers apart. Literal colors (not CSS vars): the minimap paints
+// them as SVG fill attributes, where var() does not resolve. These track the
+// canvas palette: a light gray card, a cyan boundary chip, a dim container.
+const MINIMAP_RECIPE = "#5a5f68";
+const MINIMAP_PRODUCT = "#7cdffc";
+const MINIMAP_CONTAINER = "#343841";
+const MINIMAP_MASK = "rgba(15, 17, 20, 0.72)";
+
+function minimapNodeColor(node: Node): string {
+  if (node.type === "product") return MINIMAP_PRODUCT;
+  if (node.type === "group" || node.type === "loop") return MINIMAP_CONTAINER;
+  return MINIMAP_RECIPE;
+}
+
+// Wrap the canvas in a ReactFlowProvider so CanvasInner can reach the React Flow
+// instance (useReactFlow) and the node-measurement signal (useNodesInitialized)
+// to drive imperative fitView on plan changes and container resizes.
+export default function Canvas(props: CanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <CanvasInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function CanvasInner({
   nodes,
   edges,
+  status = "READY",
+  layoutGeneration = 0,
   onNodesChange,
   onEdgesChange,
 }: CanvasProps) {
   const i18n = useI18n();
   const [hovered, setHovered] = useState<Hovered>(null);
+  const { fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Live zoom drives the low-zoom LOD band on the theme container. Reading
+  // transform[2] (zoom only) re-renders on zoom changes but not on pan.
+  const zoom = useStore((state) => state.transform[2]);
+
+  // Re-fit the viewport once per layout generation, but only after React Flow
+  // has measured the new nodes (async): fitting synchronously on the prop change
+  // would frame zero-size nodes. `fittedGen` guards against re-fitting on the
+  // repeated nodesInitialized signals within one generation (hover re-renders,
+  // for example).
+  const fittedGen = useRef<number | null>(null);
+  useEffect(() => {
+    if (!nodesInitialized) return;
+    if (fittedGen.current === layoutGeneration) return;
+    fittedGen.current = layoutGeneration;
+    void fitView(FIT_VIEW_OPTIONS);
+  }, [nodesInitialized, layoutGeneration, fitView]);
+
+  // Re-fit when the canvas container changes size (window resize, side-panel
+  // toggle) so the graph keeps filling the pane instead of drifting into a
+  // corner. Debounced so a drag-resize does not fire a fit on every frame.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // ResizeObserver fires once with the initial size on observe(); the
+    // generation effect already frames the first render, so skip that callback
+    // and re-fit only on genuine later size changes.
+    let seenInitial = false;
+    const observer = new ResizeObserver(() => {
+      if (!seenInitial) {
+        seenInitial = true;
+        return;
+      }
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void fitView(FIT_VIEW_OPTIONS);
+      }, RESIZE_REFIT_MS);
+    });
+    observer.observe(el);
+    return () => {
+      if (timer !== null) clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [fitView]);
+
+  // Transient result of the last copy-share click. "copied" / "failed" replace
+  // the button label for COPY_FEEDBACK_MS so the click is never silent, then it
+  // reverts to "idle".
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashCopyState = useCallback((next: "copied" | "failed") => {
+    setCopyState(next);
+    if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => {
+      copyTimer.current = null;
+      setCopyState("idle");
+    }, COPY_FEEDBACK_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+    },
+    [],
+  );
+  const handleCopyShare = useCallback(() => {
+    // navigator.clipboard is absent in non-secure contexts (plain-http LAN) and
+    // in jsdom. Surface that as a failure rather than a silent no-op.
+    const clipboard = navigator.clipboard;
+    if (!clipboard) {
+      flashCopyState("failed");
+      return;
+    }
+    clipboard.writeText(window.location.href).then(
+      () => flashCopyState("copied"),
+      () => flashCopyState("failed"),
+    );
+  }, [flashCopyState]);
+  const copyLabel =
+    copyState === "copied"
+      ? i18n.t("canvas.copy_share.copied")
+      : copyState === "failed"
+        ? i18n.t("canvas.copy_share.failed")
+        : i18n.t("canvas.copy_share");
+
+  // Hover intent: a pending timer holds the next hover for HOVER_INTENT_MS. A
+  // leave (or a new enter) cancels any pending timer so quick pointer travel
+  // never settles the dim state.
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingHover = useCallback(() => {
+    if (hoverTimer.current !== null) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  }, []);
+  const scheduleHover = useCallback(
+    (next: Hovered) => {
+      cancelPendingHover();
+      hoverTimer.current = setTimeout(() => {
+        hoverTimer.current = null;
+        setHovered(next);
+      }, HOVER_INTENT_MS);
+    },
+    [cancelPendingHover],
+  );
+  const clearHover = useCallback(() => {
+    cancelPendingHover();
+    setHovered(null);
+  }, [cancelPendingHover]);
+  useEffect(() => cancelPendingHover, [cancelPendingHover]);
+
+  // The Controls buttons and MiniMap pull their aria-labels from React Flow's
+  // ariaLabelConfig (the <Controls> component only exposes the container label
+  // directly), so localize them here rather than leaving the built-in English.
+  const ariaLabelConfig = useMemo(
+    () => ({
+      "controls.ariaLabel": i18n.t("canvas.controls.panel"),
+      "controls.zoomIn.ariaLabel": i18n.t("canvas.controls.zoom_in"),
+      "controls.zoomOut.ariaLabel": i18n.t("canvas.controls.zoom_out"),
+      "controls.fitView.ariaLabel": i18n.t("canvas.controls.fit_view"),
+      "controls.interactive.ariaLabel": i18n.t("canvas.controls.interactive"),
+      "minimap.ariaLabel": i18n.t("canvas.minimap"),
+    }),
+    [i18n],
+  );
 
   const adjacency = useMemo<Adjacency>(() => {
     const edgesByNode = new Map<string, string[]>();
@@ -157,10 +364,14 @@ export default function Canvas({
   const displayNodes = useMemo<Node[]>(() => {
     if (!focus || !litContainers) return nodes;
     return nodes.map((node) => {
-      const lit =
-        focus.nodeIds.has(node.id) ||
-        (node.type === "group" && litContainers.has(node.id));
-      return lit ? node : { ...node, className: withDimmed(node.className) };
+      if (focus.nodeIds.has(node.id)) return node;
+      // A container lit only because a child is focused keeps a lit border but a
+      // still-translucent fill, so it does not read as a bright empty slab over
+      // its dimmed members.
+      if (node.type === "group" && litContainers.has(node.id)) {
+        return { ...node, className: withLitContainer(node.className) };
+      }
+      return { ...node, className: withDimmed(node.className) };
     });
   }, [nodes, focus, litContainers]);
 
@@ -182,7 +393,13 @@ export default function Canvas({
   }, [edges, focus]);
 
   return (
-    <div className="ak-canvas-theme" style={canvasThemeStyle}>
+    <div
+      ref={containerRef}
+      className={["ak-canvas-theme", zoomBand(zoom), focus ? "hover-active" : ""]
+        .filter(Boolean)
+        .join(" ")}
+      style={canvasThemeStyle}
+    >
       <div
         style={{
           position: "absolute",
@@ -195,15 +412,15 @@ export default function Canvas({
       >
         <button
           type="button"
-          onClick={() => {
-            // navigator.clipboard is missing in jsdom and in non-secure
-            // browser contexts, so optional-chain it and let the click quietly
-            // do nothing there.
-            void navigator.clipboard?.writeText(window.location.href);
-          }}
-          aria-label={i18n.t("canvas.copy_share")}
+          data-testid="copy-share"
+          onClick={handleCopyShare}
+          // While the canvas is stale (last solve failed), the URL still encodes
+          // the previous plan, so sharing it would hand out a plan that is not
+          // what is on screen. Disable copy until a successful solve clears it.
+          disabled={status === "ERROR"}
+          aria-label={copyLabel}
         >
-          {i18n.t("canvas.copy_share")}
+          {copyLabel}
         </button>
       </div>
       <ReactFlow
@@ -213,16 +430,33 @@ export default function Canvas({
         {...(onEdgesChange ? { onEdgesChange } : {})}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        onNodeMouseEnter={(_, node) => setHovered({ kind: "node", id: node.id })}
-        onNodeMouseLeave={() => setHovered(null)}
-        onEdgeMouseEnter={(_, edge) => setHovered({ kind: "edge", id: edge.id })}
-        onEdgeMouseLeave={() => setHovered(null)}
-        onPaneClick={() => setHovered(null)}
-        fitView
+        onNodeMouseEnter={(_, node) => {
+          // Group boxes are hover-inert: they own no edges, so lighting one dims
+          // the whole graph for zero payoff. Skip them entirely.
+          if (node.type === "group") return;
+          scheduleHover({ kind: "node", id: node.id });
+        }}
+        onNodeMouseLeave={clearHover}
+        onEdgeMouseEnter={(_, edge) => scheduleHover({ kind: "edge", id: edge.id })}
+        onEdgeMouseLeave={clearHover}
+        onPaneClick={clearHover}
         minZoom={0.05}
-        fitViewOptions={FIT_VIEW_OPTIONS}
+        ariaLabelConfig={ariaLabelConfig}
+        // Keep nodes mouse-draggable and Tab-focusable (tabIndex stays 0), but
+        // stop the arrow keys from nudging a selected node out of the ELK
+        // layout. React Flow gates the arrow-key move handler on this flag; it
+        // leaves keyboard focus traversal intact.
+        disableKeyboardA11y
       >
-        <Controls />
+        <Controls aria-label={i18n.t("canvas.controls.panel")} />
+        {nodes.length > MINIMAP_MIN_NODES ? (
+          <MiniMap
+            pannable
+            zoomable
+            nodeColor={minimapNodeColor}
+            maskColor={MINIMAP_MASK}
+          />
+        ) : null}
       </ReactFlow>
       <div className="canvas-frame" aria-hidden="true" />
       <div className="cb tl" aria-hidden="true" />
@@ -238,7 +472,7 @@ export default function Canvas({
       <div className="canvas-annot top-right">
         {`UNITS:${nodes.filter((n) => n.type === "recipe").length}`}
       </div>
-      <div className="canvas-annot bottom-right">STATUS · READY</div>
+      <div className="canvas-annot bottom-right">{`STATUS · ${status}`}</div>
     </div>
   );
 }

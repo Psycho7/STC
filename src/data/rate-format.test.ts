@@ -1,16 +1,68 @@
 import { expect, test } from "vitest";
 import Fraction from "fraction.js";
 import {
+  formatRateExactPerMin,
   formatRatePerMin,
   formatRationalPerMin,
   ratePerSecToPerMin,
 } from "./rate-format";
 
-test("formatRationalPerMin shows a non-terminating rate as an exact fraction", () => {
-  // 40/27 per sec * 60 = 800/9 per min (non-terminating decimal).
-  expect(formatRationalPerMin({ num: "40", denom: "27" })).toBe("800/9");
+test("formatRateExactPerMin reveals the un-rounded value the display rounds", () => {
+  // 1/7 per sec * 60 = 60/7 = 8.571428..., which formatRatePerMin rounds to
+  // "8.57"; the exact tooltip shows the full-precision decimal instead.
+  expect(formatRateExactPerMin(new Fraction(1, 7))).toBe(String(60 / 7));
+  // A tiny rate the display would show as a fraction still reads exactly.
+  expect(formatRateExactPerMin(new Fraction("1").div("12000"))).toBe(
+    String((1 / 12000) * 60),
+  );
+});
+
+test("formatRateExactPerMin returns empty for exact zero", () => {
+  expect(formatRateExactPerMin(new Fraction(0))).toBe("");
+});
+
+test("formatRateExactPerMin never returns exponential text", () => {
+  // 1/600000000 per sec * 60 = 1e-7 per min; String() would go exponential, so
+  // the exact fraction form is used instead.
+  const out = formatRateExactPerMin(new Fraction("1").div("600000000"));
+  expect(out.includes("e")).toBe(false);
+  expect(out.includes("E")).toBe(false);
+});
+
+test("formatRationalPerMin rounds a non-terminating rate to the shared decimal", () => {
+  // 40/27 per sec * 60 = 800/9 = 88.888.../min. The rational readout now uses
+  // the same decimal core as the canvas chips instead of a vulgar fraction.
+  expect(formatRationalPerMin({ num: "40", denom: "27" })).toBe("88.89");
   // Whole per-minute values collapse to a plain integer.
   expect(formatRationalPerMin({ num: "2", denom: "1" })).toBe("120");
+});
+
+test("formatRatePerMin and formatRationalPerMin agree on the same rate", () => {
+  // The chip (Fraction) and sidebar (RationalString) formatters share one core,
+  // so a screen never mixes "6/5" with a decimal for the same value.
+  expect(formatRatePerMin(new Fraction(1, 7))).toBe(
+    formatRationalPerMin({ num: "1", denom: "7" }),
+  );
+  expect(formatRatePerMin(new Fraction("1").div("12500"))).toBe(
+    formatRationalPerMin({ num: "1", denom: "12500" }),
+  );
+});
+
+test("formatRatePerMin uses significant digits below 0.01, never a slash", () => {
+  // 1/12000 per sec * 60 = 0.005/min. toFixed(2) rounded this to "0.01" (2x the
+  // real flow); significant digits keep it honest and slash-free.
+  expect(formatRatePerMin(new Fraction("1").div("12000"))).toBe("0.005");
+  // 1/12500 per sec * 60 = 0.0048/min, which used to flip to "3/625".
+  const tiny = formatRatePerMin(new Fraction("1").div("12500"));
+  expect(tiny).toBe("0.0048");
+  expect(tiny.includes("/")).toBe(false);
+});
+
+test("formatRationalPerMin never emits a slash (no double-slash unit text)", () => {
+  // A non-terminating rational used to render "3/625", composing to "3/625/min".
+  expect(formatRationalPerMin({ num: "1", denom: "12500" }).includes("/")).toBe(
+    false,
+  );
 });
 
 test("formatRatePerMin keeps a normal sub-unit rate unchanged", () => {
@@ -34,15 +86,14 @@ test("formatRatePerMin returns empty for exact zero", () => {
 });
 
 test("formatRatePerMin never collapses a tiny nonzero rate to 0", () => {
-  // 1/20000 per sec * 60 = 0.003 per min, below toFixed(2) resolution. Must
-  // fall back to the exact fraction instead of rendering a "0/min" chip.
-  expect(formatRatePerMin(new Fraction("1").div("20000"))).toBe("3/1000");
+  // 1/20000 per sec * 60 = 0.003 per min, below toFixed(2) resolution. The
+  // significant-digit path keeps the magnitude as a decimal instead of "0".
+  expect(formatRatePerMin(new Fraction("1").div("20000"))).toBe("0.003");
 });
 
 test("formatRatePerMin never renders -0 for a tiny negative rate", () => {
-  // toFixed(2) on -0.003 yields "-0"; the exact-fraction fallback keeps the
-  // sign and the magnitude.
-  expect(formatRatePerMin(new Fraction("-1").div("20000"))).toBe("-3/1000");
+  // -0.003/min keeps its sign and magnitude as a decimal.
+  expect(formatRatePerMin(new Fraction("-1").div("20000"))).toBe("-0.003");
 });
 
 test("formatRatePerMin keeps the sign on a negative whole per-minute rate", () => {

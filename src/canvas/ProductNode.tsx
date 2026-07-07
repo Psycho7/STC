@@ -52,7 +52,10 @@ function flavorMarker(data: ProductNodeData): string {
   return "outputProduct";
 }
 
-export default function ProductNode({ data }: NodeProps<ProductNodeType>) {
+export default function ProductNode({
+  data,
+  selected,
+}: NodeProps<ProductNodeType>) {
   const i18n = useI18n();
   const { itemById, overrides } = useItemPack();
   const item = itemById.get(data.itemId);
@@ -61,7 +64,7 @@ export default function ProductNode({ data }: NodeProps<ProductNodeType>) {
 
   // The pn-kind caption comes from the shared helper. If the item is missing
   // from the pack (corrupt data), fall back to nothing.
-  const pnKindText = item ? buildPnKind(data, item, overrides) : null;
+  const pnKindText = item ? buildPnKind(data, item, overrides, i18n) : null;
 
   // Primary rate. For inputs this is realized demand; for outputs the target or
   // surplus rate.
@@ -78,7 +81,9 @@ export default function ProductNode({ data }: NodeProps<ProductNodeType>) {
       data-testid="product-node"
       data-flavor={flavorMarker(data)}
       data-item-id={data.itemId}
-      className={chromeClasses(data)}
+      className={
+        selected ? `${chromeClasses(data)} selected` : chromeClasses(data)
+      }
     >
       {isInput ? (
         <>
