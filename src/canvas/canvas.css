@@ -1946,6 +1946,14 @@
 }
 
 .rn-head {
+  /* Pinned to RECIPE_HEADER_HEIGHT (dimensions.ts): the offline geometry model
+     and ELK sizing treat 80px as the header contract, so the DOM must hold that
+     height at every zoom band (the low-zoom LOD hides header children but must
+     not collapse the box). box-sizing keeps the 1px border-bottom inside 80px.
+     The columns still stretch and center their content, so the block stays
+     vertically centered with the extra headroom. */
+  height: 80px;
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: 52px 1fr auto;
   align-items: stretch;

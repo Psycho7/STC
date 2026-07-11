@@ -106,9 +106,11 @@ export default function RecipeNode({
   } = data;
   const i18n = useI18n();
   const { machineById } = useItemPack();
-  // Rows in ELK-resolved arrival order (falls back to declaration order). The
-  // handle at geom.inHandleYs[i] and the row at slot i describe the same item,
-  // and each row carries its own stoich for the rate text.
+  // Rows in ELK-resolved arrival order (falls back to declaration order). Each
+  // row carries its own stoich for the rate text. geom does not place the
+  // handles (they center on the real DOM row via CSS); it only feeds node
+  // sizing here and the offline routing model (busRouting / ELK), which the
+  // pinned CSS keeps in sync with these rows.
   const ins = orderByItem(recipe.in, inputOrder);
   const outs = orderByItem(recipe.out, outputOrder);
   const geom = measureRecipe(recipe);

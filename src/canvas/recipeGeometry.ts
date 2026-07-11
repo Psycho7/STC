@@ -2,6 +2,7 @@ import type { Recipe } from "@aef/schema";
 import {
   RECIPE_HEADER_HEIGHT,
   RECIPE_ROW_HEIGHT,
+  RECIPE_ROWS_TOP_PAD,
   RECIPE_WIDTH,
   recipeHeight,
 } from "./dimensions";
@@ -41,6 +42,9 @@ export function measureRecipe(recipe: Recipe): RecipeGeometry {
 
 function rowHandleY(rowIndex: number): number {
   return (
-    RECIPE_HEADER_HEIGHT + rowIndex * RECIPE_ROW_HEIGHT + RECIPE_ROW_HEIGHT / 2
+    RECIPE_HEADER_HEIGHT +
+    RECIPE_ROWS_TOP_PAD +
+    rowIndex * RECIPE_ROW_HEIGHT +
+    RECIPE_ROW_HEIGHT / 2
   );
 }

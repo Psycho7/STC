@@ -3,21 +3,24 @@
 // rendering both read these constants directly so they stay locked together,
 // with no CSS-in-JS or build step in between.
 
-// Recipe-node geometry. .recipe-node is 300px wide. The header has no explicit
-// height, but its recipe-block stack (product 17px + machine-name 11px +
-// machine-mid 8.5px + roughly 10px of top/bottom padding) comes to about 80px.
-// A row is 5+5 padding plus a 12px text line, so 22px. The footer is 6+6 padding
-// plus a 9px line at about 1.4 line-height, so roughly 26px. Header and footer
-// fall back to these reasonable defaults wherever flex auto-sizing would
-// otherwise decide the height.
+// Recipe-node geometry. .recipe-node is 300px wide. These constants are the
+// contract the rendered DOM is pinned to, not approximations of an auto-sized
+// layout: .rn-head carries an explicit height:80px (box-sizing:border-box), each
+// .rn-row is a fixed 22px, and .rn-footer a fixed 26px, so the offline model
+// here matches the browser exactly at every zoom band (the low-zoom LOD hides
+// header children but the pinned height holds). RECIPE_ROWS_TOP_PAD is the
+// .rn-side vertical padding: rows sit that far below the header, and the same
+// padding repeats at the bottom of the side column.
 export const RECIPE_WIDTH = 300;
 export const RECIPE_HEADER_HEIGHT = 80;
 export const RECIPE_ROW_HEIGHT = 22;
 export const RECIPE_FOOTER_HEIGHT = 26;
+export const RECIPE_ROWS_TOP_PAD = 6;
 
 export function recipeHeight(inPorts: number, outPorts: number): number {
   return (
     RECIPE_HEADER_HEIGHT +
+    RECIPE_ROWS_TOP_PAD * 2 +
     Math.max(inPorts, outPorts) * RECIPE_ROW_HEIGHT +
     RECIPE_FOOTER_HEIGHT
   );
