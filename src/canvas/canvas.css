@@ -1420,6 +1420,7 @@
 }
 .ak-canvas-theme.zoom-low .rn-footer,
 .ak-canvas-theme.zoom-low .rn-head .machine-name,
+.ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-val,
 .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-lbl,
 .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-sub,
 .ak-canvas-theme.zoom-low .item-id {
@@ -1951,23 +1952,6 @@
   box-shadow: 0 0 8px rgba(35, 213, 252, 0.5);
 }
 
-/* Machine-count multiplicity badge. Uses the lime tier chip treatment for a
-   readable, on-theme chip instead of the dead light-theme inline color:#444. */
-.rn-mult-badge {
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  font-family: var(--font-num);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  padding: 2px 5px;
-  color: var(--ak-accent-lime);
-  border: 1px solid var(--ak-accent-lime-dim);
-  background: rgba(0, 0, 0, 0.35);
-  letter-spacing: 0.04em;
-}
-
 .rn-head {
   /* Pinned to RECIPE_HEADER_HEIGHT (dimensions.ts): the offline geometry model
      and ELK sizing treat 80px as the header contract, so the DOM must hold that
@@ -1978,7 +1962,7 @@
   height: 80px;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: 52px 1fr auto;
+  grid-template-columns: 52px 1fr auto auto;
   align-items: stretch;
   background: linear-gradient(180deg, var(--ak-bg-primary) 0%, #1b1d21 100%);
   border-bottom: 1px solid var(--ak-divider);
@@ -2007,6 +1991,27 @@
   justify-content: center;
   gap: 4px;
   min-width: 0;
+}
+
+/* Machine-count multiplier chip: one reserved header grid cell between the
+   recipe name and the rate block. Uses the lime tier-chip treatment for a
+   readable, on-theme chip. Centred in its cell so it never collides with the
+   rate figures (they sit in the adjacent .rn-rate-block cell), and it survives
+   at every zoom band including zoom-low, where the rate figures are hidden. */
+.rn-head .rn-mult-chip {
+  align-self: center;
+  justify-self: center;
+  margin-right: 4px;
+  font-family: var(--font-num);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 5px;
+  color: var(--ak-accent-lime);
+  border: 1px solid var(--ak-accent-lime-dim);
+  background: rgba(0, 0, 0, 0.35);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .rn-head .rn-rate-block {
@@ -2039,8 +2044,9 @@
 }
 
 /* Per-machine secondary under the aggregate header value: the single-machine
-   rate, a scope label ("ea" = each machine), and the machine-count badge, so
-   the aggregate primary stays reconcilable to one machine's throughput. */
+   rate and a scope label ("ea" = each machine), so the aggregate primary stays
+   reconcilable to one machine's throughput. The machine count rides the header
+   multiplier chip (.rn-mult-chip), not this line. */
 .rn-head .rn-rate-block .rate-sub {
   display: flex;
   align-items: baseline;
@@ -2062,11 +2068,6 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ak-text-decoration);
-}
-
-.rn-head .rn-rate-block .rate-sub .rate-sub-mult {
-  font-weight: 700;
-  color: var(--ak-accent-lime);
 }
 
 .rn-head .product {

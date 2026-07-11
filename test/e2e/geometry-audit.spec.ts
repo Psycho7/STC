@@ -40,9 +40,19 @@ type RowCenter = {
   handleCenterY: number | null;
 };
 
+// Per recipe node that shows a machine-multiplier chip: the chip's box and the
+// adjacent rate-block box. Audit issue 5 was the old absolute .rn-mult-badge
+// overlapping the rate figures; the promoted header cell must keep them apart.
+type MultPair = {
+  nodeId: string;
+  chip: ChipRect;
+  rate: ChipRect;
+};
+
 type AuditData = {
   chips: ChipRect[];
   rows: RowCenter[];
+  multPairs: MultPair[];
   recipeNodeCount: number;
 };
 
@@ -93,12 +103,35 @@ function collectAudit(): AuditData {
     };
   });
 
+  const toRect = (el: HTMLElement, label: string): ChipRect => {
+    const r = el.getBoundingClientRect();
+    return {
+      label,
+      x: r.x,
+      y: r.y,
+      right: r.right,
+      bottom: r.bottom,
+      width: r.width,
+      height: r.height,
+    };
+  };
+
   const recipeNodes = Array.from(
     document.querySelectorAll<HTMLElement>(".react-flow__node-recipe"),
   );
   const rows: RowCenter[] = [];
+  const multPairs: MultPair[] = [];
   for (const node of recipeNodes) {
     const nodeId = node.getAttribute("data-id") ?? "(node)";
+    const chipEl = node.querySelector<HTMLElement>(".rn-mult-chip");
+    const rateEl = node.querySelector<HTMLElement>(".rn-rate-block");
+    if (chipEl !== null && rateEl !== null) {
+      multPairs.push({
+        nodeId,
+        chip: toRect(chipEl, "mult-chip"),
+        rate: toRect(rateEl, "rate-block"),
+      });
+    }
     for (const row of Array.from(
       node.querySelectorAll<HTMLElement>(".rn-row"),
     )) {
@@ -117,7 +150,7 @@ function collectAudit(): AuditData {
     }
   }
 
-  return { chips, rows, recipeNodeCount: recipeNodes.length };
+  return { chips, rows, multPairs, recipeNodeCount: recipeNodes.length };
 }
 
 // Strict interpenetration on both axes, beyond the abutment epsilon.
@@ -150,7 +183,8 @@ test.describe("DOM geometry audit", () => {
       await page.evaluate(() => document.fonts.ready.then(() => undefined));
       await waitForStableViewport(page);
 
-      const { chips, rows, recipeNodeCount } = await page.evaluate(collectAudit);
+      const { chips, rows, multPairs, recipeNodeCount } =
+        await page.evaluate(collectAudit);
 
       // (a) Zero pairwise chip overlaps. Collect the full inventory so one run
       // reports every offending pair, not just the first.
@@ -187,12 +221,32 @@ test.describe("DOM geometry audit", () => {
         }
       }
 
+      // (c) The machine-multiplier chip and the rate block never overlap. The
+      // promoted header cell replaced the old absolute .rn-mult-badge overlay
+      // (audit issue 5); the two boxes must stay disjoint on every node that
+      // shows a chip.
+      const chipCollisions: string[] = [];
+      for (const pair of multPairs) {
+        const hit = overlapPx(pair.chip, pair.rate);
+        if (hit !== null) {
+          chipCollisions.push(
+            `${pair.nodeId}: mult-chip ${fmtRect(pair.chip)} overlaps ` +
+              `rate-block ${fmtRect(pair.rate)} by ` +
+              `${hit.dx.toFixed(1)}x${hit.dy.toFixed(1)}px`,
+          );
+        }
+      }
+
       // Handle centring is a per-node CSS invariant independent of chip layout;
       // assert it first so that if a scenario also has chip overlaps, reaching
       // the overlap assertion still confirms the handles were centred.
       expect(
         offCenter,
         `${scenario.id}: ${offCenter.length} off-centre handle(s) among ${rows.length} rows in ${recipeNodeCount} recipe node(s):\n${offCenter.join("\n")}`,
+      ).toEqual([]);
+      expect(
+        chipCollisions,
+        `${scenario.id}: ${chipCollisions.length} mult-chip/rate-block overlap(s) among ${multPairs.length} chipped node(s):\n${chipCollisions.join("\n")}`,
       ).toEqual([]);
       expect(
         overlaps,

@@ -206,6 +206,12 @@ export default function RecipeNode({
             </div>
           ) : null}
         </div>
+        {/* Machine multiplier: one reserved header cell beside the rate block,
+            never an overlay. It is critical info, so it survives at every zoom
+            band (the rate figures drop at zoom-low; this chip does not). */}
+        {badgeText !== null ? (
+          <span className="rn-mult-chip">{badgeText}</span>
+        ) : null}
         <div className="rn-rate-block">
           <div className="rate-val">{rateValText}</div>
           <div className="rate-lbl">{i18n.t("node.upm")}</div>
@@ -213,9 +219,6 @@ export default function RecipeNode({
             <div className="rate-sub">
               <span className="rate-sub-val">{perMachineText}</span>
               <span className="rate-sub-ea">{i18n.t("node.each")}</span>
-              {badgeText !== null ? (
-                <span className="rate-sub-mult">{badgeText}</span>
-              ) : null}
             </div>
           ) : null}
         </div>
@@ -302,10 +305,6 @@ export default function RecipeNode({
         <div className="cycle">{i18n.t("node.cycle", { time: recipe.time })}</div>
         <div className="pwr" />
       </div>
-
-      {badgeText !== null ? (
-        <span className="rn-mult-badge">{badgeText}</span>
-      ) : null}
     </div>
   );
 }

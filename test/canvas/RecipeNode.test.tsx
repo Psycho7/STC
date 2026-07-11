@@ -128,16 +128,17 @@ function renderRecipe(
 }
 
 describe("RecipeNode", () => {
-  it("renders a kind: 'recipe' unit with the legacy multiplier badge when multiplier > 1 and not expanded", () => {
-    // The count now also appears in the per-machine secondary line, so target
-    // the corner badge element rather than a bare text match.
+  it("renders a kind: 'recipe' unit with the header multiplier chip when multiplier > 1 and not expanded", () => {
+    // The multiplier is promoted to one reserved .rn-head grid cell; target that
+    // chip rather than a bare text match.
     const { container } = renderRecipe({
       recipe,
       kind: "recipe",
       multiplier: 3,
       expanded: false,
     });
-    expect(container.querySelector(".rn-mult-badge")?.textContent).toBe("x3");
+    expect(container.querySelector(".rn-mult-chip")?.textContent).toBe("x3");
+    expect(container.querySelector(".rn-mult-badge")).toBeNull();
   });
 
   it("renders a kind: 'recipe' unit without a badge when multiplier is 1", () => {
@@ -151,14 +152,15 @@ describe("RecipeNode", () => {
   });
 
   it("preserves backward-compat on-main shape: { recipe, multiplier, expanded } with no kind", () => {
-    // The count now also appears in the per-machine secondary line, so target
-    // the corner badge element rather than a bare text match.
+    // The multiplier is promoted to one reserved .rn-head grid cell; target that
+    // chip rather than a bare text match.
     const { container } = renderRecipe({
       recipe,
       multiplier: 4,
       expanded: false,
     });
-    expect(container.querySelector(".rn-mult-badge")?.textContent).toBe("x4");
+    expect(container.querySelector(".rn-mult-chip")?.textContent).toBe("x4");
+    expect(container.querySelector(".rn-mult-badge")).toBeNull();
   });
 
   it("hides legacy badge when expanded is true even if multiplier > 1", () => {
