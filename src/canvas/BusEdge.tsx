@@ -144,10 +144,24 @@ export default function BusEdge({
         fill={kindStyle.stroke}
       />
       {isOwner && dropText
-        ? renderChip("drop", dropX, laneY, dropText, dropLabel, dropTitle)
+        ? renderChip(
+            "drop",
+            dropX,
+            laneY + (edgeData?.busDropDy ?? 0),
+            dropText,
+            dropLabel,
+            dropTitle,
+          )
         : null}
       {riseText
-        ? renderChip("rise", riseChipX, laneY, riseText, riseLabel, riseTitle)
+        ? renderChip(
+            "rise",
+            riseChipX,
+            laneY + (edgeData?.busChipDy ?? 0),
+            riseText,
+            riseLabel,
+            riseTitle,
+          )
         : null}
     </>
   );

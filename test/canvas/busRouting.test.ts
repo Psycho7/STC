@@ -1,8 +1,8 @@
 // Bus classification + lane assignment pass. Exercises routeBusEdges on
 // synthetic laid-out node/edge fixtures: short edges pass through untouched,
 // long edges become bus members with a lane below every node, trunks of the
-// same (item, source) share a lane, different items land on 28px-apart lanes in
-// item-sorted order, and the whole pass is deterministic.
+// same (item, source) share a lane, different items land on LANE_SPACING-apart
+// lanes in item-sorted order, and the whole pass is deterministic.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
@@ -113,6 +113,13 @@ describe("chip stack pitch", () => {
     expect(ENTRY_CHIP_MIN_GAP).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
     expect(ENTRY_CHIP_MIN_GAP).toBe(48);
   });
+
+  it("couples the lane pitch to the same max-scale chip box height", () => {
+    // Adjacent lanes carry rise chips a max-scale box height apart, so their
+    // boxes abut instead of interpenetrating at the fit-zoom floor.
+    expect(LANE_SPACING).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+    expect(LANE_SPACING).toBe(48);
+  });
 });
 
 describe("routeBusEdges", () => {
@@ -178,7 +185,7 @@ describe("routeBusEdges", () => {
     expect(d0.laneY).toBe(d1.laneY);
   });
 
-  it("puts different items on lanes 28px apart in item-sorted order", () => {
+  it("puts different items on lanes LANE_SPACING apart in item-sorted order", () => {
     const rApple = mkRecipe("rApple", ["x"], ["apple"]);
     const rBanana = mkRecipe("rBanana", ["x"], ["banana"]);
     const far = 300 + (BUS_SPAN_THRESHOLD + 50);
@@ -330,11 +337,12 @@ describe("routeBusEdges trunk rise-chip slots", () => {
     }
   });
 
-  it("falls back to fixed 60px steps when the lane extent is too short", () => {
-    // Two input-product feeders sit almost adjacent, so the extent (negative
-    // here) cannot seat the members at >= 60px apart. Slots step off the drop
-    // side by a fixed 60px and may run past the rise column (accepted degenerate
-    // fallback).
+  it("stacks rise slots at the drop column when the lane extent is too short", () => {
+    // Two input-product feeders sit almost adjacent, so the rise column lands at
+    // or left of the drop column and the extent is non-positive. The step
+    // collapses to 0 so every member's rise slot falls on the drop column;
+    // deconflictChipAnchors then cascades the coincident pile downward off the
+    // lane rather than spreading it horizontally past the rise column.
     const nodes: RFAnyNode[] = [
       inputProductNode("agg", "ore", 0, 0), // right edge 148
       inputProductNode("t1", "ore", 200, 0), // bothInput feeder -> bus
@@ -346,8 +354,8 @@ describe("routeBusEdges trunk rise-chip slots", () => {
     ];
     const out = routeBusEdges(nodes, edges);
     const dropX = 148 + PORT_STUB + CHAMFER; // 180
-    expect(busChipXOf(out, "e0")).toBeCloseTo(dropX + 60, 6);
-    expect(busChipXOf(out, "e1")).toBeCloseTo(dropX + 120, 6);
+    expect(busChipXOf(out, "e0")).toBeCloseTo(dropX, 6);
+    expect(busChipXOf(out, "e1")).toBeCloseTo(dropX, 6);
   });
 });
 
@@ -657,6 +665,69 @@ const productNode = (
     rate: { num: "1", denom: "1" },
     portTransportKinds: emptyPorts,
   },
+});
+
+function busDropDyOf(edges: Edge[], id: string): number {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { busDropDy?: number }
+    | undefined;
+  return d?.busDropDy ?? 0;
+}
+
+function busChipDyOf(edges: Edge[], id: string): number {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { busChipDy?: number }
+    | undefined;
+  return d?.busChipDy ?? 0;
+}
+
+describe("deconflictChipAnchors: bus lane cascade", () => {
+  it("cascades a crowded trunk's rise chips below its lane in pitch steps", () => {
+    // Two input-product feeders share one trunk (ore|agg) but sit so close that
+    // the lane extent collapses: routeBusEdges stacks both rise slots on the drop
+    // column. The owner (e0) keeps its aggregate drop chip on the lane; the rise
+    // chips, coincident on that column, cascade straight down a full max-scale
+    // pitch apart so no two bus chips overlap on screen.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("agg", "ore", 0, 0),
+      inputProductNode("t1", "ore", 200, 0),
+      inputProductNode("t2", "ore", 200, 200),
+    ];
+    const edges = [
+      mkEdge("e0", "agg", "t1", "ore"),
+      mkEdge("e1", "agg", "t2", "ore"),
+    ];
+    const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
+    const pitch = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+    // e0 owns the drop chip, which settles first on the lane and is never pushed.
+    expect(busDropDyOf(out, "e0")).toBe(0);
+    // The two rise chips pile below it at successive pitch steps, edge-id order.
+    expect(busChipDyOf(out, "e0")).toBe(pitch);
+    expect(busChipDyOf(out, "e1")).toBe(2 * pitch);
+  });
+
+  it("leaves a well-spread trunk's chips on the lane", () => {
+    // Three members feeding distinct far layers spread their rise slots evenly
+    // across a wide lane extent, so no chip crowds another and none is nudged.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", far, 0, r),
+      recipeNode("t2", far + 4000, 300, r),
+      recipeNode("t3", far + 8000, 600, r),
+    ];
+    const edges = [
+      mkEdge("e0", "s", "t1", "b"),
+      mkEdge("e1", "s", "t2", "b"),
+      mkEdge("e2", "s", "t3", "b"),
+    ];
+    const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
+    for (const id of ["e0", "e1", "e2"]) {
+      expect(busChipDyOf(out, id)).toBe(0);
+      expect(busDropDyOf(out, id)).toBe(0);
+    }
+  });
 });
 
 describe("deconflictChipAnchors: merged collision set", () => {
