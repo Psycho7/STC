@@ -11,6 +11,7 @@ import type { Edge } from "@xyflow/react";
 
 import {
   routeBusEdges,
+  laneBands,
   assignBendColumns,
   assignEntryColumns,
   clampBackwardRails,
@@ -126,6 +127,11 @@ const maxBottom = (nodes: RFAnyNode[]): number =>
     }),
   );
 
+// Top of every node in a fixture, mirroring the module's minAbsoluteNodeTop so
+// the "lane above every node" assertions share the top band's own geometry.
+const minTop = (nodes: RFAnyNode[]): number =>
+  Math.min(...nodes.map((n) => n.position.y));
+
 describe("chip stack pitch", () => {
   it("couples the entry pitch to max counter-scale times true chip height", () => {
     expect(ENTRY_CHIP_MIN_GAP).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
@@ -212,14 +218,18 @@ describe("routeBusEdges", () => {
     const far = 300 + (BUS_SPAN_THRESHOLD + 50);
     // Declare the banana source first to prove ordering is by item, not input.
     // Each lone member's corridor is blocked at its own target row so both stay
-    // bus members (Task 12) instead of demoting to plain item edges.
+    // bus members (Task 12) instead of demoting to plain item edges. Both trunks
+    // sit in the lower half (an anchor node up top pulls the graph midline above
+    // them), so they share the BOTTOM band and this pins within-band slot order;
+    // the top/bottom split is exercised by the two-sided-bands suite below.
     const nodes: RFAnyNode[] = [
-      recipeNode("sBanana", 0, 0, rBanana),
-      recipeNode("tBanana", far, 0, rBanana),
-      recipeNode("midBanana", 600, 0, rBanana),
-      recipeNode("sApple", 0, 400, rApple),
-      recipeNode("tApple", far, 400, rApple),
-      recipeNode("midApple", 600, 400, rApple),
+      recipeNode("anchor", 0, 0, rApple),
+      recipeNode("sBanana", 0, 800, rBanana),
+      recipeNode("tBanana", far, 800, rBanana),
+      recipeNode("midBanana", 600, 800, rBanana),
+      recipeNode("sApple", 0, 900, rApple),
+      recipeNode("tApple", far, 900, rApple),
+      recipeNode("midApple", 600, 900, rApple),
     ];
     const edges = [
       mkEdge("e0", "sBanana", "tBanana", "banana"),
@@ -273,16 +283,193 @@ describe("routeBusEdges", () => {
     ];
 
     // Project to the deterministic bus fields (the rate Fraction carries a
-    // BigInt that JSON can't serialize, and is irrelevant to routing).
+    // BigInt that JSON can't serialize, and is irrelevant to routing). busBand
+    // rides along so band assignment is pinned as part of determinism.
     const project = (out: Edge[]) =>
       out.map((e) => {
-        const d = e.data as { laneY?: number; trunkKey?: string };
-        return { id: e.id, type: e.type, laneY: d.laneY, trunkKey: d.trunkKey };
+        const d = e.data as {
+          laneY?: number;
+          trunkKey?: string;
+          busBand?: string;
+        };
+        return {
+          id: e.id,
+          type: e.type,
+          laneY: d.laneY,
+          trunkKey: d.trunkKey,
+          busBand: d.busBand,
+        };
       });
 
     expect(project(routeBusEdges(nodes, edges))).toEqual(
       project(routeBusEdges(nodes, edges)),
     );
+  });
+});
+
+describe("routeBusEdges two-sided lane bands (9B)", () => {
+  const r = mkRecipe("r", ["a"], ["b"]);
+  const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+
+  function bandOf(edges: Edge[], id: string): string | undefined {
+    return (edges.find((e) => e.id === id)?.data as { busBand?: string })
+      .busBand;
+  }
+  function laneYOf(edges: Edge[], id: string): number {
+    return (edges.find((e) => e.id === id)!.data as { laneY: number }).laneY;
+  }
+
+  it("puts an upper-half trunk in the top band, above every node", () => {
+    // Two members share one trunk (no demotion). Both endpoints sit near the top
+    // while a lone node far below drags the graph midline well beneath the
+    // trunk's port Ys, so its mean member port Y lands in the upper half.
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", far, 0, r),
+      recipeNode("t2", far, 100, r),
+      recipeNode("low", 0, 3000, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+
+    const out = routeBusEdges(nodes, edges);
+
+    expect(bandOf(out, "e0")).toBe("top");
+    expect(bandOf(out, "e1")).toBe("top");
+    // First top slot sits one LANE_TOP_OFFSET above the highest node top.
+    const laneY = laneYOf(out, "e0");
+    expect(laneY).toBe(minTop(nodes) - LANE_TOP_OFFSET);
+    expect(laneYOf(out, "e1")).toBe(laneY);
+    // Strictly above every node's top edge.
+    for (const n of nodes) expect(laneY).toBeLessThan(n.position.y);
+  });
+
+  it("keeps a lower-half trunk in the bottom band, below every node", () => {
+    // Mirror of the top case: the trunk sits low while a lone node up top lifts
+    // the midline above nothing -- the trunk's mean port Y stays in the lower
+    // half, so it lands in the bottom band exactly as the pre-split pass placed
+    // every trunk.
+    const nodes: RFAnyNode[] = [
+      recipeNode("high", 0, 0, r),
+      recipeNode("s", 0, 3000, r),
+      recipeNode("t1", far, 3000, r),
+      recipeNode("t2", far, 3100, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+
+    const out = routeBusEdges(nodes, edges);
+
+    expect(bandOf(out, "e0")).toBe("bottom");
+    const laneY = laneYOf(out, "e0");
+    expect(laneY).toBe(maxBottom(nodes) + LANE_TOP_OFFSET);
+    // Strictly below every node's bottom edge.
+    for (const n of nodes) {
+      const h = measureRecipe(r).height;
+      expect(laneY).toBeGreaterThan(n.position.y + h);
+    }
+  });
+
+  it("emits band extents consistent with the assigned lane Ys", () => {
+    // One trunk high (top band) and one low (bottom band), each blocked at its
+    // own target row so both stay bus members. laneBands must report each band's
+    // extent as the min/max of the lanes routeBusEdges actually stamped.
+    const nodes: RFAnyNode[] = [
+      recipeNode("sHi", 0, 0, r),
+      recipeNode("tHi", far, 0, r),
+      recipeNode("midHi", 600, 0, r),
+      recipeNode("sLo", 0, 2000, r),
+      recipeNode("tLo", far, 2000, r),
+      recipeNode("midLo", 600, 2000, r),
+    ];
+    const edges = [
+      mkEdge("e0", "sHi", "tHi", "b"),
+      mkEdge("e1", "sLo", "tLo", "b"),
+    ];
+
+    const out = routeBusEdges(nodes, edges);
+    const bands = laneBands(nodes, edges);
+
+    // The stamped lanes, grouped by the band routeBusEdges assigned.
+    const topYs = out
+      .filter((e) => (e.data as { busBand?: string }).busBand === "top")
+      .map((e) => (e.data as { laneY: number }).laneY);
+    const bottomYs = out
+      .filter((e) => (e.data as { busBand?: string }).busBand === "bottom")
+      .map((e) => (e.data as { laneY: number }).laneY);
+    expect(topYs.length).toBeGreaterThan(0);
+    expect(bottomYs.length).toBeGreaterThan(0);
+
+    expect(bands.top).toEqual({
+      y0: Math.min(...topYs),
+      y1: Math.max(...topYs),
+    });
+    expect(bands.bottom).toEqual({
+      y0: Math.min(...bottomYs),
+      y1: Math.max(...bottomYs),
+    });
+    // Normalized (y0 <= y1) and anchored to the two band tops.
+    expect(bands.top!.y0).toBeLessThanOrEqual(bands.top!.y1);
+    expect(bands.bottom!.y0).toBeLessThanOrEqual(bands.bottom!.y1);
+    expect(bands.top!.y1).toBe(minTop(nodes) - LANE_TOP_OFFSET);
+    expect(bands.bottom!.y0).toBe(maxBottom(nodes) + LANE_TOP_OFFSET);
+  });
+
+  it("reports a null band when no trunk lands in it", () => {
+    // Every trunk here sits in the bottom half, so laneBands has a bottom extent
+    // and a null top.
+    const nodes: RFAnyNode[] = [
+      recipeNode("high", 0, 0, r),
+      recipeNode("s", 0, 3000, r),
+      recipeNode("t1", far, 3000, r),
+      recipeNode("t2", far, 3100, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+
+    const bands = laneBands(nodes, edges);
+    expect(bands.top).toBeNull();
+    expect(bands.bottom).not.toBeNull();
+  });
+
+  it("cascades a crowded top-band trunk's rise chips UP off its lane", () => {
+    // Mirror of the bottom-band cascade: two adjacent input-product feeders in
+    // the upper half (a node far below sends the trunk to the top band) collapse
+    // the lane extent, so both rise chips stack on the drop column. In the top
+    // band the cascade must run UPWARD (negative dy) so the chips move away from
+    // the graph below, not toward it.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("agg", "ore", 0, 0),
+      inputProductNode("t1", "ore", 200, 0),
+      inputProductNode("t2", "ore", 200, 200),
+      recipeNode("low", 0, 3000, r),
+    ];
+    const edges = [
+      mkEdge("e0", "agg", "t1", "ore"),
+      mkEdge("e1", "agg", "t2", "ore"),
+    ];
+    const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
+    const pitch = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+    expect(bandOf(out, "e0")).toBe("top");
+    // Owner drop chip settles on the lane; the rises pile UPWARD off it.
+    expect(busDropDyOf(out, "e0")).toBe(0);
+    expect(busChipDyOf(out, "e0")).toBe(-pitch);
+    expect(busChipDyOf(out, "e1")).toBe(-2 * pitch);
+  });
+
+  it("sends an exact-midline trunk to the bottom band, deterministically", () => {
+    // A lone bothInput feeder whose source and target ports share one y: its
+    // mean member port Y equals the graph midline exactly. The tiebreak sends it
+    // to the bottom band (the pre-split default), and two runs agree.
+    const bothFar = 148 + (BUS_SPAN_THRESHOLD + 50);
+    const nodes: RFAnyNode[] = [
+      inputProductNode("agg", "ore", 0, 0),
+      inputProductNode("tap", "ore", bothFar, 0),
+    ];
+    const edges = [mkEdge("e0", "agg", "tap", "ore")];
+
+    const a = routeBusEdges(nodes, edges);
+    const b = routeBusEdges(nodes, edges);
+    expect(bandOf(a, "e0")).toBe("bottom");
+    expect(bandOf(a, "e0")).toBe(bandOf(b, "e0"));
+    expect(laneYOf(a, "e0")).toBe(laneYOf(b, "e0"));
   });
 });
 
@@ -897,11 +1084,14 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     // the lane extent collapses: routeBusEdges stacks both rise slots on the drop
     // column. The owner (e0) keeps its aggregate drop chip on the lane; the rise
     // chips, coincident on that column, cascade straight down a full max-scale
-    // pitch apart so no two bus chips overlap on screen.
+    // pitch apart so no two bus chips overlap on screen. An anchor node up top
+    // keeps the trunk in the lower half, so it lands in the BOTTOM band and the
+    // cascade runs downward (the mirror top-band case is covered below).
     const nodes: RFAnyNode[] = [
-      inputProductNode("agg", "ore", 0, 0),
-      inputProductNode("t1", "ore", 200, 0),
-      inputProductNode("t2", "ore", 200, 200),
+      recipeNode("anchor", 0, 0, mkRecipe("anchor", ["a"], ["b"])),
+      inputProductNode("agg", "ore", 0, 1000),
+      inputProductNode("t1", "ore", 200, 1000),
+      inputProductNode("t2", "ore", 200, 1200),
     ];
     const edges = [
       mkEdge("e0", "agg", "t1", "ore"),
@@ -946,12 +1136,16 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     // trunk's junction one lane below. Seating is two-phase (all drops, then all
     // rises), so trunk b's aggregate drop chip must hold its junction even
     // though trunk a's edges sort first; an id-interleaved seating would let
-    // a's cascading rise squat on b's junction and push the aggregate off it.
+    // a's cascading rise squat on b's junction and push the aggregate off it. An
+    // anchor node up top keeps both trunks in the lower half so they share the
+    // BOTTOM band on adjacent lanes (a above b), which is what puts a's downward
+    // cascade onto b's lane.
     const nodes: RFAnyNode[] = [
-      inputProductNode("agg", "ore", 0, 0),
-      inputProductNode("t1", "ore", 200, 0),
-      inputProductNode("t2", "ore", 200, 200),
-      inputProductNode("t3", "ore", 200, 400),
+      recipeNode("anchor", 0, 0, mkRecipe("anchor", ["x"], ["y"])),
+      inputProductNode("agg", "ore", 0, 1000),
+      inputProductNode("t1", "ore", 200, 1000),
+      inputProductNode("t2", "ore", 200, 1200),
+      inputProductNode("t3", "ore", 200, 1400),
     ];
     const edges = [
       mkEdge("e0", "agg", "t1", "a"),
@@ -1349,15 +1543,17 @@ describe("clearBusColumns", () => {
     // A foreign product sits below the target row, straddling the default rise
     // column (tx - PORT_STUB - CHAMFER = 1138). The rise vertical climbs from the
     // lane to the target port through it, so clearBusColumns moves the rise column
-    // off the foreign card.
+    // off the foreign card. An anchor up top keeps the trunk in the bottom band so
+    // its lane sits below the block and the rise runs downward through it.
     const blockLeft = 1070;
     const nodes: RFAnyNode[] = [
-      recipeNode("s", 0, 0, r),
-      recipeNode("t", far, 0, r),
-      inputProductNode("block", "ore", blockLeft, 300, 148, 78),
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s", 0, 1000, r),
+      recipeNode("t", far, 1000, r),
+      inputProductNode("block", "ore", blockLeft, 1300, 148, 78),
       // A target-row card mid-corridor (clear of the drop / rise columns) keeps
       // the lone member on the bus (Task 12) so the rise-clearance path runs.
-      recipeNode("corridor", 550, 0, r),
+      recipeNode("corridor", 550, 1000, r),
     ];
     const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]));
     const riseX = riseXOf(out, "e0");
@@ -1370,14 +1566,17 @@ describe("clearBusColumns", () => {
   it("stamps a cleared dropX when the default drop column pierces a foreign card", () => {
     // A foreign product straddles the default drop column (sx + PORT_STUB +
     // CHAMFER = 332) in an intermediate row, so the drop vertical is moved off it.
+    // An anchor up top keeps the trunk in the bottom band so its lane sits below
+    // the block and the drop runs downward through it.
     const blockLeft = 250;
     const nodes: RFAnyNode[] = [
-      recipeNode("s", 0, 0, r),
-      recipeNode("t", far, 0, r),
-      inputProductNode("block", "ore", blockLeft, 300, 148, 78),
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s", 0, 1000, r),
+      recipeNode("t", far, 1000, r),
+      inputProductNode("block", "ore", blockLeft, 1300, 148, 78),
       // A target-row card mid-corridor (clear of the drop / rise columns) keeps
       // the lone member on the bus (Task 12) so the drop-clearance path runs.
-      recipeNode("corridor", 550, 0, r),
+      recipeNode("corridor", 550, 1000, r),
     ];
     const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]));
     const dropX = dropXOf(out, "e0");

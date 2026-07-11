@@ -77,14 +77,30 @@ export type BusEdgeData = {
   // vertices. BusEdge anchors the rise chip at (busChipX, laneY). Absent on
   // manually built edges, where BusEdge falls back to the geometric rise column.
   busChipX?: number;
-  // Downward chip nudges assigned by deconflictChipAnchors when a trunk's chips
-  // crowd on their lane: busDropDy shifts the owner's aggregate drop chip and
-  // busChipDy shifts this member's rise chip, each off the lane in CHIP_PITCH_Y
-  // steps so they no longer overlap. BusEdge adds them to the chips' laneY.
-  // Optional and default to 0.
+  // Chip nudges assigned by deconflictChipAnchors when a trunk's chips crowd on
+  // their lane: busDropDy shifts the owner's aggregate drop chip and busChipDy
+  // shifts this member's rise chip, each off the lane in CHIP_PITCH_Y steps so
+  // they no longer overlap. BusEdge adds them to the chips' laneY. The step is
+  // signed by band -- bottom-band chips cascade DOWN (positive, away from the
+  // graph below), top-band chips cascade UP (negative, away from the graph
+  // above) -- so a chip never walks back toward the nodes. Optional, default 0.
   busDropDy?: number;
   busChipDy?: number;
+  // Which lane band this trunk sits in. Bottom band is below the graph (today's
+  // behaviour), top band above it. Stamped by routeBusEdges from the mean of the
+  // trunk's member port Ys relative to the graph midline; read by
+  // deconflictChipAnchors to pick the chip-cascade direction. Absent on manually
+  // built edges (they cascade downward, the bottom-band default).
+  busBand?: "top" | "bottom";
 };
+
+// Vertical extent of one lane band, normalized so y0 < y1. The bottom band runs
+// from its first lane (bandTop, nearest the graph) down to its deepest lane; the
+// top band from its highest lane up to its first lane (nearest the graph). Null
+// when the band holds no trunk. Emitted by laneBands for the bus-band marking
+// pass to shade.
+export type BandExtent = { y0: number; y1: number };
+export type LaneBands = { top: BandExtent | null; bottom: BandExtent | null };
 
 // Read a Fraction rate off an edge's data, or undefined when it is absent or not
 // a Fraction (older fixtures may omit it).
@@ -157,8 +173,8 @@ function edgeItem(edge: Edge): string | undefined {
   return typeof item === "string" ? item : undefined;
 }
 
-// The lowest node bottom in absolute coordinates. The lane band starts below
-// this so no lane ever crosses a node.
+// The lowest node bottom in absolute coordinates. The bottom lane band starts
+// below this so no bottom lane ever crosses a node.
 function maxAbsoluteNodeBottom(
   nodes: ReadonlyArray<RFAnyNode>,
   byId: ReadonlyMap<string, RFAnyNode>,
@@ -168,6 +184,35 @@ function maxAbsoluteNodeBottom(
     bottom = Math.max(bottom, absoluteTop(node, byId) + nodeHeight(node));
   }
   return bottom;
+}
+
+// The highest node top in absolute coordinates. The top lane band starts above
+// this so no top lane ever crosses a node. Mirror of maxAbsoluteNodeBottom on
+// the other side; +Infinity for an empty node set (never reached -- lanes only
+// exist when edges, hence nodes, do).
+function minAbsoluteNodeTop(
+  nodes: ReadonlyArray<RFAnyNode>,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): number {
+  let top = Infinity;
+  for (const node of nodes) {
+    top = Math.min(top, absoluteTop(node, byId));
+  }
+  return top;
+}
+
+// Absolute y of the source out-port and target in-port of a bus member, given
+// the resolved endpoints and item. The band decision averages these across a
+// trunk's members.
+function memberPortMidY(
+  source: RFAnyNode,
+  target: RFAnyNode,
+  item: string | undefined,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): number {
+  const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
+  const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+  return (sy + ty) / 2;
 }
 
 // routeBusEdges: classify long / boundary-feeder edges as bus members and give
@@ -247,18 +292,59 @@ export function routeBusEdges(
 
   if (trunkKeyByEdgeIndex.size === 0) return edges.map((e) => e);
 
-  // Assign one lane slot per trunk. Sort by item id, then source id, so the
-  // slot order is deterministic across runs regardless of edge order.
-  const bandTop = maxAbsoluteNodeBottom(nodes, byId) + LANE_TOP_OFFSET;
-  const laneYByTrunk = new Map<string, number>();
-  const sortedTrunks = [...trunks.entries()].sort(([, a], [, b]) => {
+  // Split trunks into a top and a bottom band. The bottom band sits below the
+  // graph (today's single band, lanes stacking DOWN); the top band mirrors it
+  // above the graph (lanes stacking UP). A trunk joins the band its members lean
+  // toward: the mean of its members' port midpoints (source out-port to target
+  // in-port) versus the graph's vertical midline. A mean strictly above the
+  // midline goes top; at or below goes bottom, so an exact-midline trunk falls
+  // deterministically to the bottom band (matching the pre-split behaviour where
+  // everything went below).
+  const graphTop = minAbsoluteNodeTop(nodes, byId);
+  const graphBottom = maxAbsoluteNodeBottom(nodes, byId);
+  const bandTopBottom = graphBottom + LANE_TOP_OFFSET;
+  const bandTopTop = graphTop - LANE_TOP_OFFSET;
+  const midline = (graphTop + graphBottom) / 2;
+
+  // Mean member port Y per trunk, accumulated over its members.
+  const trunkPortSum = new Map<string, number>();
+  const trunkPortCount = new Map<string, number>();
+  trunkKeyByEdgeIndex.forEach((trunkKey, index) => {
+    const edge = edges[index]!;
+    const source = byId.get(edge.source)!;
+    const target = byId.get(edge.target)!;
+    const midY = memberPortMidY(source, target, edgeItem(edge), byId);
+    trunkPortSum.set(trunkKey, (trunkPortSum.get(trunkKey) ?? 0) + midY);
+    trunkPortCount.set(trunkKey, (trunkPortCount.get(trunkKey) ?? 0) + 1);
+  });
+  const bandByTrunk = new Map<string, "top" | "bottom">();
+  for (const trunkKey of trunks.keys()) {
+    const mean = trunkPortSum.get(trunkKey)! / trunkPortCount.get(trunkKey)!;
+    bandByTrunk.set(trunkKey, mean < midline ? "top" : "bottom");
+  }
+
+  // Assign one lane slot per trunk within its band. Sort by item id, then source
+  // id (i.e. by trunkKey), so slot order is deterministic across runs regardless
+  // of edge order and the bottom band keeps its pre-split ordering. Bottom lanes
+  // stack DOWN from bandTopBottom; top lanes stack UP from bandTopTop.
+  const byTrunkKey = ([, a]: [string, { item: string; source: string }], [, b]: [string, { item: string; source: string }]): number => {
     if (a.item !== b.item) return a.item < b.item ? -1 : 1;
     if (a.source !== b.source) return a.source < b.source ? -1 : 1;
     return 0;
-  });
-  sortedTrunks.forEach(([trunkKey], slot) => {
-    laneYByTrunk.set(trunkKey, bandTop + slot * LANE_SPACING);
-  });
+  };
+  const sortedTrunks = [...trunks.entries()].sort(byTrunkKey);
+  const laneYByTrunk = new Map<string, number>();
+  let topSlot = 0;
+  let bottomSlot = 0;
+  for (const [trunkKey] of sortedTrunks) {
+    if (bandByTrunk.get(trunkKey) === "top") {
+      laneYByTrunk.set(trunkKey, bandTopTop - topSlot * LANE_SPACING);
+      topSlot += 1;
+    } else {
+      laneYByTrunk.set(trunkKey, bandTopBottom + bottomSlot * LANE_SPACING);
+      bottomSlot += 1;
+    }
+  }
 
   // Aggregate each trunk: sum member rates, count members, and elect the member
   // that owns the trunk's single drop chip (the lexicographically smallest edge
@@ -344,6 +430,7 @@ export function routeBusEdges(
         ...edge.data,
         laneY,
         trunkKey,
+        busBand: bandByTrunk.get(trunkKey)!,
         busTotalRate: trunkTotal.get(trunkKey)!,
         busMemberCount: trunkCount.get(trunkKey)!,
         busChipOwner: edge.id === trunkOwner.get(trunkKey),
@@ -351,6 +438,30 @@ export function routeBusEdges(
       },
     };
   });
+}
+
+// laneBands: the vertical extent of each lane band for the same node/edge input
+// routeBusEdges lanes. Re-runs routeBusEdges and reads the band + laneY it
+// stamped on each bus member, so the extents are consistent with the assigned
+// lanes by construction (one source of truth for classification, no duplicated
+// band logic). A band with no trunk is null. Consumed by the bus-band marking
+// pass to shade the lane region. Pure and deterministic.
+export function laneBands(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): LaneBands {
+  const routed = routeBusEdges(nodes, edges);
+  const topYs: number[] = [];
+  const bottomYs: number[] = [];
+  for (const edge of routed) {
+    if (edge.type !== "bus") continue;
+    const data = edge.data as BusEdgeData | undefined;
+    if (data?.laneY === undefined) continue;
+    (data.busBand === "top" ? topYs : bottomYs).push(data.laneY);
+  }
+  const extent = (ys: number[]): BandExtent | null =>
+    ys.length === 0 ? null : { y0: Math.min(...ys), y1: Math.max(...ys) };
+  return { top: extent(topYs), bottom: extent(bottomYs) };
 }
 
 // Would a long forward edge's DIRECT (plain item-edge) corridor draw clear of
@@ -1229,22 +1340,25 @@ function chipBoxesOverlap(a: ChipBox, b: ChipBox): boolean {
   );
 }
 
-// Seat a chip at its preferred anchor, cascading it straight down in
-// CHIP_NUDGE_STEP increments until it clears every box already in `placed`, then
-// record it. Returns the downward offset applied (0 when the anchor was already
-// clear). Deterministic given a fixed placement order.
+// Seat a chip at its preferred anchor, cascading it in `step`-sized increments
+// until it clears every box already in `placed`, then record it. Returns the
+// signed offset applied (0 when the anchor was already clear). `step` defaults
+// to a downward CHIP_NUDGE_STEP; a top-band bus chip passes -CHIP_NUDGE_STEP so
+// it cascades UP, away from the graph below it, instead of walking into the
+// nodes. Deterministic given a fixed placement order.
 function seatChip(
   placed: ChipBox[],
   x: number,
   y: number,
   halfW: number,
   halfH: number,
+  step: number = CHIP_NUDGE_STEP,
 ): number {
   let dy = 0;
   while (
     placed.some((box) => chipBoxesOverlap(box, { x, y: y + dy, halfW, halfH }))
   ) {
-    dy += CHIP_NUDGE_STEP;
+    dy += step;
   }
   placed.push({ x, y: y + dy, halfW, halfH });
   return dy;
@@ -1376,6 +1490,7 @@ export function deconflictChipAnchors(
     dropX: number;
     riseChipX: number;
     owner: boolean;
+    step: number;
   };
   const busSlots: BusSlot[] = [];
   const busEdges = edges
@@ -1409,6 +1524,9 @@ export function deconflictChipAnchors(
       dropX,
       riseChipX: data.busChipX ?? riseX,
       owner: data.busChipOwner === true,
+      // Top-band chips cascade UP (away from the graph below them); bottom-band
+      // and un-banded chips cascade DOWN. Signed step drives seatChip's walk.
+      step: data.busBand === "top" ? -CHIP_NUDGE_STEP : CHIP_NUDGE_STEP,
     });
   }
   for (const slot of busSlots) {
@@ -1419,6 +1537,7 @@ export function deconflictChipAnchors(
       slot.laneY,
       CHIP_HALF_W_WIDE,
       CHIP_HALF_H,
+      slot.step,
     );
     if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
   }
@@ -1429,6 +1548,7 @@ export function deconflictChipAnchors(
       slot.laneY,
       CHIP_HALF_W_WIDE,
       CHIP_HALF_H,
+      slot.step,
     );
     if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
   }
