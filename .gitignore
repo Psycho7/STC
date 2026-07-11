@@ -4,6 +4,7 @@
 # Sweep / workflow scratch artifacts
 .sweep/
 .plan/
+.artifacts/
 
 # Logs
 logs
