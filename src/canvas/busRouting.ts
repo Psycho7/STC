@@ -1834,6 +1834,7 @@ function cascadeClearDy(
   obstacles: ReadonlyArray<EdgeSegments>,
   ownFlowKey: string,
   ownTarget = "",
+  maxSteps: number = CHIP_SEAT_MAX_STEPS,
 ): number | null {
   const segBlocked = (box: ChipBox): boolean =>
     obstacles.some(
@@ -1845,7 +1846,7 @@ function cascadeClearDy(
         ),
     );
   let dy = 0;
-  for (let steps = 0; steps <= CHIP_SEAT_MAX_STEPS; steps++) {
+  for (let steps = 0; steps <= maxSteps; steps++) {
     const box = { x, y: y + dy, halfW, halfH };
     if (!placed.some((b) => chipBoxesOverlap(b, box)) && !segBlocked(box)) {
       return dy;
@@ -2211,6 +2212,10 @@ export function deconflictChipAnchors(
       ...routingHintsFromData(edge.data),
     });
     const flowKey = flowKeyOf(edge);
+    // Near seat first: a few pitch steps off the midpoint. Past that the chip
+    // detaches visually from its line, so the along-line slide below takes
+    // priority over a deep vertical cascade.
+    const NEAR_STEPS = 4;
     const dy = cascadeClearDy(
       placed,
       lx,
@@ -2221,6 +2226,7 @@ export function deconflictChipAnchors(
       edgeSegments,
       flowKey,
       edge.target,
+      NEAR_STEPS,
     );
     if (dy !== null) {
       placed.push({
@@ -2232,8 +2238,8 @@ export function deconflictChipAnchors(
       if (dy !== 0) labelDyByIndex.set(index, dy);
       continue;
     }
-    // Cap exhausted: slide along the polyline, nearest-to-midpoint fraction
-    // first, taking the first clear anchor as-is (no cascade).
+    // Near seat blocked: slide along the polyline, nearest-to-midpoint
+    // fraction first, taking the first clean on-line anchor.
     let seated = false;
     for (const frac of LABEL_SLIDE_FRACS) {
       const [px, py] = pathPointAt(d, frac);
@@ -2261,9 +2267,19 @@ export function deconflictChipAnchors(
       break;
     }
     if (seated) continue;
-    // No clear seat anywhere sane: chips-only cascade at the midpoint (the
-    // pre-segment behaviour, no worse than before).
-    const fallbackDy = seatChip(placed, lx, ly, CHIP_HALF_W_WIDE, CHIP_HALF_H);
+    // No clean on-line seat: deep vertical cascade at the midpoint, then the
+    // chips-only cascade (the pre-segment behaviour, no worse than before).
+    const fallbackDy = seatChip(
+      placed,
+      lx,
+      ly,
+      CHIP_HALF_W_WIDE,
+      CHIP_HALF_H,
+      CHIP_NUDGE_STEP,
+      edgeSegments,
+      flowKey,
+      edge.target,
+    );
     if (fallbackDy !== 0) labelDyByIndex.set(index, fallbackDy);
   }
 
