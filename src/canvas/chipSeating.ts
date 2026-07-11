@@ -55,7 +55,6 @@ import {
   nodeWidth,
   portOffsetY,
   type BusEdgeData,
-  type LaneBusEdgeData,
 } from "./busRouting";
 import type { RFAnyNode } from "./layout";
 
@@ -592,7 +591,12 @@ export function deconflictChipAnchors(
         owner: (edge.data as BusEdgeData | undefined)?.busChipOwner === true,
       });
     } else if (edge.type === "bus") {
-      const laneY = (edge.data as LaneBusEdgeData | undefined)?.laneY ?? ty;
+      // Narrow the union on `"laneY" in` (the same discriminant laneBands and the
+      // census helpers use) rather than a bare LaneBusEdgeData cast: it does not
+      // silently assume this bus edge is the lane variant just because the fan-out
+      // branch ran first.
+      const data = edge.data as BusEdgeData | undefined;
+      const laneY = data !== undefined && "laneY" in data ? data.laneY : ty;
       d = chamferBusPath({
         sourceX: sx,
         sourceY: sy,
