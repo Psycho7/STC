@@ -148,6 +148,7 @@ export function chipAccentStyle(item?: ItemId): React.CSSProperties {
 // portaled chip).
 export function FlowChip({
   testId,
+  edgeId,
   x,
   y,
   item,
@@ -160,6 +161,9 @@ export function FlowChip({
   zoom,
 }: {
   testId: string;
+  // Owning edge id, emitted as data-edge-id so the geometry audit can exempt an
+  // edge's own chips when testing edge segments against foreign chip boxes.
+  edgeId?: string | undefined;
   x: number;
   y: number;
   item?: ItemId | undefined;
@@ -186,6 +190,7 @@ export function FlowChip({
     <EdgeLabelRenderer>
       <div
         data-testid={testId}
+        {...(edgeId !== undefined ? { "data-edge-id": edgeId } : {})}
         className={
           "nodrag nopan flow-chip" +
           (tear ? " red" : "") +
@@ -299,6 +304,7 @@ export default function ItemEdge({
       {chipText ? (
         <FlowChip
           testId={`item-edge-label-${id}`}
+          edgeId={id}
           x={labelX}
           y={labelY + (edgeData?.labelDy ?? 0)}
           item={edgeData?.item}
@@ -323,6 +329,7 @@ export default function ItemEdge({
       {edgeData?.multiInputTarget && zoom >= LABEL_MIN_ZOOM ? (
         <FlowChip
           testId={`item-edge-entry-${id}`}
+          edgeId={id}
           {...entryChipAnchor(targetX, targetY, edgeData.entryChipDy)}
           item={edgeData.item}
           label={fullLabel}

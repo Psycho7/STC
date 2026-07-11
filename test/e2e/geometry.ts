@@ -170,11 +170,16 @@ export type SegmentViolation = {
   edgeId: string;
   card: string;
   seg: [Pt, Pt];
+  // True when the segment enters the node's RAW (unpadded) box; false when it
+  // only clips the padding overhang (a "graze").
+  raw: boolean;
 };
 
-// Every edge segment that enters a FOREIGN padded card. Foreign = any node card
-// except the edge's own source, target, and their containing groups (the same
-// exemption the routing corridor tests use). eps guards the padded boundary.
+// Every edge segment that enters a FOREIGN padded card, each flagged raw (the
+// segment also pierces the unpadded node box) or graze (padding only). Foreign =
+// any node card except the edge's own source, target, and their containing
+// groups (the same exemption the routing corridor tests use). eps guards the
+// boundaries.
 export function auditSegmentsVsCards(
   edges: ReadonlyArray<RawEdge>,
   nodes: ReadonlyArray<NodeRect>,
@@ -194,7 +199,79 @@ export function auditSegmentsVsCards(
         if (exempt.has(n.nodeId)) continue;
         const card = cardById.get(n.nodeId)!;
         if (segmentEntersRect(seg0, seg1, card, eps)) {
-          out.push({ edgeId: edge.id, card: n.nodeId, seg: [seg0, seg1] });
+          out.push({
+            edgeId: edge.id,
+            card: n.nodeId,
+            seg: [seg0, seg1],
+            raw: segmentEntersRect(seg0, seg1, n, eps),
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// A rendered chip box in flow coordinates, tagged with its owning edge (the
+// data-edge-id hook FlowChip emits) and its family ("entry" for the icon-only
+// port marker, "label" for everything else).
+export type ChipRect = RawRect & {
+  edgeId: string;
+  label: string;
+  kind: "entry" | "label";
+};
+
+export type ChipViolation = {
+  edgeId: string;
+  chipEdgeId: string;
+  chipLabel: string;
+  seg: [Pt, Pt];
+};
+
+// Every edge segment that enters a FOREIGN chip's box. Exemptions mirror the
+// canvas design rather than bare edge identity (the chip de-confliction pass
+// applies the same three):
+//   - own edge: a chip sits on its own path by construction;
+//   - same flow (same item AND source): a trunk's members share one lane and a
+//     fanout's slices share their common trajectory, so a chip on that shared
+//     line is on its OWN line even when a sibling edge id owns the segment;
+//   - arrival cluster (same target): the converging final approaches before
+//     one consumer read as a single junction -- entry chips are pinned at its
+//     ports by design (row pitch is smaller than the max-scale chip box), and
+//     an arrival's rate chip near that junction legitimately sits among its
+//     siblings' entering runs.
+export function auditSegmentsVsChips(
+  edges: ReadonlyArray<RawEdge>,
+  chips: ReadonlyArray<ChipRect>,
+  eps = 0.5,
+): ChipViolation[] {
+  const edgeById = new Map<string, RawEdge>();
+  for (const e of edges) edgeById.set(e.id, e);
+  const out: ChipViolation[] = [];
+  for (const edge of edges) {
+    const pts = parsePath(edge.d);
+    if (pts.length === 0) continue;
+    for (const [seg0, seg1] of segmentsOf(pts)) {
+      for (const chip of chips) {
+        if (chip.edgeId === edge.id) continue;
+        const owner = edgeById.get(chip.edgeId);
+        if (
+          owner !== undefined &&
+          owner.item === edge.item &&
+          owner.source === edge.source
+        ) {
+          continue; // same flow: one visual line
+        }
+        if (owner !== undefined && owner.target === edge.target) {
+          continue; // arrival cluster before the shared consumer
+        }
+        if (segmentEntersRect(seg0, seg1, chip, eps)) {
+          out.push({
+            edgeId: edge.id,
+            chipEdgeId: chip.edgeId,
+            chipLabel: chip.label,
+            seg: [seg0, seg1],
+          });
         }
       }
     }

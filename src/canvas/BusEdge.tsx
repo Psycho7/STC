@@ -115,6 +115,7 @@ export default function BusEdge({
   ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
+      edgeId={id}
       x={x}
       y={y}
       item={edgeData?.item}
