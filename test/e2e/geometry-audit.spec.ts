@@ -1,5 +1,15 @@
 import { test, expect, type Page } from "@playwright/test";
 import { SCENARIOS, scenarioHash } from "./scenarios";
+import {
+  auditSegmentsVsCards,
+  countCrossings,
+  endpointManhattan,
+  fmtSeg,
+  parsePath,
+  polylineLength,
+  type NodeRect,
+  type RawEdge,
+} from "./geometry";
 
 // The P1 acceptance gate for the placement campaign: a DOM-geometry audit run
 // against the live client rects the user actually sees. Two invariants per
@@ -252,6 +262,223 @@ test.describe("DOM geometry audit", () => {
         overlaps,
         `${scenario.id}: ${overlaps.length} chip overlap(s) among ${chips.length} chips:\n${overlaps.join("\n")}`,
       ).toEqual([]);
+    });
+  }
+});
+
+// -- P2 segment-placement audit ----------------------------------------------
+//
+// A DOM-geometry audit of the edge polylines the user actually sees, at fit zoom
+// on 1920x1080, in flow (graph) coordinates. The browser side reads every edge
+// path's `d` (already in flow coordinates -- the viewport <g> carries the
+// pan/zoom transform) plus every node's raw card rect (its client rect mapped
+// back through the inverse viewport transform, so edges and cards share one
+// coordinate system). The pure scoring in ./geometry then:
+//   (a) flags any edge segment entering a FOREIGN padded node card;
+//   (b) bounds the tundra ore-feed detour to 1.5x its endpoints' Manhattan gap;
+//   (c) asserts the crossing census never regresses past the pre-P2 baseline;
+//   (d) asserts the edge `d` strings are identical across two fresh loads.
+
+// Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
+// the same countCrossings logic over the seven scenarios at fit zoom (a detached
+// worktree, since deleted). Current routing must never produce MORE crossings
+// than this per scenario. Not a target -- an upper bound that ratchets down.
+const CROSSING_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 187,
+  "battery5-xiranite": 771,
+  crystal: 1,
+  equip4: 26,
+  multi6: 236,
+  tundra: 13,
+};
+
+type EdgeGeom = { id: string; d: string };
+type NodeGeom = {
+  nodeId: string;
+  type: string;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+type Geometry = { edges: EdgeGeom[]; nodes: NodeGeom[] };
+
+// Read the live flow-coordinate geometry: every edge path's id + `d`, and every
+// node's raw card rect. Node rects come from getBoundingClientRect mapped back
+// through the inverse viewport transform (translate + uniform scale), so a node
+// card and an edge segment are directly comparable. Self-contained for
+// page.evaluate (no outer-scope references).
+function collectGeometry(): Geometry {
+  const rf = document.querySelector<HTMLElement>(".react-flow");
+  const vp = document.querySelector<HTMLElement>(".react-flow__viewport");
+  const rfRect = rf!.getBoundingClientRect();
+  const m = new DOMMatrixReadOnly(getComputedStyle(vp!).transform);
+  const k = m.a;
+  const tx = m.e;
+  const ty = m.f;
+  const toGraphX = (clientX: number): number => (clientX - rfRect.left - tx) / k;
+  const toGraphY = (clientY: number): number => (clientY - rfRect.top - ty) / k;
+
+  const edges = Array.from(
+    document.querySelectorAll<SVGPathElement>(".react-flow__edge-path"),
+  ).map((p) => ({ id: p.id, d: p.getAttribute("d") ?? "" }));
+
+  const nodes = Array.from(
+    document.querySelectorAll<HTMLElement>(".react-flow__node"),
+  ).map((el) => {
+    const r = el.getBoundingClientRect();
+    const cls = el.className;
+    const match = /react-flow__node-(\w+)/.exec(cls);
+    return {
+      nodeId: el.getAttribute("data-id") ?? "(node)",
+      type: match?.[1] ?? "(type)",
+      left: toGraphX(r.left),
+      top: toGraphY(r.top),
+      right: toGraphX(r.right),
+      bottom: toGraphY(r.bottom),
+    };
+  });
+
+  return { edges, nodes };
+}
+
+// Parse an edge id `e:<index>:<from>-><to>:<item>` (layout.ts) into its source,
+// target, and item. from / to are ELK unit ids (no `->` or trailing `:item`).
+function parseEdgeId(
+  id: string,
+): { source: string; target: string; item: string } | null {
+  const m = /^e:\d+:(.+)->(.+):([^:]+)$/.exec(id);
+  if (m === null) return null;
+  return { source: m[1]!, target: m[2]!, item: m[3]! };
+}
+
+function toRawEdges(edges: EdgeGeom[]): RawEdge[] {
+  const out: RawEdge[] = [];
+  for (const e of edges) {
+    const parsed = parseEdgeId(e.id);
+    if (parsed === null) continue;
+    out.push({ id: e.id, d: e.d, ...parsed });
+  }
+  return out;
+}
+
+async function loadScenario(page: Page, hash: string): Promise<void> {
+  await page.goto(`/#${hash}`, { waitUntil: "load" });
+  await waitForCanvasReady(page);
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await waitForStableViewport(page);
+}
+
+// The tundra ore-feed edge: the ore item entering the tundra chain. Selected by
+// item id so the bound tracks the same physical edge across routing changes; the
+// longest-span ore edge (largest endpoint Manhattan) is the cross-graph feed the
+// detour bound targets, ties broken by edge id for determinism.
+function tundraOreFeed(edges: RawEdge[]): RawEdge | null {
+  const ore = edges.filter((e) => e.item.includes("ore"));
+  if (ore.length === 0) return null;
+  ore.sort((a, b) => {
+    const da = endpointManhattan(parsePath(a.d));
+    const db = endpointManhattan(parsePath(b.d));
+    if (da !== db) return db - da;
+    return a.id < b.id ? -1 : 1;
+  });
+  return ore[0]!;
+}
+
+test.describe("segment placement audit", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("aef.locale", "en");
+    });
+  });
+
+  for (const scenario of SCENARIOS) {
+    test(scenario.id, async ({ page }) => {
+      const hash = await scenarioHash(scenario);
+      await loadScenario(page, hash);
+
+      const geom = await page.evaluate(collectGeometry);
+      const rawEdges = toRawEdges(geom.edges);
+      const nodes: NodeRect[] = geom.nodes.map((n) => ({
+        nodeId: n.nodeId,
+        type: n.type,
+        left: n.left,
+        top: n.top,
+        right: n.right,
+        bottom: n.bottom,
+      }));
+
+      // (a) No edge segment enters a foreign padded node card.
+      const violations = auditSegmentsVsCards(rawEdges, nodes);
+      const inventory = violations.map(
+        (v) => `  ${v.edgeId} seg ${fmtSeg(v.seg)} pierces card ${v.card}`,
+      );
+      expect(
+        violations.length,
+        `${scenario.id}: ${violations.length} segment/card intersection(s):\n${inventory.join("\n")}`,
+      ).toBe(0);
+
+      // (c) Crossing census never regresses past the pre-P2 baseline.
+      const crossings = countCrossings(geom.edges);
+      const baseline = CROSSING_BASELINE[scenario.id]!;
+      expect(
+        crossings,
+        `${scenario.id}: ${crossings} crossings exceeds pre-P2 baseline ${baseline}`,
+      ).toBeLessThanOrEqual(baseline);
+
+      // (b) Tundra ore-feed detour stays within 1.5x its endpoints' Manhattan
+      // distance. Only tundra carries the long ore feed the bound targets.
+      if (scenario.id === "tundra") {
+        const feed = tundraOreFeed(rawEdges);
+        expect(feed, "tundra ore-feed edge present").not.toBeNull();
+        const pts = parsePath(feed!.d);
+        const len = polylineLength(pts);
+        const direct = endpointManhattan(pts);
+        expect(
+          len,
+          `tundra ore feed ${feed!.id}: path ${len.toFixed(1)} exceeds 1.5x Manhattan ${direct.toFixed(1)}`,
+        ).toBeLessThanOrEqual(1.5 * direct);
+      }
+    });
+  }
+});
+
+test.describe("edge reload determinism", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("aef.locale", "en");
+    });
+  });
+
+  for (const scenario of SCENARIOS) {
+    test(scenario.id, async ({ page }) => {
+      const hash = await scenarioHash(scenario);
+
+      const readEdges = async (): Promise<Record<string, string>> => {
+        await loadScenario(page, hash);
+        const { edges } = await page.evaluate(collectGeometry);
+        const map: Record<string, string> = {};
+        for (const e of edges) map[e.id] = e.d;
+        return map;
+      };
+
+      const first = await readEdges();
+      const second = await readEdges();
+
+      const ids = new Set([...Object.keys(first), ...Object.keys(second)]);
+      const diffs: string[] = [];
+      for (const id of ids) {
+        if (first[id] !== second[id]) {
+          diffs.push(
+            `  ${id}:\n    load1 ${first[id]}\n    load2 ${second[id]}`,
+          );
+        }
+      }
+      expect(
+        diffs.length,
+        `${scenario.id}: ${diffs.length} edge path(s) differ across reloads:\n${diffs.join("\n")}`,
+      ).toBe(0);
     });
   }
 });
