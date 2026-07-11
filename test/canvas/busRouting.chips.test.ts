@@ -9,6 +9,7 @@ import type { Edge } from "@xyflow/react";
 
 import {
   routeBusEdges,
+  routeFanoutEdges,
   BUS_SPAN_THRESHOLD,
   LANE_SPACING,
 } from "../../src/canvas/busRouting";
@@ -363,5 +364,47 @@ describe("deconflictChipAnchors: merged collision set", () => {
     expect(labelDyOf(out, "m:2")).toBeGreaterThanOrEqual(
       MAX_CHIP_SCALE * CHIP_BOX_HEIGHT,
     );
+  });
+});
+
+describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
+  const r = mkRecipe("r", ["a"], ["b"]);
+  const oneGap = 410; // 410 - 300 = 110, inside FANOUT_SPAN_MAX
+
+  const aggOf = (edges: Edge[], id: string) =>
+    edges.find((e) => e.id === id)!.data as {
+      fanoutAggDx?: number;
+      fanoutAggDy?: number;
+      busChipOwner?: boolean;
+    };
+
+  it("seats the aggregate on the owner only, stamping nothing when it need not move", () => {
+    // A clean 2-member fan-out. Phase 3b seats the aggregate first, on the TRUNK
+    // sub-polyline only (source port -> junction). The trunk render anchor is the
+    // trunk midpoint, which is exactly the right end of the keep-off-truncated
+    // slide range on this narrow corridor, and nothing else is in the field yet
+    // (no lane bus chips, no entry chips), so the aggregate seats at that anchor
+    // and stamps no offset -- offsets record only where a seat actually moved.
+    // Non-owner members carry no aggregate offset either: phase 3b seats the
+    // aggregate under `if (geom.owner)`.
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", oneGap, 0, r),
+      recipeNode("t2", oneGap, 400, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const routed = routeFanoutEdges(nodes, edges);
+    // e0 is the elected owner (lex-smallest edge id); e1 is a non-owner.
+    expect(aggOf(routed, "e0").busChipOwner).toBe(true);
+    expect(aggOf(routed, "e1").busChipOwner).toBe(false);
+
+    const out = deconflictChipAnchors(nodes, routed);
+    // Owner-only: the non-owner carries no aggregate offset.
+    expect(aggOf(out, "e1").fanoutAggDx).toBeUndefined();
+    expect(aggOf(out, "e1").fanoutAggDy).toBeUndefined();
+    // Only-where-moved: the uncrowded owner aggregate seats at its trunk anchor,
+    // so no offset is stamped there either.
+    expect(aggOf(out, "e0").fanoutAggDx).toBeUndefined();
+    expect(aggOf(out, "e0").fanoutAggDy).toBeUndefined();
   });
 });

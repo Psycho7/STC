@@ -805,6 +805,32 @@ describe("routeFanoutEdges (6C)", () => {
       expect(e.data).not.toHaveProperty("laneY");
     }
   });
+
+  it("dodges a foreign card straddling the junction column", () => {
+    // clearColumnX stakes the shared junction column clear of any mid-corridor
+    // obstacle. Give the corridor room (gap 380), read the unobstructed column,
+    // then drop a thin foreign card straddling it and spanning every member's
+    // vertical run: the junction moves off the card, still one shared column
+    // inside the corridor.
+    const wideGap = 680; // 680 - 300 = 380, inside FANOUT_SPAN_MAX (410)
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", wideGap, 0, r),
+      recipeNode("t2", wideGap, 400, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const clearJx = fanData(routeFanoutEdges(nodes, edges), "e0").junctionX!;
+
+    const block = inputProductNode("block", "ore", clearJx - 10, -200, 20, 1000);
+    const out = routeFanoutEdges([...nodes, block], edges);
+    const jx = fanData(out, "e0").junctionX!;
+    // Still one shared junction, still inside the corridor, dodged off the card.
+    expect(jx).toBe(fanData(out, "e1").junctionX!);
+    expect(jx).not.toBe(clearJx);
+    expect(jx < clearJx - 10 || jx > clearJx + 10).toBe(true);
+    expect(jx).toBeGreaterThan(300);
+    expect(jx).toBeLessThan(wideGap);
+  });
 });
 
 describe("directCorridorClear", () => {

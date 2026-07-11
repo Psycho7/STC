@@ -158,7 +158,11 @@ describe("canvas/BusEdge trunk labels", () => {
     }
   });
 
-  it("renders no chips below the zoom threshold", async () => {
+  it("renders only the aggregate drop chip below the zoom threshold", async () => {
+    // Below LABEL_MIN_ZOOM the per-member rise chip is gated, but the owner's
+    // aggregate drop chip is exempt so the trunk's total survives at the
+    // dense-plan fit zoom (this lone member is its own owner, showing its rate as
+    // the total).
     renderEdge(
       {
         item: "Iron Plate",
@@ -169,6 +173,9 @@ describe("canvas/BusEdge trunk labels", () => {
       0.3,
     );
     await findEdgePath();
-    expect(chips()).toHaveLength(0);
+    const labels = chips();
+    expect(labels).toHaveLength(1);
+    expect(labels[0]!.getAttribute("data-testid")).toBe("bus-edge-label-e1-drop");
+    expect(labels[0]!.textContent).toBe("120/min");
   });
 });
