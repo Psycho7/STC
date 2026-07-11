@@ -164,6 +164,24 @@ describe("canvas/focus-dim", () => {
     ).toBe(false);
   });
 
+  it("lights only its two endpoints on a plain item-edge hover", async () => {
+    const { container } = renderCanvas();
+    // e3 is a plain (non-bus) item edge d -> c on no trunk. Hovering it lights
+    // exactly its endpoints d and c; the unrelated nodes a and b and the whole
+    // Iron|a trunk (e1, e2) dim. No trunk expansion applies to a plain edge.
+    const e3 = await edgeEl(container, "e3");
+    fireEvent.mouseEnter(e3);
+    await waitFor(() => {
+      expect(nodeEl(container, "a").classList.contains("dimmed")).toBe(true);
+    });
+    expect(nodeEl(container, "b").classList.contains("dimmed")).toBe(true);
+    expect(nodeEl(container, "c").classList.contains("dimmed")).toBe(false);
+    expect(nodeEl(container, "d").classList.contains("dimmed")).toBe(false);
+    expect(await edgeDimmed(container, "e1")).toBe(true);
+    expect(await edgeDimmed(container, "e2")).toBe(true);
+    expect(await edgeDimmed(container, "e3")).toBe(false);
+  });
+
   it("clears all dimmed classes on mouse leave", async () => {
     const { container } = renderCanvas();
     fireEvent.mouseEnter(nodeEl(container, "a"));

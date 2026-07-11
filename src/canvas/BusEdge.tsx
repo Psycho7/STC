@@ -228,6 +228,7 @@ export default function BusEdge({
       <EdgeLabelRenderer>
         <div
           data-testid={`bus-junction-${id}`}
+          aria-hidden="true"
           className={"bus-junction" + (edgeData?.dimmed ? " dimmed" : "")}
           style={{
             position: "absolute",

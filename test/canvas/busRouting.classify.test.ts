@@ -99,11 +99,23 @@ describe("routeBusEdges", () => {
 
     const out = routeBusEdges(nodes, edges);
 
-    const d0 = out[0]!.data as { laneY: number; trunkKey: string };
-    const d1 = out[1]!.data as { laneY: number; trunkKey: string };
+    const d0 = out[0]!.data as {
+      laneY: number;
+      trunkKey: string;
+      busChipOwner: boolean;
+    };
+    const d1 = out[1]!.data as {
+      laneY: number;
+      trunkKey: string;
+      busChipOwner: boolean;
+    };
     expect(d0.trunkKey).toBe("b|s");
     expect(d1.trunkKey).toBe("b|s");
     expect(d0.laneY).toBe(d1.laneY);
+    // The lex-smallest edge id (e0) is the elected owner that draws the aggregate
+    // chip; the sibling is a non-owner.
+    expect(d0.busChipOwner).toBe(true);
+    expect(d1.busChipOwner).toBe(false);
   });
 
   it("puts different items on lanes LANE_SPACING apart in item-sorted order", () => {
@@ -620,6 +632,11 @@ describe("routeFanoutEdges (6C)", () => {
     // One shared junction across all three branches.
     const jx = new Set(["e0", "e1", "e2"].map((id) => fanData(out, id).junctionX));
     expect(jx.size).toBe(1);
+    // Exactly the lex-smallest edge (e0) is the elected owner; the branches are
+    // non-owners.
+    expect(fanData(out, "e0").busChipOwner).toBe(true);
+    expect(fanData(out, "e1").busChipOwner).toBe(false);
+    expect(fanData(out, "e2").busChipOwner).toBe(false);
   });
 
   it("does NOT fan out a lone within-gap member (N=1)", () => {

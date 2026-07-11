@@ -100,8 +100,12 @@ describe("canvas/BusEdge", () => {
     );
     expect(dot).not.toBeNull();
     expect(dot!.classList.contains("bus-junction")).toBe(true);
-    // Centred on the branch point via the double translate; laneY = 500 is the y.
-    expect(dot!.style.transform).toContain("500px)");
+    // Centred on the branch point via the double translate: the -50%,-50% centre
+    // plus an explicit numeric x on the branch column and laneY = 500 on the y.
+    // Pin both axes so an axis swap or a dropped coordinate fails, not just y.
+    expect(dot!.style.transform).toMatch(
+      /translate\(-50%, -50%\) translate\(-?\d[\d.]*px, 500px\)/,
+    );
     // Not dimmed when the edge carries no dim state.
     expect(dot!.classList.contains("dimmed")).toBe(false);
   });
@@ -126,8 +130,9 @@ describe("canvas/BusEdge", () => {
 describe("canvas/BusEdge junctionRadius clamp", () => {
   // The dot is drawn in graph units, so its on-screen radius is r * zoom. The
   // clamp keeps that screen radius inside [3, 5] px across zoom: below zoom 1 the
-  // graph radius grows to hold the 3px floor, above it stops at the 5px cap.
-  it.each([0.2, 0.5, 1.0])(
+  // graph radius grows to hold the 3px floor, above it (zoom 2.0) it stops at the
+  // 5px cap.
+  it.each([0.2, 0.5, 1.0, 2.0])(
     "keeps the screen radius in [3, 5] at zoom %s",
     (zoom) => {
       const screen = junctionRadius(zoom) * zoom;

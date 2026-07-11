@@ -105,6 +105,15 @@ function pushInto(map: Map<string, string[]>, key: string, value: string): void 
   else map.set(key, [value]);
 }
 
+// A bus member owns its trunk's shared drawings (the trunk segment, junction
+// dot, and aggregate chip) unless explicitly flagged otherwise. Undefined counts
+// as owner, matching BusEdge's `busChipOwner ?? true`, so an un-annotated fixture
+// keeps the whole-group highlight. One helper unifies the hovered-edge and
+// sibling-edge checks that would otherwise split into `!== false` / `=== true`.
+function isOwner(data: { busChipOwner?: unknown } | undefined): boolean {
+  return data?.busChipOwner !== false;
+}
+
 function withDimmed(className: string | undefined): string {
   return className ? `${className} dimmed` : "dimmed";
 }
@@ -381,19 +390,16 @@ function CanvasInner({
           ? adjacency.edgesByTrunk.get(trunkKey)
           : undefined;
       if (trunkEdges) {
-        const isTrunkHover = data?.busChipOwner !== false;
-        if (isTrunkHover) {
+        if (isOwner(data)) {
           for (const edgeId of trunkEdges) lightEdge(edgeId);
         } else {
           lightEdge(hovered.id);
           for (const edgeId of trunkEdges) {
             if (edgeId === hovered.id) continue;
-            const sibOwner = (
-              adjacency.edgeById.get(edgeId)?.data as
-                | { busChipOwner?: unknown }
-                | undefined
-            )?.busChipOwner;
-            if (sibOwner === true) lightEdge(edgeId);
+            const sibData = adjacency.edgeById.get(edgeId)?.data as
+              | { busChipOwner?: unknown }
+              | undefined;
+            if (isOwner(sibData)) lightEdge(edgeId);
           }
         }
       } else {
