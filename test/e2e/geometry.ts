@@ -218,7 +218,9 @@ export function auditSegmentsVsCards(
 export type ChipRect = RawRect & {
   edgeId: string;
   label: string;
-  kind: "entry" | "label";
+  // "entry" = icon-only port marker, "bus" = lane-anchored bus drop/rise chip
+  // (out of scope for the corridor invariants), "label" = item rate chip.
+  kind: "entry" | "label" | "bus";
 };
 
 export type ChipViolation = {
@@ -228,25 +230,60 @@ export type ChipViolation = {
   seg: [Pt, Pt];
 };
 
+// Centre of a rect.
+function centreOf(r: RawRect): Pt {
+  return [(r.left + r.right) / 2, (r.top + r.bottom) / 2];
+}
+
+// Two rects interpenetrate by more than eps on BOTH axes (a shared boundary or a
+// sub-eps graze is not an overlap).
+function rectsOverlap(a: RawRect, b: RawRect, eps: number): boolean {
+  const dx = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+  const dy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+  return dx > eps && dy > eps;
+}
+
+// The entry band of a target card: its padded-left gutter, where arriving lines
+// converge on the Left port. Mirrors busRouting's EntryBand (paddedCard's left
+// overhang, from the card's left edge outward). A rate chip whose CENTRE sits
+// here is part of the arrival cluster; one out on the corridor is not.
+function entryBandOf(card: RawRect): RawRect {
+  return {
+    left: card.left - OBSTACLE_PAD_LEFT,
+    right: card.left,
+    top: card.top - OBSTACLE_PAD_Y,
+    bottom: card.bottom + OBSTACLE_PAD_Y,
+  };
+}
+
+function centreInRect(p: Pt, r: RawRect): boolean {
+  return p[0] >= r.left && p[0] <= r.right && p[1] >= r.top && p[1] <= r.bottom;
+}
+
 // Every edge segment that enters a FOREIGN chip's box. Exemptions mirror the
 // canvas design rather than bare edge identity (the chip de-confliction pass
-// applies the same three):
+// applies the same set):
 //   - own edge: a chip sits on its own path by construction;
 //   - same flow (same item AND source): a trunk's members share one lane and a
 //     fanout's slices share their common trajectory, so a chip on that shared
 //     line is on its OWN line even when a sibling edge id owns the segment;
-//   - arrival cluster (same target): the converging final approaches before
-//     one consumer read as a single junction -- entry chips are pinned at its
-//     ports by design (row pitch is smaller than the max-scale chip box), and
-//     an arrival's rate chip near that junction legitimately sits among its
-//     siblings' entering runs.
+//   - arrival cluster (same target), NARROWED (3a): entry-kind chips are always
+//     exempt (pinned at the port by design, row pitch below the max-scale chip
+//     box); a label chip is exempt only while its centre sits in the target's
+//     entry band -- the gutter just left of the consumer card where the final
+//     approaches converge. A rate chip out on the corridor is no longer masked
+//     by the shared target, so a chip lying across a sibling's line is flagged.
+// `nodes` supplies the target cards the entry bands are built from.
 export function auditSegmentsVsChips(
   edges: ReadonlyArray<RawEdge>,
   chips: ReadonlyArray<ChipRect>,
+  nodes: ReadonlyArray<NodeRect>,
   eps = 0.5,
 ): ChipViolation[] {
   const edgeById = new Map<string, RawEdge>();
   for (const e of edges) edgeById.set(e.id, e);
+  const cardById = new Map<string, RawRect>();
+  for (const n of nodes) cardById.set(n.nodeId, n);
   const out: ChipViolation[] = [];
   for (const edge of edges) {
     const pts = parsePath(edge.d);
@@ -263,7 +300,14 @@ export function auditSegmentsVsChips(
           continue; // same flow: one visual line
         }
         if (owner !== undefined && owner.target === edge.target) {
-          continue; // arrival cluster before the shared consumer
+          // Arrival cluster, narrowed: entry and bus chips always exempt (pinned
+          // at the port / anchored on the lane by design); a rate chip is exempt
+          // only when its centre lies in the target's entry band.
+          if (chip.kind !== "label") continue;
+          const card = cardById.get(owner.target);
+          if (card !== undefined && centreInRect(centreOf(chip), entryBandOf(card))) {
+            continue;
+          }
         }
         if (segmentEntersRect(seg0, seg1, chip, eps)) {
           out.push({
@@ -274,6 +318,113 @@ export function auditSegmentsVsChips(
           });
         }
       }
+    }
+  }
+  return out;
+}
+
+export type ChipCardViolation = {
+  chipEdgeId: string;
+  chipLabel: string;
+  chipKind: "entry" | "label";
+  card: string;
+  raw: boolean;
+};
+
+// Every chip box that enters a FOREIGN node's RAW card (the P3 chip-vs-card
+// tier). Foreign = any node except the chip's own edge source / target and the
+// containers of those endpoints (the same exemption auditSegmentsVsCards uses):
+// an entry chip is pinned one inset outside its OWN target's left edge, so its
+// box legitimately clips that card; a label chip rides its own corridor leg,
+// clear of both endpoints' cards. `raw` is always true here (raw cards only);
+// the field mirrors SegmentViolation so callers report uniformly.
+export function auditChipsVsCards(
+  chips: ReadonlyArray<ChipRect>,
+  edges: ReadonlyArray<RawEdge>,
+  nodes: ReadonlyArray<NodeRect>,
+  eps = 0.5,
+): ChipCardViolation[] {
+  const edgeById = new Map<string, RawEdge>();
+  for (const e of edges) edgeById.set(e.id, e);
+  const out: ChipCardViolation[] = [];
+  for (const chip of chips) {
+    if (chip.kind === "bus") continue; // lane-anchored, out of scope
+    const owner = edgeById.get(chip.edgeId);
+    const exempt = new Set<string>();
+    if (owner !== undefined) {
+      exempt.add(owner.source);
+      exempt.add(owner.target);
+      const src = nodes.find((n) => n.nodeId === owner.source);
+      const tgt = nodes.find((n) => n.nodeId === owner.target);
+      if (src !== undefined) for (const c of containersAt(centreOf(src), nodes)) exempt.add(c);
+      if (tgt !== undefined) for (const c of containersAt(centreOf(tgt), nodes)) exempt.add(c);
+    }
+    for (const n of nodes) {
+      if (exempt.has(n.nodeId)) continue;
+      if (rectsOverlap(chip, n, eps)) {
+        out.push({
+          chipEdgeId: chip.edgeId,
+          chipLabel: chip.label,
+          chipKind: chip.kind,
+          card: n.nodeId,
+          raw: true,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+export type ChipOffPathViolation = {
+  chipEdgeId: string;
+  chipLabel: string;
+  distance: number;
+};
+
+// Distance from point p to segment a->b.
+function pointSegDistance(p: Pt, a: Pt, b: Pt): number {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(p[0] - a[0], p[1] - a[1]);
+  let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
+}
+
+// Shortest distance from p to a polyline (min over its segments).
+export function pointToPolylineDistance(p: Pt, pts: ReadonlyArray<Pt>): number {
+  let best = Infinity;
+  for (const [a, b] of segmentsOf(pts)) {
+    const d = pointSegDistance(p, a, b);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+// Every LABEL chip whose centre lies farther than `tol` from its own edge's
+// polyline (the P3 on-own-line invariant). Entry chips are excluded: they are
+// pinned one inset off the target port, off the path end by design. A label
+// chip's clear-segment anchor is on the path by construction, and both the
+// along-line slide and a downward nudge along a vertical corridor leg keep it
+// there; a chip flagged here was cascaded off its line.
+export function auditChipsOnOwnPath(
+  chips: ReadonlyArray<ChipRect>,
+  edges: ReadonlyArray<RawEdge>,
+  tol = 1,
+): ChipOffPathViolation[] {
+  const edgeById = new Map<string, RawEdge>();
+  for (const e of edges) edgeById.set(e.id, e);
+  const out: ChipOffPathViolation[] = [];
+  for (const chip of chips) {
+    if (chip.kind !== "label") continue;
+    const owner = edgeById.get(chip.edgeId);
+    if (owner === undefined) continue;
+    const pts = parsePath(owner.d);
+    if (pts.length === 0) continue;
+    const dist = pointToPolylineDistance(centreOf(chip), pts);
+    if (dist > tol) {
+      out.push({ chipEdgeId: chip.edgeId, chipLabel: chip.label, distance: dist });
     }
   }
   return out;
