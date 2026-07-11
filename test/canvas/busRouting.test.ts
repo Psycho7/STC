@@ -988,11 +988,16 @@ describe("paddedObstacles", () => {
     expect(card!.bottom - nodeBottom).toBe(CHAMFER);
     // The entry chip reaches past the bare stub, so the X pad exceeds PORT_STUB.
     expect(leftPad).toBeGreaterThan(PORT_STUB);
+    // Each card carries the id of the node it was built from.
+    expect(card!.nodeId).toBe("n");
   });
 
-  it("includes each node's entry-gutter rect as a first-class obstacle", () => {
+  it("includes each node's entry-gutter rect as a first-class obstacle tagged with its node id", () => {
     // M hosts a backward rail (its source sits to the right), so it owns a gutter
-    // column; every node still gets a gutter rect from entryGutterRects.
+    // column; every node still gets a gutter rect from entryGutterRects. Each
+    // gutter obstacle carries the OWNING node's id (M's inflated band must map to
+    // "m", not "rp"), which is what lets a consumer exempt an edge's own target
+    // gutter while blocking foreign ones.
     const nodes: RFAnyNode[] = [
       recipeNode("m", 0, 0, mkRecipe("m", ["p"], [])),
       recipeNode("rp", 500, 0, mkRecipe("rp", [], ["p"])),
@@ -1001,11 +1006,15 @@ describe("paddedObstacles", () => {
     const gutter = entryGutterRects(nodes, edges);
     const rects = paddedObstacles(nodes, edges);
     const gutterRects = rects.filter((r) => r.kind === "gutter");
-    // One gutter obstacle per node, geometry identical to entryGutterRects.
+    // One gutter obstacle per node, each carrying its owner's id with the
+    // geometry entryGutterRects computed for that same node.
     expect(gutterRects).toHaveLength(nodes.length);
-    for (const [, g] of gutter) {
-      expect(gutterRects).toContainEqual({ ...g, kind: "gutter" });
+    for (const [nodeId, g] of gutter) {
+      expect(gutterRects).toContainEqual({ ...g, kind: "gutter", nodeId });
     }
+    expect(new Set(gutterRects.map((r) => r.nodeId))).toEqual(
+      new Set(["m", "rp"]),
+    );
   });
 });
 

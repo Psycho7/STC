@@ -668,7 +668,14 @@ const OBSTACLE_PAD_LEFT = Math.max(
 );
 const OBSTACLE_PAD_Y = CHAMFER;
 
-export type PaddedObstacle = ObstacleRect & { kind: "card" | "gutter" };
+// nodeId identifies the node an obstacle belongs to, so a consumer can exempt an
+// edge's OWN target card / gutter (the default rise and backward entry columns
+// sit inside their own target's padded left band by construction) while
+// treating every foreign rect as blocked.
+export type PaddedObstacle = ObstacleRect & {
+  kind: "card" | "gutter";
+  nodeId: string;
+};
 
 export function paddedObstacles(
   nodes: ReadonlyArray<RFAnyNode>,
@@ -686,10 +693,11 @@ export function paddedObstacles(
       top: top - OBSTACLE_PAD_Y,
       bottom: top + nodeHeight(node) + OBSTACLE_PAD_Y,
       kind: "card",
+      nodeId: node.id,
     });
   }
-  for (const g of entryGutterRects(nodes, edges).values()) {
-    out.push({ ...g, kind: "gutter" });
+  for (const [nodeId, g] of entryGutterRects(nodes, edges)) {
+    out.push({ ...g, kind: "gutter", nodeId });
   }
   return out;
 }
