@@ -212,13 +212,14 @@ function pathFromPoints(pts: ReadonlyArray<readonly [number, number]>): string {
   return path;
 }
 
-// pathMidpoint: the point at 50% of the cumulative polyline length of an
-// absolute "M x,y L x,y ..." path string, the only form this module emits.
-// Walks the segments accumulating length until half the total is covered, then
-// interpolates within the covering segment; a single-segment path degenerates
-// to that segment's center. Coordinates come back through r() so anchors stay
-// as stable as the path coordinates they derive from.
-export function pathMidpoint(d: string): [number, number] {
+// pathPointAt: the point at `frac` (0..1) of the cumulative polyline length of
+// an absolute "M x,y L x,y ..." path string, the only form this module emits.
+// Walks the segments accumulating length until the fraction of the total is
+// covered, then interpolates within the covering segment. Coordinates come back
+// through r() so anchors stay as stable as the path coordinates they derive
+// from. The chip de-confliction pass uses off-midpoint fractions to slide a
+// blocked label along its own line.
+export function pathPointAt(d: string, frac: number): [number, number] {
   const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
     (m) => [Number(m[1]), Number(m[2])] as const,
   );
@@ -229,7 +230,7 @@ export function pathMidpoint(d: string): [number, number] {
       pts[i]![1] - pts[i - 1]![1],
     );
   }
-  let remaining = total / 2;
+  let remaining = total * Math.min(1, Math.max(0, frac));
   for (let i = 1; i < pts.length; i++) {
     const [x0, y0] = pts[i - 1]!;
     const [x1, y1] = pts[i]!;
@@ -242,6 +243,12 @@ export function pathMidpoint(d: string): [number, number] {
   }
   // Zero-length path (never emitted here): fall back to the first point.
   return [r(pts[0]![0]), r(pts[0]![1])];
+}
+
+// pathMidpoint: pathPointAt at 50%; a single-segment path degenerates to that
+// segment's center.
+export function pathMidpoint(d: string): [number, number] {
+  return pathPointAt(d, 0.5);
 }
 
 // chamferStepPath: forward step, small-dy diagonal, narrow-gap degradation, and

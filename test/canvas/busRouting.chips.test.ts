@@ -109,17 +109,16 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     }
   });
 
-  it("keeps every trunk's owner drop chip on its junction across trunks", () => {
+  it("holds a drop chip on its junction unless a foreign trunk's line crosses it", () => {
     // Two trunks off ONE aggregate (items "a" and "b" -> lanes 0 and 1, same
     // drop column), with the "a" trunk's extent collapsed so its rise chips
-    // stack on that column and cascade downward -- straight through the "b"
-    // trunk's junction one lane below. Seating is two-phase (all drops, then all
-    // rises), so trunk b's aggregate drop chip must hold its junction even
-    // though trunk a's edges sort first; an id-interleaved seating would let
-    // a's cascading rise squat on b's junction and push the aggregate off it. An
-    // anchor node up top keeps both trunks in the lower half so they share the
-    // BOTTOM band on adjacent lanes (a above b), which is what puts a's downward
-    // cascade onto b's lane.
+    // stack on that column and cascade downward. Seating is two-phase (all
+    // drops, then all rises) so no CHIP can knock an aggregate off its
+    // junction. Trunk b's chip (bottom lane) holds: nothing foreign crosses it.
+    // Trunk a's chip CANNOT hold: trunk b's drop vertical descends through its
+    // junction on the shared drop column, and a chip never sits on a foreign
+    // flow's line, so it cascades below both lanes (two steps: one clears b's
+    // vertical run down to lane 1, the next clears b's lane clearance band).
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, mkRecipe("anchor", ["x"], ["y"])),
       inputProductNode("agg", "ore", 0, 1000),
@@ -133,8 +132,7 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
       mkEdge("e2", "agg", "t3", "b"),
     ];
     const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
-    // Both owners' aggregate drop chips stay at their junctions.
-    expect(busDropDyOf(out, "e0")).toBe(0);
+    expect(busDropDyOf(out, "e0")).toBe(2 * (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT));
     expect(busDropDyOf(out, "e2")).toBe(0);
     // The crowded rises all cascaded below the lanes instead.
     for (const id of ["e0", "e1", "e2"]) {
@@ -187,9 +185,15 @@ describe("deconflictChipAnchors: reconstruction tripwires", () => {
       },
     ];
     const out = deconflictChipAnchors(nodes, edges);
-    expect(labelDyOf(out, "a:fwd")).toBe(0); // seated first, unmoved
-    // Exactly one pitch: the anchors coincided, and one step clears the pair.
-    expect(labelDyOf(out, "z:bwd")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+    // a:fwd seats first but now dodges the backward RAIL SEGMENT at railY --
+    // itself the reconstruction tripwire: the dodge only fires if the pass
+    // rebuilt z:bwd's path WITH the threaded railY crossing this anchor.
+    expect(labelDyOf(out, "a:fwd")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+    // z:bwd's chip clears a:fwd's straight line (one pitch) and then a:fwd's
+    // displaced chip (a second pitch).
+    expect(labelDyOf(out, "z:bwd")).toBe(
+      2 * (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT),
+    );
   });
 
   it("nudges a midpoint chip off a bus rise chip's box", () => {
@@ -231,8 +235,14 @@ describe("deconflictChipAnchors: reconstruction tripwires", () => {
       },
     ];
     const out = deconflictChipAnchors(nodes, edges);
-    expect(busChipDyOf(out, "bus:0")).toBe(0); // bus chip holds the lane
-    expect(labelDyOf(out, "mid:0")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+    // The forward edge's straight line passes exactly through the bus chip's
+    // lane slot, so even the bus chip yields one pitch (a chip never sits on a
+    // foreign flow's line); the midpoint chip then clears the bus lane run and
+    // the displaced bus chip with a second pitch.
+    expect(busChipDyOf(out, "bus:0")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+    expect(labelDyOf(out, "mid:0")).toBe(
+      2 * (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT),
+    );
   });
 });
 

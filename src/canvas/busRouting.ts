@@ -38,6 +38,7 @@ import {
   chamferBusPath,
   chamferStepPath,
   clearRailY,
+  pathPointAt,
   routingHintsFromData,
   type ObstacleRect,
 } from "./edgePath";
@@ -1752,12 +1753,108 @@ function chipBoxesOverlap(a: ChipBox, b: ChipBox): boolean {
   );
 }
 
+// Does the segment (x0,y0)-(x1,y1) enter the chip box's interior? Liang-Barsky
+// parametric clip against the box slabs; boundary-only contact does not count.
+function segIntersectsChipBox(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  box: ChipBox,
+): boolean {
+  const left = box.x - box.halfW;
+  const right = box.x + box.halfW;
+  const top = box.y - box.halfH;
+  const bottom = box.y + box.halfH;
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  let t0 = 0;
+  let t1 = 1;
+  const clip = (p: number, q: number): boolean => {
+    if (p === 0) return q >= 0;
+    const t = q / p;
+    if (p < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
+    return true;
+  };
+  if (
+    clip(-dx, x0 - left) &&
+    clip(dx, right - x0) &&
+    clip(-dy, y0 - top) &&
+    clip(dy, bottom - y0)
+  ) {
+    return t1 - t0 > 1e-6;
+  }
+  return false;
+}
+
+// A reconstructed edge polyline the chip pass treats as an obstacle: the
+// segments of every edge OUTSIDE the chip's own flow (its own edge plus
+// same-(item, source) siblings, which share one visual line -- a trunk's lane
+// run or a fanout's common trajectory) and outside its own ARRIVAL CLUSTER
+// (edges into the same target: the converging lines before one consumer read
+// as one junction, so a chip near its port may sit among its siblings' final
+// approaches). flowKey groups the flow siblings; target the cluster.
+export type EdgeSegments = {
+  flowKey: string;
+  target: string;
+  segs: ReadonlyArray<readonly [number, number, number, number]>;
+};
+
+// Cap on the cascade when foreign edge segments join the collision set. A chip
+// crossing a dense weave could otherwise walk far off its anchor; past the cap
+// the seat falls back to chip-only collisions (the pre-segment behaviour, no
+// worse than before).
+const CHIP_SEAT_MAX_STEPS = 24;
+
 // Seat a chip at its preferred anchor, cascading it in `step`-sized increments
-// until it clears every box already in `placed`, then record it. Returns the
-// signed offset applied (0 when the anchor was already clear). `step` defaults
-// to a downward CHIP_NUDGE_STEP; a top-band bus chip passes -CHIP_NUDGE_STEP so
-// it cascades UP, away from the graph below it, instead of walking into the
-// nodes. Deterministic given a fixed placement order.
+// until it clears every box already in `placed` AND every foreign edge segment
+// in `obstacles` (segments of other flows; pass an empty list to keep the
+// chips-only behaviour), then record it. Returns the signed offset applied (0
+// when the anchor was already clear). `step` defaults to a downward
+// CHIP_NUDGE_STEP; a top-band bus chip passes -CHIP_NUDGE_STEP so it cascades
+// UP, away from the graph below it, instead of walking into the nodes. When no
+// step within CHIP_SEAT_MAX_STEPS clears the segments, the seat retries against
+// chips alone. Deterministic given a fixed placement order.
+// Cascade probe: the smallest dy multiple of `step` (within the cap) at which
+// the box clears every placed chip and every foreign-flow segment, or null when
+// the cap exhausts. No side effects; callers push the box themselves.
+function cascadeClearDy(
+  placed: ReadonlyArray<ChipBox>,
+  x: number,
+  y: number,
+  halfW: number,
+  halfH: number,
+  step: number,
+  obstacles: ReadonlyArray<EdgeSegments>,
+  ownFlowKey: string,
+  ownTarget = "",
+): number | null {
+  const segBlocked = (box: ChipBox): boolean =>
+    obstacles.some(
+      (e) =>
+        e.flowKey !== ownFlowKey &&
+        e.target !== ownTarget &&
+        e.segs.some(([x0, y0, x1, y1]) =>
+          segIntersectsChipBox(x0, y0, x1, y1, box),
+        ),
+    );
+  let dy = 0;
+  for (let steps = 0; steps <= CHIP_SEAT_MAX_STEPS; steps++) {
+    const box = { x, y: y + dy, halfW, halfH };
+    if (!placed.some((b) => chipBoxesOverlap(b, box)) && !segBlocked(box)) {
+      return dy;
+    }
+    dy += step;
+  }
+  return null;
+}
+
 function seatChip(
   placed: ChipBox[],
   x: number,
@@ -1765,7 +1862,27 @@ function seatChip(
   halfW: number,
   halfH: number,
   step: number = CHIP_NUDGE_STEP,
+  obstacles: ReadonlyArray<EdgeSegments> = [],
+  ownFlowKey = "",
+  ownTarget = "",
 ): number {
+  const clear = cascadeClearDy(
+    placed,
+    x,
+    y,
+    halfW,
+    halfH,
+    step,
+    obstacles,
+    ownFlowKey,
+    ownTarget,
+  );
+  if (clear !== null) {
+    placed.push({ x, y: y + clear, halfW, halfH });
+    return clear;
+  }
+  // Segment-clear seat not found within the cap: fall back to the chips-only
+  // cascade so crowding never regresses past the pre-segment behaviour.
   let dy = 0;
   while (
     placed.some((box) => chipBoxesOverlap(box, { x, y: y + dy, halfW, halfH }))
@@ -1836,6 +1953,57 @@ export function deconflictChipAnchors(
   // then midpoint chips (nudge down around everything already placed).
   const placed: ChipBox[] = [];
 
+  // Reconstructed edge polylines, obstacles for the bus / midpoint seats: a
+  // chip must not sit on a FOREIGN edge's line (the reader would bind the rate
+  // to the wrong flow). Edges of one flow -- same (item, source), i.e. a
+  // trunk's members sharing a lane or a fanout's slices sharing their common
+  // trajectory -- are one visual line, so a chip may sit on its own flow's
+  // siblings. Entry chips stay pinned at their ports and take no segment
+  // avoidance. Reconstruction mirrors the render components (same builders,
+  // same hints), so the avoided lines are the drawn ones.
+  const flowKeyOf = (edge: Edge): string =>
+    (edgeItem(edge) ?? "?") + "|" + edge.source;
+  const edgeSegments: EdgeSegments[] = [];
+  for (const edge of edges) {
+    if (edge.type !== "item" && edge.type !== "bus") continue;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) continue;
+    const item = edgeItem(edge);
+    const sx = absoluteLeft(source, byId) + nodeWidth(source);
+    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
+    const tx = absoluteLeft(target, byId);
+    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    let d: string;
+    if (edge.type === "bus") {
+      const laneY = (edge.data as BusEdgeData | undefined)?.laneY ?? ty;
+      d = chamferBusPath({
+        sourceX: sx,
+        sourceY: sy,
+        targetX: tx,
+        targetY: ty,
+        laneY,
+        ...routingHintsFromData(edge.data),
+      }).path;
+    } else {
+      [d] = chamferStepPath({
+        sourceX: sx,
+        sourceY: sy,
+        targetX: tx,
+        targetY: ty,
+        ...routingHintsFromData(edge.data),
+      });
+    }
+    const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
+      (m) => [Number(m[1]), Number(m[2])] as const,
+    );
+    const segs: Array<readonly [number, number, number, number]> = [];
+    for (let i = 1; i < pts.length; i++) {
+      segs.push([pts[i - 1]![0], pts[i - 1]![1], pts[i]![0], pts[i]![1]]);
+    }
+    edgeSegments.push({ flowKey: flowKeyOf(edge), target: edge.target, segs });
+  }
+
   // Entry chips: every forward item edge flagged multiInputTarget pins an
   // icon-only chip just left of its target port. Chips arriving at one node
   // (same-item duplicates share a port y outright, adjacent ports sit a row
@@ -1874,16 +2042,40 @@ export function deconflictChipAnchors(
     });
     const entryX = absoluteLeft(byId.get(targetId)!, byId) - ENTRY_CHIP_OFFSET;
     const stacked = stackEntryAnchors(list.map((s) => s.anchorY));
+    // Segment-aware stacking: a chip whose slot lands on a FOREIGN line (an
+    // edge neither of this cluster nor of the chip's own flow -- e.g. a
+    // backward rail passing between this node's rows) steps further down until
+    // clear, keeping the stack monotone. Without this, the blind stack can
+    // drop a pinned marker straight onto a passing rail.
+    const clusterBlocked = (box: ChipBox): boolean =>
+      edgeSegments.some(
+        (e) =>
+          e.target !== targetId &&
+          e.segs.some(([x0, y0, x1, y1]) =>
+            segIntersectsChipBox(x0, y0, x1, y1, box),
+          ),
+      );
+    let prevY = -Infinity;
     list.forEach((s, i) => {
-      const y = stacked[i]!;
-      const dy = y - s.anchorY;
-      if (dy !== 0) entryDyByIndex.set(s.index, dy);
-      placed.push({
+      let y = Math.max(stacked[i]!, prevY + ENTRY_CHIP_MIN_GAP);
+      const boxAt = (yy: number): ChipBox => ({
         x: entryX,
-        y,
+        y: yy,
         halfW: CHIP_HALF_W_ENTRY,
         halfH: CHIP_HALF_H,
       });
+      let steps = 0;
+      let cleared = y;
+      while (steps <= CHIP_SEAT_MAX_STEPS && clusterBlocked(boxAt(cleared))) {
+        cleared += ENTRY_CHIP_MIN_GAP;
+        steps += 1;
+      }
+      // Cap exhausted: keep the plain stacked slot (pre-segment behaviour).
+      if (steps <= CHIP_SEAT_MAX_STEPS) y = cleared;
+      const dy = y - s.anchorY;
+      if (dy !== 0) entryDyByIndex.set(s.index, dy);
+      placed.push(boxAt(y));
+      prevY = y;
     });
   }
 
@@ -1908,6 +2100,8 @@ export function deconflictChipAnchors(
     riseChipX: number;
     owner: boolean;
     step: number;
+    flowKey: string;
+    target: string;
   };
   const busSlots: BusSlot[] = [];
   const busEdges = edges
@@ -1944,6 +2138,8 @@ export function deconflictChipAnchors(
       // Top-band chips cascade UP (away from the graph below them); bottom-band
       // and un-banded chips cascade DOWN. Signed step drives seatChip's walk.
       step: data.busBand === "top" ? -CHIP_NUDGE_STEP : CHIP_NUDGE_STEP,
+      flowKey: flowKeyOf(edge),
+      target: edge.target,
     });
   }
   for (const slot of busSlots) {
@@ -1955,6 +2151,9 @@ export function deconflictChipAnchors(
       CHIP_HALF_W_WIDE,
       CHIP_HALF_H,
       slot.step,
+      edgeSegments,
+      slot.flowKey,
+      slot.target,
     );
     if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
   }
@@ -1966,6 +2165,9 @@ export function deconflictChipAnchors(
       CHIP_HALF_W_WIDE,
       CHIP_HALF_H,
       slot.step,
+      edgeSegments,
+      slot.flowKey,
+      slot.target,
     );
     if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
   }
@@ -1975,11 +2177,17 @@ export function deconflictChipAnchors(
   // same bendX / entryX / railY hints so a backward edge's chip lands on its
   // detour rail exactly as ItemEdge renders it) and greedily nudge a chip down
   // when it collides with one already placed (an entry, bus, or earlier midpoint
-  // box). Backward edges are included, not skipped: ItemEdge draws their rate
-  // chip on the rail too, and two rails sharing a clamped y stack their chips on
-  // top of one another without this pass. Ordering by edge id keeps the placement
-  // deterministic.
+  // box) or with a foreign flow's line. When the downward cascade cannot clear
+  // (a dense corridor of long foreign verticals blocks every step to the cap),
+  // the chip instead slides ALONG ITS OWN LINE to the nearest clear fraction of
+  // the polyline (labelDx + labelDy off the midpoint anchor), staying attached
+  // to the flow it labels rather than floating away vertically. Backward edges
+  // are included, not skipped: ItemEdge draws their rate chip on the rail too,
+  // and two rails sharing a clamped y stack their chips on top of one another
+  // without this pass. Ordering by edge id keeps the placement deterministic.
+  const LABEL_SLIDE_FRACS = [0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82];
   const labelDyByIndex = new Map<number, number>();
+  const labelDxByIndex = new Map<number, number>();
   const items = edges
     .map((edge, index) => ({ edge, index }))
     .filter((e) => e.edge.type === "item")
@@ -1995,19 +2203,73 @@ export function deconflictChipAnchors(
     const tx = absoluteLeft(target, byId);
     const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
     const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    const [, lx, ly] = chamferStepPath({
+    const [d, lx, ly] = chamferStepPath({
       sourceX: sx,
       sourceY: sy,
       targetX: tx,
       targetY: ty,
       ...routingHintsFromData(edge.data),
     });
-    const dy = seatChip(placed, lx, ly, CHIP_HALF_W_WIDE, CHIP_HALF_H);
-    if (dy !== 0) labelDyByIndex.set(index, dy);
+    const flowKey = flowKeyOf(edge);
+    const dy = cascadeClearDy(
+      placed,
+      lx,
+      ly,
+      CHIP_HALF_W_WIDE,
+      CHIP_HALF_H,
+      CHIP_NUDGE_STEP,
+      edgeSegments,
+      flowKey,
+      edge.target,
+    );
+    if (dy !== null) {
+      placed.push({
+        x: lx,
+        y: ly + dy,
+        halfW: CHIP_HALF_W_WIDE,
+        halfH: CHIP_HALF_H,
+      });
+      if (dy !== 0) labelDyByIndex.set(index, dy);
+      continue;
+    }
+    // Cap exhausted: slide along the polyline, nearest-to-midpoint fraction
+    // first, taking the first clear anchor as-is (no cascade).
+    let seated = false;
+    for (const frac of LABEL_SLIDE_FRACS) {
+      const [px, py] = pathPointAt(d, frac);
+      const at = cascadeClearDy(
+        placed,
+        px,
+        py,
+        CHIP_HALF_W_WIDE,
+        CHIP_HALF_H,
+        CHIP_NUDGE_STEP,
+        edgeSegments,
+        flowKey,
+        edge.target,
+      );
+      if (at !== 0) continue; // only a clean on-line seat; nudges stay at 0.5
+      placed.push({
+        x: px,
+        y: py,
+        halfW: CHIP_HALF_W_WIDE,
+        halfH: CHIP_HALF_H,
+      });
+      if (px !== lx) labelDxByIndex.set(index, px - lx);
+      if (py !== ly) labelDyByIndex.set(index, py - ly);
+      seated = true;
+      break;
+    }
+    if (seated) continue;
+    // No clear seat anywhere sane: chips-only cascade at the midpoint (the
+    // pre-segment behaviour, no worse than before).
+    const fallbackDy = seatChip(placed, lx, ly, CHIP_HALF_W_WIDE, CHIP_HALF_H);
+    if (fallbackDy !== 0) labelDyByIndex.set(index, fallbackDy);
   }
 
   if (
     labelDyByIndex.size === 0 &&
+    labelDxByIndex.size === 0 &&
     entryDyByIndex.size === 0 &&
     busDropDyByIndex.size === 0 &&
     busChipDyByIndex.size === 0
@@ -2016,11 +2278,13 @@ export function deconflictChipAnchors(
   }
   return edges.map((edge, index) => {
     const labelDy = labelDyByIndex.get(index);
+    const labelDx = labelDxByIndex.get(index);
     const entryChipDy = entryDyByIndex.get(index);
     const busDropDy = busDropDyByIndex.get(index);
     const busChipDy = busChipDyByIndex.get(index);
     if (
       labelDy === undefined &&
+      labelDx === undefined &&
       entryChipDy === undefined &&
       busDropDy === undefined &&
       busChipDy === undefined
@@ -2032,6 +2296,7 @@ export function deconflictChipAnchors(
       data: {
         ...edge.data,
         ...(labelDy !== undefined ? { labelDy } : {}),
+        ...(labelDx !== undefined ? { labelDx } : {}),
         ...(entryChipDy !== undefined ? { entryChipDy } : {}),
         ...(busDropDy !== undefined ? { busDropDy } : {}),
         ...(busChipDy !== undefined ? { busChipDy } : {}),
