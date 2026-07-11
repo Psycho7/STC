@@ -55,6 +55,7 @@ import {
   nodeWidth,
   portOffsetY,
   type BusEdgeData,
+  type LaneBusEdgeData,
 } from "./busRouting";
 import type { RFAnyNode } from "./layout";
 
@@ -555,6 +556,7 @@ export function deconflictChipAnchors(
   // re-parses the `d` -- the lockstep mirror of itemGeomByIndex for rate chips.
   type FanoutGeom = {
     pts: ReadonlyArray<readonly [number, number]>;
+    junction: { x: number; y: number };
     trunkAnchor: { x: number; y: number };
     branchAnchor: { x: number; y: number };
     owner: boolean;
@@ -584,12 +586,13 @@ export function deconflictChipAnchors(
         pts: [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
           (m) => [Number(m[1]), Number(m[2])] as const,
         ),
+        junction: fan.junction,
         trunkAnchor: fan.trunkAnchor,
         branchAnchor: fan.branchAnchor,
         owner: (edge.data as BusEdgeData | undefined)?.busChipOwner === true,
       });
     } else if (edge.type === "bus") {
-      const laneY = (edge.data as BusEdgeData | undefined)?.laneY ?? ty;
+      const laneY = (edge.data as LaneBusEdgeData | undefined)?.laneY ?? ty;
       d = chamferBusPath({
         sourceX: sx,
         sourceY: sy,
@@ -795,7 +798,7 @@ export function deconflictChipAnchors(
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) continue;
     const data = edge.data as BusEdgeData | undefined;
-    if (data?.laneY === undefined) continue;
+    if (data === undefined || !("laneY" in data)) continue;
     const item = edgeItem(edge);
     const sx = absoluteLeft(source, byId) + nodeWidth(source);
     const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
@@ -885,15 +888,53 @@ export function deconflictChipAnchors(
       bottom: targetTop + nodeHeight(target) + OBSTACLE_PAD_Y,
     };
   };
+  // Card exemption for a trunk's AGGREGATE chip: the union over every member of
+  // the trunk. The aggregate spans the shared trunk feeding ALL the members'
+  // targets, and its wide box necessarily reaches into the target column, so it
+  // must clear every one of those target cards (and the shared source) rather
+  // than only the owner's own -- otherwise a sibling member's target reads as a
+  // foreign card and shoves the aggregate off the trunk and down onto a branch.
+  const trunkExempt = new Map<string, Set<string>>();
+  for (const { edge } of fanoutEdges) {
+    const key = (edge.data as BusEdgeData).trunkKey;
+    let set = trunkExempt.get(key);
+    if (set === undefined) {
+      set = new Set<string>();
+      trunkExempt.set(key, set);
+    }
+    for (const id of cardExemptFor(edge)) set.add(id);
+  }
   for (const { edge, index } of fanoutEdges) {
     const geom = fanoutGeomByIndex.get(index)!;
     if (!geom.owner) continue;
+    // The aggregate seats on the SHARED TRUNK sub-polyline only (source port ->
+    // junction), never the owner's private branch leg: the tier-1 slide runs
+    // horizontally along [source port, trunkEnd]. trunkEnd sits a keep-off left
+    // of the junction so the chip clears the junction dot -- a full chip half-box
+    // when the trunk is long enough, but never more than half the trunk, so a
+    // short in-corridor trunk keeps its whole [source, midpoint] span rather than
+    // collapsing to the source port (which would force a vertical nudge onto the
+    // branch leg, the very slide this truncation prevents). The render anchor is
+    // the trunk midpoint, always <= trunkEnd, so an uncrowded aggregate seats
+    // there on the horizontal. Offsets stay relative to the render trunkAnchor so
+    // BusEdge adds them to the same point.
+    const [sx, sy] = geom.pts[0]!;
+    const keepoff = Math.min(CHIP_HALF_W_WIDE, (geom.junction.x - sx) / 2);
+    const trunkEndX = Math.max(sx, geom.junction.x - keepoff);
+    const trunkPts: ReadonlyArray<readonly [number, number]> = [
+      [sx, sy],
+      [trunkEndX, geom.trunkAnchor.y],
+    ];
     const seat = seatRateChip(
       field,
-      { pts: geom.pts, anchorX: geom.trunkAnchor.x, anchorY: geom.trunkAnchor.y },
+      {
+        pts: trunkPts,
+        anchorX: geom.trunkAnchor.x,
+        anchorY: geom.trunkAnchor.y,
+      },
       flowKeyOf(edge),
       edge.target,
-      cardExemptFor(edge),
+      trunkExempt.get((edge.data as BusEdgeData).trunkKey) ?? cardExemptFor(edge),
       ZERO_BAND,
     );
     if (seat.dx !== 0) fanoutAggDxByIndex.set(index, seat.dx);
@@ -1018,4 +1059,92 @@ export function deconflictChipAnchors(
       },
     };
   });
+}
+
+// A flow-coordinate rectangle, the shape React Flow's fitBounds consumes.
+export type ContentRect = { x: number; y: number; width: number; height: number };
+
+// Content bounding box (flow coords) covering both the node cards AND every
+// seated edge-label chip, for the camera fit. React Flow's fitView frames node
+// cards only, so a chip that cascaded below the deepest lane band, or nudged
+// past a border card's edge, lands outside the framed region and clips at the
+// viewport rim. This unions the node cards with the bus-lane chip extents
+// (exact: lane y + the cascade recorded on edge data) and pads by one chip
+// half-box plus the largest recorded item / entry / fan-out nudge, so the
+// shallow chips that seat just outside a card stay inside the fit too. Pure and
+// deterministic: it reads only the seated offsets the render components already
+// consume, never re-seating. Null for an empty graph (nothing to frame).
+export function contentBounds(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): ContentRect | null {
+  if (nodes.length === 0) return null;
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const n of nodes) {
+    const l = absoluteLeft(n, byId);
+    const t = absoluteTop(n, byId);
+    left = Math.min(left, l);
+    top = Math.min(top, t);
+    right = Math.max(right, l + nodeWidth(n));
+    bottom = Math.max(bottom, t + nodeHeight(n));
+  }
+
+  // Bus-lane chips cascade off their band -- the deepest overflow past the node
+  // cards. Their y is exact from the lane plus the cascade on edge data; include
+  // a chip half-height so the whole box, not just its centre, clears the rim.
+  for (const edge of edges) {
+    if (edge.type !== "bus") continue;
+    const data = edge.data as BusEdgeData | undefined;
+    if (data === undefined || !("laneY" in data)) continue;
+    const dropY = data.laneY + (data.busDropDy ?? 0);
+    const riseY = data.laneY + (data.busChipDy ?? 0);
+    top = Math.min(top, dropY - CHIP_HALF_H, riseY - CHIP_HALF_H);
+    bottom = Math.max(bottom, dropY + CHIP_HALF_H, riseY + CHIP_HALF_H);
+  }
+
+  // Shallow chips (item rate, entry marker, fan-out aggregate / branch) anchor
+  // within the node span, but their box plus any de-confliction nudge can spill
+  // past a border card's edge. Pad every side by one chip half-box plus the
+  // largest recorded nudge on each axis so those boxes stay inside the fit too.
+  let maxDx = 0;
+  let maxDy = 0;
+  for (const edge of edges) {
+    const d = edge.data as
+      | {
+          labelDx?: number;
+          labelDy?: number;
+          entryChipDy?: number;
+          fanoutAggDx?: number;
+          fanoutAggDy?: number;
+          fanoutBranchDx?: number;
+          fanoutBranchDy?: number;
+        }
+      | undefined;
+    if (d === undefined) continue;
+    maxDx = Math.max(
+      maxDx,
+      Math.abs(d.labelDx ?? 0),
+      Math.abs(d.fanoutAggDx ?? 0),
+      Math.abs(d.fanoutBranchDx ?? 0),
+    );
+    maxDy = Math.max(
+      maxDy,
+      Math.abs(d.labelDy ?? 0),
+      Math.abs(d.entryChipDy ?? 0),
+      Math.abs(d.fanoutAggDy ?? 0),
+      Math.abs(d.fanoutBranchDy ?? 0),
+    );
+  }
+  left -= CHIP_HALF_W_WIDE + maxDx;
+  right += CHIP_HALF_W_WIDE + maxDx;
+  top -= CHIP_HALF_H + maxDy;
+  bottom += CHIP_HALF_H + maxDy;
+
+  return { x: left, y: top, width: right - left, height: bottom - top };
 }

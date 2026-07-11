@@ -20,6 +20,8 @@ import LoopNode from "./LoopNode";
 import ProductNode from "./ProductNode";
 import ItemEdge from "./ItemEdge";
 import BusEdge from "./BusEdge";
+import { contentBounds } from "./chipSeating";
+import type { RFAnyNode } from "./layout";
 import { useI18n } from "../data/i18n-context";
 import type { CSSProperties } from "react";
 import { iconSheetUrl } from "./iconSprite";
@@ -48,6 +50,13 @@ const edgeTypes = { item: ItemEdge, bus: BusEdge };
 // the viewport and get cut off; 0.05 lets the whole graph shrink to fit. Padding
 // keeps a small margin around the fitted graph so nodes do not touch the frame.
 const FIT_VIEW_OPTIONS = { padding: 0.12 };
+
+// fitBounds padding matches FIT_VIEW_OPTIONS: a fraction of the fitted extent
+// kept as margin so content does not touch the frame. fitBounds frames an
+// explicit rect (the node cards PLUS the seated chip extents contentBounds
+// computes), where fitView would frame the node cards alone and clip a chip
+// cascaded below the deepest lane band or nudged past a border card.
+const FIT_BOUNDS_OPTIONS = { padding: 0.12 };
 
 // Delay before a hover registers, so sweeping the pointer across the canvas does
 // not strobe the dim state on every element crossed. A leave within the window
@@ -161,9 +170,25 @@ function CanvasInner({
 }: CanvasProps) {
   const i18n = useI18n();
   const [hovered, setHovered] = useState<Hovered>(null);
-  const { fitView } = useReactFlow();
+  const { fitView, fitBounds } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Fit the viewport to the whole content -- node cards plus every seated chip
+  // and lane band contentBounds covers -- via fitBounds, so a chip cascaded below
+  // the deepest lane band is inside the frame instead of clipped at the rim.
+  // Falls back to fitView on an empty graph (no bounds to frame). Depends on the
+  // node/edge props; these change only on a new plan (hover mutates the local
+  // display arrays, not the props), so the fit effects below stay quiet during
+  // hover and re-fit only when the plan actually changes.
+  const fitContent = useCallback(() => {
+    const bounds = contentBounds(nodes as unknown as RFAnyNode[], edges);
+    if (bounds === null) {
+      void fitView(FIT_VIEW_OPTIONS);
+      return;
+    }
+    void fitBounds(bounds, FIT_BOUNDS_OPTIONS);
+  }, [nodes, edges, fitView, fitBounds]);
   // Live zoom drives the low-zoom LOD band on the theme container. Reading
   // transform[2] (zoom only) re-renders on zoom changes but not on pan.
   const zoom = useStore((state) => state.transform[2]);
@@ -178,8 +203,8 @@ function CanvasInner({
     if (!nodesInitialized) return;
     if (fittedGen.current === layoutGeneration) return;
     fittedGen.current = layoutGeneration;
-    void fitView(FIT_VIEW_OPTIONS);
-  }, [nodesInitialized, layoutGeneration, fitView]);
+    fitContent();
+  }, [nodesInitialized, layoutGeneration, fitContent]);
 
   // Re-fit when the canvas container changes size (window resize, side-panel
   // toggle) so the graph keeps filling the pane instead of drifting into a
@@ -200,7 +225,7 @@ function CanvasInner({
       if (timer !== null) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
-        void fitView(FIT_VIEW_OPTIONS);
+        fitContent();
       }, RESIZE_REFIT_MS);
     });
     observer.observe(el);
@@ -208,7 +233,7 @@ function CanvasInner({
       if (timer !== null) clearTimeout(timer);
       observer.disconnect();
     };
-  }, [fitView]);
+  }, [fitContent]);
 
   // Transient result of the last copy-share click. "copied" / "failed" replace
   // the button label for COPY_FEEDBACK_MS so the click is never silent, then it

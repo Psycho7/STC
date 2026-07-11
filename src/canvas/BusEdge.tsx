@@ -16,8 +16,29 @@ import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
 // Radius of the junction dot each bus edge draws at its own branch point, where
-// it leaves the shared trunk lane to rise into its target.
+// it leaves the shared trunk lane to rise into its target, in graph units.
 const JUNCTION_RADIUS = 3;
+
+// Junction-dot screen-radius bounds, in physical px. The dot is drawn in graph
+// units, so the pane zoom scales it (on-screen radius = r * zoom): at the
+// dense-plan fit zoom a 3-unit dot is a sub-pixel speck. Counter-scale it like
+// ItemEdge's stroke clamp so the dot holds a legible on-screen radius clamped to
+// this range across zoom.
+const JUNCTION_MIN_PX = 3;
+const JUNCTION_MAX_PX = 5;
+
+// Graph-unit radius that renders the junction dot at a screen radius clamped to
+// [JUNCTION_MIN_PX, JUNCTION_MAX_PX]. At zoom 1 this is the natural
+// JUNCTION_RADIUS; below it the graph radius grows to hold the pixel floor,
+// above it the dot stops growing at the pixel cap. zoom is always > 0 (the pane
+// clamps minZoom well above zero).
+export function junctionRadius(zoom: number): number {
+  const screen = Math.min(
+    JUNCTION_MAX_PX,
+    Math.max(JUNCTION_MIN_PX, JUNCTION_RADIUS * zoom),
+  );
+  return screen / zoom;
+}
 
 // BusEdge renders a bus-trunk member via chamferBusPath: exit the source
 // rightward, chamfer down into the shared lane, run along it, then chamfer up
@@ -42,11 +63,17 @@ export default function BusEdge({
   const edgeData = data as (ItemEdgeData & BusEdgeData) | undefined;
   const zoom = useStore((state) => state.transform[2]);
   const i18n = useI18n();
+  // Narrow the union on the `fanout` discriminant so each arm reads only its own
+  // fields: the fan-out member carries junction / fanout* offsets and no laneY;
+  // the lane member carries laneY / busChipX / busDropDy / busChipDy.
+  const fanoutData = edgeData?.fanout === true ? edgeData : undefined;
+  const laneData =
+    edgeData !== undefined && edgeData.fanout !== true ? edgeData : undefined;
   // Fall back to targetY if laneY is somehow missing, which collapses the run to
   // a sane orthogonal drop-and-rise (the rise vertical vanishes) rather than
   // throwing.
-  const laneY = edgeData?.laneY ?? targetY;
-  const isFanout = edgeData?.fanout === true;
+  const laneY = laneData?.laneY ?? targetY;
+  const isFanout = fanoutData !== undefined;
   // Fan-out members draw the short in-corridor trunk (source port -> shared
   // junction column -> branch to the target); lane members drop into the shared
   // band and rise at their column. Both expose one aggregate chip anchor (the
@@ -73,16 +100,16 @@ export default function BusEdge({
       });
   const path = fan?.path ?? bus!.path;
   const junction = fan?.junction ?? bus!.junction;
-  const dropX = bus?.dropX ?? 0;
-  const riseX = bus?.riseX ?? 0;
   // Aggregate chip anchor: the fan-out trunk-segment midpoint, or the lane drop
   // column. Per-member chip anchor: the fan-out branch-leg midpoint, or the lane
-  // rise slot. Each carries its own de-confliction offset.
-  const aggX =
-    (fan ? fan.trunkAnchor.x : dropX) + (edgeData?.fanoutAggDx ?? 0);
-  const aggY =
-    (fan ? fan.trunkAnchor.y : laneY) +
-    (fan ? (edgeData?.fanoutAggDy ?? 0) : (edgeData?.busDropDy ?? 0));
+  // rise slot. Each carries its own de-confliction offset (fanout* on the fan-out
+  // arm, busDropDy / busChipDy on the lane arm).
+  const aggX = fan
+    ? fan.trunkAnchor.x + (fanoutData?.fanoutAggDx ?? 0)
+    : bus!.dropX;
+  const aggY = fan
+    ? fan.trunkAnchor.y + (fanoutData?.fanoutAggDy ?? 0)
+    : laneY + (laneData?.busDropDy ?? 0);
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
   // Zoom-compensated base width published as --edge-base-width, matching
@@ -95,7 +122,13 @@ export default function BusEdge({
   };
 
   const unit = i18n.t("canvas.rate.unit");
-  const showChips = edgeData !== undefined && zoom >= LABEL_MIN_ZOOM;
+  // The owner's aggregate (drop / trunk) chip is EXEMPT from the label zoom gate:
+  // it always renders (counter-scaled) so a trunk's summed total survives at the
+  // dense-plan fit zoom, where per-member chips would be illegible clutter. The
+  // per-member (rise / branch) chip keeps the gate, so it appears only once the
+  // reader has zoomed into that trunk.
+  const showAggChip = edgeData !== undefined;
+  const showMemberChip = edgeData !== undefined && zoom >= LABEL_MIN_ZOOM;
 
   // Drop chip: only the elected trunk owner draws it, and it shows the summed
   // trunk rate (busTotalRate) plus a count marker when the trunk has several
@@ -109,7 +142,7 @@ export default function BusEdge({
   const dropRateStr = totalRate ? formatRatePerMin(totalRate) : "";
   const countMarker = memberCount > 1 ? ` x${memberCount}` : "";
   const dropText =
-    showChips && dropRateStr ? `${dropRateStr}${unit}${countMarker}` : "";
+    showAggChip && dropRateStr ? `${dropRateStr}${unit}${countMarker}` : "";
   const dropLabel =
     edgeData && dropRateStr
       ? `${i18n.displayName(edgeData.item)} x ${dropRateStr}${unit}${countMarker}`
@@ -125,7 +158,8 @@ export default function BusEdge({
   // it falls back to the geometric rise column when the slot is absent (a
   // manually built edge). The chip sits on the lane at laneY.
   const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
-  const riseText = showChips && memberRateStr ? `${memberRateStr}${unit}` : "";
+  const riseText =
+    showMemberChip && memberRateStr ? `${memberRateStr}${unit}` : "";
   const riseLabel =
     edgeData && memberRateStr
       ? `${i18n.displayName(edgeData.item)} x ${memberRateStr}${unit}`
@@ -134,15 +168,16 @@ export default function BusEdge({
     edgeData && memberRateStr
       ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(edgeData.rate)}${unit}`
       : "";
-  const riseChipX = edgeData?.busChipX ?? riseX;
   // Per-member chip anchor: fan-out branch-leg midpoint (plus its offset), or the
-  // lane rise slot at laneY.
-  const branchX =
-    (fan ? fan.branchAnchor.x : riseChipX) +
-    (fan ? (edgeData?.fanoutBranchDx ?? 0) : 0);
-  const branchY =
-    (fan ? fan.branchAnchor.y : laneY) +
-    (fan ? (edgeData?.fanoutBranchDy ?? 0) : (edgeData?.busChipDy ?? 0));
+  // lane rise slot (busChipX, the trunk's evenly distributed lane x, falling back
+  // to the geometric rise column on a manually built edge) at laneY plus its lane
+  // nudge.
+  const branchX = fan
+    ? fan.branchAnchor.x + (fanoutData?.fanoutBranchDx ?? 0)
+    : (laneData?.busChipX ?? bus!.riseX);
+  const branchY = fan
+    ? fan.branchAnchor.y + (fanoutData?.fanoutBranchDy ?? 0)
+    : laneY + (laneData?.busChipDy ?? 0);
 
   // One chip at the drop point (where the flow enters the trunk) and one at the
   // rise point (where it leaves toward the target). Both sit on the lane.
@@ -182,7 +217,7 @@ export default function BusEdge({
         className="bus-junction"
         cx={junction.x}
         cy={junction.y}
-        r={JUNCTION_RADIUS}
+        r={junctionRadius(zoom)}
         fill={kindStyle.stroke}
       />
       {isOwner && dropText

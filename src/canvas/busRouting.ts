@@ -67,19 +67,26 @@ export const FANOUT_SPAN_MIN = 2 * (PORT_STUB + CHAMFER);
 export const LANE_TOP_OFFSET = 80;
 export const LANE_SPACING = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
 
-// Data fields the bus pass merges onto a member edge's existing `data`.
-export type BusEdgeData = {
-  laneY: number;
+// Trunk-aggregate fields shared by BOTH trunk kinds (lane and fan-out). Every
+// member of a trunk carries the summed rate (busTotalRate) and member count
+// (busMemberCount); busChipOwner marks the single member elected to draw the
+// trunk's one aggregate chip (showing the total, plus the count when > 1). The
+// other members suppress that chip, so the trunk shows its true total once
+// instead of one member's share stacked N times. trunkKey groups the members.
+export type BusAggregate = {
   trunkKey: string;
-  // Trunk aggregate stamped by routeBusEdges. busTotalRate is the summed rate of
-  // every member of this trunk and busMemberCount how many members there are;
-  // busChipOwner marks the single member elected to draw the trunk's one drop
-  // chip (showing the total, plus the count when > 1). The other members
-  // suppress their drop chip, so the shared lane shows its true total once
-  // instead of one member's share stacked N times.
   busTotalRate?: Fraction;
   busMemberCount?: number;
   busChipOwner?: boolean;
+};
+
+// Lane-trunk member (routeBusEdges): rides a band lane at laneY.
+export type LaneBusEdgeData = BusAggregate & {
+  // Discriminant: absent / false on a lane member. Present-and-true only on the
+  // fan-out variant, so `data.fanout === true` and `"laneY" in data` both narrow
+  // the union.
+  fanout?: false;
+  laneY: number;
   // Lane x for this member's rise chip, assigned by routeBusEdges so a trunk's
   // rise chips spread evenly along the lane instead of stacking near their rise
   // vertices. BusEdge anchors the rise chip at (busChipX, laneY). Absent on
@@ -100,25 +107,34 @@ export type BusEdgeData = {
   // deconflictChipAnchors to pick the chip-cascade direction. Absent on manually
   // built edges (they cascade downward, the bottom-band default).
   busBand?: "top" | "bottom";
-  // Fan-out trunk fields (routeFanoutEdges). A fan-out member is retyped
-  // `type: "bus"` -- so Canvas trunk adjacency and hover-dim pick it up exactly
-  // like a lane trunk -- but carries NO laneY: it does not ride a lane band, it
-  // consolidates N same-source-port edges onto one shared junction column in a
-  // single layer gap. `fanout` flags the variant so BusEdge draws the short
-  // in-corridor trunk (chamferFanoutPath) instead of the lane drop/rise, and so
-  // the downstream lane passes (clearBusColumns, the bus chip phases) skip it.
-  // `junctionX` is the shared column, deterministic via clearColumnX. The
-  // aggregate reuses busTotalRate / busMemberCount / busChipOwner. Its chip
-  // offsets are the four fanout* below, threaded by deconflictChipAnchors and
-  // added to the fan-out chip anchors by BusEdge (dx + dy because the aggregate
-  // slides along the horizontal trunk and a branch along its vertical leg).
-  fanout?: boolean;
+};
+
+// Fan-out trunk member (routeFanoutEdges). Retyped `type: "bus"` -- so Canvas
+// trunk adjacency and hover-dim pick it up exactly like a lane trunk -- but
+// carries NO laneY: it does not ride a lane band, it consolidates N
+// same-source-port edges onto one shared junction column in a single layer gap.
+// `fanout: true` is the discriminant, so BusEdge draws the short in-corridor
+// trunk (chamferFanoutPath) instead of the lane drop/rise and the downstream
+// lane passes (clearBusColumns, the bus chip phases) skip it. `junctionX` is the
+// shared column, deterministic via clearColumnX. The aggregate reuses
+// BusAggregate. Its chip offsets are the four fanout* below, threaded by
+// deconflictChipAnchors and added to the fan-out chip anchors by BusEdge (dx +
+// dy because the aggregate slides along the horizontal trunk and a branch along
+// its vertical leg).
+export type FanoutBusEdgeData = BusAggregate & {
+  fanout: true;
   junctionX?: number;
   fanoutAggDx?: number;
   fanoutAggDy?: number;
   fanoutBranchDx?: number;
   fanoutBranchDy?: number;
 };
+
+// Data fields the bus pass merges onto a member edge's existing `data`. A
+// discriminated union on `fanout` so laneY lives only on the lane member (never
+// declared required-but-sometimes-absent) and the fan-out offsets live only on
+// the fan-out member. Narrow with `data.fanout === true` or `"laneY" in data`.
+export type BusEdgeData = LaneBusEdgeData | FanoutBusEdgeData;
 
 // Vertical extent of one lane band, normalized so y0 < y1. The bottom band runs
 // from its first lane (bandTop, nearest the graph) down to its deepest lane; the
@@ -535,7 +551,7 @@ export function laneBands(edges: ReadonlyArray<Edge>): LaneBands {
   for (const edge of edges) {
     if (edge.type !== "bus") continue;
     const data = edge.data as BusEdgeData | undefined;
-    if (data?.laneY === undefined) continue;
+    if (data === undefined || !("laneY" in data)) continue;
     (data.busBand === "top" ? topYs : bottomYs).push(data.laneY);
   }
   const extent = (ys: number[]): BandExtent | null =>
@@ -1430,7 +1446,7 @@ export function clearBusColumns(
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) return;
     const data = edge.data as BusEdgeData | undefined;
-    if (data?.laneY === undefined) return;
+    if (data === undefined || !("laneY" in data)) return;
     const laneY = data.laneY;
     const item = edgeItem(edge);
     const sx = absoluteLeft(source, byId) + nodeWidth(source);
