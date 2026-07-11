@@ -63,6 +63,12 @@ export type ObstacleRect = {
 //           (jogForwardLegs). The vertical run from legY down / up to the target
 //           port. Overrides entryX for the jog's descent when present. Absent ->
 //           entryX, or one stub before the port.
+//   srcColX: obstacle-cleared SOURCE-side column for a forward step whose
+//           source horizontal at sy is blocked (jogForwardLegs). Replaces the
+//           bend column outright -- the step leaves sy at this column instead
+//           of bendX -- and is used unclamped (the routing pass proved it
+//           clear; the drawer's [lo, hi] clamp could push it back into the
+//           blocked band). Absent -> the clamped bendX / midpoint default.
 //   entryX: entry-gutter column x (assignEntryColumns), the vertical run into
 //           the target's Left port for backward rails and bus rises. Absent ->
 //           one stub before the port.
@@ -83,6 +89,7 @@ export type RoutingHints = {
   bendX?: number;
   legY?: number;
   jogDescentX?: number;
+  srcColX?: number;
   entryX?: number;
   railY?: number;
   dropX?: number;
@@ -100,6 +107,7 @@ export function routingHintsFromData(data: unknown): RoutingHints {
         bendX?: unknown;
         legY?: unknown;
         jogDescentX?: unknown;
+        srcColX?: unknown;
         entryX?: unknown;
         railY?: unknown;
         dropX?: unknown;
@@ -114,6 +122,7 @@ export function routingHintsFromData(data: unknown): RoutingHints {
     ...(typeof d?.jogDescentX === "number"
       ? { jogDescentX: d.jogDescentX }
       : {}),
+    ...(typeof d?.srcColX === "number" ? { srcColX: d.srcColX } : {}),
     ...(typeof d?.entryX === "number" ? { entryX: d.entryX } : {}),
     ...(typeof d?.railY === "number" ? { railY: d.railY } : {}),
     ...(typeof d?.dropX === "number" ? { dropX: d.dropX } : {}),
@@ -277,8 +286,7 @@ export function chamferStepPath(
     // threaded railY (from clampBackwardRails) overrides this to clear spanned
     // cards.
     const railY =
-      args.railY ??
-      (sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2);
+      args.railY ?? (sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2);
     // Small detour height: the rail sits within a chamfer of the source level,
     // so a full chamfered column would invert and backtrack (a zigzag spike).
     // Collapse each column to a single apex bevel (peak out at the column x, no
@@ -317,11 +325,15 @@ export function chamferStepPath(
   const chamfer = CHAMFER * scale;
   // Bend column: default midpoint, or the caller's bendX clamped to the margins.
   // When the corridor is too tight to host a bend (scaled range collapses), fall
-  // back to the midpoint.
+  // back to the midpoint. A srcColX hint (jogForwardLegs, blocked source leg)
+  // replaces the column outright and is used unclamped: the routing pass proved
+  // it clear, and the clamp could push it back into the blocked band.
   const lo = sx + stub + chamfer;
   const hi = tx - stub - chamfer;
   const mid = (sx + tx) / 2;
-  const bx = lo < hi ? (bendX !== undefined ? clamp(bendX, lo, hi) : mid) : mid;
+  const bx =
+    args.srcColX ??
+    (lo < hi ? (bendX !== undefined ? clamp(bendX, lo, hi) : mid) : mid);
 
   // Same rail: a plain straight line, no vertical offset at all.
   if (sy === ty) {
@@ -357,7 +369,9 @@ export function chamferStepPath(
     return [jog, ...pathMidpoint(jog)];
   }
   const d =
-    `M ${r(sx)},${r(sy)}` + chamferColumn(bx, sy, ty, chamfer) + ` L ${r(tx)},${r(ty)}`;
+    `M ${r(sx)},${r(sy)}` +
+    chamferColumn(bx, sy, ty, chamfer) +
+    ` L ${r(tx)},${r(ty)}`;
   return [d, ...pathMidpoint(d)];
 }
 
