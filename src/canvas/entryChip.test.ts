@@ -105,3 +105,68 @@ test("deconflictChipAnchors stacks two entry chips arriving at one node", () => 
   expect(dys.some((d) => d !== 0)).toBe(true);
   expect(Math.abs(dys[0]! - dys[1]!)).toBeGreaterThanOrEqual(ENTRY_CHIP_MIN_GAP);
 });
+
+test("entry stacks of two nearby targets never interleave into overlap", () => {
+  // Two product targets share one column (same left edge, same entry-chip x).
+  // T1's four same-port entries overflow its short card and, dodging T2's card
+  // below, park in the open space under it; T2's own two entries stack downward
+  // off its port into that same region. Without the cross-target placed check
+  // the second T2 chip seats within one pitch of T1's parked chip (their stacks
+  // are monotone only WITHIN a target); with it, every pair stays a full pitch
+  // apart.
+  const product = (id: string, x: number, y: number): unknown => ({
+    id,
+    type: "product",
+    position: { x, y },
+    width: 100,
+    height: 60,
+    data: { kind: "inputProduct", itemId: "water" },
+  });
+  const nodes = [
+    product("t1", 600, 0), // port y 30
+    product("t2", 600, 150), // port y 175
+    product("a1", 0, 0),
+    product("a2", 0, 0),
+    product("a3", 0, 0),
+    product("a4", 0, 0),
+    product("b1", 0, 145),
+    product("b2", 0, 145),
+  ] as RFAnyNode[];
+  const entry = (id: string, source: string, target: string): Edge => ({
+    id,
+    source,
+    target,
+    type: "item",
+    data: { item: "water", rate: new Fraction(1), multiInputTarget: true },
+  });
+  const edges: Edge[] = [
+    entry("e:1", "a1", "t1"),
+    entry("e:2", "a2", "t1"),
+    entry("e:3", "a3", "t1"),
+    entry("e:4", "a4", "t1"),
+    entry("e:5", "b1", "t2"),
+    entry("e:6", "b2", "t2"),
+  ];
+  const out = deconflictChipAnchors(nodes, edges);
+  const dyOf = (id: string): number =>
+    ((out.find((e) => e.id === id)?.data ?? {}) as { entryChipDy?: number })
+      .entryChipDy ?? 0;
+  // Final chip centre ys: T1 anchors at its port (30), T2 at its port (175).
+  const ys = [
+    30 + dyOf("e:1"),
+    30 + dyOf("e:2"),
+    30 + dyOf("e:3"),
+    30 + dyOf("e:4"),
+    175 + dyOf("e:5"),
+    175 + dyOf("e:6"),
+  ];
+  // All six chips share one x, so pairwise clearance is vertical: every pair
+  // at least one full pitch apart.
+  for (let i = 0; i < ys.length; i++) {
+    for (let j = i + 1; j < ys.length; j++) {
+      expect(Math.abs(ys[i]! - ys[j]!)).toBeGreaterThanOrEqual(
+        ENTRY_CHIP_MIN_GAP,
+      );
+    }
+  }
+});

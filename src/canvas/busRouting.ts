@@ -2145,13 +2145,18 @@ export function deconflictChipAnchors(
     });
     const entryX = absoluteLeft(byId.get(targetId)!, byId) - ENTRY_CHIP_OFFSET;
     const stacked = stackEntryAnchors(list.map((s) => s.anchorY));
-    // Segment- and card-aware stacking: a chip whose slot lands on a FOREIGN
-    // line (an edge neither of this cluster nor of the chip's own flow -- e.g.
-    // a backward rail passing between this node's rows) OR inside a FOREIGN
-    // card box (a packed neighbour under the target) steps further down until
-    // clear, keeping the stack monotone. Without this, the blind stack can
-    // drop a pinned marker straight onto a passing rail or a neighbour card.
+    // Segment-, card-, and chip-aware stacking: a chip whose slot lands on a
+    // FOREIGN line (an edge neither of this cluster nor of the chip's own flow
+    // -- e.g. a backward rail passing between this node's rows), inside a
+    // FOREIGN card box (a packed neighbour under the target), or on a chip
+    // already placed steps further down until clear, keeping the stack
+    // monotone. The placed check guards CROSS-target stacks: within one target
+    // the monotone pitch already keeps chips disjoint, but a neighbour target's
+    // overflowed stack can park chips in this stack's descent path. Entry
+    // stacks seed `placed` in target-map insertion order, so the guard is
+    // deterministic.
     const clusterBlocked = (box: ChipBox, exempt: ReadonlySet<string>): boolean =>
+      placed.some((b) => chipBoxesOverlap(b, box)) ||
       chipEntersCard(box.x, box.y, box.halfW, box.halfH, exempt) ||
       edgeSegments.some(
         (e) =>
