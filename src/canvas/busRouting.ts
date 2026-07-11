@@ -614,6 +614,7 @@ export function routeFanoutEdges(
   if (fanoutTrunks.length === 0) return edges.map((e) => e);
 
   const obstacles = paddedObstacles(nodes, edges);
+  const rawCards = rawCardRects(nodes);
 
   // Per-trunk aggregate + shared junction column.
   const totalByTrunk = new Map<string, Fraction>();
@@ -624,23 +625,21 @@ export function routeFanoutEdges(
   for (const [trunkKey, indices] of fanoutTrunks) {
     let total = new Fraction(0);
     let owner: string | undefined;
-    let sy = 0;
-    let sx = 0;
     let corridorRight = Infinity;
-    let yLo = Infinity;
-    let yHi = -Infinity;
     const exempt = new Set<string>();
     // Source is shared across members; resolve its port geometry once.
     const source = byId.get(edges[indices[0]!]!.source)!;
     const item = edgeItem(edges[indices[0]!]!);
-    sx = absoluteLeft(source, byId) + nodeWidth(source);
-    sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
+    const sx = absoluteLeft(source, byId) + nodeWidth(source);
+    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
     exempt.add(source.id);
     if (source.parentId !== undefined) exempt.add(source.parentId);
-    yLo = Math.min(yLo, sy);
-    yHi = Math.max(yHi, sy);
+    let yLo = sy;
+    let yHi = sy;
+    // Each member's target-approach leg: the horizontal from the shared junction
+    // column across to the target port at ty.
+    const memberLegs: Array<{ tx: number; ty: number }> = [];
     for (const index of indices) {
-      memberTrunk.add(index);
       const edge = edges[index]!;
       total = total.add(edgeRate(edge) ?? new Fraction(0));
       if (owner === undefined || edge.id < owner) owner = edge.id;
@@ -652,21 +651,54 @@ export function routeFanoutEdges(
       yHi = Math.max(yHi, ty);
       exempt.add(target.id);
       if (target.parentId !== undefined) exempt.add(target.parentId);
+      memberLegs.push({ tx, ty });
     }
+
+    // Shared junction column, resolved with ACCEPTANCE so the whole formation
+    // stays clear of foreign cards -- not just the vertical column. A candidate
+    // is accepted only when the shared trunk leg at sy (source port -> column)
+    // AND every member's branch leg at its ty (column -> target port) clear
+    // foreign RAW cards, and the column sits inside the trunk-wide corridor
+    // [sx + stub + chamfer, min(all tx) - stub - chamfer]. Clamping to that
+    // corridor keeps the shared column from fragmenting past a member's own
+    // per-edge clamp (chamferFanoutPath re-clamps each member to its [lo, hi], so
+    // a shared column outside a tighter member's range would split the trunk).
+    // Own source / targets and their containers are exempt.
+    const foreignPadded = obstacles.filter((o) => !exempt.has(o.nodeId));
+    const foreignRaw = rawCards.filter((o) => !exempt.has(o.nodeId));
+    const corLo = sx + PORT_STUB + CHAMFER;
+    const corHi = corridorRight - PORT_STUB - CHAMFER;
+    const legsClear = (x: number): boolean =>
+      !connectingLegBlocked(sx, sy, x, foreignRaw) &&
+      memberLegs.every((l) => !connectingLegBlocked(l.tx, l.ty, x, foreignRaw));
+    const accept = (x: number): boolean =>
+      x >= corLo && x <= corHi && legsClear(x);
+    const desired = Math.min(Math.max((sx + corridorRight) / 2, corLo), corHi);
+    const junctionX = clearColumnX(desired, yLo, yHi, foreignPadded, {
+      towardTarget: 1,
+      accept,
+    });
+    // clearColumnX returns the desired column unchanged when no candidate
+    // qualifies, so confirm the resolved column is BOTH vertically clear of the
+    // foreign padded cards / gutters AND accepted before forming the trunk. When
+    // no acceptable shared column exists, DO NOT form the fan-out: the members
+    // stay plain item edges (left unmarked), keeping the item-edge passes'
+    // per-leg jog protection that a bus-retyped member would lose.
+    const spanLo = Math.min(yLo, yHi);
+    const spanHi = Math.max(yLo, yHi);
+    const columnClear = !foreignPadded.some(
+      (o) =>
+        o.bottom > spanLo &&
+        o.top < spanHi &&
+        junctionX > o.left - CHAMFER &&
+        junctionX < o.right + CHAMFER,
+    );
+    if (!columnClear || !accept(junctionX)) continue;
+
+    for (const index of indices) memberTrunk.add(index);
     totalByTrunk.set(trunkKey, total);
     countByTrunk.set(trunkKey, indices.length);
     ownerByTrunk.set(trunkKey, owner!);
-    // Junction column: nearest obstacle-free column to the corridor midpoint,
-    // spanning the members' full vertical extent, ties toward the targets. Own
-    // source / targets (and their containers) are exempt.
-    const desired = (sx + corridorRight) / 2;
-    const junctionX = clearColumnX(
-      desired,
-      yLo,
-      yHi,
-      obstacles.filter((o) => !exempt.has(o.nodeId)),
-      { towardTarget: 1 },
-    );
     junctionXByTrunk.set(trunkKey, junctionX);
   }
 

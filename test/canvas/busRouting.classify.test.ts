@@ -20,6 +20,8 @@ import {
   entryGutterRects,
   gutterWidth,
   paddedObstacles,
+  nodeWidth,
+  portOffsetY,
   BUS_SPAN_THRESHOLD,
   FANOUT_SPAN_MAX,
   FANOUT_SPAN_MIN,
@@ -28,7 +30,12 @@ import {
 } from "../../src/canvas/busRouting";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
-import { PORT_STUB, CHAMFER } from "../../src/canvas/edgePath";
+import {
+  PORT_STUB,
+  CHAMFER,
+  chamferFanoutPath,
+  routingHintsFromData,
+} from "../../src/canvas/edgePath";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import {
@@ -575,6 +582,73 @@ describe("routeFanoutEdges (6C)", () => {
       busChipOwner?: boolean;
     };
 
+  type Rect = { left: number; top: number; right: number; bottom: number };
+
+  // Liang-Barsky segment clip: does segment a->b cross the rectangle's interior?
+  // Boundary-only contact (a run grazing an edge) is not a crossing. Mirrors the
+  // helper in busRouting.columns.test.ts.
+  const segCrossesRect = (
+    a: readonly [number, number],
+    b: readonly [number, number],
+    rect: Rect,
+  ): boolean => {
+    let t0 = 0;
+    let t1 = 1;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const p = [-dx, dx, -dy, dy];
+    const q = [a[0] - rect.left, rect.right - a[0], a[1] - rect.top, rect.bottom - a[1]];
+    for (let i = 0; i < 4; i++) {
+      if (p[i] === 0) {
+        if (q[i]! < 0) return false;
+        continue;
+      }
+      const t = q[i]! / p[i]!;
+      if (p[i]! < 0) {
+        if (t > t1) return false;
+        if (t > t0) t0 = t;
+      } else {
+        if (t < t0) return false;
+        if (t < t1) t1 = t;
+      }
+    }
+    return t0 < t1;
+  };
+
+  const parseD = (d: string): Array<[number, number]> =>
+    [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
+      (m) => [Number(m[1]), Number(m[2])],
+    );
+
+  // Reconstruct a fan-out member's drawn polyline exactly as BusEdge does (same
+  // builder + hints) and assert none of its segments cross the given raw rect.
+  const assertMemberClearsRect = (
+    out: Edge[],
+    nodes: RFAnyNode[],
+    id: string,
+    rect: Rect,
+  ): void => {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const e = out.find((x) => x.id === id)!;
+    const source = byId.get(e.source)!;
+    const target = byId.get(e.target)!;
+    const sx = source.position.x + nodeWidth(source);
+    const sy = source.position.y + portOffsetY(source, "b", "out");
+    const tx = target.position.x;
+    const ty = target.position.y + portOffsetY(target, "b", "in");
+    const d = chamferFanoutPath({
+      sourceX: sx,
+      sourceY: sy,
+      targetX: tx,
+      targetY: ty,
+      ...routingHintsFromData(e.data),
+    }).path;
+    const pts = parseD(d);
+    for (let i = 1; i < pts.length; i++) {
+      expect(segCrossesRect(pts[i - 1]!, pts[i]!, rect)).toBe(false);
+    }
+  };
+
   it("groups two same-source-port one-gap edges into a fan-out trunk", () => {
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
@@ -824,11 +898,13 @@ describe("routeFanoutEdges (6C)", () => {
   });
 
   it("dodges a foreign card straddling the junction column", () => {
-    // clearColumnX stakes the shared junction column clear of any mid-corridor
-    // obstacle. Give the corridor room (gap 380), read the unobstructed column,
-    // then drop a thin foreign card straddling it and spanning every member's
-    // vertical run: the junction moves off the card, still one shared column
-    // inside the corridor.
+    // The acceptance-gated junction stakes the shared column clear of a
+    // mid-corridor obstacle AND keeps the shared trunk leg (source port ->
+    // column) and every branch leg (column -> target port) off the card. Give
+    // the corridor room (gap 380), read the unobstructed column, then drop a thin
+    // foreign card straddling it and spanning the junction's vertical run but
+    // sitting BETWEEN the two rows (clear of every port y), so a clean dodge that
+    // clears all three horizontals exists.
     const wideGap = 680; // 680 - 300 = 380, inside FANOUT_SPAN_MAX (410)
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
@@ -838,8 +914,19 @@ describe("routeFanoutEdges (6C)", () => {
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
     const clearJx = fanData(routeFanoutEdges(nodes, edges), "e0").junctionX!;
 
-    const block = inputProductNode("block", "ore", clearJx - 10, -200, 20, 1000);
-    const out = routeFanoutEdges([...nodes, block], edges);
+    // Thin card straddling clearJx, vertically between the two node rows so it
+    // pierces the junction column but not the trunk / branch horizontals.
+    const h = measureRecipe(r).height;
+    const block = inputProductNode(
+      "block",
+      "ore",
+      clearJx - 10,
+      h + 20,
+      20,
+      340 - h,
+    );
+    const withBlock = [...nodes, block];
+    const out = routeFanoutEdges(withBlock, edges);
     const jx = fanData(out, "e0").junctionX!;
     // Still one shared junction, still inside the corridor, dodged off the card.
     expect(jx).toBe(fanData(out, "e1").junctionX!);
@@ -847,6 +934,44 @@ describe("routeFanoutEdges (6C)", () => {
     expect(jx < clearJx - 10 || jx > clearJx + 10).toBe(true);
     expect(jx).toBeGreaterThan(300);
     expect(jx).toBeLessThan(wideGap);
+
+    // Strengthened invariant: the drawn trunk AND branch horizontals clear the
+    // card's raw box (not just the junction's vertical run).
+    const blockRaw: Rect = {
+      left: block.position.x,
+      top: block.position.y,
+      right: block.position.x + (block.width ?? 0),
+      bottom: block.position.y + (block.height ?? 0),
+    };
+    assertMemberClearsRect(out, withBlock, "e0", blockRaw);
+    assertMemberClearsRect(out, withBlock, "e1", blockRaw);
+  });
+
+  it("keeps members as plain item edges when no shared column clears", () => {
+    // A thin card straddling the junction column and spanning the FULL vertical
+    // extent (every port y): whichever side the shared column dodges to, either
+    // the trunk leg or a branch leg would slice the card, so no acceptable shared
+    // column exists. The fan-out does not form; the members stay plain item edges
+    // (keeping the item-edge passes' per-leg jog protection a bus retype loses).
+    const wideGap = 680;
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", wideGap, 0, r),
+      recipeNode("t2", wideGap, 400, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const clearJx = fanData(routeFanoutEdges(nodes, edges), "e0").junctionX!;
+
+    // Full-height straddling block: covers the trunk row and both branch rows.
+    const block = inputProductNode("block", "ore", clearJx - 10, -200, 20, 1000);
+    const out = routeFanoutEdges([...nodes, block], edges);
+    ["e0", "e1"].forEach((id, i) => {
+      const e = out.find((x) => x.id === id)!;
+      expect(e.type).toBe("item");
+      expect(e).toBe(edges[i]); // untouched by reference
+      expect(e.data).not.toHaveProperty("fanout");
+      expect(e.data).not.toHaveProperty("junctionX");
+    });
   });
 });
 
