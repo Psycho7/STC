@@ -1185,11 +1185,17 @@ export function clampBackwardRails(
 // group background the edge legitimately enters, not an obstacle to route
 // around). A foreign container in an intermediate layer still blocks.
 //
-// The short descent into the target port is guarded: it must itself be clear, or
-// the jog would only trade one card strike for another (a target column packed
-// with stacked siblings, e.g. a loop interior). When it is not, the edge keeps
-// its straight leg -- no worse than before -- and the residual is left for a
-// deeper routing pass rather than a jog that fights itself.
+// The detour level is chosen by a per-obstacle candidate scan (the y-axis analog
+// of clearColumnX): each card the straight leg crosses offers its padded top-gap
+// and bottom-gap as a candidate legY, tried nearest-to-ty first. A candidate is
+// accepted only when its ENTIRE jog is clear -- the bend vertical, the long
+// horizontal, the descent column (itself moved clear via clearColumnX, starting
+// from the target's entry gutter), and the final stub into the port. When no
+// candidate clears (e.g. a target column packed with stacked siblings), the edge
+// keeps its straight leg -- no worse than before -- and the residual is left for
+// a deeper routing pass rather than a jog that fights itself. A straight leg that
+// is clear but whose bend VERTICAL pierces a card stacked in the inter-layer gap
+// is likewise not joggable (no legY moves the run off the bend column).
 //
 // Runs after assignBendColumns so it reads each edge's FINAL bendX (the leg
 // starts at that column). Only the normal forward step has a distinct final leg
@@ -1207,6 +1213,7 @@ export function jogForwardLegs(
   const budget = 2 * (PORT_STUB + CHAMFER);
 
   const legYByIndex = new Map<number, number>();
+  const descentXByIndex = new Map<number, number>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item") return; // only forward item edges take the step
     const source = byId.get(edge.source);
@@ -1239,50 +1246,104 @@ export function jogForwardLegs(
         ? Math.min(Math.max(bendHint, lo), hi)
         : mid;
     // The jog runs the long horizontal from the bend column to the descent
-    // column, then descends into the target port. descentX is the target's entry
-    // gutter (one stub before the port); the horizontal leg spans [bx, descentX].
-    const descentX =
+    // column, then descends into the target port. descentX0 is the target's entry
+    // gutter (its staggered entry column, else one stub before the port).
+    const descentX0 =
       (edge.data as { entryX?: number } | undefined)?.entryX ?? tx - PORT_STUB;
 
-    // Exempt from the obstacle scan: the target's own card / gutter (the leg ends
-    // inside it) and each endpoint's own container box (a group container is a
-    // background box the edge legitimately enters, not a routing obstacle;
-    // treating it as one would detour every grouped edge around its whole
-    // container). A foreign container in an intermediate layer stays an obstacle.
-    const exempt = new Set<string>([edge.target]);
+    // Exempt from the obstacle scan: both endpoints' own cards / gutters (the leg
+    // leaves the source and ends inside the target) and each endpoint's own
+    // container box (a group background the edge legitimately enters, not an
+    // obstacle to route around). A foreign container in an intermediate layer
+    // stays an obstacle. Horizontal legs may cross a foreign entry gutter (every
+    // entering leg does), so the leg tests only foreign CARDS; vertical runs
+    // (bend, descent) must also stay out of foreign gutters, so they test the
+    // full card + gutter set.
+    const exempt = new Set<string>([edge.source, edge.target]);
     if (source.parentId !== undefined) exempt.add(source.parentId);
     if (target.parentId !== undefined) exempt.add(target.parentId);
-    const foreign = obstacles.filter((o) => !exempt.has(o.nodeId));
-
-    // Clear horizontal y off every foreign card the leg's own x-span crosses.
-    // legY === ty means the straight leg was already clear (nothing to jog).
-    const legY = clearRailY(ty, bx, descentX, foreign);
-    if (legY === ty) return;
-
-    // Guard: the short descent (a vertical at descentX from legY down / up to the
-    // port) must itself be clear, or the jog would trade one crossing for another
-    // -- a target column packed with stacked siblings (a loop interior) can put a
-    // foreign card straight across the descent. When it is not clear, leave the
-    // edge on its straight leg (no worse than before) rather than introduce a new
-    // strike; the residual is for the D-option (ELK sections) escalation, not a
-    // jog that fights itself.
-    const descentBlocked = foreign.some(
-      (o) =>
-        o.left < descentX &&
-        o.right > descentX &&
-        o.top < Math.max(legY, ty) &&
-        o.bottom > Math.min(legY, ty),
+    const foreignCards = obstacles.filter(
+      (o) => o.kind === "card" && !exempt.has(o.nodeId),
     );
-    if (descentBlocked) return;
+    const foreignAll = obstacles.filter((o) => !exempt.has(o.nodeId));
+    const legBlockedAt = (y: number, x0: number, x1: number): boolean =>
+      foreignCards.some(
+        (o) =>
+          o.right > Math.min(x0, x1) &&
+          o.left < Math.max(x0, x1) &&
+          y > o.top &&
+          y < o.bottom,
+      );
+    const vRunBlockedAt = (x: number, y0: number, y1: number): boolean =>
+      foreignAll.some(
+        (o) =>
+          o.left < x &&
+          o.right > x &&
+          o.top < Math.max(y0, y1) &&
+          o.bottom > Math.min(y0, y1),
+      );
 
-    legYByIndex.set(index, legY);
+    // Nothing to jog unless the straight final leg at ty crosses a foreign card.
+    // A blocked bend column instead (the straight VERTICAL at bx piercing a card
+    // stacked in the inter-layer gap) is not joggable -- no legY moves the run off
+    // bx -- so it is left straight as a residual for a deeper pass.
+    if (!legBlockedAt(ty, bx, descentX0)) return;
+
+    // Candidate detour levels: each card the straight leg's x-band overlaps
+    // contributes its padded top-gap and bottom-gap edge, both sides. Nearest to
+    // ty first, so the jog takes the smallest vertical excursion that clears.
+    const spanning = foreignCards.filter(
+      (o) =>
+        o.right > Math.min(bx, descentX0) && o.left < Math.max(bx, descentX0),
+    );
+    const candidates = [
+      ...new Set(spanning.flatMap((o) => [o.top - CHAMFER, o.bottom + CHAMFER])),
+    ].sort((a, b) => Math.abs(a - ty) - Math.abs(b - ty));
+
+    // Accept the nearest candidate whose whole jog is clear: the bend vertical
+    // (sy -> legY at bx), the long horizontal (bx -> descent at legY, cards only),
+    // the descent column (legY -> ty), and the final stub into the port (descent
+    // -> tx at ty). The descent column starts at the target's entry gutter and is
+    // moved clear of any foreign card / gutter via clearColumnX -- the same padded
+    // set already carries every sibling's entry gutter, so a jogged descent never
+    // lands in a sibling's entry column.
+    let chosenY: number | undefined;
+    let chosenDX = descentX0;
+    for (const cy of candidates) {
+      if (vRunBlockedAt(bx, sy, cy)) continue;
+      const dX = clearColumnX(
+        descentX0,
+        cy,
+        ty,
+        foreignAll.filter((o) => o.nodeId !== edge.target),
+        { towardTarget: 1 },
+      );
+      if (legBlockedAt(cy, bx, dX)) continue;
+      if (vRunBlockedAt(dX, cy, ty)) continue;
+      if (legBlockedAt(ty, dX, tx)) continue;
+      chosenY = cy;
+      chosenDX = dX;
+      break;
+    }
+    if (chosenY === undefined) return; // no clear jog -> straight leg residual
+
+    legYByIndex.set(index, chosenY);
+    if (chosenDX !== descentX0) descentXByIndex.set(index, chosenDX);
   });
 
   if (legYByIndex.size === 0) return edges.map((e) => e);
   return edges.map((edge, index) => {
     const legY = legYByIndex.get(index);
     if (legY === undefined) return edge;
-    return { ...edge, data: { ...edge.data, legY } };
+    const jogDescentX = descentXByIndex.get(index);
+    return {
+      ...edge,
+      data: {
+        ...edge.data,
+        legY,
+        ...(jogDescentX !== undefined ? { jogDescentX } : {}),
+      },
+    };
   });
 }
 

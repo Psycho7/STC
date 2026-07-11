@@ -1721,18 +1721,19 @@ describe("jogForwardLegs", () => {
     expect(out[1]).toBe(backwardEdge);
   });
 
-  it("suppresses the jog when a stacked sibling blocks the descent column", () => {
-    // The blocked leg would jog, but the target's column is packed: siblings sit
-    // above and below the target (a loop-interior shape), so whichever clear y
-    // the horizontal takes, a sibling card lies straight across the descent. A
-    // jog here would trade the intermediate-card strike for a sibling strike, so
-    // the guard leaves the edge on its straight leg (no legY stamped).
+  it("suppresses the jog when a wall packs the target's descent column", () => {
+    // The blocked leg would jog, but a tall foreign card ("wall") sits directly
+    // in front of the target's entry column and spans the whole y-range every
+    // candidate descent would traverse (a loop-interior shape). Whichever clear y
+    // the horizontal takes, the descent -- and every clearColumnX alternative,
+    // whose final stub then re-crosses the wall -- stays blocked. A jog here would
+    // trade the intermediate-card strike for a wall strike, so the candidate scan
+    // exhausts and the edge keeps its straight leg (no legY stamped).
     const nodes: RFAnyNode[] = [
       inputProductNode("s", "ore", 0, 0, 148, 78), // right 148, port y 39
       inputProductNode("t", "ore", 760, 400, 148, 78), // left 760, port y 439
       inputProductNode("mid", "ore", 400, 400, 148, 78), // blocks the leg at ty
-      inputProductNode("sibA", "ore", 760, 200, 148, 78), // stacked above target
-      inputProductNode("sibB", "ore", 760, 600, 148, 78), // stacked below target
+      inputProductNode("wall", "ore", 612, 300, 148, 220), // right 760, y 300..520
     ];
     const edges: Edge[] = [
       {
@@ -1743,6 +1744,56 @@ describe("jogForwardLegs", () => {
     const out = jogForwardLegs(nodes, edges);
     expect(legYOf(out, "e0")).toBeUndefined();
     expect(out[0]).toBe(edges[0]);
+  });
+
+  // A container ("group") box, the obstacle kind whose exemption this fixture
+  // exercises. Only geometry matters to the jog, so data is minimal.
+  const containerNode = (
+    id: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): RFAnyNode => ({
+    id,
+    type: "group",
+    position: { x, y },
+    width,
+    height,
+    data: {
+      containerKind: "blueprint-group",
+      containerId: id,
+      memberCount: 1,
+    },
+  });
+
+  it("exempts the endpoints' own container but jogs around a foreign one", () => {
+    // The straight leg at ty would strike a group box straddling the target row.
+    // When that box is the TARGET's own container (parentId), the leg legitimately
+    // enters it, so the exemption drops it and no jog is stamped. An identically
+    // placed FOREIGN container (no endpoint's parent) stays an obstacle, so the
+    // leg jogs around it. Same geometry, opposite outcome -- the parentId
+    // exemption is what separates them.
+    const own: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // right 148, port y 39
+      { ...inputProductNode("t", "ore", 760, 100, 148, 78), parentId: "G" },
+      containerNode("G", 700, 50, 300, 200), // wraps t, straddles the leg
+    ];
+    const edge: Edge = {
+      ...mkEdge("e0", "s", "t", "ore"),
+      data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+    };
+    const ownOut = jogForwardLegs(own, [edge]);
+    expect(legYOf(ownOut, "e0")).toBeUndefined();
+    expect(ownOut[0]).toBe(edge);
+
+    const foreign: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78),
+      inputProductNode("t", "ore", 760, 100, 148, 78),
+      containerNode("F", 360, 80, 220, 120), // intermediate, no endpoint's parent
+    ];
+    const foreignOut = jogForwardLegs(foreign, [edge]);
+    expect(legYOf(foreignOut, "e0")).toBeDefined();
   });
 
   it("is deterministic across two identical runs", () => {

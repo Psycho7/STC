@@ -55,10 +55,14 @@ export type ObstacleRect = {
 //   legY:   clear horizontal y for a blocked forward final leg (jogForwardLegs).
 //           Present -> the normal forward step bends to this y, runs the long
 //           horizontal there clear of any intervening card, then descends /
-//           ascends to the target y in the target's entry gutter (entryX, else
-//           one stub before the port) before the final rightward stub. Absent ->
-//           the final leg runs straight at the target y, byte-identical for
-//           direct callers.
+//           ascends to the target y in the target's entry gutter (jogDescentX,
+//           else entryX, else one stub before the port) before the final
+//           rightward stub. Absent -> the final leg runs straight at the target
+//           y, byte-identical for direct callers.
+//   jogDescentX: obstacle-cleared descent column for a jogged forward leg
+//           (jogForwardLegs). The vertical run from legY down / up to the target
+//           port. Overrides entryX for the jog's descent when present. Absent ->
+//           entryX, or one stub before the port.
 //   entryX: entry-gutter column x (assignEntryColumns), the vertical run into
 //           the target's Left port for backward rails and bus rises. Absent ->
 //           one stub before the port.
@@ -78,6 +82,7 @@ export type ObstacleRect = {
 export type RoutingHints = {
   bendX?: number;
   legY?: number;
+  jogDescentX?: number;
   entryX?: number;
   railY?: number;
   dropX?: number;
@@ -94,6 +99,7 @@ export function routingHintsFromData(data: unknown): RoutingHints {
     | {
         bendX?: unknown;
         legY?: unknown;
+        jogDescentX?: unknown;
         entryX?: unknown;
         railY?: unknown;
         dropX?: unknown;
@@ -105,6 +111,9 @@ export function routingHintsFromData(data: unknown): RoutingHints {
   return {
     ...(typeof d?.bendX === "number" ? { bendX: d.bendX } : {}),
     ...(typeof d?.legY === "number" ? { legY: d.legY } : {}),
+    ...(typeof d?.jogDescentX === "number"
+      ? { jogDescentX: d.jogDescentX }
+      : {}),
     ...(typeof d?.entryX === "number" ? { entryX: d.entryX } : {}),
     ...(typeof d?.railY === "number" ? { railY: d.railY } : {}),
     ...(typeof d?.dropX === "number" ? { dropX: d.dropX } : {}),
@@ -339,7 +348,7 @@ export function chamferStepPath(
   // column already sits in a node-free corridor, so its vertical is clear at any
   // legY. Absent the hint the leg runs straight at ty, byte-identical.
   if (args.legY !== undefined) {
-    const descentX = args.entryX ?? tx - PORT_STUB;
+    const descentX = args.jogDescentX ?? args.entryX ?? tx - PORT_STUB;
     const jog =
       `M ${r(sx)},${r(sy)}` +
       chamferColumn(bx, sy, args.legY, chamfer) +
