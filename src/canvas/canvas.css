@@ -1672,6 +1672,22 @@
   opacity: 0.3;
 }
 
+/* Bus-trunk junction dot, portaled into the label layer alongside the chips (see
+   BusEdge). z-index lifts it above the sibling flow-chips in that layer so the
+   branch point reads over the aggregate chip instead of under it. It carries its
+   own dim rule for the same reason the chips do: the edge wrapper's fade never
+   reaches a portaled element. */
+.bus-junction {
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+  transition: opacity 120ms ease-out;
+}
+
+.bus-junction.dimmed {
+  opacity: 0.3;
+}
+
 .flow-chip.red {
   border-color: var(--ak-accent-red);
   color: var(--ak-accent-red);

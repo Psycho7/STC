@@ -1,4 +1,9 @@
-import { BaseEdge, useStore, type EdgeProps } from "@xyflow/react";
+import {
+  BaseEdge,
+  EdgeLabelRenderer,
+  useStore,
+  type EdgeProps,
+} from "@xyflow/react";
 import {
   FlowChip,
   LABEL_MIN_ZOOM,
@@ -213,13 +218,26 @@ export default function BusEdge({
         {...(riseLabel ? { "aria-label": riseLabel } : {})}
         {...(markerEnd ? { markerEnd } : {})}
       />
-      <circle
-        className="bus-junction"
-        cx={junction.x}
-        cy={junction.y}
-        r={junctionRadius(zoom)}
-        fill={kindStyle.stroke}
-      />
+      {/* Junction dot in the HTML label layer (not an SVG circle in the edge
+          group) so it z-wins over the aggregate chip -- the trunk's branch point
+          stays visible where the chip would otherwise hide it. Sized in graph
+          units via junctionRadius so the pane zoom renders it at a screen radius
+          clamped to [JUNCTION_MIN_PX, JUNCTION_MAX_PX]. Threads the same `dimmed`
+          state the chips do (the label layer portals outside the edge wrapper, so
+          the wrapper's dim never reaches it). */}
+      <EdgeLabelRenderer>
+        <div
+          data-testid={`bus-junction-${id}`}
+          className={"bus-junction" + (edgeData?.dimmed ? " dimmed" : "")}
+          style={{
+            position: "absolute",
+            transform: `translate(-50%, -50%) translate(${junction.x}px, ${junction.y}px)`,
+            width: `${2 * junctionRadius(zoom)}px`,
+            height: `${2 * junctionRadius(zoom)}px`,
+            background: kindStyle.stroke,
+          }}
+        />
+      </EdgeLabelRenderer>
       {isOwner && dropText
         ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
         : null}

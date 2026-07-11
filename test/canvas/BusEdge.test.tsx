@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
-import BusEdge from "../../src/canvas/BusEdge";
+import BusEdge, { junctionRadius } from "../../src/canvas/BusEdge";
 import type { BusEdgeData } from "../../src/canvas/busRouting";
 import type { ItemEdgeData } from "../../src/canvas/ItemEdge";
 import { itemColor } from "../../src/canvas/itemColor";
@@ -84,7 +84,7 @@ describe("canvas/BusEdge", () => {
     expectRightwardFinish(d);
   });
 
-  it("draws a junction dot at the branch point (riseX - CHAMFER, laneY)", async () => {
+  it("draws the junction dot in the HTML label layer at (branch point, laneY)", async () => {
     renderEdge({
       item: "Iron Plate",
       rate: new Fraction(2, 1),
@@ -92,10 +92,49 @@ describe("canvas/BusEdge", () => {
       trunkKey: "Iron Plate|src",
     });
     await findEdgePath();
-    const dot = document.querySelector<SVGCircleElement>("circle");
+    // No SVG circle any more: the dot moved into the label layer so it z-wins
+    // over the aggregate chip.
+    expect(document.querySelector("circle")).toBeNull();
+    const dot = document.querySelector<HTMLElement>(
+      '[data-testid="bus-junction-e1"]',
+    );
     expect(dot).not.toBeNull();
-    expect(dot!.getAttribute("cy")).toBe("500");
+    expect(dot!.classList.contains("bus-junction")).toBe(true);
+    // Centred on the branch point via the double translate; laneY = 500 is the y.
+    expect(dot!.style.transform).toContain("500px)");
+    // Not dimmed when the edge carries no dim state.
+    expect(dot!.classList.contains("dimmed")).toBe(false);
   });
+
+  it("dims the junction dot when its edge is dimmed", async () => {
+    renderEdge({
+      item: "Iron Plate",
+      rate: new Fraction(2, 1),
+      laneY: 500,
+      trunkKey: "Iron Plate|src",
+      dimmed: true,
+    } as unknown as BusData);
+    await findEdgePath();
+    const dot = document.querySelector<HTMLElement>(
+      '[data-testid="bus-junction-e1"]',
+    );
+    expect(dot).not.toBeNull();
+    expect(dot!.classList.contains("dimmed")).toBe(true);
+  });
+});
+
+describe("canvas/BusEdge junctionRadius clamp", () => {
+  // The dot is drawn in graph units, so its on-screen radius is r * zoom. The
+  // clamp keeps that screen radius inside [3, 5] px across zoom: below zoom 1 the
+  // graph radius grows to hold the 3px floor, above it stops at the 5px cap.
+  it.each([0.2, 0.5, 1.0])(
+    "keeps the screen radius in [3, 5] at zoom %s",
+    (zoom) => {
+      const screen = junctionRadius(zoom) * zoom;
+      expect(screen).toBeGreaterThanOrEqual(3);
+      expect(screen).toBeLessThanOrEqual(5);
+    },
+  );
 });
 
 describe("canvas/BusEdge trunk labels", () => {
