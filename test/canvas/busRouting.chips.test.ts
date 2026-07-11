@@ -236,22 +236,25 @@ describe("deconflictChipAnchors: reconstruction tripwires", () => {
     const out = deconflictChipAnchors(nodes, edges);
     // The forward edge's straight line passes exactly through the bus chip's
     // lane slot, so even the bus chip yields one pitch (a chip never sits on a
-    // foreign flow's line); the midpoint chip then clears the bus lane run and
-    // the displaced bus chip with a second pitch.
+    // foreign flow's line). The rate chip cannot slide clear on its own line
+    // (the foreign lane run is collinear with it), so the bidirectional escape
+    // nudge fires and takes the NEAREST fully clear seat: one pitch UP, away
+    // from both the lane run and the bus chip displaced below it.
     expect(busChipDyOf(out, "bus:0")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
-    expect(labelDyOf(out, "mid:0")).toBe(
-      2 * (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT),
-    );
+    expect(labelDyOf(out, "mid:0")).toBe(-(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT));
   });
 });
 
 describe("deconflictChipAnchors: merged collision set", () => {
-  it("nudges a midpoint chip that lands in a target's entry-chip stack clear of every entry box", () => {
-    // Target T hosts two same-port entry chips (item "water"), which stack a
-    // pitch apart at (Tx - 12, waterY) and (Tx - 12, waterY + 48). A third,
-    // non-multiInput forward edge A runs straight into that same port with a
-    // 24px gap, so its midpoint lands exactly on the top entry chip. The merged
-    // pass must nudge A's midpoint down past BOTH entry boxes.
+  it("keeps a midpoint chip and a target's entry-chip stack clear of each other", () => {
+    // Target T hosts two same-port entry chips (item "water") whose port anchor
+    // is (Tx - 12, waterY). A third, non-multiInput forward edge A runs straight
+    // into that same port with a 24px gap, so its rate-chip anchor lands exactly
+    // on the entry port slot. A's source card (sa) is packed so close that it
+    // overlaps the entry chips' x-reserve: the card-aware entry stack must push
+    // both markers below sa's card (a foreign card for the b-edges), which
+    // leaves A's anchor clear -- the merged set must end with the rate chip and
+    // every entry box disjoint, whoever yielded.
     const Tx = 600;
     const tRecipe = mkRecipe("t", ["water", "ore"], []);
     const waterY = measureRecipe(tRecipe).inHandleYs[0]!; // T top is 0
@@ -292,18 +295,27 @@ describe("deconflictChipAnchors: merged collision set", () => {
 
     const out = deconflictChipAnchors(nodes, edges);
 
-    // A's midpoint anchor after the nudge.
+    // The entry markers stepped below sa's card bottom (waterY + 30): their
+    // boxes must not enter that foreign card.
+    const b1Dy = entryDyOf(out, "e:b1");
+    const b2Dy = entryDyOf(out, "e:b2");
+    const saBottom = waterY + 30;
+    for (const dy of [b1Dy, b2Dy]) {
+      expect(waterY + dy - CHIP_BOX_HEIGHT).toBeGreaterThanOrEqual(saBottom);
+    }
+
+    // A's rate chip then finds its port-slot anchor clear and stays put.
     const aDy = labelDyOf(out, "e:a");
-    expect(aDy).toBeGreaterThan(0); // it was pushed at all
+    expect(aDy).toBe(0);
     const aX = Tx - 12;
     const aY = waterY + aDy;
 
     // Each entry chip's final box, at its own stacked dy.
     const entryBoxes = [
-      entryChipAnchor(Tx, waterY, entryDyOf(out, "e:b1")),
-      entryChipAnchor(Tx, waterY, entryDyOf(out, "e:b2")),
+      entryChipAnchor(Tx, waterY, b1Dy),
+      entryChipAnchor(Tx, waterY, b2Dy),
     ];
-    // No box intersection: the midpoint clears every entry box on at least one
+    // No box intersection: the rate chip clears every entry box on at least one
     // axis. X is shared here (both sit at Tx - 12), so the clearance is vertical
     // and must reach a full max-scale box height.
     for (const box of entryBoxes) {

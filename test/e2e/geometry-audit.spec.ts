@@ -282,12 +282,12 @@ test.describe("DOM geometry audit", () => {
 //   tier 1 (HARD): zero edge segments entering a FOREIGN RAW (unpadded) card;
 //   tier 2 (SOFT ratchet): segments entering a foreign chip box <= per-scenario
 //     baseline (zero on sparse plans; 2B trades bounded line-occlusion on the
-//     packed plans for the card clearance tier 4 rewards);
+//     packed plans for the hard card clearance tier 4 enforces);
 //   tier 3 (SOFT ratchet): padding-only grazes per scenario <= recorded
 //     baseline (packed-layout residue where sibling paddings overlap);
-//   tier 4 (SOFT ratchet, P3): chip/foreign-card overlaps and chips-off-own-line
-//     <= per-scenario baseline (the clear-segment anchor invariant, zero on most
-//     plans; small residue where parallel edges / bus lanes force a nudge);
+//   tier 4 (P3): chip/foreign-card overlaps HARD ZERO on every scenario (the
+//     ratified acceptance criterion), plus chips-off-own-line as a SOFT ratchet
+//     (residue where parallel edges / bus lanes / card-hardness force a nudge);
 //   census: pairwise crossing count <= the pre-P2 baseline;
 //   detour: the tundra ore feed within 1.5x its endpoints' Manhattan gap.
 
@@ -321,39 +321,35 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   tundra: 3,
 };
 
-// P3 chip-tier ratchets. The 2B clear-segment anchor deliberately seats rate
-// chips on the vertical corridor legs (off the card rows the old geometric
-// midpoint crossed). In a packed plan those corridors also carry the parallel
-// flow lines, so a wide chip box there occludes a crossing sibling line; the
-// chip stays ON its own line (occluding, not detached), which reads correctly.
-// So 2B TRADES chip/segment grazes (this tier) for chip/card clearance (below),
-// and the residue is a per-scenario ratchet, zero on the sparse plans and held
-// at the packed plans' measured counts. Ratchets only tighten.
-//   chip-vs-segment: a foreign flow line passing under a chip box (occlusion);
-//   chip-vs-card:    a chip box entering a foreign raw card (real overlap);
-//   chip-off-path:   a chip nudged off its own polyline to separate coincident
-//                    parallel edges / a shared bus lane, capped at a few px.
+// P3 chip-tier ratchets. Chip seating follows the ratified priority order:
+// chip-vs-chip and chip-vs-CARD clearance are HARD (both asserted at zero
+// below, so neither appears here); staying on the own polyline and clearing
+// foreign flow lines are preferences that yield when the hard pair forces an
+// escape. The two residues below are per-scenario ratchets, zero on the sparse
+// plans and held at the packed plans' measured counts. They only tighten.
+//   chip-vs-segment: a foreign flow line passing under a chip box. NOT zero
+//     because the 2B anchor seats rate chips on the vertical corridor legs,
+//     which in a packed plan also carry the parallel flow bundles: a wide chip
+//     box there necessarily occludes a crossing sibling line, and the hard
+//     chip/card invariant forbids the escapes that would clear it.
+//   chip-off-path: a chip nudged off its own polyline. NOT zero because
+//     coincident parallel edges and shared bus lanes cannot separate along one
+//     shared line, and card-hardness can push the escape past every on-line
+//     candidate; the seat stays as near the line as the hard pair allows.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 50,
-  "battery5-xiranite": 0,
-  crystal: 1,
-  equip4: 5,
-  multi6: 0,
-  tundra: 1,
-};
-const CHIP_CARD_BASELINE: Record<string, number> = {
-  default: 0,
-  battery5: 2,
+  battery5: 29,
   "battery5-xiranite": 0,
   crystal: 0,
-  equip4: 6,
+  equip4: 4,
   multi6: 0,
   tundra: 1,
 };
+// battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
+// candidates all overlap a card, so card-hardness pushes its seat off the line.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   default: 1,
-  battery5: 5,
+  battery5: 6,
   "battery5-xiranite": 0,
   crystal: 1,
   equip4: 7,
@@ -547,24 +543,23 @@ test.describe("segment placement audit", () => {
         )
         .toBeLessThanOrEqual(chipSegBaseline);
 
-      // Tier 4 (SOFT ratchet, P3): rate-chip boxes entering a FOREIGN raw card,
-      // and label chips off their own polyline, each per-scenario capped. The
-      // clear-segment anchor keeps rate chips off the card rows the old midpoint
-      // crossed (card residue is zero on most plans); the off-path residue is
-      // the few chips nudged a step or two off their line to separate coincident
-      // parallel edges or a shared bus lane.
+      // Tier 4 (P3). Chip-vs-card is the RATIFIED HARD gate: zero chip boxes
+      // entering a FOREIGN raw card, on every scenario. The seating pass
+      // upholds it by priority order -- when the on-line slide cannot clear,
+      // the escape cascade treats cards (like chips) as hard obstacles and
+      // yields the softer preferences instead (on-own-line, foreign-line
+      // clearance), which are the ratcheted residues asserted after it.
       const chipCardHits = auditChipsVsCards(chips, rawEdges, nodes);
       const chipCardInventory = chipCardHits.map(
         (v) =>
           `  ${v.chipKind} chip of ${v.chipEdgeId} ("${v.chipLabel}") enters RAW card ${v.card}`,
       );
-      const chipCardBaseline = CHIP_CARD_BASELINE[scenario.id]!;
       expect
         .soft(
           chipCardHits.length,
-          `${scenario.id}: ${chipCardHits.length} chip/card intersection(s) exceeds baseline ${chipCardBaseline} among ${chips.length} chips:\n${chipCardInventory.join("\n")}`,
+          `${scenario.id}: ${chipCardHits.length} chip/card intersection(s) among ${chips.length} chips:\n${chipCardInventory.join("\n")}`,
         )
-        .toBeLessThanOrEqual(chipCardBaseline);
+        .toBe(0);
 
       const offPath = auditChipsOnOwnPath(chips, rawEdges);
       const offPathInventory = offPath.map(

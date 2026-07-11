@@ -2059,6 +2059,47 @@ export function deconflictChipAnchors(
     edgeSegments.push({ flowKey: flowKeyOf(edge), target: edge.target, segs });
   }
 
+  // Raw card rects a chip's box must stay clear of, so a chip never sits on top
+  // of a foreign node (the P3 hard invariant). Every node type is included --
+  // recipe / product / loop cards and group slabs -- mirroring the chip/card
+  // audit; the per-edge exemption below (own source, target, and their
+  // containers) is the same one the audit applies.
+  const avoidCards = nodes.map((n) => {
+    const left = absoluteLeft(n, byId);
+    const top = absoluteTop(n, byId);
+    return {
+      id: n.id,
+      left,
+      top,
+      right: left + nodeWidth(n),
+      bottom: top + nodeHeight(n),
+    };
+  });
+  // Does a chip box centred at (px, py) enter any non-exempt card?
+  const chipEntersCard = (
+    px: number,
+    py: number,
+    halfW: number,
+    halfH: number,
+    exempt: ReadonlySet<string>,
+  ): boolean =>
+    avoidCards.some(
+      (c) =>
+        !exempt.has(c.id) &&
+        Math.min(px + halfW, c.right) - Math.max(px - halfW, c.left) > 0.5 &&
+        Math.min(py + halfH, c.bottom) - Math.max(py - halfH, c.top) > 0.5,
+    );
+  // The card exemption for an edge's chips: its own endpoints plus their
+  // containing groups (one parentId level, same as the audit's containersAt).
+  const cardExemptFor = (edge: Edge): Set<string> => {
+    const exempt = new Set<string>([edge.source, edge.target]);
+    const sp = byId.get(edge.source)?.parentId;
+    const tp = byId.get(edge.target)?.parentId;
+    if (sp !== undefined) exempt.add(sp);
+    if (tp !== undefined) exempt.add(tp);
+    return exempt;
+  };
+
   // Entry chips: every forward item edge flagged multiInputTarget pins an
   // icon-only chip just left of its target port. Chips arriving at one node
   // (same-item duplicates share a port y outright, adjacent ports sit a row
@@ -2069,7 +2110,13 @@ export function deconflictChipAnchors(
   // see it, at the narrow entry-marker half-width so a bus or midpoint chip only
   // yields when it truly overlaps the marker.
   const entryDyByIndex = new Map<number, number>();
-  type EntrySlot = { index: number; id: string; port: number; anchorY: number };
+  type EntrySlot = {
+    index: number;
+    id: string;
+    port: number;
+    anchorY: number;
+    exempt: Set<string>;
+  };
   const entryByTarget = new Map<string, EntrySlot[]>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item") return;
@@ -2085,6 +2132,7 @@ export function deconflictChipAnchors(
       id: edge.id,
       port: inputPortIndex(target, item),
       anchorY,
+      exempt: cardExemptFor(edge),
     });
     entryByTarget.set(edge.target, list);
   });
@@ -2097,12 +2145,14 @@ export function deconflictChipAnchors(
     });
     const entryX = absoluteLeft(byId.get(targetId)!, byId) - ENTRY_CHIP_OFFSET;
     const stacked = stackEntryAnchors(list.map((s) => s.anchorY));
-    // Segment-aware stacking: a chip whose slot lands on a FOREIGN line (an
-    // edge neither of this cluster nor of the chip's own flow -- e.g. a
-    // backward rail passing between this node's rows) steps further down until
+    // Segment- and card-aware stacking: a chip whose slot lands on a FOREIGN
+    // line (an edge neither of this cluster nor of the chip's own flow -- e.g.
+    // a backward rail passing between this node's rows) OR inside a FOREIGN
+    // card box (a packed neighbour under the target) steps further down until
     // clear, keeping the stack monotone. Without this, the blind stack can
-    // drop a pinned marker straight onto a passing rail.
-    const clusterBlocked = (box: ChipBox): boolean =>
+    // drop a pinned marker straight onto a passing rail or a neighbour card.
+    const clusterBlocked = (box: ChipBox, exempt: ReadonlySet<string>): boolean =>
+      chipEntersCard(box.x, box.y, box.halfW, box.halfH, exempt) ||
       edgeSegments.some(
         (e) =>
           e.target !== targetId &&
@@ -2121,7 +2171,10 @@ export function deconflictChipAnchors(
       });
       let steps = 0;
       let cleared = y;
-      while (steps <= CHIP_SEAT_MAX_STEPS && clusterBlocked(boxAt(cleared))) {
+      while (
+        steps <= CHIP_SEAT_MAX_STEPS &&
+        clusterBlocked(boxAt(cleared), s.exempt)
+      ) {
         cleared += ENTRY_CHIP_MIN_GAP;
         steps += 1;
       }
@@ -2244,28 +2297,15 @@ export function deconflictChipAnchors(
   // flung off the flow it labels). Ordering by edge id keeps it deterministic.
   const SLIDE_STEP = CHIP_NUDGE_STEP / 2;
   const SLIDE_MAX_STEPS = 48;
-  // Cap on the off-line vertical nudge used only when no on-line seat clears
-  // (coincident parallel edges, a shared bus lane, or a dense pin). Bounds how
-  // far a chip may leave its own line so a pinned chip stays a step or two off,
-  // never flung across the canvas.
+  // Cap on the off-line vertical nudge used when no on-line seat clears the
+  // foreign lines (coincident parallel edges, a shared bus lane, or a dense
+  // pin). Bounds how far a chip may leave its own line for LINE clearance;
+  // card clearance below is unbounded within LAST_RESORT_CAP_STEPS.
   const NUDGE_CAP_STEPS = 3;
-  // Raw card rects the slide steers a chip's box clear of, so a rate chip does
-  // not settle on top of a foreign node. Only recipe / product cards are avoided
-  // (group containers legitimately enclose their members' chips); the chip's own
-  // source and target are exempt, as they are for the segment audit.
-  const avoidCards = nodes
-    .filter((n) => n.type === "recipe" || n.type === "product")
-    .map((n) => {
-      const left = absoluteLeft(n, byId);
-      const top = absoluteTop(n, byId);
-      return {
-        id: n.id,
-        left,
-        top,
-        right: left + nodeWidth(n),
-        bottom: top + nodeHeight(n),
-      };
-    });
+  // Cap on the final chips-and-cards cascade. Cards are finite, so free space
+  // always exists within a few card heights of the anchor; this cap only bounds
+  // the search, it is never expected to exhaust.
+  const LAST_RESORT_CAP_STEPS = 200;
   const labelDyByIndex = new Map<number, number>();
   const labelDxByIndex = new Map<number, number>();
   const items = edges
@@ -2312,19 +2352,9 @@ export function deconflictChipAnchors(
       );
     }
     const anchorLen = lengthAtPoint(pts, lx, ly);
-    const hitsCard = (px: number, py: number): boolean => {
-      const l = px - CHIP_HALF_W_WIDE;
-      const r = px + CHIP_HALF_W_WIDE;
-      const t = py - CHIP_HALF_H;
-      const b = py + CHIP_HALF_H;
-      return avoidCards.some(
-        (c) =>
-          c.id !== edge.source &&
-          c.id !== edge.target &&
-          Math.min(r, c.right) - Math.max(l, c.left) > 0.5 &&
-          Math.min(b, c.bottom) - Math.max(t, c.top) > 0.5,
-      );
-    };
+    const exempt = cardExemptFor(edge);
+    const hitsCard = (px: number, py: number): boolean =>
+      chipEntersCard(px, py, CHIP_HALF_W_WIDE, CHIP_HALF_H, exempt);
     // A candidate is clear when it clears every placed chip box, every foreign
     // flow line (arrival cluster narrowed to the entry band), AND every foreign
     // card box.
@@ -2375,46 +2405,67 @@ export function deconflictChipAnchors(
     // Nothing on the line clears. Two coincident parallel edges, or a chip on a
     // shared bus lane, cannot separate along the line (their lines overlap), and
     // a chip pinned in a dense weave has no clear point on its own polyline.
-    // First try a SHORT vertical nudge off the anchor that still clears the
-    // foreign lines (cap NUDGE_CAP_STEPS) so a parallel edge's chip lifts a step
-    // or two and stays readable.
-    const nudge = cascadeClearDy(
-      placed,
-      lx,
-      ly,
-      CHIP_HALF_W_WIDE,
-      CHIP_HALF_H,
-      CHIP_NUDGE_STEP,
-      edgeSegments,
-      flowKey,
-      edge.target,
-      NUDGE_CAP_STEPS,
-      entryBand,
-    );
-    if (nudge !== null) {
+    // Escapes off the line follow the ratified priority order: chip/chip and
+    // chip/card clearance are HARD, staying on the line and clearing foreign
+    // lines are preferences that yield.
+    // First a SHORT bidirectional vertical nudge off the anchor that clears
+    // chips, cards, AND foreign lines (cap NUDGE_CAP_STEPS): the parallel-edge
+    // chip lifts a step or two and stays fully clean.
+    let nudged: number | null = null;
+    for (let k = 1; k <= NUDGE_CAP_STEPS && nudged === null; k++) {
+      for (const dy of [k * CHIP_NUDGE_STEP, -k * CHIP_NUDGE_STEP]) {
+        if (isClear(lx, ly + dy)) {
+          nudged = dy;
+          break;
+        }
+      }
+    }
+    if (nudged !== null) {
       placed.push({
         x: lx,
-        y: ly + nudge,
+        y: ly + nudged,
         halfW: CHIP_HALF_W_WIDE,
         halfH: CHIP_HALF_H,
       });
-      if (nudge !== 0) labelDyByIndex.set(index, nudge);
+      labelDyByIndex.set(index, nudged);
       continue;
     }
-    // Last resort: cascade against CHIPS ONLY (no obstacles), which always finds
-    // the nearest y where no two chips overlap. Two chips stacked unreadably is
-    // the worst defect, so this guarantee is absolute -- at the cost of the chip
-    // grazing a foreign line (ratcheted) and sitting off its own polyline. The
-    // chips-only cascade stays near (chips are sparse vertically), never flung
-    // hundreds of px the way a segment cascade through a dense bundle would be.
-    const dy = seatChip(
-      placed,
-      lx,
-      ly,
-      CHIP_HALF_W_WIDE,
-      CHIP_HALF_H,
-      CHIP_NUDGE_STEP,
-    );
+    // Last resort: cascade against CHIPS AND CARDS only (foreign lines waived),
+    // bidirectionally, nearest escape first (ties prefer down). Cards are
+    // finite, so a clear slot always exists within a few card heights; the cap
+    // only bounds the search. This upholds the two HARD invariants -- no two
+    // chips overlap, no chip on a foreign card -- at the cost of the chip
+    // grazing a foreign line (ratcheted) and sitting off its own polyline
+    // (ratcheted).
+    const hardClear = (py: number): boolean =>
+      !hitsCard(lx, py) &&
+      !placed.some((b) =>
+        chipBoxesOverlap(b, {
+          x: lx,
+          y: py,
+          halfW: CHIP_HALF_W_WIDE,
+          halfH: CHIP_HALF_H,
+        }),
+      );
+    let dy = 0;
+    for (let k = 0; k <= LAST_RESORT_CAP_STEPS; k++) {
+      const deltas = k === 0 ? [0] : [k * CHIP_NUDGE_STEP, -k * CHIP_NUDGE_STEP];
+      let done = false;
+      for (const delta of deltas) {
+        if (hardClear(ly + delta)) {
+          dy = delta;
+          done = true;
+          break;
+        }
+      }
+      if (done) break;
+    }
+    placed.push({
+      x: lx,
+      y: ly + dy,
+      halfW: CHIP_HALF_W_WIDE,
+      halfH: CHIP_HALF_H,
+    });
     if (dy !== 0) labelDyByIndex.set(index, dy);
   }
 
