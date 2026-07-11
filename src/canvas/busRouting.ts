@@ -983,11 +983,15 @@ export function paddedObstacles(
 // is skipped, pushing the column to the outer edge).
 //
 // Nearest clear column to `desiredX`; ties break toward the target side
-// (towardTarget: +1 target to the right, -1 to the left). If no clear column
-// exists within `radius` of the desired one, return `desiredX` unchanged
-// (degraded but stable -- the next task's segment-vs-card audit quantifies the
-// residual rather than flinging the run across the graph). Pure and
-// deterministic: a function of the sorted obstacle list only.
+// (towardTarget: +1 target to the right, -1 to the left). An `accept` predicate
+// further gates every candidate (including the desired column): the caller uses
+// it to require that the CONNECTING horizontal leg to the column stays clear,
+// so a cleared vertical never trades its own clearance for a horizontal that
+// slices the card it dodged. If no clear column exists within `radius` of the
+// desired one, return `desiredX` unchanged (degraded but stable -- the
+// segment-vs-card audit quantifies the residual rather than flinging the run
+// across the graph). Pure and deterministic: a function of the sorted obstacle
+// list (and the pure accept) only.
 export const CLEAR_COLUMN_RADIUS = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
 
 export function clearColumnX(
@@ -995,11 +999,17 @@ export function clearColumnX(
   yLo: number,
   yHi: number,
   obstacles: ReadonlyArray<ObstacleRect>,
-  opts?: { towardTarget?: number; radius?: number; gap?: number },
+  opts?: {
+    towardTarget?: number;
+    radius?: number;
+    gap?: number;
+    accept?: (x: number) => boolean;
+  },
 ): number {
   const gap = opts?.gap ?? CHAMFER;
   const radius = opts?.radius ?? CLEAR_COLUMN_RADIUS;
   const toward = opts?.towardTarget ?? 0;
+  const accept = opts?.accept ?? (() => true);
   const ymin = Math.min(yLo, yHi);
   const ymax = Math.max(yLo, yHi);
   // Only obstacles whose vertical extent the run overlaps can block it.
@@ -1008,12 +1018,13 @@ export function clearColumnX(
     .sort((a, b) => a.left - b.left || a.right - b.right);
   const blocked = (x: number): boolean =>
     spanned.some((o) => x > o.left - gap && x < o.right + gap);
-  if (!blocked(desiredX)) return desiredX;
+  if (!blocked(desiredX) && accept(desiredX)) return desiredX;
 
   // The nearest clear column sits just outside some spanning obstacle's padded
   // band. Gather both padded edges of every obstacle, drop any that are still
-  // blocked (they fall inside a neighbour's band) or beyond the search radius,
-  // and pick the nearest surviving candidate, tie-breaking toward the target.
+  // blocked (they fall inside a neighbour's band), rejected by the caller's
+  // accept, or beyond the search radius, and pick the nearest surviving
+  // candidate, tie-breaking toward the target.
   const candidates = spanned
     .flatMap((o) => [o.left - gap, o.right + gap])
     .sort((a, b) => a - b);
@@ -1021,6 +1032,7 @@ export function clearColumnX(
   for (const x of candidates) {
     if (Math.abs(x - desiredX) > radius) continue;
     if (blocked(x)) continue;
+    if (!accept(x)) continue;
     if (best === undefined) {
       best = x;
       continue;
@@ -1038,6 +1050,120 @@ export function clearColumnX(
   return best ?? desiredX;
 }
 
+// Raw (unpadded) card rectangles, one per node, tagged with the node id. The
+// side-keeping fallback below resolves against these when no fully padded-clear
+// column exists: a run that at least threads the raw gaps never slices a card
+// the user sees, even where sibling paddings overlap and the padded model calls
+// the whole corridor blocked.
+function rawCardRects(nodes: ReadonlyArray<RFAnyNode>): PaddedObstacle[] {
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+  return nodes.map((node) => {
+    const left = absoluteLeft(node, byId);
+    const top = absoluteTop(node, byId);
+    return {
+      left,
+      right: left + nodeWidth(node),
+      top,
+      bottom: top + nodeHeight(node),
+      kind: "card" as const,
+      nodeId: node.id,
+    };
+  });
+}
+
+// Does the horizontal connecting leg from a port at (portX, portY) out to a
+// vertical column at `x` cross any of the given card rects? Open-interval test
+// on y so a leg running exactly along a padded boundary does not count.
+function connectingLegBlocked(
+  portX: number,
+  portY: number,
+  x: number,
+  cards: ReadonlyArray<PaddedObstacle>,
+): boolean {
+  const lo = Math.min(portX, x);
+  const hi = Math.max(portX, x);
+  return cards.some(
+    (o) => o.right > lo && o.left < hi && portY > o.top && portY < o.bottom,
+  );
+}
+
+// Side-keeping column resolver shared by the bus drop / rise and backward-rail
+// clamps. Resolves a vertical run's column in two tiers:
+//   1. padded: clearColumnX over the full padded card + gutter set, accepting
+//      only columns whose connecting horizontal (from the port that anchors the
+//      run) stays clear of foreign PADDED cards -- so a moved column never puts
+//      its own connecting leg through the card it dodged;
+//   2. raw fallback: when no padded-clear column passes, retry against RAW
+//      foreign card boxes with a slim gap and a doubled radius, accepting only
+//      columns whose connecting leg clears the raw boxes. Threading a raw gap
+//      beats keeping a default column that slices a card outright.
+// When even the fallback fails, the desired column is returned unchanged
+// (degraded but stable; the audit quantifies it). Pure and deterministic.
+function clearColumnKeepingLeg(args: {
+  desired: number;
+  portX: number;
+  portY: number;
+  yLo: number;
+  yHi: number;
+  toward: number;
+  foreignPadded: ReadonlyArray<PaddedObstacle>;
+  foreignRawCards: ReadonlyArray<PaddedObstacle>;
+}): number {
+  const {
+    desired,
+    portX,
+    portY,
+    yLo,
+    yHi,
+    toward,
+    foreignPadded,
+    foreignRawCards,
+  } = args;
+  const paddedCards = foreignPadded.filter((o) => o.kind === "card");
+  const ymin = Math.min(yLo, yHi);
+  const ymax = Math.max(yLo, yHi);
+  const columnClear = (
+    x: number,
+    set: ReadonlyArray<PaddedObstacle>,
+    gap: number,
+  ): boolean =>
+    !set.some(
+      (o) =>
+        o.bottom > ymin &&
+        o.top < ymax &&
+        x > o.left - gap &&
+        x < o.right + gap,
+    );
+
+  // Tier 1: padded set, padded-card leg acceptance.
+  const paddedAccept = (x: number): boolean =>
+    !connectingLegBlocked(portX, portY, x, paddedCards);
+  const padded = clearColumnX(desired, yLo, yHi, foreignPadded, {
+    towardTarget: toward,
+    accept: paddedAccept,
+  });
+  if (columnClear(padded, foreignPadded, CHAMFER) && paddedAccept(padded)) {
+    return padded;
+  }
+
+  // Tier 2: raw fallback. A slim gap keeps a hair of air off the raw box; the
+  // doubled radius lets a fully packed near corridor escape to the next gap.
+  const RAW_GAP = 2;
+  const rawAccept = (x: number): boolean =>
+    !connectingLegBlocked(portX, portY, x, foreignRawCards);
+  const raw = clearColumnX(desired, yLo, yHi, foreignRawCards, {
+    towardTarget: toward,
+    gap: RAW_GAP,
+    radius: 2 * CLEAR_COLUMN_RADIUS,
+    accept: rawAccept,
+  });
+  if (columnClear(raw, foreignRawCards, RAW_GAP) && rawAccept(raw)) {
+    return raw;
+  }
+  return desired;
+}
+
 // clearBusColumns: move each bus member's drop and rise verticals off any foreign
 // padded card / gutter they would pierce. The drop vertical runs from the source
 // port down to the shared lane; the rise vertical from the lane up to the target
@@ -1046,6 +1172,9 @@ export function clearColumnX(
 // stamp a cleared { dropX } / { riseX } for chamferBusPath. Own source (drop) and
 // own target (rise) cards / gutters are exempt: the default columns sit inside
 // their own node's padded band by construction, so only foreign rects block.
+// Column resolution is side-keeping (clearColumnKeepingLeg): a candidate column
+// is accepted only when the connecting horizontal from the port also stays clear,
+// with a raw-gap fallback where sibling paddings overlap.
 //
 // Runs AFTER assignEntryColumns so the rise's desired column is the final
 // staggered entryX (clearance starts from the stagger and only moves it when it
@@ -1062,6 +1191,7 @@ export function clearBusColumns(
   for (const n of nodes) byId.set(n.id, n);
 
   const obstacles = paddedObstacles(nodes, edges);
+  const rawCards = rawCardRects(nodes);
   const budget = 2 * (PORT_STUB + CHAMFER);
 
   const dropXByIndex = new Map<number, number>();
@@ -1085,31 +1215,47 @@ export function clearBusColumns(
     if (gap > 0 && gap < budget) return;
     const toward = gap > 0 ? 1 : -1;
 
-    // Drop vertical: source port level down to the lane. Exempt the source's own
-    // card / gutter (the default column sits a chamfer off its padded right edge).
+    // Drop vertical: source port level down to the lane, side-keeping (the
+    // connecting horizontal from the source port must stay clear too). Exempt
+    // the source's own card / gutter (the default column sits a chamfer off its
+    // padded right edge) and the source's own container box (a grouped source's
+    // drop legitimately leaves through its container; treating the container as
+    // an obstacle would reject every candidate and degrade the column).
+    const dropExempt = new Set<string>([edge.source]);
+    if (source.parentId !== undefined) dropExempt.add(source.parentId);
     const dropDesired = sx + PORT_STUB + CHAMFER;
-    const dropX = clearColumnX(
-      dropDesired,
-      sy,
-      laneY,
-      obstacles.filter((o) => o.nodeId !== edge.source),
-      { towardTarget: toward },
-    );
+    const dropX = clearColumnKeepingLeg({
+      desired: dropDesired,
+      portX: sx,
+      portY: sy,
+      yLo: sy,
+      yHi: laneY,
+      toward,
+      foreignPadded: obstacles.filter((o) => !dropExempt.has(o.nodeId)),
+      foreignRawCards: rawCards.filter((o) => !dropExempt.has(o.nodeId)),
+    });
     if (dropX !== dropDesired) dropXByIndex.set(index, dropX);
 
-    // Rise vertical: lane up to the target port. Its desired column is the
-    // staggered entryX when present (keep the stagger; only move it off foreign
-    // geometry). Exempt the target's own card / gutter.
+    // Rise vertical: lane up to the target port, side-keeping (the connecting
+    // horizontal into the target port must stay clear too). Its desired column
+    // is the staggered entryX when present (keep the stagger; only move it off
+    // foreign geometry). Exempt the target's own card / gutter and the target's
+    // own container box (same rationale as the drop side).
+    const riseExempt = new Set<string>([edge.target]);
+    if (target.parentId !== undefined) riseExempt.add(target.parentId);
     const riseDesired =
       (edge.data as { entryX?: number } | undefined)?.entryX ??
       tx - PORT_STUB - CHAMFER;
-    const riseX = clearColumnX(
-      riseDesired,
-      ty,
-      laneY,
-      obstacles.filter((o) => o.nodeId !== edge.target),
-      { towardTarget: toward },
-    );
+    const riseX = clearColumnKeepingLeg({
+      desired: riseDesired,
+      portX: tx,
+      portY: ty,
+      yLo: ty,
+      yHi: laneY,
+      toward,
+      foreignPadded: obstacles.filter((o) => !riseExempt.has(o.nodeId)),
+      foreignRawCards: rawCards.filter((o) => !riseExempt.has(o.nodeId)),
+    });
     if (riseX !== riseDesired) riseXByIndex.set(index, riseX);
   });
 
@@ -1149,6 +1295,7 @@ export function clampBackwardRails(
   for (const n of nodes) byId.set(n.id, n);
 
   const obstacles = paddedObstacles(nodes, edges);
+  const rawCards = rawCardRects(nodes);
 
   const railYByIndex = new Map<number, number>();
   const railXRightByIndex = new Map<number, number>();
@@ -1176,24 +1323,38 @@ export function clampBackwardRails(
     // Clamp the two verticals out of any foreign card / gutter they pierce. The
     // right column runs from the source port down/up to the rail; the left column
     // from the rail to the target port. Each column's own node is exempt (the
-    // default columns sit inside their own node's padded band). The rail y is
-    // taken as fixed (computed from the default columns above), so the columns
-    // only dodge along x; the next task's segment audit quantifies any residual.
-    const xr = clearColumnX(
-      xrDesired,
-      sy,
-      railY,
-      obstacles.filter((o) => o.nodeId !== edge.source),
-      { towardTarget: -1 },
-    );
+    // default columns sit inside their own node's padded band), as is that
+    // endpoint's own container box (a grouped endpoint's column legitimately
+    // runs inside its container). The rail y is taken as fixed (computed from
+    // the default columns above), so the columns only dodge along x.
+    // Side-keeping: a moved column is accepted only when the connecting
+    // horizontal from its port also stays clear (raw-gap fallback where
+    // paddings overlap); the segment audit quantifies any residual.
+    const xrExempt = new Set<string>([edge.source]);
+    if (source.parentId !== undefined) xrExempt.add(source.parentId);
+    const xr = clearColumnKeepingLeg({
+      desired: xrDesired,
+      portX: sx,
+      portY: sy,
+      yLo: sy,
+      yHi: railY,
+      toward: -1,
+      foreignPadded: obstacles.filter((o) => !xrExempt.has(o.nodeId)),
+      foreignRawCards: rawCards.filter((o) => !xrExempt.has(o.nodeId)),
+    });
     if (xr !== xrDesired) railXRightByIndex.set(index, xr);
-    const xl = clearColumnX(
-      xlDesired,
-      railY,
-      ty,
-      obstacles.filter((o) => o.nodeId !== edge.target),
-      { towardTarget: -1 },
-    );
+    const xlExempt = new Set<string>([edge.target]);
+    if (target.parentId !== undefined) xlExempt.add(target.parentId);
+    const xl = clearColumnKeepingLeg({
+      desired: xlDesired,
+      portX: tx,
+      portY: ty,
+      yLo: railY,
+      yHi: ty,
+      toward: -1,
+      foreignPadded: obstacles.filter((o) => !xlExempt.has(o.nodeId)),
+      foreignRawCards: rawCards.filter((o) => !xlExempt.has(o.nodeId)),
+    });
     if (xl !== xlDesired) railXLeftByIndex.set(index, xl);
   });
 
