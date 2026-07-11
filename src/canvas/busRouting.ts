@@ -63,9 +63,11 @@ export type BusEdgeData = {
   busTotalRate?: Fraction;
   busMemberCount?: number;
   busChipOwner?: boolean;
-  // Vertical stagger rank for a rise chip that shares its (riseX, laneY) anchor
-  // with other members' rises (assigned by deconflictChipAnchors). Default 0.
-  riseStagger?: number;
+  // Lane x for this member's rise chip, assigned by routeBusEdges so a trunk's
+  // rise chips spread evenly along the lane instead of stacking near their rise
+  // vertices. BusEdge anchors the rise chip at (busChipX, laneY). Absent on
+  // manually built edges, where BusEdge falls back to the geometric rise column.
+  busChipX?: number;
 };
 
 // Read a Fraction rate off an edge's data, or undefined when it is absent or not
@@ -220,6 +222,59 @@ export function routeBusEdges(
     }
   });
 
+  // Distribute each trunk's rise chips evenly along its lane. Members feeding the
+  // same layer would otherwise anchor near-coincident at their rise vertices, so
+  // give every member a chip x-slot spaced across the lane extent from the drop
+  // column (dropX, where the owner's aggregate drop chip sits) to the rightmost
+  // member's rise column. Members are ordered by edge id so the assignment is
+  // deterministic regardless of edge order. Slots sit at fraction (i+1)/(n+1) of
+  // the extent, which keeps every slot -- and the drop-side gap -- one even step
+  // apart and never places a rise chip on the aggregate drop chip at dropX.
+  const busChipXByIndex = new Map<number, number>();
+  const membersByTrunk = new Map<
+    string,
+    Array<{ index: number; id: string; riseX: number }>
+  >();
+  trunkKeyByEdgeIndex.forEach((trunkKey, index) => {
+    const edge = edges[index]!;
+    const target = byId.get(edge.target)!;
+    // Geometric rise column, mirroring chamferBusPath's wide-forward default
+    // (one stub + chamfer inside the target's Left port). Entry-column staggering
+    // runs later and shifts it slightly left, but that hint is not yet available
+    // and only nudges the extent bound, so the default column is used here.
+    const riseX = absoluteLeft(target, byId) - PORT_STUB - CHAMFER;
+    const list = membersByTrunk.get(trunkKey) ?? [];
+    list.push({ index, id: edge.id, riseX });
+    membersByTrunk.set(trunkKey, list);
+  });
+  for (const [trunkKey, members] of membersByTrunk) {
+    const sourceNode = byId.get(trunks.get(trunkKey)!.source)!;
+    const dropX =
+      absoluteLeft(sourceNode, byId) +
+      nodeWidth(sourceNode) +
+      PORT_STUB +
+      CHAMFER;
+    const maxRiseX = Math.max(...members.map((m) => m.riseX));
+    const extent = maxRiseX - dropX;
+    members.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const n = members.length;
+    // Even fractions space slots (and the drop-side gap) at extent/(n+1). When
+    // that step falls below CHIP_COLLIDE_X the extent is too short to seat n
+    // chips clear of one another, so step off the drop side at a fixed
+    // CHIP_COLLIDE_X instead; the trailing chips may then run past maxRiseX,
+    // which is the accepted degenerate fallback.
+    const step = extent / (n + 1);
+    const evenlySpaced = step >= CHIP_COLLIDE_X;
+    members.forEach((m, i) => {
+      busChipXByIndex.set(
+        m.index,
+        evenlySpaced
+          ? dropX + step * (i + 1)
+          : dropX + CHIP_COLLIDE_X * (i + 1),
+      );
+    });
+  }
+
   // Second pass: emit. Members are retyped and get the lane + trunk-aggregate
   // fields merged; everything else is returned as-is.
   return edges.map((edge, index) => {
@@ -236,6 +291,7 @@ export function routeBusEdges(
         busTotalRate: trunkTotal.get(trunkKey)!,
         busMemberCount: trunkCount.get(trunkKey)!,
         busChipOwner: edge.id === trunkOwner.get(trunkKey),
+        busChipX: busChipXByIndex.get(index)!,
       },
     };
   });
@@ -628,16 +684,16 @@ export function clampBackwardRails(
 // Two coincident chips read as one, and on a bus lane the surviving chip lied
 // about the flow. deconflictChipAnchors runs last (after routeBusEdges,
 // assignEntryColumns, and assignBendColumns, so it sees the final laneY, entryX,
-// and bendX) and threads two offsets:
-//   - riseStagger: bus members whose rise chip shares a (riseX, laneY) anchor
-//     get a stagger rank, so BusEdge steps them down the lane instead of
-//     stacking them. (Drop chips are already collapsed to one owner per trunk by
-//     routeBusEdges.)
+// and bendX) and threads two chip-nudge offsets:
+//   - entryChipDy: entry chips arriving at one node are stacked to a clear pitch.
 //   - labelDy: forward item edges whose reconstructed midpoint anchor lands on
 //     top of one already placed get a downward nudge, so ItemEdge's midpoint
 //     chip clears its neighbour.
+// (Bus rise chips no longer need a pass here: routeBusEdges spreads each trunk's
+// rise chips across distinct lane x-slots, and drop chips are already collapsed
+// to one owner per trunk there too.)
 // Pure and deterministic: anchors are reconstructed from node geometry with the
-// same path builder the components use, and both passes order by edge id.
+// same path builder the components use, and every pass orders by edge id.
 
 // Vertical chip pitch, in graph units: the smallest gap between two chip centres
 // that keeps their boxes clear at every zoom. A chip counter-scales up to
@@ -714,31 +770,7 @@ export function deconflictChipAnchors(
   const byId = new Map<string, RFAnyNode>();
   for (const n of nodes) byId.set(n.id, n);
 
-  // Bus rise chips: bucket members by their (riseX, laneY) anchor and rank each
-  // collision group by edge id. riseX mirrors chamferBusPath: the staggered
-  // entry column when present, else one stub+chamfer inside the target port.
-  const riseStaggerByIndex = new Map<number, number>();
-  const riseGroups = new Map<string, Array<{ index: number; id: string }>>();
-  edges.forEach((edge, index) => {
-    if (edge.type !== "bus") return;
-    const target = byId.get(edge.target);
-    if (target === undefined) return;
-    const data = edge.data as { entryX?: number; laneY?: number } | undefined;
-    if (data?.laneY === undefined) return;
-    const riseX =
-      data.entryX ?? absoluteLeft(target, byId) - PORT_STUB - CHAMFER;
-    const key = Math.round(riseX) + "|" + Math.round(data.laneY);
-    const list = riseGroups.get(key) ?? [];
-    list.push({ index, id: edge.id });
-    riseGroups.set(key, list);
-  });
-  for (const list of riseGroups.values()) {
-    if (list.length < 2) continue;
-    list.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    list.forEach((m, rank) => riseStaggerByIndex.set(m.index, rank));
-  }
-
-  // Both remaining chip families share one collision set (`placed`), so a
+  // Both chip families share one collision set (`placed`), so a
   // midpoint chip and an entry chip at the same target no longer overlap. Entry
   // chips are placed FIRST as fixed obstacles: an entry chip is pinned to its
   // port and is never nudged, so the midpoint pass below routes its chips around
@@ -835,29 +867,19 @@ export function deconflictChipAnchors(
     placed.push([lx, ly + dy]);
   }
 
-  if (
-    riseStaggerByIndex.size === 0 &&
-    labelDyByIndex.size === 0 &&
-    entryDyByIndex.size === 0
-  ) {
+  if (labelDyByIndex.size === 0 && entryDyByIndex.size === 0) {
     return edges.map((e) => e);
   }
   return edges.map((edge, index) => {
-    const riseStagger = riseStaggerByIndex.get(index);
     const labelDy = labelDyByIndex.get(index);
     const entryChipDy = entryDyByIndex.get(index);
-    if (
-      riseStagger === undefined &&
-      labelDy === undefined &&
-      entryChipDy === undefined
-    ) {
+    if (labelDy === undefined && entryChipDy === undefined) {
       return edge;
     }
     return {
       ...edge,
       data: {
         ...edge.data,
-        ...(riseStagger !== undefined ? { riseStagger } : {}),
         ...(labelDy !== undefined ? { labelDy } : {}),
         ...(entryChipDy !== undefined ? { entryChipDy } : {}),
       },

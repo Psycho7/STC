@@ -250,6 +250,107 @@ describe("routeBusEdges", () => {
   });
 });
 
+function busChipXOf(edges: Edge[], id: string): number | undefined {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { busChipX?: number }
+    | undefined;
+  return d?.busChipX;
+}
+
+describe("routeBusEdges trunk rise-chip slots", () => {
+  const r = mkRecipe("r", ["a"], ["b"]);
+  const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+  const buildThreeMember = (): { nodes: RFAnyNode[]; edges: Edge[] } => ({
+    nodes: [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", far, 0, r),
+      recipeNode("t2", far, 300, r),
+      recipeNode("t3", far, 600, r),
+    ],
+    edges: [
+      mkEdge("e0", "s", "t1", "b"),
+      mkEdge("e1", "s", "t2", "b"),
+      mkEdge("e2", "s", "t3", "b"),
+    ],
+  });
+
+  it("distributes three members' rise chips across distinct, evenly spaced lane slots", () => {
+    const { nodes, edges } = buildThreeMember();
+    const out = routeBusEdges(nodes, edges);
+    const x0 = busChipXOf(out, "e0")!;
+    const x1 = busChipXOf(out, "e1")!;
+    const x2 = busChipXOf(out, "e2")!;
+    // Lane extent runs from the drop column (sourceRight 300 + stub + chamfer) to
+    // the members' shared rise column (targetLeft - stub - chamfer). With n = 3
+    // members the extent splits into n + 1 = 4 equal gaps and each slot sits at
+    // (i + 1)/4 of it, ordered by edge id.
+    const dropX = 300 + PORT_STUB + CHAMFER;
+    const maxRiseX = far - PORT_STUB - CHAMFER;
+    const step = (maxRiseX - dropX) / 4;
+    expect(x0).toBeCloseTo(dropX + step, 6);
+    expect(x1).toBeCloseTo(dropX + 2 * step, 6);
+    expect(x2).toBeCloseTo(dropX + 3 * step, 6);
+    // Distinct, evenly spaced, and strictly inside the extent so no rise chip
+    // ever lands on the aggregate drop chip at dropX.
+    expect(new Set([x0, x1, x2]).size).toBe(3);
+    expect(x1 - x0).toBeCloseTo(x2 - x1, 6);
+    for (const x of [x0, x1, x2]) {
+      expect(x).toBeGreaterThan(dropX);
+      expect(x).toBeLessThan(maxRiseX);
+    }
+  });
+
+  it("assigns slots deterministically across two identical runs", () => {
+    const { nodes, edges } = buildThreeMember();
+    const a = routeBusEdges(nodes, edges);
+    const b = routeBusEdges(nodes, edges);
+    for (const id of ["e0", "e1", "e2"]) {
+      expect(busChipXOf(a, id)).toBe(busChipXOf(b, id));
+    }
+  });
+
+  it("keeps the trunk aggregate on the owner while distributing rise slots", () => {
+    const { nodes, edges } = buildThreeMember();
+    const out = routeBusEdges(nodes, edges);
+    // Owner election and totals are untouched by the slot pass.
+    const owners = out.filter(
+      (e) => (e.data as { busChipOwner?: boolean }).busChipOwner,
+    );
+    expect(owners).toHaveLength(1);
+    expect(owners[0]!.id).toBe("e0");
+    const d = owners[0]!.data as {
+      busTotalRate?: Fraction;
+      busMemberCount?: number;
+    };
+    expect(d.busTotalRate!.equals(new Fraction(3))).toBe(true);
+    expect(d.busMemberCount).toBe(3);
+    // Every member still carries its own slot.
+    for (const id of ["e0", "e1", "e2"]) {
+      expect(busChipXOf(out, id)).toBeGreaterThan(0);
+    }
+  });
+
+  it("falls back to fixed 60px steps when the lane extent is too short", () => {
+    // Two input-product feeders sit almost adjacent, so the extent (negative
+    // here) cannot seat the members at >= 60px apart. Slots step off the drop
+    // side by a fixed 60px and may run past the rise column (accepted degenerate
+    // fallback).
+    const nodes: RFAnyNode[] = [
+      inputProductNode("agg", "ore", 0, 0), // right edge 148
+      inputProductNode("t1", "ore", 200, 0), // bothInput feeder -> bus
+      inputProductNode("t2", "ore", 200, 200),
+    ];
+    const edges = [
+      mkEdge("e0", "agg", "t1", "ore"),
+      mkEdge("e1", "agg", "t2", "ore"),
+    ];
+    const out = routeBusEdges(nodes, edges);
+    const dropX = 148 + PORT_STUB + CHAMFER; // 180
+    expect(busChipXOf(out, "e0")).toBeCloseTo(dropX + 60, 6);
+    expect(busChipXOf(out, "e1")).toBeCloseTo(dropX + 120, 6);
+  });
+});
+
 function bendOf(edges: Edge[], id: string): number | undefined {
   const d = edges.find((e) => e.id === id)?.data as
     | { bendX?: number }

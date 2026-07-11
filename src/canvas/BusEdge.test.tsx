@@ -77,35 +77,26 @@ test("routeBusEdges leaves a lone trunk member as its own owner with count 1", (
   expect(d.busTotalRate!.equals(new Fraction(400))).toBe(true);
 });
 
-test("deconflictChipAnchors staggers rise chips that share an anchor", () => {
-  // Two bus members feeding the same target on the same lane rise at the same
-  // column, so their rise chips coincide and must be staggered apart.
+test("routeBusEdges gives two members feeding one target distinct rise-chip slots", () => {
+  // Two bus members feeding the same far target would rise at the same column and
+  // stack their rise chips. routeBusEdges instead assigns each member a distinct
+  // lane x-slot, so their rise chips spread along the lane. Ordering is by edge
+  // id (e:1 before e:2).
   const nodes = [productNode("s", 0), productNode("t1", 5000)];
-  const laneY = 900;
-  const edges: Edge[] = [
-    {
-      id: "e:1",
-      source: "s",
-      target: "t1",
-      type: "bus",
-      data: { item: "water", rate: new Fraction(400), laneY, trunkKey: "water|s" },
-    },
-    {
-      id: "e:2",
-      source: "s",
-      target: "t1",
-      type: "bus",
-      data: { item: "water", rate: new Fraction(400), laneY, trunkKey: "water|s" },
-    },
+  const edges = [
+    busMemberEdge("e:1", "t1", new Fraction(400)),
+    busMemberEdge("e:2", "t1", new Fraction(400)),
   ];
-  const out = deconflictChipAnchors(nodes, edges);
-  const ranks = out.map(
-    (e) => (e.data as { riseStagger?: number }).riseStagger ?? 0,
+  const out = routeBusEdges(nodes, edges);
+  const slots = out.map(
+    (e) => (e.data as { busChipX?: number }).busChipX,
   );
-  // Distinct stagger indices, deterministically ordered by edge id.
-  expect(new Set(ranks).size).toBe(2);
-  expect(ranks).toContain(0);
-  expect(ranks).toContain(1);
+  for (const x of slots) expect(typeof x).toBe("number");
+  expect(new Set(slots).size).toBe(2);
+  const byId = new Map(
+    out.map((e) => [e.id, (e.data as { busChipX: number }).busChipX]),
+  );
+  expect(byId.get("e:1")!).toBeLessThan(byId.get("e:2")!);
 });
 
 test("deconflictChipAnchors nudges one of two coincident item midpoint chips", () => {

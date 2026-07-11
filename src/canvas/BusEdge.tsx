@@ -15,10 +15,6 @@ import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 // it leaves the shared trunk lane to rise into its target.
 const JUNCTION_RADIUS = 3;
 
-// Vertical step, in graph units, between rise chips that share an anchor. One
-// step is a bit more than a chip's own height so staggered chips never touch.
-const RISE_CHIP_STAGGER = 18;
-
 // BusEdge renders a bus-trunk member via chamferBusPath: exit the source
 // rightward, chamfer down into the shared lane, run along it, then chamfer up
 // (or down) at the rise column and enter the target with a final rightward stub.
@@ -90,9 +86,11 @@ export default function BusEdge({
       ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(totalRate)}${unit}${countMarker}`
       : "";
 
-  // Rise chip: each member draws its own, showing that member's share. Members
-  // sharing a rise anchor are staggered down the lane (riseStagger) so they
-  // never stack on top of one another.
+  // Rise chip: each member draws its own, showing that member's share. Its x is
+  // the trunk's evenly distributed lane slot (busChipX) so members feeding the
+  // same layer spread along the lane instead of stacking at a shared rise vertex;
+  // it falls back to the geometric rise column when the slot is absent (a
+  // manually built edge). The chip sits on the lane at laneY.
   const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
   const riseText = showChips && memberRateStr ? `${memberRateStr}${unit}` : "";
   const riseLabel =
@@ -103,7 +101,7 @@ export default function BusEdge({
     edgeData && memberRateStr
       ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(edgeData.rate)}${unit}`
       : "";
-  const riseY = laneY + (edgeData?.riseStagger ?? 0) * RISE_CHIP_STAGGER;
+  const riseChipX = edgeData?.busChipX ?? riseX;
 
   // One chip at the drop point (where the flow enters the trunk) and one at the
   // rise point (where it leaves toward the target). Both sit on the lane.
@@ -149,7 +147,7 @@ export default function BusEdge({
         ? renderChip("drop", dropX, laneY, dropText, dropLabel, dropTitle)
         : null}
       {riseText
-        ? renderChip("rise", riseX, riseY, riseText, riseLabel, riseTitle)
+        ? renderChip("rise", riseChipX, laneY, riseText, riseLabel, riseTitle)
         : null}
     </>
   );
