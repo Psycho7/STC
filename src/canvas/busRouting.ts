@@ -203,6 +203,44 @@ export function routeBusEdges(
     if (!trunks.has(trunkKey)) trunks.set(trunkKey, { item, source: edge.source });
   });
 
+  // Demote clear-corridor single-member FORWARD trunks back to plain item edges.
+  // A "would-be trunk with exactly one member" is only knowable after grouping,
+  // so this is a post-grouping pass; it runs BEFORE any lane / aggregate stamping
+  // below so no bus scaffolding leaks onto a demoted edge. A lone forward member
+  // (span > threshold) whose direct item-edge corridor is provably clear needs no
+  // lane detour: dropped from the bus set it flows on as a plain item edge, and
+  // assignBendColumns / jogForwardLegs route it directly. bothInput feeders are
+  // excluded -- they ride the bus to cross the whole graph, not for span -- and
+  // backward members keep the lane (their corridor is the rail shape, not this
+  // forward leg). Conservative: any unproven corridor keeps today's bus lane.
+  const memberIndicesByTrunk = new Map<string, number[]>();
+  trunkKeyByEdgeIndex.forEach((trunkKey, index) => {
+    const list = memberIndicesByTrunk.get(trunkKey) ?? [];
+    list.push(index);
+    memberIndicesByTrunk.set(trunkKey, list);
+  });
+  const singleMemberTrunks = [...memberIndicesByTrunk].filter(
+    ([, indices]) => indices.length === 1,
+  );
+  if (singleMemberTrunks.length > 0) {
+    const obstacles = paddedObstacles(nodes, edges);
+    for (const [trunkKey, indices] of singleMemberTrunks) {
+      const index = indices[0]!;
+      const edge = edges[index]!;
+      const source = byId.get(edge.source)!;
+      const target = byId.get(edge.target)!;
+      if (isInputProduct(source) && isInputProduct(target)) continue; // bothInput
+      if (nodeGap(source, target, byId) <= 0) continue; // forward only
+      if (
+        !forwardCorridorClear(source, target, edgeItem(edge), byId, obstacles)
+      ) {
+        continue; // corridor not provably clear -> keep the lane
+      }
+      trunkKeyByEdgeIndex.delete(index);
+      trunks.delete(trunkKey);
+    }
+  }
+
   if (trunkKeyByEdgeIndex.size === 0) return edges.map((e) => e);
 
   // Assign one lane slot per trunk. Sort by item id, then source id, so the
@@ -309,6 +347,55 @@ export function routeBusEdges(
       },
     };
   });
+}
+
+// Would a long forward edge's DIRECT (plain item-edge) corridor draw clear of
+// foreign cards? The item edge routes its final leg at the target-port y from
+// the bend column across to the target; on a long span that leg can slice an
+// intervening card. Mirror jogForwardLegs' clear test -- clearRailY on the leg's
+// y-band -- over the whole source->target extent, the most conservative bound
+// since the real bend column sits somewhere inside it. Own source / target cards
+// and gutters, plus each endpoint's container, are exempt (same semantics as
+// jogForwardLegs): the run legitimately starts / ends inside them. A clear result
+// means the edge needs no bus lane; anything unproven keeps the lane.
+function forwardCorridorClear(
+  source: RFAnyNode,
+  target: RFAnyNode,
+  item: string | undefined,
+  byId: ReadonlyMap<string, RFAnyNode>,
+  obstacles: ReadonlyArray<PaddedObstacle>,
+): boolean {
+  const sx = absoluteLeft(source, byId) + nodeWidth(source);
+  const tx = absoluteLeft(target, byId);
+  const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+  const exempt = new Set<string>([source.id, target.id]);
+  if (source.parentId !== undefined) exempt.add(source.parentId);
+  if (target.parentId !== undefined) exempt.add(target.parentId);
+  const foreign = obstacles.filter((o) => !exempt.has(o.nodeId));
+  // Final-leg y-band from just past the source port to one stub before the
+  // target port. clearRailY returns ty unchanged iff nothing foreign crosses it.
+  return clearRailY(ty, sx + PORT_STUB, tx - PORT_STUB, foreign) === ty;
+}
+
+// directCorridorClear: the corridor gate above, resolved from raw nodes / edges
+// for one edge. Exported for the edge-span census, which asserts every non-bus
+// edge spanning past the threshold has a provably clear direct corridor -- the
+// strictly stronger successor to "zero long non-bus edges" now that clear
+// single-member trunks are deliberately left as plain item edges. Missing
+// endpoints or a backward / zero gap read as not-clear.
+export function directCorridorClear(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+  edge: Edge,
+): boolean {
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+  const source = byId.get(edge.source);
+  const target = byId.get(edge.target);
+  if (source === undefined || target === undefined) return false;
+  if (nodeGap(source, target, byId) <= 0) return false;
+  const obstacles = paddedObstacles(nodes, edges);
+  return forwardCorridorClear(source, target, edgeItem(edge), byId, obstacles);
 }
 
 // -- Entry gutter -------------------------------------------------------------

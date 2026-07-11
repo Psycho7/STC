@@ -161,6 +161,9 @@ describe("routeBusEdges", () => {
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t", 0 + 300 + (BUS_SPAN_THRESHOLD + 50), 200, r),
+      // A card straddling the direct corridor at the target row, so the lone
+      // member is NOT demoted to a plain item edge (Task 12) and stays on a lane.
+      recipeNode("mid", 600, 200, r),
     ];
     const edges = [mkEdge("e0", "s", "t", "b")];
 
@@ -207,11 +210,15 @@ describe("routeBusEdges", () => {
     const rBanana = mkRecipe("rBanana", ["x"], ["banana"]);
     const far = 300 + (BUS_SPAN_THRESHOLD + 50);
     // Declare the banana source first to prove ordering is by item, not input.
+    // Each lone member's corridor is blocked at its own target row so both stay
+    // bus members (Task 12) instead of demoting to plain item edges.
     const nodes: RFAnyNode[] = [
       recipeNode("sBanana", 0, 0, rBanana),
       recipeNode("tBanana", far, 0, rBanana),
+      recipeNode("midBanana", 600, 0, rBanana),
       recipeNode("sApple", 0, 400, rApple),
       recipeNode("tApple", far, 400, rApple),
+      recipeNode("midApple", 600, 400, rApple),
     ];
     const edges = [
       mkEdge("e0", "sBanana", "tBanana", "banana"),
@@ -249,11 +256,15 @@ describe("routeBusEdges", () => {
     const rApple = mkRecipe("rApple", ["x"], ["apple"]);
     const rBanana = mkRecipe("rBanana", ["x"], ["banana"]);
     const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+    // Corridor blockers keep both lone members on the bus (Task 12) so this
+    // exercises deterministic lane assignment, not the demotion path.
     const nodes: RFAnyNode[] = [
       recipeNode("sBanana", 0, 0, rBanana),
       recipeNode("tBanana", far, 0, rBanana),
+      recipeNode("midBanana", 600, 0, rBanana),
       recipeNode("sApple", 0, 400, rApple),
       recipeNode("tApple", far, 400, rApple),
+      recipeNode("midApple", 600, 400, rApple),
     ];
     const edges = [
       mkEdge("e0", "sBanana", "tBanana", "banana"),
@@ -271,6 +282,128 @@ describe("routeBusEdges", () => {
     expect(project(routeBusEdges(nodes, edges))).toEqual(
       project(routeBusEdges(nodes, edges)),
     );
+  });
+});
+
+describe("routeBusEdges single-member demotion (9C)", () => {
+  const r = mkRecipe("r", ["a"], ["b"]);
+  const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+
+  it("demotes a lone clear-corridor forward trunk to a plain item edge", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 0, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t", "b")];
+
+    const out = routeBusEdges(nodes, edges);
+
+    // Stays type "item", passes through by reference, and carries no bus
+    // scaffolding: no lane, no trunk key, no rise-chip slot leaked on.
+    expect(out[0]!.type).toBe("item");
+    expect(out[0]).toBe(edges[0]);
+    expect(out[0]!.data).not.toHaveProperty("laneY");
+    expect(out[0]!.data).not.toHaveProperty("trunkKey");
+    expect(out[0]!.data).not.toHaveProperty("busChipX");
+    expect(out[0]!.data).not.toHaveProperty("busTotalRate");
+  });
+
+  it("keeps a lone member on the bus when a card blocks its corridor", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 0, r),
+      // Straddles the direct corridor at the target row.
+      recipeNode("mid", 600, 0, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t", "b")];
+
+    const out = routeBusEdges(nodes, edges);
+
+    expect(out[0]!.type).toBe("bus");
+    expect((out[0]!.data as { trunkKey?: string }).trunkKey).toBe("b|s");
+  });
+
+  it("leaves a two-member trunk on the bus even when both corridors are clear", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", far, 0, r),
+      recipeNode("t2", far, 400, r),
+    ];
+    const edges = [
+      mkEdge("e0", "s", "t1", "b"),
+      mkEdge("e1", "s", "t2", "b"),
+    ];
+
+    const out = routeBusEdges(nodes, edges);
+
+    // Same trunk (two members), so demotion never applies: both ride the lane.
+    expect(out[0]!.type).toBe("bus");
+    expect(out[1]!.type).toBe("bus");
+  });
+
+  it("leaves a lone bothInput feeder on the bus regardless of its corridor", () => {
+    // A long aggregate -> tap feeder: a single-member trunk whose corridor is
+    // clear, yet excluded from demotion because bothInput trunks ride the bus to
+    // cross the whole graph, not for span.
+    const bothFar = 148 + (BUS_SPAN_THRESHOLD + 50);
+    const nodes: RFAnyNode[] = [
+      inputProductNode("agg", "ore", 0, 0),
+      inputProductNode("tap", "ore", bothFar, 0),
+    ];
+    const edges = [mkEdge("e0", "agg", "tap", "ore")];
+
+    const out = routeBusEdges(nodes, edges);
+
+    expect(out[0]!.type).toBe("bus");
+    expect((out[0]!.data as { trunkKey?: string }).trunkKey).toBe("ore|agg");
+  });
+
+  it("demotes deterministically across two identical runs", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 0, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t", "b")];
+
+    const a = routeBusEdges(nodes, edges);
+    const b = routeBusEdges(nodes, edges);
+    expect(a[0]!.type).toBe("item");
+    expect(a[0]!.type).toBe(b[0]!.type);
+  });
+
+  it("routes a demoted member through the whole pipeline as a plain item edge", () => {
+    // End to end: a demoted single-member trunk must flow through every
+    // downstream pass as an item edge -- picking up bend-column treatment and no
+    // bus fields -- exactly like any other forward item edge.
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 100, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t", "b")];
+
+    const out = deconflictChipAnchors(
+      nodes,
+      clampBackwardRails(
+        nodes,
+        jogForwardLegs(
+          nodes,
+          assignBendColumns(
+            nodes,
+            clearBusColumns(
+              nodes,
+              assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    const e = out[0]!;
+    expect(e.type).toBe("item");
+    expect(e.data).not.toHaveProperty("laneY");
+    expect(e.data).not.toHaveProperty("busChipX");
+    // Got bend-column staggering as a plain forward item edge.
+    expect(e.data).toHaveProperty("bendX");
   });
 });
 
@@ -1162,6 +1295,9 @@ describe("clearBusColumns", () => {
       recipeNode("s", 0, 0, r),
       recipeNode("t", far, 0, r),
       inputProductNode("block", "ore", blockLeft, 300, 148, 78),
+      // A target-row card mid-corridor (clear of the drop / rise columns) keeps
+      // the lone member on the bus (Task 12) so the rise-clearance path runs.
+      recipeNode("corridor", 550, 0, r),
     ];
     const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]));
     const riseX = riseXOf(out, "e0");
@@ -1179,6 +1315,9 @@ describe("clearBusColumns", () => {
       recipeNode("s", 0, 0, r),
       recipeNode("t", far, 0, r),
       inputProductNode("block", "ore", blockLeft, 300, 148, 78),
+      // A target-row card mid-corridor (clear of the drop / rise columns) keeps
+      // the lone member on the bus (Task 12) so the drop-clearance path runs.
+      recipeNode("corridor", 550, 0, r),
     ];
     const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]));
     const dropX = dropXOf(out, "e0");
