@@ -68,6 +68,9 @@ type AuditData = {
   rows: RowCenter[];
   multPairs: MultPair[];
   recipeNodeCount: number;
+  // The React Flow pane's client rect: the visible viewport every chip must sit
+  // inside at fit zoom (the camera-fit content-bounds assertion).
+  containerRect: { x: number; y: number; right: number; bottom: number };
 };
 
 async function waitForCanvasReady(page: Page): Promise<void> {
@@ -163,7 +166,20 @@ function collectAudit(): AuditData {
     }
   }
 
-  return { chips, rows, multPairs, recipeNodeCount: recipeNodes.length };
+  const rf = document.querySelector<HTMLElement>(".react-flow");
+  const rfRect = rf!.getBoundingClientRect();
+  return {
+    chips,
+    rows,
+    multPairs,
+    recipeNodeCount: recipeNodes.length,
+    containerRect: {
+      x: rfRect.x,
+      y: rfRect.y,
+      right: rfRect.right,
+      bottom: rfRect.bottom,
+    },
+  };
 }
 
 // Strict interpenetration on both axes, beyond the abutment epsilon.
@@ -196,7 +212,7 @@ test.describe("DOM geometry audit", () => {
       await page.evaluate(() => document.fonts.ready.then(() => undefined));
       await waitForStableViewport(page);
 
-      const { chips, rows, multPairs, recipeNodeCount } =
+      const { chips, rows, multPairs, recipeNodeCount, containerRect } =
         await page.evaluate(collectAudit);
 
       // (a) Zero pairwise chip overlaps. Collect the full inventory so one run
@@ -212,6 +228,31 @@ test.describe("DOM geometry audit", () => {
                 `overlap ${hit.dx.toFixed(1)}x${hit.dy.toFixed(1)}px`,
             );
           }
+        }
+      }
+
+      // (a2) Every chip sits inside the visible pane at fit zoom. fitBounds
+      // frames the node cards PLUS the seated chip extents (contentBounds), so a
+      // chip cascaded below the deepest lane band or nudged past a card edge is
+      // inside the viewport instead of clipped at the rim. A chip whose box pokes
+      // past any container edge by more than the epsilon is clipped.
+      const clipped: string[] = [];
+      for (const c of chips) {
+        const dxOut = Math.max(
+          containerRect.x - c.x,
+          c.right - containerRect.right,
+        );
+        const dyOut = Math.max(
+          containerRect.y - c.y,
+          c.bottom - containerRect.bottom,
+        );
+        if (dxOut > OVERLAP_EPS_PX || dyOut > OVERLAP_EPS_PX) {
+          clipped.push(
+            `"${c.label}" ${fmtRect(c)} pokes past the pane ` +
+              `[${containerRect.x.toFixed(1)},${containerRect.y.toFixed(1)} ` +
+              `${containerRect.right.toFixed(1)}x${containerRect.bottom.toFixed(1)}] ` +
+              `by ${Math.max(0, dxOut).toFixed(1)}x${Math.max(0, dyOut).toFixed(1)}px`,
+          );
         }
       }
 
@@ -264,6 +305,10 @@ test.describe("DOM geometry audit", () => {
       expect(
         overlaps,
         `${scenario.id}: ${overlaps.length} chip overlap(s) among ${chips.length} chips:\n${overlaps.join("\n")}`,
+      ).toEqual([]);
+      expect(
+        clipped,
+        `${scenario.id}: ${clipped.length} chip(s) clipped outside the pane among ${chips.length} chips:\n${clipped.join("\n")}`,
       ).toEqual([]);
     });
   }
@@ -340,13 +385,23 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 //     coincident parallel edges and shared bus lanes cannot separate along one
 //     shared line, and card-hardness can push the escape past every on-line
 //     candidate; the seat stays as near the line as the hard pair allows.
+// default (0 -> 2), multi6 (0 -> 3), and battery5-xiranite (0 -> 7) rose with the
+// P4 aggregate-chip work: the owner's aggregate chip is now exempt from the
+// label zoom gate (visible at fit), and it seats on the SHARED TRUNK (never the
+// private branch leg). On the trunk near the source, its wide box grazes the
+// source's OTHER output line (e.g. the sewage surplus feed) -- a foreign flow
+// line passing under a chip box, the softest and already-ratcheted residue of
+// this tier. Before, the aggregate hid down on a branch leg away from those
+// lines (count 0); the ratified "aggregate on the trunk" placement trades that
+// for the graze. The hard tiers (chip overlaps, chip-vs-card, and the
+// clipped-chip gate) stay zero.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
-  default: 0,
+  default: 2,
   battery5: 29,
-  "battery5-xiranite": 0,
+  "battery5-xiranite": 7,
   crystal: 0,
   equip4: 4,
-  multi6: 0,
+  multi6: 3,
   tundra: 1,
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
