@@ -9,6 +9,7 @@ import {
   chamferStepPath,
   chamferBusPath,
   pathMidpoint,
+  pathPointAt,
   routingHintsFromData,
   PORT_STUB,
   CHAMFER,
@@ -24,6 +25,31 @@ describe("pathMidpoint", () => {
     // Two segments of length 10 and 30: half of 40 lands 10 into the second
     // segment, at (10, 10).
     expect(pathMidpoint("M 0,0 L 10,0 L 10,30")).toEqual([10, 10]);
+  });
+});
+
+describe("pathPointAt", () => {
+  // Two segments of length 10 (horizontal) then 30 (vertical); total 40. The
+  // chip-slide pass reads off-midpoint fractions to move a blocked label along
+  // its own line, so the interpolation must be exact and clamp out of range.
+  const D = "M 0,0 L 10,0 L 10,30";
+  it("returns the first vertex at frac 0", () => {
+    expect(pathPointAt(D, 0)).toEqual([0, 0]);
+  });
+  it("lands exactly on the shared vertex when the fraction hits a seg boundary", () => {
+    // 0.25 of 40 = 10 = the whole first segment, so the point is the corner.
+    expect(pathPointAt(D, 0.25)).toEqual([10, 0]);
+  });
+  it("interpolates within the covering segment", () => {
+    // 0.5 of 40 = 20; 10 covers the first segment, the remaining 10 runs 10
+    // down the 30-long vertical: (10, 10).
+    expect(pathPointAt(D, 0.5)).toEqual([10, 10]);
+  });
+  it("clamps a fraction past 1 to the final vertex", () => {
+    expect(pathPointAt(D, 2)).toEqual([10, 30]);
+  });
+  it("clamps a negative fraction to the first vertex", () => {
+    expect(pathPointAt(D, -1)).toEqual([0, 0]);
   });
 });
 
@@ -66,22 +92,18 @@ describe("chamferStepPath", () => {
       bendX: 60,
     });
     expect(d).toBe("M 0,0 L 52,0 L 60,8 L 60,92 L 68,100 L 200,100");
-    // Label anchor at 50% of cumulative length. Segments: 52, 8*sqrt(2), 84,
-    // 8*sqrt(2), 132; total ~290.63, half ~145.31. Cumulative through the top
-    // chamfer is ~63.31, so the anchor lands 82 into the 84-long vertical run:
-    // x = 60 (the bend column), y = 8 + 82 = 90.
+    // Clear-segment anchor: the bend-column vertical (x = bendX = 60) at its run
+    // midpoint y = (sourceY + targetY) / 2 = 50, on the segment 60,8 -> 60,92.
     expect(lx).toBe(60);
-    expect(ly).toBe(90);
+    expect(ly).toBe(50);
     expectRightwardFinish(d);
   });
 
-  it("anchors the label on the target-side horizontal when the bend is early", () => {
-    // bendX 100 pushes the bend far left of the 600-wide corridor, so more
-    // than half the path length lies on the target-side horizontal rail.
-    // Path: M 0,0 L 92,0 L 100,8 L 100,32 L 108,40 L 600,40. Segments: 92,
-    // 8*sqrt(2), 24, 8*sqrt(2), 492; total ~630.63, half ~315.31. Cumulative
-    // through the bottom chamfer is ~138.63, so the anchor lands ~176.69 into
-    // the final rail: x = 108 + 176.69 = 284.69, y = 40 (the target level).
+  it("anchors the label on the bend-column vertical even when the bend is early", () => {
+    // bendX 100 pushes the bend far left of the 600-wide corridor, so the old
+    // geometric midpoint drifted onto the long target-side horizontal rail
+    // (crossing card rows). The clear-segment anchor stays on the bend vertical
+    // (x = 100) at its run midpoint y = (0 + 40) / 2 = 20, on 100,8 -> 100,32.
     const [d, lx, ly] = chamferStepPath({
       sourceX: 0,
       sourceY: 0,
@@ -90,8 +112,8 @@ describe("chamferStepPath", () => {
       bendX: 100,
     });
     expect(d).toBe("M 0,0 L 92,0 L 100,8 L 100,32 L 108,40 L 600,40");
-    expect(lx).toBe(284.69);
-    expect(ly).toBe(40);
+    expect(lx).toBe(100);
+    expect(ly).toBe(20);
     expectRightwardFinish(d);
   });
 
@@ -134,9 +156,11 @@ describe("chamferStepPath", () => {
     expect(d).toBe(
       "M 200,0 L 216,0 L 224,8 L 224,42 L 216,50 L -16,50 L -24,58 L -24,92 L -16,100 L 0,100",
     );
-    // Label on the detour rail midpoint, finite.
-    expect(lx).toBe(100);
-    expect(ly).toBe(50);
+    // Clear-segment anchor: the source-side rail vertical (xr = sx + PORT_STUB =
+    // 224) at its run midpoint y = (sourceY + railY) / 2 = (0 + 50) / 2 = 25, on
+    // the segment 224,8 -> 224,42.
+    expect(lx).toBe(224);
+    expect(ly).toBe(25);
     expect(Number.isFinite(lx)).toBe(true);
     expect(Number.isFinite(ly)).toBe(true);
     expectRightwardFinish(d);
@@ -157,11 +181,11 @@ describe("chamferStepPath", () => {
     expect(d).toBe(
       "M 200,0 L 216,0 L 224,8 L 224,42 L 216,50 L -32,50 L -40,58 L -40,92 L -32,100 L 0,100",
     );
-    // Label anchor at 50% of cumulative length, on the leftward detour rail.
-    // entryX lengthens the final target stub to 32 (vs 16 out of the source),
-    // so the length midpoint sits at x = 84, left of the column midpoint 92.
-    expect(lx).toBe(84);
-    expect(ly).toBe(50);
+    // Clear-segment anchor: the source-side rail vertical (xr = 224). entryX
+    // only moves the LEFT rail column, so the source-side anchor is unchanged
+    // from the no-hint case: (224, 25).
+    expect(lx).toBe(224);
+    expect(ly).toBe(25);
     expectRightwardFinish(d);
   });
 
@@ -303,6 +327,40 @@ describe("chamferStepPath", () => {
     const leftCol = pts.slice(4, 7).map((p) => p.y); // railY, apex, ty
     expect(isMonotonic(rightCol)).toBe(true);
     expect(isMonotonic(leftCol)).toBe(true);
+    expectRightwardFinish(d);
+  });
+
+  it("replaces the bend column with srcColX and anchors on that vertical", () => {
+    // srcColX (jogForwardLegs, blocked source leg) replaces the bend column
+    // outright. The forward step leaves sy at srcColX = 40, and the clear
+    // segment anchor rides that vertical at its run midpoint (0 + 100) / 2 = 50.
+    const [d, lx, ly] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      srcColX: 40,
+    });
+    expect(d).toBe("M 0,0 L 32,0 L 40,8 L 40,92 L 48,100 L 200,100");
+    expect(lx).toBe(40);
+    expect(ly).toBe(50);
+    expectRightwardFinish(d);
+  });
+
+  it("uses srcColX UNCLAMPED, past the corridor margin", () => {
+    // The default bend clamps to [sx+stub+chamfer, tx-stub-chamfer] = [32, 168].
+    // srcColX = 10 sits left of that margin; the routing pass proved it clear, so
+    // it must be used as-is, not clamped back to 32. The bend vertical (and its
+    // anchor) land at x = 10.
+    const [d, lx] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      srcColX: 10,
+    });
+    expect(d).toBe("M 0,0 L 2,0 L 10,8 L 10,92 L 18,100 L 200,100");
+    expect(lx).toBe(10);
     expectRightwardFinish(d);
   });
 });

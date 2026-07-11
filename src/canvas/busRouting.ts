@@ -1746,6 +1746,19 @@ const CHIP_NUDGE_STEP = CHIP_PITCH_Y;
 // their half-extents on BOTH axes.
 type ChipBox = { x: number; y: number; halfW: number; halfH: number };
 
+// The target's entry band: the gutter just left of a consumer's card where its
+// arriving lines converge on the Left port. A rate chip whose centre sits in
+// this band is part of the arrival cluster -- it names a line entering here, so
+// it may rest among its siblings' final approaches; one out on the corridor is
+// not, so it must clear a sibling's line like any foreign flow. Built from the
+// same OBSTACLE_PAD_LEFT / OBSTACLE_PAD_Y overhangs paddedObstacles reserves, so
+// the band matches the padded card's left overhang by construction.
+type EntryBand = { left: number; right: number; top: number; bottom: number };
+
+function centreInBand(x: number, y: number, band: EntryBand): boolean {
+  return x >= band.left && x <= band.right && y >= band.top && y <= band.bottom;
+}
+
 function chipBoxesOverlap(a: ChipBox, b: ChipBox): boolean {
   return (
     Math.abs(a.x - b.x) < a.halfW + b.halfW &&
@@ -1835,16 +1848,25 @@ function cascadeClearDy(
   ownFlowKey: string,
   ownTarget = "",
   maxSteps: number = CHIP_SEAT_MAX_STEPS,
+  entryBand?: EntryBand,
 ): number | null {
-  const segBlocked = (box: ChipBox): boolean =>
-    obstacles.some(
+  // Arrival-cluster exemption (narrowed for 3a): a same-target sibling's line is
+  // skipped only while the chip box's centre sits inside the target's entry
+  // band. With no band (bus / entry seats) the exemption stays unconditional, as
+  // before. Out on the corridor a same-target sibling is a foreign line the chip
+  // must clear, so the exemption no longer masks a rate chip lying across it.
+  const segBlocked = (box: ChipBox): boolean => {
+    const clusterExempt =
+      entryBand === undefined || centreInBand(box.x, box.y, entryBand);
+    return obstacles.some(
       (e) =>
         e.flowKey !== ownFlowKey &&
-        e.target !== ownTarget &&
+        (!clusterExempt || e.target !== ownTarget) &&
         e.segs.some(([x0, y0, x1, y1]) =>
           segIntersectsChipBox(x0, y0, x1, y1, box),
         ),
     );
+  };
   let dy = 0;
   for (let steps = 0; steps <= maxSteps; steps++) {
     const box = { x, y: y + dy, halfW, halfH };
@@ -1866,6 +1888,7 @@ function seatChip(
   obstacles: ReadonlyArray<EdgeSegments> = [],
   ownFlowKey = "",
   ownTarget = "",
+  entryBand?: EntryBand,
 ): number {
   const clear = cascadeClearDy(
     placed,
@@ -1877,6 +1900,8 @@ function seatChip(
     obstacles,
     ownFlowKey,
     ownTarget,
+    CHIP_SEAT_MAX_STEPS,
+    entryBand,
   );
   if (clear !== null) {
     placed.push({ x, y: y + clear, halfW, halfH });
@@ -1938,6 +1963,35 @@ function portOffsetY(
     }
   }
   return nodeHeight(node) / 2;
+}
+
+// Cumulative arc-length of point (x, y) along the parsed polyline. The point is
+// on exactly one segment by construction (a clear-segment anchor is a segment
+// midpoint), so this returns the length from the path start to it. Falls back to
+// the half-length when the point matches no segment (never expected).
+function lengthAtPoint(
+  pts: ReadonlyArray<readonly [number, number]>,
+  x: number,
+  y: number,
+): number {
+  let acc = 0;
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    total += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+  }
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1]!;
+    const [x1, y1] = pts[i]!;
+    const segLen = Math.hypot(x1 - x0, y1 - y0);
+    const cross = (x1 - x0) * (y - y0) - (y1 - y0) * (x - x0);
+    const withinX = x >= Math.min(x0, x1) - 1 && x <= Math.max(x0, x1) + 1;
+    const withinY = y >= Math.min(y0, y1) - 1 && y <= Math.max(y0, y1) + 1;
+    if (Math.abs(cross) < 1 && withinX && withinY) {
+      return acc + Math.hypot(x - x0, y - y0);
+    }
+    acc += segLen;
+  }
+  return total / 2;
 }
 
 export function deconflictChipAnchors(
@@ -2173,20 +2227,45 @@ export function deconflictChipAnchors(
     if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
   }
 
-  // Item midpoint chips: reconstruct each item edge's label anchor from node
+  // Item rate chips: reconstruct each item edge's clear-segment anchor from node
   // geometry (via the same chamferStepPath the component draws, threading the
-  // same bendX / entryX / railY hints so a backward edge's chip lands on its
-  // detour rail exactly as ItemEdge renders it) and greedily nudge a chip down
-  // when it collides with one already placed (an entry, bus, or earlier midpoint
-  // box) or with a foreign flow's line. When the downward cascade cannot clear
-  // (a dense corridor of long foreign verticals blocks every step to the cap),
-  // the chip instead slides ALONG ITS OWN LINE to the nearest clear fraction of
-  // the polyline (labelDx + labelDy off the midpoint anchor), staying attached
-  // to the flow it labels rather than floating away vertically. Backward edges
-  // are included, not skipped: ItemEdge draws their rate chip on the rail too,
-  // and two rails sharing a clamped y stack their chips on top of one another
-  // without this pass. Ordering by edge id keeps the placement deterministic.
-  const LABEL_SLIDE_FRACS = [0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82];
+  // same bendX / entryX / railY hints so the chip lands exactly where ItemEdge
+  // renders it) then seat it by SLIDING ALONG ITS OWN POLYLINE (2B / P3): the
+  // anchor first, then points at growing arc-length offsets either way from it,
+  // nearest first. Because every candidate is a point on the drawn line, the
+  // chip NEVER leaves its own flow -- no vertical cascade off onto blank canvas.
+  // On a vertical corridor leg the near offsets simply walk the chip up or down
+  // that leg (still on the line), clearing a crossing foreign horizontal; only a
+  // heavily crowded corridor pushes the chip out toward a bend. The first
+  // candidate clear of every placed box AND every foreign flow's line (with the
+  // arrival-cluster exemption narrowed to the entry band, 3a) wins; when none
+  // clears within the cap the chip stays on its anchor (on its line, possibly
+  // overlapping -- a structurally pinned chip, reported by the audit rather than
+  // flung off the flow it labels). Ordering by edge id keeps it deterministic.
+  const SLIDE_STEP = CHIP_NUDGE_STEP / 2;
+  const SLIDE_MAX_STEPS = 48;
+  // Cap on the off-line vertical nudge used only when no on-line seat clears
+  // (coincident parallel edges, a shared bus lane, or a dense pin). Bounds how
+  // far a chip may leave its own line so a pinned chip stays a step or two off,
+  // never flung across the canvas.
+  const NUDGE_CAP_STEPS = 3;
+  // Raw card rects the slide steers a chip's box clear of, so a rate chip does
+  // not settle on top of a foreign node. Only recipe / product cards are avoided
+  // (group containers legitimately enclose their members' chips); the chip's own
+  // source and target are exempt, as they are for the segment audit.
+  const avoidCards = nodes
+    .filter((n) => n.type === "recipe" || n.type === "product")
+    .map((n) => {
+      const left = absoluteLeft(n, byId);
+      const top = absoluteTop(n, byId);
+      return {
+        id: n.id,
+        left,
+        top,
+        right: left + nodeWidth(n),
+        bottom: top + nodeHeight(n),
+      };
+    });
   const labelDyByIndex = new Map<number, number>();
   const labelDxByIndex = new Map<number, number>();
   const items = edges
@@ -2212,38 +2291,46 @@ export function deconflictChipAnchors(
       ...routingHintsFromData(edge.data),
     });
     const flowKey = flowKeyOf(edge);
-    // Near seat first: a few pitch steps off the midpoint. Past that the chip
-    // detaches visually from its line, so the along-line slide below takes
-    // priority over a deep vertical cascade.
-    const NEAR_STEPS = 4;
-    const dy = cascadeClearDy(
-      placed,
-      lx,
-      ly,
-      CHIP_HALF_W_WIDE,
-      CHIP_HALF_H,
-      CHIP_NUDGE_STEP,
-      edgeSegments,
-      flowKey,
-      edge.target,
-      NEAR_STEPS,
+    // Target entry band: the padded-left gutter of the consumer card, mirroring
+    // paddedObstacles' overhangs. The arrival-cluster exemption holds only while
+    // the chip's centre sits here (3a).
+    const targetTop = absoluteTop(target, byId);
+    const entryBand: EntryBand = {
+      left: tx - OBSTACLE_PAD_LEFT,
+      right: tx,
+      top: targetTop - OBSTACLE_PAD_Y,
+      bottom: targetTop + nodeHeight(target) + OBSTACLE_PAD_Y,
+    };
+    const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
+      (m) => [Number(m[1]), Number(m[2])] as const,
     );
-    if (dy !== null) {
-      placed.push({
-        x: lx,
-        y: ly + dy,
-        halfW: CHIP_HALF_W_WIDE,
-        halfH: CHIP_HALF_H,
-      });
-      if (dy !== 0) labelDyByIndex.set(index, dy);
-      continue;
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) {
+      total += Math.hypot(
+        pts[i]![0] - pts[i - 1]![0],
+        pts[i]![1] - pts[i - 1]![1],
+      );
     }
-    // Near seat blocked: slide along the polyline, nearest-to-midpoint
-    // fraction first, taking the first clean on-line anchor.
-    let seated = false;
-    for (const frac of LABEL_SLIDE_FRACS) {
-      const [px, py] = pathPointAt(d, frac);
-      const at = cascadeClearDy(
+    const anchorLen = lengthAtPoint(pts, lx, ly);
+    const hitsCard = (px: number, py: number): boolean => {
+      const l = px - CHIP_HALF_W_WIDE;
+      const r = px + CHIP_HALF_W_WIDE;
+      const t = py - CHIP_HALF_H;
+      const b = py + CHIP_HALF_H;
+      return avoidCards.some(
+        (c) =>
+          c.id !== edge.source &&
+          c.id !== edge.target &&
+          Math.min(r, c.right) - Math.max(l, c.left) > 0.5 &&
+          Math.min(b, c.bottom) - Math.max(t, c.top) > 0.5,
+      );
+    };
+    // A candidate is clear when it clears every placed chip box, every foreign
+    // flow line (arrival cluster narrowed to the entry band), AND every foreign
+    // card box.
+    const isClear = (px: number, py: number): boolean =>
+      !hitsCard(px, py) &&
+      cascadeClearDy(
         placed,
         px,
         py,
@@ -2253,23 +2340,45 @@ export function deconflictChipAnchors(
         edgeSegments,
         flowKey,
         edge.target,
-      );
-      if (at !== 0) continue; // only a clean on-line seat; nudges stay at 0.5
+        0,
+        entryBand,
+      ) === 0;
+    // Slide along the line, nearest-first, taking the first clear point.
+    let seatX = lx;
+    let seatY = ly;
+    let found = false;
+    for (let k = 0; k <= SLIDE_MAX_STEPS && !found; k++) {
+      const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
+      for (const delta of deltas) {
+        const len = anchorLen + delta;
+        if (len < 0 || len > total) continue;
+        const [px, py] = pathPointAt(d, total === 0 ? 0 : len / total);
+        if (isClear(px, py)) {
+          seatX = px;
+          seatY = py;
+          found = true;
+          break;
+        }
+      }
+    }
+    if (found) {
       placed.push({
-        x: px,
-        y: py,
+        x: seatX,
+        y: seatY,
         halfW: CHIP_HALF_W_WIDE,
         halfH: CHIP_HALF_H,
       });
-      if (px !== lx) labelDxByIndex.set(index, px - lx);
-      if (py !== ly) labelDyByIndex.set(index, py - ly);
-      seated = true;
-      break;
+      if (seatX !== lx) labelDxByIndex.set(index, seatX - lx);
+      if (seatY !== ly) labelDyByIndex.set(index, seatY - ly);
+      continue;
     }
-    if (seated) continue;
-    // No clean on-line seat: deep vertical cascade at the midpoint, then the
-    // chips-only cascade (the pre-segment behaviour, no worse than before).
-    const fallbackDy = seatChip(
+    // Nothing on the line clears. Two coincident parallel edges, or a chip on a
+    // shared bus lane, cannot separate along the line (their lines overlap), and
+    // a chip pinned in a dense weave has no clear point on its own polyline.
+    // First try a SHORT vertical nudge off the anchor that still clears the
+    // foreign lines (cap NUDGE_CAP_STEPS) so a parallel edge's chip lifts a step
+    // or two and stays readable.
+    const nudge = cascadeClearDy(
       placed,
       lx,
       ly,
@@ -2279,8 +2388,34 @@ export function deconflictChipAnchors(
       edgeSegments,
       flowKey,
       edge.target,
+      NUDGE_CAP_STEPS,
+      entryBand,
     );
-    if (fallbackDy !== 0) labelDyByIndex.set(index, fallbackDy);
+    if (nudge !== null) {
+      placed.push({
+        x: lx,
+        y: ly + nudge,
+        halfW: CHIP_HALF_W_WIDE,
+        halfH: CHIP_HALF_H,
+      });
+      if (nudge !== 0) labelDyByIndex.set(index, nudge);
+      continue;
+    }
+    // Last resort: cascade against CHIPS ONLY (no obstacles), which always finds
+    // the nearest y where no two chips overlap. Two chips stacked unreadably is
+    // the worst defect, so this guarantee is absolute -- at the cost of the chip
+    // grazing a foreign line (ratcheted) and sitting off its own polyline. The
+    // chips-only cascade stays near (chips are sparse vertically), never flung
+    // hundreds of px the way a segment cascade through a dense bundle would be.
+    const dy = seatChip(
+      placed,
+      lx,
+      ly,
+      CHIP_HALF_W_WIDE,
+      CHIP_HALF_H,
+      CHIP_NUDGE_STEP,
+    );
+    if (dy !== 0) labelDyByIndex.set(index, dy);
   }
 
   if (

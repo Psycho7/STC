@@ -253,10 +253,20 @@ export function pathMidpoint(d: string): [number, number] {
 
 // chamferStepPath: forward step, small-dy diagonal, narrow-gap degradation, and
 // backward S/C detour, all sharing the same chamfer convention. Returns the SVG
-// path plus the label anchor at the geometric midpoint of the drawn polyline
-// (50% of cumulative length, via pathMidpoint), so the chip always sits on the
-// line it labels. The final segment is always a rightward horizontal into
-// target.
+// path plus the label anchor on the polyline's PREFERRED CLEAR SEGMENT (2B): a
+// forward step anchors on its bend-column vertical (or, when the final leg is
+// jogged around a card, on the jog-descent vertical), a backward detour on its
+// source-side rail vertical, and the degenerate shapes with no vertical (a
+// same-rail straight line or a small-dy diagonal) fall back to the geometric
+// midpoint. The corridor legs are vertically long and horizontally clear, so a
+// chip there sits off the card rows the target-side horizontal midpoint used to
+// cross, and a downward de-confliction nudge slides ALONG the vertical, keeping
+// the chip on its own line. Every returned anchor lies on the drawn polyline.
+// The final segment is always a rightward horizontal into target.
+//
+// The anchor is derived from the SAME branch geometry that builds the `d` (the
+// bend column bx, the jog descentX, the rail column xr are all in hand), never
+// re-parsed, so render and reconstruction agree by construction.
 //
 // New routing hint? Thread it through RoutingHints (and routingHintsFromData)
 // so render and deconflictChipAnchors stay in lockstep.
@@ -319,9 +329,12 @@ export function chamferStepPath(
       chamferColumn(xr, sy, railY, CHAMFER, -1, -1) +
       chamferColumn(xl, railY, ty, CHAMFER, 1, 1) +
       ` L ${r(tx)},${r(ty)}`;
-    // Anchor at the length midpoint; on a typical detour (long leftward rail,
-    // short end columns) that puts the label on the rail.
-    return [d, ...pathMidpoint(d)];
+    // Clear-segment anchor: the source-side detour vertical (xr) run midpoint.
+    // The chip rides this vertical corridor leg instead of the leftward rail, so
+    // a downward de-confliction nudge slides it ALONG the vertical (staying on
+    // its own line) and it sits on the clean source side, clear of the target's
+    // entry gutter where the arrival chips crowd.
+    return [d, r(xr), r((sy + railY) / 2)];
   }
 
   // Forward. Scale the stub+chamfer budget down proportionally when the gap is
@@ -373,13 +386,19 @@ export function chamferStepPath(
       chamferColumn(bx, sy, args.legY, chamfer) +
       chamferColumn(descentX, args.legY, ty, chamfer) +
       ` L ${r(tx)},${r(ty)}`;
-    return [jog, ...pathMidpoint(jog)];
+    // Clear-segment anchor: the jog-descent vertical (descentX) run midpoint --
+    // the corridor leg carrying the edge down into the target after the leg has
+    // cleared the intervening card.
+    return [jog, r(descentX), r((args.legY + ty) / 2)];
   }
   const d =
     `M ${r(sx)},${r(sy)}` +
     chamferColumn(bx, sy, ty, chamfer) +
     ` L ${r(tx)},${r(ty)}`;
-  return [d, ...pathMidpoint(d)];
+  // Clear-segment anchor: the bend-column vertical (bx) run midpoint. The old
+  // geometric midpoint often landed on the target-side horizontal, which cuts
+  // across foreign card rows; this vertical corridor leg is clear of them.
+  return [d, r(bx), r((sy + ty) / 2)];
 }
 
 // chamferBusPath: a bus-trunk member. Exits the source rightward, chamfers down

@@ -15,7 +15,6 @@ import {
   LANE_SPACING,
 } from "../../src/canvas/busRouting";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
-import { chamferStepPath } from "../../src/canvas/edgePath";
 import { entryChipAnchor } from "../../src/canvas/ItemEdge";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
@@ -49,6 +48,13 @@ function labelDyOf(edges: Edge[], id: string): number {
     | { labelDy?: number }
     | undefined;
   return d?.labelDy ?? 0;
+}
+
+function labelDxOf(edges: Edge[], id: string): number {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { labelDx?: number }
+    | undefined;
+  return d?.labelDx ?? 0;
 }
 
 function entryDyOf(edges: Edge[], id: string): number {
@@ -142,58 +148,51 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
 });
 
 describe("deconflictChipAnchors: reconstruction tripwires", () => {
-  it("reconstructs a backward edge's rail anchor exactly as the render args do", () => {
-    // A backward edge (source right of target) carries a threaded railY. The
-    // expected midpoint anchor is computed HERE with chamferStepPath on the same
-    // args ItemEdge renders with; a forward edge is then laid out so its own
-    // straight-line midpoint sits exactly on that anchor. The forward edge (id
-    // "a:...") seats first, so the backward chip is nudged one pitch iff the
-    // pass reconstructed its anchor at the same spot -- if the reconstruction
-    // dropped railY (or mirrored the path builder wrongly) the anchors diverge
-    // and no nudge fires. The cheapest render-vs-reconstruction drift detector.
-    const railY = 400;
-    // Backward pair: source right edge 600, target left edge 0, both port
-    // centers at y = 200.
-    const bwdSource = productNode("bs", 500, 170, 100, 60);
-    const bwdTarget = productNode("bt", 0, 170, 100, 60);
-    const [, ex, ey] = chamferStepPath({
-      sourceX: 600,
-      sourceY: 200,
-      targetX: 0,
-      targetY: 200,
-      railY,
-    });
-    expect(ey).toBe(railY); // the anchor sits on the threaded rail
-    // Forward pair whose straight-line midpoint is exactly (ex, ey).
-    const fwdSource = productNode("fs", ex - 150, ey - 30, 100, 60);
-    const fwdTarget = productNode("ft", ex + 50, ey - 30, 100, 60);
-    const nodes: RFAnyNode[] = [bwdSource, bwdTarget, fwdSource, fwdTarget];
-    const edges: Edge[] = [
-      {
-        id: "a:fwd",
-        source: "fs",
-        target: "ft",
-        type: "item",
-        data: { item: "w", rate: new Fraction(1) },
-      },
-      {
-        id: "z:bwd",
-        source: "bs",
-        target: "bt",
-        type: "item",
-        data: { item: "w", rate: new Fraction(1), railY },
-      },
-    ];
-    const out = deconflictChipAnchors(nodes, edges);
-    // a:fwd seats first but now dodges the backward RAIL SEGMENT at railY --
-    // itself the reconstruction tripwire: the dodge only fires if the pass
-    // rebuilt z:bwd's path WITH the threaded railY crossing this anchor.
-    expect(labelDyOf(out, "a:fwd")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
-    // z:bwd's chip clears a:fwd's straight line (one pitch) and then a:fwd's
-    // displaced chip (a second pitch).
-    expect(labelDyOf(out, "z:bwd")).toBe(
-      2 * (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT),
-    );
+  it("reconstructs a backward edge's rail vertical exactly as the render args do", () => {
+    // Reconstruction-fidelity tripwire with a negative control. A wide forward
+    // edge (a:fwd) is laid out so its clear-segment anchor sits exactly where a
+    // backward edge's (z:bwd) source-side rail VERTICAL runs -- but only when the
+    // threaded railY stretches that vertical down to the anchor's y. a:fwd seats
+    // first: if the pass rebuilt z:bwd's path WITH railY, a:fwd's anchor lands on
+    // the reconstructed vertical and the chip slides along its own line to clear
+    // it (labelDx set). WITHOUT railY the backward rail collapses to its short
+    // default far from the anchor, a:fwd is clear, and no slide fires. The
+    // presence/absence of the slide is the drift detector.
+    const build = (withRail: boolean): Edge[] => {
+      const bwdSource = productNode("bs", 500, 170, 100, 60); // right edge 600
+      const bwdTarget = productNode("bt", 0, 170, 100, 60); // port y 200
+      // a:fwd: a wide horizontal at y=300 whose midpoint (624) sits on z:bwd's
+      // rail vertical x = sx + PORT_STUB = 624. Wide enough to slide clear.
+      const fwdSource = productNode("as", 274, 270, 100, 60); // right edge 374
+      const fwdTarget = productNode("at", 874, 270, 100, 60); // left edge 874
+      const nodes: RFAnyNode[] = [bwdSource, bwdTarget, fwdSource, fwdTarget];
+      const edges: Edge[] = [
+        {
+          id: "a:fwd",
+          source: "as",
+          target: "at",
+          type: "item",
+          data: { item: "w", rate: new Fraction(1) },
+        },
+        {
+          id: "z:bwd",
+          source: "bs",
+          target: "bt",
+          type: "item",
+          data: {
+            item: "w",
+            rate: new Fraction(1),
+            ...(withRail ? { railY: 608 } : {}),
+          },
+        },
+      ];
+      return deconflictChipAnchors(nodes, edges);
+    };
+    // With railY: the reconstructed vertical reaches the anchor, so a:fwd slides.
+    expect(labelDxOf(build(true), "a:fwd")).not.toBe(0);
+    // Without it: the short default rail is far away, so a:fwd never moves.
+    expect(labelDxOf(build(false), "a:fwd")).toBe(0);
+    expect(labelDyOf(build(false), "a:fwd")).toBe(0);
   });
 
   it("nudges a midpoint chip off a bus rise chip's box", () => {
