@@ -59,6 +59,13 @@ export const MAX_CHIP_SCALE = 2;
 export const CHIP_BOX_WIDTH = 120;
 export const ENTRY_CHIP_BOX_WIDTH = 22;
 
+// Horizontal inset of an entry chip from its target port, in graph units. The
+// chip renders one inset left of the port so it reads as belonging to the
+// entering leg without overlapping the port glyph. Shared by ItemEdge (the
+// render offset) and busRouting (entry-column collision box plus the left
+// overhang padding of the obstacle provider), so both track one value.
+export const ENTRY_CHIP_OFFSET = 12;
+
 export const NODE_NODE_SPACING = 30;
 // A generous column gap so each ItemEdge label chip (item icon + name + rate)
 // has room to breathe and doesn't overlap the source or target node. The earlier

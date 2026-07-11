@@ -13,8 +13,10 @@ import {
   routeBusEdges,
   assignBendColumns,
   assignEntryColumns,
+  clampBackwardRails,
   deconflictChipAnchors,
   entryGutterRects,
+  paddedObstacles,
   gutterWidth,
   ENTRY_SLOT_PITCH,
   ENTRY_CHIP_MIN_GAP,
@@ -22,7 +24,12 @@ import {
   LANE_TOP_OFFSET,
   LANE_SPACING,
 } from "../../src/canvas/busRouting";
-import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
+import {
+  CHIP_BOX_HEIGHT,
+  ENTRY_CHIP_BOX_WIDTH,
+  ENTRY_CHIP_OFFSET,
+  MAX_CHIP_SCALE,
+} from "../../src/canvas/dimensions";
 import { PORT_STUB, CHAMFER, chamferStepPath } from "../../src/canvas/edgePath";
 import { entryChipAnchor } from "../../src/canvas/ItemEdge";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
@@ -956,5 +963,70 @@ describe("deconflictChipAnchors: merged collision set", () => {
     expect(labelDyOf(out, "m:2")).toBeGreaterThanOrEqual(
       MAX_CHIP_SCALE * CHIP_BOX_HEIGHT,
     );
+  });
+});
+
+describe("paddedObstacles", () => {
+  it("pads card obstacles beyond the node bounds by stub/chip overhang on X and CHAMFER on Y", () => {
+    const node = inputProductNode("n", "ore", 100, 50, 148, 78);
+    const rects = paddedObstacles([node], []);
+    const card = rects.find((r) => r.kind === "card");
+    expect(card).toBeDefined();
+    const nodeLeft = 100;
+    const nodeRight = 100 + 148;
+    const nodeTop = 50;
+    const nodeBottom = 50 + 78;
+    // Left overhang: the wider of the port stub and the entry chip, which renders
+    // one ENTRY_CHIP_OFFSET inside the port plus half its max-scale box.
+    const leftPad = Math.max(
+      PORT_STUB,
+      ENTRY_CHIP_OFFSET + (MAX_CHIP_SCALE * ENTRY_CHIP_BOX_WIDTH) / 2,
+    );
+    expect(nodeLeft - card!.left).toBe(leftPad);
+    expect(card!.right - nodeRight).toBe(PORT_STUB); // right: source stub only
+    expect(nodeTop - card!.top).toBe(CHAMFER);
+    expect(card!.bottom - nodeBottom).toBe(CHAMFER);
+    // The entry chip reaches past the bare stub, so the X pad exceeds PORT_STUB.
+    expect(leftPad).toBeGreaterThan(PORT_STUB);
+  });
+
+  it("includes each node's entry-gutter rect as a first-class obstacle", () => {
+    // M hosts a backward rail (its source sits to the right), so it owns a gutter
+    // column; every node still gets a gutter rect from entryGutterRects.
+    const nodes: RFAnyNode[] = [
+      recipeNode("m", 0, 0, mkRecipe("m", ["p"], [])),
+      recipeNode("rp", 500, 0, mkRecipe("rp", [], ["p"])),
+    ];
+    const edges = [mkEdge("eP", "rp", "m", "p")];
+    const gutter = entryGutterRects(nodes, edges);
+    const rects = paddedObstacles(nodes, edges);
+    const gutterRects = rects.filter((r) => r.kind === "gutter");
+    // One gutter obstacle per node, geometry identical to entryGutterRects.
+    expect(gutterRects).toHaveLength(nodes.length);
+    for (const [, g] of gutter) {
+      expect(gutterRects).toContainEqual({ ...g, kind: "gutter" });
+    }
+  });
+});
+
+describe("clampBackwardRails overhang clearance", () => {
+  it("clears a card whose CHAMFER overhang zone the rail would have grazed", () => {
+    // Backward edge src -> tgt (target left of source). A mid card sits between
+    // them. The rail's preferred y (70) falls just below the mid card's raw
+    // bottom (65) but inside its CHAMFER overhang band [65, 73]. Unpadded
+    // obstacles miss it, so the old code left the rail on that grazing y; the
+    // padded provider catches the overhang and clears the rail off it.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("src", "water", 800, 0, 148, 60),
+      inputProductNode("tgt", "water", 0, 0, 148, 60),
+      inputProductNode("mid", "water", 400, 0, 148, 65),
+    ];
+    const edges = [mkEdge("e0", "src", "tgt", "water")];
+    const out = clampBackwardRails(nodes, edges);
+    const railY = (out[0]!.data as { railY?: number }).railY;
+    expect(railY).toBeDefined();
+    const midBottom = 65;
+    // Threaded rail sits clear of the mid card's padded (overhang) extent.
+    expect(railY! > midBottom + CHAMFER || railY! < 0 - CHAMFER).toBe(true);
   });
 });

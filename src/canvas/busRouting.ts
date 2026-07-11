@@ -26,6 +26,7 @@ import {
   CHIP_BOX_HEIGHT,
   CHIP_BOX_WIDTH,
   ENTRY_CHIP_BOX_WIDTH,
+  ENTRY_CHIP_OFFSET,
   MAX_CHIP_SCALE,
   RECIPE_WIDTH,
   loopBoxDimensions,
@@ -641,14 +642,68 @@ export function assignBendColumns(
   });
 }
 
+// -- Padded obstacle provider -------------------------------------------------
+//
+// The single source of truth for "what a vertical run (backward rail, bus rise /
+// drop, forward bend) must stay clear of". Two kinds of obstacle:
+//   - card:   a node's box, padded for the geometry that overhangs it. A source
+//             port stub reaches PORT_STUB right; a target port stub reaches
+//             PORT_STUB left, and the entry chip reaches further still (it
+//             renders one ENTRY_CHIP_OFFSET inside the port and spans half its
+//             max-scale box left of that), so the left pad is the wider of the
+//             two. Top / bottom carry the CHAMFER bevel overhang, matching the
+//             gutter rects.
+//   - gutter: each node's entry-gutter rect (entryGutterRects), a first-class
+//             obstacle so a run stays out of a foreign node's entry corridor.
+// Pure: rects are a deterministic function of node geometry and the gutter
+// column counts derived from the edges.
+
+// Overhang a padded card rect adds around a node's raw box. RIGHT carries the
+// source port stub; LEFT the wider of the target stub and the entry chip; Y the
+// chamfer bevel.
+const OBSTACLE_PAD_RIGHT = PORT_STUB;
+const OBSTACLE_PAD_LEFT = Math.max(
+  PORT_STUB,
+  ENTRY_CHIP_OFFSET + (MAX_CHIP_SCALE * ENTRY_CHIP_BOX_WIDTH) / 2,
+);
+const OBSTACLE_PAD_Y = CHAMFER;
+
+export type PaddedObstacle = ObstacleRect & { kind: "card" | "gutter" };
+
+export function paddedObstacles(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): PaddedObstacle[] {
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+  const out: PaddedObstacle[] = [];
+  for (const node of nodes) {
+    const left = absoluteLeft(node, byId);
+    const top = absoluteTop(node, byId);
+    out.push({
+      left: left - OBSTACLE_PAD_LEFT,
+      right: left + nodeWidth(node) + OBSTACLE_PAD_RIGHT,
+      top: top - OBSTACLE_PAD_Y,
+      bottom: top + nodeHeight(node) + OBSTACLE_PAD_Y,
+      kind: "card",
+    });
+  }
+  for (const g of entryGutterRects(nodes, edges).values()) {
+    out.push({ ...g, kind: "gutter" });
+  }
+  return out;
+}
+
 // clampBackwardRails: give each backward item edge's detour rail a y that clears
 // the cards it horizontally spans, so a recycle rail no longer slices through
 // its own source / target cards or the columns between them. Mirrors the bus
-// lane band's obstacle avoidance (clearRailY): all node rectangles are the
-// obstacles, and the rail moves just clear of the ones its horizontal run
-// crosses. Threads { railY } onto the affected edges; every other edge passes
-// through by reference. Runs after assignEntryColumns so it sees the entry
-// column that fixes the rail's left end.
+// lane band's obstacle avoidance (clearRailY): the padded obstacle provider
+// supplies the rectangles, and the rail moves just clear of the ones its
+// horizontal run crosses. Because those rects now carry the port-stub / entry-
+// chip overhang and each node's entry gutter, the rail also avoids grazing that
+// overhang, not just the raw card. Threads { railY } onto the affected edges;
+// every other edge passes through by reference. Runs after assignEntryColumns so
+// it sees the entry column that fixes the rail's left end.
 export function clampBackwardRails(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -656,11 +711,7 @@ export function clampBackwardRails(
   const byId = new Map<string, RFAnyNode>();
   for (const n of nodes) byId.set(n.id, n);
 
-  const obstacles: ObstacleRect[] = nodes.map((n) => {
-    const left = absoluteLeft(n, byId);
-    const top = absoluteTop(n, byId);
-    return { left, right: left + nodeWidth(n), top, bottom: top + nodeHeight(n) };
-  });
+  const obstacles = paddedObstacles(nodes, edges);
 
   const railYByIndex = new Map<number, number>();
   edges.forEach((edge, index) => {
@@ -767,12 +818,6 @@ function seatChip(
   return dy;
 }
 
-// Horizontal inset of an entry chip from its target port, mirroring ItemEdge's
-// ENTRY_CHIP_OFFSET. Only used to place the entry box in the shared collision
-// set so the midpoint nudge can route around it; the render offset itself lives
-// in ItemEdge.
-const ENTRY_CHIP_INSET = 12;
-
 // Minimum vertical pitch between two entry chips arriving at one node, in graph
 // units. Entry chips whose port anchors sit closer than this (same-item
 // duplicates share a port y outright) are stacked down to this pitch so none
@@ -869,7 +914,7 @@ export function deconflictChipAnchors(
       if (ap !== bp) return ap - bp;
       return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     });
-    const entryX = absoluteLeft(byId.get(targetId)!, byId) - ENTRY_CHIP_INSET;
+    const entryX = absoluteLeft(byId.get(targetId)!, byId) - ENTRY_CHIP_OFFSET;
     const stacked = stackEntryAnchors(list.map((s) => s.anchorY));
     list.forEach((s, i) => {
       const y = stacked[i]!;

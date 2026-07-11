@@ -8,7 +8,7 @@ import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
-import { MAX_CHIP_SCALE } from "./dimensions";
+import { ENTRY_CHIP_OFFSET, MAX_CHIP_SCALE } from "./dimensions";
 import { chamferStepPath, routingHintsFromData } from "./edgePath";
 import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
@@ -66,11 +66,6 @@ export type ItemEdgeData = {
   // .flow-chip.dimmed rule does. Optional and defaults to falsy (idle / lit).
   dimmed?: boolean;
 };
-
-// Horizontal inset of the entry chip from the target port, in graph units. The
-// chip sits just outside the node on the entering leg so it reads as belonging
-// to that line without overlapping the port glyph.
-const ENTRY_CHIP_OFFSET = 12;
 
 // Anchor for an entry chip: one inset left of the target port, at the port y
 // plus the stack offset deconflictChipAnchors assigned (0 when the chip is the
