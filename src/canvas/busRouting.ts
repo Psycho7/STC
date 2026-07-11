@@ -1436,6 +1436,16 @@ export function jogForwardLegs(
   const rawCards = rawCardRects(nodes);
   const budget = 2 * (PORT_STUB + CHAMFER);
 
+  // Descent-slot occupancy per target (jog descents coordinate with entry
+  // columns): a target hosting k gutter columns (backward rails / bus rises)
+  // owns slots tx-PORT_STUB .. tx-PORT_STUB-(k-1)*pitch, so a jogged descent
+  // starts one pitch further left, and each additional jog into the same
+  // target takes the next slot leftward. This is the gutter-occupant
+  // registration for jogs: no two jogs into one target, and no jog vs rail /
+  // rise pair, ever draw coincident verticals at the default column.
+  const gutterCounts = gutterColumnCounts(edges, byId);
+  const jogsByTarget = new Map<string, number>();
+
   const legYByIndex = new Map<number, number>();
   const descentXByIndex = new Map<number, number>();
   const srcColXByIndex = new Map<number, number>();
@@ -1471,10 +1481,12 @@ export function jogForwardLegs(
         ? Math.min(Math.max(bendHint, lo), hi)
         : mid;
     // The jog runs the long horizontal from its entry column to the descent
-    // column, then descends into the target port. descentX0 is the target's
-    // entry gutter (its staggered entry column, else one stub before the port).
-    const descentX0 =
-      (edge.data as { entryX?: number } | undefined)?.entryX ?? tx - PORT_STUB;
+    // column, then descends into the target port. The descent's desired column
+    // is the target's next free entry slot (see occupancy above).
+    const occupied =
+      (gutterCounts.get(edge.target) ?? 0) +
+      (jogsByTarget.get(edge.target) ?? 0);
+    const descentX0 = tx - PORT_STUB - occupied * ENTRY_SLOT_PITCH;
 
     // Exempt from the obstacle scan: both endpoints' own cards / gutters (the leg
     // leaves the source and ends inside the target) and each endpoint's own
@@ -1615,6 +1627,7 @@ export function jogForwardLegs(
     if (jog.R !== ty) {
       legYByIndex.set(index, jog.R);
       if (jog.D !== tx - PORT_STUB) descentXByIndex.set(index, jog.D);
+      jogsByTarget.set(edge.target, (jogsByTarget.get(edge.target) ?? 0) + 1);
     }
     if (srcBlocked) srcColXByIndex.set(index, jog.C);
   });
