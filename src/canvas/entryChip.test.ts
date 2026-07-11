@@ -5,7 +5,7 @@ import {
   ENTRY_CHIP_MIN_GAP,
   stackEntryAnchors,
   deconflictChipAnchors,
-} from "./busRouting";
+} from "./chipSeating";
 import { entryChipAnchor } from "./ItemEdge";
 import type { RFAnyNode } from "./layout";
 import type { Recipe } from "@aef/schema";

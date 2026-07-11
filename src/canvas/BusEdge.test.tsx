@@ -2,7 +2,8 @@
 import { expect, test } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
-import { routeBusEdges, deconflictChipAnchors } from "./busRouting";
+import { routeBusEdges } from "./busRouting";
+import { deconflictChipAnchors } from "./chipSeating";
 import type { RFAnyNode } from "./layout";
 
 // A far-apart product source and several product targets, so every source->target

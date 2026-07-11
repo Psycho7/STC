@@ -46,10 +46,10 @@ import {
   assignEntryColumns,
   clampBackwardRails,
   clearBusColumns,
-  deconflictChipAnchors,
   jogForwardLegs,
   routeBusEdges,
 } from "./busRouting";
+import { deconflictChipAnchors } from "./chipSeating";
 import type {
   Container,
   ContainerId,

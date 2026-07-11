@@ -290,6 +290,10 @@ test.describe("DOM geometry audit", () => {
 //     (residue where parallel edges / bus lanes / card-hardness force a nudge);
 //   census: pairwise crossing count <= the pre-P2 baseline;
 //   detour: the tundra ore feed within 1.5x its endpoints' Manhattan gap.
+//
+// NOTE on all ratchet tables below: baselines do NOT auto-tighten -- when a
+// change improves a scenario, re-record the lower count manually (downward
+// only, never up).
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached

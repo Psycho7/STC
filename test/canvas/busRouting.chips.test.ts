@@ -9,11 +9,13 @@ import type { Edge } from "@xyflow/react";
 
 import {
   routeBusEdges,
-  deconflictChipAnchors,
-  ENTRY_CHIP_MIN_GAP,
   BUS_SPAN_THRESHOLD,
   LANE_SPACING,
 } from "../../src/canvas/busRouting";
+import {
+  deconflictChipAnchors,
+  ENTRY_CHIP_MIN_GAP,
+} from "../../src/canvas/chipSeating";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import { entryChipAnchor } from "../../src/canvas/ItemEdge";
 import type { RFAnyNode } from "../../src/canvas/layout";

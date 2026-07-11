@@ -1,23 +1,22 @@
-// Phase-2 declutter pass: classify the remaining long edges into horizontal
-// "bus" trunks and assign each trunk a lane in one of two bands -- above or below
-// the graph -- picked by where the trunk's members lean (Task 13).
+// Whole-graph pre-render ROUTING passes for the blueprint canvas. Layout runs
+// them in order after ELK places the nodes (each consumes the previous ones'
+// stamps; see layoutRenderPlan in layout.ts):
+//   1. routeBusEdges       classify long / boundary-feeder edges into bus
+//                          trunks, each on a lane in a top or bottom band.
+//   2. assignEntryColumns  stake out per-target entry-gutter columns.
+//   3. clearBusColumns     move bus drop / rise verticals clear of foreign
+//                          cards / gutters.
+//   4. assignBendColumns   stagger the remaining item edges' bend columns.
+//   5. jogForwardLegs      bend a blocked forward final leg to a clear y.
+//   6. clampBackwardRails  move backward detour rails clear of spanned cards.
+// Every pass is pure and deterministic: no React, no Date/random, no mutation
+// of the inputs. Nodes are read only for geometry (absolute positions and
+// sizes); they pass through untouched. Passes merge routing fields onto edge
+// `data` (bus members are retyped `type: "bus"`).
 //
-// After phase 1a (per-consumer taps + un-pinned fanout slices) a handful of
-// edges still reach across many layers: aggregate -> tap feeders, boundary
-// supplies, and the xiranite recycle family. Rather than let ELK route those as
-// long diagonal crossings, this pass tags them so a later render step (Task 6)
-// can draw them through a shared lane band under the node graph, one lane slot
-// per (item, source) trunk.
-//
-// Pure and deterministic: no React, no Date/random, no mutation of the inputs.
-// Nodes are read only for geometry (absolute positions and sizes); they pass
-// through untouched. Bus-member edges are retyped `type: "bus"` and get
-// `{ laneY, trunkKey }` merged onto their existing `data`.
-//
-// This module hosts both whole-graph pre-render routing passes: routeBusEdges
-// (bus classification + lane assignment) and assignBendColumns (bend-column
-// stagger for forward item edges). Both read node geometry and merge routing
-// fields onto edge `data`.
+// The seventh and final pipeline pass -- chip seating (deconflictChipAnchors)
+// -- lives in chipSeating.ts; it consumes this module's shared node/edge
+// geometry helpers (absoluteLeft .. portOffsetY) and padding constants.
 
 import type { Edge } from "@xyflow/react";
 import Fraction from "fraction.js";
@@ -25,23 +24,13 @@ import Fraction from "fraction.js";
 import {
   BETWEEN_LAYERS_SPACING,
   CHIP_BOX_HEIGHT,
-  CHIP_BOX_WIDTH,
   ENTRY_CHIP_BOX_WIDTH,
   ENTRY_CHIP_OFFSET,
   MAX_CHIP_SCALE,
   RECIPE_WIDTH,
   loopBoxDimensions,
 } from "./dimensions";
-import {
-  CHAMFER,
-  PORT_STUB,
-  chamferBusPath,
-  chamferStepPath,
-  clearRailY,
-  pathPointAt,
-  routingHintsFromData,
-  type ObstacleRect,
-} from "./edgePath";
+import { CHAMFER, PORT_STUB, clearRailY, type ObstacleRect } from "./edgePath";
 import { measureRecipe } from "./recipeGeometry";
 import { orderByItem } from "./orderByItem";
 import type { RFAnyNode } from "./layout";
@@ -114,7 +103,7 @@ function edgeRate(edge: Edge): Fraction | undefined {
 // Absolute left-edge x for a node. Container children store a parent-relative
 // position, so resolve one level of `parentId` and add the parent's own x.
 // Mirrors test/canvas/edgeSpans.ts.
-function absoluteLeft(
+export function absoluteLeft(
   node: RFAnyNode,
   byId: ReadonlyMap<string, RFAnyNode>,
 ): number {
@@ -126,7 +115,7 @@ function absoluteLeft(
 
 // Absolute top-edge y for a node, resolving one level of `parentId` (same rule
 // as absoluteLeft, on the vertical axis).
-function absoluteTop(
+export function absoluteTop(
   node: RFAnyNode,
   byId: ReadonlyMap<string, RFAnyNode>,
 ): number {
@@ -139,14 +128,14 @@ function absoluteTop(
 // Only recipe / loop unit nodes omit an explicit width. Every recipe node is a
 // fixed RECIPE_WIDTH; product and container nodes carry width on the node.
 // Mirrors test/canvas/edgeSpans.ts.
-function nodeWidth(node: RFAnyNode): number {
+export function nodeWidth(node: RFAnyNode): number {
   return node.width ?? RECIPE_WIDTH;
 }
 
 // Height of a node. Recipe and loop nodes carry no top-level `height` (React
 // Flow measures them at render), so derive it from the same geometry helpers
 // the layout uses; product and container nodes carry height directly.
-function nodeHeight(node: RFAnyNode): number {
+export function nodeHeight(node: RFAnyNode): number {
   switch (node.type) {
     case "recipe":
       return measureRecipe(node.data.recipe).height;
@@ -155,6 +144,31 @@ function nodeHeight(node: RFAnyNode): number {
     default:
       return node.height ?? 0;
   }
+}
+
+// Node-local y of the port carrying `item` on the given side, or the node's
+// vertical center when the port cannot be resolved (product / loop node, or a
+// missing item / order). Mirrors RecipeNode's handle placement: handles sit in
+// the ELK-resolved row order, so the row index is the item's position in the
+// ordered rows.
+export function portOffsetY(
+  node: RFAnyNode,
+  item: string | undefined,
+  side: "in" | "out",
+): number {
+  if (node.type === "recipe" && item !== undefined) {
+    const recipe = node.data.recipe;
+    const rows = side === "in" ? recipe.in : recipe.out;
+    const order = side === "in" ? node.data.inputOrder : node.data.outputOrder;
+    const idx = orderByItem(rows, order).findIndex((r) => r.item === item);
+    if (idx >= 0) {
+      const geom = measureRecipe(recipe);
+      const ys = side === "in" ? geom.inHandleYs : geom.outHandleYs;
+      const y = ys[idx];
+      if (y !== undefined) return y;
+    }
+  }
+  return nodeHeight(node) / 2;
 }
 
 // Per-edge horizontal span: the empty gap between the source node's right edge
@@ -174,7 +188,7 @@ function isInputProduct(node: RFAnyNode | undefined): boolean {
   return node?.type === "product" && node.data.kind === "inputProduct";
 }
 
-function edgeItem(edge: Edge): string | undefined {
+export function edgeItem(edge: Edge): string | undefined {
   const item = (edge.data as { item?: unknown } | undefined)?.item;
   return typeof item === "string" ? item : undefined;
 }
@@ -694,7 +708,7 @@ function occupiesGutterColumn(
 // Resolved input-port index of an edge at its target, or -1 when unknown. Only
 // recipe/loop nodes carry the ELK-resolved `inputOrder`; product targets have a
 // single port. Used to order a target's staggered entry columns top to bottom.
-function inputPortIndex(target: RFAnyNode, item: string | undefined): number {
+export function inputPortIndex(target: RFAnyNode, item: string | undefined): number {
   if (item === undefined) return -1;
   if (target.type !== "recipe" && target.type !== "loop") return -1;
   const order = target.data.inputOrder;
@@ -974,11 +988,11 @@ export function assignBendColumns(
 // source port stub; LEFT the wider of the target stub and the entry chip; Y the
 // chamfer bevel.
 const OBSTACLE_PAD_RIGHT = PORT_STUB;
-const OBSTACLE_PAD_LEFT = Math.max(
+export const OBSTACLE_PAD_LEFT = Math.max(
   PORT_STUB,
   ENTRY_CHIP_OFFSET + (MAX_CHIP_SCALE * ENTRY_CHIP_BOX_WIDTH) / 2,
 );
-const OBSTACLE_PAD_Y = CHAMFER;
+export const OBSTACLE_PAD_Y = CHAMFER;
 
 // nodeId identifies the node an obstacle belongs to, so a consumer can exempt an
 // edge's OWN target card / gutter (the default rise and backward entry columns
@@ -1699,849 +1713,3 @@ export function jogForwardLegs(
   });
 }
 
-// -- Chip de-confliction -----------------------------------------------------
-//
-// Two coincident chips read as one, and on a bus lane the surviving chip lied
-// about the flow. deconflictChipAnchors runs last (after routeBusEdges,
-// assignEntryColumns, and assignBendColumns, so it sees the final laneY, entryX,
-// bendX, and busChipX) and threads four chip-nudge offsets through one shared
-// collision set:
-//   - entryChipDy: entry chips arriving at one node are stacked to a clear pitch.
-//     Entry chips are pinned to their ports (never pushed by another chip); they
-//     seed the set first as fixed obstacles.
-//   - busDropDy / busChipDy: a trunk's aggregate drop chip and each member's rise
-//     chip prefer their lane position, but when they crowd (same lane, close x)
-//     they cascade downward off the lane in CHIP_PITCH_Y steps.
-//   - labelDy: item edges (forward or backward) whose reconstructed midpoint
-//     anchor lands on a box already placed (an entry, bus, or earlier midpoint
-//     chip) get a downward nudge so ItemEdge's midpoint chip clears its neighbour.
-// Every family shares the set, so a midpoint no longer lands on a bus chip, a bus
-// rise no longer lands on an entry marker, and so on. Pure and deterministic:
-// anchors are reconstructed from node geometry with the same path builders the
-// components use, and every pass orders by edge id.
-
-// Chip half-extents, in graph units. A chip counter-scales up to MAX_CHIP_SCALE
-// about its centre, so its rendered box in graph space never exceeds
-// MAX_CHIP_SCALE times its natural dimension; half of that is the half-extent two
-// centres must stay apart on an axis to keep the boxes clear at every zoom down
-// to the fit floor. Height is shared by both chip families (they are the same
-// height); width splits by family because the icon-only entry marker is far
-// narrower than a rate/bus chip carrying text. The collision test sums the two
-// boxes' half-extents per axis, so a wide-vs-wide pair needs the full
-// MAX_CHIP_SCALE * CHIP_BOX_WIDTH of centre separation while a wide-vs-entry pair
-// needs less -- the earlier single fixed 60 flagged only near-coincident pairs
-// and missed wide chips that overlap on screen from tens of graph units away.
-const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
-const CHIP_HALF_W_WIDE = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
-const CHIP_HALF_W_ENTRY = (MAX_CHIP_SCALE * ENTRY_CHIP_BOX_WIDTH) / 2;
-
-// Vertical pitch a colliding chip is bumped by each step, and the shared full
-// chip-box height. A full max-scale box height keeps the resolved clearance from
-// dropping below one box at any zoom.
-const CHIP_PITCH_Y = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
-const CHIP_NUDGE_STEP = CHIP_PITCH_Y;
-
-// A placed chip box in the shared collision set: its centre plus per-axis
-// half-extents. Two boxes overlap when their centres sit closer than the sum of
-// their half-extents on BOTH axes.
-type ChipBox = { x: number; y: number; halfW: number; halfH: number };
-
-// The target's entry band: the gutter just left of a consumer's card where its
-// arriving lines converge on the Left port. A rate chip whose centre sits in
-// this band is part of the arrival cluster -- it names a line entering here, so
-// it may rest among its siblings' final approaches; one out on the corridor is
-// not, so it must clear a sibling's line like any foreign flow. Built from the
-// same OBSTACLE_PAD_LEFT / OBSTACLE_PAD_Y overhangs paddedObstacles reserves, so
-// the band matches the padded card's left overhang by construction.
-type EntryBand = { left: number; right: number; top: number; bottom: number };
-
-function centreInBand(x: number, y: number, band: EntryBand): boolean {
-  return x >= band.left && x <= band.right && y >= band.top && y <= band.bottom;
-}
-
-function chipBoxesOverlap(a: ChipBox, b: ChipBox): boolean {
-  return (
-    Math.abs(a.x - b.x) < a.halfW + b.halfW &&
-    Math.abs(a.y - b.y) < a.halfH + b.halfH
-  );
-}
-
-// Does the segment (x0,y0)-(x1,y1) enter the chip box's interior? Liang-Barsky
-// parametric clip against the box slabs; boundary-only contact does not count.
-function segIntersectsChipBox(
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  box: ChipBox,
-): boolean {
-  const left = box.x - box.halfW;
-  const right = box.x + box.halfW;
-  const top = box.y - box.halfH;
-  const bottom = box.y + box.halfH;
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  let t0 = 0;
-  let t1 = 1;
-  const clip = (p: number, q: number): boolean => {
-    if (p === 0) return q >= 0;
-    const t = q / p;
-    if (p < 0) {
-      if (t > t1) return false;
-      if (t > t0) t0 = t;
-    } else {
-      if (t < t0) return false;
-      if (t < t1) t1 = t;
-    }
-    return true;
-  };
-  if (
-    clip(-dx, x0 - left) &&
-    clip(dx, right - x0) &&
-    clip(-dy, y0 - top) &&
-    clip(dy, bottom - y0)
-  ) {
-    return t1 - t0 > 1e-6;
-  }
-  return false;
-}
-
-// A reconstructed edge polyline the chip pass treats as an obstacle: the
-// segments of every edge OUTSIDE the chip's own flow (its own edge plus
-// same-(item, source) siblings, which share one visual line -- a trunk's lane
-// run or a fanout's common trajectory) and outside its own ARRIVAL CLUSTER
-// (edges into the same target: the converging lines before one consumer read
-// as one junction, so a chip near its port may sit among its siblings' final
-// approaches). flowKey groups the flow siblings; target the cluster.
-export type EdgeSegments = {
-  flowKey: string;
-  target: string;
-  segs: ReadonlyArray<readonly [number, number, number, number]>;
-};
-
-// Cap on the cascade when foreign edge segments join the collision set. A chip
-// crossing a dense weave could otherwise walk far off its anchor; past the cap
-// the seat falls back to chip-only collisions (the pre-segment behaviour, no
-// worse than before).
-const CHIP_SEAT_MAX_STEPS = 24;
-
-// Seat a chip at its preferred anchor, cascading it in `step`-sized increments
-// until it clears every box already in `placed` AND every foreign edge segment
-// in `obstacles` (segments of other flows; pass an empty list to keep the
-// chips-only behaviour), then record it. Returns the signed offset applied (0
-// when the anchor was already clear). `step` defaults to a downward
-// CHIP_NUDGE_STEP; a top-band bus chip passes -CHIP_NUDGE_STEP so it cascades
-// UP, away from the graph below it, instead of walking into the nodes. When no
-// step within CHIP_SEAT_MAX_STEPS clears the segments, the seat retries against
-// chips alone. Deterministic given a fixed placement order.
-// Cascade probe: the smallest dy multiple of `step` (within the cap) at which
-// the box clears every placed chip and every foreign-flow segment, or null when
-// the cap exhausts. No side effects; callers push the box themselves.
-function cascadeClearDy(
-  placed: ReadonlyArray<ChipBox>,
-  x: number,
-  y: number,
-  halfW: number,
-  halfH: number,
-  step: number,
-  obstacles: ReadonlyArray<EdgeSegments>,
-  ownFlowKey: string,
-  ownTarget = "",
-  maxSteps: number = CHIP_SEAT_MAX_STEPS,
-  entryBand?: EntryBand,
-): number | null {
-  // Arrival-cluster exemption (narrowed for 3a): a same-target sibling's line is
-  // skipped only while the chip box's centre sits inside the target's entry
-  // band. With no band (bus / entry seats) the exemption stays unconditional, as
-  // before. Out on the corridor a same-target sibling is a foreign line the chip
-  // must clear, so the exemption no longer masks a rate chip lying across it.
-  const segBlocked = (box: ChipBox): boolean => {
-    const clusterExempt =
-      entryBand === undefined || centreInBand(box.x, box.y, entryBand);
-    return obstacles.some(
-      (e) =>
-        e.flowKey !== ownFlowKey &&
-        (!clusterExempt || e.target !== ownTarget) &&
-        e.segs.some(([x0, y0, x1, y1]) =>
-          segIntersectsChipBox(x0, y0, x1, y1, box),
-        ),
-    );
-  };
-  let dy = 0;
-  for (let steps = 0; steps <= maxSteps; steps++) {
-    const box = { x, y: y + dy, halfW, halfH };
-    if (!placed.some((b) => chipBoxesOverlap(b, box)) && !segBlocked(box)) {
-      return dy;
-    }
-    dy += step;
-  }
-  return null;
-}
-
-function seatChip(
-  placed: ChipBox[],
-  x: number,
-  y: number,
-  halfW: number,
-  halfH: number,
-  step: number = CHIP_NUDGE_STEP,
-  obstacles: ReadonlyArray<EdgeSegments> = [],
-  ownFlowKey = "",
-  ownTarget = "",
-  entryBand?: EntryBand,
-  // Owning edge id, used only for the DEV exhaustion warning below.
-  devId = "",
-): number {
-  const clear = cascadeClearDy(
-    placed,
-    x,
-    y,
-    halfW,
-    halfH,
-    step,
-    obstacles,
-    ownFlowKey,
-    ownTarget,
-    CHIP_SEAT_MAX_STEPS,
-    entryBand,
-  );
-  if (clear !== null) {
-    placed.push({ x, y: y + clear, halfW, halfH });
-    return clear;
-  }
-  // Segment-clear seat not found within the cap: fall back to the chips-only
-  // cascade so crowding never regresses past the pre-segment behaviour.
-  if (import.meta.env.DEV) {
-    // Dev/test-only tripwire, tree-shaken out of production builds (parity
-    // with the render hook in src/pipeline/driver.ts).
-    console.warn(
-      `chip seating: segment-clear cascade for ${devId || "(unnamed chip)"} ` +
-        "exhausted its cap; falling back to the chips-only cascade " +
-        "(foreign-line clearance abandoned)",
-    );
-  }
-  let dy = 0;
-  while (
-    placed.some((box) => chipBoxesOverlap(box, { x, y: y + dy, halfW, halfH }))
-  ) {
-    dy += step;
-  }
-  placed.push({ x, y: y + dy, halfW, halfH });
-  return dy;
-}
-
-// Minimum vertical pitch between two entry chips arriving at one node, in graph
-// units. Entry chips whose port anchors sit closer than this (same-item
-// duplicates share a port y outright) are stacked down to this pitch so none
-// coincide at any zoom.
-export const ENTRY_CHIP_MIN_GAP = CHIP_PITCH_Y;
-
-// Push a column of arrival y-anchors (given in arrival order) down just enough
-// that each sits at least ENTRY_CHIP_MIN_GAP below the previous one, so equal or
-// too-close anchors never coincide while their order is preserved. The first
-// anchor is never moved. Pure.
-export function stackEntryAnchors(ys: readonly number[]): number[] {
-  const out: number[] = [];
-  let prev = -Infinity;
-  for (const y of ys) {
-    const placed = Math.max(y, prev + ENTRY_CHIP_MIN_GAP);
-    out.push(placed);
-    prev = placed;
-  }
-  return out;
-}
-
-// Node-local y of the port carrying `item` on the given side, or the node's
-// vertical center when the port cannot be resolved (product / loop node, or a
-// missing item / order). Mirrors RecipeNode's handle placement: handles sit in
-// the ELK-resolved row order, so the row index is the item's position in the
-// ordered rows.
-function portOffsetY(
-  node: RFAnyNode,
-  item: string | undefined,
-  side: "in" | "out",
-): number {
-  if (node.type === "recipe" && item !== undefined) {
-    const recipe = node.data.recipe;
-    const rows = side === "in" ? recipe.in : recipe.out;
-    const order = side === "in" ? node.data.inputOrder : node.data.outputOrder;
-    const idx = orderByItem(rows, order).findIndex((r) => r.item === item);
-    if (idx >= 0) {
-      const geom = measureRecipe(recipe);
-      const ys = side === "in" ? geom.inHandleYs : geom.outHandleYs;
-      const y = ys[idx];
-      if (y !== undefined) return y;
-    }
-  }
-  return nodeHeight(node) / 2;
-}
-
-// Cumulative arc-length of point (x, y) along the parsed polyline. The point is
-// on exactly one segment by construction (a clear-segment anchor is a segment
-// midpoint), so this returns the length from the path start to it. Falls back to
-// the half-length when the point matches no segment (never expected).
-function lengthAtPoint(
-  pts: ReadonlyArray<readonly [number, number]>,
-  x: number,
-  y: number,
-): number {
-  let acc = 0;
-  let total = 0;
-  for (let i = 1; i < pts.length; i++) {
-    total += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
-  }
-  for (let i = 1; i < pts.length; i++) {
-    const [x0, y0] = pts[i - 1]!;
-    const [x1, y1] = pts[i]!;
-    const segLen = Math.hypot(x1 - x0, y1 - y0);
-    const cross = (x1 - x0) * (y - y0) - (y1 - y0) * (x - x0);
-    const withinX = x >= Math.min(x0, x1) - 1 && x <= Math.max(x0, x1) + 1;
-    const withinY = y >= Math.min(y0, y1) - 1 && y <= Math.max(y0, y1) + 1;
-    if (Math.abs(cross) < 1 && withinX && withinY) {
-      return acc + Math.hypot(x - x0, y - y0);
-    }
-    acc += segLen;
-  }
-  return total / 2;
-}
-
-export function deconflictChipAnchors(
-  nodes: ReadonlyArray<RFAnyNode>,
-  edges: ReadonlyArray<Edge>,
-): Edge[] {
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
-
-  // Every chip family shares one collision set (`placed`), so a midpoint chip, a
-  // bus chip, and an entry chip at the same place no longer overlap. Placement
-  // order fixes who yields to whom: entry chips first (pinned to their ports,
-  // never nudged), then bus chips (prefer their lane, cascade down when crowded),
-  // then midpoint chips (nudge down around everything already placed).
-  const placed: ChipBox[] = [];
-
-  // Reconstructed edge polylines, obstacles for the bus / midpoint seats: a
-  // chip must not sit on a FOREIGN edge's line (the reader would bind the rate
-  // to the wrong flow). Edges of one flow -- same (item, source), i.e. a
-  // trunk's members sharing a lane or a fanout's slices sharing their common
-  // trajectory -- are one visual line, so a chip may sit on its own flow's
-  // siblings. Entry chips stay pinned at their ports and take no segment
-  // avoidance. Reconstruction mirrors the render components (same builders,
-  // same hints), so the avoided lines are the drawn ones.
-  const flowKeyOf = (edge: Edge): string =>
-    (edgeItem(edge) ?? "?") + "|" + edge.source;
-  const edgeSegments: EdgeSegments[] = [];
-  for (const edge of edges) {
-    if (edge.type !== "item" && edge.type !== "bus") continue;
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    if (source === undefined || target === undefined) continue;
-    const item = edgeItem(edge);
-    const sx = absoluteLeft(source, byId) + nodeWidth(source);
-    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
-    const tx = absoluteLeft(target, byId);
-    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    let d: string;
-    if (edge.type === "bus") {
-      const laneY = (edge.data as BusEdgeData | undefined)?.laneY ?? ty;
-      d = chamferBusPath({
-        sourceX: sx,
-        sourceY: sy,
-        targetX: tx,
-        targetY: ty,
-        laneY,
-        ...routingHintsFromData(edge.data),
-      }).path;
-    } else {
-      [d] = chamferStepPath({
-        sourceX: sx,
-        sourceY: sy,
-        targetX: tx,
-        targetY: ty,
-        ...routingHintsFromData(edge.data),
-      });
-    }
-    const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
-      (m) => [Number(m[1]), Number(m[2])] as const,
-    );
-    const segs: Array<readonly [number, number, number, number]> = [];
-    for (let i = 1; i < pts.length; i++) {
-      segs.push([pts[i - 1]![0], pts[i - 1]![1], pts[i]![0], pts[i]![1]]);
-    }
-    edgeSegments.push({ flowKey: flowKeyOf(edge), target: edge.target, segs });
-  }
-
-  // Raw card rects a chip's box must stay clear of, so a chip never sits on top
-  // of a foreign node (the P3 hard invariant). Every node type is included --
-  // recipe / product / loop cards and group slabs -- mirroring the chip/card
-  // audit; the per-edge exemption below (own source, target, and their
-  // containers) is the same one the audit applies.
-  const avoidCards = nodes.map((n) => {
-    const left = absoluteLeft(n, byId);
-    const top = absoluteTop(n, byId);
-    return {
-      id: n.id,
-      left,
-      top,
-      right: left + nodeWidth(n),
-      bottom: top + nodeHeight(n),
-    };
-  });
-  // Does a chip box centred at (px, py) enter any non-exempt card?
-  const chipEntersCard = (
-    px: number,
-    py: number,
-    halfW: number,
-    halfH: number,
-    exempt: ReadonlySet<string>,
-  ): boolean =>
-    avoidCards.some(
-      (c) =>
-        !exempt.has(c.id) &&
-        Math.min(px + halfW, c.right) - Math.max(px - halfW, c.left) > 0.5 &&
-        Math.min(py + halfH, c.bottom) - Math.max(py - halfH, c.top) > 0.5,
-    );
-  // The card exemption for an edge's chips: its own endpoints plus their
-  // containing groups (one parentId level, same as the audit's containersAt).
-  const cardExemptFor = (edge: Edge): Set<string> => {
-    const exempt = new Set<string>([edge.source, edge.target]);
-    const sp = byId.get(edge.source)?.parentId;
-    const tp = byId.get(edge.target)?.parentId;
-    if (sp !== undefined) exempt.add(sp);
-    if (tp !== undefined) exempt.add(tp);
-    return exempt;
-  };
-
-  // Entry chips: every forward item edge flagged multiInputTarget pins an
-  // icon-only chip just left of its target port. Chips arriving at one node
-  // (same-item duplicates share a port y outright, adjacent ports sit a row
-  // apart) collide, so bucket them per target, order by port index then edge id,
-  // and stack their port anchors down to a clear pitch. The threaded dy is the
-  // push each chip received off its own port y. Each chip's final box is seeded
-  // into `placed` (even a lone chip that received no push) so the later passes
-  // see it, at the narrow entry-marker half-width so a bus or midpoint chip only
-  // yields when it truly overlaps the marker.
-  const entryDyByIndex = new Map<number, number>();
-  type EntrySlot = {
-    index: number;
-    id: string;
-    port: number;
-    anchorY: number;
-    exempt: Set<string>;
-  };
-  const entryByTarget = new Map<string, EntrySlot[]>();
-  edges.forEach((edge, index) => {
-    if (edge.type !== "item") return;
-    const data = edge.data as { multiInputTarget?: unknown } | undefined;
-    if (data?.multiInputTarget !== true) return;
-    const target = byId.get(edge.target);
-    if (target === undefined) return;
-    const item = edgeItem(edge);
-    const anchorY = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    const list = entryByTarget.get(edge.target) ?? [];
-    list.push({
-      index,
-      id: edge.id,
-      port: inputPortIndex(target, item),
-      anchorY,
-      exempt: cardExemptFor(edge),
-    });
-    entryByTarget.set(edge.target, list);
-  });
-  for (const [targetId, list] of entryByTarget) {
-    list.sort((a, b) => {
-      const ap = a.port < 0 ? Infinity : a.port;
-      const bp = b.port < 0 ? Infinity : b.port;
-      if (ap !== bp) return ap - bp;
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-    const entryX = absoluteLeft(byId.get(targetId)!, byId) - ENTRY_CHIP_OFFSET;
-    const stacked = stackEntryAnchors(list.map((s) => s.anchorY));
-    // Segment-, card-, and chip-aware stacking: a chip whose slot lands on a
-    // FOREIGN line (an edge neither of this cluster nor of the chip's own flow
-    // -- e.g. a backward rail passing between this node's rows), inside a
-    // FOREIGN card box (a packed neighbour under the target), or on a chip
-    // already placed steps further down until clear, keeping the stack
-    // monotone. The placed check guards CROSS-target stacks: within one target
-    // the monotone pitch already keeps chips disjoint, but a neighbour target's
-    // overflowed stack can park chips in this stack's descent path. Entry
-    // stacks seed `placed` in target-map insertion order, so the guard is
-    // deterministic.
-    const clusterBlocked = (box: ChipBox, exempt: ReadonlySet<string>): boolean =>
-      placed.some((b) => chipBoxesOverlap(b, box)) ||
-      chipEntersCard(box.x, box.y, box.halfW, box.halfH, exempt) ||
-      edgeSegments.some(
-        (e) =>
-          e.target !== targetId &&
-          e.segs.some(([x0, y0, x1, y1]) =>
-            segIntersectsChipBox(x0, y0, x1, y1, box),
-          ),
-      );
-    let prevY = -Infinity;
-    list.forEach((s, i) => {
-      let y = Math.max(stacked[i]!, prevY + ENTRY_CHIP_MIN_GAP);
-      const boxAt = (yy: number): ChipBox => ({
-        x: entryX,
-        y: yy,
-        halfW: CHIP_HALF_W_ENTRY,
-        halfH: CHIP_HALF_H,
-      });
-      let steps = 0;
-      let cleared = y;
-      while (
-        steps <= CHIP_SEAT_MAX_STEPS &&
-        clusterBlocked(boxAt(cleared), s.exempt)
-      ) {
-        cleared += ENTRY_CHIP_MIN_GAP;
-        steps += 1;
-      }
-      // Cap exhausted: keep the plain stacked slot (pre-segment behaviour).
-      if (steps <= CHIP_SEAT_MAX_STEPS) {
-        y = cleared;
-      } else if (import.meta.env.DEV) {
-        // Dev/test-only tripwire, tree-shaken out of production builds
-        // (parity with the render hook in src/pipeline/driver.ts).
-        console.warn(
-          `chip seating: entry stack for ${s.id} exhausted its cap; ` +
-            "chip parked on a blocked slot (line/card/chip clearance abandoned)",
-        );
-      }
-      const dy = y - s.anchorY;
-      if (dy !== 0) entryDyByIndex.set(s.index, dy);
-      placed.push(boxAt(y));
-      prevY = y;
-    });
-  }
-
-  // Bus chips: each trunk draws one aggregate drop chip (on the owner member) and
-  // one rise chip per member, all on the trunk's lane. Reconstruct their lane
-  // anchors from the same geometry BusEdge uses (chamferBusPath for dropX/riseX,
-  // busChipX for the spread rise slot) and seat each one, cascading downward off
-  // the lane when it crowds a neighbour. Seating is two-phase: EVERY trunk's
-  // drop chip settles first, then every rise chip, each phase in edge-id order.
-  // The drop chip is the trunk's aggregate total at its junction; interleaving
-  // by edge id alone would let an earlier trunk's cascading rise land on a later
-  // trunk's junction and knock that aggregate off its lane, so drop priority is
-  // structural, not an accident of id order. Drop and rise carry separate
-  // offsets (busDropDy, busChipDy) because a member's rise may need a different
-  // push than the trunk's shared drop.
-  const busDropDyByIndex = new Map<number, number>();
-  const busChipDyByIndex = new Map<number, number>();
-  type BusSlot = {
-    index: number;
-    id: string;
-    laneY: number;
-    dropX: number;
-    riseChipX: number;
-    owner: boolean;
-    step: number;
-    flowKey: string;
-    target: string;
-  };
-  const busSlots: BusSlot[] = [];
-  const busEdges = edges
-    .map((edge, index) => ({ edge, index }))
-    .filter((e) => e.edge.type === "bus")
-    .sort((a, b) =>
-      a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0,
-    );
-  for (const { edge, index } of busEdges) {
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    if (source === undefined || target === undefined) continue;
-    const data = edge.data as BusEdgeData | undefined;
-    if (data?.laneY === undefined) continue;
-    const item = edgeItem(edge);
-    const sx = absoluteLeft(source, byId) + nodeWidth(source);
-    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
-    const tx = absoluteLeft(target, byId);
-    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    const { dropX, riseX } = chamferBusPath({
-      sourceX: sx,
-      sourceY: sy,
-      targetX: tx,
-      targetY: ty,
-      laneY: data.laneY,
-      ...routingHintsFromData(edge.data),
-    });
-    busSlots.push({
-      index,
-      id: edge.id,
-      laneY: data.laneY,
-      dropX,
-      riseChipX: data.busChipX ?? riseX,
-      owner: data.busChipOwner === true,
-      // Top-band chips cascade UP (away from the graph below them); bottom-band
-      // and un-banded chips cascade DOWN. Signed step drives seatChip's walk.
-      step: data.busBand === "top" ? -CHIP_NUDGE_STEP : CHIP_NUDGE_STEP,
-      flowKey: flowKeyOf(edge),
-      target: edge.target,
-    });
-  }
-  for (const slot of busSlots) {
-    if (!slot.owner) continue;
-    const dropDy = seatChip(
-      placed,
-      slot.dropX,
-      slot.laneY,
-      CHIP_HALF_W_WIDE,
-      CHIP_HALF_H,
-      slot.step,
-      edgeSegments,
-      slot.flowKey,
-      slot.target,
-      undefined,
-      slot.id,
-    );
-    if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
-  }
-  for (const slot of busSlots) {
-    const riseDy = seatChip(
-      placed,
-      slot.riseChipX,
-      slot.laneY,
-      CHIP_HALF_W_WIDE,
-      CHIP_HALF_H,
-      slot.step,
-      edgeSegments,
-      slot.flowKey,
-      slot.target,
-      undefined,
-      slot.id,
-    );
-    if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
-  }
-
-  // Item rate chips: reconstruct each item edge's clear-segment anchor from node
-  // geometry (via the same chamferStepPath the component draws, threading the
-  // same bendX / entryX / railY hints so the chip lands exactly where ItemEdge
-  // renders it) then seat it by SLIDING ALONG ITS OWN POLYLINE (2B / P3): the
-  // anchor first, then points at growing arc-length offsets either way from it,
-  // nearest first. Because every candidate is a point on the drawn line, the
-  // chip NEVER leaves its own flow -- no vertical cascade off onto blank canvas.
-  // On a vertical corridor leg the near offsets simply walk the chip up or down
-  // that leg (still on the line), clearing a crossing foreign horizontal; only a
-  // heavily crowded corridor pushes the chip out toward a bend. The first
-  // candidate clear of every placed box AND every foreign flow's line (with the
-  // arrival-cluster exemption narrowed to the entry band, 3a) wins; when none
-  // clears within the cap the chip stays on its anchor (on its line, possibly
-  // overlapping -- a structurally pinned chip, reported by the audit rather than
-  // flung off the flow it labels). Ordering by edge id keeps it deterministic.
-  const SLIDE_STEP = CHIP_NUDGE_STEP / 2;
-  const SLIDE_MAX_STEPS = 48;
-  // Cap on the off-line vertical nudge used when no on-line seat clears the
-  // foreign lines (coincident parallel edges, a shared bus lane, or a dense
-  // pin). Bounds how far a chip may leave its own line for LINE clearance;
-  // card clearance below is unbounded within LAST_RESORT_CAP_STEPS.
-  const NUDGE_CAP_STEPS = 3;
-  // Cap on the final chips-and-cards cascade. Cards are finite, so free space
-  // always exists within a few card heights of the anchor; this cap only bounds
-  // the search, it is never expected to exhaust.
-  const LAST_RESORT_CAP_STEPS = 200;
-  const labelDyByIndex = new Map<number, number>();
-  const labelDxByIndex = new Map<number, number>();
-  const items = edges
-    .map((edge, index) => ({ edge, index }))
-    .filter((e) => e.edge.type === "item")
-    .sort((a, b) =>
-      a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0,
-    );
-  for (const { edge, index } of items) {
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    if (source === undefined || target === undefined) continue;
-    const item = edgeItem(edge);
-    const sx = absoluteLeft(source, byId) + nodeWidth(source);
-    const tx = absoluteLeft(target, byId);
-    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
-    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    const [d, lx, ly] = chamferStepPath({
-      sourceX: sx,
-      sourceY: sy,
-      targetX: tx,
-      targetY: ty,
-      ...routingHintsFromData(edge.data),
-    });
-    const flowKey = flowKeyOf(edge);
-    // Target entry band: the padded-left gutter of the consumer card, mirroring
-    // paddedObstacles' overhangs. The arrival-cluster exemption holds only while
-    // the chip's centre sits here (3a).
-    const targetTop = absoluteTop(target, byId);
-    const entryBand: EntryBand = {
-      left: tx - OBSTACLE_PAD_LEFT,
-      right: tx,
-      top: targetTop - OBSTACLE_PAD_Y,
-      bottom: targetTop + nodeHeight(target) + OBSTACLE_PAD_Y,
-    };
-    const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
-      (m) => [Number(m[1]), Number(m[2])] as const,
-    );
-    let total = 0;
-    for (let i = 1; i < pts.length; i++) {
-      total += Math.hypot(
-        pts[i]![0] - pts[i - 1]![0],
-        pts[i]![1] - pts[i - 1]![1],
-      );
-    }
-    const anchorLen = lengthAtPoint(pts, lx, ly);
-    const exempt = cardExemptFor(edge);
-    const hitsCard = (px: number, py: number): boolean =>
-      chipEntersCard(px, py, CHIP_HALF_W_WIDE, CHIP_HALF_H, exempt);
-    // A candidate is clear when it clears every placed chip box, every foreign
-    // flow line (arrival cluster narrowed to the entry band), AND every foreign
-    // card box.
-    const isClear = (px: number, py: number): boolean =>
-      !hitsCard(px, py) &&
-      cascadeClearDy(
-        placed,
-        px,
-        py,
-        CHIP_HALF_W_WIDE,
-        CHIP_HALF_H,
-        CHIP_NUDGE_STEP,
-        edgeSegments,
-        flowKey,
-        edge.target,
-        0,
-        entryBand,
-      ) === 0;
-    // Slide along the line, nearest-first, taking the first clear point.
-    let seatX = lx;
-    let seatY = ly;
-    let found = false;
-    for (let k = 0; k <= SLIDE_MAX_STEPS && !found; k++) {
-      const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
-      for (const delta of deltas) {
-        const len = anchorLen + delta;
-        if (len < 0 || len > total) continue;
-        const [px, py] = pathPointAt(d, total === 0 ? 0 : len / total);
-        if (isClear(px, py)) {
-          seatX = px;
-          seatY = py;
-          found = true;
-          break;
-        }
-      }
-    }
-    if (found) {
-      placed.push({
-        x: seatX,
-        y: seatY,
-        halfW: CHIP_HALF_W_WIDE,
-        halfH: CHIP_HALF_H,
-      });
-      if (seatX !== lx) labelDxByIndex.set(index, seatX - lx);
-      if (seatY !== ly) labelDyByIndex.set(index, seatY - ly);
-      continue;
-    }
-    // Nothing on the line clears. Two coincident parallel edges, or a chip on a
-    // shared bus lane, cannot separate along the line (their lines overlap), and
-    // a chip pinned in a dense weave has no clear point on its own polyline.
-    // Escapes off the line follow the ratified priority order: chip/chip and
-    // chip/card clearance are HARD, staying on the line and clearing foreign
-    // lines are preferences that yield.
-    // First a SHORT bidirectional vertical nudge off the anchor that clears
-    // chips, cards, AND foreign lines (cap NUDGE_CAP_STEPS): the parallel-edge
-    // chip lifts a step or two and stays fully clean.
-    let nudged: number | null = null;
-    for (let k = 1; k <= NUDGE_CAP_STEPS && nudged === null; k++) {
-      for (const dy of [k * CHIP_NUDGE_STEP, -k * CHIP_NUDGE_STEP]) {
-        if (isClear(lx, ly + dy)) {
-          nudged = dy;
-          break;
-        }
-      }
-    }
-    if (nudged !== null) {
-      placed.push({
-        x: lx,
-        y: ly + nudged,
-        halfW: CHIP_HALF_W_WIDE,
-        halfH: CHIP_HALF_H,
-      });
-      labelDyByIndex.set(index, nudged);
-      continue;
-    }
-    // Last resort: cascade against CHIPS AND CARDS only (foreign lines waived),
-    // bidirectionally, nearest escape first (ties prefer down). Cards are
-    // finite, so a clear slot always exists within a few card heights; the cap
-    // only bounds the search. This upholds the two HARD invariants -- no two
-    // chips overlap, no chip on a foreign card -- at the cost of the chip
-    // grazing a foreign line (ratcheted) and sitting off its own polyline
-    // (ratcheted).
-    const hardClear = (py: number): boolean =>
-      !hitsCard(lx, py) &&
-      !placed.some((b) =>
-        chipBoxesOverlap(b, {
-          x: lx,
-          y: py,
-          halfW: CHIP_HALF_W_WIDE,
-          halfH: CHIP_HALF_H,
-        }),
-      );
-    let dy = 0;
-    let escaped = false;
-    for (let k = 0; k <= LAST_RESORT_CAP_STEPS && !escaped; k++) {
-      const deltas = k === 0 ? [0] : [k * CHIP_NUDGE_STEP, -k * CHIP_NUDGE_STEP];
-      for (const delta of deltas) {
-        if (hardClear(ly + delta)) {
-          dy = delta;
-          escaped = true;
-          break;
-        }
-      }
-    }
-    if (!escaped && import.meta.env.DEV) {
-      // Dev/test-only tripwire, tree-shaken out of production builds (parity
-      // with the render hook in src/pipeline/driver.ts). Never expected: cards
-      // are finite, so the cascade should always find free space.
-      console.warn(
-        `chip seating: last-resort cascade for ${edge.id} exhausted its cap; ` +
-          "chip parked at its anchor (chip/card hard invariants abandoned)",
-      );
-    }
-    placed.push({
-      x: lx,
-      y: ly + dy,
-      halfW: CHIP_HALF_W_WIDE,
-      halfH: CHIP_HALF_H,
-    });
-    if (dy !== 0) labelDyByIndex.set(index, dy);
-  }
-
-  if (
-    labelDyByIndex.size === 0 &&
-    labelDxByIndex.size === 0 &&
-    entryDyByIndex.size === 0 &&
-    busDropDyByIndex.size === 0 &&
-    busChipDyByIndex.size === 0
-  ) {
-    return edges.map((e) => e);
-  }
-  return edges.map((edge, index) => {
-    const labelDy = labelDyByIndex.get(index);
-    const labelDx = labelDxByIndex.get(index);
-    const entryChipDy = entryDyByIndex.get(index);
-    const busDropDy = busDropDyByIndex.get(index);
-    const busChipDy = busChipDyByIndex.get(index);
-    if (
-      labelDy === undefined &&
-      labelDx === undefined &&
-      entryChipDy === undefined &&
-      busDropDy === undefined &&
-      busChipDy === undefined
-    ) {
-      return edge;
-    }
-    return {
-      ...edge,
-      data: {
-        ...edge.data,
-        ...(labelDy !== undefined ? { labelDy } : {}),
-        ...(labelDx !== undefined ? { labelDx } : {}),
-        ...(entryChipDy !== undefined ? { entryChipDy } : {}),
-        ...(busDropDy !== undefined ? { busDropDy } : {}),
-        ...(busChipDy !== undefined ? { busChipDy } : {}),
-      },
-    };
-  });
-}

@@ -16,7 +16,6 @@ import {
   clearBusColumns,
   directCorridorClear,
   jogForwardLegs,
-  deconflictChipAnchors,
   entryGutterRects,
   gutterWidth,
   paddedObstacles,
@@ -24,6 +23,7 @@ import {
   LANE_TOP_OFFSET,
   LANE_SPACING,
 } from "../../src/canvas/busRouting";
+import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import { PORT_STUB, CHAMFER } from "../../src/canvas/edgePath";
 import type { RFAnyNode } from "../../src/canvas/layout";
