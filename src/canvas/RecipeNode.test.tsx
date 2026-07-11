@@ -217,6 +217,48 @@ test("UPM label localizes under zh", () => {
   expect(lbl).not.toBe("UPM");
 });
 
+// 8B: each port's React Flow Handle and its PortGlyph render INSIDE the
+// .rn-row for that item, so the DOM row center is the anchor truth instead of a
+// computed constant offset. The handle carries no inline `top` (it centers via
+// CSS top:50%), and per-side handle ids/counts are unchanged.
+test("handle and port glyph render inside their recipe row", () => {
+  const props = {
+    data: {
+      recipe: RECIPE,
+      portTransportKinds: new Map([
+        ["in:ore", "belt"],
+        ["out:plate", "belt"],
+      ]),
+    },
+  } as unknown as ComponentProps<typeof RecipeNode>;
+  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
+
+  const inputRow = container.querySelector<HTMLElement>(
+    ".rn-side.in .rn-row.input",
+  );
+  const outputRow = container.querySelector<HTMLElement>(
+    ".rn-side.out .rn-row.output",
+  );
+  expect(inputRow).not.toBeNull();
+  expect(outputRow).not.toBeNull();
+
+  const inHandle = inputRow!.querySelector<HTMLElement>("[data-handleid]");
+  expect(inHandle).not.toBeNull();
+  expect(inHandle!.getAttribute("data-handleid")).toBe("in:ore");
+  expect(inHandle!.style.top).toBe("");
+  expect(inputRow!.querySelector("[data-glyph]")).not.toBeNull();
+
+  const outHandle = outputRow!.querySelector<HTMLElement>("[data-handleid]");
+  expect(outHandle).not.toBeNull();
+  expect(outHandle!.getAttribute("data-handleid")).toBe("out:plate");
+  expect(outHandle!.style.top).toBe("");
+  expect(outputRow!.querySelector("[data-glyph]")).not.toBeNull();
+
+  // Per-side handle counts unchanged: one target, one source.
+  expect(container.querySelectorAll('[data-handlepos="left"]').length).toBe(1);
+  expect(container.querySelectorAll('[data-handlepos="right"]').length).toBe(1);
+});
+
 // A corrupt fixture can reference a missing machine; the rate falls back to
 // speed 1 instead of crashing.
 test("missing machine record falls back to speed 1", () => {

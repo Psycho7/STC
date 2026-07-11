@@ -13,6 +13,7 @@ import {
   ItemPackProvider,
   type ItemPackContextValue,
 } from "../../src/canvas/itemPackContext";
+import type { PortTransportKinds } from "../../src/canvas/layout";
 
 afterEach(() => {
   cleanup();
@@ -89,6 +90,7 @@ type RecipeNodeData = {
   kind?: "recipe";
   inputOrder?: string[];
   outputOrder?: string[];
+  portTransportKinds?: PortTransportKinds;
 };
 type RecipeNodeType = RFNode<RecipeNodeData, "recipe">;
 
@@ -206,7 +208,7 @@ describe("RecipeNode", () => {
     }
   });
 
-  it("fallback path (no inputOrder): per-row handles keep declaration order at measureRecipe(recipe).in/outHandleYs[i]", () => {
+  it("fallback path (no inputOrder): each handle nests in its own row in declaration order with no computed inline top", () => {
     const { container } = renderRecipe({
       recipe: multiRowRecipe,
       kind: "recipe",
@@ -221,19 +223,28 @@ describe("RecipeNode", () => {
     expect(inputHandles.length).toBe(2);
     expect(outputHandles.length).toBe(1);
 
-    const geom = measureRecipe(multiRowRecipe);
+    // Each handle is a DOM descendant of exactly the .rn-row at its slot, and
+    // the anchor is the DOM row center (CSS top:50%), so no computed inline top
+    // is stamped on the handle.
+    const inputRows =
+      container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input");
+    const outputRows = container.querySelectorAll<HTMLElement>(
+      ".rn-side.out .rn-row.output",
+    );
     const expectedInIds = ["in:copper_nugget", "in:copper_ore-liquid_water"];
     inputHandles.forEach((handle, i) => {
       expect(handle.getAttribute("data-handleid")).toBe(expectedInIds[i]);
-      expect(handle.style.top).toBe(`${geom.inHandleYs[i]}px`);
+      expect(handle.style.top).toBe("");
+      expect(inputRows[i]!.contains(handle)).toBe(true);
     });
     expect(outputHandles[0]!.getAttribute("data-handleid")).toBe(
       "out:copper_powder",
     );
-    expect(outputHandles[0]!.style.top).toBe(`${geom.outHandleYs[0]}px`);
+    expect(outputHandles[0]!.style.top).toBe("");
+    expect(outputRows[0]!.contains(outputHandles[0]!)).toBe(true);
   });
 
-  it("reordered path (inputOrder present): handles and rows follow the resolved order, rates track each item", () => {
+  it("reordered path (inputOrder present): handles nest in their rows following the resolved order, rates track each item", () => {
     // The resolved order reverses the declaration order [copper_nugget,
     // copper_ore-liquid_water]. The handle at slot i and the row at slot i must
     // both describe the item at inputOrder[i], and each row keeps its own qty
@@ -244,15 +255,15 @@ describe("RecipeNode", () => {
       multiplier: 1,
       inputOrder: ["copper_ore-liquid_water", "copper_nugget"],
     });
-    const inputHandles = container.querySelectorAll<HTMLElement>(
-      'div[data-handlepos="left"]',
-    );
-    expect(inputHandles.length).toBe(2);
-    const geom = measureRecipe(multiRowRecipe);
+    const inputRows =
+      container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input");
+    expect(inputRows.length).toBe(2);
     const expectedInIds = ["in:copper_ore-liquid_water", "in:copper_nugget"];
-    inputHandles.forEach((handle, i) => {
-      expect(handle.getAttribute("data-handleid")).toBe(expectedInIds[i]);
-      expect(handle.style.top).toBe(`${geom.inHandleYs[i]}px`);
+    // The handle inside each row (slot i) matches the resolved item at slot i.
+    inputRows.forEach((row, i) => {
+      const handle = row.querySelector<HTMLElement>("[data-handleid]");
+      expect(handle).not.toBeNull();
+      expect(handle!.getAttribute("data-handleid")).toBe(expectedInIds[i]);
     });
     // Rows in the same reversed order, each paired with its own rate.
     const inputLbls = Array.from(
@@ -312,6 +323,55 @@ describe("RecipeNode", () => {
       container.querySelectorAll<HTMLElement>(".rn-side.out .rn-row.output"),
     ).map((r) => r.style.getPropertyValue("--row-accent"));
     expect(outputAccents).toEqual([itemColor("copper_powder")]);
+  });
+
+  it("nests both the Handle and the PortGlyph inside the .rn-row for each port", () => {
+    const portTransportKinds: PortTransportKinds = new Map([
+      ["in:copper_nugget", "belt"],
+      ["in:copper_ore-liquid_water", "pipe"],
+      ["out:copper_powder", "belt"],
+    ]);
+    const { container } = renderRecipe({
+      recipe: multiRowRecipe,
+      kind: "recipe",
+      multiplier: 1,
+      portTransportKinds,
+    });
+    // Per-side handle count is unchanged by the move.
+    expect(
+      container.querySelectorAll('[data-handlepos="left"]').length,
+    ).toBe(2);
+    expect(
+      container.querySelectorAll('[data-handlepos="right"]').length,
+    ).toBe(1);
+
+    // Each input row owns exactly its handle and its glyph; declaration order
+    // pairs row slot i with expectedInIds[i].
+    const inputRows =
+      container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input");
+    const expectedInIds = ["in:copper_nugget", "in:copper_ore-liquid_water"];
+    inputRows.forEach((row, i) => {
+      const handles = row.querySelectorAll<HTMLElement>("[data-handleid]");
+      expect(handles.length).toBe(1);
+      expect(handles[0]!.getAttribute("data-handleid")).toBe(expectedInIds[i]);
+      expect(row.querySelectorAll("[data-glyph]").length).toBe(1);
+    });
+
+    const outputRows = container.querySelectorAll<HTMLElement>(
+      ".rn-side.out .rn-row.output",
+    );
+    expect(outputRows.length).toBe(1);
+    const outHandles =
+      outputRows[0]!.querySelectorAll<HTMLElement>("[data-handleid]");
+    expect(outHandles.length).toBe(1);
+    expect(outHandles[0]!.getAttribute("data-handleid")).toBe(
+      "out:copper_powder",
+    );
+    expect(outputRows[0]!.querySelectorAll("[data-glyph]").length).toBe(1);
+
+    // No stray handles or glyphs outside the rows.
+    expect(container.querySelectorAll("[data-handleid]").length).toBe(3);
+    expect(container.querySelectorAll("[data-glyph]").length).toBe(3);
   });
 
   describe("footer", () => {
