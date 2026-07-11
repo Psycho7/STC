@@ -275,6 +275,10 @@ export function routeBusEdges(
   const singleMemberTrunks = [...memberIndicesByTrunk].filter(
     ([, indices]) => indices.length === 1,
   );
+  // A demoted edge is bound to its proven clear bend column: the stamp keeps
+  // assignBendColumns' fan (which skips pre-stamped edges) and the drawer's mid
+  // fallback from re-picking a blocked column the existence proof never checked.
+  const demotedBendXByIndex = new Map<number, number>();
   if (singleMemberTrunks.length > 0) {
     const obstacles = paddedObstacles(nodes, edges);
     for (const [trunkKey, indices] of singleMemberTrunks) {
@@ -292,15 +296,29 @@ export function routeBusEdges(
       if (!forwardCorridorClear(source, target, item, byId, obstacles)) {
         continue; // horizontal corridor not provably clear -> keep the lane
       }
-      if (!forwardBendColumnClear(source, target, item, byId, obstacles)) {
+      const proof = provenForwardBendColumn(
+        source,
+        target,
+        item,
+        byId,
+        obstacles,
+      );
+      if (proof === null) {
         continue; // no clear vertical bend column -> keep the lane
       }
       trunkKeyByEdgeIndex.delete(index);
       trunks.delete(trunkKey);
+      if (proof.bendX !== null) demotedBendXByIndex.set(index, proof.bendX);
     }
   }
 
-  if (trunkKeyByEdgeIndex.size === 0) return edges.map((e) => e);
+  const withDemotedBends = (edge: Edge, index: number): Edge => {
+    const bendX = demotedBendXByIndex.get(index);
+    if (bendX === undefined) return edge;
+    return { ...edge, data: { ...edge.data, bendX } };
+  };
+
+  if (trunkKeyByEdgeIndex.size === 0) return edges.map(withDemotedBends);
 
   // Split trunks into a top and a bottom band. The bottom band sits below the
   // graph (today's single band, lanes stacking DOWN); the top band mirrors it
@@ -430,10 +448,11 @@ export function routeBusEdges(
   }
 
   // Second pass: emit. Members are retyped and get the lane + trunk-aggregate
-  // fields merged; everything else is returned as-is.
+  // fields merged; demoted edges carry their proven bendX; everything else is
+  // returned as-is.
   return edges.map((edge, index) => {
     const trunkKey = trunkKeyByEdgeIndex.get(index);
-    if (trunkKey === undefined) return edge;
+    if (trunkKey === undefined) return withDemotedBends(edge, index);
     const laneY = laneYByTrunk.get(trunkKey)!;
     return {
       ...edge,
@@ -511,28 +530,38 @@ function forwardCorridorClear(
   return clearRailY(ty, sx + PORT_STUB, tx - PORT_STUB, foreign) === ty;
 }
 
-// Does a demoted forward edge have a clear vertical bend column? A demoted
-// single-member trunk (Task 12) draws a normal forward step whose bend is a
-// vertical run between the source and target rows. forwardCorridorClear proves
-// the horizontal legs clear, but that vertical can still slice a card stacked in
-// the inter-layer gap -- so demotion additionally requires that SOME column in
-// [sx, tx] spanning sy..ty is pierced by no foreign card. A same-y / small-dy
-// route (|ty - sy| <= a chamfer) draws no vertical run and needs no column. Uses
-// the same card-only foreign set (own source / target and their containers
-// exempt) as the corridor gate, so a demotion never leaves a bend crossing a
-// card the segment audit would then flag. Any unproven column keeps the lane.
-function forwardBendColumnClear(
+// Proven clear vertical bend column for a demoted forward edge, or null. A
+// demoted single-member trunk (Task 12) draws a normal forward step whose bend
+// is a vertical run between the source and target rows. forwardCorridorClear
+// proves the horizontal legs clear, but that vertical can still slice a card
+// stacked in the inter-layer gap -- so demotion additionally requires SOME
+// column in [sx, tx] spanning sy..ty pierced by no foreign card, and the
+// demotion BINDS the drawn bend to that proven column (stamped as bendX; the
+// existence proof alone would not constrain assignBendColumns' fan or the mid
+// fallback, which can still pick a blocked column). Candidates live inside the
+// drawer's clamp range so the stamp survives clamping; the one nearest the
+// corridor midpoint wins for visual balance, ties toward the left. A same-y /
+// small-dy route (|ty - sy| <= a chamfer) draws no vertical run and needs no
+// column (returns the corridor midpoint). Uses the same card-only foreign set
+// (own source / target and their containers exempt) as the corridor gate, so a
+// demotion never leaves a bend crossing a card the segment audit would then
+// flag. Any unproven column keeps the lane (null). A clear route that draws no
+// vertical needs no stamp: bendX comes back null inside the proof so the edge
+// passes through untouched.
+type BendProof = { bendX: number | null };
+function provenForwardBendColumn(
   source: RFAnyNode,
   target: RFAnyNode,
   item: string | undefined,
   byId: ReadonlyMap<string, RFAnyNode>,
   obstacles: ReadonlyArray<PaddedObstacle>,
-): boolean {
+): BendProof | null {
   const sx = absoluteLeft(source, byId) + nodeWidth(source);
   const tx = absoluteLeft(target, byId);
   const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
   const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-  if (Math.abs(ty - sy) <= 2 * CHAMFER) return true; // no vertical run to place
+  const mid = (sx + tx) / 2;
+  if (Math.abs(ty - sy) <= 2 * CHAMFER) return { bendX: null }; // no vertical run
   const exempt = new Set<string>([source.id, target.id]);
   if (source.parentId !== undefined) exempt.add(source.parentId);
   if (target.parentId !== undefined) exempt.add(target.parentId);
@@ -548,14 +577,22 @@ function forwardBendColumnClear(
   const gap = CHAMFER;
   const blocked = (x: number): boolean =>
     spanned.some((o) => x > o.left - gap && x < o.right + gap);
-  // Candidate columns: one stub inside each port, plus each spanned card's padded
-  // edges, restricted to the span. A demotion is safe iff one of them is clear.
+  // Candidate columns: the corridor midpoint, one stub+chamfer inside each port
+  // (the drawer's clamp bounds), and each spanned card's padded edges, all
+  // restricted to the clamp range so the stamped bendX draws as proven.
+  const lo = sx + PORT_STUB + CHAMFER;
+  const hi = tx - PORT_STUB - CHAMFER;
   const candidates = [
-    sx + PORT_STUB,
-    tx - PORT_STUB,
+    mid,
+    lo,
+    hi,
     ...spanned.flatMap((o) => [o.left - gap, o.right + gap]),
-  ].filter((x) => x >= sx && x <= tx);
-  return candidates.some((x) => !blocked(x));
+  ]
+    .filter((x) => x >= lo && x <= hi)
+    .filter((x) => !blocked(x))
+    .sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid) || a - b);
+  const best = candidates[0];
+  return best === undefined ? null : { bendX: best };
 }
 
 // directCorridorClear: the corridor gate above, resolved from raw nodes / edges
@@ -851,6 +888,11 @@ export function assignBendColumns(
   for (const edge of edges) {
     if (edge.type !== "item") continue; // only forward item edges get staggered
     if (edgeItem(edge) === undefined) continue;
+    // Respect a pre-stamped bendX (a demoted trunk bound to its proven clear
+    // column): re-fanning it could move the bend back onto a blocked column.
+    if ((edge.data as { bendX?: number } | undefined)?.bendX !== undefined) {
+      continue;
+    }
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) continue;

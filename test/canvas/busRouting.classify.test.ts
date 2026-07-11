@@ -19,6 +19,7 @@ import {
   deconflictChipAnchors,
   entryGutterRects,
   gutterWidth,
+  paddedObstacles,
   BUS_SPAN_THRESHOLD,
   LANE_TOP_OFFSET,
   LANE_SPACING,
@@ -378,14 +379,16 @@ describe("routeBusEdges single-member demotion (9C)", () => {
 
     const out = routeBusEdges(nodes, edges);
 
-    // Stays type "item", passes through by reference, and carries no bus
-    // scaffolding: no lane, no trunk key, no rise-chip slot leaked on.
+    // Stays type "item" and carries no bus scaffolding: no lane, no trunk key,
+    // no rise-chip slot leaked on. It does carry the demotion's proven bend
+    // column (bendX) -- the binding that keeps the drawn vertical on the column
+    // the demotion gate actually proved clear.
     expect(out[0]!.type).toBe("item");
-    expect(out[0]).toBe(edges[0]);
     expect(out[0]!.data).not.toHaveProperty("laneY");
     expect(out[0]!.data).not.toHaveProperty("trunkKey");
     expect(out[0]!.data).not.toHaveProperty("busChipX");
     expect(out[0]!.data).not.toHaveProperty("busTotalRate");
+    expect(out[0]!.data).toHaveProperty("bendX");
   });
 
   it("keeps a lone member on the bus when a card blocks its corridor", () => {
@@ -446,6 +449,55 @@ describe("routeBusEdges single-member demotion (9C)", () => {
     const b = routeBusEdges(nodes, edges);
     expect(a[0]!.type).toBe("item");
     expect(a[0]!.type).toBe(b[0]!.type);
+  });
+
+  it("binds a demoted trunk to a proven clear bend column past a span blocker", () => {
+    // The direct corridor at ty is clear (nothing at the target row between the
+    // endpoints), but a card sits mid-corridor straddling the sy..ty span, so
+    // the corridor midpoint -- the drawer's fallback and a fan's likely pick --
+    // is a BLOCKED vertical. Demotion must therefore stamp the proven clear
+    // column onto the edge (bendX off the blocker), and assignBendColumns must
+    // respect the stamp instead of re-fanning it.
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 400, r),
+      // Straddles the vertical span at the corridor midpoint, below the source
+      // row and above the target row, clear of both port ys.
+      recipeNode("blocker", (300 + far) / 2 - 150, 200, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t", "b")];
+
+    const out = assignBendColumns(nodes, routeBusEdges(nodes, edges));
+
+    const e = out[0]!;
+    expect(e.type).toBe("item"); // demoted
+    const bendX = (e.data as { bendX?: number }).bendX;
+    expect(bendX).toBeDefined();
+    // The stamped column clears the blocker's padded band.
+    const blocker = paddedObstacles(nodes, edges).find(
+      (o) => o.kind === "card" && o.nodeId === "blocker",
+    )!;
+    expect(
+      bendX! <= blocker.left - CHAMFER || bendX! >= blocker.right + CHAMFER,
+    ).toBe(true);
+  });
+
+  it("keeps the lane when no clear bend column exists across the span", () => {
+    // Same shape, but the sy..ty span is tiled with blockers wall to wall, so
+    // no candidate column clears: the edge must stay a bus member.
+    const blockers: RFAnyNode[] = [];
+    for (let x = 300 - 40; x < far; x += 300 + 20) {
+      blockers.push(recipeNode(`w${x}`, x, 200, r));
+    }
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 400, r),
+      ...blockers,
+    ];
+    const edges = [mkEdge("e0", "s", "t", "b")];
+
+    const out = routeBusEdges(nodes, edges);
+    expect(out[0]!.type).toBe("bus");
   });
 
   it("routes a demoted member through the whole pipeline as a plain item edge", () => {
