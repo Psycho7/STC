@@ -43,6 +43,40 @@ export type ObstacleRect = {
   bottom: number;
 };
 
+// Optional per-edge routing hints. The routing passes (busRouting) merge these
+// onto edge data, and every consumer of a path builder -- ItemEdge, BusEdge, AND
+// the offline chip reconstruction in deconflictChipAnchors -- extracts them with
+// routingHintsFromData below. That single extraction point is the lockstep
+// contract: a new hint added here and in routingHintsFromData threads to the
+// render components and the reconstruction pass at once, instead of silently
+// reaching one but not the other.
+//   bendX:  bend-column x for a forward step (assignBendColumns). Absent ->
+//           the corridor midpoint.
+//   entryX: entry-gutter column x (assignEntryColumns), the vertical run into
+//           the target's Left port for backward rails and bus rises. Absent ->
+//           one stub before the port.
+//   railY:  backward-detour rail y (clampBackwardRails) clearing spanned cards.
+//           Absent -> midway between the endpoints.
+export type RoutingHints = {
+  bendX?: number;
+  entryX?: number;
+  railY?: number;
+};
+
+// Pick the routing hints off an edge's `data`, omitting absent ones so each
+// path builder's documented default kicks in. Shared by ItemEdge, BusEdge, and
+// deconflictChipAnchors (see RoutingHints above).
+export function routingHintsFromData(data: unknown): RoutingHints {
+  const d = data as
+    | { bendX?: unknown; entryX?: unknown; railY?: unknown }
+    | undefined;
+  return {
+    ...(typeof d?.bendX === "number" ? { bendX: d.bendX } : {}),
+    ...(typeof d?.entryX === "number" ? { entryX: d.entryX } : {}),
+    ...(typeof d?.railY === "number" ? { railY: d.railY } : {}),
+  };
+}
+
 // Choose a backward-detour rail y clear of every card the rail horizontally
 // spans. The rail runs at `preferredY` between xLo and xHi; a card whose x-range
 // overlaps [xLo, xHi] and whose y-extent contains preferredY would be sliced.
@@ -161,18 +195,17 @@ export function pathMidpoint(d: string): [number, number] {
 // (50% of cumulative length, via pathMidpoint), so the chip always sits on the
 // line it labels. The final segment is always a rightward horizontal into
 // target.
-export function chamferStepPath(args: {
-  sourceX: number;
-  sourceY: number;
-  targetX: number;
-  targetY: number;
-  bendX?: number;
-  entryX?: number;
-  // Backward-detour rail y override, staked out by clampBackwardRails so the rail
-  // routes clear of the cards it spans. Absent for direct callers, which keep the
-  // midway default and their byte-for-byte pinned paths.
-  railY?: number;
-}): [path: string, labelX: number, labelY: number] {
+//
+// New routing hint? Thread it through RoutingHints (and routingHintsFromData)
+// so render and deconflictChipAnchors stay in lockstep.
+export function chamferStepPath(
+  args: {
+    sourceX: number;
+    sourceY: number;
+    targetX: number;
+    targetY: number;
+  } & RoutingHints,
+): [path: string, labelX: number, labelY: number] {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty, bendX } = args;
   const gap = tx - sx;
 
@@ -268,14 +301,20 @@ export function chamferStepPath(args: {
 // column and enters the target with a final rightward stub. Returns the drop and
 // rise columns (where BusEdge draws its two chips) and the junction point (where
 // BusEdge draws its dot, on the lane just before the rise chamfer).
-export function chamferBusPath(args: {
-  sourceX: number;
-  sourceY: number;
-  targetX: number;
-  targetY: number;
-  laneY: number;
-  entryX?: number;
-}): {
+//
+// Accepts the full RoutingHints so callers can spread routingHintsFromData; only
+// entryX is read today (bendX / railY do not apply to a bus run). New routing
+// hint? Thread it through RoutingHints (and routingHintsFromData) so render and
+// deconflictChipAnchors stay in lockstep.
+export function chamferBusPath(
+  args: {
+    sourceX: number;
+    sourceY: number;
+    targetX: number;
+    targetY: number;
+    laneY: number;
+  } & RoutingHints,
+): {
   path: string;
   dropX: number;
   riseX: number;

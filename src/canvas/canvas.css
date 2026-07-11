@@ -1643,6 +1643,22 @@
     0 0 0 1px rgba(0, 0, 0, 0.4),
     0 0 12px rgba(0, 0, 0, 0.4);
   transition: opacity 120ms ease-out;
+  /* Runtime bound tied to CHIP_BOX_WIDTH in dimensions.ts: the chip
+     de-confliction pass guarantees no overlap only for boxes up to that width,
+     so an off-corpus rate string (e.g. "12345.67/min x12") must not grow the
+     box past it. border-box makes the clamp cover the full rendered box
+     (padding and border included); the .chip-text rule below ellipsizes the
+     overflow. The title attribute still carries the full exact value. */
+  box-sizing: border-box;
+  max-width: 120px;
+}
+
+/* The chip's text span (see FlowChip): text-overflow cannot reach a bare text
+   node inside the flex chip, so the text gets its own shrinkable flex item that
+   clips with an ellipsis when the max-width clamp above bites. */
+.flow-chip .chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Chips need their own dim rule: EdgeLabelRenderer portals them into a separate

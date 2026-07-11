@@ -9,7 +9,7 @@ import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 import { MAX_CHIP_SCALE } from "./dimensions";
-import { chamferStepPath } from "./edgePath";
+import { chamferStepPath, routingHintsFromData } from "./edgePath";
 import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
 
@@ -206,7 +206,10 @@ export function FlowChip({
             <span className="spr" style={{ backgroundPosition: pos }} />
           </span>
         ) : null}
-        {text}
+        {/* The text rides in its own span so the .flow-chip max-width clamp can
+            ellipsize it (text-overflow does not reach a bare text node inside a
+            flex container). The title attribute above keeps the full value. */}
+        {text ? <span className="chip-text">{text}</span> : null}
       </div>
     </EdgeLabelRenderer>
   );
@@ -266,9 +269,7 @@ export default function ItemEdge({
     sourceY,
     targetX,
     targetY,
-    ...(edgeData?.bendX !== undefined ? { bendX: edgeData.bendX } : {}),
-    ...(edgeData?.entryX !== undefined ? { entryX: edgeData.entryX } : {}),
-    ...(edgeData?.railY !== undefined ? { railY: edgeData.railY } : {}),
+    ...routingHintsFromData(edgeData),
   });
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);

@@ -7,7 +7,7 @@ import {
   type ItemEdgeData,
 } from "./ItemEdge";
 import type { BusEdgeData } from "./busRouting";
-import { chamferBusPath } from "./edgePath";
+import { chamferBusPath, routingHintsFromData } from "./edgePath";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
@@ -48,7 +48,7 @@ export default function BusEdge({
     targetX,
     targetY,
     laneY,
-    ...(edgeData?.entryX !== undefined ? { entryX: edgeData.entryX } : {}),
+    ...routingHintsFromData(edgeData),
   });
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);

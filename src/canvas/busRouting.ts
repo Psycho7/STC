@@ -36,6 +36,7 @@ import {
   chamferBusPath,
   chamferStepPath,
   clearRailY,
+  routingHintsFromData,
   type ObstacleRect,
 } from "./edgePath";
 import { measureRecipe } from "./recipeGeometry";
@@ -882,13 +883,24 @@ export function deconflictChipAnchors(
   // one rise chip per member, all on the trunk's lane. Reconstruct their lane
   // anchors from the same geometry BusEdge uses (chamferBusPath for dropX/riseX,
   // busChipX for the spread rise slot) and seat each one, cascading downward off
-  // the lane when it crowds a neighbour. Members are processed in edge-id order,
-  // and the owner (the lexicographically smallest edge id) sorts first, so its
-  // drop chip settles on the lane before the rises pile below it. Drop and rise
-  // carry separate offsets (busDropDy, busChipDy) because a member's rise may need
-  // a different push than the trunk's shared drop.
+  // the lane when it crowds a neighbour. Seating is two-phase: EVERY trunk's
+  // drop chip settles first, then every rise chip, each phase in edge-id order.
+  // The drop chip is the trunk's aggregate total at its junction; interleaving
+  // by edge id alone would let an earlier trunk's cascading rise land on a later
+  // trunk's junction and knock that aggregate off its lane, so drop priority is
+  // structural, not an accident of id order. Drop and rise carry separate
+  // offsets (busDropDy, busChipDy) because a member's rise may need a different
+  // push than the trunk's shared drop.
   const busDropDyByIndex = new Map<number, number>();
   const busChipDyByIndex = new Map<number, number>();
+  type BusSlot = {
+    index: number;
+    laneY: number;
+    dropX: number;
+    riseChipX: number;
+    owner: boolean;
+  };
+  const busSlots: BusSlot[] = [];
   const busEdges = edges
     .map((edge, index) => ({ edge, index }))
     .filter((e) => e.edge.type === "bus")
@@ -906,36 +918,42 @@ export function deconflictChipAnchors(
     const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
     const tx = absoluteLeft(target, byId);
     const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    const entryX = (edge.data as { entryX?: number } | undefined)?.entryX;
     const { dropX, riseX } = chamferBusPath({
       sourceX: sx,
       sourceY: sy,
       targetX: tx,
       targetY: ty,
       laneY: data.laneY,
-      ...(entryX !== undefined ? { entryX } : {}),
+      ...routingHintsFromData(edge.data),
     });
-    // The owner draws the aggregate drop chip; settle it first so rises pile
-    // below it rather than displacing it off the lane.
-    if (data.busChipOwner === true) {
-      const dropDy = seatChip(
-        placed,
-        dropX,
-        data.laneY,
-        CHIP_HALF_W_WIDE,
-        CHIP_HALF_H,
-      );
-      if (dropDy !== 0) busDropDyByIndex.set(index, dropDy);
-    }
-    const riseChipX = data.busChipX ?? riseX;
-    const riseDy = seatChip(
+    busSlots.push({
+      index,
+      laneY: data.laneY,
+      dropX,
+      riseChipX: data.busChipX ?? riseX,
+      owner: data.busChipOwner === true,
+    });
+  }
+  for (const slot of busSlots) {
+    if (!slot.owner) continue;
+    const dropDy = seatChip(
       placed,
-      riseChipX,
-      data.laneY,
+      slot.dropX,
+      slot.laneY,
       CHIP_HALF_W_WIDE,
       CHIP_HALF_H,
     );
-    if (riseDy !== 0) busChipDyByIndex.set(index, riseDy);
+    if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
+  }
+  for (const slot of busSlots) {
+    const riseDy = seatChip(
+      placed,
+      slot.riseChipX,
+      slot.laneY,
+      CHIP_HALF_W_WIDE,
+      CHIP_HALF_H,
+    );
+    if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
   }
 
   // Item midpoint chips: reconstruct each item edge's label anchor from node
@@ -963,17 +981,12 @@ export function deconflictChipAnchors(
     const tx = absoluteLeft(target, byId);
     const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
     const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    const d = edge.data as
-      | { bendX?: number; entryX?: number; railY?: number }
-      | undefined;
     const [, lx, ly] = chamferStepPath({
       sourceX: sx,
       sourceY: sy,
       targetX: tx,
       targetY: ty,
-      ...(d?.bendX !== undefined ? { bendX: d.bendX } : {}),
-      ...(d?.entryX !== undefined ? { entryX: d.entryX } : {}),
-      ...(d?.railY !== undefined ? { railY: d.railY } : {}),
+      ...routingHintsFromData(edge.data),
     });
     const dy = seatChip(placed, lx, ly, CHIP_HALF_W_WIDE, CHIP_HALF_H);
     if (dy !== 0) labelDyByIndex.set(index, dy);

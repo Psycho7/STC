@@ -46,10 +46,13 @@ export const MAX_CHIP_SCALE = 2;
 // Horizontal chip-box metrics, the x-axis analogs of CHIP_BOX_HEIGHT. A chip's
 // on-screen width is roughly constant at low zoom (it counter-scales by 1/zoom,
 // capped at MAX_CHIP_SCALE), so in graph units its box is at most
-// MAX_CHIP_SCALE * CHIP_BOX_WIDTH wide. CHIP_BOX_WIDTH is the widest natural box
-// of a WIDE chip (a rate chip carrying icon + rounded rate + optional count
-// marker, e.g. "Clean Water x 222.22/min x2"), measured from the placement audit
-// corpus and rounded up for headroom. ENTRY_CHIP_BOX_WIDTH is the icon-only
+// MAX_CHIP_SCALE * CHIP_BOX_WIDTH wide. CHIP_BOX_WIDTH bounds the natural box of
+// a WIDE chip: the rendered body is the 16px item sprite plus the rounded rate
+// text and optional count marker (e.g. an icon followed by "222.22/min x2"; the
+// item name rides only on aria-label/title, never in the box). The widest corpus
+// chip measured ~115px; 120 adds headroom, and the .flow-chip max-width clamp in
+// canvas.css enforces the bound at runtime by ellipsizing any off-corpus rate
+// string that would exceed it. ENTRY_CHIP_BOX_WIDTH is the icon-only
 // entry-marker variant (16px sprite plus the compact padding/border), which is
 // much narrower. busRouting's chip de-confliction reads both so its horizontal
 // collision floor tracks the true rendered width instead of a stale guess.
