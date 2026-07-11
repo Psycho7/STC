@@ -1889,6 +1889,8 @@ function seatChip(
   ownFlowKey = "",
   ownTarget = "",
   entryBand?: EntryBand,
+  // Owning edge id, used only for the DEV exhaustion warning below.
+  devId = "",
 ): number {
   const clear = cascadeClearDy(
     placed,
@@ -1909,6 +1911,15 @@ function seatChip(
   }
   // Segment-clear seat not found within the cap: fall back to the chips-only
   // cascade so crowding never regresses past the pre-segment behaviour.
+  if (import.meta.env.DEV) {
+    // Dev/test-only tripwire, tree-shaken out of production builds (parity
+    // with the render hook in src/pipeline/driver.ts).
+    console.warn(
+      `chip seating: segment-clear cascade for ${devId || "(unnamed chip)"} ` +
+        "exhausted its cap; falling back to the chips-only cascade " +
+        "(foreign-line clearance abandoned)",
+    );
+  }
   let dy = 0;
   while (
     placed.some((box) => chipBoxesOverlap(box, { x, y: y + dy, halfW, halfH }))
@@ -2184,7 +2195,16 @@ export function deconflictChipAnchors(
         steps += 1;
       }
       // Cap exhausted: keep the plain stacked slot (pre-segment behaviour).
-      if (steps <= CHIP_SEAT_MAX_STEPS) y = cleared;
+      if (steps <= CHIP_SEAT_MAX_STEPS) {
+        y = cleared;
+      } else if (import.meta.env.DEV) {
+        // Dev/test-only tripwire, tree-shaken out of production builds
+        // (parity with the render hook in src/pipeline/driver.ts).
+        console.warn(
+          `chip seating: entry stack for ${s.id} exhausted its cap; ` +
+            "chip parked on a blocked slot (line/card/chip clearance abandoned)",
+        );
+      }
       const dy = y - s.anchorY;
       if (dy !== 0) entryDyByIndex.set(s.index, dy);
       placed.push(boxAt(y));
@@ -2208,6 +2228,7 @@ export function deconflictChipAnchors(
   const busChipDyByIndex = new Map<number, number>();
   type BusSlot = {
     index: number;
+    id: string;
     laneY: number;
     dropX: number;
     riseChipX: number;
@@ -2244,6 +2265,7 @@ export function deconflictChipAnchors(
     });
     busSlots.push({
       index,
+      id: edge.id,
       laneY: data.laneY,
       dropX,
       riseChipX: data.busChipX ?? riseX,
@@ -2267,6 +2289,8 @@ export function deconflictChipAnchors(
       edgeSegments,
       slot.flowKey,
       slot.target,
+      undefined,
+      slot.id,
     );
     if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
   }
@@ -2281,6 +2305,8 @@ export function deconflictChipAnchors(
       edgeSegments,
       slot.flowKey,
       slot.target,
+      undefined,
+      slot.id,
     );
     if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
   }
@@ -2453,17 +2479,25 @@ export function deconflictChipAnchors(
         }),
       );
     let dy = 0;
-    for (let k = 0; k <= LAST_RESORT_CAP_STEPS; k++) {
+    let escaped = false;
+    for (let k = 0; k <= LAST_RESORT_CAP_STEPS && !escaped; k++) {
       const deltas = k === 0 ? [0] : [k * CHIP_NUDGE_STEP, -k * CHIP_NUDGE_STEP];
-      let done = false;
       for (const delta of deltas) {
         if (hardClear(ly + delta)) {
           dy = delta;
-          done = true;
+          escaped = true;
           break;
         }
       }
-      if (done) break;
+    }
+    if (!escaped && import.meta.env.DEV) {
+      // Dev/test-only tripwire, tree-shaken out of production builds (parity
+      // with the render hook in src/pipeline/driver.ts). Never expected: cards
+      // are finite, so the cascade should always find free space.
+      console.warn(
+        `chip seating: last-resort cascade for ${edge.id} exhausted its cap; ` +
+          "chip parked at its anchor (chip/card hard invariants abandoned)",
+      );
     }
     placed.push({
       x: lx,
