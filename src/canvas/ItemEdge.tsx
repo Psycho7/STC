@@ -8,6 +8,7 @@ import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
+import { MAX_CHIP_SCALE } from "./dimensions";
 import { chamferStepPath } from "./edgePath";
 import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
@@ -121,8 +122,6 @@ export function edgeStrokeWidth(zoom: number): number {
 // constant; the clamp caps the boost so chips never balloon on tiny plans. At
 // the LABEL_MIN_ZOOM gate (0.35) the 2x cap yields ~11px effective, above the
 // ~10px legibility floor.
-const MAX_CHIP_SCALE = 2;
-
 export function chipCounterScale(zoom: number): number {
   return zoom < 1 ? Math.min(MAX_CHIP_SCALE, 1 / zoom) : 1;
 }

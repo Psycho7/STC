@@ -26,6 +26,20 @@ export function recipeHeight(inPorts: number, outPorts: number): number {
 export const PORT_WIDTH = 8;
 export const PORT_HEIGHT = 8;
 
+// Shared chip metrics for the two edge-label chip families (entry-port stack and
+// midpoint rate chips). CHIP_BOX_HEIGHT is the on-screen box height of the
+// TALLEST chip variant at natural scale, the midpoint rate chip: a 16px item
+// sprite plus 3px of padding and a 1px border on each side (see the .flow-chip
+// rule in canvas.css). The compact entry variant (2px padding, 22px box) is
+// covered with margin. MAX_CHIP_SCALE is the counter-scale cap the chips reach
+// at the fit-zoom floor (they scale by 1/zoom about their centre, clamped
+// here), so the tallest a chip ever renders is MAX_CHIP_SCALE * CHIP_BOX_HEIGHT.
+// Both busRouting (stack pitch, midpoint collision box and nudge step) and
+// ItemEdge (chip counter-scale) read these so the on-screen no-overlap
+// guarantee stays coupled to one source of truth.
+export const CHIP_BOX_HEIGHT = 24;
+export const MAX_CHIP_SCALE = 2;
+
 export const NODE_NODE_SPACING = 30;
 // A generous column gap so each ItemEdge label chip (item icon + name + rate)
 // has room to breathe and doesn't overlap the source or target node. The earlier

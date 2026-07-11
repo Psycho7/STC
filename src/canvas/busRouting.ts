@@ -23,6 +23,8 @@ import Fraction from "fraction.js";
 
 import {
   BETWEEN_LAYERS_SPACING,
+  CHIP_BOX_HEIGHT,
+  MAX_CHIP_SCALE,
   RECIPE_WIDTH,
   loopBoxDimensions,
 } from "./dimensions";
@@ -637,19 +639,27 @@ export function clampBackwardRails(
 // Pure and deterministic: anchors are reconstructed from node geometry with the
 // same path builder the components use, and both passes order by edge id.
 
-// Chip-collision box for the greedy midpoint nudge, in graph units. Two
-// midpoint anchors closer than this in both axes are treated as overlapping; a
-// colliding chip is bumped down one step until it clears.
-const CHIP_COLLIDE_X = 60;
-const CHIP_COLLIDE_Y = 20;
-const CHIP_NUDGE_STEP = 22;
+// Vertical chip pitch, in graph units: the smallest gap between two chip centres
+// that keeps their boxes clear at every zoom. A chip counter-scales up to
+// MAX_CHIP_SCALE about its centre, so its tallest rendered box is
+// MAX_CHIP_SCALE * CHIP_BOX_HEIGHT; spacing centres that far apart guarantees no
+// on-screen overlap down to the fit-zoom floor. Both chip families derive from
+// it: the entry-port stack pitch and the midpoint nudge's collision box + step.
+const CHIP_PITCH_Y = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
 
-// Minimum vertical pitch between two entry chips arriving at one node: a chip's
-// own height plus a 2px breathing gap, in graph units. Entry chips whose port
-// anchors sit closer than this (same-item duplicates share a port y outright)
-// are stacked down to this pitch so none coincide.
-const ENTRY_CHIP_HEIGHT = 20;
-export const ENTRY_CHIP_MIN_GAP = ENTRY_CHIP_HEIGHT + 2;
+// Chip-collision box for the greedy midpoint nudge, in graph units. Two midpoint
+// anchors closer than this in both axes are treated as overlapping; a colliding
+// chip is bumped one step (a full pitch) until it clears. CHIP_COLLIDE_Y is the
+// pitch so the resolved clearance never drops below a max-scale box height.
+const CHIP_COLLIDE_X = 60;
+const CHIP_COLLIDE_Y = CHIP_PITCH_Y;
+const CHIP_NUDGE_STEP = CHIP_PITCH_Y;
+
+// Minimum vertical pitch between two entry chips arriving at one node, in graph
+// units. Entry chips whose port anchors sit closer than this (same-item
+// duplicates share a port y outright) are stacked down to this pitch so none
+// coincide at any zoom.
+export const ENTRY_CHIP_MIN_GAP = CHIP_PITCH_Y;
 
 // Push a column of arrival y-anchors (given in arrival order) down just enough
 // that each sits at least ENTRY_CHIP_MIN_GAP below the previous one, so equal or

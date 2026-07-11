@@ -16,10 +16,12 @@ import {
   entryGutterRects,
   gutterWidth,
   ENTRY_SLOT_PITCH,
+  ENTRY_CHIP_MIN_GAP,
   BUS_SPAN_THRESHOLD,
   LANE_TOP_OFFSET,
   LANE_SPACING,
 } from "../../src/canvas/busRouting";
+import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import { PORT_STUB, CHAMFER } from "../../src/canvas/edgePath";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import type {
@@ -103,6 +105,13 @@ const maxBottom = (nodes: RFAnyNode[]): number =>
       return n.position.y + h;
     }),
   );
+
+describe("chip stack pitch", () => {
+  it("couples the entry pitch to max counter-scale times true chip height", () => {
+    expect(ENTRY_CHIP_MIN_GAP).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+    expect(ENTRY_CHIP_MIN_GAP).toBe(48);
+  });
+});
 
 describe("routeBusEdges", () => {
   it("leaves a short edge untouched", () => {

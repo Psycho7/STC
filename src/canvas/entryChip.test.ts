@@ -16,6 +16,15 @@ test("stackEntryAnchors pushes a coincident anchor clear of the previous one", (
   expect(out[1]! - out[0]!).toBeGreaterThanOrEqual(ENTRY_CHIP_MIN_GAP);
 });
 
+test("stackEntryAnchors spaces coincident anchors at least a max-scale pitch (48) apart", () => {
+  // At the fit-zoom counter-scale cap (2x), a 24px rate-chip box renders 48px
+  // tall, so the graph-space stack pitch must be at least 48 to keep chips
+  // clear.
+  const out = stackEntryAnchors([0, 0, 0]);
+  expect(out[1]! - out[0]!).toBeGreaterThanOrEqual(48);
+  expect(out[2]! - out[1]!).toBeGreaterThanOrEqual(48);
+});
+
 test("stackEntryAnchors leaves already-separated anchors untouched", () => {
   const out = stackEntryAnchors([100, 100 + ENTRY_CHIP_MIN_GAP + 5]);
   expect(out).toEqual([100, 100 + ENTRY_CHIP_MIN_GAP + 5]);
