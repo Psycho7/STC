@@ -1824,7 +1824,14 @@
 
 .rn-body {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr) instead of 1fr so a long input/output row cannot blow the
+     column past half the card: the default min-width:auto lets grid items grow
+     to their content and, on the output side, shoves the Position.Right port
+     handle out beyond the card's right edge. That floats the edge's source point
+     (and every chip anchored off it) into empty space right of the node and
+     makes the offline label-anchor reconstruction disagree with the render.
+     Clamping the columns keeps each port handle on its card edge. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0;
   position: relative;
 }
