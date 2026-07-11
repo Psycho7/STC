@@ -248,13 +248,17 @@ function cascadeClearDy(
   target = "",
   maxSteps: number = CHIP_SEAT_MAX_STEPS,
   entryBand?: EntryBand,
+  // When given, the cascade also clears every FOREIGN raw card (the drop
+  // aggregate's hard chip-vs-card tier); absent leaves cards unchecked (rises).
+  cardExempt?: ReadonlySet<string>,
 ): number | null {
   let dy = 0;
   for (let steps = 0; steps <= maxSteps; steps++) {
     const box = { x, y: y + dy, halfW, halfH };
     if (
       !field.overlapsChip(box) &&
-      !field.onForeignLine(box, flowKey, target, entryBand)
+      !field.onForeignLine(box, flowKey, target, entryBand) &&
+      (cardExempt === undefined || !field.entersForeignCard(box, cardExempt))
     ) {
       return dy;
     }
@@ -280,8 +284,26 @@ function seatChip(
   target: string,
   // Owning edge id, used only for the DEV exhaustion warning below.
   devId: string,
+  // Trunk-member card exemption for the drop aggregate seat (union of member
+  // targets + shared source + containers). When given, both the segment-clear
+  // cascade and the chips-only fallback keep the chip off every foreign raw
+  // card, upholding the bus-drop-vs-card hard tier at the seating side. Absent
+  // for rise chips (lane-anchored, out of scope for that tier).
+  cardExempt?: ReadonlySet<string>,
 ): number {
-  const clear = cascadeClearDy(field, x, y, halfW, halfH, step, flowKey, target);
+  const clear = cascadeClearDy(
+    field,
+    x,
+    y,
+    halfW,
+    halfH,
+    step,
+    flowKey,
+    target,
+    CHIP_SEAT_MAX_STEPS,
+    undefined,
+    cardExempt,
+  );
   if (clear !== null) {
     field.placed.push({ x, y: y + clear, halfW, halfH });
     return clear;
@@ -298,7 +320,11 @@ function seatChip(
     );
   }
   let dy = 0;
-  while (field.overlapsChip({ x, y: y + dy, halfW, halfH })) {
+  while (
+    field.overlapsChip({ x, y: y + dy, halfW, halfH }) ||
+    (cardExempt !== undefined &&
+      field.entersForeignCard({ x, y: y + dy, halfW, halfH }, cardExempt))
+  ) {
     dy += step;
   }
   field.placed.push({ x, y: y + dy, halfW, halfH });
@@ -785,6 +811,7 @@ export function deconflictChipAnchors(
     step: number;
     flowKey: string;
     target: string;
+    trunkKey: string;
   };
   const busSlots: BusSlot[] = [];
   const busEdges = edges
@@ -828,7 +855,26 @@ export function deconflictChipAnchors(
       step: data.busBand === "top" ? -CHIP_NUDGE_STEP : CHIP_NUDGE_STEP,
       flowKey: flowKeyOf(edge),
       target: edge.target,
+      trunkKey: data.trunkKey,
     });
+  }
+  // Card exemption for a lane trunk's AGGREGATE drop chip: the union over every
+  // lane member of the trunk (member targets + shared source + containers),
+  // mirroring the fan-out aggregate's trunk exemption. The drop chip's wide box
+  // sits on the lane but can reach a card the trunk feeds; exempting the whole
+  // trunk keeps a sibling member's target from reading as a foreign card and
+  // shoving the aggregate, while still upholding the bus-drop-vs-card hard tier
+  // against every FOREIGN card.
+  const laneTrunkExempt = new Map<string, Set<string>>();
+  for (const { edge } of busEdges) {
+    const data = edge.data as BusEdgeData | undefined;
+    if (data === undefined || !("laneY" in data)) continue;
+    let set = laneTrunkExempt.get(data.trunkKey);
+    if (set === undefined) {
+      set = new Set<string>();
+      laneTrunkExempt.set(data.trunkKey, set);
+    }
+    for (const id of cardExemptFor(edge)) set.add(id);
   }
   for (const slot of busSlots) {
     if (!slot.owner) continue;
@@ -842,6 +888,7 @@ export function deconflictChipAnchors(
       slot.flowKey,
       slot.target,
       slot.id,
+      laneTrunkExempt.get(slot.trunkKey),
     );
     if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
   }
@@ -868,13 +915,20 @@ export function deconflictChipAnchors(
   // three-tier seat, so both slide along their own drawn polyline before nudging
   // off it. Aggregates settle before branches (the trunk's one truth first,
   // mirroring drop-before-rise). The aggregate has no single consumer gutter, so
-  // it passes a degenerate zero-area entry band (no arrival-cluster exemption --
-  // it clears every foreign line); a branch uses its own target's entry band.
+  // it passes an INVERTED (empty) entry band that no point can fall inside (no
+  // arrival-cluster exemption -- it clears every foreign line); a branch uses its
+  // own target's entry band. An all-zero band would spuriously match a chip
+  // centred exactly at the graph origin, so left > right guarantees no match.
   const fanoutAggDxByIndex = new Map<number, number>();
   const fanoutAggDyByIndex = new Map<number, number>();
   const fanoutBranchDxByIndex = new Map<number, number>();
   const fanoutBranchDyByIndex = new Map<number, number>();
-  const ZERO_BAND: EntryBand = { left: 0, right: 0, top: 0, bottom: 0 };
+  const NEVER_BAND: EntryBand = {
+    left: Infinity,
+    right: -Infinity,
+    top: Infinity,
+    bottom: -Infinity,
+  };
   const fanoutEdges = edges
     .map((edge, index) => ({ edge, index }))
     .filter((e) => fanoutGeomByIndex.has(e.index))
@@ -939,8 +993,16 @@ export function deconflictChipAnchors(
       flowKeyOf(edge),
       edge.target,
       trunkExempt.get((edge.data as BusEdgeData).trunkKey) ?? cardExemptFor(edge),
-      ZERO_BAND,
+      NEVER_BAND,
     );
+    if (seat.tier === "exhausted" && import.meta.env.DEV) {
+      // Dev/test-only tripwire, tree-shaken out of production builds (parity with
+      // the item phase and the render hook in src/pipeline/driver.ts).
+      console.warn(
+        `chip seating: fan-out aggregate cascade for ${edge.id} exhausted its ` +
+          "cap; chip parked at its anchor (chip/card hard invariants abandoned)",
+      );
+    }
     if (seat.dx !== 0) fanoutAggDxByIndex.set(index, seat.dx);
     if (seat.dy !== 0) fanoutAggDyByIndex.set(index, seat.dy);
   }
@@ -958,6 +1020,14 @@ export function deconflictChipAnchors(
       cardExemptFor(edge),
       entryBandOf(edge),
     );
+    if (seat.tier === "exhausted" && import.meta.env.DEV) {
+      // Dev/test-only tripwire, tree-shaken out of production builds (parity with
+      // the item phase and the render hook in src/pipeline/driver.ts).
+      console.warn(
+        `chip seating: fan-out branch cascade for ${edge.id} exhausted its ` +
+          "cap; chip parked at its anchor (chip/card hard invariants abandoned)",
+      );
+    }
     if (seat.dx !== 0) fanoutBranchDxByIndex.set(index, seat.dx);
     if (seat.dy !== 0) fanoutBranchDyByIndex.set(index, seat.dy);
   }
