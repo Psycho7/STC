@@ -1,5 +1,6 @@
 // Phase-2 declutter pass: classify the remaining long edges into horizontal
-// "bus" trunks and assign each trunk a lane below the graph.
+// "bus" trunks and assign each trunk a lane in one of two bands -- above or below
+// the graph -- picked by where the trunk's members lean (Task 13).
 //
 // After phase 1a (per-consumer taps + un-pinned fanout slices) a handful of
 // edges still reach across many layers: aggregate -> tap feeders, boundary
@@ -158,7 +159,11 @@ function nodeHeight(node: RFAnyNode): number {
 // Per-edge horizontal span: the empty gap between the source node's right edge
 // and the target node's left edge, floored at 0. Backward edges collapse to 0.
 // Mirrors test/canvas/edgeSpans.ts.
-function edgeSpan(source: RFAnyNode, target: RFAnyNode, byId: ReadonlyMap<string, RFAnyNode>): number {
+function edgeSpan(
+  source: RFAnyNode,
+  target: RFAnyNode,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): number {
   const sourceRight = absoluteLeft(source, byId) + nodeWidth(source);
   const targetLeft = absoluteLeft(target, byId);
   return Math.max(0, targetLeft - sourceRight);
@@ -216,9 +221,10 @@ function memberPortMidY(
 }
 
 // routeBusEdges: classify long / boundary-feeder edges as bus members and give
-// each (item, source) trunk one lane below the graph. Non-member edges pass
-// through unchanged; member edges are retyped and get `{ laneY, trunkKey }`
-// merged onto their data.
+// each (item, source) trunk one lane, in a top or bottom band chosen by where
+// the trunk's members lean (Task 13). Non-member edges pass through unchanged;
+// member edges are retyped and get `{ laneY, trunkKey, busBand, ... }` merged
+// onto their data.
 export function routeBusEdges(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -240,12 +246,14 @@ export function routeBusEdges(
     if (item === undefined) return;
 
     const bothInput = isInputProduct(source) && isInputProduct(target);
-    const isBus = edgeSpan(source, target, byId) > BUS_SPAN_THRESHOLD || bothInput;
+    const isBus =
+      edgeSpan(source, target, byId) > BUS_SPAN_THRESHOLD || bothInput;
     if (!isBus) return;
 
     const trunkKey = item + "|" + edge.source;
     trunkKeyByEdgeIndex.set(index, trunkKey);
-    if (!trunks.has(trunkKey)) trunks.set(trunkKey, { item, source: edge.source });
+    if (!trunks.has(trunkKey))
+      trunks.set(trunkKey, { item, source: edge.source });
   });
 
   // Demote clear-corridor single-member FORWARD trunks back to plain item edges.
@@ -280,10 +288,12 @@ export function routeBusEdges(
       // a future classifier change cannot silently demote a backward member,
       // whose corridor is the rail shape, not this forward leg.
       if (nodeGap(source, target, byId) <= 0) continue;
-      if (
-        !forwardCorridorClear(source, target, edgeItem(edge), byId, obstacles)
-      ) {
-        continue; // corridor not provably clear -> keep the lane
+      const item = edgeItem(edge);
+      if (!forwardCorridorClear(source, target, item, byId, obstacles)) {
+        continue; // horizontal corridor not provably clear -> keep the lane
+      }
+      if (!forwardBendColumnClear(source, target, item, byId, obstacles)) {
+        continue; // no clear vertical bend column -> keep the lane
       }
       trunkKeyByEdgeIndex.delete(index);
       trunks.delete(trunkKey);
@@ -320,6 +330,7 @@ export function routeBusEdges(
   const bandByTrunk = new Map<string, "top" | "bottom">();
   for (const trunkKey of trunks.keys()) {
     const mean = trunkPortSum.get(trunkKey)! / trunkPortCount.get(trunkKey)!;
+    // Task 13 tiebreak: an exact-midline trunk (mean == midline) falls to bottom.
     bandByTrunk.set(trunkKey, mean < midline ? "top" : "bottom");
   }
 
@@ -327,7 +338,8 @@ export function routeBusEdges(
   // id (i.e. by trunkKey), so slot order is deterministic across runs regardless
   // of edge order and the bottom band keeps its pre-split ordering. Bottom lanes
   // stack DOWN from bandTopBottom; top lanes stack UP from bandTopTop.
-  const byTrunkKey = ([, a]: [string, { item: string; source: string }], [, b]: [string, { item: string; source: string }]): number => {
+  type TrunkEntry = [string, { item: string; source: string }];
+  const byTrunkKey = ([, a]: TrunkEntry, [, b]: TrunkEntry): number => {
     if (a.item !== b.item) return a.item < b.item ? -1 : 1;
     if (a.source !== b.source) return a.source < b.source ? -1 : 1;
     return 0;
@@ -440,20 +452,18 @@ export function routeBusEdges(
   });
 }
 
-// laneBands: the vertical extent of each lane band for the same node/edge input
-// routeBusEdges lanes. Re-runs routeBusEdges and reads the band + laneY it
-// stamped on each bus member, so the extents are consistent with the assigned
-// lanes by construction (one source of truth for classification, no duplicated
-// band logic). A band with no trunk is null. Consumed by the bus-band marking
-// pass to shade the lane region. Pure and deterministic.
-export function laneBands(
-  nodes: ReadonlyArray<RFAnyNode>,
-  edges: ReadonlyArray<Edge>,
-): LaneBands {
-  const routed = routeBusEdges(nodes, edges);
+// laneBands: the vertical extent of each lane band, folded directly over the
+// already-ROUTED edges (routeBusEdges output). It reads the band + laneY each bus
+// member carries, so the extents are consistent with the assigned lanes by
+// construction -- one source of truth, no re-run of the classifier. Taking routed
+// edges (not raw nodes / edges) keeps it a pure fold: the caller routes once and
+// both the drawn lanes and their shaded extents derive from that single pass. A
+// band with no trunk is null. Consumed by the bus-band marking pass to shade the
+// lane region. Pure and deterministic.
+export function laneBands(edges: ReadonlyArray<Edge>): LaneBands {
   const topYs: number[] = [];
   const bottomYs: number[] = [];
-  for (const edge of routed) {
+  for (const edge of edges) {
     if (edge.type !== "bus") continue;
     const data = edge.data as BusEdgeData | undefined;
     if (data?.laneY === undefined) continue;
@@ -499,6 +509,53 @@ function forwardCorridorClear(
   // Final-leg y-band from just past the source port to one stub before the
   // target port. clearRailY returns ty unchanged iff nothing foreign crosses it.
   return clearRailY(ty, sx + PORT_STUB, tx - PORT_STUB, foreign) === ty;
+}
+
+// Does a demoted forward edge have a clear vertical bend column? A demoted
+// single-member trunk (Task 12) draws a normal forward step whose bend is a
+// vertical run between the source and target rows. forwardCorridorClear proves
+// the horizontal legs clear, but that vertical can still slice a card stacked in
+// the inter-layer gap -- so demotion additionally requires that SOME column in
+// [sx, tx] spanning sy..ty is pierced by no foreign card. A same-y / small-dy
+// route (|ty - sy| <= a chamfer) draws no vertical run and needs no column. Uses
+// the same card-only foreign set (own source / target and their containers
+// exempt) as the corridor gate, so a demotion never leaves a bend crossing a
+// card the segment audit would then flag. Any unproven column keeps the lane.
+function forwardBendColumnClear(
+  source: RFAnyNode,
+  target: RFAnyNode,
+  item: string | undefined,
+  byId: ReadonlyMap<string, RFAnyNode>,
+  obstacles: ReadonlyArray<PaddedObstacle>,
+): boolean {
+  const sx = absoluteLeft(source, byId) + nodeWidth(source);
+  const tx = absoluteLeft(target, byId);
+  const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
+  const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+  if (Math.abs(ty - sy) <= 2 * CHAMFER) return true; // no vertical run to place
+  const exempt = new Set<string>([source.id, target.id]);
+  if (source.parentId !== undefined) exempt.add(source.parentId);
+  if (target.parentId !== undefined) exempt.add(target.parentId);
+  const ymin = Math.min(sy, ty);
+  const ymax = Math.max(sy, ty);
+  const spanned = obstacles.filter(
+    (o) =>
+      o.kind === "card" &&
+      !exempt.has(o.nodeId) &&
+      o.bottom > ymin &&
+      o.top < ymax,
+  );
+  const gap = CHAMFER;
+  const blocked = (x: number): boolean =>
+    spanned.some((o) => x > o.left - gap && x < o.right + gap);
+  // Candidate columns: one stub inside each port, plus each spanned card's padded
+  // edges, restricted to the span. A demotion is safe iff one of them is clear.
+  const candidates = [
+    sx + PORT_STUB,
+    tx - PORT_STUB,
+    ...spanned.flatMap((o) => [o.left - gap, o.right + gap]),
+  ].filter((x) => x >= sx && x <= tx);
+  return candidates.some((x) => !blocked(x));
 }
 
 // directCorridorClear: the corridor gate above, resolved from raw nodes / edges
@@ -1297,7 +1354,9 @@ export function jogForwardLegs(
         o.right > Math.min(bx, descentX0) && o.left < Math.max(bx, descentX0),
     );
     const candidates = [
-      ...new Set(spanning.flatMap((o) => [o.top - CHAMFER, o.bottom + CHAMFER])),
+      ...new Set(
+        spanning.flatMap((o) => [o.top - CHAMFER, o.bottom + CHAMFER]),
+      ),
     ].sort((a, b) => Math.abs(a - ty) - Math.abs(b - ty));
 
     // Accept the nearest candidate whose whole jog is clear: the bend vertical
@@ -1527,7 +1586,12 @@ export function deconflictChipAnchors(
       const y = stacked[i]!;
       const dy = y - s.anchorY;
       if (dy !== 0) entryDyByIndex.set(s.index, dy);
-      placed.push({ x: entryX, y, halfW: CHIP_HALF_W_ENTRY, halfH: CHIP_HALF_H });
+      placed.push({
+        x: entryX,
+        y,
+        halfW: CHIP_HALF_W_ENTRY,
+        halfH: CHIP_HALF_H,
+      });
     });
   }
 

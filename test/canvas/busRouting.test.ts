@@ -122,7 +122,9 @@ const maxBottom = (nodes: RFAnyNode[]): number =>
   Math.max(
     ...nodes.map((n) => {
       const h =
-        n.type === "recipe" ? measureRecipe(n.data.recipe).height : (n.height ?? 0);
+        n.type === "recipe"
+          ? measureRecipe(n.data.recipe).height
+          : (n.height ?? 0);
       return n.position.y + h;
     }),
   );
@@ -198,10 +200,7 @@ describe("routeBusEdges", () => {
       recipeNode("t1", far, 0, r),
       recipeNode("t2", far, 300, r),
     ];
-    const edges = [
-      mkEdge("e0", "s", "t1", "b"),
-      mkEdge("e1", "s", "t2", "b"),
-    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
 
     const out = routeBusEdges(nodes, edges);
 
@@ -238,7 +237,9 @@ describe("routeBusEdges", () => {
 
     const out = routeBusEdges(nodes, edges);
 
-    const byId = new Map(out.map((e) => [e.id, e.data as { laneY: number; trunkKey: string }]));
+    const byId = new Map(
+      out.map((e) => [e.id, e.data as { laneY: number; trunkKey: string }]),
+    );
     const apple = byId.get("e1")!;
     const banana = byId.get("e0")!;
     // apple sorts before banana -> slot 0, banana slot 1.
@@ -386,7 +387,7 @@ describe("routeBusEdges two-sided lane bands (9B)", () => {
     ];
 
     const out = routeBusEdges(nodes, edges);
-    const bands = laneBands(nodes, edges);
+    const bands = laneBands(out);
 
     // The stamped lanes, grouped by the band routeBusEdges assigned.
     const topYs = out
@@ -424,7 +425,7 @@ describe("routeBusEdges two-sided lane bands (9B)", () => {
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
 
-    const bands = laneBands(nodes, edges);
+    const bands = laneBands(routeBusEdges(nodes, edges));
     expect(bands.top).toBeNull();
     expect(bands.bottom).not.toBeNull();
   });
@@ -517,10 +518,7 @@ describe("routeBusEdges single-member demotion (9C)", () => {
       recipeNode("t1", far, 0, r),
       recipeNode("t2", far, 400, r),
     ];
-    const edges = [
-      mkEdge("e0", "s", "t1", "b"),
-      mkEdge("e1", "s", "t2", "b"),
-    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
 
     const out = routeBusEdges(nodes, edges);
 
@@ -842,7 +840,10 @@ describe("assignBendColumns", () => {
       recipeNode("t1", 500, 0, r),
       recipeNode("t2", 500, 300, r),
     ];
-    const edges = [mkEdge("eP", "sp", "t1", "b"), mkEdge("eR", "sr", "t2", "b")];
+    const edges = [
+      mkEdge("eP", "sp", "t1", "b"),
+      mkEdge("eR", "sr", "t2", "b"),
+    ];
     const out = assignBendColumns(nodes, edges);
     const bp = bendOf(out, "eP");
     const br = bendOf(out, "eR");
@@ -1514,12 +1515,14 @@ describe("clearColumnX", () => {
 // -- clearBusColumns ----------------------------------------------------------
 
 function dropXOf(edges: Edge[], id: string): number | undefined {
-  return (edges.find((e) => e.id === id)?.data as { dropX?: number } | undefined)
-    ?.dropX;
+  return (
+    edges.find((e) => e.id === id)?.data as { dropX?: number } | undefined
+  )?.dropX;
 }
 function riseXOf(edges: Edge[], id: string): number | undefined {
-  return (edges.find((e) => e.id === id)?.data as { riseX?: number } | undefined)
-    ?.riseX;
+  return (
+    edges.find((e) => e.id === id)?.data as { riseX?: number } | undefined
+  )?.riseX;
 }
 
 describe("clearBusColumns", () => {
@@ -1534,7 +1537,10 @@ describe("clearBusColumns", () => {
       recipeNode("s", 0, 0, r),
       recipeNode("t", far, 0, r),
     ];
-    const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]));
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
+    );
     expect(dropXOf(out, "e0")).toBeUndefined();
     expect(riseXOf(out, "e0")).toBeUndefined();
   });
@@ -1555,7 +1561,10 @@ describe("clearBusColumns", () => {
       // the lone member on the bus (Task 12) so the rise-clearance path runs.
       recipeNode("corridor", 550, 1000, r),
     ];
-    const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]));
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
+    );
     const riseX = riseXOf(out, "e0");
     expect(riseX).toBeDefined();
     expect(riseX).not.toBe(1138);
@@ -1578,7 +1587,10 @@ describe("clearBusColumns", () => {
       // the lone member on the bus (Task 12) so the drop-clearance path runs.
       recipeNode("corridor", 550, 1000, r),
     ];
-    const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]));
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
+    );
     const dropX = dropXOf(out, "e0");
     expect(dropX).toBeDefined();
     expect(dropX).not.toBe(332);
@@ -1594,7 +1606,10 @@ describe("clearBusColumns", () => {
       inputProductNode("tap", "ore", 200, 0),
       inputProductNode("block", "ore", 150, 300, 148, 78),
     ];
-    const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "agg", "tap", "ore")]));
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "agg", "tap", "ore")]),
+    );
     expect(dropXOf(out, "e0")).toBeUndefined();
     expect(riseXOf(out, "e0")).toBeUndefined();
   });
@@ -1656,7 +1671,9 @@ describe("jogForwardLegs", () => {
   // first gap (bendX 200). t sits one row down so the edge takes the normal
   // forward step (sy 39, ty 139). `mid`, when present, is a foreign card at the
   // target row straddling the final leg's path.
-  const buildFixture = (withMid: boolean): { nodes: RFAnyNode[]; edges: Edge[] } => {
+  const buildFixture = (
+    withMid: boolean,
+  ): { nodes: RFAnyNode[]; edges: Edge[] } => {
     const nodes: RFAnyNode[] = [
       inputProductNode("s", "ore", 0, 0, 148, 78), // right 148, port y 39
       inputProductNode("t", "ore", 760, 100, 148, 78), // left 760, port y 139

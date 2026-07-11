@@ -886,7 +886,7 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   // Post-layout routing passes, in order (each consumes the previous ones'
   // stamps; final absolute node positions are known here):
   //   1. routeBusEdges       classify long / boundary-feeder edges into bus
-  //                          trunks, each on a lane below the graph.
+  //                          trunks, each on a lane in a top or bottom band.
   //   2. assignEntryColumns  stake out per-target entry-gutter columns so
   //                          backward rails and bus rises into one node stay
   //                          parallel.
