@@ -428,8 +428,14 @@ export function chamferStepPath(
   // the bend column at the run midpoint, which stays on the polyline for any
   // chamfer (it is the mid of the vertical run, or of the collapsed diagonal when
   // the cap reaches half the vertical leg).
+  // The budget's sibling-envelope invariant was proven for the stagger column at
+  // bendX (half the stagger pitch keeps a fattened bevel off the neighbour's
+  // vertical). A srcColX hint replaces the column outright with a jog-cleared
+  // one carrying only a CHAMFER of margin, where that invariant does not hold --
+  // so a jogged source column keeps the base chamfer regardless of any stamped
+  // budget.
   const stepChamfer =
-    args.chamferBudget === undefined
+    args.chamferBudget === undefined || args.srcColX !== undefined
       ? chamfer
       : Math.min(
           MAX_CHAMFER,

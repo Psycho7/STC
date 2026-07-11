@@ -425,6 +425,23 @@ describe("chamferStepPath", () => {
     expect(base).toBe("M 0,0 L 92,0 L 100,8 L 100,92 L 108,100 L 200,100");
   });
 
+  it("ignores the chamfer budget on a jogged source column (srcColX)", () => {
+    // srcColX carries only a CHAMFER of jog clearance, so the budget's
+    // sibling-envelope invariant (proven for the stagger column at bendX) does
+    // not hold there. With both srcColX and chamferBudget stamped the step must
+    // keep the base CHAMFER, byte-identical to the no-budget srcColX path.
+    const [d] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      srcColX: 40,
+      chamferBudget: 24,
+    });
+    expect(d).toBe("M 0,0 L 32,0 L 40,8 L 40,92 L 48,100 L 200,100");
+    expectRightwardFinish(d);
+  });
+
   it("uses srcColX UNCLAMPED, past the corridor margin", () => {
     // The default bend clamps to [sx+stub+chamfer, tx-stub-chamfer] = [32, 168].
     // srcColX = 10 sits left of that margin; the routing pass proved it clear, so
