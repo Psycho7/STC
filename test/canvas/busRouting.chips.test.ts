@@ -1,0 +1,344 @@
+// Chip pitch and de-confliction: the shared chip/lane pitch constants and
+// deconflictChipAnchors (bus lane cascade, render-vs-reconstruction tripwires,
+// and the merged entry/bus/midpoint collision set). Fixtures come from
+// ./busRouting.testkit.
+
+import { describe, it, expect } from "vitest";
+import Fraction from "fraction.js";
+import type { Edge } from "@xyflow/react";
+
+import {
+  routeBusEdges,
+  deconflictChipAnchors,
+  ENTRY_CHIP_MIN_GAP,
+  BUS_SPAN_THRESHOLD,
+  LANE_SPACING,
+} from "../../src/canvas/busRouting";
+import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
+import { chamferStepPath } from "../../src/canvas/edgePath";
+import { entryChipAnchor } from "../../src/canvas/ItemEdge";
+import type { RFAnyNode } from "../../src/canvas/layout";
+import { measureRecipe } from "../../src/canvas/recipeGeometry";
+import {
+  mkRecipe,
+  recipeNode,
+  inputProductNode,
+  mkEdge,
+  orderedRecipeNode,
+  productNode,
+  busDropDyOf,
+  busChipDyOf,
+} from "./busRouting.testkit";
+
+describe("chip stack pitch", () => {
+  it("couples the entry pitch to max counter-scale times true chip height", () => {
+    expect(ENTRY_CHIP_MIN_GAP).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+    expect(ENTRY_CHIP_MIN_GAP).toBe(48);
+  });
+
+  it("couples the lane pitch to the same max-scale chip box height", () => {
+    // Adjacent lanes carry rise chips a max-scale box height apart, so their
+    // boxes abut instead of interpenetrating at the fit-zoom floor.
+    expect(LANE_SPACING).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+    expect(LANE_SPACING).toBe(48);
+  });
+});
+
+function labelDyOf(edges: Edge[], id: string): number {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { labelDy?: number }
+    | undefined;
+  return d?.labelDy ?? 0;
+}
+
+function entryDyOf(edges: Edge[], id: string): number {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { entryChipDy?: number }
+    | undefined;
+  return d?.entryChipDy ?? 0;
+}
+
+describe("deconflictChipAnchors: bus lane cascade", () => {
+  it("cascades a crowded trunk's rise chips below its lane in pitch steps", () => {
+    // Two input-product feeders share one trunk (ore|agg) but sit so close that
+    // the lane extent collapses: routeBusEdges stacks both rise slots on the drop
+    // column. The owner (e0) keeps its aggregate drop chip on the lane; the rise
+    // chips, coincident on that column, cascade straight down a full max-scale
+    // pitch apart so no two bus chips overlap on screen. An anchor node up top
+    // keeps the trunk in the lower half, so it lands in the BOTTOM band and the
+    // cascade runs downward (the mirror top-band case is covered below).
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, mkRecipe("anchor", ["a"], ["b"])),
+      inputProductNode("agg", "ore", 0, 1000),
+      inputProductNode("t1", "ore", 200, 1000),
+      inputProductNode("t2", "ore", 200, 1200),
+    ];
+    const edges = [
+      mkEdge("e0", "agg", "t1", "ore"),
+      mkEdge("e1", "agg", "t2", "ore"),
+    ];
+    const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
+    const pitch = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+    // e0 owns the drop chip, which settles first on the lane and is never pushed.
+    expect(busDropDyOf(out, "e0")).toBe(0);
+    // The two rise chips pile below it at successive pitch steps, edge-id order.
+    expect(busChipDyOf(out, "e0")).toBe(pitch);
+    expect(busChipDyOf(out, "e1")).toBe(2 * pitch);
+  });
+
+  it("leaves a well-spread trunk's chips on the lane", () => {
+    // Three members feeding distinct far layers spread their rise slots evenly
+    // across a wide lane extent, so no chip crowds another and none is nudged.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", far, 0, r),
+      recipeNode("t2", far + 4000, 300, r),
+      recipeNode("t3", far + 8000, 600, r),
+    ];
+    const edges = [
+      mkEdge("e0", "s", "t1", "b"),
+      mkEdge("e1", "s", "t2", "b"),
+      mkEdge("e2", "s", "t3", "b"),
+    ];
+    const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
+    for (const id of ["e0", "e1", "e2"]) {
+      expect(busChipDyOf(out, id)).toBe(0);
+      expect(busDropDyOf(out, id)).toBe(0);
+    }
+  });
+
+  it("keeps every trunk's owner drop chip on its junction across trunks", () => {
+    // Two trunks off ONE aggregate (items "a" and "b" -> lanes 0 and 1, same
+    // drop column), with the "a" trunk's extent collapsed so its rise chips
+    // stack on that column and cascade downward -- straight through the "b"
+    // trunk's junction one lane below. Seating is two-phase (all drops, then all
+    // rises), so trunk b's aggregate drop chip must hold its junction even
+    // though trunk a's edges sort first; an id-interleaved seating would let
+    // a's cascading rise squat on b's junction and push the aggregate off it. An
+    // anchor node up top keeps both trunks in the lower half so they share the
+    // BOTTOM band on adjacent lanes (a above b), which is what puts a's downward
+    // cascade onto b's lane.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, mkRecipe("anchor", ["x"], ["y"])),
+      inputProductNode("agg", "ore", 0, 1000),
+      inputProductNode("t1", "ore", 200, 1000),
+      inputProductNode("t2", "ore", 200, 1200),
+      inputProductNode("t3", "ore", 200, 1400),
+    ];
+    const edges = [
+      mkEdge("e0", "agg", "t1", "a"),
+      mkEdge("e1", "agg", "t2", "a"),
+      mkEdge("e2", "agg", "t3", "b"),
+    ];
+    const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
+    // Both owners' aggregate drop chips stay at their junctions.
+    expect(busDropDyOf(out, "e0")).toBe(0);
+    expect(busDropDyOf(out, "e2")).toBe(0);
+    // The crowded rises all cascaded below the lanes instead.
+    for (const id of ["e0", "e1", "e2"]) {
+      expect(busChipDyOf(out, id)).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("deconflictChipAnchors: reconstruction tripwires", () => {
+  it("reconstructs a backward edge's rail anchor exactly as the render args do", () => {
+    // A backward edge (source right of target) carries a threaded railY. The
+    // expected midpoint anchor is computed HERE with chamferStepPath on the same
+    // args ItemEdge renders with; a forward edge is then laid out so its own
+    // straight-line midpoint sits exactly on that anchor. The forward edge (id
+    // "a:...") seats first, so the backward chip is nudged one pitch iff the
+    // pass reconstructed its anchor at the same spot -- if the reconstruction
+    // dropped railY (or mirrored the path builder wrongly) the anchors diverge
+    // and no nudge fires. The cheapest render-vs-reconstruction drift detector.
+    const railY = 400;
+    // Backward pair: source right edge 600, target left edge 0, both port
+    // centers at y = 200.
+    const bwdSource = productNode("bs", 500, 170, 100, 60);
+    const bwdTarget = productNode("bt", 0, 170, 100, 60);
+    const [, ex, ey] = chamferStepPath({
+      sourceX: 600,
+      sourceY: 200,
+      targetX: 0,
+      targetY: 200,
+      railY,
+    });
+    expect(ey).toBe(railY); // the anchor sits on the threaded rail
+    // Forward pair whose straight-line midpoint is exactly (ex, ey).
+    const fwdSource = productNode("fs", ex - 150, ey - 30, 100, 60);
+    const fwdTarget = productNode("ft", ex + 50, ey - 30, 100, 60);
+    const nodes: RFAnyNode[] = [bwdSource, bwdTarget, fwdSource, fwdTarget];
+    const edges: Edge[] = [
+      {
+        id: "a:fwd",
+        source: "fs",
+        target: "ft",
+        type: "item",
+        data: { item: "w", rate: new Fraction(1) },
+      },
+      {
+        id: "z:bwd",
+        source: "bs",
+        target: "bt",
+        type: "item",
+        data: { item: "w", rate: new Fraction(1), railY },
+      },
+    ];
+    const out = deconflictChipAnchors(nodes, edges);
+    expect(labelDyOf(out, "a:fwd")).toBe(0); // seated first, unmoved
+    // Exactly one pitch: the anchors coincided, and one step clears the pair.
+    expect(labelDyOf(out, "z:bwd")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+  });
+
+  it("nudges a midpoint chip off a bus rise chip's box", () => {
+    // A bus member's rise chip sits at (busChipX, laneY). A forward item edge's
+    // straight-line midpoint lands exactly there; bus chips seat before
+    // midpoints, so the midpoint must yield one pitch while the bus chip holds
+    // its lane.
+    const laneY = 300;
+    const busChipX = 500;
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60),
+      productNode("t", 900, 0, 100, 60),
+      // Forward pair centered on the bus chip: right edge 400 / left edge 600
+      // -> midpoint x 500; port centers at y 300.
+      productNode("fs", 300, 270, 100, 60),
+      productNode("ft", 600, 270, 100, 60),
+    ];
+    const edges: Edge[] = [
+      {
+        id: "bus:0",
+        source: "s",
+        target: "t",
+        type: "bus",
+        data: {
+          item: "w",
+          rate: new Fraction(1),
+          laneY,
+          trunkKey: "w|s",
+          busChipX,
+          busChipOwner: false,
+        },
+      },
+      {
+        id: "mid:0",
+        source: "fs",
+        target: "ft",
+        type: "item",
+        data: { item: "w", rate: new Fraction(1) },
+      },
+    ];
+    const out = deconflictChipAnchors(nodes, edges);
+    expect(busChipDyOf(out, "bus:0")).toBe(0); // bus chip holds the lane
+    expect(labelDyOf(out, "mid:0")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+  });
+});
+
+describe("deconflictChipAnchors: merged collision set", () => {
+  it("nudges a midpoint chip that lands in a target's entry-chip stack clear of every entry box", () => {
+    // Target T hosts two same-port entry chips (item "water"), which stack a
+    // pitch apart at (Tx - 12, waterY) and (Tx - 12, waterY + 48). A third,
+    // non-multiInput forward edge A runs straight into that same port with a
+    // 24px gap, so its midpoint lands exactly on the top entry chip. The merged
+    // pass must nudge A's midpoint down past BOTH entry boxes.
+    const Tx = 600;
+    const tRecipe = mkRecipe("t", ["water", "ore"], []);
+    const waterY = measureRecipe(tRecipe).inHandleYs[0]!; // T top is 0
+    const nodes: RFAnyNode[] = [
+      orderedRecipeNode("t", Tx, 0, ["water", "ore"]),
+      // Sources for the two entry chips, far to the left (their own midpoint
+      // chips land nowhere near the entry stack).
+      recipeNode("sb1", -2000, 0, mkRecipe("sb1", [], ["water"])),
+      recipeNode("sb2", -2000, 300, mkRecipe("sb2", [], ["water"])),
+      // Source for A: a product whose right edge sits one 24px gap before T and
+      // whose center is exactly waterY, so a straight-line midpoint lands on the
+      // entry chip anchor (Tx - 12, waterY).
+      productNode("sa", Tx - 24 - 148, waterY - 30, 148, 60),
+    ];
+    const edges: Edge[] = [
+      {
+        id: "e:a",
+        source: "sa",
+        target: "t",
+        type: "item",
+        data: { item: "water", rate: new Fraction(1) },
+      },
+      {
+        id: "e:b1",
+        source: "sb1",
+        target: "t",
+        type: "item",
+        data: { item: "water", rate: new Fraction(1), multiInputTarget: true },
+      },
+      {
+        id: "e:b2",
+        source: "sb2",
+        target: "t",
+        type: "item",
+        data: { item: "water", rate: new Fraction(1), multiInputTarget: true },
+      },
+    ];
+
+    const out = deconflictChipAnchors(nodes, edges);
+
+    // A's midpoint anchor after the nudge.
+    const aDy = labelDyOf(out, "e:a");
+    expect(aDy).toBeGreaterThan(0); // it was pushed at all
+    const aX = Tx - 12;
+    const aY = waterY + aDy;
+
+    // Each entry chip's final box, at its own stacked dy.
+    const entryBoxes = [
+      entryChipAnchor(Tx, waterY, entryDyOf(out, "e:b1")),
+      entryChipAnchor(Tx, waterY, entryDyOf(out, "e:b2")),
+    ];
+    // No box intersection: the midpoint clears every entry box on at least one
+    // axis. X is shared here (both sit at Tx - 12), so the clearance is vertical
+    // and must reach a full max-scale box height.
+    for (const box of entryBoxes) {
+      const clears =
+        Math.abs(box.x - aX) >= 60 ||
+        Math.abs(box.y - aY) >= MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+      expect(clears).toBe(true);
+    }
+  });
+
+  it("moves a coincident midpoint chip by at least the max-scale pitch (48)", () => {
+    // Two parallel forward edges share one source and one target, so their
+    // straight-line midpoints coincide exactly. The second (by edge id) is
+    // nudged, and its offset must be at least the chip pitch so the two boxes
+    // clear at the fit-zoom counter-scale cap. Pinning the magnitude to the
+    // exported product catches a silent decoupling of the nudge step / collision
+    // box from the chip dimensions.
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 170, 100, 60), // right 100, center 200
+      productNode("t", 300, 170, 100, 60), // left 300, center 200
+    ];
+    const edges: Edge[] = [
+      {
+        id: "m:1",
+        source: "s",
+        target: "t",
+        type: "item",
+        data: { item: "w", rate: new Fraction(1) },
+      },
+      {
+        id: "m:2",
+        source: "s",
+        target: "t",
+        type: "item",
+        data: { item: "w", rate: new Fraction(1) },
+      },
+    ];
+
+    const out = deconflictChipAnchors(nodes, edges);
+
+    expect(labelDyOf(out, "m:1")).toBe(0); // first placed, unmoved
+    expect(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT).toBe(48);
+    expect(labelDyOf(out, "m:2")).toBeGreaterThanOrEqual(
+      MAX_CHIP_SCALE * CHIP_BOX_HEIGHT,
+    );
+  });
+});
