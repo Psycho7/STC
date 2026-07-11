@@ -13,6 +13,7 @@ import {
   routeBusEdges,
   assignBendColumns,
   assignEntryColumns,
+  deconflictChipAnchors,
   entryGutterRects,
   gutterWidth,
   ENTRY_SLOT_PITCH,
@@ -23,6 +24,7 @@ import {
 } from "../../src/canvas/busRouting";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import { PORT_STUB, CHAMFER } from "../../src/canvas/edgePath";
+import { entryChipAnchor } from "../../src/canvas/ItemEdge";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import type {
   RFAnyNode,
@@ -517,5 +519,148 @@ describe("assignEntryColumns", () => {
       // Strictly left of M's gutter band -> the bend vertical never enters it.
       expect(b! < mRect.left).toBe(true);
     }
+  });
+});
+
+function labelDyOf(edges: Edge[], id: string): number {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { labelDy?: number }
+    | undefined;
+  return d?.labelDy ?? 0;
+}
+
+function entryDyOf(edges: Edge[], id: string): number {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { entryChipDy?: number }
+    | undefined;
+  return d?.entryChipDy ?? 0;
+}
+
+// A product node with fully specified geometry, so a source/target port y can be
+// pinned exactly (product ports sit at the node's vertical center).
+const productNode = (
+  id: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): RFProductNode => ({
+  id,
+  type: "product",
+  position: { x, y },
+  width,
+  height,
+  data: {
+    kind: "inputProduct",
+    itemId: "w",
+    rate: { num: "1", denom: "1" },
+    portTransportKinds: emptyPorts,
+  },
+});
+
+describe("deconflictChipAnchors: merged collision set", () => {
+  it("nudges a midpoint chip that lands in a target's entry-chip stack clear of every entry box", () => {
+    // Target T hosts two same-port entry chips (item "water"), which stack a
+    // pitch apart at (Tx - 12, waterY) and (Tx - 12, waterY + 48). A third,
+    // non-multiInput forward edge A runs straight into that same port with a
+    // 24px gap, so its midpoint lands exactly on the top entry chip. The merged
+    // pass must nudge A's midpoint down past BOTH entry boxes.
+    const Tx = 600;
+    const tRecipe = mkRecipe("t", ["water", "ore"], []);
+    const waterY = measureRecipe(tRecipe).inHandleYs[0]!; // T top is 0
+    const nodes: RFAnyNode[] = [
+      orderedRecipeNode("t", Tx, 0, ["water", "ore"]),
+      // Sources for the two entry chips, far to the left (their own midpoint
+      // chips land nowhere near the entry stack).
+      recipeNode("sb1", -2000, 0, mkRecipe("sb1", [], ["water"])),
+      recipeNode("sb2", -2000, 300, mkRecipe("sb2", [], ["water"])),
+      // Source for A: a product whose right edge sits one 24px gap before T and
+      // whose center is exactly waterY, so a straight-line midpoint lands on the
+      // entry chip anchor (Tx - 12, waterY).
+      productNode("sa", Tx - 24 - 148, waterY - 30, 148, 60),
+    ];
+    const edges: Edge[] = [
+      {
+        id: "e:a",
+        source: "sa",
+        target: "t",
+        type: "item",
+        data: { item: "water", rate: new Fraction(1) },
+      },
+      {
+        id: "e:b1",
+        source: "sb1",
+        target: "t",
+        type: "item",
+        data: { item: "water", rate: new Fraction(1), multiInputTarget: true },
+      },
+      {
+        id: "e:b2",
+        source: "sb2",
+        target: "t",
+        type: "item",
+        data: { item: "water", rate: new Fraction(1), multiInputTarget: true },
+      },
+    ];
+
+    const out = deconflictChipAnchors(nodes, edges);
+
+    // A's midpoint anchor after the nudge.
+    const aDy = labelDyOf(out, "e:a");
+    expect(aDy).toBeGreaterThan(0); // it was pushed at all
+    const aX = Tx - 12;
+    const aY = waterY + aDy;
+
+    // Each entry chip's final box, at its own stacked dy.
+    const entryBoxes = [
+      entryChipAnchor(Tx, waterY, entryDyOf(out, "e:b1")),
+      entryChipAnchor(Tx, waterY, entryDyOf(out, "e:b2")),
+    ];
+    // No box intersection: the midpoint clears every entry box on at least one
+    // axis. X is shared here (both sit at Tx - 12), so the clearance is vertical
+    // and must reach a full max-scale box height.
+    for (const box of entryBoxes) {
+      const clears =
+        Math.abs(box.x - aX) >= 60 ||
+        Math.abs(box.y - aY) >= MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+      expect(clears).toBe(true);
+    }
+  });
+
+  it("moves a coincident midpoint chip by at least the max-scale pitch (48)", () => {
+    // Two parallel forward edges share one source and one target, so their
+    // straight-line midpoints coincide exactly. The second (by edge id) is
+    // nudged, and its offset must be at least the chip pitch so the two boxes
+    // clear at the fit-zoom counter-scale cap. Pinning the magnitude to the
+    // exported product catches a silent decoupling of the nudge step / collision
+    // box from the chip dimensions.
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 170, 100, 60), // right 100, center 200
+      productNode("t", 300, 170, 100, 60), // left 300, center 200
+    ];
+    const edges: Edge[] = [
+      {
+        id: "m:1",
+        source: "s",
+        target: "t",
+        type: "item",
+        data: { item: "w", rate: new Fraction(1) },
+      },
+      {
+        id: "m:2",
+        source: "s",
+        target: "t",
+        type: "item",
+        data: { item: "w", rate: new Fraction(1) },
+      },
+    ];
+
+    const out = deconflictChipAnchors(nodes, edges);
+
+    expect(labelDyOf(out, "m:1")).toBe(0); // first placed, unmoved
+    expect(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT).toBe(48);
+    expect(labelDyOf(out, "m:2")).toBeGreaterThanOrEqual(
+      MAX_CHIP_SCALE * CHIP_BOX_HEIGHT,
+    );
   });
 });

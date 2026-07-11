@@ -655,6 +655,12 @@ const CHIP_COLLIDE_X = 60;
 const CHIP_COLLIDE_Y = CHIP_PITCH_Y;
 const CHIP_NUDGE_STEP = CHIP_PITCH_Y;
 
+// Horizontal inset of an entry chip from its target port, mirroring ItemEdge's
+// ENTRY_CHIP_OFFSET. Only used to place the entry box in the shared collision
+// set so the midpoint nudge can route around it; the render offset itself lives
+// in ItemEdge.
+const ENTRY_CHIP_INSET = 12;
+
 // Minimum vertical pitch between two entry chips arriving at one node, in graph
 // units. Entry chips whose port anchors sit closer than this (same-item
 // duplicates share a port y outright) are stacked down to this pitch so none
@@ -732,12 +738,65 @@ export function deconflictChipAnchors(
     list.forEach((m, rank) => riseStaggerByIndex.set(m.index, rank));
   }
 
+  // Both remaining chip families share one collision set (`placed`), so a
+  // midpoint chip and an entry chip at the same target no longer overlap. Entry
+  // chips are placed FIRST as fixed obstacles: an entry chip is pinned to its
+  // port and is never nudged, so the midpoint pass below routes its chips around
+  // both the entry boxes and previously placed midpoint boxes.
+  const placed: Array<[number, number]> = [];
+
+  // Entry chips: every forward item edge flagged multiInputTarget pins an
+  // icon-only chip just left of its target port. Chips arriving at one node
+  // (same-item duplicates share a port y outright, adjacent ports sit a row
+  // apart) collide, so bucket them per target, order by port index then edge id,
+  // and stack their port anchors down to a clear pitch. The threaded dy is the
+  // push each chip received off its own port y. Each chip's final box is seeded
+  // into `placed` (even a lone chip that received no push) so the midpoint pass
+  // sees it. Entry chips render narrower than midpoint chips but reuse the same
+  // CHIP_COLLIDE_X conservatively, so the midpoint keeps a little extra air.
+  const entryDyByIndex = new Map<number, number>();
+  type EntrySlot = { index: number; id: string; port: number; anchorY: number };
+  const entryByTarget = new Map<string, EntrySlot[]>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "item") return;
+    const data = edge.data as { multiInputTarget?: unknown } | undefined;
+    if (data?.multiInputTarget !== true) return;
+    const target = byId.get(edge.target);
+    if (target === undefined) return;
+    const item = edgeItem(edge);
+    const anchorY = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    const list = entryByTarget.get(edge.target) ?? [];
+    list.push({
+      index,
+      id: edge.id,
+      port: inputPortIndex(target, item),
+      anchorY,
+    });
+    entryByTarget.set(edge.target, list);
+  });
+  for (const [targetId, list] of entryByTarget) {
+    list.sort((a, b) => {
+      const ap = a.port < 0 ? Infinity : a.port;
+      const bp = b.port < 0 ? Infinity : b.port;
+      if (ap !== bp) return ap - bp;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    const entryX = absoluteLeft(byId.get(targetId)!, byId) - ENTRY_CHIP_INSET;
+    const stacked = stackEntryAnchors(list.map((s) => s.anchorY));
+    list.forEach((s, i) => {
+      const y = stacked[i]!;
+      const dy = y - s.anchorY;
+      if (dy !== 0) entryDyByIndex.set(s.index, dy);
+      placed.push([entryX, y]);
+    });
+  }
+
   // Item midpoint chips: reconstruct each forward item edge's label anchor from
   // node geometry (via the same chamferStepPath the component draws) and greedily
-  // nudge a chip down when it collides with one already placed. Ordering by edge
-  // id keeps the placement deterministic.
+  // nudge a chip down when it collides with one already placed (an entry box
+  // seeded above or an earlier midpoint box). Ordering by edge id keeps the
+  // placement deterministic.
   const labelDyByIndex = new Map<number, number>();
-  const placed: Array<[number, number]> = [];
   const items = edges
     .map((edge, index) => ({ edge, index }))
     .filter((e) => e.edge.type === "item")
@@ -774,47 +833,6 @@ export function deconflictChipAnchors(
     }
     if (dy !== 0) labelDyByIndex.set(index, dy);
     placed.push([lx, ly + dy]);
-  }
-
-  // Entry chips: every forward item edge flagged multiInputTarget pins an
-  // icon-only chip just left of its target port. Chips arriving at one node
-  // (same-item duplicates share a port y outright, adjacent ports sit a row
-  // apart) collide, so bucket them per target, order by port index then edge id,
-  // and stack their port anchors down to a clear pitch. The threaded dy is the
-  // push each chip received off its own port y.
-  const entryDyByIndex = new Map<number, number>();
-  type EntrySlot = { index: number; id: string; port: number; anchorY: number };
-  const entryByTarget = new Map<string, EntrySlot[]>();
-  edges.forEach((edge, index) => {
-    if (edge.type !== "item") return;
-    const data = edge.data as { multiInputTarget?: unknown } | undefined;
-    if (data?.multiInputTarget !== true) return;
-    const target = byId.get(edge.target);
-    if (target === undefined) return;
-    const item = edgeItem(edge);
-    const anchorY = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    const list = entryByTarget.get(edge.target) ?? [];
-    list.push({
-      index,
-      id: edge.id,
-      port: inputPortIndex(target, item),
-      anchorY,
-    });
-    entryByTarget.set(edge.target, list);
-  });
-  for (const list of entryByTarget.values()) {
-    if (list.length < 2) continue;
-    list.sort((a, b) => {
-      const ap = a.port < 0 ? Infinity : a.port;
-      const bp = b.port < 0 ? Infinity : b.port;
-      if (ap !== bp) return ap - bp;
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-    const stacked = stackEntryAnchors(list.map((s) => s.anchorY));
-    list.forEach((s, i) => {
-      const dy = stacked[i]! - s.anchorY;
-      if (dy !== 0) entryDyByIndex.set(s.index, dy);
-    });
   }
 
   if (
