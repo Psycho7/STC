@@ -269,12 +269,15 @@ export default function ItemEdge({
       ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(edgeData.rate)}${unit}`
       : "";
 
-  // The path builder anchors the label at the geometric midpoint of the drawn
-  // polyline (50% of cumulative length), so the chip always sits on the line
-  // it labels. Earlier versions nudged the chip toward the source or target
-  // based on labelSide, which pinned it onto a port stub and off the visible
-  // run of the path; labelSide is no longer read here or anywhere else, and is
-  // retained on the edge data only for potential future routing.
+  // chamferStepPath returns the label anchor on the polyline's PREFERRED CLEAR
+  // SEGMENT (a corridor leg away from the card rows), not the geometric midpoint.
+  // deconflictChipAnchors then seats the chip from there via labelDx/labelDy: it
+  // slides along the polyline to a clear point and normally keeps the chip on the
+  // line it labels, but its escape tier deliberately seats it OFF the line when
+  // that is the only way to uphold the hard chip-vs-chip / chip-vs-card
+  // invariants (the ratcheted off-path residue). labelSide is no longer read
+  // here or anywhere else, and is retained on the edge data only for potential
+  // future routing.
   const [edgePath, labelX, labelY] = chamferStepPath({
     sourceX,
     sourceY,

@@ -336,9 +336,13 @@ test.describe("DOM geometry audit", () => {
 //   census: pairwise crossing count <= the pre-P2 baseline;
 //   detour: the tundra ore feed within 1.5x its endpoints' Manhattan gap.
 //
-// NOTE on all ratchet tables below: baselines do NOT auto-tighten -- when a
-// change improves a scenario, re-record the lower count manually (downward
-// only, never up).
+// NOTE on all ratchet tables below: baselines do NOT auto-tighten. When a change
+// improves a scenario, re-record the lower count manually (downward freely). A
+// baseline moves UP only with a recorded controller ruling, never as a silent
+// accommodation of a regression. Two such rulings stand: battery5 off-path
+// 5 -> 6 (card-hardness pushes one pinned chip's seat off its line), and the P4
+// aggregate-visibility raise (chip-segment default 0 -> 2, multi6 0 -> 3,
+// battery5-xiranite 0 -> 7).
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -693,23 +697,34 @@ test.describe("edge reload determinism", () => {
     test(scenario.id, async ({ page }) => {
       const hash = await scenarioHash(scenario);
 
-      const readEdges = async (): Promise<Record<string, string>> => {
+      const readLoad = async (): Promise<{
+        edges: Record<string, string>;
+        transform: string;
+      }> => {
         await loadScenario(page, hash);
         const { edges } = await page.evaluate(collectGeometry);
+        const transform = await page.evaluate(
+          () =>
+            document.querySelector<HTMLElement>(".react-flow__viewport")?.style
+              .transform ?? "",
+        );
         const map: Record<string, string> = {};
         for (const e of edges) map[e.id] = e.d;
-        return map;
+        return { edges: map, transform };
       };
 
-      const first = await readEdges();
-      const second = await readEdges();
+      const first = await readLoad();
+      const second = await readLoad();
 
-      const ids = new Set([...Object.keys(first), ...Object.keys(second)]);
+      const ids = new Set([
+        ...Object.keys(first.edges),
+        ...Object.keys(second.edges),
+      ]);
       const diffs: string[] = [];
       for (const id of ids) {
-        if (first[id] !== second[id]) {
+        if (first.edges[id] !== second.edges[id]) {
           diffs.push(
-            `  ${id}:\n    load1 ${first[id]}\n    load2 ${second[id]}`,
+            `  ${id}:\n    load1 ${first.edges[id]}\n    load2 ${second.edges[id]}`,
           );
         }
       }
@@ -717,6 +732,14 @@ test.describe("edge reload determinism", () => {
         diffs.length,
         `${scenario.id}: ${diffs.length} edge path(s) differ across reloads:\n${diffs.join("\n")}`,
       ).toBe(0);
+
+      // Camera-drift tripwire: the fit-view transform must be byte-identical
+      // across reloads (a deterministic content-bounds fit produces the same pan
+      // and zoom every load).
+      expect(
+        second.transform,
+        `${scenario.id}: viewport transform drifted across reloads:\n    load1 ${first.transform}\n    load2 ${second.transform}`,
+      ).toBe(first.transform);
     });
   }
 });

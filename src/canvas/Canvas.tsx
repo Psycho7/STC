@@ -338,6 +338,11 @@ function CanvasInner({
       pushInto(edgesByNode, edge.target, edge.id);
       const trunkKey = (edge.data as { trunkKey?: unknown } | undefined)
         ?.trunkKey;
+      // trunkKey is item + "|" + source, so a lane trunk and a fan-out trunk
+      // leaving the SAME (item, source) port share ONE trunkKey and merge into a
+      // single hover group here. Each sub-trunk still keeps its own aggregate
+      // chip showing that sub-trunk's OWN total (its members' summed rate), not
+      // the port's full outflow across both.
       if (edge.type === "bus" && typeof trunkKey === "string") {
         pushInto(edgesByTrunk, trunkKey, edge.id);
       }

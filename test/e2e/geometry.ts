@@ -8,6 +8,7 @@
 // rect built here matches paddedObstacles' `card` rect by construction.
 
 import { CHAMFER, PORT_STUB } from "../../src/canvas/edgePath";
+import { FANOUT_SPAN_MAX } from "../../src/canvas/busRouting";
 import {
   ENTRY_CHIP_BOX_WIDTH,
   ENTRY_CHIP_OFFSET,
@@ -373,13 +374,32 @@ export function auditChipsVsCards(
       exempt.add(owner.source);
       exemptContainers(owner.source, exempt);
       if (chip.kind === "bus-drop") {
-        // Aggregate chip on the shared trunk: exempt every trunk member's target
-        // and its containers. Members share the owner's (source, item).
+        // Aggregate chip on the shared trunk: exempt every member of the OWNER's
+        // sub-trunk (its target and containers), mirroring the seating pass. A
+        // (source, item) port can host BOTH a fan-out sub-trunk (adjacent-layer
+        // targets) and a lane sub-trunk (long-span targets) under one trunkKey,
+        // but seating exempts only the members of the aggregate's OWN sub-trunk
+        // (fan-out trunkExempt over fan-out members; lane trunkExempt over lane
+        // members). Split members by the same span boundary the routing passes
+        // use -- FANOUT_SPAN_MAX -- so the audit exempts exactly that sub-trunk's
+        // members rather than every edge sharing (source, item).
+        const srcRight = nodeById.get(owner.source)?.right;
+        const ownerTgt = nodeById.get(owner.target);
+        const spanClassOf = (targetLeft: number): boolean => {
+          if (srcRight === undefined) return true; // unknown geometry: exempt
+          const gap = targetLeft - srcRight;
+          return gap > 0 && gap <= FANOUT_SPAN_MAX; // true = fan-out (adjacent)
+        };
+        const ownerIsFanout =
+          ownerTgt === undefined ? true : spanClassOf(ownerTgt.left);
         for (const e of edges) {
-          if (e.source === owner.source && e.item === owner.item) {
-            exempt.add(e.target);
-            exemptContainers(e.target, exempt);
+          if (e.source !== owner.source || e.item !== owner.item) continue;
+          const tgt = nodeById.get(e.target);
+          if (tgt !== undefined && spanClassOf(tgt.left) !== ownerIsFanout) {
+            continue; // a member of the OTHER sub-trunk sharing this trunkKey
           }
+          exempt.add(e.target);
+          exemptContainers(e.target, exempt);
         }
       } else {
         exempt.add(owner.target);
