@@ -96,12 +96,13 @@ describe("edge-span census: repro plan", () => {
 
     // A non-bus edge may now legitimately span past the threshold: Task 12
     // deliberately leaves a single-member trunk whose DIRECT corridor is clear
-    // as a plain item edge rather than detouring it onto a bus lane. The census
-    // criterion is therefore strengthened, not relaxed -- every long non-bus edge
-    // must have a provably clear direct corridor (recomputed with the same gate
-    // routeBusEdges demotes on), a strictly structural, strictly stronger check.
-    // A blocked long non-bus edge -- what the old zero-count guarded against --
-    // still fails.
+    // as a plain item edge rather than detouring it onto a bus lane. The
+    // criterion below is the successor to the old "zero long non-bus edges":
+    // any layout satisfying the old zero-count satisfies this one vacuously,
+    // and it additionally admits exactly the long edges whose direct corridor
+    // is provably clear (recomputed with the same gate routeBusEdges demotes
+    // on). A blocked long non-bus edge -- what the old zero-count guarded
+    // against -- still fails, and the check stays fully structural.
     const longNonBus = nonBusEdges.filter(
       (e) => (computeEdgeSpans(laid.nodes, [e])[0] ?? 0) > SPAN_THRESHOLD,
     );

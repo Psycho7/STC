@@ -230,7 +230,11 @@ export function routeBusEdges(
       const source = byId.get(edge.source)!;
       const target = byId.get(edge.target)!;
       if (isInputProduct(source) && isInputProduct(target)) continue; // bothInput
-      if (nodeGap(source, target, byId) <= 0) continue; // forward only
+      // Forward only. Unreachable under current classification (edgeSpan floors
+      // at 0, so a non-bothInput member always has gap > 0); kept as a guard so
+      // a future classifier change cannot silently demote a backward member,
+      // whose corridor is the rail shape, not this forward leg.
+      if (nodeGap(source, target, byId) <= 0) continue;
       if (
         !forwardCorridorClear(source, target, edgeItem(edge), byId, obstacles)
       ) {
@@ -354,10 +358,17 @@ export function routeBusEdges(
 // the bend column across to the target; on a long span that leg can slice an
 // intervening card. Mirror jogForwardLegs' clear test -- clearRailY on the leg's
 // y-band -- over the whole source->target extent, the most conservative bound
-// since the real bend column sits somewhere inside it. Own source / target cards
-// and gutters, plus each endpoint's container, are exempt (same semantics as
-// jogForwardLegs): the run legitimately starts / ends inside them. A clear result
-// means the edge needs no bus lane; anything unproven keeps the lane.
+// since the real bend column sits somewhere inside it. Only CARD obstacles
+// block: gutters guard foreign VERTICAL runs, while this test is about a
+// horizontal final leg, which legitimately crosses gutter x-bands (every
+// entering leg does). Card-only also makes the demotion gate and the census
+// helper agree by construction -- the gate runs on pre-retype edges (every
+// gutter at minimum width) while the census sees post-retype edges whose bus
+// rises widen foreign gutters, so any gutter sensitivity would make the census
+// stricter than the gate it audits. Own source / target cards, plus each
+// endpoint's container, are exempt (same semantics as jogForwardLegs): the run
+// legitimately starts / ends inside them. A clear result means the edge needs no
+// bus lane; anything unproven keeps the lane.
 function forwardCorridorClear(
   source: RFAnyNode,
   target: RFAnyNode,
@@ -371,7 +382,9 @@ function forwardCorridorClear(
   const exempt = new Set<string>([source.id, target.id]);
   if (source.parentId !== undefined) exempt.add(source.parentId);
   if (target.parentId !== undefined) exempt.add(target.parentId);
-  const foreign = obstacles.filter((o) => !exempt.has(o.nodeId));
+  const foreign = obstacles.filter(
+    (o) => o.kind === "card" && !exempt.has(o.nodeId),
+  );
   // Final-leg y-band from just past the source port to one stub before the
   // target port. clearRailY returns ty unchanged iff nothing foreign crosses it.
   return clearRailY(ty, sx + PORT_STUB, tx - PORT_STUB, foreign) === ty;
@@ -380,9 +393,10 @@ function forwardCorridorClear(
 // directCorridorClear: the corridor gate above, resolved from raw nodes / edges
 // for one edge. Exported for the edge-span census, which asserts every non-bus
 // edge spanning past the threshold has a provably clear direct corridor -- the
-// strictly stronger successor to "zero long non-bus edges" now that clear
-// single-member trunks are deliberately left as plain item edges. Missing
-// endpoints or a backward / zero gap read as not-clear.
+// successor criterion to "zero long non-bus edges": the old zero-count satisfies
+// it vacuously, and it additionally admits the provably-clear long edges the
+// demotion pass deliberately leaves plain. Missing endpoints or a backward /
+// zero gap read as not-clear.
 export function directCorridorClear(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,

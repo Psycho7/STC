@@ -16,6 +16,7 @@ import {
   clampBackwardRails,
   clearBusColumns,
   clearColumnX,
+  directCorridorClear,
   jogForwardLegs,
   deconflictChipAnchors,
   entryGutterRects,
@@ -404,6 +405,65 @@ describe("routeBusEdges single-member demotion (9C)", () => {
     expect(e.data).not.toHaveProperty("busChipX");
     // Got bend-column staggering as a plain forward item edge.
     expect(e.data).toHaveProperty("bendX");
+  });
+});
+
+describe("directCorridorClear", () => {
+  const r = mkRecipe("r", ["a"], ["b"]);
+  const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+
+  it("reads clear through a foreign gutter widened by post-retype bus rises", () => {
+    // The demotion gate runs on PRE-retype edges (every gutter at its minimum
+    // width) while the census recomputes on POST-retype edges, where bus rises
+    // into m widen its gutter band back across e0's corridor. Card obstacles
+    // are identical in both views, so the card-only corridor test keeps gate
+    // and census in agreement; a gutter-sensitive test would demote e0 at the
+    // gate yet read it blocked in the census -- the flake this pins against.
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 0, r),
+      // Multi-entry consumer just right of the corridor: its padded card stays
+      // outside e0's leg span [sx + stub, tx - stub], but at four post-retype
+      // rise columns its gutter band reaches back across the corridor's end.
+      orderedRecipeNode("m", far + 30, 0, ["p", "q"]),
+      recipeNode("sp", -100, 400, mkRecipe("sp", [], ["p"])),
+      recipeNode("sq", -100, 800, mkRecipe("sq", [], ["q"])),
+    ];
+    const edges = [
+      mkEdge("e0", "s", "t", "b"),
+      // Two-member trunks (same item + source), so none of these demote: all
+      // four retype to bus and rise into m's gutter, widening it.
+      mkEdge("bp1", "sp", "m", "p"),
+      mkEdge("bp2", "sp", "m", "p"),
+      mkEdge("bq1", "sq", "m", "q"),
+      mkEdge("bq2", "sq", "m", "q"),
+    ];
+
+    const out = routeBusEdges(nodes, edges);
+    const e0 = out.find((e) => e.id === "e0")!;
+
+    // The lone clear-corridor trunk demoted at the gate...
+    expect(e0.type).toBe("item");
+    // ...m's post-retype gutter now spans four rise columns...
+    const mRect = entryGutterRects(nodes, out).get("m")!;
+    expect(mRect.right - mRect.left).toBe(gutterWidth(4));
+    // ...and the census helper, run on that post-retype set, still agrees.
+    expect(directCorridorClear(nodes, out, e0)).toBe(true);
+  });
+
+  it("reads a card-straddled corridor as blocked on the post-retype set", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 0, r),
+      recipeNode("mid", 600, 0, r), // straddles the corridor at the target row
+    ];
+    const edges = [mkEdge("e0", "s", "t", "b")];
+
+    const out = routeBusEdges(nodes, edges);
+    const e0 = out.find((e) => e.id === "e0")!;
+
+    expect(e0.type).toBe("bus"); // gate agrees: blocked corridor keeps the lane
+    expect(directCorridorClear(nodes, out, e0)).toBe(false);
   });
 });
 
