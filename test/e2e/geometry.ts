@@ -218,9 +218,11 @@ export function auditSegmentsVsCards(
 export type ChipRect = RawRect & {
   edgeId: string;
   label: string;
-  // "entry" = icon-only port marker, "bus" = lane-anchored bus drop/rise chip
-  // (out of scope for the corridor invariants), "label" = item rate chip.
-  kind: "entry" | "label" | "bus";
+  // "entry" = icon-only port marker, "bus" = lane-anchored bus rise/branch chip
+  // (out of scope for the corridor invariants), "bus-drop" = the trunk-seated
+  // aggregate chip (audited against foreign cards with a trunk-member exemption),
+  // "label" = item rate chip.
+  kind: "entry" | "label" | "bus" | "bus-drop";
 };
 
 export type ChipViolation = {
@@ -326,18 +328,26 @@ export function auditSegmentsVsChips(
 export type ChipCardViolation = {
   chipEdgeId: string;
   chipLabel: string;
-  chipKind: "entry" | "label";
+  chipKind: "entry" | "label" | "bus-drop";
   card: string;
   raw: boolean;
 };
 
 // Every chip box that enters a FOREIGN node's RAW card (the P3 chip-vs-card
-// tier). Foreign = any node except the chip's own edge source / target and the
-// containers of those endpoints (the same exemption auditSegmentsVsCards uses):
-// an entry chip is pinned one inset outside its OWN target's left edge, so its
-// box legitimately clips that card; a label chip rides its own corridor leg,
-// clear of both endpoints' cards. `raw` is always true here (raw cards only);
-// the field mirrors SegmentViolation so callers report uniformly.
+// tier). Foreign = any node except the chip's own exemption set (the same
+// endpoint / container exemption auditSegmentsVsCards uses):
+//   - entry / label chip: source + target + those two endpoints' containers. An
+//     entry chip is pinned one inset outside its OWN target's left edge, so its
+//     box legitimately clips that card; a label chip rides its own corridor leg,
+//     clear of both endpoints' cards.
+//   - bus-drop (aggregate) chip: it seats on the SHARED trunk, feeding every
+//     member of the trunk, so its exemption spans the whole trunk. Membership =
+//     every edge sharing (source, item) with the owner edge; the exempt set is
+//     the shared source, each member's target, and the containers of all of
+//     them. Rise / branch bus chips (kind "bus") stay skipped -- lane-anchored,
+//     out of scope for this tier.
+// `raw` is always true here (raw cards only); the field mirrors SegmentViolation
+// so callers report uniformly.
 export function auditChipsVsCards(
   chips: ReadonlyArray<ChipRect>,
   edges: ReadonlyArray<RawEdge>,
@@ -346,18 +356,35 @@ export function auditChipsVsCards(
 ): ChipCardViolation[] {
   const edgeById = new Map<string, RawEdge>();
   for (const e of edges) edgeById.set(e.id, e);
+  const nodeById = new Map<string, NodeRect>();
+  for (const n of nodes) nodeById.set(n.nodeId, n);
+  const exemptContainers = (nodeId: string, into: Set<string>): void => {
+    const node = nodeById.get(nodeId);
+    if (node !== undefined) {
+      for (const c of containersAt(centreOf(node), nodes)) into.add(c);
+    }
+  };
   const out: ChipCardViolation[] = [];
   for (const chip of chips) {
-    if (chip.kind === "bus") continue; // lane-anchored, out of scope
+    if (chip.kind === "bus") continue; // rise/branch, lane-anchored, out of scope
     const owner = edgeById.get(chip.edgeId);
     const exempt = new Set<string>();
     if (owner !== undefined) {
       exempt.add(owner.source);
-      exempt.add(owner.target);
-      const src = nodes.find((n) => n.nodeId === owner.source);
-      const tgt = nodes.find((n) => n.nodeId === owner.target);
-      if (src !== undefined) for (const c of containersAt(centreOf(src), nodes)) exempt.add(c);
-      if (tgt !== undefined) for (const c of containersAt(centreOf(tgt), nodes)) exempt.add(c);
+      exemptContainers(owner.source, exempt);
+      if (chip.kind === "bus-drop") {
+        // Aggregate chip on the shared trunk: exempt every trunk member's target
+        // and its containers. Members share the owner's (source, item).
+        for (const e of edges) {
+          if (e.source === owner.source && e.item === owner.item) {
+            exempt.add(e.target);
+            exemptContainers(e.target, exempt);
+          }
+        }
+      } else {
+        exempt.add(owner.target);
+        exemptContainers(owner.target, exempt);
+      }
     }
     for (const n of nodes) {
       if (exempt.has(n.nodeId)) continue;

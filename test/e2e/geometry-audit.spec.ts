@@ -428,7 +428,7 @@ type NodeGeom = {
 type ChipGeom = {
   edgeId: string;
   label: string;
-  kind: "entry" | "label" | "bus";
+  kind: "entry" | "label" | "bus" | "bus-drop";
   left: number;
   top: number;
   right: number;
@@ -482,14 +482,18 @@ function collectGeometry(): Geometry {
     return {
       edgeId: el.getAttribute("data-edge-id") ?? "",
       label: el.getAttribute("aria-label") ?? "(chip)",
-      // Three chip families: entry markers pinned at a port, lane-anchored bus
-      // drop/rise chips (out of scope for the corridor invariants), and item
-      // rate chips ("label"). Only rate chips ride the clear-segment anchor.
+      // Chip families: entry markers pinned at a port ("entry"); the trunk-seated
+      // aggregate chip ("bus-drop", testid suffix -drop), audited against foreign
+      // cards with a trunk-member exemption; lane-anchored bus rise/branch chips
+      // ("bus", out of scope for the corridor invariants); and item rate chips
+      // ("label"). Only rate chips ride the clear-segment anchor.
       kind: (testId.startsWith("item-edge-entry-")
         ? "entry"
         : testId.startsWith("bus-edge-")
-          ? "bus"
-          : "label") as "entry" | "label" | "bus",
+          ? testId.endsWith("-drop")
+            ? "bus-drop"
+            : "bus"
+          : "label") as "entry" | "label" | "bus" | "bus-drop",
       left: toGraphX(r.left),
       top: toGraphY(r.top),
       right: toGraphX(r.right),
