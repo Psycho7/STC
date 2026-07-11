@@ -361,15 +361,44 @@ function CanvasInner({
       }
     } else {
       const edge = adjacency.edgeById.get(hovered.id);
-      const trunkKey = (edge?.data as { trunkKey?: unknown } | undefined)
-        ?.trunkKey;
-      // A bus edge lights its whole trunk (every same-trunkKey edge + their
-      // endpoints); any other edge lights just itself and its two endpoints.
+      const data = edge?.data as
+        | { trunkKey?: unknown; busChipOwner?: unknown }
+        | undefined;
+      const trunkKey = data?.trunkKey;
+      // A bus edge belongs to a trunk (every same-trunkKey member). Two hover
+      // modes split off which members light:
+      //   TRUNK hover  -- the pointer is over the trunk owner (the member that
+      //     draws the shared trunk segment, junction, and aggregate chip). Light
+      //     the whole group, today's behaviour. `busChipOwner` absent counts as
+      //     owner so an un-annotated fixture keeps the whole-group highlight.
+      //   BRANCH hover -- the pointer is over a non-owner member. Light only that
+      //     branch plus the trunk owner(s); sibling branches stay dimmed. A lane
+      //     and a fan-out sub-trunk may share one trunkKey (merged group); each
+      //     sub-trunk keeps its own owner, so branch mode lights every member
+      //     whose `busChipOwner === true` and dims the rest across both.
       const trunkEdges =
         edge?.type === "bus" && typeof trunkKey === "string"
           ? adjacency.edgesByTrunk.get(trunkKey)
           : undefined;
-      for (const edgeId of trunkEdges ?? [hovered.id]) lightEdge(edgeId);
+      if (trunkEdges) {
+        const isTrunkHover = data?.busChipOwner !== false;
+        if (isTrunkHover) {
+          for (const edgeId of trunkEdges) lightEdge(edgeId);
+        } else {
+          lightEdge(hovered.id);
+          for (const edgeId of trunkEdges) {
+            if (edgeId === hovered.id) continue;
+            const sibOwner = (
+              adjacency.edgeById.get(edgeId)?.data as
+                | { busChipOwner?: unknown }
+                | undefined
+            )?.busChipOwner;
+            if (sibOwner === true) lightEdge(edgeId);
+          }
+        }
+      } else {
+        lightEdge(hovered.id);
+      }
     }
     return { nodeIds, edgeIds };
   }, [hovered, adjacency]);

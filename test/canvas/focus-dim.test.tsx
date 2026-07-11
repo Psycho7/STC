@@ -226,3 +226,120 @@ describe("canvas/focus-dim", () => {
     expect(container.querySelectorAll(".dimmed")).toHaveLength(0);
   });
 });
+
+// Two-mode trunk hover: a trunk of one owner ("own") plus two branch members
+// ("br1", "br2"), all on the same trunkKey and leaving source "a". Hovering the
+// owner lights the whole group; hovering a branch lights that branch plus the
+// owner and dims the sibling branch.
+const TWO_MODE_NODES: Node[] = [
+  { id: "a", position: { x: 0, y: 0 }, data: { label: "a" } },
+  { id: "tb", position: { x: 900, y: 0 }, data: { label: "tb" } },
+  { id: "tc1", position: { x: 900, y: 200 }, data: { label: "tc1" } },
+  { id: "tc2", position: { x: 900, y: 400 }, data: { label: "tc2" } },
+];
+
+function trunkMember(owner: boolean): Record<string, unknown> {
+  return {
+    item: "Iron",
+    rate: new Fraction(1, 1),
+    laneY: 100,
+    trunkKey: "Iron|a",
+    busChipOwner: owner,
+    busTotalRate: new Fraction(3, 1),
+    busMemberCount: 3,
+  } as unknown as Record<string, unknown>;
+}
+
+const TWO_MODE_EDGES: Edge[] = [
+  { id: "own", type: "bus", source: "a", target: "tb", data: trunkMember(true) },
+  { id: "br1", type: "bus", source: "a", target: "tc1", data: trunkMember(false) },
+  { id: "br2", type: "bus", source: "a", target: "tc2", data: trunkMember(false) },
+];
+
+function renderTwoMode() {
+  return render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={TWO_MODE_NODES} edges={TWO_MODE_EDGES} />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+}
+
+async function edgeDimmed(
+  container: HTMLElement,
+  id: string,
+): Promise<boolean> {
+  const el = await edgeEl(container, id);
+  return el.classList.contains("dimmed");
+}
+
+describe("canvas/focus-dim two-mode trunk hover", () => {
+  it("branch hover lights the branch and owner but dims the sibling branch", async () => {
+    const { container } = renderTwoMode();
+    const br1 = await edgeEl(container, "br1");
+    fireEvent.mouseEnter(br1);
+    // The sibling branch br2 dims; the hovered branch and the trunk owner stay
+    // lit.
+    await waitFor(async () => {
+      expect(await edgeDimmed(container, "br2")).toBe(true);
+    });
+    expect(await edgeDimmed(container, "br1")).toBe(false);
+    expect(await edgeDimmed(container, "own")).toBe(false);
+  });
+
+  it("owner (trunk) hover lights the whole group", async () => {
+    const { container } = renderTwoMode();
+    const own = await edgeEl(container, "own");
+    fireEvent.mouseEnter(own);
+    // Give the hover intent time to settle (the theme root gains hover-active),
+    // then assert nothing in the trunk dimmed.
+    await waitFor(() => {
+      expect(
+        container.querySelector(".ak-canvas-theme.hover-active"),
+      ).not.toBeNull();
+    });
+    expect(await edgeDimmed(container, "own")).toBe(false);
+    expect(await edgeDimmed(container, "br1")).toBe(false);
+    expect(await edgeDimmed(container, "br2")).toBe(false);
+  });
+
+  it("branch hover dims the sibling branch chip but not the aggregate chip", async () => {
+    const { container } = renderTwoMode();
+    await waitFor(() => {
+      expect(
+        container.querySelector('[data-testid="bus-edge-label-own-drop"]'),
+      ).not.toBeNull();
+      expect(
+        container.querySelector('[data-testid="bus-edge-label-br2-rise"]'),
+      ).not.toBeNull();
+    });
+    const br1 = await edgeEl(container, "br1");
+    fireEvent.mouseEnter(br1);
+    // br2's rise chip dims with its edge; the owner's aggregate drop chip stays
+    // lit (the owner is in the focus set).
+    await waitFor(() => {
+      expect(chipDimmed(container, "bus-edge-label-br2-rise")).toBe(true);
+    });
+    expect(chipDimmed(container, "bus-edge-label-own-drop")).toBe(false);
+  });
+
+  it("branch hover dims the sibling junction dot but not the owner's", async () => {
+    const { container } = renderTwoMode();
+    await waitFor(() => {
+      expect(
+        container.querySelector('[data-testid="bus-junction-own"]'),
+      ).not.toBeNull();
+      expect(
+        container.querySelector('[data-testid="bus-junction-br2"]'),
+      ).not.toBeNull();
+    });
+    const br1 = await edgeEl(container, "br1");
+    fireEvent.mouseEnter(br1);
+    await waitFor(() => {
+      expect(chipDimmed(container, "bus-junction-br2")).toBe(true);
+    });
+    expect(chipDimmed(container, "bus-junction-own")).toBe(false);
+    expect(chipDimmed(container, "bus-junction-br1")).toBe(false);
+  });
+});
