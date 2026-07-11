@@ -7,10 +7,7 @@
 // import: the padding constants come straight from the routing source so a card
 // rect built here matches paddedObstacles' `card` rect by construction.
 
-import {
-  CHAMFER,
-  PORT_STUB,
-} from "../../src/canvas/edgePath";
+import { CHAMFER, PORT_STUB } from "../../src/canvas/edgePath";
 import {
   ENTRY_CHIP_BOX_WIDTH,
   ENTRY_CHIP_OFFSET,
@@ -135,7 +132,9 @@ export function properCross(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
 // Count crossings between segments belonging to DIFFERENT edges. O(S^2), fine at
 // this scale. Segments within one edge are never compared (adjacent ones share a
 // vertex; the polyline is simple by construction).
-export function countCrossings(edges: ReadonlyArray<{ id: string; d: string }>): number {
+export function countCrossings(
+  edges: ReadonlyArray<{ id: string; d: string }>,
+): number {
   const perEdge = edges.map((e) => segmentsOf(parsePath(e.d)));
   let count = 0;
   for (let i = 0; i < perEdge.length; i++) {
@@ -154,10 +153,7 @@ export function countCrossings(edges: ReadonlyArray<{ id: string; d: string }>):
 // endpoint sitting inside a group legitimately crosses that group's card, so the
 // audit exempts the endpoints' containers -- the same parentId exemption the
 // routing passes apply, recovered geometrically.
-export function containersAt(
-  p: Pt,
-  nodes: ReadonlyArray<NodeRect>,
-): string[] {
+export function containersAt(p: Pt, nodes: ReadonlyArray<NodeRect>): string[] {
   return nodes
     .filter(
       (n) =>
@@ -209,7 +205,10 @@ export function auditSegmentsVsCards(
 export function polylineLength(pts: ReadonlyArray<Pt>): number {
   let total = 0;
   for (let i = 1; i < pts.length; i++) {
-    total += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+    total += Math.hypot(
+      pts[i]![0] - pts[i - 1]![0],
+      pts[i]![1] - pts[i - 1]![1],
+    );
   }
   return total;
 }

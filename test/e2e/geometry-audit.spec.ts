@@ -87,8 +87,9 @@ async function waitForStableViewport(page: Page): Promise<void> {
       const now = vp.style.transform;
       const prev = (vp as unknown as { __auditPrevTransform?: string })
         .__auditPrevTransform;
-      (vp as unknown as { __auditPrevTransform?: string }).__auditPrevTransform =
-        now;
+      (
+        vp as unknown as { __auditPrevTransform?: string }
+      ).__auditPrevTransform = now;
       return prev !== undefined && prev === now && now !== "";
     },
     undefined,
@@ -150,9 +151,7 @@ function collectAudit(): AuditData {
       const hr = handle?.getBoundingClientRect() ?? null;
       rows.push({
         nodeId,
-        item:
-          row.querySelector(".lbl")?.getAttribute("title") ??
-          row.className,
+        item: row.querySelector(".lbl")?.getAttribute("title") ?? row.className,
         rowClass: row.className,
         rowCenterY: rr.y + rr.height / 2,
         handleCenterY: hr === null ? null : hr.y + hr.height / 2,
@@ -317,7 +316,8 @@ function collectGeometry(): Geometry {
   const k = m.a;
   const tx = m.e;
   const ty = m.f;
-  const toGraphX = (clientX: number): number => (clientX - rfRect.left - tx) / k;
+  const toGraphX = (clientX: number): number =>
+    (clientX - rfRect.left - tx) / k;
   const toGraphY = (clientY: number): number => (clientY - rfRect.top - ty) / k;
 
   const edges = Array.from(
