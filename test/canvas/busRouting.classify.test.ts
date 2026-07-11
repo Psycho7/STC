@@ -156,7 +156,7 @@ describe("routeBusEdges", () => {
     expect(data.trunkKey).toBe("ore|agg");
   });
 
-  it("is deterministic: same input twice yields identical output", () => {
+  it("is deterministic: shuffled input order yields identical output", () => {
     const rApple = mkRecipe("rApple", ["x"], ["apple"]);
     const rBanana = mkRecipe("rBanana", ["x"], ["banana"]);
     const far = 300 + (BUS_SPAN_THRESHOLD + 50);
@@ -174,28 +174,33 @@ describe("routeBusEdges", () => {
       mkEdge("e0", "sBanana", "tBanana", "banana"),
       mkEdge("e1", "sApple", "tApple", "apple"),
     ];
+    const shuffledNodes = [...nodes].reverse();
+    const shuffledEdges = [edges[1]!, edges[0]!];
 
     // Project to the deterministic bus fields (the rate Fraction carries a
     // BigInt that JSON can't serialize, and is irrelevant to routing). busBand
-    // rides along so band assignment is pinned as part of determinism.
+    // rides along so band assignment is pinned as part of determinism. Keyed by
+    // edge id so the two runs compare per edge regardless of emit order.
     const project = (out: Edge[]) =>
-      out.map((e) => {
-        const d = e.data as {
-          laneY?: number;
-          trunkKey?: string;
-          busBand?: string;
-        };
-        return {
-          id: e.id,
-          type: e.type,
-          laneY: d.laneY,
-          trunkKey: d.trunkKey,
-          busBand: d.busBand,
-        };
-      });
+      [...out]
+        .sort((a, b) => (a.id < b.id ? -1 : 1))
+        .map((e) => {
+          const d = e.data as {
+            laneY?: number;
+            trunkKey?: string;
+            busBand?: string;
+          };
+          return {
+            id: e.id,
+            type: e.type,
+            laneY: d.laneY,
+            trunkKey: d.trunkKey,
+            busBand: d.busBand,
+          };
+        });
 
     expect(project(routeBusEdges(nodes, edges))).toEqual(
-      project(routeBusEdges(nodes, edges)),
+      project(routeBusEdges(shuffledNodes, shuffledEdges)),
     );
   });
 });
@@ -438,7 +443,7 @@ describe("routeBusEdges single-member demotion (9C)", () => {
     expect((out[0]!.data as { trunkKey?: string }).trunkKey).toBe("ore|agg");
   });
 
-  it("demotes deterministically across two identical runs", () => {
+  it("demotes deterministically across shuffled node order", () => {
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t", far, 0, r),
@@ -446,9 +451,12 @@ describe("routeBusEdges single-member demotion (9C)", () => {
     const edges = [mkEdge("e0", "s", "t", "b")];
 
     const a = routeBusEdges(nodes, edges);
-    const b = routeBusEdges(nodes, edges);
+    const b = routeBusEdges([...nodes].reverse(), edges);
     expect(a[0]!.type).toBe("item");
     expect(a[0]!.type).toBe(b[0]!.type);
+    expect((a[0]!.data as { bendX?: number }).bendX).toBe(
+      (b[0]!.data as { bendX?: number }).bendX,
+    );
   });
 
   it("binds a demoted trunk to a proven clear bend column past a span blocker", () => {
@@ -645,10 +653,14 @@ describe("routeBusEdges trunk rise-chip slots", () => {
     }
   });
 
-  it("assigns slots deterministically across two identical runs", () => {
+  it("assigns slots deterministically across shuffled input order", () => {
     const { nodes, edges } = buildThreeMember();
     const a = routeBusEdges(nodes, edges);
-    const b = routeBusEdges(nodes, edges);
+    const b = routeBusEdges([...nodes].reverse(), [
+      edges[2]!,
+      edges[0]!,
+      edges[1]!,
+    ]);
     for (const id of ["e0", "e1", "e2"]) {
       expect(busChipXOf(a, id)).toBe(busChipXOf(b, id));
     }

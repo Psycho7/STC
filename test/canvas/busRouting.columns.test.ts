@@ -559,15 +559,16 @@ describe("clearBusColumns", () => {
     expect(riseXOf(out, "e0")).toBeUndefined();
   });
 
-  it("is deterministic across two identical runs", () => {
+  it("is deterministic across shuffled node order", () => {
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t", far, 0, r),
       inputProductNode("block", "ore", 1070, 300, 148, 78),
     ];
+    const shuffled = [nodes[2]!, nodes[0]!, nodes[1]!];
     const routed = routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]);
     expect(riseXOf(clearBusColumns(nodes, routed), "e0")).toBe(
-      riseXOf(clearBusColumns(nodes, routed), "e0"),
+      riseXOf(clearBusColumns(shuffled, routed), "e0"),
     );
   });
 });
@@ -758,10 +759,10 @@ describe("jogForwardLegs", () => {
     expect(legYOf(foreignOut, "e0")).toBeDefined();
   });
 
-  it("is deterministic across two identical runs", () => {
+  it("is deterministic across shuffled node order", () => {
     const { nodes, edges } = buildFixture(true);
     expect(legYOf(jogForwardLegs(nodes, edges), "e0")).toBe(
-      legYOf(jogForwardLegs(nodes, edges), "e0"),
+      legYOf(jogForwardLegs([...nodes].reverse(), edges), "e0"),
     );
   });
 });
