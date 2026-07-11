@@ -702,6 +702,166 @@ export function paddedObstacles(
   return out;
 }
 
+// -- Obstacle-free vertical columns -------------------------------------------
+//
+// clearColumnX is the x-axis analog of clearRailY: given a vertical run at
+// `desiredX` spanning [yLo, yHi], move it to the nearest column that no obstacle
+// pierces. Only obstacles whose y-extent the run overlaps can block it (a card in
+// a distant row is irrelevant, exactly as clearRailY ignores cards outside its
+// x-span). Each blocking obstacle is padded by `gap` so the returned column keeps
+// clear air off the card edge, and two obstacles closer than 2*gap merge into one
+// no-go band (a candidate that would land between them fails the clear test and
+// is skipped, pushing the column to the outer edge).
+//
+// Nearest clear column to `desiredX`; ties break toward the target side
+// (towardTarget: +1 target to the right, -1 to the left). If no clear column
+// exists within `radius` of the desired one, return `desiredX` unchanged
+// (degraded but stable -- the next task's segment-vs-card audit quantifies the
+// residual rather than flinging the run across the graph). Pure and
+// deterministic: a function of the sorted obstacle list only.
+export const CLEAR_COLUMN_RADIUS = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
+
+export function clearColumnX(
+  desiredX: number,
+  yLo: number,
+  yHi: number,
+  obstacles: ReadonlyArray<ObstacleRect>,
+  opts?: { towardTarget?: number; radius?: number; gap?: number },
+): number {
+  const gap = opts?.gap ?? CHAMFER;
+  const radius = opts?.radius ?? CLEAR_COLUMN_RADIUS;
+  const toward = opts?.towardTarget ?? 0;
+  const ymin = Math.min(yLo, yHi);
+  const ymax = Math.max(yLo, yHi);
+  // Only obstacles whose vertical extent the run overlaps can block it.
+  const spanned = obstacles
+    .filter((o) => o.bottom > ymin && o.top < ymax)
+    .sort((a, b) => a.left - b.left || a.right - b.right);
+  const blocked = (x: number): boolean =>
+    spanned.some((o) => x > o.left - gap && x < o.right + gap);
+  if (!blocked(desiredX)) return desiredX;
+
+  // The nearest clear column sits just outside some spanning obstacle's padded
+  // band. Gather both padded edges of every obstacle, drop any that are still
+  // blocked (they fall inside a neighbour's band) or beyond the search radius,
+  // and pick the nearest surviving candidate, tie-breaking toward the target.
+  const candidates = spanned
+    .flatMap((o) => [o.left - gap, o.right + gap])
+    .sort((a, b) => a - b);
+  let best: number | undefined;
+  for (const x of candidates) {
+    if (Math.abs(x - desiredX) > radius) continue;
+    if (blocked(x)) continue;
+    if (best === undefined) {
+      best = x;
+      continue;
+    }
+    const dNew = Math.abs(x - desiredX);
+    const dBest = Math.abs(best - desiredX);
+    if (dNew < dBest) {
+      best = x;
+    } else if (dNew === dBest) {
+      // Equidistant on opposite sides: prefer the column toward the target.
+      const preferX = toward > 0 ? x > best : toward < 0 ? x < best : x < best;
+      if (preferX) best = x;
+    }
+  }
+  return best ?? desiredX;
+}
+
+// clearBusColumns: move each bus member's drop and rise verticals off any foreign
+// padded card / gutter they would pierce. The drop vertical runs from the source
+// port down to the shared lane; the rise vertical from the lane up to the target
+// port, crossing every row between the lane band and the target. When the default
+// drop column, or the entryX-staggered rise column, sits inside foreign geometry,
+// stamp a cleared { dropX } / { riseX } for chamferBusPath. Own source (drop) and
+// own target (rise) cards / gutters are exempt: the default columns sit inside
+// their own node's padded band by construction, so only foreign rects block.
+//
+// Runs AFTER assignEntryColumns so the rise's desired column is the final
+// staggered entryX (clearance starts from the stagger and only moves it when it
+// pierces foreign geometry; riseX then overrides entryX in chamferBusPath). The
+// narrow-forward hairpin member has no distinct drop / rise column (both collapse
+// onto the corridor midpoint), so it is left untouched. Threads { dropX } /
+// { riseX } onto the moved edges; every other edge passes through by reference.
+// Pure and deterministic.
+export function clearBusColumns(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): Edge[] {
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+
+  const obstacles = paddedObstacles(nodes, edges);
+  const budget = 2 * (PORT_STUB + CHAMFER);
+
+  const dropXByIndex = new Map<number, number>();
+  const riseXByIndex = new Map<number, number>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "bus") return;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) return;
+    const data = edge.data as BusEdgeData | undefined;
+    if (data?.laneY === undefined) return;
+    const laneY = data.laneY;
+    const item = edgeItem(edge);
+    const sx = absoluteLeft(source, byId) + nodeWidth(source);
+    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
+    const tx = absoluteLeft(target, byId);
+    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    const gap = tx - sx;
+    // Only the drop-lane-rise forms have distinct columns to clear; the narrow
+    // forward hairpin (0 < gap < budget) collapses both onto the midpoint.
+    if (gap > 0 && gap < budget) return;
+    const toward = gap > 0 ? 1 : -1;
+
+    // Drop vertical: source port level down to the lane. Exempt the source's own
+    // card / gutter (the default column sits a chamfer off its padded right edge).
+    const dropDesired = sx + PORT_STUB + CHAMFER;
+    const dropX = clearColumnX(
+      dropDesired,
+      sy,
+      laneY,
+      obstacles.filter((o) => o.nodeId !== edge.source),
+      { towardTarget: toward },
+    );
+    if (dropX !== dropDesired) dropXByIndex.set(index, dropX);
+
+    // Rise vertical: lane up to the target port. Its desired column is the
+    // staggered entryX when present (keep the stagger; only move it off foreign
+    // geometry). Exempt the target's own card / gutter.
+    const riseDesired =
+      (edge.data as { entryX?: number } | undefined)?.entryX ??
+      tx - PORT_STUB - CHAMFER;
+    const riseX = clearColumnX(
+      riseDesired,
+      ty,
+      laneY,
+      obstacles.filter((o) => o.nodeId !== edge.target),
+      { towardTarget: toward },
+    );
+    if (riseX !== riseDesired) riseXByIndex.set(index, riseX);
+  });
+
+  if (dropXByIndex.size === 0 && riseXByIndex.size === 0) {
+    return edges.map((e) => e);
+  }
+  return edges.map((edge, index) => {
+    const dropX = dropXByIndex.get(index);
+    const riseX = riseXByIndex.get(index);
+    if (dropX === undefined && riseX === undefined) return edge;
+    return {
+      ...edge,
+      data: {
+        ...edge.data,
+        ...(dropX !== undefined ? { dropX } : {}),
+        ...(riseX !== undefined ? { riseX } : {}),
+      },
+    };
+  });
+}
+
 // clampBackwardRails: give each backward item edge's detour rail a y that clears
 // the cards it horizontally spans, so a recycle rail no longer slices through
 // its own source / target cards or the columns between them. Mirrors the bus
@@ -722,6 +882,8 @@ export function clampBackwardRails(
   const obstacles = paddedObstacles(nodes, edges);
 
   const railYByIndex = new Map<number, number>();
+  const railXRightByIndex = new Map<number, number>();
+  const railXLeftByIndex = new Map<number, number>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item") return;
     const source = byId.get(edge.source);
@@ -735,19 +897,64 @@ export function clampBackwardRails(
     const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
     // Rail x-span mirrors chamferStepPath's backward branch: one stub right of
     // the source port to the entry column (or one stub before the target port).
-    const xr = sx + PORT_STUB;
-    const xl =
+    const xrDesired = sx + PORT_STUB;
+    const xlDesired =
       (edge.data as { entryX?: number } | undefined)?.entryX ?? tx - PORT_STUB;
     const preferredY = sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2;
-    const railY = clearRailY(preferredY, xl, xr, obstacles);
+    const railY = clearRailY(preferredY, xlDesired, xrDesired, obstacles);
     if (railY !== preferredY) railYByIndex.set(index, railY);
+
+    // Clamp the two verticals out of any foreign card / gutter they pierce. The
+    // right column runs from the source port down/up to the rail; the left column
+    // from the rail to the target port. Each column's own node is exempt (the
+    // default columns sit inside their own node's padded band). The rail y is
+    // taken as fixed (computed from the default columns above), so the columns
+    // only dodge along x; the next task's segment audit quantifies any residual.
+    const xr = clearColumnX(
+      xrDesired,
+      sy,
+      railY,
+      obstacles.filter((o) => o.nodeId !== edge.source),
+      { towardTarget: -1 },
+    );
+    if (xr !== xrDesired) railXRightByIndex.set(index, xr);
+    const xl = clearColumnX(
+      xlDesired,
+      railY,
+      ty,
+      obstacles.filter((o) => o.nodeId !== edge.target),
+      { towardTarget: -1 },
+    );
+    if (xl !== xlDesired) railXLeftByIndex.set(index, xl);
   });
 
-  if (railYByIndex.size === 0) return edges.map((e) => e);
+  if (
+    railYByIndex.size === 0 &&
+    railXRightByIndex.size === 0 &&
+    railXLeftByIndex.size === 0
+  ) {
+    return edges.map((e) => e);
+  }
   return edges.map((edge, index) => {
     const railY = railYByIndex.get(index);
-    if (railY === undefined) return edge;
-    return { ...edge, data: { ...edge.data, railY } };
+    const railXRight = railXRightByIndex.get(index);
+    const railXLeft = railXLeftByIndex.get(index);
+    if (
+      railY === undefined &&
+      railXRight === undefined &&
+      railXLeft === undefined
+    ) {
+      return edge;
+    }
+    return {
+      ...edge,
+      data: {
+        ...edge.data,
+        ...(railY !== undefined ? { railY } : {}),
+        ...(railXRight !== undefined ? { railXRight } : {}),
+        ...(railXLeft !== undefined ? { railXLeft } : {}),
+      },
+    };
   });
 }
 

@@ -14,6 +14,8 @@ import {
   assignBendColumns,
   assignEntryColumns,
   clampBackwardRails,
+  clearBusColumns,
+  clearColumnX,
   deconflictChipAnchors,
   entryGutterRects,
   paddedObstacles,
@@ -30,7 +32,12 @@ import {
   ENTRY_CHIP_OFFSET,
   MAX_CHIP_SCALE,
 } from "../../src/canvas/dimensions";
-import { PORT_STUB, CHAMFER, chamferStepPath } from "../../src/canvas/edgePath";
+import {
+  PORT_STUB,
+  CHAMFER,
+  chamferStepPath,
+  type ObstacleRect,
+} from "../../src/canvas/edgePath";
 import { entryChipAnchor } from "../../src/canvas/ItemEdge";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import type {
@@ -1037,5 +1044,191 @@ describe("clampBackwardRails overhang clearance", () => {
     const midBottom = 65;
     // Threaded rail sits clear of the mid card's padded (overhang) extent.
     expect(railY! > midBottom + CHAMFER || railY! < 0 - CHAMFER).toBe(true);
+  });
+});
+
+// -- clearColumnX -------------------------------------------------------------
+
+const rect = (
+  left: number,
+  right: number,
+  top: number,
+  bottom: number,
+): ObstacleRect => ({ left, right, top, bottom });
+
+describe("clearColumnX", () => {
+  it("returns the desired column when nothing pierces the run's y-span", () => {
+    // An obstacle sitting entirely above the run's y-span cannot block it.
+    const obstacles = [rect(90, 110, 200, 300)];
+    expect(clearColumnX(100, 0, 100, obstacles)).toBe(100);
+  });
+
+  it("returns the desired column when no obstacle covers it in x", () => {
+    const obstacles = [rect(200, 300, 0, 100)];
+    expect(clearColumnX(100, 0, 100, obstacles)).toBe(100);
+  });
+
+  it("moves to the nearest clear column when the desired one is blocked", () => {
+    // Desired 105 sits inside [90, 110], nearer the right edge; the run overlaps
+    // the obstacle's y-span, so the column moves just past the right edge with a
+    // CHAMFER of clear air (110 + 8 = 118), which is nearer than the left escape.
+    const obstacles = [rect(90, 110, 0, 100)];
+    const x = clearColumnX(105, 0, 100, obstacles);
+    expect(x).toBe(110 + CHAMFER);
+  });
+
+  it("breaks an equidistant tie toward the target side", () => {
+    // Symmetric obstacle around the desired column: left and right escapes sit an
+    // equal distance away, so the tie-break picks the side toward the target.
+    const obstacles = [rect(90, 110, 0, 100)];
+    expect(clearColumnX(100, 0, 100, obstacles, { towardTarget: 1 })).toBe(
+      110 + CHAMFER,
+    );
+    expect(clearColumnX(100, 0, 100, obstacles, { towardTarget: -1 })).toBe(
+      90 - CHAMFER,
+    );
+  });
+
+  it("jumps a merged no-go band of two obstacles within 2*gap", () => {
+    // Two obstacles closer than 2*CHAMFER form one continuous no-go band: a column
+    // landing between them (118 or 104) fails the clear test, so from a desired
+    // inside the right obstacle the nearest clear column escapes past the whole
+    // band to 130 + 8 = 138 rather than into the sliver between the two.
+    const obstacles = [rect(90, 110, 0, 100), rect(112, 130, 0, 100)];
+    const x = clearColumnX(125, 0, 100, obstacles, { towardTarget: 1 });
+    expect(x).toBe(130 + CHAMFER);
+  });
+
+  it("falls back to the desired column when no clear column is within radius", () => {
+    // One obstacle wider than 2*radius engulfs both escapes, so neither is
+    // reachable; the column degrades back to the desired x rather than flinging
+    // across the graph.
+    const obstacles = [rect(-10000, 10000, 0, 100)];
+    const x = clearColumnX(100, 0, 100, obstacles, { radius: 50 });
+    expect(x).toBe(100);
+  });
+
+  it("is a deterministic function of the obstacle list, order-independent", () => {
+    const obstacles = [
+      rect(90, 110, 0, 100),
+      rect(200, 260, 0, 100),
+      rect(40, 60, 0, 100),
+    ];
+    const shuffled = [obstacles[2]!, obstacles[0]!, obstacles[1]!];
+    expect(clearColumnX(100, 0, 100, obstacles, { towardTarget: 1 })).toBe(
+      clearColumnX(100, 0, 100, shuffled, { towardTarget: 1 }),
+    );
+  });
+});
+
+// -- clearBusColumns ----------------------------------------------------------
+
+function dropXOf(edges: Edge[], id: string): number | undefined {
+  return (edges.find((e) => e.id === id)?.data as { dropX?: number } | undefined)
+    ?.dropX;
+}
+function riseXOf(edges: Edge[], id: string): number | undefined {
+  return (edges.find((e) => e.id === id)?.data as { riseX?: number } | undefined)
+    ?.riseX;
+}
+
+describe("clearBusColumns", () => {
+  const r = mkRecipe("r", ["a"], ["b"]);
+  const far = 300 + (BUS_SPAN_THRESHOLD + 50); // 1170
+
+  it("leaves a bus with no foreign geometry untouched (own card/gutter exempt)", () => {
+    // A lone wide-forward bus: its drop sits a chamfer off its own source card and
+    // its rise sits inside its own target card / gutter. Both are exempt, so with
+    // no foreign obstacle in the way neither column is stamped.
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 0, r),
+    ];
+    const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]));
+    expect(dropXOf(out, "e0")).toBeUndefined();
+    expect(riseXOf(out, "e0")).toBeUndefined();
+  });
+
+  it("stamps a cleared riseX when the default rise column pierces a foreign card", () => {
+    // A foreign product sits below the target row, straddling the default rise
+    // column (tx - PORT_STUB - CHAMFER = 1138). The rise vertical climbs from the
+    // lane to the target port through it, so clearBusColumns moves the rise column
+    // off the foreign card.
+    const blockLeft = 1070;
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 0, r),
+      inputProductNode("block", "ore", blockLeft, 300, 148, 78),
+    ];
+    const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]));
+    const riseX = riseXOf(out, "e0");
+    expect(riseX).toBeDefined();
+    expect(riseX).not.toBe(1138);
+    // Cleared off the foreign card's raw x-extent [1070, 1218].
+    expect(riseX! < blockLeft || riseX! > blockLeft + 148).toBe(true);
+  });
+
+  it("stamps a cleared dropX when the default drop column pierces a foreign card", () => {
+    // A foreign product straddles the default drop column (sx + PORT_STUB +
+    // CHAMFER = 332) in an intermediate row, so the drop vertical is moved off it.
+    const blockLeft = 250;
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 0, r),
+      inputProductNode("block", "ore", blockLeft, 300, 148, 78),
+    ];
+    const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]));
+    const dropX = dropXOf(out, "e0");
+    expect(dropX).toBeDefined();
+    expect(dropX).not.toBe(332);
+    expect(dropX! < blockLeft || dropX! > blockLeft + 148).toBe(true);
+  });
+
+  it("leaves the narrow-forward hairpin member untouched", () => {
+    // Two input-product feeders sit adjacent (gap 52 < budget 64), so the bus path
+    // collapses to a midpoint hairpin with no distinct drop / rise column. Even
+    // with a foreign card nearby, clearBusColumns stamps nothing.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("agg", "ore", 0, 0),
+      inputProductNode("tap", "ore", 200, 0),
+      inputProductNode("block", "ore", 150, 300, 148, 78),
+    ];
+    const out = clearBusColumns(nodes, routeBusEdges(nodes, [mkEdge("e0", "agg", "tap", "ore")]));
+    expect(dropXOf(out, "e0")).toBeUndefined();
+    expect(riseXOf(out, "e0")).toBeUndefined();
+  });
+
+  it("is deterministic across two identical runs", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 0, r),
+      inputProductNode("block", "ore", 1070, 300, 148, 78),
+    ];
+    const routed = routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]);
+    expect(riseXOf(clearBusColumns(nodes, routed), "e0")).toBe(
+      riseXOf(clearBusColumns(nodes, routed), "e0"),
+    );
+  });
+});
+
+describe("clampBackwardRails column clamp", () => {
+  it("clamps the target-side vertical out of a foreign node's entry band", () => {
+    // Backward edge s -> t (source right, target left). A foreign node f sits one
+    // row below the target in the same column, so the left vertical (default
+    // tx - PORT_STUB = -24) climbs from the rail to the target port straight
+    // through f's padded card / gutter. clearColumnX moves it clear, stamping a
+    // railXLeft.
+    const nodes: RFAnyNode[] = [
+      productNode("t", 0, -30, 148, 60), // target, port center y = 0
+      productNode("s", 600, 370, 148, 60), // source, port center y = 400
+      productNode("f", 0, 100, 148, 60), // foreign, same column, row below target
+    ];
+    const edges = [mkEdge("e0", "s", "t", "w")];
+    const out = clampBackwardRails(nodes, edges);
+    const railXLeft = (out[0]!.data as { railXLeft?: number }).railXLeft;
+    expect(railXLeft).toBeDefined();
+    expect(railXLeft).not.toBe(-24);
+    // Cleared off the foreign card's raw left edge (f card left = 0 - 34 = -34).
+    expect(railXLeft! < -34).toBe(true);
   });
 });

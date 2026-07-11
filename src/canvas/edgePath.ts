@@ -57,10 +57,25 @@ export type ObstacleRect = {
 //           one stub before the port.
 //   railY:  backward-detour rail y (clampBackwardRails) clearing spanned cards.
 //           Absent -> midway between the endpoints.
+//   dropX:  obstacle-cleared bus drop column (clearBusColumns), the vertical run
+//           from the source down to the lane. Absent -> one stub+chamfer inside
+//           the source port.
+//   riseX:  obstacle-cleared bus rise column (clearBusColumns), the vertical run
+//           from the lane up to the target port. Overrides entryX when present.
+//           Absent -> entryX, or one stub+chamfer inside the target port.
+//   railXRight/railXLeft: obstacle-cleared backward-rail verticals
+//           (clampBackwardRails). railXRight is the source-side column, absent ->
+//           one stub out of the source port. railXLeft is the target-side column
+//           and overrides entryX when present, absent -> entryX, or one stub
+//           before the target port.
 export type RoutingHints = {
   bendX?: number;
   entryX?: number;
   railY?: number;
+  dropX?: number;
+  riseX?: number;
+  railXRight?: number;
+  railXLeft?: number;
 };
 
 // Pick the routing hints off an edge's `data`, omitting absent ones so each
@@ -68,12 +83,24 @@ export type RoutingHints = {
 // deconflictChipAnchors (see RoutingHints above).
 export function routingHintsFromData(data: unknown): RoutingHints {
   const d = data as
-    | { bendX?: unknown; entryX?: unknown; railY?: unknown }
+    | {
+        bendX?: unknown;
+        entryX?: unknown;
+        railY?: unknown;
+        dropX?: unknown;
+        riseX?: unknown;
+        railXRight?: unknown;
+        railXLeft?: unknown;
+      }
     | undefined;
   return {
     ...(typeof d?.bendX === "number" ? { bendX: d.bendX } : {}),
     ...(typeof d?.entryX === "number" ? { entryX: d.entryX } : {}),
     ...(typeof d?.railY === "number" ? { railY: d.railY } : {}),
+    ...(typeof d?.dropX === "number" ? { dropX: d.dropX } : {}),
+    ...(typeof d?.riseX === "number" ? { riseX: d.riseX } : {}),
+    ...(typeof d?.railXRight === "number" ? { railXRight: d.railXRight } : {}),
+    ...(typeof d?.railXLeft === "number" ? { railXLeft: d.railXLeft } : {}),
   };
 }
 
@@ -214,14 +241,18 @@ export function chamferStepPath(
   // source, down/up to a detour rail midway between the endpoints, left past the
   // target, then back to the target level and a final rightward stub in.
   if (gap <= 0) {
-    const xr = sx + PORT_STUB; // right vertical column, one stub out of source
+    // Right vertical column, one stub out of the source. clampBackwardRails may
+    // move it clear of a foreign card / gutter (railXRight); absent that hint it
+    // falls back to the plain stub column, byte-identical for direct callers.
+    const xr = args.railXRight ?? sx + PORT_STUB;
     // Left vertical column, the run that enters the target's Left port. The
     // entry-gutter pass (assignEntryColumns in busRouting) stakes this out as a
     // per-edge staggered column so two backward rails into one node never
-    // overlap; absent that hint it falls back to a single stub before the port,
-    // which keeps every direct (un-routed) caller and its pinned test byte for
-    // byte identical.
-    const xl = args.entryX ?? tx - PORT_STUB;
+    // overlap, and clampBackwardRails may then move it clear of a foreign card /
+    // gutter (railXLeft, which overrides the stagger). Absent both hints it falls
+    // back to a single stub before the port, which keeps every direct (un-routed)
+    // caller and its pinned test byte for byte identical.
+    const xl = args.railXLeft ?? args.entryX ?? tx - PORT_STUB;
     // Rail midway between the endpoints. When they share a y the midpoint would
     // sit on top of both stubs, so drop the rail below to keep it visible. A
     // threaded railY (from clampBackwardRails) overrides this to clear spanned
@@ -330,13 +361,18 @@ export function chamferBusPath(
   // lane run reverses (riseX < dropX) but the final stub into the target still
   // finishes rightward. laneDir flips the junction to the lane's leftward side.
   if (gap <= 0) {
-    const dropX = sx + PORT_STUB + CHAMFER;
+    // Drop column, the run that dives off the source into the lane.
+    // clearBusColumns may move it clear of a foreign card / gutter (dropX);
+    // absent that hint it falls back to one stub+chamfer inside the source port.
+    const dropX = args.dropX ?? sx + PORT_STUB + CHAMFER;
     // Rise column, the run that climbs the target's Left-port gutter off the
     // lane. The entry-gutter pass stakes it out as a per-edge staggered column
-    // (see assignEntryColumns) so two rises into one node never coincide; absent
-    // that hint it falls back to one stub+chamfer inside the port, keeping every
-    // direct caller and its pinned test byte for byte identical.
-    const riseX = args.entryX ?? tx - PORT_STUB - CHAMFER;
+    // (see assignEntryColumns) so two rises into one node never coincide, and
+    // clearBusColumns may then move it clear of a foreign card / gutter (riseX,
+    // which overrides the stagger). Absent both hints it falls back to one
+    // stub+chamfer inside the port, keeping every direct caller and its pinned
+    // test byte for byte identical.
+    const riseX = args.riseX ?? args.entryX ?? tx - PORT_STUB - CHAMFER;
     const laneDir = -1;
     const path =
       `M ${r(sx)},${r(sy)}` +
@@ -394,11 +430,16 @@ export function chamferBusPath(
   // below both endpoints (drop down, rise up); when targetY is at or below the
   // lane the rise simply chamfers the other way. chamferColumn derives each turn
   // direction from its own y0 -> y1.
-  const dropX = sx + PORT_STUB + CHAMFER;
-  // Rise column: the entry-gutter pass may stagger it (see assignEntryColumns);
-  // absent that hint it falls back to one stub+chamfer inside the target port,
-  // keeping direct callers and pinned tests byte for byte identical.
-  const riseX = args.entryX ?? tx - PORT_STUB - CHAMFER;
+  // Drop column: clearBusColumns may move it clear of a foreign card / gutter
+  // (dropX); absent that hint it falls back to one stub+chamfer inside the source
+  // port, keeping direct callers and pinned tests byte for byte identical.
+  const dropX = args.dropX ?? sx + PORT_STUB + CHAMFER;
+  // Rise column: the entry-gutter pass may stagger it (see assignEntryColumns)
+  // and clearBusColumns may then move it clear of a foreign card / gutter (riseX,
+  // which overrides the stagger); absent both hints it falls back to one
+  // stub+chamfer inside the target port, keeping direct callers and pinned tests
+  // byte for byte identical.
+  const riseX = args.riseX ?? args.entryX ?? tx - PORT_STUB - CHAMFER;
   const laneDir = 1;
   const path =
     `M ${r(sx)},${r(sy)}` +

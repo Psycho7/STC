@@ -45,6 +45,7 @@ import {
   assignBendColumns,
   assignEntryColumns,
   clampBackwardRails,
+  clearBusColumns,
   deconflictChipAnchors,
   routeBusEdges,
 } from "./busRouting";
@@ -884,9 +885,12 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   // Classify long / boundary-feeder edges into bus trunks after layout, so the
   // pass sees final absolute node positions when it measures spans and picks
   // each trunk's lane. Then stake out per-target entry columns in each node's
-  // gutter (backward rails and bus rises) so entering runs stay parallel, and
-  // stagger the bend columns of the remaining still-type:"item" edges so their
-  // vertical runs fan out instead of stacking (clamped clear of every gutter).
+  // gutter (backward rails and bus rises) so entering runs stay parallel; move
+  // bus drop / rise verticals clear of any foreign card / gutter they would
+  // pierce (clearBusColumns, after the entry stagger so the rise starts from its
+  // final column); and stagger the bend columns of the remaining still-type:
+  // "item" edges so their vertical runs fan out instead of stacking (clamped
+  // clear of every gutter). clampBackwardRails then clears the backward rails.
   return {
     nodes,
     edges: deconflictChipAnchors(
@@ -895,7 +899,10 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
         nodes,
         assignBendColumns(
           nodes,
-          assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+          clearBusColumns(
+            nodes,
+            assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+          ),
         ),
       ),
     ),

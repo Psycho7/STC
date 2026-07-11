@@ -9,6 +9,7 @@ import {
   chamferStepPath,
   chamferBusPath,
   pathMidpoint,
+  routingHintsFromData,
   PORT_STUB,
   CHAMFER,
 } from "../../src/canvas/edgePath";
@@ -164,6 +165,69 @@ describe("chamferStepPath", () => {
     expectRightwardFinish(d);
   });
 
+  it("routes a backward edge's verticals through explicit railXRight/railXLeft columns", () => {
+    // clampBackwardRails moves the two backward verticals clear of a foreign card
+    // or gutter. railXRight relocates the source-side column (default sx+PORT_STUB
+    // = 224) and railXLeft the target-side column (default tx-PORT_STUB = -24);
+    // both branches of chamferColumn keep their single-side entry/exit.
+    const [d, lx, ly] = chamferStepPath({
+      sourceX: 200,
+      sourceY: 0,
+      targetX: 0,
+      targetY: 100,
+      railXRight: 250,
+      railXLeft: -50,
+    });
+    expect(d).toBe(
+      "M 200,0 L 242,0 L 250,8 L 250,42 L 242,50 L -42,50 L -50,58 L -50,92 L -42,100 L 0,100",
+    );
+    expect(Number.isFinite(lx)).toBe(true);
+    expect(Number.isFinite(ly)).toBe(true);
+    expectRightwardFinish(d);
+  });
+
+  it("lets railXLeft override the entryX stagger on a backward edge", () => {
+    // When both hints are present the obstacle-cleared railXLeft wins, so the
+    // left column lands at -50, not the entryX stagger.
+    const [withBoth] = chamferStepPath({
+      sourceX: 200,
+      sourceY: 0,
+      targetX: 0,
+      targetY: 100,
+      entryX: -40,
+      railXLeft: -50,
+    });
+    const [onlyRail] = chamferStepPath({
+      sourceX: 200,
+      sourceY: 0,
+      targetX: 0,
+      targetY: 100,
+      railXLeft: -50,
+    });
+    expect(withBoth).toBe(onlyRail);
+  });
+
+  it("is byte-identical to the no-hints backward path when railX hints are absent", () => {
+    const [base] = chamferStepPath({
+      sourceX: 200,
+      sourceY: 0,
+      targetX: 0,
+      targetY: 100,
+    });
+    // Mirrors the render path: data carrying no railX hints spreads to nothing.
+    const [threaded] = chamferStepPath({
+      sourceX: 200,
+      sourceY: 0,
+      targetX: 0,
+      targetY: 100,
+      ...routingHintsFromData({ item: "w" }),
+    });
+    expect(threaded).toBe(base);
+    expect(base).toBe(
+      "M 200,0 L 216,0 L 224,8 L 224,42 L 216,50 L -16,50 L -24,58 L -24,92 L -16,100 L 0,100",
+    );
+  });
+
   it("does not backtrack on a backward edge with a small |dy| (< 4*CHAMFER)", () => {
     // |ty - sy| = 20 < 32 (= 4*CHAMFER): the detour rail sits within a chamfer
     // of the source level, so the old full-chamfer columns would invert into a
@@ -227,6 +291,75 @@ describe("chamferBusPath", () => {
     expect(riseX).toBe(250);
     expect(junction).toEqual({ x: 242, y: 200 });
     expectRightwardFinish(path);
+  });
+
+  it("drops through an explicit dropX column on a wide forward gap", () => {
+    // clearBusColumns moves the drop vertical clear of a foreign card. dropX = 50
+    // relocates the drop column left of the default (sx+PORT_STUB+CHAMFER = 32);
+    // the lane run, rise column, and final stub are otherwise unchanged.
+    const { path, dropX, riseX } = chamferBusPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 300,
+      targetY: 20,
+      laneY: 200,
+      dropX: 50,
+    });
+    expect(path).toBe(
+      "M 0,0 L 42,0 L 50,8 L 50,192 L 58,200 L 260,200 L 268,192 L 268,28 L 276,20 L 300,20",
+    );
+    expect(dropX).toBe(50);
+    expect(riseX).toBe(268);
+    expectRightwardFinish(path);
+  });
+
+  it("lets riseX override the entryX stagger on a wide forward gap", () => {
+    // riseX (obstacle-cleared) wins over entryX (stagger), so the rise column
+    // lands at 250 regardless of the entryX hint.
+    const { path: withBoth } = chamferBusPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 300,
+      targetY: 20,
+      laneY: 200,
+      entryX: 999,
+      riseX: 250,
+    });
+    const { path: onlyRise } = chamferBusPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 300,
+      targetY: 20,
+      laneY: 200,
+      riseX: 250,
+    });
+    expect(withBoth).toBe(onlyRise);
+    expect(withBoth).toBe(
+      "M 0,0 L 24,0 L 32,8 L 32,192 L 40,200 L 242,200 L 250,192 L 250,28 L 258,20 L 300,20",
+    );
+  });
+
+  it("is byte-identical to the no-hints bus path when drop/rise hints are absent", () => {
+    const base = chamferBusPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 300,
+      targetY: 20,
+      laneY: 200,
+    });
+    // Mirrors the render path: data carrying no drop/rise hints spreads to nothing.
+    const threaded = chamferBusPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 300,
+      targetY: 20,
+      laneY: 200,
+      ...routingHintsFromData({ item: "w" }),
+    });
+    expect(threaded.path).toBe(base.path);
+    expect(base.path).toBe(
+      "M 0,0 L 24,0 L 32,8 L 32,192 L 40,200 L 260,200 L 268,192 L 268,28 L 276,20 L 300,20",
+    );
   });
 
   it("stays sane when targetY is below the lane (laneY-missing fallback)", () => {
