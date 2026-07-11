@@ -50,6 +50,13 @@ function bendOf(edges: Edge[], id: string): number | undefined {
   return d?.bendX;
 }
 
+function budgetOf(edges: Edge[], id: string): number | undefined {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { chamferBudget?: number }
+    | undefined;
+  return d?.chamferBudget;
+}
+
 describe("assignBendColumns", () => {
   it("fans bend columns across the shared corridor for a same-source group", () => {
     // Source right edge at x = 0 + 300 = 300; targets at x = 500 (left edge),
@@ -75,6 +82,44 @@ describe("assignBendColumns", () => {
     const pitch = (200 - 2 * margin) / 3;
     expect(b0).toBeCloseTo(300 + margin + pitch, 6);
     expect(b1).toBeCloseTo(300 + margin + 2 * pitch, 6);
+  });
+
+  it("stamps a pitch-bounded, sibling-safe chamfer budget per bend", () => {
+    // Same corridor as the fan test: [300, 500], usable = 136, two members, so
+    // pitch = 136 / 3. Each bend carries budget = pitch / 2, the largest chamfer
+    // whose envelope [bend - budget, bend + budget] stays off its sibling's.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", 500, 0, r),
+      recipeNode("t2", 500, 200, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const out = assignBendColumns(nodes, edges);
+    const margin = PORT_STUB + CHAMFER;
+    const pitch = (200 - 2 * margin) / 3;
+    const g0 = budgetOf(out, "e0")!;
+    const g1 = budgetOf(out, "e1")!;
+    expect(g0).toBeCloseTo(pitch / 2, 6);
+    expect(g1).toBeCloseTo(pitch / 2, 6);
+    // Sibling-safe: the two bends' max-chamfer envelopes are disjoint (they abut
+    // at most), since the column gap equals the summed budgets.
+    const b0 = bendOf(out, "e0")!;
+    const b1 = bendOf(out, "e1")!;
+    expect(b1 - b0).toBeGreaterThanOrEqual(g0 + g1 - 1e-6);
+  });
+
+  it("stamps no chamfer budget when it stamps no bend", () => {
+    // A backward edge is skipped by the stagger, so it carries neither hint.
+    const r = mkRecipe("r", ["a"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("back", 0, 200, r),
+    ];
+    // s right edge 300 > back left 0 -> backward, skipped by the stagger.
+    const out = assignBendColumns(nodes, [mkEdge("bwd0", "s", "back", "b")]);
+    expect(bendOf(out, "bwd0")).toBeUndefined();
+    expect(budgetOf(out, "bwd0")).toBeUndefined();
   });
 
   it("is deterministic across shuffled input order", () => {

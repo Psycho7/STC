@@ -23,6 +23,12 @@ export const PORT_STUB = 24;
 // points: one CHAMFER back along the incoming edge and one CHAMFER forward along
 // the outgoing edge, so the join reads as a diagonal bevel.
 export const CHAMFER = 8;
+// Upper bound on an enlarged corner chamfer (P6 aesthetic). When a forward bend
+// carries a corridor budget (chamferBudget, stamped by assignBendColumns) its
+// two corner bevels grow from the base CHAMFER toward this cap for a PCB-style
+// long 45-degree cut, without dominating the run. The chamfer never exceeds this,
+// half the shorter adjacent leg, or the stamped budget (see chamferStepPath).
+export const MAX_CHAMFER = 24;
 
 // Round to two decimals so degraded/scaled geometry does not produce long
 // floating tails in the emitted `d` string (keeps pinned tests stable).
@@ -90,6 +96,13 @@ export type ObstacleRect = {
 //           shares this column: their trunk segments (source port out to the
 //           junction) overlap into one line, and each branches off it up / down
 //           to its own target. Absent -> the corridor midpoint (a plain step).
+//   chamferBudget: per-bend corridor room available for enlarging a forward
+//           step's corner bevels (assignBendColumns). Half the stagger pitch, so
+//           an edge's fattened chamfer never reaches a sibling column's vertical.
+//           Present -> the forward step's two corner chamfers grow from the base
+//           CHAMFER toward MAX_CHAMFER, capped by half the shorter adjacent leg
+//           and by this budget. Absent -> the base CHAMFER, byte-identical for
+//           direct callers.
 export type RoutingHints = {
   bendX?: number;
   legY?: number;
@@ -102,6 +115,7 @@ export type RoutingHints = {
   railXRight?: number;
   railXLeft?: number;
   junctionX?: number;
+  chamferBudget?: number;
 };
 
 // Pick the routing hints off an edge's `data`, omitting absent ones so each
@@ -121,6 +135,7 @@ export function routingHintsFromData(data: unknown): RoutingHints {
         railXRight?: unknown;
         railXLeft?: unknown;
         junctionX?: unknown;
+        chamferBudget?: unknown;
       }
     | undefined;
   return {
@@ -137,6 +152,9 @@ export function routingHintsFromData(data: unknown): RoutingHints {
     ...(typeof d?.railXRight === "number" ? { railXRight: d.railXRight } : {}),
     ...(typeof d?.railXLeft === "number" ? { railXLeft: d.railXLeft } : {}),
     ...(typeof d?.junctionX === "number" ? { junctionX: d.junctionX } : {}),
+    ...(typeof d?.chamferBudget === "number"
+      ? { chamferBudget: d.chamferBudget }
+      : {}),
   };
 }
 
@@ -399,9 +417,28 @@ export function chamferStepPath(
     // cleared the intervening card.
     return [jog, r(descentX), r((args.legY + ty) / 2)];
   }
+  // Enlarge the two corner bevels toward MAX_CHAMFER when the bend carries a
+  // corridor budget (P6 PCB-style long chamfers). Cap by half the shorter
+  // adjacent leg -- the source-side horizontal (bx - sx), the target-side
+  // horizontal (tx - bx), and the vertical run (|ty - sy|) -- so a bevel never
+  // overruns its own legs, and by the stamped budget so it never reaches a
+  // sibling column's vertical. Absent the budget the base chamfer stands and the
+  // path is byte-identical. The half-leg cap already shrinks in a narrow
+  // corridor, so it composes with the narrow-gap scaling above. The anchor rides
+  // the bend column at the run midpoint, which stays on the polyline for any
+  // chamfer (it is the mid of the vertical run, or of the collapsed diagonal when
+  // the cap reaches half the vertical leg).
+  const stepChamfer =
+    args.chamferBudget === undefined
+      ? chamfer
+      : Math.min(
+          MAX_CHAMFER,
+          Math.min(bx - sx, tx - bx, Math.abs(ty - sy)) / 2,
+          args.chamferBudget,
+        );
   const d =
     `M ${r(sx)},${r(sy)}` +
-    chamferColumn(bx, sy, ty, chamfer) +
+    chamferColumn(bx, sy, ty, stepChamfer) +
     ` L ${r(tx)},${r(ty)}`;
   // Clear-segment anchor: the bend-column vertical (bx) run midpoint. The old
   // geometric midpoint often landed on the target-side horizontal, which cuts

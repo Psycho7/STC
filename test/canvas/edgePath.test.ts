@@ -14,6 +14,7 @@ import {
   routingHintsFromData,
   PORT_STUB,
   CHAMFER,
+  MAX_CHAMFER,
 } from "../../src/canvas/edgePath";
 import { parsePoints, expectRightwardFinish } from "./pathAssertions";
 
@@ -346,6 +347,82 @@ describe("chamferStepPath", () => {
     expect(lx).toBe(40);
     expect(ly).toBe(50);
     expectRightwardFinish(d);
+  });
+
+  it("grows the forward chamfers toward MAX_CHAMFER when a budget allows", () => {
+    // Wide corridor, generous budget: shorter adjacent leg is 100 (all three
+    // legs), half = 50, so the cap binds at MAX_CHAMFER = 24. The corners
+    // fatten from the base 8 to 24 while the bend column (x = 100) is unmoved.
+    const [d, lx, ly] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      bendX: 100,
+      chamferBudget: 24,
+    });
+    expect(d).toBe("M 0,0 L 76,0 L 100,24 L 100,76 L 124,100 L 200,100");
+    // Anchor still on the bend-column vertical run midpoint.
+    expect(lx).toBe(100);
+    expect(ly).toBe(50);
+    expectRightwardFinish(d);
+    // Each bevel leg equals MAX_CHAMFER, not the base CHAMFER.
+    const pts = parsePoints(d);
+    expect(pts[1]!.x).toBe(100 - MAX_CHAMFER);
+  });
+
+  it("caps the chamfer at half the shorter adjacent leg", () => {
+    // Early bend (bendX = 40) makes the source-side horizontal leg (bx - sx = 40)
+    // the shortest of the three legs, so the cap is 40 / 2 = 20 -- below both
+    // MAX_CHAMFER (24) and the budget (24). The vertical run (100) stays, so the
+    // column keeps its bevels rather than collapsing.
+    const [d] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      bendX: 40,
+      chamferBudget: 24,
+    });
+    expect(d).toBe("M 0,0 L 20,0 L 40,20 L 40,80 L 60,100 L 200,100");
+    expectRightwardFinish(d);
+  });
+
+  it("never exceeds the stamped budget, even below the base chamfer", () => {
+    // A tight sibling budget (6) caps the chamfer under the base CHAMFER (8): a
+    // dense corridor legitimately draws SMALLER bevels so a bend never reaches
+    // its neighbour's column.
+    const [d] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      bendX: 100,
+      chamferBudget: 6,
+    });
+    expect(d).toBe("M 0,0 L 94,0 L 100,6 L 100,94 L 106,100 L 200,100");
+    expectRightwardFinish(d);
+  });
+
+  it("is byte-identical to the no-budget forward step when chamferBudget is absent", () => {
+    const [base] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      bendX: 100,
+    });
+    // Mirrors the render path: data carrying no chamferBudget spreads to nothing.
+    const [threaded] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      bendX: 100,
+      ...routingHintsFromData({ item: "w", bendX: 100 }),
+    });
+    expect(threaded).toBe(base);
+    expect(base).toBe("M 0,0 L 92,0 L 100,8 L 100,92 L 108,100 L 200,100");
   });
 
   it("uses srcColX UNCLAMPED, past the corridor margin", () => {

@@ -1154,6 +1154,14 @@ export function assignBendColumns(
   // next-column nodes sharing the band's rows, so no bend vertical lands inside a
   // foreign gutter. pitch = usable width / (n + 1) leaves symmetric end gaps.
   const bendById = new Map<string, number>();
+  // Per-edge corridor budget for enlarging its forward chamfers (Task 20). The
+  // columns sit `pitch` apart, so a chamfer of width c on one reaches c toward
+  // its neighbour; keeping both envelopes disjoint needs 2c <= pitch, i.e.
+  // c <= pitch/2. The symmetric end gaps are also one pitch, so pitch/2 keeps the
+  // outermost column's bevel off the corridor walls too. Hence budget = pitch/2:
+  // the largest chamfer that stays sibling- and wall-safe. chamferStepPath caps
+  // the drawn chamfer at min(MAX_CHAMFER, half the shorter leg, this budget).
+  const budgetById = new Map<string, number>();
   for (const list of groups.values()) {
     const groupLeft = Math.max(...list.map((c) => c.sourceRight));
     const nextColLeft = nodeLeftEdges.find((x) => x > groupLeft);
@@ -1175,15 +1183,20 @@ export function assignBendColumns(
       a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
     );
     const pitch = usable / (sorted.length + 1);
+    const budget = pitch / 2;
     sorted.forEach((c, i) => {
       bendById.set(c.id, groupLeft + leftMargin + pitch * (i + 1));
+      budgetById.set(c.id, budget);
     });
   }
 
   return edges.map((edge) => {
     const bendX = bendById.get(edge.id);
     if (bendX === undefined) return edge;
-    return { ...edge, data: { ...edge.data, bendX } };
+    return {
+      ...edge,
+      data: { ...edge.data, bendX, chamferBudget: budgetById.get(edge.id) },
+    };
   });
 }
 

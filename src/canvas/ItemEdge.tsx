@@ -35,6 +35,11 @@ export type ItemEdgeData = {
   // Bend column x assigned by the stagger pass (assignBendColumns). Optional:
   // when absent the path builder centers the bend at the corridor midpoint.
   bendX?: number;
+  // Per-bend corridor budget (half the stagger pitch) assigned alongside bendX by
+  // assignBendColumns. chamferStepPath grows the forward step's corner chamfers
+  // toward MAX_CHAMFER, capped by this budget so a fattened bevel never reaches a
+  // sibling column. Optional: when absent the base CHAMFER stands.
+  chamferBudget?: number;
   // Entry-gutter column x assigned by the stagger pass (assignEntryColumns).
   // Two consumers read it: chamferStepPath places a backward edge's left rail
   // here, and chamferBusPath (via BusEdge) places a bus member's rise column
