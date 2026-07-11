@@ -41,6 +41,23 @@ import type { RFAnyNode } from "./layout";
 // hardcoded 820. test/canvas/edgeSpans.ts re-exports this as SPAN_THRESHOLD.
 export const BUS_SPAN_THRESHOLD = 2 * (BETWEEN_LAYERS_SPACING + RECIPE_WIDTH);
 
+// A fan-out member reaches at most one layer over. One layer is a column gap
+// plus a recipe node, so a same-next-layer target's span (the empty gap) is at
+// most BETWEEN_LAYERS_SPACING + RECIPE_WIDTH: an adjacent-layer gap is just the
+// spacing, and a two-layers-over gap already exceeds this by a second spacing.
+// Strictly below BUS_SPAN_THRESHOLD (= 2x this), so the fan-out and long-span
+// bus classifications never both claim one edge. Derived from the layout
+// constants so it tracks any spacing change.
+export const FANOUT_SPAN_MAX = BETWEEN_LAYERS_SPACING + RECIPE_WIDTH;
+
+// Minimum gap for a fan-out member: the junction column needs a full stub plus a
+// chamfer of clearance on each side (the same budget the bus / forward-step
+// builders use) or chamferFanoutPath degenerates to a plain step with no
+// distinct junction -- no consolidation, and a junction pinned inside a sub-
+// budget gap crowds the neighbouring entry gutters. A same-layer pair packed
+// this close is left as plain item edges. Boundary case, deliberately excluded.
+export const FANOUT_SPAN_MIN = 2 * (PORT_STUB + CHAMFER);
+
 // Gap between the lowest node bottom and the first lane, then the vertical
 // pitch between successive lanes. LANE_SPACING is derived from the shared chip
 // pitch (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) so a rise chip sitting on one lane
@@ -83,6 +100,24 @@ export type BusEdgeData = {
   // deconflictChipAnchors to pick the chip-cascade direction. Absent on manually
   // built edges (they cascade downward, the bottom-band default).
   busBand?: "top" | "bottom";
+  // Fan-out trunk fields (routeFanoutEdges). A fan-out member is retyped
+  // `type: "bus"` -- so Canvas trunk adjacency and hover-dim pick it up exactly
+  // like a lane trunk -- but carries NO laneY: it does not ride a lane band, it
+  // consolidates N same-source-port edges onto one shared junction column in a
+  // single layer gap. `fanout` flags the variant so BusEdge draws the short
+  // in-corridor trunk (chamferFanoutPath) instead of the lane drop/rise, and so
+  // the downstream lane passes (clearBusColumns, the bus chip phases) skip it.
+  // `junctionX` is the shared column, deterministic via clearColumnX. The
+  // aggregate reuses busTotalRate / busMemberCount / busChipOwner. Its chip
+  // offsets are the four fanout* below, threaded by deconflictChipAnchors and
+  // added to the fan-out chip anchors by BusEdge (dx + dy because the aggregate
+  // slides along the horizontal trunk and a branch along its vertical leg).
+  fanout?: boolean;
+  junctionX?: number;
+  fanoutAggDx?: number;
+  fanoutAggDy?: number;
+  fanoutBranchDx?: number;
+  fanoutBranchDy?: number;
 };
 
 // Vertical extent of one lane band, normalized so y0 < y1. The bottom band runs
@@ -508,6 +543,136 @@ export function laneBands(edges: ReadonlyArray<Edge>): LaneBands {
   return { top: extent(topYs), bottom: extent(bottomYs) };
 }
 
+// routeFanoutEdges: synthesize a first-class fan-out trunk wherever N >= 2 edges
+// leave the SAME source port (same item, same source unit) into targets one
+// layer over. Runs AFTER routeBusEdges, on the still-"item" remainder (bus
+// members and demoted trunks are already retyped / bound, and none overlap a
+// fan-out by span). Each qualifying member is retyped `type: "bus"` and stamped
+// { fanout, junctionX, trunkKey, busTotalRate, busMemberCount, busChipOwner } --
+// reusing the trunk aggregation scaffolding -- but carries NO laneY, so the lane
+// passes (clearBusColumns, the bus drop/rise chip phases) skip it and BusEdge
+// draws the short in-corridor trunk. Members of a fan-out share one junction
+// column so their trunk segments overlap into one line and the junction
+// consolidates them (audit issue 6: the chip no longer hides the branch point).
+//
+// Classification bounds, all so a fan-out never captures an edge another pass
+// owns: still type "item" (not a bus member / demoted); forward with a positive
+// gap at most FANOUT_SPAN_MAX (one layer, strictly under BUS_SPAN_THRESHOLD);
+// not a bothInput feeder (those ride the bus to cross the whole graph); a
+// resolvable item. Grouping is unconditional at N >= 2 sharing a source port --
+// the junction is the point of the formation. Non-members pass through by
+// reference. Pure and deterministic: grouping, owner election (lex-smallest edge
+// id), and junction columns depend only on geometry and edge ids, never order.
+export function routeFanoutEdges(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): Edge[] {
+  const byId = new Map<string, RFAnyNode>();
+  for (const node of nodes) byId.set(node.id, node);
+
+  // Bucket qualifying members by (item, source-port) == trunkKey. A recipe
+  // out-port carries exactly one item, so item + source id identifies the port.
+  const memberIndicesByTrunk = new Map<string, number[]>();
+  const trunkKeyByEdgeIndex = new Map<number, string>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "item") return;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) return;
+    const item = edgeItem(edge);
+    if (item === undefined) return;
+    if (isInputProduct(source) && isInputProduct(target)) return; // bothInput
+    const gap = nodeGap(source, target, byId);
+    if (gap <= FANOUT_SPAN_MIN || gap > FANOUT_SPAN_MAX) return;
+    const trunkKey = item + "|" + edge.source;
+    trunkKeyByEdgeIndex.set(index, trunkKey);
+    const list = memberIndicesByTrunk.get(trunkKey) ?? [];
+    list.push(index);
+    memberIndicesByTrunk.set(trunkKey, list);
+  });
+
+  // Keep only trunks that actually fan out (N >= 2).
+  const fanoutTrunks = [...memberIndicesByTrunk].filter(
+    ([, indices]) => indices.length >= 2,
+  );
+  if (fanoutTrunks.length === 0) return edges.map((e) => e);
+
+  const obstacles = paddedObstacles(nodes, edges);
+
+  // Per-trunk aggregate + shared junction column.
+  const totalByTrunk = new Map<string, Fraction>();
+  const countByTrunk = new Map<string, number>();
+  const ownerByTrunk = new Map<string, string>();
+  const junctionXByTrunk = new Map<string, number>();
+  const memberTrunk = new Set<number>();
+  for (const [trunkKey, indices] of fanoutTrunks) {
+    let total = new Fraction(0);
+    let owner: string | undefined;
+    let sy = 0;
+    let sx = 0;
+    let corridorRight = Infinity;
+    let yLo = Infinity;
+    let yHi = -Infinity;
+    const exempt = new Set<string>();
+    // Source is shared across members; resolve its port geometry once.
+    const source = byId.get(edges[indices[0]!]!.source)!;
+    const item = edgeItem(edges[indices[0]!]!);
+    sx = absoluteLeft(source, byId) + nodeWidth(source);
+    sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
+    exempt.add(source.id);
+    if (source.parentId !== undefined) exempt.add(source.parentId);
+    yLo = Math.min(yLo, sy);
+    yHi = Math.max(yHi, sy);
+    for (const index of indices) {
+      memberTrunk.add(index);
+      const edge = edges[index]!;
+      total = total.add(edgeRate(edge) ?? new Fraction(0));
+      if (owner === undefined || edge.id < owner) owner = edge.id;
+      const target = byId.get(edge.target)!;
+      const tx = absoluteLeft(target, byId);
+      const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+      corridorRight = Math.min(corridorRight, tx);
+      yLo = Math.min(yLo, ty);
+      yHi = Math.max(yHi, ty);
+      exempt.add(target.id);
+      if (target.parentId !== undefined) exempt.add(target.parentId);
+    }
+    totalByTrunk.set(trunkKey, total);
+    countByTrunk.set(trunkKey, indices.length);
+    ownerByTrunk.set(trunkKey, owner!);
+    // Junction column: nearest obstacle-free column to the corridor midpoint,
+    // spanning the members' full vertical extent, ties toward the targets. Own
+    // source / targets (and their containers) are exempt.
+    const desired = (sx + corridorRight) / 2;
+    const junctionX = clearColumnX(
+      desired,
+      yLo,
+      yHi,
+      obstacles.filter((o) => !exempt.has(o.nodeId)),
+      { towardTarget: 1 },
+    );
+    junctionXByTrunk.set(trunkKey, junctionX);
+  }
+
+  return edges.map((edge, index) => {
+    if (!memberTrunk.has(index)) return edge;
+    const trunkKey = trunkKeyByEdgeIndex.get(index)!;
+    return {
+      ...edge,
+      type: "bus",
+      data: {
+        ...edge.data,
+        fanout: true,
+        trunkKey,
+        junctionX: junctionXByTrunk.get(trunkKey)!,
+        busTotalRate: totalByTrunk.get(trunkKey)!,
+        busMemberCount: countByTrunk.get(trunkKey)!,
+        busChipOwner: edge.id === ownerByTrunk.get(trunkKey),
+      },
+    };
+  });
+}
+
 // Would a long forward edge's DIRECT (plain item-edge) corridor draw clear of
 // foreign cards? The item edge routes its final leg at the target-port y from
 // the bend column across to the target; on a long span that leg can slice an
@@ -698,6 +863,12 @@ function occupiesGutterColumn(
 ): boolean {
   const gap = nodeGap(source, target, byId);
   if (edge.type === "bus") {
+    // A fan-out member approaches its target horizontally off the shared
+    // junction column (mid-corridor), never up the target's entry gutter, so it
+    // stakes no gutter column and does not widen the band.
+    if ((edge.data as { fanout?: unknown } | undefined)?.fanout === true) {
+      return false;
+    }
     const budget = 2 * (PORT_STUB + CHAMFER);
     return gap <= 0 || gap >= budget; // narrow-forward hairpin claims no column
   }

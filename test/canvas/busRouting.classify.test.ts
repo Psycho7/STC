@@ -9,6 +9,7 @@ import type { Edge } from "@xyflow/react";
 
 import {
   routeBusEdges,
+  routeFanoutEdges,
   laneBands,
   assignBendColumns,
   assignEntryColumns,
@@ -20,6 +21,8 @@ import {
   gutterWidth,
   paddedObstacles,
   BUS_SPAN_THRESHOLD,
+  FANOUT_SPAN_MAX,
+  FANOUT_SPAN_MIN,
   LANE_TOP_OFFSET,
   LANE_SPACING,
 } from "../../src/canvas/busRouting";
@@ -541,6 +544,266 @@ describe("routeBusEdges single-member demotion (9C)", () => {
     expect(e.data).not.toHaveProperty("busChipX");
     // Got bend-column staggering as a plain forward item edge.
     expect(e.data).toHaveProperty("bendX");
+  });
+});
+
+describe("routeFanoutEdges (6C)", () => {
+  const r = mkRecipe("r", ["a"], ["b"]);
+  // One layer over: gap = 410 - 300 = 110, inside FANOUT_SPAN_MAX (410).
+  const oneGap = 410;
+
+  const fanData = (edges: Edge[], id: string) =>
+    edges.find((e) => e.id === id)!.data as {
+      fanout?: boolean;
+      trunkKey?: string;
+      junctionX?: number;
+      laneY?: number;
+      busTotalRate?: Fraction;
+      busMemberCount?: number;
+      busChipOwner?: boolean;
+    };
+
+  it("groups two same-source-port one-gap edges into a fan-out trunk", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", oneGap, 0, r),
+      recipeNode("t2", oneGap, 300, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+
+    const out = routeFanoutEdges(nodes, edges);
+
+    for (const id of ["e0", "e1"]) {
+      const e = out.find((x) => x.id === id)!;
+      expect(e.type).toBe("bus");
+      const d = fanData(out, id);
+      expect(d.fanout).toBe(true);
+      expect(d.trunkKey).toBe("b|s");
+      // Off-lane: a fan-out never rides a lane band.
+      expect(e.data).not.toHaveProperty("laneY");
+      // Junction column stamped, inside the corridor.
+      expect(typeof d.junctionX).toBe("number");
+      expect(d.junctionX!).toBeGreaterThan(300); // right of source
+      expect(d.junctionX!).toBeLessThan(oneGap); // left of targets
+    }
+    // Aggregate = summed member rates (1 + 1), count 2, exactly one owner.
+    const owners = out.filter((e) => fanData(out, e.id).busChipOwner);
+    expect(owners).toHaveLength(1);
+    expect(owners[0]!.id).toBe("e0"); // lex-smallest edge id
+    const agg = fanData(out, "e0");
+    expect(agg.busTotalRate!.equals(new Fraction(2))).toBe(true);
+    expect(agg.busMemberCount).toBe(2);
+    // Both members share ONE junction column.
+    expect(fanData(out, "e0").junctionX).toBe(fanData(out, "e1").junctionX);
+  });
+
+  it("forms an N=3 fan-out where every member reaches its own target", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", oneGap, 0, r),
+      recipeNode("t2", oneGap, 300, r),
+      recipeNode("t3", oneGap, 600, r),
+    ];
+    const edges = [
+      mkEdge("e0", "s", "t1", "b"),
+      mkEdge("e1", "s", "t2", "b"),
+      mkEdge("e2", "s", "t3", "b"),
+    ];
+
+    const out = routeFanoutEdges(nodes, edges);
+    for (const id of ["e0", "e1", "e2"]) {
+      expect(out.find((e) => e.id === id)!.type).toBe("bus");
+      expect(fanData(out, id).fanout).toBe(true);
+    }
+    expect(fanData(out, "e0").busMemberCount).toBe(3);
+    expect(fanData(out, "e0").busTotalRate!.equals(new Fraction(3))).toBe(true);
+    // One shared junction across all three branches.
+    const jx = new Set(["e0", "e1", "e2"].map((id) => fanData(out, id).junctionX));
+    expect(jx.size).toBe(1);
+  });
+
+  it("does NOT fan out a lone within-gap member (N=1)", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", oneGap, 0, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b")];
+    const out = routeFanoutEdges(nodes, edges);
+    expect(out[0]!.type).toBe("item");
+    expect(out[0]).toBe(edges[0]); // untouched by reference
+  });
+
+  it("does NOT fan out different items, different ports, or different sources", () => {
+    const rMulti = mkRecipe("rMulti", ["a"], ["b", "c"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, rMulti),
+      recipeNode("s2", 0, 900, r),
+      recipeNode("t1", oneGap, 0, r),
+      recipeNode("t2", oneGap, 300, r),
+      recipeNode("t3", oneGap, 900, r),
+    ];
+    const edges = [
+      mkEdge("e0", "s", "t1", "b"), // item b from s
+      mkEdge("e1", "s", "t2", "c"), // item c from s -> different port
+      mkEdge("e2", "s2", "t3", "b"), // item b from a different source
+    ];
+    const out = routeFanoutEdges(nodes, edges);
+    for (const id of ["e0", "e1", "e2"]) {
+      expect(out.find((e) => e.id === id)!.type).toBe("item");
+    }
+  });
+
+  it("does NOT fan out a two-layer (multi-gap) pair", () => {
+    // gap = 820 - 300 = 520 > FANOUT_SPAN_MAX (410): two layers over.
+    const twoGap = 820;
+    expect(twoGap - 300).toBeGreaterThan(FANOUT_SPAN_MAX);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", twoGap, 0, r),
+      recipeNode("t2", twoGap, 300, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const out = routeFanoutEdges(nodes, edges);
+    expect(out[0]!.type).toBe("item");
+    expect(out[1]!.type).toBe("item");
+  });
+
+  it("does NOT fan out a sub-budget (too-tight) gap", () => {
+    // gap = 360 - 300 = 60 <= FANOUT_SPAN_MIN: no room for a distinct junction
+    // column, so the pair stays plain item edges (boundary case).
+    const tight = 360;
+    expect(tight - 300).toBeLessThanOrEqual(FANOUT_SPAN_MIN);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", tight, 0, r),
+      recipeNode("t2", tight, 300, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const out = routeFanoutEdges(nodes, edges);
+    expect(out[0]!.type).toBe("item");
+    expect(out[1]!.type).toBe("item");
+  });
+
+  it("does NOT fan out backward edges", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", oneGap, 0, r), // source right of the targets
+      recipeNode("t1", 0, 0, r),
+      recipeNode("t2", 0, 300, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const out = routeFanoutEdges(nodes, edges);
+    expect(out[0]!.type).toBe("item");
+    expect(out[1]!.type).toBe("item");
+  });
+
+  it("does NOT fan out bothInput feeders", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("agg", "ore", 0, 0),
+      inputProductNode("t1", "ore", 200, 0),
+      inputProductNode("t2", "ore", 200, 200),
+    ];
+    const edges = [
+      mkEdge("e0", "agg", "t1", "ore"),
+      mkEdge("e1", "agg", "t2", "ore"),
+    ];
+    const out = routeFanoutEdges(nodes, edges);
+    expect(out[0]!.type).toBe("item");
+    expect(out[1]!.type).toBe("item");
+  });
+
+  it("does NOT double-capture long-span bus members", () => {
+    // A two-member long-span trunk is already a lane bus after routeBusEdges;
+    // routeFanoutEdges (running on that output) must leave them on the lane, not
+    // reclassify them as a fan-out.
+    const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", far, 0, r),
+      recipeNode("t2", far, 400, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+
+    const out = routeFanoutEdges(nodes, routeBusEdges(nodes, edges));
+    for (const id of ["e0", "e1"]) {
+      const d = fanData(out, id);
+      expect(out.find((e) => e.id === id)!.type).toBe("bus");
+      expect(d.fanout).not.toBe(true); // lane member, not fan-out
+      expect(typeof d.laneY).toBe("number");
+    }
+  });
+
+  it("assigns fan-out fields deterministically across shuffled input", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", oneGap, 0, r),
+      recipeNode("t2", oneGap, 300, r),
+      recipeNode("t3", oneGap, 600, r),
+    ];
+    const edges = [
+      mkEdge("e0", "s", "t1", "b"),
+      mkEdge("e1", "s", "t2", "b"),
+      mkEdge("e2", "s", "t3", "b"),
+    ];
+    const project = (out: Edge[]) =>
+      [...out]
+        .sort((a, b) => (a.id < b.id ? -1 : 1))
+        .map((e) => {
+          const d = e.data as {
+            fanout?: boolean;
+            trunkKey?: string;
+            junctionX?: number;
+            busChipOwner?: boolean;
+          };
+          return {
+            id: e.id,
+            type: e.type,
+            fanout: d.fanout,
+            trunkKey: d.trunkKey,
+            junctionX: d.junctionX,
+            owner: d.busChipOwner,
+          };
+        });
+    const a = routeFanoutEdges(nodes, edges);
+    const b = routeFanoutEdges([...nodes].reverse(), [
+      edges[2]!,
+      edges[0]!,
+      edges[1]!,
+    ]);
+    expect(project(a)).toEqual(project(b));
+  });
+
+  it("routes a fan-out member through the whole pipeline as an off-lane bus edge", () => {
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", oneGap, 0, r),
+      recipeNode("t2", oneGap, 300, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const out = deconflictChipAnchors(
+      nodes,
+      clampBackwardRails(
+        nodes,
+        jogForwardLegs(
+          nodes,
+          assignBendColumns(
+            nodes,
+            clearBusColumns(
+              nodes,
+              assignEntryColumns(
+                nodes,
+                routeFanoutEdges(nodes, routeBusEdges(nodes, edges)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    for (const id of ["e0", "e1"]) {
+      const e = out.find((x) => x.id === id)!;
+      expect(e.type).toBe("bus");
+      expect((e.data as { fanout?: boolean }).fanout).toBe(true);
+      expect(e.data).not.toHaveProperty("laneY");
+    }
   });
 });
 

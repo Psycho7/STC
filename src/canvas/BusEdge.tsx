@@ -7,7 +7,11 @@ import {
   type ItemEdgeData,
 } from "./ItemEdge";
 import type { BusEdgeData } from "./busRouting";
-import { chamferBusPath, routingHintsFromData } from "./edgePath";
+import {
+  chamferBusPath,
+  chamferFanoutPath,
+  routingHintsFromData,
+} from "./edgePath";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
@@ -42,14 +46,43 @@ export default function BusEdge({
   // a sane orthogonal drop-and-rise (the rise vertical vanishes) rather than
   // throwing.
   const laneY = edgeData?.laneY ?? targetY;
-  const { path, dropX, riseX, junction } = chamferBusPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    laneY,
-    ...routingHintsFromData(edgeData),
-  });
+  const isFanout = edgeData?.fanout === true;
+  // Fan-out members draw the short in-corridor trunk (source port -> shared
+  // junction column -> branch to the target); lane members drop into the shared
+  // band and rise at their column. Both expose one aggregate chip anchor (the
+  // trunk / drop) and one per-member chip anchor (the branch / rise), so the chip
+  // markup below is shared.
+  const fan = isFanout
+    ? chamferFanoutPath({
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+        ...routingHintsFromData(edgeData),
+      })
+    : null;
+  const bus = isFanout
+    ? null
+    : chamferBusPath({
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+        laneY,
+        ...routingHintsFromData(edgeData),
+      });
+  const path = fan?.path ?? bus!.path;
+  const junction = fan?.junction ?? bus!.junction;
+  const dropX = bus?.dropX ?? 0;
+  const riseX = bus?.riseX ?? 0;
+  // Aggregate chip anchor: the fan-out trunk-segment midpoint, or the lane drop
+  // column. Per-member chip anchor: the fan-out branch-leg midpoint, or the lane
+  // rise slot. Each carries its own de-confliction offset.
+  const aggX =
+    (fan ? fan.trunkAnchor.x : dropX) + (edgeData?.fanoutAggDx ?? 0);
+  const aggY =
+    (fan ? fan.trunkAnchor.y : laneY) +
+    (fan ? (edgeData?.fanoutAggDy ?? 0) : (edgeData?.busDropDy ?? 0));
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
   // Zoom-compensated base width published as --edge-base-width, matching
@@ -102,6 +135,14 @@ export default function BusEdge({
       ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(edgeData.rate)}${unit}`
       : "";
   const riseChipX = edgeData?.busChipX ?? riseX;
+  // Per-member chip anchor: fan-out branch-leg midpoint (plus its offset), or the
+  // lane rise slot at laneY.
+  const branchX =
+    (fan ? fan.branchAnchor.x : riseChipX) +
+    (fan ? (edgeData?.fanoutBranchDx ?? 0) : 0);
+  const branchY =
+    (fan ? fan.branchAnchor.y : laneY) +
+    (fan ? (edgeData?.fanoutBranchDy ?? 0) : (edgeData?.busChipDy ?? 0));
 
   // One chip at the drop point (where the flow enters the trunk) and one at the
   // rise point (where it leaves toward the target). Both sit on the lane.
@@ -145,24 +186,10 @@ export default function BusEdge({
         fill={kindStyle.stroke}
       />
       {isOwner && dropText
-        ? renderChip(
-            "drop",
-            dropX,
-            laneY + (edgeData?.busDropDy ?? 0),
-            dropText,
-            dropLabel,
-            dropTitle,
-          )
+        ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
         : null}
       {riseText
-        ? renderChip(
-            "rise",
-            riseChipX,
-            laneY + (edgeData?.busChipDy ?? 0),
-            riseText,
-            riseLabel,
-            riseTitle,
-          )
+        ? renderChip("rise", branchX, branchY, riseText, riseLabel, riseTitle)
         : null}
     </>
   );

@@ -85,6 +85,11 @@ export type ObstacleRect = {
 //           one stub out of the source port. railXLeft is the target-side column
 //           and overrides entryX when present, absent -> entryX, or one stub
 //           before the target port.
+//   junctionX: shared junction column for a fan-out trunk member
+//           (routeFanoutEdges). Every member of one (item, source) fan-out
+//           shares this column: their trunk segments (source port out to the
+//           junction) overlap into one line, and each branches off it up / down
+//           to its own target. Absent -> the corridor midpoint (a plain step).
 export type RoutingHints = {
   bendX?: number;
   legY?: number;
@@ -96,6 +101,7 @@ export type RoutingHints = {
   riseX?: number;
   railXRight?: number;
   railXLeft?: number;
+  junctionX?: number;
 };
 
 // Pick the routing hints off an edge's `data`, omitting absent ones so each
@@ -114,6 +120,7 @@ export function routingHintsFromData(data: unknown): RoutingHints {
         riseX?: unknown;
         railXRight?: unknown;
         railXLeft?: unknown;
+        junctionX?: unknown;
       }
     | undefined;
   return {
@@ -129,6 +136,7 @@ export function routingHintsFromData(data: unknown): RoutingHints {
     ...(typeof d?.riseX === "number" ? { riseX: d.riseX } : {}),
     ...(typeof d?.railXRight === "number" ? { railXRight: d.railXRight } : {}),
     ...(typeof d?.railXLeft === "number" ? { railXLeft: d.railXLeft } : {}),
+    ...(typeof d?.junctionX === "number" ? { junctionX: d.junctionX } : {}),
   };
 }
 
@@ -527,4 +535,86 @@ export function chamferBusPath(
     riseX: r(riseX),
     junction: { x: r(riseX - laneDir * CHAMFER), y: r(laneY) },
   };
+}
+
+// chamferFanoutPath: one member of a fan-out trunk (routeFanoutEdges). N members
+// share a source PORT (same item, same source unit) and fan out to N targets one
+// layer over. Every member is drawn with the SAME junction column, so their
+// shared trunk segment -- the horizontal from the source port out to the junction
+// -- overlaps into one line and the trunk visually draws once (exactly as a bus
+// lane draws once from its members' overlapping lane runs). Each member then
+// branches off the junction, up or down its own column to its target port, and
+// finishes with the rightward stub into the Left handle.
+//
+// This is a plain forward step whose bend column is pinned to the shared
+// junction (never staggered), returning the geometry the render / seating layers
+// need: the junction point (trunk meets branches, where the dot draws), the
+// trunk-segment anchor (where the owner's aggregate chip seats), and the branch-
+// leg anchor (where this member's own share chip seats). Same degenerate guards
+// as chamferStepPath's forward branch: a shared-y member draws a straight trunk
+// with no branch vertical, a small-dy member a single diagonal. Pure.
+//
+// New routing hint? Thread it through RoutingHints (and routingHintsFromData) so
+// render and deconflictChipAnchors stay in lockstep.
+export function chamferFanoutPath(
+  args: {
+    sourceX: number;
+    sourceY: number;
+    targetX: number;
+    targetY: number;
+  } & RoutingHints,
+): {
+  path: string;
+  junction: { x: number; y: number };
+  trunkAnchor: { x: number; y: number };
+  branchAnchor: { x: number; y: number };
+} {
+  const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = args;
+  // Junction column: the classifier's shared column, clamped into the corridor
+  // (one stub + chamfer inside each port) so both the trunk segment and the
+  // branch leg stay well formed. When the corridor is too tight to host a
+  // distinct column, fall back to the midpoint (a plain step).
+  const lo = sx + PORT_STUB + CHAMFER;
+  const hi = tx - PORT_STUB - CHAMFER;
+  const mid = (sx + tx) / 2;
+  const desired = args.junctionX ?? mid;
+  const jx = lo < hi ? clamp(desired, lo, hi) : mid;
+  const junction = { x: r(jx), y: r(sy) };
+  // Aggregate chip rides the shared trunk horizontal (source port -> junction);
+  // its midpoint sits left of the junction's incoming chamfer by construction
+  // (jx is at least a stub+chamfer right of the source).
+  const trunkAnchor = { x: r((sx + jx) / 2), y: r(sy) };
+
+  // Shared-y member: a straight trunk with no branch vertical. The branch chip
+  // has no vertical to ride, so it falls back to the trunk midpoint.
+  if (sy === ty) {
+    const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
+    return {
+      path: d,
+      junction,
+      trunkAnchor,
+      branchAnchor: { x: r(mid), y: r(sy) },
+    };
+  }
+
+  const branchAnchor = { x: r(jx), y: r((sy + ty) / 2) };
+
+  // Small dy: a vertical run plus two chamfers will not fit, so join the two
+  // horizontals with a single diagonal at the junction column.
+  if (Math.abs(ty - sy) <= 2 * CHAMFER) {
+    const d =
+      `M ${r(sx)},${r(sy)}` +
+      ` L ${r(jx - CHAMFER)},${r(sy)}` +
+      ` L ${r(jx + CHAMFER)},${r(ty)}` +
+      ` L ${r(tx)},${r(ty)}`;
+    return { path: d, junction, trunkAnchor, branchAnchor };
+  }
+
+  // Normal branch: trunk horizontal, chamfer, branch vertical, chamfer, final
+  // rightward stub into the target.
+  const d =
+    `M ${r(sx)},${r(sy)}` +
+    chamferColumn(jx, sy, ty, CHAMFER) +
+    ` L ${r(tx)},${r(ty)}`;
+  return { path: d, junction, trunkAnchor, branchAnchor };
 }

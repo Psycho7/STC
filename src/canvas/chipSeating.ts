@@ -40,6 +40,7 @@ import {
 } from "./dimensions";
 import {
   chamferBusPath,
+  chamferFanoutPath,
   chamferStepPath,
   routingHintsFromData,
 } from "./edgePath";
@@ -549,6 +550,16 @@ export function deconflictChipAnchors(
     ly: number;
   };
   const itemGeomByIndex = new Map<number, ItemGeom>();
+  // Fan-out members cache their reconstructed geometry (points + the two chip
+  // anchors) so the fan-out seating phase below neither rebuilds the path nor
+  // re-parses the `d` -- the lockstep mirror of itemGeomByIndex for rate chips.
+  type FanoutGeom = {
+    pts: ReadonlyArray<readonly [number, number]>;
+    trunkAnchor: { x: number; y: number };
+    branchAnchor: { x: number; y: number };
+    owner: boolean;
+  };
+  const fanoutGeomByIndex = new Map<number, FanoutGeom>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item" && edge.type !== "bus") return;
     const source = byId.get(edge.source);
@@ -560,7 +571,24 @@ export function deconflictChipAnchors(
     const tx = absoluteLeft(target, byId);
     const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
     let d: string;
-    if (edge.type === "bus") {
+    if (edge.type === "bus" && (edge.data as BusEdgeData | undefined)?.fanout) {
+      const fan = chamferFanoutPath({
+        sourceX: sx,
+        sourceY: sy,
+        targetX: tx,
+        targetY: ty,
+        ...routingHintsFromData(edge.data),
+      });
+      d = fan.path;
+      fanoutGeomByIndex.set(index, {
+        pts: [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
+          (m) => [Number(m[1]), Number(m[2])] as const,
+        ),
+        trunkAnchor: fan.trunkAnchor,
+        branchAnchor: fan.branchAnchor,
+        owner: (edge.data as BusEdgeData | undefined)?.busChipOwner === true,
+      });
+    } else if (edge.type === "bus") {
       const laneY = (edge.data as BusEdgeData | undefined)?.laneY ?? ty;
       d = chamferBusPath({
         sourceX: sx,
@@ -754,7 +782,11 @@ export function deconflictChipAnchors(
   const busSlots: BusSlot[] = [];
   const busEdges = edges
     .map((edge, index) => ({ edge, index }))
-    .filter((e) => e.edge.type === "bus")
+    .filter(
+      (e) =>
+        e.edge.type === "bus" &&
+        (e.edge.data as BusEdgeData | undefined)?.fanout !== true,
+    )
     .sort((a, b) =>
       a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0,
     );
@@ -821,6 +853,70 @@ export function deconflictChipAnchors(
     if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
   }
 
+  // Phase 3b -- fan-out trunk chips: each fan-out trunk draws one aggregate chip
+  // on its owner (the summed rate + xN, seated on the shared trunk segment) and
+  // one branch chip per member (that member's share, seated on its branch leg).
+  // They seat here -- after the lane bus chips (structurally pinned to their
+  // lanes) and before the free item rate chips -- through seatRateChip's
+  // three-tier seat, so both slide along their own drawn polyline before nudging
+  // off it. Aggregates settle before branches (the trunk's one truth first,
+  // mirroring drop-before-rise). The aggregate has no single consumer gutter, so
+  // it passes a degenerate zero-area entry band (no arrival-cluster exemption --
+  // it clears every foreign line); a branch uses its own target's entry band.
+  const fanoutAggDxByIndex = new Map<number, number>();
+  const fanoutAggDyByIndex = new Map<number, number>();
+  const fanoutBranchDxByIndex = new Map<number, number>();
+  const fanoutBranchDyByIndex = new Map<number, number>();
+  const ZERO_BAND: EntryBand = { left: 0, right: 0, top: 0, bottom: 0 };
+  const fanoutEdges = edges
+    .map((edge, index) => ({ edge, index }))
+    .filter((e) => fanoutGeomByIndex.has(e.index))
+    .sort((a, b) =>
+      a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0,
+    );
+  const entryBandOf = (edge: Edge): EntryBand => {
+    const target = byId.get(edge.target)!;
+    const tx = absoluteLeft(target, byId);
+    const targetTop = absoluteTop(target, byId);
+    return {
+      left: tx - OBSTACLE_PAD_LEFT,
+      right: tx,
+      top: targetTop - OBSTACLE_PAD_Y,
+      bottom: targetTop + nodeHeight(target) + OBSTACLE_PAD_Y,
+    };
+  };
+  for (const { edge, index } of fanoutEdges) {
+    const geom = fanoutGeomByIndex.get(index)!;
+    if (!geom.owner) continue;
+    const seat = seatRateChip(
+      field,
+      { pts: geom.pts, anchorX: geom.trunkAnchor.x, anchorY: geom.trunkAnchor.y },
+      flowKeyOf(edge),
+      edge.target,
+      cardExemptFor(edge),
+      ZERO_BAND,
+    );
+    if (seat.dx !== 0) fanoutAggDxByIndex.set(index, seat.dx);
+    if (seat.dy !== 0) fanoutAggDyByIndex.set(index, seat.dy);
+  }
+  for (const { edge, index } of fanoutEdges) {
+    const geom = fanoutGeomByIndex.get(index)!;
+    const seat = seatRateChip(
+      field,
+      {
+        pts: geom.pts,
+        anchorX: geom.branchAnchor.x,
+        anchorY: geom.branchAnchor.y,
+      },
+      flowKeyOf(edge),
+      edge.target,
+      cardExemptFor(edge),
+      entryBandOf(edge),
+    );
+    if (seat.dx !== 0) fanoutBranchDxByIndex.set(index, seat.dx);
+    if (seat.dy !== 0) fanoutBranchDyByIndex.set(index, seat.dy);
+  }
+
   // Phase 4 -- item rate chips: each item edge's clear-segment anchor (cached
   // from the reconstruction above, exactly where ItemEdge renders it) goes
   // through seatRateChip's three-tier seat: slide along the own polyline,
@@ -875,7 +971,11 @@ export function deconflictChipAnchors(
     labelDxByIndex.size === 0 &&
     entryDyByIndex.size === 0 &&
     busDropDyByIndex.size === 0 &&
-    busChipDyByIndex.size === 0
+    busChipDyByIndex.size === 0 &&
+    fanoutAggDxByIndex.size === 0 &&
+    fanoutAggDyByIndex.size === 0 &&
+    fanoutBranchDxByIndex.size === 0 &&
+    fanoutBranchDyByIndex.size === 0
   ) {
     return edges.map((e) => e);
   }
@@ -885,12 +985,20 @@ export function deconflictChipAnchors(
     const entryChipDy = entryDyByIndex.get(index);
     const busDropDy = busDropDyByIndex.get(index);
     const busChipDy = busChipDyByIndex.get(index);
+    const fanoutAggDx = fanoutAggDxByIndex.get(index);
+    const fanoutAggDy = fanoutAggDyByIndex.get(index);
+    const fanoutBranchDx = fanoutBranchDxByIndex.get(index);
+    const fanoutBranchDy = fanoutBranchDyByIndex.get(index);
     if (
       labelDy === undefined &&
       labelDx === undefined &&
       entryChipDy === undefined &&
       busDropDy === undefined &&
-      busChipDy === undefined
+      busChipDy === undefined &&
+      fanoutAggDx === undefined &&
+      fanoutAggDy === undefined &&
+      fanoutBranchDx === undefined &&
+      fanoutBranchDy === undefined
     ) {
       return edge;
     }
@@ -903,6 +1011,10 @@ export function deconflictChipAnchors(
         ...(entryChipDy !== undefined ? { entryChipDy } : {}),
         ...(busDropDy !== undefined ? { busDropDy } : {}),
         ...(busChipDy !== undefined ? { busChipDy } : {}),
+        ...(fanoutAggDx !== undefined ? { fanoutAggDx } : {}),
+        ...(fanoutAggDy !== undefined ? { fanoutAggDy } : {}),
+        ...(fanoutBranchDx !== undefined ? { fanoutBranchDx } : {}),
+        ...(fanoutBranchDy !== undefined ? { fanoutBranchDy } : {}),
       },
     };
   });

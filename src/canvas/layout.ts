@@ -48,6 +48,7 @@ import {
   clearBusColumns,
   jogForwardLegs,
   routeBusEdges,
+  routeFanoutEdges,
 } from "./busRouting";
 import { deconflictChipAnchors } from "./chipSeating";
 import type {
@@ -887,6 +888,9 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   // stamps; final absolute node positions are known here):
   //   1. routeBusEdges       classify long / boundary-feeder edges into bus
   //                          trunks, each on a lane in a top or bottom band.
+  //   1b. routeFanoutEdges   consolidate N >= 2 same-source-port edges in one
+  //                          layer gap onto a shared junction column (a fan-out
+  //                          trunk, retyped bus but off-lane).
   //   2. assignEntryColumns  stake out per-target entry-gutter columns so
   //                          backward rails and bus rises into one node stay
   //                          parallel.
@@ -912,7 +916,10 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
             nodes,
             clearBusColumns(
               nodes,
-              assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+              assignEntryColumns(
+                nodes,
+                routeFanoutEdges(nodes, routeBusEdges(nodes, edges)),
+              ),
             ),
           ),
         ),

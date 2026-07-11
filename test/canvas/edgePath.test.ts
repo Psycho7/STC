@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import {
   chamferStepPath,
   chamferBusPath,
+  chamferFanoutPath,
   pathMidpoint,
   pathPointAt,
   routingHintsFromData,
@@ -602,5 +603,108 @@ describe("chamferBusPath", () => {
     expect(riseAndAfter.every((p) => p.y === 100)).toBe(true);
     expect(path).not.toMatch(/NaN/);
     expectRightwardFinish(path);
+  });
+});
+
+describe("chamferFanoutPath", () => {
+  it("draws trunk, junction, and a chamfered branch leg into the target", () => {
+    const { path, junction, trunkAnchor, branchAnchor } = chamferFanoutPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      junctionX: 100,
+    });
+    // Trunk horizontal at sy from the source to the junction's incoming chamfer,
+    // the branch vertical down the junction column, then the final rightward stub.
+    expect(path).toBe("M 0,0 L 92,0 L 100,8 L 100,92 L 108,100 L 200,100");
+    // Junction sits where the trunk meets the branch (junction column, source y).
+    expect(junction).toEqual({ x: 100, y: 0 });
+    // Aggregate chip rides the trunk midpoint; the branch chip the branch mid.
+    expect(trunkAnchor).toEqual({ x: 50, y: 0 });
+    expect(branchAnchor).toEqual({ x: 100, y: 50 });
+    expectRightwardFinish(path);
+  });
+
+  it("shares the trunk segment across members on one junction column", () => {
+    // Two members of one fan-out (same source port, same junction) fan up and
+    // down: their trunk segments overlap so the trunk draws once.
+    const up = chamferFanoutPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: -120,
+      junctionX: 100,
+    });
+    const down = chamferFanoutPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 120,
+      junctionX: 100,
+    });
+    const trunkUp = parsePoints(up.path).slice(0, 2);
+    const trunkDown = parsePoints(down.path).slice(0, 2);
+    expect(trunkUp).toEqual(trunkDown); // M 0,0 L 92,0 both
+    expect(up.junction).toEqual(down.junction);
+    expectRightwardFinish(up.path);
+    expectRightwardFinish(down.path);
+  });
+
+  it("clamps the junction column into the corridor", () => {
+    // A junction hint past the target is clamped one stub+chamfer inside the port.
+    const { junction } = chamferFanoutPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      junctionX: 10_000,
+    });
+    expect(junction.x).toBe(200 - PORT_STUB - CHAMFER); // 168
+  });
+
+  it("joins a small-dy member with a single diagonal at the junction", () => {
+    const { path } = chamferFanoutPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 2 * CHAMFER, // within one chamfer pair: no vertical run
+      junctionX: 100,
+    });
+    expect(path).toBe("M 0,0 L 92,0 L 108,16 L 200,16");
+    expectRightwardFinish(path);
+  });
+
+  it("draws a shared-y member as a straight trunk", () => {
+    const { path, branchAnchor } = chamferFanoutPath({
+      sourceX: 0,
+      sourceY: 50,
+      targetX: 200,
+      targetY: 50,
+      junctionX: 100,
+    });
+    expect(path).toBe("M 0,50 L 200,50");
+    expect(branchAnchor).toEqual({ x: 100, y: 50 });
+    expectRightwardFinish(path);
+  });
+
+  it("is deterministic and reads junctionX off routing hints", () => {
+    const hints = routingHintsFromData({ junctionX: 100 });
+    const a = chamferFanoutPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      ...hints,
+    });
+    const b = chamferFanoutPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      ...hints,
+    });
+    expect(a.path).toBe(b.path);
+    expect(a.junction).toEqual({ x: 100, y: 0 });
   });
 });
