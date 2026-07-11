@@ -326,6 +326,45 @@ describe("chamferBusPath", () => {
     expectRightwardFinish(path);
   });
 
+  it("mirrors the shape when the lane sits ABOVE both endpoints (top band)", () => {
+    // Two-sided lane bands (9B): a top-band trunk's lane runs above the graph,
+    // so the "drop" is geometrically a RISE and the "rise" a descent.
+    // chamferColumn derives each vertical's direction from its own y0 -> y1, so
+    // the same builder must emit a sane mirrored shape with no negative-length
+    // segments. The pin proves the mirror: the first column's ys DECREASE
+    // (500 -> 492 -> 108 -> 100, source level UP to the lane) and the second's
+    // INCREASE (100 -> 108 -> 472 -> 480, lane DOWN to the target), with the
+    // 8px chamfer bevels intact on both columns.
+    const { path, dropX, riseX, junction } = chamferBusPath({
+      sourceX: 0,
+      sourceY: 500,
+      targetX: 300,
+      targetY: 480,
+      laneY: 100,
+    });
+    expect(path).toBe(
+      "M 0,500 L 24,500 L 32,492 L 32,108 L 40,100 L 260,100 L 268,108 L 268,472 L 276,480 L 300,480",
+    );
+    // Columns sit at the same default x as the lane-below case; the junction
+    // tracks the lane just before the descent chamfer.
+    expect(dropX).toBe(32);
+    expect(riseX).toBe(268);
+    expect(junction).toEqual({ x: 260, y: 100 });
+    // Structural sanity on the parsed points: no NaN, the first (drop) column's
+    // vertical run goes UP toward the lane and the second (rise) column's goes
+    // DOWN toward the target.
+    const pts = parsePoints(path);
+    for (const p of pts) {
+      expect(Number.isFinite(p.x)).toBe(true);
+      expect(Number.isFinite(p.y)).toBe(true);
+    }
+    const dropRun = [pts[1]!, pts[2]!, pts[3]!, pts[4]!].map((p) => p.y);
+    const riseRun = [pts[5]!, pts[6]!, pts[7]!, pts[8]!].map((p) => p.y);
+    expect(dropRun.every((y, i) => i === 0 || y < dropRun[i - 1]!)).toBe(true);
+    expect(riseRun.every((y, i) => i === 0 || y > riseRun[i - 1]!)).toBe(true);
+    expectRightwardFinish(path);
+  });
+
   it("rises through an explicit entryX gutter column on a wide forward gap", () => {
     // The entry-gutter pass may stagger the rise so two rises into one node do
     // not coincide. entryX = 250 moves the rise right of the default
