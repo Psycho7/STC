@@ -228,6 +228,61 @@ describe("chamferStepPath", () => {
     );
   });
 
+  it("jogs the forward final leg to a clear legY, descending in the target gutter", () => {
+    // legY moves the long horizontal off the target y so it clears an
+    // intervening card: bend down to legY at the bend column, run the horizontal
+    // there, then descend at descentX (tx - PORT_STUB = 276) into the target.
+    const [d, lx, ly] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 300,
+      targetY: 100,
+      legY: 200,
+    });
+    expect(d).toBe(
+      "M 0,0 L 142,0 L 150,8 L 150,192 L 158,200 L 268,200 L 276,192 L 276,108 L 284,100 L 300,100",
+    );
+    expect(Number.isFinite(lx)).toBe(true);
+    expect(Number.isFinite(ly)).toBe(true);
+    expectRightwardFinish(d);
+  });
+
+  it("routes the forward jog's descent through an explicit entryX gutter column", () => {
+    // entryX overrides the default descent column (tx - PORT_STUB), so the run
+    // descends at 250 instead of 276; the bend column and legY are unchanged.
+    const [d] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 300,
+      targetY: 100,
+      legY: 200,
+      entryX: 250,
+    });
+    expect(d).toBe(
+      "M 0,0 L 142,0 L 150,8 L 150,192 L 158,200 L 242,200 L 250,192 L 250,108 L 258,100 L 300,100",
+    );
+    expectRightwardFinish(d);
+  });
+
+  it("is byte-identical to the no-hints forward step when legY is absent", () => {
+    const [base] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+    });
+    // Mirrors the render path: data carrying no legY hint spreads to nothing.
+    const [threaded] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 100,
+      ...routingHintsFromData({ item: "w" }),
+    });
+    expect(threaded).toBe(base);
+    expect(base).toBe("M 0,0 L 92,0 L 100,8 L 100,92 L 108,100 L 200,100");
+  });
+
   it("does not backtrack on a backward edge with a small |dy| (< 4*CHAMFER)", () => {
     // |ty - sy| = 20 < 32 (= 4*CHAMFER): the detour rail sits within a chamfer
     // of the source level, so the old full-chamfer columns would invert into a

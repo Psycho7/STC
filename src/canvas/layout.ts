@@ -47,6 +47,7 @@ import {
   clampBackwardRails,
   clearBusColumns,
   deconflictChipAnchors,
+  jogForwardLegs,
   routeBusEdges,
 } from "./busRouting";
 import type {
@@ -882,26 +883,37 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   const elkGraph = renderPlanToElkGraph(input);
   const laid = (await elk.layout(elkGraph)) as ElkGraph;
   const { nodes, edges } = fromElkRenderLayout(laid, input);
-  // Classify long / boundary-feeder edges into bus trunks after layout, so the
-  // pass sees final absolute node positions when it measures spans and picks
-  // each trunk's lane. Then stake out per-target entry columns in each node's
-  // gutter (backward rails and bus rises) so entering runs stay parallel; move
-  // bus drop / rise verticals clear of any foreign card / gutter they would
-  // pierce (clearBusColumns, after the entry stagger so the rise starts from its
-  // final column); and stagger the bend columns of the remaining still-type:
-  // "item" edges so their vertical runs fan out instead of stacking (clamped
-  // clear of every gutter). clampBackwardRails then clears the backward rails.
+  // Post-layout routing passes, in order (each consumes the previous ones'
+  // stamps; final absolute node positions are known here):
+  //   1. routeBusEdges       classify long / boundary-feeder edges into bus
+  //                          trunks, each on a lane below the graph.
+  //   2. assignEntryColumns  stake out per-target entry-gutter columns so
+  //                          backward rails and bus rises into one node stay
+  //                          parallel.
+  //   3. clearBusColumns     move bus drop / rise verticals clear of any foreign
+  //                          card / gutter (starts from the entry stagger).
+  //   4. assignBendColumns   stagger the remaining item edges' bend columns so
+  //                          their verticals fan out (clamped clear of gutters).
+  //   5. jogForwardLegs      bend a blocked forward final leg to a clear y so it
+  //                          does not cross an intervening card (reads bendX).
+  //   6. clampBackwardRails  move the backward detour rails clear of the cards
+  //                          they span.
+  //   7. deconflictChipAnchors stack crowded chips (entry, bus, midpoint) so
+  //                          none coincide.
   return {
     nodes,
     edges: deconflictChipAnchors(
       nodes,
       clampBackwardRails(
         nodes,
-        assignBendColumns(
+        jogForwardLegs(
           nodes,
-          clearBusColumns(
+          assignBendColumns(
             nodes,
-            assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+            clearBusColumns(
+              nodes,
+              assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+            ),
           ),
         ),
       ),

@@ -45,6 +45,11 @@ export type ItemEdgeData = {
   // the cards it spans. chamferStepPath reads it in its backward branch.
   // Optional: absent for forward edges and un-clamped backward edges.
   railY?: number;
+  // Clear horizontal y for a blocked forward final leg, stamped by
+  // jogForwardLegs. chamferStepPath reads it in its forward normal-step branch
+  // to bend the leg around an intervening card. Optional: absent for unblocked
+  // forward edges and every backward edge.
+  legY?: number;
   // Set by fromElkRenderLayout when this edge's consumer (target unit) has two
   // or more inputs. It gates the icon-only entry chip pinned at the target port,
   // which names the entering line right at the node where several inputs meet.

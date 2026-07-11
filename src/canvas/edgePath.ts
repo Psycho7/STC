@@ -52,6 +52,13 @@ export type ObstacleRect = {
 // reaching one but not the other.
 //   bendX:  bend-column x for a forward step (assignBendColumns). Absent ->
 //           the corridor midpoint.
+//   legY:   clear horizontal y for a blocked forward final leg (jogForwardLegs).
+//           Present -> the normal forward step bends to this y, runs the long
+//           horizontal there clear of any intervening card, then descends /
+//           ascends to the target y in the target's entry gutter (entryX, else
+//           one stub before the port) before the final rightward stub. Absent ->
+//           the final leg runs straight at the target y, byte-identical for
+//           direct callers.
 //   entryX: entry-gutter column x (assignEntryColumns), the vertical run into
 //           the target's Left port for backward rails and bus rises. Absent ->
 //           one stub before the port.
@@ -70,6 +77,7 @@ export type ObstacleRect = {
 //           before the target port.
 export type RoutingHints = {
   bendX?: number;
+  legY?: number;
   entryX?: number;
   railY?: number;
   dropX?: number;
@@ -85,6 +93,7 @@ export function routingHintsFromData(data: unknown): RoutingHints {
   const d = data as
     | {
         bendX?: unknown;
+        legY?: unknown;
         entryX?: unknown;
         railY?: unknown;
         dropX?: unknown;
@@ -95,6 +104,7 @@ export function routingHintsFromData(data: unknown): RoutingHints {
     | undefined;
   return {
     ...(typeof d?.bendX === "number" ? { bendX: d.bendX } : {}),
+    ...(typeof d?.legY === "number" ? { legY: d.legY } : {}),
     ...(typeof d?.entryX === "number" ? { entryX: d.entryX } : {}),
     ...(typeof d?.railY === "number" ? { railY: d.railY } : {}),
     ...(typeof d?.dropX === "number" ? { dropX: d.dropX } : {}),
@@ -322,6 +332,21 @@ export function chamferStepPath(
   }
 
   // Normal forward step: H run, chamfer, V run, chamfer, H run into target.
+  // When the final leg at the target y would cross an intervening card,
+  // jogForwardLegs stamps a clear legY: bend to it, run the long horizontal
+  // there (clear of the card), then descend / ascend to the target y in the
+  // target's entry gutter (descentX) before the final rightward stub. The bend
+  // column already sits in a node-free corridor, so its vertical is clear at any
+  // legY. Absent the hint the leg runs straight at ty, byte-identical.
+  if (args.legY !== undefined) {
+    const descentX = args.entryX ?? tx - PORT_STUB;
+    const jog =
+      `M ${r(sx)},${r(sy)}` +
+      chamferColumn(bx, sy, args.legY, chamfer) +
+      chamferColumn(descentX, args.legY, ty, chamfer) +
+      ` L ${r(tx)},${r(ty)}`;
+    return [jog, ...pathMidpoint(jog)];
+  }
   const d =
     `M ${r(sx)},${r(sy)}` + chamferColumn(bx, sy, ty, chamfer) + ` L ${r(tx)},${r(ty)}`;
   return [d, ...pathMidpoint(d)];
@@ -333,10 +358,11 @@ export function chamferStepPath(
 // rise columns (where BusEdge draws its two chips) and the junction point (where
 // BusEdge draws its dot, on the lane just before the rise chamfer).
 //
-// Accepts the full RoutingHints so callers can spread routingHintsFromData; only
-// entryX is read today (bendX / railY do not apply to a bus run). New routing
-// hint? Thread it through RoutingHints (and routingHintsFromData) so render and
-// deconflictChipAnchors stay in lockstep.
+// Accepts the full RoutingHints so callers can spread routingHintsFromData; a
+// bus run reads only the bus-relevant hints (entryX, dropX, riseX) and ignores
+// the rest (bendX / legY / railY apply to the forward step and backward rail).
+// New routing hint? Thread it through RoutingHints (and routingHintsFromData) so
+// render and deconflictChipAnchors stay in lockstep.
 export function chamferBusPath(
   args: {
     sourceX: number;

@@ -958,6 +958,122 @@ export function clampBackwardRails(
   });
 }
 
+// jogForwardLegs: bend a forward item edge's final approach leg around any
+// intervening card it would otherwise cross. A forward normal step runs its last
+// horizontal leg at the target-port y from the bend column to the target; on a
+// layer-skipping edge that leg can slice straight through a node card sitting at
+// the same row one layer over. When the padded obstacle provider reports the leg
+// blocked, stamp a { legY }: the drawer then bends the run down / up to that
+// clear y, carries the long horizontal there, and only descends into the target
+// in its own entry gutter. The bend column already sits in a node-free corridor
+// (assignBendColumns), so its vertical stays clear at any legY; only the long
+// horizontal needs the clearance, which clearRailY supplies exactly as it does
+// for the backward detour rail. Exempt from the obstacle scan: the target's own
+// card / gutter (the leg ends inside it) and each endpoint's own container box (a
+// group background the edge legitimately enters, not an obstacle to route
+// around). A foreign container in an intermediate layer still blocks.
+//
+// The short descent into the target port is guarded: it must itself be clear, or
+// the jog would only trade one card strike for another (a target column packed
+// with stacked siblings, e.g. a loop interior). When it is not, the edge keeps
+// its straight leg -- no worse than before -- and the residual is left for a
+// deeper routing pass rather than a jog that fights itself.
+//
+// Runs after assignBendColumns so it reads each edge's FINAL bendX (the leg
+// starts at that column). Only the normal forward step has a distinct final leg
+// to jog; the same-y straight line and small-dy diagonal are left to their own
+// branches, which do not read legY. Threads { legY } onto the affected edges;
+// every other edge passes through by reference. Pure and deterministic.
+export function jogForwardLegs(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): Edge[] {
+  const byId = new Map<string, RFAnyNode>();
+  for (const n of nodes) byId.set(n.id, n);
+
+  const obstacles = paddedObstacles(nodes, edges);
+  const budget = 2 * (PORT_STUB + CHAMFER);
+
+  const legYByIndex = new Map<number, number>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "item") return; // only forward item edges take the step
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) return;
+    if (nodeGap(source, target, byId) <= 0) return; // backward / zero-gap edge
+    const item = edgeItem(edge);
+    const sx = absoluteLeft(source, byId) + nodeWidth(source);
+    const tx = absoluteLeft(target, byId);
+    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
+    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    const gap = tx - sx;
+    // Only the normal forward step draws a distinct final horizontal leg: the
+    // same-y case is a straight line and the small-dy case a single diagonal,
+    // neither of which reads legY. Mirror chamferStepPath's branch guards so a
+    // stamped hint is always one the drawer consumes.
+    const scale = gap >= budget ? 1 : gap / budget;
+    const stub = PORT_STUB * scale;
+    const chamfer = CHAMFER * scale;
+    if (sy === ty) return;
+    if (Math.abs(ty - sy) <= 2 * chamfer) return;
+    // Bend column, exactly as chamferStepPath's forward normal step derives it,
+    // so the leg's start x matches the drawn path.
+    const lo = sx + stub + chamfer;
+    const hi = tx - stub - chamfer;
+    const mid = (sx + tx) / 2;
+    const bendHint = (edge.data as { bendX?: number } | undefined)?.bendX;
+    const bx =
+      lo < hi && bendHint !== undefined
+        ? Math.min(Math.max(bendHint, lo), hi)
+        : mid;
+    // The jog runs the long horizontal from the bend column to the descent
+    // column, then descends into the target port. descentX is the target's entry
+    // gutter (one stub before the port); the horizontal leg spans [bx, descentX].
+    const descentX =
+      (edge.data as { entryX?: number } | undefined)?.entryX ?? tx - PORT_STUB;
+
+    // Exempt from the obstacle scan: the target's own card / gutter (the leg ends
+    // inside it) and each endpoint's own container box (a group container is a
+    // background box the edge legitimately enters, not a routing obstacle;
+    // treating it as one would detour every grouped edge around its whole
+    // container). A foreign container in an intermediate layer stays an obstacle.
+    const exempt = new Set<string>([edge.target]);
+    if (source.parentId !== undefined) exempt.add(source.parentId);
+    if (target.parentId !== undefined) exempt.add(target.parentId);
+    const foreign = obstacles.filter((o) => !exempt.has(o.nodeId));
+
+    // Clear horizontal y off every foreign card the leg's own x-span crosses.
+    // legY === ty means the straight leg was already clear (nothing to jog).
+    const legY = clearRailY(ty, bx, descentX, foreign);
+    if (legY === ty) return;
+
+    // Guard: the short descent (a vertical at descentX from legY down / up to the
+    // port) must itself be clear, or the jog would trade one crossing for another
+    // -- a target column packed with stacked siblings (a loop interior) can put a
+    // foreign card straight across the descent. When it is not clear, leave the
+    // edge on its straight leg (no worse than before) rather than introduce a new
+    // strike; the residual is for the D-option (ELK sections) escalation, not a
+    // jog that fights itself.
+    const descentBlocked = foreign.some(
+      (o) =>
+        o.left < descentX &&
+        o.right > descentX &&
+        o.top < Math.max(legY, ty) &&
+        o.bottom > Math.min(legY, ty),
+    );
+    if (descentBlocked) return;
+
+    legYByIndex.set(index, legY);
+  });
+
+  if (legYByIndex.size === 0) return edges.map((e) => e);
+  return edges.map((edge, index) => {
+    const legY = legYByIndex.get(index);
+    if (legY === undefined) return edge;
+    return { ...edge, data: { ...edge.data, legY } };
+  });
+}
+
 // -- Chip de-confliction -----------------------------------------------------
 //
 // Two coincident chips read as one, and on a bus lane the surviving chip lied

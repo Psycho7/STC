@@ -16,6 +16,7 @@ import {
   clampBackwardRails,
   clearBusColumns,
   clearColumnX,
+  jogForwardLegs,
   deconflictChipAnchors,
   entryGutterRects,
   paddedObstacles,
@@ -36,8 +37,10 @@ import {
   PORT_STUB,
   CHAMFER,
   chamferStepPath,
+  routingHintsFromData,
   type ObstacleRect,
 } from "../../src/canvas/edgePath";
+import { parsePoints, type Point } from "./pathAssertions";
 import { entryChipAnchor } from "../../src/canvas/ItemEdge";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import type {
@@ -1207,6 +1210,147 @@ describe("clearBusColumns", () => {
     const routed = routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]);
     expect(riseXOf(clearBusColumns(nodes, routed), "e0")).toBe(
       riseXOf(clearBusColumns(nodes, routed), "e0"),
+    );
+  });
+});
+
+// -- jogForwardLegs -----------------------------------------------------------
+
+function legYOf(edges: Edge[], id: string): number | undefined {
+  return (edges.find((e) => e.id === id)?.data as { legY?: number } | undefined)
+    ?.legY;
+}
+
+// Liang-Barsky segment clip: does the segment a->b cross the rectangle's
+// interior? Boundary-only contact (the segment grazing an edge) is not a
+// crossing, so a run sitting exactly one CHAMFER off a padded card reads clear.
+function segCrossesRect(a: Point, b: Point, rect: ObstacleRect): boolean {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const p = [-dx, dx, -dy, dy];
+  const q = [
+    a.x - rect.left,
+    rect.right - a.x,
+    a.y - rect.top,
+    rect.bottom - a.y,
+  ];
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) {
+      if (q[i]! < 0) return false; // parallel and outside this slab
+      continue;
+    }
+    const t = q[i]! / p[i]!;
+    if (p[i]! < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
+  }
+  return t0 < t1;
+}
+
+describe("jogForwardLegs", () => {
+  // A forward item edge s -> t skipping a layer, its bend column staked in the
+  // first gap (bendX 200). t sits one row down so the edge takes the normal
+  // forward step (sy 39, ty 139). `mid`, when present, is a foreign card at the
+  // target row straddling the final leg's path.
+  const buildFixture = (withMid: boolean): { nodes: RFAnyNode[]; edges: Edge[] } => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // right 148, port y 39
+      inputProductNode("t", "ore", 760, 100, 148, 78), // left 760, port y 139
+    ];
+    if (withMid) {
+      nodes.push(inputProductNode("mid", "ore", 400, 100, 148, 78));
+    }
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+      },
+    ];
+    return { nodes, edges };
+  };
+
+  it("jogs a blocked leg so the drawn path avoids the foreign card's padded rect", () => {
+    const { nodes, edges } = buildFixture(true);
+    const out = jogForwardLegs(nodes, edges);
+    const legY = legYOf(out, "e0");
+    expect(legY).toBeDefined();
+    expect(legY).not.toBe(139); // moved off the target port y
+
+    // Reconstruct the drawn path from the stamped hint exactly as ItemEdge does,
+    // then assert no segment crosses the mid card's padded obstacle rect.
+    const [d] = chamferStepPath({
+      sourceX: 148,
+      sourceY: 39,
+      targetX: 760,
+      targetY: 139,
+      ...routingHintsFromData(out[0]!.data),
+    });
+    const midCard = paddedObstacles(nodes, edges).find(
+      (o) => o.kind === "card" && o.nodeId === "mid",
+    )!;
+    const pts = parsePoints(d);
+    for (let i = 1; i < pts.length; i++) {
+      expect(segCrossesRect(pts[i - 1]!, pts[i]!, midCard)).toBe(false);
+    }
+  });
+
+  it("stamps nothing and passes the edge through by reference when the leg is clear", () => {
+    const { nodes, edges } = buildFixture(false);
+    const out = jogForwardLegs(nodes, edges);
+    expect(legYOf(out, "e0")).toBeUndefined();
+    expect(out[0]).toBe(edges[0]);
+  });
+
+  it("leaves bus and backward edges untouched", () => {
+    const { nodes } = buildFixture(true);
+    const busEdge: Edge = {
+      ...mkEdge("bus0", "s", "t", "ore"),
+      type: "bus",
+      data: { item: "ore", rate: new Fraction(1) },
+    };
+    // Backward edge (target left of source): t -> s.
+    const backwardEdge = mkEdge("bwd0", "t", "s", "ore");
+    const out = jogForwardLegs(nodes, [busEdge, backwardEdge]);
+    expect(legYOf(out, "bus0")).toBeUndefined();
+    expect(legYOf(out, "bwd0")).toBeUndefined();
+    expect(out[0]).toBe(busEdge);
+    expect(out[1]).toBe(backwardEdge);
+  });
+
+  it("suppresses the jog when a stacked sibling blocks the descent column", () => {
+    // The blocked leg would jog, but the target's column is packed: siblings sit
+    // above and below the target (a loop-interior shape), so whichever clear y
+    // the horizontal takes, a sibling card lies straight across the descent. A
+    // jog here would trade the intermediate-card strike for a sibling strike, so
+    // the guard leaves the edge on its straight leg (no legY stamped).
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 0, 148, 78), // right 148, port y 39
+      inputProductNode("t", "ore", 760, 400, 148, 78), // left 760, port y 439
+      inputProductNode("mid", "ore", 400, 400, 148, 78), // blocks the leg at ty
+      inputProductNode("sibA", "ore", 760, 200, 148, 78), // stacked above target
+      inputProductNode("sibB", "ore", 760, 600, 148, 78), // stacked below target
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+      },
+    ];
+    const out = jogForwardLegs(nodes, edges);
+    expect(legYOf(out, "e0")).toBeUndefined();
+    expect(out[0]).toBe(edges[0]);
+  });
+
+  it("is deterministic across two identical runs", () => {
+    const { nodes, edges } = buildFixture(true);
+    expect(legYOf(jogForwardLegs(nodes, edges), "e0")).toBe(
+      legYOf(jogForwardLegs(nodes, edges), "e0"),
     );
   });
 });
