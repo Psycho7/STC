@@ -11,6 +11,9 @@ import {
   routeBusEdges,
   routeFanoutEdges,
   laneBands,
+  busBandRegions,
+  BAND_Y_PAD,
+  BAND_X_MARGIN,
   assignBendColumns,
   assignEntryColumns,
   clampBackwardRails,
@@ -390,6 +393,89 @@ describe("routeBusEdges two-sided lane bands (9B)", () => {
     expect(bandOf(a, "e0")).toBe("bottom");
     expect(bandOf(a, "e0")).toBe(bandOf(b, "e0"));
     expect(laneYOf(a, "e0")).toBe(laneYOf(b, "e0"));
+  });
+});
+
+describe("busBandRegions", () => {
+  const r = mkRecipe("r", ["a"], ["b"]);
+  const far = 2000;
+
+  // Absolute node horizontal span for these parent-less fixtures (position.x is
+  // already absolute), padded by BAND_X_MARGIN -- the x-extent every region gets.
+  const nodeSpan = (nodes: RFAnyNode[]) => {
+    let left = Infinity;
+    let right = -Infinity;
+    for (const n of nodes) {
+      left = Math.min(left, n.position.x);
+      right = Math.max(right, n.position.x + nodeWidth(n));
+    }
+    return { x: left - BAND_X_MARGIN, width: right + BAND_X_MARGIN - (left - BAND_X_MARGIN) };
+  };
+
+  it("maps each non-null band to its lane extent padded by BAND_Y_PAD", () => {
+    // One trunk high (top band) and one low (bottom band), each blocked at its
+    // own target row, so both bands hold a trunk -- mirrors the laneBands extent
+    // fixture. Every region's y-extent is the band's lane range padded, and its
+    // x-extent is the node span padded.
+    const nodes: RFAnyNode[] = [
+      recipeNode("sHi", 0, 0, r),
+      recipeNode("tHi", far, 0, r),
+      recipeNode("midHi", 600, 0, r),
+      recipeNode("sLo", 0, 2000, r),
+      recipeNode("tLo", far, 2000, r),
+      recipeNode("midLo", 600, 2000, r),
+    ];
+    const edges = [
+      mkEdge("e0", "sHi", "tHi", "b"),
+      mkEdge("e1", "sLo", "tLo", "b"),
+    ];
+
+    const out = routeBusEdges(nodes, edges);
+    const bands = laneBands(out);
+    const regions = busBandRegions(nodes, out);
+    const span = nodeSpan(nodes);
+
+    expect(regions.map((rg) => rg.band).sort()).toEqual(["bottom", "top"]);
+    for (const band of ["top", "bottom"] as const) {
+      const extent = bands[band]!;
+      const region = regions.find((rg) => rg.band === band)!;
+      expect(region.y).toBe(extent.y0 - BAND_Y_PAD);
+      expect(region.height).toBe(extent.y1 - extent.y0 + 2 * BAND_Y_PAD);
+      expect(region.x).toBe(span.x);
+      expect(region.width).toBe(span.width);
+    }
+  });
+
+  it("gives a single-lane band a full 2*BAND_Y_PAD height", () => {
+    // One bottom-band trunk: its lane extent is a single y (y0 == y1), so the
+    // region has no intrinsic height -- the padding alone makes it visible.
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 0, r),
+      recipeNode("mid", 600, 0, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t", "b")];
+
+    const out = routeBusEdges(nodes, edges);
+    const bands = laneBands(out);
+    const regions = busBandRegions(nodes, out);
+
+    expect(bands.top).toBeNull();
+    expect(regions).toHaveLength(1);
+    expect(regions[0]!.band).toBe("bottom");
+    expect(regions[0]!.height).toBe(2 * BAND_Y_PAD);
+  });
+
+  it("returns no regions when no edge rides a lane", () => {
+    // A short forward edge is never a bus member, so laneBands is all-null and
+    // there is nothing to shade.
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", 400, 0, r),
+    ];
+    const out = routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]);
+    expect(laneBands(out)).toEqual({ top: null, bottom: null });
+    expect(busBandRegions(nodes, out)).toEqual([]);
   });
 });
 

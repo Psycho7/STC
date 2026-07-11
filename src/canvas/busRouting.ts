@@ -559,6 +559,71 @@ export function laneBands(edges: ReadonlyArray<Edge>): LaneBands {
   return { top: extent(topYs), bottom: extent(bottomYs) };
 }
 
+// Vertical margin added above and below a band's lane extent so a single-lane
+// band (y0 == y1, zero-height by itself) still marks a visible region and a
+// multi-lane band wraps its lanes -- and the rise / drop chips seated on them --
+// with air. Half a lane pitch: a max-scale chip is one LANE_SPACING tall and
+// centred on its lane, so this clears its half-box.
+export const BAND_Y_PAD = LANE_SPACING / 2;
+
+// Horizontal margin added on each side of the node span for a band's x-extent.
+// One stub keeps the faint band from cutting exactly at the border cards' edges.
+export const BAND_X_MARGIN = PORT_STUB;
+
+// An absolute-coordinate band rectangle for the bus-band marking layer: the
+// faint tinted region drawn BENEATH the edges to show where a lane band sits.
+export type BusBandRegion = {
+  band: "top" | "bottom";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+// busBandRegions: the drawable rectangle of every non-null lane band, folded
+// over the ROUTED edges (laneBands) plus the node span. The y-extent is the
+// band's lane range padded by BAND_Y_PAD; the x-extent is the graph's node
+// horizontal span padded by BAND_X_MARGIN. Bus trunks span two-plus layers, so
+// their lane runs live under essentially the full node span -- the node span is
+// a stable, honest proxy for the lane region without recomputing every member's
+// drop / rise column. Empty when no band holds a trunk (or the graph has no
+// nodes). Pure and deterministic; consumed by the BusBands render layer.
+export function busBandRegions(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): BusBandRegion[] {
+  const bands = laneBands(edges);
+  if (bands.top === null && bands.bottom === null) return [];
+
+  const byId = new Map<string, RFAnyNode>();
+  for (const node of nodes) byId.set(node.id, node);
+  let left = Infinity;
+  let right = -Infinity;
+  for (const node of nodes) {
+    const l = absoluteLeft(node, byId);
+    left = Math.min(left, l);
+    right = Math.max(right, l + nodeWidth(node));
+  }
+  if (!Number.isFinite(left)) return []; // no nodes -> nothing to anchor to
+
+  const x = left - BAND_X_MARGIN;
+  const width = right + BAND_X_MARGIN - x;
+  const regions: BusBandRegion[] = [];
+  for (const band of ["top", "bottom"] as const) {
+    const extent = bands[band];
+    if (extent === null) continue;
+    const y = extent.y0 - BAND_Y_PAD;
+    regions.push({
+      band,
+      x,
+      y,
+      width,
+      height: extent.y1 + BAND_Y_PAD - y,
+    });
+  }
+  return regions;
+}
+
 // routeFanoutEdges: synthesize a first-class fan-out trunk wherever N >= 2 edges
 // leave the SAME source port (same item, same source unit) into targets one
 // layer over. Runs AFTER routeBusEdges, on the still-"item" remainder (bus

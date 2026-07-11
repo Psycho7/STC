@@ -20,6 +20,7 @@ import LoopNode from "./LoopNode";
 import ProductNode from "./ProductNode";
 import ItemEdge from "./ItemEdge";
 import BusEdge from "./BusEdge";
+import BusBands from "./BusBands";
 import { contentBounds } from "./chipSeating";
 import type { RFAnyNode } from "./layout";
 import { useI18n } from "../data/i18n-context";
@@ -513,6 +514,7 @@ function CanvasInner({
         // leaves keyboard focus traversal intact.
         disableKeyboardA11y
       >
+        <BusBands nodes={nodes} edges={edges} />
         <Controls aria-label={i18n.t("canvas.controls.panel")} />
         {nodes.length > MINIMAP_MIN_NODES ? (
           <MiniMap

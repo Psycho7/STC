@@ -1537,6 +1537,32 @@
   right: 32px;
 }
 
+/* Bus-lane band marking (BusBands, via ViewportPortal). Rendered BENEATH the
+   edges in flow coordinates, so it pans and zooms with the graph. NON-DOMINANT
+   is a hard constraint: a <= 0.05-opacity fill, 1px top/bottom hairlines, and a
+   small faint BUS tag -- it reads as background texture, never as a chip. The
+   fill and hairlines scale with zoom via the viewport transform, so the tint
+   stays equally faint at every zoom. */
+.ak-canvas-theme .bus-band {
+  background: rgba(176, 180, 188, 0.04);
+  border-top: 1px solid rgba(176, 180, 188, 0.16);
+  border-bottom: 1px solid rgba(176, 180, 188, 0.16);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.ak-canvas-theme .bus-band-tag {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ak-text-decoration-faint);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
 /* Icon sprite system. */
 /* The source sprite is a WEBP of 64x64 tiles. Canvas.tsx sets --icons-url on
    .ak-canvas-theme, so every nested .spr inherits the URL through the cascade. */
