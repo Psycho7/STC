@@ -16,7 +16,11 @@ import {
   CHAMFER,
   MAX_CHAMFER,
 } from "../../src/canvas/edgePath";
-import { parsePoints, expectRightwardFinish } from "./pathAssertions";
+import {
+  parsePoints,
+  expectRightwardFinish,
+  distanceToPolyline,
+} from "./pathAssertions";
 
 describe("pathMidpoint", () => {
   it("returns the center of a single-segment path", () => {
@@ -712,10 +716,14 @@ describe("chamferFanoutPath", () => {
     // Trunk horizontal at sy from the source to the junction's incoming chamfer,
     // the branch vertical down the junction column, then the final rightward stub.
     expect(path).toBe("M 0,0 L 92,0 L 100,8 L 100,92 L 108,100 L 200,100");
-    // Junction sits where the trunk meets the branch (junction column, source y).
-    expect(junction).toEqual({ x: 100, y: 0 });
-    // Aggregate chip rides the trunk midpoint; the branch chip the branch mid.
-    expect(trunkAnchor).toEqual({ x: 50, y: 0 });
+    // Junction sits at the trunk's end (the last point every member shares
+    // before its branch chamfer), ON the drawn polyline. The sharp corner
+    // (jx, sy) itself is cut away by the chamfer, so a dot there would float
+    // between the bends.
+    expect(junction).toEqual({ x: 100 - CHAMFER, y: 0 });
+    // Aggregate chip rides the midpoint of the dot-terminated trunk run; the
+    // branch chip the branch mid.
+    expect(trunkAnchor).toEqual({ x: (100 - CHAMFER) / 2, y: 0 });
     expect(branchAnchor).toEqual({ x: 100, y: 50 });
     expectRightwardFinish(path);
   });
@@ -754,7 +762,7 @@ describe("chamferFanoutPath", () => {
       targetY: 100,
       junctionX: 10_000,
     });
-    expect(junction.x).toBe(200 - PORT_STUB - CHAMFER); // 168
+    expect(junction.x).toBe(200 - PORT_STUB - 2 * CHAMFER); // clamped 168, dot at 160
   });
 
   it("joins a small-dy member with a single diagonal at the junction", () => {
@@ -799,6 +807,44 @@ describe("chamferFanoutPath", () => {
       ...hints,
     });
     expect(a.path).toBe(b.path);
-    expect(a.junction).toEqual({ x: 100, y: 0 });
+    expect(a.junction).toEqual({ x: 100 - CHAMFER, y: 0 });
+  });
+
+  it("seats the junction dot ON the drawn polyline for every member shape", () => {
+    // Branching, small-dy diagonal, and shared-y straight members must all put
+    // their junction on their own drawn geometry: the dot marks the split, and a
+    // dot off the line reads as a floating speck (issue #9, 1.2).
+    const shapes = [
+      { targetY: 100 }, // full branch vertical
+      { targetY: -120 }, // branch up
+      { targetY: 2 * CHAMFER }, // small-dy diagonal
+      { targetY: 0 }, // shared-y straight trunk
+    ];
+    for (const { targetY } of shapes) {
+      const { path, junction } = chamferFanoutPath({
+        sourceX: 0,
+        sourceY: 0,
+        targetX: 200,
+        targetY,
+        junctionX: 100,
+      });
+      expect(distanceToPolyline(path, junction)).toBe(0);
+    }
+    // Up and down members of one trunk still agree on a single junction point.
+    const up = chamferFanoutPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: -120,
+      junctionX: 100,
+    });
+    const down = chamferFanoutPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 200,
+      targetY: 120,
+      junctionX: 100,
+    });
+    expect(up.junction).toEqual(down.junction);
   });
 });

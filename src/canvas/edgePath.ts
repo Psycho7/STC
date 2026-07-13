@@ -622,11 +622,20 @@ export function chamferFanoutPath(
   const mid = (sx + tx) / 2;
   const desired = args.junctionX ?? mid;
   const jx = lo < hi ? clamp(desired, lo, hi) : mid;
-  const junction = { x: r(jx), y: r(sy) };
-  // Aggregate chip rides the shared trunk horizontal (source port -> junction);
-  // its midpoint sits left of the junction's incoming chamfer by construction
-  // (jx is at least a stub+chamfer right of the source).
-  const trunkAnchor = { x: r((sx + jx) / 2), y: r(sy) };
+  // The junction dot marks the split, so it must sit ON the drawn geometry.
+  // The sharp corner (jx, sy) is cut away by the branch chamfer; the last
+  // point every member still shares is one chamfer before the column, on the
+  // trunk horizontal -- for a branching member, a small-dy diagonal, AND a
+  // shared-y straight trunk alike, so all members of one trunk agree on it.
+  const junction = { x: r(jx - CHAMFER), y: r(sy) };
+  // Aggregate chip rides the shared trunk horizontal, centered on the run from
+  // the source port to the junction DOT (jx - CHAMFER, above), not the cut
+  // corner. Centering on the dot-terminated run keeps the anchor at or left of
+  // the seating pass's keep-off-truncated slide end (keepoff is at most half
+  // the source-to-dot span) up to r()'s rounding, whose sub-pixel overhang the
+  // seat clamps away, so an uncrowded aggregate seats at its anchor with no
+  // stamped offset.
+  const trunkAnchor = { x: r((sx + jx - CHAMFER) / 2), y: r(sy) };
 
   // Shared-y member: a straight trunk with no branch vertical. The branch chip
   // has no vertical to ride, so it falls back to the trunk midpoint.
