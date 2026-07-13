@@ -136,26 +136,29 @@ export default function BusEdge({
   const showMemberChip = edgeData !== undefined && zoom >= LABEL_MIN_ZOOM;
 
   // Drop chip: only the elected trunk owner draws it, and it shows the summed
-  // trunk rate (busTotalRate) plus a count marker when the trunk has several
-  // members. A lone member is its own owner with count 1, so it reads exactly
-  // like a plain item edge. Non-owner members suppress the drop chip, which is
-  // what collapses the old N-deep stack of one-member-share chips into a single
-  // truthful total on the shared lane.
+  // trunk rate (busTotalRate), prefixed by a sum glyph when the trunk has
+  // several members. The glyph says "this is an aggregate", where the old
+  // " xN" count marker read as multiplication and collided with the machine
+  // count badge's x-notation. A lone member is its own owner, so it reads
+  // exactly like a plain item edge. Non-owner members suppress the drop chip,
+  // which is what collapses the old N-deep stack of one-member-share chips
+  // into a single truthful total on the shared lane.
   const isOwner = edgeData?.busChipOwner ?? true;
   const totalRate = edgeData?.busTotalRate ?? edgeData?.rate;
   const memberCount = edgeData?.busMemberCount ?? 1;
   const dropRateStr = totalRate ? formatRatePerMin(totalRate) : "";
-  const countMarker = memberCount > 1 ? ` x${memberCount}` : "";
+  const sumMarker = memberCount > 1 ? "Σ" : "";
   const dropText =
-    showAggChip && dropRateStr ? `${dropRateStr}${unit}${countMarker}` : "";
+    showAggChip && dropRateStr ? `${sumMarker}${dropRateStr}${unit}` : "";
   const dropLabel =
     edgeData && dropRateStr
-      ? `${i18n.displayName(edgeData.item)} x ${dropRateStr}${unit}${countMarker}`
+      ? `${i18n.displayName(edgeData.item)} x ${sumMarker}${dropRateStr}${unit}`
       : "";
   const dropTitle =
     edgeData && dropRateStr && totalRate
-      ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(totalRate)}${unit}${countMarker}`
+      ? `${i18n.displayName(edgeData.item)} x ${sumMarker}${formatRateExactPerMin(totalRate)}${unit}`
       : "";
+
 
   // Rise chip: each member draws its own, showing that member's share. Its x is
   // the trunk's evenly distributed lane slot (busChipX) so members feeding the

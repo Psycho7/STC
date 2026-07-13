@@ -202,6 +202,41 @@ describe("canvas/BusEdge trunk labels", () => {
     }
   });
 
+  it("marks a multi-member trunk's aggregate with a sum glyph, not a count", async () => {
+    // The owner's drop chip shows the summed trunk total prefixed by the sum
+    // glyph. The old " x2" count marker read as multiplication and collided
+    // with the machine-count badge's x-notation (issue #9, 1.2), so the glyph
+    // says "aggregated" without a count.
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(1, 1), // this member: 60/min
+        laneY: 500,
+        trunkKey: "Iron Plate|src",
+        busChipOwner: true,
+        busTotalRate: new Fraction(2, 1), // trunk total: 120/min
+        busMemberCount: 2,
+      },
+      1,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(drop).not.toBeNull();
+    expect(rise).not.toBeNull();
+    expect(drop!.textContent).toBe("Σ120/min");
+    expect(drop!.textContent).not.toContain("x2");
+    expect(drop!.getAttribute("aria-label")).toBe(
+      "Iron Plate x Σ120/min",
+    );
+    // The member's own rise chip is untouched: plain share, no glyph.
+    expect(rise!.textContent).toBe("60/min");
+  });
+
   it("renders only the aggregate drop chip below the zoom threshold", async () => {
     // Below LABEL_MIN_ZOOM the per-member rise chip is gated, but the owner's
     // aggregate drop chip is exempt so the trunk's total survives at the
