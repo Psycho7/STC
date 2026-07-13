@@ -237,6 +237,111 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(rise!.textContent).toBe("60/min");
   });
 
+  it("skips the branch chip of a fan-out member flagged fanoutBranchHidden", async () => {
+    // deconflictChipAnchors hides a branch chip when no chip/card-clear seat
+    // exists anywhere on the member's own polyline (a narrow-corridor fan-out
+    // whose aggregate covers the whole short path). The aggregate still draws.
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(1, 1),
+        trunkKey: "Iron Plate|src",
+        fanout: true,
+        busChipOwner: true,
+        busTotalRate: new Fraction(2, 1),
+        busMemberCount: 2,
+        fanoutBranchHidden: true,
+      } as BusData,
+      1,
+    );
+    await findEdgePath();
+    const labels = chips();
+    expect(labels).toHaveLength(1);
+    expect(labels[0]!.getAttribute("data-testid")).toBe("bus-edge-label-e1-drop");
+  });
+
+  it("drops a stale hide on real anchor divergence but rides out reconstruction noise", async () => {
+    // fanoutBranchHidden is decided from layout-time geometry, but nodes stay
+    // mouse-draggable. The hide carries the branch anchor it was decided at;
+    // once the live recomputed anchor truly diverges (the user dragged the
+    // fan-out apart), the hide is stale and the member's rate chip must
+    // return. The stamp comes from the seating pass's port reconstruction,
+    // which disagrees with React Flow's measured handles by up to ~1 unit, so
+    // a mismatch that small is noise, not a drag, and must keep the hide.
+    const fanData = {
+      item: "Iron Plate",
+      rate: new Fraction(1, 1),
+      trunkKey: "Iron Plate|src",
+      fanout: true,
+      busChipOwner: true,
+      busTotalRate: new Fraction(2, 1),
+      busMemberCount: 2,
+    } as BusData;
+    // Measure the live branch anchor from an unhidden render's rise chip.
+    renderEdge(fanData, 1);
+    await findEdgePath();
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    const m = rise!.style.transform.match(
+      /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/,
+    );
+    const anchor = { x: Number(m![1]), y: Number(m![2]) };
+    cleanup();
+
+    // A stamp off by a unit is reconstruction noise: the hide holds.
+    renderEdge(
+      {
+        ...fanData,
+        fanoutBranchHidden: true,
+        fanoutBranchHiddenAt: { x: anchor.x + 1, y: anchor.y - 1 },
+      } as BusData,
+      1,
+    );
+    await findEdgePath();
+    expect(chips()).toHaveLength(1);
+    cleanup();
+
+    // A stamp a hundred units away is a drag: the hide is stale, chip returns.
+    renderEdge(
+      {
+        ...fanData,
+        fanoutBranchHidden: true,
+        fanoutBranchHiddenAt: { x: anchor.x - 100, y: anchor.y },
+      } as BusData,
+      1,
+    );
+    await findEdgePath();
+    const labels = chips();
+    expect(labels).toHaveLength(2);
+    expect(labels.map((l) => l.getAttribute("data-testid"))).toContain(
+      "bus-edge-label-e1-rise",
+    );
+  });
+
+  it("keeps a hidden branch's share reachable as a native tooltip on its path", async () => {
+    // The hidden branch chip was the only carrier of the member's exact-rate
+    // title. A transparent hover path with an SVG <title> keeps the share
+    // reachable on the edge itself, so hiding the chip loses no information.
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(1, 1),
+        trunkKey: "Iron Plate|src",
+        fanout: true,
+        busChipOwner: true,
+        busTotalRate: new Fraction(2, 1),
+        busMemberCount: 2,
+        fanoutBranchHidden: true,
+      } as BusData,
+      1,
+    );
+    await findEdgePath();
+    const title = document.querySelector(".react-flow__edge title");
+    expect(title).not.toBeNull();
+    expect(title!.textContent).toBe("Iron Plate x 60/min");
+  });
+
   it("renders only the aggregate drop chip below the zoom threshold", async () => {
     // Below LABEL_MIN_ZOOM the per-member rise chip is gated, but the owner's
     // aggregate drop chip is exempt so the trunk's total survives at the

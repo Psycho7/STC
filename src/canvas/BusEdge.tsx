@@ -159,15 +159,35 @@ export default function BusEdge({
       ? `${i18n.displayName(edgeData.item)} x ${sumMarker}${formatRateExactPerMin(totalRate)}${unit}`
       : "";
 
-
   // Rise chip: each member draws its own, showing that member's share. Its x is
   // the trunk's evenly distributed lane slot (busChipX) so members feeding the
   // same layer spread along the lane instead of stacking at a shared rise vertex;
   // it falls back to the geometric rise column when the slot is absent (a
-  // manually built edge). The chip sits on the lane at laneY.
+  // manually built edge). The chip sits on the lane at laneY. A fan-out member
+  // flagged fanoutBranchHidden draws no branch chip at all: the seating pass
+  // found no chip/card-clear point on its own polyline, and an off-line chip
+  // would float in empty canvas (the share stays on the target card's row and
+  // this edge's hover tooltip below). The hide only holds while the live
+  // branch anchor still matches the one it was stamped at: nodes stay
+  // mouse-draggable and the seating pass does not rerun on drag, so once the
+  // anchors diverge the hide is stale and the chip returns. The stamp comes
+  // from the seating pass's port reconstruction, which disagrees with React
+  // Flow's measured handles by up to ~1 unit, so the divergence threshold sits
+  // well above that noise and well below any drag that frees seating room
+  // (half a max-scale chip box height).
+  const HIDE_STALE_EPS = 24;
+  const hiddenAt = fanoutData?.fanoutBranchHiddenAt;
+  const branchHidden =
+    fanoutData?.fanoutBranchHidden === true &&
+    (hiddenAt === undefined ||
+      (fan !== null &&
+        Math.abs(fan.branchAnchor.x - hiddenAt.x) < HIDE_STALE_EPS &&
+        Math.abs(fan.branchAnchor.y - hiddenAt.y) < HIDE_STALE_EPS));
   const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
   const riseText =
-    showMemberChip && memberRateStr ? `${memberRateStr}${unit}` : "";
+    showMemberChip && memberRateStr && !branchHidden
+      ? `${memberRateStr}${unit}`
+      : "";
   const riseLabel =
     edgeData && memberRateStr
       ? `${i18n.displayName(edgeData.item)} x ${memberRateStr}${unit}`
@@ -221,6 +241,20 @@ export default function BusEdge({
         {...(riseLabel ? { "aria-label": riseLabel } : {})}
         {...(markerEnd ? { markerEnd } : {})}
       />
+      {/* A hidden branch chip was this member's only exact-rate tooltip
+          carrier, so keep the share reachable on the edge itself: a transparent
+          hover path over the same geometry carries the native SVG tooltip. */}
+      {branchHidden && riseTitle ? (
+        <path
+          d={path}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={12}
+          pointerEvents="stroke"
+        >
+          <title>{riseTitle}</title>
+        </path>
+      ) : null}
       {/* Junction dot in the HTML label layer (not an SVG circle in the edge
           group) so it z-wins over the aggregate chip -- the trunk's branch point
           stays visible where the chip would otherwise hide it. Sized in graph

@@ -1043,6 +1043,11 @@ export function deconflictChipAnchors(
     if (seat.dx !== 0) fanoutAggDxByIndex.set(index, seat.dx);
     if (seat.dy !== 0) fanoutAggDyByIndex.set(index, seat.dy);
   }
+  const fanoutBranchHiddenByIndex = new Set<number>();
+  const fanoutBranchHiddenAtByIndex = new Map<
+    number,
+    { x: number; y: number }
+  >();
   for (const { edge, index } of fanoutEdges) {
     const geom = fanoutGeomByIndex.get(index)!;
     const seat = seatRateChip(
@@ -1058,12 +1063,28 @@ export function deconflictChipAnchors(
       entryBandOf(edge),
     );
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
-      // Dev/test-only tripwire, tree-shaken out of production builds (parity with
-      // the item phase and the render hook in src/pipeline/driver.ts).
+      // The hide below covers the exhausted tier too, but exhausting the
+      // bounded cascade is a seating regression, never an intentional hide, so
+      // it keeps its tripwire (parity with the aggregate and item phases).
       console.warn(
         `chip seating: fan-out branch cascade for ${edge.id} exhausted its ` +
-          "cap; chip parked at its anchor (chip/card hard invariants abandoned)",
+          "cap; branch chip hidden (chip/card hard invariants abandoned)",
       );
+    }
+    // A branch chip that cannot seat ON its own polyline is hidden rather than
+    // parked off-line: a narrow-corridor fan-out cannot host two max-scale chip
+    // boxes side by side, so once the owner's aggregate covers the short path
+    // an off-line seat would float in empty canvas. The share it would have
+    // shown remains on the target card's input row and in the edge tooltip.
+    // The hide is stamped with the branch anchor it was decided at, so BusEdge
+    // can drop it once a node drag moves the live anchor away from the stamp.
+    // Pop the seat the off-line tiers pushed so the phantom box never blocks a
+    // later chip.
+    if (seat.tier === "nudge" || seat.tier === "escape" || seat.tier === "exhausted") {
+      field.placed.pop();
+      fanoutBranchHiddenByIndex.add(index);
+      fanoutBranchHiddenAtByIndex.set(index, geom.branchAnchor);
+      continue;
     }
     if (seat.dx !== 0) fanoutBranchDxByIndex.set(index, seat.dx);
     if (seat.dy !== 0) fanoutBranchDyByIndex.set(index, seat.dy);
@@ -1127,7 +1148,8 @@ export function deconflictChipAnchors(
     fanoutAggDxByIndex.size === 0 &&
     fanoutAggDyByIndex.size === 0 &&
     fanoutBranchDxByIndex.size === 0 &&
-    fanoutBranchDyByIndex.size === 0
+    fanoutBranchDyByIndex.size === 0 &&
+    fanoutBranchHiddenByIndex.size === 0
   ) {
     return edges.map((e) => e);
   }
@@ -1141,6 +1163,8 @@ export function deconflictChipAnchors(
     const fanoutAggDy = fanoutAggDyByIndex.get(index);
     const fanoutBranchDx = fanoutBranchDxByIndex.get(index);
     const fanoutBranchDy = fanoutBranchDyByIndex.get(index);
+    const fanoutBranchHidden = fanoutBranchHiddenByIndex.has(index);
+    const fanoutBranchHiddenAt = fanoutBranchHiddenAtByIndex.get(index);
     if (
       labelDy === undefined &&
       labelDx === undefined &&
@@ -1150,7 +1174,8 @@ export function deconflictChipAnchors(
       fanoutAggDx === undefined &&
       fanoutAggDy === undefined &&
       fanoutBranchDx === undefined &&
-      fanoutBranchDy === undefined
+      fanoutBranchDy === undefined &&
+      !fanoutBranchHidden
     ) {
       return edge;
     }
@@ -1167,6 +1192,8 @@ export function deconflictChipAnchors(
         ...(fanoutAggDy !== undefined ? { fanoutAggDy } : {}),
         ...(fanoutBranchDx !== undefined ? { fanoutBranchDx } : {}),
         ...(fanoutBranchDy !== undefined ? { fanoutBranchDy } : {}),
+        ...(fanoutBranchHidden ? { fanoutBranchHidden: true as const } : {}),
+        ...(fanoutBranchHiddenAt !== undefined ? { fanoutBranchHiddenAt } : {}),
       },
     };
   });

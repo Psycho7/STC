@@ -128,6 +128,16 @@ export type FanoutBusEdgeData = BusAggregate & {
   fanoutAggDy?: number;
   fanoutBranchDx?: number;
   fanoutBranchDy?: number;
+  // Set by deconflictChipAnchors when no chip/card-clear seat exists anywhere
+  // on this member's own polyline (a narrow-corridor fan-out whose aggregate
+  // box covers the whole short path). BusEdge then skips the branch chip: an
+  // off-line seat would float in empty canvas, and the member's rate is
+  // already on its target card's input row. The companion anchor records the
+  // branch anchor the hide was decided at: nodes stay mouse-draggable and the
+  // seating pass does not rerun on drag, so BusEdge drops a hide whose live
+  // recomputed anchor no longer matches the stamp.
+  fanoutBranchHidden?: true;
+  fanoutBranchHiddenAt?: { x: number; y: number };
 };
 
 // Data fields the bus pass merges onto a member edge's existing `data`. A

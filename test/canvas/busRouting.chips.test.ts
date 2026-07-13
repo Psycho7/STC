@@ -3,11 +3,12 @@
 // and the merged entry/bus/midpoint collision set). Fixtures come from
 // ./busRouting.testkit.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import {
+  portOffsetY,
   routeBusEdges,
   routeFanoutEdges,
   BUS_SPAN_THRESHOLD,
@@ -408,5 +409,81 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     // so no offset is stamped there either.
     expect(aggOf(out, "e0").fanoutAggDx).toBeUndefined();
     expect(aggOf(out, "e0").fanoutAggDy).toBeUndefined();
+  });
+  it("hides a branch chip whose whole short path the aggregate box covers", () => {
+    // A same-y member's branch degenerates to the straight in-corridor trunk,
+    // and the narrow corridor is shorter than one max-scale chip box, so after
+    // the owner's aggregate seats there is no chip/card-clear point anywhere on
+    // that member's own polyline. Seating it off-line would render a label
+    // floating in empty canvas (issue #9, 1.1 for the fan-out family), and the
+    // member's rate is already visible on its target card's input row -- so the
+    // branch chip is hidden instead. The far member keeps its branch chip: its
+    // long vertical leg is clear.
+    const branchOf = (edges: Edge[], id: string) =>
+      edges.find((e) => e.id === id)!.data as {
+        fanoutBranchHidden?: true;
+        fanoutBranchHiddenAt?: { x: number; y: number };
+        fanoutBranchDx?: number;
+        fanoutBranchDy?: number;
+      };
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", oneGap, 0, r), // same y: straight member, short path
+      recipeNode("t2", oneGap, 400, r), // far below: long clear branch leg
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const out = deconflictChipAnchors(nodes, routeFanoutEdges(nodes, edges));
+    expect(branchOf(out, "e0").fanoutBranchHidden).toBe(true);
+    expect(branchOf(out, "e0").fanoutBranchDx).toBeUndefined();
+    expect(branchOf(out, "e0").fanoutBranchDy).toBeUndefined();
+    // The hide is stamped WITH the branch anchor it was decided at, so BusEdge
+    // can tell a still-valid hide from one gone stale under node drag (the live
+    // recomputed anchor diverges once the user moves either endpoint).
+    const hiddenAt = branchOf(out, "e0").fanoutBranchHiddenAt;
+    expect(hiddenAt).toBeDefined();
+    expect(Number.isFinite(hiddenAt!.x)).toBe(true);
+    expect(Number.isFinite(hiddenAt!.y)).toBe(true);
+    expect(branchOf(out, "e1").fanoutBranchHidden).toBeUndefined();
+    expect(branchOf(out, "e1").fanoutBranchHiddenAt).toBeUndefined();
+  });
+
+  it("keeps the DEV exhausted tripwire when a branch seat exhausts before hiding", () => {
+    // Two foreign wall cards straddle the same-y member's escape column: they
+    // leave the port rows (and so the fan-out classification's trunk / leg /
+    // column acceptance) clear, but block every off-line candidate the nudge
+    // and escape cascades probe, over the full LAST_RESORT_CAP_STEPS range. The
+    // owner's exhausted aggregate parks on the short trunk and chip-blocks the
+    // one wall-free stretch of the member's own line, so the branch seat runs
+    // the whole ladder and returns "exhausted". The chip is still hidden (the
+    // hide covers all off-line tiers), but the DEV tripwire must fire: an
+    // exhausted cascade is a seating regression, not an intentional hide, and
+    // folding it silently into the hide path would mask it.
+    const branchOf = (edges: Edge[], id: string) =>
+      edges.find((e) => e.id === id)!.data as { fanoutBranchHidden?: true };
+    const sy = portOffsetY(recipeNode("s", 0, 0, r), "b", "out");
+    // 9700 > LAST_RESORT_CAP_STEPS * CHIP_NUDGE_STEP (9600) plus box slack.
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t1", oneGap, 0, r), // same y: straight member, short path
+      recipeNode("t2", oneGap, 400, r),
+      productNode("wallTop", 240, sy - 25 - 9700, 80, 9700),
+      productNode("wallBot", 240, sy + 25, 80, 9700),
+    ];
+    const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const routed = routeFanoutEdges(nodes, edges);
+      // The walls must not defeat the classification itself.
+      expect(routed.find((e) => e.id === "e0")!.type).toBe("bus");
+      const out = deconflictChipAnchors(nodes, routed);
+      expect(branchOf(out, "e0").fanoutBranchHidden).toBe(true);
+      expect(
+        warn.mock.calls.some((c) =>
+          String(c[0]).includes("fan-out branch cascade"),
+        ),
+      ).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
