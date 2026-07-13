@@ -4,6 +4,7 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 import { routeBusEdges } from "./busRouting";
 import { deconflictChipAnchors } from "./chipSeating";
+import { CHIP_BOX_WIDTH, MAX_CHIP_SCALE } from "./dimensions";
 import type { RFAnyNode } from "./layout";
 
 // A far-apart product source and several product targets, so every source->target
@@ -100,9 +101,11 @@ test("routeBusEdges gives two members feeding one target distinct rise-chip slot
   expect(byId.get("e:1")!).toBeLessThan(byId.get("e:2")!);
 });
 
-test("deconflictChipAnchors nudges one of two coincident item midpoint chips", () => {
+test("deconflictChipAnchors separates two coincident item midpoint chips along their line", () => {
   // Two forward item edges with identical endpoint geometry produce coincident
-  // midpoint anchors; the greedy pass must offset at least one of them.
+  // midpoint anchors. The graze tier keeps both chips ON the shared line
+  // (leaving the line is a last resort), so the second chip slides along it by
+  // at least a full max-scale chip-box width instead of lifting vertically.
   const nodes = [
     productNode("sA", 0),
     productNode("tA", 2000),
@@ -126,6 +129,14 @@ test("deconflictChipAnchors nudges one of two coincident item midpoint chips", (
     },
   ];
   const out = deconflictChipAnchors(nodes, edges);
-  const nudges = out.map((e) => (e.data as { labelDy?: number }).labelDy ?? 0);
-  expect(nudges.some((dy) => dy !== 0)).toBe(true);
+  const seats = out.map((e) => {
+    const d = e.data as { labelDx?: number; labelDy?: number };
+    return { dx: d.labelDx ?? 0, dy: d.labelDy ?? 0 };
+  });
+  // Both chips stay on the shared horizontal line...
+  for (const s of seats) expect(s.dy).toBe(0);
+  // ...separated along it by a full max-scale chip-box width.
+  expect(Math.abs(seats[0]!.dx - seats[1]!.dx)).toBeGreaterThanOrEqual(
+    MAX_CHIP_SCALE * CHIP_BOX_WIDTH,
+  );
 });

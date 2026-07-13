@@ -238,13 +238,15 @@ describe("deconflictChipAnchors: reconstruction tripwires", () => {
     ];
     const out = deconflictChipAnchors(nodes, edges);
     // The forward edge's straight line passes exactly through the bus chip's
-    // lane slot, so even the bus chip yields one pitch (a chip never sits on a
-    // foreign flow's line). The rate chip cannot slide clear on its own line
-    // (the foreign lane run is collinear with it), so the bidirectional escape
-    // nudge fires and takes the NEAREST fully clear seat: one pitch UP, away
-    // from both the lane run and the bus chip displaced below it.
+    // lane slot, so the bus chip yields one pitch (a chip never sits on a
+    // foreign flow's line). The rate chip's own line is collinear with the
+    // foreign lane run, so no fully clear on-line point exists -- but the
+    // graze tier keeps it ON its own line anyway (chips and cards are the only
+    // hard blockers, and the displaced bus chip now sits a full pitch away),
+    // so the chip holds its anchor instead of lifting off the line.
     expect(busChipDyOf(out, "bus:0")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
-    expect(labelDyOf(out, "mid:0")).toBe(-(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT));
+    expect(labelDyOf(out, "mid:0")).toBe(0);
+    expect(labelDxOf(out, "mid:0")).toBe(0);
   });
 });
 

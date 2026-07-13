@@ -434,25 +434,38 @@ const LAST_RESORT_CAP_STEPS = 200;
 // How a rate chip ended up seated, coarsest last:
 //   anchor    on its clear-segment anchor, fully clear;
 //   slide     slid along its own polyline to a fully clear point;
+//   graze     on its own polyline clear of chips and cards, grazing a foreign
+//             line (no fully clear on-line point existed);
 //   nudge     a short vertical lift off the line, still fully clear;
 //   escape    the chips-and-cards cascade found a seat (foreign-line
 //             clearance and on-own-line preference yielded);
 //   exhausted the bounded search failed and the chip parked at its anchor
 //             (never expected; the caller's DEV warning fires on this).
-export type RateSeatTier = "anchor" | "slide" | "nudge" | "escape" | "exhausted";
+export type RateSeatTier =
+  | "anchor"
+  | "slide"
+  | "graze"
+  | "nudge"
+  | "escape"
+  | "exhausted";
+
 
 export type RateSeat = { dx: number; dy: number; tier: RateSeatTier };
 
-// Seat an item rate chip: the three-tier seat the item phase (and P4's
-// aggregate chips) run. Tier 1 slides ALONG THE OWN POLYLINE from the anchor,
-// nearest arc-length offset first, taking the first point clear of chips,
-// cards, and foreign lines -- the chip stays on the flow it labels. Tier 2 is
-// a short bidirectional vertical nudge off the anchor, still fully clear, for
-// the coincident-parallel-edge case where the own line offers no separation.
-// Tier 3 waives the soft preferences (foreign lines, on-own-line) and cascades
+// Seat an item rate chip: the tiered seat the item phase (and 3b's fan-out
+// chips) run. Tier 1 slides ALONG THE OWN POLYLINE from the anchor, nearest
+// arc-length offset first, taking the first point clear of chips, cards, and
+// foreign lines -- the chip stays on the flow it labels. Tier 1b (graze)
+// repeats that slide upholding only the HARD invariants (chips and cards),
+// grazing foreign lines: staying visibly attached to the own line outranks
+// clearing a parallel foreign line, because a braided corridor can poison
+// every fully-clear candidate and the old off-line exits parked chips in
+// empty canvas (issue #9). Tier 2 is a short bidirectional vertical nudge off
+// the anchor, fully clear, reached only when the whole own line is chip- or
+// card-blocked. Tier 3 waives every soft preference and cascades
 // bidirectionally against CHIPS AND CARDS only, nearest escape first (ties
-// prefer down), upholding the two hard invariants. The seat is pushed into the
-// field; the returned offsets are relative to the anchor.
+// prefer down). The seat is pushed into the field; the returned offsets are
+// relative to the anchor.
 export function seatRateChip(
   field: ClearanceField,
   path: {
@@ -473,7 +486,12 @@ export function seatRateChip(
       pts[i]![1] - pts[i - 1]![1],
     );
   }
-  const anchorLen = lengthAtPoint(pts, anchorX, anchorY);
+  // Clamp: a fan-out trunk anchor is rounded independently of the polyline's
+  // last vertex, so it can land a sub-rounding hair past the end. lengthAtPoint
+  // still resolves it (1-unit segment tolerance) but to an arc length beyond
+  // total, which would make tier 1 skip the delta=0 candidate and every
+  // positive delta, ejecting an uncrowded chip one slide step left.
+  const anchorLen = Math.min(total, lengthAtPoint(pts, anchorX, anchorY));
   const boxAt = (px: number, py: number): ChipBox => ({
     x: px,
     y: py,
@@ -511,12 +529,31 @@ export function seatRateChip(
       }
     }
   }
-  // Nothing on the line clears. Two coincident parallel edges, or a chip on a
-  // shared bus lane, cannot separate along the line (their lines overlap), and
-  // a chip pinned in a dense weave has no clear point on its own polyline.
-  // Escapes off the line follow the ratified priority order: chip/chip and
-  // chip/card clearance are HARD, staying on the line and clearing foreign
-  // lines are preferences that yield.
+  // Nothing on the line is FULLY clear. Before leaving the line, try to stay
+  // on it upholding only the HARD invariants.
+  // Tier 1b (graze): the same nearest-first slide, clear of chips and cards
+  // but grazing foreign lines. In a braided corridor a parallel foreign line
+  // within a chip half-height poisons every tier-1 candidate at once, yet the
+  // own line is otherwise empty -- the chip belongs on it, icon and tint
+  // disambiguate the graze.
+  const hardClearAt = (px: number, py: number): boolean => {
+    const box = boxAt(px, py);
+    return !field.entersForeignCard(box, exempt) && !field.overlapsChip(box);
+  };
+  for (let k = 0; k <= SLIDE_MAX_STEPS; k++) {
+    const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
+    for (const delta of deltas) {
+      const len = anchorLen + delta;
+      if (len < 0 || len > total) continue;
+      const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
+      if (hardClearAt(px, py)) {
+        return seat(px, py, "graze");
+      }
+    }
+  }
+  // The whole own line is chip- or card-blocked. Escapes off the line follow
+  // the ratified priority order: chip/chip and chip/card clearance are HARD,
+  // staying on the line and clearing foreign lines are preferences that yield.
   // Tier 2: a SHORT bidirectional vertical nudge off the anchor that clears
   // chips, cards, AND foreign lines (cap NUDGE_CAP_STEPS): the parallel-edge
   // chip lifts a step or two and stays fully clean.
