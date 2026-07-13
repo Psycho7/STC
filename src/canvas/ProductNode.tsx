@@ -97,7 +97,6 @@ export default function ProductNode({
               <PortGlyph
                 kind={data.portTransportKinds?.get(`in:${data.itemId}`)}
                 side="left"
-                top={16}
               />
             </>
           ) : null}
@@ -109,7 +108,6 @@ export default function ProductNode({
           <PortGlyph
             kind={data.portTransportKinds?.get(`out:${data.itemId}`)}
             side="right"
-            top={16}
           />
         </>
       ) : (
@@ -122,7 +120,6 @@ export default function ProductNode({
           <PortGlyph
             kind={data.portTransportKinds?.get(`in:${data.itemId}`)}
             side="left"
-            top={16}
           />
         </>
       )}
