@@ -20,11 +20,7 @@ import {
   ENTRY_SLOT_PITCH,
   BUS_SPAN_THRESHOLD,
 } from "../../src/canvas/busRouting";
-import {
-  ENTRY_CHIP_BOX_WIDTH,
-  ENTRY_CHIP_OFFSET,
-  MAX_CHIP_SCALE,
-} from "../../src/canvas/dimensions";
+import { ENTRY_GUTTER_OVERHANG } from "../../src/canvas/dimensions";
 import {
   PORT_STUB,
   CHAMFER,
@@ -364,12 +360,8 @@ describe("paddedObstacles", () => {
     const nodeRight = 100 + 148;
     const nodeTop = 50;
     const nodeBottom = 50 + 78;
-    // Left overhang: the wider of the port stub and the entry chip, which renders
-    // one ENTRY_CHIP_OFFSET inside the port plus half its max-scale box.
-    const leftPad = Math.max(
-      PORT_STUB,
-      ENTRY_CHIP_OFFSET + (MAX_CHIP_SCALE * ENTRY_CHIP_BOX_WIDTH) / 2,
-    );
+    // Left overhang: the wider of the port stub and the entry-gutter overhang.
+    const leftPad = Math.max(PORT_STUB, ENTRY_GUTTER_OVERHANG);
     expect(nodeLeft - card!.left).toBe(leftPad);
     expect(card!.right - nodeRight).toBe(PORT_STUB); // right: source stub only
     expect(nodeTop - card!.top).toBe(CHAMFER);

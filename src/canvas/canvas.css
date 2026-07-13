@@ -1722,14 +1722,6 @@
     0 0 12px rgba(225, 53, 30, 0.18);
 }
 
-/* Compact icon-only variant used by ItemEdge's entry chip, pinned at a target
-   port. It drops the label padding and gap so the sprite reads as a small
-   identity dot beside the node rather than a full rate chip. */
-.flow-chip.entry {
-  padding: 2px;
-  gap: 0;
-}
-
 .product-node {
   background: var(--ak-bg-primary);
   border: 1px solid var(--ak-divider);

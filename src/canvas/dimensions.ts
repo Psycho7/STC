@@ -52,19 +52,17 @@ export const MAX_CHIP_SCALE = 2;
 // item name rides only on aria-label/title, never in the box). The widest corpus
 // chip measured ~115px; 120 adds headroom, and the .flow-chip max-width clamp in
 // canvas.css enforces the bound at runtime by ellipsizing any off-corpus rate
-// string that would exceed it. ENTRY_CHIP_BOX_WIDTH is the icon-only
-// entry-marker variant (16px sprite plus the compact padding/border), which is
-// much narrower. busRouting's chip de-confliction reads both so its horizontal
-// collision floor tracks the true rendered width instead of a stale guess.
+// string that would exceed it. busRouting's chip de-confliction reads it so its
+// horizontal collision floor tracks the true rendered width instead of a stale
+// guess.
 export const CHIP_BOX_WIDTH = 120;
-export const ENTRY_CHIP_BOX_WIDTH = 22;
 
-// Horizontal inset of an entry chip from its target port, in graph units. The
-// chip renders one inset left of the port so it reads as belonging to the
-// entering leg without overlapping the port glyph. Shared by ItemEdge (the
-// render offset) and busRouting (entry-column collision box plus the left
-// overhang padding of the obstacle provider), so both track one value.
-export const ENTRY_CHIP_OFFSET = 12;
+// Left overhang a routed vertical (rise / bend / rail column) keeps clear of a
+// target's Left port, in graph units. The retired icon-only entry chips
+// reached this far left of the port (a 12 inset plus half a 22-wide max-scale
+// box); the pad keeps that footprint so arrival corridors stay uncluttered and
+// the routing geometry is unchanged by the chips' removal.
+export const ENTRY_GUTTER_OVERHANG = 34;
 
 export const NODE_NODE_SPACING = 30;
 // A generous column gap so each ItemEdge label chip (item icon + name + rate)

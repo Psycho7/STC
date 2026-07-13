@@ -9,11 +9,7 @@
 
 import { CHAMFER, PORT_STUB } from "../../src/canvas/edgePath";
 import { FANOUT_SPAN_MAX } from "../../src/canvas/busRouting";
-import {
-  ENTRY_CHIP_BOX_WIDTH,
-  ENTRY_CHIP_OFFSET,
-  MAX_CHIP_SCALE,
-} from "../../src/canvas/dimensions";
+import { ENTRY_GUTTER_OVERHANG } from "../../src/canvas/dimensions";
 
 export type Pt = readonly [number, number];
 
@@ -38,13 +34,10 @@ export type RawEdge = {
 };
 
 // Card padding, mirroring busRouting.paddedObstacles' `card` obstacle: the
-// source port stub overhangs right, the wider of the target stub and the entry
-// chip overhangs left, and the chamfer bevel overhangs top / bottom.
+// source port stub overhangs right, the wider of the target stub and the
+// entry-gutter overhang left, and the chamfer bevel overhangs top / bottom.
 const OBSTACLE_PAD_RIGHT = PORT_STUB;
-const OBSTACLE_PAD_LEFT = Math.max(
-  PORT_STUB,
-  ENTRY_CHIP_OFFSET + (MAX_CHIP_SCALE * ENTRY_CHIP_BOX_WIDTH) / 2,
-);
+const OBSTACLE_PAD_LEFT = Math.max(PORT_STUB, ENTRY_GUTTER_OVERHANG);
 const OBSTACLE_PAD_Y = CHAMFER;
 
 export function paddedCard(rect: RawRect): RawRect {
@@ -214,16 +207,14 @@ export function auditSegmentsVsCards(
 }
 
 // A rendered chip box in flow coordinates, tagged with its owning edge (the
-// data-edge-id hook FlowChip emits) and its family ("entry" for the icon-only
-// port marker, "label" for everything else).
+// data-edge-id hook FlowChip emits) and its family.
 export type ChipRect = RawRect & {
   edgeId: string;
   label: string;
-  // "entry" = icon-only port marker, "bus" = lane-anchored bus rise/branch chip
-  // (out of scope for the corridor invariants), "bus-drop" = the trunk-seated
-  // aggregate chip (audited against foreign cards with a trunk-member exemption),
-  // "label" = item rate chip.
-  kind: "entry" | "label" | "bus" | "bus-drop";
+  // "bus" = lane-anchored bus rise/branch chip (out of scope for the corridor
+  // invariants), "bus-drop" = the trunk-seated aggregate chip (audited against
+  // foreign cards with a trunk-member exemption), "label" = item rate chip.
+  kind: "label" | "bus" | "bus-drop";
 };
 
 export type ChipViolation = {
@@ -329,7 +320,7 @@ export function auditSegmentsVsChips(
 export type ChipCardViolation = {
   chipEdgeId: string;
   chipLabel: string;
-  chipKind: "entry" | "label" | "bus-drop";
+  chipKind: "label" | "bus-drop";
   card: string;
   raw: boolean;
 };
@@ -337,10 +328,8 @@ export type ChipCardViolation = {
 // Every chip box that enters a FOREIGN node's RAW card (the P3 chip-vs-card
 // tier). Foreign = any node except the chip's own exemption set (the same
 // endpoint / container exemption auditSegmentsVsCards uses):
-//   - entry / label chip: source + target + those two endpoints' containers. An
-//     entry chip is pinned one inset outside its OWN target's left edge, so its
-//     box legitimately clips that card; a label chip rides its own corridor leg,
-//     clear of both endpoints' cards.
+//   - label chip: source + target + those two endpoints' containers. A label
+//     chip rides its own corridor leg, clear of both endpoints' cards.
 //   - bus-drop (aggregate) chip: it seats on the SHARED trunk, feeding every
 //     member of the trunk, so its exemption spans the whole trunk. Membership =
 //     every edge sharing (source, item) with the owner edge; the exempt set is

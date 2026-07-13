@@ -14,31 +14,20 @@ import {
   BUS_SPAN_THRESHOLD,
   LANE_SPACING,
 } from "../../src/canvas/busRouting";
-import {
-  deconflictChipAnchors,
-  ENTRY_CHIP_MIN_GAP,
-} from "../../src/canvas/chipSeating";
+import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
-import { entryChipAnchor } from "../../src/canvas/ItemEdge";
 import type { RFAnyNode } from "../../src/canvas/layout";
-import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import {
   mkRecipe,
   recipeNode,
   inputProductNode,
   mkEdge,
-  orderedRecipeNode,
   productNode,
   busDropDyOf,
   busChipDyOf,
 } from "./busRouting.testkit";
 
 describe("chip stack pitch", () => {
-  it("couples the entry pitch to max counter-scale times true chip height", () => {
-    expect(ENTRY_CHIP_MIN_GAP).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
-    expect(ENTRY_CHIP_MIN_GAP).toBe(48);
-  });
-
   it("couples the lane pitch to the same max-scale chip box height", () => {
     // Adjacent lanes carry rise chips a max-scale box height apart, so their
     // boxes abut instead of interpenetrating at the fit-zoom floor.
@@ -59,13 +48,6 @@ function labelDxOf(edges: Edge[], id: string): number {
     | { labelDx?: number }
     | undefined;
   return d?.labelDx ?? 0;
-}
-
-function entryDyOf(edges: Edge[], id: string): number {
-  const d = edges.find((e) => e.id === id)?.data as
-    | { entryChipDy?: number }
-    | undefined;
-  return d?.entryChipDy ?? 0;
 }
 
 describe("deconflictChipAnchors: bus lane cascade", () => {
@@ -252,86 +234,6 @@ describe("deconflictChipAnchors: reconstruction tripwires", () => {
 });
 
 describe("deconflictChipAnchors: merged collision set", () => {
-  it("keeps a midpoint chip and a target's entry-chip stack clear of each other", () => {
-    // Target T hosts two same-port entry chips (item "water") whose port anchor
-    // is (Tx - 12, waterY). A third, non-multiInput forward edge A runs straight
-    // into that same port with a 24px gap, so its rate-chip anchor lands exactly
-    // on the entry port slot. A's source card (sa) is packed so close that it
-    // overlaps the entry chips' x-reserve: the card-aware entry stack must push
-    // both markers below sa's card (a foreign card for the b-edges), which
-    // leaves A's anchor clear -- the merged set must end with the rate chip and
-    // every entry box disjoint, whoever yielded.
-    const Tx = 600;
-    const tRecipe = mkRecipe("t", ["water", "ore"], []);
-    const waterY = measureRecipe(tRecipe).inHandleYs[0]!; // T top is 0
-    const nodes: RFAnyNode[] = [
-      orderedRecipeNode("t", Tx, 0, ["water", "ore"]),
-      // Sources for the two entry chips, far to the left (their own midpoint
-      // chips land nowhere near the entry stack).
-      recipeNode("sb1", -2000, 0, mkRecipe("sb1", [], ["water"])),
-      recipeNode("sb2", -2000, 300, mkRecipe("sb2", [], ["water"])),
-      // Source for A: a product whose right edge sits one 24px gap before T and
-      // whose center is exactly waterY, so a straight-line midpoint lands on the
-      // entry chip anchor (Tx - 12, waterY).
-      productNode("sa", Tx - 24 - 148, waterY - 30, 148, 60),
-    ];
-    const edges: Edge[] = [
-      {
-        id: "e:a",
-        source: "sa",
-        target: "t",
-        type: "item",
-        data: { item: "water", rate: new Fraction(1) },
-      },
-      {
-        id: "e:b1",
-        source: "sb1",
-        target: "t",
-        type: "item",
-        data: { item: "water", rate: new Fraction(1), multiInputTarget: true },
-      },
-      {
-        id: "e:b2",
-        source: "sb2",
-        target: "t",
-        type: "item",
-        data: { item: "water", rate: new Fraction(1), multiInputTarget: true },
-      },
-    ];
-
-    const out = deconflictChipAnchors(nodes, edges);
-
-    // The entry markers stepped below sa's card bottom (waterY + 30): their
-    // boxes must not enter that foreign card.
-    const b1Dy = entryDyOf(out, "e:b1");
-    const b2Dy = entryDyOf(out, "e:b2");
-    const saBottom = waterY + 30;
-    for (const dy of [b1Dy, b2Dy]) {
-      expect(waterY + dy - CHIP_BOX_HEIGHT).toBeGreaterThanOrEqual(saBottom);
-    }
-
-    // A's rate chip then finds its port-slot anchor clear and stays put.
-    const aDy = labelDyOf(out, "e:a");
-    expect(aDy).toBe(0);
-    const aX = Tx - 12;
-    const aY = waterY + aDy;
-
-    // Each entry chip's final box, at its own stacked dy.
-    const entryBoxes = [
-      entryChipAnchor(Tx, waterY, b1Dy),
-      entryChipAnchor(Tx, waterY, b2Dy),
-    ];
-    // No box intersection: the rate chip clears every entry box on at least one
-    // axis. X is shared here (both sit at Tx - 12), so the clearance is vertical
-    // and must reach a full max-scale box height.
-    for (const box of entryBoxes) {
-      const clears =
-        Math.abs(box.x - aX) >= 60 ||
-        Math.abs(box.y - aY) >= MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
-      expect(clears).toBe(true);
-    }
-  });
-
   it("moves a coincident midpoint chip by at least the max-scale pitch (48)", () => {
     // Two parallel forward edges share one source and one target, so their
     // straight-line midpoints coincide exactly. The second (by edge id) is
@@ -410,6 +312,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     expect(aggOf(out, "e0").fanoutAggDx).toBeUndefined();
     expect(aggOf(out, "e0").fanoutAggDy).toBeUndefined();
   });
+
   it("hides a branch chip whose whole short path the aggregate box covers", () => {
     // A same-y member's branch degenerates to the straight in-corridor trunk,
     // and the narrow corridor is shorter than one max-scale chip box, so after

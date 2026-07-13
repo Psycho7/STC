@@ -24,8 +24,7 @@ import Fraction from "fraction.js";
 import {
   BETWEEN_LAYERS_SPACING,
   CHIP_BOX_HEIGHT,
-  ENTRY_CHIP_BOX_WIDTH,
-  ENTRY_CHIP_OFFSET,
+  ENTRY_GUTTER_OVERHANG,
   MAX_CHIP_SCALE,
   RECIPE_WIDTH,
   loopBoxDimensions,
@@ -1280,25 +1279,21 @@ export function assignBendColumns(
 // The single source of truth for "what a vertical run (backward rail, bus rise /
 // drop, forward bend) must stay clear of". Two kinds of obstacle:
 //   - card:   a node's box, padded for the geometry that overhangs it. A source
-//             port stub reaches PORT_STUB right; a target port stub reaches
-//             PORT_STUB left, and the entry chip reaches further still (it
-//             renders one ENTRY_CHIP_OFFSET inside the port and spans half its
-//             max-scale box left of that), so the left pad is the wider of the
-//             two. Top / bottom carry the CHAMFER bevel overhang, matching the
-//             gutter rects.
+//             port stub reaches PORT_STUB right; on the left the pad is the
+//             wider of the target port stub and the entry-gutter overhang
+//             (ENTRY_GUTTER_OVERHANG, the arrival corridor kept clear before a
+//             Left port). Top / bottom carry the CHAMFER bevel overhang,
+//             matching the gutter rects.
 //   - gutter: each node's entry-gutter rect (entryGutterRects), a first-class
 //             obstacle so a run stays out of a foreign node's entry corridor.
 // Pure: rects are a deterministic function of node geometry and the gutter
 // column counts derived from the edges.
 
 // Overhang a padded card rect adds around a node's raw box. RIGHT carries the
-// source port stub; LEFT the wider of the target stub and the entry chip; Y the
-// chamfer bevel.
+// source port stub; LEFT the wider of the target stub and the entry-gutter
+// overhang; Y the chamfer bevel.
 const OBSTACLE_PAD_RIGHT = PORT_STUB;
-export const OBSTACLE_PAD_LEFT = Math.max(
-  PORT_STUB,
-  ENTRY_CHIP_OFFSET + (MAX_CHIP_SCALE * ENTRY_CHIP_BOX_WIDTH) / 2,
-);
+export const OBSTACLE_PAD_LEFT = Math.max(PORT_STUB, ENTRY_GUTTER_OVERHANG);
 export const OBSTACLE_PAD_Y = CHAMFER;
 
 // nodeId identifies the node an obstacle belongs to, so a consumer can exempt an

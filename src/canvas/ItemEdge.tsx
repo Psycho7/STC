@@ -8,7 +8,7 @@ import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
-import { ENTRY_CHIP_OFFSET, MAX_CHIP_SCALE } from "./dimensions";
+import { MAX_CHIP_SCALE } from "./dimensions";
 import { chamferStepPath, routingHintsFromData } from "./edgePath";
 import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
@@ -55,17 +55,6 @@ export type ItemEdgeData = {
   // to bend the leg around an intervening card. Optional: absent for unblocked
   // forward edges and every backward edge.
   legY?: number;
-  // Set by fromElkRenderLayout when this edge's consumer (target unit) has two
-  // or more inputs. It gates the icon-only entry chip pinned at the target port,
-  // which names the entering line right at the node where several inputs meet.
-  // Single-input consumers leave it unset, so their lone entering line needs no
-  // extra identity chip. Optional and defaults to falsy.
-  multiInputTarget?: true;
-  // Vertical stack offset for the entry chip, assigned by deconflictChipAnchors
-  // when several arrivals at one target node would otherwise pin their entry
-  // chips to overlapping anchors. Added to the port y so the chips stack in
-  // arrival order instead of coinciding. Optional and defaults to 0.
-  entryChipDy?: number;
   // Vertical nudge for the midpoint rate chip, assigned by deconflictChipAnchors
   // when the chip would otherwise land on top of another edge's chip. Added to
   // the label y so the two chips clear each other. Optional and defaults to 0.
@@ -82,17 +71,6 @@ export type ItemEdgeData = {
   // .flow-chip.dimmed rule does. Optional and defaults to falsy (idle / lit).
   dimmed?: boolean;
 };
-
-// Anchor for an entry chip: one inset left of the target port, at the port y
-// plus the stack offset deconflictChipAnchors assigned (0 when the chip is the
-// only arrival, so it stays pinned to its port). Pure so it can be unit-tested.
-export function entryChipAnchor(
-  targetX: number,
-  targetY: number,
-  stackDy = 0,
-): { x: number; y: number } {
-  return { x: targetX - ENTRY_CHIP_OFFSET, y: targetY + stackDy };
-}
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
 // (older fixtures and tests). Belt is a solid gray stroke; pipe is a dashed cyan
@@ -147,16 +125,14 @@ export function chipAccentStyle(item?: ItemId): React.CSSProperties {
 }
 
 // FlowChip: the shared EdgeLabelRenderer chip every edge label uses -- the rate
-// chip at ItemEdge's bend column, the icon-only entry chip at a multi-input
-// target port, and BusEdge's drop / rise chips on the trunk lane. One place
-// owns the DOM contract: a nodrag/nopan .flow-chip div centered on (x, y) by
-// the double translate, tinted to the item through chipAccentStyle, carrying
-// the full "Name x rate/min" string on aria-label and title, with an optional
-// 16px item sprite followed by the optional chip text. `tear` switches to the
-// red tear-edge variant; `extraClass` appends a modifier class (the entry
-// chip's "entry"); `dimmed` appends the `dimmed` class so a chip fades with its
-// edge under the hover ego-network (the edge wrapper's own dim never reaches the
-// portaled chip).
+// chip at ItemEdge's bend column and BusEdge's drop / rise chips on the trunk
+// lane. One place owns the DOM contract: a nodrag/nopan .flow-chip div centered
+// on (x, y) by the double translate, tinted to the item through
+// chipAccentStyle, carrying the full "Name x rate/min" string on aria-label and
+// title, with an optional 16px item sprite followed by the optional chip text.
+// `tear` switches to the red tear-edge variant; `dimmed` appends the `dimmed`
+// class so a chip fades with its edge under the hover ego-network (the edge
+// wrapper's own dim never reaches the portaled chip).
 export function FlowChip({
   testId,
   edgeId,
@@ -167,7 +143,6 @@ export function FlowChip({
   label,
   title,
   tear,
-  extraClass,
   dimmed,
   zoom,
 }: {
@@ -184,7 +159,6 @@ export function FlowChip({
   // rate here so hovering reveals the precise value the rounded chip text hides.
   title?: string | undefined;
   tear?: boolean | undefined;
-  extraClass?: string | undefined;
   dimmed?: boolean | undefined;
   // Live pane zoom, used to counter-scale the chip so it stays legible at the
   // dense-plan fit zoom. Optional: callers without a zoom leave the chip at its
@@ -205,7 +179,6 @@ export function FlowChip({
         className={
           "nodrag nopan flow-chip" +
           (tear ? " red" : "") +
-          (extraClass !== undefined ? ` ${extraClass}` : "") +
           (dimmed ? " dimmed" : "")
         }
         aria-label={label}
@@ -327,29 +300,6 @@ export default function ItemEdge({
           title={exactTitle}
           tear={edgeData?.isTearEdge}
           dimmed={edgeData?.dimmed}
-          zoom={zoom}
-        />
-      ) : null}
-      {/* Entry chip: an icon-only mini chip pinned at the target port, rendered
-          only when the consumer has two or more inputs (multiInputTarget) and
-          the zoom is above the same LABEL_MIN_ZOOM gate the rate chip uses. It
-          reuses the flow-chip + sprite idiom but drops the rate text; the full
-          "Name x rate/min" rides on aria-label and the exact rate on the hover
-          tooltip so hovering or a screen reader names the item. The rate chip at
-          the bend column is
-          untouched: this chip only adds identity at the node where several
-          inputs braid together. --chip-accent tints it to the item so the chip,
-          the entering line, and the matching input row all read as one color. */}
-      {edgeData?.multiInputTarget && zoom >= LABEL_MIN_ZOOM ? (
-        <FlowChip
-          testId={`item-edge-entry-${id}`}
-          edgeId={id}
-          {...entryChipAnchor(targetX, targetY, edgeData.entryChipDy)}
-          item={edgeData.item}
-          label={fullLabel}
-          title={exactTitle}
-          extraClass="entry"
-          dimmed={edgeData.dimmed}
           zoom={zoom}
         />
       ) : null}

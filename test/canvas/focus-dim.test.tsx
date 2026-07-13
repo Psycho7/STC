@@ -49,9 +49,8 @@ const EDGES: Edge[] = [
   // Two bus edges fan out of "a" on the same trunk.
   { id: "e1", type: "bus", source: "a", target: "b", data: busData("Iron|a") },
   { id: "e2", type: "bus", source: "a", target: "c", data: busData("Iron|a") },
-  // An unrelated item edge into "c" from "d" on no trunk. multiInputTarget is
-  // set so it draws both a rate chip and an entry chip, letting the dim tests
-  // exercise every chip kind (rate / entry / bus drop-rise).
+  // An unrelated item edge into "c" from "d" on no trunk, so the dim tests
+  // exercise every chip kind (rate / bus drop-rise).
   {
     id: "e3",
     type: "item",
@@ -60,7 +59,6 @@ const EDGES: Edge[] = [
     data: {
       item: "Copper",
       rate: new Fraction(1, 1),
-      multiInputTarget: true,
     } as unknown as Record<string, unknown>,
   },
 ];
@@ -74,7 +72,7 @@ const BUS_CHIP_IDS = [
   "bus-edge-label-e2-drop",
   "bus-edge-label-e2-rise",
 ];
-const ITEM_CHIP_IDS = ["item-edge-label-e3", "item-edge-entry-e3"];
+const ITEM_CHIP_IDS = ["item-edge-label-e3"];
 const ALL_CHIP_IDS = [...BUS_CHIP_IDS, ...ITEM_CHIP_IDS];
 
 // Chips mount a beat after the edges, once React Flow has placed the labels.

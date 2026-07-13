@@ -1,5 +1,5 @@
 // Chip seating: the whole-graph de-confliction pass that places every
-// edge-label chip (entry markers, bus drop/rise chips, item rate chips) after
+// edge-label chip (bus drop/rise chips, fan-out chips, item rate chips) after
 // routing has finished, plus the clearance machinery it runs on.
 //
 // Two coincident chips read as one, and on a bus lane the surviving chip lied
@@ -8,17 +8,16 @@
 // the final laneY, entryX, bendX, and busChipX) and threads chip-nudge offsets
 // onto edge data through one shared collision set (the ClearanceField).
 //
-// Seating runs in FOUR EXPLICIT PHASES, in this order -- the ordering is
+// Seating runs in EXPLICIT PHASES, in this order -- the ordering is
 // load-bearing, not incidental, so keep it explicit rather than folding it
 // into a generic priority framework:
-//   1. entry chips: pinned to their target ports, stacked to a clear pitch;
-//      they seed the field first as (near-)fixed obstacles because they are
-//      the only chips whose meaning depends on staying at a port.
-//   2. bus drop chips: one aggregate total per trunk at its junction; they
+//   1. bus drop chips: one aggregate total per trunk at its junction; they
 //      settle before any rise so a cascading rise can never knock a trunk's
 //      aggregate off its lane.
-//   3. bus rise chips: per-member lane chips, cascading off the lane (down in
+//   2. bus rise chips: per-member lane chips, cascading off the lane (down in
 //      the bottom band, up in the top band) when crowded.
+//   3. fan-out trunk chips: the owner's aggregate on the shared trunk, then
+//      each member's branch chip on its own leg.
 //   4. item rate chips: seated on their own polyline's clear segment by
 //      seatRateChip, yielding to everything placed before them.
 // Within each phase, edges are processed in edge-id (or target-map insertion)
@@ -31,13 +30,7 @@
 
 import type { Edge } from "@xyflow/react";
 
-import {
-  CHIP_BOX_HEIGHT,
-  CHIP_BOX_WIDTH,
-  ENTRY_CHIP_BOX_WIDTH,
-  ENTRY_CHIP_OFFSET,
-  MAX_CHIP_SCALE,
-} from "./dimensions";
+import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH, MAX_CHIP_SCALE } from "./dimensions";
 import {
   chamferBusPath,
   chamferFanoutPath,
@@ -50,7 +43,6 @@ import {
   absoluteLeft,
   absoluteTop,
   edgeItem,
-  inputPortIndex,
   nodeHeight,
   nodeWidth,
   portOffsetY,
@@ -62,16 +54,13 @@ import type { RFAnyNode } from "./layout";
 // about its centre, so its rendered box in graph space never exceeds
 // MAX_CHIP_SCALE times its natural dimension; half of that is the half-extent two
 // centres must stay apart on an axis to keep the boxes clear at every zoom down
-// to the fit floor. Height is shared by both chip families (they are the same
-// height); width splits by family because the icon-only entry marker is far
-// narrower than a rate/bus chip carrying text. The collision test sums the two
-// boxes' half-extents per axis, so a wide-vs-wide pair needs the full
-// MAX_CHIP_SCALE * CHIP_BOX_WIDTH of centre separation while a wide-vs-entry pair
-// needs less -- the earlier single fixed 60 flagged only near-coincident pairs
-// and missed wide chips that overlap on screen from tens of graph units away.
+// to the fit floor. The collision test sums the two boxes' half-extents per
+// axis, so a wide-vs-wide pair needs the full MAX_CHIP_SCALE * CHIP_BOX_WIDTH
+// of centre separation -- the earlier single fixed 60 flagged only
+// near-coincident pairs and missed wide chips that overlap on screen from tens
+// of graph units away.
 const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
 const CHIP_HALF_W_WIDE = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
-const CHIP_HALF_W_ENTRY = (MAX_CHIP_SCALE * ENTRY_CHIP_BOX_WIDTH) / 2;
 
 // Vertical pitch a colliding chip is bumped by each step, and the shared full
 // chip-box height. A full max-scale box height keeps the resolved clearance from
@@ -183,7 +172,7 @@ export type ClearanceField = {
   // Foreign-line test with the arrival-cluster exemption: a same-target
   // sibling's line is skipped unconditionally when no entry band is given
   // (bus / entry seats), and only while the box centre sits inside the band
-  // when one is (rate-chip seats, the narrowed 3a rule).
+  // when one is (rate-chip seats, the narrowed rule).
   onForeignLine(
     box: ChipBox,
     flowKey: string,
@@ -331,27 +320,6 @@ function seatChip(
   return dy;
 }
 
-// Minimum vertical pitch between two entry chips arriving at one node, in graph
-// units. Entry chips whose port anchors sit closer than this (same-item
-// duplicates share a port y outright) are stacked down to this pitch so none
-// coincide at any zoom.
-export const ENTRY_CHIP_MIN_GAP = CHIP_PITCH_Y;
-
-// Push a column of arrival y-anchors (given in arrival order) down just enough
-// that each sits at least ENTRY_CHIP_MIN_GAP below the previous one, so equal or
-// too-close anchors never coincide while their order is preserved. The first
-// anchor is never moved. Pure.
-export function stackEntryAnchors(ys: readonly number[]): number[] {
-  const out: number[] = [];
-  let prev = -Infinity;
-  for (const y of ys) {
-    const placed = Math.max(y, prev + ENTRY_CHIP_MIN_GAP);
-    out.push(placed);
-    prev = placed;
-  }
-  return out;
-}
-
 // Round to two decimals, mirroring edgePath's coordinate rounding so points
 // interpolated here land exactly where pathPointAt would put them.
 function r2(n: number): number {
@@ -448,7 +416,6 @@ export type RateSeatTier =
   | "nudge"
   | "escape"
   | "exhausted";
-
 
 export type RateSeat = { dx: number; dy: number; tier: RateSeatTier };
 
@@ -728,102 +695,7 @@ export function deconflictChipAnchors(
   // later phase yields to everything an earlier phase placed.
   const field = makeClearanceField(edgeSegments, cards);
 
-  // Phase 1 -- entry chips: every forward item edge flagged multiInputTarget
-  // pins an icon-only chip just left of its target port. Chips arriving at one
-  // node (same-item duplicates share a port y outright, adjacent ports sit a
-  // row apart) collide, so bucket them per target, order by port index then
-  // edge id, and stack their port anchors down to a clear pitch. The threaded
-  // dy is the push each chip received off its own port y. Each chip's final
-  // box is seeded into the field (even a lone chip that received no push) so
-  // the later phases see it, at the narrow entry-marker half-width so a bus or
-  // rate chip only yields when it truly overlaps the marker.
-  const entryDyByIndex = new Map<number, number>();
-  type EntrySlot = {
-    index: number;
-    id: string;
-    port: number;
-    anchorY: number;
-    exempt: Set<string>;
-  };
-  const entryByTarget = new Map<string, EntrySlot[]>();
-  edges.forEach((edge, index) => {
-    if (edge.type !== "item") return;
-    const data = edge.data as { multiInputTarget?: unknown } | undefined;
-    if (data?.multiInputTarget !== true) return;
-    const target = byId.get(edge.target);
-    if (target === undefined) return;
-    const item = edgeItem(edge);
-    const anchorY = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    const list = entryByTarget.get(edge.target) ?? [];
-    list.push({
-      index,
-      id: edge.id,
-      port: inputPortIndex(target, item),
-      anchorY,
-      exempt: cardExemptFor(edge),
-    });
-    entryByTarget.set(edge.target, list);
-  });
-  for (const [targetId, list] of entryByTarget) {
-    list.sort((a, b) => {
-      const ap = a.port < 0 ? Infinity : a.port;
-      const bp = b.port < 0 ? Infinity : b.port;
-      if (ap !== bp) return ap - bp;
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-    const entryX = absoluteLeft(byId.get(targetId)!, byId) - ENTRY_CHIP_OFFSET;
-    const stacked = stackEntryAnchors(list.map((s) => s.anchorY));
-    // Segment-, card-, and chip-aware stacking: a chip whose slot lands on a
-    // FOREIGN line (an edge neither of this cluster nor of the chip's own flow
-    // -- e.g. a backward rail passing between this node's rows), inside a
-    // FOREIGN card box (a packed neighbour under the target), or on a chip
-    // already placed steps further down until clear, keeping the stack
-    // monotone. The placed check guards CROSS-target stacks: within one target
-    // the monotone pitch already keeps chips disjoint, but a neighbour target's
-    // overflowed stack can park chips in this stack's descent path. Entry
-    // stacks seed the field in target-map insertion order, so the guard is
-    // deterministic.
-    const clusterBlocked = (box: ChipBox, exempt: ReadonlySet<string>): boolean =>
-      field.overlapsChip(box) ||
-      field.entersForeignCard(box, exempt) ||
-      field.onForeignLine(box, "", targetId);
-    let prevY = -Infinity;
-    list.forEach((s, i) => {
-      let y = Math.max(stacked[i]!, prevY + ENTRY_CHIP_MIN_GAP);
-      const boxAt = (yy: number): ChipBox => ({
-        x: entryX,
-        y: yy,
-        halfW: CHIP_HALF_W_ENTRY,
-        halfH: CHIP_HALF_H,
-      });
-      let steps = 0;
-      let cleared = y;
-      while (
-        steps <= CHIP_SEAT_MAX_STEPS &&
-        clusterBlocked(boxAt(cleared), s.exempt)
-      ) {
-        cleared += ENTRY_CHIP_MIN_GAP;
-        steps += 1;
-      }
-      // Cap exhausted: keep the plain stacked slot (pre-segment behaviour).
-      if (steps <= CHIP_SEAT_MAX_STEPS) {
-        y = cleared;
-      } else if (import.meta.env.DEV) {
-        // Dev/test-only tripwire, tree-shaken out of production builds
-        // (parity with the render hook in src/pipeline/driver.ts).
-        console.warn(
-          `chip seating: entry stack for ${s.id} exhausted its cap; ` +
-            "chip parked on a blocked slot (line/card/chip clearance abandoned)",
-        );
-      }
-      const dy = y - s.anchorY;
-      if (dy !== 0) entryDyByIndex.set(s.index, dy);
-      field.placed.push(boxAt(y));
-      prevY = y;
-    });
-  }
-
-  // Phases 2 and 3 -- bus chips: each trunk draws one aggregate drop chip (on
+  // Phases 1 and 2 -- bus chips: each trunk draws one aggregate drop chip (on
   // the owner member) and one rise chip per member, all on the trunk's lane.
   // Reconstruct their lane anchors from the same geometry BusEdge uses
   // (chamferBusPath for dropX/riseX, busChipX for the spread rise slot) and
@@ -944,7 +816,7 @@ export function deconflictChipAnchors(
     if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
   }
 
-  // Phase 3b -- fan-out trunk chips: each fan-out trunk draws one aggregate chip
+  // Phase 3 -- fan-out trunk chips: each fan-out trunk draws one aggregate chip
   // on its owner (the summed rate + xN, seated on the shared trunk segment) and
   // one branch chip per member (that member's share, seated on its branch leg).
   // They seat here -- after the lane bus chips (structurally pinned to their
@@ -1110,7 +982,7 @@ export function deconflictChipAnchors(
     const tx = absoluteLeft(target, byId);
     // Target entry band: the padded-left gutter of the consumer card, mirroring
     // paddedObstacles' overhangs. The arrival-cluster exemption holds only while
-    // the chip's centre sits here (3a).
+    // the chip's centre sits here (the narrowed rate-chip rule).
     const targetTop = absoluteTop(target, byId);
     const entryBand: EntryBand = {
       left: tx - OBSTACLE_PAD_LEFT,
@@ -1142,7 +1014,6 @@ export function deconflictChipAnchors(
   if (
     labelDyByIndex.size === 0 &&
     labelDxByIndex.size === 0 &&
-    entryDyByIndex.size === 0 &&
     busDropDyByIndex.size === 0 &&
     busChipDyByIndex.size === 0 &&
     fanoutAggDxByIndex.size === 0 &&
@@ -1156,7 +1027,6 @@ export function deconflictChipAnchors(
   return edges.map((edge, index) => {
     const labelDy = labelDyByIndex.get(index);
     const labelDx = labelDxByIndex.get(index);
-    const entryChipDy = entryDyByIndex.get(index);
     const busDropDy = busDropDyByIndex.get(index);
     const busChipDy = busChipDyByIndex.get(index);
     const fanoutAggDx = fanoutAggDxByIndex.get(index);
@@ -1168,7 +1038,6 @@ export function deconflictChipAnchors(
     if (
       labelDy === undefined &&
       labelDx === undefined &&
-      entryChipDy === undefined &&
       busDropDy === undefined &&
       busChipDy === undefined &&
       fanoutAggDx === undefined &&
@@ -1185,7 +1054,6 @@ export function deconflictChipAnchors(
         ...edge.data,
         ...(labelDy !== undefined ? { labelDy } : {}),
         ...(labelDx !== undefined ? { labelDx } : {}),
-        ...(entryChipDy !== undefined ? { entryChipDy } : {}),
         ...(busDropDy !== undefined ? { busDropDy } : {}),
         ...(busChipDy !== undefined ? { busChipDy } : {}),
         ...(fanoutAggDx !== undefined ? { fanoutAggDx } : {}),
@@ -1246,10 +1114,10 @@ export function contentBounds(
     bottom = Math.max(bottom, dropY + CHIP_HALF_H, riseY + CHIP_HALF_H);
   }
 
-  // Shallow chips (item rate, entry marker, fan-out aggregate / branch) anchor
-  // within the node span, but their box plus any de-confliction nudge can spill
-  // past a border card's edge. Pad every side by one chip half-box plus the
-  // largest recorded nudge on each axis so those boxes stay inside the fit too.
+  // Shallow chips (item rate, fan-out aggregate / branch) anchor within the
+  // node span, but their box plus any de-confliction nudge can spill past a
+  // border card's edge. Pad every side by one chip half-box plus the largest
+  // recorded nudge on each axis so those boxes stay inside the fit too.
   let maxDx = 0;
   let maxDy = 0;
   for (const edge of edges) {
@@ -1257,7 +1125,6 @@ export function contentBounds(
       | {
           labelDx?: number;
           labelDy?: number;
-          entryChipDy?: number;
           fanoutAggDx?: number;
           fanoutAggDy?: number;
           fanoutBranchDx?: number;
@@ -1274,7 +1141,6 @@ export function contentBounds(
     maxDy = Math.max(
       maxDy,
       Math.abs(d.labelDy ?? 0),
-      Math.abs(d.entryChipDy ?? 0),
       Math.abs(d.fanoutAggDy ?? 0),
       Math.abs(d.fanoutBranchDy ?? 0),
     );
