@@ -674,14 +674,16 @@ describe("clearBusColumns", () => {
     expect(riseX! <= tx).toBe(true);
   });
 
-  it("degrades the rise to the desired left-of-port column when the sibling abuts the card", () => {
+  it("escapes past an abutting sibling instead of piercing its body with the rise", () => {
     // Same slab, but the sibling ("sib") abuts the target's left edge (raw right
-    // == tx), so no clamp-valid leftward column is clear: the rightward fallback
-    // is rejected by the own-side clamp, and every leftward candidate's approach
-    // leg crosses the sibling. clearColumnKeepingLeg then returns `desired`
-    // unchanged, so clearBusColumns stamps no riseX and the drawer falls back to
-    // riseDesired (entryX ?? tx - PORT_STUB - CHAMFER) -- left of the port by
-    // construction. It may graze the sibling, but it never tunnels the body.
+    // == tx = 1170), so no clamp-valid leftward column is clear: the rightward
+    // candidates are rejected by the own-side clamp and every leftward
+    // candidate's approach leg crosses the sibling. The desired column (1138)
+    // sits strictly INSIDE the sibling's raw body, so returning it unchanged
+    // would slice a foreign card outright -- a hard violation. The pierce
+    // rescue drops the own-side guard and takes the nearest clear column past
+    // the sibling (raw right + 2 = 1172) instead: a boundary-hugging column on
+    // the wrong side of the port beats piercing a foreign body.
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s", 0, 1000, r),
@@ -697,32 +699,40 @@ describe("clearBusColumns", () => {
       nodes,
       routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
     );
-    // Degraded to `desired` (unstamped): the drawer uses the left-of-port default.
-    expect(riseXOf(out, "e0")).toBeUndefined();
+    const riseX = riseXOf(out, "e0");
+    expect(riseX).toBeDefined();
+    // Clear of the sibling's raw body (never strictly inside [1022, 1170]).
+    expect(riseX! > 1022 && riseX! < 1170).toBe(false);
   });
 
   it("keeps a backward (gap <= 0) rise on the port side through the same resolver", () => {
     // Backward bus member: a bothInput feeder whose target ("t") sits left of its
     // source ("agg"), so gap <= 0 and clearBusColumns routes it through the same
-    // clearColumnKeepingLeg call (no forward early-return). A sibling ("sib") just
-    // left of the target packs its corridor; without the own-side guard the rise
-    // lands at or right of the Left port (x = tx = 0), tunneling the target. The
-    // clamp rejects that, so the rise stays on the port side (unstamped degrade
-    // to the left-of-port default, or a clamp-valid leftward column).
+    // clearColumnKeepingLeg call (no forward early-return). A sibling ("sib")
+    // left of the target straddles the default rise column (tx - PORT_STUB -
+    // CHAMFER = -32) below the port row (its top sits under the port y, so
+    // leftward approach legs stay clear). Without the own-side guard the
+    // nearest accepted column is rightward past the port (x >= tx), tunneling
+    // the target; the clamp rejects it, so the rise resolves to a clamp-valid
+    // leftward column instead.
     const tx = 0; // target's absolute left edge
     const nodes: RFAnyNode[] = [
+      // A high anchor keeps the graph midline above the member ports so the
+      // trunk stays in the BOTTOM band and the rise run crosses the sibling.
+      inputProductNode("anchor", "ore", 600, -800, 148, 78),
       inputProductNode("agg", "ore", 1000, 0, 148, 78), // source, right 1148
-      inputProductNode("t", "ore", 0, 0, 148, 78), // target, left 0 (< source)
-      inputProductNode("sib", "ore", -150, 0, 148, 78), // raw [-150, -2]
+      inputProductNode("t", "ore", 0, 0, 148, 78), // target, left 0, port y 39
+      inputProductNode("sib", "ore", -150, 60, 148, 78), // raw [-150, -2] y [60, 138]
     ];
     const out = clearBusColumns(
       nodes,
       routeBusEdges(nodes, [mkEdge("e0", "agg", "t", "ore")]),
     );
     const riseX = riseXOf(out, "e0");
-    // Never at or right of the port: either a clamp-valid leftward column, or the
-    // unstamped degrade to riseDesired (< tx). A rise at x >= tx would tunnel.
-    expect(riseX === undefined || riseX <= tx - CHAMFER).toBe(true);
+    // A clamp-valid leftward column: never at or right of the port (x >= tx
+    // would tunnel the target's body).
+    expect(riseX).toBeDefined();
+    expect(riseX! <= tx - CHAMFER).toBe(true);
   });
 
   it("keeps the drop on the port side when a sibling packs the source's right corridor", () => {
@@ -760,21 +770,17 @@ describe("clearBusColumns", () => {
     expect(dropX === undefined || dropX >= sx + CHAMFER).toBe(true);
   });
 
-  it("rejects a drop candidate inside the port's chamfer band (clamp isolation)", () => {
-    // Isolates the drop-side clamp from the own-card leg test. A raw-tier
-    // candidate lands INSIDE the chamfer band [sx, sx + CHAMFER): the sibling's
-    // raw left edge sits at 306, so tier 2 offers x = 304 (raw left - RAW_GAP).
-    // The connecting leg [300, 304] starts exactly at the source's raw right
-    // edge, so the open-interval leg test passes it (o.right > lo fails at
-    // o.right == lo == sx) and only the clamp (x >= sx + CHAMFER = 308) can
-    // reject it. Without the clamp on the DROP call this stamps dropX = 304 --
-    // a column butting the port with no room for the chamfer elbow.
-    //   s: abs (0, 1000), sx = 300, out-port y = 1097; desired drop = 332.
-    //   sib: raw [306, 454] x [1000, 1200], tall enough to span the drop run,
-    //     blocking the desired column in both tiers; every candidate right of
-    //     it has a leg that crosses it, so with the clamp the resolver degrades
-    //     to the unstamped right-of-port default instead.
-    const sx = 300; // source's absolute right edge (left 0 + RECIPE_WIDTH)
+  it("escapes into the chamfer band rather than piercing a sibling with the drop", () => {
+    // Drop-side pierce rescue. The desired drop column (sx + PORT_STUB +
+    // CHAMFER = 332) sits strictly INSIDE the tall sibling's raw body [306,
+    // 454], which spans the whole drop run; every rightward candidate's leg
+    // crosses the sibling and every clamp-valid leftward candidate is blocked,
+    // so the guarded tiers exhaust. Returning the desired column would slice
+    // the sibling outright, so the rescue drops the guard and takes the
+    // nearest clear column: x = 304 (raw left - RAW_GAP), inside the chamfer
+    // band [sx, sx + CHAMFER) but clear of every raw body. A cramped
+    // boundary-hugging column beats piercing a foreign card.
+    //   s: abs (0, 1000), sx = 300, out-port y = 1097.
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s", 0, 1000, r),
@@ -789,7 +795,77 @@ describe("clearBusColumns", () => {
       routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
     );
     const dropX = dropXOf(out, "e0");
-    expect(dropX === undefined || dropX >= sx + CHAMFER).toBe(true);
+    expect(dropX).toBeDefined();
+    // Clear of the sibling's raw body (never strictly inside [306, 454]).
+    expect(dropX! > 306 && dropX! < 454).toBe(false);
+  });
+
+  it("prefers a clamp-valid drop column over a nearer one inside the chamfer band", () => {
+    // Isolates the drop-side clamp with NO pierce in play (so the rescue never
+    // runs). Two short foreign cards sit below the port row, straddling the
+    // drop run: "c" blocks the desired column (332) within the raw gap without
+    // containing it (raw left 333), and "d" (raw [304, 330]) walls off c's
+    // near-left candidate while supplying its own left candidate at x = 302 --
+    // inside the chamfer band [sx, sx + CHAMFER) = [300, 308). Both cards sit
+    // under the port row, so their approach legs are clear; the own-card leg
+    // rect rejects every column left of the port but admits the band. Without
+    // the clamp the nearest legal candidate 302 wins (a column butting the
+    // port with no room for the chamfer elbow); the clamp rejects it and the
+    // resolver takes the clamp-valid column right of c (483) instead.
+    const sx = 300; // source's absolute right edge (left 0 + RECIPE_WIDTH)
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s", 0, 1000, r),
+      // A mid-corridor card keeps the lone member on the bus rather than a
+      // single-member direct route.
+      recipeNode("corridor", 550, 1000, r),
+      recipeNode("t", far, 1000, r),
+      productNode("c", 333, 1300, 148, 78), // raw [333, 481]
+      productNode("d", 304, 1400, 26, 78), // raw [304, 330]
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
+    );
+    const dropX = dropXOf(out, "e0");
+    expect(dropX).toBeDefined();
+    expect(dropX! >= sx + CHAMFER).toBe(true);
+  });
+
+  it("never pierces a foreign card body when the port-side corridor is packed", () => {
+    // The battery5 shape that regressed the geometry audit's hard gate: the
+    // target's left corridor is walled at PORT height by one card ("wall",
+    // abutting the port so every leftward approach leg crosses its body) while
+    // a second card ("block") straddles the DESIRED rise column further down
+    // the run, between the target row and the lane. The own-side guard rejects
+    // every candidate -- leftward legs cross the wall, rightward columns are
+    // clamp-rejected -- and the pre-rescue degrade kept the desired column
+    // (1138), which runs straight through the block's raw body [1064, 1212]: a
+    // hard-gate pierce of an unrelated card. The rescue detects the pierce and
+    // re-resolves without the guard, landing right of the block (1214), clear
+    // of every foreign raw body.
+    //   t: (1170, 1000), port y 1074 (product-style center fallback).
+    //   wall: raw [1022, 1170] y [1020, 1120] -- abuts tx, contains port y.
+    //   block: raw [1064, 1212] y [1300, 1378] -- contains desired 1138.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s", 0, 1000, r),
+      // A mid-corridor card keeps the lone member on the bus rather than a
+      // single-member direct route.
+      recipeNode("corridor", 550, 1000, r),
+      recipeNode("t", far, 1000, r),
+      inputProductNode("wall", "ore", 1022, 1020, 148, 100),
+      inputProductNode("block", "ore", 1064, 1300, 148, 78),
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
+    );
+    const resolved = riseXOf(out, "e0") ?? far - PORT_STUB - CHAMFER;
+    // The resolved rise column never runs strictly inside a foreign raw card
+    // body it spans: not the block's [1064, 1212], not the wall's [1022, 1170].
+    expect(resolved > 1064 && resolved < 1212).toBe(false);
+    expect(resolved > 1022 && resolved < 1170).toBe(false);
   });
 });
 

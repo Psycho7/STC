@@ -384,10 +384,14 @@ test.describe("DOM geometry audit", () => {
 // NOTE on all ratchet tables below: baselines do NOT auto-tighten. When a change
 // improves a scenario, re-record the lower count manually (downward freely). A
 // baseline moves UP only with a recorded controller ruling, never as a silent
-// accommodation of a regression. Two such rulings stand: battery5 off-path
-// 5 -> 6 (card-hardness pushes one pinned chip's seat off its line), and the P4
+// accommodation of a regression. Three such rulings stand: battery5 off-path
+// 5 -> 6 (card-hardness pushes one pinned chip's seat off its line), the P4
 // aggregate-visibility raise (chip-segment default 0 -> 2, multi6 0 -> 3,
-// battery5-xiranite 0 -> 7).
+// battery5-xiranite 0 -> 7), and the issue-13 own-side bus-column guard
+// (padding grazes battery5-xiranite 7 -> 14: three rise columns that used to
+// cross their own target card's body now thread the port-side gutter between
+// overlapping sibling paddings; each new graze replaces an own-body tunnel,
+// and the tier-1 raw gate stays at zero).
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -409,10 +413,15 @@ const CROSSING_BASELINE: Record<string, number> = {
 // with no padded-clear column in the routing model (the raw fallback threads
 // the raw gap instead, trading a raw strike for a graze). Recorded post-fix at
 // this commit's measured counts; the ratchet only tightens.
+// battery5-xiranite raised 7 -> 14 by the issue-13 ruling (see the NOTE above):
+// the own-side guard keeps rise columns on the port side of their target, so
+// three water/xiranite rises (one graze plus two three-segment approaches) now
+// thread packed gutters their pre-guard routes avoided by tunneling the target
+// card's own body.
 const PADDED_GRAZE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 11,
-  "battery5-xiranite": 7,
+  "battery5-xiranite": 14,
   crystal: 3,
   equip4: 11,
   multi6: 15,

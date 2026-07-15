@@ -1473,8 +1473,14 @@ function connectingLegBlocked(
 //      foreign card boxes with a slim gap and a doubled radius, accepting only
 //      columns whose connecting leg clears the raw boxes. Threading a raw gap
 //      beats keeping a default column that slices a card outright.
-// When even the fallback fails, the desired column is returned unchanged
-// (degraded but stable; the audit quantifies it). Pure and deterministic.
+// When even the fallback fails, the desired column is normally returned
+// unchanged (degraded but stable; the audit quantifies it) -- EXCEPT when the
+// own-side guard is active and the desired column's vertical run pierces a
+// foreign RAW card body. Keeping it then would slice an unrelated card
+// outright, so a pierce-rescue tier re-runs both tiers WITHOUT the guard
+// (the pre-guard acceptance): a clear column on the wrong side of the port
+// beats piercing a foreign body. Only when even the rescue fails does the
+// pierced desired column survive. Pure and deterministic.
 function clearColumnKeepingLeg(args: {
   desired: number;
   portX: number;
@@ -1557,6 +1563,53 @@ function clearColumnKeepingLeg(args: {
   });
   if (columnClear(raw, foreignRawCards, RAW_GAP) && rawAccept(raw)) {
     return raw;
+  }
+
+  // Tier 3: pierce rescue. Gated on the own-side guard being active, so the
+  // clampBackwardRails callers (which pass neither guard arg) keep today's
+  // degrade unchanged. When the guarded tiers exhaust AND the desired column's
+  // vertical run pierces a foreign RAW card body, degrading to it would slice
+  // an unrelated card outright (the audit's hard gate). Re-run both tiers with
+  // the pre-guard acceptance -- no side clamp, no own-card leg rect -- so a
+  // clear column past the port (possibly through the own card's boundary
+  // region, which the guard exists to avoid when a choice exists) wins over
+  // the foreign pierce. If even that fails, fall through to the degrade.
+  if (sideClamp !== undefined || ownLegRect !== undefined) {
+    const desiredPierces = foreignRawCards.some(
+      (o) =>
+        o.bottom > ymin &&
+        o.top < ymax &&
+        desired > o.left &&
+        desired < o.right,
+    );
+    if (desiredPierces) {
+      const rescuePaddedAccept = (x: number): boolean =>
+        !connectingLegBlocked(portX, portY, x, paddedCards);
+      const rescuePadded = clearColumnX(desired, yLo, yHi, foreignPadded, {
+        towardTarget: toward,
+        accept: rescuePaddedAccept,
+      });
+      if (
+        columnClear(rescuePadded, foreignPadded, CHAMFER) &&
+        rescuePaddedAccept(rescuePadded)
+      ) {
+        return rescuePadded;
+      }
+      const rescueRawAccept = (x: number): boolean =>
+        !connectingLegBlocked(portX, portY, x, foreignRawCards);
+      const rescueRaw = clearColumnX(desired, yLo, yHi, foreignRawCards, {
+        towardTarget: toward,
+        gap: RAW_GAP,
+        radius: 2 * CLEAR_COLUMN_RADIUS,
+        accept: rescueRawAccept,
+      });
+      if (
+        columnClear(rescueRaw, foreignRawCards, RAW_GAP) &&
+        rescueRawAccept(rescueRaw)
+      ) {
+        return rescueRaw;
+      }
+    }
   }
   return desired;
 }
