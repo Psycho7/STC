@@ -266,12 +266,14 @@ export default function BusEdge({
         </path>
       ) : null}
       {/* Junction dot in the HTML label layer (not an SVG circle in the edge
-          group) so it z-wins over the aggregate chip -- the trunk's branch point
-          stays visible where the chip would otherwise hide it. Sized in graph
-          units via junctionRadius so the pane zoom renders it at a screen radius
-          clamped to [JUNCTION_MIN_PX, JUNCTION_MAX_PX]. Threads the same `dimmed`
-          state the chips do (the label layer portals outside the edge wrapper, so
-          the wrapper's dim never reaches it). */}
+          group) so it shares the chips' stacking context. It sits BELOW the flow
+          chips (.bus-junction z-index: 1 vs .flow-chip z-index: 2 in canvas.css):
+          the aggregate chip's digits win, and an overlapping chip hides the dot
+          behind it. Sized in graph units via junctionRadius so the pane zoom
+          renders it at a screen radius clamped to [JUNCTION_MIN_PX,
+          JUNCTION_MAX_PX]. Threads the same `dimmed` state the chips do (the
+          label layer portals outside the edge wrapper, so the wrapper's dim never
+          reaches it). */}
       <EdgeLabelRenderer>
         <div
           data-testid={`bus-junction-${id}`}

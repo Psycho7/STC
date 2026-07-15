@@ -71,6 +71,13 @@ type AuditData = {
   // The React Flow pane's client rect: the visible viewport every chip must sit
   // inside at fit zoom (the camera-fit content-bounds assertion).
   containerRect: { x: number; y: number; right: number; bottom: number };
+  // Computed stacking order inside the shared .react-flow__edgelabel-renderer
+  // layer, where both flow chips and bus junction dots are portaled. `auto`
+  // maps to 0 so a chip with no explicit z-index compares strictly against the
+  // dot's numeric one (an auto-vs-auto comparison would pass vacuously while DOM
+  // order still lets a sibling member edge's dot paint over the owner's chip).
+  flowChipZ: number[];
+  busJunctionZ: number[];
 };
 
 async function waitForCanvasReady(page: Page): Promise<void> {
@@ -166,6 +173,18 @@ function collectAudit(): AuditData {
     }
   }
 
+  const zOf = (el: HTMLElement): number => {
+    const v = getComputedStyle(el).zIndex;
+    return v === "auto" ? 0 : Number(v);
+  };
+  const layer = ".react-flow__edgelabel-renderer ";
+  const flowChipZ = Array.from(
+    document.querySelectorAll<HTMLElement>(layer + ".flow-chip"),
+  ).map(zOf);
+  const busJunctionZ = Array.from(
+    document.querySelectorAll<HTMLElement>(layer + ".bus-junction"),
+  ).map(zOf);
+
   const rf = document.querySelector<HTMLElement>(".react-flow");
   const rfRect = rf!.getBoundingClientRect();
   return {
@@ -179,6 +198,8 @@ function collectAudit(): AuditData {
       right: rfRect.right,
       bottom: rfRect.bottom,
     },
+    flowChipZ,
+    busJunctionZ,
   };
 }
 
@@ -212,8 +233,15 @@ test.describe("DOM geometry audit", () => {
       await page.evaluate(() => document.fonts.ready.then(() => undefined));
       await waitForStableViewport(page);
 
-      const { chips, rows, multPairs, recipeNodeCount, containerRect } =
-        await page.evaluate(collectAudit);
+      const {
+        chips,
+        rows,
+        multPairs,
+        recipeNodeCount,
+        containerRect,
+        flowChipZ,
+        busJunctionZ,
+      } = await page.evaluate(collectAudit);
 
       // (a) Zero pairwise chip overlaps. Collect the full inventory so one run
       // reports every offending pair, not just the first.
@@ -310,6 +338,23 @@ test.describe("DOM geometry audit", () => {
         clipped,
         `${scenario.id}: ${clipped.length} chip(s) clipped outside the pane among ${chips.length} chips:\n${clipped.join("\n")}`,
       ).toEqual([]);
+
+      // (d2) Flow chips paint ABOVE bus junction dots. Both are portaled into
+      // the shared .react-flow__edgelabel-renderer stacking context, and a chip
+      // counter-scales up to 2x about its centre, so an enlarged aggregate chip
+      // envelops the world-fixed dot. The dot is decorative (aria-hidden); the
+      // chip carries the digits, so it must win. A strict order is required: the
+      // lowest chip z-index must exceed the highest dot z-index, or a sibling
+      // member edge's dot could still paint over the owner's chip on DOM order.
+      // Only asserted where a scenario renders both.
+      if (flowChipZ.length > 0 && busJunctionZ.length > 0) {
+        const minChipZ = Math.min(...flowChipZ);
+        const maxDotZ = Math.max(...busJunctionZ);
+        expect(
+          minChipZ,
+          `${scenario.id}: flow-chip z-index (min ${minChipZ}) must be strictly above bus-junction z-index (max ${maxDotZ}) among ${flowChipZ.length} chips and ${busJunctionZ.length} junction dots`,
+        ).toBeGreaterThan(maxDotZ);
+      }
     });
   }
 });
