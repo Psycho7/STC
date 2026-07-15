@@ -10,6 +10,7 @@
 import { CHAMFER, PORT_STUB } from "../../src/canvas/edgePath";
 import { FANOUT_SPAN_MAX } from "../../src/canvas/busRouting";
 import { ENTRY_GUTTER_OVERHANG } from "../../src/canvas/dimensions";
+import { chipEntersOwnCardBody } from "../../src/canvas/chipSeating";
 
 export type Pt = readonly [number, number];
 
@@ -325,17 +326,25 @@ export type ChipCardViolation = {
   raw: boolean;
 };
 
-// Every chip box that enters a FOREIGN node's RAW card (the P3 chip-vs-card
-// tier). Foreign = any node except the chip's own exemption set (the same
-// endpoint / container exemption auditSegmentsVsCards uses):
-//   - label chip: source + target + those two endpoints' containers. A label
-//     chip rides its own corridor leg, clear of both endpoints' cards.
-//   - bus-drop (aggregate) chip: it seats on the SHARED trunk, feeding every
-//     member of the trunk, so its exemption spans the whole trunk. Membership =
-//     every edge sharing (source, item) with the owner edge; the exempt set is
-//     the shared source, each member's target, and the containers of all of
-//     them. Rise / branch bus chips (kind "bus") stay skipped -- lane-anchored,
-//     out of scope for this tier.
+// Every chip box that enters a FOREIGN node's RAW card, OR seats its CENTRE on
+// its OWN endpoint card's body past the port strip (the P3 chip-vs-card tier,
+// tightened for issue #10). Two exemption tiers, mirroring the seating pass:
+//   - containers (group slabs holding an endpoint) stay WHOLLY exempt; a chip
+//     legitimately sits inside its endpoints' container.
+//   - own endpoint cards are exempt while the chip centre stays in the port strip
+//     (chipEntersOwnCardBody, shared verbatim with the seating pass). Only the
+//     port SIDE is needed (source = right edge, target = left edge); the strip
+//     depth and the centre test live in the shared helper.
+// Which endpoints count as "own":
+//   - label chip: the owner edge's source (source zone) and target (target zone).
+//   - bus-drop (aggregate) chip: the shared source plus EVERY member target of
+//     the owner's sub-trunk (each a target zone). A (source, item) port can host
+//     BOTH a fan-out sub-trunk (adjacent-layer targets) and a lane sub-trunk
+//     (long-span targets) under one trunkKey, so members are split by the same
+//     FANOUT_SPAN_MAX boundary the routing passes use, matching the seating
+//     trunkExempt / laneTrunkExempt union.
+//   - rise / branch bus chips (kind "bus") stay skipped -- lane-anchored, out of
+//     scope for this tier.
 // `raw` is always true here (raw cards only); the field mirrors SegmentViolation
 // so callers report uniformly.
 export function auditChipsVsCards(
@@ -358,24 +367,16 @@ export function auditChipsVsCards(
   for (const chip of chips) {
     if (chip.kind === "bus") continue; // rise/branch, lane-anchored, out of scope
     const owner = edgeById.get(chip.edgeId);
-    const exempt = new Set<string>();
+    const whole = new Set<string>();
+    const zones = new Map<string, "source" | "target">();
     if (owner !== undefined) {
-      exempt.add(owner.source);
-      exemptContainers(owner.source, exempt);
+      zones.set(owner.source, "source");
+      exemptContainers(owner.source, whole);
       if (chip.kind === "bus-drop") {
-        // Aggregate chip on the shared trunk: exempt every member of the OWNER's
-        // sub-trunk (its target and containers), mirroring the seating pass. A
-        // (source, item) port can host BOTH a fan-out sub-trunk (adjacent-layer
-        // targets) and a lane sub-trunk (long-span targets) under one trunkKey,
-        // but seating exempts only the members of the aggregate's OWN sub-trunk
-        // (fan-out trunkExempt over fan-out members; lane trunkExempt over lane
-        // members). Split members by the same span boundary the routing passes
-        // use -- FANOUT_SPAN_MAX -- so the audit exempts exactly that sub-trunk's
-        // members rather than every edge sharing (source, item).
         const srcRight = nodeById.get(owner.source)?.right;
         const ownerTgt = nodeById.get(owner.target);
         const spanClassOf = (targetLeft: number): boolean => {
-          if (srcRight === undefined) return true; // unknown geometry: exempt
+          if (srcRight === undefined) return true; // unknown geometry: fan-out
           const gap = targetLeft - srcRight;
           return gap > 0 && gap <= FANOUT_SPAN_MAX; // true = fan-out (adjacent)
         };
@@ -387,17 +388,22 @@ export function auditChipsVsCards(
           if (tgt !== undefined && spanClassOf(tgt.left) !== ownerIsFanout) {
             continue; // a member of the OTHER sub-trunk sharing this trunkKey
           }
-          exempt.add(e.target);
-          exemptContainers(e.target, exempt);
+          zones.set(e.target, "target");
+          exemptContainers(e.target, whole);
         }
       } else {
-        exempt.add(owner.target);
-        exemptContainers(owner.target, exempt);
+        zones.set(owner.target, "target");
+        exemptContainers(owner.target, whole);
       }
     }
     for (const n of nodes) {
-      if (exempt.has(n.nodeId)) continue;
-      if (rectsOverlap(chip, n, eps)) {
+      if (whole.has(n.nodeId)) continue;
+      const zone = zones.get(n.nodeId);
+      const hit =
+        zone === undefined
+          ? rectsOverlap(chip, n, eps)
+          : chipEntersOwnCardBody(chip, n, zone, eps);
+      if (hit) {
         out.push({
           chipEdgeId: chip.edgeId,
           chipLabel: chip.label,

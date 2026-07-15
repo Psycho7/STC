@@ -47,7 +47,6 @@ import {
   edgeItem,
   nodeHeight,
   nodeWidth,
-  ownExempt,
   portOffsetY,
   type BusEdgeData,
 } from "./busRouting";
@@ -163,6 +162,58 @@ export type CardRect = {
   bottom: number;
 };
 
+// Port-adjacent exemption depth (issue #10). An edge-label chip is ~2x wider
+// than the inter-card corridor it labels, so a chip on its own line necessarily
+// pokes its wide box into its own source / target card near the port -- that is
+// the normal, on-line state, not a defect. The #10 defect is a chip whose CENTRE
+// (its icon + rate text, the readable payload) lands ON the card body, well past
+// the port, burying the label in the card ("~2 box-widths into the consumer
+// card"). So the exemption is on the chip CENTRE, not the box: a chip is exempt
+// from its own card while its centre stays within PORT_ZONE_DEPTH of the port
+// edge (in the corridor or a hair inside), and enters the body once the centre
+// crosses deeper. Depth is the recipe row's horizontal frame/padding strip
+// (canvas.css .rn-row padding: 0 12px) -- the frame between the card edge and the
+// row's item glyph (at the 14px port-side inset), so an exempt chip's centre
+// never sits on the glyph. A box-overlap rule instead would flag every on-line
+// chip (box wider than corridor) and fling it off its line -- the issue-#9
+// orphaned-chip regression this narrowing must avoid.
+export const PORT_ZONE_DEPTH = 12;
+
+export type PortZoneSide = "source" | "target";
+
+type PortZoneRect = { left: number; top: number; right: number; bottom: number };
+
+// Does `chip`'s CENTRE sit ON the OWN endpoint `card`'s body, past its
+// port-adjacent strip? True = the chip is seated on the card body (a #10
+// violation the seat must escape); false = no vertical overlap with the card, or
+// the centre is still in the corridor / port strip (the normal on-line state).
+// `side` selects the port edge ("source" hugs the card's right edge / out-port,
+// "target" its left edge / in-port). Shared verbatim by the seating pass
+// (makeClearanceField) and the e2e chip/card audit so the gate and the placement
+// rule never drift.
+export function chipEntersOwnCardBody(
+  chip: PortZoneRect,
+  card: PortZoneRect,
+  side: PortZoneSide,
+  eps = 0.5,
+): boolean {
+  const oy = Math.min(chip.bottom, card.bottom) - Math.max(chip.top, card.top);
+  if (oy <= eps) return false; // not even level with the card: never on its body
+  const cx = (chip.left + chip.right) / 2;
+  return side === "target"
+    ? cx > card.left + PORT_ZONE_DEPTH
+    : cx < card.right - PORT_ZONE_DEPTH;
+}
+
+// Per-edge card exemption for the chip seat. Container slabs (group boxes) stay
+// wholly exempt; the edge's own source / target cards are exempt only while the
+// chip centre stays in their port-adjacent strip (issue #10), keyed by node id
+// to the zone's port side.
+export type CardExemption = {
+  whole: ReadonlySet<string>;
+  zones: ReadonlyMap<string, PortZoneSide>;
+};
+
 // The shared clearance state every seating phase runs against: the chips
 // placed so far plus the two static obstacle sets (reconstructed edge
 // polylines and raw card rects), exposed through the three named predicates
@@ -171,7 +222,11 @@ export type CardRect = {
 export type ClearanceField = {
   placed: ChipBox[];
   overlapsChip(box: ChipBox): boolean;
-  entersForeignCard(box: ChipBox, exempt: ReadonlySet<string>): boolean;
+  // A foreign card is any obstacle whose id is neither wholly exempt (a
+  // container slab) nor an own endpoint card. Own endpoint cards are obstacles
+  // MINUS their port-adjacent zone (issue #10): a chip entering such a card's
+  // body outside the shallow port strip is a violation just like a foreign card.
+  entersForeignCard(box: ChipBox, exempt: CardExemption): boolean;
   // Foreign-line test with the arrival-cluster exemption: a same-target
   // sibling's line is skipped unconditionally when no entry band is given
   // (bus / entry seats), and only while the box centre sits inside the band
@@ -193,16 +248,23 @@ export function makeClearanceField(
     placed,
     overlapsChip: (box) => placed.some((b) => chipBoxesOverlap(b, box)),
     entersForeignCard: (box, exempt) =>
-      cards.some(
-        (c) =>
-          !exempt.has(c.id) &&
-          Math.min(box.x + box.halfW, c.right) -
-            Math.max(box.x - box.halfW, c.left) >
-            0.5 &&
-          Math.min(box.y + box.halfH, c.bottom) -
-            Math.max(box.y - box.halfH, c.top) >
-            0.5,
-      ),
+      cards.some((c) => {
+        if (exempt.whole.has(c.id)) return false;
+        const chip = {
+          left: box.x - box.halfW,
+          top: box.y - box.halfH,
+          right: box.x + box.halfW,
+          bottom: box.y + box.halfH,
+        };
+        const zone = exempt.zones.get(c.id);
+        if (zone === undefined) {
+          return (
+            Math.min(chip.right, c.right) - Math.max(chip.left, c.left) > 0.5 &&
+            Math.min(chip.bottom, c.bottom) - Math.max(chip.top, c.top) > 0.5
+          );
+        }
+        return chipEntersOwnCardBody(chip, c, zone, 0.5);
+      }),
     onForeignLine: (box, flowKey, target, entryBand) => {
       const clusterExempt =
         entryBand === undefined || centreInBand(box.x, box.y, entryBand);
@@ -242,7 +304,7 @@ function cascadeClearDy(
   entryBand?: EntryBand,
   // When given, the cascade also clears every FOREIGN raw card (the drop
   // aggregate's hard chip-vs-card tier); absent leaves cards unchecked (rises).
-  cardExempt?: ReadonlySet<string>,
+  cardExempt?: CardExemption,
 ): number | null {
   let dy = 0;
   for (let steps = 0; steps <= maxSteps; steps++) {
@@ -281,7 +343,7 @@ function seatChip(
   // cascade and the chips-only fallback keep the chip off every foreign raw
   // card, upholding the bus-drop-vs-card hard tier at the seating side. Absent
   // for rise chips (lane-anchored, out of scope for that tier).
-  cardExempt?: ReadonlySet<string>,
+  cardExempt?: CardExemption,
 ): number {
   const clear = cascadeClearDy(
     field,
@@ -409,7 +471,7 @@ export function seatRateChip(
   },
   flowKey: string,
   target: string,
-  exempt: ReadonlySet<string>,
+  exempt: CardExemption,
   entryBand: EntryBand,
 ): RateSeat {
   const { pts, anchorX, anchorY } = path;
@@ -629,15 +691,41 @@ export function deconflictChipAnchors(
       bottom: top + nodeHeight(n),
     };
   });
-  // The card exemption for an edge's chips: its own endpoints plus their
-  // containing groups (one parentId level, same as the audit's containersAt),
-  // via the routing passes' shared ownExempt rule.
-  const cardExemptFor = (edge: Edge): Set<string> =>
-    ownExempt(
-      [byId.get(edge.source), byId.get(edge.target)].filter(
-        (n): n is RFAnyNode => n !== undefined,
-      ),
-    );
+  // The card exemption for an edge's chips: its own source / target cards get a
+  // port-adjacent zone (issue #10, exempt while the chip centre stays in the port
+  // strip), their containing groups (one parentId level, same as the audit's
+  // containersAt) stay wholly exempt. The source zone hugs the source card's
+  // right edge (out-port), the target zone its left edge (in-port).
+  const cardExemptFor = (edge: Edge): CardExemption => {
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    const whole = new Set<string>();
+    const zones = new Map<string, PortZoneSide>();
+    if (source !== undefined) {
+      if (source.parentId !== undefined) whole.add(source.parentId);
+      zones.set(source.id, "source");
+    }
+    if (target !== undefined) {
+      if (target.parentId !== undefined) whole.add(target.parentId);
+      zones.set(target.id, "target");
+    }
+    return { whole, zones };
+  };
+
+  // Accumulate the per-member exemptions of a trunk into one union (containers
+  // merge into `whole`, endpoint zones into `zones`). A shared source port
+  // resolves to the same zone across members, so overwriting is a no-op there.
+  type MutCardExemption = {
+    whole: Set<string>;
+    zones: Map<string, PortZoneSide>;
+  };
+  const mergeExemptionInto = (
+    into: MutCardExemption,
+    from: CardExemption,
+  ): void => {
+    for (const id of from.whole) into.whole.add(id);
+    for (const [id, z] of from.zones) into.zones.set(id, z);
+  };
 
   // The shared clearance field: every phase seats into `field.placed`, so a
   // later phase yields to everything an earlier phase placed.
@@ -722,16 +810,16 @@ export function deconflictChipAnchors(
   // trunk keeps a sibling member's target from reading as a foreign card and
   // shoving the aggregate, while still upholding the bus-drop-vs-card hard tier
   // against every FOREIGN card.
-  const laneTrunkExempt = new Map<string, Set<string>>();
+  const laneTrunkExempt = new Map<string, MutCardExemption>();
   for (const { edge } of busEdges) {
     const data = edge.data as BusEdgeData | undefined;
     if (data === undefined || !("laneY" in data)) continue;
     let set = laneTrunkExempt.get(data.trunkKey);
     if (set === undefined) {
-      set = new Set<string>();
+      set = { whole: new Set<string>(), zones: new Map() };
       laneTrunkExempt.set(data.trunkKey, set);
     }
-    for (const id of cardExemptFor(edge)) set.add(id);
+    mergeExemptionInto(set, cardExemptFor(edge));
   }
   for (const slot of busSlots) {
     if (!slot.owner) continue;
@@ -809,15 +897,15 @@ export function deconflictChipAnchors(
   // must clear every one of those target cards (and the shared source) rather
   // than only the owner's own -- otherwise a sibling member's target reads as a
   // foreign card and shoves the aggregate off the trunk and down onto a branch.
-  const trunkExempt = new Map<string, Set<string>>();
+  const trunkExempt = new Map<string, MutCardExemption>();
   for (const { edge } of fanoutEdges) {
     const key = (edge.data as BusEdgeData).trunkKey;
     let set = trunkExempt.get(key);
     if (set === undefined) {
-      set = new Set<string>();
+      set = { whole: new Set<string>(), zones: new Map() };
       trunkExempt.set(key, set);
     }
-    for (const id of cardExemptFor(edge)) set.add(id);
+    mergeExemptionInto(set, cardExemptFor(edge));
   }
   for (const { edge, index } of fanoutEdges) {
     const geom = fanoutGeomByIndex.get(index)!;
