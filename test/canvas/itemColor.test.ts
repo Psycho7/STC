@@ -112,12 +112,15 @@ describe("canvas/itemColor", () => {
   it("keeps every pack item color inside the legible range", () => {
     // Saturated icons stay clearly colored (s >= 45), near-gray icons stay
     // gray-ish (s <= 22), and every lightness lands where it reads against the
-    // dark canvas. No raw icon color leaks through.
+    // dark canvas. No raw icon color leaks through. The upper bound is 90, not
+    // the old rung ceiling of 78: the contrast floor plus its upward re-spread
+    // can lift a crowded deep-red rung into the pale band to hold both the
+    // 4.5:1 floor and the >= 8 lightness gap from its hue-window neighbors.
     for (const item of pack.items) {
       const { s, l } = parseHsl(itemColor(item.id));
       expect(s >= 45 || s <= 22, `${item.id} saturation ${s}`).toBe(true);
       expect(l, `${item.id} lightness ${l}`).toBeGreaterThanOrEqual(46);
-      expect(l, `${item.id} lightness ${l}`).toBeLessThanOrEqual(80);
+      expect(l, `${item.id} lightness ${l}`).toBeLessThanOrEqual(90);
     }
   });
 });
