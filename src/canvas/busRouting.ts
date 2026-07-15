@@ -1477,10 +1477,21 @@ function connectingLegBlocked(
 // unchanged (degraded but stable; the audit quantifies it) -- EXCEPT when the
 // own-side guard is active and the desired column's vertical run pierces a
 // foreign RAW card body. Keeping it then would slice an unrelated card
-// outright, so a pierce-rescue tier re-runs both tiers WITHOUT the guard
-// (the pre-guard acceptance): a clear column on the wrong side of the port
-// beats piercing a foreign body. Only when even the rescue fails does the
-// pierced desired column survive. Pure and deterministic.
+// outright, so a two-step pierce rescue re-runs both tiers with the side clamp
+// dropped, RANKED so an own-card traversal is the absolute last resort:
+//   3a. drop only the side clamp; KEEP the own-card leg rect in the connecting-
+//       leg acceptance. This admits a chamfer-band / gutter column just past
+//       the port whose approach leg does not cross the own card, but still
+//       rejects any column whose leg would traverse the own endpoint body.
+//   3b. only if 3a finds nothing: drop the own-card leg rect too, so the column
+//       may land inside the own endpoint card and its leg run across that body.
+//       Reached only in packed corridors where every off-own column is blocked
+//       (matching the pre-guard behaviour for geometry with no clear option) --
+//       a defensible last resort, but one the segment audit cannot see because
+//       it exempts an edge's own endpoint cards (auditOwnCardPierces measures
+//       it separately).
+// Only when even 3b fails does the pierced desired column survive. Pure and
+// deterministic.
 function clearColumnKeepingLeg(args: {
   desired: number;
   portX: number;
@@ -1569,11 +1580,8 @@ function clearColumnKeepingLeg(args: {
   // clampBackwardRails callers (which pass neither guard arg) keep today's
   // degrade unchanged. When the guarded tiers exhaust AND the desired column's
   // vertical run pierces a foreign RAW card body, degrading to it would slice
-  // an unrelated card outright (the audit's hard gate). Re-run both tiers with
-  // the pre-guard acceptance -- no side clamp, no own-card leg rect -- so a
-  // clear column past the port (possibly through the own card's boundary
-  // region, which the guard exists to avoid when a choice exists) wins over
-  // the foreign pierce. If even that fails, fall through to the degrade.
+  // an unrelated card outright (the audit's hard gate). Two ranked sub-tiers
+  // re-resolve with the side clamp dropped, an own-card landing always last.
   if (sideClamp !== undefined || ownLegRect !== undefined) {
     const desiredPierces = foreignRawCards.some(
       (o) =>
@@ -1583,31 +1591,68 @@ function clearColumnKeepingLeg(args: {
         desired < o.right,
     );
     if (desiredPierces) {
-      const rescuePaddedAccept = (x: number): boolean =>
-        !connectingLegBlocked(portX, portY, x, paddedCards);
-      const rescuePadded = clearColumnX(desired, yLo, yHi, foreignPadded, {
+      // Tier 3a: drop the side clamp but KEEP the own-card leg rect in the
+      // acceptance. A column past the port whose approach leg still clears the
+      // own endpoint body (a chamfer-band / gutter escape, or any far column
+      // whose leg does not cross the own card) beats the foreign pierce without
+      // tunnelling the own body.
+      const rescueAPaddedAccept = (x: number): boolean =>
+        !connectingLegBlocked(portX, portY, x, paddedLegCards);
+      const rescueAPadded = clearColumnX(desired, yLo, yHi, foreignPadded, {
         towardTarget: toward,
-        accept: rescuePaddedAccept,
+        accept: rescueAPaddedAccept,
       });
       if (
-        columnClear(rescuePadded, foreignPadded, CHAMFER) &&
-        rescuePaddedAccept(rescuePadded)
+        columnClear(rescueAPadded, foreignPadded, CHAMFER) &&
+        rescueAPaddedAccept(rescueAPadded)
       ) {
-        return rescuePadded;
+        return rescueAPadded;
       }
-      const rescueRawAccept = (x: number): boolean =>
-        !connectingLegBlocked(portX, portY, x, foreignRawCards);
-      const rescueRaw = clearColumnX(desired, yLo, yHi, foreignRawCards, {
+      const rescueARawAccept = (x: number): boolean =>
+        !connectingLegBlocked(portX, portY, x, rawLegCards);
+      const rescueARaw = clearColumnX(desired, yLo, yHi, foreignRawCards, {
         towardTarget: toward,
         gap: RAW_GAP,
         radius: 2 * CLEAR_COLUMN_RADIUS,
-        accept: rescueRawAccept,
+        accept: rescueARawAccept,
       });
       if (
-        columnClear(rescueRaw, foreignRawCards, RAW_GAP) &&
-        rescueRawAccept(rescueRaw)
+        columnClear(rescueARaw, foreignRawCards, RAW_GAP) &&
+        rescueARawAccept(rescueARaw)
       ) {
-        return rescueRaw;
+        return rescueARaw;
+      }
+
+      // Tier 3b (last resort): drop the own-card leg rect too. Only reached when
+      // no off-own column clears -- every leftward leg crosses a foreign body
+      // and every rightward column is walled -- so the run traverses its own
+      // endpoint card. auditOwnCardPierces tracks this residue; the foreign
+      // segment audit exempts endpoint cards and cannot.
+      const rescueBPaddedAccept = (x: number): boolean =>
+        !connectingLegBlocked(portX, portY, x, paddedCards);
+      const rescueBPadded = clearColumnX(desired, yLo, yHi, foreignPadded, {
+        towardTarget: toward,
+        accept: rescueBPaddedAccept,
+      });
+      if (
+        columnClear(rescueBPadded, foreignPadded, CHAMFER) &&
+        rescueBPaddedAccept(rescueBPadded)
+      ) {
+        return rescueBPadded;
+      }
+      const rescueBRawAccept = (x: number): boolean =>
+        !connectingLegBlocked(portX, portY, x, foreignRawCards);
+      const rescueBRaw = clearColumnX(desired, yLo, yHi, foreignRawCards, {
+        towardTarget: toward,
+        gap: RAW_GAP,
+        radius: 2 * CLEAR_COLUMN_RADIUS,
+        accept: rescueBRawAccept,
+      });
+      if (
+        columnClear(rescueBRaw, foreignRawCards, RAW_GAP) &&
+        rescueBRawAccept(rescueBRaw)
+      ) {
+        return rescueBRaw;
       }
     }
   }

@@ -207,6 +207,51 @@ export function auditSegmentsVsCards(
   return out;
 }
 
+export type OwnCardPierce = {
+  edgeId: string;
+  card: string;
+  role: "source" | "target";
+  seg: [Pt, Pt];
+};
+
+// Every edge segment that enters the RAW body of the edge's OWN source or
+// target card. auditSegmentsVsCards exempts those endpoint cards outright, so a
+// run that traverses its own endpoint body -- the last-resort own-card rise /
+// drop the packed-corridor pierce rescue falls back to -- is invisible there.
+// This surfaces exactly that residue, so a follow-up change that grows it is
+// caught by a ratchet. A normal approach leg touches only the card's port-side
+// boundary (the open-interval test with eps ignores a boundary graze), so it
+// does not count; only a column landing inside the body does. Container (group)
+// endpoints are skipped: a run legitimately lives inside its own container, and
+// the routing passes exempt it the same way. Pure and deterministic.
+export function auditOwnCardPierces(
+  edges: ReadonlyArray<RawEdge>,
+  nodes: ReadonlyArray<NodeRect>,
+  eps = 0.5,
+): OwnCardPierce[] {
+  const nodeById = new Map<string, NodeRect>();
+  for (const n of nodes) nodeById.set(n.nodeId, n);
+  const out: OwnCardPierce[] = [];
+  for (const edge of edges) {
+    const pts = parsePath(edge.d);
+    if (pts.length === 0) continue;
+    const own: Array<{ card: NodeRect; role: "source" | "target" }> = [];
+    const s = nodeById.get(edge.source);
+    const t = nodeById.get(edge.target);
+    if (s !== undefined && s.type !== "group") own.push({ card: s, role: "source" });
+    if (t !== undefined && t.type !== "group") own.push({ card: t, role: "target" });
+    if (own.length === 0) continue;
+    for (const [seg0, seg1] of segmentsOf(pts)) {
+      for (const { card, role } of own) {
+        if (segmentEntersRect(seg0, seg1, card, eps)) {
+          out.push({ edgeId: edge.id, card: card.nodeId, role, seg: [seg0, seg1] });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 // A rendered chip box in flow coordinates, tagged with its owning edge (the
 // data-edge-id hook FlowChip emits) and its family.
 export type ChipRect = RawRect & {

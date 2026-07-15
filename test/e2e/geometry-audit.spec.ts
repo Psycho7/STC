@@ -3,6 +3,7 @@ import { SCENARIOS, scenarioHash } from "./scenarios";
 import {
   auditChipsOnOwnPath,
   auditChipsVsCards,
+  auditOwnCardPierces,
   auditSegmentsVsCards,
   auditSegmentsVsChips,
   countCrossings,
@@ -387,11 +388,22 @@ test.describe("DOM geometry audit", () => {
 // accommodation of a regression. Three such rulings stand: battery5 off-path
 // 5 -> 6 (card-hardness pushes one pinned chip's seat off its line), the P4
 // aggregate-visibility raise (chip-segment default 0 -> 2, multi6 0 -> 3,
-// battery5-xiranite 0 -> 7), and the issue-13 own-side bus-column guard
-// (padding grazes battery5-xiranite 7 -> 14: three rise columns that used to
-// cross their own target card's body now thread the port-side gutter between
-// overlapping sibling paddings; each new graze replaces an own-body tunnel,
-// and the tier-1 raw gate stays at zero).
+// battery5-xiranite 0 -> 7), and the own-side bus-column guard (padding grazes
+// battery5-xiranite 7 -> 14). That guard keeps a bus drop / rise on the port
+// side of its own endpoint card. On battery5-xiranite it moved three columns
+// that used to run through their own endpoint body onto the port-side gutter
+// instead -- verified per edge against the pre-guard build (4cc2725): e:26 and
+// e:65 (rises into the liquid_water target q:27, base column 4086 inside the
+// card body -> 3714 / 3730 off-own) and e:17 (drop out of the xiranite source
+// q:22, base column 1832 inside the source body -> 1865 off-own) each traded an
+// own-body traversal for a packed-gutter graze -- one graze plus two three-
+// segment approaches, the 7 new grazes -- and the tier-1 raw gate stays at zero.
+// The guard does NOT eliminate own-endpoint traversals everywhere: where the
+// port-side corridor is fully walled the pierce rescue's last resort still lands
+// inside the own endpoint card (e.g. e:15 rises to 2476, inside its own target
+// q:35 body, at BOTH base and HEAD -- no off-own column exists there). The
+// endpoint-exempting tier-1 audit cannot see those runs; the OWN_PIERCE_BASELINE
+// ratchet below (auditOwnCardPierces) tracks that residue directly.
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -413,11 +425,13 @@ const CROSSING_BASELINE: Record<string, number> = {
 // with no padded-clear column in the routing model (the raw fallback threads
 // the raw gap instead, trading a raw strike for a graze). Recorded post-fix at
 // this commit's measured counts; the ratchet only tightens.
-// battery5-xiranite raised 7 -> 14 by the issue-13 ruling (see the NOTE above):
-// the own-side guard keeps rise columns on the port side of their target, so
-// three water/xiranite rises (one graze plus two three-segment approaches) now
-// thread packed gutters their pre-guard routes avoided by tunneling the target
-// card's own body.
+// battery5-xiranite raised 7 -> 14 by the own-side bus-column guard (see the
+// NOTE above): keeping bus drop / rise columns on the port side of their own
+// endpoint card moved three columns off their own-body traversals and onto
+// packed port-side gutters -- two liquid_water rises into q:27 (e:26, e:65) and
+// one xiranite drop out of q:22 (e:17), one graze plus two three-segment
+// approaches. Where the corridor is fully walled the column still tunnels its
+// own endpoint body (tracked by OWN_PIERCE_BASELINE, not this tier).
 const PADDED_GRAZE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 11,
@@ -472,6 +486,27 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   equip4: 7,
   multi6: 0,
   tundra: 2,
+};
+
+// Own-endpoint-pierce ratchet: segments that run inside their OWN source /
+// target card's RAW body. The foreign segment audit (tier 1) exempts an edge's
+// own endpoint cards, so this residue is its blind spot -- a rise / drop that
+// the pierce rescue lands inside its own endpoint card (the last-resort 3b
+// traversal, taken only where the port-side corridor is so packed that no
+// off-own column clears) never shows up there. Held per scenario and ratcheted
+// DOWN only, under the same manual-ruling convention as the tables above.
+// Recorded at this fix's measured counts: battery5 (6: e:10 and e:40, three
+// segments each, rising into their own liquid_water target q:18) and battery5-
+// xiranite (16: target rises e:15 and source drops e:19 / e:20 / e:22 / e:23 /
+// e:50, each a walled corridor with no off-own column). Zero elsewhere.
+const OWN_PIERCE_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 6,
+  "battery5-xiranite": 16,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
 };
 
 type EdgeGeom = { id: string; d: string };
@@ -708,6 +743,23 @@ test.describe("segment placement audit", () => {
           `${scenario.id}: ${grazes.length} padding graze(s) exceeds baseline ${grazeBaseline}:\n${grazeInventory.join("\n")}`,
         )
         .toBeLessThanOrEqual(grazeBaseline);
+
+      // Own-endpoint-pierce ratchet: segments running inside their OWN source /
+      // target card's raw body. Tier 1 exempts endpoint cards and cannot see
+      // these; the pierce rescue's last-resort own-card traversal lands here.
+      // Ratchets down only.
+      const ownPierces = auditOwnCardPierces(rawEdges, nodes);
+      const ownPierceInventory = ownPierces.map(
+        (v) =>
+          `  ${v.edgeId} seg ${fmtSeg(v.seg)} runs inside own ${v.role} card ${v.card}`,
+      );
+      const ownPierceBaseline = OWN_PIERCE_BASELINE[scenario.id]!;
+      expect
+        .soft(
+          ownPierces.length,
+          `${scenario.id}: ${ownPierces.length} own-card pierce(s) exceeds baseline ${ownPierceBaseline}:\n${ownPierceInventory.join("\n")}`,
+        )
+        .toBeLessThanOrEqual(ownPierceBaseline);
 
       // Census: pairwise crossings never regress past the pre-P2 baseline.
       const crossings = countCrossings(geom.edges);

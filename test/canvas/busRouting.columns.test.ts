@@ -832,7 +832,7 @@ describe("clearBusColumns", () => {
     expect(dropX! >= sx + CHAMFER).toBe(true);
   });
 
-  it("never pierces a foreign card body when the port-side corridor is packed", () => {
+  it("traverses its own target card only as the last resort when the port-side corridor is packed", () => {
     // The battery5 shape that regressed the geometry audit's hard gate: the
     // target's left corridor is walled at PORT height by one card ("wall",
     // abutting the port so every leftward approach leg crosses its body) while
@@ -841,9 +841,15 @@ describe("clearBusColumns", () => {
     // every candidate -- leftward legs cross the wall, rightward columns are
     // clamp-rejected -- and the pre-rescue degrade kept the desired column
     // (1138), which runs straight through the block's raw body [1064, 1212]: a
-    // hard-gate pierce of an unrelated card. The rescue detects the pierce and
-    // re-resolves without the guard, landing right of the block (1214), clear
-    // of every foreign raw body.
+    // hard-gate pierce of an unrelated card. The pierce rescue's off-own tier
+    // (3a) finds nothing -- the wall occupies the whole chamfer band so no
+    // body-clear column keeps its leg off the own card -- so the last-resort
+    // tier (3b) runs: it lands right of the block (1214), which is clear of
+    // every FOREIGN raw body but sits INSIDE the own target card's body
+    // [1170, 1470]. This is the ruled last resort for geometry with no clear
+    // option (matching pre-guard behaviour). The foreign segment audit exempts
+    // an edge's own endpoint cards and cannot see this run; auditOwnCardPierces
+    // measures it instead.
     //   t: (1170, 1000), port y 1074 (product-style center fallback).
     //   wall: raw [1022, 1170] y [1020, 1120] -- abuts tx, contains port y.
     //   block: raw [1064, 1212] y [1300, 1378] -- contains desired 1138.
@@ -862,10 +868,55 @@ describe("clearBusColumns", () => {
       routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
     );
     const resolved = riseXOf(out, "e0") ?? far - PORT_STUB - CHAMFER;
-    // The resolved rise column never runs strictly inside a foreign raw card
+    // The resolved rise column never runs strictly inside a FOREIGN raw card
     // body it spans: not the block's [1064, 1212], not the wall's [1022, 1170].
     expect(resolved > 1064 && resolved < 1212).toBe(false);
     expect(resolved > 1022 && resolved < 1170).toBe(false);
+    // It IS an own-card landing (the last-resort 3b traversal): right of the
+    // target's Left port (tx = far = 1170), strictly inside the target card's
+    // own raw body [1170, 1470]. This is what the own-pierce audit ratchets.
+    expect(resolved > far).toBe(true);
+    expect(resolved > far && resolved < far + 300).toBe(true);
+  });
+
+  it("prefers a body-clear off-own column over traversing its own target card", () => {
+    // The 3a sub-tier of the pierce rescue: same packed shape, but the wall's
+    // raw right edge stops one chamfer short of the port (1160, not 1170), so
+    // the chamfer band [tx - CHAMFER, tx) = [1162, 1170) is not walled. A short
+    // foreign "shelf" (raw right 1166) sitting at the run's lane depth supplies
+    // a candidate column at 1168 -- inside the chamfer band, off-side of the
+    // clamp (so tiers 1/2 reject it) but with an approach leg that stops at the
+    // port without crossing the own card body. "block" (raw [1002, 1150])
+    // straddles the desired column 1138 and, with the wall, exhausts every
+    // clamp-valid tier-1/2 column, so the rescue runs. Its off-own tier (3a)
+    // takes 1168 -- a body-clear column whose leg clears the own card -- in
+    // preference to any own-card traversal (3b). The rescue lands off-own.
+    //   t: (1170, 1000), port y 1074. tx = 1170, chamfer band [1162, 1170).
+    //   wall:  raw [1012, 1160] y [1020, 1120] -- blocks leftward legs, clears band.
+    //   shelf: raw [1018, 1166] y [1300, 1378] -- supplies the 1168 candidate.
+    //   block: raw [1002, 1150] y [1300, 1378] -- contains desired 1138.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s", 0, 1000, r),
+      recipeNode("corridor", 550, 1000, r),
+      recipeNode("t", far, 1000, r),
+      inputProductNode("shelf", "ore", 1018, 1300, 148, 78),
+      inputProductNode("wall", "ore", 1012, 1020, 148, 100),
+      inputProductNode("block", "ore", 1002, 1300, 148, 78),
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
+    );
+    const resolved = riseXOf(out, "e0") ?? far - PORT_STUB - CHAMFER;
+    // Off-own: strictly LEFT of the target's Left port (tx = far = 1170), so
+    // its approach leg never enters the own card body [1170, 1470]. Contrast
+    // the last-resort test above, where the packed wall forces an own-card
+    // landing (resolved > far).
+    expect(resolved).toBeLessThan(far);
+    // And clear of the foreign bodies it spans (block, wall, shelf raw).
+    expect(resolved > 1002 && resolved < 1150).toBe(false);
+    expect(resolved > 1012 && resolved < 1160).toBe(false);
   });
 });
 
