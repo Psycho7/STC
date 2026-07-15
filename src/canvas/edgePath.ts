@@ -385,7 +385,14 @@ export function chamferStepPath(
         ` L ${r(xl)},${r((railY + ty) / 2)}` +
         ` L ${r(xl + CHAMFER)},${r(ty)}` +
         ` L ${r(tx)},${r(ty)}`;
-      return [d, ...pathMidpoint(d)];
+      // Anchor at the apex peak (xr, mid(sy, railY)) -- a path vertex -- the
+      // same source-side-column rule as the full rail below, so the anchor is
+      // CONTINUOUS across this branch boundary. A one-pixel disagreement
+      // between the live handle coordinates and the seating pass's offline
+      // port model can flip which branch each side takes; a discontinuous
+      // anchor then applies the seat's offsets to a far-away point and strands
+      // the chip off its line (and inside a card).
+      return [d, r(xr), r((sy + railY) / 2)];
     }
     // Right column exits leftward (-1, -1) onto the rail, left column enters
     // leftward (+1, +1) off it; the leftward lane run is the implicit segment
@@ -414,21 +421,32 @@ export function chamferStepPath(
   const { chamfer, bx: stepBx } = forwardStepGeometry(sx, tx, bendX);
   const bx = args.srcColX ?? stepBx;
 
-  // Same rail: a plain straight line, no vertical offset at all.
+  // Same rail: a plain straight line, no vertical offset at all. The anchor
+  // sits at the bend column (on the line by construction), NOT the geometric
+  // midpoint: the three forward shapes (straight, small-dy diagonal, full
+  // step) all anchor at (bx, mid(sy, ty)) so the anchor is CONTINUOUS across
+  // their branch boundaries. Live handle coordinates and the seating pass's
+  // offline port model can disagree by a pixel; if that pixel flips the branch,
+  // a discontinuous anchor applies the seat's labelDx/labelDy to a point
+  // hundreds of units away and strands the chip off its line (the food-tundra
+  // own-card chip defect). Unhinted callers see no change: the default bend
+  // column IS the corridor midpoint.
   if (sy === ty) {
     const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
-    return [d, ...pathMidpoint(d)];
+    return [d, r(bx), r(sy)];
   }
 
   // Small dy: a vertical run plus two chamfers will not fit between the rails, so
   // join the two horizontal runs with a single diagonal (no vertical segment).
+  // Anchor at the diagonal's midpoint (bx, mid(sy, ty)) -- the same bend-column
+  // rule as the full step below (anchor continuity, see the same-rail comment).
   if (Math.abs(ty - sy) <= 2 * chamfer) {
     const d =
       `M ${r(sx)},${r(sy)}` +
       ` L ${r(bx - chamfer)},${r(sy)}` +
       ` L ${r(bx + chamfer)},${r(ty)}` +
       ` L ${r(tx)},${r(ty)}`;
-    return [d, ...pathMidpoint(d)];
+    return [d, r(bx), r((sy + ty) / 2)];
   }
 
   // Normal forward step: H run, chamfer, V run, chamfer, H run into target.

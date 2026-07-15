@@ -137,6 +137,75 @@ describe("chamferStepPath", () => {
     expectRightwardFinish(d);
   });
 
+  it("keeps the label anchor continuous across the small-dy branch boundary", () => {
+    // The forward step flips between the diagonal (small-dy) and the full
+    // vertical-run shape at |dy| = 2 * chamfer. Live handle coordinates and the
+    // seating pass's offline port model can disagree by a pixel, so a dy that
+    // straddles the boundary must not teleport the anchor: the render applies
+    // the seat's labelDx/labelDy to ITS anchor, and an anchor jump of hundreds
+    // of units strands the chip inside a card (the food-tundra 30/min defect).
+    // Both sides of the boundary anchor on the bend column at the y midpoint --
+    // the diagonal's own midpoint, so the anchor stays on the path.
+    const base = {
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 600,
+      bendX: 60,
+    };
+    const [, atX, atY] = chamferStepPath({ ...base, targetY: 2 * CHAMFER });
+    const [, pastX, pastY] = chamferStepPath({
+      ...base,
+      targetY: 2 * CHAMFER + 1,
+    });
+    expect(atX).toBe(60);
+    expect(atY).toBe(CHAMFER);
+    expect(pastX).toBe(60);
+    expect(pastY).toBe(CHAMFER + 0.5);
+  });
+
+  it("anchors a same-rail straight line on the bend column", () => {
+    // The same continuity across the sy === ty boundary: a one-pixel port-model
+    // disagreement flips between the straight line and the small-dy diagonal,
+    // so the straight line anchors at the bend column too (on the line by
+    // construction), not the geometric midpoint.
+    const [d, lx, ly] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 50,
+      targetX: 600,
+      targetY: 50,
+      bendX: 60,
+    });
+    expect(d).toBe("M 0,50 L 600,50");
+    expect(lx).toBe(60);
+    expect(ly).toBe(50);
+  });
+
+  it("keeps the backward anchor continuous across the apex-rail boundary", () => {
+    // Backward mirror of the small-dy continuity: within 2 * CHAMFER of the
+    // source level the rail collapses to a single apex bevel. The anchor stays
+    // on the source-side column at the (sy, railY) midpoint -- the apex peak
+    // sits exactly there -- matching the full rail's anchor rule instead of
+    // teleporting to the leftward run's arc midpoint.
+    const [, atX, atY] = chamferStepPath({
+      sourceX: 200,
+      sourceY: 0,
+      targetX: 0,
+      targetY: 100,
+      railY: 2 * CHAMFER,
+    });
+    const [, pastX, pastY] = chamferStepPath({
+      sourceX: 200,
+      sourceY: 0,
+      targetX: 0,
+      targetY: 100,
+      railY: 2 * CHAMFER + 1,
+    });
+    expect(atX).toBe(200 + PORT_STUB);
+    expect(atY).toBe(CHAMFER);
+    expect(pastX).toBe(200 + PORT_STUB);
+    expect(pastY).toBe(CHAMFER + 0.5);
+  });
+
   it("degrades symmetrically in a narrow gap, scaling stub and chamfer", () => {
     // gap 32 = half the full budget (2*(24+8)=64), so scale = 0.5: stub 12,
     // chamfer 4, bend forced to the midpoint (the scaled range collapses).
