@@ -650,7 +650,8 @@ describe("clearBusColumns", () => {
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s", 0, 1000, r),
-      // A target-row card mid-corridor keeps the lone member on the bus (Task 12).
+      // A mid-corridor card keeps the lone member on the bus rather than a
+      // single-member direct route.
       recipeNode("corridor", 550, 1000, r),
       containerNode("G", 950, 970, 540, 200), // wraps t + sib
       { ...recipeNode("t", 220, 30, r), parentId: "G" }, // abs (1170, 1000)
@@ -756,6 +757,38 @@ describe("clearBusColumns", () => {
     const dropX = dropXOf(out, "e0");
     // Never at or left of the port (which would tunnel the source body): either a
     // clamp-valid rightward column, or the unstamped degrade to dropDesired (> sx).
+    expect(dropX === undefined || dropX >= sx + CHAMFER).toBe(true);
+  });
+
+  it("rejects a drop candidate inside the port's chamfer band (clamp isolation)", () => {
+    // Isolates the drop-side clamp from the own-card leg test. A raw-tier
+    // candidate lands INSIDE the chamfer band [sx, sx + CHAMFER): the sibling's
+    // raw left edge sits at 306, so tier 2 offers x = 304 (raw left - RAW_GAP).
+    // The connecting leg [300, 304] starts exactly at the source's raw right
+    // edge, so the open-interval leg test passes it (o.right > lo fails at
+    // o.right == lo == sx) and only the clamp (x >= sx + CHAMFER = 308) can
+    // reject it. Without the clamp on the DROP call this stamps dropX = 304 --
+    // a column butting the port with no room for the chamfer elbow.
+    //   s: abs (0, 1000), sx = 300, out-port y = 1097; desired drop = 332.
+    //   sib: raw [306, 454] x [1000, 1200], tall enough to span the drop run,
+    //     blocking the desired column in both tiers; every candidate right of
+    //     it has a leg that crosses it, so with the clamp the resolver degrades
+    //     to the unstamped right-of-port default instead.
+    const sx = 300; // source's absolute right edge (left 0 + RECIPE_WIDTH)
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s", 0, 1000, r),
+      // A mid-corridor card keeps the lone member on the bus rather than a
+      // single-member direct route.
+      recipeNode("corridor", 550, 1000, r),
+      recipeNode("t", far, 1000, r),
+      inputProductNode("sib", "ore", 306, 1000, 148, 200), // raw [306, 454]
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
+    );
+    const dropX = dropXOf(out, "e0");
     expect(dropX === undefined || dropX >= sx + CHAMFER).toBe(true);
   });
 });
