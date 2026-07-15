@@ -173,10 +173,10 @@ function srgbRelativeLuminance(r: number, g: number, b: number): number {
   );
 }
 
-// WCAG relative luminance of an hsl() color (h 0-359, s/l 0-100). Exported so
-// the contrast test scores colors with the exact luminance the runtime floor
-// uses, rather than a second parallel definition that could drift.
-export function hslRelativeLuminance(h: number, s: number, l: number): number {
+// WCAG relative luminance of an hsl() color (h 0-359, s/l 0-100). Feeds
+// contrastAgainstCanvas, the single contrast definition shared by the runtime
+// floor and the contrast test. Module-private.
+function hslRelativeLuminance(h: number, s: number, l: number): number {
   const sn = s / 100;
   const ln = l / 100;
   const c = (1 - Math.abs(2 * ln - 1)) * sn;
