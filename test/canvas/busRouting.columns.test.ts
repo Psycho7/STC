@@ -552,6 +552,10 @@ describe("clearBusColumns", () => {
     expect(riseX).not.toBe(1138);
     // Cleared off the foreign card's raw x-extent [1070, 1218].
     expect(riseX! < blockLeft || riseX! > blockLeft + 148).toBe(true);
+    // And it stays on the port's own (left) side of the target card: a rise
+    // column at or right of the port would tunnel the target's body.
+    const tx = far; // target left edge
+    expect(riseX! <= tx - CHAMFER).toBe(true);
   });
 
   it("stamps a cleared dropX when the default drop column pierces a foreign card", () => {
@@ -607,6 +611,152 @@ describe("clearBusColumns", () => {
     expect(riseXOf(clearBusColumns(nodes, routed), "e0")).toBe(
       riseXOf(clearBusColumns(shuffled, routed), "e0"),
     );
+  });
+
+  // A container (loop / SCC slab) box wrapping its members. Only geometry matters
+  // to column clearance, so the data payload is minimal.
+  const containerNode = (
+    id: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): RFAnyNode => ({
+    id,
+    type: "group",
+    position: { x, y },
+    width,
+    height,
+    data: {
+      containerKind: "blueprint-group",
+      containerId: id,
+      memberCount: 1,
+    },
+  });
+
+  it("keeps the rise on the port side when an SCC-slab sibling packs the left corridor", () => {
+    // The crystal-equip shape: the target ("t") lives inside a loop container
+    // ("G") with a sibling card ("sib") packing its left corridor, its right edge
+    // one entry-gutter overhang off the target's Left port. The sibling is not the
+    // target's own geometry (only t and its parent G are exempt), so it blocks the
+    // default rise column (tx - PORT_STUB - CHAMFER = 1138). Without the own-side
+    // guard the nearest accepted column is the rightward fallback (sib's padded
+    // right edge + gap, 1178) -- past the port and straight through the target
+    // card's own body. The guard clamps the rise to the port's own (left) side, so
+    // it threads the raw gutter between sib and t (1148) instead.
+    //   sib.left_raw = 998 (abs), width 148 -> raw right 1146, padded right 1170.
+    //   t.left (tx) = 1170; the rise must land at x <= tx - CHAMFER = 1162.
+    const tx = far; // 1170, target's absolute left edge
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s", 0, 1000, r),
+      // A target-row card mid-corridor keeps the lone member on the bus (Task 12).
+      recipeNode("corridor", 550, 1000, r),
+      containerNode("G", 950, 970, 540, 200), // wraps t + sib
+      { ...recipeNode("t", 220, 30, r), parentId: "G" }, // abs (1170, 1000)
+      {
+        ...inputProductNode("sib", "ore", 48, 30, 148, 78),
+        parentId: "G",
+      }, // abs (998, 1000): raw [998, 1146]
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
+    );
+    const riseX = riseXOf(out, "e0");
+    expect(riseX).toBeDefined();
+    // On the port's own side: never at or right of the target's Left port.
+    expect(riseX! <= tx - CHAMFER).toBe(true);
+    // The approach leg runs [riseX, tx] at the port height; since riseX <= tx and
+    // the target's raw rect starts at x = tx, the leg touches only the card's
+    // left boundary and never enters its body (open-interval crossing test).
+    expect(riseX! <= tx).toBe(true);
+  });
+
+  it("degrades the rise to the desired left-of-port column when the sibling abuts the card", () => {
+    // Same slab, but the sibling ("sib") abuts the target's left edge (raw right
+    // == tx), so no clamp-valid leftward column is clear: the rightward fallback
+    // is rejected by the own-side clamp, and every leftward candidate's approach
+    // leg crosses the sibling. clearColumnKeepingLeg then returns `desired`
+    // unchanged, so clearBusColumns stamps no riseX and the drawer falls back to
+    // riseDesired (entryX ?? tx - PORT_STUB - CHAMFER) -- left of the port by
+    // construction. It may graze the sibling, but it never tunnels the body.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s", 0, 1000, r),
+      recipeNode("corridor", 550, 1000, r),
+      containerNode("G", 950, 970, 540, 200),
+      { ...recipeNode("t", 220, 30, r), parentId: "G" }, // abs left 1170
+      {
+        ...inputProductNode("sib", "ore", 72, 30, 148, 78),
+        parentId: "G",
+      }, // abs (1022, 1000): raw right 1170 == tx
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
+    );
+    // Degraded to `desired` (unstamped): the drawer uses the left-of-port default.
+    expect(riseXOf(out, "e0")).toBeUndefined();
+  });
+
+  it("keeps a backward (gap <= 0) rise on the port side through the same resolver", () => {
+    // Backward bus member: a bothInput feeder whose target ("t") sits left of its
+    // source ("agg"), so gap <= 0 and clearBusColumns routes it through the same
+    // clearColumnKeepingLeg call (no forward early-return). A sibling ("sib") just
+    // left of the target packs its corridor; without the own-side guard the rise
+    // lands at or right of the Left port (x = tx = 0), tunneling the target. The
+    // clamp rejects that, so the rise stays on the port side (unstamped degrade
+    // to the left-of-port default, or a clamp-valid leftward column).
+    const tx = 0; // target's absolute left edge
+    const nodes: RFAnyNode[] = [
+      inputProductNode("agg", "ore", 1000, 0, 148, 78), // source, right 1148
+      inputProductNode("t", "ore", 0, 0, 148, 78), // target, left 0 (< source)
+      inputProductNode("sib", "ore", -150, 0, 148, 78), // raw [-150, -2]
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "agg", "t", "ore")]),
+    );
+    const riseX = riseXOf(out, "e0");
+    // Never at or right of the port: either a clamp-valid leftward column, or the
+    // unstamped degrade to riseDesired (< tx). A rise at x >= tx would tunnel.
+    expect(riseX === undefined || riseX <= tx - CHAMFER).toBe(true);
+  });
+
+  it("keeps the drop on the port side when a sibling packs the source's right corridor", () => {
+    // Mirror of the rise slab on the source card. The source ("s") lives inside a
+    // container ("G2") with a sibling ("sib") packing its right corridor, its left
+    // edge one gutter overhang off the source's Right port. The sibling blocks the
+    // default drop column (sx + PORT_STUB + CHAMFER = 332); without the own-side
+    // guard the nearest accepted column is the leftward fallback (292), past the
+    // port and through the source card's own body. The clamp (x >= sx + CHAMFER)
+    // rejects that, so the drop stays right of the port -- here it degrades to the
+    // unstamped right-of-port default when no clamp-valid rightward column clears.
+    //   sib.left_raw = 334 (abs) -> padded left 300 == sx; sib blocks x in
+    //   (292, 514). s.right (sx) = 300; the drop must land at x >= sx + CHAMFER.
+    // The sibling is tall (height 200) so it spans the drop column's y-range,
+    // which runs from the source's low out-port (y 1097) down to the lane.
+    const sx = 300; // source's absolute right edge (left 0 + RECIPE_WIDTH)
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("corridor", 550, 1000, r),
+      recipeNode("t", far, 1000, r),
+      containerNode("G2", -40, 970, 560, 260), // wraps s + tall sib
+      { ...recipeNode("s", 40, 30, r), parentId: "G2" }, // abs (0, 1000)
+      {
+        ...inputProductNode("sib", "ore", 374, 30, 148, 200),
+        parentId: "G2",
+      }, // abs (334, 1000): raw [334, 482] x [1000, 1200], padded left 300
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [mkEdge("e0", "s", "t", "b")]),
+    );
+    const dropX = dropXOf(out, "e0");
+    // Never at or left of the port (which would tunnel the source body): either a
+    // clamp-valid rightward column, or the unstamped degrade to dropDesired (> sx).
+    expect(dropX === undefined || dropX >= sx + CHAMFER).toBe(true);
   });
 });
 

@@ -1484,6 +1484,20 @@ function clearColumnKeepingLeg(args: {
   toward: number;
   foreignPadded: ReadonlyArray<PaddedObstacle>;
   foreignRawCards: ReadonlyArray<PaddedObstacle>;
+  // Own-side guard for the bus drop / rise. Both are optional and default to a
+  // no-op, so the clampBackwardRails callers (which omit them) are unchanged.
+  //   ownLegRect -- the endpoint's own RAW card, folded into the connecting-leg
+  //     acceptance only (never the column-clearance sets), so a moved column's
+  //     approach leg can never cross the card it serves while the column itself
+  //     may still sit in that card's own gutter. Belt-and-braces on the rise
+  //     (the target card sits on the far side of its Left port, so the open-
+  //     interval leg test never trips) and load-bearing on the drop mirror.
+  //   sideClamp -- reject any candidate on the wrong side of the port (rise:
+  //     x <= portX - CHAMFER; drop: x >= portX + CHAMFER), mirroring the jog-
+  //     descent guard so a packed sibling can never push the column past the
+  //     port into the endpoint's own body.
+  ownLegRect?: PaddedObstacle | undefined;
+  sideClamp?: (x: number) => boolean;
 }): number {
   const {
     desired,
@@ -1494,8 +1508,12 @@ function clearColumnKeepingLeg(args: {
     toward,
     foreignPadded,
     foreignRawCards,
+    ownLegRect,
+    sideClamp,
   } = args;
   const paddedCards = foreignPadded.filter((o) => o.kind === "card");
+  const legExtra = ownLegRect ? [ownLegRect] : [];
+  const onSide = sideClamp ?? (() => true);
   const ymin = Math.min(yLo, yHi);
   const ymax = Math.max(yLo, yHi);
   const columnClear = (
@@ -1513,7 +1531,8 @@ function clearColumnKeepingLeg(args: {
 
   // Tier 1: padded set, padded-card leg acceptance.
   const paddedAccept = (x: number): boolean =>
-    !connectingLegBlocked(portX, portY, x, paddedCards);
+    onSide(x) &&
+    !connectingLegBlocked(portX, portY, x, [...paddedCards, ...legExtra]);
   const padded = clearColumnX(desired, yLo, yHi, foreignPadded, {
     towardTarget: toward,
     accept: paddedAccept,
@@ -1526,7 +1545,8 @@ function clearColumnKeepingLeg(args: {
   // doubled radius lets a fully packed near corridor escape to the next gap.
   const RAW_GAP = 2;
   const rawAccept = (x: number): boolean =>
-    !connectingLegBlocked(portX, portY, x, foreignRawCards);
+    onSide(x) &&
+    !connectingLegBlocked(portX, portY, x, [...foreignRawCards, ...legExtra]);
   const raw = clearColumnX(desired, yLo, yHi, foreignRawCards, {
     towardTarget: toward,
     gap: RAW_GAP,
@@ -1606,6 +1626,10 @@ export function clearBusColumns(
       toward,
       foreignPadded: obstacles.filter((o) => !dropExempt.has(o.nodeId)),
       foreignRawCards: rawCards.filter((o) => !dropExempt.has(o.nodeId)),
+      // Keep the drop on the source's own (right) side: a column at or left of
+      // the source's Right port would tunnel the source card's body.
+      ownLegRect: rawCards.find((o) => o.nodeId === source.id),
+      sideClamp: (x) => x >= sx + CHAMFER,
     });
     if (dropX !== dropDesired) dropXByIndex.set(index, dropX);
 
@@ -1627,6 +1651,11 @@ export function clearBusColumns(
       toward,
       foreignPadded: obstacles.filter((o) => !riseExempt.has(o.nodeId)),
       foreignRawCards: rawCards.filter((o) => !riseExempt.has(o.nodeId)),
+      // Keep the rise on the target's own (left) side: a column at or right of
+      // the target's Left port would tunnel the target card's body. A packed
+      // sibling in an SCC slab would otherwise force the rightward fallback.
+      ownLegRect: rawCards.find((o) => o.nodeId === target.id),
+      sideClamp: (x) => x <= tx - CHAMFER,
     });
     if (riseX !== riseDesired) riseXByIndex.set(index, riseX);
   });
