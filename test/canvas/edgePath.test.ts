@@ -9,7 +9,6 @@ import {
   chamferStepPath,
   chamferBusPath,
   chamferFanoutPath,
-  pathMidpoint,
   pathPointAt,
   routingHintsFromData,
   PORT_STUB,
@@ -21,18 +20,6 @@ import {
   expectRightwardFinish,
   distanceToPolyline,
 } from "./pathAssertions";
-
-describe("pathMidpoint", () => {
-  it("returns the center of a single-segment path", () => {
-    expect(pathMidpoint("M 0,0 L 10,0")).toEqual([5, 0]);
-  });
-
-  it("returns the point at half the cumulative length of a polyline", () => {
-    // Two segments of length 10 and 30: half of 40 lands 10 into the second
-    // segment, at (10, 10).
-    expect(pathMidpoint("M 0,0 L 10,0 L 10,30")).toEqual([10, 10]);
-  });
-});
 
 describe("pathPointAt", () => {
   // Two segments of length 10 (horizontal) then 30 (vertical); total 40. The

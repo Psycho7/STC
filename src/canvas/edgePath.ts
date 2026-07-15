@@ -311,24 +311,20 @@ export function pathPointAtPts(
   return [r(pts[0]![0]), r(pts[0]![1])];
 }
 
-// pathMidpoint: pathPointAt at 50%; a single-segment path degenerates to that
-// segment's center.
-export function pathMidpoint(d: string): [number, number] {
-  return pathPointAt(d, 0.5);
-}
-
 // chamferStepPath: forward step, small-dy diagonal, narrow-gap degradation, and
 // backward S/C detour, all sharing the same chamfer convention. Returns the SVG
-// path plus the label anchor on the polyline's PREFERRED CLEAR SEGMENT (2B): a
-// forward step anchors on its bend-column vertical (or, when the final leg is
-// jogged around a card, on the jog-descent vertical), a backward detour on its
-// source-side rail vertical, and the degenerate shapes with no vertical (a
-// same-rail straight line or a small-dy diagonal) fall back to the geometric
-// midpoint. The corridor legs are vertically long and horizontally clear, so a
-// chip there sits off the card rows the target-side horizontal midpoint used to
-// cross, and a downward de-confliction nudge slides ALONG the vertical, keeping
-// the chip on its own line. Every returned anchor lies on the drawn polyline.
-// The final segment is always a rightward horizontal into target.
+// path plus the label anchor on the polyline's PREFERRED CLEAR SEGMENT (2B):
+// every forward shape -- the full step, the small-dy diagonal, and the
+// same-rail straight line -- anchors at the bend column (bx, mid(sy, ty)) (or,
+// when the final leg is jogged around a card, on the jog-descent vertical), and
+// a backward detour anchors on its source-side rail vertical, apex included, so
+// the anchor is CONTINUOUS across every branch boundary: a one-pixel port-model
+// disagreement between the live handles and the seating reconstruction cannot
+// teleport it. The corridor legs are vertically long and horizontally clear, so
+// a chip there sits off the card rows the target-side horizontal midpoint used
+// to cross, and a downward de-confliction nudge slides ALONG the vertical,
+// keeping the chip on its own line. Every returned anchor lies on the drawn
+// polyline. The final segment is always a rightward horizontal into target.
 //
 // The anchor is derived from the SAME branch geometry that builds the `d` (the
 // bend column bx, the jog descentX, the rail column xr are all in hand), never
