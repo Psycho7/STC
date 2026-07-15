@@ -4,6 +4,7 @@ import {
   useStore,
   type EdgeProps,
 } from "@xyflow/react";
+import { useMemo } from "react";
 import {
   FlowChip,
   LABEL_MIN_ZOOM,
@@ -84,25 +85,34 @@ export default function BusEdge({
   // band and rise at their column. Both expose one aggregate chip anchor (the
   // trunk / drop) and one per-member chip anchor (the branch / rise), so the chip
   // markup below is shared.
-  const fan = isFanout
-    ? chamferFanoutPath({
-        sourceX,
-        sourceY,
-        targetX,
-        targetY,
-        ...routingHintsFromData(edgeData),
-      })
-    : null;
-  const bus = isFanout
-    ? null
-    : chamferBusPath({
-        sourceX,
-        sourceY,
-        targetX,
-        targetY,
-        laneY,
-        ...routingHintsFromData(edgeData),
-      });
+  // Memoized on the endpoints and edge data: the geometry does not depend on
+  // zoom, and the zoom subscription above re-renders every edge each zoom tick.
+  const { fan, bus } = useMemo(
+    () =>
+      isFanout
+        ? {
+            fan: chamferFanoutPath({
+              sourceX,
+              sourceY,
+              targetX,
+              targetY,
+              ...routingHintsFromData(edgeData),
+            }),
+            bus: null,
+          }
+        : {
+            fan: null,
+            bus: chamferBusPath({
+              sourceX,
+              sourceY,
+              targetX,
+              targetY,
+              laneY,
+              ...routingHintsFromData(edgeData),
+            }),
+          },
+    [isFanout, sourceX, sourceY, targetX, targetY, laneY, edgeData],
+  );
   const path = fan?.path ?? bus!.path;
   const junction = fan?.junction ?? bus!.junction;
   // Aggregate chip anchor: the fan-out trunk-segment midpoint, or the lane drop

@@ -3,6 +3,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import ItemEdge, { type ItemEdgeData } from "../../src/canvas/ItemEdge";
+import { parsePathPoints } from "../../src/canvas/edgePath";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
 
@@ -224,9 +225,7 @@ describe("canvas/ItemEdge label placement", () => {
     const ax = Number(m[1]);
     const ay = Number(m[2]);
     // Parse the polyline and find the segment the anchor sits on.
-    const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
-      (mm) => [Number(mm[1]), Number(mm[2])] as const,
-    );
+    const pts = parsePathPoints(d);
     const onSegment = (
       p: readonly [number, number],
       a: readonly [number, number],

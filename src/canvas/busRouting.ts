@@ -29,7 +29,15 @@ import {
   RECIPE_WIDTH,
   loopBoxDimensions,
 } from "./dimensions";
-import { CHAMFER, PORT_STUB, clearRailY, type ObstacleRect } from "./edgePath";
+import {
+  CHAMFER,
+  FORWARD_STEP_BUDGET,
+  PORT_STUB,
+  clamp,
+  clearRailY,
+  forwardStepGeometry,
+  type ObstacleRect,
+} from "./edgePath";
 import { measureRecipe } from "./recipeGeometry";
 import { orderByItem } from "./orderByItem";
 import type { RFAnyNode } from "./layout";
@@ -50,12 +58,12 @@ export const BUS_SPAN_THRESHOLD = 2 * (BETWEEN_LAYERS_SPACING + RECIPE_WIDTH);
 export const FANOUT_SPAN_MAX = BETWEEN_LAYERS_SPACING + RECIPE_WIDTH;
 
 // Minimum gap for a fan-out member: the junction column needs a full stub plus a
-// chamfer of clearance on each side (the same budget the bus / forward-step
-// builders use) or chamferFanoutPath degenerates to a plain step with no
-// distinct junction -- no consolidation, and a junction pinned inside a sub-
-// budget gap crowds the neighbouring entry gutters. A same-layer pair packed
-// this close is left as plain item edges. Boundary case, deliberately excluded.
-export const FANOUT_SPAN_MIN = 2 * (PORT_STUB + CHAMFER);
+// chamfer of clearance on each side (the drawer's degeneration budget) or
+// chamferFanoutPath degenerates to a plain step with no distinct junction -- no
+// consolidation, and a junction pinned inside a sub-budget gap crowds the
+// neighbouring entry gutters. A same-layer pair packed this close is left as
+// plain item edges. Boundary case, deliberately excluded.
+export const FANOUT_SPAN_MIN = FORWARD_STEP_BUDGET;
 
 // Gap between the lowest node bottom and the first lane, then the vertical
 // pitch between successive lanes. LANE_SPACING is derived from the shared chip
@@ -251,6 +259,20 @@ function isInputProduct(node: RFAnyNode | undefined): boolean {
 export function edgeItem(edge: Edge): string | undefined {
   const item = (edge.data as { item?: unknown } | undefined)?.item;
   return typeof item === "string" ? item : undefined;
+}
+
+// Exemption set for an edge's own geometry: each given endpoint node plus one
+// parentId level (its container box -- a grouped endpoint's runs legitimately
+// start / end inside their own group). Every obstacle filter in the routing
+// and chip-seating passes shares this rule, so what counts as "own" geometry
+// is decided once.
+export function ownExempt(nodes: ReadonlyArray<RFAnyNode>): Set<string> {
+  const exempt = new Set<string>();
+  for (const n of nodes) {
+    exempt.add(n.id);
+    if (n.parentId !== undefined) exempt.add(n.parentId);
+  }
+  return exempt;
 }
 
 // The lowest node bottom in absolute coordinates. The bottom lane band starts
@@ -700,14 +722,12 @@ export function routeFanoutEdges(
     let total = new Fraction(0);
     let owner: string | undefined;
     let corridorRight = Infinity;
-    const exempt = new Set<string>();
     // Source is shared across members; resolve its port geometry once.
     const source = byId.get(edges[indices[0]!]!.source)!;
     const item = edgeItem(edges[indices[0]!]!);
     const sx = absoluteLeft(source, byId) + nodeWidth(source);
     const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
-    exempt.add(source.id);
-    if (source.parentId !== undefined) exempt.add(source.parentId);
+    const endpoints: RFAnyNode[] = [source];
     let yLo = sy;
     let yHi = sy;
     // Each member's target-approach leg: the horizontal from the shared junction
@@ -723,10 +743,10 @@ export function routeFanoutEdges(
       corridorRight = Math.min(corridorRight, tx);
       yLo = Math.min(yLo, ty);
       yHi = Math.max(yHi, ty);
-      exempt.add(target.id);
-      if (target.parentId !== undefined) exempt.add(target.parentId);
+      endpoints.push(target);
       memberLegs.push({ tx, ty });
     }
+    const exempt = ownExempt(endpoints);
 
     // Shared junction column, resolved with ACCEPTANCE so the whole formation
     // stays clear of foreign cards -- not just the vertical column. A candidate
@@ -747,7 +767,7 @@ export function routeFanoutEdges(
       memberLegs.every((l) => !connectingLegBlocked(l.tx, l.ty, x, foreignRaw));
     const accept = (x: number): boolean =>
       x >= corLo && x <= corHi && legsClear(x);
-    const desired = Math.min(Math.max((sx + corridorRight) / 2, corLo), corHi);
+    const desired = clamp((sx + corridorRight) / 2, corLo, corHi);
     const junctionX = clearColumnX(desired, yLo, yHi, foreignPadded, {
       towardTarget: 1,
       accept,
@@ -821,9 +841,7 @@ function forwardCorridorClear(
   const sx = absoluteLeft(source, byId) + nodeWidth(source);
   const tx = absoluteLeft(target, byId);
   const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-  const exempt = new Set<string>([source.id, target.id]);
-  if (source.parentId !== undefined) exempt.add(source.parentId);
-  if (target.parentId !== undefined) exempt.add(target.parentId);
+  const exempt = ownExempt([source, target]);
   const foreign = obstacles.filter(
     (o) => o.kind === "card" && !exempt.has(o.nodeId),
   );
@@ -864,9 +882,7 @@ function provenForwardBendColumn(
   const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
   const mid = (sx + tx) / 2;
   if (Math.abs(ty - sy) <= 2 * CHAMFER) return { bendX: null }; // no vertical run
-  const exempt = new Set<string>([source.id, target.id]);
-  if (source.parentId !== undefined) exempt.add(source.parentId);
-  if (target.parentId !== undefined) exempt.add(target.parentId);
+  const exempt = ownExempt([source, target]);
   const ymin = Math.min(sy, ty);
   const ymax = Math.max(sy, ty);
   const spanned = obstacles.filter(
@@ -991,8 +1007,8 @@ function occupiesGutterColumn(
     if ((edge.data as { fanout?: unknown } | undefined)?.fanout === true) {
       return false;
     }
-    const budget = 2 * (PORT_STUB + CHAMFER);
-    return gap <= 0 || gap >= budget; // narrow-forward hairpin claims no column
+    // narrow-forward hairpin claims no column
+    return gap <= 0 || gap >= FORWARD_STEP_BUDGET;
   }
   if (edge.type === "item") return gap <= 0; // backward rail
   return false;
@@ -1551,7 +1567,6 @@ export function clearBusColumns(
 
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
-  const budget = 2 * (PORT_STUB + CHAMFER);
 
   const dropXByIndex = new Map<number, number>();
   const riseXByIndex = new Map<number, number>();
@@ -1571,7 +1586,7 @@ export function clearBusColumns(
     const gap = tx - sx;
     // Only the drop-lane-rise forms have distinct columns to clear; the narrow
     // forward hairpin (0 < gap < budget) collapses both onto the midpoint.
-    if (gap > 0 && gap < budget) return;
+    if (gap > 0 && gap < FORWARD_STEP_BUDGET) return;
     const toward = gap > 0 ? 1 : -1;
 
     // Drop vertical: source port level down to the lane, side-keeping (the
@@ -1580,8 +1595,7 @@ export function clearBusColumns(
     // padded right edge) and the source's own container box (a grouped source's
     // drop legitimately leaves through its container; treating the container as
     // an obstacle would reject every candidate and degrade the column).
-    const dropExempt = new Set<string>([edge.source]);
-    if (source.parentId !== undefined) dropExempt.add(source.parentId);
+    const dropExempt = ownExempt([source]);
     const dropDesired = sx + PORT_STUB + CHAMFER;
     const dropX = clearColumnKeepingLeg({
       desired: dropDesired,
@@ -1600,8 +1614,7 @@ export function clearBusColumns(
     // is the staggered entryX when present (keep the stagger; only move it off
     // foreign geometry). Exempt the target's own card / gutter and the target's
     // own container box (same rationale as the drop side).
-    const riseExempt = new Set<string>([edge.target]);
-    if (target.parentId !== undefined) riseExempt.add(target.parentId);
+    const riseExempt = ownExempt([target]);
     const riseDesired =
       (edge.data as { entryX?: number } | undefined)?.entryX ??
       tx - PORT_STUB - CHAMFER;
@@ -1689,8 +1702,7 @@ export function clampBackwardRails(
     // Side-keeping: a moved column is accepted only when the connecting
     // horizontal from its port also stays clear (raw-gap fallback where
     // paddings overlap); the segment audit quantifies any residual.
-    const xrExempt = new Set<string>([edge.source]);
-    if (source.parentId !== undefined) xrExempt.add(source.parentId);
+    const xrExempt = ownExempt([source]);
     const xr = clearColumnKeepingLeg({
       desired: xrDesired,
       portX: sx,
@@ -1702,8 +1714,7 @@ export function clampBackwardRails(
       foreignRawCards: rawCards.filter((o) => !xrExempt.has(o.nodeId)),
     });
     if (xr !== xrDesired) railXRightByIndex.set(index, xr);
-    const xlExempt = new Set<string>([edge.target]);
-    if (target.parentId !== undefined) xlExempt.add(target.parentId);
+    const xlExempt = ownExempt([target]);
     const xl = clearColumnKeepingLeg({
       desired: xlDesired,
       portX: tx,
@@ -1793,7 +1804,6 @@ export function jogForwardLegs(
 
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
-  const budget = 2 * (PORT_STUB + CHAMFER);
 
   // Descent-slot occupancy per target (jog descents coordinate with entry
   // columns): a target hosting k gutter columns (backward rails / bus rises)
@@ -1819,26 +1829,16 @@ export function jogForwardLegs(
     const tx = absoluteLeft(target, byId);
     const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
     const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    const gap = tx - sx;
     // Only the normal forward step draws a distinct final horizontal leg: the
     // same-y case is a straight line and the small-dy case a single diagonal,
     // neither of which reads legY. Mirror chamferStepPath's branch guards so a
-    // stamped hint is always one the drawer consumes.
-    const scale = gap >= budget ? 1 : gap / budget;
-    const stub = PORT_STUB * scale;
-    const chamfer = CHAMFER * scale;
+    // stamped hint is always one the drawer consumes. forwardStepGeometry is
+    // the drawer's own bend-column derivation, so the leg's start x matches the
+    // drawn path by construction.
+    const bendHint = (edge.data as { bendX?: number } | undefined)?.bendX;
+    const { chamfer, bx } = forwardStepGeometry(sx, tx, bendHint);
     if (sy === ty) return;
     if (Math.abs(ty - sy) <= 2 * chamfer) return;
-    // Bend column, exactly as chamferStepPath's forward normal step derives it,
-    // so the leg's start x matches the drawn path.
-    const lo = sx + stub + chamfer;
-    const hi = tx - stub - chamfer;
-    const mid = (sx + tx) / 2;
-    const bendHint = (edge.data as { bendX?: number } | undefined)?.bendX;
-    const bx =
-      lo < hi && bendHint !== undefined
-        ? Math.min(Math.max(bendHint, lo), hi)
-        : mid;
     // The jog runs the long horizontal from its entry column to the descent
     // column, then descends into the target port. The descent's desired column
     // is the target's next free entry slot (see occupancy above).
@@ -1857,9 +1857,7 @@ export function jogForwardLegs(
     // they test the full card + gutter set. Each obstacle tier (padded first,
     // raw-card fallback where sibling paddings overlap) carries its own leg /
     // column tests.
-    const exempt = new Set<string>([edge.source, edge.target]);
-    if (source.parentId !== undefined) exempt.add(source.parentId);
-    if (target.parentId !== undefined) exempt.add(target.parentId);
+    const exempt = ownExempt([source, target]);
     const foreignCards = obstacles.filter(
       (o) => o.kind === "card" && !exempt.has(o.nodeId),
     );

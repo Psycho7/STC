@@ -4,6 +4,7 @@ import {
   useStore,
   type EdgeProps,
 } from "@xyflow/react";
+import { useMemo } from "react";
 import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
@@ -256,13 +257,19 @@ export default function ItemEdge({
   // invariants (the ratcheted off-path residue). labelSide is no longer read
   // here or anywhere else, and is retained on the edge data only for potential
   // future routing.
-  const [edgePath, labelX, labelY] = chamferStepPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    ...routingHintsFromData(edgeData),
-  });
+  // Memoized on the endpoints and edge data: the geometry does not depend on
+  // zoom, and the zoom subscription above re-renders every edge each zoom tick.
+  const [edgePath, labelX, labelY] = useMemo(
+    () =>
+      chamferStepPath({
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+        ...routingHintsFromData(edgeData),
+      }),
+    [sourceX, sourceY, targetX, targetY, edgeData],
+  );
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
   // Zoom-compensated base width, published as --edge-base-width so the hover

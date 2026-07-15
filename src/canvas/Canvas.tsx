@@ -458,6 +458,13 @@ function CanvasInner({
     );
   }, [edges, focus]);
 
+  // Memoized on nodes: the annotation re-renders every zoom tick (this
+  // component subscribes to zoom), but the unit count changes only with nodes.
+  const unitCount = useMemo(
+    () => nodes.filter((n) => n.type === "recipe").length,
+    [nodes],
+  );
+
   return (
     <div
       ref={containerRef}
@@ -536,9 +543,7 @@ function CanvasInner({
       {/* Rendered recipe units only: the node array also carries group
           containers and product chips, and clustering may aggregate replicas
           into class units - hence UNITS, not REPLICAS. */}
-      <div className="canvas-annot top-right">
-        {`UNITS:${nodes.filter((n) => n.type === "recipe").length}`}
-      </div>
+      <div className="canvas-annot top-right">{`UNITS:${unitCount}`}</div>
       <div className="canvas-annot bottom-right">{`STATUS · ${status}`}</div>
     </div>
   );

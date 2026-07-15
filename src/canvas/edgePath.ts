@@ -30,14 +30,47 @@ export const CHAMFER = 8;
 // half the shorter adjacent leg, or the stamped budget (see chamferStepPath).
 export const MAX_CHAMFER = 24;
 
+// Gap budget for a full symmetric forward shape: one PORT_STUB plus one CHAMFER
+// on each side. Below it the forward builders scale their stub and chamfer down
+// proportionally (chamferStepPath, chamferBusPath) and the shape degenerates --
+// no distinct bend / drop / rise column. The routing passes predict that
+// degeneration (whether a member claims a gutter column, whether a bus column
+// needs clearing), so they must read this same constant: the drawer owns the
+// threshold.
+export const FORWARD_STEP_BUDGET = 2 * (PORT_STUB + CHAMFER);
+
 // Round to two decimals so degraded/scaled geometry does not produce long
 // floating tails in the emitted `d` string (keeps pinned tests stable).
 function r(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function clamp(v: number, lo: number, hi: number): number {
+export function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+// Forward-step column geometry shared by the drawer (chamferStepPath's forward
+// branch) and the routing passes that must predict where the drawn bend column
+// lands (jogForwardLegs). Scales the stub+chamfer budget down proportionally
+// when the gap is too narrow for the full symmetric shape, then resolves the
+// bend column: the caller's bendX clamped into [lo, hi], or the corridor
+// midpoint when the hint is absent or the corridor is too tight to host a
+// distinct column. Keeping producer and consumer on one derivation is what
+// makes a stamped legY / descentX line up with the drawn path.
+export function forwardStepGeometry(
+  sx: number,
+  tx: number,
+  bendX: number | undefined,
+): { stub: number; chamfer: number; lo: number; hi: number; bx: number } {
+  const gap = tx - sx;
+  const scale = gap >= FORWARD_STEP_BUDGET ? 1 : gap / FORWARD_STEP_BUDGET;
+  const stub = PORT_STUB * scale;
+  const chamfer = CHAMFER * scale;
+  const lo = sx + stub + chamfer;
+  const hi = tx - stub - chamfer;
+  const mid = (sx + tx) / 2;
+  const bx = lo < hi && bendX !== undefined ? clamp(bendX, lo, hi) : mid;
+  return { stub, chamfer, lo, hi, bx };
 }
 
 // An axis-aligned card rectangle in absolute graph coordinates, for rail
@@ -121,41 +154,29 @@ export type RoutingHints = {
 // Pick the routing hints off an edge's `data`, omitting absent ones so each
 // path builder's documented default kicks in. Shared by ItemEdge, BusEdge, and
 // deconflictChipAnchors (see RoutingHints above).
+const HINT_KEYS = [
+  "bendX",
+  "legY",
+  "jogDescentX",
+  "srcColX",
+  "entryX",
+  "railY",
+  "dropX",
+  "riseX",
+  "railXRight",
+  "railXLeft",
+  "junctionX",
+  "chamferBudget",
+] as const satisfies ReadonlyArray<keyof RoutingHints>;
+
 export function routingHintsFromData(data: unknown): RoutingHints {
-  const d = data as
-    | {
-        bendX?: unknown;
-        legY?: unknown;
-        jogDescentX?: unknown;
-        srcColX?: unknown;
-        entryX?: unknown;
-        railY?: unknown;
-        dropX?: unknown;
-        riseX?: unknown;
-        railXRight?: unknown;
-        railXLeft?: unknown;
-        junctionX?: unknown;
-        chamferBudget?: unknown;
-      }
-    | undefined;
-  return {
-    ...(typeof d?.bendX === "number" ? { bendX: d.bendX } : {}),
-    ...(typeof d?.legY === "number" ? { legY: d.legY } : {}),
-    ...(typeof d?.jogDescentX === "number"
-      ? { jogDescentX: d.jogDescentX }
-      : {}),
-    ...(typeof d?.srcColX === "number" ? { srcColX: d.srcColX } : {}),
-    ...(typeof d?.entryX === "number" ? { entryX: d.entryX } : {}),
-    ...(typeof d?.railY === "number" ? { railY: d.railY } : {}),
-    ...(typeof d?.dropX === "number" ? { dropX: d.dropX } : {}),
-    ...(typeof d?.riseX === "number" ? { riseX: d.riseX } : {}),
-    ...(typeof d?.railXRight === "number" ? { railXRight: d.railXRight } : {}),
-    ...(typeof d?.railXLeft === "number" ? { railXLeft: d.railXLeft } : {}),
-    ...(typeof d?.junctionX === "number" ? { junctionX: d.junctionX } : {}),
-    ...(typeof d?.chamferBudget === "number"
-      ? { chamferBudget: d.chamferBudget }
-      : {}),
-  };
+  const d = data as Record<string, unknown> | undefined;
+  const hints: RoutingHints = {};
+  for (const key of HINT_KEYS) {
+    const v = d?.[key];
+    if (typeof v === "number") hints[key] = v;
+  }
+  return hints;
 }
 
 // Choose a backward-detour rail y clear of every card the rail horizontally
@@ -238,6 +259,18 @@ function pathFromPoints(pts: ReadonlyArray<readonly [number, number]>): string {
   return path;
 }
 
+// Every "x,y" coordinate pair of an absolute "M x,y L x,y ..." path string
+// (the only form this module emits), as [x, y] tuples in order. The one parser
+// for the emitted `d` grammar; callers that probe a path repeatedly parse once
+// here and interpolate with pathPointAtPts.
+export function parsePathPoints(
+  d: string,
+): ReadonlyArray<readonly [number, number]> {
+  return [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
+    (m) => [Number(m[1]), Number(m[2])] as const,
+  );
+}
+
 // pathPointAt: the point at `frac` (0..1) of the cumulative polyline length of
 // an absolute "M x,y L x,y ..." path string, the only form this module emits.
 // Walks the segments accumulating length until the fraction of the total is
@@ -246,9 +279,16 @@ function pathFromPoints(pts: ReadonlyArray<readonly [number, number]>): string {
 // from. The chip de-confliction pass uses off-midpoint fractions to slide a
 // blocked label along its own line.
 export function pathPointAt(d: string, frac: number): [number, number] {
-  const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
-    (m) => [Number(m[1]), Number(m[2])] as const,
-  );
+  return pathPointAtPts(parsePathPoints(d), frac);
+}
+
+// pathPointAtPts: pathPointAt over an already-parsed vertex list, for callers
+// (the chip slide loop) that probe dozens of candidates per path and hoist the
+// parse to one parsePathPoints call per edge.
+export function pathPointAtPts(
+  pts: ReadonlyArray<readonly [number, number]>,
+  frac: number,
+): [number, number] {
   let total = 0;
   for (let i = 1; i < pts.length; i++) {
     total += Math.hypot(
@@ -363,23 +403,16 @@ export function chamferStepPath(
     return [d, r(xr), r((sy + railY) / 2)];
   }
 
-  // Forward. Scale the stub+chamfer budget down proportionally when the gap is
-  // too narrow to fit a full symmetric shape, bottoming out at a plain step.
-  const budget = 2 * (PORT_STUB + CHAMFER);
-  const scale = gap >= budget ? 1 : gap / budget;
-  const stub = PORT_STUB * scale;
-  const chamfer = CHAMFER * scale;
-  // Bend column: default midpoint, or the caller's bendX clamped to the margins.
-  // When the corridor is too tight to host a bend (scaled range collapses), fall
-  // back to the midpoint. A srcColX hint (jogForwardLegs, blocked source leg)
-  // replaces the column outright and is used unclamped: the routing pass proved
-  // it clear, and the clamp could push it back into the blocked band.
-  const lo = sx + stub + chamfer;
-  const hi = tx - stub - chamfer;
-  const mid = (sx + tx) / 2;
-  const bx =
-    args.srcColX ??
-    (lo < hi ? (bendX !== undefined ? clamp(bendX, lo, hi) : mid) : mid);
+  // Forward. forwardStepGeometry scales the stub+chamfer budget down
+  // proportionally when the gap is too narrow to fit a full symmetric shape
+  // (bottoming out at a plain step) and resolves the bend column: default
+  // midpoint, or the caller's bendX clamped to the margins, falling back to the
+  // midpoint when the corridor is too tight to host a bend. A srcColX hint
+  // (jogForwardLegs, blocked source leg) replaces the column outright and is
+  // used unclamped: the routing pass proved it clear, and the clamp could push
+  // it back into the blocked band.
+  const { chamfer, bx: stepBx } = forwardStepGeometry(sx, tx, bendX);
+  const bx = args.srcColX ?? stepBx;
 
   // Same rail: a plain straight line, no vertical offset at all.
   if (sy === ty) {
@@ -480,7 +513,7 @@ export function chamferBusPath(
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty, laneY } = args;
   const gap = tx - sx;
   // Budget for a full symmetric shape: a stub plus a chamfer on each side.
-  const budget = 2 * (PORT_STUB + CHAMFER);
+  const budget = FORWARD_STEP_BUDGET;
 
   // Backward: target at or left of source. Drop one stub+chamfer inside the
   // source, run the lane leftward, rise one stub+chamfer inside the target. The

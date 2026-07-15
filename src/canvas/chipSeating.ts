@@ -35,6 +35,8 @@ import {
   chamferBusPath,
   chamferFanoutPath,
   chamferStepPath,
+  parsePathPoints,
+  pathPointAtPts,
   routingHintsFromData,
 } from "./edgePath";
 import {
@@ -45,6 +47,7 @@ import {
   edgeItem,
   nodeHeight,
   nodeWidth,
+  ownExempt,
   portOffsetY,
   type BusEdgeData,
 } from "./busRouting";
@@ -320,42 +323,6 @@ function seatChip(
   return dy;
 }
 
-// Round to two decimals, mirroring edgePath's coordinate rounding so points
-// interpolated here land exactly where pathPointAt would put them.
-function r2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-// The point at `frac` (0..1) of the cumulative polyline length, computed over
-// an already-parsed vertex list. Byte-for-byte the same arithmetic as
-// edgePath's pathPointAt, minus the per-call regex re-parse of the `d` string
-// (the slide loop probes dozens of candidates per chip, so the parse cost is
-// hoisted to one parse per edge).
-function pathPointAtPts(
-  pts: ReadonlyArray<readonly [number, number]>,
-  frac: number,
-): [number, number] {
-  let total = 0;
-  for (let i = 1; i < pts.length; i++) {
-    total += Math.hypot(
-      pts[i]![0] - pts[i - 1]![0],
-      pts[i]![1] - pts[i - 1]![1],
-    );
-  }
-  let remaining = total * Math.min(1, Math.max(0, frac));
-  for (let i = 1; i < pts.length; i++) {
-    const [x0, y0] = pts[i - 1]!;
-    const [x1, y1] = pts[i]!;
-    const seg = Math.hypot(x1 - x0, y1 - y0);
-    if (seg >= remaining) {
-      const t = seg === 0 ? 0 : remaining / seg;
-      return [r2(x0 + t * (x1 - x0)), r2(y0 + t * (y1 - y0))];
-    }
-    remaining -= seg;
-  }
-  return [r2(pts[0]![0]), r2(pts[0]![1])];
-}
-
 // Cumulative arc-length of point (x, y) along the parsed polyline. The point is
 // on exactly one segment by construction (a clear-segment anchor is a segment
 // midpoint), so this returns the length from the path start to it. Falls back to
@@ -480,44 +447,38 @@ export function seatRateChip(
     field.placed.push(boxAt(px, py));
     return { dx: px - anchorX, dy: py - anchorY, tier };
   };
-  // Tier 1: slide along the line, nearest-first, taking the first clear point.
-  for (let k = 0; k <= SLIDE_MAX_STEPS; k++) {
-    const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
-    for (const delta of deltas) {
-      const len = anchorLen + delta;
-      if (len < 0 || len > total) continue;
-      const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
-      if (isClear(px, py)) {
-        return seat(
-          px,
-          py,
-          px === anchorX && py === anchorY ? "anchor" : "slide",
-        );
-      }
-    }
-  }
-  // Nothing on the line is FULLY clear. Before leaving the line, try to stay
-  // on it upholding only the HARD invariants.
-  // Tier 1b (graze): the same nearest-first slide, clear of chips and cards
-  // but grazing foreign lines. In a braided corridor a parallel foreign line
-  // within a chip half-height poisons every tier-1 candidate at once, yet the
-  // own line is otherwise empty -- the chip belongs on it, icon and tint
-  // disambiguate the graze.
   const hardClearAt = (px: number, py: number): boolean => {
     const box = boxAt(px, py);
     return !field.entersForeignCard(box, exempt) && !field.overlapsChip(box);
   };
-  for (let k = 0; k <= SLIDE_MAX_STEPS; k++) {
-    const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
-    for (const delta of deltas) {
-      const len = anchorLen + delta;
-      if (len < 0 || len > total) continue;
-      const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
-      if (hardClearAt(px, py)) {
-        return seat(px, py, "graze");
+  // The shared slide walk of tiers 1 and 1b: along the line, nearest arc-length
+  // offset first, seating at the first candidate the tier's predicate accepts.
+  const slideAlong = (
+    ok: (px: number, py: number) => boolean,
+    tierAt: (px: number, py: number) => RateSeatTier,
+  ): RateSeat | null => {
+    for (let k = 0; k <= SLIDE_MAX_STEPS; k++) {
+      const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
+      for (const delta of deltas) {
+        const len = anchorLen + delta;
+        if (len < 0 || len > total) continue;
+        const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
+        if (ok(px, py)) return seat(px, py, tierAt(px, py));
       }
     }
-  }
+    return null;
+  };
+  // Tier 1: the slide taking the first FULLY clear point. Tier 1b (graze),
+  // reached when nothing on the line is fully clear: the same slide upholding
+  // only the HARD invariants (chips and cards), grazing foreign lines. In a
+  // braided corridor a parallel foreign line within a chip half-height poisons
+  // every tier-1 candidate at once, yet the own line is otherwise empty -- the
+  // chip belongs on it, icon and tint disambiguate the graze.
+  const slid =
+    slideAlong(isClear, (px, py) =>
+      px === anchorX && py === anchorY ? "anchor" : "slide",
+    ) ?? slideAlong(hardClearAt, () => "graze");
+  if (slid !== null) return slid;
   // The whole own line is chip- or card-blocked. Escapes off the line follow
   // the ratified priority order: chip/chip and chip/card clearance are HARD,
   // staying on the line and clearing foreign lines are preferences that yield.
@@ -612,9 +573,7 @@ export function deconflictChipAnchors(
       });
       d = fan.path;
       fanoutGeomByIndex.set(index, {
-        pts: [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
-          (m) => [Number(m[1]), Number(m[2])] as const,
-        ),
+        pts: parsePathPoints(d),
         junction: fan.junction,
         trunkAnchor: fan.trunkAnchor,
         branchAnchor: fan.branchAnchor,
@@ -644,19 +603,9 @@ export function deconflictChipAnchors(
         ...routingHintsFromData(edge.data),
       });
       d = path;
-      itemGeomByIndex.set(index, {
-        pts: [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
-          (m) => [Number(m[1]), Number(m[2])] as const,
-        ),
-        lx,
-        ly,
-      });
+      itemGeomByIndex.set(index, { pts: parsePathPoints(d), lx, ly });
     }
-    const pts =
-      itemGeomByIndex.get(index)?.pts ??
-      [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
-        (m) => [Number(m[1]), Number(m[2])] as const,
-      );
+    const pts = itemGeomByIndex.get(index)?.pts ?? parsePathPoints(d);
     const segs: Array<readonly [number, number, number, number]> = [];
     for (let i = 1; i < pts.length; i++) {
       segs.push([pts[i - 1]![0], pts[i - 1]![1], pts[i]![0], pts[i]![1]]);
@@ -681,15 +630,14 @@ export function deconflictChipAnchors(
     };
   });
   // The card exemption for an edge's chips: its own endpoints plus their
-  // containing groups (one parentId level, same as the audit's containersAt).
-  const cardExemptFor = (edge: Edge): Set<string> => {
-    const exempt = new Set<string>([edge.source, edge.target]);
-    const sp = byId.get(edge.source)?.parentId;
-    const tp = byId.get(edge.target)?.parentId;
-    if (sp !== undefined) exempt.add(sp);
-    if (tp !== undefined) exempt.add(tp);
-    return exempt;
-  };
+  // containing groups (one parentId level, same as the audit's containersAt),
+  // via the routing passes' shared ownExempt rule.
+  const cardExemptFor = (edge: Edge): Set<string> =>
+    ownExempt(
+      [byId.get(edge.source), byId.get(edge.target)].filter(
+        (n): n is RFAnyNode => n !== undefined,
+      ),
+    );
 
   // The shared clearance field: every phase seats into `field.placed`, so a
   // later phase yields to everything an earlier phase placed.
@@ -1011,19 +959,6 @@ export function deconflictChipAnchors(
     if (seat.dy !== 0) labelDyByIndex.set(index, seat.dy);
   }
 
-  if (
-    labelDyByIndex.size === 0 &&
-    labelDxByIndex.size === 0 &&
-    busDropDyByIndex.size === 0 &&
-    busChipDyByIndex.size === 0 &&
-    fanoutAggDxByIndex.size === 0 &&
-    fanoutAggDyByIndex.size === 0 &&
-    fanoutBranchDxByIndex.size === 0 &&
-    fanoutBranchDyByIndex.size === 0 &&
-    fanoutBranchHiddenByIndex.size === 0
-  ) {
-    return edges.map((e) => e);
-  }
   return edges.map((edge, index) => {
     const labelDy = labelDyByIndex.get(index);
     const labelDx = labelDxByIndex.get(index);

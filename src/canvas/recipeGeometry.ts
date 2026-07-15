@@ -29,15 +29,24 @@ export type RecipeGeometry = {
   outHandleYs: number[];
 };
 
+// Memoized per recipe object: the geometry is a pure function of the recipe's
+// port counts, and the routing passes call this for the endpoints of nearly
+// every edge in each pass. Callers treat the record as read-only.
+const geometryByRecipe = new WeakMap<Recipe, RecipeGeometry>();
+
 export function measureRecipe(recipe: Recipe): RecipeGeometry {
+  const cached = geometryByRecipe.get(recipe);
+  if (cached !== undefined) return cached;
   const inCount = recipe.in.length;
   const outCount = recipe.out.length;
-  return {
+  const geometry: RecipeGeometry = {
     width: RECIPE_WIDTH,
     height: recipeHeight(inCount, outCount),
     inHandleYs: Array.from({ length: inCount }, (_, i) => rowHandleY(i)),
     outHandleYs: Array.from({ length: outCount }, (_, i) => rowHandleY(i)),
   };
+  geometryByRecipe.set(recipe, geometry);
+  return geometry;
 }
 
 function rowHandleY(rowIndex: number): number {

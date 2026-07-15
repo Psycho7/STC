@@ -37,6 +37,7 @@ import {
   PORT_STUB,
   CHAMFER,
   chamferFanoutPath,
+  parsePathPoints,
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
 import type { RFAnyNode } from "../../src/canvas/layout";
@@ -701,10 +702,7 @@ describe("routeFanoutEdges (6C)", () => {
     return t0 < t1;
   };
 
-  const parseD = (d: string): Array<[number, number]> =>
-    [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
-      (m) => [Number(m[1]), Number(m[2])],
-    );
+  const parseD = parsePathPoints;
 
   // Reconstruct a fan-out member's drawn polyline exactly as BusEdge does (same
   // builder + hints) and assert none of its segments cross the given raw rect.
