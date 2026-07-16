@@ -6,6 +6,7 @@ import type { Target } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { effectiveSupply } from "./effectiveSupply";
 import { isExcludedProducer } from "../data/recipe-category";
+import { computeRecipeDepths } from "../data/recipe-depth";
 
 // Validate targets, index producers by output item, and rank each item's
 // candidate producers by (depth, id). Shared by both graph builders so ranking
@@ -36,70 +37,9 @@ function rankProducers(
     }
   }
 
-  // Raw-distance ranking. depthToItem[i] is the shortest recipe-depth to reach
-  // item i across its non-excluded producers, raw items at 0. depthToRecipe[r] is
-  // one more than the deepest of r's inputs. Excluded recipes get no entry and
-  // never feed either depth. Anything reachable only through a cycle or an
-  // excluded producer stays at POSITIVE_INFINITY.
-  const depthToItem = new Map<string, number>();
-  for (const item of pack.items) {
-    depthToItem.set(item.id, item.raw ? 0 : Number.POSITIVE_INFINITY);
-  }
-  const depthToRecipe = new Map<string, number>();
-  for (const r of pack.recipes) {
-    if (!isExcludedProducer(r))
-      depthToRecipe.set(r.id, Number.POSITIVE_INFINITY);
-  }
-
-  // Relax depths to a fixpoint over the non-excluded recipes. The iteration cap
-  // guards against a malformed pack that never converges; a sane pack settles in
-  // roughly the length of its longest acyclic chain.
-  const maxIter = pack.recipes.length + 1;
-  for (let iter = 0, changed = true; changed && iter <= maxIter; iter++) {
-    changed = false;
-    for (const r of pack.recipes) {
-      if (isExcludedProducer(r)) continue;
-      if (
-        (depthToRecipe.get(r.id) ?? Number.POSITIVE_INFINITY) !==
-        Number.POSITIVE_INFINITY
-      )
-        continue;
-      if (r.in.length === 0) {
-        depthToRecipe.set(r.id, 1);
-        changed = true;
-        continue;
-      }
-      let maxIn = 0;
-      let reachable = true;
-      for (const inp of r.in) {
-        const d = depthToItem.get(inp.item) ?? Number.POSITIVE_INFINITY;
-        if (d === Number.POSITIVE_INFINITY) {
-          reachable = false;
-          break;
-        }
-        if (d > maxIn) maxIn = d;
-      }
-      if (reachable) {
-        depthToRecipe.set(r.id, maxIn + 1);
-        changed = true;
-      }
-    }
-    for (const [itemId, producers] of producersByItem) {
-      const current = depthToItem.get(itemId) ?? Number.POSITIVE_INFINITY;
-      if (current !== Number.POSITIVE_INFINITY) continue;
-      let min = Number.POSITIVE_INFINITY;
-      for (const pid of producers) {
-        const r = recipeById.get(pid);
-        if (!r || isExcludedProducer(r)) continue;
-        const d = depthToRecipe.get(pid) ?? Number.POSITIVE_INFINITY;
-        if (d < min) min = d;
-      }
-      if (min < current) {
-        depthToItem.set(itemId, min);
-        changed = true;
-      }
-    }
-  }
+  // Raw-distance ranking: depthToRecipe[r] is one more than the deepest of r's
+  // inputs, with excluded and cycle-only recipes left at POSITIVE_INFINITY.
+  const depthToRecipe = computeRecipeDepths(pack);
 
   // Order each item's candidate producers by (depth, id) ascending so the
   // shallowest acyclic recipe comes first. Excluded recipes (no depthToRecipe
