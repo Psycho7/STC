@@ -315,4 +315,29 @@ describe("ProductNode port glyphs", () => {
     });
     expect(container.querySelectorAll("[data-glyph]")).toHaveLength(0);
   });
+
+  it("centers every glyph on the node's vertical middle, where the handle sits", () => {
+    // The product node's Handles carry no explicit top, so React Flow's default
+    // CSS centers them at 50% of the node height. The glyph must use the same
+    // anchor: a fixed pixel top drifts off the handle whenever the node height
+    // changes (a stale top=16 once parked glyphs near the top corner of the
+    // 78px card).
+    const portTransportKinds: PortTransportKinds = new Map([
+      ["in:copper_ore", "belt"],
+      ["out:copper_ore", "belt"],
+    ]);
+    const { container } = renderProduct({
+      kind: "inputProduct",
+      itemId: "copper_ore",
+      rate: { num: "1", denom: "1" },
+      isFanout: true,
+      portTransportKinds,
+    });
+    const glyphs = container.querySelectorAll<HTMLElement>("[data-glyph]");
+    expect(glyphs.length).toBeGreaterThan(0);
+    for (const glyph of glyphs) {
+      expect(glyph.style.top).toBe("50%");
+      expect(glyph.style.transform).toContain("translateY(-50%)");
+    }
+  });
 });

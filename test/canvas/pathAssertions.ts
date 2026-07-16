@@ -38,3 +38,29 @@ export function expectRightwardFinish(d: string): void {
   expect(y1).toBe(y0); // horizontal
   expect(x1).toBeGreaterThan(x0); // rightward
 }
+
+// Minimum distance from a point to the polyline of a path `d` string. Marker
+// dots (the fan-out junction) and label anchors must sit ON the drawn geometry;
+// this measures how far off they are, 0 meaning on some segment.
+export function distanceToPolyline(d: string, p: Point): number {
+  const pts = parsePoints(d);
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    const abx = b.x - a.x;
+    const aby = b.y - a.y;
+    const len2 = abx * abx + aby * aby;
+    const t =
+      len2 === 0
+        ? 0
+        : Math.max(
+            0,
+            Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / len2),
+          );
+    const dx = p.x - (a.x + t * abx);
+    const dy = p.y - (a.y + t * aby);
+    best = Math.min(best, Math.hypot(dx, dy));
+  }
+  return best;
+}

@@ -17,11 +17,15 @@ import { LocaleProvider } from "../data/i18n-context";
 // real useNodesInitialized stays false and fitView is a real no-op; mock both to
 // make the fit deterministic and spy-able.
 const fitViewSpy = vi.hoisted(() => vi.fn());
+// Canvas fits via fitBounds when contentBounds yields a rect (the common case:
+// any non-empty graph), and falls back to fitView only for an empty graph. Spy
+// both off the mocked instance.
+const fitBoundsSpy = vi.hoisted(() => vi.fn());
 vi.mock("@xyflow/react", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@xyflow/react")>();
   return {
     ...orig,
-    useReactFlow: () => ({ fitView: fitViewSpy }),
+    useReactFlow: () => ({ fitView: fitViewSpy, fitBounds: fitBoundsSpy }),
     useNodesInitialized: () => true,
   };
 });
@@ -69,6 +73,7 @@ const NODES: Node[] = [
 
 beforeEach(() => {
   fitViewSpy.mockClear();
+  fitBoundsSpy.mockClear();
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -332,7 +337,7 @@ test("copy share button shows a failure state when the write is rejected", async
   expect(btn.textContent).toMatch(/failed/i);
 });
 
-test("fitView runs once per layout generation", () => {
+test("the camera fits once per layout generation", () => {
   const wrap = (gen: number) => (
     <LocaleProvider locale="en">
       <ItemPackProvider value={PACK}>
@@ -341,14 +346,15 @@ test("fitView runs once per layout generation", () => {
     </LocaleProvider>
   );
   const { rerender } = render(wrap(1));
-  // Initial mount fits the first generation once.
-  expect(fitViewSpy).toHaveBeenCalledTimes(1);
+  // Initial mount fits the first generation once (via fitBounds: the graph is
+  // non-empty, so contentBounds yields a rect).
+  expect(fitBoundsSpy).toHaveBeenCalledTimes(1);
   // A re-render with the same generation must not re-fit.
   rerender(wrap(1));
-  expect(fitViewSpy).toHaveBeenCalledTimes(1);
+  expect(fitBoundsSpy).toHaveBeenCalledTimes(1);
   // A new generation re-fits exactly once.
   rerender(wrap(2));
-  expect(fitViewSpy).toHaveBeenCalledTimes(2);
+  expect(fitBoundsSpy).toHaveBeenCalledTimes(2);
 });
 
 test("a container resize triggers a debounced re-fit", () => {
@@ -372,7 +378,7 @@ test("a container resize triggers a debounced re-fit", () => {
       </ItemPackProvider>
     </LocaleProvider>,
   );
-  fitViewSpy.mockClear();
+  fitBoundsSpy.mockClear();
   // The first callback is the initial observe() and is skipped; a genuine later
   // resize fits once, after the debounce window.
   act(() => observed?.());
@@ -380,7 +386,7 @@ test("a container resize triggers a debounced re-fit", () => {
     observed?.();
     vi.advanceTimersByTime(100);
   });
-  expect(fitViewSpy).toHaveBeenCalledTimes(1);
+  expect(fitBoundsSpy).toHaveBeenCalledTimes(1);
 });
 
 test("HUD chip shows UNITS counting only recipe-type nodes", () => {

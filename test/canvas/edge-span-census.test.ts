@@ -12,6 +12,7 @@ import {
   type SpanNode,
   type SpanEdge,
 } from "./edgeSpans";
+import { directCorridorClear } from "../../src/canvas/busRouting";
 import { loadPlan } from "../../src/data/plan";
 import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
 import { solvePlanWithIntermediates } from "../../src/solver";
@@ -55,7 +56,7 @@ const REPRO_FRAGMENT =
   "v1.H4sIAAAAAAAAChXNQQ6CMBAF0Lv8dVUsoLQ3cGfikhBSZqamEaGWsiLc3bB7u7chOvrAtpCJfZCRT-RGunhHeU5hHt0AheKsoVB5qm7aVI0X42-15kEXum5MXTI3TIUZSvZk7ugUcsijwAIK2aW35AW23ZCEQpQHw0J-a4j9QinE3Ff9ESSX5SnpJQS7YVq_sLhCgWWaD-sC-97tfxzbj6i0AAAA";
 
 describe("edge-span census: repro plan", () => {
-  it("routes every long edge onto a bus lane (zero non-bus edges span > 820)", async () => {
+  it("every long non-bus edge has a provably clear direct corridor", async () => {
     const outcome = await loadPlan(REPRO_FRAGMENT, pack);
     if (outcome.kind === "error") {
       throw new Error(`repro fragment failed to load: ${JSON.stringify(outcome.error)}`);
@@ -88,22 +89,37 @@ describe("edge-span census: repro plan", () => {
     const sortedDesc = [...spans].sort((a, b) => b - a);
     const longSpans = sortedDesc.filter((s) => s > SPAN_THRESHOLD);
 
-    // Bus lanes carry the long routes; the spec criterion applies only to the
+    // Bus lanes carry the crossing routes; the criterion applies to the
     // free-routed (non-bus) remainder. Retype pass sets edge.type === "bus".
     const busEdges = laid.edges.filter((e) => e.type === "bus");
     const nonBusEdges = laid.edges.filter((e) => e.type !== "bus");
-    const nonBusSpans = computeEdgeSpans(laid.nodes, nonBusEdges);
-    const nonBusLong = nonBusSpans.filter((s) => s > SPAN_THRESHOLD);
 
-    // Census log (surfaces in the commit body): total edges, bus count, long
-    // count over the full census, non-bus long count, max span, sorted spans.
-    console.log(
-      `[edge-span census] total=${spans.length} bus=${busEdges.length} long(>${SPAN_THRESHOLD})=${longSpans.length} nonBusLong=${nonBusLong.length} max=${Math.round(sortedDesc[0] ?? 0)} layoutMs=${Math.round(layoutMs)} longSpans=${JSON.stringify(longSpans.map((s) => Math.round(s)))}`,
+    // A non-bus edge may now legitimately span past the threshold: Task 12
+    // deliberately leaves a single-member trunk whose DIRECT corridor is clear
+    // as a plain item edge rather than detouring it onto a bus lane. The
+    // criterion below is the successor to the old "zero long non-bus edges":
+    // any layout satisfying the old zero-count satisfies this one vacuously,
+    // and it additionally admits exactly the long edges whose direct corridor
+    // is provably clear (recomputed with the same gate routeBusEdges demotes
+    // on). A blocked long non-bus edge -- what the old zero-count guarded
+    // against -- still fails, and the check stays fully structural.
+    const longNonBus = nonBusEdges.filter(
+      (e) => (computeEdgeSpans(laid.nodes, [e])[0] ?? 0) > SPAN_THRESHOLD,
+    );
+    const blocked = longNonBus.filter(
+      (e) => !directCorridorClear(laid.nodes, laid.edges, e),
     );
 
-    // Spec criterion: every long edge is classified onto a bus lane, so no
-    // free-routed (non-bus) edge may span beyond the threshold.
-    expect(nonBusLong.length).toBe(0);
+    // Census log (surfaces in the commit body): total edges, bus count, long
+    // count over the full census, long non-bus count, blocked count, max span.
+    console.log(
+      `[edge-span census] total=${spans.length} bus=${busEdges.length} long(>${SPAN_THRESHOLD})=${longSpans.length} longNonBus=${longNonBus.length} blocked=${blocked.length} max=${Math.round(sortedDesc[0] ?? 0)} layoutMs=${Math.round(layoutMs)} longSpans=${JSON.stringify(longSpans.map((s) => Math.round(s)))}`,
+    );
+
+    // Criterion: no free-routed (non-bus) edge spans past the threshold with a
+    // blocked corridor -- every long item edge that survived is one demotion left
+    // as plain because its direct route is clear.
+    expect(blocked.map((e) => e.id)).toEqual([]);
     // Spec perf criterion: layout plus bus routing stays under 2 s.
     expect(layoutMs).toBeLessThan(2000);
   });

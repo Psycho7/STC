@@ -20,6 +20,9 @@ import LoopNode from "./LoopNode";
 import ProductNode from "./ProductNode";
 import ItemEdge from "./ItemEdge";
 import BusEdge from "./BusEdge";
+import BusBands from "./BusBands";
+import { contentBounds } from "./chipSeating";
+import type { RFAnyNode } from "./layout";
 import { useI18n } from "../data/i18n-context";
 import type { CSSProperties } from "react";
 import { iconSheetUrl } from "./iconSprite";
@@ -48,6 +51,13 @@ const edgeTypes = { item: ItemEdge, bus: BusEdge };
 // the viewport and get cut off; 0.05 lets the whole graph shrink to fit. Padding
 // keeps a small margin around the fitted graph so nodes do not touch the frame.
 const FIT_VIEW_OPTIONS = { padding: 0.12 };
+
+// fitBounds padding matches FIT_VIEW_OPTIONS: a fraction of the fitted extent
+// kept as margin so content does not touch the frame. fitBounds frames an
+// explicit rect (the node cards PLUS the seated chip extents contentBounds
+// computes), where fitView would frame the node cards alone and clip a chip
+// cascaded below the deepest lane band or nudged past a border card.
+const FIT_BOUNDS_OPTIONS = { padding: 0.12 };
 
 // Delay before a hover registers, so sweeping the pointer across the canvas does
 // not strobe the dim state on every element crossed. A leave within the window
@@ -94,6 +104,15 @@ function pushInto(map: Map<string, string[]>, key: string, value: string): void 
   const list = map.get(key);
   if (list) list.push(value);
   else map.set(key, [value]);
+}
+
+// A bus member owns its trunk's shared drawings (the trunk segment, junction
+// dot, and aggregate chip) unless explicitly flagged otherwise. Undefined counts
+// as owner, matching BusEdge's `busChipOwner ?? true`, so an un-annotated fixture
+// keeps the whole-group highlight. One helper unifies the hovered-edge and
+// sibling-edge checks that would otherwise split into `!== false` / `=== true`.
+function isOwner(data: { busChipOwner?: unknown } | undefined): boolean {
+  return data?.busChipOwner !== false;
 }
 
 function withDimmed(className: string | undefined): string {
@@ -161,9 +180,25 @@ function CanvasInner({
 }: CanvasProps) {
   const i18n = useI18n();
   const [hovered, setHovered] = useState<Hovered>(null);
-  const { fitView } = useReactFlow();
+  const { fitView, fitBounds } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Fit the viewport to the whole content -- node cards plus every seated chip
+  // and lane band contentBounds covers -- via fitBounds, so a chip cascaded below
+  // the deepest lane band is inside the frame instead of clipped at the rim.
+  // Falls back to fitView on an empty graph (no bounds to frame). Depends on the
+  // node/edge props; these change only on a new plan (hover mutates the local
+  // display arrays, not the props), so the fit effects below stay quiet during
+  // hover and re-fit only when the plan actually changes.
+  const fitContent = useCallback(() => {
+    const bounds = contentBounds(nodes as unknown as RFAnyNode[], edges);
+    if (bounds === null) {
+      void fitView(FIT_VIEW_OPTIONS);
+      return;
+    }
+    void fitBounds(bounds, FIT_BOUNDS_OPTIONS);
+  }, [nodes, edges, fitView, fitBounds]);
   // Live zoom drives the low-zoom LOD band on the theme container. Reading
   // transform[2] (zoom only) re-renders on zoom changes but not on pan.
   const zoom = useStore((state) => state.transform[2]);
@@ -178,8 +213,8 @@ function CanvasInner({
     if (!nodesInitialized) return;
     if (fittedGen.current === layoutGeneration) return;
     fittedGen.current = layoutGeneration;
-    void fitView(FIT_VIEW_OPTIONS);
-  }, [nodesInitialized, layoutGeneration, fitView]);
+    fitContent();
+  }, [nodesInitialized, layoutGeneration, fitContent]);
 
   // Re-fit when the canvas container changes size (window resize, side-panel
   // toggle) so the graph keeps filling the pane instead of drifting into a
@@ -200,7 +235,7 @@ function CanvasInner({
       if (timer !== null) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
-        void fitView(FIT_VIEW_OPTIONS);
+        fitContent();
       }, RESIZE_REFIT_MS);
     });
     observer.observe(el);
@@ -208,7 +243,7 @@ function CanvasInner({
       if (timer !== null) clearTimeout(timer);
       observer.disconnect();
     };
-  }, [fitView]);
+  }, [fitContent]);
 
   // Transient result of the last copy-share click. "copied" / "failed" replace
   // the button label for COPY_FEEDBACK_MS so the click is never silent, then it
@@ -304,6 +339,11 @@ function CanvasInner({
       pushInto(edgesByNode, edge.target, edge.id);
       const trunkKey = (edge.data as { trunkKey?: unknown } | undefined)
         ?.trunkKey;
+      // trunkKey is item + "|" + source, so a lane trunk and a fan-out trunk
+      // leaving the SAME (item, source) port share ONE trunkKey and merge into a
+      // single hover group here. Each sub-trunk still keeps its own aggregate
+      // chip showing that sub-trunk's OWN total (its members' summed rate), not
+      // the port's full outflow across both.
       if (edge.type === "bus" && typeof trunkKey === "string") {
         pushInto(edgesByTrunk, trunkKey, edge.id);
       }
@@ -336,15 +376,41 @@ function CanvasInner({
       }
     } else {
       const edge = adjacency.edgeById.get(hovered.id);
-      const trunkKey = (edge?.data as { trunkKey?: unknown } | undefined)
-        ?.trunkKey;
-      // A bus edge lights its whole trunk (every same-trunkKey edge + their
-      // endpoints); any other edge lights just itself and its two endpoints.
+      const data = edge?.data as
+        | { trunkKey?: unknown; busChipOwner?: unknown }
+        | undefined;
+      const trunkKey = data?.trunkKey;
+      // A bus edge belongs to a trunk (every same-trunkKey member). Two hover
+      // modes split off which members light:
+      //   TRUNK hover  -- the pointer is over the trunk owner (the member that
+      //     draws the shared trunk segment, junction, and aggregate chip). Light
+      //     the whole group, today's behaviour. `busChipOwner` absent counts as
+      //     owner so an un-annotated fixture keeps the whole-group highlight.
+      //   BRANCH hover -- the pointer is over a non-owner member. Light only that
+      //     branch plus the trunk owner(s); sibling branches stay dimmed. A lane
+      //     and a fan-out sub-trunk may share one trunkKey (merged group); each
+      //     sub-trunk keeps its own owner, so branch mode lights every member
+      //     whose `busChipOwner === true` and dims the rest across both.
       const trunkEdges =
         edge?.type === "bus" && typeof trunkKey === "string"
           ? adjacency.edgesByTrunk.get(trunkKey)
           : undefined;
-      for (const edgeId of trunkEdges ?? [hovered.id]) lightEdge(edgeId);
+      if (trunkEdges) {
+        if (isOwner(data)) {
+          for (const edgeId of trunkEdges) lightEdge(edgeId);
+        } else {
+          lightEdge(hovered.id);
+          for (const edgeId of trunkEdges) {
+            if (edgeId === hovered.id) continue;
+            const sibData = adjacency.edgeById.get(edgeId)?.data as
+              | { busChipOwner?: unknown }
+              | undefined;
+            if (isOwner(sibData)) lightEdge(edgeId);
+          }
+        }
+      } else {
+        lightEdge(hovered.id);
+      }
     }
     return { nodeIds, edgeIds };
   }, [hovered, adjacency]);
@@ -391,6 +457,13 @@ function CanvasInner({
           },
     );
   }, [edges, focus]);
+
+  // Memoized on nodes: the annotation re-renders every zoom tick (this
+  // component subscribes to zoom), but the unit count changes only with nodes.
+  const unitCount = useMemo(
+    () => nodes.filter((n) => n.type === "recipe").length,
+    [nodes],
+  );
 
   return (
     <div
@@ -448,6 +521,7 @@ function CanvasInner({
         // leaves keyboard focus traversal intact.
         disableKeyboardA11y
       >
+        <BusBands nodes={nodes} edges={edges} />
         <Controls aria-label={i18n.t("canvas.controls.panel")} />
         {nodes.length > MINIMAP_MIN_NODES ? (
           <MiniMap
@@ -469,9 +543,7 @@ function CanvasInner({
       {/* Rendered recipe units only: the node array also carries group
           containers and product chips, and clustering may aggregate replicas
           into class units - hence UNITS, not REPLICAS. */}
-      <div className="canvas-annot top-right">
-        {`UNITS:${nodes.filter((n) => n.type === "recipe").length}`}
-      </div>
+      <div className="canvas-annot top-right">{`UNITS:${unitCount}`}</div>
       <div className="canvas-annot bottom-right">{`STATUS · ${status}`}</div>
     </div>
   );

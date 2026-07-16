@@ -4,6 +4,7 @@
 # Sweep / workflow scratch artifacts
 .sweep/
 .plan/
+.artifacts/
 
 # Logs
 logs
@@ -153,3 +154,5 @@ vite.config.ts.timestamp-*
 test-results/
 playwright-report/
 .playwright-mcp/
+# Screenshot baselines are regenerated locally, never committed.
+test/e2e/__screenshots__/

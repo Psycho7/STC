@@ -23,6 +23,21 @@ export const PORT_STUB = 24;
 // points: one CHAMFER back along the incoming edge and one CHAMFER forward along
 // the outgoing edge, so the join reads as a diagonal bevel.
 export const CHAMFER = 8;
+// Upper bound on an enlarged corner chamfer (P6 aesthetic). When a forward bend
+// carries a corridor budget (chamferBudget, stamped by assignBendColumns) its
+// two corner bevels grow from the base CHAMFER toward this cap for a PCB-style
+// long 45-degree cut, without dominating the run. The chamfer never exceeds this,
+// half the shorter adjacent leg, or the stamped budget (see chamferStepPath).
+export const MAX_CHAMFER = 24;
+
+// Gap budget for a full symmetric forward shape: one PORT_STUB plus one CHAMFER
+// on each side. Below it the forward builders scale their stub and chamfer down
+// proportionally (chamferStepPath, chamferBusPath) and the shape degenerates --
+// no distinct bend / drop / rise column. The routing passes predict that
+// degeneration (whether a member claims a gutter column, whether a bus column
+// needs clearing), so they must read this same constant: the drawer owns the
+// threshold.
+export const FORWARD_STEP_BUDGET = 2 * (PORT_STUB + CHAMFER);
 
 // Round to two decimals so degraded/scaled geometry does not produce long
 // floating tails in the emitted `d` string (keeps pinned tests stable).
@@ -30,8 +45,32 @@ function r(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function clamp(v: number, lo: number, hi: number): number {
+export function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+// Forward-step column geometry shared by the drawer (chamferStepPath's forward
+// branch) and the routing passes that must predict where the drawn bend column
+// lands (jogForwardLegs). Scales the stub+chamfer budget down proportionally
+// when the gap is too narrow for the full symmetric shape, then resolves the
+// bend column: the caller's bendX clamped into [lo, hi], or the corridor
+// midpoint when the hint is absent or the corridor is too tight to host a
+// distinct column. Keeping producer and consumer on one derivation is what
+// makes a stamped legY / descentX line up with the drawn path.
+export function forwardStepGeometry(
+  sx: number,
+  tx: number,
+  bendX: number | undefined,
+): { stub: number; chamfer: number; lo: number; hi: number; bx: number } {
+  const gap = tx - sx;
+  const scale = gap >= FORWARD_STEP_BUDGET ? 1 : gap / FORWARD_STEP_BUDGET;
+  const stub = PORT_STUB * scale;
+  const chamfer = CHAMFER * scale;
+  const lo = sx + stub + chamfer;
+  const hi = tx - stub - chamfer;
+  const mid = (sx + tx) / 2;
+  const bx = lo < hi && bendX !== undefined ? clamp(bendX, lo, hi) : mid;
+  return { stub, chamfer, lo, hi, bx };
 }
 
 // An axis-aligned card rectangle in absolute graph coordinates, for rail
@@ -42,6 +81,103 @@ export type ObstacleRect = {
   top: number;
   bottom: number;
 };
+
+// Optional per-edge routing hints. The routing passes (busRouting) merge these
+// onto edge data, and every consumer of a path builder -- ItemEdge, BusEdge, AND
+// the offline chip reconstruction in deconflictChipAnchors -- extracts them with
+// routingHintsFromData below. That single extraction point is the lockstep
+// contract: a new hint added here and in routingHintsFromData threads to the
+// render components and the reconstruction pass at once, instead of silently
+// reaching one but not the other.
+//   bendX:  bend-column x for a forward step (assignBendColumns). Absent ->
+//           the corridor midpoint.
+//   legY:   clear horizontal y for a blocked forward final leg (jogForwardLegs).
+//           Present -> the normal forward step bends to this y, runs the long
+//           horizontal there clear of any intervening card, then descends /
+//           ascends to the target y in the target's entry gutter (jogDescentX,
+//           else entryX, else one stub before the port) before the final
+//           rightward stub. Absent -> the final leg runs straight at the target
+//           y, byte-identical for direct callers.
+//   jogDescentX: obstacle-cleared descent column for a jogged forward leg
+//           (jogForwardLegs). The vertical run from legY down / up to the target
+//           port. Overrides entryX for the jog's descent when present. Absent ->
+//           entryX, or one stub before the port.
+//   srcColX: obstacle-cleared SOURCE-side column for a forward step whose
+//           source horizontal at sy is blocked (jogForwardLegs). Replaces the
+//           bend column outright -- the step leaves sy at this column instead
+//           of bendX -- and is used unclamped (the routing pass proved it
+//           clear; the drawer's [lo, hi] clamp could push it back into the
+//           blocked band). Absent -> the clamped bendX / midpoint default.
+//   entryX: entry-gutter column x (assignEntryColumns), the vertical run into
+//           the target's Left port for backward rails and bus rises. Absent ->
+//           one stub before the port.
+//   railY:  backward-detour rail y (clampBackwardRails) clearing spanned cards.
+//           Absent -> midway between the endpoints.
+//   dropX:  obstacle-cleared bus drop column (clearBusColumns), the vertical run
+//           from the source down to the lane. Absent -> one stub+chamfer inside
+//           the source port.
+//   riseX:  obstacle-cleared bus rise column (clearBusColumns), the vertical run
+//           from the lane up to the target port. Overrides entryX when present.
+//           Absent -> entryX, or one stub+chamfer inside the target port.
+//   railXRight/railXLeft: obstacle-cleared backward-rail verticals
+//           (clampBackwardRails). railXRight is the source-side column, absent ->
+//           one stub out of the source port. railXLeft is the target-side column
+//           and overrides entryX when present, absent -> entryX, or one stub
+//           before the target port.
+//   junctionX: shared junction column for a fan-out trunk member
+//           (routeFanoutEdges). Every member of one (item, source) fan-out
+//           shares this column: their trunk segments (source port out to the
+//           junction) overlap into one line, and each branches off it up / down
+//           to its own target. Absent -> the corridor midpoint (a plain step).
+//   chamferBudget: per-bend corridor room available for enlarging a forward
+//           step's corner bevels (assignBendColumns). Half the stagger pitch, so
+//           an edge's fattened chamfer never reaches a sibling column's vertical.
+//           Present -> the forward step's two corner chamfers grow from the base
+//           CHAMFER toward MAX_CHAMFER, capped by half the shorter adjacent leg
+//           and by this budget. Absent -> the base CHAMFER, byte-identical for
+//           direct callers.
+export type RoutingHints = {
+  bendX?: number;
+  legY?: number;
+  jogDescentX?: number;
+  srcColX?: number;
+  entryX?: number;
+  railY?: number;
+  dropX?: number;
+  riseX?: number;
+  railXRight?: number;
+  railXLeft?: number;
+  junctionX?: number;
+  chamferBudget?: number;
+};
+
+// Pick the routing hints off an edge's `data`, omitting absent ones so each
+// path builder's documented default kicks in. Shared by ItemEdge, BusEdge, and
+// deconflictChipAnchors (see RoutingHints above).
+const HINT_KEYS = [
+  "bendX",
+  "legY",
+  "jogDescentX",
+  "srcColX",
+  "entryX",
+  "railY",
+  "dropX",
+  "riseX",
+  "railXRight",
+  "railXLeft",
+  "junctionX",
+  "chamferBudget",
+] as const satisfies ReadonlyArray<keyof RoutingHints>;
+
+export function routingHintsFromData(data: unknown): RoutingHints {
+  const d = data as Record<string, unknown> | undefined;
+  const hints: RoutingHints = {};
+  for (const key of HINT_KEYS) {
+    const v = d?.[key];
+    if (typeof v === "number") hints[key] = v;
+  }
+  return hints;
+}
 
 // Choose a backward-detour rail y clear of every card the rail horizontally
 // spans. The rail runs at `preferredY` between xLo and xHi; a card whose x-range
@@ -123,16 +259,36 @@ function pathFromPoints(pts: ReadonlyArray<readonly [number, number]>): string {
   return path;
 }
 
-// pathMidpoint: the point at 50% of the cumulative polyline length of an
-// absolute "M x,y L x,y ..." path string, the only form this module emits.
-// Walks the segments accumulating length until half the total is covered, then
-// interpolates within the covering segment; a single-segment path degenerates
-// to that segment's center. Coordinates come back through r() so anchors stay
-// as stable as the path coordinates they derive from.
-export function pathMidpoint(d: string): [number, number] {
-  const pts = [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
+// Every "x,y" coordinate pair of an absolute "M x,y L x,y ..." path string
+// (the only form this module emits), as [x, y] tuples in order. The one parser
+// for the emitted `d` grammar; callers that probe a path repeatedly parse once
+// here and interpolate with pathPointAtPts.
+export function parsePathPoints(
+  d: string,
+): ReadonlyArray<readonly [number, number]> {
+  return [...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map(
     (m) => [Number(m[1]), Number(m[2])] as const,
   );
+}
+
+// pathPointAt: the point at `frac` (0..1) of the cumulative polyline length of
+// an absolute "M x,y L x,y ..." path string, the only form this module emits.
+// Walks the segments accumulating length until the fraction of the total is
+// covered, then interpolates within the covering segment. Coordinates come back
+// through r() so anchors stay as stable as the path coordinates they derive
+// from. The chip de-confliction pass uses off-midpoint fractions to slide a
+// blocked label along its own line.
+export function pathPointAt(d: string, frac: number): [number, number] {
+  return pathPointAtPts(parsePathPoints(d), frac);
+}
+
+// pathPointAtPts: pathPointAt over an already-parsed vertex list, for callers
+// (the chip slide loop) that probe dozens of candidates per path and hoist the
+// parse to one parsePathPoints call per edge.
+export function pathPointAtPts(
+  pts: ReadonlyArray<readonly [number, number]>,
+  frac: number,
+): [number, number] {
   let total = 0;
   for (let i = 1; i < pts.length; i++) {
     total += Math.hypot(
@@ -140,7 +296,7 @@ export function pathMidpoint(d: string): [number, number] {
       pts[i]![1] - pts[i - 1]![1],
     );
   }
-  let remaining = total / 2;
+  let remaining = total * Math.min(1, Math.max(0, frac));
   for (let i = 1; i < pts.length; i++) {
     const [x0, y0] = pts[i - 1]!;
     const [x1, y1] = pts[i]!;
@@ -157,22 +313,33 @@ export function pathMidpoint(d: string): [number, number] {
 
 // chamferStepPath: forward step, small-dy diagonal, narrow-gap degradation, and
 // backward S/C detour, all sharing the same chamfer convention. Returns the SVG
-// path plus the label anchor at the geometric midpoint of the drawn polyline
-// (50% of cumulative length, via pathMidpoint), so the chip always sits on the
-// line it labels. The final segment is always a rightward horizontal into
-// target.
-export function chamferStepPath(args: {
-  sourceX: number;
-  sourceY: number;
-  targetX: number;
-  targetY: number;
-  bendX?: number;
-  entryX?: number;
-  // Backward-detour rail y override, staked out by clampBackwardRails so the rail
-  // routes clear of the cards it spans. Absent for direct callers, which keep the
-  // midway default and their byte-for-byte pinned paths.
-  railY?: number;
-}): [path: string, labelX: number, labelY: number] {
+// path plus the label anchor on the polyline's PREFERRED CLEAR SEGMENT (2B):
+// every forward shape -- the full step, the small-dy diagonal, and the
+// same-rail straight line -- anchors at the bend column (bx, mid(sy, ty)) (or,
+// when the final leg is jogged around a card, on the jog-descent vertical), and
+// a backward detour anchors on its source-side rail vertical, apex included, so
+// the anchor is CONTINUOUS across every branch boundary: a one-pixel port-model
+// disagreement between the live handles and the seating reconstruction cannot
+// teleport it. The corridor legs are vertically long and horizontally clear, so
+// a chip there sits off the card rows the target-side horizontal midpoint used
+// to cross, and a downward de-confliction nudge slides ALONG the vertical,
+// keeping the chip on its own line. Every returned anchor lies on the drawn
+// polyline. The final segment is always a rightward horizontal into target.
+//
+// The anchor is derived from the SAME branch geometry that builds the `d` (the
+// bend column bx, the jog descentX, the rail column xr are all in hand), never
+// re-parsed, so render and reconstruction agree by construction.
+//
+// New routing hint? Thread it through RoutingHints (and routingHintsFromData)
+// so render and deconflictChipAnchors stay in lockstep.
+export function chamferStepPath(
+  args: {
+    sourceX: number;
+    sourceY: number;
+    targetX: number;
+    targetY: number;
+  } & RoutingHints,
+): [path: string, labelX: number, labelY: number] {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty, bendX } = args;
   const gap = tx - sx;
 
@@ -181,21 +348,24 @@ export function chamferStepPath(args: {
   // source, down/up to a detour rail midway between the endpoints, left past the
   // target, then back to the target level and a final rightward stub in.
   if (gap <= 0) {
-    const xr = sx + PORT_STUB; // right vertical column, one stub out of source
+    // Right vertical column, one stub out of the source. clampBackwardRails may
+    // move it clear of a foreign card / gutter (railXRight); absent that hint it
+    // falls back to the plain stub column, byte-identical for direct callers.
+    const xr = args.railXRight ?? sx + PORT_STUB;
     // Left vertical column, the run that enters the target's Left port. The
     // entry-gutter pass (assignEntryColumns in busRouting) stakes this out as a
     // per-edge staggered column so two backward rails into one node never
-    // overlap; absent that hint it falls back to a single stub before the port,
-    // which keeps every direct (un-routed) caller and its pinned test byte for
-    // byte identical.
-    const xl = args.entryX ?? tx - PORT_STUB;
+    // overlap, and clampBackwardRails may then move it clear of a foreign card /
+    // gutter (railXLeft, which overrides the stagger). Absent both hints it falls
+    // back to a single stub before the port, which keeps every direct (un-routed)
+    // caller and its pinned test byte for byte identical.
+    const xl = args.railXLeft ?? args.entryX ?? tx - PORT_STUB;
     // Rail midway between the endpoints. When they share a y the midpoint would
     // sit on top of both stubs, so drop the rail below to keep it visible. A
     // threaded railY (from clampBackwardRails) overrides this to clear spanned
     // cards.
     const railY =
-      args.railY ??
-      (sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2);
+      args.railY ?? (sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2);
     // Small detour height: the rail sits within a chamfer of the source level,
     // so a full chamfered column would invert and backtrack (a zigzag spike).
     // Collapse each column to a single apex bevel (peak out at the column x, no
@@ -211,7 +381,14 @@ export function chamferStepPath(args: {
         ` L ${r(xl)},${r((railY + ty) / 2)}` +
         ` L ${r(xl + CHAMFER)},${r(ty)}` +
         ` L ${r(tx)},${r(ty)}`;
-      return [d, ...pathMidpoint(d)];
+      // Anchor at the apex peak (xr, mid(sy, railY)) -- a path vertex -- the
+      // same source-side-column rule as the full rail below, so the anchor is
+      // CONTINUOUS across this branch boundary. A one-pixel disagreement
+      // between the live handle coordinates and the seating pass's offline
+      // port model can flip which branch each side takes; a discontinuous
+      // anchor then applies the seat's offsets to a far-away point and strands
+      // the chip off its line (and inside a card).
+      return [d, r(xr), r((sy + railY) / 2)];
     }
     // Right column exits leftward (-1, -1) onto the rail, left column enters
     // leftward (+1, +1) off it; the leftward lane run is the implicit segment
@@ -221,46 +398,105 @@ export function chamferStepPath(args: {
       chamferColumn(xr, sy, railY, CHAMFER, -1, -1) +
       chamferColumn(xl, railY, ty, CHAMFER, 1, 1) +
       ` L ${r(tx)},${r(ty)}`;
-    // Anchor at the length midpoint; on a typical detour (long leftward rail,
-    // short end columns) that puts the label on the rail.
-    return [d, ...pathMidpoint(d)];
+    // Clear-segment anchor: the source-side detour vertical (xr) run midpoint.
+    // The chip rides this vertical corridor leg instead of the leftward rail, so
+    // a downward de-confliction nudge slides it ALONG the vertical (staying on
+    // its own line) and it sits on the clean source side, clear of the target's
+    // entry gutter where the arrival chips crowd.
+    return [d, r(xr), r((sy + railY) / 2)];
   }
 
-  // Forward. Scale the stub+chamfer budget down proportionally when the gap is
-  // too narrow to fit a full symmetric shape, bottoming out at a plain step.
-  const budget = 2 * (PORT_STUB + CHAMFER);
-  const scale = gap >= budget ? 1 : gap / budget;
-  const stub = PORT_STUB * scale;
-  const chamfer = CHAMFER * scale;
-  // Bend column: default midpoint, or the caller's bendX clamped to the margins.
-  // When the corridor is too tight to host a bend (scaled range collapses), fall
-  // back to the midpoint.
-  const lo = sx + stub + chamfer;
-  const hi = tx - stub - chamfer;
-  const mid = (sx + tx) / 2;
-  const bx = lo < hi ? (bendX !== undefined ? clamp(bendX, lo, hi) : mid) : mid;
+  // Forward. forwardStepGeometry scales the stub+chamfer budget down
+  // proportionally when the gap is too narrow to fit a full symmetric shape
+  // (bottoming out at a plain step) and resolves the bend column: default
+  // midpoint, or the caller's bendX clamped to the margins, falling back to the
+  // midpoint when the corridor is too tight to host a bend. A srcColX hint
+  // (jogForwardLegs, blocked source leg) replaces the column outright and is
+  // used unclamped: the routing pass proved it clear, and the clamp could push
+  // it back into the blocked band.
+  const { chamfer, bx: stepBx } = forwardStepGeometry(sx, tx, bendX);
+  const bx = args.srcColX ?? stepBx;
 
-  // Same rail: a plain straight line, no vertical offset at all.
+  // Same rail: a plain straight line, no vertical offset at all. The anchor
+  // sits at the bend column (on the line by construction), NOT the geometric
+  // midpoint: the three forward shapes (straight, small-dy diagonal, full
+  // step) all anchor at (bx, mid(sy, ty)) so the anchor is CONTINUOUS across
+  // their branch boundaries. Live handle coordinates and the seating pass's
+  // offline port model can disagree by a pixel; if that pixel flips the branch,
+  // a discontinuous anchor applies the seat's labelDx/labelDy to a point
+  // hundreds of units away and strands the chip off its line (the food-tundra
+  // own-card chip defect). Unhinted callers see no change: the default bend
+  // column IS the corridor midpoint.
   if (sy === ty) {
     const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
-    return [d, ...pathMidpoint(d)];
+    return [d, r(bx), r(sy)];
   }
 
   // Small dy: a vertical run plus two chamfers will not fit between the rails, so
   // join the two horizontal runs with a single diagonal (no vertical segment).
+  // Anchor at the diagonal's midpoint (bx, mid(sy, ty)) -- the same bend-column
+  // rule as the full step below (anchor continuity, see the same-rail comment).
   if (Math.abs(ty - sy) <= 2 * chamfer) {
     const d =
       `M ${r(sx)},${r(sy)}` +
       ` L ${r(bx - chamfer)},${r(sy)}` +
       ` L ${r(bx + chamfer)},${r(ty)}` +
       ` L ${r(tx)},${r(ty)}`;
-    return [d, ...pathMidpoint(d)];
+    return [d, r(bx), r((sy + ty) / 2)];
   }
 
   // Normal forward step: H run, chamfer, V run, chamfer, H run into target.
+  // When the final leg at the target y would cross an intervening card,
+  // jogForwardLegs stamps a clear legY: bend to it, run the long horizontal
+  // there (clear of the card), then descend / ascend to the target y in the
+  // target's entry gutter (descentX) before the final rightward stub. The bend
+  // column already sits in a node-free corridor, so its vertical is clear at any
+  // legY. Absent the hint the leg runs straight at ty, byte-identical.
+  if (args.legY !== undefined) {
+    const descentX = args.jogDescentX ?? args.entryX ?? tx - PORT_STUB;
+    const jog =
+      `M ${r(sx)},${r(sy)}` +
+      chamferColumn(bx, sy, args.legY, chamfer) +
+      chamferColumn(descentX, args.legY, ty, chamfer) +
+      ` L ${r(tx)},${r(ty)}`;
+    // Clear-segment anchor: the jog-descent vertical (descentX) run midpoint --
+    // the corridor leg carrying the edge down into the target after the leg has
+    // cleared the intervening card.
+    return [jog, r(descentX), r((args.legY + ty) / 2)];
+  }
+  // Enlarge the two corner bevels toward MAX_CHAMFER when the bend carries a
+  // corridor budget (P6 PCB-style long chamfers). Cap by half the shorter
+  // adjacent leg -- the source-side horizontal (bx - sx), the target-side
+  // horizontal (tx - bx), and the vertical run (|ty - sy|) -- so a bevel never
+  // overruns its own legs, and by the stamped budget so it never reaches a
+  // sibling column's vertical. Absent the budget the base chamfer stands and the
+  // path is byte-identical. The half-leg cap already shrinks in a narrow
+  // corridor, so it composes with the narrow-gap scaling above. The anchor rides
+  // the bend column at the run midpoint, which stays on the polyline for any
+  // chamfer (it is the mid of the vertical run, or of the collapsed diagonal when
+  // the cap reaches half the vertical leg).
+  // The budget's sibling-envelope invariant was proven for the stagger column at
+  // bendX (half the stagger pitch keeps a fattened bevel off the neighbour's
+  // vertical). A srcColX hint replaces the column outright with a jog-cleared
+  // one carrying only a CHAMFER of margin, where that invariant does not hold --
+  // so a jogged source column keeps the base chamfer regardless of any stamped
+  // budget.
+  const stepChamfer =
+    args.chamferBudget === undefined || args.srcColX !== undefined
+      ? chamfer
+      : Math.min(
+          MAX_CHAMFER,
+          Math.min(bx - sx, tx - bx, Math.abs(ty - sy)) / 2,
+          args.chamferBudget,
+        );
   const d =
-    `M ${r(sx)},${r(sy)}` + chamferColumn(bx, sy, ty, chamfer) + ` L ${r(tx)},${r(ty)}`;
-  return [d, ...pathMidpoint(d)];
+    `M ${r(sx)},${r(sy)}` +
+    chamferColumn(bx, sy, ty, stepChamfer) +
+    ` L ${r(tx)},${r(ty)}`;
+  // Clear-segment anchor: the bend-column vertical (bx) run midpoint. The old
+  // geometric midpoint often landed on the target-side horizontal, which cuts
+  // across foreign card rows; this vertical corridor leg is clear of them.
+  return [d, r(bx), r((sy + ty) / 2)];
 }
 
 // chamferBusPath: a bus-trunk member. Exits the source rightward, chamfers down
@@ -268,14 +504,21 @@ export function chamferStepPath(args: {
 // column and enters the target with a final rightward stub. Returns the drop and
 // rise columns (where BusEdge draws its two chips) and the junction point (where
 // BusEdge draws its dot, on the lane just before the rise chamfer).
-export function chamferBusPath(args: {
-  sourceX: number;
-  sourceY: number;
-  targetX: number;
-  targetY: number;
-  laneY: number;
-  entryX?: number;
-}): {
+//
+// Accepts the full RoutingHints so callers can spread routingHintsFromData; a
+// bus run reads only the bus-relevant hints (entryX, dropX, riseX) and ignores
+// the rest (bendX / legY / railY apply to the forward step and backward rail).
+// New routing hint? Thread it through RoutingHints (and routingHintsFromData) so
+// render and deconflictChipAnchors stay in lockstep.
+export function chamferBusPath(
+  args: {
+    sourceX: number;
+    sourceY: number;
+    targetX: number;
+    targetY: number;
+    laneY: number;
+  } & RoutingHints,
+): {
   path: string;
   dropX: number;
   riseX: number;
@@ -284,20 +527,25 @@ export function chamferBusPath(args: {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty, laneY } = args;
   const gap = tx - sx;
   // Budget for a full symmetric shape: a stub plus a chamfer on each side.
-  const budget = 2 * (PORT_STUB + CHAMFER);
+  const budget = FORWARD_STEP_BUDGET;
 
   // Backward: target at or left of source. Drop one stub+chamfer inside the
   // source, run the lane leftward, rise one stub+chamfer inside the target. The
   // lane run reverses (riseX < dropX) but the final stub into the target still
   // finishes rightward. laneDir flips the junction to the lane's leftward side.
   if (gap <= 0) {
-    const dropX = sx + PORT_STUB + CHAMFER;
+    // Drop column, the run that dives off the source into the lane.
+    // clearBusColumns may move it clear of a foreign card / gutter (dropX);
+    // absent that hint it falls back to one stub+chamfer inside the source port.
+    const dropX = args.dropX ?? sx + PORT_STUB + CHAMFER;
     // Rise column, the run that climbs the target's Left-port gutter off the
     // lane. The entry-gutter pass stakes it out as a per-edge staggered column
-    // (see assignEntryColumns) so two rises into one node never coincide; absent
-    // that hint it falls back to one stub+chamfer inside the port, keeping every
-    // direct caller and its pinned test byte for byte identical.
-    const riseX = args.entryX ?? tx - PORT_STUB - CHAMFER;
+    // (see assignEntryColumns) so two rises into one node never coincide, and
+    // clearBusColumns may then move it clear of a foreign card / gutter (riseX,
+    // which overrides the stagger). Absent both hints it falls back to one
+    // stub+chamfer inside the port, keeping every direct caller and its pinned
+    // test byte for byte identical.
+    const riseX = args.riseX ?? args.entryX ?? tx - PORT_STUB - CHAMFER;
     const laneDir = -1;
     const path =
       `M ${r(sx)},${r(sy)}` +
@@ -355,11 +603,16 @@ export function chamferBusPath(args: {
   // below both endpoints (drop down, rise up); when targetY is at or below the
   // lane the rise simply chamfers the other way. chamferColumn derives each turn
   // direction from its own y0 -> y1.
-  const dropX = sx + PORT_STUB + CHAMFER;
-  // Rise column: the entry-gutter pass may stagger it (see assignEntryColumns);
-  // absent that hint it falls back to one stub+chamfer inside the target port,
-  // keeping direct callers and pinned tests byte for byte identical.
-  const riseX = args.entryX ?? tx - PORT_STUB - CHAMFER;
+  // Drop column: clearBusColumns may move it clear of a foreign card / gutter
+  // (dropX); absent that hint it falls back to one stub+chamfer inside the source
+  // port, keeping direct callers and pinned tests byte for byte identical.
+  const dropX = args.dropX ?? sx + PORT_STUB + CHAMFER;
+  // Rise column: the entry-gutter pass may stagger it (see assignEntryColumns)
+  // and clearBusColumns may then move it clear of a foreign card / gutter (riseX,
+  // which overrides the stagger); absent both hints it falls back to one
+  // stub+chamfer inside the target port, keeping direct callers and pinned tests
+  // byte for byte identical.
+  const riseX = args.riseX ?? args.entryX ?? tx - PORT_STUB - CHAMFER;
   const laneDir = 1;
   const path =
     `M ${r(sx)},${r(sy)}` +
@@ -372,4 +625,95 @@ export function chamferBusPath(args: {
     riseX: r(riseX),
     junction: { x: r(riseX - laneDir * CHAMFER), y: r(laneY) },
   };
+}
+
+// chamferFanoutPath: one member of a fan-out trunk (routeFanoutEdges). N members
+// share a source PORT (same item, same source unit) and fan out to N targets one
+// layer over. Every member is drawn with the SAME junction column, so their
+// shared trunk segment -- the horizontal from the source port out to the junction
+// -- overlaps into one line and the trunk visually draws once (exactly as a bus
+// lane draws once from its members' overlapping lane runs). Each member then
+// branches off the junction, up or down its own column to its target port, and
+// finishes with the rightward stub into the Left handle.
+//
+// This is a plain forward step whose bend column is pinned to the shared
+// junction (never staggered), returning the geometry the render / seating layers
+// need: the junction point (trunk meets branches, where the dot draws), the
+// trunk-segment anchor (where the owner's aggregate chip seats), and the branch-
+// leg anchor (where this member's own share chip seats). Same degenerate guards
+// as chamferStepPath's forward branch: a shared-y member draws a straight trunk
+// with no branch vertical, a small-dy member a single diagonal. Pure.
+//
+// New routing hint? Thread it through RoutingHints (and routingHintsFromData) so
+// render and deconflictChipAnchors stay in lockstep.
+export function chamferFanoutPath(
+  args: {
+    sourceX: number;
+    sourceY: number;
+    targetX: number;
+    targetY: number;
+  } & RoutingHints,
+): {
+  path: string;
+  junction: { x: number; y: number };
+  trunkAnchor: { x: number; y: number };
+  branchAnchor: { x: number; y: number };
+} {
+  const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = args;
+  // Junction column: the classifier's shared column, clamped into the corridor
+  // (one stub + chamfer inside each port) so both the trunk segment and the
+  // branch leg stay well formed. When the corridor is too tight to host a
+  // distinct column, fall back to the midpoint (a plain step).
+  const lo = sx + PORT_STUB + CHAMFER;
+  const hi = tx - PORT_STUB - CHAMFER;
+  const mid = (sx + tx) / 2;
+  const desired = args.junctionX ?? mid;
+  const jx = lo < hi ? clamp(desired, lo, hi) : mid;
+  // The junction dot marks the split, so it must sit ON the drawn geometry.
+  // The sharp corner (jx, sy) is cut away by the branch chamfer; the last
+  // point every member still shares is one chamfer before the column, on the
+  // trunk horizontal -- for a branching member, a small-dy diagonal, AND a
+  // shared-y straight trunk alike, so all members of one trunk agree on it.
+  const junction = { x: r(jx - CHAMFER), y: r(sy) };
+  // Aggregate chip rides the shared trunk horizontal, centered on the run from
+  // the source port to the junction DOT (jx - CHAMFER, above), not the cut
+  // corner. Centering on the dot-terminated run keeps the anchor at or left of
+  // the seating pass's keep-off-truncated slide end (keepoff is at most half
+  // the source-to-dot span) up to r()'s rounding, whose sub-pixel overhang the
+  // seat clamps away, so an uncrowded aggregate seats at its anchor with no
+  // stamped offset.
+  const trunkAnchor = { x: r((sx + jx - CHAMFER) / 2), y: r(sy) };
+
+  // Shared-y member: a straight trunk with no branch vertical. The branch chip
+  // has no vertical to ride, so it falls back to the trunk midpoint.
+  if (sy === ty) {
+    const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
+    return {
+      path: d,
+      junction,
+      trunkAnchor,
+      branchAnchor: { x: r(mid), y: r(sy) },
+    };
+  }
+
+  const branchAnchor = { x: r(jx), y: r((sy + ty) / 2) };
+
+  // Small dy: a vertical run plus two chamfers will not fit, so join the two
+  // horizontals with a single diagonal at the junction column.
+  if (Math.abs(ty - sy) <= 2 * CHAMFER) {
+    const d =
+      `M ${r(sx)},${r(sy)}` +
+      ` L ${r(jx - CHAMFER)},${r(sy)}` +
+      ` L ${r(jx + CHAMFER)},${r(ty)}` +
+      ` L ${r(tx)},${r(ty)}`;
+    return { path: d, junction, trunkAnchor, branchAnchor };
+  }
+
+  // Normal branch: trunk horizontal, chamfer, branch vertical, chamfer, final
+  // rightward stub into the target.
+  const d =
+    `M ${r(sx)},${r(sy)}` +
+    chamferColumn(jx, sy, ty, CHAMFER) +
+    ` L ${r(tx)},${r(ty)}`;
+  return { path: d, junction, trunkAnchor, branchAnchor };
 }

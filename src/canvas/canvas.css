@@ -1420,6 +1420,7 @@
 }
 .ak-canvas-theme.zoom-low .rn-footer,
 .ak-canvas-theme.zoom-low .rn-head .machine-name,
+.ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-val,
 .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-lbl,
 .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-sub,
 .ak-canvas-theme.zoom-low .item-id {
@@ -1536,6 +1537,32 @@
   right: 32px;
 }
 
+/* Bus-lane band marking (BusBands, via ViewportPortal). Rendered BENEATH the
+   edges in flow coordinates, so it pans and zooms with the graph. NON-DOMINANT
+   is a hard constraint: a <= 0.05-opacity fill, 1px top/bottom hairlines, and a
+   small faint BUS tag -- it reads as background texture, never as a chip. The
+   fill and hairlines scale with zoom via the viewport transform, so the tint
+   stays equally faint at every zoom. */
+.ak-canvas-theme .bus-band {
+  background: rgba(176, 180, 188, 0.04);
+  border-top: 1px solid rgba(176, 180, 188, 0.16);
+  border-bottom: 1px solid rgba(176, 180, 188, 0.16);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.ak-canvas-theme .bus-band-tag {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ak-text-decoration-faint);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
 /* Icon sprite system. */
 /* The source sprite is a WEBP of 64x64 tiles. Canvas.tsx sets --icons-url on
    .ak-canvas-theme, so every nested .spr inherits the URL through the cascade. */
@@ -1627,6 +1654,14 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* Paint above the bus-junction dot in the shared edgelabel-renderer layer.
+     A chip counter-scales up to 2x about its centre, so its enlarged box
+     envelops the world-fixed dot; the digits carry the rate while the dot is
+     decorative (aria-hidden), so the chip must win. Strictly above the dot's
+     z-index: 1 (below), which keeps a sibling member edge's dot from painting
+     over the owner's aggregate chip on DOM order. An overlapped dot hides
+     behind the chip, which reads the same as suppressing it. */
+  z-index: 2;
   /* Re-enable pointer events (the edgelabel-renderer sets none) so the native
      title tooltip shows the exact rate on hover. The nodrag/nopan classes keep
      React Flow's own drag/pan from being hijacked by the chip. */
@@ -1640,9 +1675,25 @@
   color: var(--ak-text-primary);
   letter-spacing: -0.01em;
   box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.12),
     0 0 12px rgba(0, 0, 0, 0.4);
   transition: opacity 120ms ease-out;
+  /* Runtime bound tied to CHIP_BOX_WIDTH in dimensions.ts: the chip
+     de-confliction pass guarantees no overlap only for boxes up to that width,
+     so an off-corpus rate string (e.g. "12345.67/min x12") must not grow the
+     box past it. border-box makes the clamp cover the full rendered box
+     (padding and border included); the .chip-text rule below ellipsizes the
+     overflow. The title attribute still carries the full exact value. */
+  box-sizing: border-box;
+  max-width: 120px;
+}
+
+/* The chip's text span (see FlowChip): text-overflow cannot reach a bare text
+   node inside the flex chip, so the text gets its own shrinkable flex item that
+   clips with an ellipsis when the max-width clamp above bites. */
+.flow-chip .chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Chips need their own dim rule: EdgeLabelRenderer portals them into a separate
@@ -1655,20 +1706,28 @@
   opacity: 0.3;
 }
 
+/* Bus-trunk junction dot, portaled into the label layer alongside the chips (see
+   BusEdge). z-index: 1 seats it above the plain edge segments but BELOW the flow
+   chips (which set z-index: 2): the chip digits win, and an overlapping chip
+   hides the dot behind it. It carries its own dim rule for the same reason the
+   chips do: the edge wrapper's fade never reaches a portaled element. */
+.bus-junction {
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+  transition: opacity 120ms ease-out;
+}
+
+.bus-junction.dimmed {
+  opacity: 0.3;
+}
+
 .flow-chip.red {
   border-color: var(--ak-accent-red);
   color: var(--ak-accent-red);
   box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.12),
     0 0 12px rgba(225, 53, 30, 0.18);
-}
-
-/* Compact icon-only variant used by ItemEdge's entry chip, pinned at a target
-   port. It drops the label padding and gap so the sprite reads as a small
-   identity dot beside the node rather than a full rate chip. */
-.flow-chip.entry {
-  padding: 2px;
-  gap: 0;
 }
 
 .product-node {
@@ -1824,7 +1883,14 @@
 
 .rn-body {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr) instead of 1fr so a long input/output row cannot blow the
+     column past half the card: the default min-width:auto lets grid items grow
+     to their content and, on the output side, shoves the Position.Right port
+     handle out beyond the card's right edge. That floats the edge's source point
+     (and every chip anchored off it) into empty space right of the node and
+     makes the offline label-anchor reconstruction disagree with the render.
+     Clamping the columns keeps each port handle on its card edge. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0;
   position: relative;
 }
@@ -1928,26 +1994,17 @@
   box-shadow: 0 0 8px rgba(35, 213, 252, 0.5);
 }
 
-/* Machine-count multiplicity badge. Uses the lime tier chip treatment for a
-   readable, on-theme chip instead of the dead light-theme inline color:#444. */
-.rn-mult-badge {
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  font-family: var(--font-num);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  padding: 2px 5px;
-  color: var(--ak-accent-lime);
-  border: 1px solid var(--ak-accent-lime-dim);
-  background: rgba(0, 0, 0, 0.35);
-  letter-spacing: 0.04em;
-}
-
 .rn-head {
+  /* Pinned to RECIPE_HEADER_HEIGHT (dimensions.ts): the offline geometry model
+     and ELK sizing treat 80px as the header contract, so the DOM must hold that
+     height at every zoom band (the low-zoom LOD hides header children but must
+     not collapse the box). box-sizing keeps the 1px border-bottom inside 80px.
+     The columns still stretch and center their content, so the block stays
+     vertically centered with the extra headroom. */
+  height: 80px;
+  box-sizing: border-box;
   display: grid;
-  grid-template-columns: 52px 1fr auto;
+  grid-template-columns: 52px 1fr auto auto;
   align-items: stretch;
   background: linear-gradient(180deg, var(--ak-bg-primary) 0%, #1b1d21 100%);
   border-bottom: 1px solid var(--ak-divider);
@@ -1976,6 +2033,27 @@
   justify-content: center;
   gap: 4px;
   min-width: 0;
+}
+
+/* Machine-count multiplier chip: one reserved header grid cell between the
+   recipe name and the rate block. Uses the lime tier-chip treatment for a
+   readable, on-theme chip. Centred in its cell so it never collides with the
+   rate figures (they sit in the adjacent .rn-rate-block cell), and it survives
+   at every zoom band including zoom-low, where the rate figures are hidden. */
+.rn-head .rn-mult-chip {
+  align-self: center;
+  justify-self: center;
+  margin-right: 4px;
+  font-family: var(--font-num);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 5px;
+  color: var(--ak-accent-lime);
+  border: 1px solid var(--ak-accent-lime-dim);
+  background: rgba(0, 0, 0, 0.35);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .rn-head .rn-rate-block {
@@ -2008,8 +2086,9 @@
 }
 
 /* Per-machine secondary under the aggregate header value: the single-machine
-   rate, a scope label ("ea" = each machine), and the machine-count badge, so
-   the aggregate primary stays reconcilable to one machine's throughput. */
+   rate and a scope label ("ea" = each machine), so the aggregate primary stays
+   reconcilable to one machine's throughput. The machine count rides the header
+   multiplier chip (.rn-mult-chip), not this line. */
 .rn-head .rn-rate-block .rate-sub {
   display: flex;
   align-items: baseline;
@@ -2031,11 +2110,6 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ak-text-decoration);
-}
-
-.rn-head .rn-rate-block .rate-sub .rate-sub-mult {
-  font-weight: 700;
-  color: var(--ak-accent-lime);
 }
 
 .rn-head .product {

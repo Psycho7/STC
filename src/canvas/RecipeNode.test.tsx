@@ -81,18 +81,68 @@ test("speed composes with the legacy multiplier path", () => {
   expect(rows).toEqual(["60", "60"]);
 });
 
-// The machine-count badge must be theme-styled (readable contrast), not the
-// dead light-theme inline color:#444 / fontSize:11.
-test("multiplicity badge carries a class and no inline color or font size", () => {
+// The machine-count multiplier is CRITICAL info and lives in ONE reserved
+// header grid cell (a direct .rn-head child), not the old absolute .rn-mult-badge
+// overlay that collided with the rate block. It must be theme-styled (readable
+// contrast), not the dead light-theme inline color:#444 / fontSize:11.
+test("multiplier chip sits in the header grid cell with no inline color or font size", () => {
   const props = {
     data: { recipe: RECIPE, multiplier: 3 },
   } as unknown as ComponentProps<typeof RecipeNode>;
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
-  const badge = container.querySelector(".rn-mult-badge");
-  expect(badge).not.toBeNull();
-  expect(badge!.textContent).toBe("x3");
-  expect((badge as HTMLElement).style.color).toBe("");
-  expect((badge as HTMLElement).style.fontSize).toBe("");
+  // Exactly one multiplier element, promoted to a .rn-head grid cell.
+  const chips = container.querySelectorAll(".rn-mult-chip");
+  expect(chips.length).toBe(1);
+  const chip = chips[0] as HTMLElement;
+  expect(chip.textContent).toBe("x3");
+  expect(chip.parentElement?.className).toBe("rn-head");
+  // Not inside the rate block, so it never collides with the rate figures.
+  expect(container.querySelector(".rn-rate-block .rn-mult-chip")).toBeNull();
+  // The old absolute overlay is gone entirely.
+  expect(container.querySelector(".rn-mult-badge")).toBeNull();
+  expect(chip.style.color).toBe("");
+  expect(chip.style.fontSize).toBe("");
+});
+
+// zoom-low LOD drops the sub-legible rate figures (value / unit label /
+// per-machine line) but the multiplier chip is critical and survives as the sole
+// surviving rate-area element. It lives outside .rn-rate-block, so the block's
+// hide rules never reach it. Inject the real canvas.css zoom-low selectors and
+// assert the cascade: chip visible, rate figures hidden.
+test("multiplier chip survives zoom-low while the rate figures hide", () => {
+  document.head.insertAdjacentHTML(
+    "beforeend",
+    `<style id="zoom-low-probe">
+       .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-val,
+       .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-lbl,
+       .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-sub {
+         display: none;
+       }
+     </style>`,
+  );
+  const props = {
+    data: { recipe: RECIPE, multiplier: 3 },
+  } as unknown as ComponentProps<typeof RecipeNode>;
+  const { container } = render(
+    <ReactFlowProvider>
+      <LocaleProvider locale="en">
+        <ItemPackProvider value={packWithSpeed(1)}>
+          <div className="ak-canvas-theme zoom-low">
+            <RecipeNode {...props} />
+          </div>
+        </ItemPackProvider>
+      </LocaleProvider>
+    </ReactFlowProvider>,
+  );
+  const chip = container.querySelector<HTMLElement>(".rn-mult-chip")!;
+  const rateVal = container.querySelector<HTMLElement>(".rate-val")!;
+  const rateLbl = container.querySelector<HTMLElement>(".rate-lbl")!;
+  const rateSub = container.querySelector<HTMLElement>(".rate-sub")!;
+  expect(getComputedStyle(chip).display).not.toBe("none");
+  expect(getComputedStyle(rateVal).display).toBe("none");
+  expect(getComputedStyle(rateLbl).display).toBe("none");
+  expect(getComputedStyle(rateSub).display).toBe("none");
+  document.getElementById("zoom-low-probe")?.remove();
 });
 
 // The raw machine id (e.g. "mk1") reads as debug output; the localized machine
@@ -120,7 +170,7 @@ function renderedWithMultiplicity(
     (el) => el.textContent,
   );
   const sub = container.querySelector(".rate-sub");
-  const mult = container.querySelector(".rate-sub-mult");
+  const mult = container.querySelector(".rn-mult-chip");
   return { header, rows, sub, mult };
 }
 
@@ -136,13 +186,18 @@ test("multiplicity scales rows and header to the aggregate rate", () => {
   expect(rows).toEqual(["20", "20"]);
 });
 
-// The per-machine figure and machine count survive as a labeled secondary line
-// so the aggregate stays reconcilable to one machine's throughput.
-test("per-machine rate and count render as labeled secondary text", () => {
+// The per-machine figure survives as a labeled secondary line so the aggregate
+// stays reconcilable to one machine's throughput; the machine count is promoted
+// to the header multiplier chip (outside the .rate-sub line) instead.
+test("per-machine rate renders as labeled secondary text, count as the header chip", () => {
   const { sub, mult } = renderedWithMultiplicity(1, { num: "2", denom: "1" });
   expect(sub).not.toBeNull();
   expect(sub!.textContent).toContain("10");
   expect(sub!.querySelector(".rate-sub-ea")).not.toBeNull();
+  // The count is no longer in the secondary line.
+  expect(sub!.textContent).not.toContain("x2");
+  expect(sub!.querySelector(".rn-mult-chip")).toBeNull();
+  // It renders once, in the header chip.
   expect(mult).not.toBeNull();
   expect(mult!.textContent).toBe("x2");
 });
@@ -215,6 +270,48 @@ test("UPM label localizes under zh", () => {
   const lbl = container.querySelector(".rate-lbl")?.textContent;
   expect(lbl).toBe("件/分");
   expect(lbl).not.toBe("UPM");
+});
+
+// 8B: each port's React Flow Handle and its PortGlyph render INSIDE the
+// .rn-row for that item, so the DOM row center is the anchor truth instead of a
+// computed constant offset. The handle carries no inline `top` (it centers via
+// CSS top:50%), and per-side handle ids/counts are unchanged.
+test("handle and port glyph render inside their recipe row", () => {
+  const props = {
+    data: {
+      recipe: RECIPE,
+      portTransportKinds: new Map([
+        ["in:ore", "belt"],
+        ["out:plate", "belt"],
+      ]),
+    },
+  } as unknown as ComponentProps<typeof RecipeNode>;
+  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
+
+  const inputRow = container.querySelector<HTMLElement>(
+    ".rn-side.in .rn-row.input",
+  );
+  const outputRow = container.querySelector<HTMLElement>(
+    ".rn-side.out .rn-row.output",
+  );
+  expect(inputRow).not.toBeNull();
+  expect(outputRow).not.toBeNull();
+
+  const inHandle = inputRow!.querySelector<HTMLElement>("[data-handleid]");
+  expect(inHandle).not.toBeNull();
+  expect(inHandle!.getAttribute("data-handleid")).toBe("in:ore");
+  expect(inHandle!.style.top).toBe("");
+  expect(inputRow!.querySelector("[data-glyph]")).not.toBeNull();
+
+  const outHandle = outputRow!.querySelector<HTMLElement>("[data-handleid]");
+  expect(outHandle).not.toBeNull();
+  expect(outHandle!.getAttribute("data-handleid")).toBe("out:plate");
+  expect(outHandle!.style.top).toBe("");
+  expect(outputRow!.querySelector("[data-glyph]")).not.toBeNull();
+
+  // Per-side handle counts unchanged: one target, one source.
+  expect(container.querySelectorAll('[data-handlepos="left"]').length).toBe(1);
+  expect(container.querySelectorAll('[data-handlepos="right"]').length).toBe(1);
 });
 
 // A corrupt fixture can reference a missing machine; the rate falls back to

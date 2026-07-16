@@ -4,8 +4,11 @@ import { pack } from "../data/load";
 // Stable per-item edge color. The same item id always maps to the same hue, so
 // one item stays visually traceable across local edges, trunks, and branches.
 // The hue comes from the item's icon dominant color; saturation and lightness
-// are normalized into legible bands for the existing cyan-on-dark theme. The
-// mapping is pinned by tests so it cannot drift silently.
+// are normalized into legible bands for the existing cyan-on-dark theme. Every
+// emitted color clears a WCAG 4.5:1 contrast floor against the canvas
+// background (lightness is raised per hue until it clears); a contrast test
+// enforces that floor together with the pairwise distinctness within each hue
+// window, so neither can drift silently.
 //
 // Hue comes from the item's own icon. Each icon in the metadata ships a
 // precomputed dominant color (a hex string); we convert that color to HSL once
@@ -148,6 +151,94 @@ function circularHueDistance(a: number, b: number): number {
   return Math.min(diff, 360 - diff);
 }
 
+// Canvas background the edge colors and chips sit on (--ak-bg-canvas). The floor
+// below keeps every color readable against this near-black.
+const CANVAS_BG_HEX = "#0f1114";
+// WCAG AA text-contrast target. Edges and chip borders are thin strokes, so we
+// hold every item color to at least this ratio against the canvas background.
+const MIN_CONTRAST = 4.5;
+
+// sRGB -> linear channel, the WCAG gamma expansion. Shared by both luminance
+// entry points so hex and hsl luminance agree to the last digit.
+function linearizeChannel(c: number): number {
+  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+// WCAG relative luminance of an sRGB triple with channels already in 0..1.
+function srgbRelativeLuminance(r: number, g: number, b: number): number {
+  return (
+    0.2126 * linearizeChannel(r) +
+    0.7152 * linearizeChannel(g) +
+    0.0722 * linearizeChannel(b)
+  );
+}
+
+// WCAG relative luminance of an hsl() color (h 0-359, s/l 0-100). Feeds
+// contrastAgainstCanvas, the single contrast definition shared by the runtime
+// floor and the contrast test. Module-private.
+function hslRelativeLuminance(h: number, s: number, l: number): number {
+  const sn = s / 100;
+  const ln = l / 100;
+  const c = (1 - Math.abs(2 * ln - 1)) * sn;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = ln - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 60) {
+    r = c;
+    g = x;
+  } else if (h < 120) {
+    r = x;
+    g = c;
+  } else if (h < 180) {
+    g = c;
+    b = x;
+  } else if (h < 240) {
+    g = x;
+    b = c;
+  } else if (h < 300) {
+    r = x;
+    b = c;
+  } else {
+    r = c;
+    b = x;
+  }
+  return srgbRelativeLuminance(r + m, g + m, b + m);
+}
+
+const CANVAS_BG_LUMINANCE: number = (() => {
+  const hex = CANVAS_BG_HEX.startsWith("#")
+    ? CANVAS_BG_HEX.slice(1)
+    : CANVAS_BG_HEX;
+  return srgbRelativeLuminance(
+    parseInt(hex.slice(0, 2), 16) / 255,
+    parseInt(hex.slice(2, 4), 16) / 255,
+    parseInt(hex.slice(4, 6), 16) / 255,
+  );
+})();
+
+// WCAG contrast ratio of an hsl() color against the canvas background. Item
+// colors are always lighter than the near-black canvas, so the background is
+// the darker term. Exported for the contrast test.
+export function contrastAgainstCanvas(h: number, s: number, l: number): number {
+  return (
+    (hslRelativeLuminance(h, s, l) + 0.05) / (CANVAS_BG_LUMINANCE + 0.05)
+  );
+}
+
+// Smallest integer lightness >= l that clears MIN_CONTRAST at this hue and
+// saturation. Lightness is the contrast knob and the required lift is hue- and
+// saturation-adaptive: greens already clear the floor near their base rung,
+// while a dark blue or deep red must climb well above it.
+export function floorLightness(h: number, s: number, l: number): number {
+  let out = l;
+  while (out < 100 && contrastAgainstCanvas(h, s, out) < MIN_CONTRAST) {
+    out++;
+  }
+  return out;
+}
+
 // Greedily hand out rungs over entries sorted by (hue, id) and return the
 // finished hsl string per item id: each entry keeps its own hue and takes the
 // first rung not already held by an assigned entry within the hue window.
@@ -155,6 +246,14 @@ function circularHueDistance(a: number, b: number): number {
 // so real pack data never exhausts it; if a future pack does, overflow entries
 // cycle through the ladder by neighbor count (spread repeats instead of all
 // colliding on rung 0) and the no-identical-colors test fails loudly.
+//
+// After a rung is chosen its lightness is raised to the contrast floor, then
+// re-spread upward so the floor cannot collapse two rungs onto the same color.
+// Rungs that differ in saturation by >= 10 stay distinct on saturation alone,
+// so only a same-saturation in-window neighbor forces a lightness bump: the
+// entry keeps climbing past each such neighbor until it clears the >= 8
+// lightness gap. Priors are already placed, so this preserves their colors and
+// keeps the pass deterministic.
 function assignRungs(
   entries: readonly { id: string; h: number }[],
   window: number,
@@ -163,7 +262,7 @@ function assignRungs(
   const sorted = [...entries].sort(
     (a, b) => a.h - b.h || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
-  const assigned: { h: number; rung: number }[] = [];
+  const assigned: { h: number; rung: number; s: number; l: number }[] = [];
   const out = new Map<string, string>();
   for (const entry of sorted) {
     const used = new Set<number>();
@@ -181,8 +280,21 @@ function assignRungs(
         break;
       }
     }
-    assigned.push({ h: entry.h, rung });
-    const [s, l] = rungs[rung]!;
+    const [s, baseL] = rungs[rung]!;
+    let l = floorLightness(entry.h, s, baseL);
+    const sameSatPriors = assigned
+      .filter(
+        (p) =>
+          circularHueDistance(entry.h, p.h) < window &&
+          Math.abs(p.s - s) < 10,
+      )
+      .sort((a, b) => a.l - b.l);
+    for (const p of sameSatPriors) {
+      if (l > p.l - 8 && l < p.l + 8) {
+        l = p.l + 8;
+      }
+    }
+    assigned.push({ h: entry.h, rung, s, l });
     out.set(entry.id, `hsl(${entry.h} ${s}% ${l}%)`);
   }
   return out;
@@ -225,11 +337,16 @@ export function itemColor(itemId: string): string {
   if (packColor !== undefined) {
     return packColor;
   }
+  // Fallback rungs for ids without a pack color (icon-only ids and synthetic
+  // ids). Pack colors are floored once at module load; these are floored here at
+  // call time so an off-pack blue or deep-red icon still clears the contrast
+  // floor instead of leaking a dark base rung.
   const iconHS = iconHSById.get(itemId);
   if (iconHS !== undefined) {
-    return iconHS.s >= COLOR_SATURATION_MIN
-      ? `hsl(${iconHS.h} 65% 60%)`
-      : `hsl(${iconHS.h} 12% 62%)`;
+    const [s, baseL] =
+      iconHS.s >= COLOR_SATURATION_MIN ? ([65, 60] as const) : ([12, 62] as const);
+    return `hsl(${iconHS.h} ${s}% ${floorLightness(iconHS.h, s, baseL)}%)`;
   }
-  return `hsl(${itemHue(itemId)} 65% 60%)`;
+  const h = itemHue(itemId);
+  return `hsl(${h} 65% ${floorLightness(h, 65, 60)}%)`;
 }

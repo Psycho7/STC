@@ -3,7 +3,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import ItemEdge, { type ItemEdgeData } from "../../src/canvas/ItemEdge";
-import { pathMidpoint } from "../../src/canvas/edgePath";
+import { parsePathPoints } from "../../src/canvas/edgePath";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
 
@@ -159,74 +159,6 @@ describe("canvas/ItemEdge", () => {
   });
 });
 
-async function findEntry(): Promise<HTMLElement | null> {
-  let entry: HTMLElement | null = null;
-  await waitFor(() => {
-    entry = document.querySelector<HTMLElement>(
-      '[data-testid="item-edge-entry-e1"]',
-    );
-    const edgePath = document.querySelector(".react-flow__edge");
-    expect(edgePath).not.toBeNull();
-  });
-  return entry;
-}
-
-describe("canvas/ItemEdge entry chip", () => {
-  it("renders an icon-only entry chip when multiInputTarget and zoom >= gate", async () => {
-    renderEdge(
-      { item: "belt", rate: new Fraction(1), multiInputTarget: true },
-      0.6,
-    );
-    const entry = await findEntry();
-    expect(entry).not.toBeNull();
-    expect(entry!.classList.contains("flow-chip")).toBe(true);
-    expect(entry!.classList.contains("entry")).toBe(true);
-    // Icon-only: the sprite is present and there is no rate text in the body.
-    expect(entry!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
-    expect(entry!.textContent).toBe("");
-  });
-
-  it("names the item on title and aria-label", async () => {
-    renderEdge(
-      { item: "belt", rate: new Fraction(1), multiInputTarget: true },
-      0.6,
-    );
-    const entry = await findEntry();
-    expect(entry).not.toBeNull();
-    // The rate is per-second * 60; Fraction(1) -> 60/min. The exact item name
-    // comes from i18n, so only the "Name x <rate>/min" tail is pinned here.
-    expect(entry!.getAttribute("title")).toMatch(/ x 60\/min$/);
-    expect(entry!.getAttribute("aria-label")).toBe(entry!.getAttribute("title"));
-  });
-
-  it("sets --chip-accent to itemColor of the edge item", async () => {
-    renderEdge(
-      { item: "belt", rate: new Fraction(1), multiInputTarget: true },
-      0.6,
-    );
-    const entry = await findEntry();
-    expect(entry).not.toBeNull();
-    expect(entry!.style.getPropertyValue("--chip-accent")).toBe(
-      itemColor("belt"),
-    );
-  });
-
-  it("does not render the entry chip when multiInputTarget is absent", async () => {
-    renderEdge({ item: "belt", rate: new Fraction(1) }, 0.6);
-    const entry = await findEntry();
-    expect(entry).toBeNull();
-  });
-
-  it("does not render the entry chip when zoom is below the gate", async () => {
-    renderEdge(
-      { item: "belt", rate: new Fraction(1), multiInputTarget: true },
-      0.3,
-    );
-    const entry = await findEntry();
-    expect(entry).toBeNull();
-  });
-});
-
 describe("canvas/ItemEdge zoom gating", () => {
   it("hides the label when zoomed below the threshold", async () => {
     renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 0.3);
@@ -253,10 +185,12 @@ describe("canvas/ItemEdge label placement", () => {
     return label.style.transform;
   }
 
-  it("anchors the label at the path midpoint regardless of labelSide", async () => {
-    // Nodes at different y so the drawn path bends: the length midpoint's y
-    // then differs from targetY, which is where the old labelSide override
-    // pinned the chip. labelSide is set to prove it no longer moves the label.
+  it("anchors the label on its clear corridor (bend-vertical) segment", async () => {
+    // Nodes at different y so the drawn path bends: the forward step has a
+    // vertical bend column. The clear-segment anchor (2B) rides that vertical,
+    // NOT the geometric midpoint (which drifts onto a horizontal) and NOT the
+    // old labelSide target-y pin. labelSide is set to prove it no longer moves
+    // the label.
     const nodes: Node[] = [
       { id: "src", position: { x: 0, y: 0 }, data: { label: "src" } },
       { id: "tgt", position: { x: 300, y: 100 }, data: { label: "tgt" } },
@@ -280,21 +214,45 @@ describe("canvas/ItemEdge label placement", () => {
     );
     const label = await findLabel();
     expect(label).not.toBeNull();
-    // The rendered edge path and the chip share the same graph coordinate
-    // space, so the chip's translate must equal pathMidpoint of the drawn d.
     const path = document.querySelector<SVGPathElement>(
       ".react-flow__edge-path",
     );
     expect(path).not.toBeNull();
     const d = path!.getAttribute("d")!;
-    const [mx, my] = pathMidpoint(d);
-    expect(transformFor(label!)).toBe(
-      `translate(-50%, -50%) translate(${mx}px, ${my}px)`,
-    );
-    // The old behavior pinned y to targetY (the path's final point) when
-    // labelSide was "target"; the midpoint anchor must not do that here.
-    const ty = Number(d.match(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/)![2]);
-    expect(my).not.toBe(ty);
+    const m = transformFor(label!).match(
+      /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/,
+    )!;
+    const ax = Number(m[1]);
+    const ay = Number(m[2]);
+    // Parse the polyline and find the segment the anchor sits on.
+    const pts = parsePathPoints(d);
+    const onSegment = (
+      p: readonly [number, number],
+      a: readonly [number, number],
+      b: readonly [number, number],
+    ): boolean => {
+      const cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+      if (Math.abs(cross) > 1) return false;
+      const within = (lo: number, hi: number, v: number) =>
+        v >= Math.min(lo, hi) - 1 && v <= Math.max(lo, hi) + 1;
+      return within(a[0], b[0], p[0]) && within(a[1], b[1], p[1]);
+    };
+    let host: readonly [readonly [number, number], readonly [number, number]] | null =
+      null;
+    for (let i = 1; i < pts.length; i++) {
+      if (onSegment([ax, ay], pts[i - 1]!, pts[i]!)) {
+        host = [pts[i - 1]!, pts[i]!];
+        break;
+      }
+    }
+    // The anchor lies on the polyline...
+    expect(host).not.toBeNull();
+    // ...and specifically on a VERTICAL segment (the preferred corridor leg).
+    expect(host![0][0]).toBe(host![1][0]);
+    // The old behavior pinned y to targetY (the path's final point); the
+    // clear-segment anchor must not sit at the target level.
+    const targetY = Number(d.match(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/)![2]);
+    expect(ay).not.toBe(targetY);
   });
 
   it("falls back to the smoothstep midpoint when labelSide is undefined", async () => {

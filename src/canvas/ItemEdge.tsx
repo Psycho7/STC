@@ -4,11 +4,13 @@ import {
   useStore,
   type EdgeProps,
 } from "@xyflow/react";
+import { useMemo } from "react";
 import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
-import { chamferStepPath } from "./edgePath";
+import { MAX_CHIP_SCALE } from "./dimensions";
+import { chamferStepPath, routingHintsFromData } from "./edgePath";
 import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
 
@@ -34,6 +36,11 @@ export type ItemEdgeData = {
   // Bend column x assigned by the stagger pass (assignBendColumns). Optional:
   // when absent the path builder centers the bend at the corridor midpoint.
   bendX?: number;
+  // Per-bend corridor budget (half the stagger pitch) assigned alongside bendX by
+  // assignBendColumns. chamferStepPath grows the forward step's corner chamfers
+  // toward MAX_CHAMFER, capped by this budget so a fattened bevel never reaches a
+  // sibling column. Optional: when absent the base CHAMFER stands.
+  chamferBudget?: number;
   // Entry-gutter column x assigned by the stagger pass (assignEntryColumns).
   // Two consumers read it: chamferStepPath places a backward edge's left rail
   // here, and chamferBusPath (via BusEdge) places a bus member's rise column
@@ -44,43 +51,27 @@ export type ItemEdgeData = {
   // the cards it spans. chamferStepPath reads it in its backward branch.
   // Optional: absent for forward edges and un-clamped backward edges.
   railY?: number;
-  // Set by fromElkRenderLayout when this edge's consumer (target unit) has two
-  // or more inputs. It gates the icon-only entry chip pinned at the target port,
-  // which names the entering line right at the node where several inputs meet.
-  // Single-input consumers leave it unset, so their lone entering line needs no
-  // extra identity chip. Optional and defaults to falsy.
-  multiInputTarget?: true;
-  // Vertical stack offset for the entry chip, assigned by deconflictChipAnchors
-  // when several arrivals at one target node would otherwise pin their entry
-  // chips to overlapping anchors. Added to the port y so the chips stack in
-  // arrival order instead of coinciding. Optional and defaults to 0.
-  entryChipDy?: number;
+  // Clear horizontal y for a blocked forward final leg, stamped by
+  // jogForwardLegs. chamferStepPath reads it in its forward normal-step branch
+  // to bend the leg around an intervening card. Optional: absent for unblocked
+  // forward edges and every backward edge.
+  legY?: number;
   // Vertical nudge for the midpoint rate chip, assigned by deconflictChipAnchors
   // when the chip would otherwise land on top of another edge's chip. Added to
   // the label y so the two chips clear each other. Optional and defaults to 0.
   labelDy?: number;
+  // Horizontal slide for the midpoint rate chip, assigned by
+  // deconflictChipAnchors when the vertical cascade cannot clear a dense
+  // corridor: together with labelDy it moves the chip to a clear point ALONG
+  // its own polyline, so the label stays attached to the line it names. Added
+  // to the label x. Optional and defaults to 0.
+  labelDx?: number;
   // Set by Canvas's hover focus on every non-focused edge. The chips read it
   // because EdgeLabelRenderer portals them outside the edge wrapper that carries
   // the `dimmed` class, so the wrapper's fade never reaches them; the chip's own
   // .flow-chip.dimmed rule does. Optional and defaults to falsy (idle / lit).
   dimmed?: boolean;
 };
-
-// Horizontal inset of the entry chip from the target port, in graph units. The
-// chip sits just outside the node on the entering leg so it reads as belonging
-// to that line without overlapping the port glyph.
-const ENTRY_CHIP_OFFSET = 12;
-
-// Anchor for an entry chip: one inset left of the target port, at the port y
-// plus the stack offset deconflictChipAnchors assigned (0 when the chip is the
-// only arrival, so it stays pinned to its port). Pure so it can be unit-tested.
-export function entryChipAnchor(
-  targetX: number,
-  targetY: number,
-  stackDy = 0,
-): { x: number; y: number } {
-  return { x: targetX - ENTRY_CHIP_OFFSET, y: targetY + stackDy };
-}
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
 // (older fixtures and tests). Belt is a solid gray stroke; pipe is a dashed cyan
@@ -121,8 +112,6 @@ export function edgeStrokeWidth(zoom: number): number {
 // constant; the clamp caps the boost so chips never balloon on tiny plans. At
 // the LABEL_MIN_ZOOM gate (0.35) the 2x cap yields ~11px effective, above the
 // ~10px legibility floor.
-const MAX_CHIP_SCALE = 2;
-
 export function chipCounterScale(zoom: number): number {
   return zoom < 1 ? Math.min(MAX_CHIP_SCALE, 1 / zoom) : 1;
 }
@@ -137,18 +126,17 @@ export function chipAccentStyle(item?: ItemId): React.CSSProperties {
 }
 
 // FlowChip: the shared EdgeLabelRenderer chip every edge label uses -- the rate
-// chip at ItemEdge's bend column, the icon-only entry chip at a multi-input
-// target port, and BusEdge's drop / rise chips on the trunk lane. One place
-// owns the DOM contract: a nodrag/nopan .flow-chip div centered on (x, y) by
-// the double translate, tinted to the item through chipAccentStyle, carrying
-// the full "Name x rate/min" string on aria-label and title, with an optional
-// 16px item sprite followed by the optional chip text. `tear` switches to the
-// red tear-edge variant; `extraClass` appends a modifier class (the entry
-// chip's "entry"); `dimmed` appends the `dimmed` class so a chip fades with its
-// edge under the hover ego-network (the edge wrapper's own dim never reaches the
-// portaled chip).
+// chip at ItemEdge's bend column and BusEdge's drop / rise chips on the trunk
+// lane. One place owns the DOM contract: a nodrag/nopan .flow-chip div centered
+// on (x, y) by the double translate, tinted to the item through
+// chipAccentStyle, carrying the full "Name x rate/min" string on aria-label and
+// title, with an optional 16px item sprite followed by the optional chip text.
+// `tear` switches to the red tear-edge variant; `dimmed` appends the `dimmed`
+// class so a chip fades with its edge under the hover ego-network (the edge
+// wrapper's own dim never reaches the portaled chip).
 export function FlowChip({
   testId,
+  edgeId,
   x,
   y,
   item,
@@ -156,11 +144,13 @@ export function FlowChip({
   label,
   title,
   tear,
-  extraClass,
   dimmed,
   zoom,
 }: {
   testId: string;
+  // Owning edge id, emitted as data-edge-id so the geometry audit can exempt an
+  // edge's own chips when testing edge segments against foreign chip boxes.
+  edgeId?: string | undefined;
   x: number;
   y: number;
   item?: ItemId | undefined;
@@ -170,7 +160,6 @@ export function FlowChip({
   // rate here so hovering reveals the precise value the rounded chip text hides.
   title?: string | undefined;
   tear?: boolean | undefined;
-  extraClass?: string | undefined;
   dimmed?: boolean | undefined;
   // Live pane zoom, used to counter-scale the chip so it stays legible at the
   // dense-plan fit zoom. Optional: callers without a zoom leave the chip at its
@@ -187,10 +176,10 @@ export function FlowChip({
     <EdgeLabelRenderer>
       <div
         data-testid={testId}
+        {...(edgeId !== undefined ? { "data-edge-id": edgeId } : {})}
         className={
           "nodrag nopan flow-chip" +
           (tear ? " red" : "") +
-          (extraClass !== undefined ? ` ${extraClass}` : "") +
           (dimmed ? " dimmed" : "")
         }
         aria-label={label}
@@ -207,7 +196,10 @@ export function FlowChip({
             <span className="spr" style={{ backgroundPosition: pos }} />
           </span>
         ) : null}
-        {text}
+        {/* The text rides in its own span so the .flow-chip max-width clamp can
+            ellipsize it (text-overflow does not reach a bare text node inside a
+            flex container). The title attribute above keeps the full value. */}
+        {text ? <span className="chip-text">{text}</span> : null}
       </div>
     </EdgeLabelRenderer>
   );
@@ -256,21 +248,28 @@ export default function ItemEdge({
       ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(edgeData.rate)}${unit}`
       : "";
 
-  // The path builder anchors the label at the geometric midpoint of the drawn
-  // polyline (50% of cumulative length), so the chip always sits on the line
-  // it labels. Earlier versions nudged the chip toward the source or target
-  // based on labelSide, which pinned it onto a port stub and off the visible
-  // run of the path; labelSide is no longer read here or anywhere else, and is
-  // retained on the edge data only for potential future routing.
-  const [edgePath, labelX, labelY] = chamferStepPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    ...(edgeData?.bendX !== undefined ? { bendX: edgeData.bendX } : {}),
-    ...(edgeData?.entryX !== undefined ? { entryX: edgeData.entryX } : {}),
-    ...(edgeData?.railY !== undefined ? { railY: edgeData.railY } : {}),
-  });
+  // chamferStepPath returns the label anchor on the polyline's PREFERRED CLEAR
+  // SEGMENT (a corridor leg away from the card rows), not the geometric midpoint.
+  // deconflictChipAnchors then seats the chip from there via labelDx/labelDy: it
+  // slides along the polyline to a clear point and normally keeps the chip on the
+  // line it labels, but its escape tier deliberately seats it OFF the line when
+  // that is the only way to uphold the hard chip-vs-chip / chip-vs-card
+  // invariants (the ratcheted off-path residue). labelSide is no longer read
+  // here or anywhere else, and is retained on the edge data only for potential
+  // future routing.
+  // Memoized on the endpoints and edge data: the geometry does not depend on
+  // zoom, and the zoom subscription above re-renders every edge each zoom tick.
+  const [edgePath, labelX, labelY] = useMemo(
+    () =>
+      chamferStepPath({
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+        ...routingHintsFromData(edgeData),
+      }),
+    [sourceX, sourceY, targetX, targetY, edgeData],
+  );
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
   // Zoom-compensated base width, published as --edge-base-width so the hover
@@ -299,7 +298,8 @@ export default function ItemEdge({
       {chipText ? (
         <FlowChip
           testId={`item-edge-label-${id}`}
-          x={labelX}
+          edgeId={id}
+          x={labelX + (edgeData?.labelDx ?? 0)}
           y={labelY + (edgeData?.labelDy ?? 0)}
           item={edgeData?.item}
           text={chipText}
@@ -307,28 +307,6 @@ export default function ItemEdge({
           title={exactTitle}
           tear={edgeData?.isTearEdge}
           dimmed={edgeData?.dimmed}
-          zoom={zoom}
-        />
-      ) : null}
-      {/* Entry chip: an icon-only mini chip pinned at the target port, rendered
-          only when the consumer has two or more inputs (multiInputTarget) and
-          the zoom is above the same LABEL_MIN_ZOOM gate the rate chip uses. It
-          reuses the flow-chip + sprite idiom but drops the rate text; the full
-          "Name x rate/min" rides on aria-label and the exact rate on the hover
-          tooltip so hovering or a screen reader names the item. The rate chip at
-          the bend column is
-          untouched: this chip only adds identity at the node where several
-          inputs braid together. --chip-accent tints it to the item so the chip,
-          the entering line, and the matching input row all read as one color. */}
-      {edgeData?.multiInputTarget && zoom >= LABEL_MIN_ZOOM ? (
-        <FlowChip
-          testId={`item-edge-entry-${id}`}
-          {...entryChipAnchor(targetX, targetY, edgeData.entryChipDy)}
-          item={edgeData.item}
-          label={fullLabel}
-          title={exactTitle}
-          extraClass="entry"
-          dimmed={edgeData.dimmed}
           zoom={zoom}
         />
       ) : null}

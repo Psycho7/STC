@@ -28,10 +28,22 @@ export function glyphKind(
   return null;
 }
 
-function baseStyle(side: PortGlyphSide, top: number): CSSProperties {
+function baseStyle(
+  side: PortGlyphSide,
+  top: number | undefined,
+): CSSProperties {
+  // With an explicit `top` the glyph sits at that absolute node-local y (minus
+  // half its size to center on the handle); callers that omit `top` nest the
+  // glyph inside a position:relative row and let it center on the DOM row
+  // middle via top:50%, so the anchor tracks the real row instead of a computed
+  // offset.
+  const vertical: CSSProperties =
+    top === undefined
+      ? { top: "50%", transform: "translateY(-50%)" }
+      : { top: top - GLYPH_SIZE / 2 };
   return {
     position: "absolute",
-    top: top - GLYPH_SIZE / 2,
+    ...vertical,
     [side === "left" ? "left" : "right"]: -GLYPH_SIZE - 2,
     width: GLYPH_SIZE,
     height: GLYPH_SIZE,
@@ -47,7 +59,9 @@ export function PortGlyph({
 }: {
   kind: TransportKindId | undefined;
   side: PortGlyphSide;
-  top: number;
+  // Absolute node-local y of the handle center. Omit it to nest the glyph in a
+  // position:relative row and center it on the DOM row middle (top:50%).
+  top?: number;
   // When present, the glyph tints to the item's stable color so the port pairs
   // by hue with its entering / leaving edge and the matching node row. The
   // shape still comes from the transport kind (belt square / pipe circle); only

@@ -45,9 +45,12 @@ import {
   assignBendColumns,
   assignEntryColumns,
   clampBackwardRails,
-  deconflictChipAnchors,
+  clearBusColumns,
+  jogForwardLegs,
   routeBusEdges,
+  routeFanoutEdges,
 } from "./busRouting";
+import { deconflictChipAnchors } from "./chipSeating";
 import type {
   Container,
   ContainerId,
@@ -649,7 +652,6 @@ export function fromElkRenderLayout(
       rate: Fraction;
       transportKind?: TransportKindId;
       labelSide?: "source" | "target";
-      multiInputTarget?: true;
     } = {
       item: itemId,
       rate,
@@ -659,19 +661,6 @@ export function fromElkRenderLayout(
     }
     if (renderEdge?.labelSide !== undefined) {
       edgeData.labelSide = renderEdge.labelSide;
-    }
-    // Flag edges whose consumer takes two or more inputs so ItemEdge can pin an
-    // icon-only identity chip at the target port. The edge itself does not know
-    // the consumer's in-degree, so we resolve it here from the target unit.
-    // Bus members: every edge is still type "item" at this point; routeBusEdges
-    // runs later (in layoutRenderPlan) and retypes long / boundary-feeder edges
-    // to type "bus", which BusEdge renders. BusEdge's rise chip already sits
-    // near the target, so a multiInputTarget flag left on a bus member is inert
-    // (ItemEdge is the only reader). Setting it uniformly here keeps this pass
-    // free of any bus-classification dependency.
-    const targetUnit = unitById.get(targetNode);
-    if (targetUnit !== undefined && inputCountOf(targetUnit, recipeById) >= 2) {
-      edgeData.multiInputTarget = true;
     }
     return {
       id: e.id,
@@ -755,27 +744,6 @@ function portToItem(port: string): string {
   if (port.startsWith("out:")) return port.slice("out:".length);
   if (port.startsWith("in:")) return port.slice("in:".length);
   return port;
-}
-
-// Number of distinct inputs a unit consumes, used to decide whether its
-// entering edges get an identity chip. Recipe units count their recipe.in
-// ports; loop units count their net-IO "in" ports; product units are boundary
-// sinks that never take two inputs, so they report zero.
-function inputCountOf(
-  unit: RenderUnit,
-  recipeById: ReadonlyMap<RecipeId, Recipe>,
-): number {
-  switch (unit.kind) {
-    case "recipe": {
-      const recipe = recipeById.get(unit.recipeId);
-      return recipe ? recipe.in.length : 0;
-    }
-    case "loop":
-      return unit.netIO.filter((p) => p.direction === "in").length;
-    case "inputProduct":
-    case "outputProduct":
-      return 0;
-  }
 }
 
 function unitToRFNode(
@@ -881,21 +849,44 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   const elkGraph = renderPlanToElkGraph(input);
   const laid = (await elk.layout(elkGraph)) as ElkGraph;
   const { nodes, edges } = fromElkRenderLayout(laid, input);
-  // Classify long / boundary-feeder edges into bus trunks after layout, so the
-  // pass sees final absolute node positions when it measures spans and picks
-  // each trunk's lane. Then stake out per-target entry columns in each node's
-  // gutter (backward rails and bus rises) so entering runs stay parallel, and
-  // stagger the bend columns of the remaining still-type:"item" edges so their
-  // vertical runs fan out instead of stacking (clamped clear of every gutter).
+  // Post-layout routing passes, in order (each consumes the previous ones'
+  // stamps; final absolute node positions are known here):
+  //   1. routeBusEdges       classify long / boundary-feeder edges into bus
+  //                          trunks, each on a lane in a top or bottom band.
+  //   1b. routeFanoutEdges   consolidate N >= 2 same-source-port edges in one
+  //                          layer gap onto a shared junction column (a fan-out
+  //                          trunk, retyped bus but off-lane).
+  //   2. assignEntryColumns  stake out per-target entry-gutter columns so
+  //                          backward rails and bus rises into one node stay
+  //                          parallel.
+  //   3. clearBusColumns     move bus drop / rise verticals clear of any foreign
+  //                          card / gutter (starts from the entry stagger).
+  //   4. assignBendColumns   stagger the remaining item edges' bend columns so
+  //                          their verticals fan out (clamped clear of gutters).
+  //   5. jogForwardLegs      bend a blocked forward final leg to a clear y so it
+  //                          does not cross an intervening card (reads bendX).
+  //   6. clampBackwardRails  move the backward detour rails clear of the cards
+  //                          they span.
+  //   7. deconflictChipAnchors stack crowded chips (entry, bus, midpoint) so
+  //                          none coincide.
   return {
     nodes,
     edges: deconflictChipAnchors(
       nodes,
       clampBackwardRails(
         nodes,
-        assignBendColumns(
+        jogForwardLegs(
           nodes,
-          assignEntryColumns(nodes, routeBusEdges(nodes, edges)),
+          assignBendColumns(
+            nodes,
+            clearBusColumns(
+              nodes,
+              assignEntryColumns(
+                nodes,
+                routeFanoutEdges(nodes, routeBusEdges(nodes, edges)),
+              ),
+            ),
+          ),
         ),
       ),
     ),

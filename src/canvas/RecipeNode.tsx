@@ -106,9 +106,11 @@ export default function RecipeNode({
   } = data;
   const i18n = useI18n();
   const { machineById } = useItemPack();
-  // Rows in ELK-resolved arrival order (falls back to declaration order). The
-  // handle at geom.inHandleYs[i] and the row at slot i describe the same item,
-  // and each row carries its own stoich for the rate text.
+  // Rows in ELK-resolved arrival order (falls back to declaration order). Each
+  // row carries its own stoich for the rate text. geom does not place the
+  // handles (they center on the real DOM row via CSS); it only feeds node
+  // sizing here and the offline routing model (busRouting / ELK), which the
+  // pinned CSS keeps in sync with these rows.
   const ins = orderByItem(recipe.in, inputOrder);
   const outs = orderByItem(recipe.out, outputOrder);
   const geom = measureRecipe(recipe);
@@ -204,6 +206,12 @@ export default function RecipeNode({
             </div>
           ) : null}
         </div>
+        {/* Machine multiplier: one reserved header cell beside the rate block,
+            never an overlay. It is critical info, so it survives at every zoom
+            band (the rate figures drop at zoom-low; this chip does not). */}
+        {badgeText !== null ? (
+          <span className="rn-mult-chip">{badgeText}</span>
+        ) : null}
         <div className="rn-rate-block">
           <div className="rate-val">{rateValText}</div>
           <div className="rate-lbl">{i18n.t("node.upm")}</div>
@@ -211,62 +219,20 @@ export default function RecipeNode({
             <div className="rate-sub">
               <span className="rate-sub-val">{perMachineText}</span>
               <span className="rate-sub-ea">{i18n.t("node.each")}</span>
-              {badgeText !== null ? (
-                <span className="rate-sub-mult">{badgeText}</span>
-              ) : null}
             </div>
           ) : null}
         </div>
       </div>
 
-      {ins.map((p, i) => {
-        const handleId = `in:${p.item}`;
-        return (
-          <Handle
-            key={handleId}
-            id={handleId}
-            type="target"
-            position={Position.Left}
-            style={{ top: geom.inHandleYs[i] }}
-          />
-        );
-      })}
-      {ins.map((p, i) => (
-        <PortGlyph
-          key={`in-glyph:${p.item}`}
-          kind={portTransportKinds?.get(`in:${p.item}`)}
-          side="left"
-          top={geom.inHandleYs[i]!}
-          item={p.item}
-        />
-      ))}
-      {outs.map((p, i) => {
-        const handleId = `out:${p.item}`;
-        return (
-          <Handle
-            key={handleId}
-            id={handleId}
-            type="source"
-            position={Position.Right}
-            style={{ top: geom.outHandleYs[i] }}
-          />
-        );
-      })}
-      {outs.map((p, i) => (
-        <PortGlyph
-          key={`out-glyph:${p.item}`}
-          kind={portTransportKinds?.get(`out:${p.item}`)}
-          side="right"
-          top={geom.outHandleYs[i]!}
-          item={p.item}
-        />
-      ))}
-
       <div className="rn-body">
         <div className="rn-side in">
           {ins.map((p) => {
             const label = i18n.displayName(p.item);
+            const handleId = `in:${p.item}`;
             return (
+              // The Handle and PortGlyph live inside the row so the DOM row
+              // center is the anchor truth (both center via CSS top:50% on the
+              // position:relative row) instead of a computed constant offset.
               // --row-accent tints the row's left accent tab to the item color
               // (canvas.css reads it in .rn-row.input::before) so the row pairs
               // by hue with its entering edge and port glyph.
@@ -275,6 +241,16 @@ export default function RecipeNode({
                 className="rn-row input"
                 style={{ ["--row-accent" as string]: itemColor(p.item) }}
               >
+                <Handle
+                  id={handleId}
+                  type="target"
+                  position={Position.Left}
+                />
+                <PortGlyph
+                  kind={portTransportKinds?.get(handleId)}
+                  side="left"
+                  item={p.item}
+                />
                 <Sprite iconId={p.item} size={20} />
                 <span className="lbl" title={label}>
                   {label}
@@ -289,7 +265,9 @@ export default function RecipeNode({
         <div className="rn-side out">
           {outs.map((p) => {
             const label = i18n.displayName(p.item);
+            const handleId = `out:${p.item}`;
             return (
+              // Handle and PortGlyph nested in the row (see input side above).
               // --row-accent tints the row's right accent tab to the item color
               // (canvas.css reads it in .rn-row.output::after) so the row pairs
               // by hue with its leaving edge and port glyph.
@@ -298,6 +276,16 @@ export default function RecipeNode({
                 className="rn-row output"
                 style={{ ["--row-accent" as string]: itemColor(p.item) }}
               >
+                <Handle
+                  id={handleId}
+                  type="source"
+                  position={Position.Right}
+                />
+                <PortGlyph
+                  kind={portTransportKinds?.get(handleId)}
+                  side="right"
+                  item={p.item}
+                />
                 <Sprite iconId={p.item} size={20} />
                 <span className="lbl" title={label}>
                   {label}
@@ -317,10 +305,6 @@ export default function RecipeNode({
         <div className="cycle">{i18n.t("node.cycle", { time: recipe.time })}</div>
         <div className="pwr" />
       </div>
-
-      {badgeText !== null ? (
-        <span className="rn-mult-badge">{badgeText}</span>
-      ) : null}
     </div>
   );
 }
