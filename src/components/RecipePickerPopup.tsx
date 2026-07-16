@@ -11,7 +11,7 @@ type Props = {
   // a duplicate can't be picked, rather than surfacing a post-hoc error.
   disabledIds: ReadonlySet<string>;
   // The recipe of the row being edited, highlighted as selected.
-  selectedId?: string;
+  selectedId?: string | undefined;
   // Crafting-tier depth per recipe id (POSITIVE_INFINITY for cycle-only ones),
   // computed once by the caller so the popup stays presentational.
   depthByRecipeId: Map<string, number>;

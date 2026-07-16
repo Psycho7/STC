@@ -11,11 +11,7 @@ import userEvent from "@testing-library/user-event";
 
 import App from "../src/App";
 import { pack } from "../src/data/load";
-import {
-  defaultPlan,
-  encodePlan,
-  loadPlan,
-} from "../src/data/plan";
+import { defaultPlan, encodePlan, loadPlan } from "../src/data/plan";
 import type { Plan } from "../src/data/plan";
 import { defaultTargets } from "../src/data/targets";
 
@@ -96,13 +92,13 @@ describe("canvas-targets: add target", () => {
     expect(screen.getAllByTestId("target-row").length).toBe(rowsBefore);
     expect(window.location.hash).toBe(hashBefore);
 
-    // Choose the first offered recipe (solver-safe by construction) and commit a
-    // rate: the draft promotes to a target and the URL re-solves.
-    const select = within(draftRow).getByLabelText(
-      /配方/,
-    ) as HTMLSelectElement;
-    const firstOption = Array.from(select.options).find((o) => o.value !== "")!;
-    fireEvent.change(select, { target: { value: firstOption.value } });
+    // Open the picker, choose the first enabled recipe tile, and commit a rate:
+    // the draft promotes to a target and the URL re-solves.
+    await user.click(within(draftRow).getByLabelText(/配方/));
+    const tile = document.querySelector(
+      ".recipe-picker-tile:not([disabled])",
+    ) as HTMLButtonElement;
+    await user.click(tile);
     const rate = within(draftRow).getByLabelText(/速率/);
     fireEvent.change(rate, { target: { value: "60" } });
     fireEvent.blur(rate);
@@ -178,11 +174,7 @@ describe("canvas-targets: rate edit commit", () => {
 
 describe("canvas-targets: pre-seeded boot", () => {
   it("mounts the default-plan hash with the expected row count", async () => {
-    history.replaceState(
-      null,
-      "",
-      "#" + (await encodePlan(defaultPlan(pack))),
-    );
+    history.replaceState(null, "", "#" + (await encodePlan(defaultPlan(pack))));
 
     render(<App />);
     await waitFor(

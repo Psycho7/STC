@@ -9,7 +9,9 @@ import {
   isSinkRecipe,
 } from "../data/recipe-category";
 import { ratePerSecToPerMin } from "../data/rate-format";
+import { computeRecipeDepths } from "../data/recipe-depth";
 import { iconPosition } from "../canvas/iconSprite";
+import { RecipePickerPopup } from "./RecipePickerPopup";
 
 type Props = {
   targets: Target[];
@@ -60,32 +62,22 @@ function isPickableTarget(recipe: Recipe): boolean {
 export function TargetsPanel({ targets, onChange, pack }: Props) {
   const i18n = useI18n();
   const pickableRecipes = pack.recipes.filter(isPickableTarget);
-  // Locale-aware compare for both the option order within a group and the group
-  // order itself, so the dropdown scans by the displayed name in every locale.
-  const collator = useMemo(
-    () => new Intl.Collator(i18n.locale),
-    [i18n.locale],
-  );
-  // Group pickable recipes by pack category and sort each group by localized
-  // display name; order the groups by their (localized-compared) label. Reused
-  // by both the committed-target select and the draft select.
-  function groupRecipes(recipes: Recipe[]) {
-    const byCategory = new Map<string, Recipe[]>();
-    for (const r of recipes) {
-      const arr = byCategory.get(r.category);
-      if (arr) arr.push(r);
-      else byCategory.set(r.category, [r]);
-    }
-    return [...byCategory.entries()]
-      .map(([category, group]) => ({
-        category,
-        recipes: group
-          .slice()
-          .sort((a, b) =>
-            collator.compare(i18n.displayName(a.id), i18n.displayName(b.id)),
-          ),
-      }))
-      .sort((a, b) => collator.compare(a.category, b.category));
+  // Crafting-tier depth per recipe, used by the picker popup to group tiles.
+  const depthByRecipeId = useMemo(() => computeRecipeDepths(pack), [pack]);
+  // Which row/draft the picker popup is open for, plus the trigger button that
+  // opened it so focus can return there on close.
+  const [pickerFor, setPickerFor] = useState<
+    | { kind: "row"; recipeId: string }
+    | { kind: "draft"; draftId: string }
+    | null
+  >(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  function closePicker() {
+    setPickerFor(null);
+    const btn = triggerRef.current;
+    triggerRef.current = null;
+    // The trigger may have been removed (a promoted draft), so guard the focus.
+    if (btn && document.contains(btn)) btn.focus();
   }
   const [duplicateError, setDuplicateError] = useState<{
     rowId: string;
@@ -287,8 +279,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
           iconPosition(recipe?.producers?.[0]) ??
           iconPosition(t.recipeId);
         const displayedRate =
-          localRates.get(t.recipeId) ??
-          ratePerSecToPerMin(t.ratePerSec);
+          localRates.get(t.recipeId) ?? ratePerSecToPerMin(t.ratePerSec);
         return (
           <div key={t.recipeId} className="b-row" data-testid="target-row">
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
@@ -303,26 +294,21 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
             </span>
             <div className="info">
               <span className="b-pick">
-                <select
+                <button
+                  type="button"
+                  className="b-pick-trigger"
                   aria-label={i18n.t("targets.recipe.label")}
+                  aria-haspopup="dialog"
                   // title shows the full localised recipe name on hover, for
-                  // when the select truncates long names at narrow widths.
+                  // when the trigger truncates long names at narrow widths.
                   title={i18n.displayName(t.recipeId)}
-                  value={t.recipeId}
-                  onChange={(e) =>
-                    handleRecipeChange(t.recipeId, e.target.value)
-                  }
+                  onClick={(e) => {
+                    triggerRef.current = e.currentTarget;
+                    setPickerFor({ kind: "row", recipeId: t.recipeId });
+                  }}
                 >
-                  {groupRecipes(pickableRecipes).map((g) => (
-                    <optgroup key={g.category} label={g.category}>
-                      {g.recipes.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {i18n.displayName(r.id)}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
+                  {i18n.displayName(t.recipeId)}
+                </button>
               </span>
               <div className="item-id">
                 {t.recipeId}
@@ -378,15 +364,6 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
         );
       })}
       {drafts.map((draft) => {
-        // Recipes free to pick in this draft: pickable ones not already used by
-        // a committed target or another draft (the draft's own choice stays).
-        const takenElsewhere = new Set<string>([
-          ...targets.map((t) => t.recipeId),
-          ...drafts.filter((d) => d.id !== draft.id).map((d) => d.recipeId),
-        ]);
-        const options = pickableRecipes.filter(
-          (r) => !takenElsewhere.has(r.id) || r.id === draft.recipeId,
-        );
         const iconPos =
           draft.recipeId !== ""
             ? (iconPosition(
@@ -407,24 +384,28 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
             </span>
             <div className="info">
               <span className="b-pick">
-                <select
-                  aria-label={i18n.t("targets.recipe.label")}
-                  value={draft.recipeId}
-                  onChange={(e) =>
-                    applyDraft({ ...draft, recipeId: e.target.value })
+                <button
+                  type="button"
+                  className={
+                    "b-pick-trigger" +
+                    (draft.recipeId === "" ? " placeholder" : "")
                   }
+                  aria-label={i18n.t("targets.recipe.label")}
+                  aria-haspopup="dialog"
+                  title={
+                    draft.recipeId !== ""
+                      ? i18n.displayName(draft.recipeId)
+                      : undefined
+                  }
+                  onClick={(e) => {
+                    triggerRef.current = e.currentTarget;
+                    setPickerFor({ kind: "draft", draftId: draft.id });
+                  }}
                 >
-                  <option value="">{i18n.t("targets.recipe.choose")}</option>
-                  {groupRecipes(options).map((g) => (
-                    <optgroup key={g.category} label={g.category}>
-                      {g.recipes.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {i18n.displayName(r.id)}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
+                  {draft.recipeId !== ""
+                    ? i18n.displayName(draft.recipeId)
+                    : i18n.t("targets.recipe.choose")}
+                </button>
               </span>
             </div>
             <div className="b-rate">
@@ -461,6 +442,55 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
       <button className="b-add" onClick={handleAdd}>
         {i18n.t("targets.add")}
       </button>
+      {pickerFor !== null ? renderPicker() : null}
     </div>
   );
+
+  function renderPicker() {
+    if (pickerFor === null) return null;
+    if (pickerFor.kind === "row") {
+      const rowId = pickerFor.recipeId;
+      // Disable recipes other targets or any draft already claim; the row's own
+      // recipe stays enabled and highlighted as selected.
+      const disabledIds = new Set<string>([
+        ...targets.filter((t) => t.recipeId !== rowId).map((t) => t.recipeId),
+        ...drafts.map((d) => d.recipeId).filter((id) => id !== ""),
+      ]);
+      return (
+        <RecipePickerPopup
+          recipes={pickableRecipes}
+          disabledIds={disabledIds}
+          selectedId={rowId}
+          depthByRecipeId={depthByRecipeId}
+          onPick={(newId) => {
+            handleRecipeChange(rowId, newId);
+            closePicker();
+          }}
+          onClose={closePicker}
+        />
+      );
+    }
+    const draft = drafts.find((d) => d.id === pickerFor.draftId);
+    // The draft may have vanished (promoted or removed) before the popup closed.
+    if (!draft) return null;
+    const disabledIds = new Set<string>([
+      ...targets.map((t) => t.recipeId),
+      ...drafts
+        .filter((d) => d.id !== draft.id && d.recipeId !== "")
+        .map((d) => d.recipeId),
+    ]);
+    return (
+      <RecipePickerPopup
+        recipes={pickableRecipes}
+        disabledIds={disabledIds}
+        selectedId={draft.recipeId || undefined}
+        depthByRecipeId={depthByRecipeId}
+        onPick={(newId) => {
+          applyDraft({ ...draft, recipeId: newId });
+          closePicker();
+        }}
+        onClose={closePicker}
+      />
+    );
+  }
 }

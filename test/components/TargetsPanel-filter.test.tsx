@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import type { ReactElement } from "react";
 import type { Recipe, RecipePack } from "@aef/schema";
 import { TargetsPanel } from "../../src/components/TargetsPanel";
@@ -47,6 +53,11 @@ const mixedPack: RecipePack = {
   ],
 };
 
+// The picker popup is portal-rendered; tiles carry data-recipe-id.
+function pickerHas(recipeId: string): boolean {
+  return document.querySelector(`[data-recipe-id="${recipeId}"]`) !== null;
+}
+
 describe("TargetsPanel / synthetic-category filter", () => {
   it("excludes '__internal' recipes", () => {
     const onChange = vi.fn();
@@ -60,17 +71,13 @@ describe("TargetsPanel / synthetic-category filter", () => {
       />,
     );
 
-    const select = screen.getByRole("combobox");
-    const optionValues = Array.from(select.querySelectorAll("option")).map(
-      (o) => (o as HTMLOptionElement).value,
-    );
-
-    expect(optionValues).toContain("smelt_one");
-    expect(optionValues).toContain("assemble_one");
-    expect(optionValues).not.toContain("__hidden_machinery");
+    fireEvent.click(screen.getByLabelText(/recipe/i));
+    expect(pickerHas("smelt_one")).toBe(true);
+    expect(pickerHas("assemble_one")).toBe(true);
+    expect(pickerHas("__hidden_machinery")).toBe(false);
   });
 
-  it("excludes '__domain_transfer' recipes from the dropdown", () => {
+  it("excludes '__domain_transfer' recipes from the picker", () => {
     const onChange = vi.fn();
     renderWithLocale(
       <TargetsPanel
@@ -81,13 +88,10 @@ describe("TargetsPanel / synthetic-category filter", () => {
         pack={mixedPack}
       />,
     );
-    const select = screen.getByRole("combobox");
-    const optionValues = Array.from(select.querySelectorAll("option")).map(
-      (o) => (o as HTMLOptionElement).value,
-    );
+    fireEvent.click(screen.getByLabelText(/recipe/i));
     // Domain-transfer recipes are input-supply metadata, not
     // user-selectable production steps.
-    expect(optionValues).not.toContain("transfer_tundra_a");
+    expect(pickerHas("transfer_tundra_a")).toBe(false);
   });
 
   it("Add opens a draft whose recipe picker excludes '__domain_transfer' recipes", () => {
@@ -109,11 +113,10 @@ describe("TargetsPanel / synthetic-category filter", () => {
     fireEvent.click(addButton);
     // Clicking Add creates a local draft only; no commit.
     expect(onChange).not.toHaveBeenCalled();
-    const draftRow = screen.getByTestId("target-draft-row");
-    const optionValues = Array.from(
-      draftRow.querySelectorAll("option"),
-    ).map((o) => (o as HTMLOptionElement).value);
-    expect(optionValues).not.toContain("transfer_tundra_a");
-    expect(optionValues).toContain("real_recipe");
+    fireEvent.click(
+      within(screen.getByTestId("target-draft-row")).getByLabelText(/recipe/i),
+    );
+    expect(pickerHas("transfer_tundra_a")).toBe(false);
+    expect(pickerHas("real_recipe")).toBe(true);
   });
 });

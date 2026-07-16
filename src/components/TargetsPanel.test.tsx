@@ -70,6 +70,14 @@ function rateInputs(): HTMLInputElement[] {
     .filter((el) => el instanceof HTMLInputElement) as HTMLInputElement[];
 }
 
+// The recipe picker is a portal-rendered popup; tiles carry data-recipe-id.
+function pickerTile(recipeId: string): HTMLButtonElement | null {
+  return document.querySelector(`[data-recipe-id="${recipeId}"]`);
+}
+function pickTile(recipeId: string) {
+  fireEvent.click(pickerTile(recipeId)!);
+}
+
 // Typing alone must never commit: the whole point of moving off the debounce is
 // that no half-typed magnitude reaches the solver.
 test("typing a rate does not commit, even after time passes", () => {
@@ -222,9 +230,9 @@ test("Enter on unparseable text sets aria-invalid and shows an inline message", 
   fireEvent.change(input, { target: { value: "12,5" } });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(input.getAttribute("aria-invalid")).toBe("true");
-  expect(screen.getByTestId("rate-invalid").textContent!.length).toBeGreaterThan(
-    0,
-  );
+  expect(
+    screen.getByTestId("rate-invalid").textContent!.length,
+  ).toBeGreaterThan(0);
   expect(onChange).not.toHaveBeenCalled();
 });
 
@@ -329,8 +337,8 @@ test("uncommitted rate edit follows the row across a recipe swap", () => {
   }
   render(<Parent />);
   fireEvent.change(rateInputs()[0]!, { target: { value: "99" } });
-  const select = screen.getByLabelText(/recipe/i);
-  fireEvent.change(select, { target: { value: "r_gadget" } });
+  fireEvent.click(screen.getByLabelText(/recipe/i));
+  pickTile("r_gadget");
   // The typed text is still shown on the swapped row.
   expect(rateInputs()[0]!.value).toBe("99");
   fireEvent.blur(rateInputs()[0]!);
@@ -384,16 +392,13 @@ test("uncommitted edit is discarded when the plan changes", () => {
         <button
           data-testid="navigate"
           onClick={() => {
-            setT([{ recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } }]);
+            setT([
+              { recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } },
+            ]);
             setEpoch((e) => e + 1);
           }}
         />
-        <TargetsPanel
-          key={epoch}
-          targets={t}
-          onChange={() => {}}
-          pack={PACK}
-        />
+        <TargetsPanel key={epoch} targets={t} onChange={() => {}} pack={PACK} />
       </LocaleProvider>
     );
   }
@@ -427,12 +432,9 @@ test("recipe picker excludes every no-output recipe in the real pack", () => {
       />
     </LocaleProvider>,
   );
-  const options = screen
-    .getAllByRole("option")
-    .map((o) => (o as HTMLOptionElement).value)
-    .filter((v) => v !== "");
+  fireEvent.click(screen.getByLabelText(/recipe/i));
   for (const r of realPack.recipes.filter((x) => x.out.length === 0)) {
-    expect(options, r.id).not.toContain(r.id);
+    expect(pickerTile(r.id), r.id).toBeNull();
   }
 });
 
@@ -448,12 +450,10 @@ test("clicking Add creates a draft row without committing", () => {
   expect(screen.getAllByTestId("target-draft-row").length).toBe(1);
   expect(screen.queryAllByTestId("target-row").length).toBe(0);
   expect(onChange).not.toHaveBeenCalled();
-  // The draft recipe select defaults to the "choose a recipe" placeholder.
+  // The draft recipe trigger shows the "choose a recipe" placeholder.
   const draftRow = screen.getByTestId("target-draft-row");
-  const select = within(draftRow).getByLabelText(
-    /recipe/i,
-  ) as HTMLSelectElement;
-  expect(select.value).toBe("");
+  const trigger = within(draftRow).getByLabelText(/recipe/i);
+  expect(trigger.textContent).toBe("Choose a recipe...");
 });
 
 // D4: a draft commits exactly once, when it has both a recipe and a nonzero
@@ -477,13 +477,15 @@ test("a draft commits once a recipe and a nonzero rate are set", () => {
   }
   render(<Parent />);
   fireEvent.click(screen.getByRole("button", { name: "Add target" }));
-  const draftRow = screen.getByTestId("target-draft-row");
-  fireEvent.change(within(draftRow).getByLabelText(/recipe/i), {
-    target: { value: "r_widget" },
-  });
+  fireEvent.click(
+    within(screen.getByTestId("target-draft-row")).getByLabelText(/recipe/i),
+  );
+  pickTile("r_widget");
   // A recipe alone does not commit.
   expect(latest.length).toBe(0);
-  const rate = within(draftRow).getByLabelText(/rate/i);
+  const rate = within(screen.getByTestId("target-draft-row")).getByLabelText(
+    /rate/i,
+  );
   fireEvent.change(rate, { target: { value: "60" } });
   fireEvent.blur(rate);
   // 60/min = 1/1 per sec.
@@ -504,11 +506,13 @@ test("a draft with a recipe but a zero rate does not commit", () => {
     </LocaleProvider>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Add target" }));
-  const draftRow = screen.getByTestId("target-draft-row");
-  fireEvent.change(within(draftRow).getByLabelText(/recipe/i), {
-    target: { value: "r_widget" },
-  });
-  const rate = within(draftRow).getByLabelText(/rate/i);
+  fireEvent.click(
+    within(screen.getByTestId("target-draft-row")).getByLabelText(/recipe/i),
+  );
+  pickTile("r_widget");
+  const rate = within(screen.getByTestId("target-draft-row")).getByLabelText(
+    /rate/i,
+  );
   fireEvent.change(rate, { target: { value: "0" } });
   fireEvent.blur(rate);
   expect(onChange).not.toHaveBeenCalled();
@@ -529,84 +533,9 @@ test("removing a draft never touches the plan", () => {
   expect(screen.queryAllByTestId("target-draft-row").length).toBe(0);
 });
 
-// UX-17: recipe options are grouped by pack category via <optgroup> and sorted
-// by localized display name within each group; groups themselves are ordered by
-// their localized label.
-const GROUPED_PACK = {
-  items: [
-    { id: "zed", icon: "zed" },
-    { id: "apple", icon: "apple" },
-    { id: "mango", icon: "mango" },
-    { id: "beta", icon: "beta" },
-  ],
-  recipes: [
-    {
-      id: "r_zed",
-      category: "product",
-      in: [],
-      out: [{ item: "zed", qty: 1 }],
-      time: 1,
-      producers: [],
-      cost: 1,
-    },
-    {
-      id: "r_apple",
-      category: "product",
-      in: [],
-      out: [{ item: "apple", qty: 1 }],
-      time: 1,
-      producers: [],
-      cost: 1,
-    },
-    {
-      id: "r_mango",
-      category: "material",
-      in: [],
-      out: [{ item: "mango", qty: 1 }],
-      time: 1,
-      producers: [],
-      cost: 1,
-    },
-    {
-      id: "r_beta",
-      category: "material",
-      in: [],
-      out: [{ item: "beta", qty: 1 }],
-      time: 1,
-      producers: [],
-      cost: 1,
-    },
-  ],
-} as unknown as RecipePack;
-
-test("recipe options are grouped by category and sorted by display name", () => {
-  render(
-    <LocaleProvider locale="en">
-      <TargetsPanel
-        targets={[{ recipeId: "r_apple", ratePerSec: { num: "1", denom: "1" } }]}
-        onChange={vi.fn()}
-        pack={GROUPED_PACK}
-      />
-    </LocaleProvider>,
-  );
-  const select = screen.getByRole("combobox") as HTMLSelectElement;
-  const groups = [...select.querySelectorAll("optgroup")];
-  // Groups ordered by localized label: material before product.
-  expect(groups.map((g) => g.label)).toEqual(["material", "product"]);
-  // Options within each group sorted by localized display name (id fallback).
-  const materialOpts = [...groups[0]!.querySelectorAll("option")].map(
-    (o) => (o as HTMLOptionElement).value,
-  );
-  const productOpts = [...groups[1]!.querySelectorAll("option")].map(
-    (o) => (o as HTMLOptionElement).value,
-  );
-  expect(materialOpts).toEqual(["r_beta", "r_mango"]);
-  expect(productOpts).toEqual(["r_apple", "r_zed"]);
-});
-
-// Selecting a recipe already used by another row is rejected inline: an alert
-// names the duplicate recipe and no change commits.
-test("duplicate recipe selection shows an inline alert and does not commit", () => {
+// A recipe another row already uses is offered as a disabled tile in the popup,
+// so a duplicate can't be picked and no change commits.
+test("a recipe used by another row is disabled in the picker and does not commit", () => {
   const onChange = vi.fn();
   render(
     <LocaleProvider locale="en">
@@ -620,10 +549,12 @@ test("duplicate recipe selection shows an inline alert and does not commit", () 
       />
     </LocaleProvider>,
   );
-  const selects = screen.getAllByLabelText(/recipe/i);
-  fireEvent.change(selects[1]!, { target: { value: "r_widget" } });
+  const triggers = screen.getAllByLabelText(/recipe/i);
+  fireEvent.click(triggers[1]!);
+  const widgetTile = pickerTile("r_widget")!;
+  expect(widgetTile.disabled).toBe(true);
+  fireEvent.click(widgetTile);
   expect(onChange).not.toHaveBeenCalled();
-  expect(screen.getByRole("alert").textContent).toMatch(/r_widget/);
 });
 
 // UX-20: the unit-convention subtitle is the only on-screen statement of the
