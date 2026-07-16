@@ -557,6 +557,31 @@ test("a recipe used by another row is disabled in the picker and does not commit
   expect(onChange).not.toHaveBeenCalled();
 });
 
+// The row's own recipe stays enabled and highlighted in the picker, so clicking
+// it is a confirm: the popup closes with no commit and, unlike a real duplicate,
+// no duplicate alert fires (the dup check would otherwise match the row itself).
+test("re-picking a row's own recipe closes without commit or duplicate alert", () => {
+  const onChange = vi.fn();
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[
+          { recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } },
+        ]}
+        onChange={onChange}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  fireEvent.click(screen.getByLabelText(/recipe/i));
+  const ownTile = pickerTile("r_widget")!;
+  expect(ownTile.disabled).toBe(false);
+  fireEvent.click(ownTile);
+  expect(onChange).not.toHaveBeenCalled();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
 // UX-20: the unit-convention subtitle is the only on-screen statement of the
 // items-per-minute unit, so it must localize. Under zh it renders the localized
 // line, not the English fallback.

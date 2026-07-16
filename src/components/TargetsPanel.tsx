@@ -463,7 +463,10 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
           selectedId={rowId}
           depthByRecipeId={depthByRecipeId}
           onPick={(newId) => {
-            handleRecipeChange(rowId, newId);
+            // Re-picking the row's own (still-enabled, highlighted) recipe is a
+            // confirm, not a swap; without this guard the dup check would match
+            // the row itself and raise a false duplicate alert.
+            if (newId !== rowId) handleRecipeChange(rowId, newId);
             closePicker();
           }}
           onClose={closePicker}
