@@ -842,6 +842,54 @@
 .ak-app-shell [data-testid="side-panel"] .b-row .b-pick:focus-within::after {
   color: var(--ak-accent-cyan);
 }
+/* The picker trigger replaces the native <select> as the row's name surface: a
+   bare button that reads as the heading line and opens the popup. It keeps the
+   .b-pick caret affordance and the display-face styling the select had. */
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick .b-pick-trigger {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--ak-text-primary);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  padding: 0 14px 0 0;
+  cursor: pointer;
+  width: 100%;
+  max-width: 100%;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  transition:
+    color 140ms ease-out,
+    text-decoration-color 140ms ease-out;
+}
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick .b-pick-trigger:hover,
+.ak-app-shell [data-testid="side-panel"] .b-row .b-pick .b-pick-trigger:focus {
+  outline: 0;
+  text-decoration: underline 1px var(--ak-accent-cyan-soft);
+  text-underline-offset: 3px;
+}
+.ak-app-shell
+  [data-testid="side-panel"]
+  .b-row
+  .b-pick
+  .b-pick-trigger:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
+.ak-app-shell
+  [data-testid="side-panel"]
+  .b-row
+  .b-pick
+  .b-pick-trigger.placeholder {
+  color: var(--ak-text-secondary);
+  font-style: italic;
+}
 /* The raw structural id below the name, e.g. `copper_bottle RECIPE`, with the
    trailing "RECIPE"/"ITEM" caption in its own mono span. The .b-pick-mid alias
    keeps any in-flight tests passing through the rename. */
@@ -2229,4 +2277,174 @@
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
+}
+
+/* Recipe picker popup. Portaled to <body>, so its rules live outside the
+   side-panel scope; the backdrop carries --icons-url inline so the sprite tiles
+   resolve the icon sheet. z-index 100 clears the canvas layers (max 6). */
+.recipe-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.62);
+  font-family: var(--font-ui);
+}
+.recipe-picker {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  max-height: 80vh;
+  background: var(--ak-bg-primary);
+  border: 1px solid var(--ak-divider-strong);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  clip-path: polygon(
+    10px 0,
+    100% 0,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    0 100%,
+    0 10px
+  );
+}
+.recipe-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--ak-divider);
+}
+.recipe-picker-title {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ak-text-primary);
+  letter-spacing: -0.01em;
+}
+.recipe-picker-close {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ak-text-decoration);
+  font-size: 16px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.recipe-picker-close:hover {
+  border-color: var(--ak-accent-red);
+  color: var(--ak-accent-red);
+  background: rgba(225, 53, 30, 0.1);
+}
+.recipe-picker-close:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
+.recipe-picker-search {
+  margin: 12px 18px;
+  padding: 8px 10px;
+  background: var(--ak-bg-canvas);
+  border: 1px solid var(--ak-divider);
+  color: var(--ak-text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.recipe-picker-search::placeholder {
+  color: var(--ak-text-decoration);
+}
+.recipe-picker-search:focus {
+  outline: 0;
+  border-color: var(--ak-accent-cyan);
+}
+.recipe-picker-body {
+  overflow-y: auto;
+  padding: 0 18px 18px;
+}
+.recipe-picker-empty {
+  padding: 24px 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.08em;
+}
+.recipe-picker-group {
+  margin-top: 14px;
+}
+.recipe-picker-group-head {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--ak-text-decoration);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.recipe-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+.recipe-picker-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  background: var(--ak-bg-secondary);
+  border: 1px solid var(--ak-divider);
+  color: var(--ak-text-secondary);
+  cursor: pointer;
+  transition:
+    border-color 120ms ease-out,
+    background 120ms ease-out,
+    color 120ms ease-out;
+}
+.recipe-picker-tile:hover {
+  border-color: var(--ak-accent-cyan-soft);
+  color: var(--ak-text-primary);
+}
+.recipe-picker-tile:focus-visible {
+  outline: 2px solid var(--ak-accent-cyan);
+  outline-offset: 2px;
+}
+.recipe-picker-tile.selected {
+  border-color: var(--ak-accent-lime);
+  color: var(--ak-text-primary);
+}
+.recipe-picker-tile[disabled] {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+.recipe-picker-tile-label {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.recipe-picker-tile-empty {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display-latin);
+  font-size: 16px;
+  color: var(--ak-text-decoration);
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0 5px,
+    rgba(124, 223, 252, 0.08) 5px 6px
+  );
 }

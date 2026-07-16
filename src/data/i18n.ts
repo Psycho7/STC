@@ -14,6 +14,13 @@ export type UiKey =
   | "targets.duplicate"
   | "targets.head.sub"
   | "targets.empty"
+  | "picker.title"
+  | "picker.search.label"
+  | "picker.search.placeholder"
+  | "picker.group.depth"
+  | "picker.group.unranked"
+  | "picker.empty"
+  | "picker.close.label"
   | "app.loading"
   | "app.error.load"
   | "app.error.corrupt"
@@ -85,12 +92,20 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.duplicate": "配方 ID 重复: {recipeId}",
     "targets.head.sub": "// 声明产出速率 · 件 / 分钟",
     "targets.empty": "未声明任何目标产物 — 点击下方按钮添加",
+    "picker.title": "选择配方",
+    "picker.search.label": "搜索配方",
+    "picker.search.placeholder": "按名称或 ID 搜索…",
+    "picker.group.depth": "层级 {n}",
+    "picker.group.unranked": "循环 / 未分级",
+    "picker.empty": "没有匹配的配方",
+    "picker.close.label": "关闭",
     "app.loading": "正在加载布局...",
     "app.error.load": "加载方案失败: {message}",
     "app.error.corrupt": "此分享链接已损坏，或来自更新版本的规划器。",
     "app.error.reset": "从新方案开始",
     "app.error.solver": "求解器错误: {message}",
-    "app.error.infeasible": "无可行方案，涉及：{items}。请提高供给上限或降低目标产量。",
+    "app.error.infeasible":
+      "无可行方案，涉及：{items}。请提高供给上限或降低目标产量。",
     "app.error.infeasible.generic": "当前目标与供给上限下无可行方案。",
     "app.error.dismiss": "关闭",
     "app.frozen.notice":
@@ -148,6 +163,13 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.duplicate": "Duplicate recipe id: {recipeId}",
     "targets.head.sub": "// declared output rates · items per minute",
     "targets.empty": "No declared outputs yet — use the action below",
+    "picker.title": "Select recipe",
+    "picker.search.label": "Search recipes",
+    "picker.search.placeholder": "Search by name or id...",
+    "picker.group.depth": "Tier {n}",
+    "picker.group.unranked": "Cyclic / unranked",
+    "picker.empty": "No recipes match your search",
+    "picker.close.label": "Close",
     "app.loading": "Loading layout...",
     "app.error.load": "Failed to load plan: {message}",
     "app.error.corrupt":
@@ -214,6 +236,13 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.duplicate": "レシピ ID の重複: {recipeId}",
     "targets.head.sub": "// 宣言された産出レート · 個 / 分",
     "targets.empty": "宣言されたターゲットはまだありません — 下のボタンで追加",
+    "picker.title": "レシピを選択",
+    "picker.search.label": "レシピを検索",
+    "picker.search.placeholder": "名前または ID で検索…",
+    "picker.group.depth": "ティア {n}",
+    "picker.group.unranked": "循環 / 未分類",
+    "picker.empty": "一致するレシピがありません",
+    "picker.close.label": "閉じる",
     "app.loading": "レイアウトを読み込み中...",
     "app.error.load": "プランの読み込みに失敗しました: {message}",
     "app.error.corrupt":
@@ -280,6 +309,13 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.duplicate": "Дублирующийся ID рецепта: {recipeId}",
     "targets.head.sub": "// заявленные скорости вывода · шт. / мин",
     "targets.empty": "Цели ещё не заданы — используйте кнопку ниже",
+    "picker.title": "Выбор рецепта",
+    "picker.search.label": "Поиск рецептов",
+    "picker.search.placeholder": "Поиск по названию или ID…",
+    "picker.group.depth": "Уровень {n}",
+    "picker.group.unranked": "Цикл / без уровня",
+    "picker.empty": "Нет подходящих рецептов",
+    "picker.close.label": "Закрыть",
     "app.loading": "Загрузка макета...",
     "app.error.load": "Не удалось загрузить план: {message}",
     "app.error.corrupt":
