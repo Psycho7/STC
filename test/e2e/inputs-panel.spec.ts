@@ -148,8 +148,8 @@ async function makeDualListedPlanHash(): Promise<string> {
     pack: [PACK_META.id, PACK_META.schemaVersion, PACK_META.sourceCommit],
     title: "",
     targets: [
-      { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "2" } },
-      { recipeId: "liquid_copper", ratePerSec: { num: "1", denom: "2" } },
+      { itemId: "copper_powder", ratePerSec: { num: "1", denom: "2" } },
+      { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "2" } },
     ],
   });
 }

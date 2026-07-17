@@ -10,7 +10,7 @@
 import { encodePlan, type Plan } from "../../src/data/plan";
 
 export type ScenarioTarget = {
-  recipeId: string;
+  itemId: string;
   ratePerSec: { num: string; denom: string };
 };
 
@@ -42,9 +42,9 @@ export const SCENARIOS: Scenario[] = [
     id: "default",
     title: "default",
     targets: [
-      { recipeId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } }, // 120/min
-      { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "2" } }, // 30/min
-      { recipeId: "iron_powder", ratePerSec: { num: "1", denom: "4" } }, // 15/min
+      { itemId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } }, // 120/min
+      { itemId: "copper_powder", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "iron_powder", ratePerSec: { num: "1", denom: "4" } }, // 15/min
     ],
     maxDiffPixels: 0,
   },
@@ -52,7 +52,7 @@ export const SCENARIOS: Scenario[] = [
     id: "battery5",
     title: "battery5",
     targets: [
-      { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } }, // 30/min
     ],
     maxDiffPixels: 7000,
   },
@@ -60,8 +60,8 @@ export const SCENARIOS: Scenario[] = [
     id: "battery5-xiranite",
     title: "battery5-xiranite",
     targets: [
-      { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } }, // 30/min
-      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } }, // 60/min
+      { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } }, // 60/min
     ],
     maxDiffPixels: 30000,
   },
@@ -69,7 +69,7 @@ export const SCENARIOS: Scenario[] = [
     id: "crystal",
     title: "crystal",
     targets: [
-      { recipeId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } }, // 60/min
+      { itemId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } }, // 60/min
     ],
     maxDiffPixels: 0,
   },
@@ -77,7 +77,7 @@ export const SCENARIOS: Scenario[] = [
     id: "equip4",
     title: "equip4",
     targets: [
-      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "5" } }, // 12/min
+      { itemId: "equip_script_4", ratePerSec: { num: "1", denom: "5" } }, // 12/min
     ],
     maxDiffPixels: 0,
   },
@@ -85,12 +85,12 @@ export const SCENARIOS: Scenario[] = [
     id: "multi6",
     title: "multi6",
     targets: [
-      { recipeId: "bottled_food_5", ratePerSec: { num: "1", denom: "2" } }, // 30/min
-      { recipeId: "bottled_rec_hp_5", ratePerSec: { num: "1", denom: "2" } }, // 30/min
-      { recipeId: "proc_battery_3", ratePerSec: { num: "1", denom: "2" } }, // 30/min
-      { recipeId: "equip_script_2", ratePerSec: { num: "1", denom: "2" } }, // 30/min
-      { recipeId: "glass_enr_cmpt", ratePerSec: { num: "1", denom: "2" } }, // 30/min
-      { recipeId: "copper_enr_cmpt", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "bottled_food_5", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "bottled_rec_hp_5", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "proc_battery_3", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "equip_script_2", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "glass_enr_cmpt", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "copper_enr_cmpt", ratePerSec: { num: "1", denom: "2" } }, // 30/min
     ],
     maxDiffPixels: 30000,
   },
@@ -99,7 +99,7 @@ export const SCENARIOS: Scenario[] = [
     title: "tundra",
     targets: [
       {
-        recipeId: "tundra_coupon-proc_battery_3",
+        itemId: "tundra_coupon",
         ratePerSec: { num: "1", denom: "2" }, // 30/min
       },
     ],
