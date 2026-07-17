@@ -1,6 +1,6 @@
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
-import type { Target } from "../../data/targets";
+import type { Target, ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { InvariantResult } from "../../solver/invariants";
 import { effectiveSupply } from "../../solver/effectiveSupply";
@@ -33,18 +33,19 @@ export const REL_TOL = 1e-6;
 // own magnitude; an absolute floor of 1 would exceed everything a tiny plan
 // produces and misfire predicates that require a magnitude above slack.
 function planScaleFloor(
-  pack: RecipePack,
-  targets: ReadonlyArray<Target>,
+  targets: ReadonlyArray<Target & ItemTarget>,
 ): number {
-  return toleranceScaleFloor(demandByItem(pack, targets as Target[]));
+  return toleranceScaleFloor(demandByItem(targets as (Target & ItemTarget)[]));
 }
 
 // Shared args object so all checkers have one signature and can be called from a list.
+// Targets carry the bridge shape (recipeId + itemId): the declared-draw checkers
+// still key on recipeId while demandByItem keys on itemId.
 export type RenderInvariantArgs = {
   plan: RenderPlan;
   rates: ReadonlyMap<RecipeId, Fraction>;
   pack: RecipePack;
-  targets: ReadonlyArray<Target>;
+  targets: ReadonlyArray<Target & ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
 };
 
@@ -206,8 +207,8 @@ export function checkBoundaryProductsJustified(
 
   const production = internalProductionByItem(rates, pack);
   const consumption = internalConsumptionByItem(rates, pack);
-  const demandOf = demandByItem(pack, targets as Target[]);
-  const scaleFloor = planScaleFloor(pack, targets);
+  const demandOf = demandByItem(targets as (Target & ItemTarget)[]);
+  const scaleFloor = planScaleFloor(targets);
 
   for (const unit of plan.units) {
     if (isInputProductUnit(unit)) {
@@ -295,7 +296,7 @@ export function checkInternalFlowConservation(
 ): InvariantResult {
   const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
 
   // Declared target rate per primary-output item, built like
   // checkTargetOutputsSatisfied: production delivered to a target output
@@ -418,7 +419,7 @@ export function checkConsumerInputsSatisfied(
 ): InvariantResult {
   const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
 
   // Lookup from unit id to recipeId, recipe units only.
   const recipeIdByUnitId = new Map<RenderUnitId, RecipeId>();
@@ -493,7 +494,7 @@ export function checkConsumerInputsNotOverfed(
 ): InvariantResult {
   const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
 
   // Lookup from unit id to recipeId, recipe units only.
   const recipeIdByUnitId = new Map<RenderUnitId, RecipeId>();
@@ -565,7 +566,7 @@ export function checkTargetOutputsSatisfied(
 ): InvariantResult {
   const { plan, pack, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
 
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
@@ -674,7 +675,7 @@ export function checkUnitOutflowVsProduction(
 ): InvariantResult {
   const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
 
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
@@ -821,7 +822,7 @@ export function checkProductUnitRates(
 ): InvariantResult {
   const { plan, pack, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
   const units = unitById(plan);
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 

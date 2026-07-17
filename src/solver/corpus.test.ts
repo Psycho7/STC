@@ -288,10 +288,10 @@ describe("Scenario 7: big-M cost signals exclude synthetic recipes", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Scenario 7a: cyclic SCC -- min-floor contract
+// Scenario 7a: cyclic SCC -- net-export contract
 // ---------------------------------------------------------------------------
-describe("Scenario 7a: cyclic SCC -- min-floor contract", () => {
-  it("target recipe runs at >= its min-floor even when the SCC creates a deficit", () => {
+describe("Scenario 7a: cyclic SCC -- net-export contract", () => {
+  it("reports the unmeetable cyclic demand as a deficit on the demanded item", () => {
     const result = solveLp({
       targets: domainTransferScc.targets,
       pack: domainTransferScc.pack,
@@ -300,21 +300,11 @@ describe("Scenario 7a: cyclic SCC -- min-floor contract", () => {
     expect(result.status).toBe(domainTransferSccGolden.status);
     expect(result.softFeasible).toBe(domainTransferSccGolden.softFeasible);
     assertObjective(result.objectiveValue, domainTransferSccGolden.objectiveValue);
+    // The cycle recycles its own output, so it cannot create net export;
+    // running it would only add recipe cost. Nothing runs.
     expect(activeList(result)).toEqual(domainTransferSccGolden.activeRecipes);
     // Deficit on target_item because the cycle cannot resolve the demand.
     expect(result.deficit.has(domainTransferSccGolden.deficitItem)).toBe(true);
-
-    // Pin the min-floor contract: the targeted recipe runs at >= floor, where
-    // floor = (ratePerSec.num / ratePerSec.denom) / primaryOutputQty. The target
-    // pin is a MIN, not equality, so the cycle does not over-constrain it.
-    const t = domainTransferScc.targets[0]!;
-    const recipe = domainTransferScc.pack.recipes.find((r) => r.id === t.recipeId)!;
-    const primaryOutputQty = recipe.out[0]!.qty;
-    const floor =
-      (Number(t.ratePerSec.num) / Number(t.ratePerSec.denom)) / primaryOutputQty;
-    const actual = result.rates.get(t.recipeId)?.valueOf() ?? 0;
-    const slack = floor * 1e-9;
-    expect(actual).toBeGreaterThanOrEqual(floor - slack);
   });
 });
 
@@ -322,22 +312,28 @@ describe("Scenario 7a: cyclic SCC -- min-floor contract", () => {
 // Scenario 8: deficit (unmet demand)
 // ---------------------------------------------------------------------------
 describe("Scenario 8: deficit (unmet demand)", () => {
-  it("stays feasible with softFeasible=false and a surviving deficit on the missing input", () => {
+  it("reports softFeasible=false with the deficit on the demanded item", () => {
     const result = solveLp({
       targets: deficitUnmetDemand.targets,
       pack: deficitUnmetDemand.pack,
     });
 
-    // Universal slack keeps the raw solver feasible even though demand is unmet.
+    // Universal slack keeps the raw solver feasible even though demand is
+    // unmet; the flat-edge junk vertex keeps r_target at a positive rate.
     expect(result.status).toBe(deficitUnmetDemandGolden.status);
-    // The deficit var for "missing_item" survives the >1e-12 filter.
+    // The deficit var survives the >1e-12 filter.
     expect(result.softFeasible).toBe(deficitUnmetDemandGolden.softFeasible);
-    // Objective dominated by deficit penalty: 1e9 * 1 + 1 * 1 = 1_000_000_001.
+    // Deficit objective: 1e9 * 1 unit total, however the edge splits it.
     assertObjective(result.objectiveValue, deficitUnmetDemandGolden.objectiveValue);
-    // r_target still runs (pinned by the target floor).
     expect(activeList(result)).toEqual(deficitUnmetDemandGolden.activeRecipes);
-    // "missing_item" has a positive deficit.
+    // The demanded item carries the bulk of the deficit, and the reported
+    // split covers the demand exactly.
     expect(result.deficit.has(deficitUnmetDemandGolden.deficitItem)).toBe(true);
+    const total = [...result.deficit.values()].reduce(
+      (acc, v) => acc + v.valueOf(),
+      0,
+    );
+    expect(total).toBeCloseTo(1, 9);
   });
 });
 
@@ -351,9 +347,8 @@ describe("Scenario 10: feasible-empty", () => {
       pack: feasibleEmpty.pack,
     });
 
-    // Primary output qty=0 skips the target pin (lp.ts guard !(primary.qty > 0)).
-    // No recipe is forced active; the LP optimum is 0 runs, so status is "empty"
-    // and rates.size === 0.
+    // The only producer of "prod" emits qty 0, so no rate creates net output;
+    // the LP optimum is 0 runs, so status is "empty" and rates.size === 0.
     expect(result.status).toBe(feasibleEmptyGolden.status);
     expect(result.softFeasible).toBe(feasibleEmptyGolden.softFeasible);
     expect(result.rates.size).toBe(0);

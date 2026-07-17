@@ -1136,7 +1136,7 @@ function processProducer(
   const outItem = producerRecipe.out.find((x) => x.item === producerItem);
   if (!inItem || !outItem) return;
   // Guard malformed data: a zero/negative/NaN output qty would throw on the
-  // divide below. Mirrors the floor-pin guard in lp.ts.
+  // divide below, and a producer that emits none of the item mints no replica.
   if (!(outItem.qty > 0)) return;
   const pRate = consumerRate
     .mul(new Fraction(inItem.qty))

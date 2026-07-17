@@ -10,6 +10,7 @@ import {
   loadTransportConfig,
 } from "../../src/data/transport-config";
 import type { Target } from "../../src/data/targets";
+import { toSolverTargets } from "../../src/solver/planToSolverArgs";
 import type { ItemOverride } from "../../src/data/plan";
 import type { Recipe } from "@aef/schema";
 import type { RecipeId } from "../../src/solver/types";
@@ -92,8 +93,9 @@ describe("regression: AEF render-plan fixtures", () => {
       it("runs solver -> render plan -> layout and meets expectations", async () => {
         const tConfig = loadTransportConfig(defaultTransportConfig, pack);
         const itemOverrides = fixture.itemOverrides ?? [];
+        const targets = toSolverTargets(fixture.targets, pack);
         const full = solvePlanWithIntermediates(
-          fixture.targets,
+          targets,
           pack,
           tConfig,
           itemOverrides,
@@ -114,7 +116,7 @@ describe("regression: AEF render-plan fixtures", () => {
           itemById: new Map(pack.items.map((i) => [i.id, i])),
           machineById: new Map(pack.machines.map((m) => [m.id, m])),
           itemOverrides,
-          targets: fixture.targets,
+          targets,
           pack,
         });
 

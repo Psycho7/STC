@@ -17,6 +17,7 @@ import {
   loadTransportConfig,
 } from "../../../src/data/transport-config";
 import { defaultTargets } from "../../../src/data/targets";
+import { toSolverTargets } from "../../../src/solver/planToSolverArgs";
 import type {
   RenderPolicyInput,
   RenderPlan,
@@ -29,7 +30,7 @@ import type { ItemOverride } from "../../../src/data/plan";
 // hand both to AlwaysFoldRender directly. This isolates the test from T13
 // (which will swap the driver's policy from NoFoldRender to AlwaysFoldRender).
 function buildAlwaysFoldPlan(): RenderPlan {
-  const targets = defaultTargets();
+  const targets = toSolverTargets(defaultTargets(), pack);
   const itemOverrides: ItemOverride[] = [];
   const tConfig = loadTransportConfig(defaultTransportConfig, pack);
   const full = solvePlanWithIntermediates(

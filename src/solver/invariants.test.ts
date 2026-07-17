@@ -12,11 +12,19 @@ import { solveLp, type LpResult } from "./lp";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./index";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
-import type { Target } from "../data/targets";
+import type { Target, ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 
-const headlineTargets: Target[] = [
-  { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+// Bridge shape: itemId drives the LP demand; recipeId still seeds the
+// graph/replicate stages behind solvePlanWithIntermediates.
+type SolverTarget = Target & ItemTarget;
+
+const headlineTargets: SolverTarget[] = [
+  {
+    recipeId: "xiranite_enr_powder",
+    itemId: "xiranite_enr_powder",
+    ratePerSec: { num: "6", denom: "60" },
+  },
 ];
 const noOverrides: ItemOverride[] = [];
 
@@ -44,7 +52,6 @@ describe("invariants - headline plan (all checkers pass)", () => {
     const r = checkTargetsMet(
       solveLp({ targets: headlineTargets, pack }),
       headlineTargets,
-      pack,
     );
     expect(r.ok, r.violations.join("\n")).toBe(true);
     expect(r.violations).toEqual([]);
@@ -120,8 +127,8 @@ describe("checkMassBalance - detection power", () => {
     // Mark `prod` as an uncapped boundary; the LP draws it freely with no
     // mass-balance row, so net consumption without a deficit is fine.
     const overrides: ItemOverride[] = [{ itemId: "prod", plan: true }];
-    const targets: Target[] = [
-      { recipeId: "sink", ratePerSec: { num: "1", denom: "1" } },
+    const targets: SolverTarget[] = [
+      { recipeId: "sink", itemId: "final", ratePerSec: { num: "1", denom: "1" } },
     ];
     const result = solveLp({ targets, pack: p, itemOverrides: overrides });
     const r = checkMassBalance(result, p, targets, overrides);
@@ -135,8 +142,12 @@ describe("checkMassBalance - bounded supply draw", () => {
   // nugget consumption with a bounded boundary draw. The checker must mirror
   // the draw term of the mass-balance row; the old supply-blind residual was
   // exactly -cap on every correct finite-cap solve.
-  const capTargets: Target[] = [
-    { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "60" } },
+  const capTargets: SolverTarget[] = [
+    {
+      recipeId: "copper_powder",
+      itemId: "copper_powder",
+      ratePerSec: { num: "1", denom: "60" },
+    },
   ];
   const capOverrides: ItemOverride[] = [
     { itemId: "copper_nugget", ratePerSec: { num: "10", denom: "1" } },
@@ -185,7 +196,44 @@ describe("checkMassBalance - bounded supply draw", () => {
 });
 
 describe("checkTargetsMet - detection power", () => {
-  it("flags a target running below its floor rate", () => {
+  // The demand-side rate corruptions the old floor check caught (a halved or
+  // stripped producer rate) now surface through checkMassBalance: the demand
+  // equality no longer closes. checkTargetsMet's remaining job is the
+  // self-report seam: a result claiming softFeasible while a target item
+  // carries a material deficit is lying about the demand being met.
+  it("flags a claimed-feasible result with a deficit on a target item", () => {
+    const good = solveLp({ targets: headlineTargets, pack });
+    expect(good.softFeasible).toBe(true);
+    const corrupted: LpResult = {
+      ...good,
+      deficit: new Map(good.deficit).set(
+        "xiranite_enr_powder",
+        new Fraction(1, 100),
+      ),
+    };
+    const r = checkTargetsMet(corrupted, headlineTargets);
+    expect(r.ok).toBe(false);
+    expect(r.violations.some((v) => v.includes("xiranite_enr_powder"))).toBe(
+      true,
+    );
+  });
+
+  it("skips an honest soft-infeasible result", () => {
+    const good = solveLp({ targets: headlineTargets, pack });
+    const corrupted: LpResult = {
+      ...good,
+      softFeasible: false,
+      deficit: new Map(good.deficit).set(
+        "xiranite_enr_powder",
+        new Fraction(1, 100),
+      ),
+    };
+    const r = checkTargetsMet(corrupted, headlineTargets);
+    expect(r.ok).toBe(true);
+    expect(r.violations).toEqual([]);
+  });
+
+  it("halving a target producer's rate is caught by checkMassBalance", () => {
     const good = solveLp({ targets: headlineTargets, pack });
     const cur = good.rates.get("xiranite_enr_powder")!;
     const corrupted: LpResult = {
@@ -195,20 +243,11 @@ describe("checkTargetsMet - detection power", () => {
         cur.div(new Fraction(2)),
       ),
     };
-    const r = checkTargetsMet(corrupted, headlineTargets, pack);
+    const r = checkMassBalance(corrupted, pack, headlineTargets, noOverrides);
     expect(r.ok).toBe(false);
     expect(r.violations.some((v) => v.includes("xiranite_enr_powder"))).toBe(
       true,
     );
-  });
-
-  it("flags a target absent from rates entirely", () => {
-    const good = solveLp({ targets: headlineTargets, pack });
-    const stripped = new Map(good.rates);
-    stripped.delete("xiranite_enr_powder");
-    const corrupted: LpResult = { ...good, rates: stripped };
-    const r = checkTargetsMet(corrupted, headlineTargets, pack);
-    expect(r.ok).toBe(false);
   });
 });
 

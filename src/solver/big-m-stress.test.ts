@@ -4,15 +4,17 @@ import { solveLp } from "./lp";
 import { makePack } from "./closed-form-fixtures";
 import { pack } from "../data/load";
 import { isExcludedProducer } from "../data/recipe-category";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 
 // Deficit-dominated plus tight cost-cap stress case.
-// Satisfiable part: a: M -> F; M comes from b1 (R) and b2 (S), both raw, so the
-// 2-unit M demand splits with alternate optima, resolved by the pass-2 lex
-// tie-break (lower recipe id wins: b1 over b2). Unsourceable part: bad: X -> G
-// where X has no producer, so a 1e9-weight deficit dominates pass 1.
-// Does that deficit corrupt the chain solution or swamp the lex tie-break?
-// Uncorrupted answer: x_a=2, x_b1=2, x_b2=0, deficit on X.
+// Satisfiable part: demand F@2 via a: M -> F; M comes from b1 (R) and b2 (S),
+// both raw, so the 2-unit M demand splits with alternate optima, resolved by
+// the pass-2 lex tie-break (lower recipe id wins: b1 over b2). Unsourceable
+// part: demand G@1; bad: X -> G has no source of X, so running bad only moves
+// the deficit from G to X while adding cost, and a 1e9-weight deficit
+// dominates pass 1 either way. Does that deficit corrupt the chain solution or
+// swamp the lex tie-break? Uncorrupted answer: x_a=2, x_b1=2, x_b2=0, bad
+// inactive, deficit on G.
 const stressPack = makePack(
   [
     { id: "a", time: 1, in: { M: 1 }, out: { F: 1 } },
@@ -26,18 +28,20 @@ const stressPack = makePack(
     { id: "X", stack: 1 },
   ],
 );
-const stressTargets: Target[] = [
-  { recipeId: "a", ratePerSec: { num: "2", denom: "1" } },
-  { recipeId: "bad", ratePerSec: { num: "1", denom: "1" } },
+const stressTargets: ItemTarget[] = [
+  { itemId: "F", ratePerSec: { num: "2", denom: "1" } },
+  { itemId: "G", ratePerSec: { num: "1", denom: "1" } },
 ];
 
 describe("big-M numerical conditioning", () => {
   it("deficit domination does not corrupt the satisfiable sub-solution or the lex tie-break", () => {
     const r = solveLp({ targets: stressTargets, pack: stressPack, itemOverrides: [] });
 
-    // Honest infeasibility for the unsourceable target.
+    // Honest infeasibility for the unsourceable target: the deficit lands on
+    // the demanded item (running bad would only relocate it onto X).
     expect(r.softFeasible).toBe(false);
-    expect(r.deficit.has("X")).toBe(true);
+    expect(r.deficit.has("G")).toBe(true);
+    expect(r.rates.has("bad")).toBe(false);
 
     // Satisfiable chain stays exact under the 1e9-dominated objective.
     expect(r.rates.get("a")!.equals(new Fraction(2))).toBe(true);
@@ -62,8 +66,8 @@ describe("big-M pass-2 lex leak at extreme scales", () => {
 
   for (const scale of ["100000000", "1000000000"]) {
     it(`glass_enr_bottle at ${scale}/s admits no big-M recipe`, () => {
-      const targets: Target[] = [
-        { recipeId: "glass_enr_bottle", ratePerSec: { num: scale, denom: "1" } },
+      const targets: ItemTarget[] = [
+        { itemId: "glass_enr_bottle", ratePerSec: { num: scale, denom: "1" } },
       ];
       const r = solveLp({ targets, pack, itemOverrides: [] });
       const leaked = [...r.rates.keys()].filter((id) => bigMIds.has(id));

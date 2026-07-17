@@ -5,7 +5,7 @@
 // expected rates are exec/sec.
 
 import type { Item, Recipe, RecipePack, Stoich } from "@aef/schema";
-import type { Target } from "../data/targets";
+import type { Target, ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 
 export interface MicroRecipe {
@@ -68,7 +68,10 @@ export function makePack(recipes: MicroRecipe[], items: MicroItem[]): RecipePack
 
 export interface ClosedFormFixture {
   name: string;
-  targets: Target[];
+  // Bridge shape: itemId drives the LP demand; recipeId still seeds the
+  // graph/replicate stages when a fixture runs through the full pipeline
+  // (render-corpus). recipeId goes away when those stages flip to item targets.
+  targets: (Target & ItemTarget)[];
   pack: RecipePack;
   itemOverrides?: ItemOverride[];
   expected: {
@@ -96,7 +99,7 @@ const chain: ClosedFormFixture = {
     ],
     [{ id: "F", stack: 1 }, { id: "M", stack: 1 }, { id: "R", raw: true, stack: 1 }],
   ),
-  targets: [{ recipeId: "a", ratePerSec: { num: "2", denom: "1" } }],
+  targets: [{ recipeId: "a", itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
   expected: {
     softFeasible: true,
     rates: [
@@ -121,7 +124,7 @@ const multiProducer: ClosedFormFixture = {
       { id: "R", raw: true, stack: 1 }, { id: "S", raw: true, stack: 1 },
     ],
   ),
-  targets: [{ recipeId: "a", ratePerSec: { num: "2", denom: "1" } }],
+  targets: [{ recipeId: "a", itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
   expected: { softFeasible: true },
 };
 
@@ -133,7 +136,7 @@ const byproduct: ClosedFormFixture = {
     [{ id: "b", time: 1, in: { R: 1 }, out: { F: 1, W: 1 } }],
     [{ id: "F", stack: 1 }, { id: "W", stack: 1 }, { id: "R", raw: true, stack: 1 }],
   ),
-  targets: [{ recipeId: "b", ratePerSec: { num: "2", denom: "1" } }],
+  targets: [{ recipeId: "b", itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
   expected: {
     softFeasible: true,
     surplus: [{ itemId: "W", num: 2, den: 1 }],
@@ -149,14 +152,16 @@ const rawDraw: ClosedFormFixture = {
     [{ id: "a", time: 2, in: { R: 2 }, out: { F: 1 } }],
     [{ id: "F", stack: 1 }, { id: "R", raw: true, stack: 1 }],
   ),
-  targets: [{ recipeId: "a", ratePerSec: { num: "3", denom: "1" } }],
+  targets: [{ recipeId: "a", itemId: "F", ratePerSec: { num: "3", denom: "1" } }],
   expected: { softFeasible: true, rates: [{ recipeId: "a", num: 3, den: 1 }] },
 };
 
 // Axis 5: cyclic target (2-cycle). make_F: M -> F; make_M: F -> M. No external
-// source of M or F. The target "1 F/sec" is unsatisfiable: make_F pins at 1 to
-// balance F demand, but its M input cannot be sourced, so the shortfall lands as
-// a deficit on M. softFeasible=false (honest-infeasibility contract).
+// source of M or F. The demand "net-export 1 F/sec" is unsatisfiable: the
+// cycle recycles every unit of F into M, so no rate assignment yields positive
+// net F. Running the cycle only adds recipe cost on top of the same deficit,
+// so the cost-min optimum runs nothing and the shortfall lands as a deficit on
+// the demanded item F. softFeasible=false (honest-infeasibility contract).
 const cyclicTarget: ClosedFormFixture = {
   name: "cyclic-target",
   pack: makePack(
@@ -166,20 +171,22 @@ const cyclicTarget: ClosedFormFixture = {
     ],
     [{ id: "F", stack: 1 }, { id: "M", stack: 1 }],
   ),
-  targets: [{ recipeId: "make_F", ratePerSec: { num: "1", denom: "1" } }],
-  expected: { softFeasible: false, deficitItems: ["M"] },
+  targets: [{ recipeId: "make_F", itemId: "F", ratePerSec: { num: "1", denom: "1" } }],
+  expected: { softFeasible: false, deficitItems: ["F"] },
 };
 
-// Axis 6: structurally infeasible target (no producer). a: 1 X -> 1 F. X has no
-// producing recipe and is not raw => deficit on X, softFeasible=false.
+// Axis 6: structurally infeasible target (unsourceable input). a: 1 X -> 1 F.
+// X has no producing recipe and is not raw, so running a just relocates the
+// 1-unit deficit onto X while paying a's cost; the optimum runs nothing and
+// the deficit lands on the demanded item F. softFeasible=false.
 const noProducer: ClosedFormFixture = {
   name: "no-producer",
   pack: makePack(
     [{ id: "a", time: 1, in: { X: 1 }, out: { F: 1 } }],
     [{ id: "F", stack: 1 }, { id: "X", stack: 1 }],
   ),
-  targets: [{ recipeId: "a", ratePerSec: { num: "1", denom: "1" } }],
-  expected: { softFeasible: false, deficitItems: ["X"] },
+  targets: [{ recipeId: "a", itemId: "F", ratePerSec: { num: "1", denom: "1" } }],
+  expected: { softFeasible: false, deficitItems: ["F"] },
 };
 
 export const CLOSED_FORM_FIXTURES: ClosedFormFixture[] = [

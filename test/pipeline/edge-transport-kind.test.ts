@@ -17,6 +17,7 @@ import {
   loadTransportConfig,
 } from "../../src/data/transport-config";
 import { defaultTargets } from "../../src/data/targets";
+import { toSolverTargets } from "../../src/solver/planToSolverArgs";
 
 // ---------------------------------------------------------------------------
 // Helpers (kept local to avoid coupling to materialize.test.ts internals).
@@ -248,7 +249,7 @@ describe("expandMultipliers / MachineEdge.transportKind", () => {
 describe("buildRenderPlan / RenderEdge.transportKind end-to-end", () => {
   it("propagates pack-derived transportKind onto every RenderEdge", () => {
     const full = solvePlanWithIntermediates(
-      defaultTargets(),
+      toSolverTargets(defaultTargets(), pack),
       pack,
       loadTransportConfig(defaultTransportConfig, pack),
     );
@@ -269,7 +270,7 @@ describe("buildRenderPlan / RenderEdge.transportKind end-to-end", () => {
       itemById,
       machineById: new Map(pack.machines.map((m) => [m.id, m])),
       itemOverrides: [],
-      targets: defaultTargets(),
+      targets: toSolverTargets(defaultTargets(), pack),
       pack,
     });
     expect(plan.edges.length).toBeGreaterThan(0);

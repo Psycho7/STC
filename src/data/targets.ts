@@ -5,6 +5,14 @@ export type Target = {
   ratePerSec: RationalString;
 };
 
+// Item-keyed target: "net-export this item at ratePerSec". The LP core speaks
+// this shape; the recipe-keyed Target above is the plan/UI shape until the
+// remaining pipeline stages flip to item targets.
+export type ItemTarget = {
+  itemId: string;
+  ratePerSec: RationalString;
+};
+
 export function defaultTargets(): Target[] {
   return [
     { recipeId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } },

@@ -239,9 +239,9 @@ export function validatePlan(
       return { kind: "target-not-a-producer", recipeId: t.recipeId };
     }
     // A recipe with outputs but a zero/negative primary qty produces none of
-    // the item the target rate names. Left to the solver it gets no pin floor
-    // and the demand is silently absorbed by a boundary draw; reject it here so
-    // the unsatisfiable target surfaces instead.
+    // the item the target rate names. Left to the solver the item demand can
+    // never be met by this recipe and only surfaces downstream as a deficit;
+    // reject it here so the unsatisfiable target surfaces immediately.
     if (!hasPositivePrimaryQty(recipe)) {
       return {
         kind: "target-primary-zero-qty",

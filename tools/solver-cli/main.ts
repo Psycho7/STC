@@ -9,6 +9,8 @@ import Fraction from "fraction.js";
 import { pack } from "../../src/data/load";
 import { defaultTransportConfig } from "../../src/data/transport-config";
 import type { Target } from "../../src/data/targets";
+import type { SolverTarget } from "../../src/solver/planToSolverArgs";
+import { toSolverTargets } from "../../src/solver/planToSolverArgs";
 import { solveLp } from "../../src/solver/lp";
 import { solvePlanWithIntermediates } from "../../src/solver/index";
 import {
@@ -158,7 +160,7 @@ export async function runCli(argv: string[]): Promise<string> {
   }
 
   // --- Resolve targets and overrides ---
-  let targets: Target[];
+  let targets: SolverTarget[];
   // --plan carries no overrides; --hash threads whatever the decoded plan
   // carried so the CLI solve matches the app.
   let itemOverrides: ItemOverride[] = [];
@@ -167,10 +169,10 @@ export async function runCli(argv: string[]): Promise<string> {
   if (planArg !== undefined) {
     const parsed = parseInlineTargets(planArg);
     if (typeof parsed === "string") return `error: ${parsed}`;
-    targets = parsed;
     const validIds = new Set(pack.recipes.map((r) => r.id));
-    const bad = targets.find((t) => !validIds.has(t.recipeId));
+    const bad = parsed.find((t) => !validIds.has(t.recipeId));
     if (bad) return `error: target references unknown recipe "${bad.recipeId}"`;
+    targets = toSolverTargets(parsed, pack);
   } else {
     // --hash: decode via loadPlan in src/data/plan.ts. It takes the hash with or
     // without a leading "#" and accepts "v1.XXX".
@@ -178,7 +180,7 @@ export async function runCli(argv: string[]): Promise<string> {
     if (outcome.kind === "error") {
       return `error: failed to decode hash: ${describePlanLoadError(outcome.error)}`;
     }
-    const args = planToSolverArgs(outcome.plan);
+    const args = planToSolverArgs(outcome.plan, pack);
     targets = args.targets;
     itemOverrides = args.itemOverrides;
     recipeCosts = args.recipeCosts;
@@ -232,7 +234,7 @@ export async function runCli(argv: string[]): Promise<string> {
       targets,
       itemOverrides,
     );
-    const targetsMet = checkTargetsMet(lpResult, targets, pack);
+    const targetsMet = checkTargetsMet(lpResult, targets);
     const rawOnlyBoundary = checkRawOnlyBoundary(lpResult, pack, itemOverrides);
     const full = solvePlanWithIntermediates(
       targets,

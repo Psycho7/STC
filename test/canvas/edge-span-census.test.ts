@@ -63,6 +63,7 @@ describe("edge-span census: repro plan", () => {
     }
     const { targets, itemOverrides, recipeCosts } = planToSolverArgs(
       outcome.plan,
+      pack,
     );
     const tConfig = loadTransportConfig(defaultTransportConfig, pack);
     const full = solvePlanWithIntermediates(

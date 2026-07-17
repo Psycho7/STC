@@ -8,6 +8,7 @@ import {
   loadTransportConfig,
 } from "../../src/data/transport-config";
 import type { Target } from "../../src/data/targets";
+import { toSolverTargets } from "../../src/solver/planToSolverArgs";
 import type { ItemOverride } from "../../src/data/plan";
 import { NoFoldRender } from "../../src/pipeline/render/policy";
 import {
@@ -35,8 +36,9 @@ function emitProducts(
   recipeById: ReadonlyMap<string, Recipe>;
 } {
   const tConfig = loadTransportConfig(defaultTransportConfig, pack);
+  const solverTargets = toSolverTargets(targets, pack);
   const full = solvePlanWithIntermediates(
-    targets,
+    solverTargets,
     pack,
     tConfig,
     itemOverrides,
@@ -59,7 +61,7 @@ function emitProducts(
     itemById,
     machineById,
     itemOverrides,
-    targets,
+    targets: solverTargets,
     pack,
   });
   const inputs = plan.units.filter(isInputProductUnit);

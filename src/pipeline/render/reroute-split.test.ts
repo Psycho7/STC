@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
-import type { Target } from "../../data/targets";
+import type { SolverTarget } from "../../solver/planToSolverArgs";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
 import { renderPlanFromSolve } from "../driver";
@@ -87,8 +87,8 @@ const pack = mkPack(
     { id: "raw2", raw: true },
   ],
 );
-const targets: Target[] = [
-  { recipeId: "tgt", ratePerSec: { num: "1", denom: "1" } },
+const targets: SolverTarget[] = [
+  { recipeId: "tgt", itemId: "final", ratePerSec: { num: "1", denom: "1" } },
 ];
 const itemOverrides = [
   { itemId: "scarce", ratePerSec: { num: "0", denom: "1" } },

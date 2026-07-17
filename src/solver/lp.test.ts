@@ -4,7 +4,7 @@ import { solveLp, type LpResult } from "./lp";
 import { makePack } from "./closed-form-fixtures";
 import { effectiveSupply } from "./effectiveSupply";
 import { pack } from "../data/load";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipePack } from "@aef/schema";
 
@@ -16,17 +16,14 @@ import type { RecipePack } from "@aef/schema";
 function exactResiduals(
   result: LpResult,
   p: RecipePack,
-  targets: Target[],
+  targets: ItemTarget[],
   overrides: ItemOverride[] = [],
 ): Map<string, Fraction> {
   const zero = new Fraction(0);
   const demand = new Map<string, Fraction>();
   for (const t of targets) {
-    const recipe = p.recipes.find((r) => r.id === t.recipeId);
-    if (!recipe || recipe.out.length === 0) continue;
-    const item = recipe.out[0]!.item;
     const rate = new Fraction(`${t.ratePerSec.num}/${t.ratePerSec.denom}`);
-    demand.set(item, (demand.get(item) ?? zero).add(rate));
+    demand.set(t.itemId, (demand.get(t.itemId) ?? zero).add(rate));
   }
   const residuals = new Map<string, Fraction>();
   for (const it of p.items) {
@@ -57,7 +54,7 @@ function exactResiduals(
 function expectExactlyBalanced(
   result: LpResult,
   p: RecipePack,
-  targets: Target[],
+  targets: ItemTarget[],
   overrides: ItemOverride[] = [],
 ): void {
   for (const [itemId, residual] of exactResiduals(
@@ -85,10 +82,10 @@ describe("solveLp - scaffold", () => {
   });
 });
 
-describe("solveLp - single-recipe pin", () => {
-  it("pins a single acyclic target at the requested rate", () => {
-    const targets: Target[] = [
-      { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "60" } },
+describe("solveLp - single-item target", () => {
+  it("meets a single acyclic item demand at the requested rate", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "copper_powder", ratePerSec: { num: "1", denom: "60" } },
     ];
     const result = solveLp({ targets, pack });
     const x = result.rates.get("copper_powder");
@@ -98,11 +95,11 @@ describe("solveLp - single-recipe pin", () => {
 });
 
 describe("solveLp - headline (4:1 purifier)", () => {
-  const targets: Target[] = [
-    { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+  const targets: ItemTarget[] = [
+    { itemId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
   ];
 
-  it("pins the target at 6/min (0.1 enr_powder/sec)", () => {
+  it("meets the target demand at 6/min (0.1 enr_powder/sec)", () => {
     const result = solveLp({ targets, pack });
     const xEnr = result.rates.get("xiranite_enr_powder");
     expect(xEnr).toBeDefined();
@@ -127,8 +124,8 @@ describe("solveLp - headline (4:1 purifier)", () => {
 });
 
 describe("solveLp - determinism", () => {
-  const targets: Target[] = [
-    { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+  const targets: ItemTarget[] = [
+    { itemId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
   ];
 
   function ratesSignature(rates: Map<string, Fraction>): string {
@@ -173,8 +170,8 @@ describe("solveLp - determinism", () => {
 
 describe("solveLp - precision (mass-balance residual)", () => {
   it("headline plan closes mass balance within 1ppm on finite-supply items", () => {
-    const targets: Target[] = [
-      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+    const targets: ItemTarget[] = [
+      { itemId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
     ];
     const result = solveLp({ targets, pack });
 
@@ -184,10 +181,8 @@ describe("solveLp - precision (mass-balance residual)", () => {
       (result.rates.get(id)?.valueOf() ?? 0) as number;
     const demandOf = new Map<string, number>();
     for (const t of targets) {
-      const r = pack.recipes.find((x) => x.id === t.recipeId)!;
-      const prim = r.out[0]!;
       const d = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
-      demandOf.set(prim.item, (demandOf.get(prim.item) ?? 0) + d);
+      demandOf.set(t.itemId, (demandOf.get(t.itemId) ?? 0) + d);
     }
 
     for (const it of pack.items) {
@@ -230,8 +225,8 @@ describe("solveLp - input guards", () => {
         { id: "prod", raw: false },
       ],
     } as unknown as RecipePack;
-    const targets: Target[] = [
-      { recipeId: "make_prod", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
     ];
     const result = solveLp({
       targets,
@@ -243,7 +238,7 @@ describe("solveLp - input guards", () => {
     expect(x!.equals(new Fraction(1))).toBe(true);
   });
 
-  it("skips the target pin when the primary output qty is 0", () => {
+  it("reports a deficit when the demanded item's only producer emits qty 0", () => {
     const p = {
       recipes: [
         {
@@ -259,8 +254,8 @@ describe("solveLp - input guards", () => {
         { id: "prod", raw: false },
       ],
     } as unknown as RecipePack;
-    const targets: Target[] = [
-      { recipeId: "zero_out", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
     ];
     const result = solveLp({ targets, pack: p });
     for (const v of result.rates.values()) {
@@ -271,24 +266,26 @@ describe("solveLp - input guards", () => {
 });
 
 describe("solveLp - multiple targets", () => {
-  it("pins every target simultaneously", () => {
-    const targets: Target[] = [
-      { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "2" } },
-      { recipeId: "iron_powder", ratePerSec: { num: "1", denom: "4" } },
+  it("meets every item demand simultaneously", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "copper_powder", ratePerSec: { num: "1", denom: "2" } },
+      { itemId: "iron_powder", ratePerSec: { num: "1", denom: "4" } },
     ];
     const result = solveLp({ targets, pack });
+    // Both items are produced by the recipe of the same id in the shipped
+    // pack; each must run at >= demand / primary qty to cover its demand.
     for (const t of targets) {
-      const recipe = pack.recipes.find((r) => r.id === t.recipeId)!;
+      const recipe = pack.recipes.find((r) => r.id === t.itemId)!;
       const primary = recipe.out[0]!;
       const floor =
         Number(t.ratePerSec.num) / Number(t.ratePerSec.denom) / primary.qty;
-      const x = result.rates.get(t.recipeId);
-      expect(x, `${t.recipeId} must be active`).toBeDefined();
+      const x = result.rates.get(recipe.id);
+      expect(x, `${recipe.id} must be active`).toBeDefined();
       expect(x!.valueOf()).toBeGreaterThanOrEqual(floor - 1e-9);
     }
   });
 
-  it("sums demand when two distinct target recipes share a primary output item", () => {
+  it("sums demand across duplicate targets on the same item", () => {
     const p = {
       recipes: [
         {
@@ -311,26 +308,26 @@ describe("solveLp - multiple targets", () => {
         { id: "shared", raw: false },
       ],
     } as unknown as RecipePack;
-    const targets: Target[] = [
-      { recipeId: "prod_a", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "prod_b", ratePerSec: { num: "2", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "shared", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "shared", ratePerSec: { num: "2", denom: "1" } },
     ];
     const result = solveLp({ targets, pack: p });
-    // Demand on `shared` sums to 1 + 2 = 3, met by both producers at their
-    // pinned floors with no surplus or deficit.
-    expect(result.rates.get("prod_a")?.valueOf() ?? 0).toBeCloseTo(1, 6);
-    expect(result.rates.get("prod_b")?.valueOf() ?? 0).toBeCloseTo(2, 6);
+    // Demand on `shared` sums to 1 + 2 = 3. The producers tie on cost, so the
+    // pass-2 lex tie-break routes the whole demand through prod_a; no surplus
+    // or deficit either way.
+    expect(result.rates.get("prod_a")?.valueOf() ?? 0).toBeCloseTo(3, 6);
+    expect(result.rates.has("prod_b")).toBe(false);
     expect(result.deficit.get("shared")?.valueOf() ?? 0).toBeCloseTo(0, 6);
     expect(result.surplus.get("shared")?.valueOf() ?? 0).toBeCloseTo(0, 6);
   });
 });
 
 describe("solveLp - duplicate targets", () => {
-  it("sums duplicate target floors on the same recipe instead of overwriting", () => {
-    // make_prod (the target) and the cheaper alt both produce `prod`, so the LP
-    // prefers alt for any demand not pinned onto make_prod. Two make_prod
-    // targets (1/s and 2/s) must sum the pin floor to 3; the old overwrite bug
-    // left it at 2 and let alt cover the remaining 1.
+  it("sums duplicate target demand on the same item instead of overwriting", () => {
+    // Two targets on `prod` (1/s and 2/s) must sum the item demand to 3; an
+    // overwrite bug would leave it at 2. The cheaper alt covers the whole
+    // summed demand.
     const p = {
       recipes: [
         {
@@ -353,30 +350,29 @@ describe("solveLp - duplicate targets", () => {
         { id: "prod", raw: false },
       ],
     } as unknown as RecipePack;
-    const targets: Target[] = [
-      { recipeId: "make_prod", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "make_prod", ratePerSec: { num: "2", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "prod", ratePerSec: { num: "2", denom: "1" } },
     ];
     const result = solveLp({
       targets,
       pack: p,
       recipeCosts: new Map([["alt", 0.5]]),
     });
-    const x = result.rates.get("make_prod");
+    const x = result.rates.get("alt");
     expect(x).toBeDefined();
     expect(x!.valueOf()).toBeCloseTo(3, 6);
+    expect(result.rates.has("make_prod")).toBe(false);
   });
 });
 
-describe("solveLp - headline over-production", () => {
-  it("holds a target at its floor when a co-product could subsidize over-running it", () => {
+describe("solveLp - target over-production (free disposal)", () => {
+  it("over-runs a target's producer when the co-product route is cheaper", () => {
     // make_p produces p (the headline) plus co-product c. make_thing needs c=6;
-    // zz_make_c produces c=1 standalone. With only a one-sided floor, the LP
-    // covers make_thing's c demand by over-running make_p (cheaper than three
-    // zz_make_c runs), silently producing p surplus. The surplus cap on the
-    // headline item must hold make_p at its floor of x=1. zz_make_c is named to
-    // lex-sort after make_p so the pass-2 lex tie-break doesn't incidentally
-    // dodge the over-production the cap is meant to prevent.
+    // zz_make_c produces c=1 standalone. Item demand is a net-export floor, not
+    // a production cap: covering make_thing's c demand by over-running make_p
+    // (2 runs) is cheaper than three zz_make_c runs, and the extra unit of p
+    // legitimately becomes free-disposal surplus.
     const p = {
       recipes: [
         {
@@ -411,18 +407,19 @@ describe("solveLp - headline over-production", () => {
         { id: "thing", raw: false },
       ],
     } as unknown as RecipePack;
-    const targets: Target[] = [
-      { recipeId: "make_p", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "make_thing", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "p", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "thing", ratePerSec: { num: "1", denom: "1" } },
     ];
     const result = solveLp({ targets, pack: p });
     const x = result.rates.get("make_p");
     expect(x).toBeDefined();
-    // make_p must sit at its floor of 1, not over-run to 2. The cap carries a
-    // tiny relative eps so the value may exceed 1 by ~1e-6; assert near-floor
-    // within that slack, not exactly 1.
-    expect(x!.valueOf()).toBeCloseTo(1, 5);
-    expect(result.surplus.get("p")?.valueOf() ?? 0).toBeCloseTo(0, 5);
+    // make_p over-runs to 2 (6 c from two runs beats three zz_make_c runs);
+    // the p demand of 1 leaves a surplus of 1, disposed of for free.
+    expect(x!.valueOf()).toBeCloseTo(2, 5);
+    expect(result.rates.has("zz_make_c")).toBe(false);
+    expect(result.surplus.get("p")?.valueOf() ?? 0).toBeCloseTo(1, 5);
+    expect(result.softFeasible).toBe(true);
   });
 });
 
@@ -433,11 +430,13 @@ describe("solveLp - status and softFeasible", () => {
     expect(result.softFeasible).toBe(true);
   });
 
-  it("reports soft-infeasible when an input has no producer", () => {
-    // make_prod runs at the pinned rate (positive rate => status "feasible"),
-    // but its input "mid" is non-raw with no producer (finite supply 0), so the
-    // LP covers mid via a deficit var. That makes the LP feasible but not
-    // softFeasible: the deficit survives the demand-met check.
+  it("reports soft-infeasible when the demanded item cannot be net-produced", () => {
+    // make_prod's input "mid" is non-raw with no producer (finite supply 0).
+    // Running make_prod only relocates the unavoidable 1-unit deficit from
+    // "prod" onto "mid", so the deficit cost is flat in x and the engine may
+    // stop at any point on that flat edge (it returns a small junk rate).
+    // The honest contract: softFeasible false, the reported deficits cover
+    // the demand exactly, and every row closes on the extracted point.
     const p = {
       recipes: [
         {
@@ -453,19 +452,21 @@ describe("solveLp - status and softFeasible", () => {
         { id: "mid", raw: false },
       ],
     } as unknown as RecipePack;
-    const targets: Target[] = [
-      { recipeId: "make_prod", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
     ];
     const result = solveLp({ targets, pack: p });
-    expect(result.rates.get("make_prod")?.valueOf() ?? 0).toBeCloseTo(1, 6);
-    expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(false);
-    expect(result.deficit.get("mid")?.valueOf() ?? 0).toBeCloseTo(1, 6);
+    const prodDeficit = result.deficit.get("prod")?.valueOf() ?? 0;
+    const midDeficit = result.deficit.get("mid")?.valueOf() ?? 0;
+    expect(prodDeficit).toBeGreaterThan(0);
+    expect(prodDeficit + midDeficit).toBeCloseTo(1, 6);
+    expectExactlyBalanced(result, p, targets);
   });
 });
 
 describe("solveLp - tiny rates (sub-1e-6 extraction)", () => {
-  it("keeps a tiny pinned target rate instead of snapping it to zero", () => {
+  it("keeps a tiny target demand instead of snapping it to zero", () => {
     const p = makePack(
       [{ id: "a", time: 1, in: { R: 1 }, out: { F: 1 } }],
       [
@@ -473,8 +474,8 @@ describe("solveLp - tiny rates (sub-1e-6 extraction)", () => {
         { id: "R", raw: true, stack: 1 },
       ],
     );
-    const targets: Target[] = [
-      { recipeId: "a", ratePerSec: { num: "1", denom: "10000000" } },
+    const targets: ItemTarget[] = [
+      { itemId: "F", ratePerSec: { num: "1", denom: "10000000" } },
     ];
     const result = solveLp({ targets, pack: p });
     expect(result.status).toBe("feasible");
@@ -484,10 +485,11 @@ describe("solveLp - tiny rates (sub-1e-6 extraction)", () => {
     expect(result.softFeasible).toBe(true);
   });
 
-  it("reports a material deficit for an unproducible input at a tiny rate", () => {
-    // X has no producer and no external supply; the solver pays the 1e9 deficit
-    // penalty for it. softFeasible must come from that raw signal, not from a
-    // deficit map censored by an absolute snap.
+  it("reports a material deficit for an unmeetable demand at a tiny rate", () => {
+    // a's input X has no producer and no external supply, so the F demand is
+    // unmeetable; the solver pays the 1e9 deficit penalty on the demanded item.
+    // softFeasible must come from that raw signal, not from a deficit map
+    // censored by an absolute snap.
     const p = makePack(
       [{ id: "a", time: 1, in: { X: 1 }, out: { F: 1 } }],
       [
@@ -495,23 +497,26 @@ describe("solveLp - tiny rates (sub-1e-6 extraction)", () => {
         { id: "X", stack: 1 },
       ],
     );
-    const targets: Target[] = [
-      { recipeId: "a", ratePerSec: { num: "1", denom: "10000000" } },
+    const targets: ItemTarget[] = [
+      { itemId: "F", ratePerSec: { num: "1", denom: "10000000" } },
     ];
     const result = solveLp({ targets, pack: p });
     expect(result.softFeasible).toBe(false);
-    const dx = result.deficit.get("X");
+    const dx = result.deficit.get("F");
     expect(dx).toBeDefined();
     expect(dx!.equals(new Fraction(1, 10000000))).toBe(true);
   });
 });
 
-describe("solveLp - exact pin-floor extraction", () => {
-  it("snaps the pinned rate onto the exact floor 1/1500, not a nearby rational", () => {
-    // The raw float primal sits ~4.5e-7 above 1/1500, inside the solver's
-    // internal tolerance; a floor-blind snap lands on 1/1499. The extraction
-    // must recognize the pin floor and return it exactly, and the recomputed
-    // surplus must close every finite-supply row exactly.
+describe("solveLp - small-demand extraction", () => {
+  it("closes every finite-supply row exactly at a 1/1500 demand", () => {
+    // Sub-unit demand with awkward ratios (M 3:2). The engine rounds primals
+    // to ~1e-8 absolute, which at this magnitude exceeds the relative snap
+    // radius, so the extracted point can carry sub-material drift the repair
+    // loop cannot close (surfaced honestly as a tiny deficit; the known
+    // small-rate false-negative family). The invariant: the reported point is
+    // self-consistent (every row closes exactly), the drift stays far below
+    // the demand, and softFeasible agrees with the deficit map.
     const p = makePack(
       [
         { id: "a", time: 1, in: { M: 3 }, out: { F: 1 } },
@@ -523,48 +528,39 @@ describe("solveLp - exact pin-floor extraction", () => {
         { id: "R", raw: true, stack: 1 },
       ],
     );
-    const targets: Target[] = [
-      { recipeId: "a", ratePerSec: { num: "1", denom: "1500" } },
+    const targets: ItemTarget[] = [
+      { itemId: "F", ratePerSec: { num: "1", denom: "1500" } },
     ];
     const result = solveLp({ targets, pack: p });
-    const x = result.rates.get("a");
-    expect(x).toBeDefined();
-    expect(x!.equals(new Fraction(1, 1500))).toBe(true);
+    expect(result.softFeasible).toBe(result.deficit.size === 0);
+    let drift = 0;
+    for (const v of result.deficit.values()) drift += v.valueOf();
+    expect(drift).toBeLessThan(1e-7);
     expectExactlyBalanced(result, p, targets);
   });
 
-  it("real pack: qty-150 transfer at 0.1/s extracts exactly the 1/1500 floor", () => {
-    // transfer_tundra_bottled_food_1 outputs 150 bottled_food_1 per execution,
-    // so a 0.1/s target pins the floor at 1/1500. The wrong-rational class
-    // (1/1499) was the dominant solver-residual value in the pairwise sweep.
-    const targets: Target[] = [
-      {
-        recipeId: "transfer_tundra_bottled_food_1",
-        ratePerSec: { num: "1", denom: "10" },
-      },
+  it("real pack: bottled_food_1 at 0.1/s is met and closes rows exactly", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "bottled_food_1", ratePerSec: { num: "1", denom: "10" } },
     ];
     const result = solveLp({ targets, pack });
-    const x = result.rates.get("transfer_tundra_bottled_food_1");
-    expect(x).toBeDefined();
-    expect(x!.equals(new Fraction(1, 1500))).toBe(true);
+    expect(result.softFeasible).toBe(true);
+    expect(result.deficit.size).toBe(0);
+    expectExactlyBalanced(result, pack, targets);
   });
 });
 
 describe("solveLp - phantom epsilon chains", () => {
-  it("drops the dangling crystal chain from the triple-target xiranite plan", () => {
+  it("drops the dangling crystal chain from the multi-target xiranite plan", () => {
     // The raw solve carries crystal_powder-crystal_shell and
     // crystal_shell-originium_ore at ~1/900900 (1.11e-6, just above the old
     // absolute snap radius) with no positive-rate consumer of the chain's net
     // output: a mass-balance violation baked into the extracted point. The
     // noise sweep must remove both, and every finite-supply row must close
     // exactly.
-    const targets: Target[] = [
-      {
-        recipeId: "liquid_xiranite_poly-purifier",
-        ratePerSec: { num: "1", denom: "1" },
-      },
-      { recipeId: "liquid_xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "liquid_xiranite_poly", ratePerSec: { num: "2", denom: "1" } },
+      { itemId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
     ];
     const result = solveLp({ targets, pack });
     expect(result.rates.has("crystal_powder-crystal_shell")).toBe(false);
@@ -576,8 +572,8 @@ describe("solveLp - phantom epsilon chains", () => {
     // Anchored epsilon chains (a live consumer covers the chain head's output)
     // must not survive the relative snap: the support set of this plan is
     // pinned so flow-anchored junk cannot land silently.
-    const targets: Target[] = [
-      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
     ];
     const result = solveLp({ targets, pack });
     expect([...result.rates.keys()].sort()).toEqual([
@@ -600,38 +596,6 @@ describe("solveLp - phantom epsilon chains", () => {
   });
 });
 
-describe("solveLp - infeasible result contract", () => {
-  it("returns empty maps and softFeasible:false on a pinned-infeasible solve", () => {
-    // rB forces 50 X/s co-product while the target on rX caps X's surplus at
-    // ~eps: infeasible BY the pinned surplus-cap contract (overproduce-and-
-    // discard is deliberately rejected). The raw solver object carries junk
-    // partial values; none of it may leak into the result maps.
-    const p = makePack(
-      [
-        { id: "rB", time: 1, in: { R: 1 }, out: { B: 1, X: 5 } },
-        { id: "rX", time: 1, in: { S: 1 }, out: { X: 1 } },
-      ],
-      [
-        { id: "B", stack: 1 },
-        { id: "X", stack: 1 },
-        { id: "R", raw: true, stack: 1 },
-        { id: "S", raw: true, stack: 1 },
-      ],
-    );
-    const targets: Target[] = [
-      { recipeId: "rB", ratePerSec: { num: "10", denom: "1" } },
-      { recipeId: "rX", ratePerSec: { num: "1", denom: "1" } },
-    ];
-    const result = solveLp({ targets, pack: p });
-    expect(result.status).toBe("infeasible");
-    expect(result.softFeasible).toBe(false);
-    expect(result.rates.size).toBe(0);
-    expect(result.surplus.size).toBe(0);
-    expect(result.deficit.size).toBe(0);
-    expect(result.draws.size).toBe(0);
-  });
-});
-
 describe("solveLp - bounded supply draw", () => {
   // a: 1 M -> 1 F. M is non-raw with a finite supply cap. The cap is a bounded
   // draw variable (0..cap), not a forced injection: the LP draws exactly what
@@ -643,8 +607,8 @@ describe("solveLp - bounded supply draw", () => {
       { id: "M", stack: 1 },
     ],
   );
-  const capTargets: Target[] = [
-    { recipeId: "a", ratePerSec: { num: "4", denom: "1" } },
+  const capTargets: ItemTarget[] = [
+    { itemId: "F", ratePerSec: { num: "4", denom: "1" } },
   ];
 
   it("draws exactly what is consumed when the cap exceeds need", () => {
@@ -710,10 +674,10 @@ describe("solveLp - bounded supply draw", () => {
   });
 
   it("keeps the draw at the LP value below the cap when byproduct production covers part of demand", () => {
-    // main is pinned at 4 by its P target and co-produces M at 4; zz_use
+    // main runs at 4 to meet the P demand and co-produces M at 4; zz_use
     // consumes M at 8. The draw covers only the uncovered 4, NOT
-    // min(cap, demand) = 8: drawing more would force the forced byproduct
-    // into costed surplus.
+    // min(cap, demand) = 8: drawing more would force the byproduct into
+    // costed surplus.
     const p = makePack(
       [
         { id: "main", time: 1, in: { R: 1 }, out: { P: 1, M: 1 } },
@@ -726,9 +690,9 @@ describe("solveLp - bounded supply draw", () => {
         { id: "R", raw: true, stack: 1 },
       ],
     );
-    const targets: Target[] = [
-      { recipeId: "main", ratePerSec: { num: "4", denom: "1" } },
-      { recipeId: "zz_use", ratePerSec: { num: "4", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "P", ratePerSec: { num: "4", denom: "1" } },
+      { itemId: "Q", ratePerSec: { num: "4", denom: "1" } },
     ];
     const overrides: ItemOverride[] = [
       { itemId: "M", ratePerSec: { num: "10", denom: "1" } },
@@ -741,70 +705,61 @@ describe("solveLp - bounded supply draw", () => {
     expectExactlyBalanced(result, p, targets, overrides);
   });
 
-  it("is feasible for every cap value on a targeted DUAL item with no other consumer", () => {
-    // glass_enr_bottle targeted at 2/s with a finite cap on the same item: the
-    // pin floor is satisfied by production and the LP keeps draw at 0 because
-    // a positive draw could only exit through the eps-capped surplus. Under
-    // the old forced-injection row this was hard-infeasible for every cap.
-    const targets: Target[] = [
-      { recipeId: "glass_enr_bottle", ratePerSec: { num: "2", denom: "1" } },
+  it("serves a targeted DUAL item's demand from the free draw first", () => {
+    // glass_enr_bottle targeted at 2/s with a finite cap on the same item: an
+    // external draw of the target item counts toward the net-export demand
+    // and costs nothing, so the LP draws min(cap, demand) and produces only
+    // the remainder.
+    const targets: ItemTarget[] = [
+      { itemId: "glass_enr_bottle", ratePerSec: { num: "2", denom: "1" } },
     ];
-    for (const [num, denom] of [
-      ["10", "1"],
-      ["2", "1"],
-      ["1", "1"],
-      ["1", "100"],
+    for (const [num, denom, expectedDraw] of [
+      ["10", "1", "2"],
+      ["2", "1", "2"],
+      ["1", "1", "1"],
+      ["1", "100", "1/100"],
     ] as const) {
       const overrides: ItemOverride[] = [
         { itemId: "glass_enr_bottle", ratePerSec: { num, denom } },
       ];
       const result = solveLp({ targets, pack, itemOverrides: overrides });
-      expect(result.status, `cap ${num}/${denom} must be feasible`).toBe(
-        "feasible",
-      );
-      const x = result.rates.get("glass_enr_bottle");
-      expect(x).toBeDefined();
-      expect(x!.valueOf()).toBeGreaterThanOrEqual(2);
-      expect(result.draws.get("glass_enr_bottle")?.valueOf() ?? 0).toBe(0);
-      // Pinned disposal-absorber contract intact: surplus stays within the
-      // surpcap eps (max(floor, 1) * 1e-7 = 2e-7).
+      expect(result.softFeasible, `cap ${num}/${denom} must be met`).toBe(true);
+      expect(result.deficit.size).toBe(0);
+      const draw = result.draws.get("glass_enr_bottle") ?? new Fraction(0);
       expect(
-        result.surplus.get("glass_enr_bottle")?.valueOf() ?? 0,
-      ).toBeLessThanOrEqual(2e-7);
+        draw.equals(new Fraction(expectedDraw)),
+        `cap ${num}/${denom}: draw ${draw.toFraction()}`,
+      ).toBe(true);
+      expectExactlyBalanced(result, pack, targets, overrides);
     }
   });
 
-  it("does not recruit consumers to launder a forced inflow", () => {
-    // Cap 10/s on the targeted plant_moss_seed_1: the old forced injection
-    // recruited plant_moss_1 at 10 exec/s (x20 machines) purely to consume the
-    // inflow. Under the bounded draw nothing is forced in; the LP uses the
-    // free external supply in place of internal cycle production (the drawn
-    // seed feeds plant_moss_1's consumption), so the seed/moss cycle drops to
-    // the pin floor: seed at 1 (rate 2 / out qty 2), moss at 1, draw exactly
-    // the cycle's internal seed consumption of 1. Control (no override) runs
-    // both at 2.
-    const targets: Target[] = [
-      { recipeId: "plant_moss_seed_1", ratePerSec: { num: "2", denom: "1" } },
+  it("meets the whole demand from the draw when the cap covers it", () => {
+    // Cap 10/s on the targeted plant_moss_seed_1: the free external draw
+    // covers the whole 2/s net-export demand, so nothing needs to run at all.
+    // Control (no override) produces the seed internally.
+    const targets: ItemTarget[] = [
+      { itemId: "plant_moss_seed_1", ratePerSec: { num: "2", denom: "1" } },
     ];
     const overrides: ItemOverride[] = [
       { itemId: "plant_moss_seed_1", ratePerSec: { num: "10", denom: "1" } },
     ];
     const control = solveLp({ targets, pack });
-    expect(control.rates.get("plant_moss_1")!.equals(2)).toBe(true);
-    expect(control.rates.get("plant_moss_seed_1")!.equals(2)).toBe(true);
+    expect(
+      (control.rates.get("plant_moss_seed_1")?.valueOf() ?? 0) > 0,
+    ).toBe(true);
     const result = solveLp({ targets, pack, itemOverrides: overrides });
-    expect(result.status).toBe("feasible");
-    expect(result.rates.get("plant_moss_seed_1")!.equals(1)).toBe(true);
-    expect(result.rates.get("plant_moss_1")!.equals(1)).toBe(true);
-    expect(result.draws.get("plant_moss_seed_1")!.equals(1)).toBe(true);
+    expect(result.status).toBe("empty");
+    expect(result.rates.size).toBe(0);
+    expect(result.draws.get("plant_moss_seed_1")!.equals(2)).toBe(true);
     expect(result.surplus.size).toBe(0);
     expectExactlyBalanced(result, pack, targets, overrides);
   });
 
   it("drops the draw when the noise sweep zeroes the cap item's only consumer", () => {
     // rMain anchors the plan scale at 1e6 (noise ceiling 100, T's repair
-    // tolerance 1). rEps is the only consumer of capped M; it covers rUse's
-    // 0.5/s side draw on T at a rate below the ceiling, so the sweep zeroes
+    // tolerance 1). rEps is the only consumer of capped M (cap 1/2); it covers
+    // part of the T demand at a rate below the ceiling, so the sweep zeroes
     // it and the repair loop leaves it zeroed (T's 0.5 shortfall sits under
     // its tolerance). The M draw must go with its consumer: an orphaned draw
     // reports a pull the surviving solution never consumes and would leak
@@ -822,14 +777,14 @@ describe("solveLp - bounded supply draw", () => {
         { id: "U", stack: 1 },
       ],
     );
-    const targets: Target[] = [
-      { recipeId: "rMain", ratePerSec: { num: "1000000", denom: "1" } },
-      { recipeId: "rUse", ratePerSec: { num: "1", denom: "2" } },
+    const targets: ItemTarget[] = [
+      { itemId: "T", ratePerSec: { num: "1000000", denom: "1" } },
+      { itemId: "U", ratePerSec: { num: "1", denom: "2" } },
     ];
     const result = solveLp({
       targets,
       pack: p,
-      itemOverrides: [{ itemId: "M", ratePerSec: { num: "5", denom: "1" } }],
+      itemOverrides: [{ itemId: "M", ratePerSec: { num: "1", denom: "2" } }],
       // Free rEps so the LP covers the marginal T from the capped draw
       // instead of raising rMain.
       recipeCosts: new Map([["rEps", 0]]),
@@ -843,14 +798,11 @@ describe("solveLp - bounded supply draw", () => {
   });
 
   it("keeps a demand-bearing draw with no surviving consumer", () => {
-    // rBad's primary out qty is 0, so it gets no pin floor and no surplus cap
-    // (the malformed-data guard in the pin block), yet its target still
-    // registers demand on T. No recipe consumes T and rBad produces none, so
-    // the capped draw is the sole supply meeting T's demand. The orphan-draw
-    // drop must NOT remove it: dropping it would silently unmeet the demand and
-    // leave an unreported negative-slack residual. (For a well-formed target the
-    // pin floor + surplus cap squeeze any draw on a demanded item to ~0, so this
-    // malformed corner is the only path that reaches a demand-bearing draw.)
+    // Demand on T with no working producer (rBad emits it at qty 0) and a
+    // finite cap on T itself: the capped draw is the sole supply meeting T's
+    // demand. The orphan-draw drop must NOT remove it: dropping it would
+    // silently unmeet the demand and leave an unreported negative-slack
+    // residual.
     const p = makePack(
       [
         { id: "rMain", time: 1, in: { R: 1 }, out: { F: 1 } },
@@ -864,8 +816,8 @@ describe("solveLp - bounded supply draw", () => {
     );
     const result = solveLp({
       targets: [
-        { recipeId: "rMain", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "rBad", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "F", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "T", ratePerSec: { num: "1", denom: "1" } },
       ],
       pack: p,
       itemOverrides: [{ itemId: "T", ratePerSec: { num: "1", denom: "1" } }],

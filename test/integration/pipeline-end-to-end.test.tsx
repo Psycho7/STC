@@ -9,6 +9,7 @@ import {
   loadTransportConfig,
 } from "../../src/data/transport-config";
 import { defaultTargets } from "../../src/data/targets";
+import { toSolverTargets } from "../../src/solver/planToSolverArgs";
 import { RENDER_UNIT_KINDS } from "../../src/pipeline/types";
 
 afterEach(() => {
@@ -48,7 +49,7 @@ describe("integration: App boots end-to-end via the new pipeline", () => {
 describe("integration: render plan emits only MVP unit kinds", () => {
   it("contains no fold-era or other legacy unit kinds", () => {
     const full = solvePlanWithIntermediates(
-      defaultTargets(),
+      toSolverTargets(defaultTargets(), pack),
       pack,
       loadTransportConfig(defaultTransportConfig, pack),
     );
@@ -68,7 +69,7 @@ describe("integration: render plan emits only MVP unit kinds", () => {
       itemById: new Map(pack.items.map((i) => [i.id, i])),
       machineById: new Map(pack.machines.map((m) => [m.id, m])),
       itemOverrides: [],
-      targets: defaultTargets(),
+      targets: toSolverTargets(defaultTargets(), pack),
       pack,
     });
     const allowed = new Set<string>(RENDER_UNIT_KINDS);

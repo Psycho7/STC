@@ -5,10 +5,14 @@ import { solvePlanWithIntermediates } from "./index";
 import { solveLp } from "./lp";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
-import type { Target } from "../data/targets";
+import type { SolverTarget } from "./planToSolverArgs";
 
-const headlineTargets: Target[] = [
-  { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+const headlineTargets: SolverTarget[] = [
+  {
+    recipeId: "xiranite_enr_powder",
+    itemId: "xiranite_enr_powder",
+    ratePerSec: { num: "6", denom: "60" },
+  },
 ];
 
 describe("assertInvariants", () => {
@@ -31,8 +35,8 @@ describe("assertInvariants", () => {
       defaultTransportConfig,
     );
     const result = solveLp({ targets: headlineTargets, pack });
-    // Zero out every recipe rate: production collapses while the target floor
-    // and demand remain, so checkMassBalance and checkTargetsMet fire.
+    // Zero out every recipe rate: production collapses while the demand
+    // remains, so checkMassBalance fires.
     for (const key of [...result.rates.keys()]) {
       result.rates.set(key, new Fraction(0));
     }

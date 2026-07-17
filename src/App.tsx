@@ -50,7 +50,7 @@ import { iconSheetUrl } from "./canvas/iconSprite";
 async function renderFromFull(
   full: SolvePlanFull,
   itemOverrides: ReadonlyArray<import("./data/plan").ItemOverride>,
-  targets: ReadonlyArray<Target>,
+  targets: ReadonlyArray<import("./solver/planToSolverArgs").SolverTarget>,
 ): Promise<{ nodes: Node[]; edges: Edge[] }> {
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
@@ -273,7 +273,7 @@ function AppInner() {
         }
         const nextPlan = outcome.plan;
         const { targets, itemOverrides, recipeCosts } =
-          planToSolverArgs(nextPlan);
+          planToSolverArgs(nextPlan, pack);
         const full = solvePlanWithIntermediates(
           targets,
           pack,
@@ -363,7 +363,7 @@ function AppInner() {
     setPending(true);
     try {
       const { targets, itemOverrides, recipeCosts } =
-        planToSolverArgs(nextPlan);
+        planToSolverArgs(nextPlan, pack);
       const full = solvePlanWithIntermediates(
         targets,
         pack,

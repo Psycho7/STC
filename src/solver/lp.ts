@@ -1,14 +1,14 @@
 import Fraction from "fraction.js";
 import solver from "javascript-lp-solver";
 import type { Recipe, RecipePack } from "@aef/schema";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipeId, ItemId } from "./types";
 import { effectiveSupply } from "./effectiveSupply";
 import { isExcludedProducer } from "../data/recipe-category";
 
 export type LpInput = {
-  targets: Target[];
+  targets: ItemTarget[];
   pack: RecipePack;
   itemOverrides?: ItemOverride[];
   recipeCosts?: Map<RecipeId, number>;
@@ -72,7 +72,7 @@ export const BIG_M_COST = 1e6;
 
 // Default cost weights. The ordering deficit >> recipe >> surplus is the cost
 // contract. Target-only and excluded-producer recipes get a big-M cost so the LP
-// only runs them when the user pins them or no alternative exists.
+// only runs them when no alternative exists.
 export function recipeCostWeight(
   r: Recipe,
   overrides: Map<RecipeId, number> | undefined,
@@ -96,21 +96,14 @@ export function toleranceScaleFloor(demand: Map<ItemId, number>): number {
   return maxDemand > 0 ? Math.min(1, maxDemand) : 1;
 }
 
-// Demand per item: sum over targets of the rate placed on each target recipe's
-// primary output (recipe.out[0]). Duplicate targets on the same primary item
-// accumulate. Shared with the invariant checkers so model and checks read demand
-// the same way.
-export function demandByItem(
-  pack: RecipePack,
-  targets: Target[],
-): Map<ItemId, number> {
+// Demand per item: sum over targets of the requested net-export rate.
+// Duplicate targets on the same item accumulate. Shared with the invariant
+// checkers so model and checks read demand the same way.
+export function demandByItem(targets: ItemTarget[]): Map<ItemId, number> {
   const demand = new Map<ItemId, number>();
   for (const t of targets) {
-    const recipe = pack.recipes.find((r) => r.id === t.recipeId);
-    if (!recipe || recipe.out.length === 0) continue;
-    const primary = recipe.out[0]!;
     const rate = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
-    demand.set(primary.item, (demand.get(primary.item) ?? 0) + rate);
+    demand.set(t.itemId, (demand.get(t.itemId) ?? 0) + rate);
   }
   return demand;
 }
@@ -168,7 +161,7 @@ export function solveLp(input: LpInput): LpResult {
     supplyById.set(it.id, effectiveSupply(it.id, pack, itemOverrides));
   }
 
-  const demand = demandByItem(pack, targets);
+  const demand = demandByItem(targets);
 
   // Lex rank per recipe (sorted by id) for the pass-2 tie-break.
   const lexRank = new Map<RecipeId, number>();
@@ -236,46 +229,6 @@ export function solveLp(input: LpInput): LpResult {
         };
         constraints[`drawcap_${it.id}`] = { max: cap };
       }
-    }
-
-    // Target floor: x_target >= rate / primary.qty (min, NOT equality). A hard
-    // equality over-constrains SCC-self targets, forcing residual demand through
-    // __domain_transfer recipes. The min floor keeps user-recipe intent without
-    // blocking mass-balance from raising production to cover a cycle's internal
-    // consumption.
-    for (const t of targets) {
-      const recipe = recipeById.get(t.recipeId);
-      if (!recipe || recipe.out.length === 0) continue;
-      const primary = recipe.out[0]!;
-      // Guard malformed data: a zero/negative primary qty makes the floor
-      // rate/qty infinite or nonsensical. Skip the pin so unmet demand surfaces as
-      // deficit rather than an infeasible Infinity bound.
-      if (!(primary.qty > 0)) continue;
-      const rate = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
-      const pinName = `pin_${t.recipeId}`;
-      // Accumulate the floor across duplicate targets on the same recipe rather
-      // than overwriting, like the demand loop above sums duplicate target rates
-      // onto the same primary item.
-      const existingFloor = constraints[pinName]?.min ?? 0;
-      constraints[pinName] = { min: existingFloor + rate / primary.qty };
-      variables[`x_${t.recipeId}`]![pinName] = 1;
-
-      // Surplus cap on the requested item. The floor above is one-sided, so a
-      // co-product of the target recipe could subsidize over-running it to cover
-      // another recipe's input, silently over-producing the headline item. Cap the
-      // requested item's surplus to hold production at the requested rate, while
-      // leaving the floor and mass-balance free to raise production for internal
-      // consumption. eps is a small relative slack tied to this item's demand so
-      // LP float noise does not make the equality model spuriously infeasible;
-      // keep the larger eps when several targets share a primary item. eps stays
-      // an order of magnitude below the invariant checkers' REL_TOL (1e-6) so a
-      // surplus sitting at the cap never trips the mass-balance / targets-met
-      // residual checks.
-      const surpCap = `surpcap_${primary.item}`;
-      const eps = Math.max(rate / primary.qty, 1) * 1e-7;
-      const existingCap = constraints[surpCap]?.max ?? 0;
-      constraints[surpCap] = { max: Math.max(existingCap, eps) };
-      variables[`surplus_${primary.item}`]![surpCap] = 1;
     }
 
     // Pass 2: freeze pass-1 cost as an upper bound (with a relative epsilon) so the
@@ -401,16 +354,16 @@ type ExtractArgs = {
   supplyById: Map<ItemId, Fraction | typeof Infinity>;
   costById: Map<RecipeId, number>;
   demand: Map<ItemId, number>;
-  targets: Target[];
+  targets: ItemTarget[];
   t0: number;
 };
 
 // Turn the raw float primals of a feasible solve into an exact, self-consistent
 // LpResult. Ordered hygiene pass:
-//   1. snap rates (pass-2 big-M filter, exact pin-floor re-snap, relative snap)
+//   1. snap rates (pass-2 big-M filter, relative snap)
 //   2. tentatively zero sub-noise rates (flow-blind candidate set)
-//   3. recompute per-item slack exactly; re-admit or revert whatever the
-//      checkers would tag (in-pass checkMassBalance-tolerance gate)
+//   3. recompute per-item slack exactly; re-admit whatever the checkers would
+//      tag (in-pass checkMassBalance-tolerance gate)
 //   4. derive surplus/deficit from the recompute and softFeasible from the raw
 //      pre-snap deficit variables
 function extractResult(args: ExtractArgs): LpResult {
@@ -427,76 +380,40 @@ function extractResult(args: ExtractArgs): LpResult {
     t0,
   } = args;
 
-  // Exact pin floor per recipe and exact demand per item: rational mirrors of
-  // the pin block and demandByItem (same skip rules, duplicate targets
-  // accumulate). The model floats lose exactness; extraction snaps back onto
-  // these.
-  const floorByRecipe = new Map<RecipeId, Fraction>();
+  // Exact demand per item: rational mirror of demandByItem (duplicate targets
+  // accumulate). The model floats lose exactness; the slack recompute below
+  // nets against these.
   const demandExact = new Map<ItemId, Fraction>();
   for (const t of targets) {
-    const recipe = recipeById.get(t.recipeId);
-    if (!recipe || recipe.out.length === 0) continue;
-    const primary = recipe.out[0]!;
     const rate = new Fraction(`${t.ratePerSec.num}/${t.ratePerSec.denom}`);
     demandExact.set(
-      primary.item,
-      (demandExact.get(primary.item) ?? FRAC_ZERO).add(rate),
-    );
-    if (!(primary.qty > 0)) continue;
-    const floor = rate.div(primary.qty);
-    if (floor.compare(0) <= 0) continue;
-    floorByRecipe.set(
-      t.recipeId,
-      (floorByRecipe.get(t.recipeId) ?? FRAC_ZERO).add(floor),
+      t.itemId,
+      (demandExact.get(t.itemId) ?? FRAC_ZERO).add(rate),
     );
   }
 
   // Plan scale: the magnitude this plan operates at; sizes the noise ceiling.
   let planScale = 1;
-  for (const f of floorByRecipe.values())
-    planScale = Math.max(planScale, f.valueOf());
   for (const d of demand.values()) planScale = Math.max(planScale, Math.abs(d));
 
   const plainSnap = (v: number): Fraction =>
     new Fraction(v).simplify(Math.min(SNAP_REL, Math.abs(v) * SNAP_REL));
 
-  // Rate extraction. A pinned recipe within radius of its exact floor snaps
-  // onto the floor itself: the raw float can otherwise round to an adjacent
-  // rational (1/1499 against a 1/1500 floor). On pass-2 results, big-M recipes
-  // that pass 1 kept at zero are dropped: the lex cost_cap row magnitude grows
-  // with target scale and the solver's internal relative tolerance can buy
-  // them a tiny positive rate, while a legitimate big-M activation (a pin)
-  // forces pass-1 positivity too.
+  // Rate extraction. On pass-2 results, big-M recipes that pass 1 kept at zero
+  // are dropped: the lex cost_cap row magnitude grows with target scale and
+  // the solver's internal relative tolerance can buy them a tiny positive
+  // rate, while a legitimate big-M activation (a sole producer of a demanded
+  // item) forces pass-1 positivity too.
   const isPass2 = lpResult !== pass1;
   const rates = new Map<RecipeId, Fraction>();
-  const floorSnapped = new Set<RecipeId>();
   for (const r of recipes) {
     const v = lpResult[`x_${r.id}`] ?? 0;
-    const floor = floorByRecipe.get(r.id);
-    if (v <= RATE_ZERO) {
-      // A pinned target whose primal the engine omitted (javascript-lp-solver
-      // drops primals below its ~1e-7 internal tolerance, so an ultra-low-rate
-      // pin reads as 0) must still run at its exact pin floor: the pin is user
-      // intent, not solver dust. Without this the dependent chain vanishes and
-      // the solve reports "empty". Not added to floorSnapped - there is no raw
-      // primal to revert to, and a target floor must hold regardless.
-      if (floor !== undefined) rates.set(r.id, floor);
-      continue;
-    }
+    if (v <= RATE_ZERO) continue;
     if (
       isPass2 &&
       costById.get(r.id)! >= BIG_M_COST &&
       (pass1[`x_${r.id}`] ?? 0) <= RATE_ZERO
     ) {
-      continue;
-    }
-    if (
-      floor !== undefined &&
-      Math.abs(v - floor.valueOf()) <=
-        Math.max(SNAP_REL, SNAP_REL * Math.abs(v))
-    ) {
-      rates.set(r.id, floor);
-      floorSnapped.add(r.id);
       continue;
     }
     rates.set(r.id, plainSnap(v));
@@ -526,13 +443,12 @@ function extractResult(args: ExtractArgs): LpResult {
 
   // Noise-sweep candidates: every positive rate at or below the ceiling,
   // regardless of graph connectivity (an epsilon chain can be anchored on a
-  // live consumer), except pinned recipes, whose floors are user intent. All
-  // candidates are tentatively zeroed; the repair loop below re-admits exactly
-  // those whose removal breaks mass balance beyond checker tolerance.
+  // live consumer). All candidates are tentatively zeroed; the repair loop
+  // below re-admits exactly those whose removal breaks mass balance beyond
+  // checker tolerance.
   const zeroed = new Set<RecipeId>();
   const ceiling = NOISE_CEILING_REL * planScale;
   for (const [recipeId, rate] of rates) {
-    if (floorByRecipe.has(recipeId)) continue;
     if (rate.valueOf() <= ceiling) zeroed.add(recipeId);
   }
 
@@ -584,12 +500,11 @@ function extractResult(args: ExtractArgs): LpResult {
   const mbTol = (itemId: ItemId): number =>
     Math.max(scaleFloor, Math.abs(demand.get(itemId) ?? 0)) * MB_REL_TOL;
 
-  // Repair loop: zeroing candidates (or snapping a pin) must not leave an item
-  // with a raw-clean negative slack the checkers would tag. First re-admit
-  // zeroed producers of a broken item (their removal caused the shortfall),
-  // then revert floor snaps on its producers to the plain relative snap. The
-  // loop never grows either set and each round shrinks exactly one of them,
-  // so it terminates in at most |zeroed| + |floorSnapped| iterations.
+  // Repair loop: zeroing candidates must not leave an item with a raw-clean
+  // negative slack the checkers would tag. Re-admit zeroed producers of a
+  // broken item (their removal caused the shortfall). The loop never grows the
+  // zeroed set and each round shrinks it, so it terminates in at most |zeroed|
+  // iterations.
   let slack = computeSlack();
   const forcedDeficit = new Set<ItemId>();
   for (;;) {
@@ -611,16 +526,7 @@ function extractResult(args: ExtractArgs): LpResult {
       slack = computeSlack();
       continue;
     }
-    const reverts = [...floorSnapped].filter(producesBroken);
-    if (reverts.length > 0) {
-      for (const recipeId of reverts) {
-        floorSnapped.delete(recipeId);
-        rates.set(recipeId, plainSnap(lpResult[`x_${recipeId}`] ?? 0));
-      }
-      slack = computeSlack();
-      continue;
-    }
-    // Nothing can close these rows: no producer to re-admit, no snap to loosen.
+    // Nothing can close these rows: no producer to re-admit.
     // Report the shortfall honestly as a deficit (softFeasible goes false in the
     // surplus/deficit derivation below) instead of swallowing a broken row and
     // claiming the plan is feasible. The broken slack is negative by construction
@@ -642,15 +548,14 @@ function extractResult(args: ExtractArgs): LpResult {
   // surplus/deficit derivation below reads so the rows still close exactly.
   //
   // A draw on an item that carries external demand is NOT orphaned: it feeds
-  // the target directly through the mb row (draw - demand), so it is kept. This
-  // also bounds the drop. Post-drop slack on an item with no surviving consumer
-  // is production - demand (the consumption term is zero by the drop condition,
-  // and the draw is gone), so it can only go negative when demand > 0 - exactly
-  // the case excluded here. The drop therefore can never create a shortfall the
-  // (already-converged) repair loop would need to re-enter for. (For a
-  // well-formed target the pin floor plus surplus cap already squeeze any draw
-  // on its demanded item to ~0; the demand>0 case here is the malformed
-  // zero-primary-qty target guarded at the pin block above.)
+  // the target directly through the mb row (draw - demand), so it is kept.
+  // Target items with a finite cap routinely reach this case: an external draw
+  // of the target item counts toward meeting it. This also bounds the drop.
+  // Post-drop slack on an item with no surviving consumer is production -
+  // demand (the consumption term is zero by the drop condition, and the draw
+  // is gone), so it can only go negative when demand > 0 - exactly the case
+  // excluded here. The drop therefore can never create a shortfall the
+  // (already-converged) repair loop would need to re-enter for.
   if (draws.size > 0) {
     const consumedItems = new Set<ItemId>();
     for (const recipeId of rates.keys()) {

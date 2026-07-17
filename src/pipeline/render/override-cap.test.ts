@@ -15,11 +15,11 @@ import { checkRenderPlan } from "./invariants";
 import { makePack } from "../../solver/closed-form-fixtures";
 import { isInputProductUnit, isOutputProductUnit, isRecipeUnit } from "../types";
 import type { RenderPlan } from "../types";
-import type { Target } from "../../data/targets";
+import type { SolverTarget } from "../../solver/planToSolverArgs";
 import type { ItemOverride } from "../../data/plan";
 
 function solveAndRender(
-  targets: Target[],
+  targets: SolverTarget[],
   overrides: ItemOverride[],
   fixturePack = pack,
 ): { plan: RenderPlan; rates: ReadonlyMap<string, Fraction> } {
@@ -50,8 +50,12 @@ function inflow(plan: RenderPlan, toUnit: string, item: string): Fraction {
 }
 
 describe("finite supply cap below demand (iron_nugget-iron_ore, cap 1/4)", () => {
-  const targets: Target[] = [
-    { recipeId: "iron_nugget-iron_ore", ratePerSec: { num: "1", denom: "1" } },
+  const targets: SolverTarget[] = [
+    {
+      recipeId: "iron_nugget-iron_ore",
+      itemId: "iron_nugget",
+      ratePerSec: { num: "1", denom: "1" },
+    },
   ];
   const overrides: ItemOverride[] = [
     { itemId: "iron_ore", ratePerSec: { num: "1", denom: "4" } },
@@ -100,8 +104,12 @@ describe("finite supply cap below demand (iron_nugget-iron_ore, cap 1/4)", () =>
 });
 
 describe("itemOverride matrix on copper_nugget@1/s (copper_ore)", () => {
-  const targets: Target[] = [
-    { recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },
+  const targets: SolverTarget[] = [
+    {
+      recipeId: "copper_nugget",
+      itemId: "copper_nugget",
+      ratePerSec: { num: "1", denom: "1" },
+    },
   ];
   const cases: Array<[string, ItemOverride[]]> = [
     ["none", []],
@@ -167,9 +175,9 @@ describe("forced-byproduct zero-draw cap", () => {
     ],
     [{ id: "x", raw: true }, { id: "p" }, { id: "c" }, { id: "r" }],
   );
-  const targets: Target[] = [
-    { recipeId: "tP", ratePerSec: { num: "1", denom: "1" } },
-    { recipeId: "uR", ratePerSec: { num: "1", denom: "1" } },
+  const targets: SolverTarget[] = [
+    { recipeId: "tP", itemId: "p", ratePerSec: { num: "1", denom: "1" } },
+    { recipeId: "uR", itemId: "r", ratePerSec: { num: "1", denom: "1" } },
   ];
   const overrides: ItemOverride[] = [
     { itemId: "c", ratePerSec: { num: "10", denom: "1" } },

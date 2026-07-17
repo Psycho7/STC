@@ -3,7 +3,7 @@ import Fraction from "fraction.js";
 import { LpInfeasibleError, solvePlan, solvePlanWithIntermediates } from "./index";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
-import type { Target } from "../data/targets";
+import type { SolverTarget } from "./planToSolverArgs";
 import type { RecipePack } from "@aef/schema";
 import type { LpResult } from "./lp";
 
@@ -33,8 +33,12 @@ vi.mock("./lp", async () => {
 
 describe("solvePlanWithIntermediates (LP)", () => {
   it("includes both purifier producers in the rate map", () => {
-    const targets: Target[] = [
-      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+    const targets: SolverTarget[] = [
+      {
+        recipeId: "xiranite_enr_powder",
+        itemId: "xiranite_enr_powder",
+        ratePerSec: { num: "6", denom: "60" },
+      },
     ];
     const full = solvePlanWithIntermediates(
       targets,
@@ -49,9 +53,9 @@ describe("solvePlanWithIntermediates (LP)", () => {
 
 describe("solver status handling", () => {
   // (b) Empty-but-feasible: a non-empty targets input whose optimum runs zero
-  // recipes. The "zero_out" recipe has a primary output qty of 0, so solveLp
-  // skips the target pin, demand for "prod" becomes pure deficit, and no
-  // x_recipe runs positive, giving status "empty" with empty rates.
+  // recipes. The only producer of "prod" (zero_out) emits it at qty 0, so the
+  // demand for "prod" becomes pure deficit and no x_recipe runs positive,
+  // giving status "empty" with empty rates.
   // Must not throw: an empty-but-feasible optimum is a legitimate result.
   const emptyFeasiblePack = {
     recipes: [
@@ -69,8 +73,8 @@ describe("solver status handling", () => {
       { id: "prod", raw: false },
     ],
   } as unknown as RecipePack;
-  const emptyFeasibleTargets: Target[] = [
-    { recipeId: "zero_out", ratePerSec: { num: "1", denom: "1" } },
+  const emptyFeasibleTargets: SolverTarget[] = [
+    { recipeId: "zero_out", itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
   ];
 
   it("does not throw on an empty-but-feasible optimum (solvePlanWithIntermediates)", () => {
@@ -96,8 +100,12 @@ describe("solver status handling", () => {
   // with real packs (universal slack, see the override note above), so the flag
   // forces solveLp's status. Both entry points must surface it as a throw whose
   // message matches /infeasible/.
-  const targets: Target[] = [
-    { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+  const targets: SolverTarget[] = [
+    {
+      recipeId: "xiranite_enr_powder",
+      itemId: "xiranite_enr_powder",
+      ratePerSec: { num: "6", denom: "60" },
+    },
   ];
 
   it("throws on infeasible status (both entry points)", () => {
@@ -233,8 +241,8 @@ describe("multi-producer input of a split SCC member (assemble re-route)", () =>
       { id: "raw2", raw: true },
     ],
   );
-  const sccTargets: Target[] = [
-    { recipeId: "tgt", ratePerSec: { num: "1", denom: "1" } },
+  const sccTargets: SolverTarget[] = [
+    { recipeId: "tgt", itemId: "final", ratePerSec: { num: "1", denom: "1" } },
   ];
   const sccOverrides = [
     { itemId: "scarce", ratePerSec: { num: "0", denom: "1" } },
@@ -290,8 +298,12 @@ describe("torn feedback covers every intra-SCC logical cycle", () => {
   // liquid_xiranite_poly -> liquid_xiranite_poly-purifier -> xiranite_poly)
   // in the assembled graph as plain (non-return) edges.
   it("proc_battery_5: non-return intra-SCC logical edges are acyclic", () => {
-    const targets: Target[] = [
-      { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+    const targets: SolverTarget[] = [
+      {
+        recipeId: "proc_battery_5",
+        itemId: "proc_battery_5",
+        ratePerSec: { num: "1", denom: "1" },
+      },
     ];
     const full = solvePlanWithIntermediates(
       targets,
@@ -367,13 +379,22 @@ describe("replica coverage of the LP solution", () => {
   // ceiling for ANY planScale >= 1, so removal does not depend on the
   // shared-primary coincidence raising planScale to 2.
   it("triple-target xiranite plan: replica rate sums equal every LP rate", () => {
-    const targets: Target[] = [
+    const targets: SolverTarget[] = [
       {
         recipeId: "liquid_xiranite_poly-purifier",
+        itemId: "liquid_xiranite_poly",
         ratePerSec: { num: "1", denom: "1" },
       },
-      { recipeId: "liquid_xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
+      {
+        recipeId: "liquid_xiranite_poly",
+        itemId: "liquid_xiranite_poly",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+      {
+        recipeId: "equip_script_4",
+        itemId: "equip_script_4",
+        ratePerSec: { num: "1", denom: "1" },
+      },
     ];
     const full = solvePlanWithIntermediates(
       targets,

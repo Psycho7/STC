@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { planToSolverArgs } from "./planToSolverArgs";
+import { pack } from "../data/load";
 import type { Plan } from "../data/plan";
 
 // Minimal Plan fixture: only the fields planToSolverArgs reads are set.
@@ -16,17 +17,20 @@ function makePlan(overrides?: Partial<Plan>): Plan {
 }
 
 describe("planToSolverArgs", () => {
-  it("passes targets through by reference without transformation", () => {
+  it("maps each recipe target onto its primary output item (bridge)", () => {
     const plan = makePlan();
-    const { targets } = planToSolverArgs(plan);
-    // Same Target[] reference back, no transformation.
-    expect(targets).toBe(plan.targets);
+    const { targets } = planToSolverArgs(plan, pack);
+    expect(targets).toHaveLength(1);
+    // The bridge keeps the recipe key and adds the primary output item.
+    expect(targets[0]!.recipeId).toBe("copper_powder");
+    expect(targets[0]!.itemId).toBe("copper_powder");
+    expect(targets[0]!.ratePerSec).toEqual({ num: "2", denom: "4" });
   });
 
   it("returns empty itemOverrides array when plan has none", () => {
     // The optional itemOverrides field is absent.
     const plan = makePlan();
-    const { itemOverrides } = planToSolverArgs(plan);
+    const { itemOverrides } = planToSolverArgs(plan, pack);
     expect(Array.isArray(itemOverrides)).toBe(true);
     expect(itemOverrides.length).toBe(0);
   });
@@ -34,14 +38,14 @@ describe("planToSolverArgs", () => {
   it("passes through itemOverrides as-is when present", () => {
     const overrides = [{ itemId: "copper", plan: true as const }];
     const plan = makePlan({ itemOverrides: overrides });
-    const { itemOverrides } = planToSolverArgs(plan);
+    const { itemOverrides } = planToSolverArgs(plan, pack);
     expect(itemOverrides).toBe(overrides);
   });
 
   it("returns undefined recipeCosts when plan has none", () => {
     // The optional recipeCosts field is absent.
     const plan = makePlan();
-    const { recipeCosts } = planToSolverArgs(plan);
+    const { recipeCosts } = planToSolverArgs(plan, pack);
     expect(recipeCosts).toBeUndefined();
   });
 
@@ -51,7 +55,7 @@ describe("planToSolverArgs", () => {
         ["copper_powder", { num: "3", denom: "4" }],
       ]),
     });
-    const { recipeCosts } = planToSolverArgs(plan);
+    const { recipeCosts } = planToSolverArgs(plan, pack);
     expect(recipeCosts).toBeDefined();
     expect(recipeCosts!.get("copper_powder")).toBe(
       Number("3") / Number("4"),
@@ -65,7 +69,7 @@ describe("planToSolverArgs", () => {
         ["r2", { num: "5", denom: "1" }],
       ]),
     });
-    const { recipeCosts } = planToSolverArgs(plan);
+    const { recipeCosts } = planToSolverArgs(plan, pack);
     expect(recipeCosts!.size).toBe(2);
     expect(recipeCosts!.get("r1")).toBe(0.5);
     expect(recipeCosts!.get("r2")).toBe(5);
@@ -79,7 +83,7 @@ describe("planToSolverArgs", () => {
     const plan = makePlan({
       recipeCosts: new Map([["lossy", { num: "15", denom: "22" }]]),
     });
-    const { recipeCosts } = planToSolverArgs(plan);
+    const { recipeCosts } = planToSolverArgs(plan, pack);
     const expected = Number("15") / Number("22"); // 0.6818181818181818
     expect(recipeCosts!.get("lossy")).toBe(expected);
     // Lossiness is observable: multiplying back does not recover 15.
@@ -91,7 +95,7 @@ describe("planToSolverArgs", () => {
       { itemId: "iron", ratePerSec: { num: "10", denom: "1" } },
     ];
     const plan = makePlan({ itemOverrides: overrides });
-    const { itemOverrides } = planToSolverArgs(plan);
+    const { itemOverrides } = planToSolverArgs(plan, pack);
     expect(itemOverrides[0]!.ratePerSec).toEqual({
       num: "10",
       denom: "1",

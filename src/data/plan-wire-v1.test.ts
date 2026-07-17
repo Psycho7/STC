@@ -61,14 +61,14 @@ describe("plan-wire-v1 recipeCosts", () => {
     plan.recipeCosts = new Map([[recipeId, { num: "1", denom: "1" }]]);
     const weightBefore = recipeCostWeight(
       recipe,
-      planToSolverArgs(plan).recipeCosts,
+      planToSolverArgs(plan, pack).recipeCosts,
     );
     expect(weightBefore).toBe(1);
 
     const back = fromWire(toWire(plan));
     const weightAfter = recipeCostWeight(
       recipe,
-      planToSolverArgs(back).recipeCosts,
+      planToSolverArgs(back, pack).recipeCosts,
     );
     expect(weightAfter).toBe(1);
   });
