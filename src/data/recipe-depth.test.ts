@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RecipePack } from "@aef/schema";
-import { computeRecipeDepths } from "./recipe-depth";
+import { computeItemTiers, computeRecipeDepths } from "./recipe-depth";
 
 // Hand-built mini-packs. Only the fields computeRecipeDepths reads are set;
 // the rest of the RecipePack shape is cast away.
@@ -191,5 +191,193 @@ describe("computeRecipeDepths", () => {
     // Their outputs never feed a finite depth to downstream consumers.
     expect(depths.get("r_use_transfer")).toBe(Number.POSITIVE_INFINITY);
     expect(depths.get("r_use_sentinel")).toBe(Number.POSITIVE_INFINITY);
+  });
+});
+
+describe("computeItemTiers", () => {
+  it("(a) gives acyclic items their fixpoint min-producer depth", () => {
+    const pack = mkPack(
+      [{ id: "raw", raw: true }, { id: "a" }, { id: "b" }],
+      [
+        {
+          id: "r_a",
+          in: [{ item: "raw", qty: 1 }],
+          out: [{ item: "a", qty: 1 }],
+        },
+        {
+          id: "r_b",
+          in: [{ item: "a", qty: 1 }],
+          out: [{ item: "b", qty: 1 }],
+        },
+      ],
+    );
+    const tiers = computeItemTiers(pack);
+    // a is produced by r_a (depth 1); b by r_b (depth 2).
+    expect(tiers.get("a")).toBe(1);
+    expect(tiers.get("b")).toBe(2);
+  });
+
+  it("(a) takes the min over an item's producers", () => {
+    const pack = mkPack(
+      [
+        { id: "raw", raw: true },
+        { id: "a" },
+        { id: "b" },
+        { id: "p" },
+      ],
+      [
+        {
+          id: "r_a",
+          in: [{ item: "raw", qty: 1 }],
+          out: [{ item: "a", qty: 1 }],
+        },
+        {
+          id: "r_b",
+          in: [{ item: "a", qty: 1 }],
+          out: [{ item: "b", qty: 1 }],
+        },
+        {
+          id: "r_p_shallow",
+          in: [{ item: "raw", qty: 1 }],
+          out: [{ item: "p", qty: 1 }],
+        },
+        {
+          id: "r_p_deep",
+          in: [{ item: "b", qty: 1 }],
+          out: [{ item: "p", qty: 1 }],
+        },
+      ],
+    );
+    // p resolves to the shallower producer (depth 1).
+    expect(computeItemTiers(pack).get("p")).toBe(1);
+  });
+
+  it("(b) gives loop items 1 + a tier-2 external input", () => {
+    const pack = mkPack(
+      [
+        { id: "raw", raw: true },
+        { id: "a" },
+        { id: "e" },
+        { id: "p" },
+        { id: "q" },
+      ],
+      [
+        {
+          id: "r_a",
+          in: [{ item: "raw", qty: 1 }],
+          out: [{ item: "a", qty: 1 }],
+        },
+        {
+          id: "r_e",
+          in: [{ item: "a", qty: 1 }],
+          out: [{ item: "e", qty: 1 }],
+        },
+        // p <-> q loop, fed from outside by e (item-depth 2).
+        {
+          id: "r_p",
+          in: [
+            { item: "q", qty: 1 },
+            { item: "e", qty: 1 },
+          ],
+          out: [{ item: "p", qty: 1 }],
+        },
+        {
+          id: "r_q",
+          in: [{ item: "p", qty: 1 }],
+          out: [{ item: "q", qty: 1 }],
+        },
+      ],
+    );
+    const tiers = computeItemTiers(pack);
+    expect(tiers.get("e")).toBe(2);
+    expect(tiers.get("p")).toBe(3);
+    expect(tiers.get("q")).toBe(3);
+  });
+
+  it("(c) gives a self-consuming recipe with a raw input a finite tier", () => {
+    const pack = mkPack(
+      [{ id: "raw", raw: true }, { id: "x" }],
+      [
+        // x is both an input and the output; only raw feeds it from outside.
+        {
+          id: "r_x",
+          in: [
+            { item: "x", qty: 1 },
+            { item: "raw", qty: 1 },
+          ],
+          out: [{ item: "x", qty: 1 }],
+        },
+      ],
+    );
+    // Fixpoint leaves x at Infinity; SCC collapse gives 1 + raw(0).
+    expect(computeRecipeDepths(pack).get("r_x")).toBe(Number.POSITIVE_INFINITY);
+    expect(computeItemTiers(pack).get("x")).toBe(1);
+  });
+
+  it("(d) gives a downstream loop the upstream loop's tier + 1", () => {
+    const pack = mkPack(
+      [
+        { id: "raw", raw: true },
+        { id: "a" },
+        { id: "b" },
+        { id: "c" },
+        { id: "d" },
+      ],
+      [
+        // Loop 1 {a,b}, fed by raw.
+        {
+          id: "r_a",
+          in: [
+            { item: "b", qty: 1 },
+            { item: "raw", qty: 1 },
+          ],
+          out: [{ item: "a", qty: 1 }],
+        },
+        {
+          id: "r_b",
+          in: [{ item: "a", qty: 1 }],
+          out: [{ item: "b", qty: 1 }],
+        },
+        // Loop 2 {c,d}, fed by a from loop 1.
+        {
+          id: "r_c",
+          in: [
+            { item: "d", qty: 1 },
+            { item: "a", qty: 1 },
+          ],
+          out: [{ item: "c", qty: 1 }],
+        },
+        {
+          id: "r_d",
+          in: [{ item: "c", qty: 1 }],
+          out: [{ item: "d", qty: 1 }],
+        },
+      ],
+    );
+    const tiers = computeItemTiers(pack);
+    expect(tiers.get("a")).toBe(1);
+    expect(tiers.get("b")).toBe(1);
+    expect(tiers.get("c")).toBe(2);
+    expect(tiers.get("d")).toBe(2);
+  });
+
+  it("(e) leaves an excluded-only-producer item at Infinity", () => {
+    const pack = mkPack(
+      [{ id: "raw", raw: true }, { id: "ex" }],
+      [
+        {
+          id: "r_ex",
+          category: "__domain_transfer",
+          in: [{ item: "raw", qty: 1 }],
+          out: [{ item: "ex", qty: 1 }],
+        },
+      ],
+    );
+    expect(computeItemTiers(pack).get("ex")).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("(f) gives a raw item tier 0", () => {
+    const pack = mkPack([{ id: "raw", raw: true }], []);
+    expect(computeItemTiers(pack).get("raw")).toBe(0);
   });
 });
