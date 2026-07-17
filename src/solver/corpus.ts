@@ -41,6 +41,70 @@ function rate(num: string, denom: string): ItemTarget["ratePerSec"] {
   return { num, denom };
 }
 
+// Full pack constructor for fixtures that run the whole pipeline (replicate,
+// multipliers, render): unlike mkPack it fills in the machine and per-recipe
+// producers/name/icon fields those stages read.
+function mkFullPack(
+  recipes: {
+    id: string;
+    category: string;
+    time: number;
+    in: { item: string; qty: number }[];
+    out: { item: string; qty: number }[];
+    flags?: string[];
+    cost?: number;
+  }[],
+  items: { id: string; raw: boolean }[],
+): RecipePack {
+  return {
+    schemaVersion: "0.2",
+    source: {
+      name: "corpus",
+      sourceRepo: "",
+      sourceCommit: "",
+      gameVersion: "",
+      extractedAt: "",
+    },
+    categories: [{ id: "material", name: "material", icon: "material" }],
+    locations: [],
+    items: items.map((i) => ({
+      id: i.id,
+      name: i.id,
+      category: "material",
+      icon: i.id,
+      row: 0,
+      raw: i.raw,
+      transportKind: "belt",
+      stack: 1,
+    })),
+    machines: [
+      {
+        id: "machine",
+        name: "machine",
+        icon: "machine",
+        speed: 1,
+        powerType: "electric",
+        powerKw: 1,
+        hideRate: false,
+      },
+    ],
+    transports: [],
+    recipes: recipes.map((r) => ({
+      id: r.id,
+      name: r.id,
+      category: r.category,
+      icon: r.id,
+      row: 0,
+      time: r.time,
+      in: r.in,
+      out: r.out,
+      producers: ["machine"],
+      ...(r.flags !== undefined ? { flags: r.flags } : {}),
+      ...(r.cost !== undefined ? { cost: r.cost } : {}),
+    })),
+  } as unknown as RecipePack;
+}
+
 // ---------------------------------------------------------------------------
 // Scenario 1: acyclic single producer
 //
@@ -846,4 +910,64 @@ export const freeBoundaryTargetWithMinerGolden = {
   softFeasible: true,
   activeRecipes: [] as string[],
   drawOre: 1,
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 16: one target item split across two producers by a finite cap
+//
+// "gold" is demanded at 5/s and has two producers with UNEQUAL output
+// quantities. r_cheap (cost 1/5 via the fixture's recipeCosts, out qty 1, so
+// 1/5 per unit of gold) consumes "vein", a non-raw item with no producer and
+// a finite external cap of 1/s, so r_cheap can run at most 1/s. r_dear
+// (default cost 1, out qty 3, so 1/3 per unit) consumes free raw "rock". The
+// cost-min LP maxes out the cheaper-per-unit producer at its cap and covers
+// the remaining 4/s with r_dear at the fractional rate 4/3, so the ONE target
+// item is genuinely split across two positive-rate producers with different
+// flows:
+//   r_cheap = 1 (flow 1), r_dear = 4/3 (flow 4), draw(vein) = 1,
+//   no surplus, no deficit; declared draw apportioned 1 : 4.
+// Built with the full closed-form pack shape (machines, producers) so
+// pipeline tests can run it end-to-end through replicate and render.
+// ---------------------------------------------------------------------------
+export const splitTargetProducers = {
+  pack: mkFullPack(
+    [
+      {
+        id: "r_cheap",
+        category: "material",
+        time: 1,
+        in: [{ item: "vein", qty: 1 }],
+        out: [{ item: "gold", qty: 1 }],
+      },
+      {
+        id: "r_dear",
+        category: "material",
+        time: 1,
+        in: [{ item: "rock", qty: 1 }],
+        out: [{ item: "gold", qty: 3 }],
+      },
+    ],
+    [
+      { id: "gold", raw: false },
+      { id: "vein", raw: false },
+      { id: "rock", raw: true },
+    ],
+  ),
+  targets: [{ itemId: "gold", ratePerSec: rate("5", "1") }],
+  itemOverrides: [
+    { itemId: "vein", ratePerSec: { num: "1", denom: "1" } } satisfies ItemOverride,
+  ],
+  recipeCosts: new Map<RecipeId, number>([["r_cheap", 0.2]]),
+};
+
+export const splitTargetProducersGolden = {
+  // r_cheap 1 * 0.2 + r_dear 4/3 * 1 = 23/15; the engine reports the pass-1
+  // objective rounded to 8 decimals, so the golden is the value read from
+  // solveLp output.
+  objectiveValue: 1.53333333,
+  activeRecipes: ["r_cheap", "r_dear"],
+  rateCheap: 1,
+  rateDearNum: 4,
+  rateDearDen: 3,
+  drawVein: 1,
 };

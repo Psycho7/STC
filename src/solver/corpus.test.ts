@@ -18,6 +18,8 @@ import { solveLp } from "./lp";
 import { activeRecipeSet } from "./optimality";
 import { checkMassBalance, checkTargetsMet } from "./invariants";
 import {
+  splitTargetProducers,
+  splitTargetProducersGolden,
   acyclicSingleProducer,
   acyclicSingleProducerGolden,
   multiProducerCostChoice,
@@ -484,6 +486,42 @@ describe("Scenario 15: free-boundary target prefers the free draw over a miner",
     expect(
       result.draws.get("ore")!.equals(new Fraction(freeBoundaryTargetWithMinerGolden.drawOre)),
     ).toBe(true);
+    expect(result.deficit.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 16: one target item split across two producers by a finite cap
+// ---------------------------------------------------------------------------
+describe("Scenario 16: finite cap splits one target item across two producers", () => {
+  it("maxes the cheap capped producer and covers the residual with the dear one", () => {
+    const result = solveLp({
+      targets: splitTargetProducers.targets,
+      pack: splitTargetProducers.pack,
+      itemOverrides: splitTargetProducers.itemOverrides,
+      recipeCosts: splitTargetProducers.recipeCosts,
+    });
+
+    expect(result.status).toBe("feasible");
+    expect(result.softFeasible).toBe(true);
+    assertObjective(result.objectiveValue, splitTargetProducersGolden.objectiveValue);
+    expect(activeList(result)).toEqual(splitTargetProducersGolden.activeRecipes);
+    expect(
+      result.rates.get("r_cheap")!.equals(new Fraction(splitTargetProducersGolden.rateCheap)),
+    ).toBe(true);
+    expect(
+      result.rates
+        .get("r_dear")!
+        .equals(
+          new Fraction(
+            splitTargetProducersGolden.rateDearNum,
+            splitTargetProducersGolden.rateDearDen,
+          ),
+        ),
+    ).toBe(true);
+    // The vein cap is saturated: draw = 1, and the point is exactly balanced.
+    expect(result.draws.get("vein")!.equals(new Fraction(splitTargetProducersGolden.drawVein))).toBe(true);
+    expect(result.surplus.size).toBe(0);
     expect(result.deficit.size).toBe(0);
   });
 });

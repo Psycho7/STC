@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import Fraction from "fraction.js";
 import { LpInfeasibleError, solvePlan, solvePlanWithIntermediates } from "./index";
+import { splitTargetProducers } from "./corpus";
+import { renderPlanFromSolve } from "../pipeline/driver";
+import { checkRenderPlan } from "../pipeline/render/invariants";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
@@ -426,5 +429,67 @@ describe("replica coverage of the LP solution", () => {
         ).toBe(true);
       }
     }
+  });
+});
+
+describe("LP-split target item through replicate and render", () => {
+  // Scenario 16: the "gold" demand of 5/s is split across r_cheap (capped by
+  // its vein input, out qty 1) and r_dear (out qty 3). Hand-derived:
+  // r_cheap = 1 exec/s (vein cap, flow 1), r_dear = 4/3 exec/s (flow 4), and
+  // the declared draw is apportioned 1 : 4 by production share, so the target
+  // output unit receives exactly 1/s from r_cheap and 4/s from r_dear.
+  it("replicates both producers and feeds the target output the declared rate", () => {
+    const { pack: p, targets, itemOverrides, recipeCosts } =
+      splitTargetProducers;
+    const full = solvePlanWithIntermediates(
+      targets,
+      p,
+      defaultTransportConfig,
+      itemOverrides,
+      recipeCosts,
+    );
+
+    // (a) Both producers replicate at their full LP rates.
+    const zero = new Fraction(0);
+    const sumOf = (rid: string) =>
+      full.replicas
+        .filter((r) => r.recipeId === rid)
+        .reduce((acc, r) => acc.add(r.executionRate), zero);
+    expect(full.rates.get("r_cheap")!.equals(1)).toBe(true);
+    expect(full.rates.get("r_dear")!.equals(new Fraction(4, 3))).toBe(true);
+    expect(sumOf("r_cheap").equals(1)).toBe(true);
+    expect(sumOf("r_dear").equals(new Fraction(4, 3))).toBe(true);
+
+    // (c) The render pipeline completes under the DEV invariant hooks and
+    // every render checker reports zero violations.
+    const { plan } = renderPlanFromSolve(full, p, targets, itemOverrides);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack: p,
+      targets,
+      itemOverrides,
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+
+    // (b)+(d) The synthetic target-output unit receives exactly the declared
+    // 5/s, apportioned 1/s from r_cheap and 4/s from r_dear.
+    const unitRecipe = new Map(
+      plan.units
+        .filter((u) => u.kind === "recipe")
+        .map((u) => [u.id, (u as { recipeId: string }).recipeId]),
+    );
+    const targetEdges = plan.edges.filter(
+      (e) => e.toUnit === "u:out:gold" && e.item === "gold",
+    );
+    const total = targetEdges.reduce((acc, e) => acc.add(e.rate), zero);
+    expect(total.equals(5)).toBe(true);
+    const byProducer = new Map<string, Fraction>();
+    for (const e of targetEdges) {
+      const rid = unitRecipe.get(e.fromUnit) ?? e.fromUnit;
+      byProducer.set(rid, (byProducer.get(rid) ?? zero).add(e.rate));
+    }
+    expect(byProducer.get("r_cheap")?.equals(1)).toBe(true);
+    expect(byProducer.get("r_dear")?.equals(4)).toBe(true);
   });
 });
