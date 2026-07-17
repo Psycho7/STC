@@ -1,26 +1,20 @@
 export type RationalString = { num: string; denom: string };
 
-export type Target = {
-  recipeId: string;
-  ratePerSec: RationalString;
-};
-
-// Item-keyed target: "net-export this item at ratePerSec". The LP core speaks
-// this shape; the recipe-keyed Target above is the plan/UI shape until the
-// remaining pipeline stages flip to item targets.
+// Item-keyed target: "net-export this item at ratePerSec". The whole app -
+// plan, UI, and solver - speaks this one shape.
 export type ItemTarget = {
   itemId: string;
   ratePerSec: RationalString;
 };
 
+// The plan/UI target is the item target. The alias survives so the many
+// Target-typed call sites keep compiling; both names denote the same shape.
+export type Target = ItemTarget;
+
 export function defaultTargets(): Target[] {
   return [
-    { recipeId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } },
-    { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "2" } },
-    // Sink recipes (cost === -1) aren't valid targets anymore, so the old
-    // third default (liquid_cleaner_1-sewage) is swapped for a non-sink recipe.
-    // That way a freshly loaded plan satisfies the picker rules and the seed
-    // survives sanitization instead of getting stripped out.
-    { recipeId: "iron_powder", ratePerSec: { num: "1", denom: "4" } },
+    { itemId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } },
+    { itemId: "copper_powder", ratePerSec: { num: "1", denom: "2" } },
+    { itemId: "iron_powder", ratePerSec: { num: "1", denom: "4" } },
   ];
 }

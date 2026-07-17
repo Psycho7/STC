@@ -6,7 +6,6 @@ import {
   loadTransportConfig,
 } from "../../src/data/transport-config";
 import { defaultTargets } from "../../src/data/targets";
-import { toSolverTargets } from "../../src/solver/planToSolverArgs";
 
 describe("solvePlan (end-to-end on real AEF)", () => {
   it("default targets produce a plan with >= 3 recipes across >= 3 blueprint groups", () => {
@@ -18,7 +17,7 @@ describe("solvePlan (end-to-end on real AEF)", () => {
     // below those so harmless upstream data drift does not break the smoke
     // check.
     const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-    const graph = solvePlan(toSolverTargets(defaultTargets(), pack), pack, tConfig);
+    const graph = solvePlan(defaultTargets(), pack, tConfig);
     const recipeNodes = graph.nodes.filter((n) => n.kind === "recipe");
     const groupNodes = graph.nodes.filter((n) => n.kind === "group");
     expect(recipeNodes.length).toBeGreaterThanOrEqual(3);
@@ -27,7 +26,7 @@ describe("solvePlan (end-to-end on real AEF)", () => {
 
   it("default targets land copper_powder with a positive multiplier", () => {
     const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-    const graph = solvePlan(toSolverTargets(defaultTargets(), pack), pack, tConfig);
+    const graph = solvePlan(defaultTargets(), pack, tConfig);
     const cp = graph.nodes.find(
       (n) => n.kind === "recipe" && n.recipe.id === "copper_powder",
     );
@@ -37,8 +36,8 @@ describe("solvePlan (end-to-end on real AEF)", () => {
 
   it("deterministic across two calls", () => {
     const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-    const g1 = solvePlan(toSolverTargets(defaultTargets(), pack), pack, tConfig);
-    const g2 = solvePlan(toSolverTargets(defaultTargets(), pack), pack, tConfig);
+    const g1 = solvePlan(defaultTargets(), pack, tConfig);
+    const g2 = solvePlan(defaultTargets(), pack, tConfig);
     const n1 = g1.nodes.map((n) => n.id).sort();
     const n2 = g2.nodes.map((n) => n.id).sort();
     expect(JSON.stringify(n1)).toBe(JSON.stringify(n2));

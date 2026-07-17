@@ -57,7 +57,7 @@ function rankProducers(
 // graph (plan validation rejects excluded-producer targets upstream). Dedup
 // keeps one edge per (producer, item, consumer).
 function buildGraph(
-  targets: ItemTarget[],
+  targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   itemOverrides: ItemOverride[] | undefined,
   multi: boolean,
@@ -133,7 +133,7 @@ function buildGraph(
 }
 
 export function buildRecipeGraph(
-  targets: ItemTarget[],
+  targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
 ): RecipeGraph {
@@ -143,7 +143,7 @@ export function buildRecipeGraph(
 // LP variant: enumerates all non-excluded producers for each consumed item
 // instead of picking one, so the LP can choose among them.
 export function buildRecipeGraphMulti(
-  targets: ItemTarget[],
+  targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
 ): RecipeGraph {

@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import type { ReactElement } from "react";
-import type { Recipe, RecipePack } from "@aef/schema";
+import type { Item, Recipe, RecipePack } from "@aef/schema";
 import { TargetsPanel } from "../../src/components/TargetsPanel";
 import { LocaleProvider } from "../../src/data/i18n-context";
 
@@ -31,6 +31,10 @@ function mkRecipe(id: string, category: string): Recipe {
   };
 }
 
+function mkItem(id: string): Item {
+  return { id, category: "cat", icon: id } as unknown as Item;
+}
+
 const mixedPack: RecipePack = {
   schemaVersion: "0.2" as RecipePack["schemaVersion"],
   source: {
@@ -42,7 +46,14 @@ const mixedPack: RecipePack = {
   },
   categories: [],
   locations: [],
-  items: [],
+  // Every recipe's output item exists, so the only thing keeping an item out of
+  // the picker is its producer's category, not a missing item entry.
+  items: [
+    mkItem("smelt_one_out"),
+    mkItem("assemble_one_out"),
+    mkItem("__hidden_machinery_out"),
+    mkItem("transfer_tundra_a_out"),
+  ],
   machines: [],
   transports: [],
   recipes: [
@@ -53,54 +64,55 @@ const mixedPack: RecipePack = {
   ],
 };
 
-// The picker popup is portal-rendered; tiles carry data-recipe-id.
-function pickerHas(recipeId: string): boolean {
-  return document.querySelector(`[data-recipe-id="${recipeId}"]`) !== null;
+// The picker popup is portal-rendered; tiles carry data-item-id.
+function pickerHas(itemId: string): boolean {
+  return document.querySelector(`[data-item-id="${itemId}"]`) !== null;
 }
 
 describe("TargetsPanel / synthetic-category filter", () => {
-  it("excludes '__internal' recipes", () => {
+  it("excludes items produced only by '__internal' recipes", () => {
     const onChange = vi.fn();
     renderWithLocale(
       <TargetsPanel
         targets={[
-          { recipeId: "smelt_one", ratePerSec: { num: "1", denom: "1" } },
+          { itemId: "smelt_one_out", ratePerSec: { num: "1", denom: "1" } },
         ]}
         onChange={onChange}
         pack={mixedPack}
       />,
     );
 
-    fireEvent.click(screen.getByLabelText(/recipe/i));
-    expect(pickerHas("smelt_one")).toBe(true);
-    expect(pickerHas("assemble_one")).toBe(true);
-    expect(pickerHas("__hidden_machinery")).toBe(false);
+    fireEvent.click(screen.getByLabelText(/item/i));
+    expect(pickerHas("smelt_one_out")).toBe(true);
+    expect(pickerHas("assemble_one_out")).toBe(true);
+    expect(pickerHas("__hidden_machinery_out")).toBe(false);
   });
 
-  it("excludes '__domain_transfer' recipes from the picker", () => {
+  it("excludes items produced only by '__domain_transfer' recipes", () => {
     const onChange = vi.fn();
     renderWithLocale(
       <TargetsPanel
         targets={[
-          { recipeId: "smelt_one", ratePerSec: { num: "1", denom: "1" } },
+          { itemId: "smelt_one_out", ratePerSec: { num: "1", denom: "1" } },
         ]}
         onChange={onChange}
         pack={mixedPack}
       />,
     );
-    fireEvent.click(screen.getByLabelText(/recipe/i));
-    // Domain-transfer recipes are input-supply metadata, not
-    // user-selectable production steps.
-    expect(pickerHas("transfer_tundra_a")).toBe(false);
+    fireEvent.click(screen.getByLabelText(/item/i));
+    // Domain-transfer recipes are input-supply metadata, so the items they
+    // import are not user-selectable production targets.
+    expect(pickerHas("transfer_tundra_a_out")).toBe(false);
   });
 
-  it("Add opens a draft whose recipe picker excludes '__domain_transfer' recipes", () => {
+  it("Add opens a draft whose item picker excludes '__domain_transfer' items", () => {
     const onChange = vi.fn();
-    // Pack where the only un-targeted recipes are a transfer recipe and a real
-    // one; the draft picker must offer only the real one, and Add alone must not
+    // Pack where the only recipes are a transfer recipe and a real one; the
+    // draft picker must offer only the real one's output, and Add alone must not
     // commit anything.
     const pack: RecipePack = {
       ...mixedPack,
+      items: [mkItem("transfer_tundra_a_out"), mkItem("real_recipe_out")],
       recipes: [
         mkRecipe("transfer_tundra_a", "__domain_transfer"),
         mkRecipe("real_recipe", "smelting"),
@@ -114,9 +126,9 @@ describe("TargetsPanel / synthetic-category filter", () => {
     // Clicking Add creates a local draft only; no commit.
     expect(onChange).not.toHaveBeenCalled();
     fireEvent.click(
-      within(screen.getByTestId("target-draft-row")).getByLabelText(/recipe/i),
+      within(screen.getByTestId("target-draft-row")).getByLabelText(/item/i),
     );
-    expect(pickerHas("transfer_tundra_a")).toBe(false);
-    expect(pickerHas("real_recipe")).toBe(true);
+    expect(pickerHas("transfer_tundra_a_out")).toBe(false);
+    expect(pickerHas("real_recipe_out")).toBe(true);
   });
 });

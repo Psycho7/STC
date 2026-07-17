@@ -7,8 +7,7 @@ import {
   defaultTransportConfig,
   loadTransportConfig,
 } from "../../src/data/transport-config";
-import type { Target, ItemTarget } from "../../src/data/targets";
-import { toSolverTargets } from "../../src/solver/planToSolverArgs";
+import type { Target } from "../../src/data/targets";
 import type { ItemOverride } from "../../src/data/plan";
 import { NoFoldRender } from "../../src/pipeline/render/policy";
 import {
@@ -36,7 +35,7 @@ function emitProducts(
   recipeById: ReadonlyMap<string, Recipe>;
 } {
   const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-  const solverTargets = toSolverTargets(targets, pack);
+  const solverTargets = targets;
   const full = solvePlanWithIntermediates(
     solverTargets,
     pack,
@@ -69,24 +68,10 @@ function emitProducts(
   return { inputs, outputs, plan, recipeById: full.recipeById };
 }
 
-// BRIDGE: these policy-level fixtures declare recipe-form targets; attach each
-// recipe's primary output item from the local fixture recipeById so the
-// item-keyed render passes read the right demand. Goes away when the plan
-// layer itself speaks item targets.
-function bridgeLocal(
-  recipeById: ReadonlyMap<string, Recipe>,
-  ts: Target[],
-): (Target & ItemTarget)[] {
-  return ts.map((t) => ({
-    ...t,
-    itemId: recipeById.get(t.recipeId)?.out[0]?.item ?? "",
-  }));
-}
-
 describe("render policy / boundary product units", () => {
   it("target = copper_nugget, no overrides: emits input products for copper_ore AND liquid_water, output product for copper_nugget", () => {
     const { inputs, outputs } = emitProducts(
-      [{ recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
+      [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
       [],
     );
     const inputItems = new Set(inputs.map((u) => u.itemId));
@@ -111,7 +96,7 @@ describe("render policy / boundary product units", () => {
     const { inputs, outputs } = emitProducts(
       [
         {
-          recipeId: "copper_ore-liquid_water",
+          itemId: "copper_ore",
           ratePerSec: { num: "1", denom: "1" },
         },
       ],
@@ -128,7 +113,7 @@ describe("render policy / boundary product units", () => {
 
   it("target = copper_nugget, override copper_ore: plan=true: drops copper_ore boundary; liquid_water surfaces as new input boundary", () => {
     const { inputs } = emitProducts(
-      [{ recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
+      [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
       [{ itemId: "copper_ore", plan: true }],
     );
     const inputItems = new Set(inputs.map((u) => u.itemId));
@@ -191,10 +176,10 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [], edges: [] },
-      targets: bridgeLocal(recipeById, [
-        { recipeId: "r1", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "r2", ratePerSec: { num: "2", denom: "1" } },
-      ]),
+      targets: [
+        { itemId: "x", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "x", ratePerSec: { num: "2", denom: "1" } },
+      ],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -271,7 +256,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
-      targets: bridgeLocal(recipeById, [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }]),
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "built", ratePerSec: { num: "1", denom: "2" } },
       ],
@@ -343,7 +328,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
-      targets: bridgeLocal(recipeById, [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }]),
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "built", ratePerSec: { num: "0", denom: "1" } },
       ],
@@ -413,7 +398,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
-      targets: bridgeLocal(recipeById, [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }]),
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -435,7 +420,7 @@ describe("render policy / boundary product units", () => {
     // boundary product also re-surfaces alongside the internal producer
     // (dual-emission); both assertions hold simultaneously.
     const { inputs } = emitProducts(
-      [{ recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
+      [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
       [{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }],
     );
     const inputItems = new Set(inputs.map((u) => u.itemId));
@@ -541,9 +526,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [producer, consumer], edges: [edge] },
-      targets: bridgeLocal(dualEmissionRecipes, [
-        { recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } },
-      ]),
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
       ],
@@ -589,9 +572,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
-      targets: bridgeLocal(dualEmissionRecipes, [
-        { recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } },
-      ]),
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [{ itemId: "shared" }],
       itemById: dualEmissionItems,
       recipeById: dualEmissionRecipes,
@@ -620,7 +601,7 @@ describe("render policy / boundary product units", () => {
       plan,
       recipeById: rById,
     } = emitProducts(
-      [{ recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
+      [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
       [{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }],
     );
     // (d.1) The capped boundary input is present.
@@ -804,7 +785,7 @@ describe("render policy / boundary product units", () => {
         vertices: [prod0, prod1, cons0, cons1],
         edges,
       },
-      targets: bridgeLocal(recipeById, [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }]),
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "shared", ratePerSec: { num: "1", denom: "1" } },
       ],
@@ -907,7 +888,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [producer, consumer], edges: [] },
-      targets: bridgeLocal(recipeById, [{ recipeId: "r_make", ratePerSec: { num: "1", denom: "1" } }]),
+      targets: [{ itemId: "dual", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [{ itemId: "dual", ratePerSec: { num: "1", denom: "2" } }],
       itemById,
       recipeById,
@@ -997,7 +978,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [producer, consumer], edges: [] },
-      targets: bridgeLocal(recipeById, [{ recipeId: "r_make", ratePerSec: { num: "1", denom: "1" } }]),
+      targets: [{ itemId: "raw_target", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -1031,9 +1012,7 @@ describe("render policy / boundary product units", () => {
         vertices: [producerWithHalfRate, consumer],
         edges: [edgeAtHalf],
       },
-      targets: bridgeLocal(dualEmissionRecipes, [
-        { recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } },
-      ]),
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
       ],
@@ -1134,7 +1113,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [cons0, cons1], edges: [] },
-      targets: bridgeLocal(recipeById, [{ recipeId: "r_cons", ratePerSec: { num: "3", denom: "1" } }]),
+      targets: [{ itemId: "out", ratePerSec: { num: "3", denom: "1" } }],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -1221,7 +1200,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [cons], edges: [] },
-      targets: bridgeLocal(recipeById, [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }]),
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "built", ratePerSec: { num: "1", denom: "2" } },
       ],
@@ -1362,10 +1341,10 @@ describe("render policy / input fan-out per container", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
-      targets: bridgeLocal(recipeById, [
-        { recipeId: "r_a", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "r_b", ratePerSec: { num: "1", denom: "1" } },
-      ]),
+      targets: [
+        { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_b", ratePerSec: { num: "1", denom: "1" } },
+      ],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -1418,10 +1397,10 @@ describe("render policy / input fan-out per container", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
-      targets: bridgeLocal(recipeById, [
-        { recipeId: "r_a", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "r_b", ratePerSec: { num: "1", denom: "1" } },
-      ]),
+      targets: [
+        { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_b", ratePerSec: { num: "1", denom: "1" } },
+      ],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -1443,10 +1422,10 @@ describe("render policy / input fan-out per container", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
-      targets: bridgeLocal(recipeById, [
-        { recipeId: "r_a", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "r_b", ratePerSec: { num: "1", denom: "1" } },
-      ]),
+      targets: [
+        { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_b", ratePerSec: { num: "1", denom: "1" } },
+      ],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -1505,7 +1484,7 @@ describe("render policy / input fan-out per container", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!], edges: [] },
-      targets: bridgeLocal(recipeById, [{ recipeId: "r_a", ratePerSec: { num: "1", denom: "1" } }]),
+      targets: [{ itemId: "out_a", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -1528,10 +1507,10 @@ describe("render policy / input fan-out per container", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
-      targets: bridgeLocal(recipeById, [
-        { recipeId: "r_a", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "r_b", ratePerSec: { num: "1", denom: "1" } },
-      ]),
+      targets: [
+        { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_b", ratePerSec: { num: "1", denom: "1" } },
+      ],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -1575,10 +1554,10 @@ describe("render policy / input fan-out per container", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
-      targets: bridgeLocal(recipeById, [
-        { recipeId: "r_a", ratePerSec: { num: "3", denom: "1" } },
-        { recipeId: "r_b", ratePerSec: { num: "1", denom: "1" } },
-      ]),
+      targets: [
+        { itemId: "out_a", ratePerSec: { num: "3", denom: "1" } },
+        { itemId: "out_b", ratePerSec: { num: "1", denom: "1" } },
+      ],
       itemOverrides: [{ itemId: "water", ratePerSec: { num: "2", denom: "1" } }],
       itemById,
       recipeById,

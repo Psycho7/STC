@@ -73,7 +73,7 @@ export function activeRecipeSet(result: LpResult): Set<RecipeId> {
 }
 
 type OptimalityInput = {
-  targets: ItemTarget[];
+  targets: ReadonlyArray<ItemTarget>;
   pack: RecipePack;
   itemOverrides?: ItemOverride[];
   recipeCosts?: Map<RecipeId, number>;

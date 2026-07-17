@@ -13,7 +13,7 @@ import type {
 import { isMachineRecipeVertex, isMachineSccVertex } from "../types";
 import { effectiveSupply } from "../../solver/effectiveSupply";
 import { toleranceScaleFloor } from "../../solver/lp";
-import type { Target, ItemTarget } from "../../data/targets";
+import type { ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { Item, Recipe, RecipePack } from "@aef/schema";
 import { rationalFromString, rationalToString } from "./rational";
@@ -65,7 +65,7 @@ const FRAC_ONE = new Fraction(1);
 
 export type DeriveBoundaryProductsInput = {
   machineGraph: MachineGraph;
-  targets: ReadonlyArray<Target & ItemTarget>;
+  targets: ReadonlyArray<ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
   itemById: ReadonlyMap<ItemId, Item>;
   recipeById: ReadonlyMap<RecipeId, Recipe>;

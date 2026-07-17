@@ -5,7 +5,7 @@
 // expected rates are exec/sec.
 
 import type { Item, Recipe, RecipePack, Stoich } from "@aef/schema";
-import type { Target, ItemTarget } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 
 export interface MicroRecipe {
@@ -68,10 +68,7 @@ export function makePack(recipes: MicroRecipe[], items: MicroItem[]): RecipePack
 
 export interface ClosedFormFixture {
   name: string;
-  // Bridge shape: itemId drives the LP demand; recipeId still seeds the
-  // graph/replicate stages when a fixture runs through the full pipeline
-  // (render-corpus). recipeId goes away when those stages flip to item targets.
-  targets: (Target & ItemTarget)[];
+  targets: ItemTarget[];
   pack: RecipePack;
   itemOverrides?: ItemOverride[];
   expected: {
@@ -99,7 +96,7 @@ const chain: ClosedFormFixture = {
     ],
     [{ id: "F", stack: 1 }, { id: "M", stack: 1 }, { id: "R", raw: true, stack: 1 }],
   ),
-  targets: [{ recipeId: "a", itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
+  targets: [{ itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
   expected: {
     softFeasible: true,
     rates: [
@@ -124,7 +121,7 @@ const multiProducer: ClosedFormFixture = {
       { id: "R", raw: true, stack: 1 }, { id: "S", raw: true, stack: 1 },
     ],
   ),
-  targets: [{ recipeId: "a", itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
+  targets: [{ itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
   expected: { softFeasible: true },
 };
 
@@ -136,7 +133,7 @@ const byproduct: ClosedFormFixture = {
     [{ id: "b", time: 1, in: { R: 1 }, out: { F: 1, W: 1 } }],
     [{ id: "F", stack: 1 }, { id: "W", stack: 1 }, { id: "R", raw: true, stack: 1 }],
   ),
-  targets: [{ recipeId: "b", itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
+  targets: [{ itemId: "F", ratePerSec: { num: "2", denom: "1" } }],
   expected: {
     softFeasible: true,
     surplus: [{ itemId: "W", num: 2, den: 1 }],
@@ -152,7 +149,7 @@ const rawDraw: ClosedFormFixture = {
     [{ id: "a", time: 2, in: { R: 2 }, out: { F: 1 } }],
     [{ id: "F", stack: 1 }, { id: "R", raw: true, stack: 1 }],
   ),
-  targets: [{ recipeId: "a", itemId: "F", ratePerSec: { num: "3", denom: "1" } }],
+  targets: [{ itemId: "F", ratePerSec: { num: "3", denom: "1" } }],
   expected: { softFeasible: true, rates: [{ recipeId: "a", num: 3, den: 1 }] },
 };
 
@@ -171,7 +168,7 @@ const cyclicTarget: ClosedFormFixture = {
     ],
     [{ id: "F", stack: 1 }, { id: "M", stack: 1 }],
   ),
-  targets: [{ recipeId: "make_F", itemId: "F", ratePerSec: { num: "1", denom: "1" } }],
+  targets: [{ itemId: "F", ratePerSec: { num: "1", denom: "1" } }],
   expected: { softFeasible: false, deficitItems: ["F"] },
 };
 
@@ -185,7 +182,7 @@ const noProducer: ClosedFormFixture = {
     [{ id: "a", time: 1, in: { X: 1 }, out: { F: 1 } }],
     [{ id: "F", stack: 1 }, { id: "X", stack: 1 }],
   ),
-  targets: [{ recipeId: "a", itemId: "F", ratePerSec: { num: "1", denom: "1" } }],
+  targets: [{ itemId: "F", ratePerSec: { num: "1", denom: "1" } }],
   expected: { softFeasible: false, deficitItems: ["F"] },
 };
 

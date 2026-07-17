@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest";
 import { solvePlanWithIntermediates } from "./index";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
-import type { SolverTarget } from "./planToSolverArgs";
+import type { ItemTarget } from "../data/targets";
 
-const headlineTargets: SolverTarget[] = [
+const headlineTargets: ItemTarget[] = [
   {
-    recipeId: "xiranite_enr_powder",
     itemId: "xiranite_enr_powder",
     ratePerSec: { num: "6", denom: "60" },
   },

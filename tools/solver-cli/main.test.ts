@@ -92,7 +92,7 @@ describe("solver-cli smoke", () => {
     // override was dropped on the --hash path.
     const plan = defaultPlan(pack);
     plan.targets = [
-      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+      { itemId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
     ];
     plan.itemOverrides = [{ itemId: "xiranite_powder", plan: true }];
     const hash = await encodePlan(plan);
@@ -112,12 +112,12 @@ describe("solver-cli smoke", () => {
     expect(withOverride).not.toMatch(/^xiranite_powder=/m);
   });
 
-  it("returns clean error for full mode on unknown recipe", async () => {
-    // The --plan path validates target recipeIds against the pack and returns a
+  it("returns clean error for full mode on unknown item", async () => {
+    // The --plan path validates target itemIds against the pack and returns a
     // clean error string instead of letting the unknown id reach the solver.
-    const out = await runCli(["--plan", "no_such_recipe_id=1", "--mode", "full"]);
+    const out = await runCli(["--plan", "no_such_item_id=1", "--mode", "full"]);
     expect(out).toMatch(/^error:/);
-    expect(out).toContain('unknown recipe "no_such_recipe_id"');
+    expect(out).toContain('unknown item "no_such_item_id"');
     // Must not throw; the test would fail if it did.
   });
 

@@ -8,16 +8,15 @@ import {
   loadTransportConfig,
 } from "../../src/data/transport-config";
 import { defaultTargets } from "../../src/data/targets";
-import { toSolverTargets } from "../../src/solver/planToSolverArgs";
 
 describe("pipeline driver: default AEF targets", () => {
   it("produces a render plan with at least one unit and one edge", () => {
     const full = solvePlanWithIntermediates(
-      toSolverTargets(defaultTargets(), pack),
+      defaultTargets(),
       pack,
       loadTransportConfig(defaultTransportConfig, pack),
     );
-    const targets = toSolverTargets(defaultTargets(), pack);
+    const targets = defaultTargets();
     const { plan, machineGraph, containers } = buildRenderPlan({
       logical: full.logical,
       replicas: full.replicas,
@@ -65,10 +64,9 @@ describe("pipeline driver: default AEF targets", () => {
     // declared target rate.
     const targetRecipeId = "plant_grass_seed_1";
     const targetRatePerSec = { num: "2", denom: "1" }; // 120/min
-    const targets = toSolverTargets(
-      [{ recipeId: targetRecipeId, ratePerSec: targetRatePerSec }],
-      pack,
-    );
+    const targets = [
+      { itemId: "plant_grass_seed_1", ratePerSec: targetRatePerSec },
+    ];
     const full = solvePlanWithIntermediates(
       targets,
       pack,
@@ -126,10 +124,9 @@ describe("pipeline driver: default AEF targets", () => {
     const pickerRecipeId = "plant_moss_seed_3";
     // 1 plant/sec delivered cross-boundary; symmetric Sandleaf gives
     // planter exec = 2/sec, picker exec = 1/sec.
-    const targets = toSolverTargets(
-      [{ recipeId: targetRecipeId, ratePerSec: { num: "1", denom: "1" } }],
-      pack,
-    );
+    const targets = [
+      { itemId: targetItem, ratePerSec: { num: "1", denom: "1" } },
+    ];
     const full = solvePlanWithIntermediates(
       targets,
       pack,

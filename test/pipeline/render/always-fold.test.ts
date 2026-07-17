@@ -10,19 +10,6 @@ import type {
   RenderUnitRecipe,
 } from "../../../src/pipeline/types";
 import type { Item, Recipe } from "@aef/schema";
-import type { Target, ItemTarget } from "../../../src/data/targets";
-
-// BRIDGE: attach the recipe target's primary output item from the local
-// fixture recipeById so the item-keyed render passes read the right demand.
-function bridgeLocal(
-  recipeById: ReadonlyMap<string, Recipe>,
-  ts: Target[],
-): (Target & ItemTarget)[] {
-  return ts.map((t) => ({
-    ...t,
-    itemId: recipeById.get(t.recipeId)?.out[0]?.item ?? "",
-  }));
-}
 
 function makeRecipeVertex(
   id: string,
@@ -434,7 +421,7 @@ describe("AlwaysFoldRender - boundary products parity with NoFoldRender", () => 
     const input: RenderPolicyInput = {
       containers: { containers: [], containerByMember: new Map() },
       machineGraph: { vertices: [producer, consumer], edges: [edge] },
-      targets: bridgeLocal(recipeById, [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }]),
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
       ],

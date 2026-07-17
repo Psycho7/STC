@@ -15,11 +15,11 @@ import { checkRenderPlan } from "./invariants";
 import { makePack } from "../../solver/closed-form-fixtures";
 import { isInputProductUnit, isOutputProductUnit, isRecipeUnit } from "../types";
 import type { RenderPlan } from "../types";
-import type { SolverTarget } from "../../solver/planToSolverArgs";
+import type { ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 
 function solveAndRender(
-  targets: SolverTarget[],
+  targets: ItemTarget[],
   overrides: ItemOverride[],
   fixturePack = pack,
 ): { plan: RenderPlan; rates: ReadonlyMap<string, Fraction> } {
@@ -50,9 +50,8 @@ function inflow(plan: RenderPlan, toUnit: string, item: string): Fraction {
 }
 
 describe("finite supply cap below demand (iron_nugget-iron_ore, cap 1/4)", () => {
-  const targets: SolverTarget[] = [
+  const targets: ItemTarget[] = [
     {
-      recipeId: "iron_nugget-iron_ore",
       itemId: "iron_nugget",
       ratePerSec: { num: "1", denom: "1" },
     },
@@ -104,9 +103,8 @@ describe("finite supply cap below demand (iron_nugget-iron_ore, cap 1/4)", () =>
 });
 
 describe("itemOverride matrix on copper_nugget@1/s (copper_ore)", () => {
-  const targets: SolverTarget[] = [
+  const targets: ItemTarget[] = [
     {
-      recipeId: "copper_nugget",
       itemId: "copper_nugget",
       ratePerSec: { num: "1", denom: "1" },
     },
@@ -175,9 +173,9 @@ describe("forced-byproduct zero-draw cap", () => {
     ],
     [{ id: "x", raw: true }, { id: "p" }, { id: "c" }, { id: "r" }],
   );
-  const targets: SolverTarget[] = [
-    { recipeId: "tP", itemId: "p", ratePerSec: { num: "1", denom: "1" } },
-    { recipeId: "uR", itemId: "r", ratePerSec: { num: "1", denom: "1" } },
+  const targets: ItemTarget[] = [
+    { itemId: "p", ratePerSec: { num: "1", denom: "1" } },
+    { itemId: "r", ratePerSec: { num: "1", denom: "1" } },
   ];
   const overrides: ItemOverride[] = [
     { itemId: "c", ratePerSec: { num: "10", denom: "1" } },

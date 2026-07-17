@@ -64,7 +64,7 @@ export function replicatePerConsumer(args: {
   articulation: Set<RecipeId>;
   rates: Map<RecipeId, Fraction>;
   condensation: Condensation;
-  targets: ItemTarget[];
+  targets: ReadonlyArray<ItemTarget>;
   augmented?: Set<RecipeId>;
   boundaryShare?: ReadonlyMap<ItemId, Fraction>;
 }): { replicas: Replica[]; supplyShares: Map<string, Fraction> } {
@@ -100,7 +100,7 @@ type ReplicateState = {
   readonly articulation: Set<RecipeId>;
   readonly rates: Map<RecipeId, Fraction>;
   readonly condensation: Condensation;
-  readonly targets: ItemTarget[];
+  targets: ReadonlyArray<ItemTarget>;
   // Recipes added by the post-LP graph augmentation: positive LP rate but
   // unreachable from any target cone (disposal absorbers). Seeded like targets.
   readonly augmented: Set<RecipeId>;
@@ -185,7 +185,7 @@ function createReplicateState(args: {
   articulation: Set<RecipeId>;
   rates: Map<RecipeId, Fraction>;
   condensation: Condensation;
-  targets: ItemTarget[];
+  targets: ReadonlyArray<ItemTarget>;
   augmented?: Set<RecipeId>;
   boundaryShare?: ReadonlyMap<ItemId, Fraction>;
 }): ReplicateState {

@@ -3,7 +3,6 @@ import type { LogicalGraph } from "../canvas/layout";
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { TransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
-import type { SolverTarget } from "./planToSolverArgs";
 import type { ItemOverride } from "../data/plan";
 import { augmentGraphWithLpSupport, buildRecipeGraphMulti } from "./graph";
 import { tarjanScc, condense } from "./scc";
@@ -53,7 +52,7 @@ export class LpInfeasibleError extends Error {
 // diagnostics rebuild): the finite supply caps and the target outputs.
 function assertSolvable(
   status: LpResult["status"],
-  targets: ItemTarget[],
+  targets: ReadonlyArray<ItemTarget>,
   itemOverrides: ItemOverride[] | undefined,
 ): void {
   switch (status) {
@@ -168,7 +167,7 @@ export type SolvePlanFull = {
 // .edge and .sccId fields. AEF has only a handful of non-trivial SCCs, so re-
 // running pickTearEdges costs almost nothing.
 function runSolvePipeline(
-  targets: SolverTarget[],
+  targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   tConfig: TransportConfig,
   itemOverrides: ItemOverride[] | undefined,
@@ -279,7 +278,7 @@ function runSolvePipeline(
  * dev-only invariant assertions that solvePlanWithIntermediates runs.
  */
 export function solvePlan(
-  targets: SolverTarget[],
+  targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   tConfig: TransportConfig,
   itemOverrides?: ItemOverride[],
@@ -302,7 +301,7 @@ export function solvePlan(
  * invariant assertions in dev/test builds.
  */
 export function solvePlanWithIntermediates(
-  targets: SolverTarget[],
+  targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   tConfig: TransportConfig,
   itemOverrides?: ItemOverride[],

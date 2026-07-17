@@ -24,7 +24,7 @@ export type PlanWireV1 = {
 
 export function toWire(plan: Plan): PlanWireV1 {
   const targets = [...plan.targets].sort((a, b) =>
-    a.recipeId < b.recipeId ? -1 : a.recipeId > b.recipeId ? 1 : 0,
+    a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0,
   );
   const wire: PlanWireV1 = {
     pack: [plan.pack.id, plan.pack.schemaVersion, plan.pack.submoduleSha],

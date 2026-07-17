@@ -56,7 +56,7 @@ function netProduction(
 export function checkMassBalance(
   result: LpResult,
   pack: RecipePack,
-  targets: ItemTarget[],
+  targets: ReadonlyArray<ItemTarget>,
   overrides: ItemOverride[],
 ): InvariantResult {
   const violations: string[] = [];
@@ -91,7 +91,7 @@ export function checkMassBalance(
  */
 export function checkTargetsMet(
   result: LpResult,
-  targets: ItemTarget[],
+  targets: ReadonlyArray<ItemTarget>,
 ): InvariantResult {
   const violations: string[] = [];
   if (!result.softFeasible) return { ok: true, violations };
@@ -257,7 +257,7 @@ export function assertInvariants(
   full: SolvePlanFull,
   result: LpResult,
   pack: RecipePack,
-  targets: ItemTarget[],
+  targets: ReadonlyArray<ItemTarget>,
   overrides: ItemOverride[],
 ): void {
   const violations = [

@@ -11,7 +11,7 @@ function makePlan(targetCount: number, supplyCount: number): Plan {
     pack: { id: "test", schemaVersion: "0.2", submoduleSha: "sha" },
     title: "",
     targets: Array.from({ length: targetCount }, (_, i) => ({
-      recipeId: `r${i}`,
+      itemId: `r${i}`,
       ratePerSec: { num: "1", denom: "1" },
     })),
     itemOverrides: Array.from({ length: supplyCount }, (_, i) => ({

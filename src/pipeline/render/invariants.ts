@@ -1,6 +1,6 @@
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
-import type { Target, ItemTarget } from "../../data/targets";
+import type { ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { InvariantResult } from "../../solver/invariants";
 import { effectiveSupply } from "../../solver/effectiveSupply";
@@ -32,21 +32,17 @@ export const REL_TOL = 1e-6;
 // and the extraction hygiene gate. Sub-unit plans shrink the floor to their
 // own magnitude; an absolute floor of 1 would exceed everything a tiny plan
 // produces and misfire predicates that require a magnitude above slack.
-function planScaleFloor(
-  targets: ReadonlyArray<Target & ItemTarget>,
-): number {
-  return toleranceScaleFloor(demandByItem(targets as (Target & ItemTarget)[]));
+function planScaleFloor(targets: ReadonlyArray<ItemTarget>): number {
+  return toleranceScaleFloor(demandByItem(targets));
 }
 
-// Shared args object so all checkers have one signature and can be called from a list.
-// Targets carry the bridge shape (recipeId + itemId), but the recipeId half of
-// the intersection exists only for the plan/UI bridge; every checker here keys
-// on itemId and none reads recipeId.
+// Shared args object so all checkers have one signature and can be called from
+// a list. Targets are item-keyed; every checker keys on itemId.
 export type RenderInvariantArgs = {
   plan: RenderPlan;
   rates: ReadonlyMap<RecipeId, Fraction>;
   pack: RecipePack;
-  targets: ReadonlyArray<Target & ItemTarget>;
+  targets: ReadonlyArray<ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
 };
 
@@ -208,7 +204,7 @@ export function checkBoundaryProductsJustified(
 
   const production = internalProductionByItem(rates, pack);
   const consumption = internalConsumptionByItem(rates, pack);
-  const demandOf = demandByItem(targets as (Target & ItemTarget)[]);
+  const demandOf = demandByItem(targets);
   const scaleFloor = planScaleFloor(targets);
 
   for (const unit of plan.units) {

@@ -1,29 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Recipe } from "@aef/schema";
+import type { Item } from "@aef/schema";
 import { useI18n } from "../data/i18n-context";
 import { iconPosition, iconSheetUrl } from "../canvas/iconSprite";
 
 type Props = {
-  // Already-filtered pickable recipes; the caller decides what is pickable.
-  recipes: Recipe[];
-  // Recipes another target/draft already claims. Their tiles render disabled so
+  // Already-filtered producible items; the caller decides what is pickable.
+  items: Item[];
+  // Items another target/draft already claims. Their tiles render disabled so
   // a duplicate can't be picked, rather than surfacing a post-hoc error.
   disabledIds: ReadonlySet<string>;
-  // The recipe of the row being edited, highlighted as selected.
+  // The item of the row being edited, highlighted as selected.
   selectedId?: string | undefined;
-  // Crafting-tier depth per recipe id (POSITIVE_INFINITY for cycle-only ones),
-  // computed once by the caller so the popup stays presentational.
-  depthByRecipeId: Map<string, number>;
-  onPick: (recipeId: string) => void;
+  // Availability tier per item id. POSITIVE_INFINITY marks items the tier
+  // fixpoint cannot rank (no non-excluded producer, or loops with no external
+  // finite feeder); they group under the unranked bucket. Computed once by the
+  // caller so the popup stays presentational.
+  tierByItemId: Map<string, number>;
+  onPick: (itemId: string) => void;
   onClose: () => void;
 };
 
-export function RecipePickerPopup({
-  recipes,
+export function ItemPickerPopup({
+  items,
   disabledIds,
   selectedId,
-  depthByRecipeId,
+  tierByItemId,
   onPick,
   onClose,
 }: Props) {
@@ -44,36 +46,36 @@ export function RecipePickerPopup({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Filter by localized name or raw id, bucket by crafting-tier depth, sort each
+  // Filter by localized name or raw id, bucket by availability tier, sort each
   // bucket by localized name, and order the buckets ascending (Infinity last,
   // since there is a single Infinity bucket so its key never collides).
   const groups = useMemo(() => {
     const q = search.trim().toLocaleLowerCase(i18n.locale);
-    const byDepth = new Map<number, Recipe[]>();
-    for (const r of recipes) {
-      const name = i18n.displayName(r.id);
+    const byTier = new Map<number, Item[]>();
+    for (const it of items) {
+      const name = i18n.displayName(it.id);
       if (
         q &&
         !name.toLocaleLowerCase(i18n.locale).includes(q) &&
-        !r.id.toLocaleLowerCase(i18n.locale).includes(q)
+        !it.id.toLocaleLowerCase(i18n.locale).includes(q)
       )
         continue;
-      const depth = depthByRecipeId.get(r.id) ?? Number.POSITIVE_INFINITY;
-      const arr = byDepth.get(depth);
-      if (arr) arr.push(r);
-      else byDepth.set(depth, [r]);
+      const tier = tierByItemId.get(it.id) ?? Number.POSITIVE_INFINITY;
+      const arr = byTier.get(tier);
+      if (arr) arr.push(it);
+      else byTier.set(tier, [it]);
     }
-    return [...byDepth.entries()]
-      .map(([depth, group]) => ({
-        depth,
-        recipes: group
+    return [...byTier.entries()]
+      .map(([tier, group]) => ({
+        tier,
+        items: group
           .slice()
           .sort((a, b) =>
             collator.compare(i18n.displayName(a.id), i18n.displayName(b.id)),
           ),
       }))
-      .sort((a, b) => a.depth - b.depth);
-  }, [recipes, search, depthByRecipeId, collator, i18n]);
+      .sort((a, b) => a.tier - b.tier);
+  }, [items, search, tierByItemId, collator, i18n]);
 
   return createPortal(
     // The portal escapes .ak-app-shell where --icons-url lives, so the backdrop
@@ -117,35 +119,30 @@ export function RecipePickerPopup({
             </div>
           ) : (
             groups.map((g) => (
-              <div className="recipe-picker-group" key={g.depth}>
+              <div className="recipe-picker-group" key={g.tier}>
                 <div className="recipe-picker-group-head">
-                  {g.depth === Number.POSITIVE_INFINITY
+                  {g.tier === Number.POSITIVE_INFINITY
                     ? i18n.t("picker.group.unranked")
-                    : i18n.t("picker.group.depth", { n: g.depth })}
+                    : i18n.t("picker.group.depth", { n: g.tier })}
                 </div>
                 <div className="recipe-picker-grid">
-                  {g.recipes.map((r) => {
-                    const name = i18n.displayName(r.id);
-                    // Same fallback chain the target row uses for its slot icon.
-                    const iconPos =
-                      iconPosition(r.out[0]?.item) ??
-                      iconPosition(r.icon) ??
-                      iconPosition(r.producers?.[0]) ??
-                      iconPosition(r.id);
+                  {g.items.map((it) => {
+                    const name = i18n.displayName(it.id);
+                    const iconPos = iconPosition(it.id);
                     return (
                       <button
                         type="button"
-                        key={r.id}
+                        key={it.id}
                         className={
                           "recipe-picker-tile" +
-                          (r.id === selectedId ? " selected" : "")
+                          (it.id === selectedId ? " selected" : "")
                         }
                         data-testid="picker-tile"
-                        data-recipe-id={r.id}
-                        disabled={disabledIds.has(r.id)}
+                        data-item-id={it.id}
+                        disabled={disabledIds.has(it.id)}
                         aria-label={name}
                         title={name}
-                        onClick={() => onPick(r.id)}
+                        onClick={() => onPick(it.id)}
                       >
                         {iconPos !== undefined ? (
                           <span className="ico ico-40">

@@ -65,9 +65,9 @@ describe("canvas-targets: add target", () => {
     vi.stubEnv("DEV", false);
     const seedTargets = [
       ...defaultTargets(),
-      { recipeId: "iron_ore", ratePerSec: { num: "0", denom: "1" } },
-      { recipeId: "quartz_sand", ratePerSec: { num: "0", denom: "1" } },
-      { recipeId: "originium_ore", ratePerSec: { num: "0", denom: "1" } },
+      { itemId: "iron_ore", ratePerSec: { num: "0", denom: "1" } },
+      { itemId: "quartz_sand", ratePerSec: { num: "0", denom: "1" } },
+      { itemId: "originium_ore", ratePerSec: { num: "0", denom: "1" } },
     ];
     const seed: Plan = { ...defaultPlan(pack), targets: seedTargets };
     history.replaceState(null, "", "#" + (await encodePlan(seed)));
@@ -92,9 +92,9 @@ describe("canvas-targets: add target", () => {
     expect(screen.getAllByTestId("target-row").length).toBe(rowsBefore);
     expect(window.location.hash).toBe(hashBefore);
 
-    // Open the picker, choose the first enabled recipe tile, and commit a rate:
+    // Open the picker, choose the first enabled item tile, and commit a rate:
     // the draft promotes to a target and the URL re-solves.
-    await user.click(within(draftRow).getByLabelText(/配方/));
+    await user.click(within(draftRow).getByLabelText(/物品/));
     const tile = document.querySelector(
       ".recipe-picker-tile:not([disabled])",
     ) as HTMLButtonElement;

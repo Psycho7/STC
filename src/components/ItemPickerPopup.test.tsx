@@ -3,60 +3,52 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
-import type { Recipe } from "@aef/schema";
-import { RecipePickerPopup } from "./RecipePickerPopup";
+import type { Item } from "@aef/schema";
+import { ItemPickerPopup } from "./ItemPickerPopup";
 import { LocaleProvider } from "../data/i18n-context";
 
 afterEach(cleanup);
 
-function mkRecipe(id: string): Recipe {
-  return {
-    id,
-    category: "craft",
-    in: [],
-    out: [{ item: `${id}_out`, qty: 1 }],
-    icon: id,
-    producers: [],
-    cost: 1,
-  } as unknown as Recipe;
+function mkItem(id: string): Item {
+  return { id, category: "cat", icon: id } as unknown as Item;
 }
 
-const RECIPES = [
-  mkRecipe("r_alpha"),
-  mkRecipe("r_bravo"),
-  mkRecipe("r_charlie"),
-  mkRecipe("r_delta"),
+const ITEMS = [
+  mkItem("alpha"),
+  mkItem("bravo"),
+  mkItem("charlie"),
+  mkItem("delta"),
 ];
 
-// r_alpha, r_bravo -> tier 1; r_charlie -> tier 2; r_delta -> Infinity.
-const DEPTHS = new Map<string, number>([
-  ["r_alpha", 1],
-  ["r_bravo", 1],
-  ["r_charlie", 2],
-  ["r_delta", Number.POSITIVE_INFINITY],
+// alpha, bravo -> tier 1; charlie -> tier 2; delta -> Infinity.
+const TIERS = new Map<string, number>([
+  ["alpha", 1],
+  ["bravo", 1],
+  ["charlie", 2],
+  ["delta", Number.POSITIVE_INFINITY],
 ]);
 
 function renderPopup(
-  overrides: Partial<ComponentProps<typeof RecipePickerPopup>> = {},
+  overrides: Partial<ComponentProps<typeof ItemPickerPopup>> = {},
 ) {
-  const props: ComponentProps<typeof RecipePickerPopup> = {
-    recipes: RECIPES,
+  const props: ComponentProps<typeof ItemPickerPopup> = {
+    items: ITEMS,
     disabledIds: new Set<string>(),
-    depthByRecipeId: DEPTHS,
+    tierByItemId: TIERS,
     onPick: vi.fn(),
     onClose: vi.fn(),
     ...overrides,
   };
   render(
     <LocaleProvider locale="en">
-      <RecipePickerPopup {...props} />
+      <ItemPickerPopup {...props} />
     </LocaleProvider>,
   );
   return props;
 }
 
-function tile(recipeId: string): HTMLButtonElement | null {
-  return document.querySelector(`[data-recipe-id="${recipeId}"]`);
+function tile(itemId: string): HTMLButtonElement | null {
+  return document.querySelector(`[data-item-id="${itemId}"]`);
 }
 
 function groupHeads(): string[] {
@@ -65,7 +57,7 @@ function groupHeads(): string[] {
   );
 }
 
-test("renders depth groups in ascending order with the Infinity bucket last", () => {
+test("renders tier groups in ascending order with the Infinity bucket last", () => {
   renderPopup();
   expect(groupHeads()).toEqual(["Tier 1", "Tier 2", "Cyclic / unranked"]);
 });
@@ -74,9 +66,9 @@ test("search filters tiles and hides emptied groups", async () => {
   const user = userEvent.setup();
   renderPopup();
   await user.type(screen.getByLabelText(/search/i), "charlie");
-  expect(tile("r_charlie")).not.toBeNull();
-  expect(tile("r_alpha")).toBeNull();
-  expect(tile("r_delta")).toBeNull();
+  expect(tile("charlie")).not.toBeNull();
+  expect(tile("alpha")).toBeNull();
+  expect(tile("delta")).toBeNull();
   // Only the tier-2 group survives.
   expect(groupHeads()).toEqual(["Tier 2"]);
 });
@@ -92,17 +84,17 @@ test("shows the empty-state message when nothing matches", async () => {
 });
 
 test("a disabled tile is not clickable and does not fire onPick", () => {
-  const props = renderPopup({ disabledIds: new Set(["r_bravo"]) });
-  const disabled = tile("r_bravo")!;
+  const props = renderPopup({ disabledIds: new Set(["bravo"]) });
+  const disabled = tile("bravo")!;
   expect(disabled.disabled).toBe(true);
   fireEvent.click(disabled);
   expect(props.onPick).not.toHaveBeenCalled();
 });
 
-test("clicking a tile fires onPick with its recipe id", () => {
+test("clicking a tile fires onPick with its item id", () => {
   const props = renderPopup();
-  fireEvent.click(tile("r_charlie")!);
-  expect(props.onPick).toHaveBeenCalledWith("r_charlie");
+  fireEvent.click(tile("charlie")!);
+  expect(props.onPick).toHaveBeenCalledWith("charlie");
 });
 
 test("Escape fires onClose", () => {
@@ -113,7 +105,7 @@ test("Escape fires onClose", () => {
 
 test("backdrop click fires onClose; a click inside the panel does not", () => {
   const props = renderPopup();
-  fireEvent.click(screen.getByText("Select recipe"));
+  fireEvent.click(screen.getByText("Select item"));
   expect(props.onClose).not.toHaveBeenCalled();
   fireEvent.click(document.querySelector(".recipe-picker-backdrop")!);
   expect(props.onClose).toHaveBeenCalledTimes(1);

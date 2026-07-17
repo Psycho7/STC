@@ -12,16 +12,11 @@ import { solveLp, type LpResult } from "./lp";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./index";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
-import type { Target, ItemTarget } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 
-// Bridge shape: itemId drives the LP demand; recipeId still seeds the
-// graph/replicate stages behind solvePlanWithIntermediates.
-type SolverTarget = Target & ItemTarget;
-
-const headlineTargets: SolverTarget[] = [
+const headlineTargets: ItemTarget[] = [
   {
-    recipeId: "xiranite_enr_powder",
     itemId: "xiranite_enr_powder",
     ratePerSec: { num: "6", denom: "60" },
   },
@@ -127,8 +122,8 @@ describe("checkMassBalance - detection power", () => {
     // Mark `prod` as an uncapped boundary; the LP draws it freely with no
     // mass-balance row, so net consumption without a deficit is fine.
     const overrides: ItemOverride[] = [{ itemId: "prod", plan: true }];
-    const targets: SolverTarget[] = [
-      { recipeId: "sink", itemId: "final", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "final", ratePerSec: { num: "1", denom: "1" } },
     ];
     const result = solveLp({ targets, pack: p, itemOverrides: overrides });
     const r = checkMassBalance(result, p, targets, overrides);
@@ -142,9 +137,8 @@ describe("checkMassBalance - bounded supply draw", () => {
   // nugget consumption with a bounded boundary draw. The checker must mirror
   // the draw term of the mass-balance row; the old supply-blind residual was
   // exactly -cap on every correct finite-cap solve.
-  const capTargets: SolverTarget[] = [
+  const capTargets: ItemTarget[] = [
     {
-      recipeId: "copper_powder",
       itemId: "copper_powder",
       ratePerSec: { num: "1", denom: "60" },
     },

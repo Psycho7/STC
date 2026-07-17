@@ -8,7 +8,7 @@ import { effectiveSupply } from "./effectiveSupply";
 import { isExcludedProducer } from "../data/recipe-category";
 
 export type LpInput = {
-  targets: ItemTarget[];
+  targets: ReadonlyArray<ItemTarget>;
   pack: RecipePack;
   itemOverrides?: ItemOverride[];
   recipeCosts?: Map<RecipeId, number>;
@@ -99,7 +99,7 @@ export function toleranceScaleFloor(demand: Map<ItemId, number>): number {
 // Demand per item: sum over targets of the requested net-export rate.
 // Duplicate targets on the same item accumulate. Shared with the invariant
 // checkers so model and checks read demand the same way.
-export function demandByItem(targets: ItemTarget[]): Map<ItemId, number> {
+export function demandByItem(targets: ReadonlyArray<ItemTarget>): Map<ItemId, number> {
   const demand = new Map<ItemId, number>();
   for (const t of targets) {
     const rate = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
@@ -354,7 +354,7 @@ type ExtractArgs = {
   supplyById: Map<ItemId, Fraction | typeof Infinity>;
   costById: Map<RecipeId, number>;
   demand: Map<ItemId, number>;
-  targets: ItemTarget[];
+  targets: ReadonlyArray<ItemTarget>;
   t0: number;
 };
 

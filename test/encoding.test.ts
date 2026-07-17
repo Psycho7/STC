@@ -71,8 +71,8 @@ describe("envelope round-trip", () => {
     const outcome = await loadPlan("#" + hash, pack);
     expect(outcome.kind).toBe("loaded");
     if (outcome.kind === "loaded") {
-      expect(new Set(outcome.plan.targets.map((t) => t.recipeId))).toEqual(
-        new Set(plan.targets.map((t) => t.recipeId)),
+      expect(new Set(outcome.plan.targets.map((t) => t.itemId))).toEqual(
+        new Set(plan.targets.map((t) => t.itemId)),
       );
       expect(outcome.plan.version).toBe(1);
       expect(outcome.plan.pack.id).toBe(pack.source.name);

@@ -58,9 +58,9 @@ const PACK = {
 
 function targets3(): Target[] {
   return [
-    { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } }, // 120/min
-    { recipeId: "r_gadget", ratePerSec: { num: "1", denom: "2" } }, // 30/min
-    { recipeId: "r_sprocket", ratePerSec: { num: "1", denom: "4" } }, // 15/min
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } }, // 120/min
+    { itemId: "gadget", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+    { itemId: "sprocket", ratePerSec: { num: "1", denom: "4" } }, // 15/min
   ];
 }
 
@@ -70,12 +70,12 @@ function rateInputs(): HTMLInputElement[] {
     .filter((el) => el instanceof HTMLInputElement) as HTMLInputElement[];
 }
 
-// The recipe picker is a portal-rendered popup; tiles carry data-recipe-id.
-function pickerTile(recipeId: string): HTMLButtonElement | null {
-  return document.querySelector(`[data-recipe-id="${recipeId}"]`);
+// The item picker is a portal-rendered popup; tiles carry data-item-id.
+function pickerTile(itemId: string): HTMLButtonElement | null {
+  return document.querySelector(`[data-item-id="${itemId}"]`);
 }
-function pickTile(recipeId: string) {
-  fireEvent.click(pickerTile(recipeId)!);
+function pickTile(itemId: string) {
+  fireEvent.click(pickerTile(itemId)!);
 }
 
 // Typing alone must never commit: the whole point of moving off the debounce is
@@ -85,9 +85,7 @@ test("typing a rate does not commit, even after time passes", () => {
   render(
     <LocaleProvider locale="en">
       <TargetsPanel
-        targets={[
-          { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
-        ]}
+        targets={[{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]}
         onChange={onChange}
         pack={PACK}
       />
@@ -104,7 +102,7 @@ test("typing a rate does not commit, even after time passes", () => {
 
 test("blur commits the parsed value exactly once", () => {
   let latest: Target[] = [
-    { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
   ];
   const emissions: Target[][] = [];
   function Parent() {
@@ -132,13 +130,13 @@ test("blur commits the parsed value exactly once", () => {
   expect(emissions.length).toBe(1);
   // 99/min = 33/20 per sec.
   expect(latest).toEqual([
-    { recipeId: "r_widget", ratePerSec: { num: "33", denom: "20" } },
+    { itemId: "widget", ratePerSec: { num: "33", denom: "20" } },
   ]);
 });
 
 test("Enter commits the parsed value", () => {
   let latest: Target[] = [
-    { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
   ];
   function Parent() {
     const [t, setT] = useState(latest);
@@ -161,7 +159,7 @@ test("Enter commits the parsed value", () => {
   fireEvent.keyDown(input, { key: "Enter" });
   // 45/min = 3/4 per sec.
   expect(latest).toEqual([
-    { recipeId: "r_widget", ratePerSec: { num: "3", denom: "4" } },
+    { itemId: "widget", ratePerSec: { num: "3", denom: "4" } },
   ]);
 });
 
@@ -170,7 +168,7 @@ test("Enter commits the parsed value", () => {
 // an Enter (with the invalid cue) so the user can keep typing.
 test("Enter keeps invalid text with an invalid cue; a valid rational commits and keeps its text", () => {
   let latest: Target[] = [
-    { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
   ];
   const emissions: Target[][] = [];
   function Parent() {
@@ -203,7 +201,7 @@ test("Enter keeps invalid text with an invalid cue; a valid rational commits and
   expect(emissions.length).toBe(1);
   // 1/3 per min = 1/180 per sec.
   expect(latest).toEqual([
-    { recipeId: "r_widget", ratePerSec: { num: "1", denom: "180" } },
+    { itemId: "widget", ratePerSec: { num: "1", denom: "180" } },
   ]);
   // Field keeps "1/3", not "0.3333333333333333".
   expect(input.value).toBe("1/3");
@@ -218,9 +216,7 @@ test("Enter on unparseable text sets aria-invalid and shows an inline message", 
   render(
     <LocaleProvider locale="en">
       <TargetsPanel
-        targets={[
-          { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
-        ]}
+        targets={[{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]}
         onChange={onChange}
         pack={PACK}
       />
@@ -243,9 +239,7 @@ test("blur on unparseable text reverts the field to the last-good value", () => 
   render(
     <LocaleProvider locale="en">
       <TargetsPanel
-        targets={[
-          { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
-        ]}
+        targets={[{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]}
         onChange={onChange}
         pack={PACK}
       />
@@ -267,9 +261,7 @@ test("empty target rate is treated as invalid on Enter", () => {
   render(
     <LocaleProvider locale="en">
       <TargetsPanel
-        targets={[
-          { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
-        ]}
+        targets={[{ itemId: "widget", ratePerSec: { num: "2", denom: "1" } }]}
         onChange={onChange}
         pack={PACK}
       />
@@ -285,7 +277,7 @@ test("empty target rate is treated as invalid on Enter", () => {
 // A re-blur without a fresh edit does not re-commit: exactly one solve per edit.
 test("blurring again without editing does not emit a second commit", () => {
   let latest: Target[] = [
-    { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
   ];
   const emissions: Target[][] = [];
   function Parent() {
@@ -315,10 +307,10 @@ test("blurring again without editing does not emit a second commit", () => {
 });
 
 // An in-flight (uncommitted) rate edit follows the row when the user swaps its
-// recipe, then commits to the new id on blur.
-test("uncommitted rate edit follows the row across a recipe swap", () => {
+// item, then commits to the new id on blur.
+test("uncommitted rate edit follows the row across an item swap", () => {
   let latest: Target[] = [
-    { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
   ];
   function Parent() {
     const [t, setT] = useState(latest);
@@ -337,13 +329,13 @@ test("uncommitted rate edit follows the row across a recipe swap", () => {
   }
   render(<Parent />);
   fireEvent.change(rateInputs()[0]!, { target: { value: "99" } });
-  fireEvent.click(screen.getByLabelText(/recipe/i));
-  pickTile("r_gadget");
+  fireEvent.click(screen.getByLabelText(/item/i));
+  pickTile("gadget");
   // The typed text is still shown on the swapped row.
   expect(rateInputs()[0]!.value).toBe("99");
   fireEvent.blur(rateInputs()[0]!);
   expect(latest).toEqual([
-    { recipeId: "r_gadget", ratePerSec: { num: "33", denom: "20" } },
+    { itemId: "gadget", ratePerSec: { num: "33", denom: "20" } },
   ]);
 });
 
@@ -373,7 +365,7 @@ test("removing a row with an uncommitted edit does not commit it", () => {
   // Type into row 0 but never blur; then remove it.
   fireEvent.change(rateInputs()[0]!, { target: { value: "999" } });
   fireEvent.click(screen.getAllByTestId("remove-target")[0]!);
-  expect(latest.map((t) => t.recipeId)).toEqual(["r_gadget", "r_sprocket"]);
+  expect(latest.map((t) => t.itemId)).toEqual(["gadget", "sprocket"]);
   // Exactly one emission: the removal. The orphaned edit never commits.
   expect(emissions.length).toBe(1);
 });
@@ -385,16 +377,14 @@ test("uncommitted edit is discarded when the plan changes", () => {
   function Parent() {
     const [epoch, setEpoch] = useState(0);
     const [t, setT] = useState<Target[]>([
-      { recipeId: "r_widget", ratePerSec: { num: "2", denom: "1" } },
+      { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
     ]);
     return (
       <LocaleProvider locale="en">
         <button
           data-testid="navigate"
           onClick={() => {
-            setT([
-              { recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } },
-            ]);
+            setT([{ itemId: "widget", ratePerSec: { num: "1", denom: "1" } }]);
             setEpoch((e) => e + 1);
           }}
         />
@@ -411,31 +401,24 @@ test("uncommitted edit is discarded when the plan changes", () => {
   expect(rateInputs()[0]!.value).toBe("60");
 });
 
-// Real-pack picker gate: no-output recipes (waste sinks and pure consumers
-// like sewage-treat and the power_* battery burners) must never appear in the
-// recipe dropdown - a target rate is undefined for a recipe with no outputs.
-test("recipe picker excludes every no-output recipe in the real pack", () => {
-  const firstPickable = realPack.recipes.find(
-    (r) =>
-      r.category !== "__internal" &&
-      r.category !== "__domain_transfer" &&
-      r.out.length > 0,
-  )!;
+// Real-pack picker gate: only producible items appear. The single non-producible
+// real item (domain_key_tundra, produced only by an input-supply recipe) must
+// never surface as a tile; a normal producible item does.
+test("item picker excludes non-producible items in the real pack", () => {
   render(
     <LocaleProvider locale="en">
       <TargetsPanel
         targets={[
-          { recipeId: firstPickable.id, ratePerSec: { num: "1", denom: "1" } },
+          { itemId: "copper_bottle", ratePerSec: { num: "1", denom: "1" } },
         ]}
         onChange={() => {}}
         pack={realPack}
       />
     </LocaleProvider>,
   );
-  fireEvent.click(screen.getByLabelText(/recipe/i));
-  for (const r of realPack.recipes.filter((x) => x.out.length === 0)) {
-    expect(pickerTile(r.id), r.id).toBeNull();
-  }
+  fireEvent.click(screen.getByLabelText(/item/i));
+  expect(pickerTile("domain_key_tundra")).toBeNull();
+  expect(pickerTile("iron_powder")).not.toBeNull();
 });
 
 // D4: clicking Add creates a local draft row and does not touch the plan.
@@ -450,15 +433,15 @@ test("clicking Add creates a draft row without committing", () => {
   expect(screen.getAllByTestId("target-draft-row").length).toBe(1);
   expect(screen.queryAllByTestId("target-row").length).toBe(0);
   expect(onChange).not.toHaveBeenCalled();
-  // The draft recipe trigger shows the "choose a recipe" placeholder.
+  // The draft item trigger shows the "choose an item" placeholder.
   const draftRow = screen.getByTestId("target-draft-row");
-  const trigger = within(draftRow).getByLabelText(/recipe/i);
-  expect(trigger.textContent).toBe("Choose a recipe...");
+  const trigger = within(draftRow).getByLabelText(/item/i);
+  expect(trigger.textContent).toBe("Choose an item...");
 });
 
-// D4: a draft commits exactly once, when it has both a recipe and a nonzero
+// D4: a draft commits exactly once, when it has both an item and a nonzero
 // rate, and the draft row is then replaced by a committed target row.
-test("a draft commits once a recipe and a nonzero rate are set", () => {
+test("a draft commits once an item and a nonzero rate are set", () => {
   let latest: Target[] = [];
   function Parent() {
     const [t, setT] = useState(latest);
@@ -478,10 +461,10 @@ test("a draft commits once a recipe and a nonzero rate are set", () => {
   render(<Parent />);
   fireEvent.click(screen.getByRole("button", { name: "Add target" }));
   fireEvent.click(
-    within(screen.getByTestId("target-draft-row")).getByLabelText(/recipe/i),
+    within(screen.getByTestId("target-draft-row")).getByLabelText(/item/i),
   );
-  pickTile("r_widget");
-  // A recipe alone does not commit.
+  pickTile("widget");
+  // An item alone does not commit.
   expect(latest.length).toBe(0);
   const rate = within(screen.getByTestId("target-draft-row")).getByLabelText(
     /rate/i,
@@ -490,15 +473,15 @@ test("a draft commits once a recipe and a nonzero rate are set", () => {
   fireEvent.blur(rate);
   // 60/min = 1/1 per sec.
   expect(latest).toEqual([
-    { recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } },
+    { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
   ]);
   expect(screen.queryAllByTestId("target-draft-row").length).toBe(0);
   expect(screen.getAllByTestId("target-row").length).toBe(1);
 });
 
-// A draft with a recipe but a zero rate contributes nothing, so it must not
+// A draft with an item but a zero rate contributes nothing, so it must not
 // commit or churn a re-solve.
-test("a draft with a recipe but a zero rate does not commit", () => {
+test("a draft with an item but a zero rate does not commit", () => {
   const onChange = vi.fn();
   render(
     <LocaleProvider locale="en">
@@ -507,9 +490,9 @@ test("a draft with a recipe but a zero rate does not commit", () => {
   );
   fireEvent.click(screen.getByRole("button", { name: "Add target" }));
   fireEvent.click(
-    within(screen.getByTestId("target-draft-row")).getByLabelText(/recipe/i),
+    within(screen.getByTestId("target-draft-row")).getByLabelText(/item/i),
   );
-  pickTile("r_widget");
+  pickTile("widget");
   const rate = within(screen.getByTestId("target-draft-row")).getByLabelText(
     /rate/i,
   );
@@ -533,48 +516,46 @@ test("removing a draft never touches the plan", () => {
   expect(screen.queryAllByTestId("target-draft-row").length).toBe(0);
 });
 
-// A recipe another row already uses is offered as a disabled tile in the popup,
+// An item another row already uses is offered as a disabled tile in the popup,
 // so a duplicate can't be picked and no change commits.
-test("a recipe used by another row is disabled in the picker and does not commit", () => {
+test("an item used by another row is disabled in the picker and does not commit", () => {
   const onChange = vi.fn();
   render(
     <LocaleProvider locale="en">
       <TargetsPanel
         targets={[
-          { recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } },
-          { recipeId: "r_gadget", ratePerSec: { num: "1", denom: "1" } },
+          { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
+          { itemId: "gadget", ratePerSec: { num: "1", denom: "1" } },
         ]}
         onChange={onChange}
         pack={PACK}
       />
     </LocaleProvider>,
   );
-  const triggers = screen.getAllByLabelText(/recipe/i);
+  const triggers = screen.getAllByLabelText(/item/i);
   fireEvent.click(triggers[1]!);
-  const widgetTile = pickerTile("r_widget")!;
+  const widgetTile = pickerTile("widget")!;
   expect(widgetTile.disabled).toBe(true);
   fireEvent.click(widgetTile);
   expect(onChange).not.toHaveBeenCalled();
 });
 
-// The row's own recipe stays enabled and highlighted in the picker, so clicking
+// The row's own item stays enabled and highlighted in the picker, so clicking
 // it is a confirm: the popup closes with no commit and, unlike a real duplicate,
 // no duplicate alert fires (the dup check would otherwise match the row itself).
-test("re-picking a row's own recipe closes without commit or duplicate alert", () => {
+test("re-picking a row's own item closes without commit or duplicate alert", () => {
   const onChange = vi.fn();
   render(
     <LocaleProvider locale="en">
       <TargetsPanel
-        targets={[
-          { recipeId: "r_widget", ratePerSec: { num: "1", denom: "1" } },
-        ]}
+        targets={[{ itemId: "widget", ratePerSec: { num: "1", denom: "1" } }]}
         onChange={onChange}
         pack={PACK}
       />
     </LocaleProvider>,
   );
-  fireEvent.click(screen.getByLabelText(/recipe/i));
-  const ownTile = pickerTile("r_widget")!;
+  fireEvent.click(screen.getByLabelText(/item/i));
+  const ownTile = pickerTile("widget")!;
   expect(ownTile.disabled).toBe(false);
   fireEvent.click(ownTile);
   expect(onChange).not.toHaveBeenCalled();

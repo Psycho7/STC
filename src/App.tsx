@@ -50,7 +50,7 @@ import { iconSheetUrl } from "./canvas/iconSprite";
 async function renderFromFull(
   full: SolvePlanFull,
   itemOverrides: ReadonlyArray<import("./data/plan").ItemOverride>,
-  targets: ReadonlyArray<import("./solver/planToSolverArgs").SolverTarget>,
+  targets: ReadonlyArray<import("./data/targets").Target>,
 ): Promise<{ nodes: Node[]; edges: Edge[] }> {
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
@@ -273,7 +273,7 @@ function AppInner() {
         }
         const nextPlan = outcome.plan;
         const { targets, itemOverrides, recipeCosts } =
-          planToSolverArgs(nextPlan, pack);
+          planToSolverArgs(nextPlan);
         const full = solvePlanWithIntermediates(
           targets,
           pack,
@@ -363,7 +363,7 @@ function AppInner() {
     setPending(true);
     try {
       const { targets, itemOverrides, recipeCosts } =
-        planToSolverArgs(nextPlan, pack);
+        planToSolverArgs(nextPlan);
       const full = solvePlanWithIntermediates(
         targets,
         pack,
@@ -417,18 +417,11 @@ function AppInner() {
   const i18n = useI18n();
 
   // Memoise the set of target output items so InputsPanel's dual-listing badge
-  // does not recompute on every keystroke. Rebuilt from recipeById plus
-  // plan.targets whenever the plan changes.
+  // does not recompute on every keystroke. Plan targets are item-keyed, so this
+  // is just their item ids; rebuilt whenever the plan changes.
   const targetItemIds = useMemo<ReadonlySet<string>>(() => {
     if (!plan) return new Set<string>();
-    const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
-    const ids = new Set<string>();
-    for (const t of plan.targets) {
-      const r = recipeById.get(t.recipeId);
-      const outId = r?.out[0]?.item;
-      if (outId) ids.add(outId);
-    }
-    return ids;
+    return new Set(plan.targets.map((t) => t.itemId));
   }, [plan]);
 
   // Realized demand per input item from the latest render pass, read off the

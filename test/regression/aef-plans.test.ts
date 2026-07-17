@@ -10,7 +10,6 @@ import {
   loadTransportConfig,
 } from "../../src/data/transport-config";
 import type { Target } from "../../src/data/targets";
-import { toSolverTargets } from "../../src/solver/planToSolverArgs";
 import type { ItemOverride } from "../../src/data/plan";
 import type { Recipe } from "@aef/schema";
 import type { RecipeId } from "../../src/solver/types";
@@ -93,7 +92,7 @@ describe("regression: AEF render-plan fixtures", () => {
       it("runs solver -> render plan -> layout and meets expectations", async () => {
         const tConfig = loadTransportConfig(defaultTransportConfig, pack);
         const itemOverrides = fixture.itemOverrides ?? [];
-        const targets = toSolverTargets(fixture.targets, pack);
+        const targets = fixture.targets;
         const full = solvePlanWithIntermediates(
           targets,
           pack,
@@ -168,18 +167,15 @@ describe("regression: AEF render-plan fixtures", () => {
         }
 
         if (fixture.expectations.expectTargetOutputDelivered !== false) {
-          const recipeMap = recipeByIdFromPack();
           for (const t of fixture.targets) {
-            const recipe = recipeMap.get(t.recipeId);
-            const outItem = recipe?.out[0]?.item;
-            if (!outItem) continue;
+            const outItem = t.itemId;
             const targetUnitId = `u:out:${outItem}`;
             const incoming = plan.edges.filter(
               (e) => e.toUnit === targetUnitId,
             );
             expect(
               incoming.length,
-              `no edge delivers target ${t.recipeId} (item ${outItem}) to ${targetUnitId}`,
+              `no edge delivers target item ${outItem} to ${targetUnitId}`,
             ).toBeGreaterThan(0);
           }
         }

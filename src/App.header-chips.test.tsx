@@ -36,7 +36,7 @@ async function encodedDefaultHash(): Promise<string> {
 async function encodedCrystalHash(): Promise<string> {
   const plan = {
     ...defaultPlan(pack),
-    targets: [{ recipeId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } }],
+    targets: [{ itemId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } }],
   };
   return "#" + (await encodePlan(plan));
 }
@@ -105,7 +105,7 @@ test("RECIPES chip counts distinct recipe ids, not logical nodes", async () => {
   const plan = {
     ...defaultPlan(pack),
     targets: [
-      { recipeId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } },
     ],
   };
   expect(validatePlan(plan, pack)).toBeNull();

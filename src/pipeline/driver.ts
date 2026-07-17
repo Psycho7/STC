@@ -12,7 +12,7 @@ import Fraction from "fraction.js";
 import type { Item, Machine, Recipe, RecipePack } from "@aef/schema";
 import type { LogicalGraph } from "../canvas/layout";
 import type { ItemOverride } from "../data/plan";
-import type { Target, ItemTarget } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { SolvePlanFull } from "../solver";
 import type {
   Condensation,
@@ -66,7 +66,7 @@ export type RenderPipelineInput = {
   itemById: ReadonlyMap<ItemId, Item>;
   machineById: ReadonlyMap<string, Machine>;
   itemOverrides: ReadonlyArray<ItemOverride>;
-  targets: ReadonlyArray<Target & ItemTarget>;
+  targets: ReadonlyArray<ItemTarget>;
   // The solver hands class ids out as opaque branded strings. Both maps pass
   // through untouched so canvas highlighting can go from a replica id to its
   // bisimulation class and back to whichever quotient replica stands in for it.
@@ -219,7 +219,7 @@ function computeSccNetIO(args: {
 export function renderPlanFromSolve(
   full: SolvePlanFull,
   pack: RecipePack,
-  targets: ReadonlyArray<Target & ItemTarget>,
+  targets: ReadonlyArray<ItemTarget>,
   itemOverrides: ReadonlyArray<ItemOverride>,
 ): RenderPipelineOutput {
   const itemById = new Map(pack.items.map((i) => [i.id, i]));

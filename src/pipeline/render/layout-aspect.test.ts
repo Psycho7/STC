@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
-import type { SolverTarget } from "../../solver/planToSolverArgs";
+import type { ItemTarget } from "../../data/targets";
 import { renderPlanFromSolve } from "../driver";
 import { pack } from "../../data/load";
 import { layoutRenderPlan } from "../../canvas/layout";
@@ -27,8 +27,7 @@ async function measure(recipeIds: string[]): Promise<{
   containmentViolations: number;
 }> {
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
-  const targets: SolverTarget[] = recipeIds.map((recipeId) => ({
-    recipeId,
+  const targets: ItemTarget[] = recipeIds.map((recipeId) => ({
     itemId: recipeById.get(recipeId)!.out[0]!.item,
     ratePerSec: { num: "1", denom: "1" },
   }));

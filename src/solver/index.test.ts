@@ -3,7 +3,7 @@ import Fraction from "fraction.js";
 import { LpInfeasibleError, solvePlan, solvePlanWithIntermediates } from "./index";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
-import type { SolverTarget } from "./planToSolverArgs";
+import type { ItemTarget } from "../data/targets";
 import type { RecipePack } from "@aef/schema";
 import type { LpResult } from "./lp";
 
@@ -33,9 +33,8 @@ vi.mock("./lp", async () => {
 
 describe("solvePlanWithIntermediates (LP)", () => {
   it("includes both purifier producers in the rate map", () => {
-    const targets: SolverTarget[] = [
+    const targets: ItemTarget[] = [
       {
-        recipeId: "xiranite_enr_powder",
         itemId: "xiranite_enr_powder",
         ratePerSec: { num: "6", denom: "60" },
       },
@@ -73,8 +72,8 @@ describe("solver status handling", () => {
       { id: "prod", raw: false },
     ],
   } as unknown as RecipePack;
-  const emptyFeasibleTargets: SolverTarget[] = [
-    { recipeId: "zero_out", itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
+  const emptyFeasibleTargets: ItemTarget[] = [
+    { itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
   ];
 
   it("does not throw on an empty-but-feasible optimum (solvePlanWithIntermediates)", () => {
@@ -100,9 +99,8 @@ describe("solver status handling", () => {
   // with real packs (universal slack, see the override note above), so the flag
   // forces solveLp's status. Both entry points must surface it as a throw whose
   // message matches /infeasible/.
-  const targets: SolverTarget[] = [
+  const targets: ItemTarget[] = [
     {
-      recipeId: "xiranite_enr_powder",
       itemId: "xiranite_enr_powder",
       ratePerSec: { num: "6", denom: "60" },
     },
@@ -241,8 +239,8 @@ describe("multi-producer input of a split SCC member (assemble re-route)", () =>
       { id: "raw2", raw: true },
     ],
   );
-  const sccTargets: SolverTarget[] = [
-    { recipeId: "tgt", itemId: "final", ratePerSec: { num: "1", denom: "1" } },
+  const sccTargets: ItemTarget[] = [
+    { itemId: "final", ratePerSec: { num: "1", denom: "1" } },
   ];
   const sccOverrides = [
     { itemId: "scarce", ratePerSec: { num: "0", denom: "1" } },
@@ -298,9 +296,8 @@ describe("torn feedback covers every intra-SCC logical cycle", () => {
   // liquid_xiranite_poly -> liquid_xiranite_poly-purifier -> xiranite_poly)
   // in the assembled graph as plain (non-return) edges.
   it("proc_battery_5: non-return intra-SCC logical edges are acyclic", () => {
-    const targets: SolverTarget[] = [
+    const targets: ItemTarget[] = [
       {
-        recipeId: "proc_battery_5",
         itemId: "proc_battery_5",
         ratePerSec: { num: "1", denom: "1" },
       },
@@ -379,19 +376,19 @@ describe("replica coverage of the LP solution", () => {
   // ceiling for ANY planScale >= 1, so removal does not depend on the
   // shared-primary coincidence raising planScale to 2.
   it("triple-target xiranite plan: replica rate sums equal every LP rate", () => {
-    const targets: SolverTarget[] = [
+    // The duplicate liquid_xiranite_poly targets are deliberate: the solver
+    // aggregates per-item demand below the validatePlan duplicate gate, and the
+    // pair preserves the old two-recipes-same-primary shape of this fixture.
+    const targets: ItemTarget[] = [
       {
-        recipeId: "liquid_xiranite_poly-purifier",
         itemId: "liquid_xiranite_poly",
         ratePerSec: { num: "1", denom: "1" },
       },
       {
-        recipeId: "liquid_xiranite_poly",
         itemId: "liquid_xiranite_poly",
         ratePerSec: { num: "1", denom: "1" },
       },
       {
-        recipeId: "equip_script_4",
         itemId: "equip_script_4",
         ratePerSec: { num: "1", denom: "1" },
       },

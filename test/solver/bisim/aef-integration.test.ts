@@ -4,17 +4,18 @@ import { solvePlanWithIntermediates } from "../../../src/solver";
 import { pack } from "../../../src/data/load";
 import { defaultTransportConfig } from "../../../src/data/transport-config";
 import { defaultTargets } from "../../../src/data/targets";
-import { toSolverTargets } from "../../../src/solver/planToSolverArgs";
 import { buildRecipeGraph } from "../../../src/solver/graph";
 import { bisimQuotient, deriveReplicaEdges } from "../../../src/solver/bisim";
 
 describe("AEF round-trip with bisim", () => {
   it("structural invariants hold on a sample target", () => {
     const targetRecipe = pack.recipes[0]!;
-    const targets = toSolverTargets(
-      [{ recipeId: targetRecipe.id, ratePerSec: { num: "1", denom: "1" } }],
-      pack,
-    );
+    const targets = [
+      {
+        itemId: targetRecipe.out[0]!.item,
+        ratePerSec: { num: "1", denom: "1" },
+      },
+    ];
     const full = solvePlanWithIntermediates(
       targets,
       pack,
@@ -60,7 +61,7 @@ describe("AEF round-trip with bisim", () => {
     // the real round-trip property the unit tests prove on synthetic
     // graphs; this test proves it on real AEF data threaded through the
     // wired pipeline.
-    const targets = toSolverTargets(defaultTargets(), pack);
+    const targets = defaultTargets();
     const full = solvePlanWithIntermediates(
       targets,
       pack,
