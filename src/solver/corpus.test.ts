@@ -13,6 +13,7 @@
 // golden.
 
 import { describe, expect, it } from "vitest";
+import Fraction from "fraction.js";
 import { solveLp } from "./lp";
 import { activeRecipeSet } from "./optimality";
 import {
@@ -44,6 +45,12 @@ import {
   deficitUnmetDemandGolden,
   feasibleEmpty,
   feasibleEmptyGolden,
+  producerChoiceByCost,
+  producerChoiceByCostGolden,
+  byproductOnlyTarget,
+  byproductOnlyTargetGolden,
+  rawItemTargetViaMiner,
+  rawItemTargetViaMinerGolden,
 } from "./corpus";
 
 // Relative tolerance for objectiveValue; tighter than the 1e-6
@@ -353,5 +360,73 @@ describe("Scenario 10: feasible-empty", () => {
     expect(result.softFeasible).toBe(feasibleEmptyGolden.softFeasible);
     expect(result.rates.size).toBe(0);
     expect(activeList(result)).toEqual(feasibleEmptyGolden.activeRecipes);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 11: producer choice by cost
+// ---------------------------------------------------------------------------
+describe("Scenario 11: producer choice by cost", () => {
+  it("picks the cheaper producer even though its id sorts last (cost, not lex)", () => {
+    const result = solveLp({
+      targets: producerChoiceByCost.targets,
+      pack: producerChoiceByCost.pack,
+      recipeCosts: producerChoiceByCost.recipeCosts,
+    });
+
+    expect(result.status).toBe("feasible");
+    expect(result.softFeasible).toBe(true);
+    assertObjective(result.objectiveValue, producerChoiceByCostGolden.objectiveValue);
+    // z_cheap (cost 2) wins over a_pricey (cost 5, lex rank 0). A lex-only
+    // tie-break would have picked a_pricey; cost drives the choice.
+    expect(activeList(result)).toEqual(producerChoiceByCostGolden.activeRecipes);
+    expect(activeList(result)).not.toContain("a_pricey");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 12: byproduct-only item target
+// ---------------------------------------------------------------------------
+describe("Scenario 12: byproduct-only item target", () => {
+  it("meets a byproduct target via co-production and surpluses the primary", () => {
+    const result = solveLp({
+      targets: byproductOnlyTarget.targets,
+      pack: byproductOnlyTarget.pack,
+    });
+
+    expect(result.status).toBe("feasible");
+    expect(result.softFeasible).toBe(true);
+    // Objective = 1 recipe run + 1e-3 * surplus(primary)=1 = 1.001.
+    assertObjective(result.objectiveValue, byproductOnlyTargetGolden.objectiveValue);
+    expect(activeList(result)).toEqual(byproductOnlyTargetGolden.activeRecipes);
+    // The unconsumed primary co-product lands in free-disposal surplus.
+    expect(result.surplus.has("primary")).toBe(true);
+    const primarySurplus = result.surplus.get("primary")!;
+    expect(
+      Math.abs(primarySurplus.valueOf() - byproductOnlyTargetGolden.surplusPrimary),
+    ).toBeLessThan(1e-9);
+    // The targeted byproduct is fully consumed as net export: no surplus, no deficit.
+    expect(result.deficit.has("byp")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 13: raw item target via a miner recipe (miner runs)
+// ---------------------------------------------------------------------------
+describe("Scenario 13: raw item target via a miner recipe", () => {
+  it("runs the miner to net-export a non-boundary ore at the declared rate", () => {
+    const result = solveLp({
+      targets: rawItemTargetViaMiner.targets,
+      pack: rawItemTargetViaMiner.pack,
+    });
+
+    expect(result.status).toBe("feasible");
+    expect(result.softFeasible).toBe(true);
+    assertObjective(result.objectiveValue, rawItemTargetViaMinerGolden.objectiveValue);
+    expect(activeList(result)).toEqual(rawItemTargetViaMinerGolden.activeRecipes);
+    // Non-raw ore is not boundary-drawable: no draw, no deficit; the miner runs.
+    expect(result.draws.has("ore")).toBe(false);
+    expect(result.deficit.size).toBe(0);
+    expect(result.rates.get("r_miner")!.equals(new Fraction(1))).toBe(true);
   });
 });

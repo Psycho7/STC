@@ -663,3 +663,125 @@ export const feasibleEmptyGolden = {
   // No recipe runs at a positive rate; rates map is empty.
   activeRecipes: [] as string[],
 };
+
+// ---------------------------------------------------------------------------
+// Scenario 11: producer choice by cost (new net-export freedom)
+//
+// Two producers of "widget", cost-distinct via recipeCosts (both positive, not
+// big-M): z_cheap=2, a_pricey=5. The old pin-floor could force a specific
+// producer; the new semantics let the LP minimize cost freely. z_cheap wins on
+// cost even though its id sorts AFTER a_pricey (a_pricey has lex rank 0), so a
+// pass-2 lex tie-break alone would have picked a_pricey. Cost, not lex, decides.
+//
+// widget demand 1/sec -> z_cheap runs 1/sec (1 widget per run). Objective =
+// cost(z_cheap) * 1 = 2. a_pricey stays inactive.
+// ---------------------------------------------------------------------------
+export const producerChoiceByCost = {
+  pack: mkPack(
+    [
+      {
+        id: "a_pricey",
+        category: "material",
+        time: 1,
+        in: [{ item: "raw", qty: 1 }],
+        out: [{ item: "widget", qty: 1 }],
+      },
+      {
+        id: "z_cheap",
+        category: "material",
+        time: 1,
+        in: [{ item: "raw", qty: 1 }],
+        out: [{ item: "widget", qty: 1 }],
+      },
+    ],
+    [
+      { id: "raw", raw: true },
+      { id: "widget", raw: false },
+    ],
+  ),
+  targets: [{ itemId: "widget", ratePerSec: rate("1", "1") }],
+  recipeCosts: new Map<RecipeId, number>([
+    ["a_pricey", 5],
+    ["z_cheap", 2],
+  ]),
+};
+
+export const producerChoiceByCostGolden = {
+  // z_cheap at cost 2 covers the 1/sec demand; a_pricey (cost 5, lex rank 0)
+  // stays inactive. Objective is the pass-1 cost cap: 2.
+  objectiveValue: 2,
+  activeRecipes: ["z_cheap"],
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 12: byproduct-only item target
+//
+// "byp" appears only as the secondary output (out[1]) of r_dual; there is no
+// recipe that makes it primary. Targeting it forces co-product production:
+// r_dual runs to net-export byp, and the primary output "primary" (unconsumed,
+// non-raw) lands in free-disposal surplus (the deleted-surpcap behavior).
+//
+// byp demand 1/sec -> r_dual runs 1/sec. primary surplus = 1*r_dual - 0 = 1.
+// Objective = cost(r_dual) 1 + SURPLUS_WEIGHT * surplus(primary)=1 = 1.001.
+// ---------------------------------------------------------------------------
+export const byproductOnlyTarget = {
+  pack: mkPack(
+    [
+      {
+        id: "r_dual",
+        category: "material",
+        time: 1,
+        in: [{ item: "raw", qty: 1 }],
+        out: [
+          { item: "primary", qty: 1 },
+          { item: "byp", qty: 1 },
+        ],
+      },
+    ],
+    [
+      { id: "raw", raw: true },
+      { id: "primary", raw: false },
+      { id: "byp", raw: false },
+    ],
+  ),
+  targets: [{ itemId: "byp", ratePerSec: rate("1", "1") }],
+};
+
+export const byproductOnlyTargetGolden = {
+  // 1 recipe run + 1e-3 * surplus(primary)=1 = 1.001.
+  objectiveValue: 1.001,
+  activeRecipes: ["r_dual"],
+  // The co-product primary is unconsumed: full 1/sec production surpluses.
+  surplusPrimary: 1,
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 13: raw item target via a miner recipe (miner runs)
+//
+// "ore" is modeled NON-raw (raw:false) and produced by r_miner from nothing, so
+// it is NOT boundary-drawable: the LP must run the miner to net-export it rather
+// than pull it free from the boundary (that draw-satisfied case is Scenario
+// 14/15). Targeting ore runs the miner at the declared rate.
+//
+// ore demand 1/sec -> r_miner runs 1/sec. Objective = cost(r_miner) 1 = 1.
+// ---------------------------------------------------------------------------
+export const rawItemTargetViaMiner = {
+  pack: mkPack(
+    [
+      {
+        id: "r_miner",
+        category: "material",
+        time: 1,
+        in: [],
+        out: [{ item: "ore", qty: 1 }],
+      },
+    ],
+    [{ id: "ore", raw: false }],
+  ),
+  targets: [{ itemId: "ore", ratePerSec: rate("1", "1") }],
+};
+
+export const rawItemTargetViaMinerGolden = {
+  objectiveValue: 1,
+  activeRecipes: ["r_miner"],
+};
