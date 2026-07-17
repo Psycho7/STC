@@ -550,7 +550,7 @@ describe("replicatePerConsumer: SCC-boundary byproduct supplier sharing", () => 
       articulation: new Set<RecipeId>(),
       rates,
       condensation,
-      targets: [{ recipeId: "pc", ratePerSec: { num: "2", denom: "1" } }],
+      targets: [{ itemId: "pcout", ratePerSec: { num: "2", denom: "1" } }],
     });
 
     const bpReplicas = replicas.filter((r) => r.recipeId === "bp");
@@ -625,7 +625,7 @@ describe("replicatePerConsumer: SCC intra supply nets the boundary demand", () =
       articulation: new Set<RecipeId>(),
       rates,
       condensation,
-      targets: [{ recipeId: "m", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "shell", ratePerSec: { num: "1", denom: "1" } }],
     });
     const sumOf = (rid: string) =>
       replicas
@@ -690,7 +690,7 @@ describe("replicatePerConsumer: SCC intra supply nets the boundary demand", () =
       articulation: new Set<RecipeId>(),
       rates,
       condensation,
-      targets: [{ recipeId: "c2", ratePerSec: { num: "2", denom: "1" } }],
+      targets: [{ itemId: "z", ratePerSec: { num: "2", denom: "1" } }],
     });
     const sumOf = (rid: string) =>
       replicas
@@ -766,7 +766,7 @@ describe("replicatePerConsumer: canonical inputs-consumer of a split SCC member"
       articulation: new Set<RecipeId>(),
       rates,
       condensation,
-      targets: [{ recipeId: "tgt", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "final", ratePerSec: { num: "1", denom: "1" } }],
     });
     const byId = new Map(replicas.map((r) => [r.id, r]));
     const perConsumer = replicas.filter(
@@ -829,7 +829,7 @@ describe("replicatePerConsumer: canonical inputs-consumer of a split SCC member"
       articulation: new Set<RecipeId>(),
       rates,
       condensation,
-      targets: [{ recipeId: "tgt", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "final", ratePerSec: { num: "1", denom: "1" } }],
     });
     const byId = new Map(replicas.map((r) => [r.id, r]));
     const looper = replicas.find(
@@ -904,8 +904,8 @@ describe("replicatePerConsumer: duplicate target seeds", () => {
     const { replicas: dup } = replicatePerConsumer({
       ...base,
       targets: [
-        { recipeId: "t", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "t", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "tout", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "tout", ratePerSec: { num: "1", denom: "1" } },
       ],
     });
 
@@ -918,7 +918,7 @@ describe("replicatePerConsumer: duplicate target seeds", () => {
     // The dup walk emits the same replicas as the single accumulated target.
     const { replicas: single } = replicatePerConsumer({
       ...base,
-      targets: [{ recipeId: "t", ratePerSec: { num: "2", denom: "1" } }],
+      targets: [{ itemId: "tout", ratePerSec: { num: "2", denom: "1" } }],
     });
     expect(dup).toHaveLength(single.length);
     expect(sumOf(dup, "t").equals(sumOf(single, "t"))).toBe(true);
@@ -952,8 +952,8 @@ describe("replicatePerConsumer: duplicate target seeds", () => {
       rates,
       condensation,
       targets: [
-        { recipeId: "m", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "m", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "mout", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "mout", ratePerSec: { num: "1", denom: "1" } },
       ],
     });
     expect(sumOf(replicas, "m").equals(new Fraction(2))).toBe(true);
@@ -985,13 +985,13 @@ describe("replicatePerConsumer: duplicate target seeds", () => {
     const { replicas: withZeroDup } = replicatePerConsumer({
       ...base,
       targets: [
-        { recipeId: "t", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "t", ratePerSec: { num: "0", denom: "1" } },
+        { itemId: "tout", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "tout", ratePerSec: { num: "0", denom: "1" } },
       ],
     });
     const { replicas: single } = replicatePerConsumer({
       ...base,
-      targets: [{ recipeId: "t", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "tout", ratePerSec: { num: "1", denom: "1" } }],
     });
     expect(withZeroDup).toHaveLength(single.length);
     expect(sumOf(withZeroDup, "t").equals(new Fraction(1))).toBe(true);
@@ -1023,7 +1023,7 @@ describe("replicatePerConsumer: augmented LP-support seeds", () => {
       articulation: new Set<RecipeId>(),
       rates,
       condensation,
-      targets: [{ recipeId: "prod", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "nug", ratePerSec: { num: "1", denom: "1" } }],
       augmented: new Set<RecipeId>(["sink"]),
     });
 
@@ -1064,7 +1064,7 @@ describe("replicatePerConsumer: augmented LP-support seeds", () => {
       articulation: new Set<RecipeId>(),
       rates,
       condensation,
-      targets: [{ recipeId: "t", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "tout", ratePerSec: { num: "1", denom: "1" } }],
       augmented: new Set<RecipeId>(["f", "s"]),
     });
 
@@ -1128,7 +1128,7 @@ describe("replicatePerConsumer: supplyShares committed-flow recording", () => {
       articulation: new Set<RecipeId>(),
       rates,
       condensation,
-      targets: [{ recipeId: "c2", ratePerSec: { num: "2", denom: "1" } }],
+      targets: [{ itemId: "z", ratePerSec: { num: "2", denom: "1" } }],
     });
     const toC1 = supplyShares.get(supplyShareKey("p", "c1", "x"));
     const toC2 = supplyShares.get(supplyShareKey("p", "c2", "x"));
@@ -1191,7 +1191,7 @@ describe("replicatePerConsumer: supplyShares committed-flow recording", () => {
       articulation: new Set<RecipeId>(["ap"]),
       rates,
       condensation,
-      targets: [{ recipeId: "t", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "final", ratePerSec: { num: "1", denom: "1" } }],
     });
     // The AP is emitted once at its full LP rate.
     const apReplicas = replicas.filter((r) => r.recipeId === "ap");
@@ -1259,7 +1259,7 @@ describe("replicatePerConsumer: supplyShares committed-flow recording", () => {
       articulation: new Set<RecipeId>(["ap"]),
       rates,
       condensation,
-      targets: [{ recipeId: "t", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "final", ratePerSec: { num: "1", denom: "1" } }],
     });
     // Guard the premise: c was replicated per-consumer twice, rate 1 each, so
     // the (ap, c, w) key really was recorded on two separate reaches.
@@ -1319,7 +1319,7 @@ describe("replicatePerConsumer: self-consuming recipe guard", () => {
         articulation: new Set<RecipeId>(),
         rates,
         condensation,
-        targets: [{ recipeId: "use", ratePerSec: { num: "1", denom: "1" } }],
+        targets: [{ itemId: "prod", ratePerSec: { num: "1", denom: "1" } }],
         augmented: new Set<RecipeId>(),
       }),
     ).toThrow(/self-consuming/);

@@ -8,7 +8,7 @@ import type {
   RecipeId,
   Scc,
 } from "../../src/solver/types";
-import type { Target } from "../../src/data/targets";
+import type { ItemTarget } from "../../src/data/targets";
 
 // Helper to build a synthetic graph with embedded Recipe shapes.
 type SynthRecipe = {
@@ -60,8 +60,8 @@ function trivialCondensation(recipeIds: string[]): Condensation {
   return { sccs, sccOfRecipe, outgoing, incoming };
 }
 
-function tgt(recipeId: string): Target {
-  return { recipeId, ratePerSec: { num: "1", denom: "1" } };
+function tgt(itemId: string): ItemTarget {
+  return { itemId, ratePerSec: { num: "1", denom: "1" } };
 }
 
 describe("replicatePerConsumer", () => {
@@ -90,7 +90,7 @@ describe("replicatePerConsumer", () => {
       articulation,
       rates,
       condensation,
-      targets: [tgt("A"), tgt("B")],
+      targets: [tgt("ya"), tgt("yb")],
     });
     const pReplicas = replicas.filter((r) => r.recipeId === "P");
     expect(pReplicas.length).toBe(1); // shared
@@ -123,14 +123,16 @@ describe("replicatePerConsumer", () => {
       articulation,
       rates,
       condensation,
-      targets: [tgt("A"), tgt("B")],
+      targets: [tgt("ya"), tgt("yb")],
     });
     const pReplicas = replicas.filter((r) => r.recipeId === "P");
     expect(pReplicas.length).toBe(2); // one per consumer
     for (const pr of pReplicas) expect(pr.sharedAtArticulation).toBe(false);
   });
 
-  it("(iv) sink-as-target: sink target produces a replica with execRate from rates", () => {
+  it("(iv) sink-as-absorber: an augmented sink produces a replica with execRate from rates", () => {
+    // A pure consumer has no output item, so it cannot be an item target;
+    // the augmented LP-support seeding is the path that materializes it.
     const g = buildG(
       [
         { id: "U", in: [], out: [{ item: "w", qty: 1 }] },
@@ -149,7 +151,8 @@ describe("replicatePerConsumer", () => {
       articulation,
       rates,
       condensation,
-      targets: [tgt("SINK")],
+      targets: [],
+      augmented: new Set<RecipeId>(["SINK"]),
     });
     const sinkReplica = replicas.find((r) => r.recipeId === "SINK");
     expect(sinkReplica).toBeDefined();
@@ -192,7 +195,7 @@ describe("replicatePerConsumer", () => {
       articulation,
       rates,
       condensation,
-      targets: [tgt("M1")],
+      targets: [tgt("a")],
     });
     const m1Replicas = replicas.filter((r) => r.recipeId === "M1");
     const m2Replicas = replicas.filter((r) => r.recipeId === "M2");
@@ -248,8 +251,8 @@ describe("replicatePerConsumer", () => {
           in: [{ item: "q_out", qty: 1 }],
           out: [{ item: "p_out", qty: 1 }],
         },
-        { id: "X", in: [{ item: "p_out", qty: 1 }], out: [] },
-        { id: "Y", in: [{ item: "p_out", qty: 1 }], out: [] },
+        { id: "X", in: [{ item: "p_out", qty: 1 }], out: [{ item: "x_out", qty: 1 }] },
+        { id: "Y", in: [{ item: "p_out", qty: 1 }], out: [{ item: "y_out", qty: 1 }] },
       ],
       [
         ["R", "Q", "raw"],
@@ -274,7 +277,7 @@ describe("replicatePerConsumer", () => {
       articulation,
       rates,
       condensation,
-      targets: [tgt("X"), tgt("Y")],
+      targets: [tgt("x_out"), tgt("y_out")],
     });
     expect(replicas.filter((r) => r.recipeId === "P").length).toBe(2);
     expect(replicas.filter((r) => r.recipeId === "Q").length).toBe(1);
@@ -346,7 +349,7 @@ describe("replicatePerConsumer", () => {
       articulation,
       rates,
       condensation,
-      targets: [tgt("DOWN")],
+      targets: [tgt("powder")],
     });
     const plantersReplicas = replicas.filter((r) => r.recipeId === "PLANTER");
     const pickerReplicas = replicas.filter((r) => r.recipeId === "PICKER");
@@ -428,7 +431,7 @@ describe("replicatePerConsumer", () => {
       articulation,
       rates,
       condensation,
-      targets: [tgt("DC")],
+      targets: [tgt("z")],
     });
     // M1 has both intra-SCC and cross-boundary edges; it should split.
     // M2 has only intra-SCC and is not a target; it stays single.

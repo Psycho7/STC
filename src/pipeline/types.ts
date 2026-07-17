@@ -231,7 +231,9 @@ export type RenderPolicyInput = {
   // The plan context the policy needs in order to emit boundary product units.
   // The driver fills these in; tests that only exercise the older units-only
   // path can hand over empty collections and maps.
-  targets: ReadonlyArray<import("../data/targets").Target>;
+  targets: ReadonlyArray<
+    import("../data/targets").Target & import("../data/targets").ItemTarget
+  >;
   itemOverrides: ReadonlyArray<import("../data/plan").ItemOverride>;
   itemById: ReadonlyMap<ItemId, import("@aef/schema").Item>;
   recipeById: ReadonlyMap<RecipeId, import("@aef/schema").Recipe>;

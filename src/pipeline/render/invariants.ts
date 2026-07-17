@@ -39,8 +39,9 @@ function planScaleFloor(
 }
 
 // Shared args object so all checkers have one signature and can be called from a list.
-// Targets carry the bridge shape (recipeId + itemId): the declared-draw checkers
-// still key on recipeId while demandByItem keys on itemId.
+// Targets carry the bridge shape (recipeId + itemId), but the recipeId half of
+// the intersection exists only for the plan/UI bridge; every checker here keys
+// on itemId and none reads recipeId.
 export type RenderInvariantArgs = {
   plan: RenderPlan;
   rates: ReadonlyMap<RecipeId, Fraction>;
@@ -188,8 +189,8 @@ export function checkEdgeEndpointIntegrity(
  *   claimed by a declared target draw never feeds internal consumers, so it is
  *   subtracted before the comparison.
  *
- * - outputProduct "target" for X: justified iff X is the primary output of a
- *   target recipe (X is a demandByItem key).
+ * - outputProduct "target" for X: justified iff X is a declared target item
+ *   (X is a demandByItem key).
  *
  * - outputProduct "surplus" for X: justified iff genuine overproduction beyond
  *   demand: production(X) - consumption(X) - demand(X) exceeds tolerance.
@@ -245,10 +246,10 @@ export function checkBoundaryProductsJustified(
     } else if (isOutputProductUnit(unit)) {
       const x = unit.itemId;
       if (unit.flavor === "target") {
-        // Justified iff X is a target recipe's primary output.
+        // Justified iff X is a declared target item.
         if (!demandOf.has(x)) {
           violations.push(
-            `outputProduct (target) for "${x}": item is not the primary output of any target recipe`,
+            `outputProduct (target) for "${x}": item is not a declared target item`,
           );
         }
       } else {
@@ -298,20 +299,15 @@ export function checkInternalFlowConservation(
   const violations: string[] = [];
   const scaleFloor = planScaleFloor(targets);
 
-  // Declared target rate per primary-output item, built like
+  // Declared target rate per target item, built like
   // checkTargetOutputsSatisfied: production delivered to a target output
   // product is unavailable for internal routing.
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
   const declaredByItem = new Map<ItemId, Fraction>();
   for (const t of targets) {
-    const recipe = recipeById.get(t.recipeId);
-    if (!recipe) continue;
-    const outItem = recipe.out[0]?.item;
-    if (outItem === undefined) continue;
     const rate = rationalFromString(t.ratePerSec);
     declaredByItem.set(
-      outItem,
-      (declaredByItem.get(outItem) ?? FRAC_ZERO).add(rate),
+      t.itemId,
+      (declaredByItem.get(t.itemId) ?? FRAC_ZERO).add(rate),
     );
   }
 
@@ -549,13 +545,13 @@ export function checkConsumerInputsNotOverfed(
 }
 
 /**
- * For each target recipe, the declared rate of its primary output X must be
- * delivered by edges arriving at the target output-product unit (`u:out:<X>`).
+ * For each target item X, the declared rate must be delivered by edges
+ * arriving at the target output-product unit (`u:out:<X>`).
  * Catches an under-fed target output edge. checkBoundaryProductsJustified only
  * verifies such a unit exists, not that it is fed.
  *
- * `declared` for X is the sum of ratePerSec over targets sharing X, the same
- * way boundary-products builds targetRateByItem. `actual` is the sum of
+ * `declared` for X is the sum of ratePerSec over targets declaring X, the
+ * same way boundary-products builds targetRateByItem. `actual` is the sum of
  * edge.rate over edges whose toUnit is `u:out:<X>` and item is X.
  *
  * Shortfall-only: violation iff actual < declared - slack, slack =
@@ -564,21 +560,18 @@ export function checkConsumerInputsNotOverfed(
 export function checkTargetOutputsSatisfied(
   args: RenderInvariantArgs,
 ): InvariantResult {
-  const { plan, pack, targets } = args;
+  const { plan, targets } = args;
   const violations: string[] = [];
   const scaleFloor = planScaleFloor(targets);
 
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
-
-  // Declared target rate per primary-output item.
+  // Declared target rate per target item.
   const declaredByItem = new Map<ItemId, Fraction>();
   for (const t of targets) {
-    const recipe = recipeById.get(t.recipeId);
-    if (!recipe) continue;
-    const outItem = recipe.out[0]?.item;
-    if (outItem === undefined) continue;
     const rate = rationalFromString(t.ratePerSec);
-    declaredByItem.set(outItem, (declaredByItem.get(outItem) ?? FRAC_ZERO).add(rate));
+    declaredByItem.set(
+      t.itemId,
+      (declaredByItem.get(t.itemId) ?? FRAC_ZERO).add(rate),
+    );
   }
 
   // Actual inflow into each target output-product unit, keyed by item.
@@ -824,7 +817,6 @@ export function checkProductUnitRates(
   const violations: string[] = [];
   const scaleFloor = planScaleFloor(targets);
   const units = unitById(plan);
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
   const slackFor = (expected: number): number =>
     Math.max(scaleFloor, Math.abs(expected)) * REL_TOL;
@@ -849,17 +841,13 @@ export function checkProductUnitRates(
     }
   }
 
-  // Declared target rate per primary-output item, the targetRateByItem rule.
+  // Declared target rate per target item, the targetRateByItem rule.
   const declaredByItem = new Map<ItemId, Fraction>();
   for (const t of targets) {
-    const recipe = recipeById.get(t.recipeId);
-    if (!recipe) continue;
-    const outItem = recipe.out[0]?.item;
-    if (outItem === undefined) continue;
     const rate = rationalFromString(t.ratePerSec);
     declaredByItem.set(
-      outItem,
-      (declaredByItem.get(outItem) ?? FRAC_ZERO).add(rate),
+      t.itemId,
+      (declaredByItem.get(t.itemId) ?? FRAC_ZERO).add(rate),
     );
   }
 

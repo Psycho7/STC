@@ -13,7 +13,7 @@ import type {
 import { isMachineRecipeVertex, isMachineSccVertex } from "../types";
 import { effectiveSupply } from "../../solver/effectiveSupply";
 import { toleranceScaleFloor } from "../../solver/lp";
-import type { Target } from "../../data/targets";
+import type { Target, ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { Item, Recipe, RecipePack } from "@aef/schema";
 import { rationalFromString, rationalToString } from "./rational";
@@ -65,7 +65,7 @@ const FRAC_ONE = new Fraction(1);
 
 export type DeriveBoundaryProductsInput = {
   machineGraph: MachineGraph;
-  targets: ReadonlyArray<Target>;
+  targets: ReadonlyArray<Target & ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
   itemById: ReadonlyMap<ItemId, Item>;
   recipeById: ReadonlyMap<RecipeId, Recipe>;
@@ -115,20 +115,14 @@ export function deriveBoundaryProducts(
 
   // ----- Boundary product units ----------------------------------------------
   //
-  // Output products: one per distinct target item. The target item is the first
-  // output of the target recipe (the solver pins execution rate via
-  // recipe.out[0]). When two targets share an out-item (e.g. distinct recipes
-  // both producing `carbon_mtl`), their rates sum so the output product holds
-  // total demand instead of dropping the later target.
+  // Output products: one per distinct target item. Duplicate targets on the
+  // same item sum their rates so the output product holds total demand instead
+  // of dropping the later target.
   const targetRateByItem = new Map<ItemId, Fraction>();
   for (const t of targets) {
-    const recipe = recipeById.get(t.recipeId);
-    if (!recipe) continue;
-    const outItem = recipe.out[0]?.item;
-    if (outItem === undefined) continue;
     const rate = rationalFromString(t.ratePerSec);
-    const existing = targetRateByItem.get(outItem);
-    targetRateByItem.set(outItem, existing ? existing.add(rate) : rate);
+    const existing = targetRateByItem.get(t.itemId);
+    targetRateByItem.set(t.itemId, existing ? existing.add(rate) : rate);
   }
   const targetItemSet = new Set<ItemId>(targetRateByItem.keys());
   const outputProducts: RenderUnitOutputProduct[] = [];

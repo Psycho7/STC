@@ -66,22 +66,18 @@ const solveLp = (input: {
   itemOverrides: ItemOverride[];
 }) => solveLpRaw({ ...input, targets: toSolverTargets(input.targets, pack) });
 
-// BRIDGE: a recipe-form plan is expressible under item demand only when (a)
-// every target's primary item has finite effective supply (demand on a free
+// BRIDGE: a recipe-form plan is expressible under item demand only when every
+// target's primary item has finite effective supply (demand on a free
 // boundary item builds no LP row, so nothing runs and the recipe-keyed render
-// target starves), and (b) the LP keeps every seeded recipe active (the
-// replicate walk still seeds demand from the bridge recipes, so a plan whose
-// item demand is routed entirely through a different producer leaves part of
-// the LP support unwalked). Inexpressible plans are skipped until the
-// replicate stage flips to item targets.
+// target starves). Such plans are skipped until the free-boundary target
+// decision lands.
 function bridgeExpressible(targets: Target[]): boolean {
   const bridged = toSolverTargets(targets, pack);
   for (const t of bridged) {
     if (t.itemId === "") return false; // recipe with no output
     if (effectiveSupply(t.itemId, pack, []) === Infinity) return false;
   }
-  const lp = solveLpRaw({ targets: bridged, pack, itemOverrides: [] });
-  return bridged.every((t) => lp.rates.has(t.recipeId));
+  return true;
 }
 
 // BRIDGE: jinlong_coupon has ten producer recipes; the torn-arc and water
@@ -506,12 +502,7 @@ function machineCountGaps(targets: Target[]) {
   return { gaps, violations: results.flatMap((r) => r.violations) };
 }
 
-// BRIDGE-SKIP: these plans pinned a non-cost-optimal producer alongside a
-// sibling producer of the same item. Item demand yields corner solutions (one
-// paid producer per item), so the pinned-plus-sibling support cannot be
-// reproduced; the seeded-target dedup machinery is recipe-keyed and is
-// revisited by the item-target flip of the graph/render stages.
-describe.skip("render corpus: seeded-target co-producer keeps siblings at LP rate", () => {
+describe("render corpus: seeded-target co-producer keeps siblings at LP rate", () => {
   it("carbon_enr_powder co-produced by target + sibling replicates at LP rates", () => {
     const targets: Target[] = [
       {
@@ -586,11 +577,7 @@ describe("render corpus: tiny plan clears sub-unit checker tolerances", () => {
   });
 });
 
-// BRIDGE-SKIP: pins the SCC-resident crystal_shell producer, which item
-// demand never selects (the acyclic originium route is strictly cheaper and
-// cost steering cannot make the loop route win without distorting the rest of
-// the plan). Revisit with the item-target flip of the graph/render stages.
-describe.skip("render corpus: SCC member input dual-fed intra and externally", () => {
+describe("render corpus: SCC member input dual-fed intra and externally", () => {
   // crystal_shell<->crystal_powder loop: the target member's crystal_powder
   // demand is part-fed intra-SCC over the torn arc (191/1784) and part-fed by
   // the external crystal_powder-originium_powder (1593/1784). The boundary
@@ -659,12 +646,14 @@ describe("render corpus: LP-support closure renders disposal absorbers", () => {
   // checkers. The deficit is checked directly on the raw LpResult: mass balance
   // closes, softFeasible is false, and the unmet demand names originium_powder,
   // never a missing-node augmentation failure.
-  // BRIDGE-SKIP: this scenario existed only because the recipe pin forced the
-  // purifier to over-run, over-producing the enr chain until the LP recruited
-  // the off-graph originium disposal chain. Under item demand nothing forces
-  // the over-run, the disposal chain never activates, and there is no deficit.
-  // The copper_nugget disposal test above keeps the closure covered. Revisit
-  // with the item-target flip of the graph/render stages.
+  // SKIP (plan shape extinct): this scenario existed only because the recipe
+  // pin forced the purifier to over-run, over-producing the enr chain until
+  // the LP recruited the off-graph originium disposal chain and left an
+  // unclosable deficit. Under item demand nothing forces the over-run: the
+  // plan solves softFeasible with no disposal chain and no deficit, so the
+  // multi-recipe chain-augmentation premise no longer occurs on this plan.
+  // The copper_nugget disposal test above keeps the closure covered; delete
+  // this test if no chain-shaped absorber plan is found to replace it.
   it.skip("xiranite chain plan augments and renders the off-graph originium chain", () => {
     const targets: Target[] = [
       { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
@@ -1186,12 +1175,11 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
   });
 
   // P8: liquid_xiranite_poly producers, with liquid_xiranite_poly itself a
-  // target. The two SCC producers (the poly recipe and the purifier) feed the
-  // cross-boundary consumer xiranite_enr_powder. The supplyShares apportionment
-  // (F7) splits that demand by each producer's committed flow net of the poly
-  // recipe's own target draw, so the purifier's whole output is consumed by the
-  // cross + intra edges (zero spare, no target edge) and the dedicated poly
-  // recipe carries the entire declared target rate. The target edge still equals
+  // target item. The two SCC producers (the poly recipe and the purifier) feed
+  // the cross-boundary consumer xiranite_enr_powder, and the declared target
+  // rate is apportioned across BOTH producers by their share of the item's LP
+  // production (poly 24/30, purifier 6/30), so each carries its share as
+  // spare and ships it on its own target edge. The target edge still equals
   // each producer's true-spare share of the declared rate (Bug 3 fix:
   // per-render-unit aggregation, not the pre-fix per-vertex clamp).
   it("P8 [xiranite_enr_powder, liquid_xiranite_poly]: target split is exact spare proportion", () => {
@@ -1223,19 +1211,19 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       const expected = r.trueSpare.mul(declared).div(totalSpare);
       expect(r.targetEdge.equals(expected)).toBe(true);
     }
-    // The purifier is fully consumed by its cross + intra edges (zero spare, no
-    // target edge); only the dedicated liquid_xiranite_poly recipe carries spare,
-    // and it equals the whole declared rate.
+    // Both producers carry their production-share of the declared rate as
+    // spare and ship it on their own target edge: poly 4/5, purifier 1/5.
+    expect(rows.length).toBe(2);
     const purifier = allRows.find(
       (r) => r.recipeId === "liquid_xiranite_poly-purifier",
     );
     expect(purifier).toBeDefined();
-    expect(purifier!.trueSpare.equals(new Fraction(0))).toBe(true);
-    expect(purifier!.targetEdge.equals(new Fraction(0))).toBe(true);
-    expect(rows.length).toBe(1);
-    expect(rows[0]!.recipeId).toBe("liquid_xiranite_poly");
-    expect(rows[0]!.trueSpare.equals(declared)).toBe(true);
-    expect(rows[0]!.targetEdge.equals(declared)).toBe(true);
+    expect(purifier!.trueSpare.equals(new Fraction(1, 5))).toBe(true);
+    expect(purifier!.targetEdge.equals(new Fraction(1, 5))).toBe(true);
+    const poly = allRows.find((r) => r.recipeId === "liquid_xiranite_poly");
+    expect(poly).toBeDefined();
+    expect(poly!.trueSpare.equals(new Fraction(4, 5))).toBe(true);
+    expect(poly!.targetEdge.equals(new Fraction(4, 5))).toBe(true);
 
     const violations = checkRenderPlan({
       plan,
@@ -1601,12 +1589,11 @@ describe("render corpus: shared byproduct supplier apportionment (plan:true over
   // recipe-level flow must additionally be apportioned across the split stamps
   // by their output shares. Pins the within-recipe apportionment and the
   // cross-boundary split divergence in one plan.
-  // BRIDGE-SKIP: with the graph seeded from every producer of the target
-  // items, the planned-water world routes the purifier's water byproduct into
-  // enough consumer groups that it carries TWO split-driving output items,
-  // hitting the deferred co-product role-split guard in assignSplitRoles.
-  // Re-enable once the role split (or the item-target replicate rework)
-  // covers multi-driving-item producers.
+  // SKIP (deferred STC-0007 guard): in the planned-water world the purifier
+  // legitimately carries TWO split-driving output items (liquid_water and
+  // liquid_xiranite_poly), which the deferred co-product role-split does not
+  // support; the DEV guard in assignSplitRoles throws. Unchanged by the
+  // item-target rework. Re-enable when the co-product role-split lands.
   it.skip("P2-torn + planned water: split purifier stamps bill water within production", () => {
     const targets: Target[] = [
       { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },

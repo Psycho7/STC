@@ -12,13 +12,14 @@ import type {
   SccId,
 } from "./types";
 import { outgoingEdgeKey } from "./types";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 
 /**
  * Per-consumer micro-pipeline replication.
  *
  * Walk rules:
- *  - Start at each target and recurse upstream over the recipe graph.
+ *  - Start at each target-item producer and recurse upstream over the recipe
+ *    graph.
  *  - Stop at articulation-point recipes; each emits one shared replica that
  *    every downstream consumer reuses.
  *  - SCC members are always shared: each non-trivial SCC emits one replica per
@@ -36,7 +37,7 @@ import type { Target } from "../data/targets";
  * Besides the replicas, the walk records `supplyShares`: the committed item
  * flow (items/s) from each SHARED producer recipe to each consumer recipe,
  * keyed by `supplyShareKey`. Shared producers (SCC members, AP-shared,
- * byproduct-shared, seeded targets) emit once at full LP rate, so their
+ * byproduct-shared, seeded target producers) emit once at full LP rate, so their
  * executionRate says nothing about how much any single consumer draws; only
  * the walk knows that apportionment, and computeEdgeRates needs it as the
  * demand-split weight. Per-consumer (non-shared) producers are deliberately
@@ -63,7 +64,7 @@ export function replicatePerConsumer(args: {
   articulation: Set<RecipeId>;
   rates: Map<RecipeId, Fraction>;
   condensation: Condensation;
-  targets: Target[];
+  targets: ItemTarget[];
   augmented?: Set<RecipeId>;
   boundaryShare?: ReadonlyMap<ItemId, Fraction>;
 }): { replicas: Replica[]; supplyShares: Map<string, Fraction> } {
@@ -99,7 +100,7 @@ type ReplicateState = {
   readonly articulation: Set<RecipeId>;
   readonly rates: Map<RecipeId, Fraction>;
   readonly condensation: Condensation;
-  readonly targets: Target[];
+  readonly targets: ItemTarget[];
   // Recipes added by the post-LP graph augmentation: positive LP rate but
   // unreachable from any target cone (disposal absorbers). Seeded like targets.
   readonly augmented: Set<RecipeId>;
@@ -123,18 +124,22 @@ type ReplicateState = {
   readonly sccCreated: Set<SccId>;
   readonly apShared: Map<RecipeId, Replica>;
   readonly byproductShared: Map<RecipeId, Replica>;
-  // Non-SCC target recipes seeded as a full-rate replica in walkFromTargets. A
-  // target is the authoritative full-LP-rate replica of its recipe (the LP rate
-  // already covers the target's own output plus every internal consumer), so a
-  // later reach of it as a producer reuses this replica instead of minting a
-  // second copy. Without it a target that is also an upstream producer of another
-  // target over-replicates its whole chain ~2x.
+  // Non-SCC target-item producers seeded as a full-rate replica in
+  // walkFromTargets (plus augmented absorbers). A seed is the authoritative
+  // full-LP-rate replica of its recipe (the LP rate already covers the target
+  // output plus every internal consumer), so a later reach of it as a producer
+  // reuses this replica instead of minting a second copy. Without it a seed
+  // that is also an upstream producer of another target over-replicates its
+  // whole chain ~2x.
   readonly targetSeeded: Map<RecipeId, Replica>;
   readonly targetDraw: Map<RecipeId, Fraction>;
   readonly sccMemberReplicas: Map<SccId, Map<RecipeId, ReplicaId>>;
 
   // Lookup tables.
   readonly sccById: Map<SccId, Condensation["sccs"][number]>;
+  // Positive-LP-rate graph producers per target item (walk seeds); their
+  // union is targetRecipeIds.
+  readonly producersByTargetItem: Map<ItemId, RecipeId[]>;
   readonly targetRecipeIds: Set<RecipeId>;
   // Producers that feed an SCC member across the boundary for a non-primary
   // output (a byproduct supply). Their rate is fixed by their primary-output
@@ -180,15 +185,31 @@ function createReplicateState(args: {
   articulation: Set<RecipeId>;
   rates: Map<RecipeId, Fraction>;
   condensation: Condensation;
-  targets: Target[];
+  targets: ItemTarget[];
   augmented?: Set<RecipeId>;
   boundaryShare?: ReadonlyMap<ItemId, Fraction>;
 }): ReplicateState {
   const sccById = new Map<SccId, Condensation["sccs"][number]>();
   for (const s of args.condensation.sccs) sccById.set(s.id, s);
-  const targetRecipeIds = new Set<RecipeId>(
-    args.targets.map((t) => t.recipeId),
-  );
+
+  // Per target item, the graph producers of the item with a positive LP rate:
+  // the recipes the LP actually chose to cover the item's net-export demand.
+  // These are the walk seeds, and their union is the target-producer set the
+  // looper/deliverer decision reads (the synthetic target-output role).
+  const targetRecipeIds = new Set<RecipeId>();
+  const producersByTargetItem = new Map<ItemId, RecipeId[]>();
+  for (const t of args.targets) {
+    if (producersByTargetItem.has(t.itemId)) continue;
+    const producers: RecipeId[] = [];
+    for (const [rid, r] of args.g.nodes) {
+      if (!r.out.some((o) => o.item === t.itemId)) continue;
+      const rate = args.rates.get(rid);
+      if (!rate || rate.compare(0) <= 0) continue;
+      producers.push(rid);
+      targetRecipeIds.add(rid);
+    }
+    producersByTargetItem.set(t.itemId, producers);
+  }
 
   // Precompute the byproduct-supplier set so dispatch is order-independent:
   // every reach of such a producer (primary path or boundary) shares the one
@@ -234,6 +255,7 @@ function createReplicateState(args: {
     targetDraw: new Map(),
     sccMemberReplicas: new Map(),
     sccById,
+    producersByTargetItem,
     targetRecipeIds,
     byproductSharedSources,
     stack: [],
@@ -1167,92 +1189,121 @@ function processProducer(
 // walkFromTargets: seed + iterative drain
 // ---------------------------------------------------------------------------
 
-// Drives the whole replication. Seeds a replica per target (or shares the
-// member's SCC when the target lives inside one), then drains the frame stack
-// and the boundary-edge queue interleaved. Each frame runs its consumer's inputs
-// through processProducer.
+// Seed one target-item producer: hand an SCC-resident producer to
+// ensureSccReplicas, otherwise mint its full-LP-rate replica and enqueue the
+// upstream walk frame. Producers already seeded (shared between target items)
+// are skipped: the LP rate already covers the accumulated demand of every
+// target item the producer serves, and a second full-rate replica and frame
+// would replicate the recipe and its whole upstream cone an extra time.
+function seedTargetProducer(state: ReplicateState, recipeId: RecipeId): void {
+  if (isInScc(state, recipeId)) {
+    const sid = sccIdOf(state, recipeId);
+    if (!state.sccCreated.has(sid)) {
+      ensureSccReplicas(state, sid);
+    }
+    // The producer is the SCC member's replica; ensureSccReplicas already
+    // queued the boundary-edge work.
+    return;
+  }
+  if (state.targetSeeded.has(recipeId)) return;
+  const targetGroupId = propagateGroups({ kind: "target", recipeId });
+  const targetRate = state.rates.get(recipeId) ?? new Fraction(0);
+  // A target producer can ALSO be a byproduct-shared source: a non-primary
+  // output feeds a multi-member SCC across the boundary (e.g. copper_enr is a
+  // target producer while its byproduct liquid_sewage feeds the
+  // liquid_xiranite loop). Without this guard the producer is seeded here AND
+  // minted again by the byproduct-shared branch in processProducer when the
+  // SCC boundary reaches it, so its whole upstream chain replicates twice.
+  // Emit it once as a shared replica and register it in the byproductShared
+  // cache so a later reach reuses it instead of re-walking the chain; the
+  // shared flag also fans its byproduct output to every SCC consumer.
+  //
+  // The byproduct-shared overlap is deduped here so the shared flag is set
+  // before the SCC boundary reach. Every OTHER producer-that-is-also-upstream
+  // overlap (the producer is an articulation point, or a plain per-consumer
+  // producer) is deduped lazily by the targetSeeded guard at the top of
+  // processProducer, which reuses this replica and marks it shared on first
+  // reach instead of minting a second copy.
+  const isByproductShared = state.byproductSharedSources.has(recipeId);
+  const rep: Replica = {
+    id: newReplicaId(state, `r:${recipeId}`),
+    recipeId,
+    executionRate: targetRate,
+    consumerPath: [],
+    blueprintGroupId: targetGroupId,
+    sharedAtArticulation: isByproductShared,
+  };
+  state.replicas.push(rep);
+  if (isByproductShared) state.byproductShared.set(recipeId, rep);
+  state.targetSeeded.set(recipeId, rep);
+  state.stack.push({
+    consumerId: recipeId,
+    consumerReplicaId: rep.id,
+    consumerRate: targetRate,
+    blueprintGroupId: targetGroupId,
+    consumerPath: [],
+  });
+}
+
+// Drives the whole replication. Seeds a replica per target-item producer (or
+// shares the member's SCC when the producer lives inside one), then drains the
+// frame stack and the boundary-edge queue interleaved. Each frame runs its
+// consumer's inputs through processProducer.
 function walkFromTargets(state: ReplicateState): void {
-  // Declared draw per seeded target recipe: production claimed by the target
-  // output product. splitConsumerDemand deducts it from that producer's weight,
-  // matching the full-rate pin the targetSeeded guard applies in
-  // processProducer. SCC-resident targets are included too: the looper/deliverer
-  // decision rates derive from the SCC flow solve (intra vs cross flow), so a
-  // target whose output is fully looped ships zero across the boundary to
-  // non-target consumers. Without the deduct its full LP rate is counted as a
-  // split weight there, share-shrinking a co-producing external sibling that
-  // must carry the residual demand at its full LP rate.
+  // Declared draw per seeded target producer: production claimed by the
+  // target output product. Each target item's declared rate is apportioned
+  // across the item's positive-rate producers by their share of the item's LP
+  // production (a single producer takes the whole draw, matching the old
+  // per-recipe behavior). splitConsumerDemand deducts the draw from that
+  // producer's weight, matching the full-rate pin the targetSeeded guard
+  // applies in processProducer. SCC-resident producers are included too: the
+  // looper/deliverer decision rates derive from the SCC flow solve (intra vs
+  // cross flow), so a producer whose output is fully looped ships zero across
+  // the boundary to non-target consumers. Without the deduct its full LP rate
+  // is counted as a split weight there, share-shrinking a co-producing
+  // external sibling that must carry the residual demand at its full LP rate.
+  // Duplicate item entries accumulate their declared rates.
   for (const t of state.targets) {
-    const recipeId = t.recipeId;
-    if (!state.g.nodes.has(recipeId)) continue;
+    const producers = state.producersByTargetItem.get(t.itemId) ?? [];
+    if (producers.length === 0) continue;
     const declared = new Fraction(
       `${t.ratePerSec.num}/${t.ratePerSec.denom}`,
     );
-    state.targetDraw.set(
-      recipeId,
-      (state.targetDraw.get(recipeId) ?? new Fraction(0)).add(declared),
-    );
+    let totalFlow = new Fraction(0);
+    const flows = new Map<RecipeId, Fraction>();
+    for (const rid of producers) {
+      const outQty =
+        state.g.nodes.get(rid)?.out.find((o) => o.item === t.itemId)?.qty ?? 0;
+      const flow = (state.rates.get(rid) ?? new Fraction(0)).mul(
+        new Fraction(outQty),
+      );
+      flows.set(rid, flow);
+      totalFlow = totalFlow.add(flow);
+    }
+    if (totalFlow.compare(0) <= 0) continue;
+    for (const rid of producers) {
+      const share = flows.get(rid)!.div(totalFlow);
+      if (share.equals(0)) continue;
+      state.targetDraw.set(
+        rid,
+        (state.targetDraw.get(rid) ?? new Fraction(0)).add(
+          declared.mul(share),
+        ),
+      );
+    }
   }
 
-  // Seed the walk: emit a replica per target (or its SCC group) and enqueue the
-  // upstream recursion.
+  // Seed the walk: emit a replica per target-item producer (or its SCC group)
+  // and enqueue the upstream recursion. Duplicate item entries are deduped
+  // here; a producer shared between two target items is deduped by the
+  // sccCreated / targetSeeded caches inside seedTargetProducer.
+  const seededItems = new Set<ItemId>();
   for (const t of state.targets) {
-    const recipeId = t.recipeId;
-    if (!state.g.nodes.has(recipeId)) continue;
-    if (isInScc(state, recipeId)) {
-      const sid = sccIdOf(state, recipeId);
-      if (!state.sccCreated.has(sid)) {
-        ensureSccReplicas(state, sid);
-      }
-      // The target is the SCC member's replica; ensureSccReplicas already queued
-      // the boundary-edge work. A duplicate SCC-resident target is deduped here
-      // by the sccCreated guard.
-      continue;
+    if (seededItems.has(t.itemId)) continue;
+    seededItems.add(t.itemId);
+    for (const recipeId of state.producersByTargetItem.get(t.itemId) ?? []) {
+      seedTargetProducer(state, recipeId);
     }
-    // Dedup duplicate-recipe target entries: the LP rate already covers the
-    // accumulated demand of every entry sharing this recipeId (lp.ts sums
-    // duplicate pin floors; the targetDraw loop above accumulates the declared
-    // draw), so the FIRST occurrence mints the full-rate replica and walks the
-    // upstream cone once. Later duplicate entries reuse that seed; minting a
-    // second full-rate replica and frame per entry would replicate the recipe
-    // and its whole upstream cone an extra time.
-    if (state.targetSeeded.has(recipeId)) continue;
-    const targetGroupId = propagateGroups({ kind: "target", recipeId });
-    const targetRate = state.rates.get(recipeId) ?? new Fraction(0);
-    // A target recipe can ALSO be a byproduct-shared source: a non-primary
-    // output feeds a multi-member SCC across the boundary (e.g. copper_enr is a
-    // target while its byproduct liquid_sewage feeds the liquid_xiranite loop).
-    // Without this guard the target is seeded here AND minted again by the
-    // byproduct-shared branch in processProducer when the SCC boundary reaches
-    // it, so its whole upstream chain replicates twice. Emit it once as a shared
-    // replica and register it in the byproductShared cache so a later reach
-    // reuses it instead of re-walking the chain; the shared flag also fans its
-    // byproduct output to every SCC consumer.
-    //
-    // The byproduct-shared overlap is deduped here so the shared flag is set
-    // before the SCC boundary reach. Every OTHER target-that-is-also-a-producer
-    // overlap (the target is an articulation point, or a plain per-consumer
-    // producer) is deduped lazily by the targetSeeded guard at the top of
-    // processProducer, which reuses this replica and marks it shared on first
-    // reach instead of minting a second copy.
-    const isByproductShared = state.byproductSharedSources.has(recipeId);
-    const rep: Replica = {
-      id: newReplicaId(state, `r:${recipeId}`),
-      recipeId,
-      executionRate: targetRate,
-      consumerPath: [],
-      blueprintGroupId: targetGroupId,
-      sharedAtArticulation: isByproductShared,
-    };
-    state.replicas.push(rep);
-    if (isByproductShared) state.byproductShared.set(recipeId, rep);
-    state.targetSeeded.set(recipeId, rep);
-    state.stack.push({
-      consumerId: recipeId,
-      consumerReplicaId: rep.id,
-      consumerRate: targetRate,
-      blueprintGroupId: targetGroupId,
-      consumerPath: [],
-    });
   }
 
   // Seed augmented LP-support nodes. Each is a disposal absorber the LP runs at
@@ -1267,6 +1318,10 @@ function walkFromTargets(state: ReplicateState): void {
   // byproduct-shared cache is needed.
   for (const recipeId of state.augmented) {
     if (!state.g.nodes.has(recipeId)) continue;
+    // Disjoint from the target-producer seeds by construction (augmentation
+    // only adds recipes absent from the item-seeded graph); the guard keeps a
+    // future overlap from double-seeding.
+    if (state.targetSeeded.has(recipeId)) continue;
     const rate = state.rates.get(recipeId) ?? new Fraction(0);
     if (rate.compare(0) <= 0) continue;
     const groupId = propagateGroups({ kind: "apShared", recipeId });
