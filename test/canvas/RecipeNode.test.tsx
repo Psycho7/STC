@@ -407,21 +407,8 @@ describe("RecipeNode", () => {
     });
   });
 
-  describe("header three-line structure", () => {
-    // Synthetic recipe whose producer id encodes a tier suffix.
-    const tieredRecipe: Recipe = {
-      id: "iron-plate",
-      name: "Iron Plate",
-      category: "assemble",
-      icon: "iron-plate",
-      row: 0,
-      time: 2,
-      in: [{ item: "iron-ore", qty: 1 }],
-      out: [{ item: "iron-plate", qty: 1 }],
-      producers: ["assembler-t1"],
-    };
-    // Same shape, no tier suffix on producer id.
-    const untieredRecipe: Recipe = {
+  describe("header title structure", () => {
+    const plateRecipe: Recipe = {
       id: "iron-plate",
       name: "Iron Plate",
       category: "assemble",
@@ -433,10 +420,10 @@ describe("RecipeNode", () => {
       producers: ["mixer"],
     };
 
-    it("renders machine-icon data attribute, .product, .cn, and .tier for a tiered producer", () => {
-      const machine = makeMachine("assembler-t1", "asm-icon");
+    it("titles the header with the machine name and renders the machine-icon data attribute", () => {
+      const machine = makeMachine("mixer", "asm-icon");
       const { container } = renderRecipe(
-        { recipe: tieredRecipe, kind: "recipe", multiplier: 1 },
+        { recipe: plateRecipe, kind: "recipe", multiplier: 1 },
         makePackValue({
           machines: [machine],
           items: [makeItem("iron-plate"), makeItem("iron-ore")],
@@ -447,39 +434,22 @@ describe("RecipeNode", () => {
       const icon = head!.querySelector(".machine-icon");
       expect(icon).not.toBeNull();
       expect(icon!.getAttribute("data-machine-icon")).toBe("asm-icon");
-      // .product = output[0] zh-CN name (fallback to id when missing entry).
-      expect(head!.querySelector(".product")?.textContent).toBe("iron-plate");
-      const nameRow = head!.querySelector(".machine-name");
-      expect(nameRow).not.toBeNull();
-      expect(nameRow!.querySelector(".cn")?.textContent).toBe("assembler-t1");
-      expect(nameRow!.querySelector(".tier")?.textContent).toBe("T1");
-      // The raw machine id line is dropped in favor of the localized name.
-      expect(head!.querySelector(".machine-mid")).toBeNull();
-    });
-
-    it("omits the .tier chip when machine id has no -t\\d+ suffix", () => {
-      const machine = makeMachine("mixer");
-      const { container } = renderRecipe(
-        { recipe: untieredRecipe, kind: "recipe", multiplier: 1 },
-        makePackValue({
-          machines: [machine],
-          items: [makeItem("iron-plate"), makeItem("iron-ore")],
-        }),
-      );
-      const head = container.querySelector(".rn-head");
-      expect(head!.querySelector(".machine-name .tier")).toBeNull();
-      // .cn still rendered; the raw machine id line is gone.
-      expect(head!.querySelector(".machine-name .cn")?.textContent).toBe(
+      // Title = machine display name (fallback to id when missing entry).
+      expect(head!.querySelector(".machine-title .cn")?.textContent).toBe(
         "mixer",
       );
+      // The products ride the secondary line; the old .product title line and
+      // the raw machine id line are gone.
+      expect(head!.querySelector(".rn-products")?.textContent).toBe(
+        "iron-plate",
+      );
+      expect(head!.querySelector(".product")).toBeNull();
       expect(head!.querySelector(".machine-mid")).toBeNull();
     });
 
-    it("falls back to producers[0] for machine-icon data attribute when machine icon is absent and skips name/mid lines", () => {
-      // Provide a machine with empty icon to confirm fallback to id, then a
-      // separate scenario where machineById has no entry at all.
+    it("falls back to producers[0] for the machine-icon data attribute and the title when the machine record is absent", () => {
       const headlessRecipe: Recipe = {
-        ...tieredRecipe,
+        ...plateRecipe,
         producers: ["ghost-machine"],
       };
       const { container } = renderRecipe(
@@ -493,11 +463,11 @@ describe("RecipeNode", () => {
       const head = container.querySelector(".rn-head");
       const icon = head!.querySelector(".machine-icon");
       expect(icon!.getAttribute("data-machine-icon")).toBe("ghost-machine");
-      // Graceful degrade: .machine-name and .machine-mid omitted.
-      expect(head!.querySelector(".machine-name")).toBeNull();
+      // Graceful degrade: the title falls back to the raw producer id.
+      expect(head!.querySelector(".machine-title .cn")?.textContent).toBe(
+        "ghost-machine",
+      );
       expect(head!.querySelector(".machine-mid")).toBeNull();
-      // .product still rendered.
-      expect(head!.querySelector(".product")?.textContent).toBe("iron-plate");
     });
   });
 });

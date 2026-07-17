@@ -1419,7 +1419,7 @@
   border-color: var(--ak-divider-strong);
 }
 .ak-canvas-theme.zoom-low .rn-footer,
-.ak-canvas-theme.zoom-low .rn-head .machine-name,
+.ak-canvas-theme.zoom-low .rn-head .rn-products,
 .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-val,
 .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-lbl,
 .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-sub,
@@ -2004,7 +2004,7 @@
   height: 80px;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: 52px 1fr auto auto;
+  grid-template-columns: 52px 1fr auto;
   align-items: stretch;
   background: linear-gradient(180deg, var(--ak-bg-primary) 0%, #1b1d21 100%);
   border-bottom: 1px solid var(--ak-divider);
@@ -2035,15 +2035,13 @@
   min-width: 0;
 }
 
-/* Machine-count multiplier chip: one reserved header grid cell between the
-   recipe name and the rate block. Uses the lime tier-chip treatment for a
-   readable, on-theme chip. Centred in its cell so it never collides with the
-   rate figures (they sit in the adjacent .rn-rate-block cell), and it survives
-   at every zoom band including zoom-low, where the rate figures are hidden. */
+/* Machine-count multiplier chip: rides the title line right after the machine
+   name. Uses the lime tier-chip treatment for a readable, on-theme chip. It
+   never collides with the rate figures (they sit in the separate
+   .rn-rate-block cell), and it survives at every zoom band including
+   zoom-low, where the rate figures are hidden. */
 .rn-head .rn-mult-chip {
-  align-self: center;
-  justify-self: center;
-  margin-right: 4px;
+  flex-shrink: 0;
   font-family: var(--font-num);
   font-size: 12px;
   font-weight: 700;
@@ -2112,47 +2110,39 @@
   color: var(--ak-text-decoration);
 }
 
-.rn-head .product {
+/* Header title: the machine name with the multiplier chip riding inline. The
+   name span ellipsizes; the chip never shrinks. */
+.rn-head .machine-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   font-family: var(--ak-font-display);
   font-size: 17px;
   font-weight: 600;
   color: var(--ak-text-primary);
   letter-spacing: -0.02em;
   line-height: 1.1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.rn-head .machine-name {
-  font-family: var(--ak-font-ui);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--ak-text-secondary);
-  line-height: 1.25;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.rn-head .machine-name .cn {
-  flex: 1;
+.rn-head .machine-title .cn {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.rn-head .machine-name .tier {
-  flex-shrink: 0;
-  font-family: var(--ak-font-mono);
-  font-size: 9px;
-  line-height: 1;
-  letter-spacing: 0.14em;
-  padding: 1px 4px;
-  color: var(--ak-accent-lime);
-  border: 1px solid var(--ak-accent-lime-dim);
-  background: transparent;
+/* Secondary line under the title: the produced item names (a recipe can have
+   several outputs, joined into one line). */
+.rn-head .rn-products {
+  font-family: var(--ak-font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ak-text-secondary);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* React Flow's shipped style.css suppresses the node focus outline

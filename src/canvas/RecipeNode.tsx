@@ -33,14 +33,6 @@ function Sprite({
   );
 }
 
-// Derive the tier chip ("T1", "T2", ...) from a trailing -t<digits> suffix on
-// the machine id. The schema has no Machine.tier field, so the id is the only
-// source. Returns null when there is no such suffix; callers leave the chip off.
-function deriveTier(id: string): string | null {
-  const m = id.match(/-t(\d+)$/i);
-  return m ? `T${m[1]}` : null;
-}
-
 // Data shape accepted by RecipeNode. Two callers coexist:
 //  - The older App boot path passes { recipe, multiplier, expanded } and draws
 //    an xN badge when multiplier > 1.
@@ -129,16 +121,17 @@ export default function RecipeNode({
   const producerId = recipe.producers[0];
   const machine =
     producerId !== undefined ? machineById.get(producerId) : undefined;
-  // The header product line is the first output's display name. This is the
-  // recipe's declared primary output (recipe.out[0]), not the reordered
-  // top-of-column output: the header identifies the recipe, while `outs` only
-  // controls the arrival-sorted side-column order. Multiple outputs are not
-  // handled yet.
-  const outputItemId = recipe.out[0]?.item;
-  const outputItemName =
-    outputItemId !== undefined ? i18n.displayName(outputItemId) : "";
-  const machineName = machine ? i18n.displayName(machine.id) : null;
-  const tier = machine ? deriveTier(machine.id) : null;
+  // Header title: the machine's display name. displayName falls back to the
+  // raw id, so a missing machine record (corrupt fixture) still titles the
+  // node.
+  const machineName =
+    producerId !== undefined ? i18n.displayName(producerId) : "";
+  // Secondary line: every produced item, in declaration order. A recipe can
+  // have multiple outputs, so all of them are listed; the line ellipsizes and
+  // the title attribute keeps the full list hoverable.
+  const productNames = recipe.out
+    .map((p) => i18n.displayName(p.item))
+    .join(" · ");
   // Same speed factor the solver applies (multiplier.ts); a missing machine
   // record (corrupt fixture) falls back to 1, the only value the pack uses.
   const speed =
@@ -186,9 +179,7 @@ export default function RecipeNode({
         minHeight: geom.height,
       }}
     >
-      {/* Header: a 28px machine icon slot plus three text lines. The icon slot
-          is a placeholder div carrying data-machine-icon for later sprite
-          wiring. */}
+      {/* Header: a 28px machine icon slot plus the machine title line. */}
       <div className="rn-head">
         <div className="rn-machine-block">
           <div className="machine-icon" data-machine-icon={machineIconKey}>
@@ -196,22 +187,23 @@ export default function RecipeNode({
           </div>
         </div>
         <div className="rn-recipe-block">
-          <div className="product" title={outputItemName}>
-            {outputItemName}
+          {/* Title: machine name plus the machine-count multiplier chip. The
+              chip is critical info, so it survives at every zoom band (the
+              rate figures drop at zoom-low; this line does not). */}
+          <div className="machine-title">
+            <span className="cn" title={machineName}>
+              {machineName}
+            </span>
+            {badgeText !== null ? (
+              <span className="rn-mult-chip">{badgeText}</span>
+            ) : null}
           </div>
-          {machine !== undefined ? (
-            <div className="machine-name">
-              <span className="cn">{machineName}</span>
-              {tier !== null ? <span className="tier">{tier}</span> : null}
+          {productNames !== "" ? (
+            <div className="rn-products" title={productNames}>
+              {productNames}
             </div>
           ) : null}
         </div>
-        {/* Machine multiplier: one reserved header cell beside the rate block,
-            never an overlay. It is critical info, so it survives at every zoom
-            band (the rate figures drop at zoom-low; this chip does not). */}
-        {badgeText !== null ? (
-          <span className="rn-mult-chip">{badgeText}</span>
-        ) : null}
         <div className="rn-rate-block">
           <div className="rate-val">{rateValText}</div>
           <div className="rate-lbl">{i18n.t("node.upm")}</div>

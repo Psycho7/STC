@@ -81,21 +81,21 @@ test("speed composes with the legacy multiplier path", () => {
   expect(rows).toEqual(["60", "60"]);
 });
 
-// The machine-count multiplier is CRITICAL info and lives in ONE reserved
-// header grid cell (a direct .rn-head child), not the old absolute .rn-mult-badge
+// The machine-count multiplier is CRITICAL info and rides the header title
+// line right after the machine name, not the old absolute .rn-mult-badge
 // overlay that collided with the rate block. It must be theme-styled (readable
 // contrast), not the dead light-theme inline color:#444 / fontSize:11.
-test("multiplier chip sits in the header grid cell with no inline color or font size", () => {
+test("multiplier chip rides the title line with no inline color or font size", () => {
   const props = {
     data: { recipe: RECIPE, multiplier: 3 },
   } as unknown as ComponentProps<typeof RecipeNode>;
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
-  // Exactly one multiplier element, promoted to a .rn-head grid cell.
+  // Exactly one multiplier element, inline in the machine title line.
   const chips = container.querySelectorAll(".rn-mult-chip");
   expect(chips.length).toBe(1);
   const chip = chips[0] as HTMLElement;
   expect(chip.textContent).toBe("x3");
-  expect(chip.parentElement?.className).toBe("rn-head");
+  expect(chip.parentElement?.className).toBe("machine-title");
   // Not inside the rate block, so it never collides with the rate figures.
   expect(container.querySelector(".rn-rate-block .rn-mult-chip")).toBeNull();
   // The old absolute overlay is gone entirely.
@@ -143,6 +143,38 @@ test("multiplier chip survives zoom-low while the rate figures hide", () => {
   expect(getComputedStyle(rateLbl).display).toBe("none");
   expect(getComputedStyle(rateSub).display).toBe("none");
   document.getElementById("zoom-low-probe")?.remove();
+});
+
+// The header title identifies the machine; the produced items ride the
+// secondary .rn-products line instead of the old .product title line.
+test("header title is the machine name with the products on the secondary line", () => {
+  const props = {
+    data: { recipe: RECIPE, multiplier: 3 },
+  } as unknown as ComponentProps<typeof RecipeNode>;
+  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
+  const title = container.querySelector(".machine-title .cn");
+  expect(title?.textContent).toBe("mk1");
+  expect(container.querySelector(".product")).toBeNull();
+  expect(container.querySelector(".rn-products")?.textContent).toBe("plate");
+});
+
+// A recipe with several outputs lists every product, in declaration order,
+// with the full list hoverable via the title attribute.
+test("multi-output recipe lists all products on the secondary line", () => {
+  const recipe = {
+    ...RECIPE,
+    out: [
+      { item: "plate", qty: 1 },
+      { item: "slag", qty: 2 },
+    ],
+  } as unknown as Recipe;
+  const props = {
+    data: { recipe },
+  } as unknown as ComponentProps<typeof RecipeNode>;
+  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
+  const products = container.querySelector(".rn-products");
+  expect(products?.textContent).toBe("plate · slag");
+  expect(products?.getAttribute("title")).toBe("plate · slag");
 });
 
 // The raw machine id (e.g. "mk1") reads as debug output; the localized machine

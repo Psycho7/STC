@@ -44,9 +44,9 @@ test("RecipeNode header and row labels expose the full name via title", () => {
   >;
   const { container } = wrap(<RecipeNode {...props} />);
 
-  const product = container.querySelector(".product");
-  expect(product?.textContent).toBeTruthy();
-  expect(product?.getAttribute("title")).toBe(product?.textContent);
+  const machineTitle = container.querySelector(".machine-title .cn");
+  expect(machineTitle?.textContent).toBeTruthy();
+  expect(machineTitle?.getAttribute("title")).toBe(machineTitle?.textContent);
 
   const labels = container.querySelectorAll(".rn-row .lbl");
   expect(labels.length).toBeGreaterThan(0);
