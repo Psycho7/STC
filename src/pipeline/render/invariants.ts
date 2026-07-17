@@ -4,6 +4,7 @@ import type { Target } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { InvariantResult } from "../../solver/invariants";
 import { effectiveSupply } from "../../solver/effectiveSupply";
+import { netSelfConsumption } from "../../solver/net-self";
 import { demandByItem, toleranceScaleFloor } from "../../solver/lp";
 import type {
   RenderPlan,
@@ -54,6 +55,20 @@ export type RenderInvariantArgs = {
 
 const FRAC_ZERO = new Fraction(0);
 
+// Checkers must read the same netted stoichiometry the solve pipeline ran on
+// (see netSelfConsumption): against the raw pack, a self-consuming recipe
+// would flag phantom shortfalls on the folded-away self flow. Memoized per
+// pack object so the nine checkers of one assert call net only once.
+const nettedPackCache = new WeakMap<RecipePack, RecipePack>();
+function nettedPack(pack: RecipePack): RecipePack {
+  let netted = nettedPackCache.get(pack);
+  if (netted === undefined) {
+    netted = netSelfConsumption(pack);
+    nettedPackCache.set(pack, netted);
+  }
+  return netted;
+}
+
 // Lookup map from unit id to unit.
 export function unitById(plan: RenderPlan): Map<RenderUnitId, RenderUnit> {
   const m = new Map<RenderUnitId, RenderUnit>();
@@ -70,7 +85,7 @@ function productionByItem(
   restrict?: ReadonlySet<RecipeId>,
 ): Map<ItemId, Fraction> {
   const result = new Map<ItemId, Fraction>();
-  for (const r of pack.recipes) {
+  for (const r of nettedPack(pack).recipes) {
     if (restrict !== undefined && !restrict.has(r.id)) continue;
     const rate = rates.get(r.id);
     if (!rate) continue;
@@ -88,7 +103,7 @@ function consumptionByItem(
   restrict?: ReadonlySet<RecipeId>,
 ): Map<ItemId, Fraction> {
   const result = new Map<ItemId, Fraction>();
-  for (const r of pack.recipes) {
+  for (const r of nettedPack(pack).recipes) {
     if (restrict !== undefined && !restrict.has(r.id)) continue;
     const rate = rates.get(r.id);
     if (!rate) continue;
@@ -300,7 +315,7 @@ export function checkInternalFlowConservation(
   // Declared target rate per primary-output item, built like
   // checkTargetOutputsSatisfied: production delivered to a target output
   // product is unavailable for internal routing.
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
   const declaredByItem = new Map<ItemId, Fraction>();
   for (const t of targets) {
     const recipe = recipeById.get(t.recipeId);
@@ -441,7 +456,7 @@ export function checkConsumerInputsSatisfied(
   // Distinct recipeIds among rendered recipe units.
   const renderedRecipeIds = new Set(recipeIdByUnitId.values());
 
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
 
   for (const recipeId of renderedRecipeIds) {
     const rate = rates.get(recipeId);
@@ -516,7 +531,7 @@ export function checkConsumerInputsNotOverfed(
   // Distinct recipeIds among rendered recipe units.
   const renderedRecipeIds = new Set(recipeIdByUnitId.values());
 
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
 
   for (const recipeId of renderedRecipeIds) {
     const rate = rates.get(recipeId);
@@ -567,7 +582,7 @@ export function checkTargetOutputsSatisfied(
   const violations: string[] = [];
   const scaleFloor = planScaleFloor(pack, targets);
 
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
 
   // Declared target rate per primary-output item.
   const declaredByItem = new Map<ItemId, Fraction>();
@@ -676,7 +691,7 @@ export function checkUnitOutflowVsProduction(
   const violations: string[] = [];
   const scaleFloor = planScaleFloor(pack, targets);
 
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
 
   const speedOf = (recipe: (typeof pack.recipes)[number]): Fraction => {
@@ -823,7 +838,7 @@ export function checkProductUnitRates(
   const violations: string[] = [];
   const scaleFloor = planScaleFloor(pack, targets);
   const units = unitById(plan);
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
 
   const slackFor = (expected: number): number =>
     Math.max(scaleFloor, Math.abs(expected)) * REL_TOL;
@@ -865,7 +880,7 @@ export function checkProductUnitRates(
   // Consumed-item sets per recipe, built once so the clause (c) edge loop
   // resolves consumption in O(1) instead of scanning recipe.in per edge.
   const consumedByRecipe = new Map<string, Set<ItemId>>();
-  for (const recipe of pack.recipes) {
+  for (const recipe of nettedPack(pack).recipes) {
     consumedByRecipe.set(recipe.id, new Set(recipe.in.map((s) => s.item)));
   }
 

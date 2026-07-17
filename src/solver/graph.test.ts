@@ -123,20 +123,22 @@ describe("augmentGraphWithLpSupport", () => {
 });
 
 describe("pack census: self-consuming recipes", () => {
-  // Deliberately STRICTER than the runtime guard in replicate.ts: the guard
-  // only rejects a self-consuming recipe that reaches the per-consumer branch
-  // (a singleton SCC), while this census flags ALL self-consuming recipes,
-  // including multi-member-SCC ones the shared replication branches would
-  // handle. It is a pack-update tripwire: if a catalyst-style recipe is ever
-  // added on purpose, updating this census (after verifying solver support)
-  // is the documented escape hatch.
-  it("no recipe lists the same item in both in and out", () => {
+  // Pack-update tripwire: self-consuming (catalyst-style) recipes are only
+  // legal because the solve pipeline nets them away at its boundary (see
+  // netSelfConsumption). This census pins the exact raw-pack offender set so
+  // a data refresh that adds a new one gets reviewed against that support
+  // instead of silently relying on it.
+  it("raw-pack offenders are exactly the two known phase-transition catalysts", () => {
     const offenders = pack.recipes
       .filter((r) => {
         const outs = new Set(r.out.map((o) => o.item));
         return r.in.some((i) => outs.has(i.item));
       })
-      .map((r) => r.id);
-    expect(offenders).toEqual([]);
+      .map((r) => r.id)
+      .sort();
+    expect(offenders).toEqual([
+      "phase_trans_1-liquid_xiranite",
+      "phase_trans_2-gas_xiranite",
+    ]);
   });
 });
