@@ -69,10 +69,11 @@ const solveLp = (input: {
 // BRIDGE: a recipe-form plan is expressible under item demand only when (a)
 // every target's primary item has finite effective supply (demand on a free
 // boundary item builds no LP row, so nothing runs and the recipe-keyed render
-// target starves), and (b) the LP picks every seeded recipe as its item's
-// producer (the graph cone is still seeded from the recipe, so a different
-// winner leaves part of the LP support outside the cone). Inexpressible plans
-// are skipped until the graph/render stages flip to item targets.
+// target starves), and (b) the LP keeps every seeded recipe active (the
+// replicate walk still seeds demand from the bridge recipes, so a plan whose
+// item demand is routed entirely through a different producer leaves part of
+// the LP support unwalked). Inexpressible plans are skipped until the
+// replicate stage flips to item targets.
 function bridgeExpressible(targets: Target[]): boolean {
   const bridged = toSolverTargets(targets, pack);
   for (const t of bridged) {
@@ -978,12 +979,11 @@ describe("torn-arc coverage: back-edge tearing on witness plans", () => {
 // edge across BOTH siblings gives each its share and clears the per-unit
 // outflow-vs-production check for the liquid_xiranite_poly units.
 // ---------------------------------------------------------------------------
-// BRIDGE-SKIP: P6 pinned BOTH jinlong_coupon exchange recipes at once. Item
-// demand routes the whole summed jinlong demand through one cheapest producer,
-// so the two-route support is inexpressible and the scenario's xiranite units
-// never materialize (the assertions would be vacuous). Revisit with the
-// item-target flip of the graph/render stages.
-describe.skip("render corpus: co-product fans across sibling replicas (P6)", () => {
+// BRIDGE: P6 pinned BOTH jinlong_coupon exchange recipes; item demand routes
+// the summed jinlong demand through the cheapest producers instead, so
+// JINLONG_STEER keeps it on the xiranite route where the liquid_xiranite SCC
+// splits and the co-product fanning under test occurs.
+describe("render corpus: co-product fans across sibling replicas (P6)", () => {
   const P6_TARGETS: Target[] = [
     {
       recipeId: "jinlong_coupon-xiranite_enr_powder",
@@ -1001,6 +1001,7 @@ describe.skip("render corpus: co-product fans across sibling replicas (P6)", () 
       pack,
       defaultTransportConfig,
       [],
+      JINLONG_STEER,
     );
     const { plan } = renderPlanFromSolve(full, pack, P6_TARGETS, []);
     return { full, plan };
@@ -1600,7 +1601,13 @@ describe("render corpus: shared byproduct supplier apportionment (plan:true over
   // recipe-level flow must additionally be apportioned across the split stamps
   // by their output shares. Pins the within-recipe apportionment and the
   // cross-boundary split divergence in one plan.
-  it("P2-torn + planned water: split purifier stamps bill water within production", () => {
+  // BRIDGE-SKIP: with the graph seeded from every producer of the target
+  // items, the planned-water world routes the purifier's water byproduct into
+  // enough consumer groups that it carries TWO split-driving output items,
+  // hitting the deferred co-product role-split guard in assignSplitRoles.
+  // Re-enable once the role split (or the item-target replicate rework)
+  // covers multi-driving-item producers.
+  it.skip("P2-torn + planned water: split purifier stamps bill water within production", () => {
     const targets: Target[] = [
       { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
       {

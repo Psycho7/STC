@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Item, Recipe, RecipePack } from "@aef/schema";
 import { buildRecipeGraph } from "../../src/solver/graph";
 import type { ItemOverride } from "../../src/data/plan";
-import type { Target } from "../../src/data/targets";
+import type { ItemTarget } from "../../src/data/targets";
 
 // Synthetic helpers: build small packs that exercise the raw-termination
 // path without depending on the committed AEF pack.
@@ -68,8 +68,8 @@ function mkPack(items: Item[], recipes: Recipe[]): RecipePack {
   } as unknown as RecipePack;
 }
 
-function tgt(recipeId: string): Target {
-  return { recipeId, ratePerSec: { num: "1", denom: "1" } };
+function tgt(itemId: string): ItemTarget {
+  return { itemId, ratePerSec: { num: "1", denom: "1" } };
 }
 
 describe("buildRecipeGraph raw termination (B1)", () => {
@@ -94,8 +94,9 @@ describe("buildRecipeGraph raw termination (B1)", () => {
   });
 
   it("targeting a raw item produces a single-node graph (target is raw)", () => {
-    // liquid_water item is raw, but the liquid_water recipe still exists and
-    // is selected as the target. With no inputs, no upstream walk happens.
+    // liquid_water item is raw, but its producer recipe is still seeded (the
+    // walk seeds every producer of a target item). With no inputs, no
+    // upstream walk happens.
     const items = [mkItem("liquid_water", true)];
     const recipes = [mkRecipe("liquid_water", [], ["liquid_water"])];
     const g = buildRecipeGraph([tgt("liquid_water")], mkPack(items, recipes));
@@ -131,7 +132,7 @@ describe("buildRecipeGraph raw termination (B1)", () => {
       mkRecipe("b", ["x"], ["y"]),
       mkRecipe("c", ["y"], ["z"]),
     ];
-    const g = buildRecipeGraph([tgt("c")], mkPack(items, recipes));
+    const g = buildRecipeGraph([tgt("z")], mkPack(items, recipes));
     expect([...g.nodes.keys()].sort()).toEqual(["a", "b", "c"]);
   });
 });

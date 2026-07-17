@@ -226,8 +226,8 @@ export function validatePlan(
       };
     }
     const recipe = recipeById.get(t.recipeId);
-    // An unknown target recipe would otherwise reach graph construction and
-    // throw UnknownRecipeError; reject it here as a structured load error.
+    // An unknown target recipe would otherwise map to no item demand and the
+    // plan would silently under-deliver; reject it as a structured load error.
     if (!recipe) {
       return { kind: "unknown-target-recipe", recipeId: t.recipeId };
     }

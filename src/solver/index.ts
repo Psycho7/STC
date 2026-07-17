@@ -199,13 +199,26 @@ function runSolvePipeline(
   // Close graph membership over the LP support before any graph-derived
   // structure is computed: a disposal absorber the LP runs is unreachable from
   // the target cone and would otherwise be missing from the render entirely.
-  const augmented = augmentGraphWithLpSupport(
-    g,
-    rates,
-    pack,
-    targets,
-    itemOverrides,
-  );
+  const augmented = augmentGraphWithLpSupport(g, rates, pack, itemOverrides);
+  // BRIDGE: the item-seeded graph can hold an LP-active sibling producer of a
+  // target item whose output no in-graph consumer demands (its production IS
+  // the net export). The demand walk still seeds only the bridge target
+  // recipes, so such a producer would be missing from the render entirely.
+  // Seed it like an augmented absorber (full LP rate). Its undemanded output
+  // means it has no outgoing edges, so it cannot sit in a cycle and the
+  // singleton-SCC contract asserted below holds. Goes away when the
+  // replicate walk seeds target-item producers directly.
+  const targetItemIds = new Set(targets.map((t) => t.itemId));
+  const targetRecipeIds = new Set(targets.map((t) => t.recipeId));
+  for (const [rid, rate] of rates) {
+    if (rate.compare(0) <= 0) continue;
+    if (targetRecipeIds.has(rid) || augmented.has(rid)) continue;
+    const r = g.nodes.get(rid);
+    if (!r) continue;
+    if ((g.outgoing.get(rid) ?? []).length > 0) continue;
+    if (!r.out.some((o) => targetItemIds.has(o.item))) continue;
+    augmented.add(rid);
+  }
   const sccs = tarjanScc(g);
   const c = condense(g, sccs);
   if (import.meta.env.DEV && augmented.size > 0) {

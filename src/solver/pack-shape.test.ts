@@ -4,7 +4,7 @@ import { pack } from "../data/load";
 import { buildRecipeGraphMulti } from "./graph";
 import { tarjanScc } from "./scc";
 import { makePack } from "./closed-form-fixtures";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 
 // Pack-shape guard for the replicatePerConsumer known limit (see the comment
@@ -58,11 +58,14 @@ function unprotectedCoProductFanouts(p: RecipePack): string[] {
     }
   }
 
-  // The graph (built with every recipe as a target so all reachable edges
-  // exist) supplies SCC membership and the byproduct-shared trigger for one
-  // override world. Cached by override set: worlds repeat across producers.
-  const targets: Target[] = p.recipes.map((r) => ({
-    recipeId: r.id,
+  // The graph (built with every produced item as a target so all reachable
+  // edges exist) supplies SCC membership and the byproduct-shared trigger for
+  // one override world. Cached by override set: worlds repeat across
+  // producers.
+  const targetItems = new Set<string>();
+  for (const r of p.recipes) for (const o of r.out) targetItems.add(o.item);
+  const targets: ItemTarget[] = [...targetItems].map((itemId) => ({
+    itemId,
     ratePerSec: { num: "1", denom: "1" },
   }));
   const worldCache = new Map<

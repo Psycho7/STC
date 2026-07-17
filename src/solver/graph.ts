@@ -2,32 +2,25 @@ import Fraction from "fraction.js";
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { RecipeGraph, RecipeEdge, RecipeId } from "./types";
 import { UnknownRecipeError } from "./types";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { effectiveSupply } from "./effectiveSupply";
 import { isExcludedProducer } from "../data/recipe-category";
 import { computeRecipeDepths } from "../data/recipe-depth";
 
-// Validate targets, index producers by output item, and rank each item's
-// candidate producers by (depth, id). Shared by both graph builders so ranking
-// is identical regardless of how producers are selected.
+// Index producers by output item and rank each item's candidate producers by
+// (depth, id). Shared by both graph builders so ranking is identical
+// regardless of how producers are selected.
 function rankProducers(
-  targets: Target[],
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
 ): {
   recipeById: Map<string, Recipe>;
-  targetIds: Set<string>;
   overrides: ItemOverride[];
   producersByItem: Map<string, string[]>;
 } {
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
-  const targetIds = new Set(targets.map((t) => t.recipeId));
   const overrides = itemOverrides ?? [];
-
-  for (const t of targets) {
-    if (!recipeById.has(t.recipeId)) throw new UnknownRecipeError(t.recipeId);
-  }
 
   const producersByItem = new Map<string, string[]>();
   for (const r of pack.recipes) {
@@ -55,22 +48,21 @@ function rankProducers(
     });
   }
 
-  return { recipeById, targetIds, overrides, producersByItem };
+  return { recipeById, overrides, producersByItem };
 }
 
-// Walk the targets' input cone, attaching producer edges. When multi is false,
-// attach only the shallowest viable producer per consumed item; when true,
-// attach every non-excluded producer. An excluded recipe is honored only if the
-// user named it as a target (covers the cost === -1 waste-sink carve-out inside
-// isExcludedProducer). Dedup keeps one edge per (producer, item, consumer).
+// Walk the target items' input cone, attaching producer edges. When multi is
+// false, attach only the shallowest viable producer per consumed item; when
+// true, attach every non-excluded producer. Excluded recipes never enter the
+// graph (plan validation rejects excluded-producer targets upstream). Dedup
+// keeps one edge per (producer, item, consumer).
 function buildGraph(
-  targets: Target[],
+  targets: ItemTarget[],
   pack: RecipePack,
   itemOverrides: ItemOverride[] | undefined,
   multi: boolean,
 ): RecipeGraph {
-  const { recipeById, targetIds, overrides, producersByItem } = rankProducers(
-    targets,
+  const { recipeById, overrides, producersByItem } = rankProducers(
     pack,
     itemOverrides,
   );
@@ -95,10 +87,19 @@ function buildGraph(
     incoming.get(target)!.push(edge);
   }
 
+  // Seed the walk from every non-excluded producer of each target item: the
+  // LP chooses among them, so all of them (and their input cones) must be in
+  // the graph. An unknown or producer-less target item simply seeds nothing;
+  // its demand surfaces as an LP deficit.
   const stack: string[] = [];
   for (const t of targets) {
-    ensureNode(t.recipeId);
-    stack.push(t.recipeId);
+    for (const cid of producersByItem.get(t.itemId) ?? []) {
+      const r = recipeById.get(cid);
+      if (!r || isExcludedProducer(r)) continue;
+      if (nodes.has(cid)) continue;
+      ensureNode(cid);
+      stack.push(cid);
+    }
   }
 
   while (stack.length) {
@@ -115,7 +116,7 @@ function buildGraph(
       for (const cid of candidates) {
         const r = recipeById.get(cid);
         if (!r) continue;
-        if (isExcludedProducer(r) && !targetIds.has(cid)) continue;
+        if (isExcludedProducer(r)) continue;
         const wasNew = !nodes.has(cid);
         ensureNode(cid);
         const already = (outgoing.get(cid) ?? []).some(
@@ -132,7 +133,7 @@ function buildGraph(
 }
 
 export function buildRecipeGraph(
-  targets: Target[],
+  targets: ItemTarget[],
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
 ): RecipeGraph {
@@ -142,7 +143,7 @@ export function buildRecipeGraph(
 // LP variant: enumerates all non-excluded producers for each consumed item
 // instead of picking one, so the LP can choose among them.
 export function buildRecipeGraphMulti(
-  targets: Target[],
+  targets: ItemTarget[],
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
 ): RecipeGraph {
@@ -165,10 +166,8 @@ export function augmentGraphWithLpSupport(
   g: RecipeGraph,
   rates: Map<RecipeId, Fraction>,
   pack: RecipePack,
-  targets: Target[],
   itemOverrides?: ItemOverride[],
 ): Set<RecipeId> {
-  const targetIds = new Set(targets.map((t) => t.recipeId));
   const overrides = itemOverrides ?? [];
   const added = new Set<RecipeId>();
 
@@ -198,7 +197,7 @@ export function augmentGraphWithLpSupport(
         if (!producer.out.some((o) => o.item === inp.item)) continue;
         // Same exclusion rule as the walk's edge attachment. An augmented node
         // is non-excluded by construction, so chains stay wireable.
-        if (isExcludedProducer(producer) && !targetIds.has(pid)) continue;
+        if (isExcludedProducer(producer)) continue;
         const already = (g.outgoing.get(pid) ?? []).some(
           (e) => e.target === id && e.item === inp.item,
         );
