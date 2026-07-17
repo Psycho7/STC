@@ -785,3 +785,65 @@ export const rawItemTargetViaMinerGolden = {
   objectiveValue: 1,
   activeRecipes: ["r_miner"],
 };
+
+// ---------------------------------------------------------------------------
+// Scenario 14: free-boundary item target met by boundary draw
+//
+// "ore" is raw:true (effectiveSupply === Infinity, effectively unlimited free
+// external supply) and there is no producer at all. Targeting it does NOT run
+// anything and is NOT a deficit: the demand is met by an external boundary draw
+// equal to the declared rate. The LP builds no mass-balance row for a free
+// boundary item, so the draw is post-solve accounting: draw = demand - net
+// production = 1 - 0 = 1.
+//
+// Nothing runs -> status "empty"; softFeasible stays true (no unmet demand);
+// draws{ore} = 1; deficit empty.
+// ---------------------------------------------------------------------------
+export const freeBoundaryTarget = {
+  pack: mkPack([], [{ id: "ore", raw: true }]),
+  targets: [{ itemId: "ore", ratePerSec: rate("1", "1") }],
+};
+
+export const freeBoundaryTargetGolden = {
+  objectiveValue: 0,
+  status: "empty" as const,
+  softFeasible: true,
+  activeRecipes: [] as string[],
+  drawOre: 1,
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 15: free-boundary target that ALSO has a costly miner (draw wins)
+//
+// Same raw:true "ore" target, but now a miner r_mine (from nothing, cost 1)
+// could also produce it. The free boundary draw costs 0; running the miner
+// costs 1 and produces an unconstrained item (no row, no benefit), so the
+// cost-min LP keeps the miner idle and meets demand via the free draw. draw =
+// demand - net production = 1 - 0 = 1 (miner idle, net 0).
+//
+// Nothing runs -> status "empty"; softFeasible true; draws{ore} = 1; deficit
+// empty. r_mine must NOT be active.
+// ---------------------------------------------------------------------------
+export const freeBoundaryTargetWithMiner = {
+  pack: mkPack(
+    [
+      {
+        id: "r_mine",
+        category: "material",
+        time: 1,
+        in: [],
+        out: [{ item: "ore", qty: 1 }],
+      },
+    ],
+    [{ id: "ore", raw: true }],
+  ),
+  targets: [{ itemId: "ore", ratePerSec: rate("1", "1") }],
+};
+
+export const freeBoundaryTargetWithMinerGolden = {
+  objectiveValue: 0,
+  status: "empty" as const,
+  softFeasible: true,
+  activeRecipes: [] as string[],
+  drawOre: 1,
+};

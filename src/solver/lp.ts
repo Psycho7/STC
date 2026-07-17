@@ -572,6 +572,37 @@ function extractResult(args: ExtractArgs): LpResult {
     if (drawsDropped) slack = computeSlack();
   }
 
+  // Free-boundary target items (effectiveSupply === Infinity: raw:true, or a
+  // plan:true non-raw item) carry no mass-balance row and no draw variable in
+  // the model - their supply is unlimited and free, so the LP has nothing to
+  // decide. But when such an item is itself a target, the demand is met by
+  // pulling it in at the boundary, and the render layer needs that pull
+  // reported. Account for it here as pure post-solve accounting:
+  //   draw = demand - net production  (= demand + net consumption)
+  // the exact amount the boundary must supply to net-export the item at its
+  // rate on top of whatever running recipes consume. A non-positive result
+  // means running recipes already net-produce the demand (boundary free
+  // disposal absorbs the excess), so no draw is reported. Non-target
+  // free-boundary items (demand 0) are skipped, leaving the raw-input draw path
+  // untouched.
+  for (const it of items) {
+    if (supplyById.get(it.id) !== Infinity) continue;
+    const demandIt = demandExact.get(it.id) ?? FRAC_ZERO;
+    if (demandIt.equals(0)) continue;
+    let net = FRAC_ZERO;
+    for (const [recipeId, rate] of rates) {
+      const r = recipeById.get(recipeId)!;
+      for (const o of r.out) {
+        if (o.qty !== 0 && o.item === it.id) net = net.add(rate.mul(o.qty));
+      }
+      for (const i of r.in) {
+        if (i.qty !== 0 && i.item === it.id) net = net.sub(rate.mul(i.qty));
+      }
+    }
+    const drawAmt = demandIt.sub(net);
+    if (drawAmt.compare(0) > 0) draws.set(it.id, drawAmt);
+  }
+
   // Surplus/deficit from the exact recompute, never from the raw slack
   // variables: the extracted point's rows then close exactly. A material raw
   // deficit surfaces as the recomputed shortfall (or, when the snapped rates

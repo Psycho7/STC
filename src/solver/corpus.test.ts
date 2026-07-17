@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import { solveLp } from "./lp";
 import { activeRecipeSet } from "./optimality";
+import { checkMassBalance, checkTargetsMet } from "./invariants";
 import {
   acyclicSingleProducer,
   acyclicSingleProducerGolden,
@@ -51,6 +52,10 @@ import {
   byproductOnlyTargetGolden,
   rawItemTargetViaMiner,
   rawItemTargetViaMinerGolden,
+  freeBoundaryTarget,
+  freeBoundaryTargetGolden,
+  freeBoundaryTargetWithMiner,
+  freeBoundaryTargetWithMinerGolden,
 } from "./corpus";
 
 // Relative tolerance for objectiveValue; tighter than the 1e-6
@@ -428,5 +433,57 @@ describe("Scenario 13: raw item target via a miner recipe", () => {
     expect(result.draws.has("ore")).toBe(false);
     expect(result.deficit.size).toBe(0);
     expect(result.rates.get("r_miner")!.equals(new Fraction(1))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 14: free-boundary item target met by boundary draw
+// ---------------------------------------------------------------------------
+describe("Scenario 14: free-boundary item target", () => {
+  it("meets a raw:true target via boundary draw with nothing running", () => {
+    const result = solveLp({
+      targets: freeBoundaryTarget.targets,
+      pack: freeBoundaryTarget.pack,
+    });
+
+    // Nothing runs -> status empty; demand is met by the free boundary draw, so
+    // the solve is soft-feasible with no deficit.
+    expect(result.status).toBe(freeBoundaryTargetGolden.status);
+    expect(result.softFeasible).toBe(freeBoundaryTargetGolden.softFeasible);
+    assertObjective(result.objectiveValue, freeBoundaryTargetGolden.objectiveValue);
+    expect(activeList(result)).toEqual(freeBoundaryTargetGolden.activeRecipes);
+    // The boundary draw covers the full declared rate.
+    expect(result.draws.has("ore")).toBe(true);
+    expect(result.draws.get("ore")!.equals(new Fraction(freeBoundaryTargetGolden.drawOre))).toBe(true);
+    expect(result.deficit.size).toBe(0);
+    // The checkers agree: demand met, mass balance holds.
+    expect(checkTargetsMet(result, freeBoundaryTarget.targets).violations).toEqual([]);
+    expect(
+      checkMassBalance(result, freeBoundaryTarget.pack, freeBoundaryTarget.targets, []).violations,
+    ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 15: free-boundary target with a costly miner (draw wins)
+// ---------------------------------------------------------------------------
+describe("Scenario 15: free-boundary target prefers the free draw over a miner", () => {
+  it("keeps the miner idle and meets the raw:true target via boundary draw", () => {
+    const result = solveLp({
+      targets: freeBoundaryTargetWithMiner.targets,
+      pack: freeBoundaryTargetWithMiner.pack,
+    });
+
+    expect(result.status).toBe(freeBoundaryTargetWithMinerGolden.status);
+    expect(result.softFeasible).toBe(freeBoundaryTargetWithMinerGolden.softFeasible);
+    assertObjective(result.objectiveValue, freeBoundaryTargetWithMinerGolden.objectiveValue);
+    expect(activeList(result)).toEqual(freeBoundaryTargetWithMinerGolden.activeRecipes);
+    // The free draw (cost 0) beats the miner (cost 1): the miner stays idle.
+    expect(activeList(result)).not.toContain("r_mine");
+    expect(result.draws.has("ore")).toBe(true);
+    expect(
+      result.draws.get("ore")!.equals(new Fraction(freeBoundaryTargetWithMinerGolden.drawOre)),
+    ).toBe(true);
+    expect(result.deficit.size).toBe(0);
   });
 });
