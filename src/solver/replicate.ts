@@ -59,6 +59,8 @@ import type { ItemTarget } from "../data/targets";
  * `assignSplitRoles` and `propagateGroups` are exported so tests can exercise
  * the pure rules without a full RecipeGraph fixture.
  */
+const EMPTY_ITEM_SET: ReadonlySet<ItemId> = new Set();
+
 export function replicatePerConsumer(args: {
   g: RecipeGraph;
   articulation: Set<RecipeId>;
@@ -132,15 +134,21 @@ type ReplicateState = {
   // that is also an upstream producer of another target over-replicates its
   // whole chain ~2x.
   readonly targetSeeded: Map<RecipeId, Replica>;
-  readonly targetDraw: Map<RecipeId, Fraction>;
+  // Declared target draw per (producer recipe, produced item): the portion of
+  // the recipe's production of THAT item claimed by the target output. Keyed
+  // per item so a draw on a co-product never distorts the primary output's
+  // split weight (and vice versa).
+  readonly targetDraw: Map<RecipeId, Map<ItemId, Fraction>>;
   readonly sccMemberReplicas: Map<SccId, Map<RecipeId, ReplicaId>>;
 
   // Lookup tables.
   readonly sccById: Map<SccId, Condensation["sccs"][number]>;
   // Positive-LP-rate graph producers per target item (walk seeds); their
-  // union is targetRecipeIds.
+  // union is the key set of targetItemsByRecipe.
   readonly producersByTargetItem: Map<ItemId, RecipeId[]>;
-  readonly targetRecipeIds: Set<RecipeId>;
+  // Inverse view: the target items each seeded producer emits (drives the
+  // synthetic target-output role in assignSplitRoles).
+  readonly targetItemsByRecipe: Map<RecipeId, Set<ItemId>>;
   // Producers that feed an SCC member across the boundary for a non-primary
   // output (a byproduct supply). Their rate is fixed by their primary-output
   // demand, so they emit once as a shared replica at full LP rate (AP-shared
@@ -194,10 +202,11 @@ function createReplicateState(args: {
 
   // Per target item, the graph producers of the item with a positive LP rate:
   // the recipes the LP actually chose to cover the item's net-export demand.
-  // These are the walk seeds, and their union is the target-producer set the
-  // looper/deliverer decision reads (the synthetic target-output role).
-  const targetRecipeIds = new Set<RecipeId>();
+  // These are the walk seeds, and the inverse map records which target items
+  // each producer emits (the synthetic target-output roles the
+  // looper/deliverer decision reads).
   const producersByTargetItem = new Map<ItemId, RecipeId[]>();
+  const targetItemsByRecipe = new Map<RecipeId, Set<ItemId>>();
   for (const t of args.targets) {
     if (producersByTargetItem.has(t.itemId)) continue;
     const producers: RecipeId[] = [];
@@ -206,7 +215,12 @@ function createReplicateState(args: {
       const rate = args.rates.get(rid);
       if (!rate || rate.compare(0) <= 0) continue;
       producers.push(rid);
-      targetRecipeIds.add(rid);
+      let items = targetItemsByRecipe.get(rid);
+      if (!items) {
+        items = new Set<ItemId>();
+        targetItemsByRecipe.set(rid, items);
+      }
+      items.add(t.itemId);
     }
     producersByTargetItem.set(t.itemId, producers);
   }
@@ -256,7 +270,7 @@ function createReplicateState(args: {
     sccMemberReplicas: new Map(),
     sccById,
     producersByTargetItem,
-    targetRecipeIds,
+    targetItemsByRecipe,
     byproductSharedSources,
     stack: [],
     boundaryEdges: [],
@@ -330,9 +344,11 @@ function sccIdOf(state: ReplicateState, rid: RecipeId): SccId {
 // over-produces a multi-producer input.
 //
 // `targetDraw` deducts a seeded-target producer's declared draw (production
-// claimed by the target output product) from its split weight, so co-producing
-// siblings carry the residual demand at full LP rate instead of a proportional
-// share that would leave the item under-produced.
+// of THIS item claimed by the target output product, keyed per (recipe, item))
+// from its split weight, so co-producing siblings carry the residual demand at
+// full LP rate instead of a proportional share that would leave the item
+// under-produced. A draw on one of the producer's OTHER output items never
+// touches this item's weight.
 //
 // `intraSupplyByItem` (flow units per input item) is demand already covered
 // by intra-SCC producers over the torn arc. It converts to rate units via the
@@ -350,7 +366,7 @@ export function splitConsumerDemand(
   consumer: Recipe,
   candidateEdges: ReadonlyArray<RecipeEdge>,
   consumerRate: Fraction,
-  targetDraw?: ReadonlyMap<RecipeId, Fraction>,
+  targetDraw?: ReadonlyMap<RecipeId, ReadonlyMap<string, Fraction>>,
   intraSupplyByItem?: ReadonlyMap<string, Fraction>,
   boundaryShare?: ReadonlyMap<string, Fraction>,
 ): Array<{ edge: RecipeEdge; consumerRate: Fraction }> {
@@ -388,12 +404,12 @@ export function splitConsumerDemand(
       const rate = rates.get(e.source) ?? new Fraction(0);
       let contrib = rate.mul(outQty);
       // A seeded-target producer keeps its full LP rate (the targetSeeded pin
-      // in processProducer), and its declared target draw claims that
+      // in processProducer), and its declared draw of THIS item claims that
       // production first. Weight it by the remainder only, so co-producing
       // siblings carry the residual demand at full rate instead of a
       // proportional share that leaves the item under-produced.
-      const draw = targetDraw?.get(e.source);
-      if (draw !== undefined && producer?.out[0]?.item === e.item) {
+      const draw = targetDraw?.get(e.source)?.get(e.item);
+      if (draw !== undefined) {
         const avail = contrib.sub(draw);
         contrib = avail.compare(0) > 0 ? avail : new Fraction(0);
       }
@@ -451,9 +467,10 @@ export function propagateGroups(role: GroupRole): GroupId {
 // outgoingEdgeFilter sets for building those replicas.
 //
 // The split balances on one "split-driving" output item: one the recipe both
-// feeds intra-SCC and ships cross-boundary. isTarget adds a synthetic cross
-// consumer on the primary output, so a target's primary output can be
-// split-driving. outQtys gives per-item produced quantities for the
+// feeds intra-SCC and ships cross-boundary. Each entry of targetOutItems adds
+// a synthetic cross consumer on that produced item, so a targeted output
+// (primary or co-product) can be split-driving. outQtys gives per-item
+// produced quantities for the
 // produced-flow computation; primaryOutItem is the recipe's primary output and
 // the count==0 fallback balance item when nothing is split-driving. The >=2
 // split-driving case (a co-product role-split) is deferred and guarded by a
@@ -496,7 +513,9 @@ export function assignSplitRoles(args: {
   outQtys: Map<string, number>; // produced qty per output item
   intraEdges: ResolvedIntraEdge[];
   crossEdges: RoleEdge[];
-  isTarget: boolean;
+  // Produced items of this recipe that are declared target items; each acts
+  // as a synthetic cross-boundary consumer (the target output unit).
+  targetOutItems: ReadonlySet<string>;
   // Per intra-produced item: total intra-consumer demand (counted once per
   // consumer) and total produced flow across the SCC's intra producers
   // (zero-rate members contribute zero and self-cancel). When >= 2 producers
@@ -514,13 +533,13 @@ export function assignSplitRoles(args: {
     outQtys,
     intraEdges,
     crossEdges,
-    isTarget,
+    targetOutItems,
     intraDemandByItem,
     intraProdByItem,
   } = args;
   const shouldSplit =
     intraEdges.length > 0 &&
-    (crossEdges.length > 0 || isTarget) &&
+    (crossEdges.length > 0 || targetOutItems.size > 0) &&
     recipeRate.compare(0) > 0;
   if (!shouldSplit) return { kind: "single" };
 
@@ -532,11 +551,11 @@ export function assignSplitRoles(args: {
   //
   // An output item is "split-driving" iff it has at least one intra consumer
   // AND at least one cross consumer. The synthetic target-output role counts as
-  // a cross consumer on the primary output item. The >=2 split-driving case
+  // a cross consumer on each targeted output item. The >=2 split-driving case
   // (deferred co-product role-split) is unreached by any current plan.
   const intraItems = new Set(intraEdges.map((e) => e.item));
   const crossItems = new Set(crossEdges.map((e) => e.item));
-  if (isTarget && primaryOutItem) crossItems.add(primaryOutItem);
+  for (const it of targetOutItems) crossItems.add(it);
   const drivingItems = [...intraItems].filter((i) => crossItems.has(i));
 
   if (drivingItems.length >= 2) {
@@ -667,7 +686,8 @@ export function assignSplitRoles(args: {
       for (const f of liveFilters) f.add(outgoingEdgeKey(ce.item, ce.target));
     }
   }
-  // When isTarget is true with no cross edges, delivererFilter ends up empty.
+  // When targetOutItems is non-empty with no cross edges, delivererFilter ends
+  // up empty.
   // The deliverer still owns the target-output role; the boundary-products pass
   // routes the target edge off this replica's stamps on its own.
   return {
@@ -783,7 +803,8 @@ function ensureSccReplicas(
         crossEdges.push({ item: e.item, target: e.target });
       }
     }
-    const isTarget = state.targetRecipeIds.has(rid);
+    const targetOutItems =
+      state.targetItemsByRecipe.get(rid) ?? EMPTY_ITEM_SET;
     const recipeRate = state.rates.get(rid) ?? new Fraction(0);
     const recipe = state.g.nodes.get(rid);
     const primaryOutItem = recipe?.out[0]?.item ?? "";
@@ -813,8 +834,8 @@ function ensureSccReplicas(
       }
       if (totalDemand.compare(0) <= 0) continue;
       let netProd = recipeRate.mul(new Fraction(outQtys.get(item) ?? 0));
-      const draw = state.targetDraw.get(rid);
-      if (draw !== undefined && primaryOutItem === item) {
+      const draw = state.targetDraw.get(rid)?.get(item);
+      if (draw !== undefined) {
         netProd = netProd.sub(draw);
         if (netProd.compare(0) < 0) netProd = new Fraction(0);
       }
@@ -844,7 +865,7 @@ function ensureSccReplicas(
       outQtys,
       intraEdges,
       crossEdges,
-      isTarget,
+      targetOutItems,
       intraDemandByItem,
       intraProdByItem,
     });
@@ -1284,11 +1305,14 @@ function walkFromTargets(state: ReplicateState): void {
     for (const rid of producers) {
       const share = flows.get(rid)!.div(totalFlow);
       if (share.equals(0)) continue;
-      state.targetDraw.set(
-        rid,
-        (state.targetDraw.get(rid) ?? new Fraction(0)).add(
-          declared.mul(share),
-        ),
+      let perItem = state.targetDraw.get(rid);
+      if (!perItem) {
+        perItem = new Map<ItemId, Fraction>();
+        state.targetDraw.set(rid, perItem);
+      }
+      perItem.set(
+        t.itemId,
+        (perItem.get(t.itemId) ?? new Fraction(0)).add(declared.mul(share)),
       );
     }
   }

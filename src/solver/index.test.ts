@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import Fraction from "fraction.js";
 import { LpInfeasibleError, solvePlan, solvePlanWithIntermediates } from "./index";
-import { splitTargetProducers } from "./corpus";
+import {
+  splitTargetProducers,
+  coProductTarget,
+  dualTargetItemsOneRecipe,
+} from "./corpus";
 import { renderPlanFromSolve } from "../pipeline/driver";
 import { checkRenderPlan } from "../pipeline/render/invariants";
 import { pack } from "../data/load";
@@ -491,5 +495,116 @@ describe("LP-split target item through replicate and render", () => {
     }
     expect(byProducer.get("r_cheap")?.equals(1)).toBe(true);
     expect(byProducer.get("r_dear")?.equals(4)).toBe(true);
+  });
+});
+
+describe("co-product target items through replicate and render", () => {
+  // Scenario 17: "co" is r_co's SECOND output; the declared draw must be keyed
+  // to the co-product item so r_use's main demand still sees r_co's full main
+  // production as its split weight.
+  it("feeds the primary-output consumer despite a co-product draw on its producer", () => {
+    const { pack: p, targets } = coProductTarget;
+    const full = solvePlanWithIntermediates(targets, p, defaultTransportConfig);
+
+    const zero = new Fraction(0);
+    const sumOf = (rid: string) =>
+      full.replicas
+        .filter((r) => r.recipeId === rid)
+        .reduce((acc, r) => acc.add(r.executionRate), zero);
+    expect(full.rates.get("r_co")!.equals(1)).toBe(true);
+    expect(full.rates.get("r_use")!.equals(1)).toBe(true);
+    expect(sumOf("r_co").equals(1)).toBe(true);
+    expect(sumOf("r_use").equals(1)).toBe(true);
+
+    const { plan } = renderPlanFromSolve(full, p, targets, []);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack: p,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+
+    // Both target output units are fed at exactly their declared rates.
+    const inflowOf = (item: string) =>
+      plan.edges
+        .filter((e) => e.toUnit === `u:out:${item}` && e.item === item)
+        .reduce((acc, e) => acc.add(e.rate), zero);
+    expect(inflowOf("co").equals(1)).toBe(true);
+    expect(inflowOf("cout").equals(1)).toBe(true);
+    // The consumer is fed its full main demand.
+    const useUnit = plan.units.find(
+      (u) => u.kind === "recipe" && u.recipeId === "r_use",
+    )!;
+    const mainInflow = plan.edges
+      .filter((e) => e.toUnit === useUnit.id && e.item === "main")
+      .reduce((acc, e) => acc.add(e.rate), zero);
+    expect(mainInflow.equals(1)).toBe(true);
+  });
+
+  // Scenario 18: one recipe produces TWO target items; the seed must emit
+  // once and the per-item draws must both be honored.
+  it("seeds a two-target-item recipe once and feeds both target outputs", () => {
+    const { pack: p, targets } = dualTargetItemsOneRecipe;
+    const full = solvePlanWithIntermediates(targets, p, defaultTransportConfig);
+
+    expect(full.rates.get("r_dual")!.equals(1)).toBe(true);
+    const dualReplicas = full.replicas.filter((r) => r.recipeId === "r_dual");
+    expect(dualReplicas).toHaveLength(1);
+    expect(dualReplicas[0]!.executionRate.equals(1)).toBe(true);
+
+    const { plan } = renderPlanFromSolve(full, p, targets, []);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack: p,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+
+    const zero = new Fraction(0);
+    const inflowOf = (unitId: string, item: string) =>
+      plan.edges
+        .filter((e) => e.toUnit === unitId && e.item === item)
+        .reduce((acc, e) => acc.add(e.rate), zero);
+    expect(inflowOf("u:out:a", "a").equals(1)).toBe(true);
+    expect(inflowOf("u:out:b", "b").equals(1)).toBe(true);
+    // The extra unit of b is free-disposal surplus.
+    const surplusUnit = plan.units.find(
+      (u) => u.kind === "outputProduct" && u.itemId === "b" && u.flavor === "surplus",
+    );
+    expect(surplusUnit).toBeDefined();
+    expect(inflowOf(surplusUnit!.id, "b").equals(1)).toBe(true);
+  });
+
+  // Shipped pack: liquid_sewage is a co-product-only item (never a primary
+  // output of a non-excluded recipe). Targeting it must solve and render with
+  // every checker green.
+  it("shipped pack: liquid_sewage as a target renders clean", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "liquid_sewage", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+    );
+    expect(full.feasibility.softFeasible).toBe(true);
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+    const zero = new Fraction(0);
+    const inflow = plan.edges
+      .filter((e) => e.toUnit === "u:out:liquid_sewage" && e.item === "liquid_sewage")
+      .reduce((acc, e) => acc.add(e.rate), zero);
+    expect(inflow.equals(1)).toBe(true);
   });
 });

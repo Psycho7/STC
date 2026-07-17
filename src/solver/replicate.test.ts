@@ -140,7 +140,7 @@ describe("splitConsumerDemand", () => {
       nodes.get("consumer")!,
       [edge("pTarget", "x"), edge("pSibling", "x")],
       new Fraction(8),
-      new Map([["pTarget", new Fraction(2)]]),
+      new Map([["pTarget", new Map([["x", new Fraction(2)]])]]),
     );
     expect(result).toHaveLength(1);
     expect(result[0]!.edge.source).toBe("pSibling");
@@ -164,14 +164,14 @@ describe("splitConsumerDemand", () => {
       nodes.get("consumer")!,
       [edge("pTarget", "x"), edge("pSibling", "x")],
       new Fraction(8),
-      new Map([["pTarget", new Fraction(1)]]),
+      new Map([["pTarget", new Map([["x", new Fraction(1)]])]]),
     );
     const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
     expect(bySource.get("pTarget")!.equals(new Fraction(2))).toBe(true);
     expect(bySource.get("pSibling")!.equals(new Fraction(6))).toBe(true);
   });
 
-  it("ignores the draw when the edge item is not the target's primary output", () => {
+  it("leaves an item's weight alone when the draw is keyed to another output", () => {
     const nodes = new Map<RecipeId, Recipe>([
       ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
       [
@@ -187,14 +187,14 @@ describe("splitConsumerDemand", () => {
       ["pTarget", new Fraction(2)],
       ["pSibling", new Fraction(2)],
     ]);
-    // The declared draw claims y (out[0]), not x: x splits 2:2 as before.
+    // The declared draw claims y, not x: x splits 2:2 as before.
     const result = splitConsumerDemand(
       nodes,
       rates,
       nodes.get("consumer")!,
       [edge("pTarget", "x"), edge("pSibling", "x")],
       new Fraction(8),
-      new Map([["pTarget", new Fraction(2)]]),
+      new Map([["pTarget", new Map([["y", new Fraction(2)]])]]),
     );
     const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
     expect(bySource.get("pTarget")!.equals(new Fraction(4))).toBe(true);
@@ -354,7 +354,7 @@ describe("assignSplitRoles", () => {
         },
       ],
       crossEdges: [{ item: "poly", target: "xiranite_enr_powder" }],
-      isTarget: false,
+      targetOutItems: new Set<string>(),
     });
 
     expect(decision.kind).toBe("split");
@@ -392,7 +392,7 @@ describe("assignSplitRoles", () => {
   });
 
   // Non-driver co-product routing (the xiranite_poly liquid_sewage bug). The
-  // driver output (xiranite_poly, primary, isTarget) has NO intra consumer, so
+  // driver output (xiranite_poly, primary, targeted) has NO intra consumer, so
   // looperRate==0 and delivererRate==recipeRate. A secondary output
   // (liquid_sewage) is consumed intra-only. Routing liquid_sewage by its own
   // intra class would land its edges on the dead (rate-0) looper, starving the
@@ -422,7 +422,7 @@ describe("assignSplitRoles", () => {
         },
       ],
       crossEdges: [],
-      isTarget: true,
+      targetOutItems: new Set(["xiranite_poly"]),
     });
 
     expect(decision.kind).toBe("split");
@@ -441,7 +441,7 @@ describe("assignSplitRoles", () => {
     expect(decision.looperFilter.has(sewageB)).toBe(false);
   });
 
-  it("treats isTarget as a synthetic cross consumer on the primary item", () => {
+  it("treats a targeted output item as a synthetic cross consumer", () => {
     const recipeRate = new Fraction(2);
     const decision = assignSplitRoles({
       recipeRate,
@@ -456,7 +456,7 @@ describe("assignSplitRoles", () => {
         },
       ],
       crossEdges: [],
-      isTarget: true,
+      targetOutItems: new Set(["poly"]),
     });
     expect(decision.kind).toBe("split");
     if (decision.kind !== "split") return;

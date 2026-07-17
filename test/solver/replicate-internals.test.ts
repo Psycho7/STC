@@ -55,19 +55,19 @@ describe("assignSplitRoles", () => {
       outQtys: new Map([["x", 1]]),
       intraEdges: [],
       crossEdges: [{ item: "x", target: "C" }],
-      isTarget: false,
+      targetOutItems: new Set<string>(),
     });
     expect(d.kind).toBe("single");
   });
 
-  it("returns single when intra exists but no cross and not a target", () => {
+  it("returns single when intra exists but no cross and no targeted output", () => {
     const d = assignSplitRoles({
       recipeRate: new Fraction(2),
       primaryOutItem: "x",
       outQtys: new Map([["x", 1]]),
       intraEdges: [intra("x", "M", new Fraction(1), 1)],
       crossEdges: [],
-      isTarget: false,
+      targetOutItems: new Set<string>(),
     });
     expect(d.kind).toBe("single");
   });
@@ -79,7 +79,7 @@ describe("assignSplitRoles", () => {
       outQtys: new Map([["x", 1]]),
       intraEdges: [intra("x", "M", new Fraction(1), 1)],
       crossEdges: [{ item: "x", target: "C" }],
-      isTarget: false,
+      targetOutItems: new Set<string>(),
     });
     expect(d.kind).toBe("single");
   });
@@ -93,7 +93,7 @@ describe("assignSplitRoles", () => {
       outQtys: new Map([["plant", 1]]),
       intraEdges: [intra("plant", "PICKER", new Fraction(1), 1)],
       crossEdges: [{ item: "plant", target: "DOWN" }],
-      isTarget: false,
+      targetOutItems: new Set<string>(),
     });
     expect(d.kind).toBe("split");
     if (d.kind !== "split") return;
@@ -115,7 +115,7 @@ describe("assignSplitRoles", () => {
       outQtys: new Map([["a", 1]]),
       intraEdges: [intra("a", "M2", new Fraction(1), 1)],
       crossEdges: [],
-      isTarget: true,
+      targetOutItems: new Set(["a"]),
     });
     expect(d.kind).toBe("split");
     if (d.kind !== "split") return;
@@ -138,7 +138,7 @@ describe("assignSplitRoles", () => {
       outQtys: new Map([["x", 1]]),
       intraEdges: [intra("x", "I", new Fraction(1), 1)],
       crossEdges: [{ item: "x", target: "C" }],
-      isTarget: false,
+      targetOutItems: new Set<string>(),
     });
     expect(d.kind).toBe("split");
     if (d.kind !== "split") return;
@@ -159,7 +159,7 @@ describe("assignSplitRoles", () => {
         intra("a", "M2", new Fraction(1, 2), 1),
       ],
       crossEdges: [{ item: "a", target: "D" }],
-      isTarget: false,
+      targetOutItems: new Set<string>(),
     });
     expect(d.kind).toBe("split");
     if (d.kind !== "split") return;
@@ -180,7 +180,7 @@ describe("assignSplitRoles", () => {
         outQtys: new Map([["x", 1]]),
         intraEdges: [intra("x", "M", new Fraction(2), 1)],
         crossEdges: [{ item: "x", target: "C" }],
-        isTarget: false,
+        targetOutItems: new Set<string>(),
       }),
     ).toThrow(/negative cross/);
   });

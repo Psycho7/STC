@@ -971,3 +971,84 @@ export const splitTargetProducersGolden = {
   rateDearDen: 3,
   drawVein: 1,
 };
+
+// ---------------------------------------------------------------------------
+// Scenario 17: co-product-only target item
+//
+// "co" is only ever produced as the SECOND output of r_co (out[1]); its
+// primary output "main" feeds r_use, whose own output "cout" is the second
+// target. Hand-derived: demand cout 1 -> r_use = 1 -> main demand 1 ->
+// r_co = 1 -> co production 1 covers the co demand exactly. The declared co
+// draw lands on r_co keyed to the CO-PRODUCT item, so r_use's main demand
+// must still see r_co's full main production as its split weight (a draw
+// keyed per recipe only would zero it and starve r_use).
+//   r_co = 1, r_use = 1, no surplus, no deficit.
+// ---------------------------------------------------------------------------
+export const coProductTarget = {
+  pack: mkFullPack(
+    [
+      {
+        id: "r_co",
+        category: "material",
+        time: 1,
+        in: [{ item: "rock", qty: 1 }],
+        out: [
+          { item: "main", qty: 1 },
+          { item: "co", qty: 1 },
+        ],
+      },
+      {
+        id: "r_use",
+        category: "material",
+        time: 1,
+        in: [{ item: "main", qty: 1 }],
+        out: [{ item: "cout", qty: 1 }],
+      },
+    ],
+    [
+      { id: "rock", raw: true },
+      { id: "main", raw: false },
+      { id: "co", raw: false },
+      { id: "cout", raw: false },
+    ],
+  ),
+  targets: [
+    { itemId: "co", ratePerSec: rate("1", "1") },
+    { itemId: "cout", ratePerSec: rate("1", "1") },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 18: one recipe producing two distinct target items
+//
+// r_dual emits both target items in one execution (a 1, b 2). Hand-derived:
+// demand a 1 forces r_dual = 1; that yields b 2 against demand 1, so b
+// carries a free-disposal surplus of 1. The single seed must not replicate
+// twice (targetSeeded skip across the two items) and the declared draws
+// accumulate per (recipe, item): (r_dual, a) = 1 and (r_dual, b) = 1.
+// ---------------------------------------------------------------------------
+export const dualTargetItemsOneRecipe = {
+  pack: mkFullPack(
+    [
+      {
+        id: "r_dual",
+        category: "material",
+        time: 1,
+        in: [{ item: "rock", qty: 1 }],
+        out: [
+          { item: "a", qty: 1 },
+          { item: "b", qty: 2 },
+        ],
+      },
+    ],
+    [
+      { id: "rock", raw: true },
+      { id: "a", raw: false },
+      { id: "b", raw: false },
+    ],
+  ),
+  targets: [
+    { itemId: "a", ratePerSec: rate("1", "1") },
+    { itemId: "b", ratePerSec: rate("1", "1") },
+  ],
+};
