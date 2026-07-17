@@ -579,23 +579,20 @@ describe("solveLp - phantom epsilon chains", () => {
     const targets: Target[] = [
       { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
     ];
+    // game v1.4: the LP sources xiranite_powder through the gas route
+    // (phase_trans_2 fed by boundary gas_xiranite), which retires the carbon
+    // and plant_grass legs the pre-v1.4 support carried.
     const result = solveLp({ targets, pack });
     expect([...result.rates.keys()].sort()).toEqual([
-      "carbon_enr",
-      "carbon_enr_powder-carbon_powder",
-      "carbon_mtl-plant_grass_1",
-      "carbon_powder-carbon_mtl",
       "crystal_enr",
       "crystal_enr_powder-originium_enr_powder",
       "equip_script_4",
       "originium_enr_powder",
       "originium_powder",
-      "plant_grass_1",
-      "plant_grass_seed_1",
+      "phase_trans_2-xiranite_powder",
       "plant_moss_3",
       "plant_moss_powder_3",
       "plant_moss_seed_3",
-      "xiranite_powder",
     ]);
   });
 });
