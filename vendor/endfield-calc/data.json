@@ -1,6 +1,6 @@
 {
   "version": {
-    "arknights-endfield": "v1.2.4"
+    "arknights-endfield": "v1.4"
   },
   "icons": [
     {
@@ -74,679 +74,779 @@
       "color": "#d89186"
     },
     {
-      "id": "copper_nugget",
+      "id": "copper_enr2_cmpt",
+      "position": "-896px 0px",
+      "color": "#ad7261"
+    },
+    {
+      "id": "copper_enr2",
+      "position": "-960px 0px",
+      "color": "#e6a289"
+    },
+    {
+      "id": "copper_jar",
       "position": "0px -64px",
-      "color": "#893a31"
+      "color": "#816665"
+    },
+    {
+      "id": "copper_nugget",
+      "position": "-64px -64px",
+      "color": "#893932"
     },
     {
       "id": "copper_ore",
-      "position": "-64px -64px",
-      "color": "#aa6a61"
+      "position": "-128px -64px",
+      "color": "#ab6861"
     },
     {
       "id": "copper_powder",
-      "position": "-128px -64px",
-      "color": "#a15e51"
+      "position": "-192px -64px",
+      "color": "#a25d50"
     },
     {
       "id": "crystal_enr_powder",
-      "position": "-192px -64px",
-      "color": "#9d653a"
+      "position": "-256px -64px",
+      "color": "#9c663b"
     },
     {
       "id": "crystal_enr",
-      "position": "-256px -64px",
-      "color": "#776835"
+      "position": "-320px -64px",
+      "color": "#756936"
     },
     {
       "id": "crystal_powder",
-      "position": "-320px -64px",
-      "color": "#6e411c"
+      "position": "-384px -64px",
+      "color": "#6c431d"
     },
     {
       "id": "crystal_shell",
-      "position": "-384px -64px",
-      "color": "#947643"
+      "position": "-448px -64px",
+      "color": "#967441"
+    },
+    {
+      "id": "filter_core",
+      "position": "-512px -64px",
+      "color": "#717273"
+    },
+    {
+      "id": "gas_acid",
+      "position": "-576px -64px",
+      "color": "#d8c59a"
+    },
+    {
+      "id": "gas_copper_enr",
+      "position": "-640px -64px",
+      "color": "#d8bfb8"
+    },
+    {
+      "id": "gas_copper_enr2",
+      "position": "-704px -64px",
+      "color": "#d6a78f"
+    },
+    {
+      "id": "gas_copper",
+      "position": "-768px -64px",
+      "color": "#d99e95"
+    },
+    {
+      "id": "gas_inert",
+      "position": "-832px -64px",
+      "color": "#6aa5b6"
+    },
+    {
+      "id": "gas_water",
+      "position": "-896px -64px",
+      "color": "#b4b9c1"
+    },
+    {
+      "id": "gas_xiranite_enr",
+      "position": "-960px -64px",
+      "color": "#bac88f"
+    },
+    {
+      "id": "gas_xiranite",
+      "position": "0px -128px",
+      "color": "#a9c3a1"
     },
     {
       "id": "glass_bottle",
-      "position": "-448px -64px",
-      "color": "#5d4d7e"
+      "position": "-64px -128px",
+      "color": "#5c4d7e"
     },
     {
       "id": "glass_cmpt",
-      "position": "-512px -64px",
-      "color": "#9097a1"
+      "position": "-128px -128px",
+      "color": "#9397a1"
     },
     {
       "id": "glass_enr_bottle",
-      "position": "-576px -64px",
-      "color": "#76748d"
+      "position": "-192px -128px",
+      "color": "#77748e"
     },
     {
       "id": "glass_enr_cmpt",
-      "position": "-640px -64px",
-      "color": "#95929b"
+      "position": "-256px -128px",
+      "color": "#95929a"
     },
     {
       "id": "iron_bottle",
-      "position": "-704px -64px",
-      "color": "#38597a"
+      "position": "-320px -128px",
+      "color": "#39597a"
     },
     {
       "id": "iron_cmpt",
-      "position": "-768px -64px",
-      "color": "#6c83a8"
+      "position": "-384px -128px",
+      "color": "#6f83a9"
     },
     {
       "id": "iron_enr_bottle",
-      "position": "-832px -64px",
-      "color": "#5a6f83"
+      "position": "-448px -128px",
+      "color": "#5a6f80"
     },
     {
       "id": "iron_enr_cmpt",
-      "position": "0px -128px",
-      "color": "#5d768d"
+      "position": "-512px -128px",
+      "color": "#5d768c"
     },
     {
       "id": "iron_enr_powder",
-      "position": "-64px -128px",
-      "color": "#5a7d96"
+      "position": "-576px -128px",
+      "color": "#597d96"
     },
     {
       "id": "iron_enr",
-      "position": "-128px -128px",
-      "color": "#54819d"
+      "position": "-640px -128px",
+      "color": "#54829c"
     },
     {
       "id": "iron_nugget",
-      "position": "-192px -128px",
-      "color": "#628097"
+      "position": "-704px -128px",
+      "color": "#628295"
     },
     {
       "id": "iron_ore",
-      "position": "-256px -128px",
-      "color": "#59738d"
+      "position": "-768px -128px",
+      "color": "#58708c"
     },
     {
       "id": "iron_powder",
-      "position": "-320px -128px",
-      "color": "#34516a"
+      "position": "-832px -128px",
+      "color": "#355168"
     },
     {
       "id": "liquid_acid",
-      "position": "-384px -128px",
-      "color": "#bb9f65"
+      "position": "-896px -128px",
+      "color": "#b99f65"
     },
     {
       "id": "liquid_copper_enr",
-      "position": "-448px -128px",
-      "color": "#ebaca2"
+      "position": "-960px -128px",
+      "color": "#eaaea1"
     },
     {
       "id": "liquid_copper",
-      "position": "-512px -128px",
-      "color": "#b94a46"
+      "position": "0px -192px",
+      "color": "#b94b45"
     },
     {
       "id": "liquid_plant_grass_1",
-      "position": "-576px -128px",
-      "color": "#e5f5e2"
+      "position": "-64px -192px",
+      "color": "#e4f5e2"
     },
     {
       "id": "liquid_plant_grass_2",
-      "position": "-640px -128px",
-      "color": "#c3ef7d"
+      "position": "-128px -192px",
+      "color": "#c2ec7d"
     },
     {
       "id": "liquid_sewage",
-      "position": "-704px -128px",
-      "color": "#626360"
+      "position": "-192px -192px",
+      "color": "#636161"
     },
     {
       "id": "liquid_water",
-      "position": "-768px -128px",
+      "position": "-256px -192px",
       "color": "#59e6f8"
     },
     {
       "id": "liquid_xiranite_enr",
-      "position": "-832px -128px",
-      "color": "#557952"
+      "position": "-320px -192px",
+      "color": "#567852"
     },
     {
       "id": "liquid_xiranite_lowpoly",
-      "position": "0px -192px",
-      "color": "#245a40"
+      "position": "-384px -192px",
+      "color": "#265841"
     },
     {
       "id": "liquid_xiranite_poly",
-      "position": "-64px -192px",
-      "color": "#3a6641"
+      "position": "-448px -192px",
+      "color": "#3a6541"
     },
     {
       "id": "liquid_xiranite",
-      "position": "-128px -192px",
-      "color": "#447864"
+      "position": "-512px -192px",
+      "color": "#457a67"
     },
     {
       "id": "originium_enr_powder",
-      "position": "-192px -192px",
-      "color": "#75512c"
+      "position": "-576px -192px",
+      "color": "#76512e"
     },
     {
       "id": "originium_ore",
-      "position": "-256px -192px",
-      "color": "#815f3d"
+      "position": "-640px -192px",
+      "color": "#815c3d"
     },
     {
       "id": "originium_powder",
-      "position": "-320px -192px",
-      "color": "#4e3e29"
+      "position": "-704px -192px",
+      "color": "#4e3d2a"
     },
     {
       "id": "plant_bbflower_1",
-      "position": "-384px -192px",
-      "color": "#615f3d"
+      "position": "-768px -192px",
+      "color": "#615e3e"
     },
     {
       "id": "plant_bbflower_powder_1",
-      "position": "-448px -192px",
-      "color": "#7c7536"
+      "position": "-832px -192px",
+      "color": "#7d7536"
     },
     {
       "id": "plant_bbflower_seed_1",
-      "position": "-512px -192px",
-      "color": "#aea069"
+      "position": "-896px -192px",
+      "color": "#ada169"
     },
     {
       "id": "plant_grass_1",
-      "position": "-576px -192px",
-      "color": "#7b8561"
+      "position": "-960px -192px",
+      "color": "#7a8760"
     },
     {
       "id": "plant_grass_2",
-      "position": "-640px -192px",
-      "color": "#5d5e48"
+      "position": "0px -256px",
+      "color": "#5d5e49"
     },
     {
       "id": "plant_grass_powder_1",
-      "position": "-704px -192px",
-      "color": "#babca2"
+      "position": "-64px -256px",
+      "color": "#b8bca2"
     },
     {
       "id": "plant_grass_powder_2",
-      "position": "-768px -192px",
-      "color": "#b29079"
+      "position": "-128px -256px",
+      "color": "#b39179"
     },
     {
       "id": "plant_grass_seed_1",
-      "position": "-832px -192px",
-      "color": "#969d75"
+      "position": "-192px -256px",
+      "color": "#969c77"
     },
     {
       "id": "plant_grass_seed_2",
-      "position": "0px -256px",
-      "color": "#9d7e6b"
+      "position": "-256px -256px",
+      "color": "#9d7e68"
     },
     {
       "id": "plant_moss_1",
-      "position": "-64px -256px",
-      "color": "#625926"
+      "position": "-320px -256px",
+      "color": "#615926"
     },
     {
       "id": "plant_moss_2",
-      "position": "-128px -256px",
-      "color": "#65681d"
+      "position": "-384px -256px",
+      "color": "#67681d"
     },
     {
       "id": "plant_moss_3",
-      "position": "-192px -256px",
-      "color": "#92752a"
+      "position": "-448px -256px",
+      "color": "#92742b"
     },
     {
       "id": "plant_moss_enr_powder_1",
-      "position": "-256px -256px",
-      "color": "#896262"
+      "position": "-512px -256px",
+      "color": "#886263"
     },
     {
       "id": "plant_moss_enr_powder_2",
-      "position": "-320px -256px",
-      "color": "#91855a"
+      "position": "-576px -256px",
+      "color": "#93855a"
     },
     {
       "id": "plant_moss_powder_1",
-      "position": "-384px -256px",
-      "color": "#ad6d65"
+      "position": "-640px -256px",
+      "color": "#ad6e65"
     },
     {
       "id": "plant_moss_powder_2",
-      "position": "-448px -256px",
-      "color": "#d6c374"
+      "position": "-704px -256px",
+      "color": "#d6c075"
     },
     {
       "id": "plant_moss_powder_3",
-      "position": "-512px -256px",
-      "color": "#9d7209"
+      "position": "-768px -256px",
+      "color": "#9d7208"
     },
     {
       "id": "plant_moss_seed_1",
-      "position": "-576px -256px",
-      "color": "#9c6046"
+      "position": "-832px -256px",
+      "color": "#9f6147"
     },
     {
       "id": "plant_moss_seed_2",
-      "position": "-640px -256px",
-      "color": "#938129"
+      "position": "-896px -256px",
+      "color": "#918029"
     },
     {
       "id": "plant_moss_seed_3",
-      "position": "-704px -256px",
-      "color": "#866813"
+      "position": "-960px -256px",
+      "color": "#866b13"
     },
     {
       "id": "quartz_enr_powder",
-      "position": "-768px -256px",
-      "color": "#b1aec0"
+      "position": "0px -320px",
+      "color": "#b1afc0"
     },
     {
       "id": "quartz_enr",
-      "position": "-832px -256px",
-      "color": "#9999a6"
+      "position": "-64px -320px",
+      "color": "#9a99a6"
     },
     {
       "id": "quartz_glass",
-      "position": "0px -320px",
-      "color": "#735c91"
+      "position": "-128px -320px",
+      "color": "#725d91"
     },
     {
       "id": "quartz_powder",
-      "position": "-64px -320px",
-      "color": "#62507b"
+      "position": "-192px -320px",
+      "color": "#62537b"
     },
     {
       "id": "quartz_sand",
-      "position": "-128px -320px",
-      "color": "#5c4a6f"
+      "position": "-256px -320px",
+      "color": "#5d4a6f"
     },
     {
       "id": "xiranite_enr_powder",
-      "position": "-192px -320px",
-      "color": "#37613a"
+      "position": "-320px -320px",
+      "color": "#34613a"
     },
     {
       "id": "xiranite_poly",
-      "position": "-256px -320px",
-      "color": "#39423d"
+      "position": "-384px -320px",
+      "color": "#38413d"
     },
     {
       "id": "xiranite_powder",
-      "position": "-320px -320px",
-      "color": "#325045"
+      "position": "-448px -320px",
+      "color": "#325046"
     },
     {
       "id": "bottled_food_1",
-      "position": "-384px -320px",
-      "color": "#7d867c"
+      "position": "-512px -320px",
+      "color": "#7c867e"
     },
     {
       "id": "bottled_food_2",
-      "position": "-448px -320px",
-      "color": "#878d6b"
+      "position": "-576px -320px",
+      "color": "#858c68"
     },
     {
       "id": "bottled_food_3",
-      "position": "-512px -320px",
-      "color": "#818881"
+      "position": "-640px -320px",
+      "color": "#808981"
     },
     {
       "id": "bottled_food_4",
-      "position": "-576px -320px",
-      "color": "#526f73"
+      "position": "-704px -320px",
+      "color": "#506d73"
     },
     {
       "id": "bottled_food_5",
-      "position": "-640px -320px",
-      "color": "#598768"
+      "position": "-768px -320px",
+      "color": "#59866a"
     },
     {
       "id": "bottled_rec_hp_1",
-      "position": "-704px -320px",
-      "color": "#b29596"
+      "position": "-832px -320px",
+      "color": "#b19597"
     },
     {
       "id": "bottled_rec_hp_2",
-      "position": "-768px -320px",
-      "color": "#bea1a1"
+      "position": "-896px -320px",
+      "color": "#bda0a1"
     },
     {
       "id": "bottled_rec_hp_3",
-      "position": "-832px -320px",
-      "color": "#b6979f"
+      "position": "-960px -320px",
+      "color": "#b6969c"
     },
     {
       "id": "bottled_rec_hp_4",
       "position": "0px -384px",
-      "color": "#a59693"
+      "color": "#a59791"
     },
     {
       "id": "bottled_rec_hp_5",
       "position": "-64px -384px",
-      "color": "#9c8176"
+      "color": "#9d8176"
     },
     {
       "id": "equip_script_1",
       "position": "-128px -384px",
-      "color": "#a0a1b1"
+      "color": "#a0a2b0"
     },
     {
       "id": "equip_script_2",
       "position": "-192px -384px",
-      "color": "#8a98be"
+      "color": "#8a9abc"
     },
     {
       "id": "equip_script_3",
       "position": "-256px -384px",
-      "color": "#a0a6b2"
+      "color": "#a1a6b1"
     },
     {
       "id": "equip_script_4_1",
       "position": "-320px -384px",
-      "color": "#71403c"
+      "color": "#71413e"
     },
     {
       "id": "equip_script_4_2",
       "position": "-384px -384px",
-      "color": "#b0756d"
+      "color": "#b3766d"
+    },
+    {
+      "id": "equip_script_4_3",
+      "position": "-448px -384px",
+      "color": "#be7d5c"
     },
     {
       "id": "equip_script_4",
-      "position": "-448px -384px",
-      "color": "#5c5547"
+      "position": "-512px -384px",
+      "color": "#5d5645"
     },
     {
       "id": "product",
-      "position": "-512px -384px",
-      "color": "#957e7a"
+      "position": "-576px -384px",
+      "color": "#967d7a"
     },
     {
       "id": "proc_battery_1",
-      "position": "-576px -384px",
-      "color": "#9d9d9b"
+      "position": "-640px -384px",
+      "color": "#9e9d99"
     },
     {
       "id": "proc_battery_2",
-      "position": "-640px -384px",
-      "color": "#9d989d"
+      "position": "-704px -384px",
+      "color": "#9e999d"
     },
     {
       "id": "proc_battery_3",
-      "position": "-704px -384px",
-      "color": "#9e9a9c"
+      "position": "-768px -384px",
+      "color": "#9d9a9f"
     },
     {
       "id": "proc_battery_4",
-      "position": "-768px -384px",
-      "color": "#698b71"
+      "position": "-832px -384px",
+      "color": "#688972"
     },
     {
       "id": "proc_battery_5",
-      "position": "-832px -384px",
-      "color": "#5d6956"
+      "position": "-896px -384px",
+      "color": "#5d6854"
     },
     {
       "id": "proc_bomb_1",
-      "position": "0px -448px",
-      "color": "#8c7e78"
+      "position": "-960px -384px",
+      "color": "#8e7f79"
     },
     {
       "id": "jinlong_coupon",
-      "position": "-64px -448px",
-      "color": "#8ea2a0"
+      "position": "0px -448px",
+      "color": "#8da2a0"
     },
     {
       "id": "tundra_coupon",
-      "position": "-128px -448px",
-      "color": "#c5cab5"
+      "position": "-64px -448px",
+      "color": "#c7c9b6"
     },
     {
       "id": "jinlong",
-      "position": "-192px -448px",
-      "color": "#7d9996"
+      "position": "-128px -448px",
+      "color": "#7c9995"
     },
     {
       "id": "tundra",
-      "position": "-256px -448px",
-      "color": "#9faa79"
+      "position": "-192px -448px",
+      "color": "#9eab78"
     },
     {
       "id": "__domain_transfer",
-      "position": "-320px -448px",
-      "color": "#a2917c"
+      "position": "-256px -448px",
+      "color": "#a1927c"
     },
     {
       "id": "cmpt_mc_1",
-      "position": "-384px -448px",
-      "color": "#858681"
+      "position": "-320px -448px",
+      "color": "#878482"
     },
     {
       "id": "dismantler_1",
-      "position": "-448px -448px",
-      "color": "#9a998e"
+      "position": "-384px -448px",
+      "color": "#9b9b8d"
     },
     {
       "id": "filling_pd_mc_1",
-      "position": "-512px -448px",
-      "color": "#828181"
+      "position": "-448px -448px",
+      "color": "#828182"
     },
     {
       "id": "furnance_1",
+      "position": "-512px -448px",
+      "color": "#a99e98"
+    },
+    {
+      "id": "gas_pump_1",
       "position": "-576px -448px",
-      "color": "#aa9d99"
+      "color": "#a5a5a2"
+    },
+    {
+      "id": "gas_reactor_1",
+      "position": "-640px -448px",
+      "color": "#909789"
     },
     {
       "id": "grinder_1",
-      "position": "-640px -448px",
-      "color": "#91969b"
+      "position": "-704px -448px",
+      "color": "#939598"
     },
     {
       "id": "liquid_clean_gate",
-      "position": "-704px -448px",
-      "color": "#98999a"
+      "position": "-768px -448px",
+      "color": "#999a9b"
     },
     {
       "id": "liquid_cleaner_1",
-      "position": "-768px -448px",
-      "color": "#797c7c"
+      "position": "-832px -448px",
+      "color": "#7b7d7f"
     },
     {
       "id": "liquid_purifier_1",
-      "position": "-832px -448px",
-      "color": "#8e9391"
+      "position": "-896px -448px",
+      "color": "#8c9291"
     },
     {
       "id": "miner_2",
-      "position": "0px -512px",
-      "color": "#858684"
+      "position": "-960px -448px",
+      "color": "#868685"
     },
     {
       "id": "miner_3",
-      "position": "-64px -512px",
-      "color": "#93898a"
+      "position": "0px -512px",
+      "color": "#918a8b"
     },
     {
       "id": "miner_4",
-      "position": "-128px -512px",
-      "color": "#8c8d89"
+      "position": "-64px -512px",
+      "color": "#8f8d8a"
     },
     {
       "id": "mix_pool_1",
-      "position": "-192px -512px",
-      "color": "#8a8b8c"
+      "position": "-128px -512px",
+      "color": "#8b888d"
     },
     {
       "id": "mix_pool_2",
+      "position": "-192px -512px",
+      "color": "#868479"
+    },
+    {
+      "id": "phase_trans_1",
       "position": "-256px -512px",
-      "color": "#858678"
+      "color": "#919690"
+    },
+    {
+      "id": "phase_trans_2",
+      "position": "-320px -512px",
+      "color": "#7e7c7e"
     },
     {
       "id": "planter_1",
-      "position": "-320px -512px",
-      "color": "#7f807e"
+      "position": "-384px -512px",
+      "color": "#7e817c"
     },
     {
       "id": "power_sta_1",
-      "position": "-384px -512px",
-      "color": "#939fa1"
+      "position": "-448px -512px",
+      "color": "#909ca1"
     },
     {
       "id": "pump_1",
-      "position": "-448px -512px",
-      "color": "#8e8d86"
+      "position": "-512px -512px",
+      "color": "#8d8c85"
     },
     {
       "id": "pump_2",
-      "position": "-512px -512px",
-      "color": "#898278"
+      "position": "-576px -512px",
+      "color": "#8b817a"
     },
     {
       "id": "seedcol_1",
-      "position": "-576px -512px",
-      "color": "#757d76"
+      "position": "-640px -512px",
+      "color": "#767d75"
     },
     {
       "id": "shaper_1",
-      "position": "-640px -512px",
-      "color": "#909391"
+      "position": "-704px -512px",
+      "color": "#939190"
     },
     {
       "id": "thickener_1",
-      "position": "-704px -512px",
-      "color": "#8b8988"
+      "position": "-768px -512px",
+      "color": "#898a8a"
     },
     {
       "id": "tools_asm_mc_1",
-      "position": "-768px -512px",
-      "color": "#858a8b"
+      "position": "-832px -512px",
+      "color": "#84898b"
     },
     {
       "id": "winder_1",
-      "position": "-832px -512px",
-      "color": "#979593"
+      "position": "-896px -512px",
+      "color": "#959591"
     },
     {
       "id": "xiranite_oven_1",
-      "position": "0px -576px",
-      "color": "#a0a699"
+      "position": "-960px -512px",
+      "color": "#a2a49a"
     },
     {
       "id": "carbon_enr_powder-carbon_powder",
-      "position": "-64px -576px",
-      "color": "#4a4a49"
+      "position": "0px -576px",
+      "color": "#484a4a"
     },
     {
       "id": "carbon_enr_powder-plant_moss_enr_powder_1",
-      "position": "-128px -576px",
-      "color": "#615253"
+      "position": "-64px -576px",
+      "color": "#605152"
     },
     {
       "id": "carbon_enr_powder-plant_moss_enr_powder_2",
-      "position": "-192px -576px",
-      "color": "#635d52"
+      "position": "-128px -576px",
+      "color": "#615d51"
     },
     {
       "id": "carbon_mtl-plant_grass_1",
-      "position": "-256px -576px",
-      "color": "#4f504d"
+      "position": "-192px -576px",
+      "color": "#4e534e"
     },
     {
       "id": "carbon_mtl-plant_grass_2",
-      "position": "-320px -576px",
-      "color": "#464449"
+      "position": "-256px -576px",
+      "color": "#454649"
     },
     {
       "id": "carbon_mtl-plant_moss_1",
-      "position": "-384px -576px",
-      "color": "#494640"
+      "position": "-320px -576px",
+      "color": "#484542"
     },
     {
       "id": "carbon_mtl-plant_moss_2",
-      "position": "-448px -576px",
-      "color": "#4a4c42"
+      "position": "-384px -576px",
+      "color": "#494e41"
     },
     {
       "id": "carbon_mtl-plant_moss_3",
-      "position": "-512px -576px",
-      "color": "#5a5144"
+      "position": "-448px -576px",
+      "color": "#5a5245"
     },
     {
       "id": "carbon_powder-carbon_mtl",
-      "position": "-576px -576px",
-      "color": "#484c4d"
+      "position": "-512px -576px",
+      "color": "#494e4d"
     },
     {
       "id": "carbon_powder-plant_grass_powder_1",
-      "position": "-640px -576px",
-      "color": "#79786d"
+      "position": "-576px -576px",
+      "color": "#79796e"
     },
     {
       "id": "carbon_powder-plant_grass_powder_2",
-      "position": "-704px -576px",
-      "color": "#77655e"
+      "position": "-640px -576px",
+      "color": "#77645d"
     },
     {
       "id": "carbon_powder-plant_moss_powder_1",
-      "position": "-768px -576px",
-      "color": "#725955"
+      "position": "-704px -576px",
+      "color": "#725954"
     },
     {
       "id": "carbon_powder-plant_moss_powder_2",
-      "position": "-832px -576px",
-      "color": "#877d58"
+      "position": "-768px -576px",
+      "color": "#847e5b"
     },
     {
       "id": "carbon_powder-plant_moss_powder_3",
-      "position": "0px -640px",
-      "color": "#655646"
+      "position": "-832px -576px",
+      "color": "#655546"
     },
     {
       "id": "copper_bottle-liquid_plant_grass_1",
-      "position": "-64px -640px",
-      "color": "#948983"
+      "position": "-896px -576px",
+      "color": "#948b81"
     },
     {
       "id": "copper_bottle-liquid_plant_grass_2",
+      "position": "-960px -576px",
+      "color": "#8a8459"
+    },
+    {
+      "id": "copper_enr-phase_trans_2",
+      "position": "0px -640px",
+      "color": "#bd928b"
+    },
+    {
+      "id": "copper_enr2-phase_trans_2",
+      "position": "-64px -640px",
+      "color": "#c89986"
+    },
+    {
+      "id": "copper_nugget-phase_trans_2",
       "position": "-128px -640px",
-      "color": "#898559"
+      "color": "#8c6358"
     },
     {
       "id": "copper_ore-liquid_water",
       "position": "-192px -640px",
-      "color": "#a28082"
+      "color": "#a28383"
     },
     {
       "id": "crystal_enr_powder-crystal_powder",
       "position": "-256px -640px",
-      "color": "#986236"
+      "color": "#996235"
     },
     {
       "id": "crystal_enr_powder-originium_enr_powder",
       "position": "-320px -640px",
-      "color": "#9c653a"
+      "color": "#9e653a"
     },
     {
       "id": "crystal_powder-crystal_shell",
       "position": "-384px -640px",
-      "color": "#79552d"
+      "color": "#78552d"
     },
     {
       "id": "crystal_powder-originium_powder",
       "position": "-448px -640px",
-      "color": "#664322"
+      "color": "#664023"
     },
     {
       "id": "crystal_shell-crystal_powder",
       "position": "-512px -640px",
-      "color": "#8d6e3d"
+      "color": "#8d6f3d"
     },
     {
       "id": "crystal_shell-originium_ore",
@@ -754,214 +854,339 @@
       "color": "#8c6d42"
     },
     {
-      "id": "iron_bottle-liquid_plant_grass_1",
+      "id": "gas_acid-phase_trans_1",
       "position": "-640px -640px",
-      "color": "#799299"
+      "color": "#c7bba1"
+    },
+    {
+      "id": "gas_copper_enr-gas_inert",
+      "position": "-704px -640px",
+      "color": "#c7bcbe"
+    },
+    {
+      "id": "gas_copper_enr-phase_trans_1",
+      "position": "-768px -640px",
+      "color": "#c1b6b2"
+    },
+    {
+      "id": "gas_copper_enr-phase_trans_2",
+      "position": "-832px -640px",
+      "color": "#bdadaa"
+    },
+    {
+      "id": "gas_copper_enr2-phase_trans_2",
+      "position": "-896px -640px",
+      "color": "#bf9f8d"
+    },
+    {
+      "id": "gas_copper-phase_trans_1",
+      "position": "-960px -640px",
+      "color": "#bea398"
+    },
+    {
+      "id": "gas_copper-phase_trans_2",
+      "position": "0px -704px",
+      "color": "#b59a90"
+    },
+    {
+      "id": "gas_water-phase_trans_1",
+      "position": "-64px -704px",
+      "color": "#adb1b2"
+    },
+    {
+      "id": "gas_xiranite_enr-gas_inert",
+      "position": "-128px -704px",
+      "color": "#b0c69c"
+    },
+    {
+      "id": "gas_xiranite_enr-phase_trans_1",
+      "position": "-192px -704px",
+      "color": "#b2ba95"
+    },
+    {
+      "id": "gas_xiranite_enr-phase_trans_2",
+      "position": "-256px -704px",
+      "color": "#a8b48c"
+    },
+    {
+      "id": "gas_xiranite-phase_trans_1",
+      "position": "-320px -704px",
+      "color": "#a5b5a0"
+    },
+    {
+      "id": "gas_xiranite-phase_trans_2",
+      "position": "-384px -704px",
+      "color": "#9daf99"
+    },
+    {
+      "id": "iron_bottle-liquid_plant_grass_1",
+      "position": "-448px -704px",
+      "color": "#7a9299"
     },
     {
       "id": "iron_bottle-liquid_plant_grass_2",
-      "position": "-704px -640px",
-      "color": "#6e8e79"
+      "position": "-512px -704px",
+      "color": "#6d8f79"
     },
     {
       "id": "iron_nugget-iron_ore",
-      "position": "-768px -640px",
-      "color": "#658299"
+      "position": "-576px -704px",
+      "color": "#64819a"
     },
     {
       "id": "iron_nugget-iron_powder",
-      "position": "-832px -640px",
-      "color": "#5d7d92"
+      "position": "-640px -704px",
+      "color": "#5e7c91"
     },
     {
       "id": "jinlong_coupon-bottled_food_4",
-      "position": "0px -704px",
-      "color": "#8b9c9d"
+      "position": "-704px -704px",
+      "color": "#8b9d9d"
     },
     {
       "id": "jinlong_coupon-bottled_food_5",
-      "position": "-64px -704px",
-      "color": "#8a9d98"
+      "position": "-768px -704px",
+      "color": "#899e98"
     },
     {
       "id": "jinlong_coupon-bottled_rec_hp_4",
-      "position": "-128px -704px",
-      "color": "#94a29f"
+      "position": "-832px -704px",
+      "color": "#96a09e"
     },
     {
       "id": "jinlong_coupon-bottled_rec_hp_5",
-      "position": "-192px -704px",
-      "color": "#959d9e"
+      "position": "-896px -704px",
+      "color": "#969c9d"
     },
     {
       "id": "jinlong_coupon-copper_cmpt",
-      "position": "-256px -704px",
-      "color": "#909795"
+      "position": "-960px -704px",
+      "color": "#929595"
     },
     {
       "id": "jinlong_coupon-copper_enr_cmpt",
-      "position": "-320px -704px",
-      "color": "#a29c99"
+      "position": "0px -768px",
+      "color": "#a19e9b"
+    },
+    {
+      "id": "jinlong_coupon-copper_enr2_cmpt",
+      "position": "-64px -768px",
+      "color": "#a29996"
+    },
+    {
+      "id": "jinlong_coupon-filter_core",
+      "position": "-128px -768px",
+      "color": "#8d9899"
     },
     {
       "id": "jinlong_coupon-proc_battery_4",
-      "position": "-384px -704px",
-      "color": "#8d9e9f"
+      "position": "-192px -768px",
+      "color": "#8e9d9e"
     },
     {
       "id": "jinlong_coupon-proc_battery_5",
-      "position": "-448px -704px",
-      "color": "#88999a"
+      "position": "-256px -768px",
+      "color": "#899a9a"
     },
     {
       "id": "jinlong_coupon-xiranite_enr_powder",
-      "position": "-512px -704px",
-      "color": "#849b90"
+      "position": "-320px -768px",
+      "color": "#859992"
     },
     {
       "id": "jinlong_coupon-xiranite_powder",
-      "position": "-576px -704px",
-      "color": "#869b97"
+      "position": "-384px -768px",
+      "color": "#859995"
+    },
+    {
+      "id": "liquid_acid-phase_trans_1",
+      "position": "-448px -768px",
+      "color": "#9e9380"
     },
     {
       "id": "liquid_cleaner_1-liquid_sewage",
-      "position": "-640px -704px",
+      "position": "-512px -768px",
       "color": "#797a7d"
     },
     {
       "id": "liquid_cleaner_1-liquid_xiranite_lowpoly",
-      "position": "-704px -704px",
-      "color": "#76797a"
+      "position": "-576px -768px",
+      "color": "#74787a"
     },
     {
       "id": "liquid_cleaner_1-liquid_xiranite_poly",
-      "position": "-768px -704px",
-      "color": "#747d79"
+      "position": "-640px -768px",
+      "color": "#777d79"
+    },
+    {
+      "id": "liquid_copper_enr-phase_trans_1",
+      "position": "-704px -768px",
+      "color": "#b29c97"
+    },
+    {
+      "id": "liquid_copper-phase_trans_1",
+      "position": "-768px -768px",
+      "color": "#a17e78"
     },
     {
       "id": "liquid_sewage-liquid_clean_gate",
-      "position": "-832px -704px",
-      "color": "#767477"
+      "position": "-832px -768px",
+      "color": "#757576"
+    },
+    {
+      "id": "liquid_water-phase_trans_1",
+      "position": "-896px -768px",
+      "color": "#7fb0b9"
+    },
+    {
+      "id": "liquid_xiranite_enr-phase_trans_1",
+      "position": "-960px -768px",
+      "color": "#768477"
     },
     {
       "id": "liquid_xiranite_poly-liquid_clean_gate",
-      "position": "0px -768px",
-      "color": "#697b69"
+      "position": "0px -832px",
+      "color": "#687a6b"
     },
     {
       "id": "liquid_xiranite_poly-liquid_purifier_1",
-      "position": "-64px -768px",
-      "color": "#707d76"
+      "position": "-64px -832px",
+      "color": "#737d76"
+    },
+    {
+      "id": "liquid_xiranite-phase_trans_1",
+      "position": "-128px -832px",
+      "color": "#798a81"
     },
     {
       "id": "power_sta_1-originium_ore",
-      "position": "-128px -768px",
-      "color": "#939795"
+      "position": "-192px -832px",
+      "color": "#929495"
     },
     {
       "id": "power_sta_1-proc_battery_1",
-      "position": "-192px -768px",
-      "color": "#9ba0a6"
+      "position": "-256px -832px",
+      "color": "#99a2a4"
     },
     {
       "id": "power_sta_1-proc_battery_2",
-      "position": "-256px -768px",
-      "color": "#99a2a6"
+      "position": "-320px -832px",
+      "color": "#9ba1a7"
     },
     {
       "id": "power_sta_1-proc_battery_3",
-      "position": "-320px -768px",
-      "color": "#99a1a6"
+      "position": "-384px -832px",
+      "color": "#99a0a5"
     },
     {
       "id": "power_sta_1-proc_battery_4",
-      "position": "-384px -768px",
-      "color": "#939f9d"
+      "position": "-448px -832px",
+      "color": "#929f9f"
     },
     {
       "id": "power_sta_1-proc_battery_5",
-      "position": "-448px -768px",
-      "color": "#8e9b98"
+      "position": "-512px -832px",
+      "color": "#8d9b98"
     },
     {
       "id": "quartz_glass-quartz_powder",
-      "position": "-512px -768px",
-      "color": "#6d5a88"
+      "position": "-576px -832px",
+      "color": "#6e598a"
     },
     {
       "id": "quartz_glass-quartz_sand",
-      "position": "-576px -768px",
-      "color": "#695586"
+      "position": "-640px -832px",
+      "color": "#6a5585"
     },
     {
       "id": "tundra_coupon-bottled_food_1",
-      "position": "-640px -768px",
-      "color": "#bcbeac"
+      "position": "-704px -832px",
+      "color": "#bebfaf"
     },
     {
       "id": "tundra_coupon-bottled_food_2",
-      "position": "-704px -768px",
-      "color": "#bebea5"
+      "position": "-768px -832px",
+      "color": "#bdbea7"
     },
     {
       "id": "tundra_coupon-bottled_food_3",
-      "position": "-768px -768px",
-      "color": "#b4b8a8"
-    },
-    {
-      "id": "tundra_coupon-bottled_rec_hp_1",
-      "position": "-832px -768px",
-      "color": "#c5c1b0"
-    },
-    {
-      "id": "tundra_coupon-bottled_rec_hp_2",
-      "position": "0px -832px",
-      "color": "#c9c3b5"
-    },
-    {
-      "id": "tundra_coupon-bottled_rec_hp_3",
-      "position": "-64px -832px",
-      "color": "#c2baad"
-    },
-    {
-      "id": "tundra_coupon-crystal_shell",
-      "position": "-128px -832px",
-      "color": "#bdbba1"
-    },
-    {
-      "id": "tundra_coupon-glass_bottle",
-      "position": "-192px -832px",
+      "position": "-832px -832px",
       "color": "#b4b9aa"
     },
     {
+      "id": "tundra_coupon-bottled_rec_hp_1",
+      "position": "-896px -832px",
+      "color": "#c4c1b1"
+    },
+    {
+      "id": "tundra_coupon-bottled_rec_hp_2",
+      "position": "-960px -832px",
+      "color": "#cac0b6"
+    },
+    {
+      "id": "tundra_coupon-bottled_rec_hp_3",
+      "position": "0px -896px",
+      "color": "#c0baae"
+    },
+    {
+      "id": "tundra_coupon-crystal_shell",
+      "position": "-64px -896px",
+      "color": "#bdb8a0"
+    },
+    {
+      "id": "tundra_coupon-glass_bottle",
+      "position": "-128px -896px",
+      "color": "#b4b9a9"
+    },
+    {
       "id": "tundra_coupon-glass_cmpt",
-      "position": "-256px -832px",
-      "color": "#bec0b5"
+      "position": "-192px -896px",
+      "color": "#bcc1b7"
     },
     {
       "id": "tundra_coupon-iron_cmpt",
-      "position": "-320px -832px",
-      "color": "#bbbdb5"
+      "position": "-256px -896px",
+      "color": "#b9beb6"
     },
     {
       "id": "tundra_coupon-iron_enr_cmpt",
-      "position": "-384px -832px",
-      "color": "#b5bab0"
+      "position": "-320px -896px",
+      "color": "#b5b9b3"
     },
     {
       "id": "tundra_coupon-proc_battery_1",
-      "position": "-448px -832px",
-      "color": "#bec0ae"
+      "position": "-384px -896px",
+      "color": "#bdc0ad"
     },
     {
       "id": "tundra_coupon-proc_battery_2",
-      "position": "-512px -832px",
-      "color": "#bec0b1"
+      "position": "-448px -896px",
+      "color": "#bec2b0"
     },
     {
       "id": "tundra_coupon-proc_battery_3",
-      "position": "-576px -832px",
-      "color": "#bec1ad"
+      "position": "-512px -896px",
+      "color": "#bdc3ad"
+    },
+    {
+      "id": "xiranite_enr_powder-phase_trans_2",
+      "position": "-576px -896px",
+      "color": "#596d5a"
+    },
+    {
+      "id": "xiranite_powder-carbon_enr",
+      "position": "-640px -896px",
+      "color": "#385248"
+    },
+    {
+      "id": "xiranite_powder-carbon_mtl",
+      "position": "-704px -896px",
+      "color": "#364e44"
+    },
+    {
+      "id": "xiranite_powder-phase_trans_2",
+      "position": "-768px -896px",
+      "color": "#5d6a61"
     }
   ],
   "categories": [
@@ -1455,20 +1680,28 @@
       "icon": "copper_enr"
     },
     {
-      "id": "copper_bottle",
-      "name": "赤铜瓶",
+      "id": "copper_enr2",
+      "name": "灼铜块",
       "stack": 50,
       "category": "material",
       "row": 5,
-      "icon": "copper_bottle"
+      "icon": "copper_enr2"
     },
     {
-      "id": "copper_enr_bottle",
-      "name": "赫铜瓶",
+      "id": "copper_jar",
+      "name": "赤铜耐压罐",
       "stack": 50,
       "category": "material",
       "row": 5,
-      "icon": "copper_enr_bottle"
+      "icon": "copper_jar"
+    },
+    {
+      "id": "filter_core",
+      "name": "分离芯",
+      "stack": 50,
+      "category": "material",
+      "row": 5,
+      "icon": "filter_core"
     },
     {
       "id": "copper_cmpt",
@@ -1487,6 +1720,65 @@
       "icon": "copper_enr_cmpt"
     },
     {
+      "id": "copper_enr2_cmpt",
+      "name": "灼铜零件",
+      "stack": 50,
+      "category": "material",
+      "row": 5,
+      "icon": "copper_enr2_cmpt"
+    },
+    {
+      "id": "liquid_copper",
+      "name": "赤铜溶液",
+      "category": "material",
+      "row": 6,
+      "icon": "liquid_copper"
+    },
+    {
+      "id": "liquid_copper_enr",
+      "name": "赫铜溶液",
+      "category": "material",
+      "row": 6,
+      "icon": "liquid_copper_enr"
+    },
+    {
+      "id": "gas_copper",
+      "name": "气态赤铜",
+      "category": "material",
+      "row": 6,
+      "icon": "gas_copper"
+    },
+    {
+      "id": "gas_copper_enr",
+      "name": "气态赫铜",
+      "category": "material",
+      "row": 6,
+      "icon": "gas_copper_enr"
+    },
+    {
+      "id": "gas_copper_enr2",
+      "name": "气态灼铜",
+      "category": "material",
+      "row": 6,
+      "icon": "gas_copper_enr2"
+    },
+    {
+      "id": "copper_bottle",
+      "name": "赤铜瓶",
+      "stack": 50,
+      "category": "material",
+      "row": 6,
+      "icon": "copper_bottle"
+    },
+    {
+      "id": "copper_enr_bottle",
+      "name": "赫铜瓶",
+      "stack": 50,
+      "category": "material",
+      "row": 6,
+      "icon": "copper_enr_bottle"
+    },
+    {
       "id": "copper_bottle-liquid_plant_grass_1",
       "name": "赤铜瓶(锦草溶液)",
       "buildIcon": [
@@ -1495,7 +1787,7 @@
       ],
       "stack": 50,
       "category": "material",
-      "row": 5,
+      "row": 6,
       "icon": "copper_bottle-liquid_plant_grass_1"
     },
     {
@@ -1507,29 +1799,15 @@
       ],
       "stack": 50,
       "category": "material",
-      "row": 5,
+      "row": 6,
       "icon": "copper_bottle-liquid_plant_grass_2"
-    },
-    {
-      "id": "liquid_copper",
-      "name": "赤铜溶液",
-      "category": "material",
-      "row": 5,
-      "icon": "liquid_copper"
-    },
-    {
-      "id": "liquid_copper_enr",
-      "name": "赫铜溶液",
-      "category": "material",
-      "row": 5,
-      "icon": "liquid_copper_enr"
     },
     {
       "id": "xiranite_powder",
       "name": "息壤",
       "stack": 50,
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "xiranite_powder"
     },
     {
@@ -1537,7 +1815,7 @@
       "name": "壤晶",
       "stack": 50,
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "xiranite_poly"
     },
     {
@@ -1545,57 +1823,92 @@
       "name": "重息壤",
       "stack": 50,
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "xiranite_enr_powder"
-    },
-    {
-      "id": "liquid_xiranite",
-      "name": "液化息壤",
-      "category": "material",
-      "row": 6,
-      "icon": "liquid_xiranite"
-    },
-    {
-      "id": "liquid_xiranite_enr",
-      "name": "液化重息壤",
-      "category": "material",
-      "row": 6,
-      "icon": "liquid_xiranite_enr"
     },
     {
       "id": "liquid_xiranite_poly",
       "name": "壤晶废液",
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "liquid_xiranite_poly"
     },
     {
       "id": "liquid_xiranite_lowpoly",
       "name": "惰性壤晶废液",
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "liquid_xiranite_lowpoly"
-    },
-    {
-      "id": "liquid_water",
-      "name": "清水",
-      "category": "material",
-      "row": 6,
-      "icon": "liquid_water"
-    },
-    {
-      "id": "liquid_acid",
-      "name": "沉积酸",
-      "category": "material",
-      "row": 6,
-      "icon": "liquid_acid"
     },
     {
       "id": "liquid_sewage",
       "name": "污水",
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "liquid_sewage"
+    },
+    {
+      "id": "liquid_xiranite",
+      "name": "液化息壤",
+      "category": "material",
+      "row": 8,
+      "icon": "liquid_xiranite"
+    },
+    {
+      "id": "gas_xiranite",
+      "name": "息壤气",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_xiranite"
+    },
+    {
+      "id": "liquid_xiranite_enr",
+      "name": "液化重息壤",
+      "category": "material",
+      "row": 8,
+      "icon": "liquid_xiranite_enr"
+    },
+    {
+      "id": "gas_xiranite_enr",
+      "name": "重息壤气",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_xiranite_enr"
+    },
+    {
+      "id": "liquid_water",
+      "name": "清水",
+      "category": "material",
+      "row": 8,
+      "icon": "liquid_water"
+    },
+    {
+      "id": "gas_water",
+      "name": "水蒸气",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_water"
+    },
+    {
+      "id": "liquid_acid",
+      "name": "沉积酸",
+      "category": "material",
+      "row": 8,
+      "icon": "liquid_acid"
+    },
+    {
+      "id": "gas_acid",
+      "name": "酸气",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_acid"
+    },
+    {
+      "id": "gas_inert",
+      "name": "惰气",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_inert"
     },
     {
       "id": "bottled_food_1",
@@ -1724,6 +2037,14 @@
       "category": "product",
       "row": 2,
       "icon": "equip_script_4_2"
+    },
+    {
+      "id": "equip_script_4_3",
+      "name": "灼铜装备原件",
+      "stack": 50,
+      "category": "product",
+      "row": 2,
+      "icon": "equip_script_4_3"
     },
     {
       "id": "proc_battery_1",
@@ -1906,6 +2227,45 @@
       "icon": "furnance_1"
     },
     {
+      "id": "gas_pump_1",
+      "name": "气体收集泵",
+      "stack": 50,
+      "machine": {
+        "speed": 1,
+        "type": "burner",
+        "size": [
+          3,
+          3
+        ],
+        "locations": [
+          "jinlong"
+        ]
+      },
+      "category": "machine",
+      "row": 999,
+      "icon": "gas_pump_1"
+    },
+    {
+      "id": "gas_reactor_1",
+      "name": "气体反应炉",
+      "stack": 50,
+      "machine": {
+        "speed": 1,
+        "type": "electric",
+        "usage": 50,
+        "size": [
+          5,
+          5
+        ],
+        "locations": [
+          "jinlong"
+        ]
+      },
+      "category": "machine",
+      "row": 999,
+      "icon": "gas_reactor_1"
+    },
+    {
       "id": "grinder_1",
       "name": "粉碎机",
       "stack": 50,
@@ -1930,6 +2290,7 @@
         "speed": 1,
         "type": "electric",
         "usage": 0,
+        "cost": -1,
         "locations": [
           "jinlong"
         ]
@@ -1986,6 +2347,7 @@
         "speed": 1,
         "type": "electric",
         "usage": 0,
+        "cost": -1,
         "locations": [
           "jinlong"
         ]
@@ -2077,6 +2439,46 @@
       "category": "machine",
       "row": 999,
       "icon": "mix_pool_2"
+    },
+    {
+      "id": "phase_trans_1",
+      "name": "液气转化机",
+      "stack": 50,
+      "machine": {
+        "speed": 1,
+        "type": "electric",
+        "usage": 50,
+        "size": [
+          5,
+          5
+        ],
+        "locations": [
+          "jinlong"
+        ]
+      },
+      "category": "machine",
+      "row": 999,
+      "icon": "phase_trans_1"
+    },
+    {
+      "id": "phase_trans_2",
+      "name": "固气转化机",
+      "stack": 50,
+      "machine": {
+        "speed": 1,
+        "type": "electric",
+        "usage": 50,
+        "size": [
+          5,
+          5
+        ],
+        "locations": [
+          "jinlong"
+        ]
+      },
+      "category": "machine",
+      "row": 999,
+      "icon": "phase_trans_2"
     },
     {
       "id": "planter_1",
@@ -3608,6 +4010,24 @@
     {
       "time": 2,
       "in": {
+        "gas_copper": 1,
+        "gas_xiranite": 0.2
+      },
+      "out": {
+        "copper_nugget": 2
+      },
+      "producers": [
+        "phase_trans_2"
+      ],
+      "id": "phase_trans_2-copper_nugget",
+      "name": "赤铜块(固气转化机)",
+      "category": "material",
+      "row": 5,
+      "icon": "copper_nugget-phase_trans_2"
+    },
+    {
+      "time": 2,
+      "in": {
         "liquid_copper_enr": 2,
         "iron_powder": 1
       },
@@ -3624,6 +4044,42 @@
       "category": "material",
       "row": 5,
       "icon": "copper_enr"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_copper_enr": 2,
+        "gas_xiranite": 0.2
+      },
+      "out": {
+        "copper_enr": 1
+      },
+      "producers": [
+        "phase_trans_2"
+      ],
+      "id": "phase_trans_2-copper_enr",
+      "name": "赫铜块(固气转化机)",
+      "category": "material",
+      "row": 5,
+      "icon": "copper_enr-phase_trans_2"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_copper_enr2": 1,
+        "gas_xiranite": 0.2
+      },
+      "out": {
+        "copper_enr2": 1
+      },
+      "producers": [
+        "phase_trans_2"
+      ],
+      "id": "phase_trans_2-copper_enr2",
+      "name": "灼铜块(固气转化机)",
+      "category": "material",
+      "row": 5,
+      "icon": "copper_enr2-phase_trans_2"
     },
     {
       "time": 2,
@@ -3694,6 +4150,23 @@
       "icon": "copper_enr_cmpt"
     },
     {
+      "time": 10,
+      "in": {
+        "copper_enr2": 5
+      },
+      "out": {
+        "copper_enr2_cmpt": 1
+      },
+      "producers": [
+        "cmpt_mc_1"
+      ],
+      "id": "copper_enr2_cmpt",
+      "name": "灼铜零件",
+      "category": "material",
+      "row": 5,
+      "icon": "copper_enr2_cmpt"
+    },
+    {
       "time": 2,
       "in": {
         "copper_bottle": 1,
@@ -3738,6 +4211,45 @@
     {
       "time": 2,
       "in": {
+        "copper_nugget": 2,
+        "gas_inert": 1
+      },
+      "out": {
+        "copper_jar": 1
+      },
+      "producers": [
+        "shaper_1"
+      ],
+      "locations": [
+        "jinlong"
+      ],
+      "id": "copper_jar",
+      "name": "赤铜耐压罐",
+      "category": "material",
+      "row": 5,
+      "icon": "copper_jar"
+    },
+    {
+      "time": 2,
+      "in": {
+        "copper_jar": 1,
+        "xiranite_powder": 1
+      },
+      "out": {
+        "filter_core": 2
+      },
+      "producers": [
+        "tools_asm_mc_1"
+      ],
+      "id": "filter_core",
+      "name": "分离芯",
+      "category": "material",
+      "row": 5,
+      "icon": "filter_core"
+    },
+    {
+      "time": 2,
+      "in": {
         "copper_powder": 1,
         "liquid_acid": 1
       },
@@ -3751,8 +4263,26 @@
       "id": "liquid_copper",
       "name": "赤铜溶液",
       "category": "material",
-      "row": 5,
+      "row": 6,
       "icon": "liquid_copper"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_copper": 1,
+        "liquid_xiranite": 0.2
+      },
+      "out": {
+        "liquid_copper": 2
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-liquid_copper",
+      "name": "赤铜溶液(液气转化机)",
+      "category": "material",
+      "row": 6,
+      "icon": "liquid_copper-phase_trans_1"
     },
     {
       "time": 2,
@@ -3769,8 +4299,188 @@
       "id": "liquid_copper_enr",
       "name": "赫铜溶液",
       "category": "material",
-      "row": 5,
+      "row": 6,
       "icon": "liquid_copper_enr"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_copper_enr": 1,
+        "liquid_xiranite": 0.2
+      },
+      "out": {
+        "liquid_copper_enr": 1
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-liquid_copper_enr",
+      "name": "赫铜溶液(液气转化机)",
+      "category": "material",
+      "row": 6,
+      "icon": "liquid_copper_enr-phase_trans_1"
+    },
+    {
+      "time": 2,
+      "in": {
+        "liquid_copper": 2,
+        "liquid_xiranite": 0.2
+      },
+      "out": {
+        "gas_copper": 1
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-gas_copper",
+      "name": "气态赤铜(液气转化机)",
+      "category": "material",
+      "row": 6,
+      "icon": "gas_copper-phase_trans_1"
+    },
+    {
+      "time": 2,
+      "in": {
+        "copper_nugget": 2,
+        "gas_xiranite": 0.2
+      },
+      "out": {
+        "gas_copper": 1
+      },
+      "producers": [
+        "phase_trans_2"
+      ],
+      "id": "phase_trans_2-gas_copper",
+      "name": "气态赤铜(固气转化机)",
+      "category": "material",
+      "row": 6,
+      "icon": "gas_copper-phase_trans_2"
+    },
+    {
+      "time": 2,
+      "in": {
+        "liquid_copper_enr": 1,
+        "liquid_xiranite": 0.2
+      },
+      "out": {
+        "gas_copper_enr": 1
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-gas_copper_enr",
+      "name": "气态赫铜(液气转化机)",
+      "category": "material",
+      "row": 6,
+      "icon": "gas_copper_enr-phase_trans_1"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_copper": 2,
+        "filter_core": 1
+      },
+      "out": {
+        "gas_copper_enr": 2
+      },
+      "producers": [
+        "liquid_purifier_1"
+      ],
+      "id": "gas_copper_enr-gas_inert",
+      "name": "气态赫铜(惰气)",
+      "category": "material",
+      "row": 6,
+      "icon": "gas_copper_enr-gas_inert"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_copper": 2,
+        "filter_core": 2
+      },
+      "out": {
+        "gas_copper_enr": 2
+      },
+      "producers": [
+        "liquid_purifier_1"
+      ],
+      "id": "gas_copper_enr",
+      "name": "气态赫铜",
+      "category": "material",
+      "row": 6,
+      "icon": "gas_copper_enr"
+    },
+    {
+      "time": 2,
+      "in": {
+        "copper_enr": 1,
+        "gas_xiranite": 0.2
+      },
+      "out": {
+        "gas_copper_enr": 2
+      },
+      "producers": [
+        "phase_trans_2"
+      ],
+      "id": "phase_trans_2-gas_copper_enr",
+      "name": "气态赫铜(固气转化机)",
+      "category": "material",
+      "row": 6,
+      "icon": "gas_copper_enr-phase_trans_2"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_copper_enr": 2,
+        "gas_xiranite": 1
+      },
+      "out": {
+        "gas_copper_enr2": 1
+      },
+      "producers": [
+        "gas_reactor_1"
+      ],
+      "id": "gas_copper_enr2",
+      "name": "气态灼铜",
+      "category": "material",
+      "row": 6,
+      "icon": "gas_copper_enr2"
+    },
+    {
+      "time": 2,
+      "in": {
+        "copper_enr2": 1,
+        "gas_xiranite": 0.2
+      },
+      "out": {
+        "gas_copper_enr2": 1
+      },
+      "producers": [
+        "phase_trans_2"
+      ],
+      "id": "phase_trans_2-gas_copper_enr2",
+      "name": "气态灼铜(固气转化机)",
+      "category": "material",
+      "row": 6,
+      "icon": "gas_copper_enr2-phase_trans_2"
+    },
+    {
+      "time": 2,
+      "in": {
+        "carbon_mtl": 1,
+        "liquid_water": 1
+      },
+      "out": {
+        "xiranite_powder": 1
+      },
+      "producers": [
+        "xiranite_oven_1"
+      ],
+      "id": "xiranite_powder-carbon_mtl",
+      "name": "息壤(碳块)",
+      "category": "material",
+      "row": 7,
+      "icon": "xiranite_powder-carbon_mtl"
     },
     {
       "time": 2,
@@ -3784,11 +4494,28 @@
       "producers": [
         "xiranite_oven_1"
       ],
-      "id": "xiranite_powder",
-      "name": "息壤",
+      "id": "xiranite_powder-carbon_enr",
+      "name": "息壤(稳定碳块)",
       "category": "material",
-      "row": 6,
-      "icon": "xiranite_powder"
+      "row": 7,
+      "icon": "xiranite_powder-carbon_enr"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_xiranite": 1.2
+      },
+      "out": {
+        "xiranite_powder": 1
+      },
+      "producers": [
+        "phase_trans_2"
+      ],
+      "id": "phase_trans_2-xiranite_powder",
+      "name": "息壤(固气转化机)",
+      "category": "material",
+      "row": 7,
+      "icon": "xiranite_powder-phase_trans_2"
     },
     {
       "time": 2,
@@ -3807,7 +4534,7 @@
       "id": "xiranite_poly",
       "name": "壤晶",
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "xiranite_poly"
     },
     {
@@ -3825,8 +4552,26 @@
       "id": "xiranite_enr_powder",
       "name": "重息壤",
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "xiranite_enr_powder"
+    },
+    {
+      "time": 10,
+      "in": {
+        "gas_xiranite_enr": 5,
+        "gas_xiranite": 1
+      },
+      "out": {
+        "xiranite_enr_powder": 2
+      },
+      "producers": [
+        "phase_trans_2"
+      ],
+      "id": "phase_trans_2-xiranite_enr_powder",
+      "name": "重息壤(固气转化机)",
+      "category": "material",
+      "row": 7,
+      "icon": "xiranite_enr_powder-phase_trans_2"
     },
     {
       "time": 2,
@@ -3844,8 +4589,26 @@
       "id": "liquid_xiranite",
       "name": "液化息壤",
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "liquid_xiranite"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_xiranite": 1,
+        "liquid_xiranite": 0.2
+      },
+      "out": {
+        "liquid_xiranite": 1
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-liquid_xiranite",
+      "name": "液化息壤(液气转化机)",
+      "category": "material",
+      "row": 7,
+      "icon": "liquid_xiranite-phase_trans_1"
     },
     {
       "time": 2,
@@ -3863,8 +4626,26 @@
       "id": "liquid_xiranite_enr",
       "name": "液化重息壤",
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "liquid_xiranite_enr"
+    },
+    {
+      "time": 10,
+      "in": {
+        "gas_xiranite_enr": 5,
+        "liquid_xiranite": 1
+      },
+      "out": {
+        "liquid_xiranite_enr": 2
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-liquid_xiranite_enr",
+      "name": "液化重息壤(液气转化机)",
+      "category": "material",
+      "row": 7,
+      "icon": "liquid_xiranite_enr-phase_trans_1"
     },
     {
       "time": 2,
@@ -3883,7 +4664,7 @@
       "id": "liquid_xiranite_poly",
       "name": "壤晶废液",
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "liquid_xiranite_poly"
     },
     {
@@ -3901,7 +4682,7 @@
       "id": "liquid_xiranite_poly-purifier",
       "name": "壤晶废液(提纯机)",
       "category": "material",
-      "row": 6,
+      "row": 7,
       "icon": "liquid_xiranite_poly-liquid_purifier_1"
     },
     {
@@ -3919,8 +4700,26 @@
       "id": "liquid_water",
       "name": "清水",
       "category": "material",
-      "row": 6,
+      "row": 8,
       "icon": "liquid_water"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_water": 1,
+        "liquid_xiranite": 0.2
+      },
+      "out": {
+        "liquid_water": 1
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-liquid_water",
+      "name": "清水(液气转化机)",
+      "category": "material",
+      "row": 8,
+      "icon": "liquid_water-phase_trans_1"
     },
     {
       "time": 1,
@@ -3937,8 +4736,205 @@
       "id": "liquid_acid",
       "name": "沉积酸",
       "category": "material",
-      "row": 6,
+      "row": 8,
       "icon": "liquid_acid"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_acid": 1,
+        "liquid_xiranite": 0.2
+      },
+      "out": {
+        "liquid_acid": 1
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-liquid_acid",
+      "name": "沉积酸(液气转化机)",
+      "category": "material",
+      "row": 8,
+      "icon": "liquid_acid-phase_trans_1"
+    },
+    {
+      "time": 2,
+      "in": {
+        "liquid_water": 1,
+        "liquid_xiranite": 0.2
+      },
+      "out": {
+        "gas_water": 1
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-gas_water",
+      "name": "水蒸气(液气转化机)",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_water-phase_trans_1"
+    },
+    {
+      "time": 2,
+      "in": {
+        "liquid_xiranite": 1.2
+      },
+      "out": {
+        "gas_xiranite": 1
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-gas_xiranite",
+      "name": "息壤气(液气转化机)",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_xiranite-phase_trans_1"
+    },
+    {
+      "time": 2,
+      "in": {
+        "xiranite_powder": 1,
+        "gas_xiranite": 0.2
+      },
+      "out": {
+        "gas_xiranite": 1
+      },
+      "producers": [
+        "phase_trans_2"
+      ],
+      "id": "phase_trans_2-gas_xiranite",
+      "name": "息壤气(固气转化机)",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_xiranite-phase_trans_2"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_xiranite": 2,
+        "filter_core": 2
+      },
+      "out": {
+        "gas_xiranite_enr": 1
+      },
+      "producers": [
+        "liquid_purifier_1"
+      ],
+      "id": "gas_xiranite_enr",
+      "name": "重息壤气",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_xiranite_enr"
+    },
+    {
+      "time": 2,
+      "in": {
+        "gas_xiranite": 2,
+        "filter_core": 1
+      },
+      "out": {
+        "gas_xiranite_enr": 1
+      },
+      "producers": [
+        "liquid_purifier_1"
+      ],
+      "id": "gas_xiranite_enr-gas_inert",
+      "name": "重息壤气(惰气)",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_xiranite_enr-gas_inert"
+    },
+    {
+      "time": 10,
+      "in": {
+        "liquid_xiranite_enr": 2,
+        "liquid_xiranite": 1
+      },
+      "out": {
+        "gas_xiranite_enr": 5
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-gas_xiranite_enr",
+      "name": "重息壤气(液气转化机)",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_xiranite_enr-phase_trans_1"
+    },
+    {
+      "time": 10,
+      "in": {
+        "xiranite_enr_powder": 2,
+        "gas_xiranite": 1
+      },
+      "out": {
+        "gas_xiranite_enr": 5
+      },
+      "producers": [
+        "phase_trans_2"
+      ],
+      "id": "phase_trans_2-gas_xiranite_enr",
+      "name": "重息壤气(固气转化机)",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_xiranite_enr-phase_trans_2"
+    },
+    {
+      "time": 2,
+      "in": {
+        "liquid_acid": 1,
+        "liquid_xiranite": 0.2
+      },
+      "out": {
+        "gas_acid": 1
+      },
+      "producers": [
+        "phase_trans_1"
+      ],
+      "id": "phase_trans_1-gas_acid",
+      "name": "酸气(液气转化机)",
+      "category": "material",
+      "row": 8,
+      "icon": "gas_acid-phase_trans_1"
+    },
+    {
+      "time": 3,
+      "in": {},
+      "out": {
+        "gas_inert": 1
+      },
+      "producers": [
+        "gas_pump_1"
+      ],
+      "flags": [
+        "mining"
+      ],
+      "id": "gas_inert",
+      "name": "惰气",
+      "category": "material",
+      "row": 999,
+      "icon": "gas_inert"
+    },
+    {
+      "time": 3,
+      "in": {},
+      "out": {
+        "gas_xiranite": 1
+      },
+      "producers": [
+        "gas_pump_1"
+      ],
+      "flags": [
+        "mining"
+      ],
+      "id": "gas_xiranite",
+      "name": "息壤气",
+      "category": "material",
+      "row": 999,
+      "icon": "gas_xiranite"
     },
     {
       "usage": 50,
@@ -4310,6 +5306,24 @@
       "category": "product",
       "row": 2,
       "icon": "equip_script_4_2"
+    },
+    {
+      "time": 10,
+      "in": {
+        "copper_enr2_cmpt": 1,
+        "xiranite_enr_powder": 2
+      },
+      "out": {
+        "equip_script_4_3": 1
+      },
+      "producers": [
+        "winder_1"
+      ],
+      "id": "equip_script_4_3",
+      "name": "灼铜装备原件",
+      "category": "product",
+      "row": 2,
+      "icon": "equip_script_4_3"
     },
     {
       "time": 10,
@@ -5018,6 +6032,48 @@
       "category": "settlement",
       "row": 3,
       "icon": "jinlong_coupon-proc_battery_5"
+    },
+    {
+      "time": 10,
+      "in": {
+        "copper_enr2_cmpt": 1
+      },
+      "out": {
+        "jinlong_coupon": 70
+      },
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30,
+      "id": "jinlong_coupon-copper_enr2_cmpt",
+      "name": "武陵调度券(灼铜零件)",
+      "category": "settlement",
+      "row": 999,
+      "icon": "jinlong_coupon-copper_enr2_cmpt"
+    },
+    {
+      "time": 2,
+      "in": {
+        "filter_core": 1
+      },
+      "out": {
+        "jinlong_coupon": 1
+      },
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 150,
+      "id": "jinlong_coupon-filter_core",
+      "name": "武陵调度券(分离芯)",
+      "category": "settlement",
+      "row": 999,
+      "icon": "jinlong_coupon-filter_core"
     },
     {
       "time": 3600,
