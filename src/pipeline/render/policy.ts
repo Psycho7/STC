@@ -51,7 +51,9 @@ export function assignLabelSides(edges: RenderEdge[]): void {
  *    itemOverrides[i].ratePerSec when present.
  *  - one RenderUnitOutputProduct (flavor "target") for every target item.
  *  - if a target item also surfaces as a boundary input, the input product
- *    for the same item is suppressed (target wins).
+ *    for the same item is suppressed (target wins) - except free-supply
+ *    target items, which keep their boundary feed for consumers; the
+ *    declared export arrives via a dedicated passthrough import.
  */
 export const NoFoldRender: RenderPolicy = (input): RenderPlan => {
   const {

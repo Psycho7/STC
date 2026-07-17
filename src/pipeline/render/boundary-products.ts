@@ -56,6 +56,11 @@ const unitIdForInputSingleBucket = (
     ? `u:in:${item}:${bucket.containerId}`
     : `u:in:${item}`;
 const unitIdForOutputProduct = (item: ItemId): RenderUnitId => `u:out:${item}`;
+// Dedicated boundary import that feeds a free-supply target item's export
+// passthrough; distinct from the consumer-feeding input ids so consumer
+// plumbing is untouched.
+const unitIdForInputTargetFeed = (item: ItemId): RenderUnitId =>
+  `u:in:${item}:target`;
 const boundaryKey = (item: ItemId, bucket: BoundaryBucket): string =>
   bucket.kind === "container"
     ? `${item}\0c\0${bucket.containerId}`
@@ -89,7 +94,9 @@ export type DeriveBoundaryProductsResult = {
  * in-graph machine units. The rules once lived inline in `NoFoldRender`: target
  * items become output products (at their target rate); items consumed in the
  * plan with nonzero `effectiveSupply` become input products (with a rate cap
- * when overridden); surplus byproducts become amber output products.
+ * when overridden); surplus byproducts become amber output products; a
+ * free-supply target item gets a dedicated passthrough import sized to the
+ * slice of its declared rate that in-plan production spare does not cover.
  * Per-consumer flow conservation holds when a boundary input coexists with an
  * in-graph producer for the same item.
  *
@@ -472,15 +479,19 @@ export function deriveBoundaryProducts(
   const sortedItems = [...keysByItem.keys()].sort();
   for (const itemId of sortedItems) {
     // Target trumps boundary, except when the item has an explicit
-    // itemOverride OR a recapture deficit. In both cases the item renders BOTH
-    // as an input (pinned FIRST) and a target output (pinned LAST): the
-    // override path imports a capped portion, the recapture-deficit path
-    // (raw-also-target) draws the demand its target-claimed production cannot
-    // feed. Item-level, so it short-circuits all keys for the item.
+    // itemOverride, a recapture deficit, or unlimited free supply. In all
+    // three cases the item renders BOTH as an input (pinned FIRST) and a
+    // target output (pinned LAST): the override path imports a capped
+    // portion, the recapture-deficit path draws the demand its target-claimed
+    // production cannot feed, and a free-supply target item's consumers stay
+    // boundary-fed like any other free item (the declared export gets its own
+    // passthrough import below). Item-level, so it short-circuits all keys
+    // for the item.
     if (
       targetItemSet.has(itemId) &&
       !overrideByItem.has(itemId) &&
-      !recaptureItems.has(itemId)
+      !recaptureItems.has(itemId) &&
+      supplyFor(itemId) !== Infinity
     )
       continue;
     const ov = overrideByItem.get(itemId);
@@ -725,6 +736,7 @@ export function deriveBoundaryProducts(
     arr.push({ unitId, vertexId, spare });
     unitsByTargetOutItem.set(outItem, arr);
   }
+  const targetBilledByItem = new Map<ItemId, Fraction>();
   for (const [outItem, units] of unitsByTargetOutItem) {
     const total = targetRateByItem.get(outItem);
     if (!total || units.length === 0) continue;
@@ -739,6 +751,7 @@ export function deriveBoundaryProducts(
     // downstream. A correct solve produces totalSpare >= total for any
     // reachable target recipe.
     const distributed = total.compare(totalSpare) > 0 ? totalSpare : total;
+    targetBilledByItem.set(outItem, distributed);
     for (const u of units) {
       const rate = u.spare.mul(distributed).div(totalSpare);
       boundaryEdges.push({
@@ -750,6 +763,40 @@ export function deriveBoundaryProducts(
       });
       addOutgoing(u.vertexId, outItem, rate);
     }
+  }
+
+  // ----- Free-boundary target passthrough -------------------------------------
+  //
+  // A target item with unlimited free supply (raw:true, or plan:true via an
+  // override) builds no LP row: nothing is forced to run and the solver meets
+  // the declared rate with a reported boundary draw. Whatever slice of the
+  // declared rate in-plan spare did not cover above must therefore arrive
+  // from the boundary: emit a dedicated import unit and a passthrough edge
+  // into the target output, sized to the shortfall. Finite-supply target
+  // items never take this path (their import is the capped override dual
+  // render and the LP builds a real row for them).
+  for (const [outItem, total] of targetRateByItem) {
+    if (supplyFor(outItem) !== Infinity) continue;
+    const billed = targetBilledByItem.get(outItem) ?? new Fraction(0);
+    const shortfall = total.sub(billed);
+    if (shortfall.compare(0) <= 0) continue;
+    const item = itemById.get(outItem);
+    if (!item) continue;
+    const importId = unitIdForInputTargetFeed(outItem);
+    inputProducts.push({
+      id: importId,
+      kind: "inputProduct",
+      itemId: outItem,
+      count: 1,
+      rate: rationalToString(shortfall),
+    });
+    boundaryEdges.push({
+      fromUnit: importId,
+      toUnit: unitIdForOutputProduct(outItem),
+      item: outItem,
+      rate: shortfall,
+      transportKind: item.transportKind,
+    });
   }
 
   // Surplus output products: any item produced beyond its outgoing consumption

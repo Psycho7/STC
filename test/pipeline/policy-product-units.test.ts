@@ -92,7 +92,7 @@ describe("render policy / boundary product units", () => {
     for (const u of inputs) expect(u.rateCap).toBeUndefined();
   });
 
-  it("target = copper_ore (raw): emits output product only, suppresses input product for same item (target wins)", () => {
+  it("target = copper_ore (raw): renders as an import -> export passthrough", () => {
     const { inputs, outputs } = emitProducts(
       [
         {
@@ -102,13 +102,15 @@ describe("render policy / boundary product units", () => {
       ],
       [],
     );
-    // The recipe producing copper_ore is `copper_ore-liquid_water`. Its first
-    // output is `copper_ore`, so the target output product is copper_ore.
+    // copper_ore is raw: the LP runs nothing and reports a boundary draw, so
+    // the render emits the target output fed by a dedicated passthrough
+    // import of the same item.
     const outputItems = new Set(outputs.map((u) => u.itemId));
     expect(outputItems).toContain("copper_ore");
-    // copper_ore is raw, but it's the user's target -- no boundary input for it.
-    const inputItems = new Set(inputs.map((u) => u.itemId));
-    expect(inputItems.has("copper_ore")).toBe(false);
+    const passthrough = inputs.find((u) => u.id === "u:in:copper_ore:target");
+    expect(passthrough).toBeDefined();
+    expect(passthrough!.itemId).toBe("copper_ore");
+    expect(passthrough!.rate).toEqual({ num: "1", denom: "1" });
   });
 
   it("target = copper_nugget, override copper_ore: plan=true: drops copper_ore boundary; liquid_water surfaces as new input boundary", () => {

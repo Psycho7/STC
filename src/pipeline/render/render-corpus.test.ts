@@ -26,20 +26,18 @@ import {
   checkUnitOutflowVsProduction,
 } from "./invariants";
 import { pack } from "../../data/load";
-import { effectiveSupply } from "../../solver/effectiveSupply";
 import { checkRepresentable, checkMassBalance } from "../../solver/invariants";
 import { solveLp } from "../../solver/lp";
 
-// A plan is expressible as item demand only when every target item has finite
-// effective supply: demand on a free-boundary item builds no LP row, so
-// nothing runs and the render target starves. Such plans are skipped until the
-// free-boundary target decision lands. The "" sentinel comes from this file's
-// pairwise sweep, which derives target items as `r.out[0]?.item ?? ""` and so
-// yields "" for a no-output recipe.
+// Every item is a valid target: finite-supply items build LP rows, and
+// free-boundary items are met by a reported boundary draw with an
+// import -> export passthrough in the render. Only the "" sentinel is
+// inexpressible; it comes from this file's pairwise sweep, which derives
+// target items as `r.out[0]?.item ?? ""` and so yields "" for a no-output
+// recipe (a pure sink has no target rate).
 function targetExpressible(targets: Target[]): boolean {
   for (const t of targets) {
     if (t.itemId === "") return false;
-    if (effectiveSupply(t.itemId, pack, []) === Infinity) return false;
   }
   return true;
 }
@@ -354,19 +352,16 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 1B regression: a RAW item that is ALSO a declared target (e.g. iron_ore in
-// iron_ore+bottled_food_2) used to render with its entire production routed to
-// u:out:<item> and ZERO inflow for its internal consumers (no u:in unit, no
-// boundary edge). The recapture pass now reconciles raw-also-target items with
-// a target-demand-adjusted pool, so consumers draw their deficit from the
-// boundary while the target keeps its declared rate.
+// Raw-also-target boundary feed. A raw:true target item builds no LP row:
+// nothing is forced to run, the declared rate is met by a reported boundary
+// draw, and the render feeds the target output from a boundary import
+// (passthrough) while internal consumers of the item keep their own boundary
+// feed. Descendant of the old 1B recapture regression, re-derived for item
+// targets: with item targets nothing forces the raw item's producers to run,
+// so there is no production to recapture and the boundary serves consumers
+// AND the declared export.
 // ---------------------------------------------------------------------------
-// BRIDGE-SKIP: a raw item as a declared target is inexpressible under item
-// demand (no LP row is built for a free boundary item, so nothing runs and
-// the recipe-keyed render target starves). The raw-also-target render
-// machinery is recipe-keyed and is rewritten by the item-target flip of the
-// graph/render stages; re-enable or replace these when that lands.
-describe.skip("render corpus: raw-also-target boundary feed (1B regression)", () => {
+describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
   function renderClean(targets: Target[]) {
     const full = solvePlanWithIntermediates(
       targets,
@@ -385,7 +380,12 @@ describe.skip("render corpus: raw-also-target boundary feed (1B regression)", ()
     return { plan, violations: results.flatMap((r) => r.violations) };
   }
 
-  it("iron_ore+bottled_food_2 feeds iron_nugget-iron_ore from the boundary", () => {
+  const targetInflow = (plan: RenderPlan, item: string) =>
+    plan.edges
+      .filter((e) => e.toUnit === `u:out:${item}` && e.item === item)
+      .reduce((acc, e) => acc.add(e.rate), new Fraction(0));
+
+  it("iron_ore+bottled_food_2 feeds both consumers and the export from the boundary", () => {
     const targets: Target[] = [
       { itemId: "iron_ore", ratePerSec: { num: "1", denom: "1" } },
       { itemId: "bottled_food_2", ratePerSec: { num: "1", denom: "1" } },
@@ -402,24 +402,31 @@ describe.skip("render corpus: raw-also-target boundary feed (1B regression)", ()
       (u) => u.kind === "outputProduct" && u.itemId === "iron_ore",
     );
     expect(outUnits.length).toBe(1);
+    // The export receives exactly the declared rate.
+    expect(targetInflow(plan, "iron_ore").equals(new Fraction(1))).toBe(true);
   });
 
-  it("carbon_enr+liquid_water renders clean (consumption < production case)", () => {
+  it("carbon_enr+liquid_water renders clean and meets the water export", () => {
+    // The carbon chain byproduces some water; whatever the spare does not
+    // cover arrives via the boundary passthrough. Either way the export gets
+    // exactly the declared rate.
     const targets: Target[] = [
       { itemId: "carbon_enr", ratePerSec: { num: "1", denom: "1" } },
       { itemId: "liquid_water", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const { violations } = renderClean(targets);
+    const { plan, violations } = renderClean(targets);
     expect(violations).toEqual([]);
+    expect(targetInflow(plan, "liquid_water").equals(new Fraction(1))).toBe(true);
   });
 
-  it("quartz_sand+bottled_food_1 renders clean", () => {
+  it("quartz_sand+bottled_food_1 renders clean and meets the sand export", () => {
     const targets: Target[] = [
       { itemId: "quartz_sand", ratePerSec: { num: "1", denom: "1" } },
       { itemId: "bottled_food_1", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const { violations } = renderClean(targets);
+    const { plan, violations } = renderClean(targets);
     expect(violations).toEqual([]);
+    expect(targetInflow(plan, "quartz_sand").equals(new Fraction(1))).toBe(true);
   });
 });
 

@@ -608,3 +608,54 @@ describe("co-product target items through replicate and render", () => {
     expect(inflow.equals(1)).toBe(true);
   });
 });
+
+describe("free-boundary target items through render", () => {
+  // iron_ore is raw:true on the shipped pack: the LP builds no row, nothing
+  // runs (status "empty"), and the declared rate is met by a reported
+  // boundary draw. The render must feed the target output unit from a
+  // boundary import (import -> export passthrough) with every checker green.
+  it("shipped pack: iron_ore at 1/s renders as an import -> export passthrough", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "iron_ore", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+    );
+    expect(full.feasibility.softFeasible).toBe(true);
+    expect(full.rates.size).toBe(0);
+
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+
+    const zero = new Fraction(0);
+    // The target output unit exists and receives exactly the declared rate.
+    const outUnit = plan.units.find(
+      (u) => u.kind === "outputProduct" && u.itemId === "iron_ore",
+    );
+    expect(outUnit).toBeDefined();
+    const inflow = plan.edges
+      .filter((e) => e.toUnit === "u:out:iron_ore" && e.item === "iron_ore")
+      .reduce((acc, e) => acc.add(e.rate), zero);
+    expect(inflow.equals(1)).toBe(true);
+    // The feed comes from a boundary input product of the same item.
+    const inUnitIds = new Set(
+      plan.units
+        .filter((u) => u.kind === "inputProduct" && u.itemId === "iron_ore")
+        .map((u) => u.id),
+    );
+    expect(inUnitIds.size).toBeGreaterThan(0);
+    for (const e of plan.edges) {
+      if (e.toUnit !== "u:out:iron_ore") continue;
+      expect(inUnitIds.has(e.fromUnit)).toBe(true);
+    }
+  });
+});

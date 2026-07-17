@@ -183,7 +183,9 @@ export function checkEdgeEndpointIntegrity(
  *   positive AND the plan draws X from outside, i.e. consumption(X) >
  *   production(X) - declaredTargetDemand(X) beyond tolerance. Production
  *   claimed by a declared target draw never feeds internal consumers, so it is
- *   subtracted before the comparison.
+ *   subtracted before the comparison. Or, for a free-supply target item, by
+ *   its export shortfall: the declared rate beyond what net production covers
+ *   arrives as a boundary passthrough into the target output.
  *
  * - outputProduct "target" for X: justified iff X is a declared target item
  *   (X is a demandByItem key).
@@ -232,9 +234,24 @@ export function checkBoundaryProductsJustified(
       const availRaw = prod.sub(targetDemand);
       const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
       const net = cons.sub(availProd); // positive means net external draw
+      // A free-supply target item is additionally justified by its export
+      // shortfall: the declared rate beyond what net production covers arrives
+      // as a boundary passthrough into the target output.
+      const netProd = prod.sub(cons);
+      const exportShortfall =
+        supply === Infinity
+          ? targetDemand.sub(
+              netProd.compare(FRAC_ZERO) > 0 ? netProd : FRAC_ZERO,
+            )
+          : FRAC_ZERO;
       const magnitude = net.valueOf();
       const slack = Math.max(scaleFloor, Math.abs(magnitude)) * REL_TOL;
-      if (net.valueOf() <= slack) {
+      const shortSlack =
+        Math.max(scaleFloor, Math.abs(exportShortfall.valueOf())) * REL_TOL;
+      if (
+        net.valueOf() <= slack &&
+        exportShortfall.valueOf() <= shortSlack
+      ) {
         violations.push(
           `inputProduct for "${x}": item is not net-consumed from outside (consumption - production = ${magnitude})`,
         );
@@ -799,9 +816,10 @@ export function checkUnitOutflowVsProduction(
  *       non-fanout input products (single-bucket nodes and aggregates) accept
  *       no inbound edges at all.
  *   (c) every edge leaving an inputProduct must carry the unit's own item and
- *       land on an inputProduct of the same item (aggregate -> fanout) or on
- *       a recipe/loop unit that consumes the item per its stoichiometry or
- *       netIO. Catches a spurious boundary edge into a non-consumer.
+ *       land on an inputProduct of the same item (aggregate -> fanout), on a
+ *       recipe/loop unit that consumes the item per its stoichiometry or
+ *       netIO, or on the same item's target outputProduct (the free-boundary
+ *       passthrough). Catches a spurious boundary edge into a non-consumer.
  *   (d) outputProduct "surplus" rate chip == sum of inbound edge rates.
  *   (e) outputProduct "target" rate chip == the declared target rate for the
  *       item (sum over targets sharing the primary output).
@@ -921,6 +939,11 @@ export function checkProductUnitRates(
     if (!to) continue; // dangling endpoint is checkEdgeEndpointIntegrity's job
     const okTarget =
       (isInputProductUnit(to) && to.itemId === from.itemId) ||
+      // Free-boundary target passthrough: the import feeds the same item's
+      // target export directly.
+      (isOutputProductUnit(to) &&
+        to.itemId === from.itemId &&
+        to.flavor === "target") ||
       consumesItem(to, edge.item);
     if (!okTarget) {
       violations.push(
