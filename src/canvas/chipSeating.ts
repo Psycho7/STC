@@ -488,7 +488,10 @@ export type RateSeat = { dx: number; dy: number; tier: RateSeatTier };
 // grazing foreign lines: staying visibly attached to the own line outranks
 // clearing a parallel foreign line, because a braided corridor can poison
 // every fully-clear candidate and the old off-line exits parked chips in
-// empty canvas (issue #9). Tier 2 is a short bidirectional vertical nudge off
+// empty canvas (issue #9). Tier 1c (sidestep), tried between them: a bounded
+// horizontal step off the line, away from a parallel foreign vertical the wide
+// box straddles and no on-line motion can shed, keeping the own line within
+// the box (issue #28). Tier 2 is a short bidirectional vertical nudge off
 // the anchor, fully clear, reached only when the whole own line is chip- or
 // card-blocked. Tier 3 waives every soft preference and cascades
 // bidirectionally against CHIPS AND CARDS only, nearest escape first (ties
@@ -514,6 +517,13 @@ export function seatRateChip(
   //              column. The on-line slide may not cross one (jump to its far
   //              side), so a pushed branch stays below its higher sibling rather
   //              than inverting the stack (issue #28, the branch seam).
+  //              CONTRACT: only the on-line slide tiers (fully-clear and graze,
+  //              both via slideAlong) honor barriers; the nudge and escape
+  //              tiers move vertically UNCHECKED, so a caller passing barrierYs
+  //              must hide (or consciously accept) off-line seats. Today's only
+  //              caller, the fan-out branch loop, hides nudge/escape/exhausted
+  //              seats -- that hide is what makes a rendered crossing
+  //              impossible, not the barrier alone.
   opts?: {
     ownIds?: ReadonlySet<string> | undefined;
     barrierYs?: ReadonlyArray<number> | undefined;
@@ -1006,7 +1016,8 @@ export function deconflictChipAnchors(
   // one branch chip per member (that member's share, seated on its branch leg).
   // They seat here -- after the lane bus chips (structurally pinned to their
   // lanes) and before the free item rate chips -- through seatRateChip's
-  // three-tier seat, so both slide along their own drawn polyline before nudging
+  // tier ladder (slide / graze / sidestep / nudge / escape), so both slide
+  // along their own drawn polyline before stepping or nudging
   // off it. Aggregates settle before branches (the trunk's one truth first,
   // mirroring drop-before-rise). The aggregate has no single consumer gutter, so
   // it passes an INVERTED (empty) entry band that no point can fall inside (no
@@ -1197,8 +1208,9 @@ export function deconflictChipAnchors(
 
   // Phase 4 -- item rate chips: each item edge's clear-segment anchor (cached
   // from the reconstruction above, exactly where ItemEdge renders it) goes
-  // through seatRateChip's three-tier seat: slide along the own polyline,
-  // short fully-clear nudge, then the chips-and-cards escape cascade.
+  // through seatRateChip's tier ladder: slide along the own polyline (fully
+  // clear, then graze), the horizontal sidestep, the short fully-clear nudge,
+  // then the chips-and-cards escape cascade.
   // Ordering by edge id keeps it deterministic.
   const labelDyByIndex = new Map<number, number>();
   const labelDxByIndex = new Map<number, number>();
