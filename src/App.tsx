@@ -54,9 +54,14 @@ async function renderFromFull(
 ): Promise<{ nodes: Node[]; edges: Edge[] }> {
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
+  // Raw-pack recipes, NOT full.recipeById: the solver map is netted (see
+  // netSelfConsumption), while node rows and geometry should show the in-game
+  // stoichiometry - a self-consumed input renders as a row with no incoming
+  // edge, telling the player to loop that flow back themselves.
+  const rawRecipeById = new Map(pack.recipes.map((r) => [r.id, r]));
   const laid = await layoutRenderPlan({
     plan,
-    recipeById: full.recipeById,
+    recipeById: rawRecipeById,
     itemById,
   });
   return { nodes: laid.nodes as Node[], edges: laid.edges };

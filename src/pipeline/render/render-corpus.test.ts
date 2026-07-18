@@ -26,6 +26,24 @@ import {
   checkUnitOutflowVsProduction,
 } from "./invariants";
 import { pack } from "../../data/load";
+
+// game v1.4 added the gas-system machines, whose recipes reroute the xiranite
+// and copper chains away from the SCC topologies some regression suites below
+// were written to exercise. Those suites solve against a pack without the
+// gas-machine recipes; every pre-v1.4 recipe is unchanged upstream, so this
+// reproduces the exact plans the regressions pinned.
+const GAS_MACHINES = new Set([
+  "gas_pump_1",
+  "gas_reactor_1",
+  "phase_trans_1",
+  "phase_trans_2",
+]);
+const legacyPack = {
+  ...pack,
+  recipes: pack.recipes.filter(
+    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
+  ),
+};
 import { checkRepresentable, checkMassBalance } from "../../solver/invariants";
 import { solveLp } from "../../solver/lp";
 import { loadPlan } from "../../data/plan";
@@ -400,14 +418,14 @@ describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
 // ---------------------------------------------------------------------------
 const MC_TOL = new Fraction(1, 1000000);
 
-function machineCountGaps(targets: Target[]) {
+function machineCountGaps(targets: Target[], packArg = pack) {
   const full = solvePlanWithIntermediates(
     targets,
-    pack,
+    packArg,
     defaultTransportConfig,
     [],
   );
-  const out = renderPlanFromSolve(full, pack, targets, []);
+  const out = renderPlanFromSolve(full, packArg, targets, []);
   const vtx = new Map<string, Fraction>();
   for (const v of out.machineGraph.vertices)
     if (isMachineRecipeVertex(v))
@@ -424,7 +442,7 @@ function machineCountGaps(targets: Target[]) {
   const results = checkRenderPlan({
     plan: out.plan,
     rates: full.rates,
-    pack,
+    pack: packArg,
     targets,
     itemOverrides: [],
   });
@@ -549,33 +567,19 @@ describe("render corpus: LP-support closure renders disposal absorbers", () => {
     expect(checkRepresentable(full).violations).toEqual([]);
   });
 
-  // The off-graph CHAIN case: originium_powder -> originium_enr_powder ->
-  // proc_battery_5 are all LP-active and all unreachable from the target cone.
-  // This is the only plan that augments the whole chain (augSize == 3), and it
-  // also activates the four AP-flip recipes (carbon_enr, liquid_xiranite,
-  // liquid_xiranite_poly, xiranite_powder) whose articulation status the closure
-  // shifts. The closure renders every augmented recipe and never drops a
-  // previously-correct machine.
-  //
-  // This exact target pair cannot fully supply originium_powder (~1.2e-6, net
-  // -1/833333): the extraction snap cannot close the row exactly, so solveLp now
-  // reports the shortfall as an honest deficit (softFeasible=false) rather than a
-  // silent residual. The four solver invariants therefore pass; but under DEV
-  // (the default in tests) the render driver's render-invariant hook still flags
-  // the sub-tolerance under-supply on the rendered originium chain before any
-  // render-level contract can be asserted.
-  //
-  // To assert the render-level contract the closure exists to satisfy, this test
-  // stubs DEV off for the duration of the solve+render (vi.stubEnv("DEV",
-  // false)), which skips the render dev hook so machineCountGaps and
-  // solvePlanWithIntermediates return normally. The finally block restores the
-  // env so no other test is affected. gaps == [] pins every recipe in the LP
-  // support at vtxSum == lpRate -- the three augmented off-graph chain recipes
-  // AND the four AP-flip recipes -- and violations == [] covers all seven render
-  // checkers. The deficit is checked directly on the raw LpResult: mass balance
-  // closes, softFeasible is false, and the unmet demand names originium_powder,
-  // never a missing-node augmentation failure.
-  it("xiranite chain plan augments and renders the off-graph originium chain", () => {
+  // HISTORY: through game v1.2.4 this target pair was the off-graph CHAIN
+  // witness - originium_powder -> originium_enr_powder -> proc_battery_5 all
+  // LP-active yet unreachable from the target cone, plus an unavoidable
+  // ~1.2e-6 originium_powder deficit the LP reported honestly. The v1.4
+  // xiranite_powder recipe split closed that arithmetic corner: the pair now
+  // solves exactly, no recipe lands off-graph, and no shipped-pack plan
+  // (single-target sweep, 2026-07-17) naturally augments a chain anymore. The
+  // chain-wiring contract keeps its synthetic-rate unit coverage in
+  // graph.test.ts ("wires off-graph chains"); the end-to-end closure-render
+  // integration keeps the copper_nugget disposal witness above. This test now
+  // pins the plan's new truth so a future data refresh that reopens the corner
+  // (or breaks the exact closure) surfaces here.
+  it("xiranite purifier pair solves exactly and renders clean on the v1.4 pack", () => {
     const targets: Target[] = [
       { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
       {
@@ -584,34 +588,22 @@ describe("render corpus: LP-support closure renders disposal absorbers", () => {
       },
     ];
 
-    vi.stubEnv("DEV", false);
-    try {
-      // DEV is off here, so neither the solver dev assertion nor the render dev
-      // hook throws on the deferred residual; the render-level contract runs.
-      const { gaps, violations } = machineCountGaps(targets);
-      expect(gaps).toEqual([]);
-      expect(violations).toEqual([]);
+    const { gaps, violations } = machineCountGaps(targets);
+    expect(gaps).toEqual([]);
+    expect(violations).toEqual([]);
 
-      const full = solvePlanWithIntermediates(
-        targets,
-        pack,
-        defaultTransportConfig,
-        [],
-      );
-      expect(checkRepresentable(full).violations).toEqual([]);
-    } finally {
-      vi.unstubAllEnvs();
-    }
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    expect(checkRepresentable(full).violations).toEqual([]);
 
-    // The deferred originium_powder shortfall is now reported honestly: solveLp
-    // closes the mass-balance row with a deficit and flags softFeasible=false
-    // instead of leaving a silent residual the checkers tag. Mass balance passes,
-    // and the unmet demand surfaces as a deficit on originium_powder - never as a
-    // missing-node augmentation failure.
     const lp = solveLp({ targets, pack, itemOverrides: [] });
     expect(checkMassBalance(lp, pack, targets, []).violations).toEqual([]);
-    expect(lp.softFeasible).toBe(false);
-    expect([...lp.deficit.keys()]).toContain("originium_powder");
+    expect(lp.softFeasible).toBe(true);
+    expect([...lp.deficit.keys()]).toEqual([]);
   });
 });
 
@@ -688,11 +680,11 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
   } {
     const full = solvePlanWithIntermediates(
       targets,
-      pack,
+      legacyPack,
       defaultTransportConfig,
       [],
     );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
     const enrUnitIds = new Set(
       plan.units
         .filter((u) => u.kind === "recipe" && u.recipeId === "xiranite_enr_powder")
@@ -709,17 +701,20 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
 
   for (const { name, targets } of TORN_PLANS) {
     it(`${name}: clean and feeds xiranite_enr_powder its LP liquid demand`, () => {
+      // legacyPack: on the full v1.4 pack the gas route displaces
+      // xiranite_enr_powder from these plans entirely, so the SCC this suite
+      // regression-tests never forms.
       const full = solvePlanWithIntermediates(
         targets,
-        pack,
+        legacyPack,
         defaultTransportConfig,
         [],
       );
-      const { plan } = renderPlanFromSolve(full, pack, targets, []);
+      const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
       const violations = checkRenderPlan({
         plan,
         rates: full.rates,
-        pack,
+        pack: legacyPack,
         targets,
         itemOverrides: [],
       }).flatMap((r) => r.violations);
@@ -1517,7 +1512,10 @@ describe("render corpus: shared byproduct supplier apportionment (plan:true over
 // per input plus the liquid_copper <-> liquid_copper_enr loop, so it exercises
 // both the fallback and the recorded single-edge paths) as literal expected
 // values, so any future change to the edge-weighting that disturbs clean
-// wiring fails loudly here.
+// wiring fails loudly here. legacyPack: the v1.4 gas machines reroute copper
+// through copper_jar/filter_core with multiple producers per input, which is
+// a different shape than this guard pins; the pre-gas route keeps the
+// single-producer-plus-loop structure the literal was built for.
 // ---------------------------------------------------------------------------
 describe("render corpus: edge-rate bit-identity guard (copper_enr_cmpt)", () => {
   it("copper_enr_cmpt@1/s edge rates match the pinned literal snapshot", () => {
@@ -1526,11 +1524,11 @@ describe("render corpus: edge-rate bit-identity guard (copper_enr_cmpt)", () => 
     ];
     const full = solvePlanWithIntermediates(
       targets,
-      pack,
+      legacyPack,
       defaultTransportConfig,
       [],
     );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
     const unitLabel = new Map<string, string>();
     for (const u of plan.units) {
       unitLabel.set(u.id, u.kind === "recipe" ? u.recipeId : `${u.kind}:${u.id}`);
