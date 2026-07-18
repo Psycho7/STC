@@ -1473,6 +1473,10 @@ function connectingLegBlocked(
   );
 }
 
+// Slim air gap kept off a RAW card box by the raw-fallback tiers below and by
+// the #25 separation re-check: a hair of clearance, not the full CHAMFER pad.
+const RAW_GAP = 2;
+
 // Side-keeping column resolver shared by the bus drop / rise and backward-rail
 // clamps. Resolves a vertical run's column in two tiers:
 //   1. padded: clearColumnX over the full padded card + gutter set, accepting
@@ -1571,9 +1575,8 @@ function clearColumnKeepingLeg(args: {
     return padded;
   }
 
-  // Tier 2: raw fallback. A slim gap keeps a hair of air off the raw box; the
-  // doubled radius lets a fully packed near corridor escape to the next gap.
-  const RAW_GAP = 2;
+  // Tier 2: raw fallback. The slim RAW_GAP keeps a hair of air off the raw box;
+  // the doubled radius lets a fully packed near corridor escape to the next gap.
   const rawAccept = (x: number): boolean =>
     onSide(x) && !connectingLegBlocked(portX, portY, x, rawLegCards);
   const raw = clearColumnX(desired, yLo, yHi, foreignRawCards, {
@@ -1907,11 +1910,14 @@ export function clearBusColumns(
   // the NATURAL column, so a naive step could walk off a clear escape column
   // straight into the foreign card the dodge just avoided (or onto another
   // trunk's column). A candidate step must clear every foreign raw card over
-  // the trunk's vertical spans (the same slim air gap as the dodge's raw
-  // fallback) and must not land on an occupied column; a blocked candidate
-  // keeps stepping, bounded by SEPARATION_MAX_EXTRA_STEPS, then drops its
-  // offset entirely (falling back to the pre-separation coincidence).
-  const SEPARATION_RAW_GAP = 2;
+  // the trunk's vertical spans (the same slim RAW_GAP as the dodge's raw
+  // fallback), its lengthened connecting leg at the port row must not cross a
+  // foreign raw card (a card between the natural and stepped column can sit
+  // clear of the vertical yet be sliced by the leg -- the same guard the
+  // dodge's acceptance applies), and it must not land on an occupied column.
+  // A blocked candidate keeps stepping, bounded by SEPARATION_MAX_EXTRA_STEPS,
+  // then drops its offset entirely (falling back to the pre-separation
+  // coincidence).
   const stepBlocked = (
     x: number,
     ms: ReadonlyArray<Member>,
@@ -1919,16 +1925,20 @@ export function clearBusColumns(
   ): boolean =>
     ms.some((m) => {
       const own = ownExempt([side === "drop" ? m.source : m.target]);
+      const portX = side === "drop" ? m.sx : m.tx;
       const portY = side === "drop" ? m.sy : m.ty;
       const ymin = Math.min(portY, m.laneY);
       const ymax = Math.max(portY, m.laneY);
-      return rawCards.some(
-        (o) =>
-          !own.has(o.nodeId) &&
-          o.bottom > ymin &&
-          o.top < ymax &&
-          x > o.left - SEPARATION_RAW_GAP &&
-          x < o.right + SEPARATION_RAW_GAP,
+      const foreign = rawCards.filter((o) => !own.has(o.nodeId));
+      return (
+        connectingLegBlocked(portX, portY, x, foreign) ||
+        foreign.some(
+          (o) =>
+            o.bottom > ymin &&
+            o.top < ymax &&
+            x > o.left - RAW_GAP &&
+            x < o.right + RAW_GAP,
+        )
       );
     });
 

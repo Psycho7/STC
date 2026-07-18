@@ -1140,6 +1140,52 @@ describe("clearBusColumns", () => {
     // instead of stepping into the card.
     expect(xs[2]).toBe(xs[0]);
   });
+
+  it("rejects a stepped drop whose connecting leg would cross a card (#25 re-check)", () => {
+    // The same four-trunk fixture, plus a slim card with raw x-extent [336, 344]
+    // -- strictly between the bucket's 332 natural and rank 1's 348 candidate --
+    // straddling the second source's port row. The 348 candidate's VERTICAL is
+    // clear of that card, but stepping there lengthens the port-to-column leg at
+    // the port row so the leg would slice the card's body. The re-check must
+    // reject the candidate via the leg guard; with every further candidate
+    // inside the big card, rank 1 falls back to the coincident 332 like rank 2.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s1", 0, 1000, r),
+      recipeNode("s2", 0, 1150, r),
+      recipeNode("s3", 0, 1300, r),
+      recipeNode("s4", 0, 1450, r),
+      recipeNode("cor1", 550, 1000, r),
+      recipeNode("cor2", 550, 1150, r),
+      recipeNode("cor3", 550, 1300, r),
+      recipeNode("cor4", 550, 1450, r),
+      recipeNode("t1", far, 1000, r),
+      recipeNode("t2", far, 1150, r),
+      recipeNode("t3", far, 1300, r),
+      recipeNode("t4", far, 1450, r),
+      inputProductNode("block", "ore", 350, 1550, 148, 78), // raw [350, 498]
+      inputProductNode("legcard", "ore", 336, 1150, 8, 140), // raw [336, 344]
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [
+        mkEdge("e1", "s1", "t1", "b"),
+        mkEdge("e2", "s2", "t2", "c"),
+        mkEdge("e3", "s3", "t3", "d"),
+        mkEdge("e4", "s4", "t4", "e"),
+      ]),
+    );
+    // Rank 1's leg-crossing 348 candidate is rejected: it falls back to the
+    // coincident column instead of slicing the slim card with its leg.
+    expect(dropXOf(out, "e2")).toBeDefined();
+    expect(dropXOf(out, "e2")).toBe(dropXOf(out, "e1"));
+    // And no stored column pierces either card's raw body.
+    for (const id of ["e1", "e2", "e3", "e4"]) {
+      const x = dropXOf(out, id)!;
+      expect(x > 350 && x < 498).toBe(false);
+      expect(x > 336 - 2 && x < 344 + 2).toBe(false);
+    }
+  });
 });
 
 // -- jogForwardLegs -----------------------------------------------------------
