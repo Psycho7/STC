@@ -35,8 +35,9 @@ function emitProducts(
   recipeById: ReadonlyMap<string, Recipe>;
 } {
   const tConfig = loadTransportConfig(defaultTransportConfig, pack);
+  const solverTargets = targets;
   const full = solvePlanWithIntermediates(
-    targets,
+    solverTargets,
     pack,
     tConfig,
     itemOverrides,
@@ -59,7 +60,7 @@ function emitProducts(
     itemById,
     machineById,
     itemOverrides,
-    targets,
+    targets: solverTargets,
     pack,
   });
   const inputs = plan.units.filter(isInputProductUnit);
@@ -70,7 +71,7 @@ function emitProducts(
 describe("render policy / boundary product units", () => {
   it("target = copper_nugget, no overrides: emits input products for copper_ore AND liquid_water, output product for copper_nugget", () => {
     const { inputs, outputs } = emitProducts(
-      [{ recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
+      [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
       [],
     );
     const inputItems = new Set(inputs.map((u) => u.itemId));
@@ -91,28 +92,30 @@ describe("render policy / boundary product units", () => {
     for (const u of inputs) expect(u.rateCap).toBeUndefined();
   });
 
-  it("target = copper_ore (raw): emits output product only, suppresses input product for same item (target wins)", () => {
+  it("target = copper_ore (raw): renders as an import -> export passthrough", () => {
     const { inputs, outputs } = emitProducts(
       [
         {
-          recipeId: "copper_ore-liquid_water",
+          itemId: "copper_ore",
           ratePerSec: { num: "1", denom: "1" },
         },
       ],
       [],
     );
-    // The recipe producing copper_ore is `copper_ore-liquid_water`. Its first
-    // output is `copper_ore`, so the target output product is copper_ore.
+    // copper_ore is raw: the LP runs nothing and reports a boundary draw, so
+    // the render emits the target output fed by a dedicated passthrough
+    // import of the same item.
     const outputItems = new Set(outputs.map((u) => u.itemId));
     expect(outputItems).toContain("copper_ore");
-    // copper_ore is raw, but it's the user's target -- no boundary input for it.
-    const inputItems = new Set(inputs.map((u) => u.itemId));
-    expect(inputItems.has("copper_ore")).toBe(false);
+    const passthrough = inputs.find((u) => u.id === "u:in:copper_ore:target");
+    expect(passthrough).toBeDefined();
+    expect(passthrough!.itemId).toBe("copper_ore");
+    expect(passthrough!.rate).toEqual({ num: "1", denom: "1" });
   });
 
   it("target = copper_nugget, override copper_ore: plan=true: drops copper_ore boundary; liquid_water surfaces as new input boundary", () => {
     const { inputs } = emitProducts(
-      [{ recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
+      [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
       [{ itemId: "copper_ore", plan: true }],
     );
     const inputItems = new Set(inputs.map((u) => u.itemId));
@@ -176,8 +179,8 @@ describe("render policy / boundary product units", () => {
       idealCount: new Map(),
       machineGraph: { vertices: [], edges: [] },
       targets: [
-        { recipeId: "r1", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "r2", ratePerSec: { num: "2", denom: "1" } },
+        { itemId: "x", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "x", ratePerSec: { num: "2", denom: "1" } },
       ],
       itemOverrides: [],
       itemById,
@@ -255,7 +258,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
-      targets: [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "built", ratePerSec: { num: "1", denom: "2" } },
       ],
@@ -327,7 +330,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
-      targets: [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "built", ratePerSec: { num: "0", denom: "1" } },
       ],
@@ -397,7 +400,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
-      targets: [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -419,7 +422,7 @@ describe("render policy / boundary product units", () => {
     // boundary product also re-surfaces alongside the internal producer
     // (dual-emission); both assertions hold simultaneously.
     const { inputs } = emitProducts(
-      [{ recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
+      [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
       [{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }],
     );
     const inputItems = new Set(inputs.map((u) => u.itemId));
@@ -525,7 +528,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [producer, consumer], edges: [edge] },
-      targets: [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
       ],
@@ -571,7 +574,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
-      targets: [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [{ itemId: "shared" }],
       itemById: dualEmissionItems,
       recipeById: dualEmissionRecipes,
@@ -600,7 +603,7 @@ describe("render policy / boundary product units", () => {
       plan,
       recipeById: rById,
     } = emitProducts(
-      [{ recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
+      [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
       [{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }],
     );
     // (d.1) The capped boundary input is present.
@@ -784,7 +787,7 @@ describe("render policy / boundary product units", () => {
         vertices: [prod0, prod1, cons0, cons1],
         edges,
       },
-      targets: [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "shared", ratePerSec: { num: "1", denom: "1" } },
       ],
@@ -887,7 +890,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [producer, consumer], edges: [] },
-      targets: [{ recipeId: "r_make", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "dual", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [{ itemId: "dual", ratePerSec: { num: "1", denom: "2" } }],
       itemById,
       recipeById,
@@ -977,7 +980,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [producer, consumer], edges: [] },
-      targets: [{ recipeId: "r_make", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "raw_target", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -1011,7 +1014,7 @@ describe("render policy / boundary product units", () => {
         vertices: [producerWithHalfRate, consumer],
         edges: [edgeAtHalf],
       },
-      targets: [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
       ],
@@ -1112,7 +1115,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [cons0, cons1], edges: [] },
-      targets: [{ recipeId: "r_cons", ratePerSec: { num: "3", denom: "1" } }],
+      targets: [{ itemId: "out", ratePerSec: { num: "3", denom: "1" } }],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -1199,7 +1202,7 @@ describe("render policy / boundary product units", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [cons], edges: [] },
-      targets: [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "built", ratePerSec: { num: "1", denom: "2" } },
       ],
@@ -1341,8 +1344,8 @@ describe("render policy / input fan-out per container", () => {
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
       targets: [
-        { recipeId: "r_a", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "r_b", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_b", ratePerSec: { num: "1", denom: "1" } },
       ],
       itemOverrides: [],
       itemById,
@@ -1397,8 +1400,8 @@ describe("render policy / input fan-out per container", () => {
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
       targets: [
-        { recipeId: "r_a", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "r_b", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_b", ratePerSec: { num: "1", denom: "1" } },
       ],
       itemOverrides: [],
       itemById,
@@ -1422,8 +1425,8 @@ describe("render policy / input fan-out per container", () => {
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
       targets: [
-        { recipeId: "r_a", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "r_b", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_b", ratePerSec: { num: "1", denom: "1" } },
       ],
       itemOverrides: [],
       itemById,
@@ -1483,7 +1486,7 @@ describe("render policy / input fan-out per container", () => {
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!], edges: [] },
-      targets: [{ recipeId: "r_a", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "out_a", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [],
       itemById,
       recipeById,
@@ -1507,8 +1510,8 @@ describe("render policy / input fan-out per container", () => {
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
       targets: [
-        { recipeId: "r_a", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "r_b", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_a", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_b", ratePerSec: { num: "1", denom: "1" } },
       ],
       itemOverrides: [],
       itemById,
@@ -1554,8 +1557,8 @@ describe("render policy / input fan-out per container", () => {
       idealCount: new Map(),
       machineGraph: { vertices: [v_a!, v_b!], edges: [] },
       targets: [
-        { recipeId: "r_a", ratePerSec: { num: "3", denom: "1" } },
-        { recipeId: "r_b", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "out_a", ratePerSec: { num: "3", denom: "1" } },
+        { itemId: "out_b", ratePerSec: { num: "1", denom: "1" } },
       ],
       itemOverrides: [{ itemId: "water", ratePerSec: { num: "2", denom: "1" } }],
       itemById,

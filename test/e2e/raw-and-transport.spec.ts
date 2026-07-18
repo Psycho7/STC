@@ -74,7 +74,7 @@ async function makeHashForCopperNugget(
     pack: [PACK_META.id, PACK_META.schemaVersion, PACK_META.sourceCommit],
     title: "",
     targets: [
-      { recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },
     ],
   };
   if (itemOverrides && itemOverrides.length > 0) {

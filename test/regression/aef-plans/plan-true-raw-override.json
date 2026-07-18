@@ -1,7 +1,7 @@
 {
   "name": "copper_nugget target with plan:true override on raw copper_ore (Layer 1 continues through raw)",
   "targets": [
-    { "recipeId": "copper_nugget", "ratePerSec": { "num": "1", "denom": "1" } }
+    { "itemId": "copper_nugget", "ratePerSec": { "num": "1", "denom": "1" } }
   ],
   "itemOverrides": [{ "itemId": "copper_ore", "plan": true }],
   "expectations": {

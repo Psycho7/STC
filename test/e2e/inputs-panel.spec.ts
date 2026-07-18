@@ -148,8 +148,8 @@ async function makeDualListedPlanHash(): Promise<string> {
     pack: [PACK_META.id, PACK_META.schemaVersion, PACK_META.sourceCommit],
     title: "",
     targets: [
-      { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "2" } },
-      { recipeId: "liquid_copper", ratePerSec: { num: "1", denom: "2" } },
+      { itemId: "copper_powder", ratePerSec: { num: "1", denom: "2" } },
+      { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "2" } },
     ],
   });
 }
@@ -415,14 +415,27 @@ test.describe("InputsPanel golden-path coverage", () => {
 
     await waitForCanvasReady(page);
 
-    const copperPowderInput = page.locator(
-      '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_powder"]',
-    );
+    // A free-supply target item now also gets a dedicated passthrough import
+    // unit (u:in:copper_powder:target) feeding its export directly, so a bare
+    // inputProduct locator matches two nodes. Pin each input unit by its exact
+    // React Flow data-id: the consumer-feeding input must render, and so must
+    // the intentional target-feed passthrough.
+    const copperPowderInput = page
+      .locator('.react-flow__node[data-id="u:in:copper_powder"]')
+      .locator(
+        '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_powder"]',
+      );
+    const copperPowderTargetFeed = page
+      .locator('.react-flow__node[data-id="u:in:copper_powder:target"]')
+      .locator(
+        '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_powder"]',
+      );
     const copperPowderOutput = page.locator(
       '[data-testid="product-node"][data-flavor="outputProduct"][data-item-id="copper_powder"]',
     );
 
     await expect(copperPowderInput).toBeAttached();
+    await expect(copperPowderTargetFeed).toBeAttached();
     await expect(copperPowderOutput).toBeAttached();
 
     await expectNoConsoleErrors(log);

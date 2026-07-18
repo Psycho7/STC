@@ -7,7 +7,7 @@
 // strong-duality / complementary-slackness check.
 
 import type { RecipePack } from "@aef/schema";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipeId, ItemId } from "./types";
 import type { LpResult, LpInput } from "./lp";
@@ -73,7 +73,7 @@ export function activeRecipeSet(result: LpResult): Set<RecipeId> {
 }
 
 type OptimalityInput = {
-  targets: Target[];
+  targets: ReadonlyArray<ItemTarget>;
   pack: RecipePack;
   itemOverrides?: ItemOverride[];
   recipeCosts?: Map<RecipeId, number>;

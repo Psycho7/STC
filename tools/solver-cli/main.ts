@@ -1,6 +1,6 @@
 // Solver debug CLI.
 // Usage:
-//   bun run tools/solver-cli/main.ts --plan <recipeId=rate,...> [--mode full|rates|render]
+//   bun run tools/solver-cli/main.ts --plan <itemId=rate,...> [--mode full|rates|render]
 //   bun run tools/solver-cli/main.ts --hash <planHash>          [--mode full|rates|render]
 //
 // Flags and output format are documented inline below.
@@ -36,7 +36,7 @@ import {
 // Rate parsing for --plan
 // ---------------------------------------------------------------------------
 
-// Parse one "recipeId=rate" entry. Rate forms:
+// Parse one "itemId=rate" entry. Rate forms:
 //   - "num/denom"  -> { num, denom } directly.
 //   - integer      -> { num: integer, denom: "1" }.
 //   - decimal      -> { num: d*10^p, denom: 10^p }, p = decimal places.
@@ -44,9 +44,9 @@ import {
 function parseRateEntry(entry: string): Target | null {
   const eq = entry.indexOf("=");
   if (eq < 1) return null;
-  const recipeId = entry.slice(0, eq).trim();
+  const itemId = entry.slice(0, eq).trim();
   const rateStr = entry.slice(eq + 1).trim();
-  if (!recipeId || !rateStr) return null;
+  if (!itemId || !rateStr) return null;
 
   // Explicit rational: num/denom
   const slashIdx = rateStr.indexOf("/");
@@ -57,12 +57,12 @@ function parseRateEntry(entry: string): Target | null {
     if (!num || !denom) return null;
     if (!/^\d+$/.test(num) || !/^\d+$/.test(denom)) return null;
     if (denom === "0") return null;
-    return { recipeId, ratePerSec: { num, denom } };
+    return { itemId, ratePerSec: { num, denom } };
   }
 
   // Integer
   if (/^\d+$/.test(rateStr)) {
-    return { recipeId, ratePerSec: { num: rateStr, denom: "1" } };
+    return { itemId, ratePerSec: { num: rateStr, denom: "1" } };
   }
 
   // Decimal: split at the point, build num/denom as powers of 10. Exact only for
@@ -75,7 +75,7 @@ function parseRateEntry(entry: string): Target | null {
     const num = String(
       Number(intPart) * Math.pow(10, fracPart.length) + Number(fracPart),
     );
-    return { recipeId, ratePerSec: { num, denom } };
+    return { itemId, ratePerSec: { num, denom } };
   }
 
   return null;
@@ -88,7 +88,7 @@ function parseInlineTargets(spec: string): Target[] | string {
     if (!entry.trim()) continue;
     const t = parseRateEntry(entry.trim());
     if (!t)
-      return `cannot parse target entry: "${entry.trim()}" (expected recipeId=rate)`;
+      return `cannot parse target entry: "${entry.trim()}" (expected itemId=rate)`;
     targets.push(t);
   }
   if (targets.length === 0) return "no targets parsed from --plan spec";
@@ -167,10 +167,10 @@ export async function runCli(argv: string[]): Promise<string> {
   if (planArg !== undefined) {
     const parsed = parseInlineTargets(planArg);
     if (typeof parsed === "string") return `error: ${parsed}`;
+    const validIds = new Set(pack.items.map((i) => i.id));
+    const bad = parsed.find((t) => !validIds.has(t.itemId));
+    if (bad) return `error: target references unknown item "${bad.itemId}"`;
     targets = parsed;
-    const validIds = new Set(pack.recipes.map((r) => r.id));
-    const bad = targets.find((t) => !validIds.has(t.recipeId));
-    if (bad) return `error: target references unknown recipe "${bad.recipeId}"`;
   } else {
     // --hash: decode via loadPlan in src/data/plan.ts. It takes the hash with or
     // without a leading "#" and accepts "v1.XXX".
@@ -232,7 +232,7 @@ export async function runCli(argv: string[]): Promise<string> {
       targets,
       itemOverrides,
     );
-    const targetsMet = checkTargetsMet(lpResult, targets, pack);
+    const targetsMet = checkTargetsMet(lpResult, targets);
     const rawOnlyBoundary = checkRawOnlyBoundary(lpResult, pack, itemOverrides);
     const full = solvePlanWithIntermediates(
       targets,

@@ -10,7 +10,8 @@ export type SolverArgs = {
 
 /**
  * Convert a parsed Plan into the argument tuple consumed by
- * solvePlanWithIntermediates. Centralizes the num/denom -> number coercion
+ * solvePlanWithIntermediates. Plan targets are already item-keyed, so they pass
+ * straight through; this centralizes the num/denom -> number coercion
  * (Number(num)/Number(denom)) that both App.tsx call sites previously inlined.
  *
  * The conversion is deliberately lossy the same way the inline code was:

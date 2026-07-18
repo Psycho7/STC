@@ -114,7 +114,7 @@ test("second edit during an in-flight solve keeps both edits and the hash", asyn
   expect(outcome.kind).toBe("loaded");
   if (outcome.kind !== "loaded") return;
   const byId = new Map(
-    outcome.plan.targets.map((t) => [t.recipeId, t.ratePerSec]),
+    outcome.plan.targets.map((t) => [t.itemId, t.ratePerSec]),
   );
   expect(byId.get("copper_bottle")).toEqual({ num: "10", denom: "1" });
   expect(byId.get("copper_powder")).toEqual({ num: "33", denom: "20" });

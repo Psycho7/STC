@@ -6,13 +6,15 @@ import { defaultTransportConfig } from "../../../src/data/transport-config";
 import { defaultTargets } from "../../../src/data/targets";
 import { buildRecipeGraph } from "../../../src/solver/graph";
 import { bisimQuotient, deriveReplicaEdges } from "../../../src/solver/bisim";
-import type { Target } from "../../../src/data/targets";
 
 describe("AEF round-trip with bisim", () => {
   it("structural invariants hold on a sample target", () => {
     const targetRecipe = pack.recipes[0]!;
-    const targets: Target[] = [
-      { recipeId: targetRecipe.id, ratePerSec: { num: "1", denom: "1" } },
+    const targets = [
+      {
+        itemId: targetRecipe.out[0]!.item,
+        ratePerSec: { num: "1", denom: "1" },
+      },
     ];
     const full = solvePlanWithIntermediates(
       targets,

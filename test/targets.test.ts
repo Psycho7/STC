@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { defaultTargets, type Target } from "../src/data/targets";
 
 describe("defaultTargets", () => {
-  it("returns three targets with known recipeIds", () => {
+  it("returns three targets with known itemIds", () => {
     const ts: Target[] = defaultTargets();
-    expect(ts.map((t) => t.recipeId)).toEqual([
+    expect(ts.map((t) => t.itemId)).toEqual([
       "copper_bottle",
       "copper_powder",
       "iron_powder",

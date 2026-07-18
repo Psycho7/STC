@@ -81,15 +81,15 @@ describe("plan-wire-v1 canonical order", () => {
   it("decodes targets and itemOverrides in canonical sorted order", () => {
     const plan = basePlan();
     plan.targets = [
-      { recipeId: "iron_powder", ratePerSec: { num: "1", denom: "4" } },
-      { recipeId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } },
+      { itemId: "iron_powder", ratePerSec: { num: "1", denom: "4" } },
+      { itemId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } },
     ];
     plan.itemOverrides = [
       { itemId: "water", plan: true },
       { itemId: "ammonia", ratePerSec: { num: "3", denom: "1" } },
     ];
     const back = fromWire(toWire(plan));
-    expect(back.targets.map((t) => t.recipeId)).toEqual([
+    expect(back.targets.map((t) => t.itemId)).toEqual([
       "copper_bottle",
       "iron_powder",
     ]);

@@ -14,7 +14,7 @@ Exactly one of `--plan` or `--hash` must be given.
 
 ### --plan spec
 
-Comma-separated list of `recipeId=rate` entries. Accepted rate forms:
+Comma-separated list of `itemId=rate` entries. Accepted rate forms:
 
 | Form        | Example       | Stored as          |
 |-------------|---------------|--------------------|

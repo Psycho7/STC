@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import Fraction from "fraction.js";
 import { solveLp, type LpInput, type LpResult } from "./lp";
 import {
   checkMassBalance,
@@ -6,8 +7,27 @@ import {
   checkTargetsMet,
 } from "./invariants";
 import { pack } from "../data/load";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
+import type { RecipePack } from "@aef/schema";
+
+// game v1.4's gas-system machines added an alternate copper_enr route that does
+// not pass through iron_powder, so the D6 override regression (penalize the
+// liquid_copper_enr route, observe iron_powder stays at 1 via the alternate) no
+// longer holds on the full pack. Solving D6 against a pack without the
+// gas-machine recipes keeps the pre-gas copper topology the witness needs.
+const GAS_MACHINES = new Set([
+  "gas_pump_1",
+  "gas_reactor_1",
+  "phase_trans_1",
+  "phase_trans_2",
+]);
+const legacyPack: RecipePack = {
+  ...pack,
+  recipes: pack.recipes.filter(
+    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
+  ),
+};
 
 // Regression suite for the small-rate / override producer-drop defect class
 // (bug-hunt 2026-06-16, D1-D7). The shared failure: at small target magnitudes
@@ -25,11 +45,12 @@ import type { ItemOverride } from "../data/plan";
 const ONE = { num: "1", denom: "1" };
 
 function solve(
-  targets: Target[],
+  targets: ItemTarget[],
   overrides: ItemOverride[] = [],
   recipeCosts?: Map<string, number>,
+  p: RecipePack = pack,
 ): LpResult {
-  const input: LpInput = { targets, pack, itemOverrides: overrides };
+  const input: LpInput = { targets, pack: p, itemOverrides: overrides };
   if (recipeCosts !== undefined) input.recipeCosts = recipeCosts;
   return solveLp(input);
 }
@@ -37,12 +58,13 @@ function solve(
 // The invariants must pass and softFeasible must agree with the deficit map.
 function expectSoundAndHonest(
   r: LpResult,
-  targets: Target[],
+  targets: ItemTarget[],
   overrides: ItemOverride[] = [],
+  p: RecipePack = pack,
 ): void {
-  expect(checkMassBalance(r, pack, targets, overrides).violations).toEqual([]);
-  expect(checkRawOnlyBoundary(r, pack, overrides).violations).toEqual([]);
-  expect(checkTargetsMet(r, targets, pack).violations).toEqual([]);
+  expect(checkMassBalance(r, p, targets, overrides).violations).toEqual([]);
+  expect(checkRawOnlyBoundary(r, p, overrides).violations).toEqual([]);
+  expect(checkTargetsMet(r, targets).violations).toEqual([]);
   // softFeasible is true exactly when no demand was left unmet.
   expect(r.softFeasible).toBe(r.deficit.size === 0);
 }
@@ -50,7 +72,7 @@ function expectSoundAndHonest(
 // A fully satisfied plan: balanced with no deficit (the real producer ran).
 function expectFullySatisfied(
   r: LpResult,
-  targets: Target[],
+  targets: ItemTarget[],
   overrides: ItemOverride[] = [],
 ): void {
   expectSoundAndHonest(r, targets, overrides);
@@ -68,8 +90,8 @@ function totalDeficit(r: LpResult): number {
 describe("LP small-rate / override producer-drop regressions", () => {
   // D1 (blocker): low-rate single target dropped its internal producer.
   it("D1: plant_moss_3 at 1/1000 keeps its producer chain balanced", () => {
-    const targets: Target[] = [
-      { recipeId: "plant_moss_3", ratePerSec: { num: "1", denom: "1000" } },
+    const targets: ItemTarget[] = [
+      { itemId: "plant_moss_3", ratePerSec: { num: "1", denom: "1000" } },
     ];
     const r = solve(targets);
     expect(r.status).toBe("feasible");
@@ -82,9 +104,9 @@ describe("LP small-rate / override producer-drop regressions", () => {
   // cannot close exactly, surfaced honestly as a tiny deficit rather than a
   // silent broken row. Exact closure is the deferred exact-rational snap work.
   it("D2: originium_enr_powder at 1/200 runs the full chain", () => {
-    const targets: Target[] = [
+    const targets: ItemTarget[] = [
       {
-        recipeId: "originium_enr_powder",
+        itemId: "originium_enr_powder",
         ratePerSec: { num: "1", denom: "200" },
       },
     ];
@@ -97,9 +119,9 @@ describe("LP small-rate / override producer-drop regressions", () => {
 
   // D3: lex-pass big-M drop deleted a legitimate boundary supplier.
   it("D3: jinlong_coupon-copper_enr_cmpt at 1/7 supplies iron_powder", () => {
-    const targets: Target[] = [
+    const targets: ItemTarget[] = [
       {
-        recipeId: "jinlong_coupon-copper_enr_cmpt",
+        itemId: "jinlong_coupon",
         ratePerSec: { num: "1", denom: "7" },
       },
     ];
@@ -112,8 +134,8 @@ describe("LP small-rate / override producer-drop regressions", () => {
   // producer is restored; any remaining shortfall is sub-material snap drift
   // surfaced honestly. Exact closure is the deferred exact-rational snap work.
   it("D4: glass_bottle at 1/700 produces quartz_glass", () => {
-    const targets: Target[] = [
-      { recipeId: "glass_bottle", ratePerSec: { num: "1", denom: "700" } },
+    const targets: ItemTarget[] = [
+      { itemId: "glass_bottle", ratePerSec: { num: "1", denom: "700" } },
     ];
     const r = solve(targets);
     expectSoundAndHonest(r, targets);
@@ -125,7 +147,7 @@ describe("LP small-rate / override producer-drop regressions", () => {
   // (a consumer-side snap error). Acceptable outcome: balanced, or an honest
   // deficit + softFeasible=false. Never a broken row reported feasible.
   it("D5: finite cap on copper_enr_cmpt for equip_script_4_2 is sound and honest", () => {
-    const targets: Target[] = [{ recipeId: "equip_script_4_2", ratePerSec: ONE }];
+    const targets: ItemTarget[] = [{ itemId: "equip_script_4_2", ratePerSec: ONE }];
     const overrides: ItemOverride[] = [
       { itemId: "copper_enr_cmpt", ratePerSec: { num: "1", denom: "4" } },
     ];
@@ -139,26 +161,37 @@ describe("LP small-rate / override producer-drop regressions", () => {
   // is reported honestly (no silent uncapped draw); the rate stays within snap
   // tolerance of its true value 1.
   it("D6: large recipeCosts override does not materially perturb iron_powder", () => {
-    const targets: Target[] = [{ recipeId: "copper_enr", ratePerSec: ONE }];
+    // legacyPack: on the full v1.4 pack copper_enr is met via the gas route
+    // (no iron_powder), so the liquid_copper_enr penalty no longer exercises
+    // the iron-fed alternate this override regression pins.
+    const targets: ItemTarget[] = [{ itemId: "copper_enr", ratePerSec: ONE }];
     const recipeCosts = new Map<string, number>([["liquid_copper_enr", 1e8]]);
-    const r = solve(targets, [], recipeCosts);
-    expectSoundAndHonest(r, targets);
+    const r = solve(targets, [], recipeCosts, legacyPack);
+    expectSoundAndHonest(r, targets, [], legacyPack);
     const iron = r.rates.get("iron_powder")?.valueOf() ?? 0;
     expect(Math.abs(iron - 1)).toBeLessThan(1e-5); // was 3e-4 pre-fix
   });
 
-  // D7: a feasible pinned target at an ultra-low rate was reported empty because
-  // the engine omitted its sub-tolerance primal. The pin floor must be honored.
-  it("D7: ultra-low-rate proc_battery_5 honors its pinned floor", () => {
-    const targets: Target[] = [
+  // D7: at an ultra-low rate the engine omits the sub-tolerance primal
+  // entirely. The recipe pin used to reconstruct the lost rate; with item
+  // demand there is nothing to reconstruct it from, so the honest outcome is
+  // a reported deficit on the demanded item with softFeasible false - never a
+  // silent "empty but satisfied" result. (Known small-rate false negative:
+  // the plan is mathematically feasible.)
+  it("D7: ultra-low-rate proc_battery_5 is reported honestly", () => {
+    const targets: ItemTarget[] = [
       {
-        recipeId: "proc_battery_5",
+        itemId: "proc_battery_5",
         ratePerSec: { num: "1", denom: "100000000" },
       },
     ];
     const r = solve(targets);
-    expect(r.status).toBe("feasible");
-    expect(r.rates.get("proc_battery_5")?.compare(0)).toBeGreaterThan(0);
+    expect(r.softFeasible).toBe(false);
+    expect(
+      r.deficit
+        .get("proc_battery_5")
+        ?.equals(new Fraction(1, 100000000)),
+    ).toBe(true);
     expectSoundAndHonest(r, targets);
   });
 });
@@ -173,8 +206,8 @@ describe("LP small-rate bulk sweep (regression gate)", () => {
   it("no single-target plan at rate 1/1000 violates mass balance or raw-only boundary", () => {
     const offenders: string[] = [];
     for (const recipe of targetable) {
-      const targets: Target[] = [
-        { recipeId: recipe.id, ratePerSec: { num: "1", denom: "1000" } },
+      const targets: ItemTarget[] = [
+        { itemId: recipe.out[0]!.item, ratePerSec: { num: "1", denom: "1000" } },
       ];
       const r = solveLp({ targets, pack, itemOverrides: [] });
       if (r.status !== "feasible" && r.status !== "empty") continue;

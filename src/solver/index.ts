@@ -2,7 +2,7 @@ import Fraction from "fraction.js";
 import type { LogicalGraph } from "../canvas/layout";
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { TransportConfig } from "../data/transport-config";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { augmentGraphWithLpSupport, buildRecipeGraphMulti } from "./graph";
 import { tarjanScc, condense } from "./scc";
@@ -53,20 +53,15 @@ export class LpInfeasibleError extends Error {
 // diagnostics rebuild): the finite supply caps and the target outputs.
 function assertSolvable(
   status: LpResult["status"],
-  targets: Target[],
+  targets: ReadonlyArray<ItemTarget>,
   itemOverrides: ItemOverride[] | undefined,
-  recipeById: Map<RecipeId, Recipe>,
 ): void {
   switch (status) {
     case "infeasible": {
       const cappedItemIds = (itemOverrides ?? [])
         .filter((o) => o.ratePerSec !== undefined)
         .map((o) => o.itemId);
-      const targetItemIds: string[] = [];
-      for (const t of targets) {
-        const out = recipeById.get(t.recipeId)?.out[0]?.item;
-        if (out !== undefined) targetItemIds.push(out);
-      }
+      const targetItemIds = targets.map((t) => t.itemId);
       throw new LpInfeasibleError(cappedItemIds, targetItemIds);
     }
     case "unbounded":
@@ -173,7 +168,7 @@ export type SolvePlanFull = {
 // .edge and .sccId fields. AEF has only a handful of non-trivial SCCs, so re-
 // running pickTearEdges costs almost nothing.
 function runSolvePipeline(
-  targets: Target[],
+  targets: ReadonlyArray<ItemTarget>,
   rawPack: RecipePack,
   tConfig: TransportConfig,
   itemOverrides: ItemOverride[] | undefined,
@@ -195,7 +190,7 @@ function runSolvePipeline(
     itemOverrides: itemOverrides ?? [],
     ...(recipeCosts !== undefined && { recipeCosts }),
   });
-  assertSolvable(lpResult.status, targets, itemOverrides, recipeById);
+  assertSolvable(lpResult.status, targets, itemOverrides);
   const rates = lpResult.rates;
   // Residual share per finite-capped item the LP drew from the boundary. The
   // walk nets each consumer's per-item demand by it so replica rates (and the
@@ -208,13 +203,7 @@ function runSolvePipeline(
   // Close graph membership over the LP support before any graph-derived
   // structure is computed: a disposal absorber the LP runs is unreachable from
   // the target cone and would otherwise be missing from the render entirely.
-  const augmented = augmentGraphWithLpSupport(
-    g,
-    rates,
-    pack,
-    targets,
-    itemOverrides,
-  );
+  const augmented = augmentGraphWithLpSupport(g, rates, pack, itemOverrides);
   const sccs = tarjanScc(g);
   const c = condense(g, sccs);
   if (import.meta.env.DEV && augmented.size > 0) {
@@ -294,7 +283,7 @@ function runSolvePipeline(
  * dev-only invariant assertions that solvePlanWithIntermediates runs.
  */
 export function solvePlan(
-  targets: Target[],
+  targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   tConfig: TransportConfig,
   itemOverrides?: ItemOverride[],
@@ -317,7 +306,7 @@ export function solvePlan(
  * invariant assertions in dev/test builds.
  */
 export function solvePlanWithIntermediates(
-  targets: Target[],
+  targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   tConfig: TransportConfig,
   itemOverrides?: ItemOverride[],

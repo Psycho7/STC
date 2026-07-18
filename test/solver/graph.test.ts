@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Recipe, RecipePack } from "@aef/schema";
 import { buildRecipeGraph } from "../../src/solver/graph";
-import { UnknownRecipeError } from "../../src/solver/types";
-import type { Target } from "../../src/data/targets";
+import type { ItemTarget } from "../../src/data/targets";
 
 function makeRecipe(
   id: string,
@@ -53,14 +52,14 @@ function pack(recipes: Recipe[]): RecipePack {
   } as unknown as RecipePack;
 }
 
-function tgt(recipeId: string): Target {
-  return { recipeId, ratePerSec: { num: "1", denom: "1" } };
+function tgt(itemId: string): ItemTarget {
+  return { itemId, ratePerSec: { num: "1", denom: "1" } };
 }
 
 describe("buildRecipeGraph", () => {
   it("returns a single-node graph for a target with no upstream", () => {
     const p = pack([makeRecipe("root", [], ["root_out"])]);
-    const g = buildRecipeGraph([tgt("root")], p);
+    const g = buildRecipeGraph([tgt("root_out")], p);
     expect([...g.nodes.keys()]).toEqual(["root"]);
     expect(g.outgoing.get("root")).toEqual([]);
   });
@@ -71,7 +70,7 @@ describe("buildRecipeGraph", () => {
       makeRecipe("b", ["x"], ["y"]),
       makeRecipe("c", ["y"], ["z"]),
     ]);
-    const g = buildRecipeGraph([tgt("c")], p);
+    const g = buildRecipeGraph([tgt("z")], p);
     expect([...g.nodes.keys()].sort()).toEqual(["a", "b", "c"]);
     expect(g.outgoing.get("a")?.map((e) => e.target)).toEqual(["b"]);
     expect(g.outgoing.get("b")?.map((e) => e.target)).toEqual(["c"]);
@@ -83,35 +82,37 @@ describe("buildRecipeGraph", () => {
       makeRecipe("aaa_z", [], ["z"]),
       makeRecipe("consumer", ["z"], ["out"]),
     ]);
-    const g = buildRecipeGraph([tgt("consumer")], p);
+    const g = buildRecipeGraph([tgt("out")], p);
     expect(g.nodes.has("aaa_z")).toBe(true);
     expect(g.nodes.has("alt_z")).toBe(false);
   });
 
-  it("excludes cost === -1 producers unless they are the target", () => {
+  it("excludes cost === -1 producers of consumed items", () => {
     const p = pack([
       makeRecipe("clean_z", [], ["z"], { cost: -1 } as Partial<Recipe>),
       makeRecipe("normal_z", [], ["z"]),
       makeRecipe("consumer", ["z"], ["out"]),
     ]);
-    const g = buildRecipeGraph([tgt("consumer")], p);
+    const g = buildRecipeGraph([tgt("out")], p);
     expect(g.nodes.has("normal_z")).toBe(true);
     expect(g.nodes.has("clean_z")).toBe(false);
   });
 
-  it("permits cost === -1 when it IS the target", () => {
+  it("never seeds an excluded producer of the target item", () => {
     const p = pack([
-      makeRecipe("sink", ["w"], [], { cost: -1 } as Partial<Recipe>),
-      makeRecipe("waste_producer", [], ["w"]),
+      makeRecipe("clean_z", [], ["z"], { cost: -1 } as Partial<Recipe>),
+      makeRecipe("normal_z", [], ["z"]),
     ]);
-    const g = buildRecipeGraph([tgt("sink")], p);
-    expect(g.nodes.has("sink")).toBe(true);
+    const g = buildRecipeGraph([tgt("z")], p);
+    expect(g.nodes.has("normal_z")).toBe(true);
+    expect(g.nodes.has("clean_z")).toBe(false);
   });
 
-  it("throws UnknownRecipeError for unresolved target id", () => {
+  it("seeds nothing for a target item with no producer", () => {
+    // The demand surfaces as an LP deficit instead of a graph-layer throw;
+    // plan validation rejects unknown targets before they reach the solver.
     const p = pack([makeRecipe("a", [], ["x"])]);
-    expect(() => buildRecipeGraph([tgt("nonexistent")], p)).toThrow(
-      UnknownRecipeError,
-    );
+    const g = buildRecipeGraph([tgt("nonexistent")], p);
+    expect(g.nodes.size).toBe(0);
   });
 });

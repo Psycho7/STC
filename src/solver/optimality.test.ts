@@ -6,11 +6,11 @@ import {
   assertOptimal,
 } from "./optimality";
 import { pack } from "../data/load";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { RecipePack } from "@aef/schema";
 
-const headline: Target[] = [
-  { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+const headline: ItemTarget[] = [
+  { itemId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
 ];
 
 describe("recomputeObjective", () => {
@@ -32,8 +32,8 @@ describe("activeRecipeSet", () => {
     // copper_powder consumes `copper_nugget`, built by the `copper_nugget`
     // recipe from raw copper_ore + liquid_water. The minimal plan is a
     // two-recipe chain {copper_powder, copper_nugget}; assert exactly that.
-    const targets: Target[] = [
-      { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "60" } },
+    const targets: ItemTarget[] = [
+      { itemId: "copper_powder", ratePerSec: { num: "1", denom: "60" } },
     ];
     const result = solveLp({ targets, pack });
     const active = activeRecipeSet(result);
@@ -69,8 +69,8 @@ describe("assertOptimal", () => {
         { id: "prod", raw: false },
       ],
     } as unknown as RecipePack;
-    const targets: Target[] = [
-      { recipeId: "T", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
     ];
 
     // Confirm the base is genuinely not softFeasible.
@@ -129,8 +129,8 @@ describe("assertOptimal", () => {
         { id: "prod", raw: false },
       ],
     } as unknown as RecipePack;
-    const targets: Target[] = [
-      { recipeId: "T", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
     ];
     const recipeCosts = new Map<string, number>([["mid_cheap", 100]]);
 

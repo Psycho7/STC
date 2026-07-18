@@ -9,18 +9,19 @@ function makePlan(overrides?: Partial<Plan>): Plan {
     pack: { id: "test", schemaVersion: "0", submoduleSha: "abc" },
     title: "",
     targets: [
-      { recipeId: "copper_powder", ratePerSec: { num: "2", denom: "4" } },
+      { itemId: "copper_powder", ratePerSec: { num: "2", denom: "4" } },
     ],
     ...overrides,
   };
 }
 
 describe("planToSolverArgs", () => {
-  it("passes targets through by reference without transformation", () => {
+  it("passes item targets through unchanged", () => {
     const plan = makePlan();
     const { targets } = planToSolverArgs(plan);
-    // Same Target[] reference back, no transformation.
     expect(targets).toBe(plan.targets);
+    expect(targets[0]!.itemId).toBe("copper_powder");
+    expect(targets[0]!.ratePerSec).toEqual({ num: "2", denom: "4" });
   });
 
   it("returns empty itemOverrides array when plan has none", () => {

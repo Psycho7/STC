@@ -69,9 +69,7 @@ describe("validatePlan - rational wire fields", () => {
 
   it("accepts a well-formed recipeCost override", () => {
     const plan = basePlan();
-    plan.recipeCosts = new Map([
-      [plan.targets[0]!.recipeId, { num: "5", denom: "2" }],
-    ]);
+    plan.recipeCosts = new Map([["copper_bottle", { num: "5", denom: "2" }]]);
     expect(validatePlan(plan, pack)).toBeNull();
   });
 
@@ -82,7 +80,7 @@ describe("validatePlan - rational wire fields", () => {
       name: "a target rate with a zero denominator",
       mutate: (plan: Plan) => {
         plan.targets = [
-          { recipeId: plan.targets[0]!.recipeId, ratePerSec: { num: "1", denom: "0" } },
+          { itemId: plan.targets[0]!.itemId, ratePerSec: { num: "1", denom: "0" } },
         ];
       },
     },
@@ -90,7 +88,7 @@ describe("validatePlan - rational wire fields", () => {
       name: "a target rate with a non-numeric numerator",
       mutate: (plan: Plan) => {
         plan.targets = [
-          { recipeId: plan.targets[0]!.recipeId, ratePerSec: { num: "abc", denom: "1" } },
+          { itemId: plan.targets[0]!.itemId, ratePerSec: { num: "abc", denom: "1" } },
         ];
       },
     },
@@ -98,7 +96,7 @@ describe("validatePlan - rational wire fields", () => {
       name: "a negative target rate",
       mutate: (plan: Plan) => {
         plan.targets = [
-          { recipeId: plan.targets[0]!.recipeId, ratePerSec: { num: "-5", denom: "2" } },
+          { itemId: plan.targets[0]!.itemId, ratePerSec: { num: "-5", denom: "2" } },
         ];
       },
     },
@@ -121,9 +119,7 @@ describe("validatePlan - rational wire fields", () => {
     {
       name: "a recipeCost with a zero denominator",
       mutate: (plan: Plan) => {
-        plan.recipeCosts = new Map([
-          [plan.targets[0]!.recipeId, { num: "1", denom: "0" }],
-        ]);
+        plan.recipeCosts = new Map([["copper_bottle", { num: "1", denom: "0" }]]);
       },
     },
   ])("rejects $name", ({ mutate }) => {
@@ -132,12 +128,21 @@ describe("validatePlan - rational wire fields", () => {
     expect(validatePlan(plan, pack)?.kind).toBe("invalid-rational");
   });
 
-  it("rejects a target referencing an unknown recipe", () => {
+  it("rejects a duplicate target item", () => {
     const plan = basePlan();
     plan.targets = [
-      { recipeId: "no_such_recipe", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "copper_bottle", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } },
     ];
-    expect(validatePlan(plan, pack)?.kind).toBe("unknown-target-recipe");
+    expect(validatePlan(plan, pack)?.kind).toBe("duplicate-target");
+  });
+
+  it("rejects a target referencing an unknown item", () => {
+    const plan = basePlan();
+    plan.targets = [
+      { itemId: "no_such_item", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    expect(validatePlan(plan, pack)?.kind).toBe("unknown-target-item");
   });
 
   it("rejects a recipeCost referencing an unknown recipe", () => {
@@ -146,54 +151,62 @@ describe("validatePlan - rational wire fields", () => {
     expect(validatePlan(plan, pack)?.kind).toBe("unknown-recipe-cost");
   });
 
-  // A recipe with outputs but a zero-qty primary produces none of the item the
-  // target names. The real pack carries no such recipe, so use a synthetic one.
-  it("rejects a target whose recipe primary output has zero qty", () => {
+  // An item only ever output at zero qty has no real producer, so it is not
+  // producible. The real pack carries no such item, so use a synthetic pack.
+  it("rejects a target on an item only produced at zero qty", () => {
     const malformed = makePack(
       [{ id: "rZero", time: 1, in: { R: 1 }, out: { X: 0 } }],
       [{ id: "R", raw: true }, { id: "X" }],
     );
     const plan = defaultPlan(malformed);
-    plan.targets = [{ recipeId: "rZero", ratePerSec: { num: "1", denom: "1" } }];
+    plan.targets = [{ itemId: "X", ratePerSec: { num: "1", denom: "1" } }];
     const error = validatePlan(plan, malformed);
-    expect(error?.kind).toBe("target-primary-zero-qty");
+    expect(error?.kind).toBe("target-not-producible");
     expect(error && describePlanLoadError(error)).toContain("X");
   });
 
-  it("rejects a sink recipe as a target", () => {
+  // The real pack's one non-producible item comes only from a
+  // __domain_transfer (input-supply) recipe, so it can never be net-exported.
+  it("rejects an item produced only by an input-supply recipe", () => {
     const plan = basePlan();
     plan.targets = [
-      { recipeId: "liquid_cleaner_1-sewage", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "domain_key_tundra", ratePerSec: { num: "1", denom: "1" } },
     ];
-    expect(validatePlan(plan, pack)?.kind).toBe("target-not-a-producer");
+    expect(validatePlan(plan, pack)?.kind).toBe("target-not-producible");
   });
 
-  // No-output pure consumers carry no cost sentinel, so the gate must key on
-  // the empty output list; a target rate is undefined for such a recipe.
-  it.each([
-    "sewage-treat",
-    "power_originium_ore",
-    "power_proc_battery_1",
-    "power_proc_battery_2",
-    "power_proc_battery_3",
-    "power_proc_battery_4",
-    "power_proc_battery_5",
-  ])("rejects no-output recipe %s as a target", (recipeId) => {
-    const plan = basePlan();
-    plan.targets = [{ recipeId, ratePerSec: { num: "1", denom: "1" } }];
-    expect(validatePlan(plan, pack)?.kind).toBe("target-not-a-producer");
-  });
-
-  it("rejects a wire payload targeting a no-output recipe end-to-end", async () => {
+  it("rejects a wire payload targeting a non-producible item end-to-end", async () => {
     const plan = basePlan();
     plan.targets = [
-      { recipeId: "sewage-treat", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "domain_key_tundra", ratePerSec: { num: "1", denom: "1" } },
     ];
     const hash = await encodePlan(plan);
     const outcome = await loadPlan(hash, pack);
     expect(outcome.kind).toBe("error");
     if (outcome.kind === "error") {
-      expect(outcome.error.kind).toBe("target-not-a-producer");
+      expect(outcome.error.kind).toBe("target-not-producible");
+    }
+  });
+
+  // No migration for legacy wires: a v1 payload whose targets still carry the
+  // old recipe shape ({recipeId, ratePerSec}) has no itemId, so it must fail
+  // validation as a structured error - and the message must not render the
+  // missing id as literal "undefined".
+  it("rejects a legacy recipe-form wire payload as unknown-target-item", async () => {
+    const hash = await hashFor({
+      pack: packTuple(),
+      title: "",
+      targets: [
+        { recipeId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } },
+      ],
+    });
+    const outcome = await loadPlan(hash, pack);
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error") {
+      expect(outcome.error.kind).toBe("unknown-target-item");
+      const msg = describePlanLoadError(outcome.error);
+      expect(msg).toContain("(missing)");
+      expect(msg).not.toContain("undefined");
     }
   });
 
@@ -201,7 +214,7 @@ describe("validatePlan - rational wire fields", () => {
     const hash = await hashFor({
       pack: packTuple(),
       title: "",
-      targets: [{ recipeId: "copper_powder", ratePerSec: null }],
+      targets: [{ itemId: "copper_powder", ratePerSec: null }],
     });
     const outcome = await loadPlan(hash, pack);
     expect(outcome.kind).toBe("error");
@@ -229,7 +242,7 @@ describe("validatePlan - rational wire fields", () => {
   it("rejects a malformed rational end-to-end through loadPlan", async () => {
     const plan = basePlan();
     plan.targets = [
-      { recipeId: plan.targets[0]!.recipeId, ratePerSec: { num: "5", denom: "0" } },
+      { itemId: plan.targets[0]!.itemId, ratePerSec: { num: "5", denom: "0" } },
     ];
     const hash = await encodePlan(plan);
     const outcome = await loadPlan(hash, pack);

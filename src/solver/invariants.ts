@@ -1,6 +1,6 @@
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { LpResult } from "./lp";
 import { demandByItem, toleranceScaleFloor } from "./lp";
@@ -56,11 +56,11 @@ function netProduction(
 export function checkMassBalance(
   result: LpResult,
   pack: RecipePack,
-  targets: Target[],
+  targets: ReadonlyArray<ItemTarget>,
   overrides: ItemOverride[],
 ): InvariantResult {
   const violations: string[] = [];
-  const demandOf = demandByItem(pack, targets);
+  const demandOf = demandByItem(targets);
   const scaleFloor = toleranceScaleFloor(demandOf);
 
   for (const it of pack.items) {
@@ -81,47 +81,35 @@ export function checkMassBalance(
 }
 
 /**
- * Targets met: each target recipe must run at or above its requested floor.
- * Mirrors the target-floor block in lp.ts: floor = (rate/sec) / primary.qty,
- * primary = recipe.out[0], skipped when primary.qty <= 0. A recipe absent from
- * result.rates counts as rate 0 (a violation unless its floor is 0).
+ * Targets met: a result that claims all demand met (softFeasible) must not
+ * carry a material deficit on any target item. The demand equality in lp.ts
+ * already encodes "net-export the item at the requested rate"; the deficit
+ * variable is the only place unmet target demand can hide. An honest
+ * softFeasible:false result legitimately parks unmet demand in the deficit
+ * map, so it is skipped. Over-production of a target item is free-disposal
+ * surplus, not a violation.
  */
 export function checkTargetsMet(
   result: LpResult,
-  targets: Target[],
-  pack: RecipePack,
+  targets: ReadonlyArray<ItemTarget>,
 ): InvariantResult {
   const violations: string[] = [];
-  const scaleFloor = toleranceScaleFloor(demandByItem(pack, targets));
+  if (!result.softFeasible) return { ok: true, violations };
 
+  const demandOf = demandByItem(targets);
+  const scaleFloor = toleranceScaleFloor(demandOf);
+
+  const seen = new Set<string>();
   for (const t of targets) {
-    const recipe = pack.recipes.find((r) => r.id === t.recipeId);
-    if (!recipe || recipe.out.length === 0) continue;
-    const primary = recipe.out[0]!;
-    // Match lp.ts: a zero/negative primary qty means no floor was pinned.
-    if (!(primary.qty > 0)) continue;
-    const rate = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
-    const floor = rate / primary.qty;
-    const actual = rateOf(result, t.recipeId);
-    // Allow a relative slack so float noise at the floor is not a violation.
-    const slack = Math.max(scaleFloor, Math.abs(floor)) * REL_TOL;
-    if (actual < floor - slack) {
+    if (seen.has(t.itemId)) continue;
+    seen.add(t.itemId);
+    const demand = demandOf.get(t.itemId) ?? 0;
+    const deficit = result.deficit.get(t.itemId)?.valueOf() ?? 0;
+    // Allow a relative slack so float noise is not a violation.
+    const slack = Math.max(scaleFloor, Math.abs(demand)) * REL_TOL;
+    if (deficit > slack) {
       violations.push(
-        `target ${t.recipeId} runs at ${actual}, below floor ${floor}`,
-      );
-    }
-    // Upper bound: the one-sided floor lets a co-product subsidize over-running
-    // the target, silently over-producing the requested item. The requested item
-    // must not carry meaningful surplus (keyed by item; shared across duplicate
-    // targets on the same primary item, so a per-target read is fine). The
-    // slack keeps the absolute floor of 1: the LP's surplus cap grants the
-    // targeted item an eps of max(floor, 1) * 1e-7, so a plan-magnitude floor
-    // here could tag a surplus legitimately sitting at that cap.
-    const surplus = result.surplus.get(primary.item)?.valueOf() ?? 0;
-    const surplusSlack = Math.max(1, Math.abs(floor)) * REL_TOL;
-    if (surplus > surplusSlack) {
-      violations.push(
-        `target ${t.recipeId} over-produces ${primary.item}: surplus ${surplus}`,
+        `target item ${t.itemId} carries deficit ${deficit} against demand ${demand}`,
       );
     }
   }
@@ -269,12 +257,12 @@ export function assertInvariants(
   full: SolvePlanFull,
   result: LpResult,
   pack: RecipePack,
-  targets: Target[],
+  targets: ReadonlyArray<ItemTarget>,
   overrides: ItemOverride[],
 ): void {
   const violations = [
     checkMassBalance(result, pack, targets, overrides),
-    checkTargetsMet(result, targets, pack),
+    checkTargetsMet(result, targets),
     checkRawOnlyBoundary(result, pack, overrides),
     checkRepresentable(full),
   ].flatMap((r) => r.violations);

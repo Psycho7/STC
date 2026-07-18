@@ -25,8 +25,7 @@ import {
   isRecipeUnit,
 } from "../types";
 import type { RecipePack } from "@aef/schema";
-import type { RationalString } from "../../data/targets";
-import type { Target } from "../../data/targets";
+import type { RationalString, ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 
 const RATE_ONE: RationalString = { num: "1", denom: "1" };
@@ -286,7 +285,7 @@ describe("checkBoundaryProductsJustified", () => {
       edges: [],
       containers: [],
     };
-    const targets: ReadonlyArray<Target> = [];
+    const targets: ReadonlyArray<ItemTarget> = [];
     const itemOverrides: ReadonlyArray<ItemOverride> = [];
     const result = checkBoundaryProductsJustified({
       plan,
@@ -323,8 +322,8 @@ describe("checkBoundaryProductsJustified", () => {
       edges: [],
       containers: [],
     };
-    const targets: ReadonlyArray<Target> = [
-      { recipeId: "recipe-F", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ReadonlyArray<ItemTarget> = [
+      { itemId: "F", ratePerSec: { num: "1", denom: "1" } },
     ];
     const itemOverrides: ReadonlyArray<ItemOverride> = [];
     const result = checkBoundaryProductsJustified({
@@ -369,8 +368,8 @@ describe("checkBoundaryProductsJustified", () => {
       edges: [],
       containers: [],
     };
-    const targets: ReadonlyArray<Target> = [
-      { recipeId: "recipe-main", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ReadonlyArray<ItemTarget> = [
+      { itemId: "F", ratePerSec: { num: "1", denom: "1" } },
     ];
     const itemOverrides: ReadonlyArray<ItemOverride> = [];
     const result = checkBoundaryProductsJustified({
@@ -424,8 +423,8 @@ describe("checkBoundaryProductsJustified", () => {
       edges: [],
       containers: [],
     };
-    const targets: ReadonlyArray<Target> = [
-      { recipeId: "recipe-B", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ReadonlyArray<ItemTarget> = [
+      { itemId: "F", ratePerSec: { num: "1", denom: "1" } },
     ];
     const itemOverrides: ReadonlyArray<ItemOverride> = [];
     const result = checkBoundaryProductsJustified({
@@ -466,7 +465,7 @@ describe("checkBoundaryProductsJustified", () => {
       plan,
       rates,
       pack,
-      targets: [{ recipeId: "w_extract", ratePerSec: RATE_ONE }],
+      targets: [{ itemId: "W", ratePerSec: RATE_ONE }],
       itemOverrides: [],
     });
     expect(result.ok).toBe(true);
@@ -499,7 +498,7 @@ describe("checkBoundaryProductsJustified", () => {
       plan,
       rates,
       pack,
-      targets: [{ recipeId: "w_extract", ratePerSec: RATE_ONE }],
+      targets: [{ itemId: "W", ratePerSec: RATE_ONE }],
       itemOverrides: [],
     });
     expect(result.ok).toBe(false);
@@ -617,7 +616,7 @@ describe("checkInternalFlowConservation", () => {
       plan,
       rates,
       pack,
-      targets: [{ recipeId: "w_extract", ratePerSec: RATE_ONE }],
+      targets: [{ itemId: "W", ratePerSec: RATE_ONE }],
       itemOverrides: [],
     });
     expect(result.ok).toBe(true);
@@ -650,7 +649,7 @@ describe("checkInternalFlowConservation", () => {
       plan,
       rates,
       pack,
-      targets: [{ recipeId: "w_extract", ratePerSec: RATE_ONE }],
+      targets: [{ itemId: "W", ratePerSec: RATE_ONE }],
       itemOverrides: [],
     });
     expect(result.ok).toBe(false);
@@ -977,8 +976,8 @@ describe("checkTargetOutputsSatisfied", () => {
     [{ id: "recipe-A", in: [{ item: "R", qty: 1 }], out: [{ item: "F", qty: 1 }] }],
   );
   const rates: ReadonlyMap<string, Fraction> = new Map([["recipe-A", new Fraction(1)]]);
-  const targets: ReadonlyArray<Target> = [
-    { recipeId: "recipe-A", ratePerSec: { num: "1", denom: "1" } },
+  const targets: ReadonlyArray<ItemTarget> = [
+    { itemId: "F", ratePerSec: { num: "1", denom: "1" } },
   ];
 
   function planWithOutEdgeRate(rate: number): RenderPlan {
@@ -1050,7 +1049,7 @@ function cleanPlanArgs(): {
   plan: RenderPlan;
   rates: ReadonlyMap<string, Fraction>;
   pack: RecipePack;
-  targets: ReadonlyArray<Target>;
+  targets: ReadonlyArray<ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
 } {
   const pack = makeFullPack(
@@ -1072,8 +1071,8 @@ function cleanPlanArgs(): {
     ],
     containers: [],
   };
-  const targets: ReadonlyArray<Target> = [
-    { recipeId: "recipe-A", ratePerSec: { num: "1", denom: "1" } },
+  const targets: ReadonlyArray<ItemTarget> = [
+    { itemId: "F", ratePerSec: { num: "1", denom: "1" } },
   ];
   return { plan, rates, pack, targets, itemOverrides: [] };
 }
@@ -1126,7 +1125,7 @@ describe("assertRenderInvariants", () => {
       edges: [],
       containers: [],
     };
-    const args = { plan, rates, pack, targets: [] as ReadonlyArray<Target>, itemOverrides: [] as ReadonlyArray<ItemOverride> };
+    const args = { plan, rates, pack, targets: [] as ReadonlyArray<ItemTarget>, itemOverrides: [] as ReadonlyArray<ItemOverride> };
     expect(() => assertRenderInvariants(args)).toThrow(/recipe-A/);
   });
 
@@ -1150,7 +1149,7 @@ describe("assertRenderInvariants", () => {
       ],
       containers: [],
     };
-    const args = { plan, rates, pack, targets: [] as ReadonlyArray<Target>, itemOverrides: [] as ReadonlyArray<ItemOverride> };
+    const args = { plan, rates, pack, targets: [] as ReadonlyArray<ItemTarget>, itemOverrides: [] as ReadonlyArray<ItemOverride> };
     expect(() => assertRenderInvariants(args)).toThrow(/u-missing/);
   });
 
@@ -1264,11 +1263,11 @@ describe("checkUnitOutflowVsProduction", () => {
     plan: RenderPlan;
     rates: ReadonlyMap<string, Fraction>;
     pack: RecipePack;
-    targets: ReadonlyArray<Target>;
+    targets: ReadonlyArray<ItemTarget>;
     itemOverrides: ReadonlyArray<ItemOverride>;
   } {
-    const targets: Target[] = recipeIds.map((recipeId) => ({
-      recipeId,
+    const targets: ItemTarget[] = recipeIds.map((recipeId) => ({
+      itemId: fullPack.recipes.find((r) => r.id === recipeId)!.out[0]!.item,
       ratePerSec: { num: "1", denom: "1" },
     }));
     const full = solvePlanWithIntermediates(
@@ -1358,11 +1357,11 @@ function mutableArgs(
   plan: RenderPlan;
   rates: ReadonlyMap<string, Fraction>;
   pack: RecipePack;
-  targets: ReadonlyArray<Target>;
+  targets: ReadonlyArray<ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
 } {
-  const targets: Target[] = recipeIds.map((recipeId) => ({
-    recipeId,
+  const targets: ItemTarget[] = recipeIds.map((recipeId) => ({
+    itemId: fullPack.recipes.find((r) => r.id === recipeId)!.out[0]!.item,
     ratePerSec: { num: "1", denom: "1" },
   }));
   const full = solvePlanWithIntermediates(

@@ -47,33 +47,33 @@ describe("validatePlan", () => {
     });
   });
 
-  it("duplicate-target on repeated recipeId", () => {
+  it("duplicate-target on repeated itemId", () => {
     const plan: Plan = {
       ...freshPlan(),
       targets: [
-        { recipeId: "copper_bottle", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } },
+        { itemId: "copper_bottle", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } },
       ],
     };
     expect(validatePlan(plan, pack)).toEqual({
       kind: "duplicate-target",
-      recipeId: "copper_bottle",
+      itemId: "copper_bottle",
     });
   });
 
-  it("target-not-a-producer on an input-supply recipe", () => {
+  it("target-not-producible on an input-supply-only item", () => {
     const plan: Plan = {
       ...freshPlan(),
       targets: [
         {
-          recipeId: "transfer_tundra_bottled_food_1",
+          itemId: "domain_key_tundra",
           ratePerSec: { num: "1", denom: "1" },
         },
       ],
     };
     expect(validatePlan(plan, pack)).toEqual({
-      kind: "target-not-a-producer",
-      recipeId: "transfer_tundra_bottled_food_1",
+      kind: "target-not-producible",
+      itemId: "domain_key_tundra",
     });
   });
 
@@ -139,7 +139,7 @@ describe("loadPlan / encodePlan", () => {
       ...freshPlan(),
       targets: [
         {
-          recipeId: "transfer_tundra_bottled_food_1",
+          itemId: "domain_key_tundra",
           ratePerSec: { num: "1", denom: "1" },
         },
       ],
@@ -147,7 +147,7 @@ describe("loadPlan / encodePlan", () => {
     const outcome = await loadPlan("#" + (await encodePlan(plan)), pack);
     expect(outcome.kind).toBe("error");
     if (outcome.kind === "error") {
-      expect(outcome.error.kind).toBe("target-not-a-producer");
+      expect(outcome.error.kind).toBe("target-not-producible");
     }
   });
 

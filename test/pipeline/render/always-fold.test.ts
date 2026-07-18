@@ -421,7 +421,7 @@ describe("AlwaysFoldRender - boundary products parity with NoFoldRender", () => 
     const input: RenderPolicyInput = {
       containers: { containers: [], containerByMember: new Map() },
       machineGraph: { vertices: [producer, consumer], edges: [edge] },
-      targets: [{ recipeId: "r_cons", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
       itemOverrides: [
         { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
       ],

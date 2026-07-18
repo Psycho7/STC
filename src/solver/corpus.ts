@@ -4,7 +4,7 @@
 //
 // Per-fixture fields:
 //   pack         - minimal RecipePack (cast via `as unknown as RecipePack`)
-//   targets      - Target[] for solveLp
+//   targets      - ItemTarget[] for solveLp
 //   itemOverrides? - ItemOverride[] for supply caps / plan flags
 //   recipeCosts?   - Map<RecipeId, number> for cost overrides
 //
@@ -12,7 +12,7 @@
 // solver and reading output, never invented.
 
 import type { RecipePack } from "@aef/schema";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipeId } from "./types";
 
@@ -37,15 +37,79 @@ function mkPack(
   return { recipes, items } as unknown as RecipePack;
 }
 
-function rate(num: string, denom: string): Target["ratePerSec"] {
+function rate(num: string, denom: string): ItemTarget["ratePerSec"] {
   return { num, denom };
+}
+
+// Full pack constructor for fixtures that run the whole pipeline (replicate,
+// multipliers, render): unlike mkPack it fills in the machine and per-recipe
+// producers/name/icon fields those stages read.
+function mkFullPack(
+  recipes: {
+    id: string;
+    category: string;
+    time: number;
+    in: { item: string; qty: number }[];
+    out: { item: string; qty: number }[];
+    flags?: string[];
+    cost?: number;
+  }[],
+  items: { id: string; raw: boolean }[],
+): RecipePack {
+  return {
+    schemaVersion: "0.2",
+    source: {
+      name: "corpus",
+      sourceRepo: "",
+      sourceCommit: "",
+      gameVersion: "",
+      extractedAt: "",
+    },
+    categories: [{ id: "material", name: "material", icon: "material" }],
+    locations: [],
+    items: items.map((i) => ({
+      id: i.id,
+      name: i.id,
+      category: "material",
+      icon: i.id,
+      row: 0,
+      raw: i.raw,
+      transportKind: "belt",
+      stack: 1,
+    })),
+    machines: [
+      {
+        id: "machine",
+        name: "machine",
+        icon: "machine",
+        speed: 1,
+        powerType: "electric",
+        powerKw: 1,
+        hideRate: false,
+      },
+    ],
+    transports: [],
+    recipes: recipes.map((r) => ({
+      id: r.id,
+      name: r.id,
+      category: r.category,
+      icon: r.id,
+      row: 0,
+      time: r.time,
+      in: r.in,
+      out: r.out,
+      producers: ["machine"],
+      ...(r.flags !== undefined ? { flags: r.flags } : {}),
+      ...(r.cost !== undefined ? { cost: r.cost } : {}),
+    })),
+  } as unknown as RecipePack;
 }
 
 // ---------------------------------------------------------------------------
 // Scenario 1: acyclic single producer
 //
 // One linear chain: raw -> a -> b. Exactly one recipe per item.
-// Target: r_make_b at 1/sec. Must run r_make_a to supply "a".
+// Target: item "b" at 1/sec. Must run r_make_a to supply "a".
 // Expected active set: {r_make_a, r_make_b} (full chain).
 // Objective: 2 recipe runs * cost 1 each = 2.
 // ---------------------------------------------------------------------------
@@ -73,7 +137,7 @@ export const acyclicSingleProducer = {
       { id: "b", raw: false },
     ],
   ),
-  targets: [{ recipeId: "r_make_b", ratePerSec: rate("1", "1") }],
+  targets: [{ itemId: "b", ratePerSec: rate("1", "1") }],
 };
 
 // Golden for scenario 1 (from solveLp output).
@@ -128,7 +192,7 @@ export const multiProducerCostChoice = {
       { id: "prod", raw: false },
     ],
   ),
-  targets: [{ recipeId: "target_r", ratePerSec: rate("1", "1") }],
+  targets: [{ itemId: "prod", ratePerSec: rate("1", "1") }],
 };
 
 export const multiProducerCostChoiceGolden = {
@@ -200,7 +264,7 @@ export const equalCostTieBreak = {
       { id: "prod", raw: false },
     ],
   ),
-  targets: [{ recipeId: "target_r", ratePerSec: rate("1", "1") }],
+  targets: [{ itemId: "prod", ratePerSec: rate("1", "1") }],
 };
 
 export const equalCostTieBreakGolden = {
@@ -250,7 +314,7 @@ export const byproductSurplus = {
       { id: "prod", raw: false },
     ],
   ),
-  targets: [{ recipeId: "r_finalize", ratePerSec: rate("1", "1") }],
+  targets: [{ itemId: "prod", ratePerSec: rate("1", "1") }],
 };
 
 export const byproductSurplusGolden = {
@@ -302,7 +366,7 @@ export const finiteCapForcingFallback = {
       { id: "prod", raw: false },
     ],
   ),
-  targets: [{ recipeId: "r_final", ratePerSec: rate("1", "1") }],
+  targets: [{ itemId: "prod", ratePerSec: rate("1", "1") }],
   itemOverrides: [
     // Cap raw_aprimary supply to 0: effectiveSupply becomes Fraction(0) => mass
     // balance forces a_primary to 0 (cannot consume what is not supplied).
@@ -358,7 +422,7 @@ export const planPassthrough = {
       { id: "prod", raw: false },
     ],
   ),
-  targets: [{ recipeId: "r_final", ratePerSec: rate("1", "1") }],
+  targets: [{ itemId: "prod", ratePerSec: rate("1", "1") }],
   itemOverrides: [
     // plan:true on a non-raw item -> effectiveSupply = Infinity -> boundary.
     { itemId: "mid", plan: true as const } satisfies ItemOverride,
@@ -382,11 +446,11 @@ export const planPassthroughGolden = {
 //
 // r_normal (category "material", cost 1) and r_transfer (category
 // "__domain_transfer", cost 1e6 per recipeCostWeight) both produce "prod" from
-// "raw". Target pins r_normal. The LP minimizes cost: 1 vs 1e6, so r_transfer
+// "raw". Target: item "prod". The LP minimizes cost: 1 vs 1e6, so r_transfer
 // stays inactive.
 //
-// The "prod" mass balance is met by the pinned r_normal alone. Adding r_transfer
-// would add 1e6 per unit, so it is only chosen when it is the sole producer
+// The "prod" mass balance is met by r_normal alone. Adding r_transfer would
+// add 1e6 per unit, so it is only chosen when it is the sole producer
 // (unavoidable). Here it is avoidable.
 //
 // Why no genuine-SCC variant: a two-item SCC (A -> B -> A) where
@@ -395,10 +459,8 @@ export const planPassthroughGolden = {
 // real pack __domain_transfer bridges two separate domain graphs (e.g. base-game
 // to Endfield items) and only runs when the user needs an item from the other
 // domain; a two-recipe synthetic would make __domain_transfer the only producer,
-// trivially unavoidable rather than a meaningful SCC test. Floor-vs-equality SCC
-// semantics (documented in lp.ts) are already covered by the real-pack tests in
-// optimality.test.ts and index.test.ts, so here we assert only the exclusion
-// case (avoidable big-M stays inactive).
+// trivially unavoidable rather than a meaningful SCC test. So here we assert
+// only the exclusion case (avoidable big-M stays inactive).
 // ---------------------------------------------------------------------------
 export const domainTransferExclusion = {
   pack: mkPack(
@@ -423,7 +485,7 @@ export const domainTransferExclusion = {
       { id: "prod", raw: false },
     ],
   ),
-  targets: [{ recipeId: "r_normal", ratePerSec: rate("1", "1") }],
+  targets: [{ itemId: "prod", ratePerSec: rate("1", "1") }],
 };
 
 export const domainTransferExclusionGolden = {
@@ -433,22 +495,19 @@ export const domainTransferExclusionGolden = {
 };
 
 // ---------------------------------------------------------------------------
-// Scenario 7a: cyclic SCC -- min-floor contract
+// Scenario 7a: cyclic SCC -- net-export contract
 //
 // r_scc_target and r_scc_cycle form a two-recipe cycle:
-//   r_scc_target: raw(1) + mid(1) -> target_item(1)   [targeted]
+//   r_scc_target: raw(1) + mid(1) -> target_item(1)
 //   r_scc_cycle:  target_item(1)  -> mid(1)            [cycle back-edge]
 //
-// The cycle makes mid depend on target_item, which depends on mid. The LP sets
-// target_item demand to ratePerSec = 1/2. Because the SCC exactly recycles mid,
-// the mass-balance equality system can't meet the demand without a deficit on
-// target_item (softFeasible=false). The floor (min, not equality) still forces
-// x_r_scc_target >= ratePerSec / primary.qty = 0.5. This exercises the lp.ts
-// rule that floor is a MIN constraint, not equality, so the pin doesn't
-// over-constrain mass balance.
-//
-// Golden: both SCC members run at rate 0.5 (floor binding); deficit on
-// target_item = 0.5 from the unresolvable cyclic demand.
+// The cycle makes mid depend on target_item, which depends on mid. The target
+// demands a net export of target_item at 1/2. The cycle exactly recycles its
+// own output (every unit of target_item produced is consumed rebuilding mid),
+// so no rate assignment yields positive net export: running the cycle only
+// adds recipe cost on top of the same unavoidable deficit. The cost-min
+// optimum runs nothing and reports the full demand as a deficit on
+// target_item (softFeasible=false, status "empty").
 // ---------------------------------------------------------------------------
 export const domainTransferScc = {
   pack: mkPack(
@@ -477,19 +536,17 @@ export const domainTransferScc = {
       { id: "mid", raw: false },
     ],
   ),
-  targets: [{ recipeId: "r_scc_target", ratePerSec: rate("1", "2") }],
+  targets: [{ itemId: "target_item", ratePerSec: rate("1", "2") }],
 };
 
 export const domainTransferSccGolden = {
-  // Objective dominated by deficit penalty: 1e9 * 0.5 + 0.5 + 0.5 = 500000001,
-  // but the solver returns 500000000.5 from LP float rounding of the deficit
-  // variable. Use the value read directly from solveLp output.
-  objectiveValue: 500000000.5,
-  status: "feasible" as const,
+  // Objective is the pure deficit penalty: 1e9 * 0.5 = 500000000. No recipe
+  // runs (the cycle cannot create net export, so running it only adds cost).
+  objectiveValue: 500000000,
+  status: "empty" as const,
   softFeasible: false,
-  // Both SCC members run; cycle drives both to the floor.
-  activeRecipes: ["r_scc_cycle", "r_scc_target"],
-  // Deficit on target_item = 0.5: demand driven by ratePerSec, unresolved by cycle.
+  activeRecipes: [] as string[],
+  // Deficit on target_item = 0.5: the demanded item itself goes unmet.
   deficitItem: "target_item",
 };
 
@@ -497,8 +554,8 @@ export const domainTransferSccGolden = {
 // Scenario 7b: target-only flag exclusion (big-M signal variant)
 //
 // r_normal and r_targetonly produce the same item. r_targetonly has
-// flags:["target-only"] => recipeCostWeight returns 1e6. When r_normal is
-// the target, r_targetonly is never chosen.
+// flags:["target-only"] => recipeCostWeight returns 1e6, so demand on "prod"
+// is covered by r_normal and r_targetonly is never chosen.
 // ---------------------------------------------------------------------------
 export const targetOnlyFlagExclusion = {
   pack: mkPack(
@@ -524,7 +581,7 @@ export const targetOnlyFlagExclusion = {
       { id: "prod", raw: false },
     ],
   ),
-  targets: [{ recipeId: "r_normal", ratePerSec: rate("1", "1") }],
+  targets: [{ itemId: "prod", ratePerSec: rate("1", "1") }],
 };
 
 export const targetOnlyFlagExclusionGolden = {
@@ -563,7 +620,7 @@ export const costMinusOneSinkExclusion = {
       { id: "prod", raw: false },
     ],
   ),
-  targets: [{ recipeId: "r_normal", ratePerSec: rate("1", "1") }],
+  targets: [{ itemId: "prod", ratePerSec: rate("1", "1") }],
 };
 
 export const costMinusOneSinkExclusionGolden = {
@@ -576,11 +633,14 @@ export const costMinusOneSinkExclusionGolden = {
 // Scenario 8: deficit (unmet demand)
 //
 // r_target consumes "missing_item" (not raw, no producer in pack) to produce
-// "prod". The LP adds a deficit slack for "missing_item" but cannot supply it
-// from any recipe. The deficit variable survives the >1e-12 filter =>
-// softFeasible===false. The raw solver still marks the problem feasible (the
-// slack absorbs the gap). status==="feasible", deficit has "missing_item".
-// Objective is dominated by 1e9 * deficit(1) + 1 * r_target(1) = 1e9 + 1.
+// "prod". Running r_target just moves the unavoidable 1-unit deficit from
+// "prod" onto "missing_item", so the 1e9-dominated deficit cost is flat in
+// x_r_target and the engine stops at an arbitrary point on that flat edge (it
+// returns a small junk rate, 20/19999, rather than the cost-minimal 0). The
+// extraction keeps the point and reports the honest deficit split: the bulk
+// stays on the demanded "prod", the run fraction lands on "missing_item".
+// softFeasible===false; status "feasible" because the junk rate is positive.
+// Objective = 1e9 * total deficit(1).
 // ---------------------------------------------------------------------------
 export const deficitUnmetDemand = {
   pack: mkPack(
@@ -598,18 +658,18 @@ export const deficitUnmetDemand = {
       { id: "prod", raw: false },
     ],
   ),
-  targets: [{ recipeId: "r_target", ratePerSec: rate("1", "1") }],
+  targets: [{ itemId: "prod", ratePerSec: rate("1", "1") }],
 };
 
 export const deficitUnmetDemandGolden = {
-  // Deficit-dominated objective: 1e9 * 1 (missing_item deficit) + 1 (r_target run).
-  objectiveValue: 1_000_000_001,
+  // Total deficit is exactly 1 unit however the flat edge splits it.
+  objectiveValue: 1_000_000_000,
   status: "feasible" as const,
   softFeasible: false,
-  // r_target runs (pinned to at least rate/primary.qty = 1).
+  // The junk-vertex rate keeps r_target nominally active.
   activeRecipes: ["r_target"],
-  // "missing_item" cannot be produced => deficit = 1.
-  deficitItem: "missing_item",
+  // The demanded item carries the bulk of the deficit.
+  deficitItem: "prod",
 };
 
 // ---------------------------------------------------------------------------
@@ -636,12 +696,11 @@ export const SCENARIO_9_UNBOUNDED_UNREACHABLE =
 // ---------------------------------------------------------------------------
 // Scenario 10: feasible-empty
 //
-// The target recipe "r_zero_out" has primary output qty=0, so solveLp's
-// target-floor guard skips the pin (primary.qty must be > 0). Without a pin no
-// recipe is forced active; the optimal is 0 recipe runs with all demand absorbed
-// by deficit. The solve is feasible but no x_recipe exceeds the >1e-12 threshold
-// => rates map empty => status === "empty". softFeasible===false because the
-// prod deficit survives.
+// The only producer of "prod" (r_zero_out) emits it at qty=0, so no recipe can
+// create net output of the demanded item; the optimal is 0 recipe runs with
+// all demand absorbed by deficit. The solve is feasible but no x_recipe
+// exceeds the >1e-12 threshold => rates map empty => status === "empty".
+// softFeasible===false because the prod deficit survives.
 // ---------------------------------------------------------------------------
 export const feasibleEmpty = {
   pack: mkPack(
@@ -659,7 +718,7 @@ export const feasibleEmpty = {
       { id: "prod", raw: false },
     ],
   ),
-  targets: [{ recipeId: "r_zero_out", ratePerSec: rate("1", "1") }],
+  targets: [{ itemId: "prod", ratePerSec: rate("1", "1") }],
 };
 
 export const feasibleEmptyGolden = {
@@ -667,4 +726,329 @@ export const feasibleEmptyGolden = {
   softFeasible: false,
   // No recipe runs at a positive rate; rates map is empty.
   activeRecipes: [] as string[],
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 11: producer choice by cost (new net-export freedom)
+//
+// Two producers of "widget", cost-distinct via recipeCosts (both positive, not
+// big-M): z_cheap=2, a_pricey=5. The old pin-floor could force a specific
+// producer; the new semantics let the LP minimize cost freely. z_cheap wins on
+// cost even though its id sorts AFTER a_pricey (a_pricey has lex rank 0), so a
+// pass-2 lex tie-break alone would have picked a_pricey. Cost, not lex, decides.
+//
+// widget demand 1/sec -> z_cheap runs 1/sec (1 widget per run). Objective =
+// cost(z_cheap) * 1 = 2. a_pricey stays inactive.
+// ---------------------------------------------------------------------------
+export const producerChoiceByCost = {
+  pack: mkPack(
+    [
+      {
+        id: "a_pricey",
+        category: "material",
+        time: 1,
+        in: [{ item: "raw", qty: 1 }],
+        out: [{ item: "widget", qty: 1 }],
+      },
+      {
+        id: "z_cheap",
+        category: "material",
+        time: 1,
+        in: [{ item: "raw", qty: 1 }],
+        out: [{ item: "widget", qty: 1 }],
+      },
+    ],
+    [
+      { id: "raw", raw: true },
+      { id: "widget", raw: false },
+    ],
+  ),
+  targets: [{ itemId: "widget", ratePerSec: rate("1", "1") }],
+  recipeCosts: new Map<RecipeId, number>([
+    ["a_pricey", 5],
+    ["z_cheap", 2],
+  ]),
+};
+
+export const producerChoiceByCostGolden = {
+  // z_cheap at cost 2 covers the 1/sec demand; a_pricey (cost 5, lex rank 0)
+  // stays inactive. Objective is the pass-1 cost cap: 2.
+  objectiveValue: 2,
+  activeRecipes: ["z_cheap"],
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 12: byproduct-only item target
+//
+// "byp" appears only as the secondary output (out[1]) of r_dual; there is no
+// recipe that makes it primary. Targeting it forces co-product production:
+// r_dual runs to net-export byp, and the primary output "primary" (unconsumed,
+// non-raw) lands in free-disposal surplus (the deleted-surpcap behavior).
+//
+// byp demand 1/sec -> r_dual runs 1/sec. primary surplus = 1*r_dual - 0 = 1.
+// Objective = cost(r_dual) 1 + SURPLUS_WEIGHT * surplus(primary)=1 = 1.001.
+// ---------------------------------------------------------------------------
+export const byproductOnlyTarget = {
+  pack: mkPack(
+    [
+      {
+        id: "r_dual",
+        category: "material",
+        time: 1,
+        in: [{ item: "raw", qty: 1 }],
+        out: [
+          { item: "primary", qty: 1 },
+          { item: "byp", qty: 1 },
+        ],
+      },
+    ],
+    [
+      { id: "raw", raw: true },
+      { id: "primary", raw: false },
+      { id: "byp", raw: false },
+    ],
+  ),
+  targets: [{ itemId: "byp", ratePerSec: rate("1", "1") }],
+};
+
+export const byproductOnlyTargetGolden = {
+  // 1 recipe run + 1e-3 * surplus(primary)=1 = 1.001.
+  objectiveValue: 1.001,
+  activeRecipes: ["r_dual"],
+  // The co-product primary is unconsumed: full 1/sec production surpluses.
+  surplusPrimary: 1,
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 13: raw item target via a miner recipe (miner runs)
+//
+// "ore" is modeled NON-raw (raw:false) and produced by r_miner from nothing, so
+// it is NOT boundary-drawable: the LP must run the miner to net-export it rather
+// than pull it free from the boundary (that draw-satisfied case is Scenario
+// 14/15). Targeting ore runs the miner at the declared rate.
+//
+// ore demand 1/sec -> r_miner runs 1/sec. Objective = cost(r_miner) 1 = 1.
+// ---------------------------------------------------------------------------
+export const rawItemTargetViaMiner = {
+  pack: mkPack(
+    [
+      {
+        id: "r_miner",
+        category: "material",
+        time: 1,
+        in: [],
+        out: [{ item: "ore", qty: 1 }],
+      },
+    ],
+    [{ id: "ore", raw: false }],
+  ),
+  targets: [{ itemId: "ore", ratePerSec: rate("1", "1") }],
+};
+
+export const rawItemTargetViaMinerGolden = {
+  objectiveValue: 1,
+  activeRecipes: ["r_miner"],
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 14: free-boundary item target met by boundary draw
+//
+// "ore" is raw:true (effectiveSupply === Infinity, effectively unlimited free
+// external supply) and there is no producer at all. Targeting it does NOT run
+// anything and is NOT a deficit: the demand is met by an external boundary draw
+// equal to the declared rate. The LP builds no mass-balance row for a free
+// boundary item, so the draw is post-solve accounting: draw = demand - net
+// production = 1 - 0 = 1.
+//
+// Nothing runs -> status "empty"; softFeasible stays true (no unmet demand);
+// draws{ore} = 1; deficit empty.
+// ---------------------------------------------------------------------------
+export const freeBoundaryTarget = {
+  pack: mkPack([], [{ id: "ore", raw: true }]),
+  targets: [{ itemId: "ore", ratePerSec: rate("1", "1") }],
+};
+
+export const freeBoundaryTargetGolden = {
+  objectiveValue: 0,
+  status: "empty" as const,
+  softFeasible: true,
+  activeRecipes: [] as string[],
+  drawOre: 1,
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 15: free-boundary target that ALSO has a costly miner (draw wins)
+//
+// Same raw:true "ore" target, but now a miner r_mine (from nothing, cost 1)
+// could also produce it. The free boundary draw costs 0; running the miner
+// costs 1 and produces an unconstrained item (no row, no benefit), so the
+// cost-min LP keeps the miner idle and meets demand via the free draw. draw =
+// demand - net production = 1 - 0 = 1 (miner idle, net 0).
+//
+// Nothing runs -> status "empty"; softFeasible true; draws{ore} = 1; deficit
+// empty. r_mine must NOT be active.
+// ---------------------------------------------------------------------------
+export const freeBoundaryTargetWithMiner = {
+  pack: mkPack(
+    [
+      {
+        id: "r_mine",
+        category: "material",
+        time: 1,
+        in: [],
+        out: [{ item: "ore", qty: 1 }],
+      },
+    ],
+    [{ id: "ore", raw: true }],
+  ),
+  targets: [{ itemId: "ore", ratePerSec: rate("1", "1") }],
+};
+
+export const freeBoundaryTargetWithMinerGolden = {
+  objectiveValue: 0,
+  status: "empty" as const,
+  softFeasible: true,
+  activeRecipes: [] as string[],
+  drawOre: 1,
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 16: one target item split across two producers by a finite cap
+//
+// "gold" is demanded at 5/s and has two producers with UNEQUAL output
+// quantities. r_cheap (cost 1/5 via the fixture's recipeCosts, out qty 1, so
+// 1/5 per unit of gold) consumes "vein", a non-raw item with no producer and
+// a finite external cap of 1/s, so r_cheap can run at most 1/s. r_dear
+// (default cost 1, out qty 3, so 1/3 per unit) consumes free raw "rock". The
+// cost-min LP maxes out the cheaper-per-unit producer at its cap and covers
+// the remaining 4/s with r_dear at the fractional rate 4/3, so the ONE target
+// item is genuinely split across two positive-rate producers with different
+// flows:
+//   r_cheap = 1 (flow 1), r_dear = 4/3 (flow 4), draw(vein) = 1,
+//   no surplus, no deficit; declared draw apportioned 1 : 4.
+// Built with the full closed-form pack shape (machines, producers) so
+// pipeline tests can run it end-to-end through replicate and render.
+// ---------------------------------------------------------------------------
+export const splitTargetProducers = {
+  pack: mkFullPack(
+    [
+      {
+        id: "r_cheap",
+        category: "material",
+        time: 1,
+        in: [{ item: "vein", qty: 1 }],
+        out: [{ item: "gold", qty: 1 }],
+      },
+      {
+        id: "r_dear",
+        category: "material",
+        time: 1,
+        in: [{ item: "rock", qty: 1 }],
+        out: [{ item: "gold", qty: 3 }],
+      },
+    ],
+    [
+      { id: "gold", raw: false },
+      { id: "vein", raw: false },
+      { id: "rock", raw: true },
+    ],
+  ),
+  targets: [{ itemId: "gold", ratePerSec: rate("5", "1") }],
+  itemOverrides: [
+    { itemId: "vein", ratePerSec: { num: "1", denom: "1" } } satisfies ItemOverride,
+  ],
+  recipeCosts: new Map<RecipeId, number>([["r_cheap", 0.2]]),
+};
+
+export const splitTargetProducersGolden = {
+  // r_cheap 1 * 0.2 + r_dear 4/3 * 1 = 23/15; the engine reports the pass-1
+  // objective rounded to 8 decimals, so the golden is the value read from
+  // solveLp output.
+  objectiveValue: 1.53333333,
+  activeRecipes: ["r_cheap", "r_dear"],
+  rateCheap: 1,
+  rateDearNum: 4,
+  rateDearDen: 3,
+  drawVein: 1,
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 17: co-product-only target item
+//
+// "co" is only ever produced as the SECOND output of r_co (out[1]); its
+// primary output "main" feeds r_use, whose own output "cout" is the second
+// target. Hand-derived: demand cout 1 -> r_use = 1 -> main demand 1 ->
+// r_co = 1 -> co production 1 covers the co demand exactly. The declared co
+// draw lands on r_co keyed to the CO-PRODUCT item, so r_use's main demand
+// must still see r_co's full main production as its split weight (a draw
+// keyed per recipe only would zero it and starve r_use).
+//   r_co = 1, r_use = 1, no surplus, no deficit.
+// ---------------------------------------------------------------------------
+export const coProductTarget = {
+  pack: mkFullPack(
+    [
+      {
+        id: "r_co",
+        category: "material",
+        time: 1,
+        in: [{ item: "rock", qty: 1 }],
+        out: [
+          { item: "main", qty: 1 },
+          { item: "co", qty: 1 },
+        ],
+      },
+      {
+        id: "r_use",
+        category: "material",
+        time: 1,
+        in: [{ item: "main", qty: 1 }],
+        out: [{ item: "cout", qty: 1 }],
+      },
+    ],
+    [
+      { id: "rock", raw: true },
+      { id: "main", raw: false },
+      { id: "co", raw: false },
+      { id: "cout", raw: false },
+    ],
+  ),
+  targets: [
+    { itemId: "co", ratePerSec: rate("1", "1") },
+    { itemId: "cout", ratePerSec: rate("1", "1") },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Scenario 18: one recipe producing two distinct target items
+//
+// r_dual emits both target items in one execution (a 1, b 2). Hand-derived:
+// demand a 1 forces r_dual = 1; that yields b 2 against demand 1, so b
+// carries a free-disposal surplus of 1. The single seed must not replicate
+// twice (targetSeeded skip across the two items) and the declared draws
+// accumulate per (recipe, item): (r_dual, a) = 1 and (r_dual, b) = 1.
+// ---------------------------------------------------------------------------
+export const dualTargetItemsOneRecipe = {
+  pack: mkFullPack(
+    [
+      {
+        id: "r_dual",
+        category: "material",
+        time: 1,
+        in: [{ item: "rock", qty: 1 }],
+        out: [
+          { item: "a", qty: 1 },
+          { item: "b", qty: 2 },
+        ],
+      },
+    ],
+    [
+      { id: "rock", raw: true },
+      { id: "a", raw: false },
+      { id: "b", raw: false },
+    ],
+  ),
+  targets: [
+    { itemId: "a", ratePerSec: rate("1", "1") },
+    { itemId: "b", ratePerSec: rate("1", "1") },
+  ],
 };

@@ -3,10 +3,13 @@ import { solvePlanWithIntermediates } from "./index";
 import { solveLp, type LpSolver } from "./lp";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 
-const headlineTargets: Target[] = [
-  { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+const headlineTargets: ItemTarget[] = [
+  {
+    itemId: "xiranite_enr_powder",
+    ratePerSec: { num: "6", denom: "60" },
+  },
 ];
 
 describe("solver port injection", () => {

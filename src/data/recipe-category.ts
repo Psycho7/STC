@@ -33,3 +33,20 @@ export function isSinkRecipe(recipe: Recipe): boolean {
 export function hasPositivePrimaryQty(recipe: Recipe): boolean {
   return recipe.out.length > 0 && recipe.out[0]!.qty > 0;
 }
+
+// The set of items that can be a plan target: any item produced with positive
+// qty in ANY output slot of at least one recipe that is neither `__internal`
+// (synthetic raw source) nor input-supply (`__domain_transfer`). Raw items with
+// a real miner and byproduct-only items both qualify; an item that only ever
+// comes out of an internal or input-supply recipe, or only ever at zero qty,
+// does not.
+export function producibleItemIds(recipes: readonly Recipe[]): Set<string> {
+  const ids = new Set<string>();
+  for (const r of recipes) {
+    if (r.category === "__internal" || isInputSupplyRecipe(r)) continue;
+    for (const o of r.out) {
+      if (o.qty > 0) ids.add(o.item);
+    }
+  }
+  return ids;
+}

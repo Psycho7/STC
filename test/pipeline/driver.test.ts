@@ -65,7 +65,7 @@ describe("pipeline driver: default AEF targets", () => {
     const targetRecipeId = "plant_grass_seed_1";
     const targetRatePerSec = { num: "2", denom: "1" }; // 120/min
     const targets = [
-      { recipeId: targetRecipeId, ratePerSec: targetRatePerSec },
+      { itemId: "plant_grass_seed_1", ratePerSec: targetRatePerSec },
     ];
     const full = solvePlanWithIntermediates(
       targets,
@@ -125,7 +125,7 @@ describe("pipeline driver: default AEF targets", () => {
     // 1 plant/sec delivered cross-boundary; symmetric Sandleaf gives
     // planter exec = 2/sec, picker exec = 1/sec.
     const targets = [
-      { recipeId: targetRecipeId, ratePerSec: { num: "1", denom: "1" } },
+      { itemId: targetItem, ratePerSec: { num: "1", denom: "1" } },
     ];
     const full = solvePlanWithIntermediates(
       targets,

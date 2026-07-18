@@ -1,6 +1,6 @@
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
-import type { Target } from "../../data/targets";
+import type { ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { InvariantResult } from "../../solver/invariants";
 import { effectiveSupply } from "../../solver/effectiveSupply";
@@ -33,19 +33,17 @@ export const REL_TOL = 1e-6;
 // and the extraction hygiene gate. Sub-unit plans shrink the floor to their
 // own magnitude; an absolute floor of 1 would exceed everything a tiny plan
 // produces and misfire predicates that require a magnitude above slack.
-function planScaleFloor(
-  pack: RecipePack,
-  targets: ReadonlyArray<Target>,
-): number {
-  return toleranceScaleFloor(demandByItem(pack, targets as Target[]));
+function planScaleFloor(targets: ReadonlyArray<ItemTarget>): number {
+  return toleranceScaleFloor(demandByItem(targets));
 }
 
-// Shared args object so all checkers have one signature and can be called from a list.
+// Shared args object so all checkers have one signature and can be called from
+// a list. Targets are item-keyed; every checker keys on itemId.
 export type RenderInvariantArgs = {
   plan: RenderPlan;
   rates: ReadonlyMap<RecipeId, Fraction>;
   pack: RecipePack;
-  targets: ReadonlyArray<Target>;
+  targets: ReadonlyArray<ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
 };
 
@@ -200,10 +198,12 @@ export function checkEdgeEndpointIntegrity(
  *   positive AND the plan draws X from outside, i.e. consumption(X) >
  *   production(X) - declaredTargetDemand(X) beyond tolerance. Production
  *   claimed by a declared target draw never feeds internal consumers, so it is
- *   subtracted before the comparison.
+ *   subtracted before the comparison. Or, for a free-supply target item, by
+ *   its export shortfall: the declared rate beyond what net production covers
+ *   arrives as a boundary passthrough into the target output.
  *
- * - outputProduct "target" for X: justified iff X is the primary output of a
- *   target recipe (X is a demandByItem key).
+ * - outputProduct "target" for X: justified iff X is a declared target item
+ *   (X is a demandByItem key).
  *
  * - outputProduct "surplus" for X: justified iff genuine overproduction beyond
  *   demand: production(X) - consumption(X) - demand(X) exceeds tolerance.
@@ -221,8 +221,8 @@ export function checkBoundaryProductsJustified(
 
   const production = internalProductionByItem(rates, pack);
   const consumption = internalConsumptionByItem(rates, pack);
-  const demandOf = demandByItem(pack, targets as Target[]);
-  const scaleFloor = planScaleFloor(pack, targets);
+  const demandOf = demandByItem(targets);
+  const scaleFloor = planScaleFloor(targets);
 
   for (const unit of plan.units) {
     if (isInputProductUnit(unit)) {
@@ -249,9 +249,24 @@ export function checkBoundaryProductsJustified(
       const availRaw = prod.sub(targetDemand);
       const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
       const net = cons.sub(availProd); // positive means net external draw
+      // A free-supply target item is additionally justified by its export
+      // shortfall: the declared rate beyond what net production covers arrives
+      // as a boundary passthrough into the target output.
+      const netProd = prod.sub(cons);
+      const exportShortfall =
+        supply === Infinity
+          ? targetDemand.sub(
+              netProd.compare(FRAC_ZERO) > 0 ? netProd : FRAC_ZERO,
+            )
+          : FRAC_ZERO;
       const magnitude = net.valueOf();
       const slack = Math.max(scaleFloor, Math.abs(magnitude)) * REL_TOL;
-      if (net.valueOf() <= slack) {
+      const shortSlack =
+        Math.max(scaleFloor, Math.abs(exportShortfall.valueOf())) * REL_TOL;
+      if (
+        net.valueOf() <= slack &&
+        exportShortfall.valueOf() <= shortSlack
+      ) {
         violations.push(
           `inputProduct for "${x}": item is not net-consumed from outside (consumption - production = ${magnitude})`,
         );
@@ -259,10 +274,10 @@ export function checkBoundaryProductsJustified(
     } else if (isOutputProductUnit(unit)) {
       const x = unit.itemId;
       if (unit.flavor === "target") {
-        // Justified iff X is a target recipe's primary output.
+        // Justified iff X is a declared target item.
         if (!demandOf.has(x)) {
           violations.push(
-            `outputProduct (target) for "${x}": item is not the primary output of any target recipe`,
+            `outputProduct (target) for "${x}": item is not a declared target item`,
           );
         }
       } else {
@@ -310,22 +325,17 @@ export function checkInternalFlowConservation(
 ): InvariantResult {
   const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
 
-  // Declared target rate per primary-output item, built like
+  // Declared target rate per target item, built like
   // checkTargetOutputsSatisfied: production delivered to a target output
   // product is unavailable for internal routing.
-  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
   const declaredByItem = new Map<ItemId, Fraction>();
   for (const t of targets) {
-    const recipe = recipeById.get(t.recipeId);
-    if (!recipe) continue;
-    const outItem = recipe.out[0]?.item;
-    if (outItem === undefined) continue;
     const rate = rationalFromString(t.ratePerSec);
     declaredByItem.set(
-      outItem,
-      (declaredByItem.get(outItem) ?? FRAC_ZERO).add(rate),
+      t.itemId,
+      (declaredByItem.get(t.itemId) ?? FRAC_ZERO).add(rate),
     );
   }
 
@@ -433,7 +443,7 @@ export function checkConsumerInputsSatisfied(
 ): InvariantResult {
   const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
 
   // Lookup from unit id to recipeId, recipe units only.
   const recipeIdByUnitId = new Map<RenderUnitId, RecipeId>();
@@ -508,7 +518,7 @@ export function checkConsumerInputsNotOverfed(
 ): InvariantResult {
   const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
 
   // Lookup from unit id to recipeId, recipe units only.
   const recipeIdByUnitId = new Map<RenderUnitId, RecipeId>();
@@ -563,13 +573,13 @@ export function checkConsumerInputsNotOverfed(
 }
 
 /**
- * For each target recipe, the declared rate of its primary output X must be
- * delivered by edges arriving at the target output-product unit (`u:out:<X>`).
+ * For each target item X, the declared rate must be delivered by edges
+ * arriving at the target output-product unit (`u:out:<X>`).
  * Catches an under-fed target output edge. checkBoundaryProductsJustified only
  * verifies such a unit exists, not that it is fed.
  *
- * `declared` for X is the sum of ratePerSec over targets sharing X, the same
- * way boundary-products builds targetRateByItem. `actual` is the sum of
+ * `declared` for X is the sum of ratePerSec over targets declaring X, the
+ * same way boundary-products builds targetRateByItem. `actual` is the sum of
  * edge.rate over edges whose toUnit is `u:out:<X>` and item is X.
  *
  * Shortfall-only: violation iff actual < declared - slack, slack =
@@ -578,21 +588,18 @@ export function checkConsumerInputsNotOverfed(
 export function checkTargetOutputsSatisfied(
   args: RenderInvariantArgs,
 ): InvariantResult {
-  const { plan, pack, targets } = args;
+  const { plan, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
 
-  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
-
-  // Declared target rate per primary-output item.
+  // Declared target rate per target item.
   const declaredByItem = new Map<ItemId, Fraction>();
   for (const t of targets) {
-    const recipe = recipeById.get(t.recipeId);
-    if (!recipe) continue;
-    const outItem = recipe.out[0]?.item;
-    if (outItem === undefined) continue;
     const rate = rationalFromString(t.ratePerSec);
-    declaredByItem.set(outItem, (declaredByItem.get(outItem) ?? FRAC_ZERO).add(rate));
+    declaredByItem.set(
+      t.itemId,
+      (declaredByItem.get(t.itemId) ?? FRAC_ZERO).add(rate),
+    );
   }
 
   // Actual inflow into each target output-product unit, keyed by item.
@@ -689,7 +696,7 @@ export function checkUnitOutflowVsProduction(
 ): InvariantResult {
   const { plan, rates, pack, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
 
   const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
@@ -824,9 +831,10 @@ export function checkUnitOutflowVsProduction(
  *       non-fanout input products (single-bucket nodes and aggregates) accept
  *       no inbound edges at all.
  *   (c) every edge leaving an inputProduct must carry the unit's own item and
- *       land on an inputProduct of the same item (aggregate -> fanout) or on
- *       a recipe/loop unit that consumes the item per its stoichiometry or
- *       netIO. Catches a spurious boundary edge into a non-consumer.
+ *       land on an inputProduct of the same item (aggregate -> fanout), on a
+ *       recipe/loop unit that consumes the item per its stoichiometry or
+ *       netIO, or on the same item's target outputProduct (the free-boundary
+ *       passthrough). Catches a spurious boundary edge into a non-consumer.
  *   (d) outputProduct "surplus" rate chip == sum of inbound edge rates.
  *   (e) outputProduct "target" rate chip == the declared target rate for the
  *       item (sum over targets sharing the primary output).
@@ -836,9 +844,8 @@ export function checkProductUnitRates(
 ): InvariantResult {
   const { plan, pack, targets } = args;
   const violations: string[] = [];
-  const scaleFloor = planScaleFloor(pack, targets);
+  const scaleFloor = planScaleFloor(targets);
   const units = unitById(plan);
-  const recipeById = new Map(nettedPack(pack).recipes.map((r) => [r.id, r]));
 
   const slackFor = (expected: number): number =>
     Math.max(scaleFloor, Math.abs(expected)) * REL_TOL;
@@ -863,17 +870,13 @@ export function checkProductUnitRates(
     }
   }
 
-  // Declared target rate per primary-output item, the targetRateByItem rule.
+  // Declared target rate per target item, the targetRateByItem rule.
   const declaredByItem = new Map<ItemId, Fraction>();
   for (const t of targets) {
-    const recipe = recipeById.get(t.recipeId);
-    if (!recipe) continue;
-    const outItem = recipe.out[0]?.item;
-    if (outItem === undefined) continue;
     const rate = rationalFromString(t.ratePerSec);
     declaredByItem.set(
-      outItem,
-      (declaredByItem.get(outItem) ?? FRAC_ZERO).add(rate),
+      t.itemId,
+      (declaredByItem.get(t.itemId) ?? FRAC_ZERO).add(rate),
     );
   }
 
@@ -951,6 +954,11 @@ export function checkProductUnitRates(
     if (!to) continue; // dangling endpoint is checkEdgeEndpointIntegrity's job
     const okTarget =
       (isInputProductUnit(to) && to.itemId === from.itemId) ||
+      // Free-boundary target passthrough: the import feeds the same item's
+      // target export directly.
+      (isOutputProductUnit(to) &&
+        to.itemId === from.itemId &&
+        to.flavor === "target") ||
       consumesItem(to, edge.item);
     if (!okTarget) {
       violations.push(

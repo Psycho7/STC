@@ -12,11 +12,33 @@ import { solveLp, type LpResult } from "./lp";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./index";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
+import type { RecipePack } from "@aef/schema";
 
-const headlineTargets: Target[] = [
-  { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+// game v1.4's gas-system machines let the LP route xiranite_enr_powder through
+// a gas chain, so the recipe keyed "xiranite_enr_powder" no longer runs on the
+// full pack. The detection-power tests corrupt that recipe's rate; solving them
+// against a pack without the gas-machine recipes keeps the original headline
+// plan (every upstream recipe is unchanged) so the corruption has a rate to hit.
+const GAS_MACHINES = new Set([
+  "gas_pump_1",
+  "gas_reactor_1",
+  "phase_trans_1",
+  "phase_trans_2",
+]);
+const legacyPack: RecipePack = {
+  ...pack,
+  recipes: pack.recipes.filter(
+    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
+  ),
+};
+
+const headlineTargets: ItemTarget[] = [
+  {
+    itemId: "xiranite_enr_powder",
+    ratePerSec: { num: "6", denom: "60" },
+  },
 ];
 const noOverrides: ItemOverride[] = [];
 
@@ -44,7 +66,6 @@ describe("invariants - headline plan (all checkers pass)", () => {
     const r = checkTargetsMet(
       solveLp({ targets: headlineTargets, pack }),
       headlineTargets,
-      pack,
     );
     expect(r.ok, r.violations.join("\n")).toBe(true);
     expect(r.violations).toEqual([]);
@@ -84,14 +105,20 @@ describe("checkMassBalance - detection power", () => {
   // balances. Mutating surplus would also trip checkRawOnlyBoundary; mutating
   // a rate isolates the residual to this checker.
   it("flags an injected rate imbalance on a recipe", () => {
-    const good = solveLp({ targets: headlineTargets, pack });
+    // legacyPack: the corrupted recipe key only runs on the pre-gas route.
+    const good = solveLp({ targets: headlineTargets, pack: legacyPack });
     const target = "xiranite_enr_powder";
     const cur = good.rates.get(target)!;
     const corrupted: LpResult = {
       ...good,
       rates: new Map(good.rates).set(target, cur.mul(new Fraction(2))),
     };
-    const r = checkMassBalance(corrupted, pack, headlineTargets, noOverrides);
+    const r = checkMassBalance(
+      corrupted,
+      legacyPack,
+      headlineTargets,
+      noOverrides,
+    );
     expect(r.ok).toBe(false);
     expect(r.violations.length).toBeGreaterThan(0);
   });
@@ -120,8 +147,8 @@ describe("checkMassBalance - detection power", () => {
     // Mark `prod` as an uncapped boundary; the LP draws it freely with no
     // mass-balance row, so net consumption without a deficit is fine.
     const overrides: ItemOverride[] = [{ itemId: "prod", plan: true }];
-    const targets: Target[] = [
-      { recipeId: "sink", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "final", ratePerSec: { num: "1", denom: "1" } },
     ];
     const result = solveLp({ targets, pack: p, itemOverrides: overrides });
     const r = checkMassBalance(result, p, targets, overrides);
@@ -135,8 +162,11 @@ describe("checkMassBalance - bounded supply draw", () => {
   // nugget consumption with a bounded boundary draw. The checker must mirror
   // the draw term of the mass-balance row; the old supply-blind residual was
   // exactly -cap on every correct finite-cap solve.
-  const capTargets: Target[] = [
-    { recipeId: "copper_powder", ratePerSec: { num: "1", denom: "60" } },
+  const capTargets: ItemTarget[] = [
+    {
+      itemId: "copper_powder",
+      ratePerSec: { num: "1", denom: "60" },
+    },
   ];
   const capOverrides: ItemOverride[] = [
     { itemId: "copper_nugget", ratePerSec: { num: "10", denom: "1" } },
@@ -185,8 +215,46 @@ describe("checkMassBalance - bounded supply draw", () => {
 });
 
 describe("checkTargetsMet - detection power", () => {
-  it("flags a target running below its floor rate", () => {
+  // The demand-side rate corruptions the old floor check caught (a halved or
+  // stripped producer rate) now surface through checkMassBalance: the demand
+  // equality no longer closes. checkTargetsMet's remaining job is the
+  // self-report seam: a result claiming softFeasible while a target item
+  // carries a material deficit is lying about the demand being met.
+  it("flags a claimed-feasible result with a deficit on a target item", () => {
     const good = solveLp({ targets: headlineTargets, pack });
+    expect(good.softFeasible).toBe(true);
+    const corrupted: LpResult = {
+      ...good,
+      deficit: new Map(good.deficit).set(
+        "xiranite_enr_powder",
+        new Fraction(1, 100),
+      ),
+    };
+    const r = checkTargetsMet(corrupted, headlineTargets);
+    expect(r.ok).toBe(false);
+    expect(r.violations.some((v) => v.includes("xiranite_enr_powder"))).toBe(
+      true,
+    );
+  });
+
+  it("skips an honest soft-infeasible result", () => {
+    const good = solveLp({ targets: headlineTargets, pack });
+    const corrupted: LpResult = {
+      ...good,
+      softFeasible: false,
+      deficit: new Map(good.deficit).set(
+        "xiranite_enr_powder",
+        new Fraction(1, 100),
+      ),
+    };
+    const r = checkTargetsMet(corrupted, headlineTargets);
+    expect(r.ok).toBe(true);
+    expect(r.violations).toEqual([]);
+  });
+
+  it("halving a target producer's rate is caught by checkMassBalance", () => {
+    // legacyPack: the halved recipe key only runs on the pre-gas route.
+    const good = solveLp({ targets: headlineTargets, pack: legacyPack });
     const cur = good.rates.get("xiranite_enr_powder")!;
     const corrupted: LpResult = {
       ...good,
@@ -195,20 +263,16 @@ describe("checkTargetsMet - detection power", () => {
         cur.div(new Fraction(2)),
       ),
     };
-    const r = checkTargetsMet(corrupted, headlineTargets, pack);
+    const r = checkMassBalance(
+      corrupted,
+      legacyPack,
+      headlineTargets,
+      noOverrides,
+    );
     expect(r.ok).toBe(false);
     expect(r.violations.some((v) => v.includes("xiranite_enr_powder"))).toBe(
       true,
     );
-  });
-
-  it("flags a target absent from rates entirely", () => {
-    const good = solveLp({ targets: headlineTargets, pack });
-    const stripped = new Map(good.rates);
-    stripped.delete("xiranite_enr_powder");
-    const corrupted: LpResult = { ...good, rates: stripped };
-    const r = checkTargetsMet(corrupted, headlineTargets, pack);
-    expect(r.ok).toBe(false);
   });
 });
 

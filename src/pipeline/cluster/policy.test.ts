@@ -8,7 +8,7 @@ import { pack } from "../../data/load";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
 import { renderPlanFromSolve } from "../../pipeline/driver";
-import type { Target } from "../../data/targets";
+import type { ItemTarget } from "../../data/targets";
 
 // PillarsOnly ignores the logical graph entirely; an empty one keeps the
 // synthetic cases honest about what the policy actually reads.
@@ -90,8 +90,12 @@ describe("PillarsOnly surviving-member filter", () => {
 // boxed; a genuinely multi-survivor SCC keeps its box.
 describe("loop boxes against the shipped pack", () => {
   function loopBoxes(recipeId: string) {
-    const targets: Target[] = [
-      { recipeId, ratePerSec: { num: "1", denom: "1" } },
+    const recipe = pack.recipes.find((r) => r.id === recipeId)!;
+    const targets: ItemTarget[] = [
+      {
+        itemId: recipe.out[0]!.item,
+        ratePerSec: { num: "1", denom: "1" },
+      },
     ];
     const full = solvePlanWithIntermediates(
       targets,

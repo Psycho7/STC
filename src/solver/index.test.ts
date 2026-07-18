@@ -1,11 +1,35 @@
 import { describe, expect, it, vi } from "vitest";
 import Fraction from "fraction.js";
 import { LpInfeasibleError, solvePlan, solvePlanWithIntermediates } from "./index";
+import {
+  splitTargetProducers,
+  coProductTarget,
+  dualTargetItemsOneRecipe,
+} from "./corpus";
+import { renderPlanFromSolve } from "../pipeline/driver";
+import { checkRenderPlan } from "../pipeline/render/invariants";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { RecipePack } from "@aef/schema";
 import type { LpResult } from "./lp";
+
+// game v1.4's gas-system machines let the LP route xiranite_enr_powder through
+// a gas chain, displacing the water-fed main+purifier producers. The
+// two-producer coexistence witness below solves against a pack without the
+// gas-machine recipes to keep that plan (upstream recipes are unchanged).
+const GAS_MACHINES = new Set([
+  "gas_pump_1",
+  "gas_reactor_1",
+  "phase_trans_1",
+  "phase_trans_2",
+]);
+const legacyPack: RecipePack = {
+  ...pack,
+  recipes: pack.recipes.filter(
+    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
+  ),
+};
 
 // Force a specific LpResult.status for the infeasible/unbounded throw-arm tests.
 // The LP model puts deficit+surplus slack on every finite-supply item, so the
@@ -33,12 +57,16 @@ vi.mock("./lp", async () => {
 
 describe("solvePlanWithIntermediates (LP)", () => {
   it("includes both purifier producers in the rate map", () => {
-    const targets: Target[] = [
-      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+    const targets: ItemTarget[] = [
+      {
+        itemId: "xiranite_enr_powder",
+        ratePerSec: { num: "6", denom: "60" },
+      },
     ];
+    // legacyPack: on the full v1.4 pack the gas route displaces both producers.
     const full = solvePlanWithIntermediates(
       targets,
-      pack,
+      legacyPack,
       defaultTransportConfig,
     );
     expect(full.rates.get("liquid_xiranite_poly")).toBeDefined();
@@ -49,9 +77,9 @@ describe("solvePlanWithIntermediates (LP)", () => {
 
 describe("solver status handling", () => {
   // (b) Empty-but-feasible: a non-empty targets input whose optimum runs zero
-  // recipes. The "zero_out" recipe has a primary output qty of 0, so solveLp
-  // skips the target pin, demand for "prod" becomes pure deficit, and no
-  // x_recipe runs positive, giving status "empty" with empty rates.
+  // recipes. The only producer of "prod" (zero_out) emits it at qty 0, so the
+  // demand for "prod" becomes pure deficit and no x_recipe runs positive,
+  // giving status "empty" with empty rates.
   // Must not throw: an empty-but-feasible optimum is a legitimate result.
   const emptyFeasiblePack = {
     recipes: [
@@ -69,8 +97,8 @@ describe("solver status handling", () => {
       { id: "prod", raw: false },
     ],
   } as unknown as RecipePack;
-  const emptyFeasibleTargets: Target[] = [
-    { recipeId: "zero_out", ratePerSec: { num: "1", denom: "1" } },
+  const emptyFeasibleTargets: ItemTarget[] = [
+    { itemId: "prod", ratePerSec: { num: "1", denom: "1" } },
   ];
 
   it("does not throw on an empty-but-feasible optimum (solvePlanWithIntermediates)", () => {
@@ -96,8 +124,11 @@ describe("solver status handling", () => {
   // with real packs (universal slack, see the override note above), so the flag
   // forces solveLp's status. Both entry points must surface it as a throw whose
   // message matches /infeasible/.
-  const targets: Target[] = [
-    { recipeId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
+  const targets: ItemTarget[] = [
+    {
+      itemId: "xiranite_enr_powder",
+      ratePerSec: { num: "6", denom: "60" },
+    },
   ];
 
   it("throws on infeasible status (both entry points)", () => {
@@ -233,8 +264,8 @@ describe("multi-producer input of a split SCC member (assemble re-route)", () =>
       { id: "raw2", raw: true },
     ],
   );
-  const sccTargets: Target[] = [
-    { recipeId: "tgt", ratePerSec: { num: "1", denom: "1" } },
+  const sccTargets: ItemTarget[] = [
+    { itemId: "final", ratePerSec: { num: "1", denom: "1" } },
   ];
   const sccOverrides = [
     { itemId: "scarce", ratePerSec: { num: "0", denom: "1" } },
@@ -290,8 +321,11 @@ describe("torn feedback covers every intra-SCC logical cycle", () => {
   // liquid_xiranite_poly -> liquid_xiranite_poly-purifier -> xiranite_poly)
   // in the assembled graph as plain (non-return) edges.
   it("proc_battery_5: non-return intra-SCC logical edges are acyclic", () => {
-    const targets: Target[] = [
-      { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      {
+        itemId: "proc_battery_5",
+        ratePerSec: { num: "1", denom: "1" },
+      },
     ];
     const full = solvePlanWithIntermediates(
       targets,
@@ -367,13 +401,22 @@ describe("replica coverage of the LP solution", () => {
   // ceiling for ANY planScale >= 1, so removal does not depend on the
   // shared-primary coincidence raising planScale to 2.
   it("triple-target xiranite plan: replica rate sums equal every LP rate", () => {
-    const targets: Target[] = [
+    // The duplicate liquid_xiranite_poly targets are deliberate: the solver
+    // aggregates per-item demand below the validatePlan duplicate gate, and the
+    // pair preserves the old two-recipes-same-primary shape of this fixture.
+    const targets: ItemTarget[] = [
       {
-        recipeId: "liquid_xiranite_poly-purifier",
+        itemId: "liquid_xiranite_poly",
         ratePerSec: { num: "1", denom: "1" },
       },
-      { recipeId: "liquid_xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
+      {
+        itemId: "liquid_xiranite_poly",
+        ratePerSec: { num: "1", denom: "1" },
+      },
+      {
+        itemId: "equip_script_4",
+        ratePerSec: { num: "1", denom: "1" },
+      },
     ];
     const full = solvePlanWithIntermediates(
       targets,
@@ -407,6 +450,230 @@ describe("replica coverage of the LP solution", () => {
           `replicas exist for ${recipeId} with no LP rate`,
         ).toBe(true);
       }
+    }
+  });
+});
+
+describe("LP-split target item through replicate and render", () => {
+  // Scenario 16: the "gold" demand of 5/s is split across r_cheap (capped by
+  // its vein input, out qty 1) and r_dear (out qty 3). Hand-derived:
+  // r_cheap = 1 exec/s (vein cap, flow 1), r_dear = 4/3 exec/s (flow 4), and
+  // the declared draw is apportioned 1 : 4 by production share, so the target
+  // output unit receives exactly 1/s from r_cheap and 4/s from r_dear.
+  it("replicates both producers and feeds the target output the declared rate", () => {
+    const { pack: p, targets, itemOverrides, recipeCosts } =
+      splitTargetProducers;
+    const full = solvePlanWithIntermediates(
+      targets,
+      p,
+      defaultTransportConfig,
+      itemOverrides,
+      recipeCosts,
+    );
+
+    // (a) Both producers replicate at their full LP rates.
+    const zero = new Fraction(0);
+    const sumOf = (rid: string) =>
+      full.replicas
+        .filter((r) => r.recipeId === rid)
+        .reduce((acc, r) => acc.add(r.executionRate), zero);
+    expect(full.rates.get("r_cheap")!.equals(1)).toBe(true);
+    expect(full.rates.get("r_dear")!.equals(new Fraction(4, 3))).toBe(true);
+    expect(sumOf("r_cheap").equals(1)).toBe(true);
+    expect(sumOf("r_dear").equals(new Fraction(4, 3))).toBe(true);
+
+    // (c) The render pipeline completes under the DEV invariant hooks and
+    // every render checker reports zero violations.
+    const { plan } = renderPlanFromSolve(full, p, targets, itemOverrides);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack: p,
+      targets,
+      itemOverrides,
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+
+    // (b)+(d) The synthetic target-output unit receives exactly the declared
+    // 5/s, apportioned 1/s from r_cheap and 4/s from r_dear.
+    const unitRecipe = new Map(
+      plan.units
+        .filter((u) => u.kind === "recipe")
+        .map((u) => [u.id, (u as { recipeId: string }).recipeId]),
+    );
+    const targetEdges = plan.edges.filter(
+      (e) => e.toUnit === "u:out:gold" && e.item === "gold",
+    );
+    const total = targetEdges.reduce((acc, e) => acc.add(e.rate), zero);
+    expect(total.equals(5)).toBe(true);
+    const byProducer = new Map<string, Fraction>();
+    for (const e of targetEdges) {
+      const rid = unitRecipe.get(e.fromUnit) ?? e.fromUnit;
+      byProducer.set(rid, (byProducer.get(rid) ?? zero).add(e.rate));
+    }
+    expect(byProducer.get("r_cheap")?.equals(1)).toBe(true);
+    expect(byProducer.get("r_dear")?.equals(4)).toBe(true);
+  });
+});
+
+describe("co-product target items through replicate and render", () => {
+  // Scenario 17: "co" is r_co's SECOND output; the declared draw must be keyed
+  // to the co-product item so r_use's main demand still sees r_co's full main
+  // production as its split weight.
+  it("feeds the primary-output consumer despite a co-product draw on its producer", () => {
+    const { pack: p, targets } = coProductTarget;
+    const full = solvePlanWithIntermediates(targets, p, defaultTransportConfig);
+
+    const zero = new Fraction(0);
+    const sumOf = (rid: string) =>
+      full.replicas
+        .filter((r) => r.recipeId === rid)
+        .reduce((acc, r) => acc.add(r.executionRate), zero);
+    expect(full.rates.get("r_co")!.equals(1)).toBe(true);
+    expect(full.rates.get("r_use")!.equals(1)).toBe(true);
+    expect(sumOf("r_co").equals(1)).toBe(true);
+    expect(sumOf("r_use").equals(1)).toBe(true);
+
+    const { plan } = renderPlanFromSolve(full, p, targets, []);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack: p,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+
+    // Both target output units are fed at exactly their declared rates.
+    const inflowOf = (item: string) =>
+      plan.edges
+        .filter((e) => e.toUnit === `u:out:${item}` && e.item === item)
+        .reduce((acc, e) => acc.add(e.rate), zero);
+    expect(inflowOf("co").equals(1)).toBe(true);
+    expect(inflowOf("cout").equals(1)).toBe(true);
+    // The consumer is fed its full main demand.
+    const useUnit = plan.units.find(
+      (u) => u.kind === "recipe" && u.recipeId === "r_use",
+    )!;
+    const mainInflow = plan.edges
+      .filter((e) => e.toUnit === useUnit.id && e.item === "main")
+      .reduce((acc, e) => acc.add(e.rate), zero);
+    expect(mainInflow.equals(1)).toBe(true);
+  });
+
+  // Scenario 18: one recipe produces TWO target items; the seed must emit
+  // once and the per-item draws must both be honored.
+  it("seeds a two-target-item recipe once and feeds both target outputs", () => {
+    const { pack: p, targets } = dualTargetItemsOneRecipe;
+    const full = solvePlanWithIntermediates(targets, p, defaultTransportConfig);
+
+    expect(full.rates.get("r_dual")!.equals(1)).toBe(true);
+    const dualReplicas = full.replicas.filter((r) => r.recipeId === "r_dual");
+    expect(dualReplicas).toHaveLength(1);
+    expect(dualReplicas[0]!.executionRate.equals(1)).toBe(true);
+
+    const { plan } = renderPlanFromSolve(full, p, targets, []);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack: p,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+
+    const zero = new Fraction(0);
+    const inflowOf = (unitId: string, item: string) =>
+      plan.edges
+        .filter((e) => e.toUnit === unitId && e.item === item)
+        .reduce((acc, e) => acc.add(e.rate), zero);
+    expect(inflowOf("u:out:a", "a").equals(1)).toBe(true);
+    expect(inflowOf("u:out:b", "b").equals(1)).toBe(true);
+    // The extra unit of b is free-disposal surplus.
+    const surplusUnit = plan.units.find(
+      (u) => u.kind === "outputProduct" && u.itemId === "b" && u.flavor === "surplus",
+    );
+    expect(surplusUnit).toBeDefined();
+    expect(inflowOf(surplusUnit!.id, "b").equals(1)).toBe(true);
+  });
+
+  // Shipped pack: liquid_sewage is a co-product-only item (never a primary
+  // output of a non-excluded recipe). Targeting it must solve and render with
+  // every checker green.
+  it("shipped pack: liquid_sewage as a target renders clean", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "liquid_sewage", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+    );
+    expect(full.feasibility.softFeasible).toBe(true);
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+    const zero = new Fraction(0);
+    const inflow = plan.edges
+      .filter((e) => e.toUnit === "u:out:liquid_sewage" && e.item === "liquid_sewage")
+      .reduce((acc, e) => acc.add(e.rate), zero);
+    expect(inflow.equals(1)).toBe(true);
+  });
+});
+
+describe("free-boundary target items through render", () => {
+  // iron_ore is raw:true on the shipped pack: the LP builds no row, nothing
+  // runs (status "empty"), and the declared rate is met by a reported
+  // boundary draw. The render must feed the target output unit from a
+  // boundary import (import -> export passthrough) with every checker green.
+  it("shipped pack: iron_ore at 1/s renders as an import -> export passthrough", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "iron_ore", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+    );
+    expect(full.feasibility.softFeasible).toBe(true);
+    expect(full.rates.size).toBe(0);
+
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    expect(violations).toEqual([]);
+
+    const zero = new Fraction(0);
+    // The target output unit exists and receives exactly the declared rate.
+    const outUnit = plan.units.find(
+      (u) => u.kind === "outputProduct" && u.itemId === "iron_ore",
+    );
+    expect(outUnit).toBeDefined();
+    const inflow = plan.edges
+      .filter((e) => e.toUnit === "u:out:iron_ore" && e.item === "iron_ore")
+      .reduce((acc, e) => acc.add(e.rate), zero);
+    expect(inflow.equals(1)).toBe(true);
+    // The feed comes from a boundary input product of the same item.
+    const inUnitIds = new Set(
+      plan.units
+        .filter((u) => u.kind === "inputProduct" && u.itemId === "iron_ore")
+        .map((u) => u.id),
+    );
+    expect(inUnitIds.size).toBeGreaterThan(0);
+    for (const e of plan.edges) {
+      if (e.toUnit !== "u:out:iron_ore") continue;
+      expect(inUnitIds.has(e.fromUnit)).toBe(true);
     }
   });
 });

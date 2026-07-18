@@ -53,7 +53,7 @@ describe("computeEdgeSpans", () => {
 // through the same loadPlan -> planToSolverArgs -> solve -> render -> layout chain
 // the app runs at mount time.
 const REPRO_FRAGMENT =
-  "v1.H4sIAAAAAAAAChXNQQ6CMBAF0Lv8dVUsoLQ3cGfikhBSZqamEaGWsiLc3bB7u7chOvrAtpCJfZCRT-RGunhHeU5hHt0AheKsoVB5qm7aVI0X42-15kEXum5MXTI3TIUZSvZk7ugUcsijwAIK2aW35AW23ZCEQpQHw0J-a4j9QinE3Ff9ESSX5SnpJQS7YVq_sLhCgWWaD-sC-97tfxzbj6i0AAAA";
+  "v1.H4sIAAAAAAAAAxXMyw6CMBAF0H-566pYHtL-gTsTl4SQMjM1jbwsZUX4d8PurM6OxdEXtoFM7IMMfCE30M07SnMM8-B6KGRXDYXCU1FpU9RejK9Kzb3OdFmbMmeumTLT5-zJPNAqpJAGgQUUkosfSStssyMkGZ8MC_ltYelWimFJXdGdfXRJXhLfQrA7pm2ExR0KLNN8Wmc4jvb4A_HsvUGyAAAA";
 
 describe("edge-span census: repro plan", () => {
   it("every long non-bus edge has a provably clear direct corridor", async () => {
@@ -61,9 +61,7 @@ describe("edge-span census: repro plan", () => {
     if (outcome.kind === "error") {
       throw new Error(`repro fragment failed to load: ${JSON.stringify(outcome.error)}`);
     }
-    const { targets, itemOverrides, recipeCosts } = planToSolverArgs(
-      outcome.plan,
-    );
+    const { targets, itemOverrides, recipeCosts } = planToSolverArgs(outcome.plan);
     const tConfig = loadTransportConfig(defaultTransportConfig, pack);
     const full = solvePlanWithIntermediates(
       targets,

@@ -1,7 +1,7 @@
 {
   "name": "iron_powder at 2/sec - 6 ore miners feeding 4 smelters (unequal multipliers)",
   "targets": [
-    { "recipeId": "iron_powder", "ratePerSec": { "num": "2", "denom": "1" } }
+    { "itemId": "iron_powder", "ratePerSec": { "num": "2", "denom": "1" } }
   ],
   "expectations": {
     "minUnits": 4,

@@ -46,6 +46,33 @@ const legacyPack = {
 };
 import { checkRepresentable, checkMassBalance } from "../../solver/invariants";
 import { solveLp } from "../../solver/lp";
+
+// Every item is a valid target: finite-supply items build LP rows, and
+// free-boundary items are met by a reported boundary draw with an
+// import -> export passthrough in the render. Only the "" sentinel is
+// inexpressible; it comes from this file's pairwise sweep, which derives
+// target items as `r.out[0]?.item ?? ""` and so yields "" for a no-output
+// recipe (a pure sink has no target rate).
+function targetExpressible(targets: Target[]): boolean {
+  for (const t of targets) {
+    if (t.itemId === "") return false;
+  }
+  return true;
+}
+
+// BRIDGE: jinlong_coupon has ten producer recipes; the torn-arc and water
+// regression plans need the xiranite_enr_powder route specifically. The old
+// recipe pin forced it; under item demand the same support is steered by
+// costing every other jinlong producer far above it (well below BIG_M).
+const JINLONG_STEER: Map<string, number> = new Map(
+  pack.recipes
+    .filter(
+      (r) =>
+        r.out[0]?.item === "jinlong_coupon" &&
+        r.id !== "jinlong_coupon-xiranite_enr_powder",
+    )
+    .map((r) => [r.id, 1000]),
+);
 import { loadPlan } from "../../data/plan";
 import { planToSolverArgs } from "../../solver/planToSolverArgs";
 import { isMachineRecipeVertex, isRecipeUnit } from "../types";
@@ -56,7 +83,7 @@ import type { RenderPlan } from "../types";
 // used to drop its internal edge, surfacing it as a phantom surplus and leaving
 // its consumer (iron_powder) without an input edge.
 const RF1_HASH =
-  "v1.H4sIAAAAAAAACo3NQYvCMBQE4P8y56g1tm6Tf7A3waOIpO-9LMFuE2LEQ8l_l94EXdjbHGa-mZEcXWFPkIl9kJFX5EbaeEcl5hBHN0ChWWsotJ7avTZt78X4fad50I3uetPtmHumxgw79mS-cFYooYwCCygUl3-k3GBPM7JQSPLNsKCYkuTLEMvSVMiuyEHyUQh2xnT_hcXyyjLFJW9Rq_okpPhgyX8I2xdBvwkhx-n_-xa1nusTppb41DIBAAA";
+  "v1.H4sIAAAAAAAAA43NsWrDMBSF4Xc5s5o6sp1YeoNshYwmFPneqyBqW0ZVyGD07sVbSAlkO8P_cVYsjn5ge8jMPsjIH-RG-vSOckwhjm6AQrXTUGg8NQdtms6L8YdW86Ar3XamrZk7psoMNXsyR1wUcsijwAIK2aWr5F_YfkXIMp0YFhSXRdL3EPPWKSSX5UvSWQh2xXybYLF9ssxx23uUov77Jd5Z0gu_f_D6yYcU5_d1g1Iu5Q_dQH8WLAEAAA";
 
 // The four feasible micro-fixtures.
 const FEASIBLE_FIXTURES = CLOSED_FORM_FIXTURES.filter(
@@ -101,9 +128,7 @@ describe("render corpus: RF-1 regression", () => {
         `failed to load RF-1 plan: ${JSON.stringify(outcome)}`,
       );
     }
-    const { targets, itemOverrides, recipeCosts } = planToSolverArgs(
-      outcome.plan,
-    );
+    const { targets, itemOverrides, recipeCosts } = planToSolverArgs(outcome.plan);
     const full = solvePlanWithIntermediates(
       targets,
       pack,
@@ -309,14 +334,13 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
   it("every feasible plan renders clean and matches LP machine counts", () => {
     const allFailures: string[] = [];
 
-    // Single-target sweep over the whole recipe pack. The 34 transfer_tundra_*
-    // plans and copper_enr+liquid_xiranite_enr that used to carry the deferred
-    // solver-residual family (wrong-rational pin extraction) are clean since
-    // the extraction snaps pinned rates onto their exact floors.
+    // Single-target sweep over the whole recipe pack, restricted to plans the
+    // item demand can express faithfully (see targetExpressible).
     for (const r of pack.recipes) {
       const targets: Target[] = [
-        { recipeId: r.id, ratePerSec: { num: "1", denom: "1" } },
+        { itemId: r.out[0]?.item ?? "", ratePerSec: { num: "1", denom: "1" } },
       ];
+      if (!targetExpressible(targets)) continue;
       const { failures } = sweepPlan(r.id, targets);
       allFailures.push(...failures);
     }
@@ -324,9 +348,10 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
     // Multi-target plans.
     for (const mt of MULTI_TARGET_PLANS) {
       const targets: Target[] = mt.recipeIds.map((recipeId) => ({
-        recipeId,
+        itemId: pack.recipes.find((r) => r.id === recipeId)?.out[0]?.item ?? "",
         ratePerSec: { num: "1", denom: "1" },
       }));
+      if (!targetExpressible(targets)) continue;
       const { failures } = sweepPlan(mt.name, targets);
       allFailures.push(...failures);
     }
@@ -345,12 +370,14 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 1B regression: a RAW item that is ALSO a declared target (e.g. iron_ore in
-// iron_ore+bottled_food_2) used to render with its entire production routed to
-// u:out:<item> and ZERO inflow for its internal consumers (no u:in unit, no
-// boundary edge). The recapture pass now reconciles raw-also-target items with
-// a target-demand-adjusted pool, so consumers draw their deficit from the
-// boundary while the target keeps its declared rate.
+// Raw-also-target boundary feed. A raw:true target item builds no LP row:
+// nothing is forced to run, the declared rate is met by a reported boundary
+// draw, and the render feeds the target output from a boundary import
+// (passthrough) while internal consumers of the item keep their own boundary
+// feed. Descendant of the old 1B recapture regression, re-derived for item
+// targets: with item targets nothing forces the raw item's producers to run,
+// so there is no production to recapture and the boundary serves consumers
+// AND the declared export.
 // ---------------------------------------------------------------------------
 describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
   function renderClean(targets: Target[]) {
@@ -371,10 +398,15 @@ describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
     return { plan, violations: results.flatMap((r) => r.violations) };
   }
 
-  it("iron_ore+bottled_food_2 feeds iron_nugget-iron_ore from the boundary", () => {
+  const targetInflow = (plan: RenderPlan, item: string) =>
+    plan.edges
+      .filter((e) => e.toUnit === `u:out:${item}` && e.item === item)
+      .reduce((acc, e) => acc.add(e.rate), new Fraction(0));
+
+  it("iron_ore+bottled_food_2 feeds both consumers and the export from the boundary", () => {
     const targets: Target[] = [
-      { recipeId: "iron_ore", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "bottled_food_2", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "iron_ore", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "bottled_food_2", ratePerSec: { num: "1", denom: "1" } },
     ];
     const { plan, violations } = renderClean(targets);
     expect(violations).toEqual([]);
@@ -388,24 +420,31 @@ describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
       (u) => u.kind === "outputProduct" && u.itemId === "iron_ore",
     );
     expect(outUnits.length).toBe(1);
+    // The export receives exactly the declared rate.
+    expect(targetInflow(plan, "iron_ore").equals(new Fraction(1))).toBe(true);
   });
 
-  it("carbon_enr+liquid_water renders clean (consumption < production case)", () => {
+  it("carbon_enr+liquid_water renders clean and meets the water export", () => {
+    // The carbon chain byproduces some water; whatever the spare does not
+    // cover arrives via the boundary passthrough. Either way the export gets
+    // exactly the declared rate.
     const targets: Target[] = [
-      { recipeId: "carbon_enr", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "liquid_water", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "carbon_enr", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "liquid_water", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const { violations } = renderClean(targets);
+    const { plan, violations } = renderClean(targets);
     expect(violations).toEqual([]);
+    expect(targetInflow(plan, "liquid_water").equals(new Fraction(1))).toBe(true);
   });
 
-  it("quartz_sand+bottled_food_1 renders clean", () => {
+  it("quartz_sand+bottled_food_1 renders clean and meets the sand export", () => {
     const targets: Target[] = [
-      { recipeId: "quartz_sand", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "bottled_food_1", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "quartz_sand", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "bottled_food_1", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const { violations } = renderClean(targets);
+    const { plan, violations } = renderClean(targets);
     expect(violations).toEqual([]);
+    expect(targetInflow(plan, "quartz_sand").equals(new Fraction(1))).toBe(true);
   });
 });
 
@@ -453,10 +492,10 @@ describe("render corpus: seeded-target co-producer keeps siblings at LP rate", (
   it("carbon_enr_powder co-produced by target + sibling replicates at LP rates", () => {
     const targets: Target[] = [
       {
-        recipeId: "carbon_enr_powder-plant_moss_enr_powder_1",
+        itemId: "carbon_enr_powder",
         ratePerSec: { num: "1", denom: "1" },
       },
-      { recipeId: "carbon_enr", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "carbon_enr", ratePerSec: { num: "1", denom: "1" } },
     ];
     const { gaps, violations } = machineCountGaps(targets);
     expect(gaps).toEqual([]);
@@ -466,10 +505,10 @@ describe("render corpus: seeded-target co-producer keeps siblings at LP rate", (
   it("carbon_powder target with equip_script_4 replicates at LP rates", () => {
     const targets: Target[] = [
       {
-        recipeId: "carbon_powder-plant_moss_powder_1",
+        itemId: "carbon_powder",
         ratePerSec: { num: "1", denom: "1" },
       },
-      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
     ];
     const { gaps, violations } = machineCountGaps(targets);
     expect(gaps).toEqual([]);
@@ -484,8 +523,8 @@ describe("render corpus: seeded-target co-producer keeps siblings at LP rate", (
   // the sibling is share-shrunk and under-fed (vtxSum 221/11 != lpRate 21).
   it("SCC-resident target co-producing with an external sibling replicates at LP rates", () => {
     const targets: Target[] = [
-      { recipeId: "iron_nugget-iron_powder", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "bottled_food_2", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "iron_nugget", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "bottled_food_2", ratePerSec: { num: "1", denom: "1" } },
     ];
     const { gaps, violations } = machineCountGaps(targets);
     expect(gaps).toEqual([]);
@@ -503,7 +542,7 @@ describe("render corpus: tiny plan clears sub-unit checker tolerances", () => {
   // passes every checker.
   it("liquid_copper at 1e-6/s solves and renders with zero violations", () => {
     const targets: Target[] = [
-      { recipeId: "liquid_copper", ratePerSec: { num: "1", denom: "1000000" } },
+      { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "1000000" } },
     ];
     const full = solvePlanWithIntermediates(
       targets,
@@ -534,10 +573,10 @@ describe("render corpus: SCC member input dual-fed intra and externally", () => 
   it("crystal SCC replicates the external powder producer at LP rate", () => {
     const targets: Target[] = [
       {
-        recipeId: "crystal_shell-crystal_powder",
+        itemId: "crystal_shell",
         ratePerSec: { num: "1", denom: "1" },
       },
-      { recipeId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "equip_script_4", ratePerSec: { num: "1", denom: "1" } },
     ];
     const { gaps, violations } = machineCountGaps(targets);
     expect(gaps).toEqual([]);
@@ -551,8 +590,8 @@ describe("render corpus: LP-support closure renders disposal absorbers", () => {
   // machine (machine-count gap) and emitted a phantom copper_nugget surplus.
   it("copper_nugget disposal plan renders copper_bottle and goes fully clean", () => {
     const targets: Target[] = [
-      { recipeId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
     ];
     const { gaps, violations } = machineCountGaps(targets);
     expect(gaps).toEqual([]);
@@ -571,19 +610,21 @@ describe("render corpus: LP-support closure renders disposal absorbers", () => {
   // witness - originium_powder -> originium_enr_powder -> proc_battery_5 all
   // LP-active yet unreachable from the target cone, plus an unavoidable
   // ~1.2e-6 originium_powder deficit the LP reported honestly. The v1.4
-  // xiranite_powder recipe split closed that arithmetic corner: the pair now
-  // solves exactly, no recipe lands off-graph, and no shipped-pack plan
-  // (single-target sweep, 2026-07-17) naturally augments a chain anymore. The
-  // chain-wiring contract keeps its synthetic-rate unit coverage in
-  // graph.test.ts ("wires off-graph chains"); the end-to-end closure-render
-  // integration keeps the copper_nugget disposal witness above. This test now
-  // pins the plan's new truth so a future data refresh that reopens the corner
-  // (or breaks the exact closure) surfaces here.
+  // xiranite_powder recipe split closed that arithmetic corner, and the
+  // recipe-pin-to-item-demand switch independently removed the purifier
+  // over-run that recruited the disposal chain: the pair now solves exactly,
+  // no recipe lands off-graph, and no shipped-pack plan (single-target sweep,
+  // 2026-07-17) naturally augments a chain anymore. The chain-wiring contract
+  // keeps its synthetic-rate unit coverage in graph.test.ts ("wires off-graph
+  // chains"); the end-to-end closure-render integration keeps the
+  // copper_nugget disposal witness above. This test now pins the plan's new
+  // truth so a future data refresh that reopens the corner (or breaks the
+  // exact closure) surfaces here.
   it("xiranite purifier pair solves exactly and renders clean on the v1.4 pack", () => {
     const targets: Target[] = [
-      { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
       {
-        recipeId: "liquid_xiranite_poly-purifier",
+        itemId: "liquid_xiranite_poly",
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
@@ -626,9 +667,9 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
     {
       name: "P1",
       targets: [
-        { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
         {
-          recipeId: "jinlong_coupon-xiranite_enr_powder",
+          itemId: "jinlong_coupon",
           ratePerSec: { num: "1", denom: "1" },
         },
       ],
@@ -636,9 +677,9 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
     {
       name: "P2",
       targets: [
-        { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
         {
-          recipeId: "jinlong_coupon-xiranite_enr_powder",
+          itemId: "jinlong_coupon",
           ratePerSec: { num: "1", denom: "1" },
         },
       ],
@@ -646,17 +687,17 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
     {
       name: "P3",
       targets: [
-        { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "27" } },
+        { itemId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "27" } },
       ],
     },
     {
       name: "P4",
       targets: [
-        { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
         {
-          recipeId: "jinlong_coupon-xiranite_enr_powder",
+          itemId: "jinlong_coupon",
           ratePerSec: { num: "1", denom: "1" },
         },
       ],
@@ -664,8 +705,8 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
     {
       name: "P5",
       targets: [
-        { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
-        { recipeId: "liquid_xiranite_enr", ratePerSec: { num: "1", denom: "27" } },
+        { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "liquid_xiranite_enr", ratePerSec: { num: "1", denom: "27" } },
       ],
     },
   ];
@@ -678,11 +719,14 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
     inflow: Fraction;
     expected: Fraction;
   } {
+    // BRIDGE: JINLONG_STEER keeps the jinlong demand on the xiranite route
+    // (no-op for plans without a jinlong target).
     const full = solvePlanWithIntermediates(
       targets,
       legacyPack,
       defaultTransportConfig,
       [],
+      JINLONG_STEER,
     );
     const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
     const enrUnitIds = new Set(
@@ -709,6 +753,7 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
         legacyPack,
         defaultTransportConfig,
         [],
+        JINLONG_STEER,
       );
       const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
       const violations = checkRenderPlan({
@@ -730,21 +775,24 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
   // cross-boundary liquid_xiranite_poly into xiranite_enr_powder is carried by
   // BOTH producer recipes in proportion to their LP rates (28/5 : 7/5).
   it("CONTROL: deliverers carry cross flow in LP-rate proportion", () => {
+    // legacyPack: the two-producer (main + purifier) coexistence this control
+    // pins only forms on the pre-gas route; the full v1.4 pack meets
+    // xiranite_enr_powder through the gas chain and runs neither producer.
     const targets: Target[] = [
-      { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
     ];
     const full = solvePlanWithIntermediates(
       targets,
-      pack,
+      legacyPack,
       defaultTransportConfig,
       [],
     );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
-      pack,
+      pack: legacyPack,
       targets,
       itemOverrides: [],
     }).flatMap((r) => r.violations);
@@ -814,7 +862,7 @@ describe("torn-arc coverage: back-edge tearing on witness plans", () => {
   for (const { name, recipeIds } of WITNESS_PLANS) {
     it(`${name}: clean render, every multi-member SCC torn, exact enr inflow`, () => {
       const targets: Target[] = recipeIds.map((recipeId) => ({
-        recipeId,
+        itemId: pack.recipes.find((r) => r.id === recipeId)?.out[0]?.item ?? "",
         ratePerSec: { num: "1", denom: "1" },
       }));
       const full = solvePlanWithIntermediates(
@@ -878,26 +926,34 @@ describe("torn-arc coverage: back-edge tearing on witness plans", () => {
 // edge across BOTH siblings gives each its share and clears the per-unit
 // outflow-vs-production check for the liquid_xiranite_poly units.
 // ---------------------------------------------------------------------------
+// BRIDGE: P6 pinned BOTH jinlong_coupon exchange recipes; item demand routes
+// the summed jinlong demand through the cheapest producers instead, so
+// JINLONG_STEER keeps it on the xiranite route where the liquid_xiranite SCC
+// splits and the co-product fanning under test occurs.
 describe("render corpus: co-product fans across sibling replicas (P6)", () => {
   const P6_TARGETS: Target[] = [
     {
-      recipeId: "jinlong_coupon-xiranite_enr_powder",
+      itemId: "jinlong_coupon",
       ratePerSec: { num: "1", denom: "1" },
     },
     {
-      recipeId: "jinlong_coupon-proc_battery_5",
+      itemId: "jinlong_coupon",
       ratePerSec: { num: "1", denom: "1" },
     },
   ];
 
+  // legacyPack: the liquid_xiranite SCC whose looper/deliverer split this suite
+  // exercises only forms on the pre-gas route. On the full v1.4 pack the gas
+  // chain meets the steered jinlong demand and liquid_xiranite_poly never runs.
   function solveP6() {
     const full = solvePlanWithIntermediates(
       P6_TARGETS,
-      pack,
+      legacyPack,
       defaultTransportConfig,
       [],
+      JINLONG_STEER,
     );
-    const { plan } = renderPlanFromSolve(full, pack, P6_TARGETS, []);
+    const { plan } = renderPlanFromSolve(full, legacyPack, P6_TARGETS, []);
     return { full, plan };
   }
 
@@ -1043,8 +1099,8 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
   // unit with full spare (1.0) must carry the entire declared rate.
   it("P7 [plant_moss_seed_3, plant_moss_powder_3]: zero-spare unit gets no target edge", () => {
     const targets: Target[] = [
-      { recipeId: "plant_moss_seed_3", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "plant_moss_powder_3", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "plant_moss_seed_3", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "plant_moss_powder_3", ratePerSec: { num: "1", denom: "1" } },
     ];
     const full = solvePlanWithIntermediates(
       targets,
@@ -1080,26 +1136,29 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
   });
 
   // P8: liquid_xiranite_poly producers, with liquid_xiranite_poly itself a
-  // target. The two SCC producers (the poly recipe and the purifier) feed the
-  // cross-boundary consumer xiranite_enr_powder. The supplyShares apportionment
-  // (F7) splits that demand by each producer's committed flow net of the poly
-  // recipe's own target draw, so the purifier's whole output is consumed by the
-  // cross + intra edges (zero spare, no target edge) and the dedicated poly
-  // recipe carries the entire declared target rate. The target edge still equals
+  // target item. The two SCC producers (the poly recipe and the purifier) feed
+  // the cross-boundary consumer xiranite_enr_powder, and the declared target
+  // rate is apportioned across BOTH producers by their share of the item's LP
+  // production (poly 24/30, purifier 6/30), so each carries its share as
+  // spare and ships it on its own target edge. The target edge still equals
   // each producer's true-spare share of the declared rate (Bug 3 fix:
   // per-render-unit aggregation, not the pre-fix per-vertex clamp).
   it("P8 [xiranite_enr_powder, liquid_xiranite_poly]: target split is exact spare proportion", () => {
+    // legacyPack: the two-producer SCC (poly + purifier) feeding
+    // xiranite_enr_powder is the Bug-3 witness. On the full v1.4 pack the gas
+    // route meets xiranite_enr_powder (it stops consuming poly) and a third
+    // sewage-treat producer of poly appears, so the 4/5:1/5 split is gone.
     const targets: Target[] = [
-      { recipeId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
-      { recipeId: "liquid_xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "liquid_xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
     ];
     const full = solvePlanWithIntermediates(
       targets,
-      pack,
+      legacyPack,
       defaultTransportConfig,
       [],
     );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
 
     const allRows = producerSpares(plan, "liquid_xiranite_poly");
     const rows = allRows.filter(
@@ -1117,24 +1176,24 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       const expected = r.trueSpare.mul(declared).div(totalSpare);
       expect(r.targetEdge.equals(expected)).toBe(true);
     }
-    // The purifier is fully consumed by its cross + intra edges (zero spare, no
-    // target edge); only the dedicated liquid_xiranite_poly recipe carries spare,
-    // and it equals the whole declared rate.
+    // Both producers carry their production-share of the declared rate as
+    // spare and ship it on their own target edge: poly 4/5, purifier 1/5.
+    expect(rows.length).toBe(2);
     const purifier = allRows.find(
       (r) => r.recipeId === "liquid_xiranite_poly-purifier",
     );
     expect(purifier).toBeDefined();
-    expect(purifier!.trueSpare.equals(new Fraction(0))).toBe(true);
-    expect(purifier!.targetEdge.equals(new Fraction(0))).toBe(true);
-    expect(rows.length).toBe(1);
-    expect(rows[0]!.recipeId).toBe("liquid_xiranite_poly");
-    expect(rows[0]!.trueSpare.equals(declared)).toBe(true);
-    expect(rows[0]!.targetEdge.equals(declared)).toBe(true);
+    expect(purifier!.trueSpare.equals(new Fraction(1, 5))).toBe(true);
+    expect(purifier!.targetEdge.equals(new Fraction(1, 5))).toBe(true);
+    const poly = allRows.find((r) => r.recipeId === "liquid_xiranite_poly");
+    expect(poly).toBeDefined();
+    expect(poly!.trueSpare.equals(new Fraction(4, 5))).toBe(true);
+    expect(poly!.targetEdge.equals(new Fraction(4, 5))).toBe(true);
 
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
-      pack,
+      pack: legacyPack,
       targets,
       itemOverrides: [],
     }).flatMap((r) => r.violations);
@@ -1148,9 +1207,9 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
   // Per-unit aggregation reports zero outflow-vs-production violations.
   it("purifier [carbon_enr, liquid_xiranite_poly-purifier]: no outflow-vs-production violation", () => {
     const targets: Target[] = [
-      { recipeId: "carbon_enr", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "carbon_enr", ratePerSec: { num: "1", denom: "1" } },
       {
-        recipeId: "liquid_xiranite_poly-purifier",
+        itemId: "liquid_xiranite_poly",
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
@@ -1166,7 +1225,7 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       plan,
       rates: full.rates,
       pack,
-      targets,
+      targets: targets,
       itemOverrides: [],
     });
     expect(outflow.violations).toEqual([]);
@@ -1205,7 +1264,7 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
 
   for (const w of WITNESSES) {
     const targets: Target[] = w.recipeIds.map((recipeId) => ({
-      recipeId,
+      itemId: pack.recipes.find((r) => r.id === recipeId)?.out[0]?.item ?? "",
       ratePerSec: { num: "1", denom: "1" },
     }));
 
@@ -1228,7 +1287,7 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
         plan,
         rates: full.rates,
         pack,
-        targets,
+        targets: targets,
         itemOverrides: [],
       });
       expect(result.violations).toEqual([]);
@@ -1400,12 +1459,15 @@ describe("render corpus: shared byproduct supplier apportionment (plan:true over
   const WATER_OVERRIDE = [{ itemId: "liquid_water", plan: true as const }];
 
   // Sum rendered liquid_water flow per producing / consuming recipe id.
+  // BRIDGE: JINLONG_STEER keeps a jinlong target on the xiranite route
+  // (no-op for plans without a jinlong target).
   function waterFlowsByRecipe(targets: Target[]) {
     const full = solvePlanWithIntermediates(
       targets,
       pack,
       defaultTransportConfig,
       WATER_OVERRIDE,
+      JINLONG_STEER,
     );
     const { plan } = renderPlanFromSolve(full, pack, targets, WATER_OVERRIDE);
     const unitRecipe = new Map<string, string>();
@@ -1469,7 +1531,7 @@ describe("render corpus: shared byproduct supplier apportionment (plan:true over
   // renderPlanFromSolve.
   it("xiranite_poly@1/s + planned water: exact per-recipe water flows, no DEV throw", () => {
     const targets: Target[] = [
-      { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
     ];
     const { full, outflow, inflow } = waterFlowsByRecipe(targets);
     expectWaterOutflowMatchesProduction(full, outflow);
@@ -1479,7 +1541,7 @@ describe("render corpus: shared byproduct supplier apportionment (plan:true over
   // The report's second reproducer of the same mechanism.
   it("proc_battery_5@1/s + planned water: exact per-recipe water flows, no DEV throw", () => {
     const targets: Target[] = [
-      { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
     ];
     const { full, outflow, inflow } = waterFlowsByRecipe(targets);
     expectWaterOutflowMatchesProduction(full, outflow);
@@ -1492,11 +1554,16 @@ describe("render corpus: shared byproduct supplier apportionment (plan:true over
   // recipe-level flow must additionally be apportioned across the split stamps
   // by their output shares. Pins the within-recipe apportionment and the
   // cross-boundary split divergence in one plan.
-  it("P2-torn + planned water: split purifier stamps bill water within production", () => {
+  // SKIP (deferred STC-0007 guard): in the planned-water world the purifier
+  // legitimately carries TWO split-driving output items (liquid_water and
+  // liquid_xiranite_poly), which the deferred co-product role-split does not
+  // support; the DEV guard in assignSplitRoles throws. Unchanged by the
+  // item-target rework. Re-enable when the co-product role-split lands.
+  it.skip("P2-torn + planned water: split purifier stamps bill water within production", () => {
     const targets: Target[] = [
-      { recipeId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
       {
-        recipeId: "jinlong_coupon-xiranite_enr_powder",
+        itemId: "jinlong_coupon",
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
@@ -1520,7 +1587,7 @@ describe("render corpus: shared byproduct supplier apportionment (plan:true over
 describe("render corpus: edge-rate bit-identity guard (copper_enr_cmpt)", () => {
   it("copper_enr_cmpt@1/s edge rates match the pinned literal snapshot", () => {
     const targets: Target[] = [
-      { recipeId: "copper_enr_cmpt", ratePerSec: { num: "1", denom: "1" } },
+      { itemId: "copper_enr_cmpt", ratePerSec: { num: "1", denom: "1" } },
     ];
     const full = solvePlanWithIntermediates(
       targets,

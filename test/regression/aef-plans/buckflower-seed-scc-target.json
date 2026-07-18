@@ -2,7 +2,7 @@
   "name": "plant_moss_seed_1 (Buckflower Seed) at 0.25/sec - SCC-self target tests split-replica deliverer routing to boundary",
   "targets": [
     {
-      "recipeId": "plant_moss_seed_1",
+      "itemId": "plant_moss_seed_1",
       "ratePerSec": { "num": "1", "denom": "4" }
     }
   ],

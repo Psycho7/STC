@@ -5,7 +5,7 @@ import { tarjanScc } from "./scc";
 import { buildRecipeGraphMulti } from "./graph";
 import { pack } from "../data/load";
 import type { RecipeEdge, RecipeGraph, Scc } from "./types";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 
 // Deterministic xorshift32 so every run exercises the same 3000 graphs.
 function makeRng(initialSeed: number): () => number {
@@ -125,17 +125,17 @@ describe("pickTearEdges computes a feedback arc set", () => {
 
   // Real-pack witnesses: the 4-member xiranite SCC used to keep a full
   // directed 3-cycle untorn on these plans.
-  const WITNESS_TARGETS: ReadonlyArray<{ name: string; targets: Target[] }> = [
+  const WITNESS_TARGETS: ReadonlyArray<{ name: string; targets: ItemTarget[] }> = [
     {
       name: "proc_battery_5",
       targets: [
-        { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
       ],
     },
     {
       name: "xiranite_enr_powder",
       targets: [
-        { recipeId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
+        { itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
       ],
     },
   ];
@@ -151,8 +151,8 @@ describe("pickTearEdges computes a feedback arc set", () => {
   }
 
   it("is deterministic: identical torn ids across two graph rebuilds", () => {
-    const targets: Target[] = [
-      { recipeId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
+    const targets: ItemTarget[] = [
+      { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
     ];
     const tornIds = (g: RecipeGraph): string[] =>
       tarjanScc(g)

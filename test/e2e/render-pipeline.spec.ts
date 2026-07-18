@@ -48,6 +48,16 @@ test.describe("render pipeline e2e gate", () => {
     const addBtn = page.getByRole("button", { name: "添加目标" });
     await expect(addBtn).toBeVisible();
     await addBtn.click();
+    // Add creates a local draft row; choosing an item and a rate promotes it.
+    const draftRow = page.locator('[data-testid="target-draft-row"]');
+    await expect(draftRow).toHaveCount(1);
+    await draftRow.getByLabel("物品").click();
+    const tile = page.locator(".recipe-picker-tile:not([disabled])").first();
+    await expect(tile).toBeVisible();
+    await tile.click();
+    const rate = draftRow.getByLabel("速率");
+    await rate.fill("60");
+    await rate.press("Enter");
     await expect(page.locator('[data-testid="target-row"]')).toHaveCount(
       rowsBefore + 1,
     );

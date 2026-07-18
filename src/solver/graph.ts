@@ -2,31 +2,25 @@ import Fraction from "fraction.js";
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { RecipeGraph, RecipeEdge, RecipeId } from "./types";
 import { UnknownRecipeError } from "./types";
-import type { Target } from "../data/targets";
+import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { effectiveSupply } from "./effectiveSupply";
 import { isExcludedProducer } from "../data/recipe-category";
+import { computeRecipeDepths } from "../data/recipe-depth";
 
-// Validate targets, index producers by output item, and rank each item's
-// candidate producers by (depth, id). Shared by both graph builders so ranking
-// is identical regardless of how producers are selected.
+// Index producers by output item and rank each item's candidate producers by
+// (depth, id). Shared by both graph builders so ranking is identical
+// regardless of how producers are selected.
 function rankProducers(
-  targets: Target[],
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
 ): {
   recipeById: Map<string, Recipe>;
-  targetIds: Set<string>;
   overrides: ItemOverride[];
   producersByItem: Map<string, string[]>;
 } {
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
-  const targetIds = new Set(targets.map((t) => t.recipeId));
   const overrides = itemOverrides ?? [];
-
-  for (const t of targets) {
-    if (!recipeById.has(t.recipeId)) throw new UnknownRecipeError(t.recipeId);
-  }
 
   const producersByItem = new Map<string, string[]>();
   for (const r of pack.recipes) {
@@ -36,70 +30,9 @@ function rankProducers(
     }
   }
 
-  // Raw-distance ranking. depthToItem[i] is the shortest recipe-depth to reach
-  // item i across its non-excluded producers, raw items at 0. depthToRecipe[r] is
-  // one more than the deepest of r's inputs. Excluded recipes get no entry and
-  // never feed either depth. Anything reachable only through a cycle or an
-  // excluded producer stays at POSITIVE_INFINITY.
-  const depthToItem = new Map<string, number>();
-  for (const item of pack.items) {
-    depthToItem.set(item.id, item.raw ? 0 : Number.POSITIVE_INFINITY);
-  }
-  const depthToRecipe = new Map<string, number>();
-  for (const r of pack.recipes) {
-    if (!isExcludedProducer(r))
-      depthToRecipe.set(r.id, Number.POSITIVE_INFINITY);
-  }
-
-  // Relax depths to a fixpoint over the non-excluded recipes. The iteration cap
-  // guards against a malformed pack that never converges; a sane pack settles in
-  // roughly the length of its longest acyclic chain.
-  const maxIter = pack.recipes.length + 1;
-  for (let iter = 0, changed = true; changed && iter <= maxIter; iter++) {
-    changed = false;
-    for (const r of pack.recipes) {
-      if (isExcludedProducer(r)) continue;
-      if (
-        (depthToRecipe.get(r.id) ?? Number.POSITIVE_INFINITY) !==
-        Number.POSITIVE_INFINITY
-      )
-        continue;
-      if (r.in.length === 0) {
-        depthToRecipe.set(r.id, 1);
-        changed = true;
-        continue;
-      }
-      let maxIn = 0;
-      let reachable = true;
-      for (const inp of r.in) {
-        const d = depthToItem.get(inp.item) ?? Number.POSITIVE_INFINITY;
-        if (d === Number.POSITIVE_INFINITY) {
-          reachable = false;
-          break;
-        }
-        if (d > maxIn) maxIn = d;
-      }
-      if (reachable) {
-        depthToRecipe.set(r.id, maxIn + 1);
-        changed = true;
-      }
-    }
-    for (const [itemId, producers] of producersByItem) {
-      const current = depthToItem.get(itemId) ?? Number.POSITIVE_INFINITY;
-      if (current !== Number.POSITIVE_INFINITY) continue;
-      let min = Number.POSITIVE_INFINITY;
-      for (const pid of producers) {
-        const r = recipeById.get(pid);
-        if (!r || isExcludedProducer(r)) continue;
-        const d = depthToRecipe.get(pid) ?? Number.POSITIVE_INFINITY;
-        if (d < min) min = d;
-      }
-      if (min < current) {
-        depthToItem.set(itemId, min);
-        changed = true;
-      }
-    }
-  }
+  // Raw-distance ranking: depthToRecipe[r] is one more than the deepest of r's
+  // inputs, with excluded and cycle-only recipes left at POSITIVE_INFINITY.
+  const depthToRecipe = computeRecipeDepths(pack);
 
   // Order each item's candidate producers by (depth, id) ascending so the
   // shallowest acyclic recipe comes first. Excluded recipes (no depthToRecipe
@@ -115,22 +48,21 @@ function rankProducers(
     });
   }
 
-  return { recipeById, targetIds, overrides, producersByItem };
+  return { recipeById, overrides, producersByItem };
 }
 
-// Walk the targets' input cone, attaching producer edges. When multi is false,
-// attach only the shallowest viable producer per consumed item; when true,
-// attach every non-excluded producer. An excluded recipe is honored only if the
-// user named it as a target (covers the cost === -1 waste-sink carve-out inside
-// isExcludedProducer). Dedup keeps one edge per (producer, item, consumer).
+// Walk the target items' input cone, attaching producer edges. When multi is
+// false, attach only the shallowest viable producer per consumed item; when
+// true, attach every non-excluded producer. Excluded recipes never enter the
+// graph (plan validation rejects excluded-producer targets upstream). Dedup
+// keeps one edge per (producer, item, consumer).
 function buildGraph(
-  targets: Target[],
+  targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   itemOverrides: ItemOverride[] | undefined,
   multi: boolean,
 ): RecipeGraph {
-  const { recipeById, targetIds, overrides, producersByItem } = rankProducers(
-    targets,
+  const { recipeById, overrides, producersByItem } = rankProducers(
     pack,
     itemOverrides,
   );
@@ -155,10 +87,19 @@ function buildGraph(
     incoming.get(target)!.push(edge);
   }
 
+  // Seed the walk from every non-excluded producer of each target item: the
+  // LP chooses among them, so all of them (and their input cones) must be in
+  // the graph. An unknown or producer-less target item simply seeds nothing;
+  // its demand surfaces as an LP deficit.
   const stack: string[] = [];
   for (const t of targets) {
-    ensureNode(t.recipeId);
-    stack.push(t.recipeId);
+    for (const cid of producersByItem.get(t.itemId) ?? []) {
+      const r = recipeById.get(cid);
+      if (!r || isExcludedProducer(r)) continue;
+      if (nodes.has(cid)) continue;
+      ensureNode(cid);
+      stack.push(cid);
+    }
   }
 
   while (stack.length) {
@@ -175,7 +116,7 @@ function buildGraph(
       for (const cid of candidates) {
         const r = recipeById.get(cid);
         if (!r) continue;
-        if (isExcludedProducer(r) && !targetIds.has(cid)) continue;
+        if (isExcludedProducer(r)) continue;
         const wasNew = !nodes.has(cid);
         ensureNode(cid);
         const already = (outgoing.get(cid) ?? []).some(
@@ -192,7 +133,7 @@ function buildGraph(
 }
 
 export function buildRecipeGraph(
-  targets: Target[],
+  targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
 ): RecipeGraph {
@@ -202,7 +143,7 @@ export function buildRecipeGraph(
 // LP variant: enumerates all non-excluded producers for each consumed item
 // instead of picking one, so the LP can choose among them.
 export function buildRecipeGraphMulti(
-  targets: Target[],
+  targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
 ): RecipeGraph {
@@ -225,10 +166,8 @@ export function augmentGraphWithLpSupport(
   g: RecipeGraph,
   rates: Map<RecipeId, Fraction>,
   pack: RecipePack,
-  targets: Target[],
   itemOverrides?: ItemOverride[],
 ): Set<RecipeId> {
-  const targetIds = new Set(targets.map((t) => t.recipeId));
   const overrides = itemOverrides ?? [];
   const added = new Set<RecipeId>();
 
@@ -258,7 +197,7 @@ export function augmentGraphWithLpSupport(
         if (!producer.out.some((o) => o.item === inp.item)) continue;
         // Same exclusion rule as the walk's edge attachment. An augmented node
         // is non-excluded by construction, so chains stay wireable.
-        if (isExcludedProducer(producer) && !targetIds.has(pid)) continue;
+        if (isExcludedProducer(producer)) continue;
         const already = (g.outgoing.get(pid) ?? []).some(
           (e) => e.target === id && e.item === inp.item,
         );

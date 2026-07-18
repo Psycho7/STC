@@ -1,11 +1,7 @@
 import type { RecipePack } from "@aef/schema";
 import type { RationalString, Target } from "./targets";
 import { defaultTargets } from "./targets";
-import {
-  hasPositivePrimaryQty,
-  isExcludedProducer,
-  isSinkRecipe,
-} from "./recipe-category";
+import { producibleItemIds } from "./recipe-category";
 import type { PlanWireV1 } from "./plan-wire-v1";
 import {
   decodeWire,
@@ -50,10 +46,9 @@ export type PlanLoadError =
   | { kind: "payload-too-large"; length: number; limit: number }
   | { kind: "unrecognized-version"; got: number }
   | { kind: "schema-version-mismatch"; planSchema: string; packSchema: string }
-  | { kind: "duplicate-target"; recipeId: string }
-  | { kind: "unknown-target-recipe"; recipeId: string }
-  | { kind: "target-not-a-producer"; recipeId: string }
-  | { kind: "target-primary-zero-qty"; recipeId: string; itemId: string }
+  | { kind: "duplicate-target"; itemId: string }
+  | { kind: "unknown-target-item"; itemId: string }
+  | { kind: "target-not-producible"; itemId: string }
   | { kind: "unknown-recipe-cost"; recipeId: string }
   | { kind: "unknown-item-override"; itemId: string }
   | { kind: "duplicate-item-override"; itemId: string }
@@ -91,13 +86,11 @@ export function describePlanLoadError(error: PlanLoadError): string {
     case "schema-version-mismatch":
       return `Plan schemaVersion ${error.planSchema} does not match pack ${error.packSchema}.`;
     case "duplicate-target":
-      return `Duplicate target recipe ${error.recipeId}.`;
-    case "unknown-target-recipe":
-      return `Target references unknown recipe ${error.recipeId}.`;
-    case "target-not-a-producer":
-      return `Recipe ${error.recipeId} cannot be a target: supply metadata or no outputs.`;
-    case "target-primary-zero-qty":
-      return `Recipe ${error.recipeId} cannot be a target: its primary output ${error.itemId} has zero quantity, so it produces none of the requested item.`;
+      return `Duplicate target item ${error.itemId}.`;
+    case "unknown-target-item":
+      return `Target references unknown item ${error.itemId}.`;
+    case "target-not-producible":
+      return `Item ${error.itemId} cannot be a target: no non-internal, non-input-supply recipe produces it.`;
     case "unknown-recipe-cost":
       return `Recipe cost references unknown recipe ${error.recipeId}.`;
     case "unknown-item-override":
@@ -212,42 +205,35 @@ export function validatePlan(
     };
   }
   const seenTargets = new Set<string>();
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const knownItemIds = new Set(pack.items.map((i) => i.id));
+  const producible = producibleItemIds(pack.recipes);
   for (const t of plan.targets) {
-    if (seenTargets.has(t.recipeId)) {
-      return { kind: "duplicate-target", recipeId: t.recipeId };
+    // A legacy recipe-form wire (or hostile payload) may omit itemId entirely;
+    // fall back to a placeholder so error messages never render "undefined".
+    const itemId = t.itemId ?? "(missing)";
+    if (seenTargets.has(itemId)) {
+      return { kind: "duplicate-target", itemId };
     }
-    seenTargets.add(t.recipeId);
+    seenTargets.add(itemId);
     if (!isValidRational(t.ratePerSec)) {
       return {
         kind: "invalid-rational",
-        field: `target ${t.recipeId} ratePerSec`,
+        field: `target ${itemId} ratePerSec`,
         value: t.ratePerSec,
       };
     }
-    const recipe = recipeById.get(t.recipeId);
-    // An unknown target recipe would otherwise reach graph construction and
-    // throw UnknownRecipeError; reject it here as a structured load error.
-    if (!recipe) {
-      return { kind: "unknown-target-recipe", recipeId: t.recipeId };
+    // An unknown target item would map to no demand and the plan would silently
+    // under-deliver; reject it as a structured load error. Legacy recipe-keyed
+    // wires land here too: their targets carry no itemId (no migration).
+    if (!knownItemIds.has(itemId)) {
+      return { kind: "unknown-target-item", itemId };
     }
-    // Input-supply (__domain_transfer) recipes are supply metadata and
-    // no-output recipes (waste sinks, pure consumers) have no defined target
-    // rate; neither is a selectable target. Second line of defense in case
-    // one slips past the picker filter.
-    if (isExcludedProducer(recipe) || isSinkRecipe(recipe)) {
-      return { kind: "target-not-a-producer", recipeId: t.recipeId };
-    }
-    // A recipe with outputs but a zero/negative primary qty produces none of
-    // the item the target rate names. Left to the solver it gets no pin floor
-    // and the demand is silently absorbed by a boundary draw; reject it here so
-    // the unsatisfiable target surfaces instead.
-    if (!hasPositivePrimaryQty(recipe)) {
-      return {
-        kind: "target-primary-zero-qty",
-        recipeId: t.recipeId,
-        itemId: recipe.out[0]!.item,
-      };
+    // Only producible items are selectable targets: an item no non-internal,
+    // non-input-supply recipe yields at positive qty can never be net-exported.
+    // Second line of defense in case one slips past the picker filter. Raw and
+    // byproduct-only items ARE producible and pass here.
+    if (!producible.has(itemId)) {
+      return { kind: "target-not-producible", itemId };
     }
   }
   if (plan.itemOverrides) {
@@ -281,8 +267,9 @@ export function validatePlan(
     }
   }
   if (plan.recipeCosts) {
+    const recipeIds = new Set(pack.recipes.map((r) => r.id));
     for (const [recipeId, rc] of plan.recipeCosts) {
-      if (!recipeById.has(recipeId)) {
+      if (!recipeIds.has(recipeId)) {
         return { kind: "unknown-recipe-cost", recipeId };
       }
       if (!isValidRational(rc)) {
