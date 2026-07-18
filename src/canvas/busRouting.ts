@@ -1714,6 +1714,12 @@ function bucketBy<T>(items: ReadonlyArray<T>, key: (t: T) => string): T[][] {
   return [...buckets.values()];
 }
 
+// Post-offset clearance re-check bound: a stepped separation column that would
+// pierce a foreign raw card keeps stepping by one pitch up to this many EXTRA
+// pitches past its naive slot before giving up and dropping its offset (a
+// benign fallback to the pre-separation coincidence -- never a card pierce).
+const SEPARATION_MAX_EXTRA_STEPS = 4;
+
 // Rank the DISTINCT trunk keys of one collision bucket by their global slot
 // order, 0-based. The lowest-ranked trunk gets rank 0 (offset 0, staying put).
 function localRanks(
@@ -1746,12 +1752,13 @@ function localRanks(
 // narrow-forward hairpin member has no distinct drop / rise column (both collapse
 // onto the corridor midpoint), so it is left untouched.
 //
-// After the dodge, a per-trunk separation pass (#25) fans DISTINCT-item trunks
-// whose resolved columns coincide in one band apart by a slot pitch, so a solid
-// and a dashed trunk never candy-stripe the same pixels. It buckets on the
-// RESOLVED column, so it touches only genuine coincidences and leaves every plan
-// with none pixel-identical. Threads { dropX } / { riseX } onto the moved edges;
-// every other edge passes through by reference. Pure and deterministic.
+// After the dodge, a per-trunk separation pass (#25) fans DISTINCT trunks
+// (distinct `item|source` keys: different items, or the same item from
+// different sources) whose resolved columns coincide in one band apart by a
+// slot pitch, so two trunks never candy-stripe the same pixels. It buckets on
+// the RESOLVED column, so it touches only genuine coincidences and leaves every
+// plan with none pixel-identical. Threads { dropX } / { riseX } onto the moved
+// edges; every other edge passes through by reference. Pure and deterministic.
 export function clearBusColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -1878,7 +1885,7 @@ export function clearBusColumns(
   // Per-trunk column separation (#25). Two DISTINCT trunks whose RESOLVED drop
   // columns (same source layer) or rise columns (same target layer) coincide in
   // the same band draw their verticals on the same pixels -- a candy-striped
-  // overlap of two items. Bucketing on the RESOLVED column (not the base) touches
+  // overlap of two trunks. Bucketing on the RESOLVED column (not the base) touches
   // only genuine coincidences: where the foreign-card dodge already separated two
   // trunks, they land in different buckets and neither moves. For a true
   // coincidence, keep the lowest-slot trunk and step every other trunk in the
@@ -1895,13 +1902,58 @@ export function clearBusColumns(
   // final loop force-store rank 0 too, so every member of a collision draws on
   // the same basis and the separation is exactly one pitch. Non-colliding trunks
   // are never tracked, so plans with no coincidence stay pixel-identical.
+  //
+  // Every stepped column is re-checked for clearance: the dodge validated only
+  // the NATURAL column, so a naive step could walk off a clear escape column
+  // straight into the foreign card the dodge just avoided (or onto another
+  // trunk's column). A candidate step must clear every foreign raw card over
+  // the trunk's vertical spans (the same slim air gap as the dodge's raw
+  // fallback) and must not land on an occupied column; a blocked candidate
+  // keeps stepping, bounded by SEPARATION_MAX_EXTRA_STEPS, then drops its
+  // offset entirely (falling back to the pre-separation coincidence).
+  const SEPARATION_RAW_GAP = 2;
+  const stepBlocked = (
+    x: number,
+    ms: ReadonlyArray<Member>,
+    side: "drop" | "rise",
+  ): boolean =>
+    ms.some((m) => {
+      const own = ownExempt([side === "drop" ? m.source : m.target]);
+      const portY = side === "drop" ? m.sy : m.ty;
+      const ymin = Math.min(portY, m.laneY);
+      const ymax = Math.max(portY, m.laneY);
+      return rawCards.some(
+        (o) =>
+          !own.has(o.nodeId) &&
+          o.bottom > ymin &&
+          o.top < ymax &&
+          x > o.left - SEPARATION_RAW_GAP &&
+          x < o.right + SEPARATION_RAW_GAP,
+      );
+    });
+
   const dropOffsetByTrunk = new Map<string, number>();
   const dropCollidingTrunks = new Set<string>();
   {
     const repByTrunk = new Map<string, Member>();
-    for (const m of members) if (!repByTrunk.has(m.trunkKey)) repByTrunk.set(m.trunkKey, m);
+    const membersByTrunk = new Map<string, Member[]>();
+    for (const m of members) {
+      if (!repByTrunk.has(m.trunkKey)) repByTrunk.set(m.trunkKey, m);
+      let arr = membersByTrunk.get(m.trunkKey);
+      if (arr === undefined) membersByTrunk.set(m.trunkKey, (arr = []));
+      arr.push(m);
+    }
+    // Columns already spoken for in a band: every trunk's natural column, plus
+    // each stepped column chosen below. A step never lands on one of these.
+    const occupied = new Set<string>();
+    for (const rep of repByTrunk.values())
+      occupied.add(
+        `${Math.round(dropNaturalByTrunk.get(rep.trunkKey)!)}|${rep.band}`,
+      );
     for (const list of bucketBy(
       [...repByTrunk.values()],
+      // band is part of the bucket key on purpose: cross-band coincident
+      // columns are an accepted scope cut.
       (m) => `${Math.round(dropNaturalByTrunk.get(m.trunkKey)!)}|${m.band}`,
     )) {
       const ranks = localRanks(
@@ -1909,27 +1961,64 @@ export function clearBusColumns(
         globalRank,
       );
       if (ranks.size < 2) continue;
+      // ranks iterates in rank order, so lower ranks claim columns first.
       for (const [trunkKey, r] of ranks) {
         dropCollidingTrunks.add(trunkKey);
-        if (r !== 0) dropOffsetByTrunk.set(trunkKey, r * ENTRY_SLOT_PITCH);
+        if (r === 0) continue;
+        const natural = dropNaturalByTrunk.get(trunkKey)!;
+        const band = repByTrunk.get(trunkKey)!.band;
+        const ms = membersByTrunk.get(trunkKey)!;
+        for (let k = r; k <= r + SEPARATION_MAX_EXTRA_STEPS; k++) {
+          const x = natural + k * ENTRY_SLOT_PITCH;
+          const key = `${Math.round(x)}|${band}`;
+          if (occupied.has(key) || stepBlocked(x, ms, "drop")) continue;
+          dropOffsetByTrunk.set(trunkKey, k * ENTRY_SLOT_PITCH);
+          occupied.add(key);
+          break;
+        }
       }
     }
   }
   const riseOffsetByIndex = new Map<number, number>();
   const riseCollidingIndices = new Set<number>();
-  for (const list of bucketBy(
-    members,
-    (m) => `${Math.round(riseNaturalByIndex.get(m.index)!)}|${m.band}`,
-  )) {
-    const ranks = localRanks(
-      list.map((m) => m.trunkKey),
-      globalRank,
-    );
-    if (ranks.size < 2) continue;
-    for (const m of list) {
-      riseCollidingIndices.add(m.index);
-      const off = ranks.get(m.trunkKey)! * ENTRY_SLOT_PITCH;
-      if (off !== 0) riseOffsetByIndex.set(m.index, off);
+  {
+    const occupied = new Set<string>();
+    for (const m of members)
+      occupied.add(
+        `${Math.round(riseNaturalByIndex.get(m.index)!)}|${m.band}`,
+      );
+    for (const list of bucketBy(
+      members,
+      // band in the bucket key on purpose: same cross-band scope cut as drops.
+      (m) => `${Math.round(riseNaturalByIndex.get(m.index)!)}|${m.band}`,
+    )) {
+      const ranks = localRanks(
+        list.map((m) => m.trunkKey),
+        globalRank,
+      );
+      if (ranks.size < 2) continue;
+      for (const m of list) riseCollidingIndices.add(m.index);
+      // Same-trunk members in the bucket share one rank and step together, so
+      // resolve the step per trunk group (validating every member's span), in
+      // rank order so lower ranks claim columns first.
+      const groups = bucketBy(list, (m) => m.trunkKey).sort(
+        (a, b) => ranks.get(a[0]!.trunkKey)! - ranks.get(b[0]!.trunkKey)!,
+      );
+      for (const group of groups) {
+        const r = ranks.get(group[0]!.trunkKey)!;
+        if (r === 0) continue;
+        const natural = riseNaturalByIndex.get(group[0]!.index)!;
+        const band = group[0]!.band;
+        for (let k = r; k <= r + SEPARATION_MAX_EXTRA_STEPS; k++) {
+          const x = natural - k * ENTRY_SLOT_PITCH;
+          const key = `${Math.round(x)}|${band}`;
+          if (occupied.has(key) || stepBlocked(x, group, "rise")) continue;
+          for (const m of group)
+            riseOffsetByIndex.set(m.index, k * ENTRY_SLOT_PITCH);
+          occupied.add(key);
+          break;
+        }
+      }
     }
   }
 

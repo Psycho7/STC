@@ -385,11 +385,13 @@ test.describe("DOM geometry audit", () => {
 // NOTE on all ratchet tables below: baselines do NOT auto-tighten. When a change
 // improves a scenario, re-record the lower count manually (downward freely). A
 // baseline moves UP only with a recorded controller ruling, never as a silent
-// accommodation of a regression. Three such rulings stand: battery5 off-path
+// accommodation of a regression. Four such rulings stand: battery5 off-path
 // 5 -> 6 (card-hardness pushes one pinned chip's seat off its line), the P4
 // aggregate-visibility raise (chip-segment default 0 -> 2, multi6 0 -> 3,
-// battery5-xiranite 0 -> 7), and the own-side bus-column guard (padding grazes
-// battery5-xiranite 7 -> 14). That guard keeps a bus drop / rise on the port
+// battery5-xiranite 0 -> 7), the own-side bus-column guard (padding grazes
+// battery5-xiranite 7 -> 14), and the #25 per-trunk column separation
+// (crossing census default / multi6, detailed at CROSSING_BASELINE below).
+// The own-side guard keeps a bus drop / rise on the port
 // side of its own endpoint card. On battery5-xiranite it moved three columns
 // that used to run through their own endpoint body onto the port-side gutter
 // instead -- verified per edge against the pre-guard build (4cc2725): e:26 and

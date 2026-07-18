@@ -1065,6 +1065,81 @@ describe("clearBusColumns", () => {
     // ...and never onto the same escape column.
     expect(dropXOf(out, "e1")).not.toBe(dropXOf(out, "e2"));
   });
+
+  it("fans two same-item trunks from different sources off a shared drop column (#25)", () => {
+    // The separation keys on the trunk (`item|source`), not the item alone: two
+    // trunks carrying the SAME item from DIFFERENT sources coincide on the drop
+    // column (both resolve to 332 off the shared source layer) and are stepped
+    // apart exactly like a distinct-item pair.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s1", 0, 1000, r),
+      recipeNode("s2", 0, 1150, r),
+      recipeNode("cor1", 550, 1000, r),
+      recipeNode("cor2", 550, 1150, r),
+      recipeNode("t1", far, 1000, r),
+      recipeNode("t2", far, 1150, r),
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [
+        mkEdge("e1", "s1", "t1", "b"),
+        mkEdge("e2", "s2", "t2", "b"),
+      ]),
+    );
+    expect(dropXOf(out, "e1")).toBeDefined();
+    expect(dropXOf(out, "e2")).toBeDefined();
+    expect(Math.abs(dropXOf(out, "e1")! - dropXOf(out, "e2")!)).toBe(
+      ENTRY_SLOT_PITCH,
+    );
+  });
+
+  it("never steps a separated drop column into a foreign card (#25 re-check)", () => {
+    // Four distinct-item trunks leave the same source layer; a foreign card with
+    // raw x-extent [350, 498] sits at the run's lane depth. The three upper
+    // trunks' drop spans also pass their sibling source cards below, so the
+    // padded tier is walled on both sides and the raw fallback keeps their 332
+    // default (2px shy of the card's raw left minus the slim gap) -- a colliding
+    // bucket of three at 332. The bottom trunk's span passes no sibling, so it
+    // dodges alone to the card's padded escape at 308. Naive separation would
+    // step the bucket's rank 2 to 332 + 32 = 364, INSIDE the card's raw body.
+    // The post-offset re-check must instead keep stepping (every bounded
+    // candidate is still inside the card) and then drop rank 2's offset so it
+    // falls back to the coincident 332 -- a benign overlap, never a pierce.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s1", 0, 1000, r),
+      recipeNode("s2", 0, 1150, r),
+      recipeNode("s3", 0, 1300, r),
+      recipeNode("s4", 0, 1450, r),
+      recipeNode("cor1", 550, 1000, r),
+      recipeNode("cor2", 550, 1150, r),
+      recipeNode("cor3", 550, 1300, r),
+      recipeNode("cor4", 550, 1450, r),
+      recipeNode("t1", far, 1000, r),
+      recipeNode("t2", far, 1150, r),
+      recipeNode("t3", far, 1300, r),
+      recipeNode("t4", far, 1450, r),
+      inputProductNode("block", "ore", 350, 1550, 148, 78), // raw [350, 498]
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [
+        mkEdge("e1", "s1", "t1", "b"),
+        mkEdge("e2", "s2", "t2", "c"),
+        mkEdge("e3", "s3", "t3", "d"),
+        mkEdge("e4", "s4", "t4", "e"),
+      ]),
+    );
+    const xs = ["e1", "e2", "e3", "e4"].map((id) => dropXOf(out, id));
+    // Every trunk stores its column (bucket members and the lone dodger)...
+    for (const x of xs) expect(x).toBeDefined();
+    // ...and no stored column pierces the card's raw body.
+    for (const x of xs) expect(x! > 350 && x! < 498).toBe(false);
+    // Rank 2, boxed in by the card, falls back to rank 0's coincident column
+    // instead of stepping into the card.
+    expect(xs[2]).toBe(xs[0]);
+  });
 });
 
 // -- jogForwardLegs -----------------------------------------------------------
