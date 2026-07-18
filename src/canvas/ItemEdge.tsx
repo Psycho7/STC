@@ -200,10 +200,11 @@ export function FlowChip({
   y: number;
   item?: ItemId | undefined;
   text?: string | undefined;
-  // Leading aggregate glyph (the sum "Σ") kept when the chip collapses to
-  // icon-only below CHIP_ICON_ONLY_MAX_ZOOM. In the full chip the glyph already
-  // rides inside `text`; this prop only names what survives the collapse, so a
-  // plain member chip (no marker) collapses to the bare icon. Optional.
+  // Leading aggregate glyph (the sum "Sigma" glyph) kept when the chip
+  // collapses to icon-only below CHIP_ICON_ONLY_MAX_ZOOM. In the full chip the
+  // glyph already rides inside `text`; this prop only names what survives the
+  // collapse, so a plain member chip (no marker) collapses to the bare icon.
+  // Optional.
   marker?: string | undefined;
   label: string;
   // Hover-tooltip text. Defaults to `label`; edges pass the exact, un-rounded
@@ -249,6 +250,8 @@ export function FlowChip({
           ...chipAccentStyle(item),
         }}
       >
+        {/* An icon-less item collapsing with no marker leaves the box EMPTY on
+            purpose: it stays a tinted hover target carrying title/aria-label. */}
         {pos !== undefined ? (
           <span className="ico ico-16">
             <span className="spr" style={{ backgroundPosition: pos }} />
@@ -403,16 +406,20 @@ export default function ItemEdge({
   // one target port, drawn on the shared run with a leading sum glyph. Exempt
   // from the label zoom gate (like the bus aggregate) so the total survives at
   // the dense-plan fit zoom; the exact total rides its own hover tooltip.
+  // The glyph is named once and fed to both the full-mode text and the marker
+  // prop (mirroring BusEdge's sumMarker), so the full and collapsed forms
+  // cannot diverge.
+  const faninMarker = "Σ";
   const faninTotal = edgeData?.faninTotalRate;
   const faninRateStr = faninTotal ? formatRatePerMin(faninTotal) : "";
-  const faninText = faninRateStr ? `Σ${faninRateStr}${unit}` : "";
+  const faninText = faninRateStr ? `${faninMarker}${faninRateStr}${unit}` : "";
   const faninLabel =
     edgeData && faninRateStr
-      ? `${i18n.displayName(edgeData.item)} x Σ${faninRateStr}${unit}`
+      ? `${i18n.displayName(edgeData.item)} x ${faninMarker}${faninRateStr}${unit}`
       : "";
   const faninTitle =
     edgeData && faninRateStr && faninTotal
-      ? `${i18n.displayName(edgeData.item)} x Σ${formatRateExactPerMin(faninTotal)}${unit}`
+      ? `${i18n.displayName(edgeData.item)} x ${faninMarker}${formatRateExactPerMin(faninTotal)}${unit}`
       : "";
 
   // chamferStepPath returns the label anchor on the polyline's PREFERRED CLEAR
@@ -518,7 +525,7 @@ export default function ItemEdge({
           y={edgeData.faninSigmaY + (edgeData.faninSigmaDy ?? 0)}
           item={edgeData?.item}
           text={faninText}
-          marker="Σ"
+          marker={faninMarker}
           label={faninLabel}
           title={faninTitle}
           dimmed={edgeData?.dimmed}
