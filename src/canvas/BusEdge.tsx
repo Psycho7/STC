@@ -12,28 +12,18 @@ import {
   strokeForKind,
   type ItemEdgeData,
 } from "./ItemEdge";
-import type { BusEdgeData } from "./busRouting";
+import { BUS_LONG_RUN_THRESHOLD, type BusEdgeData } from "./busRouting";
 import {
   chamferBusPath,
   chamferFanoutPath,
   routingHintsFromData,
 } from "./edgePath";
-import { BETWEEN_LAYERS_SPACING, RECIPE_WIDTH } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
 // Radius of the junction dot each bus edge draws at its own branch point, where
 // it leaves the shared trunk lane to rise into its target, in graph units.
 const JUNCTION_RADIUS = 3;
-
-// A lane run wider than one layer (an inter-layer gap plus a recipe) is a "long
-// detour": its rise end sits far from the drop end, so a lone member's only
-// chip -- the source-side aggregate, exempt from the zoom gate -- leaves the
-// consumer end unlabeled at fit zoom. On such a run the rise chip is exempted
-// too so the consumer's input is labeled at both ends (#32). Multi-member trunks
-// keep the plain gate: their rise chips are per-member clutter, and their
-// aggregate already reads on the shared lane.
-const LONG_RUN_THRESHOLD = BETWEEN_LAYERS_SPACING + RECIPE_WIDTH;
 
 // Junction-dot screen-radius bounds, in physical px. The dot is drawn in graph
 // units, so the pane zoom scales it (on-screen radius = r * zoom): at the
@@ -167,9 +157,18 @@ export default function BusEdge({
   const memberCount = edgeData?.busMemberCount ?? 1;
   // Per-member (rise / branch) chip gate: zoom-gated by default, but a lone
   // member on a long lane detour exempts it so the far consumer end stays
-  // labeled at fit zoom (#32). Fan-out members carry no lane run (bus === null).
+  // labeled at fit zoom (#32). Requiring busChipX to be ABSENT keys the
+  // exemption to routeBusEdges' own long-run decision (it skips the lane slot
+  // for exactly these members, so the chip anchor below falls to the rise
+  // column at the consumer end): the gate never exempts a chip that would
+  // render mid-lane. Long-span members always clear the threshold; its real
+  // work is keeping short feeders and hairpins (run 0) gated. Fan-out members
+  // carry no lane run (bus === null).
   const busRunLength = bus ? Math.abs(bus.riseX - bus.dropX) : 0;
-  const longSingleRun = memberCount === 1 && busRunLength > LONG_RUN_THRESHOLD;
+  const longSingleRun =
+    memberCount === 1 &&
+    laneData?.busChipX === undefined &&
+    busRunLength > BUS_LONG_RUN_THRESHOLD;
   const showMemberChip =
     edgeData !== undefined && (zoom >= LABEL_MIN_ZOOM || longSingleRun);
   const dropRateStr = totalRate ? formatRatePerMin(totalRate) : "";
@@ -224,8 +223,9 @@ export default function BusEdge({
       : "";
   // Per-member chip anchor: fan-out branch-leg midpoint (plus its offset), or the
   // lane rise slot (busChipX, the trunk's evenly distributed lane x, falling back
-  // to the geometric rise column on a manually built edge) at laneY plus its lane
-  // nudge.
+  // to the geometric rise column on a manually built edge or a lone long-run
+  // member, whose slot routeBusEdges deliberately omits so this chip sits at the
+  // consumer end) at laneY plus its lane nudge.
   const branchX = fan
     ? fan.branchAnchor.x + (fanoutData?.fanoutBranchDx ?? 0)
     : (laneData?.busChipX ?? bus!.riseX);

@@ -67,6 +67,16 @@ export const FANOUT_SPAN_MAX = BETWEEN_LAYERS_SPACING + RECIPE_WIDTH;
 // plain item edges. Boundary case, deliberately excluded.
 export const FANOUT_SPAN_MIN = FORWARD_STEP_BUDGET;
 
+// A lane run longer than one layer span (an inter-layer gap plus a recipe) is a
+// "long detour" for chip purposes: its rise end sits far from its drop end. A
+// LONE member on such a run gets no busChipX slot, so its rise chip falls to
+// the rise column at the consumer end, and BusEdge exempts that chip from the
+// label zoom gate -- otherwise the trunk's only fit-zoom chip is the source-side
+// aggregate and the consumer's input arrives unlabeled (#32). Long-span members
+// (gap > BUS_SPAN_THRESHOLD = 2x this) always exceed it, so the threshold's
+// real work is keeping short feeders and hairpin runs on the plain slot + gate.
+export const BUS_LONG_RUN_THRESHOLD = BETWEEN_LAYERS_SPACING + RECIPE_WIDTH;
+
 // Gap between the lowest node bottom and the first lane, then the vertical
 // pitch between successive lanes. LANE_SPACING is derived from the shared chip
 // pitch (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) so a rise chip sitting on one lane
@@ -99,7 +109,9 @@ export type LaneBusEdgeData = BusAggregate & {
   // Lane x for this member's rise chip, assigned by routeBusEdges so a trunk's
   // rise chips spread evenly along the lane instead of stacking near their rise
   // vertices. BusEdge anchors the rise chip at (busChipX, laneY). Absent on
-  // manually built edges, where BusEdge falls back to the geometric rise column.
+  // manually built edges AND, deliberately, on a lone member riding a long run
+  // (extent > BUS_LONG_RUN_THRESHOLD): both fall back to the geometric rise
+  // column, which for the long lone run puts the chip at the consumer end (#32).
   busChipX?: number;
   // Chip nudges assigned by deconflictChipAnchors when a trunk's chips crowd on
   // their lane: busDropDy shifts the owner's aggregate drop chip and busChipDy
@@ -536,6 +548,13 @@ export function routeBusEdges(
     // layer) collapses the step to 0 so every slot lands on dropX; the vertical
     // cascade in deconflictChipAnchors then spreads the pile downward.
     const extent = Math.max(0, maxRiseX - dropX);
+    // A LONE member on a long run gets NO slot: its mid-lane slot would strand
+    // the member chip far from both ends, and #32 wants the consumer end
+    // labeled. With busChipX absent, BusEdge and deconflictChipAnchors both
+    // fall back to the rise column, so the chip sits at the consumer end and
+    // the two stay in sync by construction. Backward lone members keep their
+    // slot (their forward extent is 0, under the threshold).
+    if (members.length === 1 && extent > BUS_LONG_RUN_THRESHOLD) continue;
     members.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const n = members.length;
     const step = extent / (n + 1);
@@ -562,7 +581,11 @@ export function routeBusEdges(
         busTotalRate: trunkTotal.get(trunkKey)!,
         busMemberCount: trunkCount.get(trunkKey)!,
         busChipOwner: edge.id === trunkOwner.get(trunkKey),
-        busChipX: busChipXByIndex.get(index)!,
+        // Absent for a lone member on a long run (see the slot loop): the chip
+        // then falls back to the rise column in BusEdge and chipSeating alike.
+        ...(busChipXByIndex.has(index)
+          ? { busChipX: busChipXByIndex.get(index)! }
+          : {}),
       },
     };
   });

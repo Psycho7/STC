@@ -4,6 +4,7 @@ import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import BusEdge, { junctionRadius } from "../../src/canvas/BusEdge";
 import type { BusEdgeData } from "../../src/canvas/busRouting";
+import { busRiseBase } from "../../src/canvas/edgePath";
 import type { ItemEdgeData } from "../../src/canvas/ItemEdge";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
@@ -375,7 +376,10 @@ describe("canvas/BusEdge trunk labels", () => {
     // A single-member trunk whose lane run spans several layers (FAR_NODES) is a
     // long detour: its rise end sits far from the source-side drop chip, so the
     // consumer would arrive unlabeled at fit zoom. The rise chip is exempted from
-    // the zoom gate too, so both ends are labeled (#32).
+    // the zoom gate too, so both ends are labeled (#32). routeBusEdges omits the
+    // lane slot (busChipX) for this case -- as this manually built edge does --
+    // so the chip must anchor at the geometric rise column (busRiseBase of the
+    // target port), the consumer end, not mid-lane.
     renderEdge(
       {
         item: "Iron Plate",
@@ -386,13 +390,26 @@ describe("canvas/BusEdge trunk labels", () => {
       0.3,
       FAR_NODES,
     );
-    await findEdgePath();
+    const path = await findEdgePath();
     const labels = chips();
     expect(labels).toHaveLength(2);
     expect(labels.map((l) => l.getAttribute("data-testid")).sort()).toEqual([
       "bus-edge-label-e1-drop",
       "bus-edge-label-e1-rise",
     ]);
+    // Anchor check: the rise chip's x sits on the drawn rise column, one
+    // busRiseBase inside the target port (the path's final point).
+    const end = path
+      .getAttribute("d")!
+      .match(/L\s*(-?[\d.]+),(-?[\d.]+)\s*$/);
+    const tx = Number(end![1]);
+    const rise = labels.find(
+      (l) => l.getAttribute("data-testid") === "bus-edge-label-e1-rise",
+    )!;
+    const t = rise.style.transform.match(
+      /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/,
+    );
+    expect(Number(t![1])).toBeCloseTo(busRiseBase(tx), 1);
   });
 
   it("keeps a multi-member trunk's rise chips gated on a long detour", async () => {

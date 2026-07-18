@@ -180,8 +180,11 @@ describe("routeBusEdges", () => {
     const out = routeBusEdges(nodes, edges);
 
     expect(out[0]!.type).toBe("bus");
-    const data = out[0]!.data as { trunkKey: string };
+    const data = out[0]!.data as { trunkKey: string; busChipX?: number };
     expect(data.trunkKey).toBe("ore|agg");
+    // A lone member on a SHORT run (extent under BUS_LONG_RUN_THRESHOLD) keeps
+    // its lane slot -- only long lone runs drop it for consumer-end labeling.
+    expect(data.busChipX).toBeDefined();
   });
 
   it("is deterministic: shuffled input order yields identical output", () => {
@@ -528,6 +531,10 @@ describe("routeBusEdges single-member demotion (9C)", () => {
 
     expect(out[0]!.type).toBe("bus");
     expect((out[0]!.data as { trunkKey?: string }).trunkKey).toBe("b|s");
+    // A lone member on a long run gets NO lane slot: with busChipX absent the
+    // rise chip falls back to the rise column, so it sits at the consumer end
+    // instead of stranding mid-lane (#32).
+    expect(out[0]!.data).not.toHaveProperty("busChipX");
   });
 
   it("leaves a two-member trunk on the bus even when both corridors are clear", () => {
