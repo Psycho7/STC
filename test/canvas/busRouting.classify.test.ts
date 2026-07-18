@@ -36,6 +36,8 @@ import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import {
   PORT_STUB,
   CHAMFER,
+  busDropBase,
+  busRiseBase,
   chamferFanoutPath,
   parsePathPoints,
   routingHintsFromData,
@@ -402,12 +404,11 @@ describe("busBandRegions", () => {
   const far = 2000;
 
   // The band x-extent tracks its trunk RUN (drop column .. rise column), not the
-  // node span: drop base one stub + chamfer off the source's Right port, rise
-  // base one stub + chamfer inside the target's Left port, each padded by
-  // BAND_X_MARGIN. sourceRight / targetLeft are absolute here (parent-less).
+  // node span: the shared column bases (busDropBase / busRiseBase), each padded
+  // by BAND_X_MARGIN. sourceRight / targetLeft are absolute here (parent-less).
   const trunkRunX = (sourceRight: number, targetLeft: number) => {
-    const dropCol = sourceRight + PORT_STUB + CHAMFER;
-    const riseCol = targetLeft - PORT_STUB - CHAMFER;
+    const dropCol = busDropBase(sourceRight);
+    const riseCol = busRiseBase(targetLeft);
     const lo = Math.min(dropCol, riseCol) - BAND_X_MARGIN;
     const hi = Math.max(dropCol, riseCol) + BAND_X_MARGIN;
     return { x: lo, width: hi - lo };

@@ -39,6 +39,22 @@ export const MAX_CHAMFER = 24;
 // threshold.
 export const FORWARD_STEP_BUDGET = 2 * (PORT_STUB + CHAMFER);
 
+// Base bus drop column: one stub + chamfer off the source's Right port (its
+// right edge at sourceRight). The single definition every consumer shares --
+// chamferBusPath's default, routeBusEdges' rise-chip spread, clearBusColumns'
+// dodge base, and busBandRegions' run fold -- so the drop basis can never
+// drift between the drawer and the routing passes.
+export function busDropBase(sourceRight: number): number {
+  return sourceRight + PORT_STUB + CHAMFER;
+}
+
+// Base bus rise column: the staggered entryX when the entry-gutter pass staked
+// one out, else one stub + chamfer inside the target's Left port (its left edge
+// at targetLeft). Shared by the same consumers as busDropBase, same rationale.
+export function busRiseBase(targetLeft: number, entryX?: number): number {
+  return entryX ?? targetLeft - PORT_STUB - CHAMFER;
+}
+
 // Round to two decimals so degraded/scaled geometry does not produce long
 // floating tails in the emitted `d` string (keeps pinned tests stable).
 function r(n: number): number {
@@ -570,16 +586,16 @@ export function chamferBusPath(
   if (gap <= 0) {
     // Drop column, the run that dives off the source into the lane.
     // clearBusColumns may move it clear of a foreign card / gutter (dropX);
-    // absent that hint it falls back to one stub+chamfer inside the source port.
-    const dropX = args.dropX ?? sx + PORT_STUB + CHAMFER;
+    // absent that hint it falls back to the shared base (busDropBase).
+    const dropX = args.dropX ?? busDropBase(sx);
     // Rise column, the run that climbs the target's Left-port gutter off the
     // lane. The entry-gutter pass stakes it out as a per-edge staggered column
     // (see assignEntryColumns) so two rises into one node never coincide, and
     // clearBusColumns may then move it clear of a foreign card / gutter (riseX,
-    // which overrides the stagger). Absent both hints it falls back to one
-    // stub+chamfer inside the port, keeping every direct caller and its pinned
-    // test byte for byte identical.
-    const riseX = args.riseX ?? args.entryX ?? tx - PORT_STUB - CHAMFER;
+    // which overrides the stagger). Absent that hint it falls back to the
+    // shared base (busRiseBase, which itself prefers the stagger), keeping
+    // every direct caller and its pinned test byte for byte identical.
+    const riseX = args.riseX ?? busRiseBase(tx, args.entryX);
     const laneDir = -1;
     const path =
       `M ${r(sx)},${r(sy)}` +
@@ -638,15 +654,15 @@ export function chamferBusPath(
   // lane the rise simply chamfers the other way. chamferColumn derives each turn
   // direction from its own y0 -> y1.
   // Drop column: clearBusColumns may move it clear of a foreign card / gutter
-  // (dropX); absent that hint it falls back to one stub+chamfer inside the source
-  // port, keeping direct callers and pinned tests byte for byte identical.
-  const dropX = args.dropX ?? sx + PORT_STUB + CHAMFER;
+  // (dropX); absent that hint it falls back to the shared base (busDropBase),
+  // keeping direct callers and pinned tests byte for byte identical.
+  const dropX = args.dropX ?? busDropBase(sx);
   // Rise column: the entry-gutter pass may stagger it (see assignEntryColumns)
   // and clearBusColumns may then move it clear of a foreign card / gutter (riseX,
-  // which overrides the stagger); absent both hints it falls back to one
-  // stub+chamfer inside the target port, keeping direct callers and pinned tests
-  // byte for byte identical.
-  const riseX = args.riseX ?? args.entryX ?? tx - PORT_STUB - CHAMFER;
+  // which overrides the stagger); absent that hint it falls back to the shared
+  // base (busRiseBase, which itself prefers the stagger), keeping direct callers
+  // and pinned tests byte for byte identical.
+  const riseX = args.riseX ?? busRiseBase(tx, args.entryX);
   const laneDir = 1;
   const path =
     `M ${r(sx)},${r(sy)}` +

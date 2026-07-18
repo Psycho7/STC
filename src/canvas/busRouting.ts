@@ -33,6 +33,8 @@ import {
   CHAMFER,
   FORWARD_STEP_BUDGET,
   PORT_STUB,
+  busDropBase,
+  busRiseBase,
   clamp,
   clearRailY,
   forwardStepGeometry,
@@ -515,21 +517,19 @@ export function routeBusEdges(
     const edge = edges[index]!;
     const target = byId.get(edge.target)!;
     // Geometric rise column, mirroring chamferBusPath's wide-forward default
-    // (one stub + chamfer inside the target's Left port). Entry-column staggering
-    // runs later and shifts it slightly left, but that hint is not yet available
-    // and only nudges the extent bound, so the default column is used here.
-    const riseX = absoluteLeft(target, byId) - PORT_STUB - CHAMFER;
+    // (busRiseBase with no stagger). Entry-column staggering runs later and
+    // shifts it slightly left, but that hint is not yet available and only
+    // nudges the extent bound, so the default column is used here.
+    const riseX = busRiseBase(absoluteLeft(target, byId));
     const list = membersByTrunk.get(trunkKey) ?? [];
     list.push({ index, id: edge.id, riseX });
     membersByTrunk.set(trunkKey, list);
   });
   for (const [trunkKey, members] of membersByTrunk) {
     const sourceNode = byId.get(trunks.get(trunkKey)!.source)!;
-    const dropX =
-      absoluteLeft(sourceNode, byId) +
-      nodeWidth(sourceNode) +
-      PORT_STUB +
-      CHAMFER;
+    const dropX = busDropBase(
+      absoluteLeft(sourceNode, byId) + nodeWidth(sourceNode),
+    );
     const maxRiseX = Math.max(...members.map((m) => m.riseX));
     // Even fractions space slots (and the drop-side gap) at extent/(n+1), all
     // inside [dropX, maxRiseX]. A non-positive extent (members feeding one nearby
@@ -633,10 +633,12 @@ export function busBandRegions(
   for (const node of nodes) byId.set(node.id, node);
 
   // Per-band horizontal run: the min drop column to the max rise column over the
-  // band's lane members. Drop base is one stub + chamfer off the source's Right
-  // port; rise base is the staggered entryX when present, else one stub + chamfer
-  // inside the target's Left port -- mirroring clearBusColumns' riseBase. The
-  // stamped dropX / riseX (a moved column) override the base.
+  // band's lane members, from the shared bases (busDropBase / busRiseBase, the
+  // same defaults clearBusColumns and chamferBusPath resolve). The stamped
+  // dropX / riseX (a moved column) override the base. A narrow-forward hairpin
+  // member (skipped by clearBusColumns) actually draws both columns collapsed
+  // onto its corridor midpoint, between these two bases -- the run brackets it
+  // slightly wider than its drawn column on purpose, erring toward cover.
   type Run = { lo: number; hi: number };
   const runs: Record<"top" | "bottom", Run> = {
     top: { lo: Infinity, hi: -Infinity },
@@ -656,8 +658,8 @@ export function busBandRegions(
     };
     const sx = absoluteLeft(source, byId) + nodeWidth(source);
     const tx = absoluteLeft(target, byId);
-    const dropCol = cols.dropX ?? sx + PORT_STUB + CHAMFER;
-    const riseCol = cols.riseX ?? cols.entryX ?? tx - PORT_STUB - CHAMFER;
+    const dropCol = cols.dropX ?? busDropBase(sx);
+    const riseCol = cols.riseX ?? busRiseBase(tx, cols.entryX);
     const run = runs[data.busBand === "top" ? "top" : "bottom"];
     run.lo = Math.min(run.lo, dropCol, riseCol);
     run.hi = Math.max(run.hi, dropCol, riseCol);
@@ -1846,13 +1848,13 @@ export function clearBusColumns(
       ty,
       laneY,
       toward: gap > 0 ? 1 : -1,
-      // Drop column default: one stub + chamfer off the source's Right port.
-      dropBase: sx + PORT_STUB + CHAMFER,
-      // Rise column default: the staggered entryX when present (keep the
-      // stagger), else one stub + chamfer inside the target's Left port.
-      riseBase:
-        (edge.data as { entryX?: number } | undefined)?.entryX ??
-        tx - PORT_STUB - CHAMFER,
+      // Drop / rise column defaults: the shared bases (busDropBase /
+      // busRiseBase, the latter keeping the staggered entryX when present).
+      dropBase: busDropBase(sx),
+      riseBase: busRiseBase(
+        tx,
+        (edge.data as { entryX?: number } | undefined)?.entryX,
+      ),
     });
   });
 
