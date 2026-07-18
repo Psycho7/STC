@@ -18,12 +18,22 @@ import {
   chamferFanoutPath,
   routingHintsFromData,
 } from "./edgePath";
+import { BETWEEN_LAYERS_SPACING, RECIPE_WIDTH } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
 // Radius of the junction dot each bus edge draws at its own branch point, where
 // it leaves the shared trunk lane to rise into its target, in graph units.
 const JUNCTION_RADIUS = 3;
+
+// A lane run wider than one layer (an inter-layer gap plus a recipe) is a "long
+// detour": its rise end sits far from the drop end, so a lone member's only
+// chip -- the source-side aggregate, exempt from the zoom gate -- leaves the
+// consumer end unlabeled at fit zoom. On such a run the rise chip is exempted
+// too so the consumer's input is labeled at both ends (#32). Multi-member trunks
+// keep the plain gate: their rise chips are per-member clutter, and their
+// aggregate already reads on the shared lane.
+const LONG_RUN_THRESHOLD = BETWEEN_LAYERS_SPACING + RECIPE_WIDTH;
 
 // Junction-dot screen-radius bounds, in physical px. The dot is drawn in graph
 // units, so the pane zoom scales it (on-screen radius = r * zoom): at the
@@ -143,7 +153,6 @@ export default function BusEdge({
   // per-member (rise / branch) chip keeps the gate, so it appears only once the
   // reader has zoomed into that trunk.
   const showAggChip = edgeData !== undefined;
-  const showMemberChip = edgeData !== undefined && zoom >= LABEL_MIN_ZOOM;
 
   // Drop chip: only the elected trunk owner draws it, and it shows the summed
   // trunk rate (busTotalRate), prefixed by a sum glyph when the trunk has
@@ -156,6 +165,13 @@ export default function BusEdge({
   const isOwner = edgeData?.busChipOwner ?? true;
   const totalRate = edgeData?.busTotalRate ?? edgeData?.rate;
   const memberCount = edgeData?.busMemberCount ?? 1;
+  // Per-member (rise / branch) chip gate: zoom-gated by default, but a lone
+  // member on a long lane detour exempts it so the far consumer end stays
+  // labeled at fit zoom (#32). Fan-out members carry no lane run (bus === null).
+  const busRunLength = bus ? Math.abs(bus.riseX - bus.dropX) : 0;
+  const longSingleRun = memberCount === 1 && busRunLength > LONG_RUN_THRESHOLD;
+  const showMemberChip =
+    edgeData !== undefined && (zoom >= LABEL_MIN_ZOOM || longSingleRun);
   const dropRateStr = totalRate ? formatRatePerMin(totalRate) : "";
   const sumMarker = memberCount > 1 ? "Σ" : "";
   const dropText =
