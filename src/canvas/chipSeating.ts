@@ -837,6 +837,8 @@ export function deconflictChipAnchors(
     flowKey: string;
     target: string;
     trunkKey: string;
+    // Target in-port y, the top-to-bottom key the rise seat loop stacks by.
+    entryY: number;
   };
   const busSlots: BusSlot[] = [];
   const busEdges = edges
@@ -881,6 +883,7 @@ export function deconflictChipAnchors(
       flowKey: flowKeyOf(edge),
       target: edge.target,
       trunkKey: data.trunkKey,
+      entryY: ty,
     });
   }
   // Card exemption for a lane trunk's AGGREGATE drop chip: the union over every
@@ -959,7 +962,28 @@ export function deconflictChipAnchors(
       }
     }
   }
-  for (const slot of busSlots) {
+  // Seat the kept rise chips within each trunk TOP-TO-BOTTOM by their target's
+  // in-port y, not edge-id order which can invert the visible stack (issue #28):
+  // the topmost branch takes the lane and lower branches cascade below it, so a
+  // crowded column reads in branch order. Trunks stay grouped by trunkKey and
+  // ordered among themselves as before; only the within-trunk seat sequence
+  // changes. Edge id breaks ties for determinism. The capacity KEEP decision
+  // above (farthest-from-aggregate first) is untouched -- this reorders only the
+  // seat sequence of the chips that survive it.
+  const riseOrder = [...busSlots].sort((a, b) =>
+    a.trunkKey !== b.trunkKey
+      ? a.trunkKey < b.trunkKey
+        ? -1
+        : 1
+      : a.entryY !== b.entryY
+        ? a.entryY - b.entryY
+        : a.id < b.id
+          ? -1
+          : a.id > b.id
+            ? 1
+            : 0,
+  );
+  for (const slot of riseOrder) {
     // A capacity-hidden rise seats nothing, so its phantom box never blocks a
     // later chip and no busChipDy is stamped (BusEdge draws no rise chip).
     if (busRiseHiddenByIndex.has(slot.index)) continue;
@@ -1094,8 +1118,37 @@ export function deconflictChipAnchors(
     number,
     { x: number; y: number }
   >();
-  for (const { edge, index } of fanoutEdges) {
+  // Target in-port y of a fan-out member: the top-to-bottom key its branch chip
+  // stacks by when several members share one junction column.
+  const branchEntryY = (edge: Edge): number => {
+    const target = byId.get(edge.target)!;
+    return absoluteTop(target, byId) + portOffsetY(target, edgeItem(edge), "in");
+  };
+  // Seat the branch chips within each trunk TOP-TO-BOTTOM by their target's
+  // in-port y, not edge-id order which can invert the visible stack when members
+  // share one junction column (issue #28, the multi6 fan-out lane): the first
+  // branch seated on a contested column claims it and later branches yield, so
+  // seating in branch order makes the column read in branch order. Trunks stay
+  // grouped by trunkKey and ordered among themselves as before; only the
+  // within-trunk seat sequence changes, edge id breaking ties for determinism.
+  const branchOrder = [...fanoutEdges].sort((a, b) => {
+    const ka = (a.edge.data as BusEdgeData).trunkKey;
+    const kb = (b.edge.data as BusEdgeData).trunkKey;
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    const ya = branchEntryY(a.edge);
+    const yb = branchEntryY(b.edge);
+    if (ya !== yb) return ya - yb;
+    return a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0;
+  });
+  // Seated branch centre-ys per trunk, the barriers a later same-trunk branch's
+  // on-line slide may not cross (issue #28, finding 2). All members of one trunk
+  // share the junction column, so a trunk key IS a column key here. Only chips
+  // that actually seat (not hidden) enter it, since a hidden branch draws no
+  // chip to invert against.
+  const seatedBranchYByTrunk = new Map<string, number[]>();
+  for (const { edge, index } of branchOrder) {
     const geom = fanoutGeomByIndex.get(index)!;
+    const trunkKey = (edge.data as BusEdgeData).trunkKey;
     const seat = seatRateChip(
       field,
       {
@@ -1107,6 +1160,7 @@ export function deconflictChipAnchors(
       edge.target,
       cardExemptFor(edge),
       entryBandOf(edge),
+      { barrierYs: seatedBranchYByTrunk.get(trunkKey) },
     );
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
       // The hide below covers the exhausted tier too, but exhausting the
@@ -1132,6 +1186,11 @@ export function deconflictChipAnchors(
       fanoutBranchHiddenAtByIndex.set(index, geom.branchAnchor);
       continue;
     }
+    // The chip seated on its column: record its centre-y as a barrier for the
+    // next same-trunk branch so a pushed later branch cannot slide across it.
+    const seatedYs = seatedBranchYByTrunk.get(trunkKey) ?? [];
+    seatedYs.push(geom.branchAnchor.y + seat.dy);
+    seatedBranchYByTrunk.set(trunkKey, seatedYs);
     if (seat.dx !== 0) fanoutBranchDxByIndex.set(index, seat.dx);
     if (seat.dy !== 0) fanoutBranchDyByIndex.set(index, seat.dy);
   }

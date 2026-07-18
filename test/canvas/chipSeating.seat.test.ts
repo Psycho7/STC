@@ -320,3 +320,31 @@ describe("seatRateChip: trunk-aware foreignness for the aggregate (issue #28)", 
     expect(seat.tier).toBe("sidestep");
   });
 });
+
+describe("seatRateChip: slide barrier keeps branch chips in stack order (issue #28)", () => {
+  it("clamps a pushed bottom branch below an already-seated sibling instead of crossing it", () => {
+    // Three-branch fan-out on one junction column (multi6 Sandleaf lane): the
+    // mid branch is already seated at y=384, and a foreign lane chip blocks the
+    // bottom branch's anchor (y=480) and everything below it up to y=640. With no
+    // barrier the bottom branch slides UP its own leg to y=336, crossing ABOVE
+    // the mid sibling (the inverted stack of finding 2). The barrier clamps the
+    // slide at the sibling, so the branch instead slides DOWN past the foreign
+    // chip, staying below its sibling -- the stack reads top-to-bottom in order.
+    const leg = {
+      pts: [[0, 0], [0, 1000]] as ReadonlyArray<readonly [number, number]>,
+      anchorX: 0,
+      anchorY: 480,
+    };
+    const field = makeClearanceField([], []);
+    // Mid-branch sibling already seated at y=384 on the shared column.
+    field.placed.push({ x: 0, y: 384, halfW: HALF_W, halfH: HALF_H });
+    // Foreign lane chip covering [408, 640]: blocks the anchor and below it.
+    field.placed.push({ x: 0, y: 524, halfW: HALF_W, halfH: 116 });
+    const seat = seatRateChip(field, leg, "own", "t", NO_EXEMPT, NO_BAND, {
+      barrierYs: [384],
+    });
+    // Seats BELOW the sibling (y > 384): monotonic top-to-bottom order kept, no
+    // crossing above it.
+    expect(leg.anchorY + seat.dy).toBeGreaterThan(384);
+  });
+});
