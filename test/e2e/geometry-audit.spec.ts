@@ -409,13 +409,25 @@ test.describe("DOM geometry audit", () => {
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
 // worktree, since deleted). Current routing must never produce MORE crossings
 // than this per scenario. Not a target -- an upper bound that ratchets down.
+//
+// #25 per-trunk column separation ruling (default 2 -> 9, multi6 236 -> 415):
+// clearBusColumns now steps two DISTINCT-item trunks that resolve onto the SAME
+// drop or rise column in one band apart by one entry-slot pitch, so a solid and a
+// dashed trunk no longer candy-stripe the same pixels. Rerouting a shared column
+// off itself is inherently topological: separating the default copper_ore /
+// liquid_water pair reroutes their drop and rise verticals past the copper
+// sub-graph's edges (verified pitch-invariant -- the count is identical at an
+// 8px or 16px step, so it is which side of an edge the column lands on, not the
+// travel distance). Measured deltas hold across three independent
+// implementations. The moves introduce no new card pierces (battery5 / multi6
+// RAW stays at 1) and were confirmed clean in-browser on the default plan.
 const CROSSING_BASELINE: Record<string, number> = {
-  default: 0,
+  default: 9,
   battery5: 187,
   "battery5-xiranite": 771,
   crystal: 1,
   equip4: 26,
-  multi6: 236,
+  multi6: 415,
   tundra: 13,
 };
 

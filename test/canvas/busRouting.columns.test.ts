@@ -990,6 +990,73 @@ describe("clearBusColumns", () => {
     expect(resolved > 1002 && resolved < 1150).toBe(false);
     expect(resolved > 1012 && resolved < 1160).toBe(false);
   });
+
+  it("fans two distinct-item trunks off a shared drop and rise column (#25)", () => {
+    // Two trunks leave the same source layer (right edge 300 -> drop column 332)
+    // and rise into ONE shared multi-input target (left far -> rise column
+    // far - 32), one carrying item "b" and one item "c". Absent per-trunk
+    // separation both drops resolve to 332 and both rises to far - 32, candy-
+    // striping two items on one column. The shared target is each rise's own
+    // (exempt) card, so neither rise dodges the other and they genuinely coincide.
+    // Each lone member keeps a mid-corridor blocker so it stays on the bus, and a
+    // high anchor pins both trunks to the bottom band.
+    const tr = mkRecipe("tr", ["b", "c"], []);
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s1", 0, 1000, r),
+      recipeNode("s2", 0, 1150, r),
+      recipeNode("cor1", 550, 1000, r),
+      recipeNode("cor2", 550, 1150, r),
+      recipeNode("t", far, 1075, tr),
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [
+        mkEdge("e1", "s1", "t", "b"),
+        mkEdge("e2", "s2", "t", "c"),
+      ]),
+    );
+    const dropDefault = 300 + PORT_STUB + CHAMFER; // 332
+    const riseDefault = far - PORT_STUB - CHAMFER;
+    const drop1 = dropXOf(out, "e1") ?? dropDefault;
+    const drop2 = dropXOf(out, "e2") ?? dropDefault;
+    const rise1 = riseXOf(out, "e1") ?? riseDefault;
+    const rise2 = riseXOf(out, "e2") ?? riseDefault;
+    // Distinct columns, at least one slot pitch apart on both the drop and rise.
+    expect(Math.abs(drop1 - drop2)).toBeGreaterThanOrEqual(ENTRY_SLOT_PITCH);
+    expect(Math.abs(rise1 - rise2)).toBeGreaterThanOrEqual(ENTRY_SLOT_PITCH);
+  });
+
+  it("keeps two separated trunk drops apart when a card forces a dodge (#25)", () => {
+    // The same two colliding trunks, plus a foreign card straddling both drop
+    // columns (332 and 348) at the run's lane depth. Both drops sit inside the
+    // card's padded band, so both must dodge; the first-resolved sibling column
+    // is fed back as an obstacle so the two dodges cannot collapse onto one
+    // escape column. Without that, both would escape to the same side and
+    // re-collide.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s1", 0, 1000, r),
+      recipeNode("s2", 0, 1150, r),
+      recipeNode("cor1", 550, 1000, r),
+      recipeNode("cor2", 550, 1150, r),
+      recipeNode("t1", far, 1000, r),
+      recipeNode("t2", far, 1150, r),
+      inputProductNode("block", "ore", 300, 1250, 148, 78), // raw [300, 448]
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [
+        mkEdge("e1", "s1", "t1", "b"),
+        mkEdge("e2", "s2", "t2", "c"),
+      ]),
+    );
+    // Both dodged the block (stamped away from the 332 default)...
+    expect(dropXOf(out, "e1")).toBeDefined();
+    expect(dropXOf(out, "e2")).toBeDefined();
+    // ...and never onto the same escape column.
+    expect(dropXOf(out, "e1")).not.toBe(dropXOf(out, "e2"));
+  });
 });
 
 // -- jogForwardLegs -----------------------------------------------------------

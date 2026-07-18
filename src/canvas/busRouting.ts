@@ -1669,6 +1669,65 @@ function clearColumnKeepingLeg(args: {
   return desired;
 }
 
+// Stable slot order over a set of trunk keys (`item|source`): item first, then
+// source id -- the same ordering routeBusEdges lanes trunks by. Returns each
+// trunk key's global rank. Pure and deterministic (independent of input order).
+function busTrunkGlobalRank(
+  trunkKeys: ReadonlyArray<string>,
+): Map<string, number> {
+  const meta = new Map<string, { item: string; source: string }>();
+  for (const key of trunkKeys) {
+    if (meta.has(key)) continue;
+    const bar = key.indexOf("|");
+    meta.set(key, { item: key.slice(0, bar), source: key.slice(bar + 1) });
+  }
+  const rank = new Map<string, number>();
+  [...meta.entries()]
+    .sort(([, a], [, b]) =>
+      a.item !== b.item
+        ? a.item < b.item
+          ? -1
+          : 1
+        : a.source !== b.source
+          ? a.source < b.source
+            ? -1
+            : 1
+          : 0,
+    )
+    .forEach(([key], i) => rank.set(key, i));
+  return rank;
+}
+
+// Bucket items by a string key, returning the buckets as arrays in first-seen
+// order so downstream resolution is deterministic.
+function bucketBy<T>(items: ReadonlyArray<T>, key: (t: T) => string): T[][] {
+  const buckets = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    let arr = buckets.get(k);
+    if (arr === undefined) {
+      arr = [];
+      buckets.set(k, arr);
+    }
+    arr.push(item);
+  }
+  return [...buckets.values()];
+}
+
+// Rank the DISTINCT trunk keys of one collision bucket by their global slot
+// order, 0-based. The lowest-ranked trunk gets rank 0 (offset 0, staying put).
+function localRanks(
+  trunkKeys: ReadonlyArray<string>,
+  globalRank: ReadonlyMap<string, number>,
+): Map<string, number> {
+  const distinct = [...new Set(trunkKeys)].sort(
+    (a, b) => globalRank.get(a)! - globalRank.get(b)!,
+  );
+  const ranks = new Map<string, number>();
+  distinct.forEach((k, r) => ranks.set(k, r));
+  return ranks;
+}
+
 // clearBusColumns: move each bus member's drop and rise verticals off any foreign
 // padded card / gutter they would pierce. The drop vertical runs from the source
 // port down to the shared lane; the rise vertical from the lane up to the target
@@ -1685,9 +1744,14 @@ function clearColumnKeepingLeg(args: {
 // staggered entryX (clearance starts from the stagger and only moves it when it
 // pierces foreign geometry; riseX then overrides entryX in chamferBusPath). The
 // narrow-forward hairpin member has no distinct drop / rise column (both collapse
-// onto the corridor midpoint), so it is left untouched. Threads { dropX } /
-// { riseX } onto the moved edges; every other edge passes through by reference.
-// Pure and deterministic.
+// onto the corridor midpoint), so it is left untouched.
+//
+// After the dodge, a per-trunk separation pass (#25) fans DISTINCT-item trunks
+// whose resolved columns coincide in one band apart by a slot pitch, so a solid
+// and a dashed trunk never candy-stripe the same pixels. It buckets on the
+// RESOLVED column, so it touches only genuine coincidences and leaves every plan
+// with none pixel-identical. Threads { dropX } / { riseX } onto the moved edges;
+// every other edge passes through by reference. Pure and deterministic.
 export function clearBusColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -1698,8 +1762,25 @@ export function clearBusColumns(
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
 
-  const dropXByIndex = new Map<number, number>();
-  const riseXByIndex = new Map<number, number>();
+  // First pass: gather every drop-lane-rise bus member's geometry. The narrow
+  // forward hairpin (0 < gap < budget) collapses both columns onto the midpoint,
+  // so it has nothing distinct to clear and is excluded here and left untouched.
+  type Member = {
+    index: number;
+    trunkKey: string;
+    band: "top" | "bottom";
+    source: RFAnyNode;
+    target: RFAnyNode;
+    sx: number;
+    sy: number;
+    tx: number;
+    ty: number;
+    laneY: number;
+    toward: number;
+    dropBase: number;
+    riseBase: number;
+  };
+  const members: Member[] = [];
   edges.forEach((edge, index) => {
     if (edge.type !== "bus") return;
     const source = byId.get(edge.source);
@@ -1714,61 +1795,140 @@ export function clearBusColumns(
     const tx = absoluteLeft(target, byId);
     const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
     const gap = tx - sx;
-    // Only the drop-lane-rise forms have distinct columns to clear; the narrow
-    // forward hairpin (0 < gap < budget) collapses both onto the midpoint.
     if (gap > 0 && gap < FORWARD_STEP_BUDGET) return;
-    const toward = gap > 0 ? 1 : -1;
-
-    // Drop vertical: source port level down to the lane, side-keeping (the
-    // connecting horizontal from the source port must stay clear too). Exempt
-    // the source's own card / gutter (the default column sits a chamfer off its
-    // padded right edge) and the source's own container box (a grouped source's
-    // drop legitimately leaves through its container; treating the container as
-    // an obstacle would reject every candidate and degrade the column).
-    const dropExempt = ownExempt([source]);
-    const dropDesired = sx + PORT_STUB + CHAMFER;
-    const dropX = clearColumnKeepingLeg({
-      desired: dropDesired,
-      portX: sx,
-      portY: sy,
-      yLo: sy,
-      yHi: laneY,
-      toward,
-      foreignPadded: obstacles.filter((o) => !dropExempt.has(o.nodeId)),
-      foreignRawCards: rawCards.filter((o) => !dropExempt.has(o.nodeId)),
-      // Keep the drop on the source's own (right) side: a column at or left of
-      // the source's Right port would tunnel the source card's body.
-      ownLegRect: rawCards.find((o) => o.nodeId === source.id),
-      sideClamp: (x) => x >= sx + CHAMFER,
+    members.push({
+      index,
+      trunkKey: data.trunkKey,
+      band: (data as LaneBusEdgeData).busBand ?? "bottom",
+      source,
+      target,
+      sx,
+      sy,
+      tx,
+      ty,
+      laneY,
+      toward: gap > 0 ? 1 : -1,
+      // Drop column default: one stub + chamfer off the source's Right port.
+      dropBase: sx + PORT_STUB + CHAMFER,
+      // Rise column default: the staggered entryX when present (keep the
+      // stagger), else one stub + chamfer inside the target's Left port.
+      riseBase:
+        (edge.data as { entryX?: number } | undefined)?.entryX ??
+        tx - PORT_STUB - CHAMFER,
     });
-    if (dropX !== dropDesired) dropXByIndex.set(index, dropX);
-
-    // Rise vertical: lane up to the target port, side-keeping (the connecting
-    // horizontal into the target port must stay clear too). Its desired column
-    // is the staggered entryX when present (keep the stagger; only move it off
-    // foreign geometry). Exempt the target's own card / gutter and the target's
-    // own container box (same rationale as the drop side).
-    const riseExempt = ownExempt([target]);
-    const riseDesired =
-      (edge.data as { entryX?: number } | undefined)?.entryX ??
-      tx - PORT_STUB - CHAMFER;
-    const riseX = clearColumnKeepingLeg({
-      desired: riseDesired,
-      portX: tx,
-      portY: ty,
-      yLo: ty,
-      yHi: laneY,
-      toward,
-      foreignPadded: obstacles.filter((o) => !riseExempt.has(o.nodeId)),
-      foreignRawCards: rawCards.filter((o) => !riseExempt.has(o.nodeId)),
-      // Keep the rise on the target's own (left) side: a column at or right of
-      // the target's Left port would tunnel the target card's body. A packed
-      // sibling in an SCC slab would otherwise force the rightward fallback.
-      ownLegRect: rawCards.find((o) => o.nodeId === target.id),
-      sideClamp: (x) => x <= tx - CHAMFER,
-    });
-    if (riseX !== riseDesired) riseXByIndex.set(index, riseX);
   });
+
+  const globalRank = busTrunkGlobalRank(members.map((m) => m.trunkKey));
+
+  // Resolve every member's drop and rise column exactly as before: the foreign-
+  // card dodge sees the UNMODIFIED base column, so every plan resolves bit-for-bit
+  // as it did before this pass. The per-trunk separation (#25) is applied AFTER,
+  // only to columns that actually coincide.
+  const dropNaturalByTrunk = new Map<string, number>();
+  for (const m of members) {
+    if (dropNaturalByTrunk.has(m.trunkKey)) continue; // one drop column per trunk
+    // Exempt the source's own card / gutter (the default column sits a chamfer
+    // off its padded right edge) and its own container box (a grouped source's
+    // drop legitimately leaves through its container).
+    const exempt = ownExempt([m.source]);
+    dropNaturalByTrunk.set(
+      m.trunkKey,
+      clearColumnKeepingLeg({
+        desired: m.dropBase,
+        portX: m.sx,
+        portY: m.sy,
+        yLo: m.sy,
+        yHi: m.laneY,
+        toward: m.toward,
+        foreignPadded: obstacles.filter((o) => !exempt.has(o.nodeId)),
+        foreignRawCards: rawCards.filter((o) => !exempt.has(o.nodeId)),
+        // Keep the drop on the source's own (right) side: a column at or left of
+        // the source's Right port would tunnel the source card's body.
+        ownLegRect: rawCards.find((o) => o.nodeId === m.source.id),
+        sideClamp: (x) => x >= m.sx + CHAMFER,
+      }),
+    );
+  }
+  const riseNaturalByIndex = new Map<number, number>();
+  for (const m of members) {
+    // Exempt the target's own card / gutter and its own container box (same
+    // rationale as the drop side). The desired column is the staggered entryX
+    // when present (baked into riseBase).
+    const exempt = ownExempt([m.target]);
+    riseNaturalByIndex.set(
+      m.index,
+      clearColumnKeepingLeg({
+        desired: m.riseBase,
+        portX: m.tx,
+        portY: m.ty,
+        yLo: m.ty,
+        yHi: m.laneY,
+        toward: m.toward,
+        foreignPadded: obstacles.filter((o) => !exempt.has(o.nodeId)),
+        foreignRawCards: rawCards.filter((o) => !exempt.has(o.nodeId)),
+        // Keep the rise on the target's own (left) side: a column at or right of
+        // the target's Left port would tunnel the target card's body. A packed
+        // sibling in an SCC slab would otherwise force the rightward fallback.
+        ownLegRect: rawCards.find((o) => o.nodeId === m.target.id),
+        sideClamp: (x) => x <= m.tx - CHAMFER,
+      }),
+    );
+  }
+
+  // Per-trunk column separation (#25). Two DISTINCT trunks whose RESOLVED drop
+  // columns (same source layer) or rise columns (same target layer) coincide in
+  // the same band draw their verticals on the same pixels -- a candy-striped
+  // overlap of two items. Bucketing on the RESOLVED column (not the base) touches
+  // only genuine coincidences: where the foreign-card dodge already separated two
+  // trunks, they land in different buckets and neither moves. For a true
+  // coincidence, keep the lowest-slot trunk and step every other trunk in the
+  // bucket by ENTRY_SLOT_PITCH in its stable slot order -- drops rightward off the
+  // source, rises leftward off the target, the side each column already leaves
+  // from. The lowest trunk carries offset 0, so plans with no coincidence stay
+  // pixel-identical.
+  const dropOffsetByTrunk = new Map<string, number>();
+  {
+    const repByTrunk = new Map<string, Member>();
+    for (const m of members) if (!repByTrunk.has(m.trunkKey)) repByTrunk.set(m.trunkKey, m);
+    for (const list of bucketBy(
+      [...repByTrunk.values()],
+      (m) => `${Math.round(dropNaturalByTrunk.get(m.trunkKey)!)}|${m.band}`,
+    )) {
+      const ranks = localRanks(
+        list.map((m) => m.trunkKey),
+        globalRank,
+      );
+      if (ranks.size < 2) continue;
+      for (const [trunkKey, r] of ranks)
+        if (r !== 0) dropOffsetByTrunk.set(trunkKey, r * ENTRY_SLOT_PITCH);
+    }
+  }
+  const riseOffsetByIndex = new Map<number, number>();
+  for (const list of bucketBy(
+    members,
+    (m) => `${Math.round(riseNaturalByIndex.get(m.index)!)}|${m.band}`,
+  )) {
+    const ranks = localRanks(
+      list.map((m) => m.trunkKey),
+      globalRank,
+    );
+    if (ranks.size < 2) continue;
+    for (const m of list) {
+      const off = ranks.get(m.trunkKey)! * ENTRY_SLOT_PITCH;
+      if (off !== 0) riseOffsetByIndex.set(m.index, off);
+    }
+  }
+
+  const dropXByIndex = new Map<number, number>();
+  const riseXByIndex = new Map<number, number>();
+  for (const m of members) {
+    const dropX =
+      dropNaturalByTrunk.get(m.trunkKey)! + (dropOffsetByTrunk.get(m.trunkKey) ?? 0);
+    if (dropX !== m.dropBase) dropXByIndex.set(m.index, dropX);
+    const riseX =
+      riseNaturalByIndex.get(m.index)! - (riseOffsetByIndex.get(m.index) ?? 0);
+    if (riseX !== m.riseBase) riseXByIndex.set(m.index, riseX);
+  }
 
   if (dropXByIndex.size === 0 && riseXByIndex.size === 0) {
     return edges.map((e) => e);
