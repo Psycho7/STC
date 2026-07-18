@@ -122,6 +122,19 @@ const PIPE_DASH = "4 2";
 // edge on zoom changes but not on pan.
 export const LABEL_MIN_ZOOM = 0.35;
 
+// Second, lower zoom LOD gate. Below it the chips that are EXEMPT from
+// LABEL_MIN_ZOOM (the bus aggregate drop chip, the fan-in summed aggregate, and a
+// lone member's long-detour rise chip) collapse to icon-only: the item icon plus
+// the optional sum glyph, with the rate digits dropped. This preserves the
+// "something flows here" signal while un-blanketing dense clusters at fit zoom;
+// the exact rate stays reachable on the chip's hover tooltip. Calibrated between
+// the dense-plan fit zooms that must collapse (battery5-xiranite ~0.28, multi6
+// ~0.17) and the sparse-plan fit zooms that must stay full (crystal ~0.46,
+// default ~0.76), measured in-browser at 1920x1080. Kept below LABEL_MIN_ZOOM so
+// the LOD stays monotonic: per-member chips drop first, then the surviving
+// aggregates shed their digits.
+export const CHIP_ICON_ONLY_MAX_ZOOM = 0.32;
+
 // Physical stroke-width bounds. Edge strokes are drawn in graph units, so the
 // pane zoom scales them: at fit zoom a 1-unit stroke is a sub-pixel hairline. To
 // keep edges visible the width is set to 1/zoom (so it renders near-constant on
@@ -172,6 +185,7 @@ export function FlowChip({
   y,
   item,
   text,
+  marker,
   label,
   title,
   tear,
@@ -186,6 +200,11 @@ export function FlowChip({
   y: number;
   item?: ItemId | undefined;
   text?: string | undefined;
+  // Leading aggregate glyph (the sum "Σ") kept when the chip collapses to
+  // icon-only below CHIP_ICON_ONLY_MAX_ZOOM. In the full chip the glyph already
+  // rides inside `text`; this prop only names what survives the collapse, so a
+  // plain member chip (no marker) collapses to the bare icon. Optional.
+  marker?: string | undefined;
   label: string;
   // Hover-tooltip text. Defaults to `label`; edges pass the exact, un-rounded
   // rate here so hovering reveals the precise value the rounded chip text hides.
@@ -203,6 +222,13 @@ export function FlowChip({
   // (centre) transform-origin keeps that anchor and only grows the chip.
   const scale = zoom !== undefined ? chipCounterScale(zoom) : 1;
   const scalePart = scale !== 1 ? ` scale(${scale})` : "";
+  // Below the icon-only zoom the surviving (LABEL_MIN_ZOOM-exempt) chips shed
+  // their rate digits and render as the icon plus the optional sum glyph, so a
+  // dense fit view stops blanketing. The exact rate stays on the title tooltip.
+  // Zoom-gated member chips never reach here: they are already hidden by the
+  // higher LABEL_MIN_ZOOM gate at their call sites.
+  const iconOnly = zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM;
+  const bodyText = iconOnly ? (marker ?? "") : text;
   return (
     <EdgeLabelRenderer>
       <div
@@ -210,6 +236,7 @@ export function FlowChip({
         {...(edgeId !== undefined ? { "data-edge-id": edgeId } : {})}
         className={
           "nodrag nopan flow-chip" +
+          (iconOnly ? " icon-only" : "") +
           (tear ? " red" : "") +
           (dimmed ? " dimmed" : "")
         }
@@ -229,8 +256,9 @@ export function FlowChip({
         ) : null}
         {/* The text rides in its own span so the .flow-chip max-width clamp can
             ellipsize it (text-overflow does not reach a bare text node inside a
-            flex container). The title attribute above keeps the full value. */}
-        {text ? <span className="chip-text">{text}</span> : null}
+            flex container). The title attribute above keeps the full value. When
+            collapsed the body is just the sum glyph (or nothing). */}
+        {bodyText ? <span className="chip-text">{bodyText}</span> : null}
       </div>
     </EdgeLabelRenderer>
   );
@@ -490,6 +518,7 @@ export default function ItemEdge({
           y={edgeData.faninSigmaY + (edgeData.faninSigmaDy ?? 0)}
           item={edgeData?.item}
           text={faninText}
+          marker="Σ"
           label={faninLabel}
           title={faninTitle}
           dimmed={edgeData?.dimmed}

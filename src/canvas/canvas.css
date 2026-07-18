@@ -1747,6 +1747,15 @@
   text-overflow: ellipsis;
 }
 
+/* Icon-only collapse (see CHIP_ICON_ONLY_MAX_ZOOM in ItemEdge): below the second
+   zoom gate an exempt chip drops its rate digits and renders as the icon plus an
+   optional sum glyph. Tighten the padding and gap so the surviving box is compact
+   and stops blanketing dense clusters at fit zoom. */
+.flow-chip.icon-only {
+  padding: 3px;
+  gap: 3px;
+}
+
 /* Chips need their own dim rule: EdgeLabelRenderer portals them into a separate
    DOM layer outside the React Flow edge wrapper, so the wrapper's
    .react-flow__edge.dimmed fade never reaches them. Canvas threads the edge's

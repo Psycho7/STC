@@ -5,7 +5,11 @@ import Fraction from "fraction.js";
 import BusEdge, { junctionRadius } from "../../src/canvas/BusEdge";
 import type { BusEdgeData } from "../../src/canvas/busRouting";
 import { busRiseBase } from "../../src/canvas/edgePath";
-import type { ItemEdgeData } from "../../src/canvas/ItemEdge";
+import {
+  CHIP_ICON_ONLY_MAX_ZOOM,
+  LABEL_MIN_ZOOM,
+  type ItemEdgeData,
+} from "../../src/canvas/ItemEdge";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
 import { expectRightwardFinish } from "./pathAssertions";
@@ -351,11 +355,13 @@ describe("canvas/BusEdge trunk labels", () => {
   });
 
   it("renders only the aggregate drop chip below the zoom threshold", async () => {
-    // Below LABEL_MIN_ZOOM the per-member rise chip is gated, but the owner's
-    // aggregate drop chip is exempt so the trunk's total survives at the
-    // dense-plan fit zoom (this lone member is its own owner, showing its rate as
-    // the total). NODES are one layer apart, so the lane run is short and the
-    // consumer-labeling exemption (#32) does not trigger.
+    // In the band between the icon-only gate and LABEL_MIN_ZOOM the per-member
+    // rise chip is gated, but the owner's aggregate drop chip is exempt and still
+    // carries its full total (this lone member is its own owner, showing its rate
+    // as the total). NODES are one layer apart, so the lane run is short and the
+    // consumer-labeling exemption (#32) does not trigger. Zoom sits above the
+    // icon-only gate so the aggregate keeps its digits (the collapse below it has
+    // its own test).
     renderEdge(
       {
         item: "Iron Plate",
@@ -363,7 +369,7 @@ describe("canvas/BusEdge trunk labels", () => {
         laneY: 500,
         trunkKey: "Iron Plate|src",
       },
-      0.3,
+      (CHIP_ICON_ONLY_MAX_ZOOM + LABEL_MIN_ZOOM) / 2,
     );
     await findEdgePath();
     const labels = chips();
@@ -410,6 +416,93 @@ describe("canvas/BusEdge trunk labels", () => {
       /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/,
     );
     expect(Number(t![1])).toBeCloseTo(busRiseBase(tx), 1);
+  });
+
+  it("collapses the exempt aggregate drop chip to icon-only below the icon-only zoom", async () => {
+    // "belt" carries a sprite, so the icon survives the collapse. A lone member
+    // is its own owner and carries no sum glyph, so the collapsed body is empty.
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(2, 1),
+        laneY: 500,
+        trunkKey: "belt|src",
+      },
+      CHIP_ICON_ONLY_MAX_ZOOM - 0.05,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    expect(drop).not.toBeNull();
+    expect(drop!.classList.contains("icon-only")).toBe(true);
+    expect(drop!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
+    expect(drop!.textContent).toBe("");
+    // The exact rate still rides the hover tooltip.
+    expect(drop!.getAttribute("title")).toContain("120/min");
+  });
+
+  it("keeps the aggregate's sum glyph when collapsed, dropping only the digits", async () => {
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        laneY: 500,
+        trunkKey: "belt|src",
+        busChipOwner: true,
+        busTotalRate: new Fraction(2, 1),
+        busMemberCount: 2,
+      },
+      CHIP_ICON_ONLY_MAX_ZOOM - 0.05,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    expect(drop).not.toBeNull();
+    expect(drop!.textContent).toBe("Σ");
+    expect(drop!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
+    expect(drop!.getAttribute("title")).toContain("Σ120/min");
+  });
+
+  it("renders the full aggregate chip at the icon-only zoom threshold", async () => {
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(2, 1),
+        laneY: 500,
+        trunkKey: "belt|src",
+      },
+      CHIP_ICON_ONLY_MAX_ZOOM,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    expect(drop).not.toBeNull();
+    expect(drop!.classList.contains("icon-only")).toBe(false);
+    expect(drop!.textContent).toBe("120/min");
+  });
+
+  it("collapses a lone member's exempt long-detour rise chip to icon-only", async () => {
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(2, 1),
+        laneY: 500,
+        trunkKey: "belt|src",
+      },
+      CHIP_ICON_ONLY_MAX_ZOOM - 0.05,
+      FAR_NODES,
+    );
+    await findEdgePath();
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(rise).not.toBeNull();
+    expect(rise!.classList.contains("icon-only")).toBe(true);
+    expect(rise!.textContent).toBe("");
+    expect(rise!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
   });
 
   it("keeps a multi-member trunk's rise chips gated on a long detour", async () => {

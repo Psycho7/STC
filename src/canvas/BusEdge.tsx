@@ -229,6 +229,7 @@ export default function BusEdge({
     text: string,
     label: string,
     title: string,
+    marker?: string,
   ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
@@ -237,6 +238,7 @@ export default function BusEdge({
       y={y}
       item={edgeData?.item}
       text={text}
+      {...(marker ? { marker } : {})}
       label={label}
       title={title}
       tear={edgeData?.isTearEdge}
@@ -281,7 +283,7 @@ export default function BusEdge({
         zoom={zoom}
       />
       {isOwner && dropText
-        ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
+        ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle, sumMarker)
         : null}
       {riseText
         ? renderChip("rise", branchX, branchY, riseText, riseLabel, riseTitle)
