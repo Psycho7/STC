@@ -187,6 +187,24 @@ describe("routeBusEdges", () => {
     expect(data.busChipX).toBeDefined();
   });
 
+  it("keeps a backward lone member's lane slot (extent 0 stays under the threshold)", () => {
+    // Task 4 skips the lane slot only for a lone member whose forward extent
+    // clears BUS_LONG_RUN_THRESHOLD. A BACKWARD feeder (tap left of aggregate)
+    // has a non-positive extent clamped to 0, so the skip must NOT fire and the
+    // slot must survive -- a guard on the extent-0 arithmetic against future
+    // edits of the skip condition.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("agg", "ore", 500, 0), // right edge 648
+      inputProductNode("tap", "ore", 0, 0), // left of the aggregate: backward
+    ];
+    const edges = [mkEdge("e0", "agg", "tap", "ore")];
+
+    const out = routeBusEdges(nodes, edges);
+
+    expect(out[0]!.type).toBe("bus");
+    expect((out[0]!.data as { busChipX?: number }).busChipX).toBeDefined();
+  });
+
   it("is deterministic: shuffled input order yields identical output", () => {
     const rApple = mkRecipe("rApple", ["x"], ["apple"]);
     const rBanana = mkRecipe("rBanana", ["x"], ["banana"]);
@@ -358,29 +376,25 @@ describe("routeBusEdges two-sided lane bands (9B)", () => {
     expect(bands.bottom).not.toBeNull();
   });
 
-  it("cascades a crowded top-band trunk's rise chips UP off its lane", () => {
-    // Mirror of the bottom-band cascade: two adjacent input-product feeders in
-    // the upper half (a node far below sends the trunk to the top band) collapse
-    // the lane extent, so both rise chips stack on the drop column. In the top
-    // band the cascade must run UPWARD (negative dy) so the chips move away from
-    // the graph below, not toward it.
+  it("cascades a lone top-band member's rise chip UP off its lane", () => {
+    // A LONE input-product feeder in the upper half (a node far below sends the
+    // trunk to the top band) whose short run collapses the rise slot onto the
+    // drop column. A lone member is exempt from the #24 capacity hide (its rise
+    // merely restates its own drop's rate but keeps it near the consumer), so it
+    // still cascades -- and in the top band that cascade must run UPWARD (negative
+    // dy) so the chip moves away from the graph below, not toward it.
     const nodes: RFAnyNode[] = [
       inputProductNode("agg", "ore", 0, 0),
-      inputProductNode("t1", "ore", 200, 0),
-      inputProductNode("t2", "ore", 200, 200),
+      inputProductNode("tap", "ore", 200, 0),
       recipeNode("low", 0, 3000, r),
     ];
-    const edges = [
-      mkEdge("e0", "agg", "t1", "ore"),
-      mkEdge("e1", "agg", "t2", "ore"),
-    ];
+    const edges = [mkEdge("e0", "agg", "tap", "ore")];
     const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
     const pitch = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
     expect(bandOf(out, "e0")).toBe("top");
-    // Owner drop chip settles on the lane; the rises pile UPWARD off it.
+    // Owner drop chip settles on the lane; the lone rise piles UPWARD off it.
     expect(busDropDyOf(out, "e0")).toBe(0);
     expect(busChipDyOf(out, "e0")).toBe(-pitch);
-    expect(busChipDyOf(out, "e1")).toBe(-2 * pitch);
   });
 
   it("sends an exact-midline trunk to the bottom band, deterministically", () => {

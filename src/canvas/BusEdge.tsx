@@ -208,9 +208,17 @@ export default function BusEdge({
       (fan !== null &&
         Math.abs(fan.branchAnchor.x - hiddenAt.x) < HIDE_STALE_EPS &&
         Math.abs(fan.branchAnchor.y - hiddenAt.y) < HIDE_STALE_EPS));
+  // Lane member whose rise chip could not seat beside the trunk aggregate on a
+  // short run (issue #24): the seating pass flagged it so it does not cascade
+  // off the band into empty canvas. The lane rise anchor is static edge data
+  // (busChipX, laneY), so unlike the fan-out branch it cannot go stale on a
+  // drag -- the flag alone gates it, no anchor stamp. Both hides suppress the
+  // rise chip and fall back to the hover-path tooltip below.
+  const laneRiseHidden = laneData?.busRiseHidden === true;
+  const memberChipHidden = branchHidden || laneRiseHidden;
   const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
   const riseText =
-    showMemberChip && memberRateStr && !branchHidden
+    showMemberChip && memberRateStr && !memberChipHidden
       ? `${memberRateStr}${unit}`
       : "";
   const riseLabel =
@@ -267,10 +275,11 @@ export default function BusEdge({
         {...(riseLabel ? { "aria-label": riseLabel } : {})}
         {...(markerEnd ? { markerEnd } : {})}
       />
-      {/* A hidden branch chip was this member's only exact-rate tooltip
-          carrier, so keep the share reachable on the edge itself: a transparent
-          hover path over the same geometry carries the native SVG tooltip. */}
-      {branchHidden && riseTitle ? (
+      {/* A hidden member chip (fan-out branch or short-run lane rise) was this
+          member's only exact-rate tooltip carrier, so keep the share reachable
+          on the edge itself: a transparent hover path over the same geometry
+          carries the native SVG tooltip. */}
+      {memberChipHidden && riseTitle ? (
         <path
           d={path}
           fill="none"

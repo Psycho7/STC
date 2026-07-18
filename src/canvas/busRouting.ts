@@ -122,6 +122,16 @@ export type LaneBusEdgeData = BusAggregate & {
   // above) -- so a chip never walks back toward the nodes. Optional, default 0.
   busDropDy?: number;
   busChipDy?: number;
+  // Set by deconflictChipAnchors when a multi-member trunk's lane run is too
+  // short to host this member's rise chip beside the trunk aggregate at the
+  // chip x-separation (issue #24). BusEdge then draws no rise chip: the crowded
+  // rises would otherwise cascade off the band into empty canvas above/below
+  // the graph. Only the aggregate (drop) chip survives on such a run. The
+  // member's exact rate stays on its target card's input row and this edge's
+  // hover tooltip. Unlike the fan-out hide this needs no anchor stamp: the lane
+  // rise anchor is static edge data (busChipX, laneY), so it cannot go stale on
+  // a node drag the way a recomputed fan-out branch anchor can.
+  busRiseHidden?: true;
   // Which lane band this trunk sits in. Bottom band is below the graph (today's
   // behaviour), top band above it. Stamped by routeBusEdges from the mean of the
   // trunk's member port Ys relative to the graph midline; read by

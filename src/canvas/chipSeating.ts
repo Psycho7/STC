@@ -837,7 +837,50 @@ export function deconflictChipAnchors(
     );
     if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
   }
+  // Capacity check before seating the rises. A short lane run cannot host every
+  // member rise chip beside the trunk's aggregate at the wide-chip x-separation
+  // (2 * CHIP_HALF_W_WIDE); left to seatChip the crowded rises cascade off the
+  // band into empty canvas above/below the graph (issue #24). Instead keep only
+  // the rises the run supports and hide the overflow: the aggregate (drop) chip,
+  // already seated above, stays the trunk's one on-lane truth, and each hidden
+  // member's rate remains on its target card's input row and its edge tooltip
+  // (mirroring fanoutBranchHidden). Members are tried FARTHEST-from-aggregate
+  // first (edge-id tie-break) so a member that reads at the consumer end -- where
+  // the source-side drop cannot label it -- wins the scarce slots over a near
+  // one. The aggregate's lane column seeds the kept set so a kept rise clears it
+  // too. Single-member trunks are exempt: a lone rise merely restates its own
+  // drop's rate, and the long-run lone member (Task 4) belongs at the consumer
+  // end, so never capacity-hide it.
+  const MIN_CHIP_SEP = 2 * CHIP_HALF_W_WIDE;
+  const busRiseHiddenByIndex = new Set<number>();
+  const slotsByTrunk = new Map<string, BusSlot[]>();
   for (const slot of busSlots) {
+    const list = slotsByTrunk.get(slot.trunkKey) ?? [];
+    list.push(slot);
+    slotsByTrunk.set(slot.trunkKey, list);
+  }
+  for (const [, slots] of slotsByTrunk) {
+    if (slots.length < 2) continue;
+    const aggX = (slots.find((s) => s.owner) ?? slots[0]!).dropX;
+    const keptX = [aggX];
+    const ordered = [...slots].sort((a, b) => {
+      const da = Math.abs(a.riseChipX - aggX);
+      const db = Math.abs(b.riseChipX - aggX);
+      if (da !== db) return db - da;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    for (const slot of ordered) {
+      if (keptX.every((x) => Math.abs(slot.riseChipX - x) >= MIN_CHIP_SEP)) {
+        keptX.push(slot.riseChipX);
+      } else {
+        busRiseHiddenByIndex.add(slot.index);
+      }
+    }
+  }
+  for (const slot of busSlots) {
+    // A capacity-hidden rise seats nothing, so its phantom box never blocks a
+    // later chip and no busChipDy is stamped (BusEdge draws no rise chip).
+    if (busRiseHiddenByIndex.has(slot.index)) continue;
     const riseDy = seatChip(
       field,
       slot.riseChipX,
@@ -1052,6 +1095,7 @@ export function deconflictChipAnchors(
     const labelDx = labelDxByIndex.get(index);
     const busDropDy = busDropDyByIndex.get(index);
     const busChipDy = busChipDyByIndex.get(index);
+    const busRiseHidden = busRiseHiddenByIndex.has(index);
     const fanoutAggDx = fanoutAggDxByIndex.get(index);
     const fanoutAggDy = fanoutAggDyByIndex.get(index);
     const fanoutBranchDx = fanoutBranchDxByIndex.get(index);
@@ -1063,6 +1107,7 @@ export function deconflictChipAnchors(
       labelDx === undefined &&
       busDropDy === undefined &&
       busChipDy === undefined &&
+      !busRiseHidden &&
       fanoutAggDx === undefined &&
       fanoutAggDy === undefined &&
       fanoutBranchDx === undefined &&
@@ -1079,6 +1124,7 @@ export function deconflictChipAnchors(
         ...(labelDx !== undefined ? { labelDx } : {}),
         ...(busDropDy !== undefined ? { busDropDy } : {}),
         ...(busChipDy !== undefined ? { busChipDy } : {}),
+        ...(busRiseHidden ? { busRiseHidden: true as const } : {}),
         ...(fanoutAggDx !== undefined ? { fanoutAggDx } : {}),
         ...(fanoutAggDy !== undefined ? { fanoutAggDy } : {}),
         ...(fanoutBranchDx !== undefined ? { fanoutBranchDx } : {}),
