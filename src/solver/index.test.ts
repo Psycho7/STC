@@ -14,6 +14,23 @@ import type { ItemTarget } from "../data/targets";
 import type { RecipePack } from "@aef/schema";
 import type { LpResult } from "./lp";
 
+// game v1.4's gas-system machines let the LP route xiranite_enr_powder through
+// a gas chain, displacing the water-fed main+purifier producers. The
+// two-producer coexistence witness below solves against a pack without the
+// gas-machine recipes to keep that plan (upstream recipes are unchanged).
+const GAS_MACHINES = new Set([
+  "gas_pump_1",
+  "gas_reactor_1",
+  "phase_trans_1",
+  "phase_trans_2",
+]);
+const legacyPack: RecipePack = {
+  ...pack,
+  recipes: pack.recipes.filter(
+    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
+  ),
+};
+
 // Force a specific LpResult.status for the infeasible/unbounded throw-arm tests.
 // The LP model puts deficit+surplus slack on every finite-supply item, so the
 // raw solver is always feasible for real recipe-pack data; "infeasible" and
@@ -46,9 +63,10 @@ describe("solvePlanWithIntermediates (LP)", () => {
         ratePerSec: { num: "6", denom: "60" },
       },
     ];
+    // legacyPack: on the full v1.4 pack the gas route displaces both producers.
     const full = solvePlanWithIntermediates(
       targets,
-      pack,
+      legacyPack,
       defaultTransportConfig,
     );
     expect(full.rates.get("liquid_xiranite_poly")).toBeDefined();

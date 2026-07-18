@@ -8,6 +8,24 @@ import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipePack } from "@aef/schema";
 
+// game v1.4 added the gas-system machines whose recipes let the LP route
+// xiranite_enr_powder through a gas chain, displacing the water-fed
+// main+purifier producers this file's headline regression pins. Solving
+// against a pack without the gas-machine recipes reproduces the exact
+// pre-v1.4 plan (every upstream recipe is unchanged).
+const GAS_MACHINES = new Set([
+  "gas_pump_1",
+  "gas_reactor_1",
+  "phase_trans_1",
+  "phase_trans_2",
+]);
+const legacyPack: RecipePack = {
+  ...pack,
+  recipes: pack.recipes.filter(
+    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
+  ),
+};
+
 // Exact per-item mass-balance residual over the extracted result:
 // production - consumption + draw - surplus + deficit - demand, in Fraction
 // arithmetic, for every finite-supply item. The extraction recomputes
@@ -94,20 +112,23 @@ describe("solveLp - single-item target", () => {
   });
 });
 
+// legacyPack: the 4:1 main+purifier coexistence is the named regression
+// witness here. On the full v1.4 pack the LP routes xiranite_enr_powder through
+// the gas chain, so neither producer runs; the pre-gas pack keeps the witness.
 describe("solveLp - headline (4:1 purifier)", () => {
   const targets: ItemTarget[] = [
     { itemId: "xiranite_enr_powder", ratePerSec: { num: "6", denom: "60" } },
   ];
 
   it("meets the target demand at 6/min (0.1 enr_powder/sec)", () => {
-    const result = solveLp({ targets, pack });
+    const result = solveLp({ targets, pack: legacyPack });
     const xEnr = result.rates.get("xiranite_enr_powder");
     expect(xEnr).toBeDefined();
     expect(xEnr!.equals(new Fraction(1, 10))).toBe(true);
   });
 
   it("runs the main and purifier recipes at a 4:1 ratio", () => {
-    const result = solveLp({ targets, pack });
+    const result = solveLp({ targets, pack: legacyPack });
     const xMain = result.rates.get("liquid_xiranite_poly");
     const xPurifier = result.rates.get("liquid_xiranite_poly-purifier");
     expect(xMain, "main liquid_xiranite_poly must be active").toBeDefined();
@@ -117,7 +138,7 @@ describe("solveLp - headline (4:1 purifier)", () => {
   });
 
   it("produces zero liquid_xiranite_lowpoly surplus", () => {
-    const result = solveLp({ targets, pack });
+    const result = solveLp({ targets, pack: legacyPack });
     const lowpoly = result.surplus.get("liquid_xiranite_lowpoly");
     if (lowpoly !== undefined) expect(lowpoly.equals(0)).toBe(true);
   });
