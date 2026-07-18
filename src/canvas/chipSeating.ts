@@ -1218,7 +1218,7 @@ export function deconflictChipAnchors(
   // the fan-out phases so a dual-role edge's fan-out geometry is in hand. It is
   // presentational only: no edge is retyped, a fan-out member keeps its fan-out
   // role, and each member is summed by its own rate exactly once.
-  const FANIN_Y_EPS = 1;
+  const FANIN_EPS = 1;
   type FaninMember = {
     index: number;
     id: string;
@@ -1231,9 +1231,18 @@ export function deconflictChipAnchors(
   };
   const faninGroups = new Map<string, FaninMember[]>();
   const faninTargetByKey = new Map<string, { tx: number; ty: number }>();
+  // (item, target) ports that ALSO receive a same-item edge outside the marker's
+  // scope (a lane-bus rise, a backward rail, or any non-collinear approach). A
+  // Sigma there would sum only the collinear members and understate the card's
+  // input row, so such a port gets NO marker at all.
+  const faninExcludedKeys = new Set<string>();
   edges.forEach((edge, index) => {
     const item = edgeItem(edge);
     if (item === undefined) return;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) return;
+    const key = item + "|" + edge.target;
     const itemGeom = itemGeomByIndex.get(index);
     const fanGeom = fanoutGeomByIndex.get(index);
     let pts: ReadonlyArray<readonly [number, number]>;
@@ -1248,21 +1257,39 @@ export function deconflictChipAnchors(
     } else if (fanGeom !== undefined) {
       pts = fanGeom.pts;
     } else {
-      return; // lane bus members approach via a rise column, out of scope
+      // Lane bus members approach via a rise column, not along the port-y run.
+      faninExcludedKeys.add(key);
+      return;
     }
-    if (pts.length < 2) return;
+    if (pts.length < 2) {
+      faninExcludedKeys.add(key);
+      return;
+    }
     const first = pts[0]!;
     const last = pts[pts.length - 1]!;
-    if (last[0] <= first[0]) return; // forward only (target right of source)
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    if (source === undefined || target === undefined) return;
+    if (last[0] <= first[0]) {
+      // Backward rail: enters through the gutter, not along the shared run.
+      faninExcludedKeys.add(key);
+      return;
+    }
     const tx = absoluteLeft(target, byId);
     const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
     const secondLast = pts[pts.length - 2]!;
-    if (Math.abs(secondLast[1] - ty) > FANIN_Y_EPS) return; // final leg not at port y
+    if (Math.abs(secondLast[1] - ty) > FANIN_EPS) {
+      // Final leg not at the port y: feeds the port off the shared run.
+      faninExcludedKeys.add(key);
+      return;
+    }
     const rate = (edge.data as { rate?: unknown } | undefined)?.rate;
-    const key = item + "|" + edge.target;
+    if (!(rate instanceof Fraction) && import.meta.env.DEV) {
+      // Dev/test-only tripwire, tree-shaken out of production builds (parity
+      // with the seating warnings above): a rate-less member sums as 0, so a
+      // marked port's Sigma would silently understate the card's input row.
+      console.warn(
+        `chip seating: fan-in member ${edge.id} carries no Fraction rate; ` +
+          "it sums as 0 in any Sigma aggregate on its port",
+      );
+    }
     const list = faninGroups.get(key) ?? [];
     list.push({
       index,
@@ -1313,6 +1340,10 @@ export function deconflictChipAnchors(
   const faninSeatJobs: FaninSeatJob[] = [];
   for (const [key, members] of faninGroups) {
     if (members.length < 2) continue;
+    // Mixed-feed port: an out-of-scope same-item edge (lane-bus rise, backward
+    // rail, non-collinear approach) also enters this port, so a Sigma over just
+    // the collinear members would contradict the card's input row. No marker.
+    if (faninExcludedKeys.has(key)) continue;
     // Fan-in needs 2+ DISTINCT incoming flows. Same-(item, source) edges are one
     // flow (a parallel bundle already drawn as one visual line), not a merge, so
     // require distinct sources before marking a junction.
@@ -1408,9 +1439,9 @@ export function deconflictChipAnchors(
       const seatX = geom.lx + seat.dx;
       const seatY = geom.ly + seat.dy;
       if (
-        Math.abs(seatY - run.ty) <= FANIN_Y_EPS &&
-        seatX >= run.mergeX - FANIN_Y_EPS &&
-        seatX <= run.tx + FANIN_Y_EPS
+        Math.abs(seatY - run.ty) <= FANIN_EPS &&
+        seatX >= run.mergeX - FANIN_EPS &&
+        seatX <= run.tx + FANIN_EPS
       ) {
         field.placed.pop();
         faninChipHiddenByIndex.add(index);
@@ -1512,7 +1543,15 @@ export function deconflictChipAnchors(
               faninMemberCount: faninSigma.count,
             }
           : {}),
-        ...(faninChipHidden ? { faninChipHidden: true as const } : {}),
+        // The hide is stamped with the port y it was decided at, so ItemEdge
+        // can drop it once a node drag moves the live port away from the stamp
+        // (the fanoutBranchHiddenAt staleness pattern).
+        ...(faninChipHidden
+          ? {
+              faninChipHidden: true as const,
+              faninChipHiddenAtY: faninMemberRunByIndex.get(index)!.ty,
+            }
+          : {}),
       },
     };
   });

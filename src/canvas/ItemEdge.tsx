@@ -78,10 +78,13 @@ export type ItemEdgeData = {
   // ONE elected owner item edge of such a group so its ItemEdge draws the shared
   // marker: faninJunction* is the merge point (a bus-junction dot), faninSigma*
   // the summed-rate aggregate chip anchor on the shared run, faninSigmaDx/Dy its
-  // seat offsets, faninTotalRate the summed arriving rate and faninMemberCount the
-  // arriving-edge count. Presentational only: no edge is retyped and no member's
-  // own rate changes (a dual-role edge that is a fan-out member at its source is
-  // summed here by its own rate, once).
+  // seat offsets, faninTotalRate the sum over EVERY collinear forward member of
+  // the merged run and faninMemberCount that member count. A port that also
+  // receives a same-item feed outside the run (a lane-bus rise, a backward rail)
+  // gets no marker at all, so a displayed Sigma never understates the card's
+  // input row. Presentational only: no edge is retyped and no member's own rate
+  // changes (a dual-role edge that is a fan-out member at its source is summed
+  // here by its own rate, once).
   faninJunctionX?: number;
   faninJunctionY?: number;
   faninSigmaX?: number;
@@ -95,7 +98,10 @@ export type ItemEdgeData = {
   // ItemEdge then draws no rate chip, keeping the exact member rate on a
   // transparent hover path (and the target card's input row). Members whose chip
   // sits on their own PRE-merge leg keep it. Mirrors the bus member-hide.
+  // faninChipHiddenAtY records the port y the hide was decided at, so the hide
+  // (like the whole marker) drops once a drag moves the live port off the stamp.
   faninChipHidden?: boolean;
+  faninChipHiddenAtY?: number;
 };
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
@@ -273,7 +279,7 @@ export function JunctionDot({
   testId: string;
   x: number;
   y: number;
-  color: string | undefined;
+  color: string;
   dimmed?: boolean | undefined;
   zoom: number;
 }) {
@@ -327,11 +333,31 @@ export default function ItemEdge({
   // The full "Name x rate/min" string rides on aria-label so a screen reader can
   // name the item, and a separate tooltip carries the exact, un-rounded rate the
   // rounding hides (chips now accept pointer events, so hovering shows it).
+  // Drag-staleness guard for the fan-in marker, mirroring BusEdge's
+  // fanoutBranchHiddenAt pattern (the ratified issue-9 stale-hide rule): the
+  // marker fields are stamped absolute coordinates from the seating pass, and
+  // nodes stay mouse-draggable without a re-seat. Once the stamped port y
+  // diverges from the LIVE target port y (the targetY prop) past the eps, the
+  // dot, the Sigma, and the member hide all drop together -- a floating marker
+  // or a wrongly hidden chip is worse than a temporarily unmarked merge. The
+  // eps sits well above the ~1-unit port-model noise between the seating
+  // reconstruction and React Flow's measured handles, and well below any
+  // meaningful drag (half a max-scale chip box height).
+  const HIDE_STALE_EPS = 24;
+  const faninStale = (stampY: number | undefined): boolean =>
+    stampY !== undefined && Math.abs(stampY - targetY) >= HIDE_STALE_EPS;
   // A fan-in member whose own rate chip would sit on the shared merged run draws
   // no rate chip -- the summed Sigma reads there instead. The exact member rate
   // stays reachable on the transparent hover path below (and the target card's
-  // input row), mirroring the bus member-hide.
-  const ownChipHidden = edgeData?.faninChipHidden === true;
+  // input row), mirroring the bus member-hide. The hide only holds while the
+  // live port still matches the stamp (see the staleness guard above).
+  const ownChipHidden =
+    edgeData?.faninChipHidden === true &&
+    !faninStale(edgeData.faninChipHiddenAtY);
+  // The owner's marker (dot + Sigma) follows the same staleness rule.
+  const faninMarkerLive =
+    edgeData?.faninJunctionY !== undefined &&
+    !faninStale(edgeData.faninJunctionY);
   const chipText =
     edgeData && rateStr && zoom >= LABEL_MIN_ZOOM && !ownChipHidden
       ? `${rateStr}${unit}`
@@ -438,26 +464,30 @@ export default function ItemEdge({
         </path>
       ) : null}
       {/* Fan-in merge dot (owner only): where the last same-item member joins the
-          shared run into the target port. Reuses BusEdge's junction dot markup. */}
-      {edgeData?.faninJunctionX !== undefined &&
-      edgeData.faninJunctionY !== undefined ? (
+          shared run into the target port. Reuses BusEdge's junction dot markup.
+          Dropped while stale (see the staleness guard above). */}
+      {faninMarkerLive && edgeData?.faninJunctionX !== undefined ? (
         <JunctionDot
           testId={`fanin-junction-${id}`}
           x={edgeData.faninJunctionX}
-          y={edgeData.faninJunctionY}
+          y={edgeData.faninJunctionY!}
           color={kindStyle.stroke}
           dimmed={edgeData.dimmed}
           zoom={zoom}
         />
       ) : null}
       {/* Fan-in summed aggregate chip (owner only) on the shared run. Classified
-          bus-drop for the geometry audit (testid bus-edge-*-drop). */}
-      {edgeData?.faninSigmaX !== undefined && faninText ? (
+          bus-drop for the geometry audit (testid bus-edge-*-drop). The anchor
+          pair is stamped together, so both coordinates gate the render. */}
+      {faninMarkerLive &&
+      edgeData?.faninSigmaX !== undefined &&
+      edgeData.faninSigmaY !== undefined &&
+      faninText ? (
         <FlowChip
           testId={`bus-edge-fanin-${id}-drop`}
           edgeId={id}
           x={edgeData.faninSigmaX + (edgeData.faninSigmaDx ?? 0)}
-          y={(edgeData.faninSigmaY ?? 0) + (edgeData.faninSigmaDy ?? 0)}
+          y={edgeData.faninSigmaY + (edgeData.faninSigmaDy ?? 0)}
           item={edgeData?.item}
           text={faninText}
           label={faninLabel}

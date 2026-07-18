@@ -87,6 +87,57 @@ describe("deconflictChipAnchors: fan-in markers", () => {
     expect(owner.faninChipHidden).toBeUndefined();
   });
 
+  it("marks no fan-in for two edges from ONE source (a parallel bundle is one flow)", () => {
+    // Same (item, source) edges share one visual line; a junction dot there
+    // would invent a merge that does not exist.
+    const tgt = orderedRecipeNode("tgt", 1000, 100, ["s"]);
+    const src = recipeNode("src", 0, 80, mkRecipe("src", [], ["s"]));
+    const nodes: RFAnyNode[] = [src, tgt];
+    const edges: Edge[] = [
+      rateEdge("e:1:src->tgt:s", "src", "tgt", "s", new Fraction(4)),
+      rateEdge("e:2:src->tgt:s", "src", "tgt", "s", new Fraction(1)),
+    ];
+
+    const out = deconflictChipAnchors(nodes, edges);
+    for (const id of ["e:1:src->tgt:s", "e:2:src->tgt:s"]) {
+      const d = dataOf(out, id);
+      expect(d.faninJunctionX).toBeUndefined();
+      expect(d.faninTotalRate).toBeUndefined();
+      expect(d.faninChipHidden).toBeUndefined();
+    }
+  });
+
+  it("marks no fan-in on a mixed-feed port (an out-of-scope same-item feed enters too)", () => {
+    // Two forward item edges into tgt's port PLUS a BACKWARD same-item edge into
+    // the same port (enters via the gutter rail, off the shared run). A Sigma
+    // over just the two forward members would understate the card's input row,
+    // so the whole port gets no marker.
+    const tgtRecipe = mkRecipe("tgt", ["s"], []);
+    const tgt = orderedRecipeNode("tgt", 1000, 100, ["s"]);
+    const ty = 100 + measureRecipe(tgtRecipe).inHandleYs[0]!;
+    const srcA = recipeNode("srcA", 0, 0, mkRecipe("srcA", [], ["s"]));
+    const srcBRecipe = mkRecipe("srcB", [], ["s"]);
+    const srcBOutY0 = measureRecipe(srcBRecipe).outHandleYs[0]!;
+    const srcB = recipeNode("srcB", 600, ty - srcBOutY0, srcBRecipe);
+    // Backward feeder: sits RIGHT of the target, so its edge routes as a rail.
+    const back = recipeNode("back", 1600, 100, mkRecipe("back", [], ["s"]));
+
+    const nodes: RFAnyNode[] = [srcA, srcB, back, tgt];
+    const edges: Edge[] = [
+      rateEdge("e:1:srcA->tgt:s", "srcA", "tgt", "s", new Fraction(4)),
+      rateEdge("e:2:srcB->tgt:s", "srcB", "tgt", "s", new Fraction(1)),
+      rateEdge("e:3:back->tgt:s", "back", "tgt", "s", new Fraction(2)),
+    ];
+
+    const out = deconflictChipAnchors(nodes, edges);
+    for (const e of out) {
+      const d = e.data as FaninData;
+      expect(d.faninJunctionX).toBeUndefined();
+      expect(d.faninTotalRate).toBeUndefined();
+      expect(d.faninChipHidden).toBeUndefined();
+    }
+  });
+
   it("counts a dual-role edge once: fan-out total unchanged, fan-in Sigma sums own rates", () => {
     // Source S fans out to two adjacent-layer targets A and B (a fan-out trunk).
     // Target A also receives an item edge from T. At A's port, the fan-out member
