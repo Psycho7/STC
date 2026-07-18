@@ -401,23 +401,25 @@ describe("busBandRegions", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
   const far = 2000;
 
-  // Absolute node horizontal span for these parent-less fixtures (position.x is
-  // already absolute), padded by BAND_X_MARGIN -- the x-extent every region gets.
-  const nodeSpan = (nodes: RFAnyNode[]) => {
-    let left = Infinity;
-    let right = -Infinity;
-    for (const n of nodes) {
-      left = Math.min(left, n.position.x);
-      right = Math.max(right, n.position.x + nodeWidth(n));
-    }
-    return { x: left - BAND_X_MARGIN, width: right + BAND_X_MARGIN - (left - BAND_X_MARGIN) };
+  // The band x-extent tracks its trunk RUN (drop column .. rise column), not the
+  // node span: drop base one stub + chamfer off the source's Right port, rise
+  // base one stub + chamfer inside the target's Left port, each padded by
+  // BAND_X_MARGIN. sourceRight / targetLeft are absolute here (parent-less).
+  const trunkRunX = (sourceRight: number, targetLeft: number) => {
+    const dropCol = sourceRight + PORT_STUB + CHAMFER;
+    const riseCol = targetLeft - PORT_STUB - CHAMFER;
+    const lo = Math.min(dropCol, riseCol) - BAND_X_MARGIN;
+    const hi = Math.max(dropCol, riseCol) + BAND_X_MARGIN;
+    return { x: lo, width: hi - lo };
   };
 
   it("maps each non-null band to its lane extent padded by BAND_Y_PAD", () => {
     // One trunk high (top band) and one low (bottom band), each blocked at its
     // own target row, so both bands hold a trunk -- mirrors the laneBands extent
     // fixture. Every region's y-extent is the band's lane range padded, and its
-    // x-extent is the node span padded.
+    // x-extent is the trunk's own drop..rise run padded -- narrower than the node
+    // span, which here also spans the two mid blockers and the target's full
+    // width.
     const nodes: RFAnyNode[] = [
       recipeNode("sHi", 0, 0, r),
       recipeNode("tHi", far, 0, r),
@@ -434,7 +436,9 @@ describe("busBandRegions", () => {
     const out = routeBusEdges(nodes, edges);
     const bands = laneBands(out);
     const regions = busBandRegions(nodes, out);
-    const span = nodeSpan(nodes);
+    // Both bands' trunks run from the source's right edge (0 + width) to the
+    // target's left edge (far).
+    const run = trunkRunX(nodeWidth(nodes[0]!), far);
 
     expect(regions.map((rg) => rg.band).sort()).toEqual(["bottom", "top"]);
     for (const band of ["top", "bottom"] as const) {
@@ -442,8 +446,13 @@ describe("busBandRegions", () => {
       const region = regions.find((rg) => rg.band === band)!;
       expect(region.y).toBe(extent.y0 - BAND_Y_PAD);
       expect(region.height).toBe(extent.y1 - extent.y0 + 2 * BAND_Y_PAD);
-      expect(region.x).toBe(span.x);
-      expect(region.width).toBe(span.width);
+      expect(region.x).toBe(run.x);
+      expect(region.width).toBe(run.width);
+      // The run is strictly inside the padded node span (right edge at far +
+      // width), proving the band hugs its routing rather than the nodes.
+      expect(region.x + region.width).toBeLessThan(
+        far + nodeWidth(nodes[1]!) + BAND_X_MARGIN,
+      );
     }
   });
 

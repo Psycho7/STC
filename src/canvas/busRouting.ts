@@ -597,8 +597,8 @@ export function laneBands(edges: ReadonlyArray<Edge>): LaneBands {
 // centred on its lane, so this clears its half-box.
 export const BAND_Y_PAD = LANE_SPACING / 2;
 
-// Horizontal margin added on each side of the node span for a band's x-extent.
-// One stub keeps the faint band from cutting exactly at the border cards' edges.
+// Horizontal margin added on each side of a band's trunk run for its x-extent.
+// One stub keeps the faint band from cutting exactly at the drop / rise columns.
 export const BAND_X_MARGIN = PORT_STUB;
 
 // An absolute-coordinate band rectangle for the bus-band marking layer: the
@@ -612,13 +612,16 @@ export type BusBandRegion = {
 };
 
 // busBandRegions: the drawable rectangle of every non-null lane band, folded
-// over the ROUTED edges (laneBands) plus the node span. The y-extent is the
-// band's lane range padded by BAND_Y_PAD; the x-extent is the graph's node
-// horizontal span padded by BAND_X_MARGIN. Bus trunks span two-plus layers, so
-// their lane runs live under essentially the full node span -- the node span is
-// a stable, honest proxy for the lane region without recomputing every member's
-// drop / rise column. Empty when no band holds a trunk (or the graph has no
-// nodes). Pure and deterministic; consumed by the BusBands render layer.
+// over the ROUTED edges (laneBands). The y-extent is the band's lane range
+// padded by BAND_Y_PAD; the x-extent is the band's OWN trunk run -- the min drop
+// column to the max rise column over its lane members -- padded by
+// BAND_X_MARGIN. A short feeder trunk (a single layer, or a graph whose bus
+// routing is confined to one region) then marks only where its lanes actually
+// route instead of stretching the tint under every node. Each member's drop /
+// rise column falls back to its routeBusEdges base when clearBusColumns did not
+// move it (the classifier output alone carries no dropX / riseX). Empty when no
+// band holds a trunk (or no member resolves a run). Pure and deterministic;
+// consumed by the BusBands render layer.
 export function busBandRegions(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -628,21 +631,46 @@ export function busBandRegions(
 
   const byId = new Map<string, RFAnyNode>();
   for (const node of nodes) byId.set(node.id, node);
-  let left = Infinity;
-  let right = -Infinity;
-  for (const node of nodes) {
-    const l = absoluteLeft(node, byId);
-    left = Math.min(left, l);
-    right = Math.max(right, l + nodeWidth(node));
-  }
-  if (!Number.isFinite(left)) return []; // no nodes -> nothing to anchor to
 
-  const x = left - BAND_X_MARGIN;
-  const width = right + BAND_X_MARGIN - x;
+  // Per-band horizontal run: the min drop column to the max rise column over the
+  // band's lane members. Drop base is one stub + chamfer off the source's Right
+  // port; rise base is the staggered entryX when present, else one stub + chamfer
+  // inside the target's Left port -- mirroring clearBusColumns' riseBase. The
+  // stamped dropX / riseX (a moved column) override the base.
+  type Run = { lo: number; hi: number };
+  const runs: Record<"top" | "bottom", Run> = {
+    top: { lo: Infinity, hi: -Infinity },
+    bottom: { lo: Infinity, hi: -Infinity },
+  };
+  for (const edge of edges) {
+    if (edge.type !== "bus") continue;
+    const data = edge.data as BusEdgeData | undefined;
+    if (data === undefined || !("laneY" in data)) continue;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) continue;
+    const cols = edge.data as {
+      dropX?: number;
+      riseX?: number;
+      entryX?: number;
+    };
+    const sx = absoluteLeft(source, byId) + nodeWidth(source);
+    const tx = absoluteLeft(target, byId);
+    const dropCol = cols.dropX ?? sx + PORT_STUB + CHAMFER;
+    const riseCol = cols.riseX ?? cols.entryX ?? tx - PORT_STUB - CHAMFER;
+    const run = runs[data.busBand === "top" ? "top" : "bottom"];
+    run.lo = Math.min(run.lo, dropCol, riseCol);
+    run.hi = Math.max(run.hi, dropCol, riseCol);
+  }
+
   const regions: BusBandRegion[] = [];
   for (const band of ["top", "bottom"] as const) {
     const extent = bands[band];
     if (extent === null) continue;
+    const run = runs[band];
+    if (!Number.isFinite(run.lo)) continue; // band has no resolvable member run
+    const x = run.lo - BAND_X_MARGIN;
+    const width = run.hi + BAND_X_MARGIN - x;
     const y = extent.y0 - BAND_Y_PAD;
     regions.push({
       band,
