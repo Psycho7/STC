@@ -1,14 +1,11 @@
-import {
-  BaseEdge,
-  EdgeLabelRenderer,
-  useStore,
-  type EdgeProps,
-} from "@xyflow/react";
+import { BaseEdge, useStore, type EdgeProps } from "@xyflow/react";
 import { useMemo } from "react";
 import {
   FlowChip,
+  JunctionDot,
   LABEL_MIN_ZOOM,
   edgeStrokeWidth,
+  junctionRadius,
   strokeForKind,
   type ItemEdgeData,
 } from "./ItemEdge";
@@ -21,30 +18,10 @@ import {
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
-// Radius of the junction dot each bus edge draws at its own branch point, where
-// it leaves the shared trunk lane to rise into its target, in graph units.
-const JUNCTION_RADIUS = 3;
-
-// Junction-dot screen-radius bounds, in physical px. The dot is drawn in graph
-// units, so the pane zoom scales it (on-screen radius = r * zoom): at the
-// dense-plan fit zoom a 3-unit dot is a sub-pixel speck. Counter-scale it like
-// ItemEdge's stroke clamp so the dot holds a legible on-screen radius clamped to
-// this range across zoom.
-const JUNCTION_MIN_PX = 3;
-const JUNCTION_MAX_PX = 5;
-
-// Graph-unit radius that renders the junction dot at a screen radius clamped to
-// [JUNCTION_MIN_PX, JUNCTION_MAX_PX]. At zoom 1 this is the natural
-// JUNCTION_RADIUS; below it the graph radius grows to hold the pixel floor,
-// above it the dot stops growing at the pixel cap. zoom is always > 0 (the pane
-// clamps minZoom well above zero).
-export function junctionRadius(zoom: number): number {
-  const screen = Math.min(
-    JUNCTION_MAX_PX,
-    Math.max(JUNCTION_MIN_PX, JUNCTION_RADIUS * zoom),
-  );
-  return screen / zoom;
-}
+// The junction dot markup and its zoom-clamped radius are shared with ItemEdge
+// (the fan-in merge dot reuses them); junctionRadius is re-exported so existing
+// importers that reach for it via BusEdge keep working.
+export { junctionRadius };
 
 // BusEdge renders a bus-trunk member via chamferBusPath: exit the source
 // rightward, chamfer down into the shared lane, run along it, then chamfer up
@@ -292,29 +269,17 @@ export default function BusEdge({
           <title>{riseTitle}</title>
         </path>
       ) : null}
-      {/* Junction dot in the HTML label layer (not an SVG circle in the edge
-          group) so it shares the chips' stacking context. It sits BELOW the flow
-          chips (.bus-junction z-index: 1 vs .flow-chip z-index: 2 in canvas.css):
-          the aggregate chip's digits win, and an overlapping chip hides the dot
-          behind it. Sized in graph units via junctionRadius so the pane zoom
-          renders it at a screen radius clamped to [JUNCTION_MIN_PX,
-          JUNCTION_MAX_PX]. Threads the same `dimmed` state the chips do (the
-          label layer portals outside the edge wrapper, so the wrapper's dim never
-          reaches it). */}
-      <EdgeLabelRenderer>
-        <div
-          data-testid={`bus-junction-${id}`}
-          aria-hidden="true"
-          className={"bus-junction" + (edgeData?.dimmed ? " dimmed" : "")}
-          style={{
-            position: "absolute",
-            transform: `translate(-50%, -50%) translate(${junction.x}px, ${junction.y}px)`,
-            width: `${2 * junctionRadius(zoom)}px`,
-            height: `${2 * junctionRadius(zoom)}px`,
-            background: kindStyle.stroke,
-          }}
-        />
-      </EdgeLabelRenderer>
+      {/* Junction dot at the lane branch point (bus member), reusing the shared
+          JunctionDot markup. It sits BELOW the flow chips in the shared
+          edgelabel-renderer layer, so the aggregate chip's digits win. */}
+      <JunctionDot
+        testId={`bus-junction-${id}`}
+        x={junction.x}
+        y={junction.y}
+        color={kindStyle.stroke}
+        dimmed={edgeData?.dimmed}
+        zoom={zoom}
+      />
       {isOwner && dropText
         ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
         : null}
