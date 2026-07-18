@@ -1312,6 +1312,15 @@ const OBSTACLE_PAD_RIGHT = PORT_STUB;
 export const OBSTACLE_PAD_LEFT = Math.max(PORT_STUB, ENTRY_GUTTER_OVERHANG);
 export const OBSTACLE_PAD_Y = CHAMFER;
 
+// Extra vertical clearance a backward detour rail keeps off a container slab
+// (group / loop box), on top of the OBSTACLE_PAD_Y already baked into its padded
+// rect. At the plain CHAMFER gap the rail hugs the slab border ~16 graph units
+// off it, so a gray return edge and the gray border read as one line at fit zoom
+// (#29). This pushes the rail ~56 units (OBSTACLE_PAD_Y + this) off the raw
+// border -- ~3.5x the plain net gap -- so the two separate visibly. Picked by
+// visual check on the battery5-xiranite / crystal evidence plans.
+export const CONTAINER_RAIL_GAP = 48;
+
 // nodeId identifies the node an obstacle belongs to, so a consumer can exempt an
 // edge's OWN target card / gutter (the default rise and backward entry columns
 // sit inside their own target's padded left band by construction) while
@@ -1338,6 +1347,7 @@ export function paddedObstacles(
       bottom: top + nodeHeight(node) + OBSTACLE_PAD_Y,
       kind: "card",
       nodeId: node.id,
+      container: node.type === "group" || node.type === "loop",
     });
   }
   for (const [nodeId, g] of entryGutterRects(nodes, edges)) {
@@ -1818,7 +1828,14 @@ export function clampBackwardRails(
     const xlDesired =
       (edge.data as { entryX?: number } | undefined)?.entryX ?? tx - PORT_STUB;
     const preferredY = sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2;
-    const railY = clearRailY(preferredY, xlDesired, xrDesired, obstacles);
+    const railY = clearRailY(
+      preferredY,
+      xlDesired,
+      xrDesired,
+      obstacles,
+      CHAMFER,
+      CONTAINER_RAIL_GAP,
+    );
     if (railY !== preferredY) railYByIndex.set(index, railY);
 
     // Clamp the two verticals out of any foreign card / gutter they pierce. The

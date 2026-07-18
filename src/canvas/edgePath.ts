@@ -80,6 +80,10 @@ export type ObstacleRect = {
   right: number;
   top: number;
   bottom: number;
+  // A container slab (group / loop box), not a plain card. clearRailY keeps a
+  // detour rail a wider gap off these so the rail no longer hugs the slab border
+  // in a near-identical gray (#29). Absent / false on cards and gutters.
+  container?: boolean;
 };
 
 // Optional per-edge routing hints. The routing passes (busRouting) merge these
@@ -194,6 +198,9 @@ export function clearRailY(
   xHi: number,
   obstacles: ReadonlyArray<ObstacleRect>,
   gap = CHAMFER,
+  // Wider gap applied to container-slab obstacles (o.container). Defaults to the
+  // plain gap, so a non-container-aware caller is byte-identical to before.
+  containerGap = gap,
 ): number {
   const lo = Math.min(xLo, xHi);
   const hi = Math.max(xLo, xHi);
@@ -203,8 +210,9 @@ export function clearRailY(
     (o) => preferredY >= o.top && preferredY <= o.bottom,
   );
   if (!hits) return preferredY;
-  const aboveY = Math.min(...spanned.map((o) => o.top)) - gap;
-  const belowY = Math.max(...spanned.map((o) => o.bottom)) + gap;
+  const gapOf = (o: ObstacleRect): number => (o.container ? containerGap : gap);
+  const aboveY = Math.min(...spanned.map((o) => o.top - gapOf(o)));
+  const belowY = Math.max(...spanned.map((o) => o.bottom + gapOf(o)));
   return preferredY - aboveY <= belowY - preferredY ? aboveY : belowY;
 }
 
@@ -366,6 +374,21 @@ export function chamferStepPath(
     // cards.
     const railY =
       args.railY ?? (sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2);
+    // Backward chip anchor: on the rail's HORIZONTAL run (at railY), one stub in
+    // from the source-side corner but never past the run midpoint, so it rides
+    // the clean source half clear of the target entry gutter at xl. The rail is
+    // held a wide gap off any container slab (clampBackwardRails, CONTAINER_RAIL_GAP),
+    // so a chip here no longer hugs a slab border the way the source-vertical
+    // midpoint (sy..railY) could when the rail clamps just outside a loop box (#29).
+    // Both detour branches below share this anchor, so it stays CONTINUOUS across
+    // the apex/full boundary -- a one-pixel port-model disagreement between the
+    // live handles and the seating reconstruction cannot teleport it.
+    const railRunSourceX = xr - CHAMFER;
+    const railRunTargetX = xl + CHAMFER;
+    const labelX = Math.max(
+      (railRunSourceX + railRunTargetX) / 2,
+      railRunSourceX - PORT_STUB,
+    );
     // Small detour height: the rail sits within a chamfer of the source level,
     // so a full chamfered column would invert and backtrack (a zigzag spike).
     // Collapse each column to a single apex bevel (peak out at the column x, no
@@ -381,14 +404,13 @@ export function chamferStepPath(
         ` L ${r(xl)},${r((railY + ty) / 2)}` +
         ` L ${r(xl + CHAMFER)},${r(ty)}` +
         ` L ${r(tx)},${r(ty)}`;
-      // Anchor at the apex peak (xr, mid(sy, railY)) -- a path vertex -- the
-      // same source-side-column rule as the full rail below, so the anchor is
-      // CONTINUOUS across this branch boundary. A one-pixel disagreement
-      // between the live handle coordinates and the seating pass's offline
-      // port model can flip which branch each side takes; a discontinuous
-      // anchor then applies the seat's offsets to a far-away point and strands
-      // the chip off its line (and inside a card).
-      return [d, r(xr), r((sy + railY) / 2)];
+      // Anchor on the rail horizontal run (labelX, railY) -- shared with the full
+      // rail below so it is CONTINUOUS across this branch boundary. A one-pixel
+      // disagreement between the live handle coordinates and the seating pass's
+      // offline port model can flip which branch each side takes; a discontinuous
+      // anchor then applies the seat's offsets to a far-away point and strands the
+      // chip off its line (and inside a card).
+      return [d, r(labelX), r(railY)];
     }
     // Right column exits leftward (-1, -1) onto the rail, left column enters
     // leftward (+1, +1) off it; the leftward lane run is the implicit segment
@@ -398,12 +420,13 @@ export function chamferStepPath(
       chamferColumn(xr, sy, railY, CHAMFER, -1, -1) +
       chamferColumn(xl, railY, ty, CHAMFER, 1, 1) +
       ` L ${r(tx)},${r(ty)}`;
-    // Clear-segment anchor: the source-side detour vertical (xr) run midpoint.
-    // The chip rides this vertical corridor leg instead of the leftward rail, so
-    // a downward de-confliction nudge slides it ALONG the vertical (staying on
-    // its own line) and it sits on the clean source side, clear of the target's
-    // entry gutter where the arrival chips crowd.
-    return [d, r(xr), r((sy + railY) / 2)];
+    // Clear-segment anchor: the rail's leftward horizontal run, source side
+    // (labelX, railY). The chip rides this rail leg -- held a wide gap off any
+    // container slab -- so it sits off the source vertical whose midpoint can hug
+    // a loop-box border; a de-confliction slide runs ALONG the rail, and the
+    // source-side clamp keeps it clear of the target entry gutter at xl where the
+    // arrival chips crowd.
+    return [d, r(labelX), r(railY)];
   }
 
   // Forward. forwardStepGeometry scales the stub+chamfer budget down

@@ -19,6 +19,8 @@ import {
   gutterWidth,
   ENTRY_SLOT_PITCH,
   BUS_SPAN_THRESHOLD,
+  CONTAINER_RAIL_GAP,
+  OBSTACLE_PAD_Y,
 } from "../../src/canvas/busRouting";
 import { ENTRY_GUTTER_OVERHANG } from "../../src/canvas/dimensions";
 import {
@@ -417,6 +419,76 @@ describe("clampBackwardRails overhang clearance", () => {
     const midBottom = 65;
     // Threaded rail sits clear of the mid card's padded (overhang) extent.
     expect(railY! > midBottom + CHAMFER || railY! < 0 - CHAMFER).toBe(true);
+  });
+
+  // A container (loop / SCC slab) box wrapping its members. Only geometry
+  // matters to the rail clearance, so the data payload is minimal.
+  const containerNode = (
+    id: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): RFAnyNode =>
+    ({
+      id,
+      type: "group",
+      position: { x, y },
+      width,
+      height,
+      data: {
+        containerKind: "blueprint-group",
+        containerId: id,
+        memberCount: 1,
+      },
+    }) as unknown as RFAnyNode;
+
+  it("clears a container slab by the wider container gap, not the plain CHAMFER", () => {
+    // Backward edge src -> tgt with a container slab ("G") straddling the
+    // corridor between them; the rail's preferred y falls inside the slab. A
+    // return edge and the slab border in a near-identical gray read as one line
+    // when the rail hugs the border at the plain gap, so a container obstacle
+    // gets the wider CONTAINER_RAIL_GAP clearance (#29).
+    const gTop = -20;
+    const gBottom = 100;
+    const nodes: RFAnyNode[] = [
+      inputProductNode("src", "water", 800, 0, 148, 60),
+      inputProductNode("tgt", "water", 0, 0, 148, 60),
+      containerNode("G", 200, gTop, 400, gBottom - gTop),
+    ];
+    const edges = [mkEdge("e0", "src", "tgt", "water")];
+    const out = clampBackwardRails(nodes, edges);
+    const railY = (out[0]!.data as { railY?: number }).railY;
+    expect(railY).toBeDefined();
+    // Rail sits at least (OBSTACLE_PAD_Y + CONTAINER_RAIL_GAP) off the slab's
+    // raw border on whichever side it exits.
+    const clearance = OBSTACLE_PAD_Y + CONTAINER_RAIL_GAP;
+    expect(
+      railY! <= gTop - clearance || railY! >= gBottom + clearance,
+    ).toBe(true);
+  });
+
+  it("clears a plain card of the same shape by only the CHAMFER gap", () => {
+    // The load-bearing half of the container distinction: an ordinary card
+    // (not a group / loop slab) at the same geometry keeps the plain clearance,
+    // so only container obstacles get the wider gap.
+    const cTop = -20;
+    const cBottom = 100;
+    const nodes: RFAnyNode[] = [
+      inputProductNode("src", "water", 800, 0, 148, 60),
+      inputProductNode("tgt", "water", 0, 0, 148, 60),
+      inputProductNode("mid", "water", 200, cTop, 400, cBottom - cTop),
+    ];
+    const edges = [mkEdge("e0", "src", "tgt", "water")];
+    const out = clampBackwardRails(nodes, edges);
+    const railY = (out[0]!.data as { railY?: number }).railY;
+    expect(railY).toBeDefined();
+    const wide = OBSTACLE_PAD_Y + CONTAINER_RAIL_GAP;
+    const plain = OBSTACLE_PAD_Y + CHAMFER;
+    // Cleared off the card (on whichever side) by the plain gap...
+    expect(railY! <= cTop - plain || railY! >= cBottom + plain).toBe(true);
+    // ...but NOT by the wide container clearance.
+    expect(railY! > cTop - wide && railY! < cBottom + wide).toBe(true);
   });
 });
 
