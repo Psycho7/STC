@@ -132,10 +132,8 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     // Aggregate holds the lane; the near member's rise is hidden.
     expect(busDropDyOf(out, "e0")).toBe(0);
     expect(busRiseHiddenOf(out, "e0")).toBe(true);
-    // The far member keeps its rise chip, seated on the lane (never more than one
-    // lane spacing off it).
+    // The far member keeps its rise chip, seated on the lane.
     expect(busRiseHiddenOf(out, "e1")).toBe(false);
-    expect(Math.abs(busChipDyOf(out, "e1"))).toBeLessThanOrEqual(LANE_SPACING);
     expect(busChipDyOf(out, "e1")).toBe(0);
   });
 

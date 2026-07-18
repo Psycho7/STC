@@ -848,7 +848,9 @@ export function deconflictChipAnchors(
   // first (edge-id tie-break) so a member that reads at the consumer end -- where
   // the source-side drop cannot label it -- wins the scarce slots over a near
   // one. The aggregate's lane column seeds the kept set so a kept rise clears it
-  // too. Single-member trunks are exempt: a lone rise merely restates its own
+  // too -- deliberately even when the drop chip itself cascaded off the lane
+  // (busDropDy != 0): the column stays reserved for it, keeping the check a
+  // pure x-capacity rule. Single-member trunks are exempt: a lone rise merely restates its own
   // drop's rate, and the long-run lone member (Task 4) belongs at the consumer
   // end, so never capacity-hide it.
   const MIN_CHIP_SEP = 2 * CHIP_HALF_W_WIDE;

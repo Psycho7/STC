@@ -211,9 +211,11 @@ export default function BusEdge({
   // Lane member whose rise chip could not seat beside the trunk aggregate on a
   // short run (issue #24): the seating pass flagged it so it does not cascade
   // off the band into empty canvas. The lane rise anchor is static edge data
-  // (busChipX, laneY), so unlike the fan-out branch it cannot go stale on a
-  // drag -- the flag alone gates it, no anchor stamp. Both hides suppress the
-  // rise chip and fall back to the hover-path tooltip below.
+  // (busChipX, laneY), but the aggregate's drop column is recomputed live, so
+  // dragging the source away can free room the flag does not see -- the member
+  // stays conservatively hidden after a drag until the next replan. The flag
+  // alone gates it, no anchor stamp. Both hides suppress the rise chip and
+  // fall back to the hover-path tooltip below.
   const laneRiseHidden = laneData?.busRiseHidden === true;
   const memberChipHidden = branchHidden || laneRiseHidden;
   const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
