@@ -1886,7 +1886,17 @@ export function clearBusColumns(
   // source, rises leftward off the target, the side each column already leaves
   // from. The lowest trunk carries offset 0, so plans with no coincidence stay
   // pixel-identical.
+  //
+  // A member of a colliding bucket must render from its STORED resolved column
+  // even at offset 0 (the lowest-slot trunk): its resolved column can equal the
+  // base, and an unstored base falls back in chamferBusPath to a handle-derived
+  // column on a different basis (~4px off), which would shrink the on-screen gap
+  // below one pitch. Tracking the colliding trunks / member indices lets the
+  // final loop force-store rank 0 too, so every member of a collision draws on
+  // the same basis and the separation is exactly one pitch. Non-colliding trunks
+  // are never tracked, so plans with no coincidence stay pixel-identical.
   const dropOffsetByTrunk = new Map<string, number>();
+  const dropCollidingTrunks = new Set<string>();
   {
     const repByTrunk = new Map<string, Member>();
     for (const m of members) if (!repByTrunk.has(m.trunkKey)) repByTrunk.set(m.trunkKey, m);
@@ -1899,11 +1909,14 @@ export function clearBusColumns(
         globalRank,
       );
       if (ranks.size < 2) continue;
-      for (const [trunkKey, r] of ranks)
+      for (const [trunkKey, r] of ranks) {
+        dropCollidingTrunks.add(trunkKey);
         if (r !== 0) dropOffsetByTrunk.set(trunkKey, r * ENTRY_SLOT_PITCH);
+      }
     }
   }
   const riseOffsetByIndex = new Map<number, number>();
+  const riseCollidingIndices = new Set<number>();
   for (const list of bucketBy(
     members,
     (m) => `${Math.round(riseNaturalByIndex.get(m.index)!)}|${m.band}`,
@@ -1914,6 +1927,7 @@ export function clearBusColumns(
     );
     if (ranks.size < 2) continue;
     for (const m of list) {
+      riseCollidingIndices.add(m.index);
       const off = ranks.get(m.trunkKey)! * ENTRY_SLOT_PITCH;
       if (off !== 0) riseOffsetByIndex.set(m.index, off);
     }
@@ -1924,10 +1938,12 @@ export function clearBusColumns(
   for (const m of members) {
     const dropX =
       dropNaturalByTrunk.get(m.trunkKey)! + (dropOffsetByTrunk.get(m.trunkKey) ?? 0);
-    if (dropX !== m.dropBase) dropXByIndex.set(m.index, dropX);
+    if (dropX !== m.dropBase || dropCollidingTrunks.has(m.trunkKey))
+      dropXByIndex.set(m.index, dropX);
     const riseX =
       riseNaturalByIndex.get(m.index)! - (riseOffsetByIndex.get(m.index) ?? 0);
-    if (riseX !== m.riseBase) riseXByIndex.set(m.index, riseX);
+    if (riseX !== m.riseBase || riseCollidingIndices.has(m.index))
+      riseXByIndex.set(m.index, riseX);
   }
 
   if (dropXByIndex.size === 0 && riseXByIndex.size === 0) {

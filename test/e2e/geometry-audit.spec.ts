@@ -410,17 +410,20 @@ test.describe("DOM geometry audit", () => {
 // worktree, since deleted). Current routing must never produce MORE crossings
 // than this per scenario. Not a target -- an upper bound that ratchets down.
 //
-// #25 per-trunk column separation ruling (default 2 -> 9, multi6 236 -> 415):
-// clearBusColumns now steps two DISTINCT-item trunks that resolve onto the SAME
-// drop or rise column in one band apart by one entry-slot pitch, so a solid and a
-// dashed trunk no longer candy-stripe the same pixels. Rerouting a shared column
-// off itself is inherently topological: separating the default copper_ore /
-// liquid_water pair reroutes their drop and rise verticals past the copper
-// sub-graph's edges (verified pitch-invariant -- the count is identical at an
-// 8px or 16px step, so it is which side of an edge the column lands on, not the
-// travel distance). Measured deltas hold across three independent
-// implementations. The moves introduce no new card pierces (battery5 / multi6
-// RAW stays at 1) and were confirmed clean in-browser on the default plan.
+// #25 per-trunk column separation ruling. Baseline bumps: default 0 -> 9,
+// multi6 236 -> 415 (the prior 236 was stale pre-P2 slack; the actual measured
+// pre-#25 multi6 count was 158, so the real delta is +257). clearBusColumns now
+// steps two DISTINCT-item trunks that resolve onto the SAME drop or rise column
+// in one band apart by one entry-slot pitch. The counts rise because formerly-
+// coincident columns HID their crossings as colinear vertical overlaps -- the
+// candy stripe WAS the degenerate crossing -- and separating them converts each
+// into a proper crossing the counter can see. Bus-member pair multiplicity
+// inflates the raw count (~6x per visual crossing on multi6); deduplicated to
+// distinct visual crossing POINTS the change is 67 -> 86, the price of removing
+// 7 distinct-item stripes up to 1455px long. On default all 9 crossings are
+// between the two separated trunks themselves (copper members e:8/e:9 crossing
+// water members e:13/e:14), not past any sub-graph. No new card pierces
+// (battery5 / multi6 RAW stays at 1); confirmed clean in-browser on default.
 const CROSSING_BASELINE: Record<string, number> = {
   default: 9,
   battery5: 187,

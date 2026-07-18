@@ -1018,22 +1018,30 @@ describe("clearBusColumns", () => {
     );
     const dropDefault = 300 + PORT_STUB + CHAMFER; // 332
     const riseDefault = far - PORT_STUB - CHAMFER;
+    // Every member of a colliding bucket stores its resolved column -- including
+    // the lowest-slot trunk at offset 0 -- so both render on the same basis and
+    // the on-screen gap is exactly one pitch (an unstored base would fall back to
+    // a handle-derived column and shrink the gap below a pitch).
+    expect(dropXOf(out, "e1")).toBeDefined();
+    expect(dropXOf(out, "e2")).toBeDefined();
+    expect(riseXOf(out, "e1")).toBeDefined();
+    expect(riseXOf(out, "e2")).toBeDefined();
     const drop1 = dropXOf(out, "e1") ?? dropDefault;
     const drop2 = dropXOf(out, "e2") ?? dropDefault;
     const rise1 = riseXOf(out, "e1") ?? riseDefault;
     const rise2 = riseXOf(out, "e2") ?? riseDefault;
-    // Distinct columns, at least one slot pitch apart on both the drop and rise.
-    expect(Math.abs(drop1 - drop2)).toBeGreaterThanOrEqual(ENTRY_SLOT_PITCH);
-    expect(Math.abs(rise1 - rise2)).toBeGreaterThanOrEqual(ENTRY_SLOT_PITCH);
+    // Distinct columns, exactly one slot pitch apart on both the drop and rise.
+    expect(Math.abs(drop1 - drop2)).toBe(ENTRY_SLOT_PITCH);
+    expect(Math.abs(rise1 - rise2)).toBe(ENTRY_SLOT_PITCH);
   });
 
   it("keeps two separated trunk drops apart when a card forces a dodge (#25)", () => {
     // The same two colliding trunks, plus a foreign card straddling both drop
     // columns (332 and 348) at the run's lane depth. Both drops sit inside the
-    // card's padded band, so both must dodge; the first-resolved sibling column
-    // is fed back as an obstacle so the two dodges cannot collapse onto one
-    // escape column. Without that, both would escape to the same side and
-    // re-collide.
+    // card's padded band, so the foreign-card dodge moves both -- collapsing them
+    // onto the same escape column. The post-dodge separation pass then buckets
+    // them on that shared resolved column and steps them one slot pitch apart, so
+    // the two dodged drops still land on distinct columns.
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, r),
       recipeNode("s1", 0, 1000, r),
