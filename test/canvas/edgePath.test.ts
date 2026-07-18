@@ -228,6 +228,22 @@ describe("chamferStepPath", () => {
     expectRightwardFinish(d);
   });
 
+  it("clamps a short backward rail's anchor to the run midpoint, on the line", () => {
+    // Run length (railRunSourceX - railRunTargetX = sx - tx + 32 = 42) is below
+    // 2*PORT_STUB, so the one-stub-in anchor (railRunSourceX - PORT_STUB = 192)
+    // would fall left of the midpoint; the Math.max fallback clamps labelX to
+    // the midpoint (195), which still lies on the drawn horizontal run.
+    const [d, lx, ly] = chamferStepPath({
+      sourceX: 200,
+      sourceY: 0,
+      targetX: 190,
+      targetY: 100,
+    });
+    expect(lx).toBe(195);
+    expect(ly).toBe(50);
+    expect(distanceToPolyline(d, { x: lx, y: ly })).toBeLessThan(0.01);
+  });
+
   it("routes a backward edge's left rail through an explicit entryX gutter column", () => {
     // The entry-gutter pass stakes out the left rail at a staggered column so two
     // backward rails into one node do not overlap. entryX = -40 moves the rail

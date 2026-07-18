@@ -183,15 +183,19 @@ export function routingHintsFromData(data: unknown): RoutingHints {
   return hints;
 }
 
-// Choose a backward-detour rail y clear of every card the rail horizontally
-// spans. The rail runs at `preferredY` between xLo and xHi; a card whose x-range
-// overlaps [xLo, xHi] and whose y-extent contains preferredY would be sliced.
-// When that happens the rail moves to just above every spanned card
-// (min top - gap) or just below every spanned card (max bottom + gap), whichever
-// is the smaller move, so it clears all of them at once -- the same idea as the
-// bus lane band, which sits clear of the nodes it would otherwise cross. Cards
-// outside the x-span are ignored because the horizontal rail never reaches them.
-// Pure.
+// Choose a backward-detour rail y clear of every obstacle the rail horizontally
+// spans. The rail runs at `preferredY` between xLo and xHi; an obstacle whose
+// x-range overlaps [xLo, xHi] and whose strike band contains preferredY would be
+// sliced (or, for a container slab, hugged). When that happens the rail moves to
+// just above every spanned obstacle (min top - its gap) or just below every
+// spanned obstacle (max bottom + its gap), whichever is the smaller move, so it
+// clears all of them at once -- the same idea as the bus lane band, which sits
+// clear of the nodes it would otherwise cross. Plain obstacles use `gap` for
+// both the strike test and the clearance; container slabs (o.container) use the
+// wider `containerGap` for both, so a rail preferred anywhere inside the
+// container's clearance band -- including the moat between the padded border and
+// the band edge -- is pushed out to the full band (#29). Obstacles outside the
+// x-span are ignored because the horizontal rail never reaches them. Pure.
 export function clearRailY(
   preferredY: number,
   xLo: number,
@@ -206,8 +210,15 @@ export function clearRailY(
   const hi = Math.max(xLo, xHi);
   const spanned = obstacles.filter((o) => o.right > lo && o.left < hi);
   if (spanned.length === 0) return preferredY;
+  // Strike band: the rect itself for plain obstacles; widened by the extra
+  // container clearance for slabs, so a rail preferred in the moat between the
+  // padded border and the full band still counts as a strike and gets pushed
+  // out, instead of being left hugging the border.
+  const reach = (o: ObstacleRect): number =>
+    o.container ? containerGap - gap : 0;
   const hits = spanned.some(
-    (o) => preferredY >= o.top && preferredY <= o.bottom,
+    (o) =>
+      preferredY >= o.top - reach(o) && preferredY <= o.bottom + reach(o),
   );
   if (!hits) return preferredY;
   const gapOf = (o: ObstacleRect): number => (o.container ? containerGap : gap);
