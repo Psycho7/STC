@@ -107,9 +107,11 @@ describe("solver-cli smoke", () => {
 
     expect(withOverride).not.toMatch(/^error:/);
     expect(withOverride).not.toBe(noOverride);
-    // With the override, xiranite_powder's producer is not solved for.
-    expect(noOverride).toMatch(/^xiranite_powder=/m);
-    expect(withOverride).not.toMatch(/^xiranite_powder=/m);
+    // With the override, xiranite_powder's producer is not solved for. Since
+    // game v1.4 the LP's pick for that producer is the gas-route
+    // phase_trans_2-xiranite_powder recipe.
+    expect(noOverride).toMatch(/^phase_trans_2-xiranite_powder=/m);
+    expect(withOverride).not.toMatch(/^phase_trans_2-xiranite_powder=/m);
   });
 
   it("returns clean error for full mode on unknown item", async () => {

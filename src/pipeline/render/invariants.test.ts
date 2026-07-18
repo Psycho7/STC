@@ -1334,8 +1334,26 @@ describe("checkUnitOutflowVsProduction", () => {
 // ---------------------------------------------------------------------------
 
 // Full-pipeline args for the mutation tests below: solve real-pack targets at
-// 1/sec and clone the plan so mutations never leak between tests.
-function mutableArgs(recipeIds: string[]): {
+// 1/sec and clone the plan so mutations never leak between tests. Fixtures
+// whose shape only forms on the pre-gas-machine routes (game v1.4 rerouted the
+// xiranite chain) pass legacyPack to keep their premise.
+const GAS_MACHINES = new Set([
+  "gas_pump_1",
+  "gas_reactor_1",
+  "phase_trans_1",
+  "phase_trans_2",
+]);
+const legacyPack: RecipePack = {
+  ...fullPack,
+  recipes: fullPack.recipes.filter(
+    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
+  ),
+};
+
+function mutableArgs(
+  recipeIds: string[],
+  packArg: RecipePack = fullPack,
+): {
   plan: RenderPlan;
   rates: ReadonlyMap<string, Fraction>;
   pack: RecipePack;
@@ -1348,11 +1366,11 @@ function mutableArgs(recipeIds: string[]): {
   }));
   const full = solvePlanWithIntermediates(
     targets,
-    fullPack,
+    packArg,
     defaultTransportConfig,
     [],
   );
-  const { plan } = renderPlanFromSolve(full, fullPack, targets, []);
+  const { plan } = renderPlanFromSolve(full, packArg, targets, []);
   const cloned: RenderPlan = {
     units: plan.units.map((u) => ({ ...u })) as RenderUnit[],
     edges: plan.edges.map((e) => ({ ...e })) as RenderEdge[],
@@ -1361,7 +1379,7 @@ function mutableArgs(recipeIds: string[]): {
   return {
     plan: cloned,
     rates: full.rates,
-    pack: fullPack,
+    pack: packArg,
     targets,
     itemOverrides: [],
   };
@@ -1454,14 +1472,17 @@ describe("checkProductUnitRates: boundary-unit chips and inputProduct edges", ()
 
   // The aggregate-input plan: liquid_water fans out u:in:liquid_water ->
   // per-container slices. Both aggregate-edge corruption classes passed every
-  // checker before.
+  // checker before. legacyPack: the v1.4 gas route displaces the water-fed
+  // chain, so the aggregate fanout only forms on the pre-gas topology.
   it("clean aggregate plan reports no violations", () => {
-    const result = checkProductUnitRates(mutableArgs(["xiranite_enr_powder"]));
+    const result = checkProductUnitRates(
+      mutableArgs(["xiranite_enr_powder"], legacyPack),
+    );
     expect(result.violations).toEqual([]);
   });
 
   it("fires on a corrupted aggregate->fanout edge (x10)", () => {
-    const args = mutableArgs(["xiranite_enr_powder"]);
+    const args = mutableArgs(["xiranite_enr_powder"], legacyPack);
     const inputIds = new Set(
       args.plan.units.filter((u) => isInputProductUnit(u)).map((u) => u.id),
     );
@@ -1475,7 +1496,7 @@ describe("checkProductUnitRates: boundary-unit chips and inputProduct edges", ()
   });
 
   it("fires on a dropped aggregate->fanout edge", () => {
-    const args = mutableArgs(["xiranite_enr_powder"]);
+    const args = mutableArgs(["xiranite_enr_powder"], legacyPack);
     const inputIds = new Set(
       args.plan.units.filter((u) => isInputProductUnit(u)).map((u) => u.id),
     );

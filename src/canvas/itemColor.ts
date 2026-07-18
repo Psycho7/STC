@@ -115,13 +115,17 @@ function hashItemId(itemId: string): number {
 const SAT_HUE_WINDOW = 10;
 const GRAY_HUE_WINDOW = 24;
 
+// Legibility ceiling for assigned lightness: above this the color washes out
+// against light UI surfaces (chip fills, hover cards). Matches the range test.
+const LIGHT_CAP = 90;
+
 // (saturation, lightness) rung ladders, ordered so early rungs stay closest to
 // the band's base look. Every pair of rungs within a ladder differs by a
 // lightness step >= 8 or a saturation step >= 10, so any two rungs are
 // distinguishable at the same hue. Ladder capacity covers the densest hue
-// cluster in the current pack (10 copper-family items within one window); a
-// pack that outgrows a ladder gets spread repeats (see assignRungs) and fails
-// the no-identical-colors test.
+// cluster in the current pack (the game-v1.4 copper family puts ~14 sat-band
+// items within one window); a pack that outgrows a ladder gets spread repeats
+// (see assignRungs) and fails the no-identical-colors test.
 const SAT_RUNGS: readonly (readonly [number, number])[] = [
   [65, 60],
   [65, 70],
@@ -133,6 +137,9 @@ const SAT_RUNGS: readonly (readonly [number, number])[] = [
   [85, 74],
   [45, 74],
   [65, 78],
+  [65, 86],
+  [85, 84],
+  [45, 84],
 ];
 const GRAY_RUNGS: readonly (readonly [number, number])[] = [
   [12, 62],
@@ -144,6 +151,8 @@ const GRAY_RUNGS: readonly (readonly [number, number])[] = [
   [22, 74],
   [22, 50],
   [12, 46],
+  [12, 86],
+  [22, 82],
 ];
 
 function circularHueDistance(a: number, b: number): number {
@@ -280,19 +289,64 @@ function assignRungs(
         break;
       }
     }
-    const [s, baseL] = rungs[rung]!;
-    let l = floorLightness(entry.h, s, baseL);
-    const sameSatPriors = assigned
-      .filter(
+    // Resolve same-saturation collisions with a bounded nearest-slot search
+    // instead of an unbounded upward climb: lightness above LIGHT_CAP stops
+    // reading against light chips and the range test rejects it. Upward is
+    // preferred (it reproduces the old climb wherever that stayed in range);
+    // when the cap blocks it, step down toward the contrast floor instead.
+    // When the chosen rung's saturation lane holds no free slot at all, walk
+    // the remaining rungs (other saturations open fresh lanes) before giving
+    // up. Only a pack whose whole window is saturated falls back to the
+    // capped climb, and the neighbor-separation test flags that loudly.
+    const placeOnRung = (
+      candidate: number,
+    ): { s: number; l: number } | undefined => {
+      const [s, baseL] = rungs[candidate]!;
+      const sameSatPriors = assigned.filter(
         (p) =>
           circularHueDistance(entry.h, p.h) < window &&
           Math.abs(p.s - s) < 10,
-      )
-      .sort((a, b) => a.l - b.l);
-    for (const p of sameSatPriors) {
-      if (l > p.l - 8 && l < p.l + 8) {
-        l = p.l + 8;
+      );
+      const isFree = (x: number): boolean =>
+        sameSatPriors.every((p) => Math.abs(x - p.l) >= 8);
+      const start = floorLightness(entry.h, s, baseL);
+      if (isFree(start) && start <= LIGHT_CAP) return { s, l: start };
+      const lo = floorLightness(entry.h, s, 46);
+      let up = start;
+      let down = start;
+      while (up < LIGHT_CAP || down > lo) {
+        up++;
+        down--;
+        if (up <= LIGHT_CAP && isFree(up)) return { s, l: up };
+        if (down >= lo && isFree(down)) return { s, l: down };
       }
+      return undefined;
+    };
+    let placed: { s: number; l: number } | undefined;
+    for (let offset = 0; placed === undefined && offset < rungs.length; offset++) {
+      placed = placeOnRung((rung + offset) % rungs.length);
+    }
+    let s: number;
+    let l: number;
+    if (placed !== undefined) {
+      ({ s, l } = placed);
+    } else {
+      const [rungS, baseL] = rungs[rung]!;
+      s = rungS;
+      l = floorLightness(entry.h, s, baseL);
+      const sameSatPriors = assigned
+        .filter(
+          (p) =>
+            circularHueDistance(entry.h, p.h) < window &&
+            Math.abs(p.s - s) < 10,
+        )
+        .sort((a, b) => a.l - b.l);
+      for (const p of sameSatPriors) {
+        if (l > p.l - 8 && l < p.l + 8) {
+          l = p.l + 8;
+        }
+      }
+      l = Math.min(l, LIGHT_CAP);
     }
     assigned.push({ h: entry.h, rung, s, l });
     out.set(entry.id, `hsl(${entry.h} ${s}% ${l}%)`);

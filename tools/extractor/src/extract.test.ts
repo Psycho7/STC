@@ -32,19 +32,19 @@ describe("schema and source provenance", () => {
     expect(pack.source.name).toBe("endfield-calc/factoriolab");
     expect(pack.source.sourceRepo).toBe("https://github.com/endfield-calc/factoriolab");
     expect(pack.source.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
-    expect(pack.source.gameVersion).toMatch(/^v\d+\.\d+\.\d+$/);
+    expect(pack.source.gameVersion).toMatch(/^v\d+\.\d+(\.\d+)?$/);
     expect(pack.source.extractedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
   });
 });
 
 describe("counts", () => {
-  test("expected counts for AEF v1.2.4 after synthetic-chain collapse", () => {
+  test("expected counts for AEF v1.4 after synthetic-chain collapse", () => {
     // Synthetic collapse drops __miner_water (item), __miner_pump_1 (machine),
     // and the __miner_water identity recipe.
-    expect(pack.items).toHaveLength(100);
-    expect(pack.machines).toHaveLength(29);
+    expect(pack.items).toHaveLength(113);
+    expect(pack.machines).toHaveLength(33);
     expect(pack.transports).toHaveLength(2);
-    expect(pack.recipes).toHaveLength(206);
+    expect(pack.recipes).toHaveLength(242);
     expect(pack.categories).toHaveLength(5);
     expect(pack.locations).toHaveLength(2);
   });
@@ -84,24 +84,32 @@ describe("invariants", () => {
     for (const r of pack.recipes) expect(r.time).toBeGreaterThanOrEqual(1);
   });
 
-  test("stoichiometry quantities >= 1", () => {
+  test("stoichiometry quantities are positive", () => {
+    // v1.4 introduced fractional quantities (phase-transition recipes consume
+    // 0.2 xiranite per cycle), so the old >= 1 floor no longer holds.
     for (const r of pack.recipes) {
-      for (const s of [...r.in, ...r.out]) expect(s.qty).toBeGreaterThanOrEqual(1);
+      for (const s of [...r.in, ...r.out]) expect(s.qty).toBeGreaterThan(0);
     }
   });
 
-  test("recipe in/out item sets are disjoint (no catalysts in AEF)", () => {
-    for (const r of pack.recipes) {
-      const inIds = new Set(r.in.map((s) => s.item));
-      for (const s of r.out) expect(inIds.has(s.item)).toBe(false);
-    }
+  test("self-consuming recipes are exactly the two known phase-transition catalysts", () => {
+    // The solver nets these away at its boundary (netSelfConsumption); any new
+    // catalyst-style recipe must be reviewed against that support.
+    const offenders = pack.recipes
+      .filter((r) => {
+        const inIds = new Set(r.in.map((s) => s.item));
+        return r.out.some((s) => inIds.has(s.item));
+      })
+      .map((r) => r.id)
+      .sort();
+    expect(offenders).toEqual(["phase_trans_1-liquid_xiranite", "phase_trans_2-gas_xiranite"]);
   });
 
-  test("only liquid_* items lack a stack size after synthetic collapse", () => {
+  test("only liquid_*/gas_* items lack a stack size after synthetic collapse", () => {
     const noStack = pack.items.filter((i) => i.stack === undefined).map((i) => i.id);
-    expect(noStack).toHaveLength(11);
+    expect(noStack).toHaveLength(19);
     for (const id of noStack) {
-      expect(id.startsWith("liquid_")).toBe(true);
+      expect(id.startsWith("liquid_") || id.startsWith("gas_")).toBe(true);
     }
   });
 });
@@ -185,26 +193,28 @@ describe("optional-field counts", () => {
     expect(pack.recipes.filter((r) => r.usage !== undefined)).toHaveLength(9);
   });
 
-  test("27 recipes carry a cost hint", () => {
-    expect(pack.recipes.filter((r) => r.cost !== undefined)).toHaveLength(27);
+  test("29 recipes carry a cost hint", () => {
+    expect(pack.recipes.filter((r) => r.cost !== undefined)).toHaveLength(29);
   });
 
   test("4 items carry a buildIcon", () => {
     expect(pack.items.filter((i) => i.buildIcon !== undefined)).toHaveLength(4);
   });
 
-  test("17 machines carry a size, 15 carry locations, 3 carry totalRecipe", () => {
-    // 14 upstream minus dropped __miner_pump_1 (jinlong-only) plus the two new
-    // sewage-treatment gates (liquid_clean_gate, liquid_recycle_gate, both jinlong).
-    expect(pack.machines.filter((m) => m.size !== undefined)).toHaveLength(17);
-    expect(pack.machines.filter((m) => m.locations !== undefined)).toHaveLength(15);
+  test("21 machines carry a size, 19 carry locations, 3 carry totalRecipe", () => {
+    // v1.4 adds the four gas-system machines (gas_pump_1, gas_reactor_1,
+    // phase_trans_1, phase_trans_2), all sized and jinlong-restricted.
+    expect(pack.machines.filter((m) => m.size !== undefined)).toHaveLength(21);
+    expect(pack.machines.filter((m) => m.locations !== undefined)).toHaveLength(19);
     expect(pack.machines.filter((m) => m.totalRecipe !== undefined)).toHaveLength(3);
   });
 
-  test("exactly one burner machine (miner_4); all others electric", () => {
-    const burners = pack.machines.filter((m) => m.powerType === "burner");
-    expect(burners).toHaveLength(1);
-    expect(burners[0]?.id).toBe("miner_4");
+  test("exactly two burner machines (gas_pump_1, miner_4); all others electric", () => {
+    const burners = pack.machines
+      .filter((m) => m.powerType === "burner")
+      .map((m) => m.id)
+      .sort();
+    expect(burners).toEqual(["gas_pump_1", "miner_4"]);
     for (const m of pack.machines.filter((m) => m.powerType === "electric")) {
       expect(m.powerKw).not.toBeNull();
     }
@@ -249,6 +259,10 @@ describe("raw classification", () => {
       "liquid_acid",
       "copper_ore",
       "domain_key_tundra",
+      // v1.4: gas-pump collection recipes carry the mining flag, so these
+      // classify raw via rule (a) exactly like copper_ore.
+      "gas_xiranite",
+      "gas_inert",
     ]);
     const got = new Set(pack.items.filter((i) => i.raw).map((i) => i.id));
     expect(got).toEqual(expected);

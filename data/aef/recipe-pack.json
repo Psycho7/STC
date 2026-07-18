@@ -3,9 +3,9 @@
   "source": {
     "name": "endfield-calc/factoriolab",
     "sourceRepo": "https://github.com/endfield-calc/factoriolab",
-    "sourceCommit": "4fc462948fe9f652db20258953dd8dc09b3dfc97",
-    "gameVersion": "v1.2.4",
-    "extractedAt": "2026-05-30T09:07:52.590Z"
+    "sourceCommit": "6a006762645fdbbc54dea854d15e50a76d3bb268",
+    "gameVersion": "v1.4",
+    "extractedAt": "2026-07-17T02:15:30.623Z"
   },
   "categories": [
     {
@@ -624,20 +624,30 @@
       "stack": 50
     },
     {
-      "id": "copper_bottle",
-      "name": "赤铜瓶",
+      "id": "copper_enr2",
+      "name": "灼铜块",
       "category": "material",
-      "icon": "copper_bottle",
+      "icon": "copper_enr2",
       "row": 5,
       "raw": false,
       "transportKind": "belt",
       "stack": 50
     },
     {
-      "id": "copper_enr_bottle",
-      "name": "赫铜瓶",
+      "id": "copper_jar",
+      "name": "赤铜耐压罐",
       "category": "material",
-      "icon": "copper_enr_bottle",
+      "icon": "copper_jar",
+      "row": 5,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "filter_core",
+      "name": "分离芯",
+      "category": "material",
+      "icon": "filter_core",
       "row": 5,
       "raw": false,
       "transportKind": "belt",
@@ -664,11 +674,86 @@
       "stack": 50
     },
     {
+      "id": "copper_enr2_cmpt",
+      "name": "灼铜零件",
+      "category": "material",
+      "icon": "copper_enr2_cmpt",
+      "row": 5,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "liquid_copper",
+      "name": "赤铜溶液",
+      "category": "material",
+      "icon": "liquid_copper",
+      "row": 6,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "liquid_copper_enr",
+      "name": "赫铜溶液",
+      "category": "material",
+      "icon": "liquid_copper_enr",
+      "row": 6,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "gas_copper",
+      "name": "气态赤铜",
+      "category": "material",
+      "icon": "gas_copper",
+      "row": 6,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "gas_copper_enr",
+      "name": "气态赫铜",
+      "category": "material",
+      "icon": "gas_copper_enr",
+      "row": 6,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "gas_copper_enr2",
+      "name": "气态灼铜",
+      "category": "material",
+      "icon": "gas_copper_enr2",
+      "row": 6,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "copper_bottle",
+      "name": "赤铜瓶",
+      "category": "material",
+      "icon": "copper_bottle",
+      "row": 6,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "copper_enr_bottle",
+      "name": "赫铜瓶",
+      "category": "material",
+      "icon": "copper_enr_bottle",
+      "row": 6,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
       "id": "copper_bottle-liquid_plant_grass_1",
       "name": "赤铜瓶(锦草溶液)",
       "category": "material",
       "icon": "copper_bottle-liquid_plant_grass_1",
-      "row": 5,
+      "row": 6,
       "raw": false,
       "transportKind": "belt",
       "stack": 50,
@@ -682,7 +767,7 @@
       "name": "赤铜瓶(芽针溶液)",
       "category": "material",
       "icon": "copper_bottle-liquid_plant_grass_2",
-      "row": 5,
+      "row": 6,
       "raw": false,
       "transportKind": "belt",
       "stack": 50,
@@ -692,29 +777,11 @@
       ]
     },
     {
-      "id": "liquid_copper",
-      "name": "赤铜溶液",
-      "category": "material",
-      "icon": "liquid_copper",
-      "row": 5,
-      "raw": false,
-      "transportKind": "pipe"
-    },
-    {
-      "id": "liquid_copper_enr",
-      "name": "赫铜溶液",
-      "category": "material",
-      "icon": "liquid_copper_enr",
-      "row": 5,
-      "raw": false,
-      "transportKind": "pipe"
-    },
-    {
       "id": "xiranite_powder",
       "name": "息壤",
       "category": "material",
       "icon": "xiranite_powder",
-      "row": 6,
+      "row": 7,
       "raw": false,
       "transportKind": "belt",
       "stack": 50
@@ -724,7 +791,7 @@
       "name": "壤晶",
       "category": "material",
       "icon": "xiranite_poly",
-      "row": 6,
+      "row": 7,
       "raw": false,
       "transportKind": "belt",
       "stack": 50
@@ -734,35 +801,17 @@
       "name": "重息壤",
       "category": "material",
       "icon": "xiranite_enr_powder",
-      "row": 6,
+      "row": 7,
       "raw": false,
       "transportKind": "belt",
       "stack": 50
-    },
-    {
-      "id": "liquid_xiranite",
-      "name": "液化息壤",
-      "category": "material",
-      "icon": "liquid_xiranite",
-      "row": 6,
-      "raw": false,
-      "transportKind": "pipe"
-    },
-    {
-      "id": "liquid_xiranite_enr",
-      "name": "液化重息壤",
-      "category": "material",
-      "icon": "liquid_xiranite_enr",
-      "row": 6,
-      "raw": false,
-      "transportKind": "pipe"
     },
     {
       "id": "liquid_xiranite_poly",
       "name": "壤晶废液",
       "category": "material",
       "icon": "liquid_xiranite_poly",
-      "row": 6,
+      "row": 7,
       "raw": false,
       "transportKind": "pipe"
     },
@@ -771,7 +820,52 @@
       "name": "惰性壤晶废液",
       "category": "material",
       "icon": "liquid_xiranite_lowpoly",
-      "row": 6,
+      "row": 7,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "liquid_sewage",
+      "name": "污水",
+      "category": "material",
+      "icon": "liquid_sewage",
+      "row": 7,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "liquid_xiranite",
+      "name": "液化息壤",
+      "category": "material",
+      "icon": "liquid_xiranite",
+      "row": 8,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "gas_xiranite",
+      "name": "息壤气",
+      "category": "material",
+      "icon": "gas_xiranite",
+      "row": 8,
+      "raw": true,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "liquid_xiranite_enr",
+      "name": "液化重息壤",
+      "category": "material",
+      "icon": "liquid_xiranite_enr",
+      "row": 8,
+      "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "gas_xiranite_enr",
+      "name": "重息壤气",
+      "category": "material",
+      "icon": "gas_xiranite_enr",
+      "row": 8,
       "raw": false,
       "transportKind": "pipe"
     },
@@ -780,8 +874,17 @@
       "name": "清水",
       "category": "material",
       "icon": "liquid_water",
-      "row": 6,
+      "row": 8,
       "raw": true,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "gas_water",
+      "name": "水蒸气",
+      "category": "material",
+      "icon": "gas_water",
+      "row": 8,
+      "raw": false,
       "transportKind": "pipe"
     },
     {
@@ -789,17 +892,26 @@
       "name": "沉积酸",
       "category": "material",
       "icon": "liquid_acid",
-      "row": 6,
+      "row": 8,
       "raw": true,
       "transportKind": "pipe"
     },
     {
-      "id": "liquid_sewage",
-      "name": "污水",
+      "id": "gas_acid",
+      "name": "酸气",
       "category": "material",
-      "icon": "liquid_sewage",
-      "row": 6,
+      "icon": "gas_acid",
+      "row": 8,
       "raw": false,
+      "transportKind": "pipe"
+    },
+    {
+      "id": "gas_inert",
+      "name": "惰气",
+      "category": "material",
+      "icon": "gas_inert",
+      "row": 8,
+      "raw": true,
       "transportKind": "pipe"
     },
     {
@@ -963,6 +1075,16 @@
       "stack": 50
     },
     {
+      "id": "equip_script_4_3",
+      "name": "灼铜装备原件",
+      "category": "product",
+      "icon": "equip_script_4_3",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
       "id": "proc_battery_1",
       "name": "低容谷地电池",
       "category": "product",
@@ -1119,6 +1241,38 @@
       ]
     },
     {
+      "id": "gas_pump_1",
+      "name": "气体收集泵",
+      "icon": "gas_pump_1",
+      "speed": 1,
+      "powerType": "burner",
+      "powerKw": null,
+      "hideRate": false,
+      "size": [
+        3,
+        3
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "gas_reactor_1",
+      "name": "气体反应炉",
+      "icon": "gas_reactor_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 50,
+      "hideRate": false,
+      "size": [
+        5,
+        5
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
       "id": "grinder_1",
       "name": "粉碎机",
       "icon": "grinder_1",
@@ -1246,6 +1400,38 @@
       "hideRate": false,
       "size": [
         6,
+        5
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "phase_trans_1",
+      "name": "液气转化机",
+      "icon": "phase_trans_1",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 50,
+      "hideRate": false,
+      "size": [
+        5,
+        5
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "phase_trans_2",
+      "name": "固气转化机",
+      "icon": "phase_trans_2",
+      "speed": 1,
+      "powerType": "electric",
+      "powerKw": 50,
+      "hideRate": false,
+      "size": [
+        5,
         5
       ],
       "locations": [
@@ -3182,6 +3368,33 @@
       ]
     },
     {
+      "id": "phase_trans_2-copper_nugget",
+      "name": "赤铜块(固气转化机)",
+      "category": "material",
+      "icon": "copper_nugget-phase_trans_2",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_copper",
+          "qty": 1
+        },
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_nugget",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
+      ]
+    },
+    {
       "id": "copper_enr",
       "name": "赫铜块",
       "category": "material",
@@ -3211,6 +3424,60 @@
       "producers": [
         "mix_pool_1",
         "mix_pool_2"
+      ]
+    },
+    {
+      "id": "phase_trans_2-copper_enr",
+      "name": "赫铜块(固气转化机)",
+      "category": "material",
+      "icon": "copper_enr-phase_trans_2",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_copper_enr",
+          "qty": 2
+        },
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_enr",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
+      ]
+    },
+    {
+      "id": "phase_trans_2-copper_enr2",
+      "name": "灼铜块(固气转化机)",
+      "category": "material",
+      "icon": "copper_enr2-phase_trans_2",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_copper_enr2",
+          "qty": 1
+        },
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_enr2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
       ]
     },
     {
@@ -3306,6 +3573,29 @@
       ]
     },
     {
+      "id": "copper_enr2_cmpt",
+      "name": "灼铜零件",
+      "category": "material",
+      "icon": "copper_enr2_cmpt",
+      "row": 5,
+      "time": 10,
+      "in": [
+        {
+          "item": "copper_enr2",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_enr2_cmpt",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "cmpt_mc_1"
+      ]
+    },
+    {
       "id": "copper_bottle-liquid_plant_grass_1",
       "name": "赤铜瓶(锦草溶液)",
       "category": "material",
@@ -3366,11 +3656,68 @@
       ]
     },
     {
+      "id": "copper_jar",
+      "name": "赤铜耐压罐",
+      "category": "material",
+      "icon": "copper_jar",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_nugget",
+          "qty": 2
+        },
+        {
+          "item": "gas_inert",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "copper_jar",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "shaper_1"
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
+      "id": "filter_core",
+      "name": "分离芯",
+      "category": "material",
+      "icon": "filter_core",
+      "row": 5,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_jar",
+          "qty": 1
+        },
+        {
+          "item": "xiranite_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "filter_core",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
       "id": "liquid_copper",
       "name": "赤铜溶液",
       "category": "material",
       "icon": "liquid_copper",
-      "row": 5,
+      "row": 6,
       "time": 2,
       "in": [
         {
@@ -3394,11 +3741,38 @@
       ]
     },
     {
+      "id": "phase_trans_1-liquid_copper",
+      "name": "赤铜溶液(液气转化机)",
+      "category": "material",
+      "icon": "liquid_copper-phase_trans_1",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_copper",
+          "qty": 1
+        },
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_copper",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
       "id": "liquid_copper_enr",
       "name": "赫铜溶液",
       "category": "material",
       "icon": "liquid_copper_enr",
-      "row": 5,
+      "row": 6,
       "time": 2,
       "in": [
         {
@@ -3421,11 +3795,281 @@
       ]
     },
     {
-      "id": "xiranite_powder",
-      "name": "息壤",
+      "id": "phase_trans_1-liquid_copper_enr",
+      "name": "赫铜溶液(液气转化机)",
       "category": "material",
-      "icon": "xiranite_powder",
+      "icon": "liquid_copper_enr-phase_trans_1",
       "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_copper_enr",
+          "qty": 1
+        },
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_copper_enr",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
+      "id": "phase_trans_1-gas_copper",
+      "name": "气态赤铜(液气转化机)",
+      "category": "material",
+      "icon": "gas_copper-phase_trans_1",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_copper",
+          "qty": 2
+        },
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_copper",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
+      "id": "phase_trans_2-gas_copper",
+      "name": "气态赤铜(固气转化机)",
+      "category": "material",
+      "icon": "gas_copper-phase_trans_2",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_nugget",
+          "qty": 2
+        },
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_copper",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
+      ]
+    },
+    {
+      "id": "phase_trans_1-gas_copper_enr",
+      "name": "气态赫铜(液气转化机)",
+      "category": "material",
+      "icon": "gas_copper_enr-phase_trans_1",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_copper_enr",
+          "qty": 1
+        },
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_copper_enr",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
+      "id": "gas_copper_enr-gas_inert",
+      "name": "气态赫铜(惰气)",
+      "category": "material",
+      "icon": "gas_copper_enr-gas_inert",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_copper",
+          "qty": 2
+        },
+        {
+          "item": "filter_core",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_copper_enr",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "liquid_purifier_1"
+      ]
+    },
+    {
+      "id": "gas_copper_enr",
+      "name": "气态赫铜",
+      "category": "material",
+      "icon": "gas_copper_enr",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_copper",
+          "qty": 2
+        },
+        {
+          "item": "filter_core",
+          "qty": 2
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_copper_enr",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "liquid_purifier_1"
+      ]
+    },
+    {
+      "id": "phase_trans_2-gas_copper_enr",
+      "name": "气态赫铜(固气转化机)",
+      "category": "material",
+      "icon": "gas_copper_enr-phase_trans_2",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_enr",
+          "qty": 1
+        },
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_copper_enr",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
+      ]
+    },
+    {
+      "id": "gas_copper_enr2",
+      "name": "气态灼铜",
+      "category": "material",
+      "icon": "gas_copper_enr2",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_copper_enr",
+          "qty": 2
+        },
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_copper_enr2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "gas_reactor_1"
+      ]
+    },
+    {
+      "id": "phase_trans_2-gas_copper_enr2",
+      "name": "气态灼铜(固气转化机)",
+      "category": "material",
+      "icon": "gas_copper_enr2-phase_trans_2",
+      "row": 6,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_enr2",
+          "qty": 1
+        },
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_copper_enr2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
+      ]
+    },
+    {
+      "id": "xiranite_powder-carbon_mtl",
+      "name": "息壤(碳块)",
+      "category": "material",
+      "icon": "xiranite_powder-carbon_mtl",
+      "row": 7,
+      "time": 2,
+      "in": [
+        {
+          "item": "carbon_mtl",
+          "qty": 1
+        },
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "xiranite_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "xiranite_oven_1"
+      ]
+    },
+    {
+      "id": "xiranite_powder-carbon_enr",
+      "name": "息壤(稳定碳块)",
+      "category": "material",
+      "icon": "xiranite_powder-carbon_enr",
+      "row": 7,
       "time": 2,
       "in": [
         {
@@ -3448,11 +4092,34 @@
       ]
     },
     {
+      "id": "phase_trans_2-xiranite_powder",
+      "name": "息壤(固气转化机)",
+      "category": "material",
+      "icon": "xiranite_powder-phase_trans_2",
+      "row": 7,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_xiranite",
+          "qty": 1.2
+        }
+      ],
+      "out": [
+        {
+          "item": "xiranite_powder",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
+      ]
+    },
+    {
       "id": "xiranite_poly",
       "name": "壤晶",
       "category": "material",
       "icon": "xiranite_poly",
-      "row": 6,
+      "row": 7,
       "time": 2,
       "in": [
         {
@@ -3484,7 +4151,7 @@
       "name": "重息壤",
       "category": "material",
       "icon": "xiranite_enr_powder",
-      "row": 6,
+      "row": 7,
       "time": 10,
       "in": [
         {
@@ -3507,11 +4174,38 @@
       ]
     },
     {
+      "id": "phase_trans_2-xiranite_enr_powder",
+      "name": "重息壤(固气转化机)",
+      "category": "material",
+      "icon": "xiranite_enr_powder-phase_trans_2",
+      "row": 7,
+      "time": 10,
+      "in": [
+        {
+          "item": "gas_xiranite_enr",
+          "qty": 5
+        },
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "xiranite_enr_powder",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
+      ]
+    },
+    {
       "id": "liquid_xiranite",
       "name": "液化息壤",
       "category": "material",
       "icon": "liquid_xiranite",
-      "row": 6,
+      "row": 7,
       "time": 2,
       "in": [
         {
@@ -3535,11 +4229,38 @@
       ]
     },
     {
+      "id": "phase_trans_1-liquid_xiranite",
+      "name": "液化息壤(液气转化机)",
+      "category": "material",
+      "icon": "liquid_xiranite-phase_trans_1",
+      "row": 7,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        },
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
       "id": "liquid_xiranite_enr",
       "name": "液化重息壤",
       "category": "material",
       "icon": "liquid_xiranite_enr",
-      "row": 6,
+      "row": 7,
       "time": 2,
       "in": [
         {
@@ -3563,11 +4284,38 @@
       ]
     },
     {
+      "id": "phase_trans_1-liquid_xiranite_enr",
+      "name": "液化重息壤(液气转化机)",
+      "category": "material",
+      "icon": "liquid_xiranite_enr-phase_trans_1",
+      "row": 7,
+      "time": 10,
+      "in": [
+        {
+          "item": "gas_xiranite_enr",
+          "qty": 5
+        },
+        {
+          "item": "liquid_xiranite",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_xiranite_enr",
+          "qty": 2
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
       "id": "liquid_xiranite_poly",
       "name": "壤晶废液",
       "category": "material",
       "icon": "liquid_xiranite_poly",
-      "row": 6,
+      "row": 7,
       "time": 2,
       "in": [
         {
@@ -3599,7 +4347,7 @@
       "name": "壤晶废液(提纯机)",
       "category": "material",
       "icon": "liquid_xiranite_poly-liquid_purifier_1",
-      "row": 6,
+      "row": 7,
       "time": 2,
       "in": [
         {
@@ -3626,7 +4374,7 @@
       "name": "清水",
       "category": "material",
       "icon": "liquid_water",
-      "row": 6,
+      "row": 8,
       "time": 1,
       "in": [],
       "out": [
@@ -3643,11 +4391,38 @@
       ]
     },
     {
+      "id": "phase_trans_1-liquid_water",
+      "name": "清水(液气转化机)",
+      "category": "material",
+      "icon": "liquid_water-phase_trans_1",
+      "row": 8,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_water",
+          "qty": 1
+        },
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_water",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
       "id": "liquid_acid",
       "name": "沉积酸",
       "category": "material",
       "icon": "liquid_acid",
-      "row": 6,
+      "row": 8,
       "time": 1,
       "in": [],
       "out": [
@@ -3658,6 +4433,287 @@
       ],
       "producers": [
         "pump_2"
+      ],
+      "flags": [
+        "mining"
+      ]
+    },
+    {
+      "id": "phase_trans_1-liquid_acid",
+      "name": "沉积酸(液气转化机)",
+      "category": "material",
+      "icon": "liquid_acid-phase_trans_1",
+      "row": 8,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_acid",
+          "qty": 1
+        },
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "liquid_acid",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
+      "id": "phase_trans_1-gas_water",
+      "name": "水蒸气(液气转化机)",
+      "category": "material",
+      "icon": "gas_water-phase_trans_1",
+      "row": 8,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_water",
+          "qty": 1
+        },
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_water",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
+      "id": "phase_trans_1-gas_xiranite",
+      "name": "息壤气(液气转化机)",
+      "category": "material",
+      "icon": "gas_xiranite-phase_trans_1",
+      "row": 8,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 1.2
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
+      "id": "phase_trans_2-gas_xiranite",
+      "name": "息壤气(固气转化机)",
+      "category": "material",
+      "icon": "gas_xiranite-phase_trans_2",
+      "row": 8,
+      "time": 2,
+      "in": [
+        {
+          "item": "xiranite_powder",
+          "qty": 1
+        },
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
+      ]
+    },
+    {
+      "id": "gas_xiranite_enr",
+      "name": "重息壤气",
+      "category": "material",
+      "icon": "gas_xiranite_enr",
+      "row": 8,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_xiranite",
+          "qty": 2
+        },
+        {
+          "item": "filter_core",
+          "qty": 2
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_xiranite_enr",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "liquid_purifier_1"
+      ]
+    },
+    {
+      "id": "gas_xiranite_enr-gas_inert",
+      "name": "重息壤气(惰气)",
+      "category": "material",
+      "icon": "gas_xiranite_enr-gas_inert",
+      "row": 8,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_xiranite",
+          "qty": 2
+        },
+        {
+          "item": "filter_core",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_xiranite_enr",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "liquid_purifier_1"
+      ]
+    },
+    {
+      "id": "phase_trans_1-gas_xiranite_enr",
+      "name": "重息壤气(液气转化机)",
+      "category": "material",
+      "icon": "gas_xiranite_enr-phase_trans_1",
+      "row": 8,
+      "time": 10,
+      "in": [
+        {
+          "item": "liquid_xiranite_enr",
+          "qty": 2
+        },
+        {
+          "item": "liquid_xiranite",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_xiranite_enr",
+          "qty": 5
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
+      "id": "phase_trans_2-gas_xiranite_enr",
+      "name": "重息壤气(固气转化机)",
+      "category": "material",
+      "icon": "gas_xiranite_enr-phase_trans_2",
+      "row": 8,
+      "time": 10,
+      "in": [
+        {
+          "item": "xiranite_enr_powder",
+          "qty": 2
+        },
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_xiranite_enr",
+          "qty": 5
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
+      ]
+    },
+    {
+      "id": "phase_trans_1-gas_acid",
+      "name": "酸气(液气转化机)",
+      "category": "material",
+      "icon": "gas_acid-phase_trans_1",
+      "row": 8,
+      "time": 2,
+      "in": [
+        {
+          "item": "liquid_acid",
+          "qty": 1
+        },
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
+      ],
+      "out": [
+        {
+          "item": "gas_acid",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_1"
+      ]
+    },
+    {
+      "id": "gas_inert",
+      "name": "惰气",
+      "category": "material",
+      "icon": "gas_inert",
+      "row": 999,
+      "time": 3,
+      "in": [],
+      "out": [
+        {
+          "item": "gas_inert",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "gas_pump_1"
+      ],
+      "flags": [
+        "mining"
+      ]
+    },
+    {
+      "id": "gas_xiranite",
+      "name": "息壤气",
+      "category": "material",
+      "icon": "gas_xiranite",
+      "row": 999,
+      "time": 3,
+      "in": [],
+      "out": [
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "gas_pump_1"
       ],
       "flags": [
         "mining"
@@ -4189,6 +5245,33 @@
       "out": [
         {
           "item": "equip_script_4_2",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "winder_1"
+      ]
+    },
+    {
+      "id": "equip_script_4_3",
+      "name": "灼铜装备原件",
+      "category": "product",
+      "icon": "equip_script_4_3",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "copper_enr2_cmpt",
+          "qty": 1
+        },
+        {
+          "item": "xiranite_enr_powder",
+          "qty": 2
+        }
+      ],
+      "out": [
+        {
+          "item": "equip_script_4_3",
           "qty": 1
         }
       ],
@@ -5119,6 +6202,60 @@
         "hideProducer"
       ],
       "cost": 30
+    },
+    {
+      "id": "jinlong_coupon-copper_enr2_cmpt",
+      "name": "武陵调度券(灼铜零件)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-copper_enr2_cmpt",
+      "row": 999,
+      "time": 10,
+      "in": [
+        {
+          "item": "copper_enr2_cmpt",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 70
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "jinlong_coupon-filter_core",
+      "name": "武陵调度券(分离芯)",
+      "category": "settlement",
+      "icon": "jinlong_coupon-filter_core",
+      "row": 999,
+      "time": 2,
+      "in": [
+        {
+          "item": "filter_core",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 150
     },
     {
       "id": "transfer_tundra_bottled_food_1",

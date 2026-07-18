@@ -16,6 +16,7 @@ import { ffdPack } from "./ffd";
 import { assembleLogicalGraph } from "./assemble";
 import { bisimQuotient, deriveReplicaEdges, type ClassId } from "./bisim";
 import { assertInvariants } from "./invariants";
+import { netSelfConsumption } from "./net-self";
 import type {
   Condensation,
   ItemId,
@@ -168,12 +169,16 @@ export type SolvePlanFull = {
 // running pickTearEdges costs almost nothing.
 function runSolvePipeline(
   targets: ReadonlyArray<ItemTarget>,
-  pack: RecipePack,
+  rawPack: RecipePack,
   tConfig: TransportConfig,
   itemOverrides: ItemOverride[] | undefined,
   recipeCosts: Map<RecipeId, number> | undefined,
   solver: LpSolver,
 ): { full: SolvePlanFull; lpResult: LpResult } {
+  // Everything below (graph walk, LP, replication, assembly, and the
+  // recipeById map that feeds the render pipeline) must see the netted form;
+  // only display layers go back to the raw pack.
+  const pack = netSelfConsumption(rawPack);
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
@@ -318,7 +323,10 @@ export function solvePlanWithIntermediates(
   );
 
   if (import.meta.env.DEV) {
-    assertInvariants(full, lpResult, pack, targets, itemOverrides ?? []);
+    // Check against the same netted form the pipeline solved; raw
+    // self-consuming stoichiometry would flag phantom deficits on flows the
+    // netting already folded away.
+    assertInvariants(full, lpResult, netSelfConsumption(pack), targets, itemOverrides ?? []);
   }
 
   return full;
