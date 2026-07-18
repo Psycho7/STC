@@ -40,6 +40,7 @@ import {
   routingHintsFromData,
 } from "./edgePath";
 import {
+  ENTRY_SLOT_PITCH,
   OBSTACLE_PAD_LEFT,
   OBSTACLE_PAD_Y,
   absoluteLeft,
@@ -148,6 +149,9 @@ function segIntersectsChipBox(
 // as one junction, so a chip near its port may sit among its siblings' final
 // approaches). flowKey groups the flow siblings; target the cluster.
 export type EdgeSegments = {
+  // The owning edge's id. `ownIds`-based (trunk-aware) foreignness matches on it;
+  // plain item chips ignore it and group by flowKey.
+  id: string;
   flowKey: string;
   target: string;
   segs: ReadonlyArray<readonly [number, number, number, number]>;
@@ -231,11 +235,19 @@ export type ClearanceField = {
   // sibling's line is skipped unconditionally when no entry band is given
   // (bus / entry seats), and only while the box centre sits inside the band
   // when one is (rate-chip seats, the narrowed rule).
+  //
+  // Own-flow classification is by flowKey (same item|source is one visual line)
+  // UNLESS `ownIds` is given: then "own" is EXACTLY that edge-id set -- the
+  // trunk's actual member edges plus the aggregate's own edge -- so a same-
+  // flowKey edge outside the trunk (a separate direct edge) reads foreign. Only
+  // trunk-context chips (the fan-out aggregate) pass it; plain item-edge chips
+  // omit it and keep the flowKey grouping (issue #28).
   onForeignLine(
     box: ChipBox,
     flowKey: string,
     target: string,
     entryBand?: EntryBand,
+    ownIds?: ReadonlySet<string>,
   ): boolean;
 };
 
@@ -265,17 +277,19 @@ export function makeClearanceField(
         }
         return chipEntersOwnCardBody(chip, c, zone, 0.5);
       }),
-    onForeignLine: (box, flowKey, target, entryBand) => {
+    onForeignLine: (box, flowKey, target, entryBand, ownIds) => {
       const clusterExempt =
         entryBand === undefined || centreInBand(box.x, box.y, entryBand);
-      return segments.some(
-        (e) =>
-          e.flowKey !== flowKey &&
+      return segments.some((e) => {
+        const own = ownIds !== undefined ? ownIds.has(e.id) : e.flowKey === flowKey;
+        return (
+          !own &&
           (!clusterExempt || e.target !== target) &&
           e.segs.some(([x0, y0, x1, y1]) =>
             segIntersectsChipBox(x0, y0, x1, y1, box),
-          ),
-      );
+          )
+        );
+      });
     },
   };
 }
@@ -428,11 +442,28 @@ const NUDGE_CAP_STEPS = 3;
 // the search, it is never expected to exhaust.
 const LAST_RESORT_CAP_STEPS = 200;
 
+// Horizontal sidestep pitch and reach. When a parallel FOREIGN vertical line
+// sits within the wide chip box on a corridor leg, no vertical motion clears it:
+// the on-line slide, the nudge, and the escape cascade all hold x, so a wide box
+// straddling a neighbour a few units away would have to travel its whole
+// half-width -- which it cannot on a vertical leg, and cannot along a short
+// horizontal trunk whose whole span the box already overhangs. The sidestep
+// steps the box in x, away from the foreign line toward the own line's free
+// side, by ENTRY_SLOT_PITCH increments out to one half-width. That reach is the
+// most that keeps the own line WITHIN the box (its edge flush to the line at the
+// cap), so the chip still reads as bound to its own leg while its box no longer
+// overlaps the neighbour.
+const SIDESTEP_PITCH = ENTRY_SLOT_PITCH;
+const SIDESTEP_MAX = CHIP_HALF_W_WIDE;
+
 // How a rate chip ended up seated, coarsest last:
 //   anchor    on its clear-segment anchor, fully clear;
 //   slide     slid along its own polyline to a fully clear point;
 //   graze     on its own polyline clear of chips and cards, grazing a foreign
 //             line (no fully clear on-line point existed);
+//   sidestep  a bounded horizontal step off a corridor leg, away from a parallel
+//             foreign line the wide box straddled and no vertical motion could
+//             clear, the own line still within the box (fully clear at the seat);
 //   nudge     a short vertical lift off the line, still fully clear;
 //   escape    the chips-and-cards cascade found a seat (foreign-line
 //             clearance and on-own-line preference yielded);
@@ -442,6 +473,7 @@ export type RateSeatTier =
   | "anchor"
   | "slide"
   | "graze"
+  | "sidestep"
   | "nudge"
   | "escape"
   | "exhausted";
@@ -473,8 +505,31 @@ export function seatRateChip(
   target: string,
   exempt: CardExemption,
   entryBand: EntryBand,
+  // Trunk-context seats (the fan-out aggregate, the fan-out branch) pass extra
+  // constraints here; plain item / aggregate-less seats omit it.
+  //   ownIds:    trunk-aware foreignness -- own flow is EXACTLY this edge-id set,
+  //              not the flowKey group, so a same-flowKey non-member reads
+  //              foreign (issue #28, the aggregate seam).
+  //   barrierYs: already-seated same-trunk sibling centre-ys on a shared branch
+  //              column. The on-line slide may not cross one (jump to its far
+  //              side), so a pushed branch stays below its higher sibling rather
+  //              than inverting the stack (issue #28, the branch seam).
+  opts?: {
+    ownIds?: ReadonlySet<string> | undefined;
+    barrierYs?: ReadonlyArray<number> | undefined;
+  },
 ): RateSeat {
   const { pts, anchorX, anchorY } = path;
+  const ownIds = opts?.ownIds;
+  const barrierYs = opts?.barrierYs;
+  // A slide candidate crosses a barrier when it and the anchor sit on OPPOSITE
+  // sides of a seated sibling (their signed offsets from it differ), i.e. the
+  // slide would jump past the sibling and invert the stack. Same-side and
+  // on-the-sibling candidates (the latter blocked by the hard chip overlap
+  // anyway) are allowed.
+  const crossesBarrier = (py: number): boolean =>
+    barrierYs !== undefined &&
+    barrierYs.some((by) => (anchorY - by) * (py - by) < 0);
   let total = 0;
   for (let i = 1; i < pts.length; i++) {
     total += Math.hypot(
@@ -502,7 +557,7 @@ export function seatRateChip(
     return (
       !field.entersForeignCard(box, exempt) &&
       !field.overlapsChip(box) &&
-      !field.onForeignLine(box, flowKey, target, entryBand)
+      !field.onForeignLine(box, flowKey, target, entryBand, ownIds)
     );
   };
   const seat = (px: number, py: number, tier: RateSeatTier): RateSeat => {
@@ -525,6 +580,7 @@ export function seatRateChip(
         const len = anchorLen + delta;
         if (len < 0 || len > total) continue;
         const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
+        if (crossesBarrier(py)) continue;
         if (ok(px, py)) return seat(px, py, tierAt(px, py));
       }
     }
@@ -536,11 +592,30 @@ export function seatRateChip(
   // braided corridor a parallel foreign line within a chip half-height poisons
   // every tier-1 candidate at once, yet the own line is otherwise empty -- the
   // chip belongs on it, icon and tint disambiguate the graze.
-  const slid =
-    slideAlong(isClear, (px, py) =>
-      px === anchorX && py === anchorY ? "anchor" : "slide",
-    ) ?? slideAlong(hardClearAt, () => "graze");
-  if (slid !== null) return slid;
+  const fullyClearSlide = slideAlong(isClear, (px, py) =>
+    px === anchorX && py === anchorY ? "anchor" : "slide",
+  );
+  if (fullyClearSlide !== null) return fullyClearSlide;
+  // Tier 1c (sidestep): no fully clear point exists ALONG the own line, which on
+  // a vertical corridor leg (or a short horizontal trunk the box wholly
+  // overhangs) means a parallel foreign line the wide box cannot shed by any
+  // vertical motion. Step the box horizontally off the line -- away from the
+  // foreign line, toward the own line's free side -- keeping the own line within
+  // the box (offset <= one half-width). Both directions are probed nearest-first
+  // so the free side wins: clearing the foreign line by moving toward it would
+  // take more than a half-width plus a pitch (past the reach), and the blocked
+  // side (a card or the foreign line itself) never clears. On a tie the positive
+  // x wins. The reach's last step is clamped to the flush half-width even when
+  // the pitch does not divide it.
+  for (let step = 1; ; step++) {
+    const off = Math.min(step * SIDESTEP_PITCH, SIDESTEP_MAX);
+    for (const px of [anchorX + off, anchorX - off]) {
+      if (isClear(px, anchorY)) return seat(px, anchorY, "sidestep");
+    }
+    if (off >= SIDESTEP_MAX) break;
+  }
+  const grazed = slideAlong(hardClearAt, () => "graze");
+  if (grazed !== null) return grazed;
   // The whole own line is chip- or card-blocked. Escapes off the line follow
   // the ratified priority order: chip/chip and chip/card clearance are HARD,
   // staying on the line and clearing foreign lines are preferences that yield.
@@ -672,7 +747,12 @@ export function deconflictChipAnchors(
     for (let i = 1; i < pts.length; i++) {
       segs.push([pts[i - 1]![0], pts[i - 1]![1], pts[i]![0], pts[i]![1]]);
     }
-    edgeSegments.push({ flowKey: flowKeyOf(edge), target: edge.target, segs });
+    edgeSegments.push({
+      id: edge.id,
+      flowKey: flowKeyOf(edge),
+      target: edge.target,
+      segs,
+    });
   });
 
   // Raw card rects a chip's box must stay clear of, so a chip never sits on top
@@ -943,6 +1023,12 @@ export function deconflictChipAnchors(
   // than only the owner's own -- otherwise a sibling member's target reads as a
   // foreign card and shoves the aggregate off the trunk and down onto a branch.
   const trunkExempt = new Map<string, MutCardExemption>();
+  // Trunk-aware own-flow set for each trunk's AGGREGATE chip: the edge ids of
+  // every member. The aggregate rides the shared trunk, whose flowKey (item|
+  // source) a SEPARATE direct edge off the same source can share without being a
+  // trunk member; keyed by id, that direct edge reads foreign so the aggregate
+  // steps clear of it rather than binding to it (issue #28, finding 1).
+  const trunkMemberIds = new Map<string, Set<string>>();
   for (const { edge } of fanoutEdges) {
     const key = (edge.data as BusEdgeData).trunkKey;
     let set = trunkExempt.get(key);
@@ -951,6 +1037,12 @@ export function deconflictChipAnchors(
       trunkExempt.set(key, set);
     }
     mergeExemptionInto(set, cardExemptFor(edge));
+    let ids = trunkMemberIds.get(key);
+    if (ids === undefined) {
+      ids = new Set<string>();
+      trunkMemberIds.set(key, ids);
+    }
+    ids.add(edge.id);
   }
   for (const { edge, index } of fanoutEdges) {
     const geom = fanoutGeomByIndex.get(index)!;
@@ -984,6 +1076,7 @@ export function deconflictChipAnchors(
       edge.target,
       trunkExempt.get((edge.data as BusEdgeData).trunkKey) ?? cardExemptFor(edge),
       NEVER_BAND,
+      { ownIds: trunkMemberIds.get((edge.data as BusEdgeData).trunkKey) },
     );
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
       // Dev/test-only tripwire, tree-shaken out of production builds (parity with

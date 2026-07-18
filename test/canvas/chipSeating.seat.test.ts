@@ -43,6 +43,7 @@ const LINE: {
 // box centred ON the own line (half-height MAX_CHIP_SCALE * 24 / 2 = 24)
 // overlaps it, so no fully-clear on-line point exists anywhere.
 const PARALLEL_FOREIGN: EdgeSegments = {
+  id: "parallel",
   flowKey: "foreign",
   target: "elsewhere",
   segs: [[-1000, 10, 2000, 10]],
@@ -234,5 +235,88 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
     expect(
       chipEntersOwnCardBody(seatedBox(460, 0, seat), member, "target"),
     ).toBe(false);
+  });
+});
+
+describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (issue #28)", () => {
+  it("steps a chip off a foreign vertical 16 units away instead of straddling it", () => {
+    // Twin vertical corridors 16 units apart (fan-out branch legs right of a
+    // card): the own leg at x=0, a FOREIGN leg at x=16. A wide chip box seated on
+    // the own leg (half-width 120) necessarily straddles the foreign leg, and no
+    // vertical motion clears it: slide-along-leg, nudge, and cascade all hold x
+    // on a vertical leg, so the pre-sidestep seat grazed the neighbour. The
+    // sidestep tier steps the box horizontally away from the foreign leg toward
+    // the own leg's free side until the box clears the foreign leg.
+    const ownVertical = {
+      pts: [[0, 0], [0, 1000]] as ReadonlyArray<readonly [number, number]>,
+      anchorX: 0,
+      anchorY: 500,
+    };
+    const foreignVertical: EdgeSegments = {
+      id: "foreign",
+      flowKey: "foreign",
+      target: "elsewhere",
+      segs: [[16, -1000, 16, 2000]],
+    };
+    const field = makeClearanceField([foreignVertical], []);
+    const seat = seatRateChip(field, ownVertical, "own", "t", NO_EXEMPT, NO_BAND);
+    const cx = ownVertical.anchorX + seat.dx;
+    // The seated box no longer overlaps the foreign leg at x=16: a wide box needs
+    // a full half-width of centre separation to clear a vertical line.
+    expect(Math.abs(cx - 16)).toBeGreaterThanOrEqual(HALF_W);
+    // Escaped toward the free side (left, away from the foreign leg at +16).
+    expect(seat.dx).toBeLessThan(0);
+    // The own leg (x=0) still lies within the box, so the chip reads as bound to
+    // it -- the escape stays within one half-width of the line.
+    expect(Math.abs(seat.dx)).toBeLessThanOrEqual(HALF_W);
+    // A pure horizontal escape: no vertical move off the anchor.
+    expect(seat.dy).toBe(0);
+    expect(seat.tier).toBe("sidestep");
+  });
+
+  it("still grazes (stays on the line) when the foreign line is parallel to the own line", () => {
+    // A HORIZONTAL foreign line parallel to a horizontal own line (issue #9): no
+    // horizontal step can clear it (it spans every x at that y), so the sidestep
+    // finds nothing and the chip stays ON its own line via the graze tier rather
+    // than flying off. Guards that the sidestep never regresses the #9 fix.
+    const field = makeClearanceField([PARALLEL_FOREIGN], []);
+    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+  });
+});
+
+describe("seatRateChip: trunk-aware foreignness for the aggregate (issue #28)", () => {
+  it("treats a same-flowKey edge OUTSIDE the trunk member set as foreign", () => {
+    // A fan-out aggregate on a SHORT horizontal trunk whose wide box wholly
+    // overhangs it, plus a direct same-item edge (SAME flowKey, but NOT a trunk
+    // member) dropping vertically just past the junction. flowKey grouping alone
+    // treats that direct edge as own flow, so the aggregate seats straddling it
+    // at its anchor; the trunk-aware own-set (member edge ids) flags it foreign,
+    // so the sidestep steps the box clear of its vertical. This is the v14-gas
+    // Sigma-60-vs-12/min defect in miniature (finding 1).
+    const member: EdgeSegments = { id: "m", flowKey: "trunk", target: "tm", segs: [] };
+    const direct: EdgeSegments = {
+      id: "d",
+      flowKey: "trunk", // same item|source as the trunk, yet a separate edge
+      target: "td",
+      segs: [[210, -1000, 210, 1000]],
+    };
+    const field = makeClearanceField([member, direct], []);
+    const trunk = {
+      pts: [[100, 0], [200, 0]] as ReadonlyArray<readonly [number, number]>,
+      anchorX: 150,
+      anchorY: 0,
+    };
+    const seat = seatRateChip(field, trunk, "trunk", "t", NO_EXEMPT, NO_BAND, {
+      ownIds: new Set(["m"]),
+    });
+    // Stepped off the direct edge's vertical (x=210): a wide box needs a full
+    // half-width of centre separation to clear it.
+    const cx = trunk.anchorX + seat.dx;
+    expect(Math.abs(cx - 210)).toBeGreaterThanOrEqual(HALF_W);
+    // Still within a half-width of its own trunk column, purely horizontal.
+    expect(Math.abs(seat.dx)).toBeLessThanOrEqual(HALF_W);
+    expect(seat.dy).toBe(0);
+    expect(seat.tier).toBe("sidestep");
   });
 });
