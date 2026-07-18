@@ -775,21 +775,24 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
   // cross-boundary liquid_xiranite_poly into xiranite_enr_powder is carried by
   // BOTH producer recipes in proportion to their LP rates (28/5 : 7/5).
   it("CONTROL: deliverers carry cross flow in LP-rate proportion", () => {
+    // legacyPack: the two-producer (main + purifier) coexistence this control
+    // pins only forms on the pre-gas route; the full v1.4 pack meets
+    // xiranite_enr_powder through the gas chain and runs neither producer.
     const targets: Target[] = [
       { itemId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
       { itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
     ];
     const full = solvePlanWithIntermediates(
       targets,
-      pack,
+      legacyPack,
       defaultTransportConfig,
       [],
     );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
-      pack,
+      pack: legacyPack,
       targets,
       itemOverrides: [],
     }).flatMap((r) => r.violations);
@@ -939,15 +942,18 @@ describe("render corpus: co-product fans across sibling replicas (P6)", () => {
     },
   ];
 
+  // legacyPack: the liquid_xiranite SCC whose looper/deliverer split this suite
+  // exercises only forms on the pre-gas route. On the full v1.4 pack the gas
+  // chain meets the steered jinlong demand and liquid_xiranite_poly never runs.
   function solveP6() {
     const full = solvePlanWithIntermediates(
       P6_TARGETS,
-      pack,
+      legacyPack,
       defaultTransportConfig,
       [],
       JINLONG_STEER,
     );
-    const { plan } = renderPlanFromSolve(full, pack, P6_TARGETS, []);
+    const { plan } = renderPlanFromSolve(full, legacyPack, P6_TARGETS, []);
     return { full, plan };
   }
 
@@ -1138,17 +1144,21 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
   // each producer's true-spare share of the declared rate (Bug 3 fix:
   // per-render-unit aggregation, not the pre-fix per-vertex clamp).
   it("P8 [xiranite_enr_powder, liquid_xiranite_poly]: target split is exact spare proportion", () => {
+    // legacyPack: the two-producer SCC (poly + purifier) feeding
+    // xiranite_enr_powder is the Bug-3 witness. On the full v1.4 pack the gas
+    // route meets xiranite_enr_powder (it stops consuming poly) and a third
+    // sewage-treat producer of poly appears, so the 4/5:1/5 split is gone.
     const targets: Target[] = [
       { itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
       { itemId: "liquid_xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
     ];
     const full = solvePlanWithIntermediates(
       targets,
-      pack,
+      legacyPack,
       defaultTransportConfig,
       [],
     );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
 
     const allRows = producerSpares(plan, "liquid_xiranite_poly");
     const rows = allRows.filter(
@@ -1183,7 +1193,7 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
-      pack,
+      pack: legacyPack,
       targets,
       itemOverrides: [],
     }).flatMap((r) => r.violations);
