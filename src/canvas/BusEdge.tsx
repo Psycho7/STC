@@ -146,8 +146,11 @@ export default function BusEdge({
     memberCount === 1 &&
     laneData?.busChipX === undefined &&
     busRunLength > BUS_LONG_RUN_THRESHOLD;
+  // A hover-lit member is exempt too: the hover asks for this member's rate, so
+  // the zoom gate must not swallow the answer.
   const showMemberChip =
-    edgeData !== undefined && (zoom >= LABEL_MIN_ZOOM || longSingleRun);
+    edgeData !== undefined &&
+    (zoom >= LABEL_MIN_ZOOM || longSingleRun || edgeData.focused === true);
   const dropRateStr = totalRate ? formatRatePerMin(totalRate) : "";
   const sumMarker = memberCount > 1 ? "Σ" : "";
   const dropText =
@@ -243,6 +246,7 @@ export default function BusEdge({
       title={title}
       tear={edgeData?.isTearEdge}
       dimmed={edgeData?.dimmed}
+      focused={edgeData?.focused}
       zoom={zoom}
     />
   );

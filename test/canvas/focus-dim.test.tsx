@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, fireEvent, waitFor } from "@testing-library/react";
 import type { Node, Edge } from "@xyflow/react";
 import Fraction from "fraction.js";
-import Canvas from "../../src/canvas/Canvas";
+import Canvas, { focusEdges } from "../../src/canvas/Canvas";
 import {
   ItemPackProvider,
   type ItemPackContextValue,
@@ -357,5 +357,29 @@ describe("canvas/focus-dim two-mode trunk hover", () => {
     });
     expect(chipDimmed(container, "bus-junction-own")).toBe(false);
     expect(chipDimmed(container, "bus-junction-br1")).toBe(false);
+  });
+});
+
+describe("canvas/focus-dim focusEdges", () => {
+  // Canvas owns its ReactFlowProvider and takes no viewport prop, so a jsdom
+  // render cannot drive the store zoom below the label gate. Assert the wiring
+  // on the exported pure mapper instead.
+  it("stamps focused on lit edges and dims the rest", () => {
+    const out = focusEdges(EDGES, { edgeIds: new Set(["e3"]) });
+    const byId = new Map(out.map((e) => [e.id, e]));
+    const lit = byId.get("e3")!;
+    expect((lit.data as { focused?: boolean }).focused).toBe(true);
+    expect((lit.data as { dimmed?: boolean }).dimmed).toBeUndefined();
+    expect(lit.className ?? "").not.toContain("dimmed");
+    for (const id of ["e1", "e2"]) {
+      const dim = byId.get(id)!;
+      expect((dim.data as { dimmed?: boolean }).dimmed).toBe(true);
+      expect((dim.data as { focused?: boolean }).focused).toBeUndefined();
+      expect(dim.className ?? "").toContain("dimmed");
+    }
+  });
+
+  it("returns the input array untouched when idle", () => {
+    expect(focusEdges(EDGES, null)).toBe(EDGES);
   });
 });

@@ -123,6 +123,33 @@ function withLitContainer(className: string | undefined): string {
   return className ? `${className} lit-container` : "lit-container";
 }
 
+// Stamp the hover focus onto the edges React Flow renders. Idle (`focus` null)
+// returns the input array untouched, so nothing re-renders while the pointer is
+// off the graph. Exported for the unit test: Canvas owns its ReactFlowProvider
+// and takes no viewport prop, so the zoom-dependent half of this cannot be
+// driven from a rendered Canvas.
+export function focusEdges(
+  edges: Edge[],
+  focus: { edgeIds: Set<string> } | null,
+): Edge[] {
+  if (!focus) return edges;
+  return edges.map((edge) =>
+    focus.edgeIds.has(edge.id)
+      ? // The lit edge announces itself so its chips can outrank the zoom
+        // level-of-detail gates and show the rate the hover is asking for.
+        { ...edge, data: { ...edge.data, focused: true } }
+      : {
+          ...edge,
+          className: withDimmed(edge.className),
+          // The edge label chips (rate / entry / bus drop-rise) portal out of
+          // this wrapper via EdgeLabelRenderer, so the wrapper's `dimmed`
+          // class never fades them. Thread the dim through edge data; the
+          // chips map it onto their own .flow-chip.dimmed rule.
+          data: { ...edge.data, dimmed: true },
+        },
+  );
+}
+
 // How long the copy button holds its transient result before reverting to the
 // default label.
 const COPY_FEEDBACK_MS = 1500;
@@ -441,22 +468,10 @@ function CanvasInner({
     });
   }, [nodes, focus, litContainers]);
 
-  const displayEdges = useMemo<Edge[]>(() => {
-    if (!focus) return edges;
-    return edges.map((edge) =>
-      focus.edgeIds.has(edge.id)
-        ? edge
-        : {
-            ...edge,
-            className: withDimmed(edge.className),
-            // The edge label chips (rate / entry / bus drop-rise) portal out of
-            // this wrapper via EdgeLabelRenderer, so the wrapper's `dimmed`
-            // class never fades them. Thread the dim through edge data; the
-            // chips map it onto their own .flow-chip.dimmed rule.
-            data: { ...edge.data, dimmed: true },
-          },
-    );
-  }, [edges, focus]);
+  const displayEdges = useMemo<Edge[]>(
+    () => focusEdges(edges, focus),
+    [edges, focus],
+  );
 
   // Memoized on nodes: the annotation re-renders every zoom tick (this
   // component subscribes to zoom), but the unit count changes only with nodes.

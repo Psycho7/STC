@@ -378,6 +378,33 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(labels[0]!.textContent).toBe("120/min");
   });
 
+  it("reveals a focused member's rise chip below the zoom threshold", async () => {
+    // Canvas's hover focus stamps `focused` on every lit edge; the lit member's
+    // rise chip then survives the zoom gate and the aggregate keeps its digits,
+    // so the hover shows a rate at fit zoom.
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(2, 1),
+        laneY: 500,
+        trunkKey: "Iron Plate|src",
+        focused: true,
+      },
+      0.3,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(drop).not.toBeNull();
+    expect(rise).not.toBeNull();
+    expect(rise!.textContent).toBe("120/min");
+    expect(drop!.classList.contains("icon-only")).toBe(false);
+  });
+
   it("exempts the rise chip on a lone member's long detour below the zoom threshold", async () => {
     // A single-member trunk whose lane run spans several layers (FAR_NODES) is a
     // long detour: its rise end sits far from the source-side drop chip, so the
