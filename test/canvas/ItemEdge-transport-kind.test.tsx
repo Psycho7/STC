@@ -103,6 +103,19 @@ describe("canvas/ItemEdge transport-kind styling", () => {
     expect(path.style.stroke).not.toBe("");
   });
 
+  it("keeps the gas attribute on a dimmed edge, which is what the gas dim rule selects on", async () => {
+    // jsdom does not apply the stylesheet, so this pins the hook the CSS needs
+    // rather than the fade itself; the rendered result is checked in a browser.
+    renderEdge({
+      item: "gas_water",
+      rate: new Fraction(1),
+      transportKind: "gas",
+      dimmed: true,
+    });
+    const path = await findEdgePath();
+    expect(path.getAttribute("data-transport-kind")).toBe("gas");
+  });
+
   it("falls back to belt styling for an unknown transportKind without throwing", async () => {
     renderEdge({
       item: "phantom_item",
