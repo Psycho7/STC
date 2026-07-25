@@ -96,6 +96,9 @@ export type ItemEdgeData = {
   faninSigmaDx?: number;
   faninSigmaDy?: number;
   faninTotalRate?: Fraction;
+  // The same total as the members' own chips read it: the sum of their
+  // DISPLAY-rounded rates, so the aggregate and the member chips cross-check.
+  faninDisplayTotalRate?: Fraction;
   faninMemberCount?: number;
   // Set on a fan-in member whose OWN rate chip would sit ON the shared run
   // (between the merge point and the port), where the summed Sigma already reads:
@@ -426,7 +429,10 @@ export default function ItemEdge({
   // cannot diverge.
   const faninMarker = "Σ";
   const faninTotal = edgeData?.faninTotalRate;
-  const faninRateStr = faninTotal ? formatRatePerMin(faninTotal) : "";
+  const faninDisplayTotal = edgeData?.faninDisplayTotalRate ?? faninTotal;
+  const faninRateStr = faninDisplayTotal
+    ? formatRatePerMin(faninDisplayTotal)
+    : "";
   const faninText = faninRateStr ? `${faninMarker}${faninRateStr}${unit}` : "";
   const faninLabel =
     edgeData && faninRateStr

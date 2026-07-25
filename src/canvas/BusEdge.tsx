@@ -151,7 +151,12 @@ export default function BusEdge({
   const showMemberChip =
     edgeData !== undefined &&
     (zoom >= LABEL_MIN_ZOOM || longSingleRun || edgeData.focused === true);
-  const dropRateStr = totalRate ? formatRatePerMin(totalRate) : "";
+  // The chip shows the sum of the members' DISPLAYED rates, so a reader adding
+  // up the visible member chips lands on the aggregate; the tooltip below keeps
+  // the exact total. Hand-built edges (tests, non-routed data) carry no display
+  // total and fall back to the exact one.
+  const dropDisplayRate = edgeData?.busDisplayTotalRate ?? totalRate;
+  const dropRateStr = dropDisplayRate ? formatRatePerMin(dropDisplayRate) : "";
   const sumMarker = memberCount > 1 ? "Σ" : "";
   const dropText =
     showAggChip && dropRateStr ? `${sumMarker}${dropRateStr}${unit}` : "";

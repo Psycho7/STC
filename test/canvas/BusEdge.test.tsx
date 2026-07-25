@@ -249,6 +249,31 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(rise!.textContent).toBe("60/min");
   });
 
+  it("renders the aggregate as the sum of the members' displayed rates", async () => {
+    // busDisplayTotalRate is the sum of the members' rounded chips (7.12), so
+    // the reader's arithmetic checks out; busTotalRate stays exact (7.112) for
+    // the hover tooltip.
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction("4.256").div(60),
+        laneY: 500,
+        trunkKey: "Iron Plate|src",
+        busChipOwner: true,
+        busTotalRate: new Fraction("7.112").div(60),
+        busDisplayTotalRate: new Fraction("7.12").div(60),
+        busMemberCount: 2,
+      },
+      1,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    expect(drop!.textContent).toBe("Σ7.12/min");
+    expect(drop!.getAttribute("title")).toContain("7.112");
+  });
+
   it("skips the branch chip of a fan-out member flagged fanoutBranchHidden", async () => {
     // deconflictChipAnchors hides a branch chip when no chip/card-clear seat
     // exists anywhere on the member's own polyline (a narrow-corridor fan-out

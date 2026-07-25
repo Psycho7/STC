@@ -31,6 +31,7 @@
 import type { Edge } from "@xyflow/react";
 import Fraction from "fraction.js";
 
+import { quantizeRateToDisplay } from "../data/rate-format";
 import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH, MAX_CHIP_SCALE } from "./dimensions";
 import {
   CHAMFER,
@@ -1326,6 +1327,7 @@ export function deconflictChipAnchors(
     dx: number;
     dy: number;
     total: Fraction;
+    displayTotal: Fraction;
     count: number;
   };
   const faninSigmaByIndex = new Map<number, FaninSigma>();
@@ -1350,6 +1352,7 @@ export function deconflictChipAnchors(
     tx: number;
     ownIds: ReadonlySet<string>;
     total: Fraction;
+    displayTotal: Fraction;
     count: number;
   };
   const faninSeatJobs: FaninSeatJob[] = [];
@@ -1374,7 +1377,14 @@ export function deconflictChipAnchors(
     const runLen = tx - mergeX;
     if (runLen <= 2 * CHAMFER) continue; // no real shared run to mark
     let total = new Fraction(0);
-    for (const m of members) total = total.add(m.rate);
+    // Alongside the exact total, the sum of the members' DISPLAY-rounded rates:
+    // what a reader adding up the visible member chips gets (2-decimal rounding
+    // is not additive). The chip shows this one, the tooltip the exact total.
+    let displayTotal = new Fraction(0);
+    for (const m of members) {
+      total = total.add(m.rate);
+      displayTotal = displayTotal.add(quantizeRateToDisplay(m.rate));
+    }
     const owner = itemMembers.reduce((a, b) => (a.id <= b.id ? a : b));
     const ownerEdge = edges[owner.index]!;
     // Sigma anchor on the shared run, kept a chip half-box (bounded by half the
@@ -1390,6 +1400,7 @@ export function deconflictChipAnchors(
       tx,
       ownIds: new Set(members.map((m) => m.id)),
       total,
+      displayTotal,
       count: members.length,
     });
     for (const m of itemMembers) {
@@ -1494,6 +1505,7 @@ export function deconflictChipAnchors(
       dx: seat.dx,
       dy: seat.dy,
       total: job.total,
+      displayTotal: job.displayTotal,
       count: job.count,
     });
   }
@@ -1555,6 +1567,7 @@ export function deconflictChipAnchors(
               ...(faninSigma.dx !== 0 ? { faninSigmaDx: faninSigma.dx } : {}),
               ...(faninSigma.dy !== 0 ? { faninSigmaDy: faninSigma.dy } : {}),
               faninTotalRate: faninSigma.total,
+              faninDisplayTotalRate: faninSigma.displayTotal,
               faninMemberCount: faninSigma.count,
             }
           : {}),

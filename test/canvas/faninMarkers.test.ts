@@ -11,6 +11,7 @@ import type { Edge } from "@xyflow/react";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { routeFanoutEdges } from "../../src/canvas/busRouting";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
+import { formatRatePerMin } from "../../src/data/rate-format";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 
@@ -19,6 +20,7 @@ type FaninData = {
   faninJunctionY?: number;
   faninSigmaX?: number;
   faninTotalRate?: Fraction;
+  faninDisplayTotalRate?: Fraction;
   faninMemberCount?: number;
   faninChipHidden?: boolean;
   busTotalRate?: Fraction;
@@ -85,6 +87,46 @@ describe("deconflictChipAnchors: fan-in markers", () => {
     // member's chip is on its own bend leg -> kept.
     expect(other.faninChipHidden).toBe(true);
     expect(owner.faninChipHidden).toBeUndefined();
+  });
+
+  it("sums the members' DISPLAYED rates into the aggregate, keeping the exact total", () => {
+    // 4.256/min and 2.856/min each round UP on their own chips (4.26 + 2.86 =
+    // 7.12), while the exact sum 7.112/min rounds DOWN to 7.11. The aggregate
+    // shows the sum of the visible member chips; the exact total stays for the
+    // hover tooltip.
+    const tgtRecipe = mkRecipe("tgt", ["s"], []);
+    const tgt = orderedRecipeNode("tgt", 1000, 100, ["s"]);
+    const ty = 100 + measureRecipe(tgtRecipe).inHandleYs[0]!;
+
+    const srcA = recipeNode("srcA", 0, 0, mkRecipe("srcA", [], ["s"]));
+    const srcBRecipe = mkRecipe("srcB", [], ["s"]);
+    const srcBOutY0 = measureRecipe(srcBRecipe).outHandleYs[0]!;
+    const srcB = recipeNode("srcB", 600, ty - srcBOutY0, srcBRecipe);
+
+    const nodes: RFAnyNode[] = [srcA, srcB, tgt];
+    const edges: Edge[] = [
+      rateEdge(
+        "e:1:srcA->tgt:s",
+        "srcA",
+        "tgt",
+        "s",
+        new Fraction("4.256").div(60),
+      ),
+      rateEdge(
+        "e:2:srcB->tgt:s",
+        "srcB",
+        "tgt",
+        "s",
+        new Fraction("2.856").div(60),
+      ),
+    ];
+
+    const out = deconflictChipAnchors(nodes, edges);
+    const owner = dataOf(out, "e:1:srcA->tgt:s");
+    expect(formatRatePerMin(owner.faninDisplayTotalRate!)).toBe("7.12");
+    expect(owner.faninTotalRate!.equals(new Fraction("7.112").div(60))).toBe(
+      true,
+    );
   });
 
   it("marks no fan-in for two edges from ONE source (a parallel bundle is one flow)", () => {

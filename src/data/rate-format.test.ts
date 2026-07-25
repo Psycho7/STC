@@ -4,6 +4,7 @@ import {
   formatRateExactPerMin,
   formatRatePerMin,
   formatRationalPerMin,
+  quantizeRateToDisplay,
   ratePerSecToPerMin,
 } from "./rate-format";
 
@@ -143,4 +144,18 @@ test("ratePerSecToPerMin round-trips a beyond-double rate through the panel pars
   const text = ratePerSecToPerMin(rps);
   const reparsed = new Fraction(text).div(60);
   expect(reparsed.equals(new Fraction(perMinDigits).div(60))).toBe(true);
+});
+
+test("quantizeRateToDisplay round-trips through the display formatter", () => {
+  for (const v of ["4.256", "0.0048", "0.005", "120", "8.5714285"]) {
+    const r = new Fraction(v).div(60);
+    expect(formatRatePerMin(quantizeRateToDisplay(r))).toBe(
+      formatRatePerMin(r),
+    );
+  }
+  // Summing quantized parts is what makes an aggregate add up: 4.26 + 2.86.
+  const a = quantizeRateToDisplay(new Fraction("4.256").div(60));
+  const b = quantizeRateToDisplay(new Fraction("2.856").div(60));
+  expect(formatRatePerMin(a.add(b))).toBe("7.12");
+  expect(quantizeRateToDisplay(new Fraction(0)).valueOf()).toBe(0);
 });
