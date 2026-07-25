@@ -264,6 +264,47 @@ describe("PortGlyph item color", () => {
     expect(glyph!.style.background).toBe(normalizeColor("#666"));
   });
 
+  it("colors a gas glyph's border by itemColor while keeping the diamond shape", () => {
+    const { container } = render(
+      <PortGlyph kind="gas" side="right" top={10} item="gas_water" />,
+    );
+    const glyph = container.querySelector<HTMLElement>('[data-glyph="gas"]');
+    expect(glyph).not.toBeNull();
+    expect(glyph!.style.borderColor).toBe(
+      normalizeColor(itemColor("gas_water")),
+    );
+    // Diamond: a rotated square, so hollow like the pipe circle but with no
+    // border-radius and a 45 degree rotation.
+    expect(glyph!.style.borderRadius).toBe("");
+    expect(glyph!.style.background).toBe("transparent");
+    expect(glyph!.style.transform).toContain("rotate(45deg)");
+  });
+
+  it("sizes the gas diamond so its diagonal matches the pipe circle", () => {
+    const { container } = render(<PortGlyph kind="gas" side="left" top={10} />);
+    const glyph = container.querySelector<HTMLElement>('[data-glyph="gas"]');
+    expect(glyph).not.toBeNull();
+    // A square rotated 45 degrees presents its diagonal, so a same-sized box
+    // would out-mass the 8px circle by a factor of sqrt(2). 6px keeps the
+    // presented diagonal at ~8.49px.
+    expect(glyph!.style.width).toBe("6px");
+    expect(glyph!.style.height).toBe("6px");
+    // Centered on the same handle y as its 8px siblings: 10 - 6/2 = 7.
+    expect(glyph!.style.top).toBe("7px");
+  });
+
+  it("keeps the gas rotation composed with the row-centering transform", () => {
+    // The `top`-less mode centers on the DOM row via translateY(-50%). The
+    // rotation has to compose with it, not replace it, or the glyph drops half
+    // its height off the row.
+    const { container } = render(<PortGlyph kind="gas" side="left" />);
+    const glyph = container.querySelector<HTMLElement>('[data-glyph="gas"]');
+    expect(glyph).not.toBeNull();
+    expect(glyph!.style.top).toBe("50%");
+    expect(glyph!.style.transform).toContain("translateY(-50%)");
+    expect(glyph!.style.transform).toContain("rotate(45deg)");
+  });
+
   it("keeps shape driven by kind even when item is present (pipe stays a circle)", () => {
     const { container } = render(
       <PortGlyph kind="pipe" side="left" top={10} item="copper_nugget" />,
