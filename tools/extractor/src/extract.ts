@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import {
   LOCALES,
   SCHEMA_VERSION,
+  TRANSPORT_KIND,
   type Item,
   type Locale,
   type LocaleNames,
@@ -12,6 +13,7 @@ import {
   type SourceProvenance,
   type Stoich,
   type Transport,
+  type TransportKindId,
 } from "./schema.ts";
 import type { UpstreamData, UpstreamI18n, UpstreamItem, UpstreamRecipe } from "./upstream.ts";
 
@@ -20,6 +22,30 @@ import type { UpstreamData, UpstreamI18n, UpstreamItem, UpstreamRecipe } from ".
 // items, machines, and identity recipes that backed them.
 const syntheticSubstitutions: Record<string, string> = {
   __miner_water: "liquid_water",
+};
+
+// The gas carrier the game added in v1.4. Upstream models only belt and pipe, so
+// the carrier that moves gas items has to be synthesized here; without it the
+// referential assertion below rejects every gas item for naming a Transport.kind
+// no transport declares. The icon reuses the pipe sprite because nothing renders
+// Transport.icon, and the speed reuses the pipe figure as an uncalibrated
+// placeholder (transport-config.json carries the same note).
+const SYNTHETIC_GAS_TRANSPORT: Transport = {
+  id: "gas_pipe",
+  kind: TRANSPORT_KIND.GAS,
+  name: "气体管道",
+  icon: "pipe",
+  speed: 2,
+};
+
+// Display names for the synthetic carrier. The upstream i18n files have no key
+// for an id upstream does not know about, so the sidecar builder injects these
+// before the per-locale coverage assertion runs.
+const SYNTHETIC_GAS_TRANSPORT_NAMES: Record<Locale, string> = {
+  en: "Gas Pipe",
+  ja: "ガスパイプ",
+  ru: "Газопровод",
+  zh: "气体管道",
 };
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
@@ -87,6 +113,8 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
     }
   }
 
+  transports.push({ ...SYNTHETIC_GAS_TRANSPORT });
+
   const recipes: Recipe[] = upstream.recipes.map(toRecipe);
 
   const dropped = collapseSyntheticChains({ items, machines, recipes });
@@ -133,6 +161,18 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
   return { pack, i18n };
 }
 
+// Transport phase for one upstream item. Upstream carries no phase field, so the
+// signals are the stack size and the id prefix: a stack size means the item rides
+// a belt, and among the unstackable items the gas_ prefix separates gases from
+// liquids. An unstackable item with an unrecognised prefix stays on pipe rather
+// than throwing, so an upstream rename degrades to one item drawn with the wrong
+// stroke instead of a failed extract.
+function classifyTransportKind(u: UpstreamItem): TransportKindId {
+  if (typeof u.stack === "number") return TRANSPORT_KIND.BELT;
+  if (u.id.startsWith("gas_")) return TRANSPORT_KIND.GAS;
+  return TRANSPORT_KIND.PIPE;
+}
+
 function toItem(u: UpstreamItem): Item {
   const item: Item = {
     id: u.id,
@@ -143,7 +183,7 @@ function toItem(u: UpstreamItem): Item {
     // raw is computed after the collapse pass; default false here and let the
     // classifier overwrite it before emit.
     raw: false,
-    transportKind: typeof u.stack === "number" ? "belt" : "pipe",
+    transportKind: classifyTransportKind(u),
   };
   if (typeof u.stack === "number") item.stack = u.stack;
   if (u.buildIcon && u.buildIcon.length > 0) item.buildIcon = [...u.buildIcon];
@@ -391,6 +431,11 @@ async function buildI18nSidecar(
     const raw = (await Bun.file(path).json()) as UpstreamI18n;
 
     const split = splitLocale(raw, { itemIds, machineIds, transportIds, dropped });
+
+    // splitLocale can only route keys upstream actually ships, and upstream has
+    // no key for the synthetic gas carrier, so its name is injected here before
+    // the coverage assertion below demands one.
+    split.transports[SYNTHETIC_GAS_TRANSPORT.id] = SYNTHETIC_GAS_TRANSPORT_NAMES[locale];
 
     // The upstream recipe i18n includes identity-recipe entries for the
     // synthetic recipes we dropped; strip them so the coverage check matches

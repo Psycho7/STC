@@ -5,7 +5,7 @@
     "sourceRepo": "https://github.com/endfield-calc/factoriolab",
     "sourceCommit": "6a006762645fdbbc54dea854d15e50a76d3bb268",
     "gameVersion": "v1.4",
-    "extractedAt": "2026-07-17T02:15:30.623Z"
+    "extractedAt": "2026-07-25T08:16:16.444Z"
   },
   "locales": [
     "en",
@@ -178,7 +178,8 @@
       },
       "transports": {
         "belt": "Transport Belt",
-        "pipe": "Pipe"
+        "pipe": "Pipe",
+        "gas_pipe": "Gas Pipe"
       },
       "recipes": {
         "power_originium_ore": "Power(Originium Ore)",
@@ -589,7 +590,8 @@
       },
       "transports": {
         "belt": "ベルトコンベア",
-        "pipe": "パイプ"
+        "pipe": "パイプ",
+        "gas_pipe": "ガスパイプ"
       },
       "recipes": {
         "power_originium_ore": "発電(源石鉱物)",
@@ -1000,7 +1002,8 @@
       },
       "transports": {
         "belt": "Транспортировочная лента",
-        "pipe": "Труба"
+        "pipe": "Труба",
+        "gas_pipe": "Газопровод"
       },
       "recipes": {
         "power_originium_ore": "Энергия(Ориджиниевая руда)",
@@ -1411,7 +1414,8 @@
       },
       "transports": {
         "belt": "传送带",
-        "pipe": "管道"
+        "pipe": "管道",
+        "gas_pipe": "气体管道"
       },
       "recipes": {
         "power_originium_ore": "发电(源矿)",

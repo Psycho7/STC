@@ -5,7 +5,7 @@
     "sourceRepo": "https://github.com/endfield-calc/factoriolab",
     "sourceCommit": "6a006762645fdbbc54dea854d15e50a76d3bb268",
     "gameVersion": "v1.4",
-    "extractedAt": "2026-07-17T02:15:30.623Z"
+    "extractedAt": "2026-07-25T08:16:16.444Z"
   },
   "categories": [
     {
@@ -708,7 +708,7 @@
       "icon": "gas_copper",
       "row": 6,
       "raw": false,
-      "transportKind": "pipe"
+      "transportKind": "gas"
     },
     {
       "id": "gas_copper_enr",
@@ -717,7 +717,7 @@
       "icon": "gas_copper_enr",
       "row": 6,
       "raw": false,
-      "transportKind": "pipe"
+      "transportKind": "gas"
     },
     {
       "id": "gas_copper_enr2",
@@ -726,7 +726,7 @@
       "icon": "gas_copper_enr2",
       "row": 6,
       "raw": false,
-      "transportKind": "pipe"
+      "transportKind": "gas"
     },
     {
       "id": "copper_bottle",
@@ -849,7 +849,7 @@
       "icon": "gas_xiranite",
       "row": 8,
       "raw": true,
-      "transportKind": "pipe"
+      "transportKind": "gas"
     },
     {
       "id": "liquid_xiranite_enr",
@@ -867,7 +867,7 @@
       "icon": "gas_xiranite_enr",
       "row": 8,
       "raw": false,
-      "transportKind": "pipe"
+      "transportKind": "gas"
     },
     {
       "id": "liquid_water",
@@ -885,7 +885,7 @@
       "icon": "gas_water",
       "row": 8,
       "raw": false,
-      "transportKind": "pipe"
+      "transportKind": "gas"
     },
     {
       "id": "liquid_acid",
@@ -903,7 +903,7 @@
       "icon": "gas_acid",
       "row": 8,
       "raw": false,
-      "transportKind": "pipe"
+      "transportKind": "gas"
     },
     {
       "id": "gas_inert",
@@ -912,7 +912,7 @@
       "icon": "gas_inert",
       "row": 8,
       "raw": true,
-      "transportKind": "pipe"
+      "transportKind": "gas"
     },
     {
       "id": "bottled_food_1",
@@ -1630,6 +1630,13 @@
       "id": "pipe",
       "kind": "pipe",
       "name": "管道",
+      "icon": "pipe",
+      "speed": 2
+    },
+    {
+      "id": "gas_pipe",
+      "kind": "gas",
+      "name": "气体管道",
       "icon": "pipe",
       "speed": 2
     }

@@ -1,10 +1,11 @@
 {
   "schemaVersion": "0.2",
-  "source": "lanesPerBlueprintGroup and interGroupGapTiles are placeholders pending empirical AEF calibration (2026-05-11)",
+  "source": "lanesPerBlueprintGroup and interGroupGapTiles are placeholders pending empirical AEF calibration (2026-05-11); the gas carrier reuses the pipe throughput as a placeholder because the upstream snapshot ships no gas pipe entry (2026-07-25)",
   "lanesPerBlueprintGroup": 4,
   "interGroupGapTiles": 2,
   "carriers": {
     "belt": { "transportId": "belt", "itemsPerSecondPerLane": 0.5 },
-    "pipe": { "transportId": "pipe", "itemsPerSecondPerLane": 2 }
+    "pipe": { "transportId": "pipe", "itemsPerSecondPerLane": 2 },
+    "gas": { "transportId": "gas_pipe", "itemsPerSecondPerLane": 2 }
   }
 }

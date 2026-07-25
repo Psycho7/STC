@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type { Item, RecipePack, Transport } from "@aef/schema";
+import packJson from "@aef/data/recipe-pack.json";
 import {
+  defaultTransportConfig,
   loadTransportConfig,
   type TransportConfig,
 } from "../src/data/transport-config";
@@ -115,5 +117,32 @@ describe("loadTransportConfig superset guard (B7)", () => {
     const cfg = mkConfig(["belt", "pipe"]);
     // @ts-expect-error -- pack argument is required; this pins the signature.
     expect(() => loadTransportConfig(cfg)).toThrow();
+  });
+});
+
+// The cases above are synthetic. These run the same guard against the shipped
+// artifacts, which is what actually breaks the app when the extractor emits a
+// carrier kind the config does not register.
+describe("shipped pack loads against the shipped config", () => {
+  const pack = packJson as unknown as RecipePack;
+
+  it("registers a gas carrier pointing at the synthetic gas transport", () => {
+    expect(defaultTransportConfig.carriers.gas).toEqual({
+      transportId: "gas_pipe",
+      itemsPerSecondPerLane: 2,
+    });
+  });
+
+  it("loads without throwing UnknownCarrierError", () => {
+    expect(() =>
+      loadTransportConfig(defaultTransportConfig, pack),
+    ).not.toThrow();
+  });
+
+  it("carries gas items whose kind resolves to a real transport", () => {
+    const gasItems = pack.items.filter((i) => i.transportKind === "gas");
+    expect(gasItems.length).toBeGreaterThan(0);
+    const kinds = new Set(pack.transports.map((t) => t.kind));
+    expect(kinds.has("gas")).toBe(true);
   });
 });
