@@ -29,6 +29,7 @@ const tConfig: TransportConfig = {
   carriers: {
     belt: { transportId: "belt", itemsPerSecondPerLane: 1 },
     pipe: { transportId: "pipe", itemsPerSecondPerLane: 4 },
+    gas: { transportId: "gas_pipe", itemsPerSecondPerLane: 4 },
   },
 };
 
@@ -71,6 +72,18 @@ const items = new Map<string, Item>([
       transportKind: "pipe",
     } as Item,
   ],
+  [
+    "gas_a",
+    {
+      id: "gas_a",
+      name: "gas_a",
+      category: "x",
+      icon: "x",
+      row: 0,
+      raw: false,
+      transportKind: "gas",
+    } as Item,
+  ],
 ]);
 
 const recipeSolidA = {
@@ -102,10 +115,19 @@ const recipeFluid = {
   time: 1,
 } as unknown as Recipe;
 
+const recipeGas = {
+  id: "rg1",
+  in: [],
+  out: [{ item: "gas_a", qty: 1 }],
+  producers: ["m"],
+  time: 1,
+} as unknown as Recipe;
+
 const recipes = new Map<string, Recipe>([
   ["rs1", recipeSolidA],
   ["rs2", recipeSolidB],
   ["rsink", recipeSink],
+  ["rg1", recipeGas],
   ["rf1", recipeFluid],
 ]);
 
@@ -204,6 +226,28 @@ describe("ffdPack", () => {
     );
     expect(lanes.length).toBe(1);
     expect(lanes[0]!.carrier).toBe("pipe");
+  });
+
+  // A gas pipe cannot carry a liquid, so gas and pipe streams must never share
+  // a lane even when their combined rate would fit inside one lane's capacity.
+  it("gas and liquid in one group take separate lanes", () => {
+    const lanes = ffdPack(
+      [
+        rep("f", "rf1", "g1", new Fraction(1)),
+        rep("g", "rg1", "g1", new Fraction(1)),
+      ],
+      items,
+      recipes,
+      tConfig,
+    );
+    expect(lanes.length).toBe(2);
+    expect(new Set(lanes.map((l) => l.carrier))).toEqual(
+      new Set(["pipe", "gas"]),
+    );
+    for (const lane of lanes) {
+      expect(lane.groupId).toBe("g1");
+      expect(lane.streams.length).toBe(1);
+    }
   });
 
   it("different blueprint groups produce separate lane sets", () => {
