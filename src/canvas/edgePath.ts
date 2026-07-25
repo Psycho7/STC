@@ -39,6 +39,22 @@ export const MAX_CHAMFER = 24;
 // threshold.
 export const FORWARD_STEP_BUDGET = 2 * (PORT_STUB + CHAMFER);
 
+// Base bus drop column: one stub + chamfer off the source's Right port (its
+// right edge at sourceRight). The single definition every consumer shares --
+// chamferBusPath's default, routeBusEdges' rise-chip spread, clearBusColumns'
+// dodge base, and busBandRegions' run fold -- so the drop basis can never
+// drift between the drawer and the routing passes.
+export function busDropBase(sourceRight: number): number {
+  return sourceRight + PORT_STUB + CHAMFER;
+}
+
+// Base bus rise column: the staggered entryX when the entry-gutter pass staked
+// one out, else one stub + chamfer inside the target's Left port (its left edge
+// at targetLeft). Shared by the same consumers as busDropBase, same rationale.
+export function busRiseBase(targetLeft: number, entryX?: number): number {
+  return entryX ?? targetLeft - PORT_STUB - CHAMFER;
+}
+
 // Round to two decimals so degraded/scaled geometry does not produce long
 // floating tails in the emitted `d` string (keeps pinned tests stable).
 function r(n: number): number {
@@ -80,6 +96,10 @@ export type ObstacleRect = {
   right: number;
   top: number;
   bottom: number;
+  // A container slab (group / loop box), not a plain card. clearRailY keeps a
+  // detour rail a wider gap off these so the rail no longer hugs the slab border
+  // in a near-identical gray (#29). Absent / false on cards and gutters.
+  container?: boolean;
 };
 
 // Optional per-edge routing hints. The routing passes (busRouting) merge these
@@ -179,32 +199,47 @@ export function routingHintsFromData(data: unknown): RoutingHints {
   return hints;
 }
 
-// Choose a backward-detour rail y clear of every card the rail horizontally
-// spans. The rail runs at `preferredY` between xLo and xHi; a card whose x-range
-// overlaps [xLo, xHi] and whose y-extent contains preferredY would be sliced.
-// When that happens the rail moves to just above every spanned card
-// (min top - gap) or just below every spanned card (max bottom + gap), whichever
-// is the smaller move, so it clears all of them at once -- the same idea as the
-// bus lane band, which sits clear of the nodes it would otherwise cross. Cards
-// outside the x-span are ignored because the horizontal rail never reaches them.
-// Pure.
+// Choose a backward-detour rail y clear of every obstacle the rail horizontally
+// spans. The rail runs at `preferredY` between xLo and xHi; an obstacle whose
+// x-range overlaps [xLo, xHi] and whose strike band contains preferredY would be
+// sliced (or, for a container slab, hugged). When that happens the rail moves to
+// just above every spanned obstacle (min top - its gap) or just below every
+// spanned obstacle (max bottom + its gap), whichever is the smaller move, so it
+// clears all of them at once -- the same idea as the bus lane band, which sits
+// clear of the nodes it would otherwise cross. Plain obstacles use `gap` for
+// both the strike test and the clearance; container slabs (o.container) use the
+// wider `containerGap` for both, so a rail preferred anywhere inside the
+// container's clearance band -- including the moat between the padded border and
+// the band edge -- is pushed out to the full band (#29). Obstacles outside the
+// x-span are ignored because the horizontal rail never reaches them. Pure.
 export function clearRailY(
   preferredY: number,
   xLo: number,
   xHi: number,
   obstacles: ReadonlyArray<ObstacleRect>,
   gap = CHAMFER,
+  // Wider gap applied to container-slab obstacles (o.container). Defaults to the
+  // plain gap, so a non-container-aware caller is byte-identical to before.
+  containerGap = gap,
 ): number {
   const lo = Math.min(xLo, xHi);
   const hi = Math.max(xLo, xHi);
   const spanned = obstacles.filter((o) => o.right > lo && o.left < hi);
   if (spanned.length === 0) return preferredY;
+  // Strike band: the rect itself for plain obstacles; widened by the extra
+  // container clearance for slabs, so a rail preferred in the moat between the
+  // padded border and the full band still counts as a strike and gets pushed
+  // out, instead of being left hugging the border.
+  const reach = (o: ObstacleRect): number =>
+    o.container ? containerGap - gap : 0;
   const hits = spanned.some(
-    (o) => preferredY >= o.top && preferredY <= o.bottom,
+    (o) =>
+      preferredY >= o.top - reach(o) && preferredY <= o.bottom + reach(o),
   );
   if (!hits) return preferredY;
-  const aboveY = Math.min(...spanned.map((o) => o.top)) - gap;
-  const belowY = Math.max(...spanned.map((o) => o.bottom)) + gap;
+  const gapOf = (o: ObstacleRect): number => (o.container ? containerGap : gap);
+  const aboveY = Math.min(...spanned.map((o) => o.top - gapOf(o)));
+  const belowY = Math.max(...spanned.map((o) => o.bottom + gapOf(o)));
   return preferredY - aboveY <= belowY - preferredY ? aboveY : belowY;
 }
 
@@ -366,6 +401,21 @@ export function chamferStepPath(
     // cards.
     const railY =
       args.railY ?? (sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2);
+    // Backward chip anchor: on the rail's HORIZONTAL run (at railY), one stub in
+    // from the source-side corner but never past the run midpoint, so it rides
+    // the clean source half clear of the target entry gutter at xl. The rail is
+    // held a wide gap off any container slab (clampBackwardRails, CONTAINER_RAIL_GAP),
+    // so a chip here no longer hugs a slab border the way the source-vertical
+    // midpoint (sy..railY) could when the rail clamps just outside a loop box (#29).
+    // Both detour branches below share this anchor, so it stays CONTINUOUS across
+    // the apex/full boundary -- a one-pixel port-model disagreement between the
+    // live handles and the seating reconstruction cannot teleport it.
+    const railRunSourceX = xr - CHAMFER;
+    const railRunTargetX = xl + CHAMFER;
+    const labelX = Math.max(
+      (railRunSourceX + railRunTargetX) / 2,
+      railRunSourceX - PORT_STUB,
+    );
     // Small detour height: the rail sits within a chamfer of the source level,
     // so a full chamfered column would invert and backtrack (a zigzag spike).
     // Collapse each column to a single apex bevel (peak out at the column x, no
@@ -381,14 +431,13 @@ export function chamferStepPath(
         ` L ${r(xl)},${r((railY + ty) / 2)}` +
         ` L ${r(xl + CHAMFER)},${r(ty)}` +
         ` L ${r(tx)},${r(ty)}`;
-      // Anchor at the apex peak (xr, mid(sy, railY)) -- a path vertex -- the
-      // same source-side-column rule as the full rail below, so the anchor is
-      // CONTINUOUS across this branch boundary. A one-pixel disagreement
-      // between the live handle coordinates and the seating pass's offline
-      // port model can flip which branch each side takes; a discontinuous
-      // anchor then applies the seat's offsets to a far-away point and strands
-      // the chip off its line (and inside a card).
-      return [d, r(xr), r((sy + railY) / 2)];
+      // Anchor on the rail horizontal run (labelX, railY) -- shared with the full
+      // rail below so it is CONTINUOUS across this branch boundary. A one-pixel
+      // disagreement between the live handle coordinates and the seating pass's
+      // offline port model can flip which branch each side takes; a discontinuous
+      // anchor then applies the seat's offsets to a far-away point and strands the
+      // chip off its line (and inside a card).
+      return [d, r(labelX), r(railY)];
     }
     // Right column exits leftward (-1, -1) onto the rail, left column enters
     // leftward (+1, +1) off it; the leftward lane run is the implicit segment
@@ -398,12 +447,13 @@ export function chamferStepPath(
       chamferColumn(xr, sy, railY, CHAMFER, -1, -1) +
       chamferColumn(xl, railY, ty, CHAMFER, 1, 1) +
       ` L ${r(tx)},${r(ty)}`;
-    // Clear-segment anchor: the source-side detour vertical (xr) run midpoint.
-    // The chip rides this vertical corridor leg instead of the leftward rail, so
-    // a downward de-confliction nudge slides it ALONG the vertical (staying on
-    // its own line) and it sits on the clean source side, clear of the target's
-    // entry gutter where the arrival chips crowd.
-    return [d, r(xr), r((sy + railY) / 2)];
+    // Clear-segment anchor: the rail's leftward horizontal run, source side
+    // (labelX, railY). The chip rides this rail leg -- held a wide gap off any
+    // container slab -- so it sits off the source vertical whose midpoint can hug
+    // a loop-box border; a de-confliction slide runs ALONG the rail, and the
+    // source-side clamp keeps it clear of the target entry gutter at xl where the
+    // arrival chips crowd.
+    return [d, r(labelX), r(railY)];
   }
 
   // Forward. forwardStepGeometry scales the stub+chamfer budget down
@@ -536,16 +586,16 @@ export function chamferBusPath(
   if (gap <= 0) {
     // Drop column, the run that dives off the source into the lane.
     // clearBusColumns may move it clear of a foreign card / gutter (dropX);
-    // absent that hint it falls back to one stub+chamfer inside the source port.
-    const dropX = args.dropX ?? sx + PORT_STUB + CHAMFER;
+    // absent that hint it falls back to the shared base (busDropBase).
+    const dropX = args.dropX ?? busDropBase(sx);
     // Rise column, the run that climbs the target's Left-port gutter off the
     // lane. The entry-gutter pass stakes it out as a per-edge staggered column
     // (see assignEntryColumns) so two rises into one node never coincide, and
     // clearBusColumns may then move it clear of a foreign card / gutter (riseX,
-    // which overrides the stagger). Absent both hints it falls back to one
-    // stub+chamfer inside the port, keeping every direct caller and its pinned
-    // test byte for byte identical.
-    const riseX = args.riseX ?? args.entryX ?? tx - PORT_STUB - CHAMFER;
+    // which overrides the stagger). Absent that hint it falls back to the
+    // shared base (busRiseBase, which itself prefers the stagger), keeping
+    // every direct caller and its pinned test byte for byte identical.
+    const riseX = args.riseX ?? busRiseBase(tx, args.entryX);
     const laneDir = -1;
     const path =
       `M ${r(sx)},${r(sy)}` +
@@ -604,15 +654,15 @@ export function chamferBusPath(
   // lane the rise simply chamfers the other way. chamferColumn derives each turn
   // direction from its own y0 -> y1.
   // Drop column: clearBusColumns may move it clear of a foreign card / gutter
-  // (dropX); absent that hint it falls back to one stub+chamfer inside the source
-  // port, keeping direct callers and pinned tests byte for byte identical.
-  const dropX = args.dropX ?? sx + PORT_STUB + CHAMFER;
+  // (dropX); absent that hint it falls back to the shared base (busDropBase),
+  // keeping direct callers and pinned tests byte for byte identical.
+  const dropX = args.dropX ?? busDropBase(sx);
   // Rise column: the entry-gutter pass may stagger it (see assignEntryColumns)
   // and clearBusColumns may then move it clear of a foreign card / gutter (riseX,
-  // which overrides the stagger); absent both hints it falls back to one
-  // stub+chamfer inside the target port, keeping direct callers and pinned tests
-  // byte for byte identical.
-  const riseX = args.riseX ?? args.entryX ?? tx - PORT_STUB - CHAMFER;
+  // which overrides the stagger); absent that hint it falls back to the shared
+  // base (busRiseBase, which itself prefers the stagger), keeping direct callers
+  // and pinned tests byte for byte identical.
+  const riseX = args.riseX ?? busRiseBase(tx, args.entryX);
   const laneDir = 1;
   const path =
     `M ${r(sx)},${r(sy)}` +

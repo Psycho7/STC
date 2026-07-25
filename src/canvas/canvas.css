@@ -1146,7 +1146,10 @@
    is themed here reusing the same palette. */
 .react-flow__node-group {
   background: rgba(26, 28, 32, 0.55);
-  border: 1px solid var(--ak-divider-strong);
+  /* Cool tint (the lit-container cyan-soft family, resting at reduced alpha) so a
+     gray return edge hugging the slab reads as a distinct line, not a second gray
+     border (#29). The brighter lit-container state keeps full cyan-soft. */
+  border: 1px solid color-mix(in srgb, var(--ak-accent-cyan-soft) 40%, transparent);
   border-radius: 6px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
@@ -1184,7 +1187,7 @@
 /* SCC loop box. */
 .scc-box {
   background: rgba(26, 28, 32, 0.55);
-  border: 1px solid var(--ak-divider-strong);
+  border: 1px solid color-mix(in srgb, var(--ak-accent-cyan-soft) 40%, transparent);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.04),
     0 16px 32px rgba(0, 0, 0, 0.5);
@@ -1742,6 +1745,15 @@
 .flow-chip .chip-text {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Icon-only collapse (see CHIP_ICON_ONLY_MAX_ZOOM in ItemEdge): below the second
+   zoom gate an exempt chip drops its rate digits and renders as the icon plus an
+   optional sum glyph. Tighten the padding and gap so the surviving box is compact
+   and stops blanketing dense clusters at fit zoom. */
+.flow-chip.icon-only {
+  padding: 3px;
+  gap: 3px;
 }
 
 /* Chips need their own dim rule: EdgeLabelRenderer portals them into a separate

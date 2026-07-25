@@ -385,11 +385,13 @@ test.describe("DOM geometry audit", () => {
 // NOTE on all ratchet tables below: baselines do NOT auto-tighten. When a change
 // improves a scenario, re-record the lower count manually (downward freely). A
 // baseline moves UP only with a recorded controller ruling, never as a silent
-// accommodation of a regression. Three such rulings stand: battery5 off-path
+// accommodation of a regression. Four such rulings stand: battery5 off-path
 // 5 -> 6 (card-hardness pushes one pinned chip's seat off its line), the P4
 // aggregate-visibility raise (chip-segment default 0 -> 2, multi6 0 -> 3,
-// battery5-xiranite 0 -> 7), and the own-side bus-column guard (padding grazes
-// battery5-xiranite 7 -> 14). That guard keeps a bus drop / rise on the port
+// battery5-xiranite 0 -> 7), the own-side bus-column guard (padding grazes
+// battery5-xiranite 7 -> 14), and the #25 per-trunk column separation
+// (crossing census default / multi6, detailed at CROSSING_BASELINE below).
+// The own-side guard keeps a bus drop / rise on the port
 // side of its own endpoint card. On battery5-xiranite it moved three columns
 // that used to run through their own endpoint body onto the port-side gutter
 // instead -- verified per edge against the pre-guard build (4cc2725): e:26 and
@@ -409,13 +411,28 @@ test.describe("DOM geometry audit", () => {
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
 // worktree, since deleted). Current routing must never produce MORE crossings
 // than this per scenario. Not a target -- an upper bound that ratchets down.
+//
+// #25 per-trunk column separation ruling. Baseline bumps: default 0 -> 9,
+// multi6 236 -> 415 (the prior 236 was stale pre-P2 slack; the actual measured
+// pre-#25 multi6 count was 158, so the real delta is +257). clearBusColumns now
+// steps two DISTINCT-item trunks that resolve onto the SAME drop or rise column
+// in one band apart by one entry-slot pitch. The counts rise because formerly-
+// coincident columns HID their crossings as colinear vertical overlaps -- the
+// candy stripe WAS the degenerate crossing -- and separating them converts each
+// into a proper crossing the counter can see. Bus-member pair multiplicity
+// inflates the raw count (~6x per visual crossing on multi6); deduplicated to
+// distinct visual crossing POINTS the change is 67 -> 86, the price of removing
+// 7 distinct-item stripes up to 1455px long. On default all 9 crossings are
+// between the two separated trunks themselves (copper members e:8/e:9 crossing
+// water members e:13/e:14), not past any sub-graph. No new card pierces
+// (battery5 / multi6 RAW stays at 1); confirmed clean in-browser on default.
 const CROSSING_BASELINE: Record<string, number> = {
-  default: 0,
+  default: 9,
   battery5: 187,
   "battery5-xiranite": 771,
   crystal: 1,
   equip4: 26,
-  multi6: 236,
+  multi6: 415,
   tundra: 13,
 };
 

@@ -170,9 +170,9 @@ describe("chamferStepPath", () => {
   it("keeps the backward anchor continuous across the apex-rail boundary", () => {
     // Backward mirror of the small-dy continuity: within 2 * CHAMFER of the
     // source level the rail collapses to a single apex bevel. The anchor stays
-    // on the source-side column at the (sy, railY) midpoint -- the apex peak
-    // sits exactly there -- matching the full rail's anchor rule instead of
-    // teleporting to the leftward run's arc midpoint.
+    // on the rail's horizontal run (labelX = xr - CHAMFER - PORT_STUB = 200 -
+    // CHAMFER, at railY), shared with the full rail's anchor rule, so it does not
+    // teleport across the branch boundary: x is identical and y tracks railY.
     const [, atX, atY] = chamferStepPath({
       sourceX: 200,
       sourceY: 0,
@@ -187,10 +187,10 @@ describe("chamferStepPath", () => {
       targetY: 100,
       railY: 2 * CHAMFER + 1,
     });
-    expect(atX).toBe(200 + PORT_STUB);
-    expect(atY).toBe(CHAMFER);
-    expect(pastX).toBe(200 + PORT_STUB);
-    expect(pastY).toBe(CHAMFER + 0.5);
+    expect(atX).toBe(200 - CHAMFER);
+    expect(atY).toBe(2 * CHAMFER);
+    expect(pastX).toBe(200 - CHAMFER);
+    expect(pastY).toBe(2 * CHAMFER + 1);
   });
 
   it("degrades symmetrically in a narrow gap, scaling stub and chamfer", () => {
@@ -218,14 +218,30 @@ describe("chamferStepPath", () => {
     expect(d).toBe(
       "M 200,0 L 216,0 L 224,8 L 224,42 L 216,50 L -16,50 L -24,58 L -24,92 L -16,100 L 0,100",
     );
-    // Clear-segment anchor: the source-side rail vertical (xr = sx + PORT_STUB =
-    // 224) at its run midpoint y = (sourceY + railY) / 2 = (0 + 50) / 2 = 25, on
-    // the segment 224,8 -> 224,42.
-    expect(lx).toBe(224);
-    expect(ly).toBe(25);
+    // Clear-segment anchor: the rail's horizontal run (at railY = 50), one stub
+    // in from the source-side corner (xr - CHAMFER = 216), so labelX = 216 -
+    // PORT_STUB = 192, on the segment 216,50 -> -16,50.
+    expect(lx).toBe(192);
+    expect(ly).toBe(50);
     expect(Number.isFinite(lx)).toBe(true);
     expect(Number.isFinite(ly)).toBe(true);
     expectRightwardFinish(d);
+  });
+
+  it("clamps a short backward rail's anchor to the run midpoint, on the line", () => {
+    // Run length (railRunSourceX - railRunTargetX = sx - tx + 32 = 42) is below
+    // 2*PORT_STUB, so the one-stub-in anchor (railRunSourceX - PORT_STUB = 192)
+    // would fall left of the midpoint; the Math.max fallback clamps labelX to
+    // the midpoint (195), which still lies on the drawn horizontal run.
+    const [d, lx, ly] = chamferStepPath({
+      sourceX: 200,
+      sourceY: 0,
+      targetX: 190,
+      targetY: 100,
+    });
+    expect(lx).toBe(195);
+    expect(ly).toBe(50);
+    expect(distanceToPolyline(d, { x: lx, y: ly })).toBeLessThan(0.01);
   });
 
   it("routes a backward edge's left rail through an explicit entryX gutter column", () => {
@@ -243,11 +259,11 @@ describe("chamferStepPath", () => {
     expect(d).toBe(
       "M 200,0 L 216,0 L 224,8 L 224,42 L 216,50 L -32,50 L -40,58 L -40,92 L -32,100 L 0,100",
     );
-    // Clear-segment anchor: the source-side rail vertical (xr = 224). entryX
-    // only moves the LEFT rail column, so the source-side anchor is unchanged
-    // from the no-hint case: (224, 25).
-    expect(lx).toBe(224);
-    expect(ly).toBe(25);
+    // Clear-segment anchor: the rail's horizontal run, source side. entryX only
+    // moves the LEFT rail column (the run's target-side end), so the source-side
+    // anchor is unchanged from the no-hint case: (192, 50).
+    expect(lx).toBe(192);
+    expect(ly).toBe(50);
     expectRightwardFinish(d);
   });
 

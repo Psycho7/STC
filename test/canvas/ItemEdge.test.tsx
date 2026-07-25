@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
-import ItemEdge, { type ItemEdgeData } from "../../src/canvas/ItemEdge";
+import ItemEdge, {
+  CHIP_ICON_ONLY_MAX_ZOOM,
+  type ItemEdgeData,
+} from "../../src/canvas/ItemEdge";
 import { parsePathPoints } from "../../src/canvas/edgePath";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
@@ -177,6 +180,65 @@ describe("canvas/ItemEdge zoom gating", () => {
     renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 1.5);
     const label = await findLabel();
     expect(label).not.toBeNull();
+  });
+});
+
+describe("canvas/ItemEdge icon-only collapse", () => {
+  const belowIconOnly = CHIP_ICON_ONLY_MAX_ZOOM - 0.05;
+
+  it("keeps the zoom-gated rate chip hidden below the icon-only zoom, never collapsing it to an icon", async () => {
+    // The plain member rate chip is gated by LABEL_MIN_ZOOM (0.35), a HIGHER
+    // gate than the icon-only zoom. Below the icon-only zoom it must stay fully
+    // hidden -- it must not turn into an icon-only chip the way the exempt
+    // aggregates do.
+    renderEdge({ item: "belt", rate: new Fraction(2, 1) }, belowIconOnly);
+    const label = await findLabel();
+    expect(label).toBeNull();
+  });
+
+  it("collapses the exempt fan-in Sigma aggregate to icon-only below the icon-only zoom", async () => {
+    // Discover the live target port y from a plain render so the fan-in marker
+    // is seated on it (faninStale compares the stamp to the live targetY).
+    renderEdge({ item: "belt", rate: new Fraction(2, 1) }, 1);
+    await waitFor(() =>
+      expect(
+        document.querySelector(".react-flow__edge-path"),
+      ).not.toBeNull(),
+    );
+    const pts = parsePathPoints(
+      document
+        .querySelector<SVGPathElement>(".react-flow__edge-path")!
+        .getAttribute("d")!,
+    );
+    const targetY = pts[pts.length - 1]![1];
+    cleanup();
+
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        faninJunctionX: 120,
+        faninJunctionY: targetY,
+        faninSigmaX: 150,
+        faninSigmaY: targetY,
+        faninTotalRate: new Fraction(5, 1), // 300/min
+        faninMemberCount: 3,
+      },
+      belowIconOnly,
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge")).not.toBeNull(),
+    );
+    const sigma = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-fanin-e1-drop"]',
+    );
+    expect(sigma).not.toBeNull();
+    // Icon kept, only the sum glyph in the body, digits dropped.
+    expect(sigma!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
+    expect(sigma!.textContent).toBe("Σ");
+    expect(sigma!.classList.contains("icon-only")).toBe(true);
+    // The exact total still rides the hover tooltip.
+    expect(sigma!.getAttribute("title")).toContain("Σ300/min");
   });
 });
 

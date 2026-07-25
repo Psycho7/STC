@@ -1,18 +1,15 @@
-import {
-  BaseEdge,
-  EdgeLabelRenderer,
-  useStore,
-  type EdgeProps,
-} from "@xyflow/react";
+import { BaseEdge, useStore, type EdgeProps } from "@xyflow/react";
 import { useMemo } from "react";
 import {
   FlowChip,
+  JunctionDot,
   LABEL_MIN_ZOOM,
   edgeStrokeWidth,
+  junctionRadius,
   strokeForKind,
   type ItemEdgeData,
 } from "./ItemEdge";
-import type { BusEdgeData } from "./busRouting";
+import { BUS_LONG_RUN_THRESHOLD, type BusEdgeData } from "./busRouting";
 import {
   chamferBusPath,
   chamferFanoutPath,
@@ -21,30 +18,10 @@ import {
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
-// Radius of the junction dot each bus edge draws at its own branch point, where
-// it leaves the shared trunk lane to rise into its target, in graph units.
-const JUNCTION_RADIUS = 3;
-
-// Junction-dot screen-radius bounds, in physical px. The dot is drawn in graph
-// units, so the pane zoom scales it (on-screen radius = r * zoom): at the
-// dense-plan fit zoom a 3-unit dot is a sub-pixel speck. Counter-scale it like
-// ItemEdge's stroke clamp so the dot holds a legible on-screen radius clamped to
-// this range across zoom.
-const JUNCTION_MIN_PX = 3;
-const JUNCTION_MAX_PX = 5;
-
-// Graph-unit radius that renders the junction dot at a screen radius clamped to
-// [JUNCTION_MIN_PX, JUNCTION_MAX_PX]. At zoom 1 this is the natural
-// JUNCTION_RADIUS; below it the graph radius grows to hold the pixel floor,
-// above it the dot stops growing at the pixel cap. zoom is always > 0 (the pane
-// clamps minZoom well above zero).
-export function junctionRadius(zoom: number): number {
-  const screen = Math.min(
-    JUNCTION_MAX_PX,
-    Math.max(JUNCTION_MIN_PX, JUNCTION_RADIUS * zoom),
-  );
-  return screen / zoom;
-}
+// The junction dot markup and its zoom-clamped radius are shared with ItemEdge
+// (the fan-in merge dot reuses them); junctionRadius is re-exported so existing
+// importers that reach for it via BusEdge keep working.
+export { junctionRadius };
 
 // BusEdge renders a bus-trunk member via chamferBusPath: exit the source
 // rightward, chamfer down into the shared lane, run along it, then chamfer up
@@ -143,7 +120,6 @@ export default function BusEdge({
   // per-member (rise / branch) chip keeps the gate, so it appears only once the
   // reader has zoomed into that trunk.
   const showAggChip = edgeData !== undefined;
-  const showMemberChip = edgeData !== undefined && zoom >= LABEL_MIN_ZOOM;
 
   // Drop chip: only the elected trunk owner draws it, and it shows the summed
   // trunk rate (busTotalRate), prefixed by a sum glyph when the trunk has
@@ -156,6 +132,22 @@ export default function BusEdge({
   const isOwner = edgeData?.busChipOwner ?? true;
   const totalRate = edgeData?.busTotalRate ?? edgeData?.rate;
   const memberCount = edgeData?.busMemberCount ?? 1;
+  // Per-member (rise / branch) chip gate: zoom-gated by default, but a lone
+  // member on a long lane detour exempts it so the far consumer end stays
+  // labeled at fit zoom (#32). Requiring busChipX to be ABSENT keys the
+  // exemption to routeBusEdges' own long-run decision (it skips the lane slot
+  // for exactly these members, so the chip anchor below falls to the rise
+  // column at the consumer end): the gate never exempts a chip that would
+  // render mid-lane. Long-span members always clear the threshold; its real
+  // work is keeping short feeders and hairpins (run 0) gated. Fan-out members
+  // carry no lane run (bus === null).
+  const busRunLength = bus ? Math.abs(bus.riseX - bus.dropX) : 0;
+  const longSingleRun =
+    memberCount === 1 &&
+    laneData?.busChipX === undefined &&
+    busRunLength > BUS_LONG_RUN_THRESHOLD;
+  const showMemberChip =
+    edgeData !== undefined && (zoom >= LABEL_MIN_ZOOM || longSingleRun);
   const dropRateStr = totalRate ? formatRatePerMin(totalRate) : "";
   const sumMarker = memberCount > 1 ? "Σ" : "";
   const dropText =
@@ -193,9 +185,19 @@ export default function BusEdge({
       (fan !== null &&
         Math.abs(fan.branchAnchor.x - hiddenAt.x) < HIDE_STALE_EPS &&
         Math.abs(fan.branchAnchor.y - hiddenAt.y) < HIDE_STALE_EPS));
+  // Lane member whose rise chip could not seat beside the trunk aggregate on a
+  // short run (issue #24): the seating pass flagged it so it does not cascade
+  // off the band into empty canvas. The lane rise anchor is static edge data
+  // (busChipX, laneY), but the aggregate's drop column is recomputed live, so
+  // dragging the source away can free room the flag does not see -- the member
+  // stays conservatively hidden after a drag until the next replan. The flag
+  // alone gates it, no anchor stamp. Both hides suppress the rise chip and
+  // fall back to the hover-path tooltip below.
+  const laneRiseHidden = laneData?.busRiseHidden === true;
+  const memberChipHidden = branchHidden || laneRiseHidden;
   const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
   const riseText =
-    showMemberChip && memberRateStr && !branchHidden
+    showMemberChip && memberRateStr && !memberChipHidden
       ? `${memberRateStr}${unit}`
       : "";
   const riseLabel =
@@ -208,8 +210,9 @@ export default function BusEdge({
       : "";
   // Per-member chip anchor: fan-out branch-leg midpoint (plus its offset), or the
   // lane rise slot (busChipX, the trunk's evenly distributed lane x, falling back
-  // to the geometric rise column on a manually built edge) at laneY plus its lane
-  // nudge.
+  // to the geometric rise column on a manually built edge or a lone long-run
+  // member, whose slot routeBusEdges deliberately omits so this chip sits at the
+  // consumer end) at laneY plus its lane nudge.
   const branchX = fan
     ? fan.branchAnchor.x + (fanoutData?.fanoutBranchDx ?? 0)
     : (laneData?.busChipX ?? bus!.riseX);
@@ -226,6 +229,7 @@ export default function BusEdge({
     text: string,
     label: string,
     title: string,
+    marker?: string,
   ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
@@ -234,6 +238,7 @@ export default function BusEdge({
       y={y}
       item={edgeData?.item}
       text={text}
+      {...(marker ? { marker } : {})}
       label={label}
       title={title}
       tear={edgeData?.isTearEdge}
@@ -251,10 +256,11 @@ export default function BusEdge({
         {...(riseLabel ? { "aria-label": riseLabel } : {})}
         {...(markerEnd ? { markerEnd } : {})}
       />
-      {/* A hidden branch chip was this member's only exact-rate tooltip
-          carrier, so keep the share reachable on the edge itself: a transparent
-          hover path over the same geometry carries the native SVG tooltip. */}
-      {branchHidden && riseTitle ? (
+      {/* A hidden member chip (fan-out branch or short-run lane rise) was this
+          member's only exact-rate tooltip carrier, so keep the share reachable
+          on the edge itself: a transparent hover path over the same geometry
+          carries the native SVG tooltip. */}
+      {memberChipHidden && riseTitle ? (
         <path
           d={path}
           fill="none"
@@ -265,31 +271,19 @@ export default function BusEdge({
           <title>{riseTitle}</title>
         </path>
       ) : null}
-      {/* Junction dot in the HTML label layer (not an SVG circle in the edge
-          group) so it shares the chips' stacking context. It sits BELOW the flow
-          chips (.bus-junction z-index: 1 vs .flow-chip z-index: 2 in canvas.css):
-          the aggregate chip's digits win, and an overlapping chip hides the dot
-          behind it. Sized in graph units via junctionRadius so the pane zoom
-          renders it at a screen radius clamped to [JUNCTION_MIN_PX,
-          JUNCTION_MAX_PX]. Threads the same `dimmed` state the chips do (the
-          label layer portals outside the edge wrapper, so the wrapper's dim never
-          reaches it). */}
-      <EdgeLabelRenderer>
-        <div
-          data-testid={`bus-junction-${id}`}
-          aria-hidden="true"
-          className={"bus-junction" + (edgeData?.dimmed ? " dimmed" : "")}
-          style={{
-            position: "absolute",
-            transform: `translate(-50%, -50%) translate(${junction.x}px, ${junction.y}px)`,
-            width: `${2 * junctionRadius(zoom)}px`,
-            height: `${2 * junctionRadius(zoom)}px`,
-            background: kindStyle.stroke,
-          }}
-        />
-      </EdgeLabelRenderer>
+      {/* Junction dot at the lane branch point (bus member), reusing the shared
+          JunctionDot markup. It sits BELOW the flow chips in the shared
+          edgelabel-renderer layer, so the aggregate chip's digits win. */}
+      <JunctionDot
+        testId={`bus-junction-${id}`}
+        x={junction.x}
+        y={junction.y}
+        color={kindStyle.stroke}
+        dimmed={edgeData?.dimmed}
+        zoom={zoom}
+      />
       {isOwner && dropText
-        ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
+        ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle, sumMarker)
         : null}
       {riseText
         ? renderChip("rise", branchX, branchY, riseText, riseLabel, riseTitle)

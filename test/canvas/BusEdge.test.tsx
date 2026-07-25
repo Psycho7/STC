@@ -4,7 +4,12 @@ import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import BusEdge, { junctionRadius } from "../../src/canvas/BusEdge";
 import type { BusEdgeData } from "../../src/canvas/busRouting";
-import type { ItemEdgeData } from "../../src/canvas/ItemEdge";
+import { busRiseBase } from "../../src/canvas/edgePath";
+import {
+  CHIP_ICON_ONLY_MAX_ZOOM,
+  LABEL_MIN_ZOOM,
+  type ItemEdgeData,
+} from "../../src/canvas/ItemEdge";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
 import { expectRightwardFinish } from "./pathAssertions";
@@ -40,12 +45,19 @@ function makeEdge(data: BusData): Edge {
   };
 }
 
-function renderEdge(data: BusData, zoom?: number) {
+// Same src / tgt ids as NODES, but the target sits far downstream so the lane
+// run spans several layers -- a "long detour" for the consumer-labeling gate.
+const FAR_NODES: Node[] = [
+  { id: "src", position: { x: 0, y: 0 }, data: { label: "src" } },
+  { id: "tgt", position: { x: 2000, y: 0 }, data: { label: "tgt" } },
+];
+
+function renderEdge(data: BusData, zoom?: number, nodes: Node[] = NODES) {
   return render(
     <LocaleProvider locale="en">
       <div style={{ width: 800, height: 600 }}>
         <ReactFlow
-          nodes={NODES}
+          nodes={nodes}
           edges={[makeEdge(data)]}
           edgeTypes={edgeTypes}
           minZoom={0.05}
@@ -343,10 +355,37 @@ describe("canvas/BusEdge trunk labels", () => {
   });
 
   it("renders only the aggregate drop chip below the zoom threshold", async () => {
-    // Below LABEL_MIN_ZOOM the per-member rise chip is gated, but the owner's
-    // aggregate drop chip is exempt so the trunk's total survives at the
-    // dense-plan fit zoom (this lone member is its own owner, showing its rate as
-    // the total).
+    // In the band between the icon-only gate and LABEL_MIN_ZOOM the per-member
+    // rise chip is gated, but the owner's aggregate drop chip is exempt and still
+    // carries its full total (this lone member is its own owner, showing its rate
+    // as the total). NODES are one layer apart, so the lane run is short and the
+    // consumer-labeling exemption (#32) does not trigger. Zoom sits above the
+    // icon-only gate so the aggregate keeps its digits (the collapse below it has
+    // its own test).
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(2, 1),
+        laneY: 500,
+        trunkKey: "Iron Plate|src",
+      },
+      (CHIP_ICON_ONLY_MAX_ZOOM + LABEL_MIN_ZOOM) / 2,
+    );
+    await findEdgePath();
+    const labels = chips();
+    expect(labels).toHaveLength(1);
+    expect(labels[0]!.getAttribute("data-testid")).toBe("bus-edge-label-e1-drop");
+    expect(labels[0]!.textContent).toBe("120/min");
+  });
+
+  it("exempts the rise chip on a lone member's long detour below the zoom threshold", async () => {
+    // A single-member trunk whose lane run spans several layers (FAR_NODES) is a
+    // long detour: its rise end sits far from the source-side drop chip, so the
+    // consumer would arrive unlabeled at fit zoom. The rise chip is exempted from
+    // the zoom gate too, so both ends are labeled (#32). routeBusEdges omits the
+    // lane slot (busChipX) for this case -- as this manually built edge does --
+    // so the chip must anchor at the geometric rise column (busRiseBase of the
+    // target port), the consumer end, not mid-lane.
     renderEdge(
       {
         item: "Iron Plate",
@@ -355,11 +394,137 @@ describe("canvas/BusEdge trunk labels", () => {
         trunkKey: "Iron Plate|src",
       },
       0.3,
+      FAR_NODES,
+    );
+    const path = await findEdgePath();
+    const labels = chips();
+    expect(labels).toHaveLength(2);
+    expect(labels.map((l) => l.getAttribute("data-testid")).sort()).toEqual([
+      "bus-edge-label-e1-drop",
+      "bus-edge-label-e1-rise",
+    ]);
+    // Anchor check: the rise chip's x sits on the drawn rise column, one
+    // busRiseBase inside the target port (the path's final point).
+    const end = path
+      .getAttribute("d")!
+      .match(/L\s*(-?[\d.]+),(-?[\d.]+)\s*$/);
+    const tx = Number(end![1]);
+    const rise = labels.find(
+      (l) => l.getAttribute("data-testid") === "bus-edge-label-e1-rise",
+    )!;
+    const t = rise.style.transform.match(
+      /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/,
+    );
+    expect(Number(t![1])).toBeCloseTo(busRiseBase(tx), 1);
+  });
+
+  it("collapses the exempt aggregate drop chip to icon-only below the icon-only zoom", async () => {
+    // "belt" carries a sprite, so the icon survives the collapse. A lone member
+    // is its own owner and carries no sum glyph, so the collapsed body is empty.
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(2, 1),
+        laneY: 500,
+        trunkKey: "belt|src",
+      },
+      CHIP_ICON_ONLY_MAX_ZOOM - 0.05,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    expect(drop).not.toBeNull();
+    expect(drop!.classList.contains("icon-only")).toBe(true);
+    expect(drop!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
+    expect(drop!.textContent).toBe("");
+    // The exact rate still rides the hover tooltip.
+    expect(drop!.getAttribute("title")).toContain("120/min");
+  });
+
+  it("keeps the aggregate's sum glyph when collapsed, dropping only the digits", async () => {
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        laneY: 500,
+        trunkKey: "belt|src",
+        busChipOwner: true,
+        busTotalRate: new Fraction(2, 1),
+        busMemberCount: 2,
+      },
+      CHIP_ICON_ONLY_MAX_ZOOM - 0.05,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    expect(drop).not.toBeNull();
+    expect(drop!.textContent).toBe("Σ");
+    expect(drop!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
+    expect(drop!.getAttribute("title")).toContain("Σ120/min");
+  });
+
+  it("renders the full aggregate chip at the icon-only zoom threshold", async () => {
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(2, 1),
+        laneY: 500,
+        trunkKey: "belt|src",
+      },
+      CHIP_ICON_ONLY_MAX_ZOOM,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    expect(drop).not.toBeNull();
+    expect(drop!.classList.contains("icon-only")).toBe(false);
+    expect(drop!.textContent).toBe("120/min");
+  });
+
+  it("collapses a lone member's exempt long-detour rise chip to icon-only", async () => {
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(2, 1),
+        laneY: 500,
+        trunkKey: "belt|src",
+      },
+      CHIP_ICON_ONLY_MAX_ZOOM - 0.05,
+      FAR_NODES,
+    );
+    await findEdgePath();
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(rise).not.toBeNull();
+    expect(rise!.classList.contains("icon-only")).toBe(true);
+    expect(rise!.textContent).toBe("");
+    expect(rise!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
+  });
+
+  it("keeps a multi-member trunk's rise chips gated on a long detour", async () => {
+    // The exemption is lone-member only: a multi-member trunk's per-member rise
+    // chips stay behind the zoom gate even on a long run, so a dense bus stays
+    // legible at fit zoom (the aggregate drop chip still carries the total).
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(1, 1),
+        laneY: 500,
+        trunkKey: "Iron Plate|src",
+        busChipOwner: true,
+        busTotalRate: new Fraction(2, 1),
+        busMemberCount: 2,
+      },
+      0.3,
+      FAR_NODES,
     );
     await findEdgePath();
     const labels = chips();
     expect(labels).toHaveLength(1);
     expect(labels[0]!.getAttribute("data-testid")).toBe("bus-edge-label-e1-drop");
-    expect(labels[0]!.textContent).toBe("120/min");
   });
 });

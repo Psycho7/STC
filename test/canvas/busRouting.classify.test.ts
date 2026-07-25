@@ -36,6 +36,8 @@ import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import {
   PORT_STUB,
   CHAMFER,
+  busDropBase,
+  busRiseBase,
   chamferFanoutPath,
   parsePathPoints,
   routingHintsFromData,
@@ -178,8 +180,29 @@ describe("routeBusEdges", () => {
     const out = routeBusEdges(nodes, edges);
 
     expect(out[0]!.type).toBe("bus");
-    const data = out[0]!.data as { trunkKey: string };
+    const data = out[0]!.data as { trunkKey: string; busChipX?: number };
     expect(data.trunkKey).toBe("ore|agg");
+    // A lone member on a SHORT run (extent under BUS_LONG_RUN_THRESHOLD) keeps
+    // its lane slot -- only long lone runs drop it for consumer-end labeling.
+    expect(data.busChipX).toBeDefined();
+  });
+
+  it("keeps a backward lone member's lane slot (extent 0 stays under the threshold)", () => {
+    // Task 4 skips the lane slot only for a lone member whose forward extent
+    // clears BUS_LONG_RUN_THRESHOLD. A BACKWARD feeder (tap left of aggregate)
+    // has a non-positive extent clamped to 0, so the skip must NOT fire and the
+    // slot must survive -- a guard on the extent-0 arithmetic against future
+    // edits of the skip condition.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("agg", "ore", 500, 0), // right edge 648
+      inputProductNode("tap", "ore", 0, 0), // left of the aggregate: backward
+    ];
+    const edges = [mkEdge("e0", "agg", "tap", "ore")];
+
+    const out = routeBusEdges(nodes, edges);
+
+    expect(out[0]!.type).toBe("bus");
+    expect((out[0]!.data as { busChipX?: number }).busChipX).toBeDefined();
   });
 
   it("is deterministic: shuffled input order yields identical output", () => {
@@ -353,29 +376,25 @@ describe("routeBusEdges two-sided lane bands (9B)", () => {
     expect(bands.bottom).not.toBeNull();
   });
 
-  it("cascades a crowded top-band trunk's rise chips UP off its lane", () => {
-    // Mirror of the bottom-band cascade: two adjacent input-product feeders in
-    // the upper half (a node far below sends the trunk to the top band) collapse
-    // the lane extent, so both rise chips stack on the drop column. In the top
-    // band the cascade must run UPWARD (negative dy) so the chips move away from
-    // the graph below, not toward it.
+  it("cascades a lone top-band member's rise chip UP off its lane", () => {
+    // A LONE input-product feeder in the upper half (a node far below sends the
+    // trunk to the top band) whose short run collapses the rise slot onto the
+    // drop column. A lone member is exempt from the #24 capacity hide (its rise
+    // merely restates its own drop's rate but keeps it near the consumer), so it
+    // still cascades -- and in the top band that cascade must run UPWARD (negative
+    // dy) so the chip moves away from the graph below, not toward it.
     const nodes: RFAnyNode[] = [
       inputProductNode("agg", "ore", 0, 0),
-      inputProductNode("t1", "ore", 200, 0),
-      inputProductNode("t2", "ore", 200, 200),
+      inputProductNode("tap", "ore", 200, 0),
       recipeNode("low", 0, 3000, r),
     ];
-    const edges = [
-      mkEdge("e0", "agg", "t1", "ore"),
-      mkEdge("e1", "agg", "t2", "ore"),
-    ];
+    const edges = [mkEdge("e0", "agg", "tap", "ore")];
     const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
     const pitch = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
     expect(bandOf(out, "e0")).toBe("top");
-    // Owner drop chip settles on the lane; the rises pile UPWARD off it.
+    // Owner drop chip settles on the lane; the lone rise piles UPWARD off it.
     expect(busDropDyOf(out, "e0")).toBe(0);
     expect(busChipDyOf(out, "e0")).toBe(-pitch);
-    expect(busChipDyOf(out, "e1")).toBe(-2 * pitch);
   });
 
   it("sends an exact-midline trunk to the bottom band, deterministically", () => {
@@ -401,23 +420,24 @@ describe("busBandRegions", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
   const far = 2000;
 
-  // Absolute node horizontal span for these parent-less fixtures (position.x is
-  // already absolute), padded by BAND_X_MARGIN -- the x-extent every region gets.
-  const nodeSpan = (nodes: RFAnyNode[]) => {
-    let left = Infinity;
-    let right = -Infinity;
-    for (const n of nodes) {
-      left = Math.min(left, n.position.x);
-      right = Math.max(right, n.position.x + nodeWidth(n));
-    }
-    return { x: left - BAND_X_MARGIN, width: right + BAND_X_MARGIN - (left - BAND_X_MARGIN) };
+  // The band x-extent tracks its trunk RUN (drop column .. rise column), not the
+  // node span: the shared column bases (busDropBase / busRiseBase), each padded
+  // by BAND_X_MARGIN. sourceRight / targetLeft are absolute here (parent-less).
+  const trunkRunX = (sourceRight: number, targetLeft: number) => {
+    const dropCol = busDropBase(sourceRight);
+    const riseCol = busRiseBase(targetLeft);
+    const lo = Math.min(dropCol, riseCol) - BAND_X_MARGIN;
+    const hi = Math.max(dropCol, riseCol) + BAND_X_MARGIN;
+    return { x: lo, width: hi - lo };
   };
 
   it("maps each non-null band to its lane extent padded by BAND_Y_PAD", () => {
     // One trunk high (top band) and one low (bottom band), each blocked at its
     // own target row, so both bands hold a trunk -- mirrors the laneBands extent
     // fixture. Every region's y-extent is the band's lane range padded, and its
-    // x-extent is the node span padded.
+    // x-extent is the trunk's own drop..rise run padded -- narrower than the node
+    // span, which here also spans the two mid blockers and the target's full
+    // width.
     const nodes: RFAnyNode[] = [
       recipeNode("sHi", 0, 0, r),
       recipeNode("tHi", far, 0, r),
@@ -434,7 +454,9 @@ describe("busBandRegions", () => {
     const out = routeBusEdges(nodes, edges);
     const bands = laneBands(out);
     const regions = busBandRegions(nodes, out);
-    const span = nodeSpan(nodes);
+    // Both bands' trunks run from the source's right edge (0 + width) to the
+    // target's left edge (far).
+    const run = trunkRunX(nodeWidth(nodes[0]!), far);
 
     expect(regions.map((rg) => rg.band).sort()).toEqual(["bottom", "top"]);
     for (const band of ["top", "bottom"] as const) {
@@ -442,8 +464,13 @@ describe("busBandRegions", () => {
       const region = regions.find((rg) => rg.band === band)!;
       expect(region.y).toBe(extent.y0 - BAND_Y_PAD);
       expect(region.height).toBe(extent.y1 - extent.y0 + 2 * BAND_Y_PAD);
-      expect(region.x).toBe(span.x);
-      expect(region.width).toBe(span.width);
+      expect(region.x).toBe(run.x);
+      expect(region.width).toBe(run.width);
+      // The run is strictly inside the padded node span (right edge at far +
+      // width), proving the band hugs its routing rather than the nodes.
+      expect(region.x + region.width).toBeLessThan(
+        far + nodeWidth(nodes[1]!) + BAND_X_MARGIN,
+      );
     }
   });
 
@@ -518,6 +545,10 @@ describe("routeBusEdges single-member demotion (9C)", () => {
 
     expect(out[0]!.type).toBe("bus");
     expect((out[0]!.data as { trunkKey?: string }).trunkKey).toBe("b|s");
+    // A lone member on a long run gets NO lane slot: with busChipX absent the
+    // rise chip falls back to the rise column, so it sits at the consumer end
+    // instead of stranding mid-lane (#32).
+    expect(out[0]!.data).not.toHaveProperty("busChipX");
   });
 
   it("leaves a two-member trunk on the bus even when both corridors are clear", () => {

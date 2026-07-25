@@ -29,9 +29,11 @@
 // escape.
 
 import type { Edge } from "@xyflow/react";
+import Fraction from "fraction.js";
 
 import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH, MAX_CHIP_SCALE } from "./dimensions";
 import {
+  CHAMFER,
   chamferBusPath,
   chamferFanoutPath,
   chamferStepPath,
@@ -40,6 +42,7 @@ import {
   routingHintsFromData,
 } from "./edgePath";
 import {
+  ENTRY_SLOT_PITCH,
   OBSTACLE_PAD_LEFT,
   OBSTACLE_PAD_Y,
   absoluteLeft,
@@ -148,6 +151,9 @@ function segIntersectsChipBox(
 // as one junction, so a chip near its port may sit among its siblings' final
 // approaches). flowKey groups the flow siblings; target the cluster.
 export type EdgeSegments = {
+  // The owning edge's id. `ownIds`-based (trunk-aware) foreignness matches on it;
+  // plain item chips ignore it and group by flowKey.
+  id: string;
   flowKey: string;
   target: string;
   segs: ReadonlyArray<readonly [number, number, number, number]>;
@@ -231,11 +237,19 @@ export type ClearanceField = {
   // sibling's line is skipped unconditionally when no entry band is given
   // (bus / entry seats), and only while the box centre sits inside the band
   // when one is (rate-chip seats, the narrowed rule).
+  //
+  // Own-flow classification is by flowKey (same item|source is one visual line)
+  // UNLESS `ownIds` is given: then "own" is EXACTLY that edge-id set -- the
+  // trunk's actual member edges plus the aggregate's own edge -- so a same-
+  // flowKey edge outside the trunk (a separate direct edge) reads foreign. Only
+  // trunk-context chips (the fan-out aggregate) pass it; plain item-edge chips
+  // omit it and keep the flowKey grouping (issue #28).
   onForeignLine(
     box: ChipBox,
     flowKey: string,
     target: string,
     entryBand?: EntryBand,
+    ownIds?: ReadonlySet<string>,
   ): boolean;
 };
 
@@ -265,17 +279,19 @@ export function makeClearanceField(
         }
         return chipEntersOwnCardBody(chip, c, zone, 0.5);
       }),
-    onForeignLine: (box, flowKey, target, entryBand) => {
+    onForeignLine: (box, flowKey, target, entryBand, ownIds) => {
       const clusterExempt =
         entryBand === undefined || centreInBand(box.x, box.y, entryBand);
-      return segments.some(
-        (e) =>
-          e.flowKey !== flowKey &&
+      return segments.some((e) => {
+        const own = ownIds !== undefined ? ownIds.has(e.id) : e.flowKey === flowKey;
+        return (
+          !own &&
           (!clusterExempt || e.target !== target) &&
           e.segs.some(([x0, y0, x1, y1]) =>
             segIntersectsChipBox(x0, y0, x1, y1, box),
-          ),
-      );
+          )
+        );
+      });
     },
   };
 }
@@ -428,11 +444,28 @@ const NUDGE_CAP_STEPS = 3;
 // the search, it is never expected to exhaust.
 const LAST_RESORT_CAP_STEPS = 200;
 
+// Horizontal sidestep pitch and reach. When a parallel FOREIGN vertical line
+// sits within the wide chip box on a corridor leg, no vertical motion clears it:
+// the on-line slide, the nudge, and the escape cascade all hold x, so a wide box
+// straddling a neighbour a few units away would have to travel its whole
+// half-width -- which it cannot on a vertical leg, and cannot along a short
+// horizontal trunk whose whole span the box already overhangs. The sidestep
+// steps the box in x, away from the foreign line toward the own line's free
+// side, by ENTRY_SLOT_PITCH increments out to one half-width. That reach is the
+// most that keeps the own line WITHIN the box (its edge flush to the line at the
+// cap), so the chip still reads as bound to its own leg while its box no longer
+// overlaps the neighbour.
+const SIDESTEP_PITCH = ENTRY_SLOT_PITCH;
+const SIDESTEP_MAX = CHIP_HALF_W_WIDE;
+
 // How a rate chip ended up seated, coarsest last:
 //   anchor    on its clear-segment anchor, fully clear;
 //   slide     slid along its own polyline to a fully clear point;
 //   graze     on its own polyline clear of chips and cards, grazing a foreign
 //             line (no fully clear on-line point existed);
+//   sidestep  a bounded horizontal step off a corridor leg, away from a parallel
+//             foreign line the wide box straddled and no vertical motion could
+//             clear, the own line still within the box (fully clear at the seat);
 //   nudge     a short vertical lift off the line, still fully clear;
 //   escape    the chips-and-cards cascade found a seat (foreign-line
 //             clearance and on-own-line preference yielded);
@@ -442,6 +475,7 @@ export type RateSeatTier =
   | "anchor"
   | "slide"
   | "graze"
+  | "sidestep"
   | "nudge"
   | "escape"
   | "exhausted";
@@ -456,7 +490,10 @@ export type RateSeat = { dx: number; dy: number; tier: RateSeatTier };
 // grazing foreign lines: staying visibly attached to the own line outranks
 // clearing a parallel foreign line, because a braided corridor can poison
 // every fully-clear candidate and the old off-line exits parked chips in
-// empty canvas (issue #9). Tier 2 is a short bidirectional vertical nudge off
+// empty canvas (issue #9). Tier 1c (sidestep), tried between them: a bounded
+// horizontal step off the line, away from a parallel foreign vertical the wide
+// box straddles and no on-line motion can shed, keeping the own line within
+// the box (issue #28). Tier 2 is a short bidirectional vertical nudge off
 // the anchor, fully clear, reached only when the whole own line is chip- or
 // card-blocked. Tier 3 waives every soft preference and cascades
 // bidirectionally against CHIPS AND CARDS only, nearest escape first (ties
@@ -473,8 +510,38 @@ export function seatRateChip(
   target: string,
   exempt: CardExemption,
   entryBand: EntryBand,
+  // Trunk-context seats (the fan-out aggregate, the fan-out branch) pass extra
+  // constraints here; plain item / aggregate-less seats omit it.
+  //   ownIds:    trunk-aware foreignness -- own flow is EXACTLY this edge-id set,
+  //              not the flowKey group, so a same-flowKey non-member reads
+  //              foreign (issue #28, the aggregate seam).
+  //   barrierYs: already-seated same-trunk sibling centre-ys on a shared branch
+  //              column. The on-line slide may not cross one (jump to its far
+  //              side), so a pushed branch stays below its higher sibling rather
+  //              than inverting the stack (issue #28, the branch seam).
+  //              CONTRACT: only the on-line slide tiers (fully-clear and graze,
+  //              both via slideAlong) honor barriers; the nudge and escape
+  //              tiers move vertically UNCHECKED, so a caller passing barrierYs
+  //              must hide (or consciously accept) off-line seats. Today's only
+  //              caller, the fan-out branch loop, hides nudge/escape/exhausted
+  //              seats -- that hide is what makes a rendered crossing
+  //              impossible, not the barrier alone.
+  opts?: {
+    ownIds?: ReadonlySet<string> | undefined;
+    barrierYs?: ReadonlyArray<number> | undefined;
+  },
 ): RateSeat {
   const { pts, anchorX, anchorY } = path;
+  const ownIds = opts?.ownIds;
+  const barrierYs = opts?.barrierYs;
+  // A slide candidate crosses a barrier when it and the anchor sit on OPPOSITE
+  // sides of a seated sibling (their signed offsets from it differ), i.e. the
+  // slide would jump past the sibling and invert the stack. Same-side and
+  // on-the-sibling candidates (the latter blocked by the hard chip overlap
+  // anyway) are allowed.
+  const crossesBarrier = (py: number): boolean =>
+    barrierYs !== undefined &&
+    barrierYs.some((by) => (anchorY - by) * (py - by) < 0);
   let total = 0;
   for (let i = 1; i < pts.length; i++) {
     total += Math.hypot(
@@ -502,7 +569,7 @@ export function seatRateChip(
     return (
       !field.entersForeignCard(box, exempt) &&
       !field.overlapsChip(box) &&
-      !field.onForeignLine(box, flowKey, target, entryBand)
+      !field.onForeignLine(box, flowKey, target, entryBand, ownIds)
     );
   };
   const seat = (px: number, py: number, tier: RateSeatTier): RateSeat => {
@@ -525,6 +592,7 @@ export function seatRateChip(
         const len = anchorLen + delta;
         if (len < 0 || len > total) continue;
         const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
+        if (crossesBarrier(py)) continue;
         if (ok(px, py)) return seat(px, py, tierAt(px, py));
       }
     }
@@ -536,11 +604,30 @@ export function seatRateChip(
   // braided corridor a parallel foreign line within a chip half-height poisons
   // every tier-1 candidate at once, yet the own line is otherwise empty -- the
   // chip belongs on it, icon and tint disambiguate the graze.
-  const slid =
-    slideAlong(isClear, (px, py) =>
-      px === anchorX && py === anchorY ? "anchor" : "slide",
-    ) ?? slideAlong(hardClearAt, () => "graze");
-  if (slid !== null) return slid;
+  const fullyClearSlide = slideAlong(isClear, (px, py) =>
+    px === anchorX && py === anchorY ? "anchor" : "slide",
+  );
+  if (fullyClearSlide !== null) return fullyClearSlide;
+  // Tier 1c (sidestep): no fully clear point exists ALONG the own line, which on
+  // a vertical corridor leg (or a short horizontal trunk the box wholly
+  // overhangs) means a parallel foreign line the wide box cannot shed by any
+  // vertical motion. Step the box horizontally off the line -- away from the
+  // foreign line, toward the own line's free side -- keeping the own line within
+  // the box (offset <= one half-width). Both directions are probed nearest-first
+  // so the free side wins: clearing the foreign line by moving toward it would
+  // take more than a half-width plus a pitch (past the reach), and the blocked
+  // side (a card or the foreign line itself) never clears. On a tie the positive
+  // x wins. The reach's last step is clamped to the flush half-width even when
+  // the pitch does not divide it.
+  for (let step = 1; ; step++) {
+    const off = Math.min(step * SIDESTEP_PITCH, SIDESTEP_MAX);
+    for (const px of [anchorX + off, anchorX - off]) {
+      if (isClear(px, anchorY)) return seat(px, anchorY, "sidestep");
+    }
+    if (off >= SIDESTEP_MAX) break;
+  }
+  const grazed = slideAlong(hardClearAt, () => "graze");
+  if (grazed !== null) return grazed;
   // The whole own line is chip- or card-blocked. Escapes off the line follow
   // the ratified priority order: chip/chip and chip/card clearance are HARD,
   // staying on the line and clearing foreign lines are preferences that yield.
@@ -672,7 +759,12 @@ export function deconflictChipAnchors(
     for (let i = 1; i < pts.length; i++) {
       segs.push([pts[i - 1]![0], pts[i - 1]![1], pts[i]![0], pts[i]![1]]);
     }
-    edgeSegments.push({ flowKey: flowKeyOf(edge), target: edge.target, segs });
+    edgeSegments.push({
+      id: edge.id,
+      flowKey: flowKeyOf(edge),
+      target: edge.target,
+      segs,
+    });
   });
 
   // Raw card rects a chip's box must stay clear of, so a chip never sits on top
@@ -757,6 +849,8 @@ export function deconflictChipAnchors(
     flowKey: string;
     target: string;
     trunkKey: string;
+    // Target in-port y, the top-to-bottom key the rise seat loop stacks by.
+    entryY: number;
   };
   const busSlots: BusSlot[] = [];
   const busEdges = edges
@@ -801,6 +895,7 @@ export function deconflictChipAnchors(
       flowKey: flowKeyOf(edge),
       target: edge.target,
       trunkKey: data.trunkKey,
+      entryY: ty,
     });
   }
   // Card exemption for a lane trunk's AGGREGATE drop chip: the union over every
@@ -837,7 +932,73 @@ export function deconflictChipAnchors(
     );
     if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
   }
+  // Capacity check before seating the rises. A short lane run cannot host every
+  // member rise chip beside the trunk's aggregate at the wide-chip x-separation
+  // (2 * CHIP_HALF_W_WIDE); left to seatChip the crowded rises cascade off the
+  // band into empty canvas above/below the graph (issue #24). Instead keep only
+  // the rises the run supports and hide the overflow: the aggregate (drop) chip,
+  // already seated above, stays the trunk's one on-lane truth, and each hidden
+  // member's rate remains on its target card's input row and its edge tooltip
+  // (mirroring fanoutBranchHidden). Members are tried FARTHEST-from-aggregate
+  // first (edge-id tie-break) so a member that reads at the consumer end -- where
+  // the source-side drop cannot label it -- wins the scarce slots over a near
+  // one. The aggregate's lane column seeds the kept set so a kept rise clears it
+  // too -- deliberately even when the drop chip itself cascaded off the lane
+  // (busDropDy != 0): the column stays reserved for it, keeping the check a
+  // pure x-capacity rule. Single-member trunks are exempt: a lone rise merely restates its own
+  // drop's rate, and the long-run lone member (Task 4) belongs at the consumer
+  // end, so never capacity-hide it.
+  const MIN_CHIP_SEP = 2 * CHIP_HALF_W_WIDE;
+  const busRiseHiddenByIndex = new Set<number>();
+  const slotsByTrunk = new Map<string, BusSlot[]>();
   for (const slot of busSlots) {
+    const list = slotsByTrunk.get(slot.trunkKey) ?? [];
+    list.push(slot);
+    slotsByTrunk.set(slot.trunkKey, list);
+  }
+  for (const [, slots] of slotsByTrunk) {
+    if (slots.length < 2) continue;
+    const aggX = (slots.find((s) => s.owner) ?? slots[0]!).dropX;
+    const keptX = [aggX];
+    const ordered = [...slots].sort((a, b) => {
+      const da = Math.abs(a.riseChipX - aggX);
+      const db = Math.abs(b.riseChipX - aggX);
+      if (da !== db) return db - da;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    for (const slot of ordered) {
+      if (keptX.every((x) => Math.abs(slot.riseChipX - x) >= MIN_CHIP_SEP)) {
+        keptX.push(slot.riseChipX);
+      } else {
+        busRiseHiddenByIndex.add(slot.index);
+      }
+    }
+  }
+  // Seat the kept rise chips within each trunk TOP-TO-BOTTOM by their target's
+  // in-port y, not edge-id order which can invert the visible stack (issue #28):
+  // the topmost branch takes the lane and lower branches cascade below it, so a
+  // crowded column reads in branch order. Trunks stay grouped by trunkKey and
+  // ordered among themselves as before; only the within-trunk seat sequence
+  // changes. Edge id breaks ties for determinism. The capacity KEEP decision
+  // above (farthest-from-aggregate first) is untouched -- this reorders only the
+  // seat sequence of the chips that survive it.
+  const riseOrder = [...busSlots].sort((a, b) =>
+    a.trunkKey !== b.trunkKey
+      ? a.trunkKey < b.trunkKey
+        ? -1
+        : 1
+      : a.entryY !== b.entryY
+        ? a.entryY - b.entryY
+        : a.id < b.id
+          ? -1
+          : a.id > b.id
+            ? 1
+            : 0,
+  );
+  for (const slot of riseOrder) {
+    // A capacity-hidden rise seats nothing, so its phantom box never blocks a
+    // later chip and no busChipDy is stamped (BusEdge draws no rise chip).
+    if (busRiseHiddenByIndex.has(slot.index)) continue;
     const riseDy = seatChip(
       field,
       slot.riseChipX,
@@ -857,7 +1018,8 @@ export function deconflictChipAnchors(
   // one branch chip per member (that member's share, seated on its branch leg).
   // They seat here -- after the lane bus chips (structurally pinned to their
   // lanes) and before the free item rate chips -- through seatRateChip's
-  // three-tier seat, so both slide along their own drawn polyline before nudging
+  // tier ladder (slide / graze / sidestep / nudge / escape), so both slide
+  // along their own drawn polyline before stepping or nudging
   // off it. Aggregates settle before branches (the trunk's one truth first,
   // mirroring drop-before-rise). The aggregate has no single consumer gutter, so
   // it passes an INVERTED (empty) entry band that no point can fall inside (no
@@ -898,6 +1060,12 @@ export function deconflictChipAnchors(
   // than only the owner's own -- otherwise a sibling member's target reads as a
   // foreign card and shoves the aggregate off the trunk and down onto a branch.
   const trunkExempt = new Map<string, MutCardExemption>();
+  // Trunk-aware own-flow set for each trunk's AGGREGATE chip: the edge ids of
+  // every member. The aggregate rides the shared trunk, whose flowKey (item|
+  // source) a SEPARATE direct edge off the same source can share without being a
+  // trunk member; keyed by id, that direct edge reads foreign so the aggregate
+  // steps clear of it rather than binding to it (issue #28, finding 1).
+  const trunkMemberIds = new Map<string, Set<string>>();
   for (const { edge } of fanoutEdges) {
     const key = (edge.data as BusEdgeData).trunkKey;
     let set = trunkExempt.get(key);
@@ -906,6 +1074,12 @@ export function deconflictChipAnchors(
       trunkExempt.set(key, set);
     }
     mergeExemptionInto(set, cardExemptFor(edge));
+    let ids = trunkMemberIds.get(key);
+    if (ids === undefined) {
+      ids = new Set<string>();
+      trunkMemberIds.set(key, ids);
+    }
+    ids.add(edge.id);
   }
   for (const { edge, index } of fanoutEdges) {
     const geom = fanoutGeomByIndex.get(index)!;
@@ -939,6 +1113,7 @@ export function deconflictChipAnchors(
       edge.target,
       trunkExempt.get((edge.data as BusEdgeData).trunkKey) ?? cardExemptFor(edge),
       NEVER_BAND,
+      { ownIds: trunkMemberIds.get((edge.data as BusEdgeData).trunkKey) },
     );
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
       // Dev/test-only tripwire, tree-shaken out of production builds (parity with
@@ -956,8 +1131,37 @@ export function deconflictChipAnchors(
     number,
     { x: number; y: number }
   >();
-  for (const { edge, index } of fanoutEdges) {
+  // Target in-port y of a fan-out member: the top-to-bottom key its branch chip
+  // stacks by when several members share one junction column.
+  const branchEntryY = (edge: Edge): number => {
+    const target = byId.get(edge.target)!;
+    return absoluteTop(target, byId) + portOffsetY(target, edgeItem(edge), "in");
+  };
+  // Seat the branch chips within each trunk TOP-TO-BOTTOM by their target's
+  // in-port y, not edge-id order which can invert the visible stack when members
+  // share one junction column (issue #28, the multi6 fan-out lane): the first
+  // branch seated on a contested column claims it and later branches yield, so
+  // seating in branch order makes the column read in branch order. Trunks stay
+  // grouped by trunkKey and ordered among themselves as before; only the
+  // within-trunk seat sequence changes, edge id breaking ties for determinism.
+  const branchOrder = [...fanoutEdges].sort((a, b) => {
+    const ka = (a.edge.data as BusEdgeData).trunkKey;
+    const kb = (b.edge.data as BusEdgeData).trunkKey;
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    const ya = branchEntryY(a.edge);
+    const yb = branchEntryY(b.edge);
+    if (ya !== yb) return ya - yb;
+    return a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0;
+  });
+  // Seated branch centre-ys per trunk, the barriers a later same-trunk branch's
+  // on-line slide may not cross (issue #28, finding 2). All members of one trunk
+  // share the junction column, so a trunk key IS a column key here. Only chips
+  // that actually seat (not hidden) enter it, since a hidden branch draws no
+  // chip to invert against.
+  const seatedBranchYByTrunk = new Map<string, number[]>();
+  for (const { edge, index } of branchOrder) {
     const geom = fanoutGeomByIndex.get(index)!;
+    const trunkKey = (edge.data as BusEdgeData).trunkKey;
     const seat = seatRateChip(
       field,
       {
@@ -969,6 +1173,7 @@ export function deconflictChipAnchors(
       edge.target,
       cardExemptFor(edge),
       entryBandOf(edge),
+      { barrierYs: seatedBranchYByTrunk.get(trunkKey) },
     );
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
       // The hide below covers the exhausted tier too, but exhausting the
@@ -994,14 +1199,194 @@ export function deconflictChipAnchors(
       fanoutBranchHiddenAtByIndex.set(index, geom.branchAnchor);
       continue;
     }
+    // The chip seated on its column: record its centre-y as a barrier for the
+    // next same-trunk branch so a pushed later branch cannot slide across it.
+    const seatedYs = seatedBranchYByTrunk.get(trunkKey) ?? [];
+    seatedYs.push(geom.branchAnchor.y + seat.dy);
+    seatedBranchYByTrunk.set(trunkKey, seatedYs);
     if (seat.dx !== 0) fanoutBranchDxByIndex.set(index, seat.dx);
     if (seat.dy !== 0) fanoutBranchDyByIndex.set(index, seat.dy);
   }
 
+  // Phase 3.5 -- fan-in markers: fan-in is structurally unmodeled (every trunk
+  // key is (item, source), never (item, target)), so where 2+ forward same-item
+  // edges enter ONE target in-port their final legs run collinear at the port y
+  // with no junction dot or aggregate. Stamp ONE merge dot and ONE summed-rate
+  // Sigma on the shared run (both drawn by the elected owner's ItemEdge), and
+  // suppress any member whose own rate chip would sit ON that shared run. This
+  // runs before the item phase so a suppressed member seats no chip, and after
+  // the fan-out phases so a dual-role edge's fan-out geometry is in hand. It is
+  // presentational only: no edge is retyped, a fan-out member keeps its fan-out
+  // role, and each member is summed by its own rate exactly once.
+  const FANIN_EPS = 1;
+  type FaninMember = {
+    index: number;
+    id: string;
+    source: string;
+    rate: Fraction;
+    joinX: number;
+    isItem: boolean;
+    anchorX: number;
+    anchorY: number;
+  };
+  const faninGroups = new Map<string, FaninMember[]>();
+  const faninTargetByKey = new Map<string, { tx: number; ty: number }>();
+  // (item, target) ports that ALSO receive a same-item edge outside the marker's
+  // scope (a lane-bus rise, a backward rail, or any non-collinear approach). A
+  // Sigma there would sum only the collinear members and understate the card's
+  // input row, so such a port gets NO marker at all.
+  const faninExcludedKeys = new Set<string>();
+  edges.forEach((edge, index) => {
+    const item = edgeItem(edge);
+    if (item === undefined) return;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) return;
+    const key = item + "|" + edge.target;
+    const itemGeom = itemGeomByIndex.get(index);
+    const fanGeom = fanoutGeomByIndex.get(index);
+    let pts: ReadonlyArray<readonly [number, number]>;
+    let anchorX = 0;
+    let anchorY = 0;
+    let isItem = false;
+    if (itemGeom !== undefined) {
+      pts = itemGeom.pts;
+      anchorX = itemGeom.lx;
+      anchorY = itemGeom.ly;
+      isItem = true;
+    } else if (fanGeom !== undefined) {
+      pts = fanGeom.pts;
+    } else {
+      // Lane bus members approach via a rise column, not along the port-y run.
+      faninExcludedKeys.add(key);
+      return;
+    }
+    if (pts.length < 2) {
+      faninExcludedKeys.add(key);
+      return;
+    }
+    const first = pts[0]!;
+    const last = pts[pts.length - 1]!;
+    if (last[0] <= first[0]) {
+      // Backward rail: enters through the gutter, not along the shared run.
+      faninExcludedKeys.add(key);
+      return;
+    }
+    const tx = absoluteLeft(target, byId);
+    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    const secondLast = pts[pts.length - 2]!;
+    if (Math.abs(secondLast[1] - ty) > FANIN_EPS) {
+      // Final leg not at the port y: feeds the port off the shared run.
+      faninExcludedKeys.add(key);
+      return;
+    }
+    const rate = (edge.data as { rate?: unknown } | undefined)?.rate;
+    if (!(rate instanceof Fraction) && import.meta.env.DEV) {
+      // Dev/test-only tripwire, tree-shaken out of production builds (parity
+      // with the seating warnings above): a rate-less member sums as 0, so a
+      // marked port's Sigma would silently understate the card's input row.
+      console.warn(
+        `chip seating: fan-in member ${edge.id} carries no Fraction rate; ` +
+          "it sums as 0 in any Sigma aggregate on its port",
+      );
+    }
+    const list = faninGroups.get(key) ?? [];
+    list.push({
+      index,
+      id: edge.id,
+      source: edge.source,
+      rate: rate instanceof Fraction ? rate : new Fraction(0),
+      joinX: secondLast[0],
+      isItem,
+      anchorX,
+      anchorY,
+    });
+    faninGroups.set(key, list);
+    faninTargetByKey.set(key, { tx, ty });
+  });
+  const faninJunctionByIndex = new Map<number, { x: number; y: number }>();
+  type FaninSigma = {
+    x: number;
+    y: number;
+    dx: number;
+    dy: number;
+    total: Fraction;
+    count: number;
+  };
+  const faninSigmaByIndex = new Map<number, FaninSigma>();
+  const faninChipHiddenByIndex = new Set<number>();
+  // Per item member of a fan-in group: the merge x and port y of its shared run.
+  // The item phase reads this to decide, AT SEAT TIME, whether the member's own
+  // chip landed ON the shared run (redundant with the Sigma) and should hide --
+  // a member chip that slides onto the run cannot be caught by its anchor alone.
+  const faninMemberRunByIndex = new Map<
+    number,
+    { mergeX: number; tx: number; ty: number }
+  >();
+  // Sigma seats are DEFERRED to after the item phase so each member's own rate
+  // chip claims its pre-merge leg first (an aggregate is exempt from the on-own-
+  // line audit and yields to the concrete member chips it labels a total of).
+  type FaninSeatJob = {
+    ownerIndex: number;
+    ownerEdge: Edge;
+    anchorX: number;
+    ty: number;
+    runStart: number;
+    tx: number;
+    ownIds: ReadonlySet<string>;
+    total: Fraction;
+    count: number;
+  };
+  const faninSeatJobs: FaninSeatJob[] = [];
+  for (const [key, members] of faninGroups) {
+    if (members.length < 2) continue;
+    // Mixed-feed port: an out-of-scope same-item edge (lane-bus rise, backward
+    // rail, non-collinear approach) also enters this port, so a Sigma over just
+    // the collinear members would contradict the card's input row. No marker.
+    if (faninExcludedKeys.has(key)) continue;
+    // Fan-in needs 2+ DISTINCT incoming flows. Same-(item, source) edges are one
+    // flow (a parallel bundle already drawn as one visual line), not a merge, so
+    // require distinct sources before marking a junction.
+    if (new Set(members.map((m) => m.source)).size < 2) continue;
+    // The owner draws the marker via its ItemEdge, so it must be an item edge.
+    const itemMembers = members.filter((m) => m.isItem);
+    if (itemMembers.length === 0) continue;
+    const { tx, ty } = faninTargetByKey.get(key)!;
+    // The merge point: where the LAST member joins the shared run (the rightmost
+    // final-leg start). The dot marks it; the run [mergeX, tx] is where all
+    // members are collinear at the port y.
+    const mergeX = Math.max(...members.map((m) => m.joinX));
+    const runLen = tx - mergeX;
+    if (runLen <= 2 * CHAMFER) continue; // no real shared run to mark
+    let total = new Fraction(0);
+    for (const m of members) total = total.add(m.rate);
+    const owner = itemMembers.reduce((a, b) => (a.id <= b.id ? a : b));
+    const ownerEdge = edges[owner.index]!;
+    // Sigma anchor on the shared run, kept a chip half-box (bounded by half the
+    // run) right of the merge dot so the chip never covers it. Deferred seat.
+    const keepoff = Math.min(CHIP_HALF_W_WIDE, runLen / 2);
+    faninJunctionByIndex.set(owner.index, { x: mergeX, y: ty });
+    faninSeatJobs.push({
+      ownerIndex: owner.index,
+      ownerEdge,
+      anchorX: (mergeX + tx) / 2,
+      ty,
+      runStart: mergeX + keepoff,
+      tx,
+      ownIds: new Set(members.map((m) => m.id)),
+      total,
+      count: members.length,
+    });
+    for (const m of itemMembers) {
+      faninMemberRunByIndex.set(m.index, { mergeX, tx, ty });
+    }
+  }
+
   // Phase 4 -- item rate chips: each item edge's clear-segment anchor (cached
   // from the reconstruction above, exactly where ItemEdge renders it) goes
-  // through seatRateChip's three-tier seat: slide along the own polyline,
-  // short fully-clear nudge, then the chips-and-cards escape cascade.
+  // through seatRateChip's tier ladder: slide along the own polyline (fully
+  // clear, then graze), the horizontal sidestep, the short fully-clear nudge,
+  // then the chips-and-cards escape cascade.
   // Ordering by edge id keeps it deterministic.
   const labelDyByIndex = new Map<number, number>();
   const labelDxByIndex = new Map<number, number>();
@@ -1043,8 +1428,59 @@ export function deconflictChipAnchors(
           "chip parked at its anchor (chip/card hard invariants abandoned)",
       );
     }
+    // A fan-in member whose own chip SEATED on the shared run (at the port y,
+    // between the merge and the port) is redundant with the summed Sigma there:
+    // pop its box and hide it (ItemEdge draws no rate chip, the exact rate stays
+    // on the hover path and the target card's input row). A member seated on its
+    // own PRE-merge leg (off the run) keeps its chip. Anchor-based hiding cannot
+    // catch a member that SLID onto the run, so this reads the seated centre.
+    const run = faninMemberRunByIndex.get(index);
+    if (run !== undefined) {
+      const seatX = geom.lx + seat.dx;
+      const seatY = geom.ly + seat.dy;
+      if (
+        Math.abs(seatY - run.ty) <= FANIN_EPS &&
+        seatX >= run.mergeX - FANIN_EPS &&
+        seatX <= run.tx + FANIN_EPS
+      ) {
+        field.placed.pop();
+        faninChipHiddenByIndex.add(index);
+        continue;
+      }
+    }
     if (seat.dx !== 0) labelDxByIndex.set(index, seat.dx);
     if (seat.dy !== 0) labelDyByIndex.set(index, seat.dy);
+  }
+
+  // Phase 5 -- fan-in Sigma aggregates: seat each deferred owner Sigma on its
+  // shared run now that every member's rate chip is placed, so the wide Sigma box
+  // yields to the concrete member chips (the aggregate is exempt from the
+  // on-own-line audit) instead of shoving them off their pre-merge legs. Every
+  // member's collinear final leg is treated as own flow (ownIds) so the Sigma
+  // does not read them as foreign lines; NEVER_BAND gives no arrival-cluster
+  // exemption, so it clears every truly foreign line.
+  for (const job of faninSeatJobs) {
+    const runPts: ReadonlyArray<readonly [number, number]> = [
+      [job.runStart, job.ty],
+      [job.tx, job.ty],
+    ];
+    const seat = seatRateChip(
+      field,
+      { pts: runPts, anchorX: job.anchorX, anchorY: job.ty },
+      flowKeyOf(job.ownerEdge),
+      job.ownerEdge.target,
+      cardExemptFor(job.ownerEdge),
+      NEVER_BAND,
+      { ownIds: job.ownIds },
+    );
+    faninSigmaByIndex.set(job.ownerIndex, {
+      x: job.anchorX,
+      y: job.ty,
+      dx: seat.dx,
+      dy: seat.dy,
+      total: job.total,
+      count: job.count,
+    });
   }
 
   return edges.map((edge, index) => {
@@ -1052,22 +1488,30 @@ export function deconflictChipAnchors(
     const labelDx = labelDxByIndex.get(index);
     const busDropDy = busDropDyByIndex.get(index);
     const busChipDy = busChipDyByIndex.get(index);
+    const busRiseHidden = busRiseHiddenByIndex.has(index);
     const fanoutAggDx = fanoutAggDxByIndex.get(index);
     const fanoutAggDy = fanoutAggDyByIndex.get(index);
     const fanoutBranchDx = fanoutBranchDxByIndex.get(index);
     const fanoutBranchDy = fanoutBranchDyByIndex.get(index);
     const fanoutBranchHidden = fanoutBranchHiddenByIndex.has(index);
     const fanoutBranchHiddenAt = fanoutBranchHiddenAtByIndex.get(index);
+    const faninJunction = faninJunctionByIndex.get(index);
+    const faninSigma = faninSigmaByIndex.get(index);
+    const faninChipHidden = faninChipHiddenByIndex.has(index);
     if (
       labelDy === undefined &&
       labelDx === undefined &&
       busDropDy === undefined &&
       busChipDy === undefined &&
+      !busRiseHidden &&
       fanoutAggDx === undefined &&
       fanoutAggDy === undefined &&
       fanoutBranchDx === undefined &&
       fanoutBranchDy === undefined &&
-      !fanoutBranchHidden
+      !fanoutBranchHidden &&
+      faninJunction === undefined &&
+      faninSigma === undefined &&
+      !faninChipHidden
     ) {
       return edge;
     }
@@ -1079,12 +1523,35 @@ export function deconflictChipAnchors(
         ...(labelDx !== undefined ? { labelDx } : {}),
         ...(busDropDy !== undefined ? { busDropDy } : {}),
         ...(busChipDy !== undefined ? { busChipDy } : {}),
+        ...(busRiseHidden ? { busRiseHidden: true as const } : {}),
         ...(fanoutAggDx !== undefined ? { fanoutAggDx } : {}),
         ...(fanoutAggDy !== undefined ? { fanoutAggDy } : {}),
         ...(fanoutBranchDx !== undefined ? { fanoutBranchDx } : {}),
         ...(fanoutBranchDy !== undefined ? { fanoutBranchDy } : {}),
         ...(fanoutBranchHidden ? { fanoutBranchHidden: true as const } : {}),
         ...(fanoutBranchHiddenAt !== undefined ? { fanoutBranchHiddenAt } : {}),
+        ...(faninJunction !== undefined
+          ? { faninJunctionX: faninJunction.x, faninJunctionY: faninJunction.y }
+          : {}),
+        ...(faninSigma !== undefined
+          ? {
+              faninSigmaX: faninSigma.x,
+              faninSigmaY: faninSigma.y,
+              ...(faninSigma.dx !== 0 ? { faninSigmaDx: faninSigma.dx } : {}),
+              ...(faninSigma.dy !== 0 ? { faninSigmaDy: faninSigma.dy } : {}),
+              faninTotalRate: faninSigma.total,
+              faninMemberCount: faninSigma.count,
+            }
+          : {}),
+        // The hide is stamped with the port y it was decided at, so ItemEdge
+        // can drop it once a node drag moves the live port away from the stamp
+        // (the fanoutBranchHiddenAt staleness pattern).
+        ...(faninChipHidden
+          ? {
+              faninChipHidden: true as const,
+              faninChipHiddenAtY: faninMemberRunByIndex.get(index)!.ty,
+            }
+          : {}),
       },
     };
   });
@@ -1152,6 +1619,8 @@ export function contentBounds(
           fanoutAggDy?: number;
           fanoutBranchDx?: number;
           fanoutBranchDy?: number;
+          faninSigmaDx?: number;
+          faninSigmaDy?: number;
         }
       | undefined;
     if (d === undefined) continue;
@@ -1160,12 +1629,14 @@ export function contentBounds(
       Math.abs(d.labelDx ?? 0),
       Math.abs(d.fanoutAggDx ?? 0),
       Math.abs(d.fanoutBranchDx ?? 0),
+      Math.abs(d.faninSigmaDx ?? 0),
     );
     maxDy = Math.max(
       maxDy,
       Math.abs(d.labelDy ?? 0),
       Math.abs(d.fanoutAggDy ?? 0),
       Math.abs(d.fanoutBranchDy ?? 0),
+      Math.abs(d.faninSigmaDy ?? 0),
     );
   }
   left -= CHIP_HALF_W_WIDE + maxDx;

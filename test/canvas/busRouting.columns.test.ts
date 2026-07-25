@@ -19,6 +19,8 @@ import {
   gutterWidth,
   ENTRY_SLOT_PITCH,
   BUS_SPAN_THRESHOLD,
+  CONTAINER_RAIL_GAP,
+  OBSTACLE_PAD_Y,
 } from "../../src/canvas/busRouting";
 import { ENTRY_GUTTER_OVERHANG } from "../../src/canvas/dimensions";
 import {
@@ -417,6 +419,76 @@ describe("clampBackwardRails overhang clearance", () => {
     const midBottom = 65;
     // Threaded rail sits clear of the mid card's padded (overhang) extent.
     expect(railY! > midBottom + CHAMFER || railY! < 0 - CHAMFER).toBe(true);
+  });
+
+  // A container (loop / SCC slab) box wrapping its members. Only geometry
+  // matters to the rail clearance, so the data payload is minimal.
+  const containerNode = (
+    id: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): RFAnyNode =>
+    ({
+      id,
+      type: "group",
+      position: { x, y },
+      width,
+      height,
+      data: {
+        containerKind: "blueprint-group",
+        containerId: id,
+        memberCount: 1,
+      },
+    }) as unknown as RFAnyNode;
+
+  it("clears a container slab by the wider container gap, not the plain CHAMFER", () => {
+    // Backward edge src -> tgt with a container slab ("G") straddling the
+    // corridor between them; the rail's preferred y falls inside the slab. A
+    // return edge and the slab border in a near-identical gray read as one line
+    // when the rail hugs the border at the plain gap, so a container obstacle
+    // gets the wider CONTAINER_RAIL_GAP clearance (#29).
+    const gTop = -20;
+    const gBottom = 100;
+    const nodes: RFAnyNode[] = [
+      inputProductNode("src", "water", 800, 0, 148, 60),
+      inputProductNode("tgt", "water", 0, 0, 148, 60),
+      containerNode("G", 200, gTop, 400, gBottom - gTop),
+    ];
+    const edges = [mkEdge("e0", "src", "tgt", "water")];
+    const out = clampBackwardRails(nodes, edges);
+    const railY = (out[0]!.data as { railY?: number }).railY;
+    expect(railY).toBeDefined();
+    // Rail sits at least (OBSTACLE_PAD_Y + CONTAINER_RAIL_GAP) off the slab's
+    // raw border on whichever side it exits.
+    const clearance = OBSTACLE_PAD_Y + CONTAINER_RAIL_GAP;
+    expect(
+      railY! <= gTop - clearance || railY! >= gBottom + clearance,
+    ).toBe(true);
+  });
+
+  it("clears a plain card of the same shape by only the CHAMFER gap", () => {
+    // The load-bearing half of the container distinction: an ordinary card
+    // (not a group / loop slab) at the same geometry keeps the plain clearance,
+    // so only container obstacles get the wider gap.
+    const cTop = -20;
+    const cBottom = 100;
+    const nodes: RFAnyNode[] = [
+      inputProductNode("src", "water", 800, 0, 148, 60),
+      inputProductNode("tgt", "water", 0, 0, 148, 60),
+      inputProductNode("mid", "water", 200, cTop, 400, cBottom - cTop),
+    ];
+    const edges = [mkEdge("e0", "src", "tgt", "water")];
+    const out = clampBackwardRails(nodes, edges);
+    const railY = (out[0]!.data as { railY?: number }).railY;
+    expect(railY).toBeDefined();
+    const wide = OBSTACLE_PAD_Y + CONTAINER_RAIL_GAP;
+    const plain = OBSTACLE_PAD_Y + CHAMFER;
+    // Cleared off the card (on whichever side) by the plain gap...
+    expect(railY! <= cTop - plain || railY! >= cBottom + plain).toBe(true);
+    // ...but NOT by the wide container clearance.
+    expect(railY! > cTop - wide && railY! < cBottom + wide).toBe(true);
   });
 });
 
@@ -917,6 +989,202 @@ describe("clearBusColumns", () => {
     // And clear of the foreign bodies it spans (block, wall, shelf raw).
     expect(resolved > 1002 && resolved < 1150).toBe(false);
     expect(resolved > 1012 && resolved < 1160).toBe(false);
+  });
+
+  it("fans two distinct-item trunks off a shared drop and rise column (#25)", () => {
+    // Two trunks leave the same source layer (right edge 300 -> drop column 332)
+    // and rise into ONE shared multi-input target (left far -> rise column
+    // far - 32), one carrying item "b" and one item "c". Absent per-trunk
+    // separation both drops resolve to 332 and both rises to far - 32, candy-
+    // striping two items on one column. The shared target is each rise's own
+    // (exempt) card, so neither rise dodges the other and they genuinely coincide.
+    // Each lone member keeps a mid-corridor blocker so it stays on the bus, and a
+    // high anchor pins both trunks to the bottom band.
+    const tr = mkRecipe("tr", ["b", "c"], []);
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s1", 0, 1000, r),
+      recipeNode("s2", 0, 1150, r),
+      recipeNode("cor1", 550, 1000, r),
+      recipeNode("cor2", 550, 1150, r),
+      recipeNode("t", far, 1075, tr),
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [
+        mkEdge("e1", "s1", "t", "b"),
+        mkEdge("e2", "s2", "t", "c"),
+      ]),
+    );
+    const dropDefault = 300 + PORT_STUB + CHAMFER; // 332
+    const riseDefault = far - PORT_STUB - CHAMFER;
+    // Every member of a colliding bucket stores its resolved column -- including
+    // the lowest-slot trunk at offset 0 -- so both render on the same basis and
+    // the on-screen gap is exactly one pitch (an unstored base would fall back to
+    // a handle-derived column and shrink the gap below a pitch).
+    expect(dropXOf(out, "e1")).toBeDefined();
+    expect(dropXOf(out, "e2")).toBeDefined();
+    expect(riseXOf(out, "e1")).toBeDefined();
+    expect(riseXOf(out, "e2")).toBeDefined();
+    const drop1 = dropXOf(out, "e1") ?? dropDefault;
+    const drop2 = dropXOf(out, "e2") ?? dropDefault;
+    const rise1 = riseXOf(out, "e1") ?? riseDefault;
+    const rise2 = riseXOf(out, "e2") ?? riseDefault;
+    // Distinct columns, exactly one slot pitch apart on both the drop and rise.
+    expect(Math.abs(drop1 - drop2)).toBe(ENTRY_SLOT_PITCH);
+    expect(Math.abs(rise1 - rise2)).toBe(ENTRY_SLOT_PITCH);
+  });
+
+  it("keeps two separated trunk drops apart when a card forces a dodge (#25)", () => {
+    // The same two colliding trunks, plus a foreign card straddling both drop
+    // columns (332 and 348) at the run's lane depth. Both drops sit inside the
+    // card's padded band, so the foreign-card dodge moves both -- collapsing them
+    // onto the same escape column. The post-dodge separation pass then buckets
+    // them on that shared resolved column and steps them one slot pitch apart, so
+    // the two dodged drops still land on distinct columns.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s1", 0, 1000, r),
+      recipeNode("s2", 0, 1150, r),
+      recipeNode("cor1", 550, 1000, r),
+      recipeNode("cor2", 550, 1150, r),
+      recipeNode("t1", far, 1000, r),
+      recipeNode("t2", far, 1150, r),
+      inputProductNode("block", "ore", 300, 1250, 148, 78), // raw [300, 448]
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [
+        mkEdge("e1", "s1", "t1", "b"),
+        mkEdge("e2", "s2", "t2", "c"),
+      ]),
+    );
+    // Both dodged the block (stamped away from the 332 default)...
+    expect(dropXOf(out, "e1")).toBeDefined();
+    expect(dropXOf(out, "e2")).toBeDefined();
+    // ...and never onto the same escape column.
+    expect(dropXOf(out, "e1")).not.toBe(dropXOf(out, "e2"));
+  });
+
+  it("fans two same-item trunks from different sources off a shared drop column (#25)", () => {
+    // The separation keys on the trunk (`item|source`), not the item alone: two
+    // trunks carrying the SAME item from DIFFERENT sources coincide on the drop
+    // column (both resolve to 332 off the shared source layer) and are stepped
+    // apart exactly like a distinct-item pair.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s1", 0, 1000, r),
+      recipeNode("s2", 0, 1150, r),
+      recipeNode("cor1", 550, 1000, r),
+      recipeNode("cor2", 550, 1150, r),
+      recipeNode("t1", far, 1000, r),
+      recipeNode("t2", far, 1150, r),
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [
+        mkEdge("e1", "s1", "t1", "b"),
+        mkEdge("e2", "s2", "t2", "b"),
+      ]),
+    );
+    expect(dropXOf(out, "e1")).toBeDefined();
+    expect(dropXOf(out, "e2")).toBeDefined();
+    expect(Math.abs(dropXOf(out, "e1")! - dropXOf(out, "e2")!)).toBe(
+      ENTRY_SLOT_PITCH,
+    );
+  });
+
+  it("never steps a separated drop column into a foreign card (#25 re-check)", () => {
+    // Four distinct-item trunks leave the same source layer; a foreign card with
+    // raw x-extent [350, 498] sits at the run's lane depth. The three upper
+    // trunks' drop spans also pass their sibling source cards below, so the
+    // padded tier is walled on both sides and the raw fallback keeps their 332
+    // default (2px shy of the card's raw left minus the slim gap) -- a colliding
+    // bucket of three at 332. The bottom trunk's span passes no sibling, so it
+    // dodges alone to the card's padded escape at 308. Naive separation would
+    // step the bucket's rank 2 to 332 + 32 = 364, INSIDE the card's raw body.
+    // The post-offset re-check must instead keep stepping (every bounded
+    // candidate is still inside the card) and then drop rank 2's offset so it
+    // falls back to the coincident 332 -- a benign overlap, never a pierce.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s1", 0, 1000, r),
+      recipeNode("s2", 0, 1150, r),
+      recipeNode("s3", 0, 1300, r),
+      recipeNode("s4", 0, 1450, r),
+      recipeNode("cor1", 550, 1000, r),
+      recipeNode("cor2", 550, 1150, r),
+      recipeNode("cor3", 550, 1300, r),
+      recipeNode("cor4", 550, 1450, r),
+      recipeNode("t1", far, 1000, r),
+      recipeNode("t2", far, 1150, r),
+      recipeNode("t3", far, 1300, r),
+      recipeNode("t4", far, 1450, r),
+      inputProductNode("block", "ore", 350, 1550, 148, 78), // raw [350, 498]
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [
+        mkEdge("e1", "s1", "t1", "b"),
+        mkEdge("e2", "s2", "t2", "c"),
+        mkEdge("e3", "s3", "t3", "d"),
+        mkEdge("e4", "s4", "t4", "e"),
+      ]),
+    );
+    const xs = ["e1", "e2", "e3", "e4"].map((id) => dropXOf(out, id));
+    // Every trunk stores its column (bucket members and the lone dodger)...
+    for (const x of xs) expect(x).toBeDefined();
+    // ...and no stored column pierces the card's raw body.
+    for (const x of xs) expect(x! > 350 && x! < 498).toBe(false);
+    // Rank 2, boxed in by the card, falls back to rank 0's coincident column
+    // instead of stepping into the card.
+    expect(xs[2]).toBe(xs[0]);
+  });
+
+  it("rejects a stepped drop whose connecting leg would cross a card (#25 re-check)", () => {
+    // The same four-trunk fixture, plus a slim card with raw x-extent [336, 344]
+    // -- strictly between the bucket's 332 natural and rank 1's 348 candidate --
+    // straddling the second source's port row. The 348 candidate's VERTICAL is
+    // clear of that card, but stepping there lengthens the port-to-column leg at
+    // the port row so the leg would slice the card's body. The re-check must
+    // reject the candidate via the leg guard; with every further candidate
+    // inside the big card, rank 1 falls back to the coincident 332 like rank 2.
+    const nodes: RFAnyNode[] = [
+      recipeNode("anchor", 0, 0, r),
+      recipeNode("s1", 0, 1000, r),
+      recipeNode("s2", 0, 1150, r),
+      recipeNode("s3", 0, 1300, r),
+      recipeNode("s4", 0, 1450, r),
+      recipeNode("cor1", 550, 1000, r),
+      recipeNode("cor2", 550, 1150, r),
+      recipeNode("cor3", 550, 1300, r),
+      recipeNode("cor4", 550, 1450, r),
+      recipeNode("t1", far, 1000, r),
+      recipeNode("t2", far, 1150, r),
+      recipeNode("t3", far, 1300, r),
+      recipeNode("t4", far, 1450, r),
+      inputProductNode("block", "ore", 350, 1550, 148, 78), // raw [350, 498]
+      inputProductNode("legcard", "ore", 336, 1150, 8, 140), // raw [336, 344]
+    ];
+    const out = clearBusColumns(
+      nodes,
+      routeBusEdges(nodes, [
+        mkEdge("e1", "s1", "t1", "b"),
+        mkEdge("e2", "s2", "t2", "c"),
+        mkEdge("e3", "s3", "t3", "d"),
+        mkEdge("e4", "s4", "t4", "e"),
+      ]),
+    );
+    // Rank 1's leg-crossing 348 candidate is rejected: it falls back to the
+    // coincident column instead of slicing the slim card with its leg.
+    expect(dropXOf(out, "e2")).toBeDefined();
+    expect(dropXOf(out, "e2")).toBe(dropXOf(out, "e1"));
+    // And no stored column pierces either card's raw body.
+    for (const id of ["e1", "e2", "e3", "e4"]) {
+      const x = dropXOf(out, id)!;
+      expect(x > 350 && x < 498).toBe(false);
+      expect(x > 336 - 2 && x < 344 + 2).toBe(false);
+    }
   });
 });
 

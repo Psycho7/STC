@@ -50,15 +50,23 @@ function labelDxOf(edges: Edge[], id: string): number {
   return d?.labelDx ?? 0;
 }
 
+function busRiseHiddenOf(edges: Edge[], id: string): boolean {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { busRiseHidden?: true }
+    | undefined;
+  return d?.busRiseHidden === true;
+}
+
 describe("deconflictChipAnchors: bus lane cascade", () => {
-  it("cascades a crowded trunk's rise chips below its lane in pitch steps", () => {
+  it("hides a crowded trunk's overflow rise chips, keeping only the aggregate on the lane", () => {
     // Two input-product feeders share one trunk (ore|agg) but sit so close that
     // the lane extent collapses: routeBusEdges stacks both rise slots on the drop
-    // column. The owner (e0) keeps its aggregate drop chip on the lane; the rise
-    // chips, coincident on that column, cascade straight down a full max-scale
-    // pitch apart so no two bus chips overlap on screen. An anchor node up top
-    // keeps the trunk in the lower half, so it lands in the BOTTOM band and the
-    // cascade runs downward (the mirror top-band case is covered below).
+    // column. Neither rise clears the aggregate at the wide-chip x-separation, so
+    // the capacity check (issue #24) hides BOTH rather than letting them cascade
+    // off the band into empty canvas. The owner (e0) keeps its aggregate drop
+    // chip alone on the lane; each hidden member's rate stays on its target
+    // card's input row and its edge tooltip. An anchor node up top keeps the
+    // trunk in the lower half (bottom band), matching the original fixture.
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, mkRecipe("anchor", ["a"], ["b"])),
       inputProductNode("agg", "ore", 0, 1000),
@@ -70,12 +78,63 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
       mkEdge("e1", "agg", "t2", "ore"),
     ];
     const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
-    const pitch = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
-    // e0 owns the drop chip, which settles first on the lane and is never pushed.
+    // e0 owns the drop chip, which settles first on the lane and is never pushed:
+    // the surviving on-lane chip lies exactly on the lane.
     expect(busDropDyOf(out, "e0")).toBe(0);
-    // The two rise chips pile below it at successive pitch steps, edge-id order.
-    expect(busChipDyOf(out, "e0")).toBe(pitch);
-    expect(busChipDyOf(out, "e1")).toBe(2 * pitch);
+    // Both rise chips are hidden, not cascaded: no busChipDy is stamped and no
+    // seated chip ends up off the lane.
+    expect(busRiseHiddenOf(out, "e0")).toBe(true);
+    expect(busRiseHiddenOf(out, "e1")).toBe(true);
+    expect(busChipDyOf(out, "e0")).toBe(0);
+    expect(busChipDyOf(out, "e1")).toBe(0);
+  });
+
+  it("keeps the farther rise chip and hides the near one when only one fits", () => {
+    // A hand-built 2-member trunk (w|s) whose aggregate drop column sits at
+    // busDropBase(sourceRight) = 132. The near member's slot (232, 100 units off
+    // the aggregate) cannot clear it at the wide-chip separation (2 * 120 = 240);
+    // the far member's slot (532, 400 units off) can. The capacity check tries
+    // members FARTHEST-first, so the far one keeps its lane slot and the near one
+    // -- including when it is the owner drawing the aggregate -- is hidden. A
+    // hidden owner still shows its drop chip; only its redundant rise goes.
+    const laneY = 300;
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60), // right edge 100 -> dropX 132
+      productNode("t0", 900, 0, 100, 60),
+      productNode("t1", 900, 200, 100, 60),
+    ];
+    const mkBus = (
+      id: string,
+      target: string,
+      busChipX: number,
+      owner: boolean,
+    ): Edge => ({
+      id,
+      source: "s",
+      target,
+      type: "bus",
+      data: {
+        item: "w",
+        rate: new Fraction(1),
+        laneY,
+        trunkKey: "w|s",
+        busChipX,
+        busChipOwner: owner,
+        busMemberCount: 2,
+        busBand: "bottom" as const,
+      },
+    });
+    const edges: Edge[] = [
+      mkBus("e0", "t0", 232, true), // near member, owns the aggregate
+      mkBus("e1", "t1", 532, false), // far member
+    ];
+    const out = deconflictChipAnchors(nodes, edges);
+    // Aggregate holds the lane; the near member's rise is hidden.
+    expect(busDropDyOf(out, "e0")).toBe(0);
+    expect(busRiseHiddenOf(out, "e0")).toBe(true);
+    // The far member keeps its rise chip, seated on the lane.
+    expect(busRiseHiddenOf(out, "e1")).toBe(false);
+    expect(busChipDyOf(out, "e1")).toBe(0);
   });
 
   it("leaves a well-spread trunk's chips on the lane", () => {
@@ -126,10 +185,14 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
     expect(busDropDyOf(out, "e0")).toBe(2 * (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT));
     expect(busDropDyOf(out, "e2")).toBe(0);
-    // The crowded rises all cascaded below the lanes instead.
-    for (const id of ["e0", "e1", "e2"]) {
-      expect(busChipDyOf(out, id)).toBeGreaterThan(0);
-    }
+    // Trunk a is a 2-member trunk whose rise slots collapse on the drop column:
+    // neither rise clears the aggregate, so the capacity check hides both (#24)
+    // instead of cascading them. Trunk b is a lone member, exempt from the
+    // capacity check, so its rise still cascades off its own drop column.
+    expect(busRiseHiddenOf(out, "e0")).toBe(true);
+    expect(busRiseHiddenOf(out, "e1")).toBe(true);
+    expect(busRiseHiddenOf(out, "e2")).toBe(false);
+    expect(busChipDyOf(out, "e2")).toBeGreaterThan(0);
   });
 });
 
