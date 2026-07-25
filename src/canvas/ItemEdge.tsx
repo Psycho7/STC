@@ -17,7 +17,7 @@ import { itemColor } from "./itemColor";
 export type ItemEdgeData = {
   item: ItemId;
   rate: Fraction;
-  // Per-edge transport phase (belt or pipe, with room to grow). Picks the
+  // Per-edge transport phase (belt, pipe, or gas, with room to grow). Picks the
   // stroke and dash pattern below. It is optional so callers that have not
   // wired it through yet, including older fixtures and tests, still render with
   // the belt default; an unknown value also lands on the belt default instead
@@ -113,14 +113,18 @@ export type ItemEdgeData = {
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
 // (older fixtures and tests). Belt is a solid gray stroke; pipe is a dashed cyan
-// stroke that reuses the input-product accent color. When an item id is present
-// the stroke color instead comes from itemColor so the same item reads the same
-// on every edge kind; the pipe dash is preserved either way. Unknown kinds fall
-// through to the belt default on purpose. The real guard against bad data
-// happens at load time; this render-time fallback just keeps the UI alive.
+// stroke that reuses the input-product accent color; gas is a dash-dot stroke in
+// a lighter cyan, so the two fluid carriers read as related media of different
+// density. When an item id is present the stroke color instead comes from
+// itemColor so the same item reads the same on every edge kind; the dash pattern
+// is preserved either way. Unknown kinds fall through to the belt default on
+// purpose. The real guard against bad data happens at load time; this
+// render-time fallback just keeps the UI alive.
 const BELT_STROKE = "#666";
 const PIPE_STROKE = "#0891b2";
 const PIPE_DASH = "4 2";
+const GAS_STROKE = "#22d3ee";
+const GAS_DASH = "6 2 1 2";
 
 // Below this zoom the rate chips are dropped. Dense plans now fit at roughly
 // 0.35-0.55, so the gate sits just under that band: chips appear at the new
@@ -351,6 +355,9 @@ export function strokeForKind(
   itemId?: ItemId,
 ): StrokeStyle {
   const stroke = itemId !== undefined ? itemColor(itemId) : undefined;
+  if (kind === "gas") {
+    return { stroke: stroke ?? GAS_STROKE, strokeDasharray: GAS_DASH };
+  }
   if (kind === "pipe") {
     return { stroke: stroke ?? PIPE_STROKE, strokeDasharray: PIPE_DASH };
   }

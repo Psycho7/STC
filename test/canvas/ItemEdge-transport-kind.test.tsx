@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
-import ItemEdge, { type ItemEdgeData } from "../../src/canvas/ItemEdge";
+import ItemEdge, {
+  strokeForKind,
+  type ItemEdgeData,
+} from "../../src/canvas/ItemEdge";
 
 afterEach(() => {
   cleanup();
@@ -74,6 +77,32 @@ describe("canvas/ItemEdge transport-kind styling", () => {
     expect(path.getAttribute("data-transport-kind")).toBe("pipe");
   });
 
+  it("renders a dash-dot stroke (6 2 1 2) for transportKind gas", async () => {
+    renderEdge({
+      item: "gas_water",
+      rate: new Fraction(1),
+      transportKind: "gas",
+    });
+    const path = await findEdgePath();
+    const dash = path.style.strokeDasharray.replace(/,\s*/g, " ");
+    expect(dash).toBe("6 2 1 2");
+    // The attribute is what the gas dim and hover rules in canvas.css select
+    // on, so it is part of the contract, not an implementation detail.
+    expect(path.getAttribute("data-transport-kind")).toBe("gas");
+  });
+
+  it("colors a gas edge by item, like belt and pipe edges", async () => {
+    renderEdge({
+      item: "gas_water",
+      rate: new Fraction(1),
+      transportKind: "gas",
+    });
+    const path = await findEdgePath();
+    // itemColor drives the stroke for every kind; only the no-item fallback
+    // differs per kind, and that is pinned in the strokeForKind block below.
+    expect(path.style.stroke).not.toBe("");
+  });
+
   it("falls back to belt styling for an unknown transportKind without throwing", async () => {
     renderEdge({
       item: "phantom_item",
@@ -94,5 +123,23 @@ describe("canvas/ItemEdge transport-kind styling", () => {
     // The data attribute is omitted entirely when transportKind is absent so
     // selectors can distinguish "real belt" from "unclassified legacy edge".
     expect(path.hasAttribute("data-transport-kind")).toBe(false);
+  });
+});
+
+// The fallback colors only show on edges with no item id (older fixtures and
+// tests), so they are easier to pin directly than through a render.
+describe("canvas/ItemEdge strokeForKind fallbacks", () => {
+  it("gives gas its own fallback stroke, distinct from pipe", () => {
+    const gas = strokeForKind("gas");
+    const pipe = strokeForKind("pipe");
+    expect(gas.stroke).toBe("#22d3ee");
+    expect(gas.stroke).not.toBe(pipe.stroke);
+    expect(gas.strokeDasharray).toBe("6 2 1 2");
+  });
+
+  it("prefers the item color over the gas fallback when an item is given", () => {
+    const withItem = strokeForKind("gas", "gas_water");
+    expect(withItem.stroke).not.toBe("#22d3ee");
+    expect(withItem.strokeDasharray).toBe("6 2 1 2");
   });
 });
