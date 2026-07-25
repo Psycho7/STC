@@ -1387,6 +1387,16 @@
   filter: brightness(1.35);
 }
 
+/* React Flow's stock handle paints a white-bordered ring (its style.css
+   .react-flow__handle). Every port already carries its item-tinted accent tab
+   plus a transport PortGlyph, so the stock ring only adds a second ring that
+   collides with the pipe glyph and covers the tab. Keep the box - edges anchor
+   to the handle's measured rect - and drop the paint. */
+.ak-canvas-theme .react-flow__handle {
+  background-color: transparent;
+  border-color: transparent;
+}
+
 /* Override React Flow's default light pane / dot grid for the dark theme. */
 .ak-canvas-theme .react-flow__pane,
 .ak-canvas-theme .react-flow {
