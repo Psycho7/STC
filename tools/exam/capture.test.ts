@@ -29,10 +29,22 @@ describe("assertZoomAchieved", () => {
     expect(() => assertZoomAchieved("t.png", 0.75, 0.75 + 1e-9)).not.toThrow();
   });
 
+  // The achieved zoom is read back out of getComputedStyle, which Chromium
+  // serialises to 6 significant digits. Above zoom 1 that quantisation alone
+  // exceeds an absolute 1e-6, so a capture that landed exactly on the commanded
+  // camera would fail on the read-back if the tolerance did not scale.
+  test("accepts a computed-style read-back of a zoom above 1", () => {
+    expect(() => assertZoomAchieved("t.png", 1.2345678, 1.23457)).not.toThrow();
+  });
+
   test("rejects a clamped viewport", () => {
     expect(() => assertZoomAchieved("t.png", 3, 2)).toThrow(
       /commanded zoom 3 but the viewport achieved 2/,
     );
+  });
+
+  test("still rejects a small clamp above zoom 1", () => {
+    expect(() => assertZoomAchieved("t.png", 2, 2.001)).toThrow();
   });
 });
 

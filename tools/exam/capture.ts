@@ -99,10 +99,16 @@ const MAX_CORRECTIVE_ROUNDS = 3;
 // fixed world constants while a chip's true footprint at a zoom below 1 is
 // larger, so the planned band systematically under-covers periphery chips.
 const CORRECTIVE_RESERVE = 8;
-// How far the achieved zoom may sit from the commanded one before the capture
-// is called a failure. The transform is assigned verbatim by d3-zoom, so the
-// slack here is float noise, not a tolerance for clamping.
-const ZOOM_EPS = 1e-6;
+// How far the achieved zoom may sit from the commanded one before the capture is
+// called a failure, RELATIVE to the commanded zoom (floored at 1 so sub-1 zooms
+// keep the absolute slack). The transform is assigned verbatim by d3-zoom, so
+// this is not a tolerance for clamping - but the achieved value is read back out
+// of getComputedStyle, which Chromium serialises to 6 significant digits, and
+// that quantisation is the dominant term: at zoom 1.2345678 the read-back is
+// 1.23457, already 2.2e-6 off. A future reader must not tighten this on the
+// belief that the slack is float noise; scaling with the commanded value is what
+// keeps a zoom above 1 from failing a capture that was in fact exact.
+const ZOOM_EPS_RELATIVE = 1e-5;
 
 // Element families a reviewer must read whole in a single shot: half a chip in
 // one tile and half in another is two unreadable halves. Everything else (edge
@@ -374,7 +380,12 @@ export function assertZoomAchieved(
   commanded: number,
   achieved: number,
 ): void {
-  if (Math.abs(achieved - commanded) <= ZOOM_EPS) return;
+  if (
+    Math.abs(achieved - commanded) <=
+    ZOOM_EPS_RELATIVE * Math.max(1, commanded)
+  ) {
+    return;
+  }
   throw new Error(
     `${file}: commanded zoom ${commanded} but the viewport achieved ${achieved}; ` +
       `the camera was clamped or ignored, so no image can be labelled with the commanded zoom`,
