@@ -46,6 +46,14 @@ const EPS = 1e-9;
 // whereas per-overlay side cuts would eat both flanks of the viewport. A cut
 // that would collapse the region is rejected in favour of the other axis, which
 // is what keeps a full-height sidebar from erasing everything.
+//
+// HAZARD, tall corner overlay: preferring the horizontal cut is only cheap when
+// the overlay is short. A tall, narrow overlay anchored to a corner is cut
+// horizontally at a large cost - a 300x800 panel in the top-left of a 1920x1080
+// pane costs 74% of the height, where the left cut it also justifies would have
+// cost 16% of the width. Today's chrome is all bottom-anchored and short, so the
+// order never bites. Revisit it if a side panel, a top bar, or any tall corner
+// overlay is added.
 export function safeRegion(
   pane: Rect,
   overlays: readonly Rect[],
@@ -97,13 +105,26 @@ function intersect(a: Rect, b: Rect): Rect | null {
   return { x, y, width: right - x, height: bottom - y };
 }
 
+// Extents are clamped at zero: an inset deeper than half the rect leaves
+// nothing, and "nothing" is a rect of zero size, not one of negative size. A
+// negative extent would flow on as a tile that no containment test can ever
+// satisfy, so it is better spent as an empty region that callers can reject.
 function insetRect(rect: Rect, inset: number): Rect {
   return {
     x: rect.x + inset,
     y: rect.y + inset,
-    width: rect.width - 2 * inset,
-    height: rect.height - 2 * inset,
+    width: Math.max(0, rect.width - 2 * inset),
+    height: Math.max(0, rect.height - 2 * inset),
   };
+}
+
+function isFiniteRect(rect: Rect): boolean {
+  return (
+    Number.isFinite(rect.x) &&
+    Number.isFinite(rect.y) &&
+    Number.isFinite(rect.width) &&
+    Number.isFinite(rect.height)
+  );
 }
 
 // The React Flow transform that puts `center` (world) at the centre of `safe`
@@ -128,12 +149,32 @@ export function viewportFor(
 // The band is centred on the content rather than pinned to its top-left corner,
 // so a plan smaller than one tile is framed in the middle of the shot. There is
 // always at least one tile, even for empty content.
+//
+// That invariant is the reason the inputs are checked rather than coerced. A
+// zoom of 0 makes a tile infinitely wide, a NaN anywhere makes the tile count
+// NaN, and either one silently yields a grid the caller cannot use - an empty
+// array where it indexes [0], or one tile whose rect is all NaN and which every
+// coverage test then waves through. There is no honest tile to return for input
+// like that, so it throws instead of guessing one.
 export function tileGrid(
   content: Rect,
   safe: Rect,
   targetZoom: number,
   overlap: number,
 ): TileSpec[] {
+  if (!isFiniteRect(content)) {
+    throw new RangeError("tileGrid: content rect must be finite");
+  }
+  if (!isFiniteRect(safe) || safe.width <= 0 || safe.height <= 0) {
+    throw new RangeError("tileGrid: safe rect must be finite and have positive extents");
+  }
+  if (!Number.isFinite(targetZoom) || targetZoom <= 0) {
+    throw new RangeError("tileGrid: targetZoom must be finite and positive");
+  }
+  if (!Number.isFinite(overlap)) {
+    throw new RangeError("tileGrid: overlap must be finite");
+  }
+
   const tileW = safe.width / targetZoom;
   const tileH = safe.height / targetZoom;
   const stepX = tileW * (1 - overlap);
@@ -198,6 +239,12 @@ export type CoverageResult = {
 // border, otherwise the only evidence of the element is a sliver hugging a shot
 // edge, which a reviewer cannot judge. A larger margin therefore demands more
 // context, not less.
+//
+// Non-finite geometry fails closed on both sides. The clipper is a chain of
+// comparisons, and every comparison against NaN is false, so a NaN tile would
+// otherwise decline to reject anything and report the whole world covered. A
+// tile that is not finite is therefore dropped before it can vouch for
+// anything, and an element that is not finite is uncovered by definition.
 export function computeCoverage(
   elements: readonly CoverageElement[],
   tileWorldRects: readonly Rect[],
@@ -205,9 +252,10 @@ export function computeCoverage(
 ): CoverageResult {
   const covered: string[] = [];
   const uncovered: CoverageResult["uncovered"] = [];
+  const tiles = tileWorldRects.filter(isFiniteRect);
 
   for (const element of elements) {
-    const reason = uncoveredReason(element, tileWorldRects, seamMarginWorld);
+    const reason = uncoveredReason(element, tiles, seamMarginWorld);
     if (reason === null) covered.push(element.id);
     else uncovered.push({ id: element.id, kind: element.kind, reason });
   }
@@ -219,6 +267,10 @@ function uncoveredReason(
   tiles: readonly Rect[],
   seamMargin: number,
 ): string | null {
+  if (!isFiniteElement(element)) {
+    return "the element's own geometry is not finite";
+  }
+
   if (element.kind === "point") {
     return tiles.some((tile) => containsRect(tile, element.worldRect))
       ? null
@@ -228,6 +280,13 @@ function uncoveredReason(
   const segments = element.polyline
     ? polylineSegments(element.polyline)
     : rectSegments(element.worldRect);
+  // An element with no geometry has nothing for a tile to show, so neither the
+  // union test nor the seam test can say anything about it: both quantify over
+  // an empty set. Blaming the tiling for it would send a reviewer hunting for a
+  // camera bug when the defect is the empty path the element was built from.
+  if (segments.length === 0) {
+    return "the element has no geometry (empty polyline)";
+  }
   if (!segments.every((seg) => segmentInUnion(seg, tiles))) {
     return "part of the element falls outside the tile union";
   }
@@ -239,6 +298,13 @@ function uncoveredReason(
     segments.some((seg) => segmentTouchesRect(seg, tile)),
   );
   return shown ? null : "no tile shows the element clear of its own edge";
+}
+
+function isFiniteElement(element: CoverageElement): boolean {
+  if (!isFiniteRect(element.worldRect)) return false;
+  return (element.polyline ?? []).every(
+    ([x, y]) => Number.isFinite(x) && Number.isFinite(y),
+  );
 }
 
 type Segment = { ax: number; ay: number; bx: number; by: number };

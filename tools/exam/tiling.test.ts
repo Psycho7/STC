@@ -57,6 +57,23 @@ describe("safeRegion", () => {
       height: 1020,
     });
   });
+
+  // An inset deeper than half the pane leaves nothing, and "nothing" has to be
+  // zero size: a negative extent is not a rectangle and would travel on as a
+  // tile no containment test could ever satisfy.
+  test("clamps at zero instead of returning negative extents", () => {
+    const tiny: Rect = { x: 0, y: 0, width: 40, height: 40 };
+    const safe = safeRegion(tiny, [], 30);
+    expect(safe.width).toBe(0);
+    expect(safe.height).toBe(0);
+  });
+
+  test("a collapsed safe region is rejected by tileGrid rather than tiled", () => {
+    const safe = safeRegion({ x: 0, y: 0, width: 40, height: 40 }, [], 30);
+    expect(() =>
+      tileGrid({ x: 0, y: 0, width: 100, height: 100 }, safe, 1, 0.15),
+    ).toThrow(RangeError);
+  });
 });
 
 describe("viewportFor", () => {
@@ -122,6 +139,37 @@ describe("tileGrid", () => {
     expect(grid).toHaveLength(
       new Set(grid.map((t) => t.row)).size * new Set(grid.map((t) => t.col)).size,
     );
+  });
+
+  // "There is always at least one tile" only holds for input a tile can be
+  // derived from. A zoom of 0 makes the tile infinitely wide and its rect all
+  // NaN; a NaN zoom makes the tile count NaN and the grid empty, which the very
+  // next line of any caller breaks on when it indexes [0]. Both are the
+  // caller's bug, so they are raised rather than papered over.
+  const content: Rect = { x: 0, y: 0, width: 400, height: 400 };
+
+  test("rejects a zero target zoom instead of emitting a NaN tile", () => {
+    expect(() => tileGrid(content, safe, 0, 0.15)).toThrow(RangeError);
+  });
+
+  test("rejects a non-finite target zoom instead of returning no tiles", () => {
+    expect(() => tileGrid(content, safe, NaN, 0.15)).toThrow(RangeError);
+    expect(() => tileGrid(content, safe, Infinity, 0.15)).toThrow(RangeError);
+  });
+
+  test("rejects non-finite content and safe rects", () => {
+    expect(() => tileGrid({ ...content, x: NaN }, safe, 1, 0.15)).toThrow(RangeError);
+    expect(() => tileGrid(content, { ...safe, width: Infinity }, 1, 0.15)).toThrow(
+      RangeError,
+    );
+  });
+
+  test("rejects a non-finite overlap", () => {
+    expect(() => tileGrid(content, safe, 1, NaN)).toThrow(RangeError);
+  });
+
+  test("still yields exactly one tile for empty content at a valid zoom", () => {
+    expect(tileGrid({ x: 0, y: 0, width: 0, height: 0 }, safe, 1, 0.15)).toHaveLength(1);
   });
 });
 
@@ -240,6 +288,105 @@ describe("computeCoverage", () => {
       // The union does hold it, so the margin is the only thing that failed.
       expect(r.uncovered[0]!.reason).toMatch(/edge/);
     });
+  });
+
+  // The clipper is a chain of comparisons and every comparison against NaN is
+  // false, so a NaN tile rejects nothing and would vouch for the entire world.
+  // This is the exact rect a zero target zoom used to hand over: infinite tile
+  // size, NaN origin. Every element below sits a million world units away from
+  // any real content, so nothing may come back covered.
+  describe("non-finite geometry fails closed", () => {
+    const nanTile: Rect = { x: NaN, y: NaN, width: Infinity, height: Infinity };
+    const diagonal = {
+      id: "e:diag",
+      kind: "extended" as const,
+      worldRect: { x: 1e6, y: 1e6, width: 10, height: 10 },
+      polyline: [
+        [1e6, 1e6],
+        [1e6 + 10, 1e6 + 10],
+      ] as Array<[number, number]>,
+    };
+
+    test("a non-finite tile covers no extended element", () => {
+      const r = computeCoverage([diagonal], [nanTile], 5);
+      expect(r.covered).toEqual([]);
+      expect(r.uncovered[0]!.id).toBe("e:diag");
+    });
+
+    test("a non-finite tile covers no point element", () => {
+      const r = computeCoverage(
+        [{ id: "p:far", kind: "point", worldRect: { x: 1e6, y: 1e6, width: 5, height: 5 } }],
+        [nanTile],
+        0,
+      );
+      expect(r.covered).toEqual([]);
+    });
+
+    test("a non-finite tile does not extend the union of the real ones", () => {
+      const r = computeCoverage(
+        [
+          {
+            id: "e:half",
+            kind: "extended",
+            worldRect: { x: 50, y: 50, width: 200, height: 1 },
+            polyline: [
+              [50, 50],
+              [250, 51],
+            ],
+          },
+        ],
+        [tile, nanTile],
+        0,
+      );
+      expect(r.covered).toEqual([]);
+      expect(r.uncovered[0]!.reason).toMatch(/union/);
+    });
+
+    test("an element with non-finite geometry is uncovered and named as such", () => {
+      const r = computeCoverage(
+        [
+          {
+            id: "e:inf",
+            kind: "extended",
+            worldRect: { x: 0, y: 0, width: 10, height: 10 },
+            polyline: [
+              [0, 0],
+              [Infinity, 10],
+            ],
+          },
+          { id: "p:nan", kind: "point", worldRect: { x: NaN, y: 10, width: 5, height: 5 } },
+        ],
+        [{ x: -1e9, y: -1e9, width: 2e9, height: 2e9 }],
+        0,
+      );
+      expect(r.covered).toEqual([]);
+      expect(r.uncovered.map((u) => u.reason)).toEqual([
+        expect.stringMatching(/finite/),
+        expect.stringMatching(/finite/),
+      ]);
+    });
+  });
+
+  // An edge whose `d` scanned to no coordinate pairs at all has no geometry for
+  // a tile to show, so both the union and the seam test quantify over an empty
+  // set. Saying "no tile shows it" would point a reviewer at the camera when
+  // the defect is the empty path.
+  test("an element with an empty polyline blames its own geometry, not the tiles", () => {
+    const r = computeCoverage(
+      [
+        {
+          id: "e:empty",
+          kind: "extended",
+          worldRect: { x: 10, y: 10, width: 0, height: 0 },
+          polyline: [],
+        },
+      ],
+      [tile],
+      5,
+    );
+    expect(r.covered).toEqual([]);
+    expect(r.uncovered[0]!.reason).toMatch(/geometry/);
+    expect(r.uncovered[0]!.reason).not.toMatch(/tile/);
   });
 
   test("falls back to the world rect when an extended element has no polyline", () => {
