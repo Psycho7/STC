@@ -482,4 +482,51 @@ describe("fromElkRenderLayout", () => {
     expect(edges[0]?.sourceHandle).toBe("out:x");
     expect(edges[0]?.targetHandle).toBe("in:x");
   });
+
+  it("stamps each loop box with its members' primary outputs", () => {
+    const recipes: Recipe[] = [
+      mkRecipe("r:a", ["aseed"], ["a"]),
+      mkRecipe("r:aseed", ["a"], ["aseed"]),
+      mkRecipe("r:b", ["bseed"], ["b"]),
+      mkRecipe("r:bseed", ["b"], ["bseed"]),
+    ];
+    const containers: LoopBoxContainer[] = [
+      { kind: "loop-box", id: "lc:1", members: ["u:a1", "u:a2", "u:aseed"], sccId: "scc:1" },
+      { kind: "loop-box", id: "lc:2", members: ["u:b", "u:bseed1", "u:bseed2"], sccId: "scc:2" },
+    ];
+    const plan: RenderPlan = {
+      units: [
+        // Two units share recipe r:a, so the caption must dedupe "a".
+        mkRecipeUnit("u:a1", "r:a", "lc:1"),
+        mkRecipeUnit("u:a2", "r:a", "lc:1"),
+        mkRecipeUnit("u:aseed", "r:aseed", "lc:1"),
+        mkRecipeUnit("u:b", "r:b", "lc:2"),
+        mkRecipeUnit("u:bseed1", "r:bseed", "lc:2"),
+        mkRecipeUnit("u:bseed2", "r:bseed", "lc:2"),
+      ],
+      edges: [],
+      containers,
+    };
+    const input: LayoutInput = {
+      plan,
+      recipeById: new Map(recipes.map((r) => [r.id, r])),
+      itemById: new Map(),
+    };
+    const graph = renderPlanToElkGraph(input);
+    const laid: ElkGraph = {
+      ...graph,
+      children: graph.children.map((c, i) => ({ ...c, x: i * 600, y: 0 })),
+      edges: graph.edges,
+    };
+    const { nodes } = fromElkRenderLayout(laid, input);
+    const groupData = (id: string) =>
+      nodes.find((n) => n.id === id)?.data as {
+        memberCount: number;
+        titleItems?: string[];
+      };
+    expect(groupData("lc:1").titleItems).toEqual(["a", "aseed"]);
+    expect(groupData("lc:2").titleItems).toEqual(["b", "bseed"]);
+    expect(groupData("lc:1").memberCount).toBe(3);
+    expect(groupData("lc:2").memberCount).toBe(3);
+  });
 });

@@ -31,6 +31,7 @@
 import type { Edge } from "@xyflow/react";
 import Fraction from "fraction.js";
 
+import { quantizeRateToDisplay } from "../data/rate-format";
 import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH, MAX_CHIP_SCALE } from "./dimensions";
 import {
   CHAMFER,
@@ -665,6 +666,26 @@ export function seatRateChip(
   return seat(anchorX, anchorY, "exhausted");
 }
 
+// The four port coordinates an edge's path builders take, resolved the same way
+// every routing pass resolves them (source Right port, target Left port, at the
+// item's row). Null when either endpoint is missing from the node map. Shared by
+// the seating pass and contentBounds so both reconstruct the DRAWN geometry.
+function edgeEndpoints(
+  edge: Edge,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): { sx: number; sy: number; tx: number; ty: number } | null {
+  const source = byId.get(edge.source);
+  const target = byId.get(edge.target);
+  if (source === undefined || target === undefined) return null;
+  const item = edgeItem(edge);
+  return {
+    sx: absoluteLeft(source, byId) + nodeWidth(source),
+    sy: absoluteTop(source, byId) + portOffsetY(source, item, "out"),
+    tx: absoluteLeft(target, byId),
+    ty: absoluteTop(target, byId) + portOffsetY(target, item, "in"),
+  };
+}
+
 export function deconflictChipAnchors(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -703,14 +724,9 @@ export function deconflictChipAnchors(
   const fanoutGeomByIndex = new Map<number, FanoutGeom>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item" && edge.type !== "bus") return;
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    if (source === undefined || target === undefined) return;
-    const item = edgeItem(edge);
-    const sx = absoluteLeft(source, byId) + nodeWidth(source);
-    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
-    const tx = absoluteLeft(target, byId);
-    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    const ends = edgeEndpoints(edge, byId);
+    if (ends === null) return;
+    const { sx, sy, tx, ty } = ends;
     let d: string;
     if (edge.type === "bus" && (edge.data as BusEdgeData | undefined)?.fanout) {
       const fan = chamferFanoutPath({
@@ -1311,6 +1327,7 @@ export function deconflictChipAnchors(
     dx: number;
     dy: number;
     total: Fraction;
+    displayTotal: Fraction;
     count: number;
   };
   const faninSigmaByIndex = new Map<number, FaninSigma>();
@@ -1335,6 +1352,7 @@ export function deconflictChipAnchors(
     tx: number;
     ownIds: ReadonlySet<string>;
     total: Fraction;
+    displayTotal: Fraction;
     count: number;
   };
   const faninSeatJobs: FaninSeatJob[] = [];
@@ -1359,7 +1377,14 @@ export function deconflictChipAnchors(
     const runLen = tx - mergeX;
     if (runLen <= 2 * CHAMFER) continue; // no real shared run to mark
     let total = new Fraction(0);
-    for (const m of members) total = total.add(m.rate);
+    // Alongside the exact total, the sum of the members' DISPLAY-rounded rates:
+    // what a reader adding up the visible member chips gets (2-decimal rounding
+    // is not additive). The chip shows this one, the tooltip the exact total.
+    let displayTotal = new Fraction(0);
+    for (const m of members) {
+      total = total.add(m.rate);
+      displayTotal = displayTotal.add(quantizeRateToDisplay(m.rate));
+    }
     const owner = itemMembers.reduce((a, b) => (a.id <= b.id ? a : b));
     const ownerEdge = edges[owner.index]!;
     // Sigma anchor on the shared run, kept a chip half-box (bounded by half the
@@ -1375,6 +1400,7 @@ export function deconflictChipAnchors(
       tx,
       ownIds: new Set(members.map((m) => m.id)),
       total,
+      displayTotal,
       count: members.length,
     });
     for (const m of itemMembers) {
@@ -1479,6 +1505,7 @@ export function deconflictChipAnchors(
       dx: seat.dx,
       dy: seat.dy,
       total: job.total,
+      displayTotal: job.displayTotal,
       count: job.count,
     });
   }
@@ -1540,6 +1567,7 @@ export function deconflictChipAnchors(
               ...(faninSigma.dx !== 0 ? { faninSigmaDx: faninSigma.dx } : {}),
               ...(faninSigma.dy !== 0 ? { faninSigmaDy: faninSigma.dy } : {}),
               faninTotalRate: faninSigma.total,
+              faninDisplayTotalRate: faninSigma.displayTotal,
               faninMemberCount: faninSigma.count,
             }
           : {}),
@@ -1560,16 +1588,46 @@ export function deconflictChipAnchors(
 // A flow-coordinate rectangle, the shape React Flow's fitBounds consumes.
 export type ContentRect = { x: number; y: number; width: number; height: number };
 
+// The edge-data fields contentBounds needs to place a chip: which families the
+// edge draws, their anchors' inputs, their seated nudges, and their hides. Flat
+// and all-optional rather than the BusEdgeData / ItemEdgeData unions, because
+// this reader takes one uniform view over every edge type.
+type ChipAnchorData = {
+  labelDx?: number;
+  labelDy?: number;
+  fanout?: boolean;
+  busChipOwner?: boolean;
+  fanoutAggDx?: number;
+  fanoutAggDy?: number;
+  fanoutBranchDx?: number;
+  fanoutBranchDy?: number;
+  fanoutBranchHidden?: boolean;
+  laneY?: number;
+  busChipX?: number;
+  busDropDy?: number;
+  busChipDy?: number;
+  busRiseHidden?: boolean;
+  faninChipHidden?: boolean;
+  faninSigmaX?: number;
+  faninSigmaY?: number;
+  faninSigmaDx?: number;
+  faninSigmaDy?: number;
+};
+
 // Content bounding box (flow coords) covering both the node cards AND every
 // seated edge-label chip, for the camera fit. React Flow's fitView frames node
 // cards only, so a chip that cascaded below the deepest lane band, or nudged
 // past a border card's edge, lands outside the framed region and clips at the
-// viewport rim. This unions the node cards with the bus-lane chip extents
-// (exact: lane y + the cascade recorded on edge data) and pads by one chip
-// half-box plus the largest recorded item / entry / fan-out nudge, so the
-// shallow chips that seat just outside a card stay inside the fit too. Pure and
-// deterministic: it reads only the seated offsets the render components already
-// consume, never re-seating. Null for an empty graph (nothing to frame).
+// viewport rim. This unions the node cards with each chip's reconstructed
+// seated box: the anchor comes from the same path builder the render component
+// calls, plus the de-confliction offset stamped on edge data, so every unioned
+// box is a drawn box. Padding instead by the largest nudge recorded anywhere
+// framed all four sides as if one cascaded chip existed at every corner, which
+// depressed the fit zoom on dense plans, and still missed chips whose anchor
+// sits on a routed leg outside the cards. Pure and deterministic: it reads only
+// the seated offsets the render components already consume, never re-seating.
+// Recomputing the anchors here, rather than reading a stamped absolute centre,
+// keeps the rect right after a node drag. Null for an empty graph.
 export function contentBounds(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -1591,58 +1649,63 @@ export function contentBounds(
     bottom = Math.max(bottom, t + nodeHeight(n));
   }
 
-  // Bus-lane chips cascade off their band -- the deepest overflow past the node
-  // cards. Their y is exact from the lane plus the cascade on edge data; include
-  // a chip half-height so the whole box, not just its centre, clears the rim.
-  for (const edge of edges) {
-    if (edge.type !== "bus") continue;
-    const data = edge.data as BusEdgeData | undefined;
-    if (data === undefined || !("laneY" in data)) continue;
-    const dropY = data.laneY + (data.busDropDy ?? 0);
-    const riseY = data.laneY + (data.busChipDy ?? 0);
-    top = Math.min(top, dropY - CHIP_HALF_H, riseY - CHIP_HALF_H);
-    bottom = Math.max(bottom, dropY + CHIP_HALF_H, riseY + CHIP_HALF_H);
-  }
+  // One chip box, centred at its seated position, into the frame.
+  const unionChip = (cx: number, cy: number): void => {
+    left = Math.min(left, cx - CHIP_HALF_W_WIDE);
+    right = Math.max(right, cx + CHIP_HALF_W_WIDE);
+    top = Math.min(top, cy - CHIP_HALF_H);
+    bottom = Math.max(bottom, cy + CHIP_HALF_H);
+  };
 
-  // Shallow chips (item rate, fan-out aggregate / branch) anchor within the
-  // node span, but their box plus any de-confliction nudge can spill past a
-  // border card's edge. Pad every side by one chip half-box plus the largest
-  // recorded nudge on each axis so those boxes stay inside the fit too.
-  let maxDx = 0;
-  let maxDy = 0;
+  // Every chip family, anchored exactly as its render component anchors it:
+  // rebuild the polyline with the same builder and hints, then apply the nudge
+  // the seating pass stamped. Hidden chips draw nothing, so they frame nothing.
   for (const edge of edges) {
-    const d = edge.data as
-      | {
-          labelDx?: number;
-          labelDy?: number;
-          fanoutAggDx?: number;
-          fanoutAggDy?: number;
-          fanoutBranchDx?: number;
-          fanoutBranchDy?: number;
-          faninSigmaDx?: number;
-          faninSigmaDy?: number;
-        }
-      | undefined;
-    if (d === undefined) continue;
-    maxDx = Math.max(
-      maxDx,
-      Math.abs(d.labelDx ?? 0),
-      Math.abs(d.fanoutAggDx ?? 0),
-      Math.abs(d.fanoutBranchDx ?? 0),
-      Math.abs(d.faninSigmaDx ?? 0),
-    );
-    maxDy = Math.max(
-      maxDy,
-      Math.abs(d.labelDy ?? 0),
-      Math.abs(d.fanoutAggDy ?? 0),
-      Math.abs(d.fanoutBranchDy ?? 0),
-      Math.abs(d.faninSigmaDy ?? 0),
-    );
+    const data = edge.data as ChipAnchorData | undefined;
+    const ends = edgeEndpoints(edge, byId);
+    if (data?.faninSigmaX !== undefined) {
+      // The fan-in sum glyph carries an absolute anchor on edge data already.
+      unionChip(
+        data.faninSigmaX + (data.faninSigmaDx ?? 0),
+        (data.faninSigmaY ?? 0) + (data.faninSigmaDy ?? 0),
+      );
+    }
+    if (ends === null) continue;
+    const geom = {
+      sourceX: ends.sx,
+      sourceY: ends.sy,
+      targetX: ends.tx,
+      targetY: ends.ty,
+      ...routingHintsFromData(edge.data),
+    };
+    if (edge.type === "item") {
+      if (data?.faninChipHidden === true) continue;
+      const [, lx, ly] = chamferStepPath(geom);
+      unionChip(lx + (data?.labelDx ?? 0), ly + (data?.labelDy ?? 0));
+    } else if (edge.type === "bus" && data?.fanout === true) {
+      const fan = chamferFanoutPath(geom);
+      if (data.busChipOwner !== false) {
+        unionChip(
+          fan.trunkAnchor.x + (data.fanoutAggDx ?? 0),
+          fan.trunkAnchor.y + (data.fanoutAggDy ?? 0),
+        );
+      }
+      if (data.fanoutBranchHidden !== true) {
+        unionChip(
+          fan.branchAnchor.x + (data.fanoutBranchDx ?? 0),
+          fan.branchAnchor.y + (data.fanoutBranchDy ?? 0),
+        );
+      }
+    } else if (edge.type === "bus" && data?.laneY !== undefined) {
+      const bus = chamferBusPath({ ...geom, laneY: data.laneY });
+      if (data.busChipOwner !== false) {
+        unionChip(bus.dropX, data.laneY + (data.busDropDy ?? 0));
+      }
+      if (data.busRiseHidden !== true) {
+        unionChip(data.busChipX ?? bus.riseX, data.laneY + (data.busChipDy ?? 0));
+      }
+    }
   }
-  left -= CHIP_HALF_W_WIDE + maxDx;
-  right += CHIP_HALF_W_WIDE + maxDx;
-  top -= CHIP_HALF_H + maxDy;
-  bottom += CHIP_HALF_H + maxDy;
 
   return { x: left, y: top, width: right - left, height: bottom - top };
 }

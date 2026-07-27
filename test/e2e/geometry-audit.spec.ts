@@ -484,10 +484,18 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // lines (count 0); the ratified "aggregate on the trunk" placement trades that
 // for the graze. The hard tiers (chip overlaps, chip-vs-card, and the
 // clipped-chip gate) stay zero.
+// battery5-xiranite rose 7 -> 23 with the contentBounds fix. Nothing moved: the
+// fit zoom rose from 0.280 to 0.377, which crosses both the icon-only gate
+// (0.32) and the label gate (0.35), so the scenario went from 3 chips drawn
+// (all icon-only) to 42 drawn with text. The collisions were always there; the
+// LOD gates were hiding the chips that collide. Measured both sides in a
+// browser before re-pinning. Re-pinned rather than reverted because a fit view
+// nobody can read is the worse defect, and the newly visible collisions are
+// tracked separately.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 2,
   battery5: 29,
-  "battery5-xiranite": 7,
+  "battery5-xiranite": 23,
   crystal: 0,
   equip4: 4,
   multi6: 3,
@@ -495,10 +503,14 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
 // candidates all overlap a card, so card-hardness pushes its seat off the line.
+// battery5-xiranite rose 0 -> 2 for the same reason its chip-segment count rose:
+// the higher fit zoom draws 42 chips where 3 were drawn before, and two of the
+// newly drawn ones (both Xircon Effluent) seat off their polyline, one by 48px.
+// Counted as part of the same tracked collision follow-up.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   default: 1,
   battery5: 6,
-  "battery5-xiranite": 0,
+  "battery5-xiranite": 2,
   crystal: 1,
   equip4: 7,
   multi6: 0,

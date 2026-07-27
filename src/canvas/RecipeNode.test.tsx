@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import type { ComponentProps, ReactNode } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
@@ -175,6 +177,22 @@ test("multi-output recipe lists all products on the secondary line", () => {
   const products = container.querySelector(".rn-products");
   expect(products?.textContent).toBe("plate · slag");
   expect(products?.getAttribute("title")).toBe("plate · slag");
+});
+
+// The products line is the only per-recipe discriminator on the card (the title
+// is the machine name, so same-machine cards share it), and one ellipsized 11px
+// line fits about 21 characters, which cuts most item names before they differ.
+// It clamps to two lines instead; the pinned 80px header has the headroom.
+// jsdom does no layout, so the rule text itself is the assertable contract.
+test("the header products line clamps to two lines instead of one ellipsized line", () => {
+  const css = readFileSync(
+    resolve(process.cwd(), "src/canvas/canvas.css"),
+    "utf8",
+  );
+  const block = css.match(/^\.rn-head \.rn-products\s*\{[^}]*\}/m);
+  expect(block).not.toBeNull();
+  expect(block![0]).toMatch(/-webkit-line-clamp:\s*2/);
+  expect(block![0]).not.toMatch(/white-space:\s*nowrap/);
 });
 
 // The raw machine id (e.g. "mk1") reads as debug output; the localized machine

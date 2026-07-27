@@ -71,6 +71,10 @@ export type ItemEdgeData = {
   // the `dimmed` class, so the wrapper's fade never reaches them; the chip's own
   // .flow-chip.dimmed rule does. Optional and defaults to falsy (idle / lit).
   dimmed?: boolean;
+  // Set by Canvas's hover focus on every LIT edge. The chips read it to survive
+  // the zoom LOD gates, so the hover answers the rate question it asks instead
+  // of lighting an edge that shows no number. Optional, defaults to falsy.
+  focused?: boolean;
   // Fan-in marker (deconflictChipAnchors). Where 2+ forward same-item edges enter
   // one target in-port their final legs run collinear at the port y from a merge
   // point to the port; fan-in is otherwise structurally unmodeled (all trunk keys
@@ -92,6 +96,9 @@ export type ItemEdgeData = {
   faninSigmaDx?: number;
   faninSigmaDy?: number;
   faninTotalRate?: Fraction;
+  // The same total as the members' own chips read it: the sum of their
+  // DISPLAY-rounded rates, so the aggregate and the member chips cross-check.
+  faninDisplayTotalRate?: Fraction;
   faninMemberCount?: number;
   // Set on a fan-in member whose OWN rate chip would sit ON the shared run
   // (between the merge point and the port), where the summed Sigma already reads:
@@ -190,6 +197,7 @@ export function FlowChip({
   title,
   tear,
   dimmed,
+  focused,
   zoom,
 }: {
   testId: string;
@@ -212,6 +220,9 @@ export function FlowChip({
   title?: string | undefined;
   tear?: boolean | undefined;
   dimmed?: boolean | undefined;
+  // Set on a hover-lit edge's chip: it keeps its digits below the icon-only
+  // zoom so the hover surfaces the rate.
+  focused?: boolean | undefined;
   // Live pane zoom, used to counter-scale the chip so it stays legible at the
   // dense-plan fit zoom. Optional: callers without a zoom leave the chip at its
   // natural size (scale 1).
@@ -228,7 +239,8 @@ export function FlowChip({
   // dense fit view stops blanketing. The exact rate stays on the title tooltip.
   // Zoom-gated member chips never reach here: they are already hidden by the
   // higher LABEL_MIN_ZOOM gate at their call sites.
-  const iconOnly = zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM;
+  const iconOnly =
+    zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM && !focused;
   const bodyText = iconOnly ? (marker ?? "") : text;
   return (
     <EdgeLabelRenderer>
@@ -389,8 +401,14 @@ export default function ItemEdge({
   const faninMarkerLive =
     edgeData?.faninJunctionY !== undefined &&
     !faninStale(edgeData.faninJunctionY);
+  // The zoom gate yields to the hover focus: a lit edge shows its rate at any
+  // zoom. The overlap-driven hides above still win, since they are placement
+  // rulings, not level of detail.
   const chipText =
-    edgeData && rateStr && zoom >= LABEL_MIN_ZOOM && !ownChipHidden
+    edgeData &&
+    rateStr &&
+    (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true) &&
+    !ownChipHidden
       ? `${rateStr}${unit}`
       : "";
   const fullLabel =
@@ -411,7 +429,10 @@ export default function ItemEdge({
   // cannot diverge.
   const faninMarker = "Σ";
   const faninTotal = edgeData?.faninTotalRate;
-  const faninRateStr = faninTotal ? formatRatePerMin(faninTotal) : "";
+  const faninDisplayTotal = edgeData?.faninDisplayTotalRate ?? faninTotal;
+  const faninRateStr = faninDisplayTotal
+    ? formatRatePerMin(faninDisplayTotal)
+    : "";
   const faninText = faninRateStr ? `${faninMarker}${faninRateStr}${unit}` : "";
   const faninLabel =
     edgeData && faninRateStr
@@ -481,6 +502,7 @@ export default function ItemEdge({
           title={exactTitle}
           tear={edgeData?.isTearEdge}
           dimmed={edgeData?.dimmed}
+          focused={edgeData?.focused}
           zoom={zoom}
         />
       ) : null}
@@ -529,6 +551,7 @@ export default function ItemEdge({
           label={faninLabel}
           title={faninTitle}
           dimmed={edgeData?.dimmed}
+          focused={edgeData?.focused}
           zoom={zoom}
         />
       ) : null}

@@ -242,6 +242,32 @@ describe("canvas/ItemEdge icon-only collapse", () => {
   });
 });
 
+describe("canvas/ItemEdge hover reveal", () => {
+  it("reveals the rate chip of a focused edge below the label zoom gate", async () => {
+    // Hovering singles out one edge to ask for its rate, so the lit edge's chip
+    // is exempt from LABEL_MIN_ZOOM: at the dense-plan fit zoom the hover would
+    // otherwise answer with no number anywhere.
+    renderEdge(
+      { item: "Iron Plate", rate: new Fraction(2, 1), focused: true },
+      0.3,
+    );
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.textContent).toBe("120/min");
+  });
+
+  it("keeps a focused chip's digits below the icon-only zoom", async () => {
+    renderEdge(
+      { item: "Iron Plate", rate: new Fraction(2, 1), focused: true },
+      CHIP_ICON_ONLY_MAX_ZOOM - 0.05,
+    );
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.classList.contains("icon-only")).toBe(false);
+    expect(label!.textContent).toBe("120/min");
+  });
+});
+
 describe("canvas/ItemEdge label placement", () => {
   function transformFor(label: HTMLElement): string {
     return label.style.transform;

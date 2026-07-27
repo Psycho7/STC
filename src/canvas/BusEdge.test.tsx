@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 import { routeBusEdges } from "./busRouting";
+import { formatRatePerMin } from "../data/rate-format";
 import { deconflictChipAnchors } from "./chipSeating";
 import { CHIP_BOX_WIDTH, MAX_CHIP_SCALE } from "./dimensions";
 import type { RFAnyNode } from "./layout";
@@ -63,6 +64,35 @@ test("routeBusEdges aggregates one trunk into a single owner chip with the summe
     if (e.id === "e:1") continue;
     expect((e.data as { busChipOwner?: boolean }).busChipOwner).toBe(false);
   }
+});
+
+test("routeBusEdges' aggregate matches the sum of the members' displayed rates", () => {
+  // 4.256/min and 2.856/min display as "4.26" and "2.86" (7.12), but the
+  // exact sum 7.112/min displays as "7.11": the aggregate chip denied the cent
+  // the two member chips show.
+  const nodes = [
+    productNode("s", 0),
+    productNode("t1", 5000),
+    productNode("t2", 5000),
+  ];
+  const edges = [
+    busMemberEdge("e:1", "t1", new Fraction("4.256").div(60)),
+    busMemberEdge("e:2", "t2", new Fraction("2.856").div(60)),
+  ];
+  const routed = routeBusEdges(nodes, edges);
+  const owner = routed.find(
+    (e) => (e.data as { busChipOwner?: boolean }).busChipOwner,
+  )!;
+  const d = owner.data as {
+    busDisplayTotalRate?: Fraction;
+    busTotalRate?: Fraction;
+  };
+  const memberSum = routed
+    .map((e) => Number(formatRatePerMin((e.data as { rate: Fraction }).rate)))
+    .reduce((a, b) => a + b, 0);
+  expect(formatRatePerMin(d.busDisplayTotalRate!)).toBe(memberSum.toFixed(2));
+  // The exact total survives for the aggregate's hover tooltip.
+  expect(d.busTotalRate!.equals(new Fraction("7.112").div(60))).toBe(true);
 });
 
 test("routeBusEdges leaves a lone trunk member as its own owner with count 1", () => {

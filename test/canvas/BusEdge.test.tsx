@@ -249,6 +249,31 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(rise!.textContent).toBe("60/min");
   });
 
+  it("renders the aggregate as the sum of the members' displayed rates", async () => {
+    // busDisplayTotalRate is the sum of the members' rounded chips (7.12), so
+    // the reader's arithmetic checks out; busTotalRate stays exact (7.112) for
+    // the hover tooltip.
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction("4.256").div(60),
+        laneY: 500,
+        trunkKey: "Iron Plate|src",
+        busChipOwner: true,
+        busTotalRate: new Fraction("7.112").div(60),
+        busDisplayTotalRate: new Fraction("7.12").div(60),
+        busMemberCount: 2,
+      },
+      1,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    expect(drop!.textContent).toBe("Σ7.12/min");
+    expect(drop!.getAttribute("title")).toContain("7.112");
+  });
+
   it("skips the branch chip of a fan-out member flagged fanoutBranchHidden", async () => {
     // deconflictChipAnchors hides a branch chip when no chip/card-clear seat
     // exists anywhere on the member's own polyline (a narrow-corridor fan-out
@@ -376,6 +401,33 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(labels).toHaveLength(1);
     expect(labels[0]!.getAttribute("data-testid")).toBe("bus-edge-label-e1-drop");
     expect(labels[0]!.textContent).toBe("120/min");
+  });
+
+  it("reveals a focused member's rise chip below the zoom threshold", async () => {
+    // Canvas's hover focus stamps `focused` on every lit edge; the lit member's
+    // rise chip then survives the zoom gate and the aggregate keeps its digits,
+    // so the hover shows a rate at fit zoom.
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(2, 1),
+        laneY: 500,
+        trunkKey: "Iron Plate|src",
+        focused: true,
+      },
+      0.3,
+    );
+    await findEdgePath();
+    const drop = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-drop"]',
+    );
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(drop).not.toBeNull();
+    expect(rise).not.toBeNull();
+    expect(rise!.textContent).toBe("120/min");
+    expect(drop!.classList.contains("icon-only")).toBe(false);
   });
 
   it("exempts the rise chip on a lone member's long detour below the zoom threshold", async () => {

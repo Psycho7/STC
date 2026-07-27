@@ -1387,8 +1387,22 @@
   filter: brightness(1.35);
 }
 
-/* Override React Flow's default light pane / dot grid for the dark theme. */
-.ak-canvas-theme .react-flow__pane,
+/* React Flow's stock handle paints a white-bordered ring (its style.css
+   .react-flow__handle). Every port already carries its item-tinted accent tab
+   plus a transport PortGlyph, so the stock ring only adds a second ring that
+   collides with the pipe glyph and covers the tab. Keep the box - edges anchor
+   to the handle's measured rect - and drop the paint. */
+.ak-canvas-theme .react-flow__handle {
+  background-color: transparent;
+  border-color: transparent;
+}
+
+/* Override React Flow's default light pane / dot grid for the dark theme.
+   Painted on the flow root only, never on .react-flow__pane: the pane sits
+   inside .react-flow__renderer, which is a z-index 4 stacking context, so an
+   opaque pane fill would hide every sibling overlay below z 4 (the canvas
+   annotations). The root is static and covers the same box, so the canvas reads
+   identically while the whole renderer subtree stays transparent. */
 .ak-canvas-theme .react-flow {
   background: var(--ak-bg-canvas);
 }
@@ -1449,8 +1463,7 @@
   border-radius: 2px;
 }
 
-/* Blueprint-grid dot pattern on the canvas pane. */
-.ak-canvas-theme .react-flow__pane,
+/* Blueprint-grid dot pattern on the canvas. */
 .ak-canvas-theme .react-flow {
   background-image: var(--blueprint-grid);
   background-size: 24px 24px;
@@ -1477,7 +1490,6 @@
 .ak-canvas-theme.zoom-low .item-id {
   display: none;
 }
-.ak-canvas-theme.zoom-low .react-flow__pane,
 .ak-canvas-theme.zoom-low .react-flow {
   background-image: none;
 }
@@ -1488,7 +1500,6 @@
 .ak-canvas-theme.zoom-mid .product-node {
   border-color: var(--ak-divider-strong);
 }
-.ak-canvas-theme.zoom-mid .react-flow__pane,
 .ak-canvas-theme.zoom-mid .react-flow {
   background-image: var(--blueprint-grid-faint);
 }
@@ -1571,12 +1582,16 @@
   letter-spacing: 0.18em;
   text-transform: uppercase;
   pointer-events: none;
-  z-index: 4;
+  /* Decorative captions lose to graph content. Below .react-flow__renderer
+     (z 4), which holds every node, edge, chip and bus band, so nothing the user
+     pans into a corner is overprinted; above the flow root's canvas fill, which
+     is unpositioned, so the captions still read over empty canvas. The cost is
+     that a card parked under a corner hides that caption, which is the right
+     priority for chrome. */
+  z-index: 2;
 }
 .ak-canvas-theme .canvas-annot.top-left {
-  /* Cleared below the copy-share button (top:8 + button height) so the two no
-     longer overlap in the corner. */
-  top: 44px;
+  top: 32px;
   left: 32px;
 }
 .ak-canvas-theme .canvas-annot.top-right {
@@ -2193,14 +2208,21 @@
 }
 
 /* Secondary line under the title: the produced item names (a recipe can have
-   several outputs, joined into one line). */
+   several outputs, joined into one line). Since the title above carries the
+   machine name, this is the only per-recipe identity on the card, and one
+   ellipsized line cuts most item names before they differ. It wraps to two
+   lines, which fits the headroom the pinned 80px header already has:
+   80 - 1px border - 20px .rn-recipe-block padding = 59px inner, against a
+   18.7px title + 4px gap + 27.5px of products. */
 .rn-head .rn-products {
   font-family: var(--ak-font-ui);
   font-size: 11px;
   font-weight: 500;
   color: var(--ak-text-secondary);
   line-height: 1.25;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
 }

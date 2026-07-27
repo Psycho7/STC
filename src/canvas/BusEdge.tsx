@@ -146,9 +146,17 @@ export default function BusEdge({
     memberCount === 1 &&
     laneData?.busChipX === undefined &&
     busRunLength > BUS_LONG_RUN_THRESHOLD;
+  // A hover-lit member is exempt too: the hover asks for this member's rate, so
+  // the zoom gate must not swallow the answer.
   const showMemberChip =
-    edgeData !== undefined && (zoom >= LABEL_MIN_ZOOM || longSingleRun);
-  const dropRateStr = totalRate ? formatRatePerMin(totalRate) : "";
+    edgeData !== undefined &&
+    (zoom >= LABEL_MIN_ZOOM || longSingleRun || edgeData.focused === true);
+  // The chip shows the sum of the members' DISPLAYED rates, so a reader adding
+  // up the visible member chips lands on the aggregate; the tooltip below keeps
+  // the exact total. Hand-built edges (tests, non-routed data) carry no display
+  // total and fall back to the exact one.
+  const dropDisplayRate = edgeData?.busDisplayTotalRate ?? totalRate;
+  const dropRateStr = dropDisplayRate ? formatRatePerMin(dropDisplayRate) : "";
   const sumMarker = memberCount > 1 ? "Σ" : "";
   const dropText =
     showAggChip && dropRateStr ? `${sumMarker}${dropRateStr}${unit}` : "";
@@ -243,6 +251,7 @@ export default function BusEdge({
       title={title}
       tear={edgeData?.isTearEdge}
       dimmed={edgeData?.dimmed}
+      focused={edgeData?.focused}
       zoom={zoom}
     />
   );

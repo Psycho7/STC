@@ -40,6 +40,7 @@ import {
   forwardStepGeometry,
   type ObstacleRect,
 } from "./edgePath";
+import { quantizeRateToDisplay } from "../data/rate-format";
 import { measureRecipe } from "./recipeGeometry";
 import { orderByItem } from "./orderByItem";
 import type { RFAnyNode } from "./layout";
@@ -95,6 +96,11 @@ export const LANE_SPACING = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
 export type BusAggregate = {
   trunkKey: string;
   busTotalRate?: Fraction;
+  // The trunk total as the members' chips read it: the sum of each member's
+  // DISPLAY-rounded rate, so the aggregate chip and the member chips cross-check
+  // (independent 2-decimal rounding is not additive). busTotalRate stays exact
+  // for the hover tooltip.
+  busDisplayTotalRate?: Fraction;
   busMemberCount?: number;
   busChipOwner?: boolean;
 };
@@ -501,6 +507,7 @@ export function routeBusEdges(
   // that owns the trunk's single drop chip (the lexicographically smallest edge
   // id, so the choice is deterministic across runs regardless of edge order).
   const trunkTotal = new Map<string, Fraction>();
+  const trunkDisplayTotal = new Map<string, Fraction>();
   const trunkCount = new Map<string, number>();
   const trunkOwner = new Map<string, string>();
   trunkKeyByEdgeIndex.forEach((trunkKey, index) => {
@@ -509,6 +516,12 @@ export function routeBusEdges(
     trunkTotal.set(
       trunkKey,
       (trunkTotal.get(trunkKey) ?? new Fraction(0)).add(rate),
+    );
+    trunkDisplayTotal.set(
+      trunkKey,
+      (trunkDisplayTotal.get(trunkKey) ?? new Fraction(0)).add(
+        quantizeRateToDisplay(rate),
+      ),
     );
     trunkCount.set(trunkKey, (trunkCount.get(trunkKey) ?? 0) + 1);
     const owner = trunkOwner.get(trunkKey);
@@ -589,6 +602,7 @@ export function routeBusEdges(
         trunkKey,
         busBand: bandByTrunk.get(trunkKey)!,
         busTotalRate: trunkTotal.get(trunkKey)!,
+        busDisplayTotalRate: trunkDisplayTotal.get(trunkKey)!,
         busMemberCount: trunkCount.get(trunkKey)!,
         busChipOwner: edge.id === trunkOwner.get(trunkKey),
         // Absent for a lone member on a long run (see the slot loop): the chip
@@ -777,12 +791,14 @@ export function routeFanoutEdges(
 
   // Per-trunk aggregate + shared junction column.
   const totalByTrunk = new Map<string, Fraction>();
+  const displayTotalByTrunk = new Map<string, Fraction>();
   const countByTrunk = new Map<string, number>();
   const ownerByTrunk = new Map<string, string>();
   const junctionXByTrunk = new Map<string, number>();
   const memberTrunk = new Set<number>();
   for (const [trunkKey, indices] of fanoutTrunks) {
     let total = new Fraction(0);
+    let displayTotal = new Fraction(0);
     let owner: string | undefined;
     let corridorRight = Infinity;
     // Source is shared across members; resolve its port geometry once.
@@ -799,6 +815,9 @@ export function routeFanoutEdges(
     for (const index of indices) {
       const edge = edges[index]!;
       total = total.add(edgeRate(edge) ?? new Fraction(0));
+      displayTotal = displayTotal.add(
+        quantizeRateToDisplay(edgeRate(edge) ?? new Fraction(0)),
+      );
       if (owner === undefined || edge.id < owner) owner = edge.id;
       const target = byId.get(edge.target)!;
       const tx = absoluteLeft(target, byId);
@@ -854,6 +873,7 @@ export function routeFanoutEdges(
 
     for (const index of indices) memberTrunk.add(index);
     totalByTrunk.set(trunkKey, total);
+    displayTotalByTrunk.set(trunkKey, displayTotal);
     countByTrunk.set(trunkKey, indices.length);
     ownerByTrunk.set(trunkKey, owner!);
     junctionXByTrunk.set(trunkKey, junctionX);
@@ -871,6 +891,7 @@ export function routeFanoutEdges(
         trunkKey,
         junctionX: junctionXByTrunk.get(trunkKey)!,
         busTotalRate: totalByTrunk.get(trunkKey)!,
+        busDisplayTotalRate: displayTotalByTrunk.get(trunkKey)!,
         busMemberCount: countByTrunk.get(trunkKey)!,
         busChipOwner: edge.id === ownerByTrunk.get(trunkKey),
       },
