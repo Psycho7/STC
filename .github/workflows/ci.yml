@@ -32,6 +32,12 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      # The root typecheck covers src and test only. tools/exam is reached by
+      # neither, and nothing there is bundled by the build, so without this step
+      # its compile-time guards would be unenforced.
+      - name: Typecheck tools
+        run: bun run typecheck:tools
+
       - name: Test
         run: bun run test
 
