@@ -31,12 +31,23 @@ const SAFE: Rect = { x: 0, y: 0, width: 1920, height: 1080 };
 // frames disagree by 800 px about where the same measurement is.
 const TILE_A: TileFrame = {
   file: "10-tile-r0c0.png",
+  kind: "tile",
   viewportTransform: { x: 100, y: 50, zoom: 2 },
   safeRegion: SAFE,
 };
 const TILE_B: TileFrame = {
   file: "10-tile-r0c1.png",
+  kind: "tile",
   viewportTransform: { x: 900, y: 50, zoom: 2 },
+  safeRegion: SAFE,
+};
+// Deliberately the SAME transform as TILE_A, so nothing but `kind` can refuse a
+// join through it: the fit overview is a different camera, and the measurements
+// were all taken at the target zoom.
+const TILE_FIT: TileFrame = {
+  file: "00-fit.png",
+  kind: "fit",
+  viewportTransform: { x: 100, y: 50, zoom: 2 },
   safeRegion: SAFE,
 };
 const TILES = [TILE_A, TILE_B];
@@ -77,6 +88,15 @@ function withoutFalsifier(base: Finding): Finding {
   const clone: Finding = { ...base };
   delete clone.falsifier;
   return clone;
+}
+
+// A finding with a REQUIRED key absent, which the type system says cannot happen
+// and an evaluator's JSON produces anyway. The cast is the point of the helper:
+// it is confined here rather than repeated at every call site.
+function without(base: Finding, key: keyof Finding): Finding {
+  const clone: Record<string, unknown> = { ...base };
+  delete clone[key];
+  return clone as unknown as Finding;
 }
 
 describe("corroborationsFor", () => {
@@ -121,6 +141,22 @@ describe("corroborationsFor", () => {
       evidence: [{ image: "99-nope.png", rect: [290, 240, 60, 40], where: "middle" }],
     });
     expect(corroborationsFor(unknown, [CHIP], TILES)).toEqual([]);
+  });
+
+  // The measurements were taken at the target zoom; the fit overview is a
+  // different camera, and below the label LOD gate it does not even contain the
+  // chips a chip-tier measurement describes. Citing the overview for a global
+  // layout complaint is the natural thing for an evaluator to do, so this is the
+  // join that would most often be false. TILE_FIT carries TILE_A's transform, so
+  // the projection lands exactly where the passing case does and only `kind`
+  // refuses it.
+  test("does not join through the fit overview, whatever its transform", () => {
+    const citesFit = finding({
+      evidence: [
+        { image: TILE_FIT.file, rect: [290, 240, 60, 40], where: "the dense band" },
+      ],
+    });
+    expect(corroborationsFor(citesFit, [CHIP], [...TILES, TILE_FIT])).toEqual([]);
   });
 
   // The geometry audits measure what they measure; none of them can witness a
@@ -171,14 +207,85 @@ describe("corroborationsFor", () => {
     expect(corroborationsFor(marked, [seg], TILES)).toEqual([seg]);
   });
 
-  test("reports a measurement once even when several evidence rects reach it", () => {
-    const twice = finding({
+  // The tolerance boundary, pinned on both sides. CHIP projects to image x
+  // 300..340 through TILE_A, so a rect starting at 341, 342 and 343 sits 1, 2 and
+  // 3 px clear of it. The slack is 2 px and the intersection is inclusive, which
+  // together mean a closed interval: 2 px clear still joins, 3 px clear does not.
+  // Widening the slack, narrowing it, or making the intersection strict each
+  // breaks one of these three.
+  test.each([
+    [341, "1 px clear", true],
+    [342, "2 px clear, exactly the slack", true],
+    [343, "3 px clear", false],
+  ] as const)("a rect at x=%d (%s) joins: %s", (x, _label, joins) => {
+    const marked = finding({
+      evidence: [{ image: TILE_A.file, rect: [x, 250, 60, 20], where: "right of it" }],
+    });
+    expect(corroborationsFor(marked, [CHIP], TILES)).toEqual(joins ? [CHIP] : []);
+  });
+
+  // A place, not a region. The rect below is a plausible mark round a node card
+  // for a complaint about that card; the measurement is a thin graze of the same
+  // card's padding. The occurrence is real and inside the mark, and it is still
+  // not what the mark is about.
+  test("does not join a card-sized mark to a thin graze inside it", () => {
+    const graze: Measurement = {
+      kind: "segment-vs-card",
+      elementIds: ["e:0:A->B:iron", "B"],
+      footprint: { x: 100, y: 100, width: 5, height: 0 },
+      detail: "edge e:0:A->B:iron segment enters the padding of card B",
+    };
+    const wholeCard = finding({
       evidence: [
-        { image: TILE_A.file, rect: [290, 240, 60, 40], where: "left" },
-        { image: TILE_A.file, rect: [330, 260, 60, 40], where: "right" },
+        { image: TILE_A.file, rect: [250, 200, 300, 200], where: "this card" },
       ],
     });
-    expect(corroborationsFor(twice, [CHIP], TILES)).toEqual([CHIP]);
+    expect(corroborationsFor(wholeCard, [graze], TILES)).toEqual([]);
+  });
+
+  // The proportionality constants, each pinned on both sides.
+  //
+  // CHIP projects to 40x20, below the 48 px floor, so its limit is the floor
+  // times the ratio: 144. A 144-wide mark is commensurate with it, 145 is a
+  // region that happens to contain it.
+  test.each([
+    [144, true],
+    [145, false],
+  ])("a %d px wide mark on a 40x20 footprint joins: %s", (width, joins) => {
+    const marked = finding({
+      evidence: [{ image: TILE_A.file, rect: [290, 240, width, 40], where: "here" }],
+    });
+    expect(corroborationsFor(marked, [CHIP], TILES)).toEqual(joins ? [CHIP] : []);
+  });
+
+  // A footprint of real size takes the ratio instead: 200x200 projected admits a
+  // 600 px mark and refuses 601, which pins the ratio at 3 independently of the
+  // floor.
+  test.each([
+    [600, true],
+    [601, false],
+  ])("a %d px wide mark on a 200x200 footprint joins: %s", (width, joins) => {
+    const big: Measurement = {
+      ...CHIP,
+      kind: "own-card-pierce",
+      footprint: { x: 100, y: 100, width: 100, height: 100 },
+    };
+    const marked = finding({
+      evidence: [{ image: TILE_A.file, rect: [300, 250, width, 600], where: "here" }],
+    });
+    expect(corroborationsFor(marked, [big], TILES)).toEqual(joins ? [big] : []);
+  });
+
+  // Every evidence entry is a place, not just the first: an evaluator marking a
+  // wide overview rect and then the spot itself must not lose the second mark.
+  test("tests every evidence entry, not only the first", () => {
+    const secondReaches = finding({
+      evidence: [
+        { image: TILE_A.file, rect: [790, 240, 60, 40], where: "500 px away" },
+        { image: TILE_A.file, rect: [290, 240, 60, 40], where: "on the chip" },
+      ],
+    });
+    expect(corroborationsFor(secondReaches, [CHIP], TILES)).toEqual([CHIP]);
   });
 
   test("keeps only the measurements that actually co-locate", () => {
@@ -190,10 +297,6 @@ describe("corroborationsFor", () => {
     expect(corroborationsFor(finding(), [elsewhere, CHIP], TILES)).toEqual([CHIP]);
   });
 
-  test("returns nothing when the plan measured clean", () => {
-    expect(corroborationsFor(finding(), [], TILES)).toEqual([]);
-  });
-
   test("skips a malformed evidence rect instead of joining on NaN", () => {
     const broken = finding({
       evidence: [
@@ -202,6 +305,49 @@ describe("corroborationsFor", () => {
     });
     expect(corroborationsFor(broken, [CHIP], TILES)).toEqual([]);
   });
+
+  // Findings arrive as agent-authored JSON, so the declared shape is a hope. A
+  // missing or unusable field costs a refutation; a TypeError here costs the
+  // whole exam's triage.
+  test("returns nothing rather than throwing when evidence is absent", () => {
+    expect(corroborationsFor(without(finding(), "evidence"), [CHIP], TILES)).toEqual(
+      [],
+    );
+  });
+
+  test("ignores evidence entries that are not objects", () => {
+    const junk = finding({
+      evidence: [null, "over there"] as unknown as Finding["evidence"],
+    });
+    expect(corroborationsFor(junk, [CHIP], TILES)).toEqual([]);
+  });
+
+  test("ignores an evidence rect that is not a four-number tuple", () => {
+    const junk = finding({
+      evidence: [
+        {
+          image: TILE_A.file,
+          rect: { x: 290, y: 240 } as unknown as [number, number, number, number],
+          where: "somewhere",
+        },
+      ],
+    });
+    expect(corroborationsFor(junk, [CHIP], TILES)).toEqual([]);
+  });
+
+  // "constructor" and "hasOwnProperty" are legal strings for an agent to emit
+  // and resolve through the prototype chain of any plain object, so a table
+  // lookup for them returns a function whose `length` is not zero.
+  test.each(["constructor", "hasOwnProperty"] as const)(
+    "treats the inherited property name %s as no claim type at all",
+    (name) => {
+      const bogus = finding({ claimType: name as unknown as Finding["claimType"] });
+      expect(corroborationsFor(bogus, [CHIP], TILES)).toEqual([]);
+      expect(validateFinding(bogus)).toContain(
+        `claimType "${name}" is not a claim type`,
+      );
+    },
+  );
 });
 
 describe("routeFinding", () => {
@@ -318,6 +464,34 @@ describe("validateFinding", () => {
       ],
     });
     expect(validateFinding(broken)).toHaveLength(3);
+  });
+
+  // The inputs this function exists for. A validator that throws on the exact
+  // malformed JSON it polices takes the rest of the exam's findings down with
+  // the bad one.
+  test("reports a missing observation instead of throwing", () => {
+    expect(validateFinding(without(finding(), "observation"))).toEqual([
+      "observation is missing",
+    ]);
+  });
+
+  test("reports missing evidence instead of throwing", () => {
+    expect(validateFinding(without(finding(), "evidence"))).toEqual([
+      "evidence is missing",
+    ]);
+  });
+
+  test("reports an evidence entry that is not an object or carries no image", () => {
+    const broken = finding({
+      evidence: [
+        null,
+        { rect: [0, 0, 10, 10], where: "no image key" },
+      ] as unknown as Finding["evidence"],
+    });
+    expect(validateFinding(broken)).toEqual([
+      "evidence[0] is not an object",
+      "evidence[1] names no image",
+    ]);
   });
 
   test("rejects values outside the enumerations", () => {
