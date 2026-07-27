@@ -19,7 +19,7 @@
 //   hover-node     --arg id=<nodeId>
 //   contrast       --arg selector=<css>
 //   delta-e        --arg a=<css> --arg b=<css>
-//   chip-binding   --arg id=<chip testid or edge id>
+//   chip-binding   --arg id=<chip testid, or an edge id that names exactly one chip>
 //   rect           --arg id=<scene element id>
 //   computed-style --arg selector=<css> --arg props=<comma list>
 //   text-overflow  --arg selector=<css>
@@ -30,20 +30,56 @@
 //   2  --base-url is not serving
 //   3  the page never became examinable (no READY, no exam hook)
 //
-// hover-edge is the load-bearing op. Issue #30 ("edge hover produces no
-// response on dense plans") was filed off two screenshot runs that hovered edges
-// by ELEMENT; Playwright aims at an element's bounding-box CENTRE, which for an
+// Whatever happens, a JSON object reaches stdout: an op or an evaluation that
+// hangs is bounded, and the tail of the run is bounded too, because a refuter
+// that gets no output at all learns nothing and a refuter that gets a number it
+// cannot trust learns something false.
+//
+// hover-edge is the load-bearing op. A "hover produces no response on dense
+// plans" finding was once filed off two screenshot runs that hovered edges by
+// ELEMENT; Playwright aims at an element's bounding-box CENTRE, which for an
 // L- or Z-shaped orthogonal edge lies off the sub-2px stroke most of the time.
 // The app was fine and a whole triage round went into disproving it. So this op
-// never hovers an element: it walks the edge's own interaction path, samples
-// points ON the geometry, and reports whether hover engaged at all. A false
-// `hoverEngaged` is a statement about the PROBE, not about the product.
+// never hovers an element: it walks the edge's own interaction path and samples
+// points ON the geometry.
+//
+// Engaging is not enough on its own, though. The app's hover flag lives on the
+// canvas container and is set by ANY hovered element, so a sample that lands on
+// a neighbour would answer for the element the caller asked about. React Flow
+// gives every edge a 20px interaction stroke, so co-routed bus trunks overlap at
+// the midpoint and the topmost one takes the pointer; a container node's centre
+// is empty space over a child, and containers are hover-inert by design. So each
+// sample also reports WHICH element took the pointer, and a sample only counts
+// as engaged when that element is the one asked for. A false `hoverEngaged` is a
+// statement about the PROBE, not about the product; an engagement attributed to
+// something else is reported as exactly that.
 
 import { chromium, type Browser, type Page } from "@playwright/test";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { collectScene, type SceneCollection } from "../../test/e2e/collect";
 import { bootPage, examUrl, RIM_INSET } from "./capture";
+import {
+  deltaE76,
+  evalExpression,
+  evalPayload,
+  expectedDimmed,
+  hoverDecision,
+  judgeHoverSample,
+  measureContrast,
+  paintSide,
+  parseCssColor,
+  resolveEndpoints,
+  srgbToLab,
+  usableSamples,
+  type ColorRead,
+  type EvalPayload,
+  type HoverDecision,
+  type HoverGraph,
+  type HoverSampleRead,
+  type OverlappingSurface,
+  type SamplePoint,
+} from "./probe-analysis";
 import { safeRegion, viewportFor, type Rect, type Viewport } from "./tiling";
 
 // The exam camera handle the app installs under `?exam=1`. Declared locally for
@@ -85,10 +121,14 @@ const NODE_SAMPLE_FRACTIONS: Array<[number, number]> = [
 // seconds is generous for that and short enough that a hung expression fails the
 // run instead of the caller's patience.
 const EVAL_TIMEOUT_MS = 5_000;
-// Serialised --eval results are truncated here. 8 KB is well past any honest
-// measurement and well short of a page dump that would drown the JSON the
-// caller is reading the probe's own fields out of.
-const EVAL_JSON_LIMIT = 8 * 1024;
+// Budget for the closing transform read, and for closing the browser.
+//
+// A hung expression pins the renderer's main thread, so EVERY later evaluate
+// queues behind it and never resolves. Bounding only --eval would turn a silent
+// hang into a hang whose error message is never emitted, which is strictly
+// worse: the caller waits forever for a diagnosis that already exists.
+const TAIL_TIMEOUT_MS = 5_000;
+const CLOSE_TIMEOUT_MS = 5_000;
 
 const OP_ARGS = {
   "hover-edge": ["id"],
@@ -108,7 +148,10 @@ function isOpName(name: string): name is OpName {
 
 export type ProbeResult = {
   ok: boolean;
-  transform: { x: number; y: number; zoom: number };
+  // Null when the camera could not be read: the page never booted, or the
+  // closing read was still queued behind a hung evaluation when its budget ran
+  // out. Zeros would read as a real camera at the origin.
+  transform: { x: number; y: number; zoom: number } | null;
   op?: string;
   opResult?: unknown;
   evalResult?: unknown;
@@ -179,11 +222,14 @@ export function parseArgs(argv: string[]): Options | string {
       case "--center": {
         if (v === null) return "error: --center requires a value";
         const parts = argv[++i]!.split(",");
-        const x = Number(parts[0]);
-        const y = Number(parts[1]);
-        if (parts.length !== 2 || !Number.isFinite(x) || !Number.isFinite(y))
-          return `error: --center must be "<wx>,<wy>", got "${v}"`;
-        center = { x, y };
+        // Each half must be a number that was actually written. Number("") is 0
+        // and finite, so "10," would otherwise parse as the origin's y and
+        // silently frame a camera the caller never asked for.
+        const bad =
+          parts.length !== 2 ||
+          parts.some((p) => p.trim() === "" || !Number.isFinite(Number(p)));
+        if (bad) return `error: --center must be "<wx>,<wy>", got "${v}"`;
+        center = { x: Number(parts[0]), y: Number(parts[1]) };
         break;
       }
       case "--op": {
@@ -237,350 +283,6 @@ export function parseArgs(argv: string[]): Options | string {
 }
 
 // ---------------------------------------------------------------------------
-// Colour maths (pure, Node side)
-//
-// Every colour comes out of the page as a computed-style STRING and is measured
-// here rather than in the browser: page callbacks must be self-contained (their
-// source is serialised, nothing from module scope travels with them), so maths
-// left in the page would have to be inlined per collector and could not be unit
-// tested at all.
-// ---------------------------------------------------------------------------
-
-export type Rgba = { r: number; g: number; b: number; a: number };
-
-const TRANSPARENT: Rgba = { r: 0, g: 0, b: 0, a: 0 };
-
-// Handles what getComputedStyle actually serialises in Chromium (`rgb(r, g, b)`
-// and `rgba(r, g, b, a)`), plus the hex and keyword forms a caller might hand in
-// directly. `none` and `transparent` are fully transparent, not black: treating
-// them as black would silently invent a backdrop.
-export function parseCssColor(input: string): Rgba | null {
-  const s = input.trim().toLowerCase();
-  if (s === "" || s === "none" || s === "transparent") return TRANSPARENT;
-  const hex = /^#([0-9a-f]{3,8})$/.exec(s);
-  if (hex !== null) {
-    const h = hex[1]!;
-    const expand = (c: string): number => parseInt(c + c, 16);
-    if (h.length === 3 || h.length === 4) {
-      return {
-        r: expand(h[0]!),
-        g: expand(h[1]!),
-        b: expand(h[2]!),
-        a: h.length === 4 ? expand(h[3]!) / 255 : 1,
-      };
-    }
-    if (h.length === 6 || h.length === 8) {
-      return {
-        r: parseInt(h.slice(0, 2), 16),
-        g: parseInt(h.slice(2, 4), 16),
-        b: parseInt(h.slice(4, 6), 16),
-        a: h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1,
-      };
-    }
-    return null;
-  }
-  const fn = /^rgba?\(([^)]*)\)$/.exec(s);
-  if (fn === null) return null;
-  const parts = fn[1]!
-    .split(/[,/\s]+/)
-    .map((p) => p.trim())
-    .filter((p) => p !== "");
-  if (parts.length < 3) return null;
-  const chan = (p: string): number =>
-    p.endsWith("%") ? (Number(p.slice(0, -1)) * 255) / 100 : Number(p);
-  const alpha = (p: string | undefined): number =>
-    p === undefined ? 1 : p.endsWith("%") ? Number(p.slice(0, -1)) / 100 : Number(p);
-  const rgba = {
-    r: chan(parts[0]!),
-    g: chan(parts[1]!),
-    b: chan(parts[2]!),
-    a: alpha(parts[3]),
-  };
-  return Object.values(rgba).every((n) => Number.isFinite(n)) ? rgba : null;
-}
-
-// Source-over composite. The result's alpha is the composited alpha, so a stack
-// of translucent layers can be folded left to right without an opaque base.
-export function over(top: Rgba, bottom: Rgba): Rgba {
-  const a = top.a + bottom.a * (1 - top.a);
-  if (a === 0) return TRANSPARENT;
-  const mix = (t: number, b: number): number =>
-    (t * top.a + b * bottom.a * (1 - top.a)) / a;
-  return { r: mix(top.r, bottom.r), g: mix(top.g, bottom.g), b: mix(top.b, bottom.b), a };
-}
-
-// Fold an ancestor chain of background-colors (element first, documentElement
-// last) into the one opaque colour that paints behind the element.
-//
-// The walk runs from the ROOT inward, so a nearer translucent layer composites
-// over the farther ones in paint order. White is the base because that is what a
-// page with no opaque background composites onto; on this canvas the theme
-// container is opaque (--ak-bg-canvas), so the base never shows through, and a
-// contrast number that came out measured against white would be the loud symptom
-// of the container having lost its background rather than a silent wrong answer.
-export function flattenBackdrop(stack: readonly string[]): Rgba {
-  let base: Rgba = { r: 255, g: 255, b: 255, a: 1 };
-  for (let i = stack.length - 1; i >= 0; i--) {
-    const layer = parseCssColor(stack[i]!);
-    if (layer === null) continue;
-    base = over(layer, base);
-  }
-  return base;
-}
-
-// WCAG 2.1 relative luminance.
-export function relativeLuminance(c: { r: number; g: number; b: number }): number {
-  const lin = (v: number): number => {
-    const s = v / 255;
-    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  };
-  return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
-}
-
-export function contrastRatio(
-  a: { r: number; g: number; b: number },
-  b: { r: number; g: number; b: number },
-): number {
-  const la = relativeLuminance(a);
-  const lb = relativeLuminance(b);
-  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
-}
-
-export type Lab = { L: number; a: number; b: number };
-
-// sRGB -> CIE Lab under D65, the reference white sRGB is defined against.
-export function srgbToLab(c: { r: number; g: number; b: number }): Lab {
-  const lin = (v: number): number => {
-    const s = v / 255;
-    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  };
-  const r = lin(c.r);
-  const g = lin(c.g);
-  const b = lin(c.b);
-  const x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
-  const y = 0.2126729 * r + 0.7151522 * g + 0.072175 * b;
-  const z = (0.0193339 * r + 0.119192 * g + 0.9503041 * b) / 1.08883;
-  const f = (t: number): number =>
-    t > 216 / 24389 ? Math.cbrt(t) : (841 / 108) * t + 4 / 29;
-  const fx = f(x);
-  const fy = f(y);
-  const fz = f(z);
-  return { L: 116 * fy - 16, a: 500 * (fx - fy), b: 200 * (fy - fz) };
-}
-
-export function deltaE76(a: Lab, b: Lab): number {
-  return Math.hypot(a.L - b.L, a.a - b.a, a.b - b.b);
-}
-
-export function formatRgb(c: Rgba): string {
-  const round = (n: number): number => Math.round(n);
-  return `rgb(${round(c.r)}, ${round(c.g)}, ${round(c.b)})`;
-}
-
-// What the element actually paints, folded onto its own backdrop so a
-// translucent stroke is compared as it appears rather than as it is declared.
-//
-// SVG elements ignore CSS `background`, so their paint is the stroke when there
-// is one and the fill otherwise - stroke first because every edge in this app is
-// a stroked path with no fill, and the fill of such a path is `none`.
-export function paintColor(read: ColorRead): { fg: Rgba; bg: Rgba } | null {
-  const bg = flattenBackdrop(read.bgStack);
-  const opacity = Number(read.opacity === "" ? "1" : read.opacity);
-  let raw: Rgba | null = null;
-  let extra = 1;
-  if (read.isSvg) {
-    const stroke = parseCssColor(read.stroke);
-    if (stroke !== null && stroke.a > 0) {
-      raw = stroke;
-      extra = Number(read.strokeOpacity === "" ? "1" : read.strokeOpacity);
-    } else {
-      const fill = parseCssColor(read.fill);
-      if (fill !== null && fill.a > 0) {
-        raw = fill;
-        extra = Number(read.fillOpacity === "" ? "1" : read.fillOpacity);
-      }
-    }
-  }
-  raw ??= parseCssColor(read.color);
-  if (raw === null) return null;
-  const scale = (Number.isFinite(opacity) ? opacity : 1) * (Number.isFinite(extra) ? extra : 1);
-  return { fg: over({ ...raw, a: raw.a * scale }, bg), bg };
-}
-
-// ---------------------------------------------------------------------------
-// Hover expectation (pure, Node side)
-// ---------------------------------------------------------------------------
-
-export type HoverGraph = {
-  nodes: Array<{ id: string; type: string }>;
-  edges: Array<{ id: string; source: string; target: string }>;
-};
-
-// React Flow labels an edge wrapper `Edge from <source> to <target>` whenever
-// the edge carries no ariaLabel of its own, which none of this app's edges do.
-// That string is the only place the DOM states the graph's own adjacency, and
-// the probe needs adjacency from a source INDEPENDENT of the hover code it is
-// testing - deriving the expectation from the app's own focus computation would
-// make the op agree with the app by construction.
-//
-// The split is resolved against the known node ids rather than on the first
-// " to ": an id containing that substring would otherwise silently name a node
-// that does not exist.
-export function resolveEndpoints(
-  ariaLabel: string,
-  nodeIds: ReadonlySet<string>,
-): [string, string] | null {
-  const prefix = "Edge from ";
-  if (!ariaLabel.startsWith(prefix)) return null;
-  const body = ariaLabel.slice(prefix.length);
-  for (let i = body.indexOf(" to "); i !== -1; i = body.indexOf(" to ", i + 1)) {
-    const source = body.slice(0, i);
-    const target = body.slice(i + 4);
-    if (nodeIds.has(source) && nodeIds.has(target)) return [source, target];
-  }
-  return null;
-}
-
-// The dim set the graph says should appear, given a hovered element: everything
-// outside the hovered element's ego-network, where the ego-network is its
-// endpoints plus every edge incident to them.
-//
-// This is a REFERENCE, not a prediction of the app's focus rule, and the two are
-// meant to differ:
-//   - For a plain edge the app lights less than this (the hovered edge and its
-//     two endpoints only), so the app dims a superset of what is expected.
-//   - For a bus member the app lights the whole trunk group, which reaches
-//     endpoints outside the ego-network, so the expected set can name elements
-//     the app leaves lit and the observed set can name siblings the expectation
-//     kept lit. Measured on battery5-xiranite: hovering a gas tap trunk owner
-//     lights three sibling tap nodes this set expects dimmed, and dims one
-//     downstream tap edge it expects lit.
-// Predicting the app's rule exactly would mean re-implementing the code under
-// test inside its own refuter, and the two would then agree by construction.
-// The question this set makes decidable is the one issue #30 turned on: the
-// graph says N elements are outside the ego-network, so an empty observed set
-// against a non-empty expected one is a real "hover produced no response",
-// while an empty expected set explains an empty observed one outright.
-//
-// Group containers are outside the universe: Canvas makes them hover-inert and
-// gives a container with a focused child `lit-container` instead of `dimmed`,
-// so counting them would put a known non-defect in every expected set.
-export function expectedDimmed(
-  graph: HoverGraph,
-  hovered: { kind: "edge" | "node"; id: string },
-): string[] {
-  const incident = new Map<string, string[]>();
-  for (const edge of graph.edges) {
-    for (const node of [edge.source, edge.target]) {
-      const list = incident.get(node);
-      if (list) list.push(edge.id);
-      else incident.set(node, [edge.id]);
-    }
-  }
-
-  const lit = new Set<string>();
-  const lightNode = (nodeId: string): void => {
-    lit.add(nodeId);
-    for (const edgeId of incident.get(nodeId) ?? []) lit.add(edgeId);
-  };
-  if (hovered.kind === "edge") {
-    const edge = graph.edges.find((e) => e.id === hovered.id);
-    if (edge === undefined) {
-      throw new Error(`no edge "${hovered.id}" in the rendered graph`);
-    }
-    lightNode(edge.source);
-    lightNode(edge.target);
-  } else {
-    const node = graph.nodes.find((n) => n.id === hovered.id);
-    if (node === undefined) {
-      throw new Error(`no node "${hovered.id}" in the rendered graph`);
-    }
-    lightNode(hovered.id);
-    // A hovered node lights its incident edges, and the app lights those edges'
-    // far endpoints too, so they belong in the ego-network.
-    for (const edgeId of incident.get(hovered.id) ?? []) {
-      const edge = graph.edges.find((e) => e.id === edgeId)!;
-      lit.add(edge.source);
-      lit.add(edge.target);
-    }
-  }
-
-  const universe = [
-    ...graph.nodes.filter((n) => n.type !== "group").map((n) => n.id),
-    ...graph.edges.map((e) => e.id),
-  ];
-  return universe.filter((id) => !lit.has(id)).sort();
-}
-
-export type SamplePoint = { at: string; x: number; y: number };
-
-// Which sample points the mouse can actually be moved to: inside the pane and
-// clear of the floating chrome. A point under the minimap hovers the minimap,
-// and a point outside the pane hovers nothing at all - either one would be
-// counted as a failed sample and could push a working hover to `false`.
-//
-// `pane` is in PAGE coordinates (where the sample points and the mouse live);
-// `overlays` come from the scene collector in PANE-RELATIVE coordinates, and are
-// shifted here rather than by the caller so the two frames are converted in one
-// place.
-export function usableSamples(
-  points: readonly SamplePoint[],
-  pane: Rect,
-  overlays: readonly Rect[],
-): boolean[] {
-  return points.map((p) => {
-    if (
-      !Number.isFinite(p.x) ||
-      !Number.isFinite(p.y) ||
-      p.x < pane.x ||
-      p.y < pane.y ||
-      p.x > pane.x + pane.width ||
-      p.y > pane.y + pane.height
-    ) {
-      return false;
-    }
-    return !overlays.some(
-      (o) =>
-        p.x >= pane.x + o.x &&
-        p.x <= pane.x + o.x + o.width &&
-        p.y >= pane.y + o.y &&
-        p.y <= pane.y + o.y + o.height,
-    );
-  });
-}
-
-// ---------------------------------------------------------------------------
-// --eval plumbing (pure, Node side)
-// ---------------------------------------------------------------------------
-
-// The file holds ONE self-contained arrow function taking no arguments. It is
-// turned into an immediately-invoked expression here rather than handed to
-// Playwright as a bare function string, so what comes back is the function's
-// RESULT and not an unserialisable function handle.
-export function evalExpression(source: string): string {
-  const body = source
-    .replace(/^\s*export\s+default\s+/, "")
-    .trim()
-    .replace(/;+$/, "");
-  return `(${body})()`;
-}
-
-export type EvalPayload =
-  | { truncated: false; value: unknown }
-  | { truncated: true; json: string };
-
-// A result that does not fit the budget is reported as the leading slice of its
-// JSON with the cut flagged. Emitting the value untruncated would let one
-// evaluation bury the probe's own fields; emitting nothing would hide that
-// there was a result at all.
-export function evalPayload(value: unknown, limit = EVAL_JSON_LIMIT): EvalPayload {
-  const json = JSON.stringify(value);
-  if (json === undefined) return { truncated: false, value: null };
-  if (json.length <= limit) return { truncated: false, value };
-  return { truncated: true, json: json.slice(0, limit) };
-}
-
-// ---------------------------------------------------------------------------
 // In-page collectors
 //
 // Same rule as test/e2e/collect.ts: each of these is handed to page.evaluate,
@@ -610,19 +312,22 @@ function readGraphDom(): GraphDom {
   return { nodes, edges };
 }
 
-type HoverState = { hoverActive: boolean; dimmed: string[] };
-
 // The hover signal is NOT on the hovered element: Canvas puts `hover-active` on
 // the .ak-canvas-theme container and `dimmed` on the complement of the lit
 // ego-network. Reading the hovered edge's own classes would find nothing and
 // report a working hover as dead.
+//
+// The container flag says only that SOMETHING is hovered, so the element under
+// the pointer is read here too. Without it a sample landing on a co-routed
+// sibling, on a chip, or on a child inside a container box would answer for the
+// element the caller asked about.
 //
 // The dim set is read over nodes and edges only. Chips and junction dots dim
 // too, but through their owning edge's data, so they are a function of the edge
 // set rather than independent evidence - and they are not in the adjacency
 // universe the expectation is computed over, so including them would compare two
 // different universes.
-function readHoverState(): HoverState {
+function readHoverAt(point: { x: number; y: number }): HoverSampleRead {
   const theme = document.querySelector(".ak-canvas-theme");
   const dimmed: string[] = [];
   for (const el of Array.from(
@@ -638,15 +343,30 @@ function readHoverState(): HoverState {
     const id = el.getAttribute("data-id");
     if (id !== null && id !== "") dimmed.push(id);
   }
+
+  // elementFromPoint takes viewport coordinates, which is the frame the sample
+  // points and the mouse both live in. An edge wrapper is never inside a node
+  // wrapper or the other way round, so at most one of the two matches; anything
+  // else (a chip, a band, the pane) is a real answer too, because those take the
+  // pointer instead of the element underneath and that is why a sample missed.
+  const top = document.elementFromPoint(point.x, point.y);
+  let hit: HoverSampleRead["hit"] = null;
+  if (top !== null) {
+    const edge = top.closest(".react-flow__edge");
+    const node = top.closest(".react-flow__node");
+    const owner = edge ?? node;
+    hit = {
+      kind: edge !== null ? "edge" : node !== null ? "node" : "other",
+      id: owner === null ? null : owner.getAttribute("data-id"),
+      topClass: (top.getAttribute("class") ?? top.tagName.toLowerCase()).slice(0, 120),
+    };
+  }
+
   return {
     hoverActive: theme !== null && theme.classList.contains("hover-active"),
+    hit,
     dimmed: dimmed.sort(),
   };
-}
-
-function readHoverActive(): boolean {
-  const theme = document.querySelector(".ak-canvas-theme");
-  return theme !== null && theme.classList.contains("hover-active");
 }
 
 // Points ON the edge's own geometry, in page coordinates.
@@ -707,20 +427,11 @@ function nodeSamplePoints(spec: {
   }));
 }
 
-export type ColorRead = {
-  found: boolean;
-  isSvg: boolean;
-  color: string;
-  stroke: string;
-  fill: string;
-  opacity: string;
-  strokeOpacity: string;
-  fillOpacity: string;
-  // background-color of the element and every ancestor, element first.
-  bgStack: string[];
-};
+// Cap on the surfaces shipped back from the page. Sorted by overlap first, so
+// the cut only ever drops the least relevant ones.
+const MAX_OVERLAPPING_COLLECTED = 16;
 
-function readColors(selector: string): ColorRead {
+function readColors(spec: { selector: string; limit: number }): ColorRead {
   const empty: ColorRead = {
     found: false,
     isSvg: false,
@@ -731,19 +442,94 @@ function readColors(selector: string): ColorRead {
     strokeOpacity: "",
     fillOpacity: "",
     bgStack: [],
+    backgroundImageAncestors: [],
+    overlapping: [],
+    overlappingCount: 0,
   };
-  const el = document.querySelector(selector);
+  const el = document.querySelector(spec.selector);
   if (el === null) return empty;
   const cs = getComputedStyle(el);
   const bgStack: string[] = [];
   // Starts at the element itself: an HTML element paints its own background
   // behind its text, and an SVG element's background-color computes to
   // transparent, so one walk serves both without a special case.
+  //
+  // background-IMAGE is invisible to that fold: a gradient computes its
+  // background-color to transparent, so an element sitting on one is measured
+  // against whatever opaque colour lies further up and the number comes out
+  // wrong with nothing to show for it. The chip boxes on this canvas are
+  // gradients today. Named rather than folded, because a gradient has no single
+  // colour to fold.
+  const ancestors = new Set<Element>();
+  const painted: string[] = [];
   let cur: Element | null = el;
   while (cur !== null) {
-    bgStack.push(getComputedStyle(cur).backgroundColor);
+    ancestors.add(cur);
+    const cs2 = getComputedStyle(cur);
+    bgStack.push(cs2.backgroundColor);
+    if (cs2.backgroundImage !== "none" && cs2.backgroundImage !== "") {
+      const cls = (cur.getAttribute("class") ?? "").trim();
+      painted.push(
+        (
+          cur.tagName.toLowerCase() +
+          (cls === "" ? "" : "." + cls.split(/\s+/).join("."))
+        ).slice(0, 120),
+      );
+    }
     cur = cur.parentElement;
   }
+
+  // Painted surfaces the ancestor walk cannot see. The rect test runs FIRST:
+  // getBoundingClientRect is cheap and getComputedStyle is not, and on a dense
+  // plan the pane holds thousands of elements of which a handful overlap.
+  const box = el.getBoundingClientRect();
+  const boxArea = box.width * box.height;
+  const surfaces: OverlappingSurface[] = [];
+  for (const cand of Array.from(document.querySelectorAll("*"))) {
+    if (ancestors.has(cand)) continue;
+    // Descendants paint on top of their own parent's background and cannot be
+    // the thing behind it.
+    if (el.contains(cand)) continue;
+    const r = cand.getBoundingClientRect();
+    const w = Math.min(box.right, r.right) - Math.max(box.left, r.left);
+    const h = Math.min(box.bottom, r.bottom) - Math.max(box.top, r.top);
+    if (!(w > 0) || !(h > 0)) continue;
+    const cs2 = getComputedStyle(cand);
+    // String test, not colour maths: Chromium serialises a fully transparent
+    // background as "rgba(r, g, b, 0)". Anything that survives is parsed on the
+    // Node side where it can be unit tested.
+    let color = cs2.backgroundColor;
+    const bare =
+      color === "" ||
+      color === "transparent" ||
+      color.replace(/\s+/g, "").endsWith(",0)");
+    if (bare) {
+      if (cand.namespaceURI !== "http://www.w3.org/2000/svg") continue;
+      // Only SVG elements that actually rasterise a fill. `fill` is inherited,
+      // so a <g> or an <svg> wrapper reports its children's paint while covering
+      // their whole union - which would name every edge group as a surface
+      // behind every other edge and drown the real card fills.
+      const shapes =
+        "path circle ellipse rect line polygon polyline text tspan use image";
+      if (!shapes.split(" ").includes(cand.tagName.toLowerCase())) continue;
+      color = cs2.fill;
+      if (color === "" || color === "none") continue;
+    }
+    const cls = (cand.getAttribute("class") ?? "").trim();
+    const dataId = cand.getAttribute("data-id");
+    const description = (
+      cand.tagName.toLowerCase() +
+      (cls === "" ? "" : "." + cls.split(/\s+/).join(".")) +
+      (dataId === null || dataId === "" ? "" : `[data-id=${dataId}]`)
+    ).slice(0, 120);
+    surfaces.push({
+      description,
+      color,
+      overlapFraction: boxArea > 0 ? Math.min(1, (w * h) / boxArea) : 1,
+    });
+  }
+  surfaces.sort((a, b) => b.overlapFraction - a.overlapFraction);
+
   return {
     found: true,
     isSvg: el.namespaceURI === "http://www.w3.org/2000/svg",
@@ -754,57 +540,84 @@ function readColors(selector: string): ColorRead {
     strokeOpacity: cs.strokeOpacity,
     fillOpacity: cs.fillOpacity,
     bgStack,
+    backgroundImageAncestors: painted,
+    overlapping: surfaces.slice(0, spec.limit),
+    overlappingCount: surfaces.length,
   };
 }
 
-type ChipBinding = {
-  found: boolean;
-  edgeId: string | null;
-  ownPathDistance: number | null;
-  nearestOtherPathDistance: number | null;
-  nearestOtherEdgeId: string | null;
+type ChipMatch = { testId: string | null; edgeId: string | null };
+
+type ChipBindingRead = {
+  // Every chip the id resolves to, in document order. A bus edge renders TWO
+  // chips carrying the same data-edge-id (a drop chip and a rise chip), so an
+  // edge id is routinely ambiguous and the caller has to be told which chips it
+  // could have meant instead of being handed one of them.
+  matches: ChipMatch[];
+  // Only measured when exactly one chip matched.
+  measurement: {
+    testId: string | null;
+    edgeId: string | null;
+    ownPathDistance: number | null;
+    nearestOtherPathDistance: number | null;
+    nearestOtherEdgeId: string | null;
+    // The arc-length step each of those two distances was sampled at. A sampled
+    // minimum over-states the true distance by at most half a step, so this is
+    // the reported numbers' real precision.
+    ownSampleStepPx: number | null;
+    nearestOtherSampleStepPx: number | null;
+  } | null;
 };
 
 // How far a chip sits from the edge it belongs to, against how far it sits from
 // the nearest edge it does NOT belong to, in page pixels.
 //
-// Each path is sampled along its arc length at roughly 2px, so the reported
-// distance is a sampled minimum: it can only over-state the true distance, and
-// by at most about a pixel. That direction is the safe one - a chip called
-// bound is bound.
-function chipBinding(id: string): ChipBinding {
-  const miss: ChipBinding = {
-    found: false,
-    edgeId: null,
-    ownPathDistance: null,
-    nearestOtherPathDistance: null,
-    nearestOtherEdgeId: null,
-  };
-  let chip: HTMLElement | null = null;
+// Each path is walked along its arc length at 2px, CAPPED at a fixed number of
+// samples: past about 4000px of path the walk gets coarser than 2px, and a
+// 12000px bus trunk is sampled at 6px. The reported distance is therefore a
+// sampled minimum that over-states the true distance by up to half the step,
+// which is why the step is reported alongside it. Over-stating is the safe
+// direction - a chip called bound is bound - but this repo's placement rulings
+// are stated in single-digit pixels, so the caller has to see the step to know
+// whether the number can carry the ruling.
+function chipBinding(id: string): ChipBindingRead {
+  const MAX_STEPS = 2000;
+  const chips: HTMLElement[] = [];
   for (const el of Array.from(
     document.querySelectorAll<HTMLElement>(".flow-chip"),
   )) {
     if (el.getAttribute("data-testid") === id || el.getAttribute("data-edge-id") === id) {
-      chip = el;
-      break;
+      chips.push(el);
     }
   }
-  if (chip === null) return miss;
+  const matches: ChipMatch[] = chips.map((el) => ({
+    testId: el.getAttribute("data-testid"),
+    edgeId: el.getAttribute("data-edge-id"),
+  }));
+  if (chips.length !== 1) return { matches, measurement: null };
+
+  const chip = chips[0]!;
   const r = chip.getBoundingClientRect();
   const cx = r.left + r.width / 2;
   const cy = r.top + r.height / 2;
   const edgeId = chip.getAttribute("data-edge-id");
 
   let own: number | null = null;
+  let ownStep: number | null = null;
   let bestOther = Infinity;
   let bestOtherId: string | null = null;
+  let bestOtherStep: number | null = null;
   for (const p of Array.from(
     document.querySelectorAll<SVGPathElement>(".react-flow__edge-path"),
   )) {
     const m = p.getScreenCTM();
     const total = p.getTotalLength();
     if (m === null || !(total > 0)) continue;
-    const steps = Math.min(2000, Math.max(64, Math.ceil(total / 2)));
+    const steps = Math.min(MAX_STEPS, Math.max(64, Math.ceil(total / 2)));
+    // Page pixels per sample. getScreenCTM's scale is folded in, so this is the
+    // step in the frame the distances are reported in and not in user space.
+    const scale = Math.hypot(m.a, m.b);
+    const stepPx = (total / steps) * scale;
     let best = Infinity;
     for (let i = 0; i <= steps; i++) {
       const q = p.getPointAtLength((total * i) / steps);
@@ -814,32 +627,77 @@ function chipBinding(id: string): ChipBinding {
       );
       if (d < best) best = d;
     }
-    if (edgeId !== null && p.id === edgeId) own = best;
-    else if (best < bestOther) {
+    if (edgeId !== null && p.id === edgeId) {
+      own = best;
+      ownStep = stepPx;
+    } else if (best < bestOther) {
       bestOther = best;
       bestOtherId = p.id;
+      bestOtherStep = stepPx;
     }
   }
+  // Rounded to the tenth of a pixel. The raw double carries seventeen
+  // significant digits for a number whose real precision is half a sample step,
+  // and printing that invites a ruling the measurement cannot support.
+  const round = (n: number | null): number | null =>
+    n === null ? null : Math.round(n * 10) / 10;
   return {
-    found: true,
-    edgeId,
-    ownPathDistance: own,
-    nearestOtherPathDistance: bestOtherId === null ? null : bestOther,
-    nearestOtherEdgeId: bestOtherId,
+    matches,
+    measurement: {
+      testId: chip.getAttribute("data-testid"),
+      edgeId,
+      ownPathDistance: round(own),
+      nearestOtherPathDistance: bestOtherId === null ? null : round(bestOther),
+      nearestOtherEdgeId: bestOtherId,
+      ownSampleStepPx: round(ownStep),
+      nearestOtherSampleStepPx: round(bestOtherStep),
+    },
   };
 }
+
+export type StyleProbe = {
+  value: string;
+  // "value"                  the property is set and this is it
+  // "unset-custom-property"  a `--x` the element does not carry
+  // "unset"                  a standard property that computed to nothing
+  // "unknown-property"       the engine does not know this name; almost always
+  //                          a typo, which getPropertyValue reports the same
+  //                          way as a genuinely unset property
+  status: "value" | "unset-custom-property" | "unset" | "unknown-property";
+};
 
 function readComputedStyle(spec: {
   selector: string;
   props: string[];
-}): Record<string, string> | null {
+}): Record<string, StyleProbe> | null {
   const el = document.querySelector(spec.selector);
   if (el === null) return null;
   const cs = getComputedStyle(el);
-  const out: Record<string, string> = {};
+  const out: Record<string, StyleProbe> = {};
   // getPropertyValue takes the CSS property name, so a custom property
-  // (--edge-base-width) and a standard one are read the same way.
-  for (const prop of spec.props) out[prop] = cs.getPropertyValue(prop);
+  // (--edge-base-width) and a standard one are read the same way. It also
+  // returns "" for both a misspelled standard property and an unset custom one,
+  // so the two are separated here: CSS.supports knows the engine's property
+  // names, and a checker that mistypes one must not read the empty answer as
+  // "the app does not set it".
+  for (const prop of spec.props) {
+    const value = cs.getPropertyValue(prop);
+    if (value !== "") {
+      out[prop] = { value, status: "value" };
+      continue;
+    }
+    if (prop.startsWith("--")) {
+      out[prop] = { value, status: "unset-custom-property" };
+      continue;
+    }
+    let known = false;
+    try {
+      known = CSS.supports(`${prop}: initial`);
+    } catch {
+      known = false;
+    }
+    out[prop] = { value, status: known ? "unset" : "unknown-property" };
+  }
   return out;
 }
 
@@ -862,12 +720,38 @@ function readTextOverflow(
 // Ops
 // ---------------------------------------------------------------------------
 
+type HoverSampleResult = {
+  at: string;
+  x: number;
+  y: number;
+  usable: boolean;
+  // The canvas-wide flag: something is hovered, not necessarily the target.
+  hoverActive: boolean;
+  hit: HoverSampleRead["hit"];
+  // The target engaged at this point.
+  engaged: boolean;
+  reason?: string;
+};
+
 type HoverResult = {
+  // True only when the element the caller asked about is the one that engaged.
   hoverEngaged: boolean;
+  // Set when hover engaged but on something else, which is the case a bare
+  // hoverEngaged would have reported as a working hover on the target.
+  engagedElsewhere: HoverSampleRead["hit"] | null;
+  // The target sits in the dim set: the app never dims what it lit, so this is
+  // standing proof that a different element is the lit one.
+  targetDimmed: boolean;
   pointsTried: number;
-  samples: Array<{ at: string; x: number; y: number; usable: boolean; engaged: boolean }>;
+  samples: HoverSampleResult[];
   observedDimmed: string[];
+  // Which element the reported dim set belongs to. Equal to the target when the
+  // target engaged; otherwise the dim set describes whatever the last usable
+  // sample landed on, and reading it as the target's would be the same mistake
+  // one layer down.
+  dimSetOwner: HoverSampleRead["hit"] | null;
   expectedDimmed: string[];
+  decision: HoverDecision;
 };
 
 async function buildGraph(page: Page): Promise<HoverGraph> {
@@ -919,30 +803,54 @@ async function runHover(
   await page.mouse.move(PARK_POINT.x, PARK_POINT.y);
   await page.waitForTimeout(HOVER_CLEAR_MS);
 
-  const samples: HoverResult["samples"] = [];
-  let engaged = false;
+  const target = { kind, id };
+  const samples: HoverSampleResult[] = [];
   let pointsTried = 0;
+  let winner: HoverSampleRead | null = null;
+  let last: HoverSampleRead | null = null;
+  let elsewhere: HoverSampleRead["hit"] | null = null;
   for (let i = 0; i < points.length; i++) {
     const p = points[i]!;
     if (!usable[i]) {
-      samples.push({ ...p, usable: false, engaged: false });
+      samples.push({ ...p, usable: false, hoverActive: false, hit: null, engaged: false });
       continue;
     }
     pointsTried++;
     await page.mouse.move(p.x, p.y);
     await page.waitForTimeout(HOVER_SETTLE_MS);
-    engaged = await page.evaluate(readHoverActive);
-    samples.push({ ...p, usable: true, engaged });
-    if (engaged) break;
+    const read = await page.evaluate(readHoverAt, { x: p.x, y: p.y });
+    last = read;
+    const verdict = judgeHoverSample(target, read);
+    samples.push({
+      ...p,
+      usable: true,
+      hoverActive: read.hoverActive,
+      hit: read.hit,
+      engaged: verdict.engaged,
+      ...(verdict.reason !== undefined ? { reason: verdict.reason } : {}),
+    });
+    if (verdict.engaged) {
+      winner = read;
+      break;
+    }
+    // Kept only when something else DID take the pointer. Every remaining point
+    // is still tried: a midpoint stolen by a co-routed sibling says nothing
+    // about the quarter points, which is the whole reason there are five.
+    if (read.hoverActive && read.hit !== null) elsewhere = read.hit;
   }
 
-  const state = await page.evaluate(readHoverState);
+  const state = winner ?? last;
+  const observedDimmed = state?.dimmed ?? [];
   return {
-    hoverEngaged: state.hoverActive,
+    hoverEngaged: winner !== null,
+    engagedElsewhere: winner === null ? elsewhere : null,
+    targetDimmed: observedDimmed.includes(id),
     pointsTried,
     samples,
-    observedDimmed: state.dimmed,
+    observedDimmed,
+    dimSetOwner: state?.hit ?? null,
     expectedDimmed: expected,
+    decision: hoverDecision(observedDimmed, expected),
   };
 }
 
@@ -957,47 +865,81 @@ async function runOp(
     case "hover-node":
       return runHover(page, "node", args.id!);
     case "contrast": {
-      const read = await page.evaluate(readColors, args.selector!);
+      const read = await page.evaluate(readColors, {
+        selector: args.selector!,
+        limit: MAX_OVERLAPPING_COLLECTED,
+      });
       if (!read.found) throw new Error(`no element matches ${args.selector!}`);
-      const paint = paintColor(read);
-      if (paint === null) {
+      const measured = measureContrast(read);
+      if (measured === null) {
         throw new Error(`could not read a paint colour from ${args.selector!}`);
       }
-      return {
-        ratio: contrastRatio(paint.fg, paint.bg),
-        fg: formatRgb(paint.fg),
-        bg: formatRgb(paint.bg),
-      };
+      if (measured.unreadableBackdrops.length > 0) {
+        throw new Error(
+          `${args.selector!} overlaps a surface whose colour could not be parsed ` +
+            `(${measured.unreadableBackdrops.join("; ")}); ` +
+            `it could be the one the element is illegible against, so no ratio is reported`,
+        );
+      }
+      return measured;
     }
     case "delta-e": {
       const reads = await Promise.all([
-        page.evaluate(readColors, args.a!),
-        page.evaluate(readColors, args.b!),
+        page.evaluate(readColors, {
+          selector: args.a!,
+          limit: MAX_OVERLAPPING_COLLECTED,
+        }),
+        page.evaluate(readColors, {
+          selector: args.b!,
+          limit: MAX_OVERLAPPING_COLLECTED,
+        }),
       ]);
-      const paints = reads.map((read, i) => {
+      const sides = reads.map((read, i) => {
         const selector = i === 0 ? args.a! : args.b!;
         if (!read.found) throw new Error(`no element matches ${selector}`);
-        const paint = paintColor(read);
-        if (paint === null) {
+        const side = paintSide(read);
+        if (side === null) {
           throw new Error(`could not read a paint colour from ${selector}`);
         }
-        return paint;
+        // A translucent paint takes on whatever is behind it, and what is behind
+        // it here is not the ancestor chain. Two colours composited against the
+        // wrong backdrop can be reported as well separated while they read as
+        // the same hue on screen, so the op declines instead.
+        if (side.backdropSensitive) {
+          throw new Error(
+            `${selector} paints at alpha ${side.alpha} over ${side.overlappingCount} ` +
+              `overlapping surface(s) that are not its ancestors, so its on-screen colour ` +
+              `depends on which one it crosses; measure it where nothing overlaps it`,
+          );
+        }
+        return side;
       });
+      const a = sides[0]!;
+      const b = sides[1]!;
       return {
-        deltaE76: deltaE76(srgbToLab(paints[0]!.fg), srgbToLab(paints[1]!.fg)),
-        a: formatRgb(paints[0]!.fg),
-        b: formatRgb(paints[1]!.fg),
+        deltaE76: deltaE76(
+          srgbToLab(parseCssColor(a.color)!),
+          srgbToLab(parseCssColor(b.color)!),
+        ),
+        a,
+        b,
       };
     }
     case "chip-binding": {
       const binding = await page.evaluate(chipBinding, args.id!);
-      if (!binding.found) throw new Error(`no chip "${args.id!}" on the canvas`);
-      return {
-        edgeId: binding.edgeId,
-        ownPathDistance: binding.ownPathDistance,
-        nearestOtherPathDistance: binding.nearestOtherPathDistance,
-        nearestOtherEdgeId: binding.nearestOtherEdgeId,
-      };
+      if (binding.matches.length === 0) {
+        throw new Error(`no chip "${args.id!}" on the canvas`);
+      }
+      if (binding.measurement === null) {
+        const ids = binding.matches
+          .map((m) => m.testId ?? "(no data-testid)")
+          .join(", ");
+        throw new Error(
+          `"${args.id!}" resolves to ${binding.matches.length} chips (${ids}); ` +
+            `pass one of those testids to --arg id so the measurement names the chip it made`,
+        );
+      }
+      return binding.measurement;
     }
     case "rect": {
       const scene = await page.evaluate(collectScene);
@@ -1018,7 +960,15 @@ async function runOp(
         props,
       });
       if (styles === null) throw new Error(`no element matches ${args.selector!}`);
-      return styles;
+      return {
+        properties: styles,
+        // Hoisted out of the per-property records so a mistyped property name is
+        // visible at a glance rather than only to a reader who checks `status`
+        // on every entry.
+        unknownProperties: Object.entries(styles)
+          .filter(([, probe]) => probe.status === "unknown-property")
+          .map(([prop]) => prop),
+      };
     }
     case "text-overflow": {
       const overflow = await page.evaluate(readTextOverflow, args.selector!);
@@ -1036,21 +986,31 @@ function paneFrame(scene: SceneCollection): Rect {
   return { x: 0, y: 0, width: scene.paneRect.width, height: scene.paneRect.height };
 }
 
+// page.evaluate has no per-call timeout, so every budget in this file is imposed
+// here. The timer is cleared on the winning path so a bounded call that returned
+// promptly does not hold the event loop open for its whole budget.
+async function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${what} exceeded ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 async function runEval(page: Page, file: string): Promise<EvalPayload> {
   const source = await readFile(file, "utf8");
   const expression = evalExpression(source);
-  // page.evaluate has no per-call timeout, so the budget is imposed here. The
-  // browser is closed on the way out either way, which is what stops a hung
-  // expression from outliving the process.
-  const value = await Promise.race([
+  const value = await withTimeout(
     page.evaluate<unknown>(expression),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`--eval exceeded ${EVAL_TIMEOUT_MS}ms`)),
-        EVAL_TIMEOUT_MS,
-      ),
-    ),
-  ]);
+    EVAL_TIMEOUT_MS,
+    "--eval",
+  );
   return evalPayload(value);
 }
 
@@ -1066,7 +1026,7 @@ async function probe(
     return {
       result: {
         ok: false,
-        transform: { x: 0, y: 0, zoom: 0 },
+        transform: null,
         consoleErrors: [],
         error: `never reached READY at ${examUrl(opts.baseUrl, opts.hash)}: ${String(err)}`,
       },
@@ -1081,7 +1041,7 @@ async function probe(
     return {
       result: {
         ok: false,
-        transform: { x: 0, y: 0, zoom: 0 },
+        transform: null,
         consoleErrors,
         error:
           "no window.__stcExam; the page must be loaded with ?exam=1 before the fragment",
@@ -1132,7 +1092,27 @@ async function probe(
     await page.locator(".react-flow").screenshot({ path: opts.shot, scale: "css" });
   }
 
-  const transform = (await page.evaluate(collectScene)).transform;
+  // Bounded, and bounded for the same reason --eval is. A hung expression pins
+  // the renderer's main thread, so this read queues behind it forever; without a
+  // budget the run would never return, the browser would never close, and the
+  // error explaining the hang would never be printed. An unbounded tail turns a
+  // diagnosed failure back into a silent one.
+  let transform: ProbeResult["transform"] = null;
+  try {
+    transform = (
+      await withTimeout(
+        page.evaluate(collectScene),
+        TAIL_TIMEOUT_MS,
+        "reading the closing transform",
+      )
+    ).transform;
+  } catch (err: unknown) {
+    const message = `transform: ${err instanceof Error ? err.message : String(err)}`;
+    // Appended, never overwritten: when an op or an evaluation already failed,
+    // that failure is the cause and this is its symptom.
+    error = error === undefined ? message : `${error}; ${message}`;
+  }
+
   return {
     result: {
       ok: error === undefined,
@@ -1172,19 +1152,36 @@ if (import.meta.main) {
     process.exit(2);
   }
 
-  // The browser is closed BEFORE the process exits, not in a finally around the
-  // exit: process.exit skips finally blocks, and the launched Chromium would
-  // outlive the run.
   const browser = await chromium.launch();
   let outcome: { result: ProbeResult; code: number };
   try {
     outcome = await probe(browser, parsed);
   } catch (err: unknown) {
-    console.error("fatal:", err);
-    await browser.close();
-    process.exit(1);
+    // A fatal still prints the contract shape. A caller parsing stdout gets an
+    // object with the reason in it either way, and a bare stderr line would make
+    // "the harness crashed" look identical to "the process was killed".
+    outcome = {
+      result: {
+        ok: false,
+        transform: null,
+        consoleErrors: [],
+        error: `fatal: ${err instanceof Error ? err.message : String(err)}`,
+      },
+      code: 1,
+    };
   }
-  await browser.close();
+
+  // Printed BEFORE the browser is closed. Closing a browser whose renderer is
+  // still spinning on a hung expression is the one step left that could stall,
+  // and the caller's answer must not be behind it.
   console.log(JSON.stringify(outcome.result, null, 2));
+  // Closed BEFORE the process exits, not in a finally around the exit:
+  // process.exit skips finally blocks, and the launched Chromium would outlive
+  // the run. Bounded, because that is exactly the case being defended against.
+  try {
+    await withTimeout(browser.close(), CLOSE_TIMEOUT_MS, "closing the browser");
+  } catch (err: unknown) {
+    console.error(`warning: ${err instanceof Error ? err.message : String(err)}`);
+  }
   process.exit(outcome.code);
 }

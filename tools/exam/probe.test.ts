@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { parseArgs } from "./probe";
 import {
   contrastRatio,
   deltaE76,
@@ -6,8 +7,11 @@ import {
   evalPayload,
   expectedDimmed,
   flattenBackdrop,
+  hoverDecision,
+  judgeHoverSample,
+  measureContrast,
   paintColor,
-  parseArgs,
+  paintSide,
   parseCssColor,
   relativeLuminance,
   resolveEndpoints,
@@ -15,7 +19,8 @@ import {
   usableSamples,
   type ColorRead,
   type HoverGraph,
-} from "./probe";
+  type HoverSampleRead,
+} from "./probe-analysis";
 
 const BASE = ["--base-url", "http://localhost:4174", "--hash", "p=1"];
 
@@ -64,6 +69,21 @@ describe("parseArgs", () => {
 
   test("rejects a malformed centre", () => {
     expect(parseArgs([...BASE, "--zoom", "1", "--center", "10"])).toMatch(
+      /--center must be/,
+    );
+  });
+
+  // Number("") is 0 and finite, so a half-written centre would otherwise frame
+  // the camera at a y the caller never typed and the output would report it as
+  // a commanded camera.
+  test("rejects a centre with a missing half", () => {
+    expect(parseArgs([...BASE, "--zoom", "1", "--center", "10,"])).toMatch(
+      /--center must be/,
+    );
+    expect(parseArgs([...BASE, "--zoom", "1", "--center", ",20"])).toMatch(
+      /--center must be/,
+    );
+    expect(parseArgs([...BASE, "--zoom", "1", "--center", " , "])).toMatch(
       /--center must be/,
     );
   });
@@ -138,7 +158,7 @@ describe("flattenBackdrop", () => {
         "rgb(15, 17, 20)",
         "rgb(255, 255, 255)",
       ]),
-    ).toEqual({ r: 15, g: 17, b: 20, a: 1 });
+    ).toEqual({ color: { r: 15, g: 17, b: 20, a: 1 }, whiteFallback: false });
   });
 
   // Paint order runs root-outward, so a nearer translucent layer sits ON TOP of
@@ -146,17 +166,21 @@ describe("flattenBackdrop", () => {
   // the far colour and mis-state every ratio measured through a scrim.
   test("composites a translucent layer over the opaque one below it", () => {
     const flat = flattenBackdrop(["rgba(255, 255, 255, 0.5)", "rgb(0, 0, 0)"]);
-    expect(flat.r).toBeCloseTo(127.5, 5);
-    expect(flat.a).toBe(1);
+    expect(flat.color.r).toBeCloseTo(127.5, 5);
+    expect(flat.color.a).toBe(1);
+    expect(flat.whiteFallback).toBe(false);
   });
 
-  test("falls back to white when nothing is opaque", () => {
+  // White is exactly the fallback that flatters a dark stroke, so a measurement
+  // standing on it has to say so rather than leave the caller to infer it from
+  // an all-255 `bg`.
+  test("flags the white fallback when nothing in the chain is opaque", () => {
     expect(flattenBackdrop(["rgba(0, 0, 0, 0)"])).toEqual({
-      r: 255,
-      g: 255,
-      b: 255,
-      a: 1,
+      color: { r: 255, g: 255, b: 255, a: 1 },
+      whiteFallback: true,
     });
+    // Partly covered still counts: the white shows through the gap.
+    expect(flattenBackdrop(["rgba(0, 0, 0, 0.5)"]).whiteFallback).toBe(true);
   });
 });
 
@@ -168,28 +192,29 @@ describe("contrastRatio", () => {
     expect(relativeLuminance(black)).toBeCloseTo(0, 10);
     expect(contrastRatio(white, black)).toBeCloseTo(21, 6);
     expect(contrastRatio(white, white)).toBeCloseTo(1, 10);
-  });
-
-  test("is symmetric", () => {
-    const a = { r: 124, g: 223, b: 252 };
-    const b = { r: 15, g: 17, b: 20 };
-    expect(contrastRatio(a, b)).toBeCloseTo(contrastRatio(b, a), 12);
+    // #777 on white is the published 4.48:1 borderline, which pins the transfer
+    // function and the 0.05 offset rather than only the two endpoints.
+    expect(contrastRatio({ r: 119, g: 119, b: 119 }, white)).toBeCloseTo(4.48, 2);
   });
 });
 
+const svg = (over: Partial<ColorRead>): ColorRead => ({
+  found: true,
+  isSvg: true,
+  color: "rgb(255, 255, 255)",
+  stroke: "none",
+  fill: "none",
+  opacity: "1",
+  strokeOpacity: "1",
+  fillOpacity: "1",
+  bgStack: ["rgba(0, 0, 0, 0)", "rgb(15, 17, 20)"],
+  backgroundImageAncestors: [],
+  overlapping: [],
+  overlappingCount: 0,
+  ...over,
+});
+
 describe("paintColor", () => {
-  const svg = (over: Partial<ColorRead>): ColorRead => ({
-    found: true,
-    isSvg: true,
-    color: "rgb(255, 255, 255)",
-    stroke: "none",
-    fill: "none",
-    opacity: "1",
-    strokeOpacity: "1",
-    fillOpacity: "1",
-    bgStack: ["rgba(0, 0, 0, 0)", "rgb(15, 17, 20)"],
-    ...over,
-  });
 
   // Every edge in the app is a stroked path with fill `none`, and the canvas
   // background is the backdrop the item palette holds its 4.5:1 floor against.
@@ -222,15 +247,182 @@ describe("paintColor", () => {
   });
 });
 
+describe("measureContrast", () => {
+  // The defect this op exists to catch: an edge stroke crossing an opaque node
+  // card is NOT painted on the canvas background, and the ancestor walk cannot
+  // see the card because a card is not an ancestor of the edge layer. Measuring
+  // the ancestor chain alone reports a comfortable ratio for a stroke that is in
+  // fact illegible where it crosses.
+  test("measures a stroke against a card it crosses, not only its ancestors", () => {
+    const measured = measureContrast(
+      svg({
+        stroke: "rgb(40, 44, 52)",
+        overlapping: [
+          {
+            description: "div.recipe-node[data-id=n1]",
+            color: "rgb(31, 33, 37)",
+            overlapFraction: 0.4,
+          },
+        ],
+        overlappingCount: 1,
+      }),
+    )!;
+    // Against the near-black canvas the dark stroke still clears a bit; against
+    // the card it is almost the same colour.
+    expect(measured.ancestorRatio).toBeGreaterThan(measured.worstRatio);
+    expect(measured.worstRatio).toBeLessThan(1.2);
+    expect(measured.worstBackdrop).toBe("div.recipe-node[data-id=n1]");
+    expect(measured.minOverlapForWorst).toBe(0.05);
+    expect(measured.backdrops.map((b) => b.source)).toEqual([
+      "ancestors",
+      "div.recipe-node[data-id=n1]",
+    ]);
+    expect(measured.overlappingCount).toBe(1);
+  });
+
+  // A tinted band is not opaque, so what sits behind the stroke there is the
+  // band composited onto the canvas rather than the band's declared colour.
+  test("composites a translucent surface onto the ancestor backdrop", () => {
+    const measured = measureContrast(
+      svg({
+        stroke: "rgb(255, 255, 255)",
+        overlapping: [
+          {
+            description: "div.bus-band",
+            color: "rgba(255, 255, 255, 0.5)",
+            overlapFraction: 1,
+          },
+        ],
+        overlappingCount: 1,
+      }),
+    )!;
+    const band = measured.backdrops.find((b) => b.source === "div.bus-band")!;
+    // 50% white over rgb(15, 17, 20) lands halfway, not at pure white.
+    expect(band.color).toBe("rgb(135, 136, 138)");
+  });
+
+  // Nothing to composite against means the number stands on white, which is the
+  // fallback that makes any dark stroke look excellent.
+  test("surfaces the white fallback as its own flag", () => {
+    const measured = measureContrast(
+      svg({ stroke: "rgb(20, 20, 20)", bgStack: ["rgba(0, 0, 0, 0)"] }),
+    )!;
+    expect(measured.whiteFallback).toBe(true);
+    expect(measured.ancestorBackdrop).toBe("rgb(255, 255, 255)");
+  });
+
+  // An overlapping surface whose colour cannot be parsed could be the one the
+  // element is illegible against. Dropping it would leave a worstRatio that
+  // silently excluded the worst case, so it is named for the caller to refuse on.
+  test("names an overlapping surface whose colour it cannot parse", () => {
+    const measured = measureContrast(
+      svg({
+        stroke: "rgb(255, 255, 255)",
+        overlapping: [
+          {
+            description: "div.recipe-node",
+            color: "color(display-p3 1 0 0)",
+            overlapFraction: 1,
+          },
+        ],
+        overlappingCount: 1,
+      }),
+    )!;
+    expect(measured.unreadableBackdrops).toEqual([
+      "div.recipe-node (color(display-p3 1 0 0))",
+    ]);
+  });
+
+  // Bounding boxes are rectangles and strokes are not, so a box that clips a
+  // corner of a card reports an overlap the eye never sees. Left in the headline
+  // it would make every edge on the canvas read as a 1:1 contrast defect, and a
+  // headline that is always alarming is one the caller learns to skip.
+  test("keeps a sliver out of the headline but not out of the output", () => {
+    const measured = measureContrast(
+      svg({
+        stroke: "rgb(255, 255, 255)",
+        overlapping: [
+          {
+            description: "span.chip-text",
+            color: "rgb(255, 255, 255)",
+            overlapFraction: 0.0014,
+          },
+        ],
+        overlappingCount: 1,
+      }),
+    )!;
+    expect(measured.worstBackdrop).toBe("ancestors");
+    expect(measured.worstRatio).toBeCloseTo(measured.ancestorRatio, 10);
+    expect(measured.worstBackdropAnyOverlap).toBe("span.chip-text");
+    expect(measured.worstRatioAnyOverlap).toBeCloseTo(1, 6);
+    expect(measured.backdrops.map((b) => b.source)).toContain("span.chip-text");
+  });
+
+  // A gradient computes its background-color to transparent, so the ancestor
+  // fold walks straight past it onto whatever opaque colour lies further up. The
+  // chip boxes on this canvas are gradients, so the measured backdrop is not the
+  // one the eye sees and only this list says so.
+  test("names ancestors that paint a background image", () => {
+    const measured = measureContrast(
+      svg({ isSvg: false, backgroundImageAncestors: ["div.flow-chip"] }),
+    )!;
+    expect(measured.backgroundImageAncestors).toEqual(["div.flow-chip"]);
+  });
+
+  test("returns null when the element paints nothing readable", () => {
+    expect(measureContrast(svg({ color: "color(display-p3 1 0 0)" }))).toBeNull();
+  });
+});
+
+describe("paintSide", () => {
+  // An opaque stroke's on-screen colour does not depend on what is behind it, so
+  // a delta-E between two of them is a backdrop-free number however much they
+  // overlap.
+  test("calls an opaque paint backdrop-insensitive however much overlaps it", () => {
+    const side = paintSide(
+      svg({
+        stroke: "rgb(124, 223, 252)",
+        overlapping: [
+          { description: "div.recipe-node", color: "rgb(31, 33, 37)", overlapFraction: 1 },
+        ],
+        overlappingCount: 1,
+      }),
+    )!;
+    expect(side.alpha).toBe(1);
+    expect(side.backdropSensitive).toBe(false);
+    expect(side.color).toBe("rgb(124, 223, 252)");
+  });
+
+  // A translucent one takes on whatever it crosses, so the colour reported
+  // against the ancestor chain is not the colour on screen.
+  test("flags a translucent paint that overlaps a non-ancestor", () => {
+    const side = paintSide(
+      svg({
+        stroke: "rgb(255, 255, 255)",
+        strokeOpacity: "0.5",
+        overlapping: [
+          { description: "div.recipe-node", color: "rgb(31, 33, 37)", overlapFraction: 1 },
+        ],
+        overlappingCount: 1,
+      }),
+    )!;
+    expect(side.alpha).toBe(0.5);
+    expect(side.backdropSensitive).toBe(true);
+  });
+
+  test("leaves a translucent paint with nothing over it measurable", () => {
+    const side = paintSide(svg({ stroke: "rgb(255, 255, 255)", strokeOpacity: "0.5" }))!;
+    expect(side.backdropSensitive).toBe(false);
+  });
+});
+
 describe("srgbToLab / deltaE76", () => {
   test("puts white and black at the L ends", () => {
     expect(srgbToLab({ r: 255, g: 255, b: 255 }).L).toBeCloseTo(100, 4);
     expect(srgbToLab({ r: 0, g: 0, b: 0 }).L).toBeCloseTo(0, 6);
-  });
-
-  test("scores an identical pair at zero", () => {
-    const lab = srgbToLab({ r: 124, g: 223, b: 252 });
-    expect(deltaE76(lab, lab)).toBe(0);
+    // Mid grey sits at L 53.59, not 50: the transfer function is not linear, and
+    // an implementation that skipped it would land near the midpoint.
+    expect(srgbToLab({ r: 128, g: 128, b: 128 }).L).toBeCloseTo(53.59, 2);
   });
 
   // The reference point the edge-palette separation work is stated in: two
@@ -337,6 +529,115 @@ describe("expectedDimmed", () => {
     expect(() => expectedDimmed(graph, { kind: "node", id: "n9" })).toThrow(
       /no node "n9"/,
     );
+  });
+});
+
+describe("judgeHoverSample", () => {
+  const read = (over: Partial<HoverSampleRead>): HoverSampleRead => ({
+    hoverActive: true,
+    hit: { kind: "edge", id: "e1", topClass: "react-flow__edge-interaction" },
+    dimmed: [],
+    ...over,
+  });
+
+  test("engages when the pointer is on the element asked about", () => {
+    expect(judgeHoverSample({ kind: "edge", id: "e1" }, read({}))).toEqual({
+      engaged: true,
+    });
+  });
+
+  // The failure this exists for: the app's hover flag lives on the canvas
+  // container and is set by ANY hovered element. React Flow gives every edge a
+  // 20px interaction stroke, so co-routed bus trunks overlap at the midpoint and
+  // the topmost one takes the pointer. Reading the flag alone reports the edge
+  // the caller asked about as responsive when a sibling answered.
+  test("refuses an engagement that a co-routed sibling produced", () => {
+    const verdict = judgeHoverSample(
+      { kind: "edge", id: "e1" },
+      read({ hit: { kind: "edge", id: "e2", topClass: "x" } }),
+    );
+    expect(verdict.engaged).toBe(false);
+    expect(verdict.reason).toMatch(/hover engaged, but the pointer was over edge "e2"/);
+  });
+
+  // A container's bounding-box centre is empty space over a CHILD node, and
+  // containers are hover-inert by design, so "does this container respond?"
+  // would come back true from the child that answered.
+  test("refuses a container hover answered by the child under it", () => {
+    const verdict = judgeHoverSample(
+      { kind: "node", id: "group-1" },
+      read({ hit: { kind: "node", id: "child-1", topClass: "recipe-node" } }),
+    );
+    expect(verdict.engaged).toBe(false);
+    expect(verdict.reason).toMatch(/pointer was over node "child-1"/);
+  });
+
+  // Chips re-enable pointer events so their exact-rate tooltip works, so a chip
+  // sitting on the sample point takes the pointer and the edge never hovers.
+  test("names a non-graph element that took the pointer", () => {
+    const verdict = judgeHoverSample(
+      { kind: "edge", id: "e1" },
+      read({ hit: { kind: "other", id: null, topClass: "flow-chip nodrag" } }),
+    );
+    expect(verdict.engaged).toBe(false);
+    expect(verdict.reason).toMatch(/non-graph element \(flow-chip nodrag\)/);
+  });
+
+  // The disproof the op already holds: the app never dims what it lit, so a
+  // dimmed target proves a different element is the lit one even when the DOM
+  // hit test says otherwise.
+  test("refuses when the target is in the dim set", () => {
+    const verdict = judgeHoverSample(
+      { kind: "edge", id: "e1" },
+      read({ dimmed: ["e1", "n4"] }),
+    );
+    expect(verdict.engaged).toBe(false);
+    expect(verdict.reason).toMatch(/"e1" is in the dim set/);
+  });
+
+  test("reports a pointer on the target that never went hover-active", () => {
+    const verdict = judgeHoverSample(
+      { kind: "edge", id: "e1" },
+      read({ hoverActive: false }),
+    );
+    expect(verdict.engaged).toBe(false);
+    expect(verdict.reason).toMatch(/never went hover-active/);
+  });
+
+  test("reports a sample that landed on nothing", () => {
+    const verdict = judgeHoverSample(
+      { kind: "edge", id: "e1" },
+      read({ hoverActive: false, hit: null }),
+    );
+    expect(verdict.engaged).toBe(false);
+    expect(verdict.reason).toMatch(/no hover, and the pointer was over nothing/);
+  });
+});
+
+describe("hoverDecision", () => {
+  // The only dim-set reading that is a defect on its own.
+  test("calls an empty observed set against a non-empty expected one a defect", () => {
+    const decision = hoverDecision([], ["n3", "n4"]);
+    expect(decision.noResponse).toBe(true);
+  });
+
+  test("does not call an empty expected set a defect", () => {
+    expect(hoverDecision([], []).noResponse).toBe(false);
+  });
+
+  // Expected and observed diverge in BOTH directions on bus edges, because the
+  // app lights whole trunk groups while the expectation is the graph's
+  // ego-network. A reader of stdout sees two long arrays that differ and needs
+  // the rule stated to know that is not the finding.
+  test("reports a set difference as a difference and not as a defect", () => {
+    const decision = hoverDecision(["n1", "n9"], ["n1", "n2"]);
+    expect(decision.differs).toBe(true);
+    expect(decision.noResponse).toBe(false);
+    expect(decision.rule).toMatch(/is NOT a defect/);
+  });
+
+  test("reports equal sets as not differing whatever their order", () => {
+    expect(hoverDecision(["n2", "n1"], ["n1", "n2"]).differs).toBe(false);
   });
 });
 
