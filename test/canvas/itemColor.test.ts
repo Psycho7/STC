@@ -126,13 +126,16 @@ describe("canvas/itemColor", () => {
   });
 
   it("keeps every pack item color inside the legible range", () => {
-    // Saturated icons stay clearly colored (s >= 35), near-gray icons stay
+    // Saturated icons stay clearly colored (s >= 45), near-gray icons stay
     // gray-ish (s <= 24, under the COLOR_SATURATION_MIN threshold), and every
     // lightness lands where it reads against the dark canvas. No raw icon color
-    // leaks through.
+    // leaks through. The saturated candidate set opens at 35, but the placement
+    // has never needed that lane on the shipped pack; pinning the bound at the
+    // saturation actually in use keeps this a guard rather than a restatement of
+    // the candidate list.
     for (const item of pack.items) {
       const { s, l } = parseHsl(itemColor(item.id));
-      expect(s >= 35 || s <= 24, `${item.id} saturation ${s}`).toBe(true);
+      expect(s >= 45 || s <= 24, `${item.id} saturation ${s}`).toBe(true);
       expect(l, `${item.id} lightness ${l}`).toBeGreaterThanOrEqual(46);
       expect(l, `${item.id} lightness ${l}`).toBeLessThanOrEqual(90);
     }
