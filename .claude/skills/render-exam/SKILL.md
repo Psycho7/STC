@@ -10,7 +10,8 @@ an agent: it walks a fixed camera grid at a fixed zoom and writes images plus a 
 ledger that states what it covered. Evaluation agents critique the images cold, refuters
 disprove claims through `tools/exam/probe.ts`, and the orchestrator files issues. The
 mechanical fan-out lives in the `render-quality-exam` named workflow; this skill is the
-judgment layer around it.
+judgment layer around it. That workflow file has NOT been rewritten to the contract described
+here yet - read the guard at the head of step 6 before invoking it.
 
 Two rules hold the whole procedure up, because two earlier runs filed invalid findings for
 want of them: a screenshot cannot tell "the app does nothing" from "my capture never touched
@@ -49,7 +50,8 @@ it", and a raw geometry count is not a defect.
 
    Optional: `--target-zoom` (default 0.75), `--locale` (default `en`), `--max-tiles`
    (default 64), `--seam-margin` (default 64). Outputs land in `.artifacts/exam/<id>/` as
-   `00-fit.png`, `10-tile-r<row>c<col>.png`, `20-corrective-<n>-<slug>.png` and `scene.json`.
+   `00-fit.png`, `10-tile-r<row>c<col>.png`, `20-corrective-<nnn>-<slug>.png` (the index is
+   zero-padded to three digits) and `scene.json`.
    No smoke test: capture fails fast by itself. Exit 2 means the base URL is not serving,
    exit 3 means the page never became examinable (drop the plan and report it), exit 1 is a
    harness failure. Exit 0 with `status: "partial"` is a real capture with named blind spots -
@@ -61,15 +63,19 @@ it", and a raw geometry count is not a defect.
    bun run test:e2e geometry-audit
    ```
 
-   A finding here is a baseline EXCEEDANCE reported by `test/e2e/geometry-audit.spec.ts`, and
-   nothing else. That spec already encodes every ruling this repo has made about acceptable
-   geometry; the exam must not compute defects from its own numbers. Before calling a failure
+   A finding here is a failure of `test/e2e/geometry-audit.spec.ts`, and nothing else: either a
+   baseline EXCEEDANCE, or one of its hard zero-tolerance assertions (off-centre handles,
+   mult-chip/rate-block overlaps, chip-vs-chip overlaps, chips clipped outside the pane,
+   flow-chip-over-junction z-order, tier 1 segments entering a foreign raw card, the tundra
+   ore-feed presence check). That spec already encodes every ruling this repo has made about
+   acceptable geometry; the exam must not compute defects from its own numbers. Before calling a failure
    a finding, check it against the branch point: this suite carries known pre-existing
    failures, and a test that fails identically on the base commit is not something this exam
    found.
 
-5. **Extract the ledger for the workflow.** The workflow gets measurements and coverage; the
-   evaluators do not (they judge images cold).
+5. **Extract the ledger for the workflow.** The workflow gets measurements and coverage. It
+   passes coverage on to the evaluators, because that is what lets them honour the
+   no-absence-claims rule, and withholds the measurements: they judge the images cold.
 
    ```bash
    jq -s 'map({planId, status, targetZoom, coverage, measurements, crossingCensus})' .artifacts/exam/*/scene.json
@@ -83,7 +89,20 @@ it", and a raw geometry count is not a defect.
    ```
 
 6. **Run the workflow** from the MAIN session (the Workflow tool is not available inside
-   subagents):
+   subagents).
+
+   > STOP - the contract below is AHEAD of the implementation. As shipped,
+   > `.claude/workflows/render-quality-exam.js` declares `{plans: [{id, url}], repoDir,
+   > examDir}`, ignores `measurements` and `coverage` entirely, and runs two phases, Capture
+   > and Evaluate: there is no code triage and no Refute yet. Passing `{id, hash}` renders
+   > `URL: undefined` into its capture prompt. Far worse, its Capture phase spawns agents that
+   > write their own `capture.ts` and shoot `00-fit.png` and `10-tile-r<row>c<col>.png` into
+   > the SAME directory under the SAME names the deterministic capture just wrote, by
+   > wheel-zoom and element-hover - the exact capture-artifact mechanism this harness exists to
+   > eliminate. Until the workflow is rewritten to the contract below, DO NOT invoke it against
+   > a directory you captured into; run the evaluation, triage and refutation passes as
+   > subagents yourself, from step 5's ledger and the images already on disk.
+
    `Workflow({name: "render-quality-exam", args: {plans, repoDir, examDir, measurements, coverage}})`,
    where `plans` is `[{id, hash}]`, `repoDir` is the absolute root of the checkout the preview
    server serves, and `examDir` is the absolute `.artifacts/exam` you captured into. It runs
@@ -118,12 +137,19 @@ it", and a raw geometry count is not a defect.
 
 A ledger of what was captured and measured, with no verdicts in it.
 
-- `tiles[].elements` places every element in the image that shows it, in CSS pixels within
-  that image. `worldRect` fields are React Flow world units; everything else is pane-relative
-  CSS pixels.
+- `tiles[].elements` places elements in CSS pixels within that image, but only those
+  intersecting the tile's `safeRegion`: an element that reaches the pane only under the minimap
+  or the zoom controls is in the image and NOT in this map, deliberately.
+- Coordinate frames: `worldRect`, `contentRect` and `footprint` are React Flow world units;
+  every other rect is pane-relative CSS pixels, which for a tile is that image's own frame.
 - `measurements` are occurrences the geometry audits report, each pinned to a footprint. They
   exist to corroborate a finding someone else made, and to arm refuters. An empty array means
-  measured and clean.
+  measured and clean. A footprint is in world units, so it must be projected into image space
+  before it can be compared to an evaluator's evidence rect: for the tile you are joining
+  against, `x_css = x_world * viewportTransform.zoom + viewportTransform.x` (same for `y`),
+  widths and heights scaled by `zoom`. Joining the raw footprint to a CSS-pixel rect compares
+  two different coordinate systems and silently misses, which reads as an uncorroborated
+  finding.
 - `coverage` says what the capture proved it framed. `uncovered` is the list of blind spots.
 - `consoleErrors` is collected from the first navigation onward.
 
@@ -132,9 +158,10 @@ A ledger of what was captured and measured, with no verdicts in it.
 | Trap | Rule |
 | --- | --- |
 | A plan captured at `status: "partial"` has blind spots | Report every id in `coverage.uncovered`; no evaluator finding and no issue may make an absence claim about one |
-| Raw geometry measurements are not defects | `geometry-audit.spec.ts` permits large nonzero per-scenario counts of every measurement kind behind written rulings; a machine finding is an exceedance of those baselines, never a row of `scene.json` |
+| Raw geometry measurements are not defects | `geometry-audit.spec.ts` permits large nonzero per-scenario counts of every measurement kind behind written rulings; a machine finding is that spec failing, never a row of `scene.json` |
 | The exam's counts and the ratchet baselines are different numbers | Measurements are taken at `targetZoom`, baselines at the app's fit camera, and chips counter-scale; never compare the two, and never read a difference as a regression |
-| `hoverEngaged: false` is a capture miss, not a product defect | Read `engagedElsewhere` and `samples`, then re-probe another point or the id that actually took the pointer. Only `hoverEngaged: true` with `observedDimmed` materially smaller than `expectedDimmed` is a defect |
+| `hoverEngaged: false` is a capture miss, not a product defect | Read `engagedElsewhere` and `samples`, then re-probe `engagedElsewhere.id` through `--arg id=`, or reframe with `--zoom`/`--center`, or reach for `--eval`; the probe picks its own sample fractions and no flag names a point |
+| Only `decision.noResponse` is a hover defect | The probe emits its own rule in `decision.rule`: an empty `observedDimmed` against a non-empty `expectedDimmed` is a real "hover produced no response". A set DIFFERENCE between the two is NOT a defect - the app lights whole bus trunk groups while `expectedDimmed` is the graph's ego-network - so `decision.differs` is reported precisely so nobody files it |
 | `00-fit.png` is shot at the app's fit zoom, not `targetZoom` | Chips are LOD-hidden below `lodGates.labelMinZoom`; compare `fit.zoom` against `lodGates` before believing anything the fit overview does not show |
 | The exam runs `?exam=1`, query before fragment | Without it `window.__stcExam` is absent and both CLIs exit 3. The CLIs build the URL; a hand-written one is where this goes wrong |
 | Repo convention forbids committed binaries | Captures go to gitignored `.artifacts/`; issue images to the orphan assets branch only |
