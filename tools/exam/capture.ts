@@ -9,6 +9,11 @@
 // scene.json. It never builds and never starts a server: the caller owns both,
 // so a capture cannot silently shoot a stale bundle.
 //
+// --max-tiles caps the PLANNED grid only. Corrective shots draw on a further
+// reserve of CORRECTIVE_RESERVE tiles above the cap, so a plan whose grid fills
+// the budget exactly still gets a corrective pass; the reserve is echoed in the
+// ledger as coverage.correctiveReserve.
+//
 // Exit codes:
 //   0  captured; status is "complete" or a labelled "partial"
 //   1  harness failure (bad flags, degenerate geometry, browser error)
@@ -85,11 +90,34 @@ const PARK_POINT = { x: 3, y: 3 };
 // tile are bigger than a tile or otherwise unframeable, and further rounds
 // cannot help them, so the loop stops rather than burning the tile budget.
 const MAX_CORRECTIVE_ROUNDS = 3;
+// Tiles the corrective pass may spend ABOVE --max-tiles. The planned grid is
+// capped, and charging corrective shots to the same budget would leave a plan
+// whose grid lands exactly on the cap with no corrective pass at all - which is
+// the case that needs one most, since contentBounds unions chip extents as
+// fixed world constants while a chip's true footprint at a zoom below 1 is
+// larger, so the planned band systematically under-covers periphery chips.
+const CORRECTIVE_RESERVE = 8;
+// How far the achieved zoom may sit from the commanded one before the capture
+// is called a failure. The transform is assigned verbatim by d3-zoom, so the
+// slack here is float noise, not a tolerance for clamping.
+const ZOOM_EPS = 1e-6;
 
 // Element families a reviewer must read whole in a single shot: half a chip in
 // one tile and half in another is two unreadable halves. Everything else (edge
 // paths, bus bands, group slabs) may legitimately span shots.
-const POINT_KINDS = new Set(["node", "chip", "junction", "glyph"]);
+//
+// Exhaustive over the collector's kinds on purpose. A Set lookup would default a
+// kind nobody classified to the permissive class, silently weakening coverage
+// for it; as a total record, a new collector kind is a compile error here.
+const KIND_CLASS: Record<SceneElement["kind"], "point" | "extended"> = {
+  node: "point",
+  chip: "point",
+  junction: "point",
+  glyph: "point",
+  edge: "extended",
+  band: "extended",
+  group: "extended",
+};
 
 type Options = {
   baseUrl: string;
@@ -320,6 +348,37 @@ function slug(id: string): string {
   return cleaned === "" ? "element" : cleaned.slice(0, 80);
 }
 
+// The file one corrective shot writes to. The slug alone is not enough: it is
+// truncated, and ids that differ only past the cut collide - bus chip ids are
+// "bus-edge-label-<edgeId>-drop" and "...-rise", so the two chips of one long
+// edge id slug identically. Two records would then name one image and one of
+// them would describe a picture that no longer exists. The index makes the name
+// unique whatever the ids are, because no two corrective shots share one; the
+// slug stays on for the reader.
+export function correctiveFileName(index: number, id: string): string {
+  return `20-corrective-${String(index).padStart(3, "0")}-${slug(id)}.png`;
+}
+
+// The commanded viewport is supposed to land verbatim: setViewport forwards to
+// d3-zoom's zoom.transform, and the scale extent binds gestures and fitView, not
+// that path. If it ever does not, nothing downstream notices on its own - tile
+// rects and element rects are both derived from the ACHIEVED transform, so the
+// coverage math stays self-consistent and still reports "complete" while the
+// document swears the images are at the commanded zoom and the evaluator reads
+// LOD tier off that number. There is no honest ledger to write for a clamped
+// shot, so the run fails instead.
+export function assertZoomAchieved(
+  file: string,
+  commanded: number,
+  achieved: number,
+): void {
+  if (Math.abs(achieved - commanded) <= ZOOM_EPS) return;
+  throw new Error(
+    `${file}: commanded zoom ${commanded} but the viewport achieved ${achieved}; ` +
+      `the camera was clamped or ignored, so no image can be labelled with the commanded zoom`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Shooting
 // ---------------------------------------------------------------------------
@@ -359,15 +418,20 @@ async function shoot(
     .screenshot({ path: path.join(dir, req.file), scale: "css" });
 
   const scene = await page.evaluate(collectScene);
+  assertZoomAchieved(req.file, commanded.zoom, scene.transform.zoom);
   const pane = paneFrame(scene);
   // Recomputed per shot rather than reused from the planning pass: the chrome
   // that occludes the pane is measured, not assumed, and a tile records the safe
   // region that actually applied to it.
   const safe = safeRegion(pane, overlayRects(scene), RIM_INSET);
 
+  // Published against the safe region, not the raw pane. An element that only
+  // reaches the pane under the minimap or the zoom controls is in the image but
+  // not visible in it, and the evaluator indexes images by exactly these rects -
+  // it would be reading chrome and calling it an element.
   const elements: Record<string, Rect> = {};
   for (const el of scene.elements) {
-    if (!intersects(el.clientRect, pane)) continue;
+    if (!intersects(el.clientRect, safe)) continue;
     elements[el.id] = el.clientRect;
   }
 
@@ -396,26 +460,58 @@ function coverageElementsFrom(
 ): CoverageElement[] {
   return [...inventory.values()].map((el) => ({
     id: el.id,
-    kind: POINT_KINDS.has(el.kind) ? ("point" as const) : ("extended" as const),
+    kind: KIND_CLASS[el.kind],
     worldRect: el.worldRect,
     ...(el.polyline !== undefined ? { polyline: el.polyline } : {}),
   }));
 }
 
 // Chip ids and owning-edge ids come from two different collectors, and only the
-// geometry one reports the owner. Joining on the rounded world rect is safe
-// because both collections are taken at the same camera with nothing changing
-// in between, so the two views of one chip agree to the pixel. A chip with no
+// geometry one reports the owner. Joining on the rounded world rect is safe only
+// WITHIN one shot: both collections are then taken at the same camera with
+// nothing changing in between, so the two views of one chip agree to the pixel.
+// Across cameras they do not - a world rect is translation-invariant in exact
+// arithmetic, but getBoundingClientRect is subpixel-quantised, and a shift of a
+// hundredth of a world unit is enough to move a toFixed(2) key. A chip with no
 // match simply carries no edgeId - a wrong owner would be worse than none.
 function edgeIdByChipRect(geom: Geometry): Map<string, string> {
-  const key = (x: number, y: number, r: number, b: number): string =>
-    [x, y, r, b].map((n) => n.toFixed(2)).join(",");
   const map = new Map<string, string>();
   for (const c of geom.chips) {
     if (c.edgeId === "") continue;
-    map.set(key(c.left, c.top, c.right, c.bottom), c.edgeId);
+    map.set(rectKey(c.left, c.top, c.right, c.bottom), c.edgeId);
   }
   return map;
+}
+
+function rectKey(x: number, y: number, right: number, bottom: number): string {
+  return [x, y, right, bottom].map((n) => n.toFixed(2)).join(",");
+}
+
+// Fold one shot into the running collections: elements not seen before, the
+// owning edge of any chip among them, and any edge path not seen before. The
+// geometry read happens at THIS shot's camera, which is what keeps the chip join
+// exact; reading it once and joining later would go silently sparse on every
+// element first seen at a different tile.
+async function absorbShot(
+  page: Page,
+  shot: Shot,
+  inventory: Map<string, SceneElement>,
+  chipOwner: Map<string, string>,
+  edgePaths: Map<string, string>,
+): Promise<void> {
+  const geom = await page.evaluate(collectGeometry);
+  const owners = edgeIdByChipRect(geom);
+  for (const el of shot.scene.elements) {
+    if (inventory.has(el.id)) continue;
+    inventory.set(el.id, el);
+    if (el.kind !== "chip") continue;
+    const r = el.worldRect;
+    const owner = owners.get(rectKey(r.x, r.y, r.x + r.width, r.y + r.height));
+    if (owner !== undefined) chipOwner.set(el.id, owner);
+  }
+  for (const edge of geom.edges) {
+    if (!edgePaths.has(edge.id)) edgePaths.set(edge.id, edge.d);
+  }
 }
 
 async function capture(opts: Options): Promise<number> {
@@ -484,7 +580,7 @@ async function capture(opts: Options): Promise<number> {
       overlayMasks: overlayMasks(fitScene),
       elements: Object.fromEntries(
         fitScene.elements
-          .filter((el) => intersects(el.clientRect, paneAtFit))
+          .filter((el) => intersects(el.clientRect, cameraSafe))
           .map((el) => [el.id, el.clientRect]),
       ),
     };
@@ -513,7 +609,13 @@ async function capture(opts: Options): Promise<number> {
     // computed from a fit-zoom walk would cover elements that do not exist and
     // miss the ones that do.
     const inventory = new Map<string, SceneElement>();
-    let geometry: Geometry | null = null;
+    const chipOwner = new Map<string, string>();
+    const edgePaths = new Map<string, string>();
+    // The zoom the tile rects were actually built from. Equal to the commanded
+    // one or the shot would have thrown, but the seam margin is converted to
+    // world units with it anyway: one computation must not mix a commanded zoom
+    // with rects measured at an achieved one.
+    let shotZoom = opts.targetZoom;
 
     for (const tile of planned) {
       const shotResult = await shoot(page, dir, cameraSafe, opts.targetZoom, {
@@ -525,16 +627,11 @@ async function capture(opts: Options): Promise<number> {
       });
       tiles.push(shotResult.record);
       tileWorldRects.push(shotResult.worldRect);
-      for (const el of shotResult.scene.elements) {
-        if (!inventory.has(el.id)) inventory.set(el.id, el);
-      }
-      // One geometry read, at the first tile's camera: the audit geometry is
-      // zoom-dependent for the same reason the inventory is, and nothing moves
-      // between the two collections at a fixed camera.
-      if (geometry === null) geometry = await page.evaluate(collectGeometry);
+      shotZoom = shotResult.record.viewportTransform.zoom;
+      await absorbShot(page, shotResult, inventory, chipOwner, edgePaths);
     }
 
-    const seamMarginWorld = opts.seamMargin / opts.targetZoom;
+    const seamMarginWorld = opts.seamMargin / shotZoom;
     let coverage = computeCoverage(
       coverageElementsFrom(inventory),
       tileWorldRects,
@@ -557,23 +654,21 @@ async function capture(opts: Options): Promise<number> {
       if (pending.length === 0) break;
 
       for (const u of pending) {
-        if (tiles.length - 1 >= opts.maxTiles) {
+        if (tiles.length - 1 >= opts.maxTiles + CORRECTIVE_RESERVE) {
           capHit = true;
           break;
         }
         attempted.add(u.id);
         const el = inventory.get(u.id)!;
         const shotResult = await shoot(page, dir, cameraSafe, opts.targetZoom, {
-          file: `20-corrective-${slug(u.id)}.png`,
+          file: correctiveFileName(correctiveTiles, u.id),
           kind: "corrective",
           center: centreOf(el.worldRect),
         });
         tiles.push(shotResult.record);
         tileWorldRects.push(shotResult.worldRect);
         correctiveTiles++;
-        for (const e of shotResult.scene.elements) {
-          if (!inventory.has(e.id)) inventory.set(e.id, e);
-        }
+        await absorbShot(page, shotResult, inventory, chipOwner, edgePaths);
       }
 
       coverage = computeCoverage(
@@ -593,13 +688,6 @@ async function capture(opts: Options): Promise<number> {
         worldRect: el.worldRect,
       };
     }
-
-    const chipOwner =
-      geometry === null ? new Map<string, string>() : edgeIdByChipRect(geometry);
-    const chipKey = (r: Rect): string =>
-      [r.x, r.y, r.x + r.width, r.y + r.height]
-        .map((n) => n.toFixed(2))
-        .join(",");
 
     const doc: SceneDoc = {
       planId: opts.planId,
@@ -621,11 +709,11 @@ async function capture(opts: Options): Promise<number> {
       },
       tiles,
       elements,
-      edges: geometry?.edges ?? [],
+      edges: [...edgePaths].map(([id, d]) => ({ id, d })),
       chips: [...inventory.values()]
         .filter((el) => el.kind === "chip")
         .map((el) => {
-          const owner = chipOwner.get(chipKey(el.worldRect));
+          const owner = chipOwner.get(el.id);
           return {
             id: el.id,
             ...(owner !== undefined ? { edgeId: owner } : {}),
@@ -639,6 +727,7 @@ async function capture(opts: Options): Promise<number> {
         coveredCount: coverage.covered.length,
         uncovered: coverage.uncovered,
         correctiveTiles,
+        correctiveReserve: CORRECTIVE_RESERVE,
         capHit,
       },
       consoleErrors,

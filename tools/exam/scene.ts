@@ -53,11 +53,16 @@ export type SceneMeasurement = {
   detail: string;
 };
 
+// `correctiveReserve` is how many tiles the corrective pass was allowed to spend
+// ABOVE the grid cap. It is recorded because `capHit` alone does not say how
+// much rope the corrective pass had, and a reader comparing two captures needs
+// to know whether a `partial` ran out of budget or ran out of ideas.
 export type SceneCoverage = {
   targetZoom: number;
   coveredCount: number;
   uncovered: Array<{ id: string; kind: string; reason: string }>;
   correctiveTiles: number;
+  correctiveReserve: number;
   capHit: boolean;
 };
 
@@ -75,6 +80,9 @@ export type SceneDoc = {
   };
   fit: Viewport;
   contentRect: Rect;
+  // The zoom every `tile` and `corrective` image was shot at. A capture that
+  // could not achieve it fails rather than writing this field, so a reader may
+  // treat it as a measurement and not as a request.
   targetZoom: number;
   lodGates: { labelMinZoom: number; chipIconOnlyMaxZoom: number };
   tiles: TileRecord[];
