@@ -57,14 +57,30 @@ const HOVER_NODES: Node[] = [
   },
 ];
 
-function renderCanvas(nodes: Node[], edges: Edge[]) {
-  return render(
+// A second plan placed far enough away that its bounds cannot overlap the first
+// set's: any rect covering these nodes starts to the right of where the first
+// set ends, which is what makes a stale hook detectable.
+const MOVED_NODES: Node[] = [
+  {
+    id: "m1",
+    type: "recipe",
+    position: { x: 20000, y: 20000 },
+    data: { recipe: RECIPE, kind: "recipe" },
+  },
+];
+
+function canvasTree(nodes: Node[], edges: Edge[]) {
+  return (
     <LocaleProvider locale="en">
       <ItemPackProvider value={PACK}>
         <Canvas nodes={nodes} edges={edges} />
       </ItemPackProvider>
-    </LocaleProvider>,
+    </LocaleProvider>
   );
+}
+
+function renderCanvas(nodes: Node[], edges: Edge[]) {
+  return render(canvasTree(nodes, edges));
 }
 
 describe("exam camera hook", () => {
@@ -106,9 +122,26 @@ describe("exam camera hook", () => {
     expect(b.height).toBeGreaterThan(0);
   });
 
+  // The one binding constraint on the effect: contentBounds closes over the
+  // node/edge props, so the hook must be rebuilt on every plan change. Pinning it
+  // needs two node sets whose bounds are disjoint, because a rect from the stale
+  // closure is otherwise indistinguishable from a fresh one.
+  test("contentBounds tracks a plan change", () => {
+    window.history.replaceState(null, "", "/?exam=1");
+    const { rerender } = renderCanvas(HOVER_NODES, []);
+    const before = window.__stcExam!.contentBounds()!;
+    rerender(canvasTree(MOVED_NODES, []));
+    const after = window.__stcExam!.contentBounds()!;
+    expect(after.x).toBeGreaterThan(before.x + before.width);
+    expect(after.y).toBeGreaterThan(before.y + before.height);
+  });
+
   test("uninstalls on unmount", () => {
     window.history.replaceState(null, "", "/?exam=1");
     const { unmount } = renderCanvas(HOVER_NODES, []);
+    // Assert the installed state first: without it, the post-unmount assertion
+    // also passes when the hook was never installed at all.
+    expect(typeof window.__stcExam?.setViewport).toBe("function");
     unmount();
     expect(window.__stcExam).toBeUndefined();
   });
