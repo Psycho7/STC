@@ -49,6 +49,8 @@ import {
   type Viewport,
 } from "./tiling";
 import {
+  measurementsFor,
+  worldRectKey,
   writeScene,
   type OverlayMask,
   type SceneDoc,
@@ -467,24 +469,21 @@ function coverageElementsFrom(
 }
 
 // Chip ids and owning-edge ids come from two different collectors, and only the
-// geometry one reports the owner. Joining on the rounded world rect is safe only
-// WITHIN one shot: both collections are then taken at the same camera with
-// nothing changing in between, so the two views of one chip agree to the pixel.
-// Across cameras they do not - a world rect is translation-invariant in exact
-// arithmetic, but getBoundingClientRect is subpixel-quantised, and a shift of a
-// hundredth of a world unit is enough to move a toFixed(2) key. A chip with no
+// geometry one reports the owner. Joining on the rounded world rect (worldRectKey,
+// shared with the measurement pass, which recovers chip identity the same way) is
+// safe only WITHIN one shot: both collections are then taken at the same camera
+// with nothing changing in between, so the two views of one chip agree to the
+// pixel. Across cameras they do not - a world rect is translation-invariant in
+// exact arithmetic, but getBoundingClientRect is subpixel-quantised, and a shift
+// of a hundredth of a world unit is enough to move a rounded key. A chip with no
 // match simply carries no edgeId - a wrong owner would be worse than none.
 function edgeIdByChipRect(geom: Geometry): Map<string, string> {
   const map = new Map<string, string>();
   for (const c of geom.chips) {
     if (c.edgeId === "") continue;
-    map.set(rectKey(c.left, c.top, c.right, c.bottom), c.edgeId);
+    map.set(worldRectKey(c.left, c.top, c.right, c.bottom), c.edgeId);
   }
   return map;
-}
-
-function rectKey(x: number, y: number, right: number, bottom: number): string {
-  return [x, y, right, bottom].map((n) => n.toFixed(2)).join(",");
 }
 
 // Fold one shot into the running collections: elements not seen before, the
@@ -506,7 +505,9 @@ async function absorbShot(
     inventory.set(el.id, el);
     if (el.kind !== "chip") continue;
     const r = el.worldRect;
-    const owner = owners.get(rectKey(r.x, r.y, r.x + r.width, r.y + r.height));
+    const owner = owners.get(
+      worldRectKey(r.x, r.y, r.x + r.width, r.y + r.height),
+    );
     if (owner !== undefined) chipOwner.set(el.id, owner);
   }
   for (const edge of geom.edges) {
@@ -678,6 +679,18 @@ async function capture(opts: Options): Promise<number> {
       );
     }
 
+    // Measured at the camera the last shot left behind, which is the TARGET
+    // zoom: chips counter-scale and the label LOD gate decides which of them
+    // mount at all, so their world footprints are zoom-specific and the frame
+    // that matters is the one the images were taken in. Both collectors are read
+    // back to back with no camera move between them, which is what the chip join
+    // inside measurementsFor requires. Whole-document collectors, so a tile
+    // camera still returns the entire graph and not just what is on screen.
+    const measured = measurementsFor(
+      await page.evaluate(collectGeometry),
+      await page.evaluate(collectScene),
+    );
+
     const elements: SceneDoc["elements"] = {};
     for (const id of [...inventory.keys()].sort()) {
       const el = inventory.get(id)!;
@@ -721,7 +734,8 @@ async function capture(opts: Options): Promise<number> {
             worldRect: el.worldRect,
           };
         }),
-      measurements: [],
+      measurements: measured.measurements,
+      crossingCensus: measured.crossingCensus,
       coverage: {
         targetZoom: opts.targetZoom,
         coveredCount: coverage.covered.length,

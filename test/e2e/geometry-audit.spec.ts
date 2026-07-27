@@ -11,16 +11,12 @@ import {
   fmtSeg,
   parsePath,
   polylineLength,
+  toRawEdges,
   type ChipRect,
   type NodeRect,
   type RawEdge,
 } from "./geometry";
-import {
-  collectAudit,
-  collectGeometry,
-  type AuditChipRect,
-  type EdgeGeom,
-} from "./collect";
+import { collectAudit, collectGeometry, type AuditChipRect } from "./collect";
 
 // The P1 acceptance gate for the placement campaign: a DOM-geometry audit run
 // against the live client rects the user actually sees. Two invariants per
@@ -407,26 +403,6 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   multi6: 0,
   tundra: 0,
 };
-
-// Parse an edge id `e:<index>:<from>-><to>:<item>` (layout.ts) into its source,
-// target, and item. from / to are ELK unit ids (no `->` or trailing `:item`).
-function parseEdgeId(
-  id: string,
-): { source: string; target: string; item: string } | null {
-  const m = /^e:\d+:(.+)->(.+):([^:]+)$/.exec(id);
-  if (m === null) return null;
-  return { source: m[1]!, target: m[2]!, item: m[3]! };
-}
-
-function toRawEdges(edges: EdgeGeom[]): RawEdge[] {
-  const out: RawEdge[] = [];
-  for (const e of edges) {
-    const parsed = parseEdgeId(e.id);
-    if (parsed === null) continue;
-    out.push({ id: e.id, d: e.d, ...parsed });
-  }
-  return out;
-}
 
 async function loadScenario(page: Page, hash: string): Promise<void> {
   await page.goto(`/#${hash}`, { waitUntil: "load" });

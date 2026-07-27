@@ -161,6 +161,32 @@ export function containersAt(p: Pt, nodes: ReadonlyArray<NodeRect>): string[] {
     .map((n) => n.nodeId);
 }
 
+// Parse an edge id `e:<index>:<from>-><to>:<item>` (the form layout.ts builds)
+// into its source, target, and item. from / to are ELK unit ids (no `->` or
+// trailing `:item`). Lives here rather than in a caller because every consumer
+// of the audits below has to recover the same three fields from the same id.
+export function parseEdgeId(
+  id: string,
+): { source: string; target: string; item: string } | null {
+  const m = /^e:\d+:(.+)->(.+):([^:]+)$/.exec(id);
+  if (m === null) return null;
+  return { source: m[1]!, target: m[2]!, item: m[3]! };
+}
+
+// Lift collected `{ id, d }` edges to RawEdge, dropping any id that does not
+// carry the source / target / item encoding the audits need.
+export function toRawEdges(
+  edges: ReadonlyArray<{ id: string; d: string }>,
+): RawEdge[] {
+  const out: RawEdge[] = [];
+  for (const e of edges) {
+    const parsed = parseEdgeId(e.id);
+    if (parsed === null) continue;
+    out.push({ id: e.id, d: e.d, ...parsed });
+  }
+  return out;
+}
+
 export type SegmentViolation = {
   edgeId: string;
   card: string;

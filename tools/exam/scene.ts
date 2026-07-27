@@ -1,11 +1,11 @@
-// The exam's on-disk evidence document: `scene.json`.
+// The exam's on-disk evidence document: `scene.json`, plus the measurement pass
+// that fills its geometry section.
 //
-// This module owns the document shape and the write, and nothing else - no
-// browser, no geometry math. It is deliberately verdict-free. Everything it
-// carries is a measurement or a provenance record; whether a number is a defect
-// is a judgement the repo's existing ratchets already make, with written
-// rulings behind large accepted counts, so nothing here may be read as an
-// accusation.
+// No browser: everything here is a pure function of an already-collected
+// snapshot. It is deliberately verdict-free. Everything it carries is a
+// measurement or a provenance record; whether a number is a defect is a
+// judgement the repo's existing ratchets already make, with written rulings
+// behind large accepted counts, so nothing here may be read as an accusation.
 //
 // Coordinate contract, restated because a reader of the JSON has no other
 // source for it: every rect is CSS pixels relative to the `.react-flow` pane's
@@ -16,6 +16,21 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  auditChipsOnOwnPath,
+  auditChipsVsCards,
+  auditOwnCardPierces,
+  auditSegmentsVsCards,
+  auditSegmentsVsChips,
+  countCrossings,
+  fmtSeg,
+  segmentEntersRect,
+  toRawEdges,
+  type ChipRect,
+  type NodeRect,
+  type Pt,
+} from "../../test/e2e/geometry";
+import type { Geometry, SceneCollection } from "../../test/e2e/collect";
 import type { Rect, Viewport } from "./tiling";
 
 export type OverlayMask = { name: string } & Rect;
@@ -42,12 +57,23 @@ export type SceneElementRecord = {
   worldRect: Rect;
 };
 
+// What the geometry audits count. The names are the audits' own subject matter,
+// not charges: the ratchet spec permits large per-scenario counts of every one
+// of these behind hand-written rulings, so an entry here says only "this
+// occurrence exists at this place".
+export type MeasurementKind =
+  | "chip-off-own-path"
+  | "chip-vs-card"
+  | "segment-vs-card"
+  | "own-card-pierce"
+  | "chip-vs-segment";
+
 // A raw geometry occurrence with a location, so a reported finding can be
 // joined to it by footprint. The measurement pass fills these in; a plain
 // capture emits none, which is why an empty array means "not measured" rather
 // than "measured and clean".
-export type SceneMeasurement = {
-  kind: string;
+export type Measurement = {
+  kind: MeasurementKind;
   elementIds: string[];
   footprint: Rect;
   detail: string;
@@ -89,7 +115,7 @@ export type SceneDoc = {
   elements: Record<string, SceneElementRecord>;
   edges: Array<{ id: string; d: string }>;
   chips: Array<{ id: string; edgeId?: string; text: string; worldRect: Rect }>;
-  measurements: SceneMeasurement[];
+  measurements: Measurement[];
   // Absent until the measurement pass computes it. Emitting `{ count: 0 }` from
   // a capture that never counted anything would be indistinguishable from a
   // genuine zero, so the field is left off instead.
@@ -97,6 +123,202 @@ export type SceneDoc = {
   coverage: SceneCoverage;
   consoleErrors: string[];
 };
+
+// ---------------------------------------------------------------------------
+// The measurement pass
+// ---------------------------------------------------------------------------
+
+// The eps the audits default to. Passed explicitly wherever this module has to
+// repeat one of their geometric tests, so a chip resolved here is resolved
+// against the same boundary rule that reported the occurrence.
+const AUDIT_EPS = 0.5;
+
+// Bounding rect of one polyline segment. An orthogonal run is flat in one axis,
+// so the rect it yields has zero thickness there. That is the honest extent of a
+// line: a consumer joining an evidence rect to a footprint must use an inclusive
+// intersection test with its own tolerance rather than demanding overlap area.
+function segFootprint(seg: readonly [Pt, Pt]): Rect {
+  const [a, b] = seg;
+  return {
+    x: Math.min(a[0], b[0]),
+    y: Math.min(a[1], b[1]),
+    width: Math.abs(b[0] - a[0]),
+    height: Math.abs(b[1] - a[1]),
+  };
+}
+
+function boxFootprint(box: {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}): Rect {
+  return {
+    x: box.left,
+    y: box.top,
+    width: box.right - box.left,
+    height: box.bottom - box.top,
+  };
+}
+
+// Where two boxes actually meet, falling back to `a` when they do not meet at
+// all. The fallback keeps a footprint that is merely coarse from becoming one
+// that is empty, which would join to nothing and read as "no such place".
+function intersectionOr(a: Rect, b: Rect): Rect {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  if (right <= x || bottom <= y) return a;
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+// The join key between the two in-page collectors' views of one box. Valid only
+// within a single camera: both collections are then taken with nothing changing
+// in between, so the two views agree to the pixel. Across cameras they do not -
+// getBoundingClientRect is subpixel-quantised, and a hundredth of a world unit
+// is enough to move a rounded key.
+export function worldRectKey(
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+): string {
+  return [left, top, right, bottom].map((n) => n.toFixed(2)).join(",");
+}
+
+// Scene element id per chip box. A key claimed by two chips is dropped rather
+// than resolved arbitrarily: naming the wrong chip would point a later join at
+// the wrong place, which is worse than naming no chip at all.
+function chipIdsByRect(scene: SceneCollection): Map<string, string> {
+  const byKey = new Map<string, string>();
+  const ambiguous: string[] = [];
+  for (const el of scene.elements) {
+    if (el.kind !== "chip") continue;
+    const r = el.worldRect;
+    const key = worldRectKey(r.x, r.y, r.x + r.width, r.y + r.height);
+    if (byKey.has(key)) {
+      ambiguous.push(key);
+      continue;
+    }
+    byKey.set(key, el.id);
+  }
+  for (const key of ambiguous) byKey.delete(key);
+  return byKey;
+}
+
+function idList(...values: Array<string | undefined>): string[] {
+  return [
+    ...new Set(values.filter((v): v is string => v !== undefined && v !== "")),
+  ];
+}
+
+// Run the geometry audits over one camera's snapshot and record every occurrence
+// they report, each pinned to a world-unit footprint.
+//
+// These are MEASUREMENTS, not findings. The ratchet spec that owns these same
+// audits accepts large nonzero counts of every kind below, per scenario, behind
+// hand-written rulings; treating an entry here as a defect would re-file conditions
+// that have already been ruled on individually. A finding becomes a finding when
+// a baseline is exceeded, which is that spec's job and not this one's. What a
+// footprint is for is the opposite direction: deciding whether a finding someone
+// else reported has independent geometric support AT THE PLACE THEY MARKED, which
+// is why a long edge measured at one end must not carry the whole edge's rect.
+//
+// `geom` and `scene` must come from the SAME camera: chip identity is recovered
+// by matching world rects between the two collectors, and that join only holds
+// within one shot.
+export function measurementsFor(
+  geom: Geometry,
+  scene: SceneCollection,
+): { measurements: Measurement[]; crossingCensus: { count: number } } {
+  const edges = toRawEdges(geom.edges);
+  const nodes: NodeRect[] = geom.nodes;
+  const chips: ChipRect[] = geom.chips;
+  const nodeById = new Map(nodes.map((n) => [n.nodeId, n]));
+  const chipIds = chipIdsByRect(scene);
+  const chipIdOf = (chip: ChipRect): string | undefined =>
+    chipIds.get(worldRectKey(chip.left, chip.top, chip.right, chip.bottom));
+
+  const measurements: Measurement[] = [];
+
+  for (const v of auditSegmentsVsCards(edges, nodes)) {
+    measurements.push({
+      kind: "segment-vs-card",
+      elementIds: idList(v.edgeId, v.card),
+      footprint: segFootprint(v.seg),
+      detail: `edge ${v.edgeId} segment ${fmtSeg(v.seg)} enters ${
+        v.raw ? "the raw box of" : "the padding of"
+      } card ${v.card}`,
+    });
+  }
+
+  for (const v of auditOwnCardPierces(edges, nodes)) {
+    measurements.push({
+      kind: "own-card-pierce",
+      elementIds: idList(v.edgeId, v.card),
+      footprint: segFootprint(v.seg),
+      detail: `edge ${v.edgeId} segment ${fmtSeg(v.seg)} runs inside its own ${v.role} card ${v.card}`,
+    });
+  }
+
+  // The chip is identified by owner and label only, which two chips of one edge
+  // can share, so the candidate set is narrowed by the reported segment: the one
+  // chip that segment actually enters. Still ambiguous means no chip id.
+  for (const v of auditSegmentsVsChips(edges, chips, nodes)) {
+    const candidates = chips.filter(
+      (c) =>
+        c.edgeId === v.chipEdgeId &&
+        c.label === v.chipLabel &&
+        segmentEntersRect(v.seg[0], v.seg[1], c, AUDIT_EPS),
+    );
+    const chipId =
+      candidates.length === 1 ? chipIdOf(candidates[0]!) : undefined;
+    measurements.push({
+      kind: "chip-vs-segment",
+      elementIds: idList(chipId, v.chipEdgeId, v.edgeId),
+      footprint: segFootprint(v.seg),
+      detail: `edge ${v.edgeId} segment ${fmtSeg(v.seg)} enters the chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
+    });
+  }
+
+  // Chip-keyed audits are run one chip at a time. Both are per-chip loops with
+  // no cross-chip state, so a singleton call reports exactly what the batch call
+  // would - and it hands back WHICH chip each occurrence belongs to, which their
+  // payloads (owner id plus label, and for the off-path tier a bare distance) do
+  // not otherwise pin down.
+  for (const chip of chips) {
+    const chipRect = boxFootprint(chip);
+    const chipId = chipIdOf(chip);
+
+    for (const v of auditChipsVsCards([chip], edges, nodes)) {
+      const card = nodeById.get(v.card)!;
+      measurements.push({
+        kind: "chip-vs-card",
+        elementIds: idList(chipId, v.chipEdgeId, v.card),
+        footprint: intersectionOr(chipRect, boxFootprint(card)),
+        detail: `${v.chipKind} chip of ${v.chipEdgeId} ("${v.chipLabel}") overlaps card ${v.card}`,
+      });
+    }
+
+    for (const v of auditChipsOnOwnPath([chip], edges)) {
+      measurements.push({
+        kind: "chip-off-own-path",
+        elementIds: idList(chipId, v.chipEdgeId),
+        footprint: chipRect,
+        detail: `label chip of ${v.chipEdgeId} ("${v.chipLabel}") sits ${v.distance.toFixed(1)} world units off its own polyline`,
+      });
+    }
+  }
+
+  // Kept out of `measurements` on purpose: countCrossings returns a bare number
+  // with no participating ids and no place, so there is no footprint to give it
+  // and nothing it could ever corroborate.
+  return {
+    measurements,
+    crossingCensus: { count: countCrossings(geom.edges) },
+  };
+}
 
 // Write `<dir>/scene.json` and return the path it landed at. The directory is
 // created if it does not exist, because the caller has already been writing
