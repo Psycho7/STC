@@ -43,7 +43,8 @@ describe("counts", () => {
     // and the __miner_water identity recipe.
     expect(pack.items).toHaveLength(113);
     expect(pack.machines).toHaveLength(33);
-    expect(pack.transports).toHaveLength(2);
+    // Two upstream transports (belt, pipe) plus the synthetic gas carrier.
+    expect(pack.transports).toHaveLength(3);
     expect(pack.recipes).toHaveLength(242);
     expect(pack.categories).toHaveLength(5);
     expect(pack.locations).toHaveLength(2);
@@ -308,6 +309,48 @@ describe("transport-kind classification", () => {
     expect(solid).toBeDefined();
     expect(solid!.transportKind).toBe("belt");
     expect(typeof solid!.stack).toBe("number");
+  });
+
+  test("gas items classify as gas, not pipe", () => {
+    const gas = pack.items.find((i) => i.id === "gas_copper");
+    expect(gas).toBeDefined();
+    expect(gas!.transportKind).toBe("gas");
+    expect(gas!.stack).toBeUndefined();
+  });
+
+  test("the synthetic gas carrier is present so every item kind resolves", () => {
+    const gasPipe = pack.transports.find((t) => t.id === "gas_pipe");
+    expect(gasPipe).toBeDefined();
+    expect(gasPipe!.kind).toBe("gas");
+    expect(gasPipe!.speed).toBe(2);
+
+    const kinds = new Set(pack.transports.map((t) => t.kind));
+    for (const item of pack.items) {
+      expect(kinds.has(item.transportKind)).toBe(true);
+    }
+  });
+
+  test("the synthetic gas carrier is translated in every locale", () => {
+    for (const locale of i18n.locales) {
+      const name = i18n.names[locale]!.transports["gas_pipe"];
+      expect(name).toBeDefined();
+      expect(name!.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("every unstackable item splits cleanly between gas and pipe", () => {
+    const unstackable = pack.items.filter((i) => i.stack === undefined);
+    const byKind = { gas: [] as string[], pipe: [] as string[], other: [] as string[] };
+    for (const i of unstackable) {
+      if (i.transportKind === "gas") byKind.gas.push(i.id);
+      else if (i.transportKind === "pipe") byKind.pipe.push(i.id);
+      else byKind.other.push(i.id);
+    }
+    expect(byKind.other).toEqual([]);
+    expect(byKind.gas.every((id) => id.startsWith("gas_"))).toBe(true);
+    expect(byKind.pipe.some((id) => id.startsWith("gas_"))).toBe(false);
+    expect(byKind.gas.length).toBeGreaterThan(0);
+    expect(byKind.pipe.length).toBeGreaterThan(0);
   });
 });
 

@@ -1368,6 +1368,16 @@
   opacity: 0.3;
 }
 
+/* Gas edges fade to a higher floor than the rest. Their stroke is dash-dot, and
+   at 0.3 the single-unit dot segments drop below visibility while the dashes
+   survive, so a dimmed gas line reads as broken geometry instead of a faded
+   edge. The :has() selector is needed because the opacity lives on the edge
+   wrapper while the kind is stamped on the path inside it. */
+.ak-canvas-theme
+  .react-flow__edge.dimmed:has(path[data-transport-kind="gas"]) {
+  opacity: 0.45;
+}
+
 /* A container lit only because a child is focused: keep it visible with a lit
    border but a more translucent fill, so the box does not dominate its own
    dimmed members. */
@@ -1385,6 +1395,17 @@
 .ak-canvas-theme.hover-active .react-flow__edge:not(.dimmed) path {
   stroke-width: max(2.25px, calc(var(--edge-base-width, 1px) * 1.6)) !important;
   filter: brightness(1.35);
+}
+
+/* The rule above widens the stroke, but stroke-dasharray is in user units and
+   does not scale with it, so a lit gas edge renders its 1-unit dots as round
+   blobs wider than the gaps around them and stops reading as dash-dot. Stretch
+   the pattern in proportion for the lit state only. !important beats the inline
+   strokeDasharray the edge sets from strokeForKind. */
+.ak-canvas-theme.hover-active
+  .react-flow__edge:not(.dimmed)
+  path[data-transport-kind="gas"] {
+  stroke-dasharray: 8 3 1.5 3 !important;
 }
 
 /* React Flow's stock handle paints a white-bordered ring (its style.css

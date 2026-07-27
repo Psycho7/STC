@@ -8,7 +8,7 @@ export const SCHEMA_VERSION = "0.2";
 // in without a type change.
 export type TransportKindId = string;
 
-export const TRANSPORT_KIND = { BELT: "belt", PIPE: "pipe" } as const;
+export const TRANSPORT_KIND = { BELT: "belt", PIPE: "pipe", GAS: "gas" } as const;
 
 // Locales joined into the i18n sidecar. The order here is the order written to
 // the sidecar's `locales` array.
@@ -59,8 +59,9 @@ export interface Item {
   // Whether this item is a raw input boundary in the production graph.
   // Computed by the extractor after synthetic-chain collapse.
   raw: boolean;
-  // Transport phase this item flows on. Computed by the extractor from the
-  // upstream factoriolab signal (stack -> belt, no stack -> pipe).
+  // Transport phase this item flows on. Computed by the extractor: a stack size
+  // means belt, an unstackable gas_-prefixed id means gas, and any other
+  // unstackable item means pipe.
   transportKind: TransportKindId;
 }
 
