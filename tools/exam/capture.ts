@@ -691,9 +691,12 @@ async function capture(opts: Options): Promise<number> {
     }
 
     // Measured at the camera the last shot left behind, which is the TARGET
-    // zoom: chips counter-scale and the label LOD gate decides which of them
-    // mount at all, so their world footprints are zoom-specific and the frame
-    // that matters is the one the images were taken in. Both collectors are read
+    // zoom: chips counter-scale, so their world footprints are zoom-specific and
+    // the frame that matters is the one the images were taken in. That
+    // counter-scaling is the whole reason a chip-tier count here differs from
+    // one taken at the app's fit camera - the LOD gate runs the other way, since
+    // it suppresses chips BELOW its threshold and so can only lower a count at a
+    // low fit zoom, never raise it. Both collectors are read
     // back to back with no camera move between them, which is what the chip join
     // inside measurementsFor requires. Whole-document collectors, so a tile
     // camera still returns the entire graph and not just what is on screen.
