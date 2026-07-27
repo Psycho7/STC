@@ -4,24 +4,36 @@ export const meta = {
   whenToUse: 'Invoked by the render-exam skill AFTER tools/exam/capture.ts has written images and scene.json for every plan under exam',
   phases: [
     { title: 'Evaluate', detail: 'One agent per plan: judge the captured images cold, bounded by the coverage ledger' },
+    { title: 'Triage', detail: 'No agent: validate every finding, join it to the measurements by footprint, and route it' },
+    { title: 'Refute', detail: 'One agent per routed finding (or per plan for the batch): DISPROVE it against the running app through tools/exam/probe.ts' },
   ],
 }
 
 // args: {
-//   plans: [{ id, dir, url, images: [{file, what}], coverage }],
+//   plans: [{ id, dir, url, images: [{file, what}], tiles: [{file, kind, viewportTransform, safeRegion}], coverage }],
 //   measurements: { [planId]: Measurement[] },
 //   examDir,
 // }
 //   plans[].dir     absolute IMAGES directory the capture wrote, which is
-//                   `<examDir>/<planId>/images` and holds nothing but images
+//                   `<examDir>/<planId>/<imagesDir>` and holds nothing but images
 //   plans[].images  every image the capture produced, with a one-line description
+//   plans[].tiles   scene.json `tiles`, reduced to what the footprint join needs:
+//                   the bare `file` an evaluator can cite, the `kind` that says
+//                   which camera shot it, and the `viewportTransform`/`safeRegion`
+//                   that place a world-unit footprint inside that image. Passing
+//                   plans without it does not fail: it makes every join miss, and
+//                   "nothing was corroborated" is exactly what a working triage
+//                   over a clean plan looks like. Hence the checks below.
 //   plans[].coverage  scene.json `coverage`: what the capture proved it framed
-//   plans[].url     the plan's share URL. NOT given to an evaluator: it judges the
-//                   pixels, and a live app would let it answer questions the images
-//                   cannot. It is here for the refutation step, which drives the app.
+//   plans[].url     the plan's share URL, `<baseUrl>/?exam=1#<hash>` as the capture
+//                   recorded it. NOT given to an evaluator: it judges the pixels,
+//                   and a live app would let it answer questions the images cannot.
+//                   Refuters get it, because the probe command is built from it.
 //   measurements    geometry occurrences with world footprints, also deliberately
 //                   withheld from evaluators (see COLD below) and consumed by the
-//                   footprint join that triages findings.
+//                   footprint join that triages findings. Required per plan, and an
+//                   empty array is a real answer - the measurement pass runs on
+//                   every capture, so `[]` means measured and clean.
 //
 // COLD. An evaluator receives images and the coverage ledger, and nothing else: no
 // measurements, no earlier findings, no open-issue list. That independence is what
@@ -42,11 +54,49 @@ const input = typeof args === 'string' ? JSON.parse(args) : args
 const plans = input && input.plans
 
 if (!Array.isArray(plans) || plans.length === 0) {
-  throw new Error('render-quality-exam requires args {plans: [{id, dir, url, images, coverage}], measurements, examDir}')
+  throw new Error(
+    'render-quality-exam requires args {plans: [{id, dir, url, images, tiles, coverage}], measurements, examDir}',
+  )
 }
+const examDir = input && typeof input.examDir === 'string' ? input.examDir.replace(/\/+$/, '') : ''
+if (examDir === '' || !examDir.startsWith('/')) {
+  throw new Error(
+    `render-quality-exam: examDir must be the absolute directory the capture wrote into, got ${JSON.stringify(input && input.examDir)}`,
+  )
+}
+const measurementsByPlan = new Map()
+const finite = (n) => typeof n === 'number' && Number.isFinite(n)
+// What tools/exam/capture.ts records as the plan's url: base, then `/?exam=1`,
+// then the plan fragment. Split rather than carried as two more args, so the
+// probe command a refuter runs is built from the same string the capture booted.
+const URL_RE = /^(https?:\/\/[^?#]+?)\/\?exam=1#(.+)$/
+const TILE_KINDS = ['fit', 'tile', 'corrective']
 for (const p of plans) {
   if (!p || typeof p.id !== 'string' || typeof p.dir !== 'string') {
     throw new Error(`render-quality-exam: every plan needs a string id and dir, got ${JSON.stringify(p)}`)
+  }
+  // `dir` is handed to a cold evaluator, so it decides what that evaluator can
+  // reach by listing it. The capture writes the images one level BELOW the plan
+  // directory precisely so the `scene.json` ledger is not in it, and nothing
+  // else in this workflow can tell that layout from the flat one: a `dir`
+  // pointing at the plan directory would put the whole no-peeking rule back on
+  // one sentence of prompt. So it must be a directory strictly under the plan
+  // directory, checked by property rather than by the name "images", which is
+  // scene.json's `imagesDir` and not this file's to assume.
+  const planRoot = `${examDir}/${p.id}`
+  const dir = p.dir.replace(/\/+$/, '')
+  const rest = dir.startsWith(`${planRoot}/`) ? dir.slice(planRoot.length + 1) : ''
+  if (rest === '' || rest.split('/').some((seg) => seg === '' || seg === '.' || seg === '..')) {
+    throw new Error(
+      `render-quality-exam: plan ${p.id} dir must be the images subdirectory ${planRoot}/<imagesDir> ` +
+        `(scene.json's imagesDir), not ${JSON.stringify(p.dir)}; the plan directory itself holds scene.json, ` +
+        'which an evaluator must not be able to list',
+    )
+  }
+  if (typeof p.url !== 'string' || !URL_RE.test(p.url)) {
+    throw new Error(
+      `render-quality-exam: plan ${p.id} needs scene.json's url verbatim (<baseUrl>/?exam=1#<hash>), got ${JSON.stringify(p.url)}`,
+    )
   }
   if (!Array.isArray(p.images) || p.images.length === 0) {
     throw new Error(`render-quality-exam: plan ${p.id} has no images; run tools/exam/capture.ts first`)
@@ -66,6 +116,68 @@ for (const p of plans) {
   if (!p.coverage) {
     throw new Error(`render-quality-exam: plan ${p.id} has no coverage ledger; pass scene.json's coverage through`)
   }
+
+  // The join data. Every check here exists because its absence is SILENT: a
+  // missing tile, an unparseable transform or a rect in the wrong frame all
+  // produce zero corroborations, which is indistinguishable from a plan whose
+  // findings genuinely have no geometric support.
+  if (!Array.isArray(p.tiles) || p.tiles.length === 0) {
+    throw new Error(
+      `render-quality-exam: plan ${p.id} has no tiles; pass scene.json's tiles as {file, kind, viewportTransform, safeRegion}. ` +
+        'Without them every footprint join misses and every finding reads as uncorroborated',
+    )
+  }
+  p.tiles.forEach((t, i) => {
+    // A bare file name, because that is what an evaluator can cite: it is given
+    // the images directory, so a path would never match what it wrote down.
+    if (!t || typeof t.file !== 'string' || t.file.trim() === '' || t.file.includes('/')) {
+      throw new Error(
+        `render-quality-exam: plan ${p.id} tiles[${i}] needs the bare image file name, got ${JSON.stringify(t && t.file)}`,
+      )
+    }
+    if (!TILE_KINDS.includes(t.kind)) {
+      throw new Error(
+        `render-quality-exam: plan ${p.id} tiles[${i}] (${t.file}) kind must be one of ${TILE_KINDS.join(', ')}, got ${JSON.stringify(t.kind)}`,
+      )
+    }
+    const v = t.viewportTransform
+    if (!v || !finite(v.x) || !finite(v.y) || !finite(v.zoom) || v.zoom <= 0) {
+      throw new Error(
+        `render-quality-exam: plan ${p.id} tiles[${i}] (${t.file}) needs viewportTransform {x, y, zoom} with a positive zoom, got ${JSON.stringify(v)}`,
+      )
+    }
+    const s = t.safeRegion
+    if (!s || !finite(s.x) || !finite(s.y) || !finite(s.width) || !finite(s.height) || s.width < 0 || s.height < 0) {
+      throw new Error(
+        `render-quality-exam: plan ${p.id} tiles[${i}] (${t.file}) needs safeRegion {x, y, width, height}, got ${JSON.stringify(s)}`,
+      )
+    }
+  })
+  // Every image an evaluator may cite has to be placeable, and tiles from the
+  // WRONG plan are the way this goes wrong without a symptom: the transforms
+  // parse, the join runs, and it matches nothing.
+  const tileFiles = new Set(p.tiles.map((t) => t.file))
+  const orphans = p.images.map((im) => im.file).filter((f) => !tileFiles.has(f))
+  if (orphans.length > 0) {
+    throw new Error(
+      `render-quality-exam: plan ${p.id} lists images with no tile record: ${orphans.join(', ')}; ` +
+        'images and tiles must both come from this plan\'s scene.json',
+    )
+  }
+  if (!p.tiles.some(joinableTile)) {
+    // Not fatal: it costs corroboration, never grants it, so every geometric
+    // finding just goes to a refuter. Loud because a capture that shot only the
+    // fit overview is a broken capture, not a clean plan.
+    log(`WARNING: plan ${p.id} has no tile or corrective image; nothing can corroborate a geometric finding here`)
+  }
+
+  const ms = input.measurements && input.measurements[p.id]
+  if (!Array.isArray(ms)) {
+    throw new Error(
+      `render-quality-exam: measurements["${p.id}"] must be scene.json's measurements array (\`[]\` when the plan measured clean), got ${JSON.stringify(ms)}`,
+    )
+  }
+  measurementsByPlan.set(p.id, ms)
 }
 
 // Exactly the Finding type the triage join reads, so a finding this schema admits
@@ -249,4 +361,467 @@ const findings = evaluations.flatMap((e) => e.findings)
 
 log(`${evaluations.length}/${plans.length} plans evaluated, ${findings.length} findings`)
 
-return { evaluations, findings }
+// ---------------------------------------------------------------------------
+// TRIAGE - a copy of tools/exam/triage.ts, which is the tested original.
+//
+// A workflow script cannot import, so the rules live twice. This copy must stay
+// behaviourally IDENTICAL to that module: its unit tests are the only thing
+// standing between a finding and being filed unchecked, and a divergence here
+// files findings those tests say must be refuted first. Change one, change both,
+// and re-run the parity check (compute the routing for a set of findings through
+// the module and through this copy, and diff).
+//
+// Everything below is verbatim in substance; the reasoning behind each rule is
+// in the module and is not repeated here. What matters at this end:
+//   - a footprint is in WORLD units and an evidence rect is in the CSS pixels of
+//     the image it names, so the join projects one into the other. Comparing
+//     them raw matches nothing, and matching nothing reads as "not corroborated"
+//   - every rule fails closed. The expensive error is a FALSE corroboration,
+//     because that is the one that skips refutation
+// ---------------------------------------------------------------------------
+
+const EPS = 1e-9
+const JOIN_SLACK_PX = 2
+const MAX_MARK_EXTENT_RATIO = 3
+const MIN_MARK_EXTENT_PX = 48
+
+const MEASUREMENT_KINDS = [
+  'chip-off-own-path',
+  'chip-vs-card',
+  'segment-vs-card',
+  'own-card-pierce',
+  'chip-vs-segment',
+]
+// Only a geometric claim is the sort of thing these audits measure. Interaction,
+// absence and subjective claims get the empty row and go to a refuter or a human.
+const COMPATIBLE_KINDS = {
+  geometric: MEASUREMENT_KINDS,
+  interaction: [],
+  absence: [],
+  subjective: [],
+}
+const CLAIM_TYPES = ['geometric', 'interaction', 'absence', 'subjective']
+const SEVERITIES = ['major', 'minor', 'nit']
+const ASPECTS = ['correctness', 'comprehension', 'ux']
+
+// Measurements are taken ONCE, at the camera the last tile shot left behind, so
+// a footprint is only a place in an image shot at that camera. An allowlist, so
+// an unrecognised kind is refused rather than admitted.
+function joinableTile(tile) {
+  return tile.kind === 'tile' || tile.kind === 'corrective'
+}
+
+function isFiniteRect(rect) {
+  return (
+    Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.width) && Number.isFinite(rect.height)
+  )
+}
+
+function rectFromTuple(tuple) {
+  if (!Array.isArray(tuple) || tuple.length !== 4) return null
+  const [x, y, width, height] = tuple
+  if (typeof x !== 'number' || typeof y !== 'number' || typeof width !== 'number' || typeof height !== 'number') {
+    return null
+  }
+  const rect = { x, y, width, height }
+  return isFiniteRect(rect) && width >= 0 && height >= 0 ? rect : null
+}
+
+// world -> the image's own CSS-pixel frame.
+function project(rect, t) {
+  const out = {
+    x: rect.x * t.zoom + t.x,
+    y: rect.y * t.zoom + t.y,
+    width: rect.width * t.zoom,
+    height: rect.height * t.zoom,
+  }
+  return isFiniteRect(out) && out.width >= 0 && out.height >= 0 ? out : null
+}
+
+function inflate(rect, by) {
+  return { x: rect.x - by, y: rect.y - by, width: rect.width + 2 * by, height: rect.height + 2 * by }
+}
+
+// Inclusive: an orthogonal footprint is flat in one axis, so demanding overlap
+// AREA would refuse every segment-tier measurement.
+function intersect(a, b) {
+  const x = Math.max(a.x, b.x)
+  const y = Math.max(a.y, b.y)
+  const right = Math.min(a.x + a.width, b.x + b.width)
+  const bottom = Math.min(a.y + a.height, b.y + b.height)
+  if (right < x - EPS || bottom < y - EPS) return null
+  return { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) }
+}
+
+// Is the mark ABOUT the projected footprint, or merely a region containing it?
+// Per axis, because an orthogonal footprint is flat in one of them.
+function commensurate(projected, evidence) {
+  const limit = (extent) => Math.max(extent, MIN_MARK_EXTENT_PX) * MAX_MARK_EXTENT_RATIO
+  return evidence.width <= limit(projected.width) + EPS && evidence.height <= limit(projected.height) + EPS
+}
+
+function meets(footprint, tile, evidence) {
+  const projected = project(footprint, tile.viewportTransform)
+  if (projected === null) return false
+  if (!commensurate(projected, evidence)) return false
+  const marked = intersect(inflate(projected, JOIN_SLACK_PX), evidence)
+  if (marked === null) return false
+  return intersect(marked, tile.safeRegion) !== null
+}
+
+function evidenceEntries(finding) {
+  const raw = finding.evidence
+  if (!Array.isArray(raw)) return []
+  return raw.filter((entry) => typeof entry === 'object' && entry !== null)
+}
+
+// The measurements that occur AT THE PLACE THIS FINDING MARKS: co-location,
+// proportionality and kind compatibility, all three or nothing. A shared element
+// id is deliberately not among them.
+function corroborationsFor(finding, measurements, tiles) {
+  const kinds = CLAIM_TYPES.includes(finding.claimType) ? COMPATIBLE_KINDS[finding.claimType] : []
+  if (kinds.length === 0) return []
+
+  const places = []
+  for (const entry of evidenceEntries(finding)) {
+    const tile = tiles.find((t) => joinableTile(t) && t.file === entry.image)
+    const rect = rectFromTuple(entry.rect)
+    if (tile === undefined || rect === null) continue
+    places.push({ tile, rect })
+  }
+  if (places.length === 0) return []
+
+  return measurements.filter(
+    (m) => kinds.includes(m.kind) && places.some((place) => meets(m.footprint, place.tile, place.rect)),
+  )
+}
+
+// Where a finding goes next. The ORDER is the substance: a stated mechanism is a
+// claim about the code that no footprint can check, so it outranks corroboration
+// entirely; absence and interaction claims are unwitnessable by construction.
+function routeFinding(finding, corroborations) {
+  if (finding.claimType === 'subjective') return 'HUMAN_RULING'
+  if (
+    finding.claimType === 'absence' ||
+    finding.claimType === 'interaction' ||
+    finding.mechanismHypothesis !== undefined
+  ) {
+    return 'REFUTE_INDIVIDUAL'
+  }
+  if (finding.claimType === 'geometric' && corroborations.length > 0) return 'CORROBORATED'
+  return finding.severity === 'major' ? 'REFUTE_INDIVIDUAL' : 'REFUTE_BATCH'
+}
+
+// Schema violations, empty when the finding is well formed. Nothing here throws:
+// a finding with a missing field is exactly the input this is for.
+function validateFinding(finding) {
+  const violations = []
+
+  if (!CLAIM_TYPES.includes(finding.claimType)) violations.push(`claimType "${String(finding.claimType)}" is not a claim type`)
+  if (!SEVERITIES.includes(finding.severity)) violations.push(`severity "${String(finding.severity)}" is not a severity`)
+  if (!ASPECTS.includes(finding.aspect)) violations.push(`aspect "${String(finding.aspect)}" is not an aspect`)
+
+  const observation = finding.observation
+  if (typeof observation !== 'string') violations.push('observation is missing')
+  else if (observation.trim() === '') violations.push('observation is empty')
+
+  const evidence = finding.evidence
+  if (!Array.isArray(evidence)) {
+    violations.push('evidence is missing')
+  } else if (evidence.length === 0) {
+    violations.push('evidence is empty')
+  } else {
+    evidence.forEach((raw, i) => {
+      if (typeof raw !== 'object' || raw === null) {
+        violations.push(`evidence[${i}] is not an object`)
+        return
+      }
+      if (typeof raw.image !== 'string' || raw.image.trim() === '') violations.push(`evidence[${i}] names no image`)
+      if (rectFromTuple(raw.rect) === null) violations.push(`evidence[${i}] rect is not a finite [x, y, width, height]`)
+    })
+  }
+
+  const needsFalsifier =
+    finding.claimType === 'geometric' ||
+    finding.claimType === 'interaction' ||
+    finding.claimType === 'absence' ||
+    finding.mechanismHypothesis !== undefined
+  if (needsFalsifier && finding.falsifier === undefined) {
+    violations.push(
+      finding.mechanismHypothesis !== undefined && finding.claimType === 'subjective'
+        ? 'a mechanismHypothesis requires a falsifier'
+        : `claimType "${finding.claimType}" requires a falsifier`,
+    )
+  }
+  if (finding.claimType === 'subjective' && finding.falsifier !== undefined) {
+    violations.push('claimType "subjective" must not carry a falsifier')
+  }
+
+  return violations
+}
+
+// ---------------------------------------------------------------------------
+// Triage, run
+//
+// VALIDATION GATES ROUTING, and it has to: routeFinding answers for any object
+// handed to it, so a geometric finding carrying no falsifier - one nobody can
+// disprove - would otherwise reach CORROBORATED on a footprint and be filed. An
+// invalid finding is REPORTED, not routed and not silently dropped: the
+// evaluator saw something, and what is wrong with it is a defect of the report
+// rather than of the app.
+// ---------------------------------------------------------------------------
+
+const planById = new Map(plans.map((p) => [p.id, p]))
+
+const triaged = findings.map((f) => {
+  const plan = planById.get(f.planId)
+  const violations = plan === undefined ? [`planId "${String(f.planId)}" is not a plan under exam`] : validateFinding(f)
+  if (violations.length > 0) return { finding: f, violations, route: null, corroborations: [] }
+  const measurements = measurementsByPlan.get(f.planId)
+  const corroborations = corroborationsFor(f, measurements, plan.tiles)
+  return {
+    finding: f,
+    violations,
+    corroborations,
+    // Which measurements, by position in this plan's own measurement array, so a
+    // reader of the verdict can go back to scene.json and look at the geometry
+    // that carried the finding through without a refuter.
+    corroboratedBy: corroborations.map((m) => `${f.planId}#${measurements.indexOf(m)}:${m.kind}`),
+    route: routeFinding(f, corroborations),
+  }
+})
+
+const invalid = triaged.filter((t) => t.route === null)
+const routed = (route) => triaged.filter((t) => t.route === route)
+const histogram = ['CORROBORATED', 'REFUTE_INDIVIDUAL', 'REFUTE_BATCH', 'HUMAN_RULING']
+  .map((r) => `${r}=${routed(r).length}`)
+  .join(' ')
+log(`Triage: ${histogram} INVALID=${invalid.length}`)
+for (const t of invalid) log(`  invalid ${t.finding.id}: ${t.violations.join('; ')}`)
+
+// ---------------------------------------------------------------------------
+// REFUTE
+//
+// A refuter's job is to DISPROVE, and the only thing that can do that is the
+// running app. The previous exam filed nine issues; two rested on invalid
+// premises and two named a wrong mechanism, and all four would have died to one
+// runtime check. One of them claimed edge hover produced no response, off two
+// screenshot runs - hovering an edge by ELEMENT aims at its bounding-box centre,
+// which misses a thin orthogonal stroke most of the time. That is why a
+// screenshot is not evidence for an absence claim, and why every verdict must
+// carry the command it ran and what came back.
+// ---------------------------------------------------------------------------
+
+const VERDICT_ENUM = ['CONFIRMED', 'REFUTED', 'UNCERTAIN']
+
+const REFUTE_SCHEMA = {
+  type: 'object',
+  properties: {
+    findingId: { type: 'string' },
+    observationVerdict: { type: 'string', enum: VERDICT_ENUM },
+    mechanismVerdict: { type: 'string', enum: VERDICT_ENUM },
+    probeCommand: { type: 'string', description: 'the probe command line you actually ran, verbatim' },
+    probeOutput: { type: 'string', description: 'what it printed, verbatim; trim to the relevant fields but never paraphrase' },
+    reasoning: { type: 'string', description: 'how that output settles (or fails to settle) the claim' },
+    correctedObservation: {
+      type: 'string',
+      description: 'OPTIONAL: what is actually true, when the observation is real but stated wrongly',
+    },
+  },
+  required: ['findingId', 'observationVerdict', 'probeCommand', 'probeOutput', 'reasoning'],
+}
+
+const REFUTE_BATCH_SCHEMA = {
+  type: 'object',
+  properties: { verdicts: { type: 'array', items: REFUTE_SCHEMA } },
+  required: ['verdicts'],
+}
+
+// What the refuter is told about the app it is driving. Shared by both prompts so
+// the individual and the batch refuter answer under the same rules.
+const refuterBriefing = (plan) => {
+  const [, baseUrl, hash] = URL_RE.exec(plan.url)
+  return `You are a REFUTER on the STC render-quality exam (Arknights: Endfield factory planner; React Flow canvas). Findings below were written by an examiner who saw only screenshots. YOUR JOB IS TO DISPROVE THEM.
+
+You are not a second opinion and not a reviewer. For each finding, look for the run that would show it is WRONG, and report what you actually got.
+
+THE ONLY EVIDENCE THAT COUNTS is the output of the probe CLI against the running app:
+
+    bun run tools/exam/probe.ts --base-url ${baseUrl} --hash '${hash}' --op <op> --arg k=v [--arg k=v]
+
+Run it from the repo root with Bash. It boots the plan, runs at most one named op, and prints one JSON object to stdout. Ops and their arguments:
+- \`hover-edge\` --arg id=<edgeId>, \`hover-node\` --arg id=<nodeId>: does hovering the thing engage, and what dims? It samples points ON the edge's own geometry, which is the whole reason it exists.
+- \`contrast\` --arg selector=<css>: contrast ratio of an element against what is painted behind it.
+- \`delta-e\` --arg a=<css> --arg b=<css>: perceptual colour distance between two elements.
+- \`chip-binding\` --arg id=<chip data-testid, or an edge id that names exactly one chip>: how far a rate chip sits from its own polyline against the nearest other one.
+- \`rect\` --arg id=<scene element id>: the measured box of one element.
+- \`computed-style\` --arg selector=<css> --arg props=<comma list>, \`text-overflow\` --arg selector=<css>.
+Optional: \`--zoom <z> --center <wx>,<wy>\` together to frame a camera first, \`--eval <file.js>\` to evaluate one expression in the page (write the file under /tmp, never into the exam directory), \`--shot <out.png>\` to save what the page looked like after the op.
+
+Resolving a target the finding describes in words: \`--eval\` is the way in. A one-line expression over the DOM lists what you need, for example every edge id (\`Array.from(document.querySelectorAll('.react-flow__edge')).map(e => e.getAttribute('data-id'))\`) or every chip and its owner. Then probe the id you found. Do not guess an id: a probe against an element that does not exist reports an error, and an error is not a refutation.
+
+Exit codes: 0 the run succeeded; 1 harness failure (bad flags, missing element); 2 the base URL is not serving; 3 the page never became examinable. On 2 or 3 the app was never reached, so nothing was settled - say UNCERTAIN and paste what happened.
+
+READ THIS BEFORE JUDGING A HOVER RESULT: \`hoverEngaged: false\` is usually a miss by the probe, not a dead app. Read \`engagedElsewhere\` and \`samples\`, then re-probe whatever id took the pointer, or reframe with \`--zoom\`/\`--center\`. Only \`decision.noResponse\` is a real "hover produced no response"; \`decision.differs\` is a set difference that the app produces by design (it lights whole bus-trunk groups) and is NOT a defect.
+
+A SCREENSHOT IS NOT EVIDENCE, above all for a claim that something is missing. A picture cannot tell "the app does nothing" from "my capture never triggered it" - that exact confusion is what put an invalid hover finding into the last exam. \`--shot\` is for illustrating a probe result, never for replacing one.
+
+TWO VERDICTS, JUDGED SEPARATELY:
+- \`observationVerdict\`: is the SYMPTOM real, as a reader would meet it? CONFIRMED means your probe output shows it. REFUTED means your probe output shows it is not so.
+- \`mechanismVerdict\`: is the stated CAUSE right? Only for a finding that carries a \`mechanismHypothesis\`; omit it otherwise. "Symptom real, cause wrong" is a common and expected outcome, and it is reported as CONFIRMED observation with a REFUTED mechanism, not as one muddled verdict.
+
+UNCERTAIN IS A CORRECT ANSWER and is preferred over guessing. If the probe could not reach the target, could not resolve it, or came back inconclusive, say UNCERTAIN and paste what you got. A guess that happens to be wrong costs more than an honest UNCERTAIN, which just sends the finding to a human.
+
+EVERY verdict needs \`probeCommand\` (the exact command line you ran) and \`probeOutput\` (what it printed, verbatim; trim to the relevant fields, never paraphrase and never invent). A verdict without both is discarded and forced to UNCERTAIN, so an unrun probe buys nothing.`
+}
+
+const findingBlock = (plan, f) => {
+  const evidence = f.evidence
+    .map((e) => `  - ${plan.dir}/${e.image} rect [${e.rect.join(', ')}] :: ${e.where}`)
+    .join('\n')
+  return `FINDING ${f.id} (plan ${f.planId}, ${f.severity}, ${f.aspect}, claimType ${f.claimType})
+title: ${f.title}
+observation: ${f.observation}
+evidence (you may Read these images to locate the target; they are the examiner's, not evidence for your verdict):
+${evidence}
+falsifier the examiner nominated (the run that would prove the finding WRONG): ${
+    f.falsifier === undefined ? '(none)' : JSON.stringify(f.falsifier)
+  }
+mechanismHypothesis: ${f.mechanismHypothesis === undefined ? '(none stated - judge the observation only, and omit mechanismVerdict)' : f.mechanismHypothesis}`
+}
+
+const refutePrompt = (plan, f) =>
+  `${refuterBriefing(plan)}
+
+${findingBlock(plan, f)}
+
+Start from the nominated falsifier: it names the op whose output the examiner agreed would settle this. Run it (translating a described target into a real id first), and run another op if the first one cannot decide. Return the verdict for \`findingId\` "${f.id}".`
+
+const refuteBatchPrompt = (plan, group) =>
+  `${refuterBriefing(plan)}
+
+${group.length} findings on plan "${plan.id}", all of them minor or nit and none carrying a mechanism. Judge each ONE AT A TIME and independently: a probe run for one says nothing about another.
+
+${group.map((f) => findingBlock(plan, f)).join('\n\n')}
+
+Return \`verdicts\` with exactly ${group.length} entries, one per finding, with \`findingId\` set to ${group.map((f) => `"${f.id}"`).join(', ')}. Each entry needs its OWN probeCommand and probeOutput; reusing one run for several findings means the others were never checked, and an unchecked verdict must be UNCERTAIN.`
+
+// Every path out of the Refute phase lands here, and nothing else may build a
+// verdict. NEVER auto-confirm and NEVER auto-drop: an agent that returned
+// nothing, an unknown verdict word, or a verdict with no command and no output
+// behind it all become UNCERTAIN, which downgrades the finding and puts it in
+// front of a human instead of quietly deciding it either way.
+const coerceVerdict = (finding, raw) => {
+  const r = raw !== null && typeof raw === 'object' ? raw : null
+  const nonEmpty = (v) => typeof v === 'string' && v.trim() !== ''
+  const cited = r !== null && nonEmpty(r.probeCommand) && nonEmpty(r.probeOutput)
+  const coercions = []
+  if (r === null) coercions.push('the refuter returned nothing')
+  else if (!cited) coercions.push('no probeCommand and probeOutput, so nothing was run')
+
+  const claim = (value, name) => {
+    if (!cited) return 'UNCERTAIN'
+    if (!VERDICT_ENUM.includes(value)) {
+      coercions.push(`${name} ${JSON.stringify(value)} is not a verdict`)
+      return 'UNCERTAIN'
+    }
+    return value
+  }
+  const observationVerdict = claim(r === null ? undefined : r.observationVerdict, 'observationVerdict')
+  // A mechanism verdict only exists where a mechanism was claimed. Where one was,
+  // silence about it is not agreement.
+  const hasMechanism = finding.mechanismHypothesis !== undefined
+  const mechanismVerdict = hasMechanism ? claim(r === null ? undefined : r.mechanismVerdict, 'mechanismVerdict') : null
+
+  // What the orchestrator does with it. A real symptom under a disproved cause is
+  // the shape the last exam got wrong twice: it is still a finding, filed with
+  // the mechanism struck out rather than dropped along with it.
+  let disposition
+  if (observationVerdict === 'REFUTED') disposition = 'DROP'
+  else if (observationVerdict === 'UNCERTAIN' || mechanismVerdict === 'UNCERTAIN') disposition = 'HUMAN_REVIEW'
+  else if (mechanismVerdict === 'REFUTED') disposition = 'FILE_SYMPTOM_ONLY'
+  else disposition = 'FILE'
+
+  return {
+    findingId: finding.id,
+    planId: finding.planId,
+    observationVerdict,
+    ...(mechanismVerdict === null ? {} : { mechanismVerdict }),
+    ...(disposition === 'FILE_SYMPTOM_ONLY' ? { mechanismStripped: finding.mechanismHypothesis } : {}),
+    disposition,
+    probeCommand: r !== null && nonEmpty(r.probeCommand) ? r.probeCommand : null,
+    probeOutput: r !== null && nonEmpty(r.probeOutput) ? r.probeOutput : null,
+    reasoning: r !== null && nonEmpty(r.reasoning) ? r.reasoning : null,
+    ...(r !== null && nonEmpty(r.correctedObservation) ? { correctedObservation: r.correctedObservation } : {}),
+    ...(coercions.length > 0 ? { coercions } : {}),
+  }
+}
+
+// A corroborated finding never reaches an agent: an independent measurement
+// already exists at the place it marked, and that is what the join is for. The
+// measurement ids travel with the verdict so the support is inspectable.
+const corroboratedVerdict = (t) => ({
+  findingId: t.finding.id,
+  planId: t.finding.planId,
+  observationVerdict: 'CONFIRMED',
+  disposition: 'FILE',
+  corroboratedBy: t.corroboratedBy,
+  reasoning: `corroborated by ${t.corroborations.length} independent measurement(s) at the marked place: ${t.corroborations
+    .map((m) => m.detail)
+    .join(' | ')}`,
+})
+
+const batches = new Map()
+for (const t of routed('REFUTE_BATCH')) {
+  if (!batches.has(t.finding.planId)) batches.set(t.finding.planId, [])
+  batches.get(t.finding.planId).push(t.finding)
+}
+
+const refuteTasks = [
+  ...routed('REFUTE_INDIVIDUAL').map((t) => () => {
+    const plan = planById.get(t.finding.planId)
+    return agent(refutePrompt(plan, t.finding), {
+      label: `refute:${t.finding.id}`,
+      phase: 'Refute',
+      schema: REFUTE_SCHEMA,
+    }).then((r) => [coerceVerdict(t.finding, r)])
+  }),
+  ...[...batches.entries()].map(([planId, group]) => () => {
+    const plan = planById.get(planId)
+    return agent(refuteBatchPrompt(plan, group), {
+      label: `refute-batch:${planId}`,
+      phase: 'Refute',
+      schema: REFUTE_BATCH_SCHEMA,
+    }).then((r) => {
+      const list = r !== null && Array.isArray(r.verdicts) ? r.verdicts : []
+      return group.map((f) =>
+        coerceVerdict(
+          f,
+          list.find((v) => v !== null && typeof v === 'object' && v.findingId === f.id) ?? null,
+        ),
+      )
+    })
+  }),
+]
+
+const verdicts = [
+  ...routed('CORROBORATED').map(corroboratedVerdict),
+  ...(refuteTasks.length === 0 ? [] : (await parallel(refuteTasks)).flat()),
+]
+
+const dispositions = ['FILE', 'FILE_SYMPTOM_ONLY', 'HUMAN_REVIEW', 'DROP']
+  .map((d) => `${d}=${verdicts.filter((v) => v.disposition === d).length}`)
+  .join(' ')
+log(`Refute: ${verdicts.length} verdicts, ${dispositions}; ${routed('HUMAN_RULING').length} awaiting a human ruling`)
+
+return {
+  evaluations,
+  findings,
+  triage: triaged.map((t) => ({ id: t.finding.id, planId: t.finding.planId, route: t.route, violations: t.violations })),
+  verdicts,
+  // No verdict is synthesised for either of these. A subjective claim has no
+  // probe that settles it, and an invalid one is a defect of the report; both
+  // are handed back for a person to rule on rather than resolved here.
+  humanRuling: routed('HUMAN_RULING').map((t) => t.finding),
+  invalid: invalid.map((t) => ({ id: t.finding.id, planId: t.finding.planId, violations: t.violations })),
+}
