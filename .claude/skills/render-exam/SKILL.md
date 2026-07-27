@@ -10,8 +10,7 @@ an agent: it walks a fixed camera grid at a fixed zoom and writes images plus a 
 ledger that states what it covered. Evaluation agents critique the images cold, refuters
 disprove claims through `tools/exam/probe.ts`, and the orchestrator files issues. The
 mechanical fan-out lives in the `render-quality-exam` named workflow; this skill is the
-judgment layer around it. That workflow file has NOT been rewritten to the contract described
-here yet - read the guard at the head of step 6 before invoking it.
+judgment layer around it.
 
 Two rules hold the whole procedure up, because two earlier runs filed invalid findings for
 want of them: a screenshot cannot tell "the app does nothing" from "my capture never touched
@@ -91,17 +90,8 @@ it", and a raw geometry count is not a defect.
 6. **Run the workflow** from the MAIN session (the Workflow tool is not available inside
    subagents).
 
-   > STOP - the contract below is AHEAD of the implementation. As shipped,
-   > `.claude/workflows/render-quality-exam.js` declares `{plans: [{id, url}], repoDir,
-   > examDir}`, ignores `measurements` and `coverage` entirely, and runs two phases, Capture
-   > and Evaluate: there is no code triage and no Refute yet. Passing `{id, hash}` renders
-   > `URL: undefined` into its capture prompt. Far worse, its Capture phase spawns agents that
-   > write their own `capture.ts` and shoot `00-fit.png` and `10-tile-r<row>c<col>.png` into
-   > the SAME directory under the SAME names the deterministic capture just wrote, by
-   > wheel-zoom and element-hover - the exact capture-artifact mechanism this harness exists to
-   > eliminate. Until the workflow is rewritten to the contract below, DO NOT invoke it against
-   > a directory you captured into; run the evaluation, triage and refutation passes as
-   > subagents yourself, from step 5's ledger and the images already on disk.
+   The workflow's Evaluate phase is implemented; the args block below is finalised in the
+   next change.
 
    `Workflow({name: "render-quality-exam", args: {plans, repoDir, examDir, measurements, coverage}})`,
    where `plans` is `[{id, hash}]`, `repoDir` is the absolute root of the checkout the preview
