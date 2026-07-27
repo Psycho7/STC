@@ -9,6 +9,16 @@
 // scene.json. It never builds and never starts a server: the caller owns both,
 // so a capture cannot silently shoot a stale bundle.
 //
+// Layout, and why it is split:
+//   <out>/<planId>/images/00-fit.png, 10-tile-r<r>c<c>.png, 20-corrective-*.png
+//   <out>/<planId>/scene.json
+// The evaluator that judges these images is handed the images directory and
+// nothing else, and it has to judge them without the geometry measurements
+// scene.json carries, or the corroboration that checks its findings against
+// those measurements is only agreement with what it already read. Keeping the
+// ledger out of the image directory makes that independence a property of the
+// layout instead of a request in a prompt.
+//
 // --max-tiles caps the PLANNED grid only. Corrective shots draw on a further
 // reserve of CORRECTIVE_RESERVE tiles above the cap, so a plan whose grid fills
 // the budget exactly still gets a corrective pass; the reserve is echoed in the
@@ -102,6 +112,13 @@ const MAX_CORRECTIVE_ROUNDS = 3;
 // fixed world constants while a chip's true footprint at a zoom below 1 is
 // larger, so the planned band systematically under-covers periphery chips.
 const CORRECTIVE_RESERVE = 8;
+// Subdirectory of the plan directory the images are written into, recorded in
+// scene.json as `imagesDir` so a consumer resolves an image from the document.
+// The tile records keep BARE file names: the name an evaluator can cite is the
+// one it sees in the directory it was handed, and the corroboration join matches
+// a cited name against `tiles[].file`, so a prefix here would break every join
+// silently.
+const IMAGES_SUBDIR = "images";
 // How far the achieved zoom may sit from the commanded one before the capture is
 // called a failure, RELATIVE to the commanded zoom (floored at 1 so sub-1 zooms
 // keep the absolute slack). The transform is assigned verbatim by d3-zoom, so
@@ -411,7 +428,7 @@ type ShotRequest = {
 
 async function shoot(
   page: Page,
-  dir: string,
+  imagesDir: string,
   cameraSafe: Rect,
   targetZoom: number,
   req: ShotRequest,
@@ -431,7 +448,7 @@ async function shoot(
   // at 2 so text rasterises at retina quality for the reader).
   await page
     .locator(".react-flow")
-    .screenshot({ path: path.join(dir, req.file), scale: "css" });
+    .screenshot({ path: path.join(imagesDir, req.file), scale: "css" });
 
   const scene = await page.evaluate(collectScene);
   assertZoomAchieved(req.file, commanded.zoom, scene.transform.zoom);
@@ -531,7 +548,8 @@ async function absorbShot(
 
 async function capture(opts: Options): Promise<number> {
   const dir = path.join(opts.out, opts.planId);
-  await mkdir(dir, { recursive: true });
+  const imagesDir = path.join(dir, IMAGES_SUBDIR);
+  await mkdir(imagesDir, { recursive: true });
 
   const browser = await chromium.launch();
   try {
@@ -575,7 +593,7 @@ async function capture(opts: Options): Promise<number> {
     await page.waitForTimeout(HOVER_CLEAR_MS);
     await page
       .locator(".react-flow")
-      .screenshot({ path: path.join(dir, "00-fit.png"), scale: "css" });
+      .screenshot({ path: path.join(imagesDir, "00-fit.png"), scale: "css" });
     const fitScene = await page.evaluate(collectScene);
 
     const paneAtFit = paneFrame(fitScene);
@@ -633,13 +651,19 @@ async function capture(opts: Options): Promise<number> {
     let shotZoom = opts.targetZoom;
 
     for (const tile of planned) {
-      const shotResult = await shoot(page, dir, cameraSafe, opts.targetZoom, {
-        file: `10-tile-r${tile.row}c${tile.col}.png`,
-        kind: "tile",
-        row: tile.row,
-        col: tile.col,
-        center: tile.center,
-      });
+      const shotResult = await shoot(
+        page,
+        imagesDir,
+        cameraSafe,
+        opts.targetZoom,
+        {
+          file: `10-tile-r${tile.row}c${tile.col}.png`,
+          kind: "tile",
+          row: tile.row,
+          col: tile.col,
+          center: tile.center,
+        },
+      );
       tiles.push(shotResult.record);
       tileWorldRects.push(shotResult.worldRect);
       shotZoom = shotResult.record.viewportTransform.zoom;
@@ -675,11 +699,17 @@ async function capture(opts: Options): Promise<number> {
         }
         attempted.add(u.id);
         const el = inventory.get(u.id)!;
-        const shotResult = await shoot(page, dir, cameraSafe, opts.targetZoom, {
-          file: correctiveFileName(correctiveTiles, u.id),
-          kind: "corrective",
-          center: centreOf(el.worldRect),
-        });
+        const shotResult = await shoot(
+          page,
+          imagesDir,
+          cameraSafe,
+          opts.targetZoom,
+          {
+            file: correctiveFileName(correctiveTiles, u.id),
+            kind: "corrective",
+            center: centreOf(el.worldRect),
+          },
+        );
         tiles.push(shotResult.record);
         tileWorldRects.push(shotResult.worldRect);
         correctiveTiles++;
@@ -724,6 +754,7 @@ async function capture(opts: Options): Promise<number> {
       hash: opts.hash,
       url: examUrl(opts.baseUrl, opts.hash),
       locale: opts.locale,
+      imagesDir: IMAGES_SUBDIR,
       status: coverage.uncovered.length === 0 ? "complete" : "partial",
       viewport: {
         ...VIEWPORT,

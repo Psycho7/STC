@@ -49,8 +49,10 @@ it", and a raw geometry count is not a defect.
 
    Optional: `--target-zoom` (default 0.75), `--locale` (default `en`), `--max-tiles`
    (default 64), `--seam-margin` (default 64). Outputs land in `.artifacts/exam/<id>/` as
-   `00-fit.png`, `10-tile-r<row>c<col>.png`, `20-corrective-<nnn>-<slug>.png` (the index is
-   zero-padded to three digits) and `scene.json`.
+   `scene.json` plus an `images/` subdirectory holding `00-fit.png`,
+   `10-tile-r<row>c<col>.png` and `20-corrective-<nnn>-<slug>.png` (the index is zero-padded
+   to three digits). The split is structural: an evaluator is handed `images/` and judges the
+   pixels cold, so the ledger it must not read is not in the directory it can list.
    No smoke test: capture fails fast by itself. Exit 2 means the base URL is not serving,
    exit 3 means the page never became examinable (drop the plan and report it), exit 1 is a
    harness failure. Exit 0 with `status: "partial"` is a real capture with named blind spots -
@@ -127,6 +129,9 @@ it", and a raw geometry count is not a defect.
 
 A ledger of what was captured and measured, with no verdicts in it.
 
+- `imagesDir` is the image subdirectory, relative to `scene.json` itself; `tiles[].file` is a
+  bare file name, so an image resolves as `<plan dir>/<imagesDir>/<file>`. Keep it bare when
+  citing one: the corroboration join matches an evaluator's cited name against `tiles[].file`.
 - `tiles[].elements` places elements in CSS pixels within that image, but only those
   intersecting the tile's `safeRegion`: an element that reaches the pane only under the minimap
   or the zoom controls is in the image and NOT in this map, deliberately.

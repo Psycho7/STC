@@ -12,7 +12,8 @@ export const meta = {
 //   measurements: { [planId]: Measurement[] },
 //   examDir,
 // }
-//   plans[].dir     absolute directory the capture wrote images and scene.json into
+//   plans[].dir     absolute IMAGES directory the capture wrote, which is
+//                   `<examDir>/<planId>/images` and holds nothing but images
 //   plans[].images  every image the capture produced, with a one-line description
 //   plans[].coverage  scene.json `coverage`: what the capture proved it framed
 //   plans[].url     the plan's share URL. NOT given to an evaluator: it judges the
@@ -26,9 +27,12 @@ export const meta = {
 // measurements, no earlier findings, no open-issue list. That independence is what
 // makes a later corroboration worth having - an evaluator shown the geometry first
 // would only be agreeing with it. Do not "help" the prompt by passing measurements
-// in. The other way in is the filesystem, not the args: the capture writes
-// scene.json into plans[].dir, the same directory the images are handed out of, so
-// the prompt has to forbid reading it by name.
+// in. The other way in is the filesystem, not the args, and that one is closed by
+// the layout: the capture writes scene.json one level ABOVE plans[].dir, so listing
+// the directory the images are handed out of reaches no measurement at all. The
+// prompt still forbids reading anything but the listed images, as a second line of
+// defence and not as the only one; passing a plans[].dir that contains the ledger
+// would put the whole weight back on that sentence.
 //
 // Capture is NOT part of this workflow. It is deterministic code run before the
 // workflow starts; an agent shooting its own screenshots into the same directory
@@ -154,7 +158,7 @@ const evalPrompt = (p) => {
 
 Read EVERY image below with the Read tool (they render visually). Do NOT open the app, do not start a browser, do not take screenshots of your own, do not write any file: these images are the exam, and a shot of your own would be of a different camera than the one everything downstream is measured against.
 
-READ NOTHING ELSE IN THAT DIRECTORY. Read exactly the image files listed below and no other file: do not list the directory, do not read \`scene.json\`, which sits beside them. It holds the geometry measurements your findings are about to be checked against, and a finding written from them is agreement with the check rather than independent evidence for it, which destroys the only thing your verdict is worth.
+READ NOTHING ELSE. Read exactly the image files listed below and no other file: do not list any directory, and do not go looking for the capture's \`scene.json\` ledger. It holds the geometry measurements your findings are about to be checked against, and a finding written from them is agreement with the check rather than independent evidence for it, which destroys the only thing your verdict is worth.
 
 Images (all screenshots of the canvas pane, at 1 image pixel per CSS pixel):
 ${list}

@@ -42,6 +42,11 @@ export type OverlayMask = { name: string } & Rect;
 // `col` exist only for grid tiles: the fit overview and the corrective shots are
 // not on the grid, and inventing coordinates for them would put two different
 // meanings behind one field.
+//
+// `file` is a BARE file name, not a path: it is the join key an evaluator's
+// evidence entry is matched against, and an evaluator is handed the image
+// directory itself, so the only name it can cite is the bare one. Resolve an
+// image as `<scene.json's directory>/<imagesDir>/<file>`.
 export type TileRecord = {
   file: string;
   kind: "fit" | "tile" | "corrective";
@@ -107,6 +112,13 @@ export type SceneDoc = {
   hash: string;
   url: string;
   locale: string;
+  // Directory the images live in, relative to this document. It is a separate
+  // directory from the one holding this document on purpose: an evaluator is
+  // given the image directory and must judge the pixels without the geometry
+  // below, and a directory that holds only images cannot be listed into the
+  // measurements. Recorded rather than assumed so a consumer resolves an image
+  // from the document instead of hardcoding the layout.
+  imagesDir: string;
   status: "complete" | "partial";
   viewport: {
     width: number;
@@ -382,9 +394,9 @@ export function measurementsFor(
 }
 
 // Write `<dir>/scene.json` and return the path it landed at. The directory is
-// created if it does not exist, because the caller has already been writing
-// images into it and a missing directory at this point would lose the ledger for
-// shots that are already on disk.
+// created if it does not exist, because the images are already on disk in a
+// subdirectory of it and a missing directory at this point would lose the ledger
+// for shots that were taken.
 export async function writeScene(dir: string, doc: SceneDoc): Promise<string> {
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, "scene.json");
