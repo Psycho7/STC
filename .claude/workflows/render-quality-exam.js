@@ -368,8 +368,14 @@ log(`${evaluations.length}/${plans.length} plans evaluated, ${findings.length} f
 // behaviourally IDENTICAL to that module: its unit tests are the only thing
 // standing between a finding and being filed unchecked, and a divergence here
 // files findings those tests say must be refuted first. Change one, change both,
-// and re-run the parity check (compute the routing for a set of findings through
-// the module and through this copy, and diff).
+// and run the parity test that holds them together:
+//
+//     bun run test -- tools/exam/workflow-parity.test.ts
+//
+// It evaluates THIS file with stub globals, runs a table of findings through it,
+// and diffs the route and the violations each one came out with against what the
+// module answers for the same finding - boundaries included, on both sides of
+// every constant below. An edit made in one copy only fails it.
 //
 // Everything below is verbatim in substance; the reasoning behind each rule is
 // in the module and is not repeated here. What matters at this end:
