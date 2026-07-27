@@ -74,13 +74,43 @@ it", and a raw geometry count is not a defect.
    failures, and a test that fails identically on the base commit is not something this exam
    found.
 
-5. **Extract the ledger for the workflow.** The workflow gets measurements and coverage. It
-   passes coverage on to the evaluators, because that is what lets them honour the
-   no-absence-claims rule, and withholds the measurements: they judge the images cold.
+5. **Build the workflow args from the ledgers.** One jq over every `scene.json` emits the whole
+   args object, so nothing is retyped and no field is invented. Run it from the repo root:
 
    ```bash
-   jq -s 'map({planId, status, targetZoom, coverage, measurements, crossingCensus})' .artifacts/exam/*/scene.json
+   jq -s --arg examDir "$PWD/.artifacts/exam" '{
+     examDir: $examDir,
+     plans: [.[] | . as $s | {
+       id: .planId,
+       dir: "\($examDir)/\(.planId)/\(.imagesDir)",
+       url: .url,
+       coverage: .coverage,
+       images: [.tiles[] | {file, what: (
+         if .kind == "fit" then "whole-graph fit overview, at the app fit zoom"
+         elif .kind == "tile" then "grid tile row \(.row) col \(.col), at zoom \($s.targetZoom)"
+         else "corrective shot, at zoom \($s.targetZoom)" end)}],
+       tiles: [.tiles[] | {file, kind, viewportTransform, safeRegion}]
+     }],
+     measurements: ([.[] | {key: .planId, value: .measurements}] | from_entries)
+   }' .artifacts/exam/*/scene.json
    ```
+
+   What each part is for, because passing the wrong thing here fails silently rather than
+   loudly:
+
+   - `dir` is `<examDir>/<planId>/<imagesDir>`, the IMAGES directory. An evaluator is handed
+     it and judges the pixels cold; the plan directory one level up holds `scene.json`, and
+     handing that out instead would let a cold evaluator read the measurements its findings
+     are about to be checked against. The workflow rejects a `dir` that is not strictly below
+     the plan directory, so a wrong value stops the run.
+   - `tiles` is what the corroboration join needs: `file` is the bare name an evaluator can
+     cite, `kind` says which camera shot it (only `tile` and `corrective` can carry a
+     measurement), and `viewportTransform`/`safeRegion` place a world-unit footprint inside
+     that image. Omit it and every join misses, which reads as "nothing was corroborated".
+   - `measurements` is keyed by plan id, and `[]` is a real answer: the measurement pass runs
+     on every capture, so an empty array means measured and clean.
+   - `url` must be `scene.json`'s verbatim, `<baseUrl>/?exam=1#<hash>`: refuters' probe
+     commands are built by splitting it.
 
    Surface these two now, and again in the final report:
 
@@ -92,14 +122,38 @@ it", and a raw geometry count is not a defect.
 6. **Run the workflow** from the MAIN session (the Workflow tool is not available inside
    subagents).
 
-   The workflow's Evaluate phase is implemented; the args block below is finalised in the
-   next change.
+   `Workflow({name: "render-quality-exam", args: <the object step 5 printed>})` - that is,
+   `{examDir, plans: [{id, dir, url, images, tiles, coverage}], measurements}`. Three phases:
 
-   `Workflow({name: "render-quality-exam", args: {plans, repoDir, examDir, measurements, coverage}})`,
-   where `plans` is `[{id, hash}]`, `repoDir` is the absolute root of the checkout the preview
-   server serves, and `examDir` is the absolute `.artifacts/exam` you captured into. It runs
-   Evaluate (one agent per plan, images plus the coverage ledger), a code triage that joins
-   findings to measurements by footprint, and Refute.
+   - **Evaluate**: one agent per plan, given the images and the coverage ledger and nothing
+     else. It returns typed findings, each with a pixel rect per evidence entry, a
+     `claimType`, and a `falsifier` naming the probe op that would disprove it.
+   - **Triage** (code, no agent): validates every finding, joins it to the measurements by
+     footprint, and routes it. A geometric finding with an independent measurement at the
+     place it marked is CORROBORATED and skips refutation; a stated mechanism, an absence
+     claim or an interaction claim always goes to its own refuter; a subjective claim goes to
+     you; anything malformed is reported, never routed. The routing histogram is logged.
+   - **Refute**: one agent per individually routed finding, one per plan for the batched
+     minors. Each must DISPROVE its finding through `tools/exam/probe.ts` and return the
+     command it ran and what it printed.
+
+   It returns `{evaluations, findings, triage, verdicts, humanRuling, invalid}`. A verdict
+   judges the observation and the mechanism SEPARATELY, so "symptom real, cause wrong" comes
+   back as `observationVerdict: CONFIRMED` with `mechanismVerdict: REFUTED`, and its
+   `disposition` says what to do with it:
+
+   | disposition | what it means | what you do |
+   | --- | --- | --- |
+   | `FILE` | observation confirmed, mechanism (if any) confirmed | file it |
+   | `FILE_SYMPTOM_ONLY` | symptom real, stated cause disproved | file the symptom; the struck-out cause is in `mechanismStripped` |
+   | `HUMAN_REVIEW` | UNCERTAIN on some claim | you rule on it; never file it as-is |
+   | `DROP` | observation disproved at runtime | do not file |
+
+   `UNCERTAIN` is a legitimate answer and is preferred over a guess. A verdict that cites no
+   `probeCommand` and `probeOutput`, and a refuter that returns nothing at all, are both
+   coerced to `UNCERTAIN` by the workflow: nothing is ever auto-confirmed or auto-dropped.
+   `humanRuling` carries the subjective findings, `invalid` the malformed ones with their
+   violations.
 
    Refuters answer through `tools/exam/probe.ts`, which boots one plan, optionally commands a
    camera (`--zoom` and `--center` together), and runs one named op:
@@ -114,10 +168,10 @@ it", and a raw geometry count is not a defect.
    <out.png>` writes evidence. A `--shot` after a hover op deliberately photographs the
    pointer where the op left it, so the image shows the dimmed state the finding was about.
 
-7. **Verify, group, and file.** Read the evidence image for every major finding yourself;
-   drop or downgrade what the pixels do not show, and drop any verdict that cites no probe
-   command and output. Group cross-plan into one issue per defect FAMILY (same mechanism, not
-   same plan). File with `gh issue create --body-file`, pushing PNGs to an orphan assets
+7. **Verify, group, and file.** File `FILE` and `FILE_SYMPTOM_ONLY`, rule on `HUMAN_REVIEW`
+   and on `humanRuling` yourself, and file nothing that came back `DROP`. Read the evidence
+   image for every major finding yourself and downgrade what the pixels do not show. Group
+   cross-plan into one issue per defect FAMILY (same mechanism, not same plan). File with `gh issue create --body-file`, pushing PNGs to an orphan assets
    branch via git plumbing (no checkout switch): `git hash-object -w` each PNG, `git mktree`,
    `git commit-tree`, `git branch exam-assets-<date>`, push, then embed
    `https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<file>` in the bodies. Include
