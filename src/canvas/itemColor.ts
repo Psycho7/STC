@@ -7,8 +7,8 @@ import { pack } from "../data/load";
 // are normalized into legible bands for the existing cyan-on-dark theme. Every
 // emitted color clears a WCAG 4.5:1 contrast floor against the canvas
 // background (lightness is raised per hue until it clears); a contrast test
-// enforces that floor together with the pairwise distinctness within each hue
-// window, so neither can drift silently.
+// enforces that floor and a perceptual-distance test enforces the pairwise
+// distinctness, so neither can drift silently.
 //
 // Hue comes from the item's own icon. Each icon in the metadata ships a
 // precomputed dominant color (a hex string); we convert that color to HSL once
@@ -20,23 +20,19 @@ import { pack } from "../data/load";
 // dark or too gray to read against the dark canvas. We normalize with a hybrid
 // rule keyed on the icon's saturation:
 //   - saturated icons (s >= 25%): render the icon hue in the theme's legible
-//     colored band (65% saturation base).
+//     colored band (35-95% saturation, 65% for the fallback).
 //   - near-gray icons (s < 25%, e.g. carbon/iron/glass families): render as a
-//     light gray (12% saturation base), staying gray like the icon.
+//     light gray (8-24% saturation, 12% for the fallback), staying gray like
+//     the icon.
 //
 // Icons of one product family share a dominant color, so on hue alone family
 // members would collide (copper_ore and copper_powder are 3 degrees apart).
-// To keep members similar but visually distinct, pack items whose hues fall
-// inside a band-specific visual window are separated in saturation/lightness:
-// each item keeps its icon hue but takes a distinct rung from a small ladder
-// of (saturation, lightness) pairs chosen to be pairwise distinguishable and
-// legible. Rungs are assigned greedily over items sorted by (hue, id), so the
-// assignment is deterministic for a given recipe pack. Deliberate tradeoff:
-// an item's rung depends on its hue-window neighbors, so a pack update that
-// adds, renames, or removes an item can reshuffle the rungs of nearby items.
-// Per-item color stability across pack versions is intentionally not
-// guaranteed; guaranteed pairwise distinctness within a window is impossible
-// to combine with neighbor-independent assignment (pigeonhole).
+// To keep members similar but visually distinct, each pack item keeps its icon
+// hue but is placed at the (saturation, lightness) pair furthest in CIE Lab
+// from every color already placed. Lab distance is the metric
+// because per-channel hsl deltas are not perceptual: two colors 25 degrees of
+// hue apart at 12% saturation read as one gray. See assignColors for the
+// placement and its determinism/stability tradeoff.
 //
 // Item ids with no icon entry (synthetic test ids and the like) fall back to a
 // djb2 hash folded to 0-359, so itemHue never throws on an unknown id. Every
@@ -108,57 +104,20 @@ function hashItemId(itemId: string): number {
   return hash;
 }
 
-// Visual windows: two same-band hues closer than this read as the same hue on
-// the canvas, so the items must differ in saturation or lightness instead. The
-// gray band's window is wider because at 12-22% saturation the hue tint is
-// much weaker.
-const SAT_HUE_WINDOW = 10;
-const GRAY_HUE_WINDOW = 24;
-
-// Legibility ceiling for assigned lightness: above this the color washes out
-// against light UI surfaces (chip fills, hover cards). Matches the range test.
+// Legibility floor and ceiling for assigned lightness: below the floor the
+// color sinks into the canvas, above the ceiling it washes out against light UI
+// surfaces (chip fills, hover cards). Matches the range test.
+const LIGHT_FLOOR = 46;
 const LIGHT_CAP = 90;
+// Lightness granularity of the placement search. Step 2 halves the candidate
+// count without measurably changing the resulting separation.
+const LIGHT_STEP = 2;
 
-// (saturation, lightness) rung ladders, ordered so early rungs stay closest to
-// the band's base look. Every pair of rungs within a ladder differs by a
-// lightness step >= 8 or a saturation step >= 10, so any two rungs are
-// distinguishable at the same hue. Ladder capacity covers the densest hue
-// cluster in the current pack (the game-v1.4 copper family puts ~14 sat-band
-// items within one window); a pack that outgrows a ladder gets spread repeats
-// (see assignRungs) and fails the no-identical-colors test.
-const SAT_RUNGS: readonly (readonly [number, number])[] = [
-  [65, 60],
-  [65, 70],
-  [65, 50],
-  [85, 64],
-  [45, 64],
-  [85, 54],
-  [45, 54],
-  [85, 74],
-  [45, 74],
-  [65, 78],
-  [65, 86],
-  [85, 84],
-  [45, 84],
-];
-const GRAY_RUNGS: readonly (readonly [number, number])[] = [
-  [12, 62],
-  [12, 70],
-  [12, 54],
-  [22, 66],
-  [22, 58],
-  [12, 78],
-  [22, 74],
-  [22, 50],
-  [12, 46],
-  [12, 86],
-  [22, 82],
-];
-
-function circularHueDistance(a: number, b: number): number {
-  const diff = Math.abs(a - b);
-  return Math.min(diff, 360 - diff);
-}
+// Saturation candidates per band, ordered so ties fall to the first entry. The
+// gray band stays below COLOR_SATURATION_MIN so near-gray icon families keep
+// reading gray.
+const SAT_CANDIDATES: readonly number[] = [35, 45, 55, 65, 75, 85, 95];
+const GRAY_CANDIDATES: readonly number[] = [8, 12, 16, 20, 24];
 
 // Canvas background the edge colors and chips sit on (--ak-bg-canvas). The floor
 // below keeps every color readable against this near-black.
@@ -182,10 +141,8 @@ function srgbRelativeLuminance(r: number, g: number, b: number): number {
   );
 }
 
-// WCAG relative luminance of an hsl() color (h 0-359, s/l 0-100). Feeds
-// contrastAgainstCanvas, the single contrast definition shared by the runtime
-// floor and the contrast test. Module-private.
-function hslRelativeLuminance(h: number, s: number, l: number): number {
+// hsl() color (h 0-359, s/l 0-100) to an sRGB triple with channels in 0..1.
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
   const sn = s / 100;
   const ln = l / 100;
   const c = (1 - Math.abs(2 * ln - 1)) * sn;
@@ -213,7 +170,60 @@ function hslRelativeLuminance(h: number, s: number, l: number): number {
     r = c;
     b = x;
   }
-  return srgbRelativeLuminance(r + m, g + m, b + m);
+  return [r + m, g + m, b + m];
+}
+
+// WCAG relative luminance of an hsl() color (h 0-359, s/l 0-100). Feeds
+// contrastAgainstCanvas, the single contrast definition shared by the runtime
+// floor and the contrast test. Module-private.
+function hslRelativeLuminance(h: number, s: number, l: number): number {
+  const [r, g, b] = hslToRgb(h, s, l);
+  return srgbRelativeLuminance(r, g, b);
+}
+
+// CIE Lab (D65) of an hsl() color. Lab is roughly perceptually uniform, so a
+// Euclidean distance in it approximates how different two colors look, which
+// per-channel hsl deltas do not.
+export function hslToLab(
+  h: number,
+  s: number,
+  l: number,
+): [number, number, number] {
+  const rgb = hslToRgb(h, s, l);
+  const r = linearizeChannel(rgb[0]);
+  const g = linearizeChannel(rgb[1]);
+  const b = linearizeChannel(rgb[2]);
+  const x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
+  const y = 0.2126729 * r + 0.7151522 * g + 0.072175 * b;
+  const z = (0.0193339 * r + 0.119192 * g + 0.9503041 * b) / 1.08883;
+  const f = (t: number): number =>
+    t > 216 / 24389 ? Math.cbrt(t) : (841 / 108) * t + 4 / 29;
+  const fx = f(x);
+  const fy = f(y);
+  const fz = f(z);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+// Squared CIE76 difference. The placement search only compares distances, so
+// it stays on the square and keeps the sqrt out of its inner loop.
+function deltaESq(
+  a: readonly [number, number, number],
+  b: readonly [number, number, number],
+): number {
+  const dl = a[0] - b[0];
+  const da = a[1] - b[1];
+  const db = a[2] - b[2];
+  return dl * dl + da * da + db * db;
+}
+
+// CIE76 color difference: Euclidean distance in Lab. Exported for the same
+// reason contrastAgainstCanvas is: the distinctness test scores with the
+// implementation's own metric, so a scoring drift cannot hide a failure.
+export function deltaE(
+  a: readonly [number, number, number],
+  b: readonly [number, number, number],
+): number {
+  return Math.sqrt(deltaESq(a, b));
 }
 
 const CANVAS_BG_LUMINANCE: number = (() => {
@@ -248,115 +258,72 @@ export function floorLightness(h: number, s: number, l: number): number {
   return out;
 }
 
-// Greedily hand out rungs over entries sorted by (hue, id) and return the
-// finished hsl string per item id: each entry keeps its own hue and takes the
-// first rung not already held by an assigned entry within the hue window.
-// Sorting makes the result deterministic for a given pack. The ladder is sized
-// so real pack data never exhausts it; if a future pack does, overflow entries
-// cycle through the ladder by neighbor count (spread repeats instead of all
-// colliding on rung 0) and the no-identical-colors test fails loudly.
+// Place one band's entries greedily over entries sorted by (hue, id), writing
+// the finished hsl string per item id into out. Each entry keeps its own hue
+// and takes the (saturation, lightness) candidate whose Lab color is furthest
+// from the nearest color already placed - a max-min placement. Every prior
+// counts, with no hue filter: hue distance means one thing at 85% saturation
+// and almost nothing at 12%, so a single hue window cannot express "these two
+// read as one line" and any pair it exempted could land on top of another.
+// Priors accumulate across both bands so a muted colored item cannot collide
+// with a tinted gray one. Candidates under the contrast floor are never
+// offered, which is what keeps the floor from collapsing two placements onto
+// one color. Sorting plus first-wins tie-breaking (lowest saturation index,
+// then lowest lightness) makes the result deterministic for a given pack.
 //
-// After a rung is chosen its lightness is raised to the contrast floor, then
-// re-spread upward so the floor cannot collapse two rungs onto the same color.
-// Rungs that differ in saturation by >= 10 stay distinct on saturation alone,
-// so only a same-saturation in-window neighbor forces a lightness bump: the
-// entry keeps climbing past each such neighbor until it clears the >= 8
-// lightness gap. Priors are already placed, so this preserves their colors and
-// keeps the pass deterministic.
-function assignRungs(
+// Deliberate tradeoff, unchanged from the rung ladders this replaces: an
+// entry's color depends on the entries placed before it, so a pack update that
+// adds, renames, or removes an item can shift the colors of others. Per-item
+// stability across pack versions is not guaranteed.
+function assignColors(
   entries: readonly { id: string; h: number }[],
-  window: number,
-  rungs: readonly (readonly [number, number])[],
-): Map<string, string> {
+  saturations: readonly number[],
+  assigned: [number, number, number][],
+  out: Map<string, string>,
+): void {
   const sorted = [...entries].sort(
     (a, b) => a.h - b.h || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
-  const assigned: { h: number; rung: number; s: number; l: number }[] = [];
-  const out = new Map<string, string>();
   for (const entry of sorted) {
-    const used = new Set<number>();
-    let neighbors = 0;
-    for (const prior of assigned) {
-      if (circularHueDistance(entry.h, prior.h) < window) {
-        used.add(prior.rung);
-        neighbors++;
-      }
-    }
-    let rung = neighbors % rungs.length;
-    for (let i = 0; i < rungs.length; i++) {
-      if (!used.has(i)) {
-        rung = i;
-        break;
-      }
-    }
-    // Resolve same-saturation collisions with a bounded nearest-slot search
-    // instead of an unbounded upward climb: lightness above LIGHT_CAP stops
-    // reading against light chips and the range test rejects it. Upward is
-    // preferred (it reproduces the old climb wherever that stayed in range);
-    // when the cap blocks it, step down toward the contrast floor instead.
-    // When the chosen rung's saturation lane holds no free slot at all, walk
-    // the remaining rungs (other saturations open fresh lanes) before giving
-    // up. Only a pack whose whole window is saturated falls back to the
-    // capped climb, and the neighbor-separation test flags that loudly.
-    const placeOnRung = (
-      candidate: number,
-    ): { s: number; l: number } | undefined => {
-      const [s, baseL] = rungs[candidate]!;
-      const sameSatPriors = assigned.filter(
-        (p) =>
-          circularHueDistance(entry.h, p.h) < window &&
-          Math.abs(p.s - s) < 10,
-      );
-      const isFree = (x: number): boolean =>
-        sameSatPriors.every((p) => Math.abs(x - p.l) >= 8);
-      const start = floorLightness(entry.h, s, baseL);
-      if (isFree(start) && start <= LIGHT_CAP) return { s, l: start };
-      const lo = floorLightness(entry.h, s, 46);
-      let up = start;
-      let down = start;
-      while (up < LIGHT_CAP || down > lo) {
-        up++;
-        down--;
-        if (up <= LIGHT_CAP && isFree(up)) return { s, l: up };
-        if (down >= lo && isFree(down)) return { s, l: down };
-      }
-      return undefined;
-    };
-    let placed: { s: number; l: number } | undefined;
-    for (let offset = 0; placed === undefined && offset < rungs.length; offset++) {
-      placed = placeOnRung((rung + offset) % rungs.length);
-    }
-    let s: number;
-    let l: number;
-    if (placed !== undefined) {
-      ({ s, l } = placed);
-    } else {
-      const [rungS, baseL] = rungs[rung]!;
-      s = rungS;
-      l = floorLightness(entry.h, s, baseL);
-      const sameSatPriors = assigned
-        .filter(
-          (p) =>
-            circularHueDistance(entry.h, p.h) < window &&
-            Math.abs(p.s - s) < 10,
-        )
-        .sort((a, b) => a.l - b.l);
-      for (const p of sameSatPriors) {
-        if (l > p.l - 8 && l < p.l + 8) {
-          l = p.l + 8;
+    let bestS = saturations[0]!;
+    let bestL = LIGHT_FLOOR;
+    let bestScore = -1;
+    for (const s of saturations) {
+      // Contrast rises with lightness, so one floorLightness call per
+      // saturation bounds the whole lane instead of a ratio per candidate.
+      const lo = floorLightness(entry.h, s, LIGHT_FLOOR);
+      for (let l = LIGHT_FLOOR; l <= LIGHT_CAP; l += LIGHT_STEP) {
+        if (l < lo) continue;
+        const lab = hslToLab(entry.h, s, l);
+        // Distances are only ever compared, so the search stays on the
+        // squared metric and never takes a sqrt in the inner loop.
+        let score = Infinity;
+        for (const prior of assigned) {
+          const d = deltaESq(lab, prior);
+          if (d < score) {
+            score = d;
+            // Already no better than the incumbent, so nothing further in
+            // this candidate can change the outcome.
+            if (score <= bestScore) break;
+          }
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestS = s;
+          bestL = l;
         }
       }
-      l = Math.min(l, LIGHT_CAP);
     }
-    assigned.push({ h: entry.h, rung, s, l });
-    out.set(entry.id, `hsl(${entry.h} ${s}% ${l}%)`);
+    assigned.push(hslToLab(entry.h, bestS, bestL));
+    out.set(entry.id, `hsl(${entry.h} ${bestS}% ${bestL}%)`);
   }
-  return out;
 }
 
 // Final color per pack item id, built once at module load: split pack items
-// into the two bands, separate hue-neighbors within each band, and render the
-// icon hue at the assigned rung.
+// into the two bands and place both apart in Lab at their own icon hue. The
+// gray band goes first because it is the crowded one - it holds most of the
+// pack inside the narrowest saturation range, so it gets first pick of the
+// room.
 const packColorById: ReadonlyMap<string, string> = (() => {
   const saturated: { id: string; h: number }[] = [];
   const gray: { id: string; h: number }[] = [];
@@ -367,13 +334,12 @@ const packColorById: ReadonlyMap<string, string> = (() => {
     list.push({ id: item.id, h: iconHS.h });
   }
   const out = new Map<string, string>();
-  for (const [entries, window, rungs] of [
-    [saturated, SAT_HUE_WINDOW, SAT_RUNGS],
-    [gray, GRAY_HUE_WINDOW, GRAY_RUNGS],
+  const assigned: [number, number, number][] = [];
+  for (const [entries, saturations] of [
+    [gray, GRAY_CANDIDATES],
+    [saturated, SAT_CANDIDATES],
   ] as const) {
-    for (const [id, color] of assignRungs(entries, window, rungs)) {
-      out.set(id, color);
-    }
+    assignColors(entries, saturations, assigned, out);
   }
   return out;
 })();

@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { itemColor, itemHue } from "../../src/canvas/itemColor";
+import {
+  deltaE,
+  hslToLab,
+  itemColor,
+  itemHue,
+} from "../../src/canvas/itemColor";
 import { pack } from "../../src/data/load";
 
-// Mirror of the implementation's visual-window constants: two same-band items
-// whose hues are closer than the window read as the same hue, so they must be
-// separated in saturation or lightness instead.
-const SAT_HUE_WINDOW = 10;
-const GRAY_HUE_WINDOW = 24;
+// Perceptual floor two pack colors must clear to read as different lines. The
+// metric comes from the implementation (deltaE/hslToLab are exported) so a
+// scoring drift cannot let a failing pair slip past.
+const MIN_DELTA_E = 6;
 
 type Hsl = { h: number; s: number; l: number };
 
@@ -14,11 +18,6 @@ function parseHsl(color: string): Hsl {
   const match = /^hsl\((\d+) (\d+)% (\d+)%\)$/.exec(color);
   if (match === null) throw new Error(`unparseable color: ${color}`);
   return { h: Number(match[1]), s: Number(match[2]), l: Number(match[3]) };
-}
-
-function circularHueDistance(a: number, b: number): number {
-  const diff = Math.abs(a - b);
-  return Math.min(diff, 360 - diff);
 }
 
 describe("canvas/itemColor", () => {
@@ -63,25 +62,42 @@ describe("canvas/itemColor", () => {
     }
   });
 
-  it("separates hue-neighbor pack items in saturation or lightness", () => {
-    // Two same-band items whose hues sit inside the visual window are
-    // indistinguishable by hue alone, so they must differ by a visible
-    // lightness step (>= 8) or saturation step (>= 10).
-    const parsed = pack.items.map((item) => ({
-      id: item.id,
-      ...parseHsl(itemColor(item.id)),
-    }));
-    for (const [i, a] of parsed.entries()) {
-      for (const b of parsed.slice(i + 1)) {
-        const sameBand = a.s >= 25 === b.s >= 25;
-        const window = a.s >= 25 ? SAT_HUE_WINDOW : GRAY_HUE_WINDOW;
-        if (!sameBand || circularHueDistance(a.h, b.h) >= window) continue;
-        const distinct = Math.abs(a.l - b.l) >= 8 || Math.abs(a.s - b.s) >= 10;
+  it("keeps every pair of pack item colors perceptually distinct", () => {
+    // Channel deltas are not a perceptual metric: hsl(233 12% 70%) and
+    // hsl(258 12% 70%) differ by 25 degrees of hue and read as one gray.
+    const labs = pack.items.map((item) => {
+      const { h, s, l } = parseHsl(itemColor(item.id));
+      return { id: item.id, lab: hslToLab(h, s, l) };
+    });
+    for (const [i, a] of labs.entries()) {
+      for (const b of labs.slice(i + 1)) {
+        const d = deltaE(a.lab, b.lab);
         expect(
-          distinct,
-          `${a.id} hsl(${a.h} ${a.s}% ${a.l}%) vs ${b.id} hsl(${b.h} ${b.s}% ${b.l}%)`,
-        ).toBe(true);
+          d,
+          `${a.id} vs ${b.id} deltaE ${d.toFixed(2)}`,
+        ).toBeGreaterThanOrEqual(MIN_DELTA_E);
       }
+    }
+  });
+
+  it("separates the item families the render exam could not trace", () => {
+    // Regression pins for the corridors the 2026-07-18 render exam could not
+    // follow by color; a future pack or candidate-set change must not put any
+    // of these back on top of each other.
+    const pairs: readonly (readonly [string, string])[] = [
+      ["copper_nugget", "copper_cmpt"],
+      ["liquid_plant_grass_1", "xiranite_enr_powder"],
+      ["gas_xiranite", "bottled_food_1"],
+      ["xiranite_powder", "gas_xiranite"],
+      ["equip_script_1", "glass_bottle"],
+    ];
+    for (const [aId, bId] of pairs) {
+      const a = parseHsl(itemColor(aId));
+      const b = parseHsl(itemColor(bId));
+      const d = deltaE(hslToLab(a.h, a.s, a.l), hslToLab(b.h, b.s, b.l));
+      expect(d, `${aId} vs ${bId} deltaE ${d.toFixed(2)}`).toBeGreaterThanOrEqual(
+        MIN_DELTA_E,
+      );
     }
   });
 
@@ -110,15 +126,13 @@ describe("canvas/itemColor", () => {
   });
 
   it("keeps every pack item color inside the legible range", () => {
-    // Saturated icons stay clearly colored (s >= 45), near-gray icons stay
-    // gray-ish (s <= 22), and every lightness lands where it reads against the
-    // dark canvas. No raw icon color leaks through. The upper bound is 90, not
-    // the old rung ceiling of 78: the contrast floor plus its upward re-spread
-    // can lift a crowded deep-red rung into the pale band to hold both the
-    // 4.5:1 floor and the >= 8 lightness gap from its hue-window neighbors.
+    // Saturated icons stay clearly colored (s >= 35), near-gray icons stay
+    // gray-ish (s <= 24, under the COLOR_SATURATION_MIN threshold), and every
+    // lightness lands where it reads against the dark canvas. No raw icon color
+    // leaks through.
     for (const item of pack.items) {
       const { s, l } = parseHsl(itemColor(item.id));
-      expect(s >= 45 || s <= 22, `${item.id} saturation ${s}`).toBe(true);
+      expect(s >= 35 || s <= 24, `${item.id} saturation ${s}`).toBe(true);
       expect(l, `${item.id} lightness ${l}`).toBeGreaterThanOrEqual(46);
       expect(l, `${item.id} lightness ${l}`).toBeLessThanOrEqual(90);
     }
