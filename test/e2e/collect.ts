@@ -236,11 +236,12 @@ export function collectGeometry(): Geometry {
 }
 
 // One rendered thing the exam has to be able to point a camera at. `clientRect`
-// is measured relative to the .react-flow pane (so it composes with the pane's
-// own viewport-coordinate box); `worldRect` is the same box mapped back through
-// the inverse viewport transform, which is the frame setViewport speaks. Chips
-// counter-scale about their centre, so their worldRect shrinks as the pane zooms
-// in - that is the true graph-space footprint, not a measurement error.
+// is in PANE-RELATIVE CSS pixels: the element's box measured from the top-left
+// of the .react-flow pane, the same frame `overlays` uses, so an element and an
+// overlay can be compared directly. `worldRect` is the same box mapped back
+// through the inverse viewport transform, which is the frame setViewport speaks.
+// Chips counter-scale about their centre, so their worldRect shrinks as the pane
+// zooms in - that is the true graph-space footprint, not a measurement error.
 export type SceneElement = {
   id: string;
   kind: "node" | "edge" | "chip" | "junction" | "band" | "glyph" | "group";
@@ -257,10 +258,13 @@ export type SceneElement = {
 // element the capture CLI must prove it covered.
 export type SceneCollection = {
   transform: { x: number; y: number; zoom: number };
-  // .react-flow's own box, in viewport (page) coordinates.
+  // .react-flow's own box, in PAGE (browser viewport) coordinates - the one
+  // field that is not pane-relative, because a consumer needs it to convert a
+  // pane-relative rect back to a page coordinate (screenshot clip, mouse move).
   paneRect: { x: number; y: number; width: number; height: number };
-  // Floating chrome above the pane, in viewport coordinates: anything under one
-  // of these is occluded no matter where the camera sits.
+  // Floating chrome above the pane, in PANE-RELATIVE coordinates (same frame as
+  // every element's clientRect): anything under one of these is occluded no
+  // matter where the camera sits.
   overlays: Array<{
     name: string;
     x: number;
@@ -407,13 +411,18 @@ export function collectScene(): SceneCollection {
     });
   }
 
+  // BusBands already emits data-testid="bus-band-<lane>", keyed on the LANE
+  // index. Synthesising the same string from document order would put a
+  // different element behind an id that a testid locator also resolves, so read
+  // the attribute and only fall back to a plainly distinct document-order id.
   const bands = Array.from(document.querySelectorAll<HTMLElement>(".bus-band"));
   for (let i = 0; i < bands.length; i++) {
+    const el = bands[i]!;
     add({
       kind: "band",
-      id: `bus-band-${i}`,
+      id: el.getAttribute("data-testid") ?? "",
       fallbackId: `band-${i}`,
-      el: bands[i]!,
+      el,
     });
   }
 
@@ -450,16 +459,31 @@ export function collectScene(): SceneCollection {
   }
 
   const overlays: SceneCollection["overlays"] = [];
-  // The minimap only mounts above the dense-plan node threshold; emit it when
-  // it is there and stay silent when it is not.
+  // Chrome that paints an opaque or near-opaque fill over pane content. The
+  // minimap only mounts above the dense-plan node threshold, and the React Flow
+  // attribution badge only exists because Canvas sets no proOptions; emit each
+  // when it is there and stay silent when it is not. Rects are converted to the
+  // pane frame so they compare directly against every element's clientRect.
+  //
+  // .canvas-frame is deliberately NOT here: it spans the whole pane, but it is
+  // pointer-events: none and paints only a vignette that is fully transparent
+  // across the interior plus ~1% white scanlines, so it tints rather than hides.
+  // Collecting it would mark every element occluded and make this list useless.
   for (const [name, selector] of [
     ["controls", ".react-flow__controls"],
     ["minimap", ".react-flow__minimap"],
+    ["attribution", ".react-flow__attribution"],
   ] as const) {
     const el = document.querySelector<HTMLElement>(selector);
     if (el === null) continue;
     const r = el.getBoundingClientRect();
-    overlays.push({ name, x: r.x, y: r.y, width: r.width, height: r.height });
+    overlays.push({
+      name,
+      x: r.left - rfRect.left,
+      y: r.top - rfRect.top,
+      width: r.width,
+      height: r.height,
+    });
   }
 
   return {
