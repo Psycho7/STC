@@ -188,9 +188,17 @@ it", and a raw geometry count is not a defect.
    pointer where the op left it, so the image shows the dimmed state the finding was about.
 
 7. **Verify, group, and file.** File `FILE` and `FILE_SYMPTOM_ONLY`, rule on `HUMAN_REVIEW`
-   and on `humanRuling` yourself, and file nothing that came back `DROP`. Read the evidence
-   image for every major finding yourself and downgrade what the pixels do not show. Group
-   cross-plan into one issue per defect FAMILY (same mechanism, not same plan). File with `gh issue create --body-file`, pushing PNGs to an orphan assets
+   and on `humanRuling` yourself, and file nothing that came back `DROP`. An entry in
+   `invalid` is a defect of the REPORT, not of the app: it was never routed and no verdict
+   exists for it, so read its `violations`, and either restate the finding yourself against
+   the evidence image (then treat it as your own claim, disproving it before filing) or drop
+   it. Do not file one as it stands. Read the evidence image for every major finding yourself
+   and drop or downgrade what the pixels do not show; the workflow's "nothing is auto-dropped"
+   rule binds the machine, not you, and this pass is where a finding the pixels do not support
+   dies.
+
+   Group cross-plan into one issue per defect FAMILY (same mechanism, not same plan). File
+   with `gh issue create --body-file`, pushing PNGs to an orphan assets
    branch via git plumbing (no checkout switch): `git hash-object -w` each PNG, `git mktree`,
    `git commit-tree`, `git branch exam-assets-<date>`, push, then embed
    `https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<file>` in the bodies. Include
