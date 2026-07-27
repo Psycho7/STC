@@ -11,14 +11,14 @@ import {
   fmtSeg,
   parsePath,
   polylineLength,
-  type ChipRect as GeomChipRect,
+  type ChipRect,
   type NodeRect,
   type RawEdge,
 } from "./geometry";
 import {
   collectAudit,
   collectGeometry,
-  type ChipRect,
+  type AuditChipRect,
   type EdgeGeom,
 } from "./collect";
 
@@ -76,8 +76,8 @@ async function waitForStableViewport(page: Page): Promise<void> {
 
 // Strict interpenetration on both axes, beyond the abutment epsilon.
 function overlapPx(
-  a: ChipRect,
-  b: ChipRect,
+  a: AuditChipRect,
+  b: AuditChipRect,
 ): { dx: number; dy: number } | null {
   const dx = Math.min(a.right, b.right) - Math.max(a.x, b.x);
   const dy = Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y);
@@ -85,7 +85,7 @@ function overlapPx(
   return null;
 }
 
-function fmtRect(r: ChipRect): string {
+function fmtRect(r: AuditChipRect): string {
   return `[${r.x.toFixed(1)},${r.y.toFixed(1)} ${r.width.toFixed(1)}x${r.height.toFixed(1)}]`;
 }
 
@@ -496,7 +496,7 @@ test.describe("segment placement audit", () => {
       // at or below the per-scenario baseline. Zero on the sparse plans; the 2B
       // anchor trades a bounded set of line-occlusions on the packed plans (see
       // CHIP_SEGMENT_BASELINE) for the chip/card clearance the next tier checks.
-      const chips = geom.chips as GeomChipRect[];
+      const chips = geom.chips as ChipRect[];
       const chipHits = auditSegmentsVsChips(rawEdges, chips, nodes);
       const chipInventory = chipHits.map(
         (v) =>

@@ -2,13 +2,14 @@
 // exam harness. Every function here is handed to `page.evaluate`, which
 // serialises the function SOURCE and runs it inside the browser: nothing from
 // this module's scope travels with it. So each collector must stay entirely
-// self-contained - no outer-scope references, no imports, no module-level
-// constants, no helpers hoisted out of a function body. Helpers that a
-// collector needs are inlined inside it, even when two collectors want the
-// same one. The exported types are erased at compile time and are safe to
-// share; the function bodies are not.
+// self-contained - no outer-scope references to VALUES: no value imports, no
+// module-level constants, no helpers hoisted out of a function body. Any such
+// reference is undefined in the browser and fails at run time, not at compile
+// time. Helpers that a collector needs are inlined inside it, even when two
+// collectors want the same one. Type-only declarations and `import type` are
+// erased before the source ever reaches the browser, so sharing those is safe.
 
-export type ChipRect = {
+export type AuditChipRect = {
   label: string;
   x: number;
   y: number;
@@ -31,12 +32,12 @@ export type RowCenter = {
 // overlapping the rate figures; the promoted header cell must keep them apart.
 export type MultPair = {
   nodeId: string;
-  chip: ChipRect;
-  rate: ChipRect;
+  chip: AuditChipRect;
+  rate: AuditChipRect;
 };
 
 export type AuditData = {
-  chips: ChipRect[];
+  chips: AuditChipRect[];
   rows: RowCenter[];
   multPairs: MultPair[];
   recipeNodeCount: number;
@@ -69,7 +70,7 @@ export function collectAudit(): AuditData {
     };
   });
 
-  const toRect = (el: HTMLElement, label: string): ChipRect => {
+  const toRect = (el: HTMLElement, label: string): AuditChipRect => {
     const r = el.getBoundingClientRect();
     return {
       label,
