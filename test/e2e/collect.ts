@@ -234,3 +234,243 @@ export function collectGeometry(): Geometry {
 
   return { edges, nodes, chips };
 }
+
+// One rendered thing the exam has to be able to point a camera at. `clientRect`
+// is measured relative to the .react-flow pane (so it composes with the pane's
+// own viewport-coordinate box); `worldRect` is the same box mapped back through
+// the inverse viewport transform, which is the frame setViewport speaks. Chips
+// counter-scale about their centre, so their worldRect shrinks as the pane zooms
+// in - that is the true graph-space footprint, not a measurement error.
+export type SceneElement = {
+  id: string;
+  kind: "node" | "edge" | "chip" | "junction" | "band" | "glyph" | "group";
+  itemId?: string;
+  label?: string;
+  clientRect: { x: number; y: number; width: number; height: number };
+  worldRect: { x: number; y: number; width: number; height: number };
+  // World-unit vertices of an edge path, parsed from its `d`. Edges only.
+  polyline?: Array<[number, number]>;
+};
+
+// The full inventory of a single rendered frame: the live camera, the pane box
+// the camera paints into, the chrome overlays that occlude it, and every
+// element the capture CLI must prove it covered.
+export type SceneCollection = {
+  transform: { x: number; y: number; zoom: number };
+  // .react-flow's own box, in viewport (page) coordinates.
+  paneRect: { x: number; y: number; width: number; height: number };
+  // Floating chrome above the pane, in viewport coordinates: anything under one
+  // of these is occluded no matter where the camera sits.
+  overlays: Array<{
+    name: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
+  elements: SceneElement[];
+};
+
+// Inventory every rendered element on the canvas, in both screen and world
+// frames, so the capture CLI can prove a shot set covers all of them.
+// Self-contained for page.evaluate (no outer-scope value references).
+//
+// Ids come from the DOM hook each family already emits (data-id, the path
+// element id, data-testid), because those stay stable across a re-render of the
+// same plan. Two families need help: the group boxes live INSIDE a
+// .react-flow__node wrapper and would otherwise reuse that node's data-id, so
+// they carry a `group-` prefix; bands and glyphs emit no per-element hook and
+// are numbered by document order. Anything still colliding gets a `-2`, `-3`
+// suffix, since a duplicate id would silently collapse two elements into one
+// coverage entry.
+export function collectScene(): SceneCollection {
+  const rf = document.querySelector<HTMLElement>(".react-flow");
+  const vp = document.querySelector<HTMLElement>(".react-flow__viewport");
+  const rfRect = rf!.getBoundingClientRect();
+  const m = new DOMMatrixReadOnly(getComputedStyle(vp!).transform);
+  const k = m.a;
+  const tx = m.e;
+  const ty = m.f;
+  const toWorldX = (clientX: number): number =>
+    (clientX - rfRect.left - tx) / k;
+  const toWorldY = (clientY: number): number => (clientY - rfRect.top - ty) / k;
+
+  const elements: SceneElement[] = [];
+  const usedIds = new Set<string>();
+  const add = (spec: {
+    kind: SceneElement["kind"];
+    id: string;
+    fallbackId: string;
+    el: Element;
+    label?: string | null;
+    itemId?: string | null;
+    polyline?: Array<[number, number]>;
+  }): void => {
+    let id = spec.id !== "" ? spec.id : spec.fallbackId;
+    if (usedIds.has(id)) {
+      let n = 2;
+      while (usedIds.has(`${id}-${n}`)) n++;
+      id = `${id}-${n}`;
+    }
+    usedIds.add(id);
+    const r = spec.el.getBoundingClientRect();
+    const label = spec.label ?? "";
+    const itemId = spec.itemId ?? "";
+    elements.push({
+      id,
+      kind: spec.kind,
+      ...(itemId !== "" ? { itemId } : {}),
+      ...(label !== "" ? { label } : {}),
+      clientRect: {
+        x: r.left - rfRect.left,
+        y: r.top - rfRect.top,
+        width: r.width,
+        height: r.height,
+      },
+      worldRect: {
+        x: toWorldX(r.left),
+        y: toWorldY(r.top),
+        width: r.width / k,
+        height: r.height / k,
+      },
+      ...(spec.polyline !== undefined ? { polyline: spec.polyline } : {}),
+    });
+  };
+
+  // Collapsed visible text, capped so a whole node card does not become a label.
+  const textOf = (el: Element): string =>
+    (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+
+  const nodes = Array.from(
+    document.querySelectorAll<HTMLElement>(".react-flow__node"),
+  );
+  for (let i = 0; i < nodes.length; i++) {
+    const el = nodes[i]!;
+    add({
+      kind: "node",
+      id: el.getAttribute("data-id") ?? "",
+      fallbackId: `node-${i}`,
+      el,
+      label: textOf(el),
+      itemId:
+        el.querySelector("[data-item-id]")?.getAttribute("data-item-id") ??
+        null,
+    });
+  }
+
+  // Edge `d` coordinates are already in the viewport's frame, so the polyline
+  // needs no transform. Same coordinate-pair scan geometry.ts's parsePath uses,
+  // inlined because page context cannot see that module.
+  const edges = Array.from(
+    document.querySelectorAll<SVGPathElement>(".react-flow__edge-path"),
+  );
+  for (let i = 0; i < edges.length; i++) {
+    const p = edges[i]!;
+    const d = p.getAttribute("d") ?? "";
+    const polyline: Array<[number, number]> = [
+      ...d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g),
+    ].map((mm): [number, number] => [Number(mm[1]), Number(mm[2])]);
+    add({
+      kind: "edge",
+      id: p.id,
+      fallbackId: `edge-${i}`,
+      el: p,
+      polyline,
+    });
+  }
+
+  const chips = Array.from(
+    document.querySelectorAll<HTMLElement>(".flow-chip"),
+  );
+  for (let i = 0; i < chips.length; i++) {
+    const el = chips[i]!;
+    add({
+      kind: "chip",
+      id:
+        el.getAttribute("data-testid") ?? el.getAttribute("data-edge-id") ?? "",
+      fallbackId: `chip-${i}`,
+      el,
+      label: el.getAttribute("aria-label") ?? el.getAttribute("title"),
+    });
+  }
+
+  const junctions = Array.from(
+    document.querySelectorAll<HTMLElement>(".bus-junction"),
+  );
+  for (let i = 0; i < junctions.length; i++) {
+    const el = junctions[i]!;
+    add({
+      kind: "junction",
+      id: el.getAttribute("data-testid") ?? "",
+      fallbackId: `junction-${i}`,
+      el,
+    });
+  }
+
+  const bands = Array.from(document.querySelectorAll<HTMLElement>(".bus-band"));
+  for (let i = 0; i < bands.length; i++) {
+    add({
+      kind: "band",
+      id: `bus-band-${i}`,
+      fallbackId: `band-${i}`,
+      el: bands[i]!,
+    });
+  }
+
+  const glyphs = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-glyph]"),
+  );
+  for (let i = 0; i < glyphs.length; i++) {
+    const el = glyphs[i]!;
+    add({
+      kind: "glyph",
+      id: `glyph-${i}`,
+      fallbackId: `glyph-${i}`,
+      el,
+      label: el.getAttribute("data-glyph"),
+    });
+  }
+
+  const groups = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      '.rf-group-box, [data-testid="loop-node"]',
+    ),
+  );
+  for (let i = 0; i < groups.length; i++) {
+    const el = groups[i]!;
+    const owner =
+      el.closest(".react-flow__node")?.getAttribute("data-id") ?? "";
+    add({
+      kind: "group",
+      id: owner !== "" ? `group-${owner}` : "",
+      fallbackId: `group-${i}`,
+      el,
+      label: textOf(el),
+    });
+  }
+
+  const overlays: SceneCollection["overlays"] = [];
+  // The minimap only mounts above the dense-plan node threshold; emit it when
+  // it is there and stay silent when it is not.
+  for (const [name, selector] of [
+    ["controls", ".react-flow__controls"],
+    ["minimap", ".react-flow__minimap"],
+  ] as const) {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (el === null) continue;
+    const r = el.getBoundingClientRect();
+    overlays.push({ name, x: r.x, y: r.y, width: r.width, height: r.height });
+  }
+
+  return {
+    transform: { x: tx, y: ty, zoom: k },
+    paneRect: {
+      x: rfRect.x,
+      y: rfRect.y,
+      width: rfRect.width,
+      height: rfRect.height,
+    },
+    overlays,
+    elements,
+  };
+}
