@@ -72,8 +72,11 @@ type ExamWindow = Window & { __stcExam?: ExamHook };
 const VIEWPORT = { width: 1920, height: 1080 };
 const DEVICE_SCALE_FACTOR = 2;
 // Pulled back from every pane edge before a tile is judged: content flush
-// against a screenshot border reads as clipped even when it is whole.
-const RIM_INSET = 8;
+// against a screenshot border reads as clipped even when it is whole. Exported
+// so the probe CLI frames a commanded camera against the same safe region a
+// tile was shot in; two different insets would put the probe's centre somewhere
+// the capture never framed.
+export const RIM_INSET = 8;
 // Neighbouring tiles share this fraction of a tile, so an element sitting on one
 // tile's seam lands well inside its neighbour.
 const TILE_OVERLAP = 0.15;
