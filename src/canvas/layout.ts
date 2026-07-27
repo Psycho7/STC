@@ -277,6 +277,10 @@ export type RFContainerNode = RFNode<
     containerKind: Container["kind"];
     containerId: ContainerId;
     memberCount: number;
+    // Primary output of each member recipe, deduped in plan order. The caption
+    // resolves these ids to names at render time, so switching locale never
+    // forces a relayout. Absent when no member resolves to a recipe.
+    titleItems?: ItemId[];
   },
   "group"
 >;
@@ -588,6 +592,18 @@ export function fromElkRenderLayout(
   const containerById = new Map<ContainerId, Container>();
   for (const c of plan.containers) containerById.set(c.id, c);
 
+  // Caption items per container: the primary output of each member recipe,
+  // deduped and in plan order (not ELK child order, which layout may permute).
+  const titleItemsByContainer = new Map<ContainerId, ItemId[]>();
+  for (const u of plan.units) {
+    if (u.kind !== "recipe" || u.containerId === undefined) continue;
+    const item = recipeById.get(u.recipeId)?.out[0]?.item;
+    if (item === undefined) continue;
+    const items = titleItemsByContainer.get(u.containerId) ?? [];
+    if (!items.includes(item)) items.push(item);
+    titleItemsByContainer.set(u.containerId, items);
+  }
+
   const nodes: RFAnyNode[] = [];
 
   for (const top of laid.children ?? []) {
@@ -598,6 +614,7 @@ export function fromElkRenderLayout(
       const memberCount = (top.children ?? []).filter((child) =>
         unitById.has(child.id),
       ).length;
+      const titleItems = titleItemsByContainer.get(container.id);
       nodes.push({
         id: container.id,
         type: "group",
@@ -606,6 +623,9 @@ export function fromElkRenderLayout(
           containerKind: container.kind,
           containerId: container.id,
           memberCount,
+          ...(titleItems !== undefined && titleItems.length > 0
+            ? { titleItems }
+            : {}),
         },
         // Group bounding boxes carry their size both as top-level width/height
         // (what React Flow checks to treat the node as initialized) and on style.
