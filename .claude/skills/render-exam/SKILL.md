@@ -149,9 +149,28 @@ it", and a raw geometry count is not a defect.
    | `HUMAN_REVIEW` | UNCERTAIN on some claim | you rule on it; never file it as-is |
    | `DROP` | observation disproved at runtime | do not file |
 
+   Every verdict carries the same keys whatever produced it, so one filter reads them all:
+
+   | field | what it holds |
+   | --- | --- |
+   | `findingId`, `planId` | which finding this answers; the id is namespaced `<planId>:<slug>` |
+   | `observationVerdict` | `CONFIRMED` / `REFUTED` / `UNCERTAIN` on the symptom |
+   | `mechanismVerdict` | the same on the stated cause; `null` when the finding stated none |
+   | `mechanismStripped` | the cause struck out; `null` unless `FILE_SYMPTOM_ONLY` |
+   | `disposition` | the table above, derived from the two verdicts and nothing else |
+   | `corroboratedBy` | the measurement ids (`<planId>#<index>:<kind>`) that carried the finding past refutation; `[]` for anything a refuter answered |
+   | `probeCommand`, `probeOutput` | what was run and what it printed; `null` for a corroborated finding, which never reached an agent, and for a refuter that ran nothing |
+   | `reasoning` | how that settles the claim; `null` when none was given |
+   | `correctedObservation` | what is actually true, when the symptom is real but stated wrongly; `null` otherwise |
+   | `coercions` | why a claim was forced to `UNCERTAIN`; `[]` when nothing was forced |
+
+   So `probeCommand: null` does not mean unsupported: check `corroboratedBy` before reading it
+   that way.
+
    `UNCERTAIN` is a legitimate answer and is preferred over a guess. A verdict that cites no
-   `probeCommand` and `probeOutput`, and a refuter that returns nothing at all, are both
-   coerced to `UNCERTAIN` by the workflow: nothing is ever auto-confirmed or auto-dropped.
+   `probeCommand` and `probeOutput`, a refuter that returns nothing at all, and a refuter whose
+   answers carry finding ids nobody asked about are all coerced to `UNCERTAIN` by the workflow,
+   with the reason in `coercions`: nothing is ever auto-confirmed or auto-dropped.
    `humanRuling` carries the subjective findings, `invalid` the malformed ones with their
    violations.
 

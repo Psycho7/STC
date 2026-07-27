@@ -658,9 +658,9 @@ Run it from the repo root with Bash. It boots the plan, runs at most one named o
 - \`computed-style\` --arg selector=<css> --arg props=<comma list>, \`text-overflow\` --arg selector=<css>.
 Optional: \`--zoom <z> --center <wx>,<wy>\` together to frame a camera first, \`--eval <file.js>\` to evaluate one expression in the page (write the file under /tmp, never into the exam directory), \`--shot <out.png>\` to save what the page looked like after the op.
 
-Resolving a target the finding describes in words: \`--eval\` is the way in. A one-line expression over the DOM lists what you need, for example every edge id (\`Array.from(document.querySelectorAll('.react-flow__edge')).map(e => e.getAttribute('data-id'))\`) or every chip and its owner. Then probe the id you found. Do not guess an id: a probe against an element that does not exist reports an error, and an error is not a refutation.
+Resolving a target the finding describes in words: \`--eval\` is the way in. A one-line expression over the DOM lists what you need, for example every edge id (\`Array.from(document.querySelectorAll('.react-flow__edge')).map(e => e.getAttribute('data-id'))\`) or every chip and its owner. Then probe the id you found. Do not guess an id: a probe against an element that does not exist reports an error, and AN ERROR SETTLES NOTHING IN EITHER DIRECTION. It is not a refutation, and it is not a confirmation either - least of all of a finding that claims something is missing. "The probe could not find it" does not separate "it is not in the app" from "that is not its id", which is the screenshot confusion one step further down the pipeline. Resolve the target again with \`--eval\` and re-run; only a run that came back clean answers anything.
 
-Exit codes: 0 the run succeeded; 1 harness failure (bad flags, missing element); 2 the base URL is not serving; 3 the page never became examinable. On 2 or 3 the app was never reached, so nothing was settled - say UNCERTAIN and paste what happened.
+Exit codes: 0 the run succeeded; 1 harness failure (bad flags, an id that resolved to nothing, a missing element); 2 the base URL is not serving; 3 the page never became examinable. ONLY exit 0 settles a claim. On 1, 2 or 3 nothing was measured, so the verdict is UNCERTAIN whichever way the finding reads - never REFUTED, and never CONFIRMED - and you paste what happened.
 
 READ THIS BEFORE JUDGING A HOVER RESULT: \`hoverEngaged: false\` is usually a miss by the probe, not a dead app. Read \`engagedElsewhere\` and \`samples\`, then re-probe whatever id took the pointer, or reframe with \`--zoom\`/\`--center\`. Only \`decision.noResponse\` is a real "hover produced no response"; \`decision.differs\` is a set difference that the app produces by design (it lights whole bus-trunk groups) and is NOT a defect.
 
@@ -706,17 +706,76 @@ ${group.map((f) => findingBlock(plan, f)).join('\n\n')}
 
 Return \`verdicts\` with exactly ${group.length} entries, one per finding, with \`findingId\` set to ${group.map((f) => `"${f.id}"`).join(', ')}. Each entry needs its OWN probeCommand and probeOutput; reusing one run for several findings means the others were never checked, and an unchecked verdict must be UNCERTAIN.`
 
-// Every path out of the Refute phase lands here, and nothing else may build a
-// verdict. NEVER auto-confirm and NEVER auto-drop: an agent that returned
-// nothing, an unknown verdict word, or a verdict with no command and no output
-// behind it all become UNCERTAIN, which downgrades the finding and puts it in
-// front of a human instead of quietly deciding it either way.
-const coerceVerdict = (finding, raw) => {
+// THE ONLY PLACE A VERDICT IS BUILT. Every path lands here: a refuter's answer,
+// a refuter that answered nothing usable, and a corroborated finding that never
+// reached an agent. Two things follow, and both are the point:
+//   - `disposition` has ONE derivation. It is a function of the two verdicts and
+//     nothing else, so no caller can hardcode a disposition that the rules below
+//     would not have produced.
+//   - every verdict carries the SAME keys, whatever produced it. A consumer
+//     filtering on `probeCommand === null` would otherwise read a corroborated
+//     FILE as unsupported; here it reads a non-empty `corroboratedBy` instead,
+//     which is never absent, only empty.
+//
+// The full shape, all fields always present:
+//   findingId, planId      which finding this answers, id namespaced by plan
+//   observationVerdict     CONFIRMED | REFUTED | UNCERTAIN, on the symptom
+//   mechanismVerdict       the same on the stated cause; null when none was stated
+//   mechanismStripped      the cause struck out; null unless FILE_SYMPTOM_ONLY
+//   disposition            FILE | FILE_SYMPTOM_ONLY | HUMAN_REVIEW | DROP
+//   corroboratedBy         the measurement ids that carried it past refutation;
+//                          [] for anything a refuter answered
+//   probeCommand           the command line the refuter ran; null when none was
+//   probeOutput            what it printed; null when nothing was run
+//   reasoning              how that settles the claim; null when none was given
+//   correctedObservation   what is actually true; null when none was offered
+//   coercions              why a claim was forced to UNCERTAIN; [] when none was
+const buildVerdict = (finding, parts) => {
+  const observationVerdict = parts.observationVerdict
+  const mechanismVerdict = parts.mechanismVerdict ?? null
+
+  // What the orchestrator does with it. A real symptom under a disproved cause is
+  // the shape the last exam got wrong twice: it is still a finding, filed with
+  // the mechanism struck out rather than dropped along with it.
+  let disposition
+  if (observationVerdict === 'REFUTED') disposition = 'DROP'
+  else if (observationVerdict === 'UNCERTAIN' || mechanismVerdict === 'UNCERTAIN') disposition = 'HUMAN_REVIEW'
+  else if (mechanismVerdict === 'REFUTED') disposition = 'FILE_SYMPTOM_ONLY'
+  else disposition = 'FILE'
+
+  return {
+    findingId: finding.id,
+    planId: finding.planId,
+    observationVerdict,
+    mechanismVerdict,
+    mechanismStripped:
+      disposition === 'FILE_SYMPTOM_ONLY' && finding.mechanismHypothesis !== undefined
+        ? finding.mechanismHypothesis
+        : null,
+    disposition,
+    corroboratedBy: parts.corroboratedBy ?? [],
+    probeCommand: parts.probeCommand ?? null,
+    probeOutput: parts.probeOutput ?? null,
+    reasoning: parts.reasoning ?? null,
+    correctedObservation: parts.correctedObservation ?? null,
+    coercions: parts.coercions ?? [],
+  }
+}
+
+// Every answer out of the Refute phase is read here. NEVER auto-confirm and
+// NEVER auto-drop: an agent that returned nothing, one that answered about a
+// different finding, an unknown verdict word, or a verdict with no command and
+// no output behind it all become UNCERTAIN, which downgrades the finding and
+// puts it in front of a human instead of quietly deciding it either way.
+// `missReason` says HOW the answer went missing, and is recorded verbatim,
+// because "nothing came back" and "the answers were about other ids" send an
+// operator after two completely different bugs.
+const coerceVerdict = (finding, raw, missReason) => {
   const r = raw !== null && typeof raw === 'object' ? raw : null
   const nonEmpty = (v) => typeof v === 'string' && v.trim() !== ''
   const cited = r !== null && nonEmpty(r.probeCommand) && nonEmpty(r.probeOutput)
   const coercions = []
-  if (r === null) coercions.push('the refuter returned nothing')
+  if (r === null) coercions.push(missReason)
   else if (!cited) coercions.push('no probeCommand and probeOutput, so nothing was run')
 
   const claim = (value, name) => {
@@ -733,43 +792,55 @@ const coerceVerdict = (finding, raw) => {
   const hasMechanism = finding.mechanismHypothesis !== undefined
   const mechanismVerdict = hasMechanism ? claim(r === null ? undefined : r.mechanismVerdict, 'mechanismVerdict') : null
 
-  // What the orchestrator does with it. A real symptom under a disproved cause is
-  // the shape the last exam got wrong twice: it is still a finding, filed with
-  // the mechanism struck out rather than dropped along with it.
-  let disposition
-  if (observationVerdict === 'REFUTED') disposition = 'DROP'
-  else if (observationVerdict === 'UNCERTAIN' || mechanismVerdict === 'UNCERTAIN') disposition = 'HUMAN_REVIEW'
-  else if (mechanismVerdict === 'REFUTED') disposition = 'FILE_SYMPTOM_ONLY'
-  else disposition = 'FILE'
-
-  return {
-    findingId: finding.id,
-    planId: finding.planId,
+  return buildVerdict(finding, {
     observationVerdict,
-    ...(mechanismVerdict === null ? {} : { mechanismVerdict }),
-    ...(disposition === 'FILE_SYMPTOM_ONLY' ? { mechanismStripped: finding.mechanismHypothesis } : {}),
-    disposition,
+    mechanismVerdict,
     probeCommand: r !== null && nonEmpty(r.probeCommand) ? r.probeCommand : null,
     probeOutput: r !== null && nonEmpty(r.probeOutput) ? r.probeOutput : null,
     reasoning: r !== null && nonEmpty(r.reasoning) ? r.reasoning : null,
-    ...(r !== null && nonEmpty(r.correctedObservation) ? { correctedObservation: r.correctedObservation } : {}),
-    ...(coercions.length > 0 ? { coercions } : {}),
-  }
+    correctedObservation: r !== null && nonEmpty(r.correctedObservation) ? r.correctedObservation : null,
+    coercions,
+  })
 }
 
 // A corroborated finding never reaches an agent: an independent measurement
 // already exists at the place it marked, and that is what the join is for. The
-// measurement ids travel with the verdict so the support is inspectable.
-const corroboratedVerdict = (t) => ({
-  findingId: t.finding.id,
-  planId: t.finding.planId,
-  observationVerdict: 'CONFIRMED',
-  disposition: 'FILE',
-  corroboratedBy: t.corroboratedBy,
-  reasoning: `corroborated by ${t.corroborations.length} independent measurement(s) at the marked place: ${t.corroborations
-    .map((m) => m.detail)
-    .join(' | ')}`,
-})
+// measurement ids travel with the verdict so the support is inspectable. It goes
+// through the same builder as everything else, so its disposition is DERIVED
+// from CONFIRMED-with-no-mechanism rather than asserted here - the route already
+// guarantees the no-mechanism half, since a stated mechanism never reaches it.
+const corroboratedVerdict = (t) =>
+  buildVerdict(t.finding, {
+    observationVerdict: 'CONFIRMED',
+    mechanismVerdict: null,
+    corroboratedBy: t.corroboratedBy,
+    reasoning: `corroborated by ${t.corroborations.length} independent measurement(s) at the marked place: ${t.corroborations
+      .map((m) => m.detail)
+      .join(' | ')}`,
+  })
+
+// Which of a refuter's answers is about THIS finding, and what to say when none
+// of them is. A verdict is keyed by finding id, so an answer carrying another id
+// has not answered this finding whatever it says: stamping this finding's id
+// onto it would file someone else's CONFIRMED against it. The two ways that
+// happens have to read differently, because they are different bugs - an agent
+// that produced nothing at all, against an id-space mismatch (a batch that
+// stripped the "<planId>:" namespace answers every finding and matches none).
+const answerFor = (finding, answers) => {
+  const hit = answers.find((v) => v.findingId === finding.id)
+  if (hit !== undefined) return { raw: hit, missReason: null }
+  if (answers.length === 0) return { raw: null, missReason: 'the refuter returned nothing' }
+  return {
+    raw: null,
+    missReason: `no answer carried this finding's id; the refuter answered about ${answers
+      .map((v) => JSON.stringify(v.findingId))
+      .join(', ')}`,
+  }
+}
+
+// The objects in a refuter's reply, junk entries dropped: something that is not
+// an object cannot be matched to a finding id, so it counts as no answer at all.
+const answerObjects = (list) => (Array.isArray(list) ? list.filter((v) => v !== null && typeof v === 'object') : [])
 
 const batches = new Map()
 for (const t of routed('REFUTE_BATCH')) {
@@ -778,13 +849,20 @@ for (const t of routed('REFUTE_BATCH')) {
 }
 
 const refuteTasks = [
+  // One finding was asked about, so one answer is expected - and it is still
+  // matched on `findingId` rather than assumed. An agent handed one finding can
+  // answer about another, and a verdict is keyed by id, so taking its word for
+  // it would relabel that probe output as this finding's and file it.
   ...routed('REFUTE_INDIVIDUAL').map((t) => () => {
     const plan = planById.get(t.finding.planId)
     return agent(refutePrompt(plan, t.finding), {
       label: `refute:${t.finding.id}`,
       phase: 'Refute',
       schema: REFUTE_SCHEMA,
-    }).then((r) => [coerceVerdict(t.finding, r)])
+    }).then((r) => {
+      const { raw, missReason } = answerFor(t.finding, answerObjects([r]))
+      return [coerceVerdict(t.finding, raw, missReason)]
+    })
   }),
   ...[...batches.entries()].map(([planId, group]) => () => {
     const plan = planById.get(planId)
@@ -793,13 +871,24 @@ const refuteTasks = [
       phase: 'Refute',
       schema: REFUTE_BATCH_SCHEMA,
     }).then((r) => {
-      const list = r !== null && Array.isArray(r.verdicts) ? r.verdicts : []
-      return group.map((f) =>
-        coerceVerdict(
-          f,
-          list.find((v) => v !== null && typeof v === 'object' && v.findingId === f.id) ?? null,
-        ),
-      )
+      const answers = answerObjects(r === null ? null : r.verdicts)
+      const verdicts = group.map((f) => {
+        const { raw, missReason } = answerFor(f, answers)
+        return coerceVerdict(f, raw, missReason)
+      })
+      // Answers about ids nobody asked about are logged rather than dropped:
+      // they are the evidence that the batch ran and its ids were renamed, and
+      // without them the run looks exactly like an agent that said nothing.
+      const asked = new Set(group.map((f) => f.id))
+      const extra = answers.filter((v) => !asked.has(v.findingId))
+      if (extra.length > 0) {
+        log(
+          `refute-batch:${planId} answered about ${extra.length} id(s) not in this batch, ignored: ${extra
+            .map((v) => JSON.stringify(v.findingId))
+            .join(', ')}`,
+        )
+      }
+      return verdicts
     })
   }),
 ]
