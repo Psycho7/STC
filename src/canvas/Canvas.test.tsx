@@ -88,18 +88,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.useRealTimers();
-  Object.defineProperty(navigator, "clipboard", {
-    value: undefined,
-    configurable: true,
-  });
 });
-
-function setClipboard(clipboard: unknown): void {
-  Object.defineProperty(navigator, "clipboard", {
-    value: clipboard,
-    configurable: true,
-  });
-}
 
 // Two standalone recipes plus a container box, used by the hover tests.
 const HOVER_NODES: Node[] = [
@@ -197,26 +186,14 @@ test("status annotation reflects the status prop", () => {
   );
 });
 
-test("copy-share button is disabled while the canvas is stale (ERROR status)", () => {
-  const { container } = render(
-    <LocaleProvider locale="en">
-      <ItemPackProvider value={PACK}>
-        <Canvas nodes={[]} edges={[]} status="ERROR" />
-      </ItemPackProvider>
-    </LocaleProvider>,
-  );
-  const btn = container.querySelector(
-    '[data-testid="copy-share"]',
-  ) as HTMLButtonElement;
-  expect(btn.disabled).toBe(true);
-});
-
-test("copy-share button is enabled when the canvas is current (READY status)", () => {
+// The canvas is a pan surface, so an opaque screen-fixed control in a corner
+// hides whatever card or chip pans under it. The canvas carries no HUD controls
+// of its own; the only overlays left are the React Flow viewport panels
+// (Controls / MiniMap), which are React Flow's own children.
+test("canvas renders no HUD control overlay", () => {
   const { container } = renderCanvas([], []);
-  const btn = container.querySelector(
-    '[data-testid="copy-share"]',
-  ) as HTMLButtonElement;
-  expect(btn.disabled).toBe(false);
+  const theme = container.querySelector(".ak-canvas-theme")!;
+  expect(theme.querySelector("button:not(.react-flow__controls-button)")).toBeNull();
 });
 
 test("hovering a group node is inert and dims nothing", () => {
@@ -285,56 +262,6 @@ test("a container lit because of a focused child gets the lit-container class", 
   const g1 = container.querySelector('[data-id="g1"]')!;
   expect(g1.className).toContain("lit-container");
   expect(g1.className).not.toContain("dimmed");
-});
-
-test("copy share button flips to a copied state then reverts", async () => {
-  vi.useFakeTimers();
-  const writeText = vi.fn().mockResolvedValue(undefined);
-  setClipboard({ writeText });
-  const { container } = renderCanvas([], []);
-  const btn = container.querySelector(
-    '[data-testid="copy-share"]',
-  ) as HTMLElement;
-  await act(async () => {
-    fireEvent.click(btn);
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  expect(writeText).toHaveBeenCalledWith(window.location.href);
-  expect(btn.textContent).toMatch(/copied/i);
-  act(() => {
-    vi.advanceTimersByTime(1500);
-  });
-  expect(btn.textContent).not.toMatch(/copied/i);
-});
-
-test("copy share button shows a failure state when the clipboard API is missing", () => {
-  vi.useFakeTimers();
-  setClipboard(undefined);
-  const { container } = renderCanvas([], []);
-  const btn = container.querySelector(
-    '[data-testid="copy-share"]',
-  ) as HTMLElement;
-  act(() => {
-    fireEvent.click(btn);
-  });
-  expect(btn.textContent).toMatch(/failed/i);
-});
-
-test("copy share button shows a failure state when the write is rejected", async () => {
-  vi.useFakeTimers();
-  const writeText = vi.fn().mockRejectedValue(new Error("denied"));
-  setClipboard({ writeText });
-  const { container } = renderCanvas([], []);
-  const btn = container.querySelector(
-    '[data-testid="copy-share"]',
-  ) as HTMLElement;
-  await act(async () => {
-    fireEvent.click(btn);
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  expect(btn.textContent).toMatch(/failed/i);
 });
 
 test("the camera fits once per layout generation", () => {

@@ -32,9 +32,6 @@ export type UiKey =
   | "app.frozen.notice"
   | "app.frozen.edit"
   | "app.locale.label"
-  | "canvas.copy_share"
-  | "canvas.copy_share.copied"
-  | "canvas.copy_share.failed"
   | "inputs.title"
   | "inputs.item.label"
   | "inputs.rate.label"
@@ -112,9 +109,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "这是一个已冻结的 v1 方案。编辑会丢弃它并清空目标列表。",
     "app.frozen.edit": "编辑",
     "app.locale.label": "语言",
-    "canvas.copy_share": "复制分享链接",
-    "canvas.copy_share.copied": "已复制",
-    "canvas.copy_share.failed": "复制失败",
     "inputs.title": "输入",
     "inputs.item.label": "物品",
     "inputs.rate.label": "速率",
@@ -185,9 +179,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "This is a frozen v1 plan. Editing will discard it and start an empty target list.",
     "app.frozen.edit": "Edit",
     "app.locale.label": "Language",
-    "canvas.copy_share": "Copy share URL",
-    "canvas.copy_share.copied": "Copied",
-    "canvas.copy_share.failed": "Copy failed",
     "inputs.title": "Inputs",
     "inputs.item.label": "Item",
     "inputs.rate.label": "Rate",
@@ -258,9 +249,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "これは凍結された v1 プランです。編集すると破棄され、空のターゲットリストが開始されます。",
     "app.frozen.edit": "編集",
     "app.locale.label": "言語",
-    "canvas.copy_share": "共有 URL をコピー",
-    "canvas.copy_share.copied": "コピーしました",
-    "canvas.copy_share.failed": "コピー失敗",
     "inputs.title": "入力",
     "inputs.item.label": "アイテム",
     "inputs.rate.label": "レート",
@@ -331,9 +319,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "Это замороженный план v1. Редактирование удалит его и начнёт пустой список целей.",
     "app.frozen.edit": "Изменить",
     "app.locale.label": "Язык",
-    "canvas.copy_share": "Скопировать ссылку",
-    "canvas.copy_share.copied": "Скопировано",
-    "canvas.copy_share.failed": "Не удалось скопировать",
     "inputs.title": "Входы",
     "inputs.item.label": "Предмет",
     "inputs.rate.label": "Скорость",

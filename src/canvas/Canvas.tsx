@@ -150,10 +150,6 @@ export function focusEdges(
   );
 }
 
-// How long the copy button holds its transient result before reverting to the
-// default label.
-const COPY_FEEDBACK_MS = 1500;
-
 // Level-of-detail band derived from the live React Flow zoom. At the fit zoom of
 // a dense plan (roughly 0.35-0.55) per-machine metadata and card chrome shrink
 // below legibility, so the canvas theme container carries a band class that
@@ -271,47 +267,6 @@ function CanvasInner({
       observer.disconnect();
     };
   }, [fitContent]);
-
-  // Transient result of the last copy-share click. "copied" / "failed" replace
-  // the button label for COPY_FEEDBACK_MS so the click is never silent, then it
-  // reverts to "idle".
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
-    "idle",
-  );
-  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flashCopyState = useCallback((next: "copied" | "failed") => {
-    setCopyState(next);
-    if (copyTimer.current !== null) clearTimeout(copyTimer.current);
-    copyTimer.current = setTimeout(() => {
-      copyTimer.current = null;
-      setCopyState("idle");
-    }, COPY_FEEDBACK_MS);
-  }, []);
-  useEffect(
-    () => () => {
-      if (copyTimer.current !== null) clearTimeout(copyTimer.current);
-    },
-    [],
-  );
-  const handleCopyShare = useCallback(() => {
-    // navigator.clipboard is absent in non-secure contexts (plain-http LAN) and
-    // in jsdom. Surface that as a failure rather than a silent no-op.
-    const clipboard = navigator.clipboard;
-    if (!clipboard) {
-      flashCopyState("failed");
-      return;
-    }
-    clipboard.writeText(window.location.href).then(
-      () => flashCopyState("copied"),
-      () => flashCopyState("failed"),
-    );
-  }, [flashCopyState]);
-  const copyLabel =
-    copyState === "copied"
-      ? i18n.t("canvas.copy_share.copied")
-      : copyState === "failed"
-        ? i18n.t("canvas.copy_share.failed")
-        : i18n.t("canvas.copy_share");
 
   // Hover intent: a pending timer holds the next hover for HOVER_INTENT_MS. A
   // leave (or a new enter) cancels any pending timer so quick pointer travel
@@ -488,29 +443,6 @@ function CanvasInner({
         .join(" ")}
       style={canvasThemeStyle}
     >
-      <div
-        style={{
-          position: "absolute",
-          top: 8,
-          left: 8,
-          zIndex: 10,
-          display: "flex",
-          gap: 8,
-        }}
-      >
-        <button
-          type="button"
-          data-testid="copy-share"
-          onClick={handleCopyShare}
-          // While the canvas is stale (last solve failed), the URL still encodes
-          // the previous plan, so sharing it would hand out a plan that is not
-          // what is on screen. Disable copy until a successful solve clears it.
-          disabled={status === "ERROR"}
-          aria-label={copyLabel}
-        >
-          {copyLabel}
-        </button>
-      </div>
       <ReactFlow
         nodes={displayNodes}
         edges={displayEdges}
