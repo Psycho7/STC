@@ -22,13 +22,16 @@ import {
   auditOwnCardPierces,
   auditSegmentsVsCards,
   auditSegmentsVsChips,
+  clipSegmentToRect,
   countCrossings,
   fmtSeg,
+  paddedCard,
   segmentEntersRect,
   toRawEdges,
   type ChipRect,
   type NodeRect,
   type Pt,
+  type RawRect,
 } from "../../test/e2e/geometry";
 import type { Geometry, SceneCollection } from "../../test/e2e/collect";
 import type { Rect, Viewport } from "./tiling";
@@ -69,9 +72,16 @@ export type MeasurementKind =
   | "chip-vs-segment";
 
 // A raw geometry occurrence with a location, so a reported finding can be
-// joined to it by footprint. The measurement pass fills these in; a plain
-// capture emits none, which is why an empty array means "not measured" rather
-// than "measured and clean".
+// joined to it by footprint. The measurement pass runs on every capture, so an
+// empty array means "measured and clean" - a plan whose layout produced no
+// occurrence of any kind - and not "not measured". A consumer must therefore
+// treat [] as a live answer: a finding with no measurement to join to is
+// uncorroborated, not merely unchecked.
+//
+// `footprint` is the place the occurrence occupies, which for a segment-vs-box
+// kind is the clipped run inside that box and NOT the whole segment. A footprint
+// wider than the phenomenon would join an evidence rect that happens to sit
+// somewhere else on the same long edge, and manufacture corroboration.
 export type Measurement = {
   kind: MeasurementKind;
   elementIds: string[];
@@ -116,10 +126,11 @@ export type SceneDoc = {
   edges: Array<{ id: string; d: string }>;
   chips: Array<{ id: string; edgeId?: string; text: string; worldRect: Rect }>;
   measurements: Measurement[];
-  // Absent until the measurement pass computes it. Emitting `{ count: 0 }` from
-  // a capture that never counted anything would be indistinguishable from a
-  // genuine zero, so the field is left off instead.
-  crossingCensus?: { count: number };
+  // Always written: the measurement pass runs on every capture, so `{ count: 0 }`
+  // here is a counted zero and can be read as one. Required rather than optional
+  // so a capture that somehow skipped the pass fails to compile instead of
+  // emitting a document whose silence is ambiguous.
+  crossingCensus: { count: number };
   coverage: SceneCoverage;
   consoleErrors: string[];
 };
@@ -128,9 +139,17 @@ export type SceneDoc = {
 // The measurement pass
 // ---------------------------------------------------------------------------
 
-// The eps the audits default to. Passed explicitly wherever this module has to
-// repeat one of their geometric tests, so a chip resolved here is resolved
-// against the same boundary rule that reported the occurrence.
+// The boundary eps the audits default to, passed explicitly to every audit call
+// below and to the chip-resolution test that repeats one of them, so the
+// agreement is in the code and not in two literals that happen to match.
+// auditChipsOnOwnPath is the exception: its third parameter is an off-path
+// DISTANCE tolerance in world units, not a boundary eps, so it keeps its own
+// default.
+//
+// Not used when clipping a footprint. The eps exists to ignore a graze of a box
+// boundary while DETECTING; a footprint is a PLACE, and shrinking the place by
+// the detector's tolerance would report a run half a unit shorter at each end
+// than the one an image shows.
 const AUDIT_EPS = 0.5;
 
 // Bounding rect of one polyline segment. An orthogonal run is flat in one axis,
@@ -145,6 +164,25 @@ function segFootprint(seg: readonly [Pt, Pt]): Rect {
     width: Math.abs(b[0] - a[0]),
     height: Math.abs(b[1] - a[1]),
   };
+}
+
+// The place a segment-vs-box occurrence occupies: the run of the segment that
+// lies inside the box the audit tested it against. The whole segment is the
+// fallback, for the case a clip comes back empty - an occurrence the audit
+// reported still has to name a place, and a coarse rect joins where an empty one
+// joins to nothing. That fallback is unreachable while the caller clips against
+// the same box the audit hit, since clipping at eps 0 widens the window the
+// audit already found non-empty at AUDIT_EPS.
+function clippedSegFootprint(seg: readonly [Pt, Pt], box: RawRect): Rect {
+  return segFootprint(clipSegmentToRect(seg[0], seg[1], box, 0) ?? seg);
+}
+
+function unionRect(a: Rect, b: Rect): Rect {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  const right = Math.max(a.x + a.width, b.x + b.width);
+  const bottom = Math.max(a.y + a.height, b.y + b.height);
+  return { x, y, width: right - x, height: bottom - y };
 }
 
 function boxFootprint(box: {
@@ -225,6 +263,13 @@ function idList(...values: Array<string | undefined>): string[] {
 // else reported has independent geometric support AT THE PLACE THEY MARKED, which
 // is why a long edge measured at one end must not carry the whole edge's rect.
 //
+// The counts here are NOT comparable to those baselines, and a difference is not
+// a regression: the baselines are taken at the app's fit camera, these at the
+// exam's target zoom. Chips counter-scale, so a chip's world footprint grows as
+// zoom falls; the same layout therefore yields fewer chip-tier occurrences at the
+// higher target zoom than at a lower fit. Comparing the two numbers can only
+// mislead - compare a capture against another capture at the same target zoom.
+//
 // `geom` and `scene` must come from the SAME camera: chip identity is recovered
 // by matching world rects between the two collectors, and that join only holds
 // within one shot.
@@ -242,22 +287,26 @@ export function measurementsFor(
 
   const measurements: Measurement[] = [];
 
-  for (const v of auditSegmentsVsCards(edges, nodes)) {
+  // Clipped to the PADDED card, which is the box this audit tests against; the
+  // `raw` flag says the run also reaches the unpadded body, but the occurrence
+  // as reported is the entry into the padded box.
+  for (const v of auditSegmentsVsCards(edges, nodes, AUDIT_EPS)) {
     measurements.push({
       kind: "segment-vs-card",
       elementIds: idList(v.edgeId, v.card),
-      footprint: segFootprint(v.seg),
+      footprint: clippedSegFootprint(v.seg, paddedCard(nodeById.get(v.card)!)),
       detail: `edge ${v.edgeId} segment ${fmtSeg(v.seg)} enters ${
         v.raw ? "the raw box of" : "the padding of"
       } card ${v.card}`,
     });
   }
 
-  for (const v of auditOwnCardPierces(edges, nodes)) {
+  // Clipped to the raw card body, which is what this audit tests against.
+  for (const v of auditOwnCardPierces(edges, nodes, AUDIT_EPS)) {
     measurements.push({
       kind: "own-card-pierce",
       elementIds: idList(v.edgeId, v.card),
-      footprint: segFootprint(v.seg),
+      footprint: clippedSegFootprint(v.seg, nodeById.get(v.card)!),
       detail: `edge ${v.edgeId} segment ${fmtSeg(v.seg)} runs inside its own ${v.role} card ${v.card}`,
     });
   }
@@ -265,7 +314,7 @@ export function measurementsFor(
   // The chip is identified by owner and label only, which two chips of one edge
   // can share, so the candidate set is narrowed by the reported segment: the one
   // chip that segment actually enters. Still ambiguous means no chip id.
-  for (const v of auditSegmentsVsChips(edges, chips, nodes)) {
+  for (const v of auditSegmentsVsChips(edges, chips, nodes, AUDIT_EPS)) {
     const candidates = chips.filter(
       (c) =>
         c.edgeId === v.chipEdgeId &&
@@ -274,10 +323,17 @@ export function measurementsFor(
     );
     const chipId =
       candidates.length === 1 ? chipIdOf(candidates[0]!) : undefined;
+    // The place is the run inside the chip box, not the whole segment. An
+    // ambiguous candidate set is ambiguous about WHICH chip, not about where:
+    // the segment enters every candidate, so the union of the clipped runs is
+    // still bounded by those chips.
+    const clips = candidates.map((c) => clippedSegFootprint(v.seg, c));
+    const footprint =
+      clips.length === 0 ? segFootprint(v.seg) : clips.reduce(unionRect);
     measurements.push({
       kind: "chip-vs-segment",
       elementIds: idList(chipId, v.chipEdgeId, v.edgeId),
-      footprint: segFootprint(v.seg),
+      footprint,
       detail: `edge ${v.edgeId} segment ${fmtSeg(v.seg)} enters the chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
     });
   }
@@ -291,13 +347,18 @@ export function measurementsFor(
     const chipRect = boxFootprint(chip);
     const chipId = chipIdOf(chip);
 
-    for (const v of auditChipsVsCards([chip], edges, nodes)) {
+    // The detail stays neutral about HOW the card was reached. Two conditions
+    // feed this tier: a foreign card the chip box overlaps, and the chip's OWN
+    // endpoint card whose body its CENTRE sits on past the port strip - and the
+    // second can fire with no box overlap at all, so claiming an overlap here
+    // would assert something the geometry need not support.
+    for (const v of auditChipsVsCards([chip], edges, nodes, AUDIT_EPS)) {
       const card = nodeById.get(v.card)!;
       measurements.push({
         kind: "chip-vs-card",
         elementIds: idList(chipId, v.chipEdgeId, v.card),
         footprint: intersectionOr(chipRect, boxFootprint(card)),
-        detail: `${v.chipKind} chip of ${v.chipEdgeId} ("${v.chipLabel}") overlaps card ${v.card}`,
+        detail: `${v.chipKind} chip of ${v.chipEdgeId} ("${v.chipLabel}") is flagged against card ${v.card} (foreign-card box overlap, or own-card centre past the port strip)`,
       });
     }
 

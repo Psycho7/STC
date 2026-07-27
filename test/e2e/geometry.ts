@@ -65,21 +65,21 @@ export function segmentsOf(pts: ReadonlyArray<Pt>): Array<[Pt, Pt]> {
   return segs;
 }
 
-// Does segment p0->p1 enter the OPEN interior of `rect` (shrunk by eps so a run
-// grazing the padded boundary -- cleared runs sit a chamfer outside it -- is not
-// a hit)? Liang-Barsky parametric clip: the segment overlaps the rect when the
-// clipped parameter window [t0, t1] is non-empty with positive length.
-export function segmentEntersRect(
+// Liang-Barsky parametric clip of segment p0->p1 against the OPEN interior of
+// `rect` (shrunk by eps so a run grazing the padded boundary -- cleared runs sit
+// a chamfer outside it -- is not a hit). Returns the clipped parameter window
+// [t0, t1], or null when the segment misses or only touches.
+function clipWindow(
   p0: Pt,
   p1: Pt,
   rect: RawRect,
   eps: number,
-): boolean {
+): [number, number] | null {
   const left = rect.left + eps;
   const right = rect.right - eps;
   const top = rect.top + eps;
   const bottom = rect.bottom - eps;
-  if (right <= left || bottom <= top) return false;
+  if (right <= left || bottom <= top) return null;
   const dx = p1[0] - p0[0];
   const dy = p1[1] - p0[1];
   let t0 = 0;
@@ -102,9 +102,40 @@ export function segmentEntersRect(
     clip(-dy, p0[1] - top) &&
     clip(dy, bottom - p0[1])
   ) {
-    return t1 - t0 > 1e-6;
+    return t1 - t0 > 1e-6 ? [t0, t1] : null;
   }
-  return false;
+  return null;
+}
+
+// Does segment p0->p1 enter the OPEN interior of `rect` (shrunk by eps)?
+export function segmentEntersRect(
+  p0: Pt,
+  p1: Pt,
+  rect: RawRect,
+  eps: number,
+): boolean {
+  return clipWindow(p0, p1, rect, eps) !== null;
+}
+
+// The PART of segment p0->p1 that lies inside `rect` (shrunk by eps), or null
+// when it misses. Same test as segmentEntersRect, keeping the window that one
+// discards: a caller that has to say WHERE an occurrence is must report the run
+// inside the box and not the whole segment, which can be arbitrarily longer.
+export function clipSegmentToRect(
+  p0: Pt,
+  p1: Pt,
+  rect: RawRect,
+  eps: number,
+): [Pt, Pt] | null {
+  const window = clipWindow(p0, p1, rect, eps);
+  if (window === null) return null;
+  const [t0, t1] = window;
+  const dx = p1[0] - p0[0];
+  const dy = p1[1] - p0[1];
+  return [
+    [p0[0] + t0 * dx, p0[1] + t0 * dy],
+    [p0[0] + t1 * dx, p0[1] + t1 * dy],
+  ];
 }
 
 // Proper crossing of two segments: they intersect at a point strictly interior
