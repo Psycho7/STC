@@ -17,4 +17,23 @@ export default tseslint.config(
       ...reactHooks.configs.flat["recommended-latest"].rules,
     },
   },
+  {
+    // Workflow scripts are not modules: the Workflow runtime evaluates them with
+    // `args`, `agent`, `pipeline`, `parallel`, `phase`, `log`, `budget` and
+    // `workflow` already bound in scope, so there is nothing to import and
+    // no-undef has no way to know they exist.
+    files: [".claude/workflows/*.js"],
+    languageOptions: {
+      globals: {
+        agent: "readonly",
+        args: "readonly",
+        budget: "readonly",
+        log: "readonly",
+        parallel: "readonly",
+        phase: "readonly",
+        pipeline: "readonly",
+        workflow: "readonly",
+      },
+    },
+  },
 );
