@@ -26,7 +26,9 @@ export const meta = {
 // measurements, no earlier findings, no open-issue list. That independence is what
 // makes a later corroboration worth having - an evaluator shown the geometry first
 // would only be agreeing with it. Do not "help" the prompt by passing measurements
-// in.
+// in. The other way in is the filesystem, not the args: the capture writes
+// scene.json into plans[].dir, the same directory the images are handed out of, so
+// the prompt has to forbid reading it by name.
 //
 // Capture is NOT part of this workflow. It is deterministic code run before the
 // workflow starts; an agent shooting its own screenshots into the same directory
@@ -45,6 +47,18 @@ for (const p of plans) {
   if (!Array.isArray(p.images) || p.images.length === 0) {
     throw new Error(`render-quality-exam: plan ${p.id} has no images; run tools/exam/capture.ts first`)
   }
+  // Every entry is spliced into the prompt verbatim. A missing `file` renders a
+  // path that resolves to nothing, and `what` is orchestrator-authored free text
+  // reaching a cold evaluator, so it is a second channel for measurement language
+  // and has to be a deliberate string rather than whatever fell out of a jq.
+  p.images.forEach((im, i) => {
+    const named = (v) => typeof v === 'string' && v.trim() !== ''
+    if (!im || !named(im.file) || !named(im.what)) {
+      throw new Error(
+        `render-quality-exam: plan ${p.id} images[${i}] needs a non-empty string file and what, got ${JSON.stringify(im)}`,
+      )
+    }
+  })
   if (!p.coverage) {
     throw new Error(`render-quality-exam: plan ${p.id} has no coverage ledger; pass scene.json's coverage through`)
   }
@@ -63,7 +77,8 @@ const FINDINGS_SCHEMA = {
     blindSpotsAcknowledged: {
       type: 'array',
       items: { type: 'string' },
-      description: 'element ids from coverage.uncovered that you could not judge; empty array when the capture covered everything',
+      description:
+        'the `id` field of each coverage.uncovered entry you could not judge, as a bare string; empty array when the capture covered everything',
     },
     findings: {
       type: 'array',
@@ -75,11 +90,16 @@ const FINDINGS_SCHEMA = {
           title: { type: 'string', description: 'short defect statement' },
           observation: {
             type: 'string',
+            minLength: 1,
             description: 'what a reader sees and why it hurts them, stated as a symptom and grounded in the pixels',
           },
           claimType: { type: 'string', enum: ['geometric', 'interaction', 'absence', 'subjective'] },
           evidence: {
             type: 'array',
+            // At least one entry, because the triage join rejects an empty
+            // `evidence` outright: a finding emitted without one is dropped there
+            // with no trace, so a whole-plan complaint has to be pinned to a place.
+            minItems: 1,
             items: {
               type: 'object',
               properties: {
@@ -89,7 +109,8 @@ const FINDINGS_SCHEMA = {
                   items: { type: 'number' },
                   minItems: 4,
                   maxItems: 4,
-                  description: '[x, y, width, height] in the CSS pixels of THAT image, marking the defect itself and nothing more',
+                  description:
+                    '[x, y, width, height] in the CSS pixels of THAT image, marking the defect itself and nothing more. x and y may be 0, but width and height must be positive: a negative or non-finite extent is not a place, and the check rejects the evidence entry',
                 },
                 where: { type: 'string', description: 'where in the image, in words: nearby labels, which card, which line' },
               },
@@ -133,6 +154,8 @@ const evalPrompt = (p) => {
 
 Read EVERY image below with the Read tool (they render visually). Do NOT open the app, do not start a browser, do not take screenshots of your own, do not write any file: these images are the exam, and a shot of your own would be of a different camera than the one everything downstream is measured against.
 
+READ NOTHING ELSE IN THAT DIRECTORY. Read exactly the image files listed below and no other file: do not list the directory, do not read \`scene.json\`, which sits beside them. It holds the geometry measurements your findings are about to be checked against, and a finding written from them is agreement with the check rather than independent evidence for it, which destroys the only thing your verdict is worth.
+
 Images (all screenshots of the canvas pane, at 1 image pixel per CSS pixel):
 ${list}
 
@@ -148,7 +171,7 @@ Domain, so you can judge correctness:
 COVERAGE LEDGER for this plan, written by the capture itself:
 ${JSON.stringify(p.coverage, null, 2)}
 
-What it binds you to. \`uncovered\` lists elements the capture never framed at readable zoom. An element that was never covered is a blind spot of the capture, not a fact about the app, so you may NOT claim anything is missing, absent, unlabelled or unrendered where the thing in question is an uncovered id, and you may not read a low \`coveredCount\` as the app rendering too little. List in \`blindSpotsAcknowledged\` every uncovered id you would otherwise have had something to say about (empty array when \`uncovered\` is empty). \`capHit: true\` means the capture ran out of tiles, so anything you did not see may simply not have been shot.
+What it binds you to. \`uncovered\` lists elements the capture never framed at readable zoom. An element that was never covered is a blind spot of the capture, not a fact about the app, so you may NOT claim anything is missing, absent, unlabelled or unrendered where the thing in question is an uncovered id, and you may not read a low \`coveredCount\` as the app rendering too little. Each \`uncovered\` entry is an object; list in \`blindSpotsAcknowledged\` the \`id\` field of each \`uncovered\` entry you would otherwise have had something to say about, as a bare string and not the whole object (empty array when \`uncovered\` is empty). \`capHit: true\` means the capture ran out of tiles, so anything you did not see may simply not have been shot.
 
 Evaluate, in order of importance:
 1. CORRECTNESS of the presented information: chips attached to the wrong line or floating in empty space; a chip overlapping/hiding another chip or card text; edges slicing through node cards; arrowheads pointing the wrong way; junction dots off their trunk; Sigma aggregate totals that contradict the visible member rates or target rows (cross-check numbers where legible); the same item rendered in confusingly different colors, or two different items in near-identical colors on crossing lines.
@@ -179,11 +202,36 @@ Discipline: every finding is grounded in specific pixels you saw. Severity: majo
 Return the structured result for plan "${p.id}", with \`planId\` set to "${p.id}" on the result and on every finding.`
 }
 
+// ONE id per finding, stamped once, before either output exists.
+//
+// The id is namespaced by plan because an evaluator only promises uniqueness
+// within its own plan, and a verdict is later keyed by finding id across all of
+// them. Uniqueness inside the plan is enforced here rather than trusted: the
+// schema can only ASK for a unique slug, and two findings that ignore it would
+// otherwise share one namespaced id, so one verdict would answer both.
+//
+// TRAP, if you extend this workflow: `evaluations[i].findings[j]` and the flat
+// `findings` list are the same objects carrying the same id, and they have to
+// stay that way. Re-stamping ids on one of them forks the id space, and a verdict
+// keyed off one list then joins to nothing in the other - silently, since both
+// halves still look well formed.
+const stampIds = (planId, result) => {
+  const used = new Set()
+  const findings = (result.findings || []).map((f, i) => {
+    const slug = typeof f.id === 'string' && f.id.trim() !== '' ? f.id.trim() : String(i)
+    const base = `${planId}:${slug}`
+    const id = used.has(base) ? `${base}#${i}` : base
+    used.add(id)
+    return { ...f, planId, id }
+  })
+  return { ...result, planId, findings }
+}
+
 const evaluations = (
   await parallel(
     plans.map((p) => () =>
       agent(evalPrompt(p), { label: `evaluate:${p.id}`, phase: 'Evaluate', schema: FINDINGS_SCHEMA }).then((r) =>
-        r === null ? null : { ...r, planId: p.id },
+        r === null ? null : stampIds(p.id, r),
       ),
     ),
   )
@@ -192,12 +240,8 @@ const evaluations = (
 const skipped = plans.filter((p) => !evaluations.some((e) => e.planId === p.id))
 if (skipped.length > 0) log(`Not evaluated (agent returned nothing): ${skipped.map((p) => p.id).join(', ')}`)
 
-// Flattened for the steps that work finding by finding. The id is namespaced by
-// plan because an evaluator only promises uniqueness within its own plan, and a
-// verdict is later keyed by finding id across all of them.
-const findings = evaluations.flatMap((e) =>
-  (e.findings || []).map((f, i) => ({ ...f, planId: e.planId, id: `${e.planId}:${f.id || i}` })),
-)
+// Flattened for the steps that work finding by finding, same objects as above.
+const findings = evaluations.flatMap((e) => e.findings)
 
 log(`${evaluations.length}/${plans.length} plans evaluated, ${findings.length} findings`)
 
