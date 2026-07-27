@@ -250,13 +250,14 @@ function CanvasInner({
   // a hook left installed from an earlier plan would hand the driver a stale
   // rect and it would tile the wrong region.
   //
-  // Camera placement is exact only inside the zoom range React Flow allows:
-  // minZoom is 0.05 (set on the ReactFlow element below) and maxZoom is React
-  // Flow's default 2, and setViewport routes through d3-zoom's scaleExtent, so a
-  // commanded zoom outside [0.05, 2] is silently clamped to the nearest bound
-  // while x and y still apply. setViewport's Promise is discarded here, so the
-  // hook reports nothing about what actually landed: a driver must read back the
-  // achieved transform instead of assuming the commanded viewport took effect.
+  // A commanded viewport lands exactly: setViewport forwards to d3-zoom's
+  // zoom.transform, which assigns the transform verbatim, and scaleExtent binds
+  // only the gesture handlers, so minZoom 0.05 (on the ReactFlow element below)
+  // and React Flow's default maxZoom of 2 bind user gestures and the fit path,
+  // not this hook. fitView is the one that clamps, because it delegates to
+  // fitBounds and getViewportForBounds, and setViewport's discarded Promise
+  // hides when the transition settles: a driver must read back the achieved
+  // transform rather than assume its own fit zoom is viewport over bounds width.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("exam") !== "1") return;
     window.__stcExam = {
