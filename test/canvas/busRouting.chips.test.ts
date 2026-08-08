@@ -101,14 +101,15 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     expect(busChipDyOf(out, "e1")).toBe(0);
   });
 
-  it("keeps both rises of a spread trunk now that no aggregate column crowds them", () => {
+  it("keeps the farther rise chip and hides the near one when only one fits", () => {
     // A hand-built 2-member trunk (w|s) whose drop column sits at
-    // busDropBase(sourceRight) = 132. The capacity check tries members
-    // FARTHEST-from-that-column first: the far slot (532, 400 off) is kept, then
-    // the near one (232) clears it by 300 >= the wide-chip separation (2 * 120 =
-    // 240) and is kept too. Under the old rule the aggregate's own column seeded
-    // the kept set and the near slot, only 100 off it, lost; with the aggregate
-    // chip gone (issue #39) that column is free and both rises seat.
+    // busDropBase(sourceRight) = 132. The two slots are only 200 apart (232 and
+    // 432), under the wide-chip separation (2 * 120 = 240), so the run supports
+    // exactly ONE rise and the ordering rule decides which. The capacity check
+    // tries members FARTHEST-from-the-drop-column first: e1 (432, 300 off) is
+    // tried before e0 (232, 100 off) and takes the only slot; e0 then sits 200
+    // from the kept x and is hidden. A member that reads at the consumer end
+    // beats a near one, so inverting the comparator would flip this result.
     const laneY = 300;
     const nodes: RFAnyNode[] = [
       productNode("s", 0, 0, 100, 60), // right edge 100 -> dropX 132
@@ -138,16 +139,16 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     });
     const edges: Edge[] = [
       mkBus("e0", "t0", 232, true), // near member, the elected owner
-      mkBus("e1", "t1", 532, false), // far member
+      mkBus("e1", "t1", 432, false), // far member
     ];
     const out = deconflictChipAnchors(nodes, edges);
     // The multi-member trunk stamps no drop offset: no aggregate chip is seated.
     expect(busDropDyRawOf(out, "e0")).toBeUndefined();
-    // Both members keep their rise chips, both seated on the lane.
-    expect(busRiseHiddenOf(out, "e0")).toBe(false);
-    expect(busChipDyOf(out, "e0")).toBe(0);
+    // The far member wins the single slot; the near one is hidden, not cascaded.
     expect(busRiseHiddenOf(out, "e1")).toBe(false);
     expect(busChipDyOf(out, "e1")).toBe(0);
+    expect(busRiseHiddenOf(out, "e0")).toBe(true);
+    expect(busChipDyOf(out, "e0")).toBe(0);
   });
 
   it("leaves a well-spread trunk's chips on the lane", () => {
@@ -418,8 +419,9 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     // leave the port rows (and so the fan-out classification's trunk / leg /
     // column acceptance) clear, but block every off-line candidate the nudge
     // and escape cascades probe, over the full LAST_RESORT_CAP_STEPS range. The
-    // 20-unit half-gap between them is narrower than the chip's own half-height
-    // (24), so the member's short line has no clear stretch either and the branch
+    // half-gap between them is derived to stay 4 units under the chip's own
+    // half-height, so a change to the chip box cannot silently un-wall this
+    // fixture: the member's short line has no clear stretch either and the branch
     // seat runs the whole ladder and returns "exhausted". The chip is still
     // hidden (the hide covers all off-line tiers), but the DEV tripwire must
     // fire: an exhausted cascade is a seating regression, not an intentional
@@ -430,13 +432,16 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
         fanoutBranchHiddenAt?: { x: number; y: number };
       };
     const sy = portOffsetY(recipeNode("s", 0, 0, r), "b", "out");
+    // Chip half-height is (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2 = 24; the wall
+    // half-gap must stay under it for the line to count as blocked.
+    const wallHalfGap = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2 - 4;
     // 9700 > LAST_RESORT_CAP_STEPS * CHIP_NUDGE_STEP (9600) plus box slack.
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", oneGap, 0, r), // same y: straight member, short path
       recipeNode("t2", oneGap, 400, r),
-      productNode("wallTop", 240, sy - 20 - 9700, 80, 9700),
-      productNode("wallBot", 240, sy + 20, 80, 9700),
+      productNode("wallTop", 240, sy - wallHalfGap - 9700, 80, 9700),
+      productNode("wallBot", 240, sy + wallHalfGap, 80, 9700),
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
