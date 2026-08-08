@@ -2102,11 +2102,13 @@
      height at every zoom band (the low-zoom LOD hides header children but must
      not collapse the box). box-sizing keeps the 1px border-bottom inside 80px.
      The columns still stretch and center their content, so the block stays
-     vertically centered with the extra headroom. */
+     vertically centered with the extra headroom.
+     Column 1 sizes to the icon block (28px icon + padding + border) instead of
+     a fixed 52px, so the title column reclaims the difference. */
   height: 80px;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: 52px 1fr auto;
+  grid-template-columns: auto 1fr auto;
   align-items: stretch;
   background: linear-gradient(180deg, var(--ak-bg-primary) 0%, #1b1d21 100%);
   border-bottom: 1px solid var(--ak-divider);
@@ -2157,7 +2159,7 @@
 }
 
 .rn-head .rn-rate-block {
-  padding: 0 12px;
+  padding: 0 8px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -2165,7 +2167,6 @@
   gap: 2px;
   border-left: 1px solid var(--ak-divider);
   background: rgba(0, 0, 0, 0.2);
-  min-width: 64px;
 }
 
 .rn-head .rn-rate-block .rate-val {
