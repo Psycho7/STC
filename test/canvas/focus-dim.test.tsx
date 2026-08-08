@@ -320,11 +320,13 @@ describe("canvas/focus-dim two-mode trunk hover", () => {
     expect(await edgeDimmed(container, "br2")).toBe(false);
   });
 
-  it("branch hover dims the sibling branch chip but not the aggregate chip", async () => {
+  it("branch hover dims the sibling branch chip but not the owner's", async () => {
+    // This trunk is multi-member, so it draws no aggregate drop chip; the
+    // owner's own rise chip stands in as the lit-side chip.
     const { container } = renderTwoMode();
     await waitFor(() => {
       expect(
-        container.querySelector('[data-testid="bus-edge-label-own-drop"]'),
+        container.querySelector('[data-testid="bus-edge-label-own-rise"]'),
       ).not.toBeNull();
       expect(
         container.querySelector('[data-testid="bus-edge-label-br2-rise"]'),
@@ -332,12 +334,12 @@ describe("canvas/focus-dim two-mode trunk hover", () => {
     });
     const br1 = await edgeEl(container, "br1");
     fireEvent.mouseEnter(br1);
-    // br2's rise chip dims with its edge; the owner's aggregate drop chip stays
-    // lit (the owner is in the focus set).
+    // br2's rise chip dims with its edge; the owner's chip stays lit (the owner
+    // is in the focus set).
     await waitFor(() => {
       expect(chipDimmed(container, "bus-edge-label-br2-rise")).toBe(true);
     });
-    expect(chipDimmed(container, "bus-edge-label-own-drop")).toBe(false);
+    expect(chipDimmed(container, "bus-edge-label-own-rise")).toBe(false);
   });
 
   it("branch hover dims the sibling junction dot but not the owner's", async () => {
