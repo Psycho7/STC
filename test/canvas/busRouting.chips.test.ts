@@ -151,6 +151,134 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     expect(busChipDyOf(out, "e0")).toBe(0);
   });
 
+  it("hides a lane rise whose cascade carries it off the band", () => {
+    // A KEPT rise (the capacity check clears both members: their columns sit
+    // exactly the wide-chip separation apart) whose lane seat is blocked by
+    // foreign lines at the lane and at the next two steps below it. The seat
+    // clears only 3 pitches down -- far off the band, in empty canvas with no
+    // stroke touching it -- so the rise is hidden instead, like a crowded one.
+    // Trunk "b|s2"'s lane at y=410 both forces that third step and gives the
+    // pop a witness: its own rise column coincides with the hidden chip's
+    // would-be seat (700, 444), 34 units away, so a phantom box left behind
+    // would push it off ITS lane.
+    const laneY = 300;
+    const mkBus = (
+      id: string,
+      source: string,
+      target: string,
+      item: string,
+      lane: number,
+      busChipX: number,
+      owner: boolean,
+      memberCount: number,
+    ): Edge => ({
+      id,
+      source,
+      target,
+      type: "bus",
+      data: {
+        item,
+        rate: new Fraction(1),
+        laneY: lane,
+        trunkKey: `${item}|${source}`,
+        busChipX,
+        busChipOwner: owner,
+        busMemberCount: memberCount,
+        busBand: "bottom" as const,
+      },
+    });
+    const foreign = (id: string): Edge => ({
+      id,
+      source: `fs${id}`,
+      target: `ft${id}`,
+      type: "item",
+      data: { item: "f", rate: new Fraction(1) },
+    });
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60), // right edge 100
+      productNode("t0", 1400, 0, 100, 60), // in-port y 30
+      productNode("t1", 1400, 200, 100, 60), // in-port y 230
+      productNode("s2", 0, 700, 100, 60),
+      productNode("t2", 1400, 700, 100, 60),
+      // Two foreign horizontals at y = 300 and y = 348, spanning x 600..800.
+      productNode("fsf0", 500, 270, 100, 60),
+      productNode("ftf0", 800, 270, 100, 60),
+      productNode("fsf1", 500, 318, 100, 60),
+      productNode("ftf1", 800, 318, 100, 60),
+    ];
+    const edges: Edge[] = [
+      mkBus("e0", "s", "t0", "a", laneY, 700, true, 2),
+      mkBus("e1", "s", "t1", "a", laneY, 940, false, 2),
+      mkBus("b0", "s2", "t2", "b", 410, 700, true, 1),
+      foreign("f0"),
+      foreign("f1"),
+    ];
+    const out = deconflictChipAnchors(nodes, edges);
+    // e0's lane seat and the next two steps are blocked (y = 300 and 348 by the
+    // foreign horizontals, y = 372..420 by trunk b's lane at 410), so its only
+    // clear seat is 3 pitches off the lane: hidden.
+    expect(busRiseHiddenOf(out, "e0")).toBe(true);
+    expect(busChipDyOf(out, "e0")).toBe(0);
+    // Its uncrowded sibling is untouched, and so is trunk b's rise -- proof the
+    // hidden chip left no phantom box behind.
+    expect(busRiseHiddenOf(out, "e1")).toBe(false);
+    expect(busChipDyOf(out, "e1")).toBe(0);
+    expect(busRiseHiddenOf(out, "b0")).toBe(false);
+    expect(busChipDyOf(out, "b0")).toBe(0);
+  });
+
+  it("keeps a lane rise that clears one step off its lane", () => {
+    // The same trunk with only the lane-level foreign line: the rise clears one
+    // pitch below the lane, still adjacent to it and reading as a lane chip, so
+    // it seats and stamps its offset rather than hiding. One step is the line
+    // between "beside the lane" and "floating off the band".
+    const laneY = 300;
+    const mkBus = (
+      id: string,
+      target: string,
+      busChipX: number,
+      owner: boolean,
+    ): Edge => ({
+      id,
+      source: "s",
+      target,
+      type: "bus",
+      data: {
+        item: "a",
+        rate: new Fraction(1),
+        laneY,
+        trunkKey: "a|s",
+        busChipX,
+        busChipOwner: owner,
+        busMemberCount: 2,
+        busBand: "bottom" as const,
+      },
+    });
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60),
+      productNode("t0", 1400, 0, 100, 60),
+      productNode("t1", 1400, 200, 100, 60),
+      productNode("fs", 500, 270, 100, 60),
+      productNode("ft", 800, 270, 100, 60),
+    ];
+    const edges: Edge[] = [
+      mkBus("e0", "t0", 700, true),
+      mkBus("e1", "t1", 940, false),
+      {
+        id: "f0",
+        source: "fs",
+        target: "ft",
+        type: "item",
+        data: { item: "f", rate: new Fraction(1) },
+      },
+    ];
+    const out = deconflictChipAnchors(nodes, edges);
+    expect(busRiseHiddenOf(out, "e0")).toBe(false);
+    expect(busChipDyOf(out, "e0")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+    expect(busRiseHiddenOf(out, "e1")).toBe(false);
+    expect(busChipDyOf(out, "e1")).toBe(0);
+  });
+
   it("leaves a well-spread trunk's chips on the lane", () => {
     // Three members feeding distinct far layers spread their rise slots evenly
     // across a wide lane extent, so no chip crowds another and none is nudged.
@@ -200,12 +328,15 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
     expect(busDropDyOf(out, "e0")).toBe(2 * (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT));
     expect(busDropDyOf(out, "e2")).toBe(0);
-    // Both trunks are lone members, exempt from the capacity check, so each rise
-    // still cascades off its own drop column rather than being hidden.
-    expect(busRiseHiddenOf(out, "e0")).toBe(false);
-    expect(busRiseHiddenOf(out, "e2")).toBe(false);
-    expect(busChipDyOf(out, "e0")).toBeGreaterThan(0);
-    expect(busChipDyOf(out, "e2")).toBeGreaterThan(0);
+    // Both trunks are lone members, exempt from the CAPACITY check -- but on this
+    // short run each rise sits on its own drop column and cascades three pitches
+    // to clear it, well off the band, so the off-band rule hides both. A lone
+    // rise only restates its own drop's rate anyway, and that drop is still on
+    // its junction above.
+    expect(busRiseHiddenOf(out, "e0")).toBe(true);
+    expect(busRiseHiddenOf(out, "e2")).toBe(true);
+    expect(busChipDyOf(out, "e0")).toBe(0);
+    expect(busChipDyOf(out, "e2")).toBe(0);
   });
 });
 

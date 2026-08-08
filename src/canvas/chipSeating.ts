@@ -1031,6 +1031,19 @@ export function deconflictChipAnchors(
       slot.target,
       slot.id,
     );
+    // seatChip's cascade is unbounded in y, so a KEPT rise whose lane slot is
+    // blocked can still walk clean off the band into empty canvas -- the chip
+    // ends up with no stroke touching it, the same orphan silhouette the
+    // capacity check above hides a crowded rise to avoid (issue #37). One step
+    // still reads as sitting beside the lane; two or more do not, so past that
+    // the rise is unseatable: undo its seat (seatChip pushes exactly one box)
+    // and hide it, its rate staying on the target card's input row and the edge
+    // tooltip like every other hidden member's.
+    if (Math.abs(riseDy) > CHIP_PITCH_Y) {
+      field.placed.pop();
+      busRiseHiddenByIndex.add(slot.index);
+      continue;
+    }
     if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
   }
 
