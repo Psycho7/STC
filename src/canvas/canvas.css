@@ -1446,6 +1446,12 @@
 
 .ak-canvas-theme .react-flow__controls-button {
   background: var(--ak-bg-secondary);
+  /* The generic .ak-app-shell button rule reaches these buttons and replaces
+     the vendor's padding:4px / border:none, collapsing the content box the
+     icon svg is sized from (60% of 4px measured 2.4px). Re-assert both;
+     border-bottom below re-adds the divider between buttons. */
+  padding: 4px;
+  border: none;
   border-bottom: 1px solid var(--ak-divider);
   color: var(--ak-text-secondary);
   /* React Flow ships 16px buttons; enlarge past the 24px minimum hit target so
