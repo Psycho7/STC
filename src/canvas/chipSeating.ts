@@ -1401,7 +1401,11 @@ export function deconflictChipAnchors(
     faninSeatJobs.push({
       ownerIndex: owner.index,
       ownerEdge,
-      anchorX: (mergeX + tx) / 2,
+      // Beside the junction dot, not mid-run: the Sigma is a summary tag of
+      // the merge, so it seats at the closest point that does not cover the
+      // dot (the keepoff), and the slide only moves it when that seat is
+      // blocked.
+      anchorX: mergeX + keepoff,
       ty,
       runStart: mergeX + keepoff,
       tx,

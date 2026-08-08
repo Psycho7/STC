@@ -240,6 +240,44 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     // The exact total still rides the hover tooltip.
     expect(sigma!.getAttribute("title")).toContain("Σ300/min");
   });
+
+  it("marks the fan-in Sigma chip with the sigma variant class", async () => {
+    // The aggregate is styled as a summary tag of the junction beside it, not
+    // as one more per-edge rate chip, so it carries its own variant class.
+    renderEdge({ item: "belt", rate: new Fraction(2, 1) }, 1);
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    const pts = parsePathPoints(
+      document
+        .querySelector<SVGPathElement>(".react-flow__edge-path")!
+        .getAttribute("d")!,
+    );
+    const targetY = pts[pts.length - 1]![1];
+    cleanup();
+
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        faninJunctionX: 120,
+        faninJunctionY: targetY,
+        faninSigmaX: 150,
+        faninSigmaY: targetY,
+        faninTotalRate: new Fraction(5, 1),
+        faninMemberCount: 3,
+      },
+      1,
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge")).not.toBeNull(),
+    );
+    const sigma = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-fanin-e1-drop"]',
+    );
+    expect(sigma).not.toBeNull();
+    expect(sigma!.classList.contains("sigma")).toBe(true);
+  });
 });
 
 describe("canvas/ItemEdge hover reveal", () => {

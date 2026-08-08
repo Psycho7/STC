@@ -31,6 +31,10 @@ type FaninData = {
 const dataOf = (edges: Edge[], id: string): FaninData =>
   (edges.find((e) => e.id === id)?.data as FaninData | undefined) ?? {};
 
+// chipSeating's own MAX_CHIP_SCALE * CHIP_BOX_WIDTH / 2, the half-box the Sigma
+// keeps clear of the merge dot. Mirrored here (the module does not export it).
+const CHIP_HALF_W_WIDE = 120;
+
 const rateEdge = (
   id: string,
   source: string,
@@ -78,6 +82,13 @@ describe("deconflictChipAnchors: fan-in markers", () => {
     // The Sigma sits on the shared run between the merge and the port.
     expect(owner.faninSigmaX!).toBeGreaterThan(900);
     expect(owner.faninSigmaX!).toBeLessThan(tx);
+    // Anchored beside the junction (mergeX + keepoff), not mid-run, so the
+    // total visually binds to the merge dot it summarizes. This run is short
+    // enough that the keepoff is half of it; see the long-run case below for
+    // the seat that tells the two anchors apart.
+    const runLen = tx - 900;
+    const keepoff = Math.min(CHIP_HALF_W_WIDE, runLen / 2);
+    expect(owner.faninSigmaX).toBe(900 + keepoff);
 
     // The non-owner carries no marker.
     expect(other.faninJunctionX).toBeUndefined();
@@ -87,6 +98,34 @@ describe("deconflictChipAnchors: fan-in markers", () => {
     // member's chip is on its own bend leg -> kept.
     expect(other.faninChipHidden).toBe(true);
     expect(owner.faninChipHidden).toBeUndefined();
+  });
+
+  it("seats the Sigma beside the merge dot on a long shared run, not mid-run", () => {
+    // Same shape as above but with the straight member far enough left that the
+    // shared run exceeds two chip half-boxes, so the keepoff seat (mergeX + 120)
+    // and the old run-midpoint seat are distinguishable.
+    const tgtRecipe = mkRecipe("tgt", ["s"], []);
+    const tgt = orderedRecipeNode("tgt", 1000, 100, ["s"]);
+    const ty = 100 + measureRecipe(tgtRecipe).inHandleYs[0]!;
+    const tx = 1000;
+
+    const srcA = recipeNode("srcA", 0, 0, mkRecipe("srcA", [], ["s"]));
+    const srcBRecipe = mkRecipe("srcB", [], ["s"]);
+    const srcBOutY0 = measureRecipe(srcBRecipe).outHandleYs[0]!;
+    const srcB = recipeNode("srcB", 200, ty - srcBOutY0, srcBRecipe);
+
+    const nodes: RFAnyNode[] = [srcA, srcB, tgt];
+    const edges: Edge[] = [
+      rateEdge("e:1:srcA->tgt:s", "srcA", "tgt", "s", new Fraction(4)),
+      rateEdge("e:2:srcB->tgt:s", "srcB", "tgt", "s", new Fraction(1)),
+    ];
+
+    const out = deconflictChipAnchors(nodes, edges);
+    const owner = dataOf(out, "e:1:srcA->tgt:s");
+    const mergeX = owner.faninJunctionX!;
+    const runLen = tx - mergeX;
+    expect(runLen).toBeGreaterThan(2 * CHIP_HALF_W_WIDE); // the seats differ
+    expect(owner.faninSigmaX).toBe(mergeX + CHIP_HALF_W_WIDE);
   });
 
   it("sums the members' DISPLAYED rates into the aggregate, keeping the exact total", () => {
