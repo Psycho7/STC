@@ -27,6 +27,9 @@ export type ProductNodeData =
       // aggregate node, so they render an extra left target handle to receive
       // it.
       isFanout?: boolean;
+      // Total realized rate of the aggregate this slice taps, shown as an
+      // "of <total>/min" share chip. Fanout slices only.
+      parentRate?: RationalString;
       portTransportKinds?: PortTransportKinds;
     }
   | {
@@ -41,7 +44,9 @@ export type ProductNodeType = Node<ProductNodeData, "product">;
 
 function chromeClasses(data: ProductNodeData): string {
   if (data.kind === "inputProduct") {
-    return "product-node input";
+    // A fanout slice is a derived view of the item's aggregate card, not an
+    // independent source; the tap class mutes it (issue 40).
+    return data.isFanout ? "product-node input tap" : "product-node input";
   }
   return `product-node output ${data.flavor}`;
 }
@@ -74,6 +79,12 @@ export default function ProductNode({
   const capValue =
     isInput && data.rateCap !== undefined
       ? formatRationalPerMin(data.rateCap)
+      : null;
+  // Share of the parent aggregate, fanout slices only: "of <total>/min" points
+  // the reader back at the source card this tap draws from.
+  const shareOf =
+    isInput && data.isFanout && data.parentRate !== undefined
+      ? formatRationalPerMin(data.parentRate)
       : null;
 
   return (
@@ -149,6 +160,11 @@ export default function ProductNode({
         {capValue !== null ? (
           <span className="pn-rate__cap">
             {i18n.t("inputs.rate.cap", { rate: capValue })}
+          </span>
+        ) : null}
+        {shareOf !== null ? (
+          <span className="pn-rate__of">
+            {i18n.t("product.tap.share", { rate: shareOf })}
           </span>
         ) : null}
       </div>

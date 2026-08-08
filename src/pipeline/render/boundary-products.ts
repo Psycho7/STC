@@ -551,6 +551,7 @@ export function deriveBoundaryProducts(
         count: 1,
         rate: rationalToString(realizedRate),
         isFanout: true,
+        parentRate: rationalToString(aggregateRate),
       });
       emittedKeys.add(key);
     }

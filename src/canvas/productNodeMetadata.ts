@@ -39,8 +39,9 @@ export function buildRealizedRateByItem(
 // pn-rate row on the same card.
 //
 // Direction is "In" for an inputProduct and "Out" for an outputProduct.
-// For an inputProduct, the classification is "raw" when item.raw is true and
-// "import" otherwise. For an outputProduct, it is data.flavor ("target" or
+// For an inputProduct, the classification is "tap" when the node is a fanout
+// slice of an aggregate input card, otherwise "raw" when item.raw is true and
+// "import" when it is not. For an outputProduct, it is data.flavor ("target" or
 // "surplus"), and the rate is formatRationalPerMin(rate) + "/min".
 //
 // `overrides` is accepted only to keep the signature stable for future captions
@@ -53,7 +54,11 @@ export function buildPnKind(
 ): string {
   if (data.kind === "inputProduct") {
     const classification = i18n.t(
-      item.raw ? "product.class.raw" : "product.class.import",
+      data.isFanout
+        ? "product.class.tap"
+        : item.raw
+          ? "product.class.raw"
+          : "product.class.import",
     );
     return `${i18n.t("product.dir.in")} · ${classification}`;
   }

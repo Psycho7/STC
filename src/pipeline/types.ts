@@ -146,6 +146,9 @@ export type RenderUnitInputProduct = {
   rateCap?: RationalString;
   isFanout?: true;
   isAggregate?: true;
+  // The parent aggregate's total realized rate, stamped on every fanout slice
+  // so the card can show its share of the source it taps.
+  parentRate?: RationalString;
 };
 
 export type RenderUnitOutputProduct = {
