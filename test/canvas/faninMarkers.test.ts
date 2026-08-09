@@ -13,9 +13,18 @@ import { routeFanoutEdges } from "../../src/canvas/busRouting";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import { formatRatePerMin } from "../../src/data/rate-format";
 import type { RFAnyNode } from "../../src/canvas/layout";
-import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
+import {
+  mkRecipe,
+  recipeNode,
+  orderedRecipeNode,
+  productNode,
+} from "./busRouting.testkit";
 
 type FaninData = {
+  labelDx?: number;
+  labelDy?: number;
+  faninSigmaDx?: number;
+  faninSigmaDy?: number;
   faninJunctionX?: number;
   faninJunctionY?: number;
   faninSigmaX?: number;
@@ -126,6 +135,70 @@ describe("deconflictChipAnchors: fan-in markers", () => {
     const runLen = tx - mergeX;
     expect(runLen).toBeGreaterThan(2 * CHIP_HALF_W_WIDE); // the seats differ
     expect(owner.faninSigmaX).toBe(mergeX + CHIP_HALF_W_WIDE);
+  });
+
+  it("slides the Sigma down-run when a chip already holds the junction side", () => {
+    // The keepoff anchor is only where the Sigma STARTS. seatRateChip's slide
+    // runs along the shared run, and the run it is given begins AT the anchor,
+    // so the only direction it can move is away from the dot -- which it does
+    // whenever a chip is already seated beside the junction (chip-vs-chip is
+    // hard). That is the common case on a real plan, where a member's own rate
+    // chip seats on its pre-merge leg right beside the dot; here a foreign
+    // edge's chip plays that neighbour, seated at its own straight-line anchor
+    // (988, ty - 37) between two product cards, so the crowding is one known box.
+    //
+    // The pair below is the same fixture with and without that neighbour: the
+    // seat is recomputed from the anchor every layout, so it returns to the dot
+    // the moment the neighbour is gone -- nothing about the slide is sticky.
+    const NEIGHBOUR_X = 988;
+    const build = (crowded: boolean): Edge[] => {
+      const tgtRecipe = mkRecipe("tgt", ["s"], []);
+      const tgt = orderedRecipeNode("tgt", 1400, 100, ["s"]);
+      const ty = 100 + measureRecipe(tgtRecipe).inHandleYs[0]!;
+      const srcA = recipeNode("srcA", 0, 0, mkRecipe("srcA", [], ["s"]));
+      const srcBRecipe = mkRecipe("srcB", [], ["s"]);
+      const srcBOutY0 = measureRecipe(srcBRecipe).outHandleYs[0]!;
+      const srcB = recipeNode("srcB", 200, ty - srcBOutY0, srcBRecipe);
+      const nodes: RFAnyNode[] = [srcA, srcB, tgt];
+      const edges: Edge[] = [
+        rateEdge("e:1:srcA->tgt:s", "srcA", "tgt", "s", new Fraction(4)),
+        rateEdge("e:2:srcB->tgt:s", "srcB", "tgt", "s", new Fraction(1)),
+      ];
+      if (crowded) {
+        // Ports at ty - 37 (inside a chip half-height of the run, so the boxes
+        // collide) and right/left edges at 888 / 1088, so the straight line's
+        // chip anchor is their midpoint, NEIGHBOUR_X.
+        nodes.push(
+          productNode("fs", 788, ty - 67, 100, 60),
+          productNode("ft", 1088, ty - 67, 100, 60),
+        );
+        edges.push(rateEdge("e:0:fs->ft:w", "fs", "ft", "w", new Fraction(3)));
+      }
+      return deconflictChipAnchors(nodes, edges);
+    };
+
+    const clear = build(false);
+    const clearOwner = dataOf(clear, "e:1:srcA->tgt:s");
+    // Uncrowded: the Sigma rests on its keepoff anchor, beside the dot.
+    expect(clearOwner.faninSigmaX).toBe(clearOwner.faninJunctionX! + CHIP_HALF_W_WIDE);
+    expect(clearOwner.faninSigmaDx).toBeUndefined();
+    expect(clearOwner.faninSigmaDy).toBeUndefined();
+
+    const crowded = build(true);
+    const owner = dataOf(crowded, "e:1:srcA->tgt:s");
+    // The neighbour held its own anchor, so it is the box the Sigma had to clear.
+    const neighbour = dataOf(crowded, "e:0:fs->ft:w");
+    expect(neighbour.labelDx).toBeUndefined();
+    expect(neighbour.labelDy).toBeUndefined();
+    // The Sigma is pushed down-run, and only down-run: it stays on the shared
+    // run (no vertical lift) and clears the neighbour by the full wide-chip
+    // separation, so it ends up a chip-box away from the dot it summarizes.
+    expect(owner.faninSigmaX).toBe(owner.faninJunctionX! + CHIP_HALF_W_WIDE);
+    expect(owner.faninSigmaDx!).toBeGreaterThan(0);
+    expect(owner.faninSigmaDy).toBeUndefined();
+    expect(owner.faninSigmaX! + owner.faninSigmaDx!).toBeGreaterThanOrEqual(
+      NEIGHBOUR_X + 2 * CHIP_HALF_W_WIDE,
+    );
   });
 
   it("sums the members' DISPLAYED rates into the aggregate, keeping the exact total", () => {

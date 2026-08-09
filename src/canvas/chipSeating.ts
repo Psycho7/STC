@@ -1415,9 +1415,16 @@ export function deconflictChipAnchors(
       ownerIndex: owner.index,
       ownerEdge,
       // Beside the junction dot, not mid-run: the Sigma is a summary tag of
-      // the merge, so it seats at the closest point that does not cover the
-      // dot (the keepoff), and the slide only moves it when that seat is
-      // blocked.
+      // the merge, so it ANCHORS at the closest point that does not cover the
+      // dot (the keepoff). The anchor is only where the seat starts. The run
+      // handed to seatRateChip begins at the anchor, so its slide can move the
+      // chip in one direction only -- away from the dot -- and it does whenever
+      // the junction side is already taken. That happens on real plans: a
+      // member's own rate chip settles (phase 4) on its pre-merge leg beside
+      // the dot, chip-vs-chip is hard, and the Sigma must clear its box by a
+      // full wide-chip separation, which can land it a chip-box or more
+      // down-run. Nothing sticks: the seat is recomputed from this anchor every
+      // layout, so it returns beside the dot once the neighbour moves.
       anchorX: mergeX + keepoff,
       ty,
       runStart: mergeX + keepoff,
