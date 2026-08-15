@@ -139,10 +139,12 @@ const MIN_MARK_EXTENT_PX = 48;
 // confusable) are not: no chip-off-own-path occurrence can confirm that two
 // colours are hard to tell apart, however precisely it overlaps the rect the
 // evaluator drew. Those go to a refuter or a human instead.
-// Which geometric sub-claim each measurement kind can witness. `satisfies`
-// keeps this exhaustive in both directions: a new MeasurementKind fails to
-// compile here rather than silently joining no row, and the rows below are
-// derived from this map so the two cannot drift.
+//
+// Inside the geometric family the map says which SUB-claim each measurement
+// kind witnesses: placement is chip-tier, routing is segment-tier, collision is
+// the crossing kind. `satisfies` keeps it exhaustive in both directions: a new
+// MeasurementKind fails to compile here rather than silently joining no row, and
+// the rows below are derived from this map so the two cannot drift.
 const KIND_WITNESSES = {
   "chip-off-own-path": "geometric-placement",
   "chip-vs-card": "geometric-placement",
@@ -153,8 +155,10 @@ const KIND_WITNESSES = {
 
 const MEASUREMENT_KINDS = Object.keys(KIND_WITNESSES) as MeasurementKind[];
 
-// Derived rather than listed so a sub-claim cannot exist without at least one
-// kind that witnesses it.
+// Read off the map's values rather than listed again, so this holds exactly the
+// sub-claims some measurement kind witnesses. It is not a guarantee that every
+// GeometricClaimType is in here: one that no kind witnesses simply does not
+// appear, and isGeometricClaim then answers false for it.
 const GEOMETRIC_CLAIM_TYPES = [
   ...new Set(Object.values(KIND_WITNESSES)),
 ] as GeometricClaimType[];

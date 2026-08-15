@@ -36,6 +36,7 @@ import {
   type TileFrame,
 } from "./triage";
 import {
+  CARD,
   CHIP,
   SEG,
   TILES,
@@ -142,6 +143,11 @@ const CASES: Case[] = [
   // another tier must refuse the join in both copies.
   kase("placement claim over a co-located segment measurement", finding({ claimType: "geometric-placement" }), {
     measurements: [SEG],
+  }),
+  // The placement row's second kind, which no other case reaches: without it
+  // either copy could drop `chip-vs-card` from that row and stay green.
+  kase("placement claim over its own tier's card-overlap measurement", finding({ claimType: "geometric-placement" }), {
+    measurements: [CARD],
   }),
   kase("routing claim over a co-located chip measurement", finding({ claimType: "geometric-routing" })),
   kase("routing claim over its own tier's segment measurement", finding({ claimType: "geometric-routing" }), {

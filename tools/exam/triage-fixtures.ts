@@ -53,6 +53,17 @@ export const CHIP: Measurement = {
   detail: 'label chip of e:0:A->B:iron ("30/min") sits 84.0 world units off its own polyline',
 };
 
+// The placement tier's OTHER kind, at the same place again. The placement row
+// holds two measurement kinds and a table that only ever exercises the first
+// cannot see the second fall out of it, so this fixture is what makes the kind
+// axis testable for `chip-vs-card` at all.
+export const CARD: Measurement = {
+  kind: "chip-vs-card",
+  elementIds: ["chip:7", "B"],
+  footprint: { x: 100, y: 100, width: 20, height: 10 },
+  detail: 'label chip of e:0:A->B:iron ("30/min") overlaps the card of node B',
+};
+
 // The same place as CHIP, different tiers. Both sit at world (100, 100), inside
 // the default finding's evidence rect through TILE_A, so a join test using them
 // isolates the kind axis: co-location and proportionality both pass, and only

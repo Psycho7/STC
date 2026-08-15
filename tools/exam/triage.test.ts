@@ -19,6 +19,7 @@ import {
   type TileFrame,
 } from "./triage";
 import {
+  CARD,
   CHIP,
   SEG,
   TILES,
@@ -105,10 +106,12 @@ describe("corroborationsFor", () => {
   // The geometric family splits by tier: a placement claim is about where a
   // chip sits, a routing claim about where an edge runs, a collision claim
   // about an edge crossing a chip. Each is witnessed only by its own tier's
-  // geometry; all three measurements here share one location, so the kind
-  // axis alone decides.
+  // geometry; every measurement here shares one location, so the kind axis
+  // alone decides. Both placement kinds are listed: the row holds two, and a
+  // table naming only one lets the other be retargeted unnoticed.
   test.each([
     ["geometric-placement", CHIP],
+    ["geometric-placement", CARD],
     ["geometric-routing", SEG],
     ["geometric-collision", XING],
   ] as const)("joins a %s claim to its own tier's measurement", (claimType, m) => {
@@ -381,7 +384,13 @@ describe("validateFinding", () => {
     expect(validateFinding(subjective)).toEqual([]);
   });
 
-  test.each(["geometric-placement", "interaction", "absence"] as const)(
+  test.each([
+    "geometric-placement",
+    "geometric-routing",
+    "geometric-collision",
+    "interaction",
+    "absence",
+  ] as const)(
     "requires a falsifier for a %s claim",
     (claimType) => {
       const violations = validateFinding(withoutFalsifier(finding({ claimType })));
