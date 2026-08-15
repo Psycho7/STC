@@ -209,7 +209,7 @@ const FINDINGS_SCHEMA = {
             minLength: 1,
             description: 'what a reader sees and why it hurts them, stated as a symptom and grounded in the pixels',
           },
-          claimType: { type: 'string', enum: ['geometric', 'interaction', 'absence', 'subjective'] },
+          claimType: { type: 'string', enum: ['geometric-placement', 'geometric-routing', 'geometric-collision', 'interaction', 'absence', 'subjective'] },
           evidence: {
             type: 'array',
             // At least one entry, because the triage join rejects an empty
@@ -297,12 +297,14 @@ Evaluate, in order of importance:
 EVERY finding needs a pixel rect per evidence entry: \`rect: [x, y, width, height]\` in the CSS pixels of the image you named in the same entry, origin at that image's top-left. Mark WHERE THE DEFECT IS, tightly. A box drawn round a whole node card is not evidence about one chip inside it, and a downstream check compares your rect against independently measured geometry at the place you marked: an over-broad rect is rejected there, so a sloppy box silently costs the finding its support. Mark the chip, the overlap, the segment - not the neighbourhood it lives in.
 
 CLAIM TYPE, one per finding, because it decides how the finding gets checked:
-- \`geometric\`: a claim about where things are in the rendered picture - a chip off its own line, two boxes overlapping, an edge crossing a card, a dot off its trunk, text clipped by a box. Anything settled by coordinates.
+- \`geometric-placement\`: a claim about where a chip, label or card decoration sits - a chip off its own line, a chip overlapping a card, text clipped by a box, a dot off its trunk. Settled by chip-tier coordinates.
+- \`geometric-routing\`: a claim about where an edge runs - an edge crossing a card, an edge piercing its own card, two runs overlapping. Settled by segment-tier coordinates.
+- \`geometric-collision\`: a claim that an edge stroke crosses a chip or label box. Settled by crossing coordinates.
 - \`interaction\`: a claim about how the canvas responds to input - hover dimming, tooltips, click targets. Note that these are STILL images of an untouched canvas: you have no interaction evidence, so an interaction claim is a hypothesis about behaviour and its falsifier is the only thing that can settle it.
 - \`absence\`: a claim that something which should be rendered is not there - a missing rate, a missing arrowhead, an unlabelled trunk. Bounded by the coverage ledger above.
 - \`subjective\`: a matter of perception or taste that no measurement settles - two colors being hard to tell apart, a layout feeling cluttered, a hierarchy reading weakly. These go to a human for a ruling.
 
-FALSIFIER, the run that would prove you WRONG: \`{op, args, expectedIfFalse}\`. Required for \`geometric\`, \`interaction\` and \`absence\`, and required for ANY finding that states a mechanism. FORBIDDEN on \`subjective\`: there is no probe output that settles taste, and offering one sends a refuter to answer a question you did not ask. (So never combine \`subjective\` with a mechanism: that pair demands a falsifier and forbids one, and cannot be satisfied.) Ops a refuter can run, pick the one that would settle your claim:
+FALSIFIER, the run that would prove you WRONG: \`{op, args, expectedIfFalse}\`. Required for every \`geometric-*\` claim, for \`interaction\` and \`absence\`, and required for ANY finding that states a mechanism. FORBIDDEN on \`subjective\`: there is no probe output that settles taste, and offering one sends a refuter to answer a question you did not ask. (So never combine \`subjective\` with a mechanism: that pair demands a falsifier and forbids one, and cannot be satisfied.) Ops a refuter can run, pick the one that would settle your claim:
 - \`hover-edge\` (id=<edge>), \`hover-node\` (id=<node>): does hovering it engage and dim the rest?
 - \`contrast\` (selector=<css>): contrast ratio of an element against what is behind it.
 - \`delta-e\` (a=<css>, b=<css>): perceptual color distance between two elements.
@@ -391,22 +393,20 @@ const JOIN_SLACK_PX = 2
 const MAX_MARK_EXTENT_RATIO = 3
 const MIN_MARK_EXTENT_PX = 48
 
-const MEASUREMENT_KINDS = [
-  'chip-off-own-path',
-  'chip-vs-card',
-  'segment-vs-card',
-  'own-card-pierce',
-  'chip-vs-segment',
-]
-// Only a geometric claim is the sort of thing these audits measure. Interaction,
-// absence and subjective claims get the empty row and go to a refuter or a human.
+// Which geometric sub-claim each measurement kind can witness: placement is
+// chip-tier, routing is segment-tier, collision is the crossing kind.
+// Interaction, absence and subjective claims get the empty row and go to a
+// refuter or a human. Mirrors the KIND_WITNESSES map in the module.
 const COMPATIBLE_KINDS = {
-  geometric: MEASUREMENT_KINDS,
+  'geometric-placement': ['chip-off-own-path', 'chip-vs-card'],
+  'geometric-routing': ['segment-vs-card', 'own-card-pierce'],
+  'geometric-collision': ['chip-vs-segment'],
   interaction: [],
   absence: [],
   subjective: [],
 }
-const CLAIM_TYPES = ['geometric', 'interaction', 'absence', 'subjective']
+const GEOMETRIC_CLAIM_TYPES = ['geometric-placement', 'geometric-routing', 'geometric-collision']
+const CLAIM_TYPES = [...GEOMETRIC_CLAIM_TYPES, 'interaction', 'absence', 'subjective']
 const SEVERITIES = ['major', 'minor', 'nit']
 const ASPECTS = ['correctness', 'comprehension', 'ux']
 
@@ -514,7 +514,7 @@ function routeFinding(finding, corroborations) {
   ) {
     return 'REFUTE_INDIVIDUAL'
   }
-  if (finding.claimType === 'geometric' && corroborations.length > 0) return 'CORROBORATED'
+  if (GEOMETRIC_CLAIM_TYPES.includes(finding.claimType) && corroborations.length > 0) return 'CORROBORATED'
   return finding.severity === 'major' ? 'REFUTE_INDIVIDUAL' : 'REFUTE_BATCH'
 }
 
@@ -548,7 +548,7 @@ function validateFinding(finding) {
   }
 
   const needsFalsifier =
-    finding.claimType === 'geometric' ||
+    GEOMETRIC_CLAIM_TYPES.includes(finding.claimType) ||
     finding.claimType === 'interaction' ||
     finding.claimType === 'absence' ||
     finding.mechanismHypothesis !== undefined

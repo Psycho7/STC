@@ -37,10 +37,12 @@ import {
 } from "./triage";
 import {
   CHIP,
+  SEG,
   TILES,
   TILE_A,
   TILE_B,
   TILE_FIT,
+  XING,
   finding,
   without,
   withoutFalsifier,
@@ -136,6 +138,23 @@ const CASES: Case[] = [
     withoutFalsifier(finding({ claimType: "subjective" })),
   ),
 
+  // The geometric family is split by tier, so a co-located measurement of
+  // another tier must refuse the join in both copies.
+  kase("placement claim over a co-located segment measurement", finding({ claimType: "geometric-placement" }), {
+    measurements: [SEG],
+  }),
+  kase("routing claim over a co-located chip measurement", finding({ claimType: "geometric-routing" })),
+  kase("routing claim over its own tier's segment measurement", finding({ claimType: "geometric-routing" }), {
+    measurements: [SEG],
+  }),
+  kase("collision claim over its own tier's crossing", finding({ claimType: "geometric-collision" }), {
+    measurements: [XING],
+  }),
+  kase(
+    "retired geometric claim type is rejected",
+    finding({ claimType: "geometric" as Finding["claimType"] }),
+  ),
+
   kase(
     "claimType outside the enumeration",
     finding({ claimType: "vibes" as Finding["claimType"] }),
@@ -167,6 +186,7 @@ const CASES: Case[] = [
   kase(
     "zero-thickness segment footprint under a rect round the stroke",
     finding({
+      claimType: "geometric-routing",
       evidence: [{ image: TILE_A.file, rect: [310, 244, 20, 12], where: "over card B" }],
     }),
     {
@@ -184,6 +204,7 @@ const CASES: Case[] = [
   kase(
     "zero-extent footprint under a small mark on it",
     finding({
+      claimType: "geometric-collision",
       evidence: [{ image: TILE_A.file, rect: [298, 248, 10, 10], where: "the anchor" }],
     }),
     { measurements: [POINT] },
@@ -192,6 +213,7 @@ const CASES: Case[] = [
   kase(
     "zero-extent footprint with the mark elsewhere",
     finding({
+      claimType: "geometric-collision",
       evidence: [{ image: TILE_A.file, rect: [400, 248, 10, 10], where: "further right" }],
     }),
     { measurements: [POINT] },
@@ -227,6 +249,7 @@ const CASES: Case[] = [
     kase(
       `${width} px wide mark on a 200x200 footprint`,
       finding({
+        claimType: "geometric-routing",
         evidence: [{ image: TILE_A.file, rect: [300, 250, width, 600], where: "here" }],
       }),
       {
@@ -244,6 +267,7 @@ const CASES: Case[] = [
   kase(
     "a card-sized mark round a thin graze",
     finding({
+      claimType: "geometric-routing",
       evidence: [{ image: TILE_A.file, rect: [250, 200, 300, 200], where: "this card" }],
     }),
     {

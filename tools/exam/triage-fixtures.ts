@@ -53,13 +53,32 @@ export const CHIP: Measurement = {
   detail: 'label chip of e:0:A->B:iron ("30/min") sits 84.0 world units off its own polyline',
 };
 
+// The same place as CHIP, different tiers. Both sit at world (100, 100), inside
+// the default finding's evidence rect through TILE_A, so a join test using them
+// isolates the kind axis: co-location and proportionality both pass, and only
+// the compatibility table can refuse. SEG is segment-tier (witnesses a routing
+// claim), XING is the collision kind (witnesses a collision claim); neither may
+// ever corroborate a placement claim, however perfect the overlap.
+export const SEG: Measurement = {
+  kind: "segment-vs-card",
+  elementIds: ["e:0:A->B:iron", "B"],
+  footprint: { x: 100, y: 100, width: 40, height: 0 },
+  detail: "edge e:0:A->B:iron segment enters the padding of card B",
+};
+export const XING: Measurement = {
+  kind: "chip-vs-segment",
+  elementIds: ["e:0:A->B:iron", "chip:7"],
+  footprint: { x: 100, y: 100, width: 1, height: 10 },
+  detail: "edge e:0:A->B:iron crosses the chip of e:1",
+};
+
 export function finding(over: Partial<Finding> = {}): Finding {
   return {
     id: "F1",
     planId: "copper",
     title: "chip floats free of its line",
     observation: 'the "30/min" chip sits well away from any edge',
-    claimType: "geometric",
+    claimType: "geometric-placement",
     evidence: [
       { image: TILE_A.file, rect: [290, 240, 60, 40], where: "on edge e:0:A->B:iron" },
     ],

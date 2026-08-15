@@ -35,7 +35,22 @@
 import type { Measurement, MeasurementKind } from "./scene";
 import type { Rect, Viewport } from "./tiling";
 
-export type ClaimType = "geometric" | "interaction" | "absence" | "subjective";
+// The geometric family is split by what the audits can actually witness: a
+// placement claim (where a chip or label sits) is settled by chip-tier
+// geometry, a routing claim (where an edge runs) by segment-tier geometry, and
+// a collision claim (a stroke through a chip) by the crossing kind. One
+// undivided "geometric" row joined every kind to every claim, which let a
+// chip-tier claim ride a segment graze past refutation.
+export type GeometricClaimType =
+  | "geometric-placement"
+  | "geometric-routing"
+  | "geometric-collision";
+
+export type ClaimType =
+  | GeometricClaimType
+  | "interaction"
+  | "absence"
+  | "subjective";
 
 // One evidence rect is `[x, y, width, height]` in the named image's CSS pixels,
 // the same shape and frame as `tiles[].elements` in scene.json, so an evaluator
@@ -124,18 +139,40 @@ const MIN_MARK_EXTENT_PX = 48;
 // confusable) are not: no chip-off-own-path occurrence can confirm that two
 // colours are hard to tell apart, however precisely it overlaps the rect the
 // evaluator drew. Those go to a refuter or a human instead.
-const ALL_MEASUREMENT_KINDS = {
-  "chip-off-own-path": true,
-  "chip-vs-card": true,
-  "segment-vs-card": true,
-  "own-card-pierce": true,
-  "chip-vs-segment": true,
-  // `satisfies` is the point of the object form: a new MeasurementKind fails to
-  // compile here rather than silently dropping out of the geometric row.
-} as const satisfies Record<MeasurementKind, true>;
+// Which geometric sub-claim each measurement kind can witness. `satisfies`
+// keeps this exhaustive in both directions: a new MeasurementKind fails to
+// compile here rather than silently joining no row, and the rows below are
+// derived from this map so the two cannot drift.
+const KIND_WITNESSES = {
+  "chip-off-own-path": "geometric-placement",
+  "chip-vs-card": "geometric-placement",
+  "segment-vs-card": "geometric-routing",
+  "own-card-pierce": "geometric-routing",
+  "chip-vs-segment": "geometric-collision",
+} as const satisfies Record<MeasurementKind, GeometricClaimType>;
+
+const MEASUREMENT_KINDS = Object.keys(KIND_WITNESSES) as MeasurementKind[];
+
+// Derived rather than listed so a sub-claim cannot exist without at least one
+// kind that witnesses it.
+const GEOMETRIC_CLAIM_TYPES = [
+  ...new Set(Object.values(KIND_WITNESSES)),
+] as GeometricClaimType[];
+
+function isGeometricClaim(claimType: ClaimType): claimType is GeometricClaimType {
+  return (GEOMETRIC_CLAIM_TYPES as readonly ClaimType[]).includes(claimType);
+}
 
 const COMPATIBLE_KINDS: Record<ClaimType, readonly MeasurementKind[]> = {
-  geometric: Object.keys(ALL_MEASUREMENT_KINDS) as MeasurementKind[],
+  "geometric-placement": MEASUREMENT_KINDS.filter(
+    (k) => KIND_WITNESSES[k] === "geometric-placement",
+  ),
+  "geometric-routing": MEASUREMENT_KINDS.filter(
+    (k) => KIND_WITNESSES[k] === "geometric-routing",
+  ),
+  "geometric-collision": MEASUREMENT_KINDS.filter(
+    (k) => KIND_WITNESSES[k] === "geometric-collision",
+  ),
   interaction: [],
   absence: [],
   subjective: [],
@@ -361,7 +398,7 @@ export function routeFinding(
   ) {
     return "REFUTE_INDIVIDUAL";
   }
-  if (finding.claimType === "geometric" && corroborations.length > 0) {
+  if (isGeometricClaim(finding.claimType) && corroborations.length > 0) {
     return "CORROBORATED";
   }
   return finding.severity === "major" ? "REFUTE_INDIVIDUAL" : "REFUTE_BATCH";
@@ -427,7 +464,7 @@ export function validateFinding(finding: Finding): string[] {
   }
 
   const needsFalsifier =
-    finding.claimType === "geometric" ||
+    isGeometricClaim(finding.claimType) ||
     finding.claimType === "interaction" ||
     finding.claimType === "absence" ||
     finding.mechanismHypothesis !== undefined;

@@ -20,10 +20,12 @@ import {
 } from "./triage";
 import {
   CHIP,
+  SEG,
   TILES,
   TILE_A,
   TILE_B,
   TILE_FIT,
+  XING,
   finding,
   without,
   withoutFalsifier,
@@ -100,7 +102,37 @@ describe("corroborationsFor", () => {
     },
   );
 
-  test("ignores an unknown claimType rather than treating it as geometric", () => {
+  // The geometric family splits by tier: a placement claim is about where a
+  // chip sits, a routing claim about where an edge runs, a collision claim
+  // about an edge crossing a chip. Each is witnessed only by its own tier's
+  // geometry; all three measurements here share one location, so the kind
+  // axis alone decides.
+  test.each([
+    ["geometric-placement", CHIP],
+    ["geometric-routing", SEG],
+    ["geometric-collision", XING],
+  ] as const)("joins a %s claim to its own tier's measurement", (claimType, m) => {
+    expect(corroborationsFor(finding({ claimType }), [m], TILES)).toEqual([m]);
+  });
+
+  test.each([
+    ["geometric-placement", SEG],
+    ["geometric-placement", XING],
+    ["geometric-routing", CHIP],
+    ["geometric-collision", SEG],
+  ] as const)(
+    "never corroborates a %s claim from another tier, however well the rect overlaps",
+    (claimType, m) => {
+      expect(corroborationsFor(finding({ claimType }), [m], TILES)).toEqual([]);
+    },
+  );
+
+  test("rejects the retired claim type geometric rather than mapping it", () => {
+    const legacy = finding({ claimType: "geometric" as Finding["claimType"] });
+    expect(corroborationsFor(legacy, [CHIP, SEG, XING], TILES)).toEqual([]);
+  });
+
+  test("ignores an unknown claimType rather than granting it a row", () => {
     const bogus = finding({ claimType: "vibes" as Finding["claimType"] });
     expect(corroborationsFor(bogus, [CHIP], TILES)).toEqual([]);
   });
@@ -131,6 +163,7 @@ describe("corroborationsFor", () => {
       detail: "edge e:0:A->B:iron segment enters the padding of card B",
     };
     const marked = finding({
+      claimType: "geometric-routing",
       evidence: [
         { image: TILE_A.file, rect: [310, 244, 20, 12], where: "over card B" },
       ],
@@ -167,6 +200,7 @@ describe("corroborationsFor", () => {
       detail: "edge e:0:A->B:iron segment enters the padding of card B",
     };
     const wholeCard = finding({
+      claimType: "geometric-routing",
       evidence: [
         { image: TILE_A.file, rect: [250, 200, 300, 200], where: "this card" },
       ],
@@ -202,6 +236,7 @@ describe("corroborationsFor", () => {
       footprint: { x: 100, y: 100, width: 100, height: 100 },
     };
     const marked = finding({
+      claimType: "geometric-routing",
       evidence: [{ image: TILE_A.file, rect: [300, 250, width, 600], where: "here" }],
     });
     expect(corroborationsFor(marked, [big], TILES)).toEqual(joins ? [big] : []);
@@ -346,7 +381,7 @@ describe("validateFinding", () => {
     expect(validateFinding(subjective)).toEqual([]);
   });
 
-  test.each(["geometric", "interaction", "absence"] as const)(
+  test.each(["geometric-placement", "interaction", "absence"] as const)(
     "requires a falsifier for a %s claim",
     (claimType) => {
       const violations = validateFinding(withoutFalsifier(finding({ claimType })));
