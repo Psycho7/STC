@@ -483,3 +483,72 @@ describe("validateFinding", () => {
     expect(validateFinding(bad)).toHaveLength(3);
   });
 });
+
+// The live false corroboration from the first dry run: a chip-tier claim on
+// plan crystal rode three segment-vs-card grazes of an unrelated edge to
+// CORROBORATED and was filed unchecked. Scene data verbatim from
+// .artifacts/exam/crystal/scene.json; the evidence rect is drawn over the
+// projected footprints so co-location and proportionality both pass and only
+// the kind axis can refuse.
+describe("crystal dry-run regression: chip claim over segment grazes", () => {
+  const tile: TileFrame = {
+    file: "10-tile-r0c0.png",
+    kind: "tile",
+    viewportTransform: { x: 422.4, y: 309.375, zoom: 0.75 },
+    safeRegion: { x: 8, y: 8, width: 1543, height: 926 },
+  };
+  const grazes: Measurement[] = [
+    {
+      kind: "segment-vs-card",
+      elementIds: ["e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3", "u:class:q:5"],
+      footprint: { x: 345, y: 138, width: 23.5, height: 0 },
+      detail:
+        "edge e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3 segment (345.0,138.0)->(368.5,138.0) enters the padding of card u:class:q:5",
+    },
+    {
+      kind: "segment-vs-card",
+      elementIds: ["e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3", "u:class:q:5"],
+      footprint: { x: 368.5, y: 138, width: 3.5, height: 3.5 },
+      detail:
+        "edge e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3 segment (368.5,138.0)->(372.0,141.5) enters the padding of card u:class:q:5",
+    },
+    {
+      kind: "segment-vs-card",
+      elementIds: ["e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3", "u:class:q:5"],
+      footprint: { x: 372, y: 141.5, width: 0, height: 48.5 },
+      detail:
+        "edge e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3 segment (372.0,141.5)->(372.0,294.5) enters the padding of card u:class:q:5",
+    },
+  ];
+  const chipClaim = finding({
+    planId: "crystal",
+    title: "rate chips overhang the target card",
+    observation: "rate chips sit over the body of card u:class:q:5",
+    claimType: "geometric-placement",
+    evidence: [
+      { image: tile.file, rect: [676, 408, 30, 12], where: "over card u:class:q:5" },
+    ],
+  });
+
+  test("the segment grazes cannot corroborate the chip claim", () => {
+    expect(corroborationsFor(chipClaim, grazes, [tile])).toEqual([]);
+  });
+
+  test("the finding goes to an individual refuter, not CORROBORATED", () => {
+    const corroborations = corroborationsFor(chipClaim, grazes, [tile]);
+    expect(routeFinding(chipClaim, corroborations)).toBe("REFUTE_INDIVIDUAL");
+  });
+
+  test("a routing claim at the same mark still joins all three grazes", () => {
+    const routingClaim = finding({
+      planId: "crystal",
+      title: "edge grazes the planting card",
+      observation: "edge e:7 runs through the padding of card u:class:q:5",
+      claimType: "geometric-routing",
+      evidence: [
+        { image: tile.file, rect: [676, 408, 30, 12], where: "over card u:class:q:5" },
+      ],
+    });
+    expect(corroborationsFor(routingClaim, grazes, [tile])).toEqual(grazes);
+  });
+});
