@@ -487,9 +487,10 @@ describe("validateFinding", () => {
 // The live false corroboration from the first dry run: a chip-tier claim on
 // plan crystal rode three segment-vs-card grazes of an unrelated edge to
 // CORROBORATED and was filed unchecked. Scene data verbatim from
-// .artifacts/exam/crystal/scene.json; the evidence rect is drawn over the
-// projected footprints so co-location and proportionality both pass and only
-// the kind axis can refuse.
+// .artifacts/exam/crystal/scene.json, and the evidence is the set the incident
+// actually filed, verbatim and complete: the first rect does project onto all
+// three grazes, so co-location and proportionality both pass there and the kind
+// axis is the only thing left that can refuse.
 describe("crystal dry-run regression: chip claim over segment grazes", () => {
   const tile: TileFrame = {
     file: "10-tile-r0c0.png",
@@ -497,6 +498,22 @@ describe("crystal dry-run regression: chip claim over segment grazes", () => {
     viewportTransform: { x: 422.4, y: 309.375, zoom: 0.75 },
     safeRegion: { x: 8, y: 8, width: 1543, height: 926 },
   };
+  const tileRight: TileFrame = {
+    file: "10-tile-r0c1.png",
+    kind: "tile",
+    viewportTransform: { x: -889.15, y: 309.375, zoom: 0.75 },
+    safeRegion: { x: 8, y: 8, width: 1543, height: 926 },
+  };
+  const tiles = [tile, tileRight];
+  // The filed evidence set. Through tile r0c0 the grazes land at image y 412.9
+  // to 451.9 over x 681.2 to 701.4, so the first rect covers all three; the
+  // r0c1 rect is a different camera 1500 px away from them, and the third sits
+  // below the projected footprints.
+  const filedEvidence: Finding["evidence"] = [
+    { image: tileRight.file, rect: [1004, 400, 80, 27], where: "over card u:out:crystal_enr" },
+    { image: tile.file, rect: [663, 400, 78, 27], where: "over card u:class:q:5" },
+    { image: tile.file, rect: [663, 458, 78, 28], where: "over card u:class:q:4" },
+  ];
   const grazes: Measurement[] = [
     {
       kind: "segment-vs-card",
@@ -525,30 +542,31 @@ describe("crystal dry-run regression: chip claim over segment grazes", () => {
     title: "rate chips overhang the target card",
     observation: "rate chips sit over the body of card u:class:q:5",
     claimType: "geometric-placement",
-    evidence: [
-      { image: tile.file, rect: [676, 408, 30, 12], where: "over card u:class:q:5" },
-    ],
+    evidence: filedEvidence,
+    severity: "major",
   });
 
   test("the segment grazes cannot corroborate the chip claim", () => {
-    expect(corroborationsFor(chipClaim, grazes, [tile])).toEqual([]);
+    expect(corroborationsFor(chipClaim, grazes, tiles)).toEqual([]);
   });
 
   test("the finding goes to an individual refuter, not CORROBORATED", () => {
-    const corroborations = corroborationsFor(chipClaim, grazes, [tile]);
+    const corroborations = corroborationsFor(chipClaim, grazes, tiles);
     expect(routeFinding(chipClaim, corroborations)).toBe("REFUTE_INDIVIDUAL");
   });
 
-  test("a routing claim at the same mark still joins all three grazes", () => {
+  // The anti-vacuity guard: the same evidence under a segment-tier claim still
+  // reaches all three grazes, so the block above refuses on the kind axis and
+  // not because the filed marks land nowhere.
+  test("a routing claim at the same marks still joins all three grazes", () => {
     const routingClaim = finding({
       planId: "crystal",
       title: "edge grazes the planting card",
       observation: "edge e:7 runs through the padding of card u:class:q:5",
       claimType: "geometric-routing",
-      evidence: [
-        { image: tile.file, rect: [676, 408, 30, 12], where: "over card u:class:q:5" },
-      ],
+      evidence: filedEvidence,
+      severity: "major",
     });
-    expect(corroborationsFor(routingClaim, grazes, [tile])).toEqual(grazes);
+    expect(corroborationsFor(routingClaim, grazes, tiles)).toEqual(grazes);
   });
 });
