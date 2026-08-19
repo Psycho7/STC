@@ -11,10 +11,12 @@ import {
   fmtSeg,
   parsePath,
   polylineLength,
-  type ChipRect as GeomChipRect,
+  toRawEdges,
+  type ChipRect,
   type NodeRect,
   type RawEdge,
 } from "./geometry";
+import { collectAudit, collectGeometry, type AuditChipRect } from "./collect";
 
 // The P1 acceptance gate for the placement campaign: a DOM-geometry audit run
 // against the live client rects the user actually sees. Two invariants per
@@ -36,50 +38,6 @@ const OVERLAP_EPS_PX = 0.5;
 // Row-embedded handles centre on their row via CSS; the only slack is subpixel
 // rounding of two independently laid-out client rects.
 const HANDLE_CENTER_TOL_PX = 1;
-
-type ChipRect = {
-  label: string;
-  x: number;
-  y: number;
-  right: number;
-  bottom: number;
-  width: number;
-  height: number;
-};
-
-type RowCenter = {
-  nodeId: string;
-  item: string;
-  rowClass: string;
-  rowCenterY: number;
-  handleCenterY: number | null;
-};
-
-// Per recipe node that shows a machine-multiplier chip: the chip's box and the
-// adjacent rate-block box. Audit issue 5 was the old absolute .rn-mult-badge
-// overlapping the rate figures; the promoted header cell must keep them apart.
-type MultPair = {
-  nodeId: string;
-  chip: ChipRect;
-  rate: ChipRect;
-};
-
-type AuditData = {
-  chips: ChipRect[];
-  rows: RowCenter[];
-  multPairs: MultPair[];
-  recipeNodeCount: number;
-  // The React Flow pane's client rect: the visible viewport every chip must sit
-  // inside at fit zoom (the camera-fit content-bounds assertion).
-  containerRect: { x: number; y: number; right: number; bottom: number };
-  // Computed stacking order inside the shared .react-flow__edgelabel-renderer
-  // layer, where both flow chips and bus junction dots are portaled. `auto`
-  // maps to 0 so a chip with no explicit z-index compares strictly against the
-  // dot's numeric one (an auto-vs-auto comparison would pass vacuously while DOM
-  // order still lets a sibling member edge's dot paint over the owner's chip).
-  flowChipZ: number[];
-  busJunctionZ: number[];
-};
 
 async function waitForCanvasReady(page: Page): Promise<void> {
   const anyNode = page
@@ -112,102 +70,10 @@ async function waitForStableViewport(page: Page): Promise<void> {
   );
 }
 
-function collectAudit(): AuditData {
-  const chips = Array.from(
-    document.querySelectorAll<HTMLElement>(".flow-chip"),
-  ).map((el) => {
-    const r = el.getBoundingClientRect();
-    return {
-      label:
-        el.getAttribute("aria-label") ?? el.getAttribute("title") ?? "(chip)",
-      x: r.x,
-      y: r.y,
-      right: r.right,
-      bottom: r.bottom,
-      width: r.width,
-      height: r.height,
-    };
-  });
-
-  const toRect = (el: HTMLElement, label: string): ChipRect => {
-    const r = el.getBoundingClientRect();
-    return {
-      label,
-      x: r.x,
-      y: r.y,
-      right: r.right,
-      bottom: r.bottom,
-      width: r.width,
-      height: r.height,
-    };
-  };
-
-  const recipeNodes = Array.from(
-    document.querySelectorAll<HTMLElement>(".react-flow__node-recipe"),
-  );
-  const rows: RowCenter[] = [];
-  const multPairs: MultPair[] = [];
-  for (const node of recipeNodes) {
-    const nodeId = node.getAttribute("data-id") ?? "(node)";
-    const chipEl = node.querySelector<HTMLElement>(".rn-mult-chip");
-    const rateEl = node.querySelector<HTMLElement>(".rn-rate-block");
-    if (chipEl !== null && rateEl !== null) {
-      multPairs.push({
-        nodeId,
-        chip: toRect(chipEl, "mult-chip"),
-        rate: toRect(rateEl, "rate-block"),
-      });
-    }
-    for (const row of Array.from(
-      node.querySelectorAll<HTMLElement>(".rn-row"),
-    )) {
-      const rr = row.getBoundingClientRect();
-      const handle = row.querySelector<HTMLElement>(".react-flow__handle");
-      const hr = handle?.getBoundingClientRect() ?? null;
-      rows.push({
-        nodeId,
-        item: row.querySelector(".lbl")?.getAttribute("title") ?? row.className,
-        rowClass: row.className,
-        rowCenterY: rr.y + rr.height / 2,
-        handleCenterY: hr === null ? null : hr.y + hr.height / 2,
-      });
-    }
-  }
-
-  const zOf = (el: HTMLElement): number => {
-    const v = getComputedStyle(el).zIndex;
-    return v === "auto" ? 0 : Number(v);
-  };
-  const layer = ".react-flow__edgelabel-renderer ";
-  const flowChipZ = Array.from(
-    document.querySelectorAll<HTMLElement>(layer + ".flow-chip"),
-  ).map(zOf);
-  const busJunctionZ = Array.from(
-    document.querySelectorAll<HTMLElement>(layer + ".bus-junction"),
-  ).map(zOf);
-
-  const rf = document.querySelector<HTMLElement>(".react-flow");
-  const rfRect = rf!.getBoundingClientRect();
-  return {
-    chips,
-    rows,
-    multPairs,
-    recipeNodeCount: recipeNodes.length,
-    containerRect: {
-      x: rfRect.x,
-      y: rfRect.y,
-      right: rfRect.right,
-      bottom: rfRect.bottom,
-    },
-    flowChipZ,
-    busJunctionZ,
-  };
-}
-
 // Strict interpenetration on both axes, beyond the abutment epsilon.
 function overlapPx(
-  a: ChipRect,
-  b: ChipRect,
+  a: AuditChipRect,
+  b: AuditChipRect,
 ): { dx: number; dy: number } | null {
   const dx = Math.min(a.right, b.right) - Math.max(a.x, b.x);
   const dy = Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y);
@@ -215,7 +81,7 @@ function overlapPx(
   return null;
 }
 
-function fmtRect(r: ChipRect): string {
+function fmtRect(r: AuditChipRect): string {
   return `[${r.x.toFixed(1)},${r.y.toFixed(1)} ${r.width.toFixed(1)}x${r.height.toFixed(1)}]`;
 }
 
@@ -542,112 +408,6 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   tundra: 0,
 };
 
-type EdgeGeom = { id: string; d: string };
-type NodeGeom = {
-  nodeId: string;
-  type: string;
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-};
-type ChipGeom = {
-  edgeId: string;
-  label: string;
-  kind: "label" | "bus" | "bus-drop";
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-};
-type Geometry = { edges: EdgeGeom[]; nodes: NodeGeom[]; chips: ChipGeom[] };
-
-// Read the live flow-coordinate geometry: every edge path's id + `d`, every
-// node's raw card rect, and every edge-owned chip box (data-edge-id, the
-// FlowChip ownership hook). Rects come from getBoundingClientRect mapped back
-// through the inverse viewport transform (translate + uniform scale), so cards,
-// chips, and edge segments are directly comparable. Self-contained for
-// page.evaluate (no outer-scope references).
-function collectGeometry(): Geometry {
-  const rf = document.querySelector<HTMLElement>(".react-flow");
-  const vp = document.querySelector<HTMLElement>(".react-flow__viewport");
-  const rfRect = rf!.getBoundingClientRect();
-  const m = new DOMMatrixReadOnly(getComputedStyle(vp!).transform);
-  const k = m.a;
-  const tx = m.e;
-  const ty = m.f;
-  const toGraphX = (clientX: number): number =>
-    (clientX - rfRect.left - tx) / k;
-  const toGraphY = (clientY: number): number => (clientY - rfRect.top - ty) / k;
-
-  const edges = Array.from(
-    document.querySelectorAll<SVGPathElement>(".react-flow__edge-path"),
-  ).map((p) => ({ id: p.id, d: p.getAttribute("d") ?? "" }));
-
-  const nodes = Array.from(
-    document.querySelectorAll<HTMLElement>(".react-flow__node"),
-  ).map((el) => {
-    const r = el.getBoundingClientRect();
-    const cls = el.className;
-    const match = /react-flow__node-(\w+)/.exec(cls);
-    return {
-      nodeId: el.getAttribute("data-id") ?? "(node)",
-      type: match?.[1] ?? "(type)",
-      left: toGraphX(r.left),
-      top: toGraphY(r.top),
-      right: toGraphX(r.right),
-      bottom: toGraphY(r.bottom),
-    };
-  });
-
-  const chips = Array.from(
-    document.querySelectorAll<HTMLElement>(".flow-chip[data-edge-id]"),
-  ).map((el) => {
-    const r = el.getBoundingClientRect();
-    const testId = el.getAttribute("data-testid") ?? "";
-    return {
-      edgeId: el.getAttribute("data-edge-id") ?? "",
-      label: el.getAttribute("aria-label") ?? "(chip)",
-      // Chip families: the trunk-seated aggregate chip ("bus-drop", testid
-      // suffix -drop), audited against foreign cards with a trunk-member
-      // exemption; lane-anchored bus rise/branch chips ("bus", out of scope for
-      // the corridor invariants); and item rate chips ("label"). Only rate
-      // chips ride the clear-segment anchor.
-      kind: (testId.startsWith("bus-edge-")
-        ? testId.endsWith("-drop")
-          ? "bus-drop"
-          : "bus"
-        : "label") as "label" | "bus" | "bus-drop",
-      left: toGraphX(r.left),
-      top: toGraphY(r.top),
-      right: toGraphX(r.right),
-      bottom: toGraphY(r.bottom),
-    };
-  });
-
-  return { edges, nodes, chips };
-}
-
-// Parse an edge id `e:<index>:<from>-><to>:<item>` (layout.ts) into its source,
-// target, and item. from / to are ELK unit ids (no `->` or trailing `:item`).
-function parseEdgeId(
-  id: string,
-): { source: string; target: string; item: string } | null {
-  const m = /^e:\d+:(.+)->(.+):([^:]+)$/.exec(id);
-  if (m === null) return null;
-  return { source: m[1]!, target: m[2]!, item: m[3]! };
-}
-
-function toRawEdges(edges: EdgeGeom[]): RawEdge[] {
-  const out: RawEdge[] = [];
-  for (const e of edges) {
-    const parsed = parseEdgeId(e.id);
-    if (parsed === null) continue;
-    out.push({ id: e.id, d: e.d, ...parsed });
-  }
-  return out;
-}
-
 async function loadScenario(page: Page, hash: string): Promise<void> {
   await page.goto(`/#${hash}`, { waitUntil: "load" });
   await waitForCanvasReady(page);
@@ -716,7 +476,7 @@ test.describe("segment placement audit", () => {
       // at or below the per-scenario baseline. Zero on the sparse plans; the 2B
       // anchor trades a bounded set of line-occlusions on the packed plans (see
       // CHIP_SEGMENT_BASELINE) for the chip/card clearance the next tier checks.
-      const chips = geom.chips as GeomChipRect[];
+      const chips = geom.chips as ChipRect[];
       const chipHits = auditSegmentsVsChips(rawEdges, chips, nodes);
       const chipInventory = chipHits.map(
         (v) =>

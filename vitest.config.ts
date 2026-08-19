@@ -23,6 +23,7 @@ export default mergeConfig(
         "test/**/*.{test,spec}.{ts,tsx}",
         "src/**/*.{test,spec}.{ts,tsx}",
         "tools/solver-cli/**/*.{test,spec}.{ts,tsx}",
+        "tools/exam/**/*.{test,spec}.{ts,tsx}",
       ],
       // The Playwright end-to-end specs under test/e2e/ run through
       // `bun run test:e2e`, not here. Keep Vitest away from them: they call

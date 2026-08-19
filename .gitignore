@@ -156,3 +156,6 @@ playwright-report/
 .playwright-mcp/
 # Screenshot baselines are regenerated locally, never committed.
 test/e2e/__screenshots__/
+
+# Subagent-driven development scratch
+.superpowers/

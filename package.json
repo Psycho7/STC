@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "format": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "typecheck:tools": "tsc --noEmit -p tsconfig.tools.json",
     "extract": "bun run tools/extractor/src/extract.ts",
     "test:e2e": "playwright test"
   },

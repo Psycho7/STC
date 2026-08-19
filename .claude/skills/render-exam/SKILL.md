@@ -1,0 +1,249 @@
+---
+name: render-exam
+description: Use when asked to examine, audit, or regression-check the STC canvas rendering quality across solved plans with screenshots - e.g. "exam the rendering", "re-verify the render issues", "check rendering quality of plan X", or after render-affecting changes need a whole-plan visual sweep.
+---
+
+# Render-quality exam
+
+Whole-plan exam of the STC canvas. Capture is deterministic code (`tools/exam/capture.ts`), not
+an agent: it walks a fixed camera grid at a fixed zoom and writes images plus a `scene.json`
+ledger that states what it covered. Evaluation agents critique the images cold, refuters
+disprove claims through `tools/exam/probe.ts`, and the orchestrator files issues. The
+mechanical fan-out lives in the `render-quality-exam` named workflow; this skill is the
+judgment layer around it.
+
+Two rules hold the whole procedure up, because two earlier runs filed invalid findings for
+want of them: a screenshot cannot tell "the app does nothing" from "my capture never touched
+it", and a raw geometry count is not a defect.
+
+## Procedure
+
+1. **Prep server** (a production build avoids DEV render-hook hard-fails on residual-dirty
+   plans):
+
+   ```bash
+   bun run build
+   bun run preview --port 4174 --strictPort   # background it
+   curl -s -o /dev/null -w "%{http_code}\n" http://localhost:4174/   # poll until 200
+   ```
+
+   Port 4174 on purpose: Playwright's `webServer` owns 4173 for the e2e suite, so step 4 can
+   run without disturbing the exam server.
+
+2. **Generate plan hashes** from the scenario fixtures (`test/e2e/scenarios.ts`), which encode
+   with the app's own encoder:
+
+   ```bash
+   bun -e 'const {SCENARIOS, scenarioHash} = await import("./test/e2e/scenarios.ts"); for (const s of SCENARIOS) console.log(`${s.id}\t${await scenarioHash(s)}`)'
+   ```
+
+   A hash from anywhere else works too; it is the plain `v1.` fragment, and the capture CLI
+   builds the URL around it.
+
+3. **Capture each plan**, one at a time (each run launches its own Chromium):
+
+   ```bash
+   bun run tools/exam/capture.ts --base-url http://localhost:4174 \
+     --hash <planHash> --plan-id <id> --out .artifacts/exam
+   ```
+
+   Optional: `--target-zoom` (default 0.75), `--locale` (default `en`), `--max-tiles`
+   (default 64), `--seam-margin` (default 64). Outputs land in `.artifacts/exam/<id>/` as
+   `scene.json` plus an `images/` subdirectory holding `00-fit.png`,
+   `10-tile-r<row>c<col>.png` and `20-corrective-<nnn>-<slug>.png` (the index is zero-padded
+   to three digits). The split is structural: an evaluator is handed `images/` and judges the
+   pixels cold, so the ledger it must not read is not in the directory it can list.
+   No smoke test: capture fails fast by itself. Exit 2 means the base URL is not serving,
+   exit 3 means the page never became examinable (drop the plan and report it), exit 1 is a
+   harness failure. Exit 0 with `status: "partial"` is a real capture with named blind spots -
+   keep it, and carry the blind spots forward.
+
+4. **Run the geometry ratchets. These are the machine findings.**
+
+   ```bash
+   bun run test:e2e geometry-audit
+   ```
+
+   A finding here is a failure of `test/e2e/geometry-audit.spec.ts`, and nothing else: either a
+   baseline EXCEEDANCE, or one of its hard zero-tolerance assertions (off-centre handles,
+   mult-chip/rate-block overlaps, chip-vs-chip overlaps, chips clipped outside the pane,
+   flow-chip-over-junction z-order, tier 1 segments entering a foreign raw card, the tundra
+   ore-feed presence check). That spec already encodes every ruling this repo has made about
+   acceptable geometry; the exam must not compute defects from its own numbers. Before calling a failure
+   a finding, check it against the branch point: this suite carries known pre-existing
+   failures, and a test that fails identically on the base commit is not something this exam
+   found.
+
+5. **Build the workflow args from the ledgers.** One jq over every `scene.json` emits the whole
+   args object, so nothing is retyped and no field is invented. Run it from the repo root:
+
+   ```bash
+   jq -s --arg examDir "$PWD/.artifacts/exam" '{
+     examDir: $examDir,
+     plans: [.[] | . as $s | {
+       id: .planId,
+       dir: "\($examDir)/\(.planId)/\(.imagesDir)",
+       url: .url,
+       coverage: .coverage,
+       images: [.tiles[] | {file, what: (
+         if .kind == "fit" then "whole-graph fit overview, at the app fit zoom"
+         elif .kind == "tile" then "grid tile row \(.row) col \(.col), at zoom \($s.targetZoom)"
+         else "corrective shot, at zoom \($s.targetZoom)" end)}],
+       tiles: [.tiles[] | {file, kind, viewportTransform, safeRegion}]
+     }],
+     measurements: ([.[] | {key: .planId, value: .measurements}] | from_entries)
+   }' .artifacts/exam/*/scene.json
+   ```
+
+   What each part is for, because passing the wrong thing here fails silently rather than
+   loudly:
+
+   - `dir` is `<examDir>/<planId>/<imagesDir>`, the IMAGES directory. An evaluator is handed
+     it and judges the pixels cold; the plan directory one level up holds `scene.json`, and
+     handing that out instead would let a cold evaluator read the measurements its findings
+     are about to be checked against. The workflow rejects a `dir` that is not strictly below
+     the plan directory, so a wrong value stops the run.
+   - `tiles` is what the corroboration join needs: `file` is the bare name an evaluator can
+     cite, `kind` says which camera shot it (only `tile` and `corrective` can carry a
+     measurement), and `viewportTransform`/`safeRegion` place a world-unit footprint inside
+     that image. Omit it and every join misses, which reads as "nothing was corroborated".
+   - `measurements` is keyed by plan id, and `[]` is a real answer: the measurement pass runs
+     on every capture, so an empty array means measured and clean.
+   - `url` must be `scene.json`'s verbatim, `<baseUrl>/?exam=1#<hash>`: refuters' probe
+     commands are built by splitting it.
+
+   Surface these two now, and again in the final report:
+
+   ```bash
+   jq -r 'select(.status == "partial") | "\(.planId): \(.coverage.uncovered | length) uncovered, capHit=\(.coverage.capHit)"' .artifacts/exam/*/scene.json
+   jq -r 'select(.consoleErrors | length > 0) | "\(.planId): \(.consoleErrors | join(" | "))"' .artifacts/exam/*/scene.json
+   ```
+
+6. **Run the workflow** from the MAIN session (the Workflow tool is not available inside
+   subagents).
+
+   `Workflow({name: "render-quality-exam", args: <the object step 5 printed>})` - that is,
+   `{examDir, plans: [{id, dir, url, images, tiles, coverage}], measurements}`. Three phases:
+
+   - **Evaluate**: one agent per plan, given the images and the coverage ledger and nothing
+     else. It returns typed findings, each with a pixel rect per evidence entry, a
+     `claimType`, and a `falsifier` naming the probe op that would disprove it.
+   - **Triage** (code, no agent): validates every finding, joins it to the measurements by
+     footprint, and routes it. A geometric finding with an independent measurement at the
+     place it marked is CORROBORATED and skips refutation; a stated mechanism, an absence
+     claim or an interaction claim always goes to its own refuter; a subjective claim goes to
+     you; anything malformed is reported, never routed. The routing histogram is logged.
+   - **Refute**: one agent per individually routed finding, one per plan for the batched
+     minors. Each must DISPROVE its finding through `tools/exam/probe.ts` and return the
+     command it ran and what it printed.
+
+   It returns `{evaluations, findings, triage, verdicts, humanRuling, invalid}`. A verdict
+   judges the observation and the mechanism SEPARATELY, so "symptom real, cause wrong" comes
+   back as `observationVerdict: CONFIRMED` with `mechanismVerdict: REFUTED`, and its
+   `disposition` says what to do with it:
+
+   | disposition | what it means | what you do |
+   | --- | --- | --- |
+   | `FILE` | observation confirmed, mechanism (if any) confirmed | file it |
+   | `FILE_SYMPTOM_ONLY` | symptom real, stated cause disproved | file the symptom; the struck-out cause is in `mechanismStripped` |
+   | `HUMAN_REVIEW` | UNCERTAIN on some claim | you rule on it; never file it as-is |
+   | `DROP` | observation disproved at runtime | do not file |
+
+   Every verdict carries the same keys whatever produced it, so one filter reads them all:
+
+   | field | what it holds |
+   | --- | --- |
+   | `findingId`, `planId` | which finding this answers; the id is namespaced `<planId>:<slug>` |
+   | `observationVerdict` | `CONFIRMED` / `REFUTED` / `UNCERTAIN` on the symptom |
+   | `mechanismVerdict` | the same on the stated cause; `null` when the finding stated none |
+   | `mechanismStripped` | the cause struck out; `null` unless `FILE_SYMPTOM_ONLY` |
+   | `disposition` | the table above, derived from the two verdicts and nothing else |
+   | `corroboratedBy` | the measurement ids (`<planId>#<index>:<kind>`) that carried the finding past refutation; `[]` for anything a refuter answered |
+   | `probeCommand`, `probeOutput` | what was run and what it printed; `null` for a corroborated finding, which never reached an agent, and for a refuter that ran nothing |
+   | `reasoning` | how that settles the claim; `null` when none was given |
+   | `correctedObservation` | what is actually true, when the symptom is real but stated wrongly; `null` otherwise |
+   | `coercions` | why a claim was forced to `UNCERTAIN`; `[]` when nothing was forced |
+
+   So `probeCommand: null` does not mean unsupported: check `corroboratedBy` before reading it
+   that way.
+
+   `UNCERTAIN` is a legitimate answer and is preferred over a guess. A verdict that cites no
+   `probeCommand` and `probeOutput`, a refuter that returns nothing at all, and a refuter whose
+   answers carry finding ids nobody asked about are all coerced to `UNCERTAIN` by the workflow,
+   with the reason in `coercions`: nothing is ever auto-confirmed or auto-dropped.
+   `humanRuling` carries the subjective findings, `invalid` the malformed ones with their
+   violations.
+
+   Refuters answer through `tools/exam/probe.ts`, which boots one plan, optionally commands a
+   camera (`--zoom` and `--center` together), and runs one named op:
+
+   ```bash
+   bun run tools/exam/probe.ts --base-url http://localhost:4174 --hash <planHash> \
+     --op hover-edge --arg id='<edgeId>'
+   ```
+
+   Ops: `hover-edge`, `hover-node`, `contrast`, `delta-e`, `chip-binding`, `rect`,
+   `computed-style`, `text-overflow`; `--eval <file.js>` is the escape hatch and `--shot
+   <out.png>` writes evidence. A `--shot` after a hover op deliberately photographs the
+   pointer where the op left it, so the image shows the dimmed state the finding was about.
+
+7. **Verify, group, and file.** File `FILE` and `FILE_SYMPTOM_ONLY`, rule on `HUMAN_REVIEW`
+   and on `humanRuling` yourself, and file nothing that came back `DROP`. An entry in
+   `invalid` is a defect of the REPORT, not of the app: it was never routed and no verdict
+   exists for it, so read its `violations`, and either restate the finding yourself against
+   the evidence image (then treat it as your own claim, disproving it before filing) or drop
+   it. Do not file one as it stands. Read the evidence image for every major finding yourself
+   and drop or downgrade what the pixels do not show; the workflow's "nothing is auto-dropped"
+   rule binds the machine, not you, and this pass is where a finding the pixels do not support
+   dies.
+
+   Group cross-plan into one issue per defect FAMILY (same mechanism, not same plan). File
+   with `gh issue create --body-file`, pushing PNGs to an orphan assets
+   branch via git plumbing (no checkout switch): `git hash-object -w` each PNG, `git mktree`,
+   `git commit-tree`, `git branch exam-assets-<date>`, push, then embed
+   `https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<file>` in the bodies. Include
+   per-plan share hashes in a `<details>` block for reproduction. Report to the human: every
+   partial plan with its uncovered ids, every console error, and every plan that failed to
+   capture.
+
+## What `scene.json` is
+
+A ledger of what was captured and measured, with no verdicts in it.
+
+- `imagesDir` is the image subdirectory, relative to `scene.json` itself; `tiles[].file` is a
+  bare file name, so an image resolves as `<plan dir>/<imagesDir>/<file>`. Keep it bare when
+  citing one: the corroboration join matches an evaluator's cited name against `tiles[].file`.
+- `tiles[].elements` places elements in CSS pixels within that image, but only those
+  intersecting the tile's `safeRegion`: an element that reaches the pane only under the minimap
+  or the zoom controls is in the image and NOT in this map, deliberately.
+- Coordinate frames: `worldRect`, `contentRect` and `footprint` are React Flow world units;
+  every other rect is pane-relative CSS pixels, which for a tile is that image's own frame.
+- `measurements` are occurrences the geometry audits report, each pinned to a footprint. They
+  exist to corroborate a finding someone else made, and to arm refuters. An empty array means
+  measured and clean. A footprint is in world units, so it must be projected into image space
+  before it can be compared to an evaluator's evidence rect: for the tile you are joining
+  against, `x_css = x_world * viewportTransform.zoom + viewportTransform.x` (same for `y`),
+  widths and heights scaled by `zoom`. Joining the raw footprint to a CSS-pixel rect compares
+  two different coordinate systems and silently misses, which reads as an uncorroborated
+  finding.
+- `coverage` says what the capture proved it framed. `uncovered` is the list of blind spots.
+- `consoleErrors` is collected from the first navigation onward.
+
+## Gotchas (each cost a debug round)
+
+| Trap | Rule |
+| --- | --- |
+| A plan captured at `status: "partial"` has blind spots | Report every id in `coverage.uncovered`; no evaluator finding and no issue may make an absence claim about one |
+| Raw geometry measurements are not defects | `geometry-audit.spec.ts` permits large nonzero per-scenario counts of every measurement kind behind written rulings; a machine finding is that spec failing, never a row of `scene.json` |
+| The exam's counts and the ratchet baselines are different numbers | Measurements are taken at `targetZoom`, baselines at the app's fit camera, and chips counter-scale; never compare the two, and never read a difference as a regression |
+| `hoverEngaged: false` is a capture miss, not a product defect | Read `engagedElsewhere` and `samples`, then re-probe `engagedElsewhere.id` through `--arg id=`, or reframe with `--zoom`/`--center`, or reach for `--eval`; the probe picks its own sample fractions and no flag names a point |
+| Only `decision.noResponse` is a hover defect | The probe emits its own rule in `decision.rule`: an empty `observedDimmed` against a non-empty `expectedDimmed` is a real "hover produced no response". A set DIFFERENCE between the two is NOT a defect - the app lights whole bus trunk groups while `expectedDimmed` is the graph's ego-network - so `decision.differs` is reported precisely so nobody files it |
+| `00-fit.png` is shot at the app's fit zoom, not `targetZoom` | Chips are LOD-hidden below `lodGates.labelMinZoom`; compare `fit.zoom` against `lodGates` before believing anything the fit overview does not show |
+| The exam runs `?exam=1`, query before fragment | Without it `window.__stcExam` is absent and both CLIs exit 3. The CLIs build the URL; a hand-written one is where this goes wrong |
+| Repo convention forbids committed binaries | Captures go to gitignored `.artifacts/`; issue images to the orphan assets branch only |
+
+## When NOT to use
+
+- Single-component or single-defect checks: drive the app directly with `tools/exam/probe.ts`
+  instead of a multi-agent sweep.
+- Pixel-diff regression against pinned baselines: that is `test/e2e/placement-shots.spec.ts`.

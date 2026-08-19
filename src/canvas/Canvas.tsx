@@ -27,6 +27,24 @@ import { useI18n } from "../data/i18n-context";
 import type { CSSProperties } from "react";
 import { iconSheetUrl } from "./iconSprite";
 
+// Camera handle the render-quality exam drives (see the gated effect in
+// CanvasInner). Declared globally because the driver reaches it through the page
+// window, not through a module import.
+declare global {
+  interface Window {
+    __stcExam?: {
+      setViewport(v: { x: number; y: number; zoom: number }): void;
+      fitView(): void;
+      contentBounds(): {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      } | null;
+    };
+  }
+}
+
 const canvasThemeStyle: CSSProperties = {
   width: "100%",
   height: "100%",
@@ -203,7 +221,7 @@ function CanvasInner({
 }: CanvasProps) {
   const i18n = useI18n();
   const [hovered, setHovered] = useState<Hovered>(null);
-  const { fitView, fitBounds } = useReactFlow();
+  const { fitView, fitBounds, setViewport } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -222,6 +240,40 @@ function CanvasInner({
     }
     void fitBounds(bounds, FIT_BOUNDS_OPTIONS);
   }, [nodes, edges, fitView, fitBounds]);
+
+  // Exam hook: the render-quality exam needs exact camera placement to tile a
+  // plan reproducibly, and wheel zoom cannot translate the view (it pins the
+  // world point under the cursor). Nothing here mutates plan data; it is camera
+  // control plus the same contentBounds the fit path already uses, so the
+  // shipped bundle carries it inert unless a URL asks for it by name. The effect
+  // re-runs on every nodes/edges change because contentBounds closes over both:
+  // a hook left installed from an earlier plan would hand the driver a stale
+  // rect and it would tile the wrong region.
+  //
+  // A commanded viewport lands exactly: setViewport forwards to d3-zoom's
+  // zoom.transform, which assigns the transform verbatim, and scaleExtent binds
+  // only the gesture handlers, so minZoom 0.05 (on the ReactFlow element below)
+  // and React Flow's default maxZoom of 2 bind user gestures and the fit path,
+  // not this hook. fitView is the one that clamps, because it delegates to
+  // fitBounds and getViewportForBounds, and setViewport's discarded Promise
+  // hides when the transition settles: a driver must read back the achieved
+  // transform rather than assume its own fit zoom is viewport over bounds width.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("exam") !== "1") return;
+    window.__stcExam = {
+      setViewport: (v) => {
+        void setViewport(v);
+      },
+      fitView: () => {
+        fitContent();
+      },
+      contentBounds: () => contentBounds(nodes as unknown as RFAnyNode[], edges),
+    };
+    return () => {
+      delete window.__stcExam;
+    };
+  }, [setViewport, fitContent, nodes, edges]);
+
   // Live zoom drives the low-zoom LOD band on the theme container. Reading
   // transform[2] (zoom only) re-renders on zoom changes but not on pan.
   const zoom = useStore((state) => state.transform[2]);
