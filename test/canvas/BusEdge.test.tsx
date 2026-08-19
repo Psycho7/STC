@@ -214,11 +214,11 @@ describe("canvas/BusEdge trunk labels", () => {
     }
   });
 
-  it("marks a multi-member trunk's aggregate with a sum glyph, not a count", async () => {
-    // The owner's drop chip shows the summed trunk total prefixed by the sum
-    // glyph. The old " x2" count marker read as multiplication and collided
-    // with the machine-count badge's x-notation (issue #9, 1.2), so the glyph
-    // says "aggregated" without a count.
+  it("draws no aggregate chip on a multi-member trunk", async () => {
+    // A multi-member trunk draws no drop chip: its summed total restated the
+    // source card's own rate one card-width away while reading as one more
+    // flow, so the members' own chips and the card rates carry the information
+    // (issue #39).
     renderEdge(
       {
         item: "Iron Plate",
@@ -232,52 +232,23 @@ describe("canvas/BusEdge trunk labels", () => {
       1,
     );
     await findEdgePath();
-    const drop = document.querySelector<HTMLElement>(
-      '[data-testid="bus-edge-label-e1-drop"]',
-    );
+    expect(
+      document.querySelector('[data-testid="bus-edge-label-e1-drop"]'),
+    ).toBeNull();
+    // The member's own rise chip is untouched: its plain share.
     const rise = document.querySelector<HTMLElement>(
       '[data-testid="bus-edge-label-e1-rise"]',
     );
-    expect(drop).not.toBeNull();
     expect(rise).not.toBeNull();
-    expect(drop!.textContent).toBe("Σ120/min");
-    expect(drop!.textContent).not.toContain("x2");
-    expect(drop!.getAttribute("aria-label")).toBe(
-      "Iron Plate x Σ120/min",
-    );
-    // The member's own rise chip is untouched: plain share, no glyph.
     expect(rise!.textContent).toBe("60/min");
-  });
-
-  it("renders the aggregate as the sum of the members' displayed rates", async () => {
-    // busDisplayTotalRate is the sum of the members' rounded chips (7.12), so
-    // the reader's arithmetic checks out; busTotalRate stays exact (7.112) for
-    // the hover tooltip.
-    renderEdge(
-      {
-        item: "Iron Plate",
-        rate: new Fraction("4.256").div(60),
-        laneY: 500,
-        trunkKey: "Iron Plate|src",
-        busChipOwner: true,
-        busTotalRate: new Fraction("7.112").div(60),
-        busDisplayTotalRate: new Fraction("7.12").div(60),
-        busMemberCount: 2,
-      },
-      1,
-    );
-    await findEdgePath();
-    const drop = document.querySelector<HTMLElement>(
-      '[data-testid="bus-edge-label-e1-drop"]',
-    );
-    expect(drop!.textContent).toBe("Σ7.12/min");
-    expect(drop!.getAttribute("title")).toContain("7.112");
   });
 
   it("skips the branch chip of a fan-out member flagged fanoutBranchHidden", async () => {
     // deconflictChipAnchors hides a branch chip when no chip/card-clear seat
     // exists anywhere on the member's own polyline (a narrow-corridor fan-out
-    // whose aggregate covers the whole short path). The aggregate still draws.
+    // whose aggregate covers the whole short path). This trunk is multi-member,
+    // so it draws no aggregate either: the member is left with no chip at all
+    // and its share rides the hover tooltip (next test).
     renderEdge(
       {
         item: "Iron Plate",
@@ -292,9 +263,10 @@ describe("canvas/BusEdge trunk labels", () => {
       1,
     );
     await findEdgePath();
-    const labels = chips();
-    expect(labels).toHaveLength(1);
-    expect(labels[0]!.getAttribute("data-testid")).toBe("bus-edge-label-e1-drop");
+    expect(
+      document.querySelector('[data-testid="bus-edge-label-e1-rise"]'),
+    ).toBeNull();
+    expect(chips()).toHaveLength(0);
   });
 
   it("drops a stale hide on real anchor divergence but rides out reconstruction noise", async () => {
@@ -326,7 +298,8 @@ describe("canvas/BusEdge trunk labels", () => {
     const anchor = { x: Number(m![1]), y: Number(m![2]) };
     cleanup();
 
-    // A stamp off by a unit is reconstruction noise: the hide holds.
+    // A stamp off by a unit is reconstruction noise: the hide holds. The trunk
+    // is multi-member, so no aggregate chip stands in for it either.
     renderEdge(
       {
         ...fanData,
@@ -336,7 +309,7 @@ describe("canvas/BusEdge trunk labels", () => {
       1,
     );
     await findEdgePath();
-    expect(chips()).toHaveLength(1);
+    expect(chips()).toHaveLength(0);
     cleanup();
 
     // A stamp a hundred units away is a drag: the hide is stale, chip returns.
@@ -350,7 +323,7 @@ describe("canvas/BusEdge trunk labels", () => {
     );
     await findEdgePath();
     const labels = chips();
-    expect(labels).toHaveLength(2);
+    expect(labels).toHaveLength(1);
     expect(labels.map((l) => l.getAttribute("data-testid"))).toContain(
       "bus-edge-label-e1-rise",
     );
@@ -472,7 +445,8 @@ describe("canvas/BusEdge trunk labels", () => {
 
   it("collapses the exempt aggregate drop chip to icon-only below the icon-only zoom", async () => {
     // "belt" carries a sprite, so the icon survives the collapse. A lone member
-    // is its own owner and carries no sum glyph, so the collapsed body is empty.
+    // is its own owner and its drop chip carries no marker, so the collapsed
+    // body is empty.
     renderEdge(
       {
         item: "belt",
@@ -492,29 +466,6 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(drop!.textContent).toBe("");
     // The exact rate still rides the hover tooltip.
     expect(drop!.getAttribute("title")).toContain("120/min");
-  });
-
-  it("keeps the aggregate's sum glyph when collapsed, dropping only the digits", async () => {
-    renderEdge(
-      {
-        item: "belt",
-        rate: new Fraction(1, 1),
-        laneY: 500,
-        trunkKey: "belt|src",
-        busChipOwner: true,
-        busTotalRate: new Fraction(2, 1),
-        busMemberCount: 2,
-      },
-      CHIP_ICON_ONLY_MAX_ZOOM - 0.05,
-    );
-    await findEdgePath();
-    const drop = document.querySelector<HTMLElement>(
-      '[data-testid="bus-edge-label-e1-drop"]',
-    );
-    expect(drop).not.toBeNull();
-    expect(drop!.textContent).toBe("Σ");
-    expect(drop!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
-    expect(drop!.getAttribute("title")).toContain("Σ120/min");
   });
 
   it("renders the full aggregate chip at the icon-only zoom threshold", async () => {
@@ -560,7 +511,8 @@ describe("canvas/BusEdge trunk labels", () => {
   it("keeps a multi-member trunk's rise chips gated on a long detour", async () => {
     // The exemption is lone-member only: a multi-member trunk's per-member rise
     // chips stay behind the zoom gate even on a long run, so a dense bus stays
-    // legible at fit zoom (the aggregate drop chip still carries the total).
+    // legible at fit zoom. Such a trunk draws no aggregate either, so it is
+    // unlabeled at this zoom and the shares ride the hover.
     renderEdge(
       {
         item: "Iron Plate",
@@ -575,8 +527,9 @@ describe("canvas/BusEdge trunk labels", () => {
       FAR_NODES,
     );
     await findEdgePath();
-    const labels = chips();
-    expect(labels).toHaveLength(1);
-    expect(labels[0]!.getAttribute("data-testid")).toBe("bus-edge-label-e1-drop");
+    expect(
+      document.querySelector('[data-testid="bus-edge-label-e1-rise"]'),
+    ).toBeNull();
+    expect(chips()).toHaveLength(0);
   });
 });

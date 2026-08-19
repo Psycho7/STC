@@ -30,9 +30,10 @@ export { junctionRadius };
 // the trunk visually draws once without any cross-edge coordination. Each edge
 // draws its own junction dot at the lane branch point (just before its rise).
 // Stroke reuses ItemEdge's strokeForKind; the markerEnd arrow stays at the
-// target. The rate chip (icon + rate/min) draws twice, at the drop and rise
-// columns on the lane, reusing ItemEdge's flow-chip markup and zoom gate so a
-// bus member reads the same as a plain item edge near what it feeds.
+// target. On a lone-member trunk the rate chip (icon + rate/min) draws twice,
+// at the drop and rise columns on the lane, reusing ItemEdge's flow-chip markup
+// and zoom gate so a bus member reads the same as a plain item edge near what
+// it feeds; a multi-member trunk draws only the per-member rise chips.
 export default function BusEdge({
   id,
   sourceX,
@@ -114,21 +115,18 @@ export default function BusEdge({
   };
 
   const unit = i18n.t("canvas.rate.unit");
-  // The owner's aggregate (drop / trunk) chip is EXEMPT from the label zoom gate:
-  // it always renders (counter-scaled) so a trunk's summed total survives at the
-  // dense-plan fit zoom, where per-member chips would be illegible clutter. The
-  // per-member (rise / branch) chip keeps the gate, so it appears only once the
-  // reader has zoomed into that trunk.
+  // The drop (trunk) chip is EXEMPT from the label zoom gate: it always renders
+  // (counter-scaled) so a lone member's rate survives at the dense-plan fit
+  // zoom, where per-member chips would be illegible clutter. The per-member
+  // (rise / branch) chip keeps the gate, so it appears only once the reader has
+  // zoomed into that trunk.
   const showAggChip = edgeData !== undefined;
 
-  // Drop chip: only the elected trunk owner draws it, and it shows the summed
-  // trunk rate (busTotalRate), prefixed by a sum glyph when the trunk has
-  // several members. The glyph says "this is an aggregate", where the old
-  // " xN" count marker read as multiplication and collided with the machine
-  // count badge's x-notation. A lone member is its own owner, so it reads
-  // exactly like a plain item edge. Non-owner members suppress the drop chip,
-  // which is what collapses the old N-deep stack of one-member-share chips
-  // into a single truthful total on the shared lane.
+  // Drop chip: drawn only on a SINGLE-member trunk, where it is that edge's
+  // plain rate label at the junction. A multi-member trunk draws no aggregate:
+  // the summed total restated the source card's own rate while reading as one
+  // more flow, so the members' own chips and the card rates carry the
+  // information (issue #39). The junction dot still marks the trunk.
   const isOwner = edgeData?.busChipOwner ?? true;
   const totalRate = edgeData?.busTotalRate ?? edgeData?.rate;
   const memberCount = edgeData?.busMemberCount ?? 1;
@@ -151,22 +149,20 @@ export default function BusEdge({
   const showMemberChip =
     edgeData !== undefined &&
     (zoom >= LABEL_MIN_ZOOM || longSingleRun || edgeData.focused === true);
-  // The chip shows the sum of the members' DISPLAYED rates, so a reader adding
-  // up the visible member chips lands on the aggregate; the tooltip below keeps
-  // the exact total. Hand-built edges (tests, non-routed data) carry no display
-  // total and fall back to the exact one.
+  // The chip shows the trunk's DISPLAYED rate, the same rounding the member
+  // chips use, so the two agree; the tooltip below keeps the exact rate.
+  // Hand-built edges (tests, non-routed data) carry no display total and fall
+  // back to the exact one.
   const dropDisplayRate = edgeData?.busDisplayTotalRate ?? totalRate;
   const dropRateStr = dropDisplayRate ? formatRatePerMin(dropDisplayRate) : "";
-  const sumMarker = memberCount > 1 ? "Σ" : "";
-  const dropText =
-    showAggChip && dropRateStr ? `${sumMarker}${dropRateStr}${unit}` : "";
+  const dropText = showAggChip && dropRateStr ? `${dropRateStr}${unit}` : "";
   const dropLabel =
     edgeData && dropRateStr
-      ? `${i18n.displayName(edgeData.item)} x ${sumMarker}${dropRateStr}${unit}`
+      ? `${i18n.displayName(edgeData.item)} x ${dropRateStr}${unit}`
       : "";
   const dropTitle =
     edgeData && dropRateStr && totalRate
-      ? `${i18n.displayName(edgeData.item)} x ${sumMarker}${formatRateExactPerMin(totalRate)}${unit}`
+      ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(totalRate)}${unit}`
       : "";
 
   // Rise chip: each member draws its own, showing that member's share. Its x is
@@ -193,14 +189,15 @@ export default function BusEdge({
       (fan !== null &&
         Math.abs(fan.branchAnchor.x - hiddenAt.x) < HIDE_STALE_EPS &&
         Math.abs(fan.branchAnchor.y - hiddenAt.y) < HIDE_STALE_EPS));
-  // Lane member whose rise chip could not seat beside the trunk aggregate on a
-  // short run (issue #24): the seating pass flagged it so it does not cascade
-  // off the band into empty canvas. The lane rise anchor is static edge data
-  // (busChipX, laneY), but the aggregate's drop column is recomputed live, so
-  // dragging the source away can free room the flag does not see -- the member
-  // stays conservatively hidden after a drag until the next replan. The flag
-  // alone gates it, no anchor stamp. Both hides suppress the rise chip and
-  // fall back to the hover-path tooltip below.
+  // Lane member whose rise chip the seating pass could not keep on its lane:
+  // either the trunk's short run has no room for it at the member-to-member
+  // chip separation (issue #24), or its seat cascaded more than one pitch off
+  // the band and would float in empty canvas (issue #39). The lane rise anchor
+  // is static edge data (busChipX, laneY), so dragging the source away can
+  // free room the flag does not see -- the member stays conservatively hidden
+  // after a drag until the next replan. The flag alone gates it, no anchor
+  // stamp. Both hides suppress the rise chip and fall back to the hover-path
+  // tooltip below.
   const laneRiseHidden = laneData?.busRiseHidden === true;
   const memberChipHidden = branchHidden || laneRiseHidden;
   const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
@@ -237,7 +234,6 @@ export default function BusEdge({
     text: string,
     label: string,
     title: string,
-    marker?: string,
   ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
@@ -246,7 +242,6 @@ export default function BusEdge({
       y={y}
       item={edgeData?.item}
       text={text}
-      {...(marker ? { marker } : {})}
       label={label}
       title={title}
       tear={edgeData?.isTearEdge}
@@ -291,8 +286,8 @@ export default function BusEdge({
         dimmed={edgeData?.dimmed}
         zoom={zoom}
       />
-      {isOwner && dropText
-        ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle, sumMarker)
+      {isOwner && memberCount === 1 && dropText
+        ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
         : null}
       {riseText
         ? renderChip("rise", branchX, branchY, riseText, riseLabel, riseTitle)

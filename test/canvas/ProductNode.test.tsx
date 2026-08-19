@@ -207,6 +207,42 @@ describe("ProductNode", () => {
     expect(cap?.textContent).toContain("240");
   });
 
+  it("renders a fanout slice with tap chrome and the parent share", () => {
+    // rate 1/2 per sec = 30/min; parentRate 9/2 per sec = 270/min.
+    const { container } = renderProduct(
+      {
+        kind: "inputProduct",
+        itemId: "copper_ore",
+        rate: { num: "1", denom: "2" },
+        isFanout: true,
+        parentRate: { num: "9", denom: "2" },
+      },
+      [makeItem("copper_ore", true)],
+    );
+    const node = container.querySelector(".product-node");
+    expect(node?.classList.contains("tap")).toBe(true);
+    expect(container.querySelector(".pn-kind")?.textContent).toBe("In · tap");
+    expect(container.querySelector(".pn-rate__of")?.textContent).toBe(
+      "of 270/min",
+    );
+  });
+
+  it("a non-fanout input keeps the raw chrome with no share chip", () => {
+    const { container } = renderProduct(
+      {
+        kind: "inputProduct",
+        itemId: "copper_ore",
+        rate: { num: "9", denom: "2" },
+      },
+      [makeItem("copper_ore", true)],
+    );
+    expect(
+      container.querySelector(".product-node")?.classList.contains("tap"),
+    ).toBe(false);
+    expect(container.querySelector(".pn-kind")?.textContent).toBe("In · raw");
+    expect(container.querySelector(".pn-rate__of")).toBeNull();
+  });
+
   it("renders output flavor (target) with rate badge", () => {
     const { container } = renderProduct(
       {

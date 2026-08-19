@@ -202,6 +202,7 @@ export function FlowChip({
   tear,
   dimmed,
   focused,
+  variant,
   zoom,
 }: {
   testId: string;
@@ -227,6 +228,9 @@ export function FlowChip({
   // Set on a hover-lit edge's chip: it keeps its digits below the icon-only
   // zoom so the hover surfaces the rate.
   focused?: boolean | undefined;
+  // Chip role beyond a plain per-edge rate: "sigma" is the fan-in aggregate,
+  // styled as a summary tag of the merge junction it sits beside.
+  variant?: "sigma" | undefined;
   // Live pane zoom, used to counter-scale the chip so it stays legible at the
   // dense-plan fit zoom. Optional: callers without a zoom leave the chip at its
   // natural size (scale 1).
@@ -255,7 +259,8 @@ export function FlowChip({
           "nodrag nopan flow-chip" +
           (iconOnly ? " icon-only" : "") +
           (tear ? " red" : "") +
-          (dimmed ? " dimmed" : "")
+          (dimmed ? " dimmed" : "") +
+          (variant !== undefined ? ` ${variant}` : "")
         }
         aria-label={label}
         title={title ?? label}
@@ -432,8 +437,7 @@ export default function ItemEdge({
   // from the label zoom gate (like the bus aggregate) so the total survives at
   // the dense-plan fit zoom; the exact total rides its own hover tooltip.
   // The glyph is named once and fed to both the full-mode text and the marker
-  // prop (mirroring BusEdge's sumMarker), so the full and collapsed forms
-  // cannot diverge.
+  // prop, so the full and collapsed forms cannot diverge.
   const faninMarker = "Σ";
   const faninTotal = edgeData?.faninTotalRate;
   const faninDisplayTotal = edgeData?.faninDisplayTotalRate ?? faninTotal;
@@ -557,6 +561,7 @@ export default function ItemEdge({
           marker={faninMarker}
           label={faninLabel}
           title={faninTitle}
+          variant="sigma"
           dimmed={edgeData?.dimmed}
           focused={edgeData?.focused}
           zoom={zoom}

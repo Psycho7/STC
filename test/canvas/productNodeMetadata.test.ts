@@ -68,6 +68,17 @@ describe("buildPnKind", () => {
     );
   });
 
+  it("renders the tap caption for a fanout slice even when the item is raw", () => {
+    const data: ProductNodeData = {
+      kind: "inputProduct",
+      itemId: "iron-ore",
+      rate: { num: "1", denom: "2" },
+      isFanout: true,
+      parentRate: { num: "9", denom: "2" },
+    };
+    expect(buildPnKind(data, rawItem("iron-ore"), [], en)).toBe("In · tap");
+  });
+
   it("renders target output at per-min rate", () => {
     const data: ProductNodeData = {
       kind: "outputProduct",

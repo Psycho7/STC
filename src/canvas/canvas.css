@@ -1446,6 +1446,12 @@
 
 .ak-canvas-theme .react-flow__controls-button {
   background: var(--ak-bg-secondary);
+  /* The generic .ak-app-shell button rule reaches these buttons and replaces
+     the vendor's padding:4px / border:none, collapsing the content box the
+     icon svg is sized from (60% of 4px measured 2.4px). Re-assert both;
+     border-bottom below re-adds the divider between buttons. */
+  padding: 4px;
+  border: none;
   border-bottom: 1px solid var(--ak-divider);
   color: var(--ak-text-secondary);
   /* React Flow ships 16px buttons; enlarge past the 24px minimum hit target so
@@ -1802,6 +1808,14 @@
   opacity: 0.3;
 }
 
+/* Fan-in aggregate: a summary tag bound to the merge junction beside it, not
+   another flow chip. The dashed outline separates "total of the merged runs"
+   from the solid per-edge rate chips it sums; the leading sum glyph stays. */
+.flow-chip.sigma {
+  border-style: dashed;
+  background: rgba(20, 23, 27, 0.92);
+}
+
 /* Bus-trunk junction dot, portaled into the label layer alongside the chips (see
    BusEdge). z-index: 1 seats it above the plain edge segments but BELOW the flow
    chips (which set z-index: 2): the chip digits win, and an overlapping chip
@@ -1918,6 +1932,32 @@
   font-size: 9px;
   font-weight: 500;
   font-style: italic;
+  letter-spacing: 0.05em;
+  color: var(--ak-text-secondary);
+}
+
+/* Per-consumer / per-container tap slice of a bussed raw input: a derived view
+   of the aggregate source card, not another source. Dashed accent and a muted
+   name keep it from being counted as an independent input; the share chip
+   under the rate points back at the parent's total (issue 40). */
+.product-node.input.tap {
+  border-left-style: dashed;
+  background: var(--ak-bg-secondary);
+}
+
+.product-node.input.tap .pn-name {
+  color: var(--ak-text-secondary);
+}
+
+.pn-rate__of {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px dashed var(--ak-divider);
+  font-family: var(--ak-font-mono);
+  font-size: 9px;
+  font-weight: 500;
   letter-spacing: 0.05em;
   color: var(--ak-text-secondary);
 }
@@ -2096,11 +2136,13 @@
      height at every zoom band (the low-zoom LOD hides header children but must
      not collapse the box). box-sizing keeps the 1px border-bottom inside 80px.
      The columns still stretch and center their content, so the block stays
-     vertically centered with the extra headroom. */
+     vertically centered with the extra headroom.
+     Column 1 sizes to the icon block (28px icon + padding + border) instead of
+     a fixed 52px, so the title column reclaims the difference. */
   height: 80px;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: 52px 1fr auto;
+  grid-template-columns: auto 1fr auto;
   align-items: stretch;
   background: linear-gradient(180deg, var(--ak-bg-primary) 0%, #1b1d21 100%);
   border-bottom: 1px solid var(--ak-divider);
@@ -2151,7 +2193,7 @@
 }
 
 .rn-head .rn-rate-block {
-  padding: 0 12px;
+  padding: 0 8px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -2159,7 +2201,6 @@
   gap: 2px;
   border-left: 1px solid var(--ak-divider);
   background: rgba(0, 0, 0, 0.2);
-  min-width: 64px;
 }
 
 .rn-head .rn-rate-block .rate-val {

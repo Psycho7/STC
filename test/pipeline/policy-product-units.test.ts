@@ -1453,6 +1453,11 @@ describe("render policy / input fan-out per container", () => {
     const tapB = byId.get("u:in:water:tap:u:v_b")!;
     expect(tapA.isFanout).toBe(true);
     expect(tapB.isFanout).toBe(true);
+    // Every slice carries the aggregate's total so the card can show its share
+    // of the source it taps; the aggregate itself carries none.
+    expect(byId.get("u:in:water")!.parentRate).toBeUndefined();
+    expect(tapA.parentRate).toEqual(byId.get("u:in:water")!.rate);
+    expect(tapB.parentRate).toEqual(byId.get("u:in:water")!.rate);
     // (b) tap rates sum exactly to the aggregate rate (rational equality).
     const aggRate = byId.get("u:in:water")!.rate;
     const tapSum = new Fraction(`${tapA.rate.num}/${tapA.rate.denom}`).add(

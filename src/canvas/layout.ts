@@ -821,6 +821,9 @@ function unitToRFNode(
         portTransportKinds,
         ...(unit.rateCap !== undefined ? { rateCap: unit.rateCap } : {}),
         ...(unit.isFanout ? { isFanout: true } : {}),
+        ...(unit.parentRate !== undefined
+          ? { parentRate: unit.parentRate }
+          : {}),
       };
       return {
         id: unit.id,

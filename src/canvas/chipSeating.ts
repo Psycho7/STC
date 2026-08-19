@@ -839,12 +839,13 @@ export function deconflictChipAnchors(
   // later phase yields to everything an earlier phase placed.
   const field = makeClearanceField(edgeSegments, cards);
 
-  // Phases 1 and 2 -- bus chips: each trunk draws one aggregate drop chip (on
-  // the owner member) and one rise chip per member, all on the trunk's lane.
+  // Phases 1 and 2 -- bus chips: a LONE-member trunk draws one aggregate drop
+  // chip (on the owner member); a multi-member trunk draws none (issue #39).
+  // Every trunk draws one rise chip per member, all on the trunk's lane.
   // Reconstruct their lane anchors from the same geometry BusEdge uses
   // (chamferBusPath for dropX/riseX, busChipX for the spread rise slot) and
   // seat each one, cascading off the lane when it crowds a neighbour. Seating
-  // is two-phase: EVERY trunk's drop chip settles first, then every rise chip,
+  // is two-phase: every drawn drop chip settles first, then every rise chip,
   // each phase in edge-id order. The drop chip is the trunk's aggregate total
   // at its junction; interleaving by edge id alone would let an earlier
   // trunk's cascading rise land on a later trunk's junction and knock that
@@ -861,6 +862,9 @@ export function deconflictChipAnchors(
     dropX: number;
     riseChipX: number;
     owner: boolean;
+    // Lane members sharing this trunk. Only a lone member draws (and so seats)
+    // an aggregate drop chip.
+    memberCount: number;
     step: number;
     flowKey: string;
     target: string;
@@ -905,6 +909,7 @@ export function deconflictChipAnchors(
       dropX,
       riseChipX: data.busChipX ?? riseX,
       owner: data.busChipOwner === true,
+      memberCount: data.busMemberCount ?? 1,
       // Top-band chips cascade UP (away from the graph below them); bottom-band
       // and un-banded chips cascade DOWN. Signed step drives seatChip's walk.
       step: data.busBand === "top" ? -CHIP_NUDGE_STEP : CHIP_NUDGE_STEP,
@@ -933,7 +938,8 @@ export function deconflictChipAnchors(
     mergeExemptionInto(set, cardExemptFor(edge));
   }
   for (const slot of busSlots) {
-    if (!slot.owner) continue;
+    // Multi-member trunks draw no aggregate chip (issue #39), so seat none.
+    if (!slot.owner || slot.memberCount > 1) continue;
     const dropDy = seatChip(
       field,
       slot.dropX,
@@ -949,19 +955,16 @@ export function deconflictChipAnchors(
     if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
   }
   // Capacity check before seating the rises. A short lane run cannot host every
-  // member rise chip beside the trunk's aggregate at the wide-chip x-separation
-  // (2 * CHIP_HALF_W_WIDE); left to seatChip the crowded rises cascade off the
-  // band into empty canvas above/below the graph (issue #24). Instead keep only
-  // the rises the run supports and hide the overflow: the aggregate (drop) chip,
-  // already seated above, stays the trunk's one on-lane truth, and each hidden
-  // member's rate remains on its target card's input row and its edge tooltip
-  // (mirroring fanoutBranchHidden). Members are tried FARTHEST-from-aggregate
-  // first (edge-id tie-break) so a member that reads at the consumer end -- where
-  // the source-side drop cannot label it -- wins the scarce slots over a near
-  // one. The aggregate's lane column seeds the kept set so a kept rise clears it
-  // too -- deliberately even when the drop chip itself cascaded off the lane
-  // (busDropDy != 0): the column stays reserved for it, keeping the check a
-  // pure x-capacity rule. Single-member trunks are exempt: a lone rise merely restates its own
+  // member rise chip at the wide-chip x-separation (2 * CHIP_HALF_W_WIDE); left
+  // to seatChip the crowded rises cascade off the band into empty canvas
+  // above/below the graph (issue #24). Instead keep only the rises the run
+  // supports and hide the overflow: each hidden member's rate remains on its
+  // target card's input row and its edge tooltip (mirroring fanoutBranchHidden).
+  // No aggregate chip exists on a multi-member trunk (issue #39); the run's
+  // capacity all goes to member rises, farthest from the junction first (edge-id
+  // tie-break), so a member that reads at the consumer end -- where the
+  // source-side junction cannot label it -- wins the scarce slots over a near
+  // one. Single-member trunks are exempt: a lone rise merely restates its own
   // drop's rate, and the long-run lone member (Task 4) belongs at the consumer
   // end, so never capacity-hide it.
   const MIN_CHIP_SEP = 2 * CHIP_HALF_W_WIDE;
@@ -974,8 +977,10 @@ export function deconflictChipAnchors(
   }
   for (const [, slots] of slotsByTrunk) {
     if (slots.length < 2) continue;
+    // The drop column no longer reserves a slot, but it stays the ordering
+    // reference: the junction is still the natural far end of the run.
     const aggX = (slots.find((s) => s.owner) ?? slots[0]!).dropX;
-    const keptX = [aggX];
+    const keptX: number[] = [];
     const ordered = [...slots].sort((a, b) => {
       const da = Math.abs(a.riseChipX - aggX);
       const db = Math.abs(b.riseChipX - aggX);
@@ -1026,6 +1031,19 @@ export function deconflictChipAnchors(
       slot.target,
       slot.id,
     );
+    // seatChip's cascade is unbounded in y, so a KEPT rise whose lane slot is
+    // blocked can still walk clean off the band into empty canvas -- the chip
+    // ends up with no stroke touching it, the same orphan silhouette the
+    // capacity check above hides a crowded rise to avoid (issue #37). One step
+    // still reads as sitting beside the lane; two or more do not, so past that
+    // the rise is unseatable: undo its seat (seatChip pushes exactly one box)
+    // and hide it, its rate staying on the target card's input row and the edge
+    // tooltip like every other hidden member's.
+    if (Math.abs(riseDy) > CHIP_PITCH_Y) {
+      field.placed.pop();
+      busRiseHiddenByIndex.add(slot.index);
+      continue;
+    }
     if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
   }
 
@@ -1100,6 +1118,8 @@ export function deconflictChipAnchors(
   for (const { edge, index } of fanoutEdges) {
     const geom = fanoutGeomByIndex.get(index)!;
     if (!geom.owner) continue;
+    // Multi-member trunks draw no aggregate chip (issue #39), so seat none.
+    if (((edge.data as BusEdgeData).busMemberCount ?? 1) > 1) continue;
     // The aggregate seats on the SHARED TRUNK sub-polyline only (source port ->
     // junction), never the owner's private branch leg: the tier-1 slide runs
     // horizontally along [source port, trunkEnd]. trunkEnd sits a keep-off left
@@ -1394,7 +1414,18 @@ export function deconflictChipAnchors(
     faninSeatJobs.push({
       ownerIndex: owner.index,
       ownerEdge,
-      anchorX: (mergeX + tx) / 2,
+      // Beside the junction dot, not mid-run: the Sigma is a summary tag of
+      // the merge, so it ANCHORS at the closest point that does not cover the
+      // dot (the keepoff). The anchor is only where the seat starts. The run
+      // handed to seatRateChip begins at the anchor, so its slide can move the
+      // chip in one direction only -- away from the dot -- and it does whenever
+      // the junction side is already taken. That happens on real plans: a
+      // member's own rate chip settles (phase 4) on its pre-merge leg beside
+      // the dot, chip-vs-chip is hard, and the Sigma must clear its box by a
+      // full wide-chip separation, which can land it a chip-box or more
+      // down-run. Nothing sticks: the seat is recomputed from this anchor every
+      // layout, so it returns beside the dot once the neighbour moves.
+      anchorX: mergeX + keepoff,
       ty,
       runStart: mergeX + keepoff,
       tx,
@@ -1607,6 +1638,7 @@ type ChipAnchorData = {
   busDropDy?: number;
   busChipDy?: number;
   busRiseHidden?: boolean;
+  busMemberCount?: number;
   faninChipHidden?: boolean;
   faninSigmaX?: number;
   faninSigmaY?: number;
@@ -1684,7 +1716,9 @@ export function contentBounds(
       unionChip(lx + (data?.labelDx ?? 0), ly + (data?.labelDy ?? 0));
     } else if (edge.type === "bus" && data?.fanout === true) {
       const fan = chamferFanoutPath(geom);
-      if (data.busChipOwner !== false) {
+      // A multi-member trunk renders no aggregate chip (issue #39), so it
+      // frames none.
+      if (data.busChipOwner !== false && (data.busMemberCount ?? 1) === 1) {
         unionChip(
           fan.trunkAnchor.x + (data.fanoutAggDx ?? 0),
           fan.trunkAnchor.y + (data.fanoutAggDy ?? 0),
@@ -1698,7 +1732,7 @@ export function contentBounds(
       }
     } else if (edge.type === "bus" && data?.laneY !== undefined) {
       const bus = chamferBusPath({ ...geom, laneY: data.laneY });
-      if (data.busChipOwner !== false) {
+      if (data.busChipOwner !== false && (data.busMemberCount ?? 1) === 1) {
         unionChip(bus.dropX, data.laneY + (data.busDropDy ?? 0));
       }
       if (data.busRiseHidden !== true) {

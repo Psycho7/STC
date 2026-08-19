@@ -4,6 +4,8 @@
 // React Flow nodes), not every node: the raw array also carries group
 // containers and product chips. Clustering can aggregate replicas into class
 // units, so the chip is labeled UNITS rather than REPLICAS.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { Edge, Node } from "@xyflow/react";
@@ -194,6 +196,23 @@ test("canvas renders no HUD control overlay", () => {
   const { container } = renderCanvas([], []);
   const theme = container.querySelector(".ak-canvas-theme")!;
   expect(theme.querySelector("button:not(.react-flow__controls-button)")).toBeNull();
+});
+
+// The generic app-shell button rule also reaches the Controls cluster and
+// replaces the vendor's padding / border, collapsing the content box the icon
+// svg is sized from. jsdom does no layout, so the rule text itself is the
+// assertable contract.
+test("controls buttons re-assert the vendor padding and border the app-shell rule overrides", () => {
+  const css = readFileSync(
+    resolve(process.cwd(), "src/canvas/canvas.css"),
+    "utf8",
+  );
+  const rule = css.match(
+    /\.ak-canvas-theme \.react-flow__controls-button \{[^}]*\}/,
+  )?.[0];
+  expect(rule).toBeDefined();
+  expect(rule).toMatch(/padding:\s*4px;/);
+  expect(rule).toMatch(/border:\s*none;/);
 });
 
 test("hovering a group node is inert and dims nothing", () => {

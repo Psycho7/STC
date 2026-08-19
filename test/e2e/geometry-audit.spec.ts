@@ -391,6 +391,10 @@ test.describe("DOM geometry audit", () => {
 // battery5-xiranite 0 -> 7), the own-side bus-column guard (padding grazes
 // battery5-xiranite 7 -> 14), and the #25 per-trunk column separation
 // (crossing census default / multi6, detailed at CROSSING_BASELINE below).
+// All five tables were re-measured wholesale and re-pinned DOWN to the actuals
+// after the aggregate-chip removal; no count rose, so no new ruling applies.
+// The per-table rationale lines below record how a pin ONCE moved, which no
+// longer matches its current value wherever the re-measure tightened it.
 // The own-side guard keeps a bus drop / rise on the port
 // side of its own endpoint card. On battery5-xiranite it moved three columns
 // that used to run through their own endpoint body onto the port-side gutter
@@ -428,12 +432,12 @@ test.describe("DOM geometry audit", () => {
 // (battery5 / multi6 RAW stays at 1); confirmed clean in-browser on default.
 const CROSSING_BASELINE: Record<string, number> = {
   default: 9,
-  battery5: 187,
-  "battery5-xiranite": 771,
+  battery5: 8,
+  "battery5-xiranite": 56,
   crystal: 1,
-  equip4: 26,
+  equip4: 1,
   multi6: 415,
-  tundra: 13,
+  tundra: 0,
 };
 
 // Padding-graze baseline (tier 3): segments that clip only a foreign card's
@@ -451,12 +455,12 @@ const CROSSING_BASELINE: Record<string, number> = {
 // own endpoint body (tracked by OWN_PIERCE_BASELINE, not this tier).
 const PADDED_GRAZE_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 11,
-  "battery5-xiranite": 14,
+  battery5: 8,
+  "battery5-xiranite": 3,
   crystal: 3,
-  equip4: 11,
-  multi6: 15,
-  tundra: 3,
+  equip4: 3,
+  multi6: 13,
+  tundra: 0,
 };
 
 // P3 chip-tier ratchets. Chip seating follows the ratified priority order:
@@ -493,13 +497,13 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // nobody can read is the worse defect, and the newly visible collisions are
 // tracked separately.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
-  default: 2,
-  battery5: 29,
+  default: 0,
+  battery5: 5,
   "battery5-xiranite": 23,
   crystal: 0,
-  equip4: 4,
-  multi6: 3,
-  tundra: 1,
+  equip4: 1,
+  multi6: 0,
+  tundra: 0,
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
 // candidates all overlap a card, so card-hardness pushes its seat off the line.
@@ -508,13 +512,13 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // newly drawn ones (both Xircon Effluent) seat off their polyline, one by 48px.
 // Counted as part of the same tracked collision follow-up.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
-  default: 1,
-  battery5: 6,
+  default: 0,
+  battery5: 1,
   "battery5-xiranite": 2,
-  crystal: 1,
-  equip4: 7,
+  crystal: 0,
+  equip4: 0,
   multi6: 0,
-  tundra: 2,
+  tundra: 0,
 };
 
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
@@ -530,8 +534,8 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
 // e:50, each a walled corridor with no off-own column). Zero elsewhere.
 const OWN_PIERCE_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 6,
-  "battery5-xiranite": 16,
+  battery5: 0,
+  "battery5-xiranite": 2,
   crystal: 0,
   equip4: 0,
   multi6: 0,

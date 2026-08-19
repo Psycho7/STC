@@ -53,6 +53,8 @@ export type UiKey =
   | "product.dir.out"
   | "product.class.raw"
   | "product.class.import"
+  | "product.class.tap"
+  | "product.tap.share"
   | "product.flavor.target"
   | "product.flavor.surplus"
   | "canvas.controls.panel"
@@ -130,6 +132,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.dir.out": "输出",
     "product.class.raw": "原料",
     "product.class.import": "进口",
+    "product.class.tap": "分接",
+    "product.tap.share": "共 {rate}/min",
     "product.flavor.target": "目标",
     "product.flavor.surplus": "过剩",
     "canvas.controls.panel": "控制面板",
@@ -200,6 +204,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.dir.out": "Out",
     "product.class.raw": "raw",
     "product.class.import": "import",
+    "product.class.tap": "tap",
+    "product.tap.share": "of {rate}/min",
     "product.flavor.target": "target",
     "product.flavor.surplus": "surplus",
     "canvas.controls.panel": "Control panel",
@@ -270,6 +276,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.dir.out": "出力",
     "product.class.raw": "原料",
     "product.class.import": "輸入",
+    "product.class.tap": "タップ",
+    "product.tap.share": "全 {rate}/min",
     "product.flavor.target": "目標",
     "product.flavor.surplus": "余剰",
     "canvas.controls.panel": "コントロールパネル",
@@ -340,6 +348,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "product.dir.out": "Выход",
     "product.class.raw": "сырьё",
     "product.class.import": "импорт",
+    "product.class.tap": "отвод",
+    "product.tap.share": "из {rate}/min",
     "product.flavor.target": "цель",
     "product.flavor.surplus": "избыток",
     "canvas.controls.panel": "Панель управления",
