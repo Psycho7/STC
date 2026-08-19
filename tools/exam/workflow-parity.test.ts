@@ -28,6 +28,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
+  CLAIM_TYPES,
   corroborationsFor,
   routeFinding,
   validateFinding,
@@ -645,6 +646,36 @@ describe("the workflow's inlined triage matches tools/exam/triage.ts", () => {
       expect(verdict?.corroboratedBy.length).toBeGreaterThan(0);
       expect(verdict?.coercions).toEqual([]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The evaluator's output schema
+//
+// The table above hands findings to the workflow directly, so it never touches
+// the JSON schema the workflow gives its evaluator - and the claimType enum in
+// that schema is the one value whose staleness costs everything: an evaluator
+// held to a retired claim type emits it on every finding, and validateFinding
+// then rejects every one of them. The schema is a literal the runner never
+// evaluates into anything reachable from here, so read it out of the source.
+// ---------------------------------------------------------------------------
+
+// The single `claimType: { type: 'string', enum: [...] }` line of the schema.
+const CLAIM_TYPE_ENUM = /claimType:\s*\{\s*type:\s*'string',\s*enum:\s*\[([^\]]*)\]/;
+
+function schemaClaimTypes(): string[] {
+  const source = readFileSync(WORKFLOW_PATH, "utf8");
+  const match = CLAIM_TYPE_ENUM.exec(source);
+  const list = match?.[1];
+  if (list === undefined) {
+    throw new Error(`${WORKFLOW_PATH} declares no claimType enum`);
+  }
+  return list.split(",").map((entry) => entry.trim().replace(/^'|'$/g, ""));
+}
+
+describe("the workflow's evaluator schema offers the module's claim types", () => {
+  test("its claimType enum is exactly CLAIM_TYPES", () => {
+    expect([...schemaClaimTypes()].sort()).toEqual([...CLAIM_TYPES].sort());
   });
 });
 

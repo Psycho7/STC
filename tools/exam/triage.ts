@@ -182,7 +182,9 @@ const COMPATIBLE_KINDS: Record<ClaimType, readonly MeasurementKind[]> = {
   subjective: [],
 };
 
-const CLAIM_TYPES = Object.keys(COMPATIBLE_KINDS) as ClaimType[];
+// Exported so the workflow's evaluator schema can be held to it: the enum it
+// offers an evaluator has to be the set validateFinding accepts.
+export const CLAIM_TYPES = Object.keys(COMPATIBLE_KINDS) as ClaimType[];
 const SEVERITIES: ReadonlyArray<Finding["severity"]> = ["major", "minor", "nit"];
 const ASPECTS: ReadonlyArray<Finding["aspect"]> = [
   "correctness",
