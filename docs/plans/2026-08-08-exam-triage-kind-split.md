@@ -31,7 +31,7 @@
 - Produces: exported fixtures `SEG: Measurement` (kind `segment-vs-card`, footprint `{x:100,y:100,width:40,height:0}`) and `XING: Measurement` (kind `chip-vs-segment`, footprint `{x:100,y:100,width:1,height:10}`), both co-located with the existing `CHIP` fixture so only the kind axis can refuse a join. Task 3's parity cases import them.
 - Consumes: existing fixtures `CHIP`, `TILES`, `finding()` from `tools/exam/triage-fixtures.ts`.
 
-- [ ] **Step 1: Add the two cross-tier fixtures to `tools/exam/triage-fixtures.ts`**
+- [x] **Step 1: Add the two cross-tier fixtures to `tools/exam/triage-fixtures.ts`**
 
 Append after the existing `CHIP` fixture (which ends at the `detail:` line quoting `84.0 world units`):
 
@@ -56,7 +56,7 @@ export const XING: Measurement = {
 };
 ```
 
-- [ ] **Step 2: Add the recognition and mismatch tests to `tools/exam/triage.test.ts`**
+- [x] **Step 2: Add the recognition and mismatch tests to `tools/exam/triage.test.ts`**
 
 Extend the fixture import at the top of the file to include the new fixtures:
 
@@ -111,7 +111,7 @@ Add inside `describe("corroborationsFor", ...)`, after the existing `test.each([
 
 Note: these use the new claim type strings before `ClaimType` includes them. Vitest transpiles without typechecking, so the file runs; `as const` tuples keep the literals out of the type error path until Task 2 widens `ClaimType`. If the editor flags them meanwhile, that is expected.
 
-- [ ] **Step 3: Run the new tests and verify the failure shape**
+- [x] **Step 3: Run the new tests and verify the failure shape**
 
 Run: `npx vitest run tools/exam/triage.test.ts`
 
@@ -132,7 +132,7 @@ Do not commit yet - the suite is red by design until Task 2.
 - Produces: `export type GeometricClaimType = "geometric-placement" | "geometric-routing" | "geometric-collision"`; `ClaimType = GeometricClaimType | "interaction" | "absence" | "subjective"`; exported for tests if needed. `corroborationsFor`, `routeFinding`, `validateFinding` signatures unchanged.
 - Consumes: `MeasurementKind` from `tools/exam/scene.ts` (unchanged).
 
-- [ ] **Step 1: Replace the claim type and the compatibility table in `tools/exam/triage.ts`**
+- [x] **Step 1: Replace the claim type and the compatibility table in `tools/exam/triage.ts`**
 
 Replace the current `ClaimType` line (`triage.ts:38`):
 
@@ -206,7 +206,7 @@ const COMPATIBLE_KINDS: Record<ClaimType, readonly MeasurementKind[]> = {
 
 Leave `CLAIM_TYPES = Object.keys(COMPATIBLE_KINDS) as ClaimType[]` as-is; it now yields the six-value enum automatically, which also updates `validateFinding`'s "is not a claim type" rejection.
 
-- [ ] **Step 2: Re-point the two hard-coded `"geometric"` tests in `routeFinding` and `validateFinding`**
+- [x] **Step 2: Re-point the two hard-coded `"geometric"` tests in `routeFinding` and `validateFinding`**
 
 In `routeFinding` (`triage.ts:364`), replace:
 
@@ -244,7 +244,7 @@ with:
     finding.mechanismHypothesis !== undefined;
 ```
 
-- [ ] **Step 3: Update the default fixture's claim type**
+- [x] **Step 3: Update the default fixture's claim type**
 
 In `tools/exam/triage-fixtures.ts`, the `finding()` factory currently sets `claimType: "geometric"`. Its default evidence and falsifier are chip-flavoured (`chip-binding`, marks the `CHIP` measurement), so it becomes a placement claim:
 
@@ -252,7 +252,7 @@ In `tools/exam/triage-fixtures.ts`, the `finding()` factory currently sets `clai
     claimType: "geometric-placement",
 ```
 
-- [ ] **Step 4: Re-type the existing tests that pair the default finding with non-chip measurements**
+- [x] **Step 4: Re-type the existing tests that pair the default finding with non-chip measurements**
 
 In `tools/exam/triage.test.ts`, any pre-existing test that joins the default `finding()` (now a placement claim) to a `segment-vs-card`, `own-card-pierce`, or `chip-vs-segment` measurement will start returning `[]` on the kind axis. Fix each by giving the finding the matching sub-kind, not by changing the measurement. Known instances (locate each by the quoted measurement kind; line numbers are pre-edit):
 
@@ -269,7 +269,7 @@ Sweep to confirm nothing is missed:
 Run: `rg -n '"geometric"' tools/exam/`
 Expected: zero hits.
 
-- [ ] **Step 5: Run the module suite and the tools typecheck**
+- [x] **Step 5: Run the module suite and the tools typecheck**
 
 Run: `npx vitest run tools/exam/triage.test.ts && bun run typecheck:tools`
 Expected: all tests PASS (including Task 1's recognition tests) and `tsc` exits clean. `workflow-parity.test.ts` is expected to be red at this point - the inlined copy still speaks the old enum; that is Task 3.
@@ -288,7 +288,7 @@ Do not commit yet - the two copies must change in one commit per the sync contra
 - Consumes: `SEG` and `XING` fixtures from Task 1; `GeometricClaimType` values from Task 2.
 - Produces: nothing new - behavioural identity between the two copies, verified by the parity diff.
 
-- [ ] **Step 1: Replace the inlined table in `.claude/workflows/render-quality-exam.js`**
+- [x] **Step 1: Replace the inlined table in `.claude/workflows/render-quality-exam.js`**
 
 Replace lines 394-411 (the `MEASUREMENT_KINDS` array through `ASPECTS`) with:
 
@@ -313,7 +313,7 @@ const ASPECTS = ['correctness', 'comprehension', 'ux']
 
 The standalone `MEASUREMENT_KINDS` array existed only to build the old geometric row; if `rg -n 'MEASUREMENT_KINDS' .claude/workflows/render-quality-exam.js` shows no other use, drop it (the replacement above already omits it). If it has another consumer, keep it verbatim above `COMPATIBLE_KINDS`.
 
-- [ ] **Step 2: Update the inlined `routeFinding` and `validateFinding`**
+- [x] **Step 2: Update the inlined `routeFinding` and `validateFinding`**
 
 In the inlined `routeFinding` (line ~518), replace:
 
@@ -329,7 +329,7 @@ with:
 
 In the inlined `validateFinding`, replace the `needsFalsifier` clause `finding.claimType === 'geometric' ||` with `GEOMETRIC_CLAIM_TYPES.includes(finding.claimType) ||` (same shape as the module's Task 2 Step 2 edit).
 
-- [ ] **Step 3: Widen the `FINDINGS_SCHEMA` enum and rewrite the evaluator prompt bullet**
+- [x] **Step 3: Widen the `FINDINGS_SCHEMA` enum and rewrite the evaluator prompt bullet**
 
 Line 212, replace:
 
@@ -359,7 +359,7 @@ with three bullets:
 
 Keep the surrounding interaction / absence / subjective bullets untouched.
 
-- [ ] **Step 4: Extend the parity table with cross-tier cases**
+- [x] **Step 4: Extend the parity table with cross-tier cases**
 
 In `tools/exam/workflow-parity.test.ts`, extend the fixture import to add `SEG` and `XING`, then add to `CASES` after the three non-geometric kind cases (`:132-137`):
 
@@ -382,12 +382,12 @@ In `tools/exam/workflow-parity.test.ts`, extend the fixture import to add `SEG` 
 
 (`kase` defaults `measurements` to `[CHIP]`, so the second case pairs a routing claim with chip-tier geometry.) The expected rows are computed from the module by `expectedRow`, so no hand-written expectations are needed; the cases exist to make a one-sided edit of either copy fail the diff. Check whether the `Finding` type import is already present for the cast; `:139-153` already casts unknown claim types, so follow whatever import that uses.
 
-- [ ] **Step 5: Run the full exam suite and typecheck**
+- [x] **Step 5: Run the full exam suite and typecheck**
 
 Run: `npx vitest run tools/exam && bun run typecheck:tools`
 Expected: all suites PASS (triage, workflow-parity, capture, measurements, probe, tiling), 58 + the new tests. The parity "exercises every route" meta-test must still see all five routes; the new mismatch cases route REFUTE_INDIVIDUAL (major severity default), which was already covered, so no change to that assertion.
 
-- [ ] **Step 6: Commit both copies together**
+- [x] **Step 6: Commit both copies together**
 
 ```bash
 git add tools/exam/triage.ts tools/exam/triage-fixtures.ts tools/exam/triage.test.ts tools/exam/workflow-parity.test.ts .claude/workflows/render-quality-exam.js docs/plans/2026-08-08-exam-triage-kind-split.md
@@ -411,7 +411,7 @@ git commit -m "Split geometric claim type into placement, routing and collision 
 
 The live false corroboration from issue #35: plan `crystal`, finding "rate chips overhang the target card" (chip-tier), corroborated by three `segment-vs-card` measurements of edge `e:7` grazing card `u:class:q:5`. The measurements and tile below are verbatim from `.artifacts/exam/crystal/scene.json` in this worktree. The issue body's evidence rects (`[1004,400,80,27]` etc.) do not project onto these measurements through the committed scene's cameras - they came from a different capture run - so the fixture uses a rect drawn directly over the projected footprints (world `x:345,y:138` through zoom 0.75, offset `x:422.4,y:309.375` lands at image `681,413`). That makes co-location and proportionality both pass, proving the kind axis alone refuses the join.
 
-- [ ] **Step 1: Write the regression tests**
+- [x] **Step 1: Write the regression tests**
 
 Append to `tools/exam/triage.test.ts`:
 
@@ -488,17 +488,17 @@ describe("crystal dry-run regression: chip claim over segment grazes", () => {
 
 The third test is the control: it proves the fixture rect genuinely co-locates (the join succeeds when the kind matches), so the first two tests cannot pass vacuously.
 
-- [ ] **Step 2: Run the suite**
+- [x] **Step 2: Run the suite**
 
 Run: `npx vitest run tools/exam/triage.test.ts`
 Expected: PASS, including all three new tests.
 
-- [ ] **Step 3: Full verification**
+- [x] **Step 3: Full verification**
 
 Run: `npx vitest run tools/exam && bun run typecheck:tools && bun run lint`
 Expected: all green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tools/exam/triage.test.ts
@@ -509,8 +509,8 @@ git commit -m "Pin the crystal dry-run false corroboration as a regression test"
 
 ## Verification checklist (whole plan)
 
-- [ ] `npx vitest run tools/exam` green (was 58 tests; now more, zero skips)
-- [ ] `bun run typecheck:tools` green
-- [ ] `rg -n '"geometric"' tools/exam .claude/workflows/render-quality-exam.js` returns zero hits (only sub-kind strings remain)
-- [ ] The parity meta-test still observes all five routes plus the invalid path
-- [ ] GitHub issue #35 can be closed with a comment linking the two commits and noting the schema/prompt widening (the evaluator now declares the sub-kind; nothing infers it)
+- [x] `npx vitest run tools/exam` green (was 58 tests; final count 186, zero skips)
+- [x] `bun run typecheck:tools` green
+- [x] `rg -n '"geometric"' tools/exam .claude/workflows/render-quality-exam.js` returns 3 adjudicated hits, not zero: the checklist as written conflicts with the plan's own mandated retired-type rejection tests (two `"geometric" as Finding["claimType"]` casts) plus one doc comment. Review ruling: the mandated code governs; the substantive guarantee (the literal is fail-closed everywhere) holds.
+- [x] The parity meta-test still observes all five routes plus the invalid path
+- [x] GitHub issue #35 can be closed with a comment linking the two commits and noting the schema/prompt widening (the evaluator now declares the sub-kind; nothing infers it)
