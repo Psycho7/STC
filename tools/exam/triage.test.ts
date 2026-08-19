@@ -488,9 +488,9 @@ describe("validateFinding", () => {
 // plan crystal rode three segment-vs-card grazes of an unrelated edge to
 // CORROBORATED and was filed unchecked. Scene data verbatim from
 // .artifacts/exam/crystal/scene.json, and the evidence is the set the incident
-// actually filed, verbatim and complete: the first rect does project onto all
-// three grazes, so co-location and proportionality both pass there and the kind
-// axis is the only thing left that can refuse.
+// actually filed, verbatim and complete: the r0c0 rect over card u:class:q:5
+// does project onto all three grazes, so co-location and proportionality both
+// pass there and the kind axis is the only thing left that can refuse.
 describe("crystal dry-run regression: chip claim over segment grazes", () => {
   const tile: TileFrame = {
     file: "10-tile-r0c0.png",
@@ -505,10 +505,13 @@ describe("crystal dry-run regression: chip claim over segment grazes", () => {
     safeRegion: { x: 8, y: 8, width: 1543, height: 926 },
   };
   const tiles = [tile, tileRight];
-  // The filed evidence set. Through tile r0c0 the grazes land at image y 412.9
-  // to 451.9 over x 681.2 to 701.4, so the first rect covers all three; the
-  // r0c1 rect is a different camera 1500 px away from them, and the third sits
-  // below the projected footprints.
+  // The filed evidence set, in the order the incident filed it. Through tile
+  // r0c0 the grazes land at image y 412.9 to 451.9 over x 681.2 to 701.4, so
+  // the r0c0 rect over card u:class:q:5 covers all three. The r0c1 rect is a
+  // different camera: the same grazes project off that tile's left edge, to
+  // image x -630.4 to -610.2, so the rect sits ~1614 px right of the nearest of
+  // them. The r0c0 rect over card u:class:q:4 sits below the projected
+  // footprints.
   const filedEvidence: Finding["evidence"] = [
     { image: tileRight.file, rect: [1004, 400, 80, 27], where: "over card u:out:crystal_enr" },
     { image: tile.file, rect: [663, 400, 78, 27], where: "over card u:class:q:5" },
