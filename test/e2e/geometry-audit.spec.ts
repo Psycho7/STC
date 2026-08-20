@@ -409,6 +409,20 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // this tier -- so nothing here is re-pinned. The occlusions this tier records
 // live on shared vertical corridor legs, which the slab fix widens without
 // separating -- a wider corridor still carries the same parallel bundle.
+// battery5-xiranite measured 15, an UP move, at the re-measure spanning the
+// icon-only chip collapse, the PORT_ZONE_DEPTH 12 -> 8 tracking edit and the
+// declined-fan-out divergence dot. Differentially isolated to the depth edit:
+// probed at the collapse commit it still measured 11, and at the depth commit
+// it measured 15 with the same inventory the branch tip reports, so the dot
+// commit moved nothing. One chip causes all four: the gas tap's "Xiragen x
+// 30/min" used to escape 20.52px off its own polyline (it was the third
+// off-path seat), and the shallower port zone lets it take an ON-LINE seat
+// instead -- on the shared tap column that four sibling tap trunks run down, so
+// four segments now pass under one box. The trade is one off-path seat for four
+// line occlusions in the softest tier. Deliberately NOT pinned -- the ratchet
+// contract forbids absorbing a rise without a ruling -- so this tier reads red
+// on battery5-xiranite until one lands, and the depth edit it traces to is
+// itself awaiting a ruling.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 3,
@@ -448,10 +462,20 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // from 31.70px pre-fix, plus a new e:1 Originium Powder seat 8.50px). It is
 // deliberately NOT pinned -- the ratchet contract forbids absorbing a rise
 // without a ruling -- so this tier reads red on battery5 until one lands.
+// Re-pinned DOWN 3 -> 2 on battery5-xiranite at the re-measure spanning the
+// icon-only chip collapse, the PORT_ZONE_DEPTH 12 -> 8 tracking edit and the
+// divergence dot. Differentially isolated to the depth edit (the collapse
+// commit still measured 3; the depth commit measured 2 with the branch tip's
+// inventory). The seat that left is e:34 "Xiragen x 30/min" at 20.52px: with
+// the shallower port zone its on-line candidate clears, so it stops escaping.
+// e:4 (107.63px) and e:18 (17.18px) survive, so the port-drift ruling above is
+// still NOT retired. This cell and the battery5-xiranite chip-segment rise are
+// the SAME chip moving -- reverting the depth edit puts both back, so revert
+// this pin with it. battery5 measured 2 again, unchanged and still unpinned.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
-  "battery5-xiranite": 3,
+  "battery5-xiranite": 2,
   crystal: 0,
   equip4: 0,
   multi6: 0,
