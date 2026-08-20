@@ -533,8 +533,10 @@ export type RateSeat = { dx: number; dy: number; tier: RateSeatTier };
 // chips) run. Tier 1 slides ALONG THE OWN POLYLINE from the anchor, nearest
 // arc-length offset first, taking the first point clear of chips, cards, and
 // foreign lines -- the chip stays on the flow it labels. Tier 1b (graze)
-// repeats that slide upholding only the HARD invariants (chips and cards),
-// grazing foreign lines: staying visibly attached to the own line outranks
+// repeats that slide upholding only the HARD invariants (chips and cards) and
+// seats at the LEAST-crossed candidate rather than the first one, grazing as
+// few foreign lines as the line allows: staying visibly attached to the own
+// line outranks
 // clearing a parallel foreign line, because a braided corridor can poison
 // every fully-clear candidate and the old off-line exits parked chips in
 // empty canvas (issue #9). Tier 1c (sidestep), tried between them: a bounded
@@ -627,8 +629,10 @@ export function seatRateChip(
     const box = boxAt(px, py);
     return !field.entersForeignCard(box, exempt) && !field.overlapsChip(box);
   };
-  // The shared slide walk of tiers 1 and 1b: along the line, nearest arc-length
-  // offset first, seating at the first candidate the tier's predicate accepts.
+  // The slide walk of tier 1: along the line, nearest arc-length offset first,
+  // seating at the first candidate the tier's predicate accepts. Tier 1b walks
+  // the same candidates in the same order but scores them all, so it spells the
+  // walk out below instead of taking a first hit here.
   const slideAlong = (
     ok: (px: number, py: number) => boolean,
     tierAt: (px: number, py: number) => RateSeatTier,
@@ -645,9 +649,8 @@ export function seatRateChip(
     }
     return null;
   };
-  // Tier 1: the slide taking the first FULLY clear point. Tier 1b (graze),
-  // reached when nothing on the line is fully clear: the same slide upholding
-  // only the HARD invariants (chips and cards), grazing foreign lines. In a
+  // Tier 1: the slide taking the first FULLY clear point. Tier 1b (graze, in
+  // the scan below) is reached when nothing on the line is fully clear. In a
   // braided corridor a parallel foreign line within a chip half-height poisons
   // every tier-1 candidate at once, yet the own line is otherwise empty -- the
   // chip belongs on it, icon and tint disambiguate the graze.
@@ -673,8 +676,44 @@ export function seatRateChip(
     }
     if (off >= SIDESTEP_MAX) break;
   }
-  const grazed = slideAlong(hardClearAt, () => "graze");
-  if (grazed !== null) return grazed;
+  // Tier 1b (graze), least-bad: no candidate on the line is fully clear, so
+  // every remaining on-line seat crosses at least one foreign line (a
+  // zero-crossing hard-clear point would already have been taken by tier 1).
+  // Taking the FIRST hard-clear candidate parks the chip at the anchor, which
+  // at saturated counter-scale is the thick of the fan. Walk the same
+  // candidates in the same order, score each by its foreign-line crossings, and
+  // seat at the minimum. Strict less-than keeps the nearest-first,
+  // forward-first preference on ties (an all-equal line still seats at the
+  // anchor), and a score of 1 cannot be beaten, so the walk stops there.
+  // The walk is spelled out rather than run through slideAlong because that
+  // helper seats at its first accepted candidate by construction; the order,
+  // the barrier skip and the arc-length clamp mirror it exactly.
+  let bestGraze: { px: number; py: number; score: number } | null = null;
+  for (
+    let k = 0;
+    k <= SLIDE_MAX_STEPS && (bestGraze === null || bestGraze.score > 1);
+    k++
+  ) {
+    const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
+    for (const delta of deltas) {
+      const len = anchorLen + delta;
+      if (len < 0 || len > total) continue;
+      const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
+      if (crossesBarrier(py)) continue;
+      if (!hardClearAt(px, py)) continue;
+      const score = field.foreignLineCrossings(
+        boxAt(px, py),
+        flowKey,
+        target,
+        entryBand,
+        ownIds,
+      );
+      if (bestGraze === null || score < bestGraze.score) {
+        bestGraze = { px, py, score };
+      }
+    }
+  }
+  if (bestGraze !== null) return seat(bestGraze.px, bestGraze.py, "graze");
   // The whole own line is chip- or card-blocked. Escapes off the line follow
   // the ratified priority order: chip/chip and chip/card clearance are HARD,
   // staying on the line and clearing foreign lines are preferences that yield.

@@ -121,6 +121,44 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
     // k=1 (48) still grazes, k=2 (96) clears.
     expect(Math.abs(seat.dy)).toBe(96);
   });
+
+  it("grazes at the least-crossed candidate, not the first clear one", () => {
+    // Own line runs horizontally (0,100)->(1200,100), anchor at x=48. A
+    // parallel foreign line 10 units below poisons every candidate (so tier 1
+    // and the sidestep both fail and the ladder reaches graze), and two
+    // foreign verticals near the anchor make the anchor a 3-crossing seat.
+    // From x=176 the box (halfW 120) sheds both verticals, leaving score 1.
+    // First-hit grazing seats at the anchor; least-bad must slide to the first
+    // arc step at or past x=176, which is x=192 (48 + 6*24).
+    const field = makeClearanceField(
+      [
+        { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
+        { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
+        { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+      ],
+      [],
+    );
+    const seat = seatRateChip(
+      field,
+      { pts: [[0, 100], [1200, 100]], anchorX: 48, anchorY: 100 },
+      "own",
+      "T",
+      NO_EXEMPT,
+      { left: 2000, right: 2100, top: 0, bottom: 200 },
+    );
+    expect(seat.tier).toBe("graze");
+    expect(seat.dy).toBe(0);
+    expect(seat.dx).toBe(144);
+  });
+
+  it("keeps the anchor when no slide candidate crosses fewer lines", () => {
+    // Only the parallel foreign line: every on-line candidate scores exactly 1,
+    // so the scan's strict less-than must leave the nearest-first, anchor-first
+    // preference intact rather than drifting to a later equal seat.
+    const field = makeClearanceField([PARALLEL_FOREIGN], []);
+    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+  });
 });
 
 describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine)", () => {
