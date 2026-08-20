@@ -362,6 +362,15 @@ export function renderPlanToElkGraph(input: LayoutInput): ElkGraph {
         // flush against the corner cannot cover the "LOOP - N" label; keep the
         // other sides tight so members do not leave large empty quadrants.
         "org.eclipse.elk.padding": "[top=28,left=10,bottom=10,right=10]",
+        // Slab interiors do not inherit the root spacing pair: without these
+        // the members pack at the plain node-node distance (~36) and the
+        // corridor cannot hold a rate chip (chips are ~99-110 units wide), so
+        // every chip in a slab buries its own endpoint card. Mirror the root
+        // values so a slab corridor equals an open-layout corridor.
+        "elk.spacing.nodeNode": String(NODE_NODE_SPACING),
+        "elk.layered.spacing.nodeNodeBetweenLayers": String(
+          BETWEEN_LAYERS_SPACING,
+        ),
       },
     });
   }
