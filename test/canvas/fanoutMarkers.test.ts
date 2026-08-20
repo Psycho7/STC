@@ -19,7 +19,12 @@ import {
   FANOUT_SPAN_MIN,
   FANOUT_SPAN_MAX,
 } from "../../src/canvas/busRouting";
-import { chamferStepPath, parsePathPoints } from "../../src/canvas/edgePath";
+import {
+  CHAMFER,
+  chamferStepPath,
+  parsePathPoints,
+  type RoutingHints,
+} from "../../src/canvas/edgePath";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
@@ -52,12 +57,16 @@ const rateEdge = (
   source: string,
   target: string,
   rate: Fraction,
+  // Routing hints merged onto the edge data. deconflictChipAnchors rebuilds an
+  // item edge's polyline through routingHintsFromData, so a hint here reaches
+  // the stamper's geometry exactly as a routing pass's would.
+  hints: RoutingHints = {},
 ): Edge => ({
   id,
   type: "item",
   source,
   target,
-  data: { item: ITEM, rate },
+  data: { item: ITEM, rate, ...hints },
 });
 
 // The source card and its drawn out-port, shared by every fixture below.
@@ -85,6 +94,7 @@ const consumer = (id: string, gap: number, rowOffset: number): RFRecipeNode => {
 // drawn geometry rather than about the stamping code restating itself.
 const drawnPoints = (
   target: RFRecipeNode,
+  hints: RoutingHints = {},
 ): ReadonlyArray<readonly [number, number]> => {
   const inY = measureRecipe(target.data.recipe).inHandleYs[0]!;
   const [path] = chamferStepPath({
@@ -92,8 +102,22 @@ const drawnPoints = (
     sourceY,
     targetX: target.position.x + TGT_DX,
     targetY: target.position.y + inY + PORT_DY,
+    ...hints,
   });
   return parsePathPoints(path);
+};
+
+// x of the last vertex still on the polyline's own starting row -- the column
+// where this member peels off, or undefined when it never leaves. Mirrors the
+// stamper's 1-unit row tolerance without borrowing its walk.
+const bendXOf = (
+  pts: ReadonlyArray<readonly [number, number]>,
+): number | undefined => {
+  const sy = pts[0]![1];
+  for (let i = 1; i < pts.length; i++) {
+    if (Math.abs(pts[i]![1] - sy) > 1) return pts[i - 1]![0];
+  }
+  return undefined;
 };
 
 // y of a left-to-right polyline where it first reaches x. Used to compare two
@@ -198,6 +222,151 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     // Out in the corridor: past the source card's own port zone, not hugging it.
     expect(jx - sourceX).toBeGreaterThan(FANOUT_SPAN_MIN);
     expect(dataOf(out, "e:b").fanoutJunctionX).toBeUndefined();
+  });
+
+  it("stamps the FIRST peel-off when two members bend at different columns", () => {
+    // Three members off one port: a straight one plus two that bend at
+    // different columns (different target distances => different bend
+    // midpoints). The line stops being shared where the EARLIEST of them
+    // leaves, so the dot belongs at the smaller column -- everything past it is
+    // already fewer lines than the reader sees at the port.
+    const src = srcNode();
+    const nearGap = FANOUT_SPAN_MAX + 200;
+    const farGap = FANOUT_SPAN_MAX + 700;
+    const tgtA = consumer("tgtA", nearGap, 0); // straight
+    const tgtB = consumer("tgtB", nearGap, 200); // early bend
+    const tgtC = consumer("tgtC", farGap, 300); // late bend
+    const nodes: RFAnyNode[] = [src, tgtA, tgtB, tgtC];
+    const edges: Edge[] = [
+      rateEdge("e:a", "src", "tgtA", new Fraction(2)),
+      rateEdge("e:b", "src", "tgtB", new Fraction(3)),
+      rateEdge("e:c", "src", "tgtC", new Fraction(4)),
+    ];
+
+    const declined = routeFanoutEdges(nodes, edges);
+    expect(declined.map((e) => e.type)).toEqual(["item", "item", "item"]);
+    expect(new Set(edges.map((e) => e.target)).size).toBe(3);
+
+    // Premise: the drawn geometry really has TWO distinct peel-off columns and
+    // one member that never leaves the row -- otherwise "first" is vacuous.
+    const bendB = bendXOf(drawnPoints(tgtB))!;
+    const bendC = bendXOf(drawnPoints(tgtC))!;
+    expect(bendXOf(drawnPoints(tgtA))).toBeUndefined();
+    expect(bendB).toBeLessThan(bendC);
+
+    const out = deconflictChipAnchors(nodes, declined);
+    const jx = dataOf(out, "e:a").fanoutJunctionX; // lex-smallest id owns it
+    expect(jx).toBe(Math.min(bendB, bendC));
+    expect(jx).toBe(bendB);
+    // The last shared column, not the last column anyone shares with anyone:
+    // stamping the later bend would put the dot where member B has already gone.
+    expect(jx).not.toBe(bendC);
+    expect(dataOf(out, "e:a").fanoutJunctionY).toBe(sourceY);
+    expect(dataOf(out, "e:b").fanoutJunctionX).toBeUndefined();
+    expect(dataOf(out, "e:c").fanoutJunctionX).toBeUndefined();
+  });
+
+  it("stamps nothing when the only bend happens at the port itself", () => {
+    // A jogged source column (srcColX, stamped by jogForwardLegs when the plain
+    // leg is blocked) can put the bend on the very first vertex: the member
+    // turns as it leaves the handle. There is no shared run to mark then, and a
+    // dot at the port would read as part of the source card's own output row.
+    const src = srcNode();
+    const gap = FANOUT_SPAN_MAX + 200;
+    const tgtA = consumer("tgtA", gap, 0); // straight
+    const tgtB = consumer("tgtB", gap, 200);
+    // Column one chamfer right of the port => the pre-bend horizontal collapses
+    // to zero length and the turn starts at the port vertex.
+    const hints: RoutingHints = { srcColX: sourceX + CHAMFER };
+    const nodes: RFAnyNode[] = [src, tgtA, tgtB];
+    const edges: Edge[] = [
+      rateEdge("e:a", "src", "tgtA", new Fraction(2)),
+      rateEdge("e:b", "src", "tgtB", new Fraction(3), hints),
+    ];
+
+    const declined = routeFanoutEdges(nodes, edges);
+    expect(declined.map((e) => e.type)).toEqual(["item", "item"]);
+    expect(new Set(edges.map((e) => e.target)).size).toBe(2);
+
+    // Premise: member "b" DOES bend, and it bends at the port x itself -- the
+    // group is otherwise a perfectly ordinary two-member decline.
+    const ptsB = drawnPoints(tgtB, hints);
+    expect(ptsB.some((p) => Math.abs(p[1] - sourceY) > 1)).toBe(true);
+    expect(bendXOf(ptsB)).toBe(sourceX);
+    expect(bendXOf(drawnPoints(tgtA))).toBeUndefined();
+
+    const out = deconflictChipAnchors(nodes, declined);
+    for (const e of out) {
+      expect((e.data as FanoutData).fanoutJunctionX).toBeUndefined();
+    }
+  });
+
+  it("marks the forward split and ignores a backward member in the group", () => {
+    // A backward member leaves the port and immediately turns onto its own
+    // detour rail, so it shares no forward prefix with the others. It must not
+    // pull the dot back to its rail column: the split the reader sees is where
+    // the forward members part.
+    const src = srcNode();
+    const gap = FANOUT_SPAN_MAX + 200;
+    const tgtA = consumer("tgtA", gap, 0); // forward, straight
+    const tgtB = consumer("tgtB", gap, 200); // forward, bends
+    const tgtC = consumer("tgtC", -gap, 200); // backward
+    const nodes: RFAnyNode[] = [src, tgtA, tgtB, tgtC];
+    const edges: Edge[] = [
+      rateEdge("e:a", "src", "tgtA", new Fraction(2)),
+      rateEdge("e:b", "src", "tgtB", new Fraction(3)),
+      rateEdge("e:c", "src", "tgtC", new Fraction(4)),
+    ];
+
+    const declined = routeFanoutEdges(nodes, edges);
+    expect(declined.map((e) => e.type)).toEqual(["item", "item", "item"]);
+
+    // Premise: "c" really is drawn backward (its path ends left of where it
+    // started), and it turns off the source row EARLIER than "b" bends -- so a
+    // stamper that counted it would move the dot.
+    const ptsC = drawnPoints(tgtC);
+    expect(ptsC[ptsC.length - 1]![0]).toBeLessThan(ptsC[0]![0]);
+    const bendB = bendXOf(drawnPoints(tgtB))!;
+    const bendC = bendXOf(ptsC)!;
+    expect(bendC).toBeGreaterThan(sourceX);
+    expect(bendC).toBeLessThan(bendB);
+
+    const out = deconflictChipAnchors(nodes, declined);
+    expect(dataOf(out, "e:a").fanoutJunctionX).toBe(bendB);
+    expect(dataOf(out, "e:a").fanoutJunctionY).toBe(sourceY);
+    expect(dataOf(out, "e:b").fanoutJunctionX).toBeUndefined();
+    expect(dataOf(out, "e:c").fanoutJunctionX).toBeUndefined();
+  });
+
+  it("stamps nothing for a forward + backward pair", () => {
+    // Drop the backward member and one forward edge is left: a lone line off
+    // the port, nothing to split. The pair must stay unmarked even though the
+    // backward member's own detour turn sits right of the port.
+    const src = srcNode();
+    const gap = FANOUT_SPAN_MAX + 200;
+    const tgtA = consumer("tgtA", gap, 0);
+    const tgtC = consumer("tgtC", -gap, 200);
+    const nodes: RFAnyNode[] = [src, tgtA, tgtC];
+    const edges: Edge[] = [
+      rateEdge("e:a", "src", "tgtA", new Fraction(2)),
+      rateEdge("e:c", "src", "tgtC", new Fraction(4)),
+    ];
+
+    const declined = routeFanoutEdges(nodes, edges);
+    expect(declined.map((e) => e.type)).toEqual(["item", "item"]);
+    expect(new Set(edges.map((e) => e.target)).size).toBe(2);
+
+    // Premise: "c" is backward and does turn off the row at a column right of
+    // the port, so only the backward rule keeps this pair unmarked.
+    const ptsC = drawnPoints(tgtC);
+    expect(ptsC[ptsC.length - 1]![0]).toBeLessThan(ptsC[0]![0]);
+    expect(bendXOf(ptsC)!).toBeGreaterThan(sourceX);
+    expect(bendXOf(drawnPoints(tgtA))).toBeUndefined();
+
+    const out = deconflictChipAnchors(nodes, declined);
+    for (const e of out) {
+      expect((e.data as FanoutData).fanoutJunctionX).toBeUndefined();
+    }
   });
 
   it("stamps nothing for a lone edge off the port", () => {
