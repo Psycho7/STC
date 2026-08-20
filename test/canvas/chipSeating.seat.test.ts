@@ -151,13 +151,41 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
     expect(seat.dx).toBe(144);
   });
 
-  it("keeps the anchor when no slide candidate crosses fewer lines", () => {
-    // Only the parallel foreign line: every on-line candidate scores exactly 1,
-    // so the scan's strict less-than must leave the nearest-first, anchor-first
-    // preference intact rather than drifting to a later equal seat.
-    const field = makeClearanceField([PARALLEL_FOREIGN], []);
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+  it("keeps the forward candidate when two seats tie on crossings", () => {
+    // The scan's tie rule, at a tie the score-1 early exit cannot reach. Own
+    // line (408,100)->(792,100), anchor at its middle x=600, so the walk has
+    // exactly 8 steps of reach in each direction (384 / 2 / SLIDE_STEP 24) and
+    // no candidate exists beyond the tying pair.
+    //   - two parallel foreign horizontals at y=90 and y=110 sit inside every
+    //     candidate box (half-height 24), so the floor is 2 crossings: tier 1
+    //     and the sidestep both fail, and 2 is above the early exit's 1;
+    //   - two foreign verticals symmetric about the anchor at x=540 / x=660 are
+    //     each crossed while the box (half-width 120) reaches them, i.e. while
+    //     |dx| < 180 -- both near the anchor, one out to |dx| = 168.
+    // So the minimum score 2 is first reached at |dx| = 192, by the k=8 pair on
+    // BOTH sides at once. Strict less-than keeps the forward candidate probed
+    // first; <= would let the equal backward one replace it. (The all-equal
+    // line, where the tie is at the anchor itself, is the first case above.)
+    const field = makeClearanceField(
+      [
+        { id: "h1", flowKey: "a", target: "other", segs: [[0, 90, 1200, 90]] },
+        { id: "h2", flowKey: "b", target: "other", segs: [[0, 110, 1200, 110]] },
+        { id: "v1", flowKey: "c", target: "other", segs: [[540, 0, 540, 200]] },
+        { id: "v2", flowKey: "d", target: "other", segs: [[660, 0, 660, 200]] },
+      ],
+      [],
+    );
+    const seat = seatRateChip(
+      field,
+      { pts: [[408, 100], [792, 100]], anchorX: 600, anchorY: 100 },
+      "own",
+      "T",
+      NO_EXEMPT,
+      NO_BAND,
+    );
+    expect(seat.tier).toBe("graze");
+    expect(seat.dy).toBe(0);
+    expect(seat.dx).toBe(192);
   });
 });
 
