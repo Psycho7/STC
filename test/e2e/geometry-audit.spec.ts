@@ -251,16 +251,20 @@ test.describe("DOM geometry audit", () => {
 // NOTE on all ratchet tables below: baselines do NOT auto-tighten. When a change
 // improves a scenario, re-record the lower count manually (downward freely). A
 // baseline moves UP only with a recorded controller ruling, never as a silent
-// accommodation of a regression. Five such rulings stand: battery5 off-path
+// accommodation of a regression. Six such rulings stand: battery5 off-path
 // 5 -> 6 (card-hardness pushes one pinned chip's seat off its line), the P4
 // aggregate-visibility raise (chip-segment default 0 -> 2, multi6 0 -> 3,
 // battery5-xiranite 0 -> 7), the own-side bus-column guard (padding grazes
 // battery5-xiranite 7 -> 14), the #25 per-trunk column separation
-// (crossing census default / multi6, detailed at CROSSING_BASELINE below), and
-// the port-drift raise (off-path battery5-xiranite 2 -> 3, detailed at
+// (crossing census default / multi6, detailed at CROSSING_BASELINE below), the
+// contentBounds fix raising the fit zoom past both chip LOD gates, which drew
+// the chips that were already colliding (battery5-xiranite chip-segment
+// 7 -> 23 and off-path 0 -> 2, detailed at the two tables below), and the
+// port-drift raise (off-path battery5-xiranite 2 -> 3, detailed at
 // CHIP_OFFPATH_BASELINE below).
-// All five tables were re-measured wholesale and re-pinned DOWN to the actuals
-// after the aggregate-chip removal; no count rose, so no new ruling applies.
+// At the aggregate-chip removal all five tables were re-measured wholesale and
+// re-pinned DOWN to the actuals; no count rose at THAT re-measure, so it added
+// no ruling of its own. Later re-measures are recorded per table.
 // The per-table rationale lines below record how a pin ONCE moved, which no
 // longer matches its current value wherever the re-measure tightened it.
 // The own-side guard keeps a bus drop / rise on the port

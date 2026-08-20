@@ -541,9 +541,9 @@ export type RateSeat = { dx: number; dy: number; tier: RateSeatTier };
 // chips in empty canvas (issue #9). Tier 1c (sidestep), tried between them: a
 // bounded horizontal step off the line, away from a parallel foreign vertical
 // the wide box straddles and no on-line motion can shed, keeping the own line
-// within the box (issue #28). Tier 2 is a short bidirectional vertical nudge off
-// the anchor, fully clear, reached only when the whole own line is chip- or
-// card-blocked. Tier 3 waives every soft preference and cascades
+// within the box (issue #28). Tier 2 is a short bidirectional vertical nudge
+// off the anchor, fully clear, reached only when the whole own line is chip-
+// or card-blocked. Tier 3 waives every soft preference and cascades
 // bidirectionally against CHIPS AND CARDS only, nearest escape first (ties
 // prefer down). The seat is pushed into the field; the returned offsets are
 // relative to the anchor.
