@@ -269,9 +269,10 @@ test.describe("DOM geometry audit", () => {
 // together triggered a second wholesale re-measure. Eight of the thirty-five
 // cells moved: SEVEN moved DOWN and were re-pinned; ONE moved UP -- battery5
 // off-path 1 -> 2 -- and was NOT pinned, so that tier stays red on battery5
-// until a ruling lands (see CHIP_OFFPATH_BASELINE). None of the six standing rulings above was
-// retired by it: the port-drift raise still holds, since both escape seats it
-// exposed survive the wider corridors (e:18 17.18px, e:34 20.52px).
+// until a ruling lands (see CHIP_OFFPATH_BASELINE). None of the six standing
+// rulings above was retired by it: the port-drift raise still holds, since
+// both escape seats it exposed survive the wider corridors (e:18 17.18px,
+// e:34 20.52px).
 // The per-table rationale lines below record how a pin ONCE moved, which no
 // longer matches its current value wherever the re-measure tightened it.
 // The own-side guard keeps a bus drop / rise on the port
@@ -288,11 +289,12 @@ test.describe("DOM geometry audit", () => {
 // inside the own endpoint card (e.g. e:15 rises to 2476, inside its own target
 // q:35 body, at BOTH base and HEAD -- no off-own column exists there). The
 // endpoint-exempting tier-1 audit cannot see those runs; the OWN_PIERCE_BASELINE
-// ratchet below (auditOwnCardPierces) tracks that residue directly. As of the
-// #41 slab-spacing fix that residue measures zero on every scenario -- the wider
-// inter-layer corridors give the pierce rescue an off-own column where it
-// previously had none, so the walled cases named above no longer occur. The
-// paragraph is kept as the record of why the ratchet exists.
+// ratchet below (auditOwnCardPierces) tracks that residue directly. At the
+// re-measure spanning the row-chrome diet and the #41 slab-spacing fix that
+// residue recorded zero on every scenario -- the wider inter-layer corridors
+// give the pierce rescue an off-own column where it previously had none, so
+// the walled cases named above no longer occur. The paragraph is kept as the
+// record of why the ratchet exists.
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -455,7 +457,7 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // 144-192 units off their own path today. If a fit-zoom change ever lifts
 // multi6 past the label gate, expect its counts to jump for battery5-xiranite
 // reasons, not because that change broke anything.
-// #41 slab-spacing re-measure. battery5-xiranite holds at 3, but its membership
+// Off-path re-measure. battery5-xiranite holds at 3, but its membership
 // changed: e:18 (17.18px) and e:34 (20.52px) survive, so the port-drift ruling
 // above is NOT retired, while the third seat moved to e:4 Xircon Effluent at
 // 107.63px. battery5 measured 2, an UP move (e:18 Xircon Effluent 40.95px, up

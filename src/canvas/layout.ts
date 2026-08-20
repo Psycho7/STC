@@ -363,7 +363,7 @@ export function renderPlanToElkGraph(input: LayoutInput): ElkGraph {
         // other sides tight so members do not leave large empty quadrants.
         "org.eclipse.elk.padding": "[top=28,left=10,bottom=10,right=10]",
         // Slab interiors do not inherit the root spacing pair: without these
-        // the members pack at the plain node-node distance (~36) and the
+        // the members pack at ELK's default spacing (~36 measured) and the
         // corridor cannot hold a rate chip (chips are ~99-110 units wide), so
         // every chip in a slab buries its own endpoint card. Mirror the root
         // values so a slab corridor equals an open-layout corridor.

@@ -32,7 +32,8 @@ for (const id of ["default", "equip4"] as const) {
             // Binary-search the longest prefix that fits with the ellipsis,
             // measured in the label's own font.
             const probe = document.createElement("span");
-            probe.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${getComputedStyle(el).font}`;
+            const cs = getComputedStyle(el);
+            probe.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${cs.font};letter-spacing:${cs.letterSpacing};`;
             document.body.appendChild(probe);
             let lo = 0;
             let hi = full.length;
