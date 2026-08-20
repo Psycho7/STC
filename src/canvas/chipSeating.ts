@@ -160,6 +160,30 @@ export type EdgeSegments = {
   segs: ReadonlyArray<readonly [number, number, number, number]>;
 };
 
+// The arrival-cluster state of ONE query, resolved once before the per-edge
+// walk: with no entry band the cluster exemption is unconditional (bus / entry
+// seats), with one it holds only while the box centre sits inside the band.
+function clusterExemptOf(box: ChipBox, entryBand?: EntryBand): boolean {
+  return entryBand === undefined || centreInBand(box.x, box.y, entryBand);
+}
+
+// The single per-edge foreignness rule both line probes run: an edge is foreign
+// when it is not own (by `ownIds` membership when the caller gives a trunk
+// member set, else by flowKey group) and not waived by the arrival cluster
+// (same target while the cluster exemption holds). Shared so the boolean probe
+// and the counting probe cannot drift apart -- the count is zero EXACTLY when
+// the boolean is false because both ask this one question per edge.
+function isForeignEdge(
+  edge: EdgeSegments,
+  flowKey: string,
+  target: string,
+  clusterExempt: boolean,
+  ownIds?: ReadonlySet<string>,
+): boolean {
+  const own = ownIds !== undefined ? ownIds.has(edge.id) : edge.flowKey === flowKey;
+  return !own && (!clusterExempt || edge.target !== target);
+}
+
 // A raw card rect a chip's box must stay clear of (the P3 hard invariant).
 export type CardRect = {
   id: string;
@@ -252,6 +276,21 @@ export type ClearanceField = {
     entryBand?: EntryBand,
     ownIds?: ReadonlySet<string>,
   ): boolean;
+  // Counting sibling of onForeignLine, same own-flow and arrival-cluster
+  // exemptions, same obstacle set and frame: the number of foreign
+  // (edge, segment) pairs intersecting the box. Counts PAIRS rather than
+  // distinct edges because that is what the segment-vs-chip audit ratchets, so
+  // a seat minimizing this score minimizes the audited count. Zero exactly when
+  // onForeignLine is false -- both ask the same shared per-edge question
+  // (isForeignEdge over clusterExemptOf), so they cannot drift apart. Kept
+  // separate from the boolean so the hot tier-1 slide keeps its early exit.
+  foreignLineCrossings(
+    box: ChipBox,
+    flowKey: string,
+    target: string,
+    entryBand?: EntryBand,
+    ownIds?: ReadonlySet<string>,
+  ): number;
 };
 
 export function makeClearanceField(
@@ -281,18 +320,25 @@ export function makeClearanceField(
         return chipEntersOwnCardBody(chip, c, zone, 0.5);
       }),
     onForeignLine: (box, flowKey, target, entryBand, ownIds) => {
-      const clusterExempt =
-        entryBand === undefined || centreInBand(box.x, box.y, entryBand);
-      return segments.some((e) => {
-        const own = ownIds !== undefined ? ownIds.has(e.id) : e.flowKey === flowKey;
-        return (
-          !own &&
-          (!clusterExempt || e.target !== target) &&
+      const clusterExempt = clusterExemptOf(box, entryBand);
+      return segments.some(
+        (e) =>
+          isForeignEdge(e, flowKey, target, clusterExempt, ownIds) &&
           e.segs.some(([x0, y0, x1, y1]) =>
             segIntersectsChipBox(x0, y0, x1, y1, box),
-          )
-        );
-      });
+          ),
+      );
+    },
+    foreignLineCrossings: (box, flowKey, target, entryBand, ownIds) => {
+      const clusterExempt = clusterExemptOf(box, entryBand);
+      let count = 0;
+      for (const e of segments) {
+        if (!isForeignEdge(e, flowKey, target, clusterExempt, ownIds)) continue;
+        for (const [x0, y0, x1, y1] of e.segs) {
+          if (segIntersectsChipBox(x0, y0, x1, y1, box)) count++;
+        }
+      }
+      return count;
     },
   };
 }
@@ -487,16 +533,17 @@ export type RateSeat = { dx: number; dy: number; tier: RateSeatTier };
 // chips) run. Tier 1 slides ALONG THE OWN POLYLINE from the anchor, nearest
 // arc-length offset first, taking the first point clear of chips, cards, and
 // foreign lines -- the chip stays on the flow it labels. Tier 1b (graze)
-// repeats that slide upholding only the HARD invariants (chips and cards),
-// grazing foreign lines: staying visibly attached to the own line outranks
-// clearing a parallel foreign line, because a braided corridor can poison
-// every fully-clear candidate and the old off-line exits parked chips in
-// empty canvas (issue #9). Tier 1c (sidestep), tried between them: a bounded
-// horizontal step off the line, away from a parallel foreign vertical the wide
-// box straddles and no on-line motion can shed, keeping the own line within
-// the box (issue #28). Tier 2 is a short bidirectional vertical nudge off
-// the anchor, fully clear, reached only when the whole own line is chip- or
-// card-blocked. Tier 3 waives every soft preference and cascades
+// repeats that slide upholding only the HARD invariants (chips and cards) and
+// seats at the LEAST-crossed candidate rather than the first one, grazing as
+// few foreign lines as the line allows: staying visibly attached to the own
+// line outranks clearing a parallel foreign line, because a braided corridor
+// can poison every fully-clear candidate and the old off-line exits parked
+// chips in empty canvas (issue #9). Tier 1c (sidestep), tried between them: a
+// bounded horizontal step off the line, away from a parallel foreign vertical
+// the wide box straddles and no on-line motion can shed, keeping the own line
+// within the box (issue #28). Tier 2 is a short bidirectional vertical nudge
+// off the anchor, fully clear, reached only when the whole own line is chip-
+// or card-blocked. Tier 3 waives every soft preference and cascades
 // bidirectionally against CHIPS AND CARDS only, nearest escape first (ties
 // prefer down). The seat is pushed into the field; the returned offsets are
 // relative to the anchor.
@@ -581,8 +628,10 @@ export function seatRateChip(
     const box = boxAt(px, py);
     return !field.entersForeignCard(box, exempt) && !field.overlapsChip(box);
   };
-  // The shared slide walk of tiers 1 and 1b: along the line, nearest arc-length
-  // offset first, seating at the first candidate the tier's predicate accepts.
+  // The slide walk of tier 1: along the line, nearest arc-length offset first,
+  // seating at the first candidate the tier's predicate accepts. Tier 1b walks
+  // the same candidates in the same order but scores them all, so it spells the
+  // walk out below instead of taking a first hit here.
   const slideAlong = (
     ok: (px: number, py: number) => boolean,
     tierAt: (px: number, py: number) => RateSeatTier,
@@ -599,9 +648,8 @@ export function seatRateChip(
     }
     return null;
   };
-  // Tier 1: the slide taking the first FULLY clear point. Tier 1b (graze),
-  // reached when nothing on the line is fully clear: the same slide upholding
-  // only the HARD invariants (chips and cards), grazing foreign lines. In a
+  // Tier 1: the slide taking the first FULLY clear point. Tier 1b (graze, in
+  // the scan below) is reached when nothing on the line is fully clear. In a
   // braided corridor a parallel foreign line within a chip half-height poisons
   // every tier-1 candidate at once, yet the own line is otherwise empty -- the
   // chip belongs on it, icon and tint disambiguate the graze.
@@ -627,8 +675,44 @@ export function seatRateChip(
     }
     if (off >= SIDESTEP_MAX) break;
   }
-  const grazed = slideAlong(hardClearAt, () => "graze");
-  if (grazed !== null) return grazed;
+  // Tier 1b (graze), least-bad: no candidate on the line is fully clear, so
+  // every remaining on-line seat crosses at least one foreign line (a
+  // zero-crossing hard-clear point would already have been taken by tier 1).
+  // Taking the FIRST hard-clear candidate parks the chip at the anchor, which
+  // at saturated counter-scale is the thick of the fan. Walk the same
+  // candidates in the same order, score each by its foreign-line crossings, and
+  // seat at the minimum. Strict less-than keeps the nearest-first,
+  // forward-first preference on ties (an all-equal line still seats at the
+  // anchor), and a score of 1 cannot be beaten, so the walk stops there.
+  // The walk is spelled out rather than run through slideAlong because that
+  // helper seats at its first accepted candidate by construction; the order,
+  // the barrier skip and the arc-length clamp mirror it exactly.
+  let bestGraze: { px: number; py: number; score: number } | null = null;
+  for (
+    let k = 0;
+    k <= SLIDE_MAX_STEPS && (bestGraze === null || bestGraze.score > 1);
+    k++
+  ) {
+    const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
+    for (const delta of deltas) {
+      const len = anchorLen + delta;
+      if (len < 0 || len > total) continue;
+      const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
+      if (crossesBarrier(py)) continue;
+      if (!hardClearAt(px, py)) continue;
+      const score = field.foreignLineCrossings(
+        boxAt(px, py),
+        flowKey,
+        target,
+        entryBand,
+        ownIds,
+      );
+      if (bestGraze === null || score < bestGraze.score) {
+        bestGraze = { px, py, score };
+      }
+    }
+  }
+  if (bestGraze !== null) return seat(bestGraze.px, bestGraze.py, "graze");
   // The whole own line is chip- or card-blocked. Escapes off the line follow
   // the ratified priority order: chip/chip and chip/card clearance are HARD,
   // staying on the line and clearing foreign lines are preferences that yield.
@@ -666,10 +750,62 @@ export function seatRateChip(
   return seat(anchorX, anchorY, "exhausted");
 }
 
+// Drawn-vs-model port drift, in graph units, per node kind. React Flow anchors
+// an edge at the OUTER edge of the handle's 8x8 box (getHandlePosition), not at
+// the model port busRouting computes, so the drawn path starts and ends a few
+// units off the model coordinate. Derivation, from the DOM boxes:
+//   recipe: the card is content-box RECIPE_WIDTH (300) with a 1px border per
+//     side, so its border box is 302 wide while node.position is still the
+//     model left L. Handles hang off the .rn-row edges INSIDE that border
+//     (row spans L+1 .. L+301), each box centred on its row edge, so the outer
+//     edges land at L-3 and L+305: targetDx -3, and sourceDx +5 against the
+//     model port at L+300. The same 1px top border pushes each row's mid-line
+//     one unit below the model row y, hence dy +1.
+//   product: the 148-wide wrapper carries no such width discrepancy, so its
+//     handle boxes give a symmetric [-4, +4]; the handles are CSS-centred on a
+//     wrapper inline-sized to node.height, so dy is 0.
+//   loop / container: no measured drift and no edge endpoints on them in any
+//     corpus plan, so they stay at zero rather than borrowing another kind's
+//     numbers.
+// Re-derive these if the card borders or paddings change, if handle sizing or
+// nesting changes (RecipeNode/ProductNode markup, .react-flow__handle CSS), or
+// if React Flow changes its handle-anchoring rule.
+type PortDrift = { sourceDx: number; targetDx: number; dy: number };
+
+const PORT_DRIFT: Record<"recipe" | "product" | "other", PortDrift> = {
+  recipe: { sourceDx: 5, targetDx: -3, dy: 1 },
+  product: { sourceDx: 4, targetDx: -4, dy: 0 },
+  other: { sourceDx: 0, targetDx: 0, dy: 0 },
+};
+
+function portDrift(node: RFAnyNode): PortDrift {
+  if (node.type === "recipe") return PORT_DRIFT.recipe;
+  if (node.type === "product") return PORT_DRIFT.product;
+  return PORT_DRIFT.other;
+}
+
+// The drawn port y for one endpoint. The recipe dy applies only when the port
+// resolved to an actual row: portOffsetY falls back to the node's vertical
+// centre for an unresolvable item / order, and that fallback is a deliberate
+// approximation of an unknown row, not a row shifted by the card border. A row
+// mid-line can never coincide with the centre -- rows sit at 97 + 22i and the
+// card centre at 59 + 11*maxRows, and 22i + 38 = 11*maxRows has no integer
+// solution -- so comparing against the centre is an exact test for "resolved".
+function driftedPortY(
+  node: RFAnyNode,
+  item: string | undefined,
+  side: "in" | "out",
+): number {
+  const y = portOffsetY(node, item, side);
+  const centreFallback = node.type === "recipe" && y === nodeHeight(node) / 2;
+  return centreFallback ? y : y + portDrift(node).dy;
+}
+
 // The four port coordinates an edge's path builders take, resolved the same way
 // every routing pass resolves them (source Right port, target Left port, at the
-// item's row). Null when either endpoint is missing from the node map. Shared by
-// the seating pass and contentBounds so both reconstruct the DRAWN geometry.
+// item's row), then shifted onto the drawn handle coordinates by PORT_DRIFT.
+// Null when either endpoint is missing from the node map. Shared by the seating
+// pass and contentBounds so both reconstruct the DRAWN geometry.
 function edgeEndpoints(
   edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
@@ -679,10 +815,13 @@ function edgeEndpoints(
   if (source === undefined || target === undefined) return null;
   const item = edgeItem(edge);
   return {
-    sx: absoluteLeft(source, byId) + nodeWidth(source),
-    sy: absoluteTop(source, byId) + portOffsetY(source, item, "out"),
-    tx: absoluteLeft(target, byId),
-    ty: absoluteTop(target, byId) + portOffsetY(target, item, "in"),
+    sx:
+      absoluteLeft(source, byId) +
+      nodeWidth(source) +
+      portDrift(source).sourceDx,
+    sy: absoluteTop(source, byId) + driftedPortY(source, item, "out"),
+    tx: absoluteLeft(target, byId) + portDrift(target).targetDx,
+    ty: absoluteTop(target, byId) + driftedPortY(target, item, "in"),
   };
 }
 

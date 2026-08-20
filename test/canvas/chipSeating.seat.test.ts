@@ -121,6 +121,278 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
     // k=1 (48) still grazes, k=2 (96) clears.
     expect(Math.abs(seat.dy)).toBe(96);
   });
+
+  it("grazes at the least-crossed candidate, not the first clear one", () => {
+    // Own line runs horizontally (0,100)->(1200,100), anchor at x=48. A
+    // parallel foreign line 10 units below poisons every candidate (so tier 1
+    // and the sidestep both fail and the ladder reaches graze), and two
+    // foreign verticals near the anchor make the anchor a 3-crossing seat.
+    // From x=176 the box (halfW 120) sheds both verticals, leaving score 1.
+    // First-hit grazing seats at the anchor; least-bad must slide to the first
+    // arc step at or past x=176, which is x=192 (48 + 6*24).
+    const field = makeClearanceField(
+      [
+        { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
+        { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
+        { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+      ],
+      [],
+    );
+    const seat = seatRateChip(
+      field,
+      { pts: [[0, 100], [1200, 100]], anchorX: 48, anchorY: 100 },
+      "own",
+      "T",
+      NO_EXEMPT,
+      { left: 2000, right: 2100, top: 0, bottom: 200 },
+    );
+    expect(seat.tier).toBe("graze");
+    expect(seat.dy).toBe(0);
+    expect(seat.dx).toBe(144);
+  });
+
+  it("keeps the forward candidate when two seats tie on crossings", () => {
+    // The scan's tie rule, at a tie the score-1 early exit cannot reach. Own
+    // line (408,100)->(792,100), anchor at its middle x=600, so the walk has
+    // exactly 8 steps of reach in each direction (384 / 2 / SLIDE_STEP 24) and
+    // no candidate exists beyond the tying pair.
+    //   - two parallel foreign horizontals at y=90 and y=110 sit inside every
+    //     candidate box (half-height 24), so the floor is 2 crossings: tier 1
+    //     and the sidestep both fail, and 2 is above the early exit's 1;
+    //   - two foreign verticals symmetric about the anchor at x=540 / x=660 are
+    //     each crossed while the box (half-width 120) reaches them, i.e. while
+    //     |dx| < 180 -- both near the anchor, one out to |dx| = 168.
+    // So the minimum score 2 is first reached at |dx| = 192, by the k=8 pair on
+    // BOTH sides at once. Strict less-than keeps the forward candidate probed
+    // first; <= would let the equal backward one replace it. (The all-equal
+    // line, where the tie is at the anchor itself, is the first case above.)
+    const field = makeClearanceField(
+      [
+        { id: "h1", flowKey: "a", target: "other", segs: [[0, 90, 1200, 90]] },
+        { id: "h2", flowKey: "b", target: "other", segs: [[0, 110, 1200, 110]] },
+        { id: "v1", flowKey: "c", target: "other", segs: [[540, 0, 540, 200]] },
+        { id: "v2", flowKey: "d", target: "other", segs: [[660, 0, 660, 200]] },
+      ],
+      [],
+    );
+    const seat = seatRateChip(
+      field,
+      { pts: [[408, 100], [792, 100]], anchorX: 600, anchorY: 100 },
+      "own",
+      "T",
+      NO_EXEMPT,
+      NO_BAND,
+    );
+    expect(seat.tier).toBe("graze");
+    expect(seat.dy).toBe(0);
+    expect(seat.dx).toBe(192);
+  });
+});
+
+describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine)", () => {
+  // A wide chip box in the corridor, and the same box far to the right.
+  const BOX = { x: 48, y: 100, halfW: 120, halfH: 24 };
+  const FAR_BOX = { x: 300, y: 100, halfW: 120, halfH: 24 };
+  // A band nowhere near either box centre, so the arrival-cluster exemption is
+  // OFF unless a test hands in a band that does contain the centre.
+  const AWAY_BAND: EntryBand = { left: 2000, right: 2100, top: 0, bottom: 200 };
+  // A band around BOX's centre, so a same-target sibling IS exempt for it.
+  const OVER_BOX_BAND: EntryBand = { left: 0, right: 100, top: 0, bottom: 200 };
+
+  it("counts every intersecting foreign (edge, segment) pair", () => {
+    // Own flow is "own"; three foreign edges: two verticals crossing the
+    // corridor near x=40 and x=56, and one horizontal running 10 units below
+    // the own line, spanning the whole corridor.
+    const field = makeClearanceField(
+      [
+        { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
+        { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
+        { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+      ],
+      [],
+    );
+    expect(field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND)).toBe(3);
+    // Only the long horizontal reaches out here.
+    expect(field.foreignLineCrossings(FAR_BOX, "own", "T", AWAY_BAND)).toBe(1);
+  });
+
+  it("scores two equally-blocked seats apart where the boolean cannot", () => {
+    // The whole point of the count: onForeignLine answers "blocked" for both
+    // boxes, so it cannot rank them; the count says the far seat is three times
+    // less bad. Segments of ONE edge count separately, matching the (edge,
+    // segment) pairs the segment-vs-chip audit ratchets.
+    const field = makeClearanceField(
+      [
+        {
+          id: "weave",
+          flowKey: "a",
+          target: "other",
+          segs: [
+            [20, 0, 20, 200],
+            [40, 0, 40, 200],
+            [56, 0, 56, 200],
+          ],
+        },
+        { id: "single", flowKey: "b", target: "other", segs: [[300, 0, 300, 200]] },
+      ],
+      [],
+    );
+    expect(field.onForeignLine(BOX, "own", "T", AWAY_BAND)).toBe(true);
+    expect(field.onForeignLine(FAR_BOX, "own", "T", AWAY_BAND)).toBe(true);
+    expect(field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND)).toBe(3);
+    expect(field.foreignLineCrossings(FAR_BOX, "own", "T", AWAY_BAND)).toBe(1);
+  });
+
+  it("waives same-flowKey own lines and counts the rest", () => {
+    const field = makeClearanceField(
+      [
+        { id: "o1", flowKey: "own", target: "other", segs: [[40, 0, 40, 200]] },
+        { id: "f1", flowKey: "a", target: "other", segs: [[56, 0, 56, 200]] },
+      ],
+      [],
+    );
+    expect(field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND)).toBe(1);
+  });
+
+  it("switches own-ness to the edge-id set when ownIds is given", () => {
+    // e1 shares the chip's flowKey but is NOT a trunk member; e2 is (issue #28).
+    const field = makeClearanceField(
+      [
+        {
+          id: "e1",
+          flowKey: "own",
+          target: "other",
+          segs: [
+            [40, 0, 40, 200],
+            [56, 0, 56, 200],
+          ],
+        },
+        { id: "e2", flowKey: "a", target: "other", segs: [[20, 0, 20, 200]] },
+      ],
+      [],
+    );
+    // flowKey grouping: e1 is own, only e2's single segment counts.
+    expect(field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND)).toBe(1);
+    // Trunk member set: e2 is own, e1's two segments count instead.
+    expect(
+      field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND, new Set(["e2"])),
+    ).toBe(2);
+  });
+
+  it("waives same-target siblings exactly when the arrival-cluster rule does", () => {
+    const field = makeClearanceField(
+      [{ id: "sib", flowKey: "a", target: "T", segs: [[40, 0, 40, 200]] }],
+      [],
+    );
+    // No band: cluster exemption is unconditional (bus / entry seats).
+    expect(field.foreignLineCrossings(BOX, "own", "T")).toBe(0);
+    // Band containing the box centre: still exempt.
+    expect(field.foreignLineCrossings(BOX, "own", "T", OVER_BOX_BAND)).toBe(0);
+    // Centre outside the band: the sibling counts like any foreign line.
+    expect(field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND)).toBe(1);
+    // A different target is never cluster-exempt.
+    expect(field.foreignLineCrossings(BOX, "own", "U", OVER_BOX_BAND)).toBe(1);
+  });
+
+  it("agrees with onForeignLine on zero-vs-nonzero for identical arguments", () => {
+    const field = makeClearanceField(
+      [
+        { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
+        { id: "sib", flowKey: "b", target: "T", segs: [[56, 0, 56, 200]] },
+        { id: "own1", flowKey: "own", target: "other", segs: [[20, 0, 20, 200]] },
+      ],
+      [],
+    );
+    const cases: ReadonlyArray<
+      [{ x: number; y: number; halfW: number; halfH: number }, EntryBand | undefined]
+    > = [
+      [BOX, AWAY_BAND],
+      [BOX, OVER_BOX_BAND],
+      [BOX, undefined],
+      [FAR_BOX, AWAY_BAND],
+      [FAR_BOX, undefined],
+    ];
+    for (const [box, band] of cases) {
+      expect(field.foreignLineCrossings(box, "own", "T", band) > 0).toBe(
+        field.onForeignLine(box, "own", "T", band),
+      );
+    }
+  });
+
+  // The two probes are one predicate applied twice, so the contract worth
+  // pinning is not a handful of hand-picked boxes but the whole argument space:
+  // a dense weave swept by a deterministic pseudo-random walk over box centres,
+  // bands, targets and trunk member sets. Each case also decomposes the query
+  // per edge -- the whole-field answers must be the OR and the SUM of the
+  // single-edge answers -- which pins that no edge's verdict depends on another
+  // edge's (an aborted walk, or cluster state resolved from the wrong edge,
+  // survives the plain parity check but not this one).
+  it("agrees with onForeignLine and decomposes per edge across a swept weave", () => {
+    const weave: ReadonlyArray<EdgeSegments> = [
+      { id: "e0", flowKey: "own", target: "T", segs: [[20, 0, 20, 200]] },
+      { id: "e1", flowKey: "own", target: "U", segs: [[60, 0, 60, 200], [60, 40, 260, 40]] },
+      { id: "e2", flowKey: "a", target: "T", segs: [[100, 0, 100, 200]] },
+      { id: "e3", flowKey: "a", target: "U", segs: [[140, 0, 140, 200], [0, 90, 400, 90]] },
+      { id: "e4", flowKey: "b", target: "T", segs: [[180, 0, 180, 200]] },
+      { id: "e5", flowKey: "b", target: "V", segs: [[220, 60, 380, 60], [220, 60, 220, 200]] },
+      { id: "e6", flowKey: "c", target: "U", segs: [[260, 0, 260, 200], [300, 0, 300, 200]] },
+      { id: "e7", flowKey: "c", target: "V", segs: [[0, 130, 400, 130]] },
+    ];
+    const field = makeClearanceField(weave, []);
+    const single = weave.map((e) => makeClearanceField([e], []));
+    // Deterministic 32-bit LCG (Numerical Recipes constants); no test flake.
+    let state = 20260820;
+    const rnd = (): number => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return state / 0x100000000;
+    };
+    const pick = <T,>(xs: ReadonlyArray<T>): T => xs[Math.floor(rnd() * xs.length)]!;
+    const targets = ["T", "U", "V"] as const;
+    const ownSets: ReadonlyArray<ReadonlySet<string> | undefined> = [
+      undefined,
+      new Set(["e0"]),
+      new Set(["e2", "e5"]),
+      new Set<string>(),
+    ];
+    let blocked = 0;
+    for (let i = 0; i < 400; i++) {
+      // Widths vary so the sweep visits clear boxes too: a 240-wide chip box on
+      // this weave is blocked almost everywhere.
+      const box = {
+        x: Math.round(rnd() * 480) - 40,
+        y: Math.round(rnd() * 200),
+        halfW: pick([6, 40, 120]),
+        halfH: pick([6, 24]),
+      };
+      const bandLeft = Math.round(rnd() * 400) - 40;
+      const bandTop = Math.round(rnd() * 200);
+      const band: EntryBand | undefined =
+        rnd() < 0.25
+          ? undefined
+          : {
+              left: bandLeft,
+              right: bandLeft + Math.round(rnd() * 200),
+              top: bandTop,
+              bottom: bandTop + Math.round(rnd() * 120),
+            };
+      const target = pick(targets);
+      const ownIds = pick(ownSets);
+      const blockedHere = field.onForeignLine(box, "own", target, band, ownIds);
+      const count = field.foreignLineCrossings(box, "own", target, band, ownIds);
+      expect(count > 0).toBe(blockedHere);
+      const perEdge = single.map((f) =>
+        f.foreignLineCrossings(box, "own", target, band, ownIds),
+      );
+      expect(count).toBe(perEdge.reduce((a, b) => a + b, 0));
+      expect(
+        single.some((f) => f.onForeignLine(box, "own", target, band, ownIds)),
+      ).toBe(blockedHere);
+      if (blockedHere) blocked++;
+    }
+    // The sweep is only worth its runtime if it actually visits both verdicts.
+    expect(blocked).toBeGreaterThan(40);
+    expect(blocked).toBeLessThan(360);
+  });
 });
 
 // Chip half-extents at max scale (matching seatRateChip's boxAt): a wide box is
