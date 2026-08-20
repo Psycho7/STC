@@ -66,6 +66,10 @@ export type ItemEdgeData = {
   // its own polyline, so the label stays attached to the line it names. Added
   // to the label x. Optional and defaults to 0.
   labelDx?: number;
+  // Stamped by the seating pass on an edge whose whole polyline is shorter
+  // than one rendered chip: the chip renders icon-only (rate on hover) because
+  // no seat on the line can hold the full box.
+  chipIconOnly?: boolean;
   // Set by Canvas's hover focus on every non-focused edge. The chips read it
   // because EdgeLabelRenderer portals them outside the edge wrapper that carries
   // the `dimmed` class, so the wrapper's fade never reaches them; the chip's own
@@ -202,6 +206,7 @@ export function FlowChip({
   tear,
   dimmed,
   focused,
+  compact,
   variant,
   zoom,
 }: {
@@ -228,6 +233,10 @@ export function FlowChip({
   // Set on a hover-lit edge's chip: it keeps its digits below the icon-only
   // zoom so the hover surfaces the rate.
   focused?: boolean | undefined;
+  // Set on a chip whose edge has no room for the full box at any zoom (a leg
+  // shorter than one chip): it collapses to icon-only regardless of zoom. A
+  // hover-lit chip still wins, so the rate stays one hover away.
+  compact?: boolean | undefined;
   // Chip role beyond a plain per-edge rate: "sigma" is the fan-in aggregate,
   // styled as a summary tag of the merge junction it sits beside.
   variant?: "sigma" | undefined;
@@ -246,9 +255,13 @@ export function FlowChip({
   // their rate digits and render as the icon plus the optional sum glyph, so a
   // dense fit view stops blanketing. The exact rate stays on the title tooltip.
   // Zoom-gated member chips never reach here: they are already hidden by the
-  // higher LABEL_MIN_ZOOM gate at their call sites.
+  // higher LABEL_MIN_ZOOM gate at their call sites. `compact` collapses a chip
+  // at every zoom (its line is too short for the full box at any scale); the
+  // hover reveal overrides both, so no chip is permanently rate-less.
   const iconOnly =
-    zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM && !focused;
+    (compact === true ||
+      (zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM)) &&
+    !focused;
   const bodyText = iconOnly ? (marker ?? "") : text;
   return (
     <EdgeLabelRenderer>
@@ -514,6 +527,7 @@ export default function ItemEdge({
           tear={edgeData?.isTearEdge}
           dimmed={edgeData?.dimmed}
           focused={edgeData?.focused}
+          compact={edgeData?.chipIconOnly === true}
           zoom={zoom}
         />
       ) : null}

@@ -68,6 +68,13 @@ import type { RFAnyNode } from "./layout";
 const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
 const CHIP_HALF_W_WIDE = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
 
+// A leg shorter than this cannot hold the full rate chip anywhere on its own
+// line (rendered chips measure ~99-110 units; slideAlong clamps to the arc, so
+// on such a leg the anchor is the only candidate). Those chips collapse to the
+// icon-only variant instead of burying their endpoint cards; the exact rate
+// stays on the hover title.
+const SHORT_LEG_MAX = CHIP_HALF_W_WIDE;
+
 // Vertical pitch a colliding chip is bumped by each step, and the shared full
 // chip-box height. A full max-scale box height keeps the resolved clearance from
 // dropping below one box at any zoom.
@@ -861,6 +868,9 @@ export function deconflictChipAnchors(
     owner: boolean;
   };
   const fanoutGeomByIndex = new Map<number, FanoutGeom>();
+  // Item edges whose whole polyline is shorter than one rendered chip: their
+  // rate chip renders icon-only (see SHORT_LEG_MAX).
+  const shortLegByIndex = new Set<number>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item" && edge.type !== "bus") return;
     const ends = edgeEndpoints(edge, byId);
@@ -907,7 +917,16 @@ export function deconflictChipAnchors(
         ...routingHintsFromData(edge.data),
       });
       d = path;
-      itemGeomByIndex.set(index, { pts: parsePathPoints(d), lx, ly });
+      const itemPts = parsePathPoints(d);
+      itemGeomByIndex.set(index, { pts: itemPts, lx, ly });
+      let legLen = 0;
+      for (let i = 1; i < itemPts.length; i++) {
+        legLen += Math.hypot(
+          itemPts[i]![0] - itemPts[i - 1]![0],
+          itemPts[i]![1] - itemPts[i - 1]![1],
+        );
+      }
+      if (legLen < SHORT_LEG_MAX) shortLegByIndex.add(index);
     }
     const pts = itemGeomByIndex.get(index)?.pts ?? parsePathPoints(d);
     const segs: Array<readonly [number, number, number, number]> = [];
@@ -1695,7 +1714,9 @@ export function deconflictChipAnchors(
     const faninJunction = faninJunctionByIndex.get(index);
     const faninSigma = faninSigmaByIndex.get(index);
     const faninChipHidden = faninChipHiddenByIndex.has(index);
+    const chipIconOnly = shortLegByIndex.has(index);
     if (
+      !chipIconOnly &&
       labelDy === undefined &&
       labelDx === undefined &&
       busDropDy === undefined &&
@@ -1718,6 +1739,7 @@ export function deconflictChipAnchors(
         ...edge.data,
         ...(labelDy !== undefined ? { labelDy } : {}),
         ...(labelDx !== undefined ? { labelDx } : {}),
+        ...(chipIconOnly ? { chipIconOnly: true as const } : {}),
         ...(busDropDy !== undefined ? { busDropDy } : {}),
         ...(busChipDy !== undefined ? { busChipDy } : {}),
         ...(busRiseHidden ? { busRiseHidden: true as const } : {}),
