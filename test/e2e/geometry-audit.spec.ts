@@ -265,10 +265,11 @@ test.describe("DOM geometry audit", () => {
 // At the aggregate-chip removal all five tables were re-measured wholesale and
 // re-pinned DOWN to the actuals; no count rose at THAT re-measure, so it added
 // no ruling of its own. Later re-measures are recorded per table.
-// The #41 slab-spacing fix triggered a second wholesale re-measure. Fifteen
-// cells moved DOWN and were re-pinned; ONE moved UP -- battery5 off-path 1 -> 2
-// -- and was NOT pinned, so that tier stays red on battery5 until a ruling
-// lands (see CHIP_OFFPATH_BASELINE). None of the six standing rulings above was
+// The row-chrome diet and the #41 slab-spacing fix, landed back to back,
+// together triggered a second wholesale re-measure. Eight of the thirty-five
+// cells moved: SEVEN moved DOWN and were re-pinned; ONE moved UP -- battery5
+// off-path 1 -> 2 -- and was NOT pinned, so that tier stays red on battery5
+// until a ruling lands (see CHIP_OFFPATH_BASELINE). None of the six standing rulings above was
 // retired by it: the port-drift raise still holds, since both escape seats it
 // exposed survive the wider corridors (e:18 17.18px, e:34 20.52px).
 // The per-table rationale lines below record how a pin ONCE moved, which no
@@ -312,9 +313,11 @@ test.describe("DOM geometry audit", () => {
 // between the two separated trunks themselves (copper members e:8/e:9 crossing
 // water members e:13/e:14), not past any sub-graph. No new card pierces
 // (battery5 / multi6 RAW stays at 1); confirmed clean in-browser on default.
-// Re-pinned DOWN at the #41 slab-spacing fix: battery5-xiranite 56 -> 55. The
-// other six held exactly, so the wider slab corridors reshuffled routing inside
-// the slabs without adding a crossing anywhere.
+// Re-pinned DOWN at the re-measure spanning BOTH the row-chrome diet and the
+// #41 slab-spacing fix: battery5-xiranite 56 -> 55. The other six held exactly.
+// The comparison is against the harvest taken before either change, and this
+// cell was not differentially probed, so the single drop is not attributed to
+// one of the two.
 const CROSSING_BASELINE: Record<string, number> = {
   default: 9,
   battery5: 8,
@@ -337,12 +340,18 @@ const CROSSING_BASELINE: Record<string, number> = {
 // onto packed port-side gutters -- two liquid_water rises into q:27 (e:26, e:65)
 // and one xiranite drop out of q:22 (e:17), one graze plus two three-segment
 // approaches. That raise is history; later re-measures tightened the pin well
-// past it, and the #41 slab-spacing fix took it to zero.
-// Re-pinned DOWN wholesale at the #41 slab-spacing fix: battery5 8 -> 1,
-// battery5-xiranite 3 -> 0, crystal 3 -> 0, equip4 3 -> 0, multi6 12 -> 1. This
-// is the tier the fix targets most directly -- grazes were the symptom of
-// sibling paddings overlapping inside a corridor too narrow to hold them, and
-// widening the corridor removes the overlap rather than re-routing around it.
+// past it, and the re-measure below took it to zero.
+// Re-pinned DOWN wholesale at the re-measure spanning BOTH the row-chrome diet
+// (which cuts row padding and the port-side inset, shifting port handle insets)
+// and the #41 slab-spacing fix: battery5 8 -> 1, battery5-xiranite 3 -> 0,
+// crystal 3 -> 0, equip4 3 -> 0, multi6 12 -> 1. No cell in this tier was
+// differentially probed at the parent commit, so the split between the two
+// changes is measured for none of them. The slab-corridor mechanism -- a
+// widened corridor removes the sibling-padding overlap instead of re-routing
+// around it -- applies to the slab-bearing scenarios (battery5,
+// battery5-xiranite, multi6). crystal and equip4 have no verified loop
+// container; their drops are consistent with the row-chrome inset shift flipping
+// sub-10px grazes.
 // The two survivors are outside slab interiors: a battery5 loop-group padding
 // clip (e:4 down the liquid_xiranite_poly slab's outer edge) and a multi6 tap
 // stub (e:79).
@@ -394,9 +403,11 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // candidate by the foreign lines its box would cross and seats at the minimum
 // instead of the first hit, so half the corpus's line occlusions disappear
 // without any chip leaving its own line (off-path, chip-card and raw all held).
-// Held on all seven at the #41 slab-spacing re-measure: the counts are identical
-// before and after, so nothing here is re-pinned. The occlusions this tier
-// records live on shared vertical corridor legs, which the fix widens without
+// Held on all seven at the re-measure spanning BOTH the row-chrome diet and the
+// #41 slab-spacing fix: the counts are identical to the harvest taken before
+// either change -- not to the immediate parent commit, which was not probed for
+// this tier -- so nothing here is re-pinned. The occlusions this tier records
+// live on shared vertical corridor legs, which the slab fix widens without
 // separating -- a wider corridor still carries the same parallel bundle.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 0,
@@ -419,7 +430,7 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // a few units off the model port. The old frame was wrong by up to 5 units,
 // which both faked one violation and hid others: the 1.00px seat it invented
 // (e:5) is gone, and two chips whose on-line candidate sets it had mis-scored
-// now take a genuine least-bad escape (e:18 17.19px, e:34 20.52px). The
+// now take a genuine least-bad escape (e:18 17.18px, e:34 20.52px). The
 // correction EXPOSED those two seats, it did not cause them -- both sit in the
 // short-corridor family tracked by #41, whose slab-spacing fix is the remedy;
 // they are not absorbable by the seat tiers, since an escape leaves the line by
@@ -459,9 +470,12 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
 // battery5-xiranite at 16 (target rise e:15 and source drops e:19 / e:20 /
 // e:22 / e:23 / e:50, each a walled corridor with no off-own column). Later
 // re-measures tightened both -- battery5 to 0 and battery5-xiranite to 2 -- and
-// the #41 slab-spacing fix takes the whole corpus to zero: with real
-// inter-layer corridors the rescue always finds an off-own column, so the
-// last-resort own-body traversal never fires. Pinned at zero everywhere, which
+// the re-measure spanning BOTH the row-chrome diet and the #41 slab-spacing fix
+// takes the whole corpus to zero. The only cell left to move was
+// battery5-xiranite 2 -> 0, a slab-bearing scenario the slab-corridor mechanism
+// covers: with real inter-layer corridors the rescue finds an off-own column, so
+// the last-resort own-body traversal never fires. It was not differentially
+// probed at the parent commit. Pinned at zero everywhere, which
 // makes this tier an effective hard gate until something reintroduces a walled
 // corridor.
 const OWN_PIERCE_BASELINE: Record<string, number> = {
