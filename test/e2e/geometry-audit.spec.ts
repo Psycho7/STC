@@ -251,12 +251,14 @@ test.describe("DOM geometry audit", () => {
 // NOTE on all ratchet tables below: baselines do NOT auto-tighten. When a change
 // improves a scenario, re-record the lower count manually (downward freely). A
 // baseline moves UP only with a recorded controller ruling, never as a silent
-// accommodation of a regression. Four such rulings stand: battery5 off-path
+// accommodation of a regression. Five such rulings stand: battery5 off-path
 // 5 -> 6 (card-hardness pushes one pinned chip's seat off its line), the P4
 // aggregate-visibility raise (chip-segment default 0 -> 2, multi6 0 -> 3,
 // battery5-xiranite 0 -> 7), the own-side bus-column guard (padding grazes
-// battery5-xiranite 7 -> 14), and the #25 per-trunk column separation
-// (crossing census default / multi6, detailed at CROSSING_BASELINE below).
+// battery5-xiranite 7 -> 14), the #25 per-trunk column separation
+// (crossing census default / multi6, detailed at CROSSING_BASELINE below), and
+// the port-drift raise (off-path battery5-xiranite 2 -> 3, detailed at
+// CHIP_OFFPATH_BASELINE below).
 // All five tables were re-measured wholesale and re-pinned DOWN to the actuals
 // after the aggregate-chip removal; no count rose, so no new ruling applies.
 // The per-table rationale lines below record how a pin ONCE moved, which no
@@ -325,7 +327,7 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   "battery5-xiranite": 3,
   crystal: 3,
   equip4: 3,
-  multi6: 13,
+  multi6: 12,
   tundra: 0,
 };
 
@@ -362,10 +364,15 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // browser before re-pinning. Re-pinned rather than reverted because a fit view
 // nobody can read is the worse defect, and the newly visible collisions are
 // tracked separately.
+// Re-pinned DOWN at the least-crossed graze seat (battery5 5 -> 3, battery5-
+// xiranite 23 -> 11): the graze tier now scores every hard-clear on-line
+// candidate by the foreign lines its box would cross and seats at the minimum
+// instead of the first hit, so half the corpus's line occlusions disappear
+// without any chip leaving its own line (off-path, chip-card and raw all held).
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 5,
-  "battery5-xiranite": 23,
+  battery5: 3,
+  "battery5-xiranite": 11,
   crystal: 0,
   equip4: 1,
   multi6: 0,
@@ -377,10 +384,27 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // the higher fit zoom draws 42 chips where 3 were drawn before, and two of the
 // newly drawn ones (both Xircon Effluent) seat off their polyline, one by 48px.
 // Counted as part of the same tracked collision follow-up.
+// battery5-xiranite rose 2 -> 3 with the port-drift correction (RULING,
+// 2026-08-20). Chip seating now reconstructs each edge's endpoints in the DRAWN
+// frame, where React Flow anchors a path at the outer edge of the handle box,
+// a few units off the model port. The old frame was wrong by up to 5 units,
+// which both faked one violation and hid others: the 1.00px seat it invented
+// (e:5) is gone, and two chips whose on-line candidate sets it had mis-scored
+// now take a genuine least-bad escape (e:18 17.19px, e:34 20.52px). The
+// correction EXPOSED those two seats, it did not cause them -- both sit in the
+// short-corridor family tracked by #41, whose slab-spacing fix is the remedy;
+// they are not absorbable by the seat tiers, since an escape leaves the line by
+// definition and no on-line rescoring can pull it back.
+// multi6 is unmeasured rather than clean at fit zoom 0.21: both LOD gates
+// suppress every label chip there, and the surviving gate-exempt bus chips are
+// skipped by the off-path audit (label kind only). Four of those bus chips sit
+// 144-192 units off their own path today. If a fit-zoom change ever lifts
+// multi6 past the label gate, expect its counts to jump for battery5-xiranite
+// reasons, not because that change broke anything.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
-  "battery5-xiranite": 2,
+  "battery5-xiranite": 3,
   crystal: 0,
   equip4: 0,
   multi6: 0,
