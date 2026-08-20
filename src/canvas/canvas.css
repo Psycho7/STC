@@ -2050,23 +2050,25 @@
   border-right: 0;
 }
 
+/* The label is the only flexible item against a hard 300px card, so row chrome
+   is kept to the minimum that still clears the 5px accent tab. */
 .rn-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   height: 22px;
-  padding: 0 12px;
+  padding: 0 6px;
   font-size: 12px;
   line-height: 1;
   position: relative;
 }
 
 .rn-row.input {
-  padding-left: 14px;
+  padding-left: 8px;
 }
 
 .rn-row.output {
-  padding-right: 14px;
+  padding-right: 8px;
   flex-direction: row-reverse;
 }
 
