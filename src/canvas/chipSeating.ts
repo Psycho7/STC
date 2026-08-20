@@ -252,6 +252,20 @@ export type ClearanceField = {
     entryBand?: EntryBand,
     ownIds?: ReadonlySet<string>,
   ): boolean;
+  // Counting sibling of onForeignLine, same own-flow and arrival-cluster
+  // exemptions, same obstacle set and frame: the number of foreign
+  // (edge, segment) pairs intersecting the box. Counts PAIRS rather than
+  // distinct edges because that is what the segment-vs-chip audit ratchets, so
+  // a seat minimizing this score minimizes the audited count. Zero exactly when
+  // onForeignLine is false. Kept separate from the boolean so the hot tier-1
+  // slide keeps its early exit.
+  foreignLineCrossings(
+    box: ChipBox,
+    flowKey: string,
+    target: string,
+    entryBand?: EntryBand,
+    ownIds?: ReadonlySet<string>,
+  ): number;
 };
 
 export function makeClearanceField(
@@ -293,6 +307,20 @@ export function makeClearanceField(
           )
         );
       });
+    },
+    foreignLineCrossings: (box, flowKey, target, entryBand, ownIds) => {
+      const clusterExempt =
+        entryBand === undefined || centreInBand(box.x, box.y, entryBand);
+      let count = 0;
+      for (const e of segments) {
+        const own = ownIds !== undefined ? ownIds.has(e.id) : e.flowKey === flowKey;
+        if (own) continue;
+        if (clusterExempt && e.target === target) continue;
+        for (const [x0, y0, x1, y1] of e.segs) {
+          if (segIntersectsChipBox(x0, y0, x1, y1, box)) count++;
+        }
+      }
+      return count;
     },
   };
 }

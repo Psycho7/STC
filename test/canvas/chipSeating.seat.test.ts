@@ -123,6 +123,137 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
   });
 });
 
+describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine)", () => {
+  // A wide chip box in the corridor, and the same box far to the right.
+  const BOX = { x: 48, y: 100, halfW: 120, halfH: 24 };
+  const FAR_BOX = { x: 300, y: 100, halfW: 120, halfH: 24 };
+  // A band nowhere near either box centre, so the arrival-cluster exemption is
+  // OFF unless a test hands in a band that does contain the centre.
+  const AWAY_BAND: EntryBand = { left: 2000, right: 2100, top: 0, bottom: 200 };
+  // A band around BOX's centre, so a same-target sibling IS exempt for it.
+  const OVER_BOX_BAND: EntryBand = { left: 0, right: 100, top: 0, bottom: 200 };
+
+  it("counts every intersecting foreign (edge, segment) pair", () => {
+    // Own flow is "own"; three foreign edges: two verticals crossing the
+    // corridor near x=40 and x=56, and one horizontal running 10 units below
+    // the own line, spanning the whole corridor.
+    const field = makeClearanceField(
+      [
+        { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
+        { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
+        { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+      ],
+      [],
+    );
+    expect(field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND)).toBe(3);
+    // Only the long horizontal reaches out here.
+    expect(field.foreignLineCrossings(FAR_BOX, "own", "T", AWAY_BAND)).toBe(1);
+  });
+
+  it("scores two equally-blocked seats apart where the boolean cannot", () => {
+    // The whole point of the count: onForeignLine answers "blocked" for both
+    // boxes, so it cannot rank them; the count says the far seat is three times
+    // less bad. Segments of ONE edge count separately, matching the (edge,
+    // segment) pairs the segment-vs-chip audit ratchets.
+    const field = makeClearanceField(
+      [
+        {
+          id: "weave",
+          flowKey: "a",
+          target: "other",
+          segs: [
+            [20, 0, 20, 200],
+            [40, 0, 40, 200],
+            [56, 0, 56, 200],
+          ],
+        },
+        { id: "single", flowKey: "b", target: "other", segs: [[300, 0, 300, 200]] },
+      ],
+      [],
+    );
+    expect(field.onForeignLine(BOX, "own", "T", AWAY_BAND)).toBe(true);
+    expect(field.onForeignLine(FAR_BOX, "own", "T", AWAY_BAND)).toBe(true);
+    expect(field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND)).toBe(3);
+    expect(field.foreignLineCrossings(FAR_BOX, "own", "T", AWAY_BAND)).toBe(1);
+  });
+
+  it("waives same-flowKey own lines and counts the rest", () => {
+    const field = makeClearanceField(
+      [
+        { id: "o1", flowKey: "own", target: "other", segs: [[40, 0, 40, 200]] },
+        { id: "f1", flowKey: "a", target: "other", segs: [[56, 0, 56, 200]] },
+      ],
+      [],
+    );
+    expect(field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND)).toBe(1);
+  });
+
+  it("switches own-ness to the edge-id set when ownIds is given", () => {
+    // e1 shares the chip's flowKey but is NOT a trunk member; e2 is (issue #28).
+    const field = makeClearanceField(
+      [
+        {
+          id: "e1",
+          flowKey: "own",
+          target: "other",
+          segs: [
+            [40, 0, 40, 200],
+            [56, 0, 56, 200],
+          ],
+        },
+        { id: "e2", flowKey: "a", target: "other", segs: [[20, 0, 20, 200]] },
+      ],
+      [],
+    );
+    // flowKey grouping: e1 is own, only e2's single segment counts.
+    expect(field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND)).toBe(1);
+    // Trunk member set: e2 is own, e1's two segments count instead.
+    expect(
+      field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND, new Set(["e2"])),
+    ).toBe(2);
+  });
+
+  it("waives same-target siblings exactly when the arrival-cluster rule does", () => {
+    const field = makeClearanceField(
+      [{ id: "sib", flowKey: "a", target: "T", segs: [[40, 0, 40, 200]] }],
+      [],
+    );
+    // No band: cluster exemption is unconditional (bus / entry seats).
+    expect(field.foreignLineCrossings(BOX, "own", "T")).toBe(0);
+    // Band containing the box centre: still exempt.
+    expect(field.foreignLineCrossings(BOX, "own", "T", OVER_BOX_BAND)).toBe(0);
+    // Centre outside the band: the sibling counts like any foreign line.
+    expect(field.foreignLineCrossings(BOX, "own", "T", AWAY_BAND)).toBe(1);
+    // A different target is never cluster-exempt.
+    expect(field.foreignLineCrossings(BOX, "own", "U", OVER_BOX_BAND)).toBe(1);
+  });
+
+  it("agrees with onForeignLine on zero-vs-nonzero for identical arguments", () => {
+    const field = makeClearanceField(
+      [
+        { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
+        { id: "sib", flowKey: "b", target: "T", segs: [[56, 0, 56, 200]] },
+        { id: "own1", flowKey: "own", target: "other", segs: [[20, 0, 20, 200]] },
+      ],
+      [],
+    );
+    const cases: ReadonlyArray<
+      [{ x: number; y: number; halfW: number; halfH: number }, EntryBand | undefined]
+    > = [
+      [BOX, AWAY_BAND],
+      [BOX, OVER_BOX_BAND],
+      [BOX, undefined],
+      [FAR_BOX, AWAY_BAND],
+      [FAR_BOX, undefined],
+    ];
+    for (const [box, band] of cases) {
+      expect(field.foreignLineCrossings(box, "own", "T", band) > 0).toBe(
+        field.onForeignLine(box, "own", "T", band),
+      );
+    }
+  });
+});
+
 // Chip half-extents at max scale (matching seatRateChip's boxAt): a wide box is
 // 120 half-wide, 24 half-tall.
 const HALF_W = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
