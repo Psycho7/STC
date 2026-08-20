@@ -113,6 +113,18 @@ export type ItemEdgeData = {
   // (like the whole marker) drops once a drag moves the live port off the stamp.
   faninChipHidden?: boolean;
   faninChipHiddenAtY?: number;
+  // Declined fan-out marker (deconflictChipAnchors, #43). Where N >= 2 edges of
+  // the same (item, source) run to >= 2 distinct targets but their span falls
+  // outside routeFanoutEdges' band, no bus trunk forms: the members stay plain
+  // item edges that leave the shared out-port coincident and peel off one at a
+  // time, so the run reads as a single line carrying one member's rate. These
+  // fields are stamped on the ONE elected owner item edge of such a group (the
+  // point is on every member's line, so any of them could draw it) and mark the
+  // x where the first member leaves the source row, at the source port y. A
+  // group whose members all bind to one target is a parallel bundle, not a
+  // split, and gets nothing; nor does one where no member ever leaves the row.
+  fanoutJunctionX?: number;
+  fanoutJunctionY?: number;
 };
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
@@ -426,6 +438,12 @@ export default function ItemEdge({
   const faninMarkerLive =
     edgeData?.faninJunctionY !== undefined &&
     !faninStale(edgeData.faninJunctionY);
+  // The declined fan-out dot sits near the SOURCE port, so it is stale-checked
+  // against the live source y instead of the target y -- same eps, same rule:
+  // once a drag moves the port off the stamp, drop the dot rather than float it.
+  const fanoutMarkerLive =
+    edgeData?.fanoutJunctionY !== undefined &&
+    Math.abs(edgeData.fanoutJunctionY - sourceY) < HIDE_STALE_EPS;
   // The zoom gate yields to the hover focus: a lit edge shows its rate at any
   // zoom. The overlap-driven hides above still win, since they are placement
   // rulings, not level of detail.
@@ -553,6 +571,20 @@ export default function ItemEdge({
           testId={`fanin-junction-${id}`}
           x={edgeData.faninJunctionX}
           y={edgeData.faninJunctionY!}
+          color={kindStyle.stroke}
+          dimmed={edgeData.dimmed}
+          zoom={zoom}
+        />
+      ) : null}
+      {/* Declined fan-out divergence dot (#43, owner only): where coincident
+          same-flow item edges leave the shared out-port run for their own
+          targets. Same markup and stacking as the fan-in merge dot; dropped
+          while stale against the live source y. */}
+      {fanoutMarkerLive && edgeData?.fanoutJunctionX !== undefined ? (
+        <JunctionDot
+          testId={`fanout-junction-${id}`}
+          x={edgeData.fanoutJunctionX}
+          y={edgeData.fanoutJunctionY!}
           color={kindStyle.stroke}
           dimmed={edgeData.dimmed}
           zoom={zoom}

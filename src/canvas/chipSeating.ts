@@ -1598,6 +1598,72 @@ export function deconflictChipAnchors(
     }
   }
 
+  // Phase 3.6 -- declined fan-outs (#43): N >= 2 same-(item, source) item edges
+  // into >= 2 distinct targets whose gap fell outside routeFanoutEdges' span
+  // band stay plain ItemEdges. They leave the shared out-port coincident and
+  // peel off one at a time, so the reader sees ONE line and takes a member's
+  // rate for the whole flow. Mark the split with a junction dot on one owner
+  // edge -- the counterpart of the fan-in merge dot above, and of the dot a real
+  // fan-out trunk draws from BusEdge. Bus-typed members never reach here (they
+  // have no item geometry), so an accepted trunk is not double-marked. No
+  // aggregate chip rides along: a total would sit a few pixels from the source
+  // card's own output row, which already states it (#39), and a declined
+  // fan-out's shared prefix is too short to hold the box anyway. Presentational
+  // only -- no edge is retyped and no chip moves.
+  const fanoutJunctionByIndex = new Map<number, { x: number; y: number }>();
+  type DivergenceMember = {
+    index: number;
+    id: string;
+    target: string;
+    sx: number;
+    sy: number;
+    // x of the last vertex still on the source row, i.e. where this member
+    // peels off. Undefined for a member that never leaves the row.
+    bendX: number | undefined;
+  };
+  const divergenceGroups = new Map<string, DivergenceMember[]>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "item") return;
+    const geom = itemGeomByIndex.get(index);
+    if (geom === undefined) return;
+    const pts = geom.pts;
+    if (pts.length < 2) return;
+    const sx = pts[0]![0];
+    const sy = pts[0]![1];
+    // A backward member leaves through its own detour rail rather than sharing
+    // a forward prefix, so it neither carries the dot nor counts as a target of
+    // the split (the fan-in marker draws the same line at its own end).
+    if (pts[pts.length - 1]![0] <= sx) return;
+    let bendX: number | undefined;
+    for (let i = 1; i < pts.length; i++) {
+      if (Math.abs(pts[i]![1] - sy) > FANIN_EPS) {
+        bendX = pts[i - 1]![0];
+        break;
+      }
+    }
+    const key = flowKeyOf(edge);
+    const list = divergenceGroups.get(key) ?? [];
+    list.push({ index, id: edge.id, target: edge.target, sx, sy, bendX });
+    divergenceGroups.set(key, list);
+  });
+  for (const members of divergenceGroups.values()) {
+    if (members.length < 2) continue;
+    // Same-(item, source) edges into ONE unit are a parallel bundle drawn as a
+    // single line, not a split -- the mirror of the fan-in distinct-sources rule.
+    if (new Set(members.map((m) => m.target)).size < 2) continue;
+    // The split becomes visible where the FIRST member peels off; before that
+    // every member is still on the shared row. A group where nobody bends draws
+    // no visible divergence at all, so it gets no dot.
+    const bends = members.filter((m) => m.bendX !== undefined);
+    if (bends.length === 0) continue;
+    const junctionX = Math.min(...bends.map((m) => m.bendX!));
+    const owner = members.reduce((a, b) => (a.id <= b.id ? a : b));
+    // A dot at the port itself would read as part of the source card's own
+    // output row, not as a split in the run.
+    if (junctionX <= owner.sx) continue;
+    fanoutJunctionByIndex.set(owner.index, { x: junctionX, y: owner.sy });
+  }
+
   // Phase 4 -- item rate chips: each item edge's clear-segment anchor (cached
   // from the reconstruction above, exactly where ItemEdge renders it) goes
   // through seatRateChip's tier ladder: slide along the own polyline (fully
@@ -1713,6 +1779,7 @@ export function deconflictChipAnchors(
     const fanoutBranchHidden = fanoutBranchHiddenByIndex.has(index);
     const fanoutBranchHiddenAt = fanoutBranchHiddenAtByIndex.get(index);
     const faninJunction = faninJunctionByIndex.get(index);
+    const fanoutJunction = fanoutJunctionByIndex.get(index);
     const faninSigma = faninSigmaByIndex.get(index);
     const faninChipHidden = faninChipHiddenByIndex.has(index);
     const chipIconOnly = shortLegByIndex.has(index);
@@ -1729,6 +1796,7 @@ export function deconflictChipAnchors(
       fanoutBranchDy === undefined &&
       !fanoutBranchHidden &&
       faninJunction === undefined &&
+      fanoutJunction === undefined &&
       faninSigma === undefined &&
       !faninChipHidden
     ) {
@@ -1752,6 +1820,12 @@ export function deconflictChipAnchors(
         ...(fanoutBranchHiddenAt !== undefined ? { fanoutBranchHiddenAt } : {}),
         ...(faninJunction !== undefined
           ? { faninJunctionX: faninJunction.x, faninJunctionY: faninJunction.y }
+          : {}),
+        ...(fanoutJunction !== undefined
+          ? {
+              fanoutJunctionX: fanoutJunction.x,
+              fanoutJunctionY: fanoutJunction.y,
+            }
           : {}),
         ...(faninSigma !== undefined
           ? {
