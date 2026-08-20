@@ -252,6 +252,81 @@ describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine
       );
     }
   });
+
+  // The two probes are one predicate applied twice, so the contract worth
+  // pinning is not a handful of hand-picked boxes but the whole argument space:
+  // a dense weave swept by a deterministic pseudo-random walk over box centres,
+  // bands, targets and trunk member sets. Each case also decomposes the query
+  // per edge -- the whole-field answers must be the OR and the SUM of the
+  // single-edge answers -- which pins that no edge's verdict depends on another
+  // edge's (an aborted walk, or cluster state resolved from the wrong edge,
+  // survives the plain parity check but not this one).
+  it("agrees with onForeignLine and decomposes per edge across a swept weave", () => {
+    const weave: ReadonlyArray<EdgeSegments> = [
+      { id: "e0", flowKey: "own", target: "T", segs: [[20, 0, 20, 200]] },
+      { id: "e1", flowKey: "own", target: "U", segs: [[60, 0, 60, 200], [60, 40, 260, 40]] },
+      { id: "e2", flowKey: "a", target: "T", segs: [[100, 0, 100, 200]] },
+      { id: "e3", flowKey: "a", target: "U", segs: [[140, 0, 140, 200], [0, 90, 400, 90]] },
+      { id: "e4", flowKey: "b", target: "T", segs: [[180, 0, 180, 200]] },
+      { id: "e5", flowKey: "b", target: "V", segs: [[220, 60, 380, 60], [220, 60, 220, 200]] },
+      { id: "e6", flowKey: "c", target: "U", segs: [[260, 0, 260, 200], [300, 0, 300, 200]] },
+      { id: "e7", flowKey: "c", target: "V", segs: [[0, 130, 400, 130]] },
+    ];
+    const field = makeClearanceField(weave, []);
+    const single = weave.map((e) => makeClearanceField([e], []));
+    // Deterministic 32-bit LCG (Numerical Recipes constants); no test flake.
+    let state = 20260820;
+    const rnd = (): number => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return state / 0x100000000;
+    };
+    const pick = <T,>(xs: ReadonlyArray<T>): T => xs[Math.floor(rnd() * xs.length)]!;
+    const targets = ["T", "U", "V"] as const;
+    const ownSets: ReadonlyArray<ReadonlySet<string> | undefined> = [
+      undefined,
+      new Set(["e0"]),
+      new Set(["e2", "e5"]),
+      new Set<string>(),
+    ];
+    let blocked = 0;
+    for (let i = 0; i < 400; i++) {
+      // Widths vary so the sweep visits clear boxes too: a 240-wide chip box on
+      // this weave is blocked almost everywhere.
+      const box = {
+        x: Math.round(rnd() * 480) - 40,
+        y: Math.round(rnd() * 200),
+        halfW: pick([6, 40, 120]),
+        halfH: pick([6, 24]),
+      };
+      const bandLeft = Math.round(rnd() * 400) - 40;
+      const bandTop = Math.round(rnd() * 200);
+      const band: EntryBand | undefined =
+        rnd() < 0.25
+          ? undefined
+          : {
+              left: bandLeft,
+              right: bandLeft + Math.round(rnd() * 200),
+              top: bandTop,
+              bottom: bandTop + Math.round(rnd() * 120),
+            };
+      const target = pick(targets);
+      const ownIds = pick(ownSets);
+      const blockedHere = field.onForeignLine(box, "own", target, band, ownIds);
+      const count = field.foreignLineCrossings(box, "own", target, band, ownIds);
+      expect(count > 0).toBe(blockedHere);
+      const perEdge = single.map((f) =>
+        f.foreignLineCrossings(box, "own", target, band, ownIds),
+      );
+      expect(count).toBe(perEdge.reduce((a, b) => a + b, 0));
+      expect(
+        single.some((f) => f.onForeignLine(box, "own", target, band, ownIds)),
+      ).toBe(blockedHere);
+      if (blockedHere) blocked++;
+    }
+    // The sweep is only worth its runtime if it actually visits both verdicts.
+    expect(blocked).toBeGreaterThan(40);
+    expect(blocked).toBeLessThan(360);
+  });
 });
 
 // Chip half-extents at max scale (matching seatRateChip's boxAt): a wide box is

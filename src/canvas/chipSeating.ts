@@ -160,6 +160,30 @@ export type EdgeSegments = {
   segs: ReadonlyArray<readonly [number, number, number, number]>;
 };
 
+// The arrival-cluster state of ONE query, resolved once before the per-edge
+// walk: with no entry band the cluster exemption is unconditional (bus / entry
+// seats), with one it holds only while the box centre sits inside the band.
+function clusterExemptOf(box: ChipBox, entryBand?: EntryBand): boolean {
+  return entryBand === undefined || centreInBand(box.x, box.y, entryBand);
+}
+
+// The single per-edge foreignness rule both line probes run: an edge is foreign
+// when it is not own (by `ownIds` membership when the caller gives a trunk
+// member set, else by flowKey group) and not waived by the arrival cluster
+// (same target while the cluster exemption holds). Shared so the boolean probe
+// and the counting probe cannot drift apart -- the count is zero EXACTLY when
+// the boolean is false because both ask this one question per edge.
+function isForeignEdge(
+  edge: EdgeSegments,
+  flowKey: string,
+  target: string,
+  clusterExempt: boolean,
+  ownIds?: ReadonlySet<string>,
+): boolean {
+  const own = ownIds !== undefined ? ownIds.has(edge.id) : edge.flowKey === flowKey;
+  return !own && (!clusterExempt || edge.target !== target);
+}
+
 // A raw card rect a chip's box must stay clear of (the P3 hard invariant).
 export type CardRect = {
   id: string;
@@ -257,8 +281,9 @@ export type ClearanceField = {
   // (edge, segment) pairs intersecting the box. Counts PAIRS rather than
   // distinct edges because that is what the segment-vs-chip audit ratchets, so
   // a seat minimizing this score minimizes the audited count. Zero exactly when
-  // onForeignLine is false. Kept separate from the boolean so the hot tier-1
-  // slide keeps its early exit.
+  // onForeignLine is false -- both ask the same shared per-edge question
+  // (isForeignEdge over clusterExemptOf), so they cannot drift apart. Kept
+  // separate from the boolean so the hot tier-1 slide keeps its early exit.
   foreignLineCrossings(
     box: ChipBox,
     flowKey: string,
@@ -295,27 +320,20 @@ export function makeClearanceField(
         return chipEntersOwnCardBody(chip, c, zone, 0.5);
       }),
     onForeignLine: (box, flowKey, target, entryBand, ownIds) => {
-      const clusterExempt =
-        entryBand === undefined || centreInBand(box.x, box.y, entryBand);
-      return segments.some((e) => {
-        const own = ownIds !== undefined ? ownIds.has(e.id) : e.flowKey === flowKey;
-        return (
-          !own &&
-          (!clusterExempt || e.target !== target) &&
+      const clusterExempt = clusterExemptOf(box, entryBand);
+      return segments.some(
+        (e) =>
+          isForeignEdge(e, flowKey, target, clusterExempt, ownIds) &&
           e.segs.some(([x0, y0, x1, y1]) =>
             segIntersectsChipBox(x0, y0, x1, y1, box),
-          )
-        );
-      });
+          ),
+      );
     },
     foreignLineCrossings: (box, flowKey, target, entryBand, ownIds) => {
-      const clusterExempt =
-        entryBand === undefined || centreInBand(box.x, box.y, entryBand);
+      const clusterExempt = clusterExemptOf(box, entryBand);
       let count = 0;
       for (const e of segments) {
-        const own = ownIds !== undefined ? ownIds.has(e.id) : e.flowKey === flowKey;
-        if (own) continue;
-        if (clusterExempt && e.target === target) continue;
+        if (!isForeignEdge(e, flowKey, target, clusterExempt, ownIds)) continue;
         for (const [x0, y0, x1, y1] of e.segs) {
           if (segIntersectsChipBox(x0, y0, x1, y1, box)) count++;
         }
