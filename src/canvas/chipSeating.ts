@@ -666,10 +666,62 @@ export function seatRateChip(
   return seat(anchorX, anchorY, "exhausted");
 }
 
+// Drawn-vs-model port drift, in graph units, per node kind. React Flow anchors
+// an edge at the OUTER edge of the handle's 8x8 box (getHandlePosition), not at
+// the model port busRouting computes, so the drawn path starts and ends a few
+// units off the model coordinate. Derivation, from the DOM boxes:
+//   recipe: the card is content-box RECIPE_WIDTH (300) with a 1px border per
+//     side, so its border box is 302 wide while node.position is still the
+//     model left L. Handles hang off the .rn-row edges INSIDE that border
+//     (row spans L+1 .. L+301), each box centred on its row edge, so the outer
+//     edges land at L-3 and L+305: targetDx -3, and sourceDx +5 against the
+//     model port at L+300. The same 1px top border pushes each row's mid-line
+//     one unit below the model row y, hence dy +1.
+//   product: the 148-wide wrapper carries no such width discrepancy, so its
+//     handle boxes give a symmetric [-4, +4]; the handles are CSS-centred on a
+//     wrapper inline-sized to node.height, so dy is 0.
+//   loop / container: no measured drift and no edge endpoints on them in any
+//     corpus plan, so they stay at zero rather than borrowing another kind's
+//     numbers.
+// Re-derive these if the card borders or paddings change, if handle sizing or
+// nesting changes (RecipeNode/ProductNode markup, .react-flow__handle CSS), or
+// if React Flow changes its handle-anchoring rule.
+type PortDrift = { sourceDx: number; targetDx: number; dy: number };
+
+const PORT_DRIFT: Record<"recipe" | "product" | "other", PortDrift> = {
+  recipe: { sourceDx: 5, targetDx: -3, dy: 1 },
+  product: { sourceDx: 4, targetDx: -4, dy: 0 },
+  other: { sourceDx: 0, targetDx: 0, dy: 0 },
+};
+
+function portDrift(node: RFAnyNode): PortDrift {
+  if (node.type === "recipe") return PORT_DRIFT.recipe;
+  if (node.type === "product") return PORT_DRIFT.product;
+  return PORT_DRIFT.other;
+}
+
+// The drawn port y for one endpoint. The recipe dy applies only when the port
+// resolved to an actual row: portOffsetY falls back to the node's vertical
+// centre for an unresolvable item / order, and that fallback is a deliberate
+// approximation of an unknown row, not a row shifted by the card border. A row
+// mid-line can never coincide with the centre -- rows sit at 97 + 22i and the
+// card centre at 59 + 11*maxRows, and 22i + 38 = 11*maxRows has no integer
+// solution -- so comparing against the centre is an exact test for "resolved".
+function driftedPortY(
+  node: RFAnyNode,
+  item: string | undefined,
+  side: "in" | "out",
+): number {
+  const y = portOffsetY(node, item, side);
+  const centreFallback = node.type === "recipe" && y === nodeHeight(node) / 2;
+  return centreFallback ? y : y + portDrift(node).dy;
+}
+
 // The four port coordinates an edge's path builders take, resolved the same way
 // every routing pass resolves them (source Right port, target Left port, at the
-// item's row). Null when either endpoint is missing from the node map. Shared by
-// the seating pass and contentBounds so both reconstruct the DRAWN geometry.
+// item's row), then shifted onto the drawn handle coordinates by PORT_DRIFT.
+// Null when either endpoint is missing from the node map. Shared by the seating
+// pass and contentBounds so both reconstruct the DRAWN geometry.
 function edgeEndpoints(
   edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
@@ -679,10 +731,13 @@ function edgeEndpoints(
   if (source === undefined || target === undefined) return null;
   const item = edgeItem(edge);
   return {
-    sx: absoluteLeft(source, byId) + nodeWidth(source),
-    sy: absoluteTop(source, byId) + portOffsetY(source, item, "out"),
-    tx: absoluteLeft(target, byId),
-    ty: absoluteTop(target, byId) + portOffsetY(target, item, "in"),
+    sx:
+      absoluteLeft(source, byId) +
+      nodeWidth(source) +
+      portDrift(source).sourceDx,
+    sy: absoluteTop(source, byId) + driftedPortY(source, item, "out"),
+    tx: absoluteLeft(target, byId) + portDrift(target).targetDx,
+    ty: absoluteTop(target, byId) + driftedPortY(target, item, "in"),
   };
 }
 

@@ -86,18 +86,19 @@ describe("deconflictChipAnchors: fan-in markers", () => {
     expect(owner.faninTotalRate!.equals(new Fraction(5))).toBe(true);
     expect(owner.faninJunctionY).toBe(ty);
     // The dot marks where the last member joins the shared run (rightmost join),
-    // which is the straight member's source-right edge at x = 900.
-    expect(owner.faninJunctionX).toBe(900);
+    // which is the straight member's drawn source-right endpoint: model right
+    // edge 900 plus the recipe source port drift of 5.
+    expect(owner.faninJunctionX).toBe(905);
     // The Sigma sits on the shared run between the merge and the port.
-    expect(owner.faninSigmaX!).toBeGreaterThan(900);
+    expect(owner.faninSigmaX!).toBeGreaterThan(905);
     expect(owner.faninSigmaX!).toBeLessThan(tx);
     // Anchored beside the junction (mergeX + keepoff), not mid-run, so the
     // total visually binds to the merge dot it summarizes. This run is short
     // enough that the keepoff is half of it; see the long-run case below for
     // the seat that tells the two anchors apart.
-    const runLen = tx - 900;
+    const runLen = tx - 905;
     const keepoff = Math.min(CHIP_HALF_W_WIDE, runLen / 2);
-    expect(owner.faninSigmaX).toBe(900 + keepoff);
+    expect(owner.faninSigmaX).toBe(905 + keepoff);
 
     // The non-owner carries no marker.
     expect(other.faninJunctionX).toBeUndefined();
