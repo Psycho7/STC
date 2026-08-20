@@ -209,13 +209,14 @@ export type CardRect = {
 // card"). So the exemption is on the chip CENTRE, not the box: a chip is exempt
 // from its own card while its centre stays within PORT_ZONE_DEPTH of the port
 // edge (in the corridor or a hair inside), and enters the body once the centre
-// crosses deeper. Depth is the recipe row's horizontal frame/padding strip
-// (canvas.css .rn-row padding: 0 12px) -- the frame between the card edge and the
-// row's item glyph (at the 14px port-side inset), so an exempt chip's centre
-// never sits on the glyph. A box-overlap rule instead would flag every on-line
-// chip (box wider than corridor) and fling it off its line -- the issue-#9
-// orphaned-chip regression this narrowing must avoid.
-export const PORT_ZONE_DEPTH = 12;
+// crosses deeper. Depth is the recipe row's port-side inset (canvas.css
+// .rn-row.input padding-left / .rn-row.output padding-right, both 8px) -- the
+// strip between the card edge and the row's item glyph, so an exempt chip's
+// centre stops at the glyph's leading edge and never sits on the glyph itself.
+// Re-derive it whenever that row padding changes. A box-overlap rule instead
+// would flag every on-line chip (box wider than corridor) and fling it off its
+// line -- the issue-#9 orphaned-chip regression this narrowing must avoid.
+export const PORT_ZONE_DEPTH = 8;
 
 export type PortZoneSide = "source" | "target";
 
