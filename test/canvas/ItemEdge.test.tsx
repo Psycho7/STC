@@ -241,6 +241,38 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(sigma!.getAttribute("title")).toContain("Σ300/min");
   });
 
+  it("collapses a chipIconOnly rate chip above the icon-only zoom", async () => {
+    // The seating pass stamps chipIconOnly on a leg too short for the full box,
+    // so the collapse must come from the edge data, not from the zoom gate:
+    // zoom 1 is well ABOVE CHIP_ICON_ONLY_MAX_ZOOM and would keep the digits.
+    renderEdge({ item: "belt", rate: new Fraction(2, 1), chipIconOnly: true }, 1);
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.classList.contains("icon-only")).toBe(true);
+    // Icon kept, digits dropped; the exact rate stays on the hover tooltip.
+    expect(label!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
+    expect(label!.textContent).toBe("");
+    expect(label!.getAttribute("title")).toContain("120/min");
+  });
+
+  it("keeps a focused chipIconOnly chip's digits", async () => {
+    // Hover overrides the short-leg collapse the same way it overrides the zoom
+    // one, so no chip is permanently rate-less.
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(2, 1),
+        chipIconOnly: true,
+        focused: true,
+      },
+      1,
+    );
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.classList.contains("icon-only")).toBe(false);
+    expect(label!.textContent).toBe("120/min");
+  });
+
   it("marks the fan-in Sigma chip with the sigma variant class", async () => {
     // The aggregate is styled as a summary tag of the junction beside it, not
     // as one more per-edge rate chip, so it carries its own variant class.
