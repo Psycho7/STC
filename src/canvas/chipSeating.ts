@@ -11,6 +11,10 @@
 // Seating runs in EXPLICIT PHASES, in this order -- the ordering is
 // load-bearing, not incidental, so keep it explicit rather than folding it
 // into a generic priority framework:
+//   0. junction-dot geometry: the four dot families (lane bus branch, fan-out
+//      trunk split, fan-in merge, declined-fan-out divergence) are pure
+//      functions of the reconstructed polylines, so they all resolve before the
+//      first chip seats and every seating phase runs against a known dot set.
 //   1. bus drop chips: one aggregate total per trunk at its junction; they
 //      settle before any rise so a cascading rise can never knock a trunk's
 //      aggregate off its lane.
@@ -831,6 +835,15 @@ function edgeEndpoints(
   };
 }
 
+// One drawn junction dot and the family it belongs to. The four families are
+// drawn by three different components -- BusEdge draws the lane member's branch
+// dot and the fan-out trunk's split dot from the path builders, ItemEdge draws
+// the fan-in merge dot and the declined-fan-out divergence dot from the stamps
+// below -- but they are one obstacle class to the seating phases, so the
+// collected set keeps the family only as a label.
+type JunctionDotKind = "lane" | "fanout" | "fanin" | "divergence";
+type JunctionDot = { x: number; y: number; kind: JunctionDotKind };
+
 export function deconflictChipAnchors(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -867,6 +880,10 @@ export function deconflictChipAnchors(
     owner: boolean;
   };
   const fanoutGeomByIndex = new Map<number, FanoutGeom>();
+  // Lane bus members cache the junction BusEdge draws at their branch point.
+  // Taken from the same chamferBusPath result the polyline comes from, so the
+  // cached dot is the drawn dot rather than a second derivation of it.
+  const laneJunctionByIndex = new Map<number, { x: number; y: number }>();
   // Item edges whose whole polyline is shorter than one rendered chip: their
   // rate chip renders icon-only (see SHORT_LEG_MAX).
   const shortLegByIndex = new Set<number>();
@@ -899,14 +916,16 @@ export function deconflictChipAnchors(
       // branch ran first.
       const data = edge.data as BusEdgeData | undefined;
       const laneY = data !== undefined && "laneY" in data ? data.laneY : ty;
-      d = chamferBusPath({
+      const lane = chamferBusPath({
         sourceX: sx,
         sourceY: sy,
         targetX: tx,
         targetY: ty,
         laneY,
         ...routingHintsFromData(edge.data),
-      }).path;
+      });
+      d = lane.path;
+      laneJunctionByIndex.set(index, lane.junction);
     } else {
       const [path, lx, ly] = chamferStepPath({
         sourceX: sx,
@@ -995,6 +1014,226 @@ export function deconflictChipAnchors(
   // The shared clearance field: every phase seats into `field.placed`, so a
   // later phase yields to everything an earlier phase placed.
   const field = makeClearanceField(edgeSegments, cards);
+
+  // Phase 0 -- junction-dot geometry. Every junction dot the render layer draws
+  // resolves here, before the first chip seats. Two families come straight off
+  // the path builders the reconstruction above already ran (the lane members'
+  // branch dots, the fan-out trunks' split dots); the other two are derived
+  // below (the fan-in merge dots, the declined fan-outs' divergence dots). All
+  // four are pure functions of the reconstructed polylines and touch no seating
+  // state, so resolving them up front moves no dot -- it only makes the whole
+  // dot set known to every phase that follows.
+
+  // Phase 0a -- fan-in markers: fan-in is structurally unmodeled (every trunk
+  // key is (item, source), never (item, target)), so where 2+ forward same-item
+  // edges enter ONE target in-port their final legs run collinear at the port y
+  // with no junction dot. Stamp ONE merge dot on the shared run (drawn by the
+  // elected owner's ItemEdge), and suppress any NON-OWNER member whose own rate
+  // chip would sit ON that shared run. Its only input is the reconstructed
+  // polylines above -- a dual-role edge's fan-out geometry included -- so it
+  // resolves before any chip seats; the item phase reads the suppression back
+  // at seat time, where a member that SLID onto the run is still caught. It is
+  // presentational only: no edge is retyped and a fan-out member keeps its
+  // fan-out role.
+  const FANIN_EPS = 1;
+  type FaninMember = {
+    index: number;
+    id: string;
+    source: string;
+    joinX: number;
+    isItem: boolean;
+    anchorX: number;
+    anchorY: number;
+  };
+  const faninGroups = new Map<string, FaninMember[]>();
+  const faninTargetByKey = new Map<string, { tx: number; ty: number }>();
+  // (item, target) ports that ALSO receive a same-item edge outside the marker's
+  // scope (a lane-bus rise, a backward rail, or any non-collinear approach). A
+  // dot there would mark only the collinear members' merge and misstate where
+  // the card's input row is fed from, so such a port gets NO marker at all.
+  const faninExcludedKeys = new Set<string>();
+  edges.forEach((edge, index) => {
+    const item = edgeItem(edge);
+    if (item === undefined) return;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (source === undefined || target === undefined) return;
+    const key = item + "|" + edge.target;
+    const itemGeom = itemGeomByIndex.get(index);
+    const fanGeom = fanoutGeomByIndex.get(index);
+    let pts: ReadonlyArray<readonly [number, number]>;
+    let anchorX = 0;
+    let anchorY = 0;
+    let isItem = false;
+    if (itemGeom !== undefined) {
+      pts = itemGeom.pts;
+      anchorX = itemGeom.lx;
+      anchorY = itemGeom.ly;
+      isItem = true;
+    } else if (fanGeom !== undefined) {
+      pts = fanGeom.pts;
+    } else {
+      // Lane bus members approach via a rise column, not along the port-y run.
+      faninExcludedKeys.add(key);
+      return;
+    }
+    if (pts.length < 2) {
+      faninExcludedKeys.add(key);
+      return;
+    }
+    const first = pts[0]!;
+    const last = pts[pts.length - 1]!;
+    if (last[0] <= first[0]) {
+      // Backward rail: enters through the gutter, not along the shared run.
+      faninExcludedKeys.add(key);
+      return;
+    }
+    const tx = absoluteLeft(target, byId);
+    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    const secondLast = pts[pts.length - 2]!;
+    if (Math.abs(secondLast[1] - ty) > FANIN_EPS) {
+      // Final leg not at the port y: feeds the port off the shared run.
+      faninExcludedKeys.add(key);
+      return;
+    }
+    const list = faninGroups.get(key) ?? [];
+    list.push({
+      index,
+      id: edge.id,
+      source: edge.source,
+      joinX: secondLast[0],
+      isItem,
+      anchorX,
+      anchorY,
+    });
+    faninGroups.set(key, list);
+    faninTargetByKey.set(key, { tx, ty });
+  });
+  const faninJunctionByIndex = new Map<number, { x: number; y: number }>();
+  const faninChipHiddenByIndex = new Set<number>();
+  // Per NON-OWNER item member of a fan-in group: the merge x and port y of its
+  // shared run. The item phase reads this to decide, AT SEAT TIME, whether the
+  // member's own chip landed ON the shared run (where the owner's own chip
+  // already reads) and should hide -- a member chip that slides onto the run
+  // cannot be caught by its anchor alone.
+  const faninMemberRunByIndex = new Map<
+    number,
+    { mergeX: number; tx: number; ty: number }
+  >();
+  for (const [key, members] of faninGroups) {
+    if (members.length < 2) continue;
+    // Mixed-feed port: an out-of-scope same-item edge (lane-bus rise, backward
+    // rail, non-collinear approach) also enters this port, so a dot on the
+    // collinear members' join would mark a partial merge. No marker.
+    if (faninExcludedKeys.has(key)) continue;
+    // Fan-in needs 2+ DISTINCT incoming flows. Same-(item, source) edges are one
+    // flow (a parallel bundle already drawn as one visual line), not a merge, so
+    // require distinct sources before marking a junction.
+    if (new Set(members.map((m) => m.source)).size < 2) continue;
+    // The owner draws the marker via its ItemEdge, so it must be an item edge.
+    const itemMembers = members.filter((m) => m.isItem);
+    if (itemMembers.length === 0) continue;
+    const { tx, ty } = faninTargetByKey.get(key)!;
+    // The merge point: where the LAST member joins the shared run (the rightmost
+    // final-leg start). The dot marks it; the run [mergeX, tx] is where all
+    // members are collinear at the port y.
+    const mergeX = Math.max(...members.map((m) => m.joinX));
+    const runLen = tx - mergeX;
+    if (runLen <= 2 * CHAMFER) continue; // no real shared run to mark
+    const owner = itemMembers.reduce((a, b) => (a.id <= b.id ? a : b));
+    faninJunctionByIndex.set(owner.index, { x: mergeX, y: ty });
+    for (const m of itemMembers) {
+      // The OWNER is exempt from the shared-run hide: it is the member that
+      // draws the merge dot, and since the summed aggregate that used to label
+      // this run was removed (#39, #45), hiding the owner too would leave the
+      // merged run carrying no number at all. Its chip seats under the ordinary
+      // member rules; only its non-owner siblings yield the run, their rates
+      // still readable on their own pre-merge legs.
+      if (m.index === owner.index) continue;
+      faninMemberRunByIndex.set(m.index, { mergeX, tx, ty });
+    }
+  }
+
+  // Phase 0b -- declined fan-outs (#43): N >= 2 same-(item, source) item edges
+  // into >= 2 distinct targets whose gap fell outside routeFanoutEdges' span
+  // band stay plain ItemEdges. They leave the shared out-port coincident and
+  // peel off one at a time, so the reader sees ONE line and takes a member's
+  // rate for the whole flow. Mark the split with a junction dot on one owner
+  // edge -- the counterpart of the fan-in merge dot above, and of the dot a real
+  // fan-out trunk draws from BusEdge. Bus-typed members never reach here (they
+  // have no item geometry), so an accepted trunk is not double-marked. No
+  // aggregate chip rides along: a total would sit a few pixels from the source
+  // card's own output row, which already states it (#39), and a declined
+  // fan-out's shared prefix is too short to hold the box anyway. Presentational
+  // only -- no edge is retyped and no chip moves.
+  const fanoutJunctionByIndex = new Map<number, { x: number; y: number }>();
+  type DivergenceMember = {
+    index: number;
+    id: string;
+    target: string;
+    sx: number;
+    sy: number;
+    // x of the last vertex still on the source row, i.e. where this member
+    // peels off. Undefined for a member that never leaves the row.
+    bendX: number | undefined;
+  };
+  const divergenceGroups = new Map<string, DivergenceMember[]>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "item") return;
+    const geom = itemGeomByIndex.get(index);
+    if (geom === undefined) return;
+    const pts = geom.pts;
+    if (pts.length < 2) return;
+    const sx = pts[0]![0];
+    const sy = pts[0]![1];
+    // A backward member leaves through its own detour rail rather than sharing
+    // a forward prefix, so it neither carries the dot nor counts as a target of
+    // the split (the fan-in marker draws the same line at its own end).
+    if (pts[pts.length - 1]![0] <= sx) return;
+    let bendX: number | undefined;
+    for (let i = 1; i < pts.length; i++) {
+      if (Math.abs(pts[i]![1] - sy) > FANIN_EPS) {
+        bendX = pts[i - 1]![0];
+        break;
+      }
+    }
+    const key = flowKeyOf(edge);
+    const list = divergenceGroups.get(key) ?? [];
+    list.push({ index, id: edge.id, target: edge.target, sx, sy, bendX });
+    divergenceGroups.set(key, list);
+  });
+  for (const members of divergenceGroups.values()) {
+    if (members.length < 2) continue;
+    // Same-(item, source) edges into ONE unit are a parallel bundle drawn as a
+    // single line, not a split -- the mirror of the fan-in distinct-sources rule.
+    if (new Set(members.map((m) => m.target)).size < 2) continue;
+    // The split becomes visible where the FIRST member peels off; before that
+    // every member is still on the shared row. A group where nobody bends draws
+    // no visible divergence at all, so it gets no dot.
+    const bends = members.filter((m) => m.bendX !== undefined);
+    if (bends.length === 0) continue;
+    const junctionX = Math.min(...bends.map((m) => m.bendX!));
+    const owner = members.reduce((a, b) => (a.id <= b.id ? a : b));
+    // A dot at the port itself would read as part of the source card's own
+    // output row, not as a split in the run.
+    if (junctionX <= owner.sx) continue;
+    fanoutJunctionByIndex.set(owner.index, { x: junctionX, y: owner.sy });
+  }
+
+  // The distinct dots, in one keep-off set. Every member of a fan-out trunk
+  // draws the same split dot, so the set is deduped per (family, point).
+  const dotKeepoffs: JunctionDot[] = [];
+  const seenDots = new Set<string>();
+  const addDot = (p: { x: number; y: number }, kind: JunctionDotKind): void => {
+    const key = kind + "|" + p.x + "|" + p.y;
+    if (seenDots.has(key)) return;
+    seenDots.add(key);
+    dotKeepoffs.push({ x: p.x, y: p.y, kind });
+  };
+  for (const p of laneJunctionByIndex.values()) addDot(p, "lane");
+  for (const g of fanoutGeomByIndex.values()) addDot(g.junction, "fanout");
+  for (const p of faninJunctionByIndex.values()) addDot(p, "fanin");
+  for (const p of fanoutJunctionByIndex.values()) addDot(p, "divergence");
 
   // Phases 1 and 2 -- bus chips: a LONE-member trunk draws one aggregate drop
   // chip (on the owner member); a multi-member trunk draws none (issue #39).
@@ -1399,200 +1638,6 @@ export function deconflictChipAnchors(
     seatedBranchYByTrunk.set(trunkKey, seatedYs);
     if (seat.dx !== 0) fanoutBranchDxByIndex.set(index, seat.dx);
     if (seat.dy !== 0) fanoutBranchDyByIndex.set(index, seat.dy);
-  }
-
-  // Phase 3.5 -- fan-in markers: fan-in is structurally unmodeled (every trunk
-  // key is (item, source), never (item, target)), so where 2+ forward same-item
-  // edges enter ONE target in-port their final legs run collinear at the port y
-  // with no junction dot. Stamp ONE merge dot on the shared run (drawn by the
-  // elected owner's ItemEdge), and suppress any NON-OWNER member whose own rate
-  // chip would sit ON that shared run. This runs before the item phase so a
-  // suppressed member seats no chip, and after the fan-out phases so a dual-role
-  // edge's fan-out geometry is in hand. It is presentational only: no edge is
-  // retyped and a fan-out member keeps its fan-out role.
-  const FANIN_EPS = 1;
-  type FaninMember = {
-    index: number;
-    id: string;
-    source: string;
-    joinX: number;
-    isItem: boolean;
-    anchorX: number;
-    anchorY: number;
-  };
-  const faninGroups = new Map<string, FaninMember[]>();
-  const faninTargetByKey = new Map<string, { tx: number; ty: number }>();
-  // (item, target) ports that ALSO receive a same-item edge outside the marker's
-  // scope (a lane-bus rise, a backward rail, or any non-collinear approach). A
-  // dot there would mark only the collinear members' merge and misstate where
-  // the card's input row is fed from, so such a port gets NO marker at all.
-  const faninExcludedKeys = new Set<string>();
-  edges.forEach((edge, index) => {
-    const item = edgeItem(edge);
-    if (item === undefined) return;
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    if (source === undefined || target === undefined) return;
-    const key = item + "|" + edge.target;
-    const itemGeom = itemGeomByIndex.get(index);
-    const fanGeom = fanoutGeomByIndex.get(index);
-    let pts: ReadonlyArray<readonly [number, number]>;
-    let anchorX = 0;
-    let anchorY = 0;
-    let isItem = false;
-    if (itemGeom !== undefined) {
-      pts = itemGeom.pts;
-      anchorX = itemGeom.lx;
-      anchorY = itemGeom.ly;
-      isItem = true;
-    } else if (fanGeom !== undefined) {
-      pts = fanGeom.pts;
-    } else {
-      // Lane bus members approach via a rise column, not along the port-y run.
-      faninExcludedKeys.add(key);
-      return;
-    }
-    if (pts.length < 2) {
-      faninExcludedKeys.add(key);
-      return;
-    }
-    const first = pts[0]!;
-    const last = pts[pts.length - 1]!;
-    if (last[0] <= first[0]) {
-      // Backward rail: enters through the gutter, not along the shared run.
-      faninExcludedKeys.add(key);
-      return;
-    }
-    const tx = absoluteLeft(target, byId);
-    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    const secondLast = pts[pts.length - 2]!;
-    if (Math.abs(secondLast[1] - ty) > FANIN_EPS) {
-      // Final leg not at the port y: feeds the port off the shared run.
-      faninExcludedKeys.add(key);
-      return;
-    }
-    const list = faninGroups.get(key) ?? [];
-    list.push({
-      index,
-      id: edge.id,
-      source: edge.source,
-      joinX: secondLast[0],
-      isItem,
-      anchorX,
-      anchorY,
-    });
-    faninGroups.set(key, list);
-    faninTargetByKey.set(key, { tx, ty });
-  });
-  const faninJunctionByIndex = new Map<number, { x: number; y: number }>();
-  const faninChipHiddenByIndex = new Set<number>();
-  // Per NON-OWNER item member of a fan-in group: the merge x and port y of its
-  // shared run. The item phase reads this to decide, AT SEAT TIME, whether the
-  // member's own chip landed ON the shared run (where the owner's own chip
-  // already reads) and should hide -- a member chip that slides onto the run
-  // cannot be caught by its anchor alone.
-  const faninMemberRunByIndex = new Map<
-    number,
-    { mergeX: number; tx: number; ty: number }
-  >();
-  for (const [key, members] of faninGroups) {
-    if (members.length < 2) continue;
-    // Mixed-feed port: an out-of-scope same-item edge (lane-bus rise, backward
-    // rail, non-collinear approach) also enters this port, so a dot on the
-    // collinear members' join would mark a partial merge. No marker.
-    if (faninExcludedKeys.has(key)) continue;
-    // Fan-in needs 2+ DISTINCT incoming flows. Same-(item, source) edges are one
-    // flow (a parallel bundle already drawn as one visual line), not a merge, so
-    // require distinct sources before marking a junction.
-    if (new Set(members.map((m) => m.source)).size < 2) continue;
-    // The owner draws the marker via its ItemEdge, so it must be an item edge.
-    const itemMembers = members.filter((m) => m.isItem);
-    if (itemMembers.length === 0) continue;
-    const { tx, ty } = faninTargetByKey.get(key)!;
-    // The merge point: where the LAST member joins the shared run (the rightmost
-    // final-leg start). The dot marks it; the run [mergeX, tx] is where all
-    // members are collinear at the port y.
-    const mergeX = Math.max(...members.map((m) => m.joinX));
-    const runLen = tx - mergeX;
-    if (runLen <= 2 * CHAMFER) continue; // no real shared run to mark
-    const owner = itemMembers.reduce((a, b) => (a.id <= b.id ? a : b));
-    faninJunctionByIndex.set(owner.index, { x: mergeX, y: ty });
-    for (const m of itemMembers) {
-      // The OWNER is exempt from the shared-run hide: it is the member that
-      // draws the merge dot, and since the summed aggregate that used to label
-      // this run was removed (#39, #45), hiding the owner too would leave the
-      // merged run carrying no number at all. Its chip seats under the ordinary
-      // member rules; only its non-owner siblings yield the run, their rates
-      // still readable on their own pre-merge legs.
-      if (m.index === owner.index) continue;
-      faninMemberRunByIndex.set(m.index, { mergeX, tx, ty });
-    }
-  }
-
-  // Phase 3.6 -- declined fan-outs (#43): N >= 2 same-(item, source) item edges
-  // into >= 2 distinct targets whose gap fell outside routeFanoutEdges' span
-  // band stay plain ItemEdges. They leave the shared out-port coincident and
-  // peel off one at a time, so the reader sees ONE line and takes a member's
-  // rate for the whole flow. Mark the split with a junction dot on one owner
-  // edge -- the counterpart of the fan-in merge dot above, and of the dot a real
-  // fan-out trunk draws from BusEdge. Bus-typed members never reach here (they
-  // have no item geometry), so an accepted trunk is not double-marked. No
-  // aggregate chip rides along: a total would sit a few pixels from the source
-  // card's own output row, which already states it (#39), and a declined
-  // fan-out's shared prefix is too short to hold the box anyway. Presentational
-  // only -- no edge is retyped and no chip moves.
-  const fanoutJunctionByIndex = new Map<number, { x: number; y: number }>();
-  type DivergenceMember = {
-    index: number;
-    id: string;
-    target: string;
-    sx: number;
-    sy: number;
-    // x of the last vertex still on the source row, i.e. where this member
-    // peels off. Undefined for a member that never leaves the row.
-    bendX: number | undefined;
-  };
-  const divergenceGroups = new Map<string, DivergenceMember[]>();
-  edges.forEach((edge, index) => {
-    if (edge.type !== "item") return;
-    const geom = itemGeomByIndex.get(index);
-    if (geom === undefined) return;
-    const pts = geom.pts;
-    if (pts.length < 2) return;
-    const sx = pts[0]![0];
-    const sy = pts[0]![1];
-    // A backward member leaves through its own detour rail rather than sharing
-    // a forward prefix, so it neither carries the dot nor counts as a target of
-    // the split (the fan-in marker draws the same line at its own end).
-    if (pts[pts.length - 1]![0] <= sx) return;
-    let bendX: number | undefined;
-    for (let i = 1; i < pts.length; i++) {
-      if (Math.abs(pts[i]![1] - sy) > FANIN_EPS) {
-        bendX = pts[i - 1]![0];
-        break;
-      }
-    }
-    const key = flowKeyOf(edge);
-    const list = divergenceGroups.get(key) ?? [];
-    list.push({ index, id: edge.id, target: edge.target, sx, sy, bendX });
-    divergenceGroups.set(key, list);
-  });
-  for (const members of divergenceGroups.values()) {
-    if (members.length < 2) continue;
-    // Same-(item, source) edges into ONE unit are a parallel bundle drawn as a
-    // single line, not a split -- the mirror of the fan-in distinct-sources rule.
-    if (new Set(members.map((m) => m.target)).size < 2) continue;
-    // The split becomes visible where the FIRST member peels off; before that
-    // every member is still on the shared row. A group where nobody bends draws
-    // no visible divergence at all, so it gets no dot.
-    const bends = members.filter((m) => m.bendX !== undefined);
-    if (bends.length === 0) continue;
-    const junctionX = Math.min(...bends.map((m) => m.bendX!));
-    const owner = members.reduce((a, b) => (a.id <= b.id ? a : b));
-    // A dot at the port itself would read as part of the source card's own
-    // output row, not as a split in the run.
-    if (junctionX <= owner.sx) continue;
-    fanoutJunctionByIndex.set(owner.index, { x: junctionX, y: owner.sy });
   }
 
   // Phase 4 -- item rate chips: each item edge's clear-segment anchor (cached
