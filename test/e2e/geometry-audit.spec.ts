@@ -251,7 +251,7 @@ test.describe("DOM geometry audit", () => {
 // NOTE on all ratchet tables below: baselines do NOT auto-tighten. When a change
 // improves a scenario, re-record the lower count manually (downward freely). A
 // baseline moves UP only with a recorded controller ruling, never as a silent
-// accommodation of a regression. Six such rulings stand: battery5 off-path
+// accommodation of a regression. Eight such rulings stand: battery5 off-path
 // 5 -> 6 (card-hardness pushes one pinned chip's seat off its line), the P4
 // aggregate-visibility raise (chip-segment default 0 -> 2, multi6 0 -> 3,
 // battery5-xiranite 0 -> 7), the own-side bus-column guard (padding grazes
@@ -261,6 +261,9 @@ test.describe("DOM geometry audit", () => {
 // the chips that were already colliding (battery5-xiranite chip-segment
 // 7 -> 23 and off-path 0 -> 2, detailed at the two tables below), and the
 // port-drift raise (off-path battery5-xiranite 2 -> 3, detailed at
+// CHIP_OFFPATH_BASELINE below), the short-leg depth trade (chip-segment
+// battery5-xiranite 11 -> 15, detailed at CHIP_SEGMENT_BASELINE below), and
+// the slab-exposure raise (off-path battery5 1 -> 2, detailed at
 // CHIP_OFFPATH_BASELINE below).
 // At the aggregate-chip removal all five tables were re-measured wholesale and
 // re-pinned DOWN to the actuals; no count rose at THAT re-measure, so it added
@@ -268,9 +271,9 @@ test.describe("DOM geometry audit", () => {
 // The row-chrome diet and the #41 slab-spacing fix, landed back to back,
 // together triggered a second wholesale re-measure. Eight of the thirty-five
 // cells moved: SEVEN moved DOWN and were re-pinned; ONE moved UP -- battery5
-// off-path 1 -> 2 -- and was NOT pinned, so that tier stays red on battery5
-// until a ruling lands (see CHIP_OFFPATH_BASELINE). None of the six standing
-// rulings above was retired by it: the port-drift raise still holds, since
+// off-path 1 -> 2 -- held red until the 2026-08-21 ruling ratified it (see
+// CHIP_OFFPATH_BASELINE). None of the earlier standing
+// rulings was retired by it: the port-drift raise still holds, since
 // both escape seats it exposed survive the wider corridors (e:18 17.18px,
 // e:34 20.52px).
 // The per-table rationale lines below record how a pin ONCE moved, which no
@@ -421,14 +424,13 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // off-path seat), and the shallower port zone lets it take an ON-LINE seat
 // instead -- on the shared tap column that four sibling tap trunks run down, so
 // four segments now pass under one box. The trade is one off-path seat for four
-// line occlusions in the softest tier. Deliberately NOT pinned -- the ratchet
-// contract forbids absorbing a rise without a ruling -- so this tier reads red
-// on battery5-xiranite until one lands, and the depth edit it traces to is
-// itself awaiting a ruling.
+// line occlusions in the softest tier (RULING, 2026-08-21): the seating
+// priority puts on-line above foreign-line clearance, so the trade is accepted,
+// the depth edit stays, and the pin moves 11 -> 15.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 3,
-  "battery5-xiranite": 11,
+  "battery5-xiranite": 15,
   crystal: 0,
   equip4: 1,
   multi6: 0,
@@ -461,9 +463,9 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // changed: e:18 (17.18px) and e:34 (20.52px) survive, so the port-drift ruling
 // above is NOT retired, while the third seat moved to e:4 Xircon Effluent at
 // 107.63px. battery5 measured 2, an UP move (e:18 Xircon Effluent 40.95px, up
-// from 31.70px pre-fix, plus a new e:1 Originium Powder seat 8.50px). It is
-// deliberately NOT pinned -- the ratchet contract forbids absorbing a rise
-// without a ruling -- so this tier reads red on battery5 until one lands.
+// from 31.70px pre-fix, plus a new e:1 Originium Powder seat 8.50px) and was
+// pinned 1 -> 2 (RULING, 2026-08-21): the slab-spacing fix exposed two genuine
+// escape seats; both remain candidates for a future seating fix.
 // Re-pinned DOWN 3 -> 2 on battery5-xiranite at the re-measure spanning the
 // icon-only chip collapse, the PORT_ZONE_DEPTH 12 -> 8 tracking edit and the
 // divergence dot. Differentially isolated to the depth edit (the collapse
@@ -473,10 +475,10 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // e:4 (107.63px) and e:18 (17.18px) survive, so the port-drift ruling above is
 // still NOT retired. This cell and the battery5-xiranite chip-segment rise are
 // the SAME chip moving -- reverting the depth edit puts both back, so revert
-// this pin with it. battery5 measured 2 again, unchanged and still unpinned.
+// this pin with it. battery5 measured 2 again, unchanged (ratified above).
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 1,
+  battery5: 2,
   "battery5-xiranite": 2,
   crystal: 0,
   equip4: 0,
