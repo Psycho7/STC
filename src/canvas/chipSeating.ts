@@ -915,6 +915,12 @@ export function seatRateChip(
 // Re-derive these if the card borders or paddings change, if handle sizing or
 // nesting changes (RecipeNode/ProductNode markup, .react-flow__handle CSS), or
 // if React Flow changes its handle-anchoring rule.
+// This table is not exported, so four suites keep hand copies of it:
+// test/canvas/junctionDots.test.ts, test/canvas/shortLegChips.test.ts,
+// test/canvas/fanoutMarkers.test.ts, and test/e2e/geometry.ts. Update all four
+// when these numbers change -- the unit mirrors run this module's own code
+// alongside their copy, but the e2e mirror has no cross-check against src at
+// all, so a stale copy there stays silent.
 type PortDrift = { sourceDx: number; targetDx: number; dy: number };
 
 const PORT_DRIFT: Record<"recipe" | "product" | "other", PortDrift> = {

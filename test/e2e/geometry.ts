@@ -670,6 +670,17 @@ type PortDrift = { sourceDx: number; targetDx: number; dy: number };
 // tables describe -- card borders, handle sizing, row pitch -- so a change that
 // invalidates the source numbers reddens this table through the DOM, and this
 // copy then has to be re-derived alongside it.
+//
+// Nothing checks the two copies against each other, either. The unit-suite
+// mirrors at least run chipSeating's own code beside their copy; this one never
+// touches src, so a src edit that this file does not follow goes unnoticed until
+// the DOM contract itself moves. Treat the copy as hand-maintained.
+//
+// The product side carries a matching blind spot. The reconstruction takes a
+// product node's width from the DOM (node.right - node.left), so a change to
+// product width or border moves the drawn endpoint and the rebuilt one together
+// and this audit stays green. Recipes rebuild off the model RECIPE_WIDTH, so the
+// same class of change on a recipe card does redden.
 const PORT_DRIFT: Record<"recipe" | "product" | "other", PortDrift> = {
   recipe: { sourceDx: 5, targetDx: -3, dy: 1 },
   product: { sourceDx: 4, targetDx: -4, dy: 0 },
@@ -727,8 +738,10 @@ export type EndpointParity = {
 // edgeEndpoints returning null. A node kind the model gives no per-item port
 // (product, and container / loop kinds) rebuilds at the card centre, which is
 // what portOffsetY returns for it; the whole corpus currently lands every edge
-// endpoint on a recipe or a product, so a loop node acquiring a row-anchored
-// handle would show up here as a row-pitch gap rather than pass unnoticed.
+// endpoint on a recipe or a product, so a loop node entering the corpus would
+// show up here as a row-pitch gap rather than pass unnoticed. LoopNode already
+// renders row-anchored handles while portOffsetY answers with the card centre --
+// the mismatch is untested only because no corpus plan contains a loop node.
 export function auditEndpointParity(
   edges: ReadonlyArray<RawEdge>,
   nodes: ReadonlyArray<PortedNode>,

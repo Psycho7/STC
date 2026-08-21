@@ -255,8 +255,9 @@ test.describe("DOM geometry audit", () => {
 //     what has to keep them apart);
 //   parity (SOFT ratchet): every drawn path's first / last vertex within a
 //     per-scenario tolerance of a model + PORT_DRIFT reconstruction of the same
-//     endpoint (the port contract the seating pass reconstructs from, checked
-//     against the frame React Flow actually drew);
+//     endpoint (a MIRRORED copy of the port contract, checked against the frame
+//     React Flow actually drew -- a negative control on that drawn frame, not a
+//     probe of the seating pass's internals);
 //   census: pairwise crossing count <= the pre-P2 baseline;
 //   detour: the tundra ore feed within 1.5x its endpoints' Manhattan gap.
 //
@@ -301,11 +302,6 @@ test.describe("DOM geometry audit", () => {
 // rects mapped back through the camera, so a sub-eps graze flips with the
 // rounding. Edge paths and card positions are camera-independent and did not
 // move.
-// A SEVENTH table joined in the same campaign (ENDPOINT_PARITY_TOL, drawn-vs-
-// rebuilt edge endpoints). It adds no ruling of its own either, and unlike the
-// six above it records no defect residue: it is a TOLERANCE, not a count, and
-// it says that two independent descriptions of the same port agree. Its first
-// pins were taken from an already-clean corpus.
 // The row-chrome diet and the #41 slab-spacing fix, landed back to back,
 // together triggered a second wholesale re-measure. Eight of the thirty-five
 // cells moved: SEVEN moved DOWN and were re-pinned; ONE moved UP -- battery5
@@ -336,6 +332,13 @@ test.describe("DOM geometry audit", () => {
 // give the pierce rescue an off-own column where it previously had none, so
 // the walled cases named above no longer occur. The paragraph is kept as the
 // record of why the ratchet exists.
+// A SEVENTH table joined in the same campaign (ENDPOINT_PARITY_TOL, drawn-vs-
+// rebuilt edge endpoints). It adds no ruling of its own either, and unlike the
+// six above it records no defect residue: it is a TOLERANCE, not a count, and
+// it says that a mirrored description of a port still agrees with the port the
+// DOM shows -- a negative control on the drawn frame, detailed at
+// ENDPOINT_PARITY_TOL below. Its first pins were taken from an already-clean
+// corpus.
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -602,9 +605,17 @@ const DOT_COVER_BASELINE: Record<string, number> = {
 // Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
 // per-axis gap allowed between an edge's drawn first / last vertex and a
 // reconstruction of that same endpoint from the node's card origin, the model
-// port geometry, and PORT_DRIFT (auditEndpointParity). The reconstruction is the
-// one chipSeating's edgeEndpoints performs, so this table states that the port
-// contract the seating pass reasons about is the port React Flow drew.
+// port geometry, and PORT_DRIFT (auditEndpointParity). The reconstruction runs
+// off a MIRRORED copy of chipSeating's port contract -- the same drift constants
+// and the same row math -- so what this table states is that that contract still
+// agrees with the DOM.
+//
+// It anchors on the DRAWN card origin, which makes it a NEGATIVE CONTROL on the
+// drawn frame: it says the frame did not move, and it catches a row-index or
+// port-contract regression, which lands a full row pitch out. It is NOT
+// sensitive to chipSeating's src-side internals -- zeroing the source PORT_DRIFT
+// leaves it green. See the mirror comment above PORT_DRIFT in test/e2e/geometry.ts
+// for that one-directionality and its blind spots.
 //
 // A tolerance rather than a count, and deliberately coarse: the disagreement it
 // exists to catch is an endpoint resolving to the WRONG ROW, which lands a full
