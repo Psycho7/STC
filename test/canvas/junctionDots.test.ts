@@ -25,6 +25,11 @@ import {
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
+import {
+  CHIP_BOX_HEIGHT,
+  CHIP_BOX_WIDTH,
+  MAX_CHIP_SCALE,
+} from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 
@@ -35,6 +40,13 @@ import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 const SRC_DX = 5;
 const TGT_DX = -3;
 const PORT_DY = 1;
+
+// The chip box the seating pass reserves at max counter-scale, and the vertical
+// pitch a crowded chip is bumped by -- the two numbers the dot keep-off's
+// observable effects are stated in.
+const CHIP_HALF_W = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
+const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
+const CHIP_PITCH = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
 
 const ITEM = "s";
 
@@ -99,6 +111,15 @@ describe("junction dots: lane bus member (BusEdge branch dot)", () => {
     // Seating moves chips, never the lane the dot is drawn on.
     const seated = deconflictChipAnchors(nodes, routed);
     expect(dataOf(seated, "e:1").laneY).toBe(laneY);
+
+    // ...and the cached dot is READ, not merely cached (#50): the member's rise
+    // chip anchors on the lane a chamfer right of this junction, so its box
+    // would swallow the dot at dy 0. The keep-off lifts it exactly one lane
+    // pitch (bottom band, so downward), the same distance the rise loop already
+    // accepts as "beside the lane". This is the pin that fails if the cached
+    // lane dot ever stops matching the drawn one above.
+    expect(dataOf(seated, "e:1").busChipDy).toBe(CHIP_PITCH);
+    expect(Math.abs(CHIP_PITCH)).toBeGreaterThan(CHIP_HALF_H);
   });
 });
 
@@ -130,6 +151,29 @@ describe("junction dots: fan-out trunk (BusEdge split dot)", () => {
     expect(downJunction).toEqual(upJunction);
     // The dot sits on the source row, out along the shared trunk.
     expect(upJunction.y).toBe(drawnEnds(src, up).sourceY);
+
+    // The split dot is in the seating pass's keep-off set too (#50), so no
+    // seated branch chip may end up painting over it. Both branch chips here
+    // anchor well down their own legs, so this states the invariant rather than
+    // a move -- it is the guard that fires if a later seating change walks a
+    // branch chip back up onto the split.
+    const seated = deconflictChipAnchors(nodes, routed);
+    for (const [id, tgt] of [
+      ["e:1", up],
+      ["e:2", down],
+    ] as const) {
+      const data = dataOf(seated, id);
+      const branch = chamferFanoutPath({
+        ...drawnEnds(src, tgt),
+        ...routingHintsFromData(data),
+      }).branchAnchor;
+      const cx = branch.x + ((data.fanoutBranchDx as number | undefined) ?? 0);
+      const cy = branch.y + ((data.fanoutBranchDy as number | undefined) ?? 0);
+      expect(
+        Math.abs(cx - upJunction.x) >= CHIP_HALF_W ||
+          Math.abs(cy - upJunction.y) >= CHIP_HALF_H,
+      ).toBe(true);
+    }
   });
 });
 

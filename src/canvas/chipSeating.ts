@@ -30,7 +30,9 @@
 // Escapes follow the ratified priority order: chip-vs-chip and chip-vs-CARD
 // clearance are HARD invariants; staying on the own polyline and clearing
 // foreign flow lines are preferences that yield when the hard pair forces an
-// escape.
+// escape. Keeping off a junction dot (#50) is the WEAKEST preference of all: it
+// chooses between seats the tiers above already rank equal, and never costs a
+// chip its tier, its line, or a foreign-line clearance.
 
 import type { Edge } from "@xyflow/react";
 
@@ -87,6 +89,17 @@ const CHIP_NUDGE_STEP = CHIP_PITCH_Y;
 // half-extents. Two boxes overlap when their centres sit closer than the sum of
 // their half-extents on BOTH axes.
 export type ChipBox = { x: number; y: number; halfW: number; halfH: number };
+
+// Half-extent of the keep-off square a junction dot claims, in graph units. A
+// dot renders at a screen radius clamped to 3-5px (junctionRadius in
+// ItemEdge.tsx), so in graph units its radius is 3 / zoom below zoom 1: about 3
+// units at a sparse plan's 0.9 fit and about 14 at the densest corpus plan's
+// 0.21 fit. Seating runs before the camera exists and cannot know the zoom, so
+// the keep-off is sized for the widest of those plus a couple of units, keeping
+// the dot clear of the chip's edge rather than flush against it. Re-derive it if
+// JUNCTION_MIN_PX / JUNCTION_RADIUS change or the fit floor drops much below
+// 0.2.
+const DOT_KEEPOFF = 16;
 
 // The target's entry band: the gutter just left of a consumer's card where its
 // arriving lines converge on the Left port. A rate chip whose centre sits in
@@ -301,13 +314,34 @@ export type ClearanceField = {
     entryBand?: EntryBand,
     ownIds?: ReadonlySet<string>,
   ): number;
+  // Would this box swallow a junction dot? Chips paint ABOVE the dots in the
+  // shared label layer (canvas.css .flow-chip z-index 2 vs .bus-junction 1) and
+  // are opaque, so a chip seated on a dot does not overlap it -- it deletes it,
+  // and the merge / split the dot marks reads as an ordinary corner. Unlike the
+  // chip and card predicates this one is a PREFERENCE the seat tiers consult
+  // where a cheap alternative exists (a step along the own line, one pitch off a
+  // lane); it never forces a chip off its line or into a coarser tier.
+  coversDot(box: ChipBox): boolean;
+  // How many junction dots this box swallows -- the counting sibling of
+  // coversDot, for the graze tier's scored seat. Zero exactly when coversDot is
+  // false.
+  dotsCovered(box: ChipBox): number;
 };
 
 export function makeClearanceField(
   segments: ReadonlyArray<EdgeSegments>,
   cards: ReadonlyArray<CardRect>,
+  // Every junction dot the render layer will draw, resolved before the first
+  // chip seats (phase 0). Empty for callers that seat against chips and lines
+  // alone.
+  dots: ReadonlyArray<JunctionDot> = [],
 ): ClearanceField {
   const placed: ChipBox[] = [];
+  // A box swallows a dot when it covers the dot's keep-off square, i.e. their
+  // rects overlap on both axes -- the same per-axis test chipBoxesOverlap runs.
+  const swallows = (box: ChipBox, dot: JunctionDot): boolean =>
+    Math.abs(box.x - dot.x) < box.halfW + DOT_KEEPOFF &&
+    Math.abs(box.y - dot.y) < box.halfH + DOT_KEEPOFF;
   return {
     placed,
     overlapsChip: (box) => placed.some((b) => chipBoxesOverlap(b, box)),
@@ -350,6 +384,8 @@ export function makeClearanceField(
       }
       return count;
     },
+    coversDot: (box) => dots.some((d) => swallows(box, d)),
+    dotsCovered: (box) => dots.reduce((n, d) => n + (swallows(box, d) ? 1 : 0), 0),
   };
 }
 
@@ -417,7 +453,38 @@ function seatChip(
   // card, upholding the bus-drop-vs-card hard tier at the seating side. Absent
   // for rise chips (lane-anchored, out of scope for that tier).
   cardExempt?: CardExemption,
+  // Run the junction-dot keep-off pass below (#50). Only the RISE seat passes
+  // it: a lane's junction dot is drawn one chamfer from the member's RISE
+  // column by construction (chamferBusPath), so the rise chip is the one
+  // structurally seated on top of it. A drop chip sits at the drop column, a
+  // different place, and reaches a dot only where a collapsed run puts the two
+  // columns together -- and there, lifting the drop merely hands its lane slot
+  // to the rise, which covers the same dot again. So the drop keeps its seat.
+  avoidDots = false,
 ): number {
+  // Dot keep-off pass (#50). A rise chip sits ON the lane a chamfer from its own
+  // trunk's junction dot, so at dy = 0 its box routinely swallows the dot. Probe
+  // the lane slot and then ONE pitch along the band's own cascade direction,
+  // taking the first that clears everything the cascade below clears AND leaves
+  // the dot visible. One pitch is the whole budget: it is the offset the rise
+  // loop already reads as "beside the lane" rather than orphaned, and past it
+  // the chip would be hidden. The direction is not searched backwards either --
+  // a band cascades away from the graph by design, and the weakest preference in
+  // the pass has no business inverting that. When neither slot qualifies the dot
+  // yields to the plain cascade below: the dot is decorative, a missing or
+  // floating rate chip is not.
+  for (const dy of avoidDots ? [0, step] : []) {
+    const box = { x, y: y + dy, halfW, halfH };
+    if (
+      !field.overlapsChip(box) &&
+      !field.onForeignLine(box, flowKey, target) &&
+      (cardExempt === undefined || !field.entersForeignCard(box, cardExempt)) &&
+      !field.coversDot(box)
+    ) {
+      field.placed.push(box);
+      return dy;
+    }
+  }
   const clear = cascadeClearDy(
     field,
     x,
@@ -663,9 +730,22 @@ export function seatRateChip(
   // braided corridor a parallel foreign line within a chip half-height poisons
   // every tier-1 candidate at once, yet the own line is otherwise empty -- the
   // chip belongs on it, icon and tint disambiguate the graze.
-  const fullyClearSlide = slideAlong(isClear, (px, py) =>
-    px === anchorX && py === anchorY ? "anchor" : "slide",
+  //
+  // The tier runs in TWO passes for the junction-dot keep-off (#50): first over
+  // the candidates that are fully clear AND swallow no dot, then -- only if
+  // there is no such point on the whole line -- over the fully clear ones as
+  // before. Both passes accept the same tier, walk the same candidates in the
+  // same order, and stay ON the own line, so the keep-off can only reorder
+  // WITHIN tier 1: no chip is ever pushed to a coarser tier, off its line, or
+  // onto a foreign line to spare a dot.
+  const tierOf = (px: number, py: number): RateSeatTier =>
+    px === anchorX && py === anchorY ? "anchor" : "slide";
+  const dotClearSlide = slideAlong(
+    (px, py) => isClear(px, py) && !field.coversDot(boxAt(px, py)),
+    tierOf,
   );
+  if (dotClearSlide !== null) return dotClearSlide;
+  const fullyClearSlide = slideAlong(isClear, tierOf);
   if (fullyClearSlide !== null) return fullyClearSlide;
   // Tier 1c (sidestep): no fully clear point exists ALONG the own line, which on
   // a vertical corridor leg (or a short horizontal trunk the box wholly
@@ -697,10 +777,20 @@ export function seatRateChip(
   // The walk is spelled out rather than run through slideAlong because that
   // helper seats at its first accepted candidate by construction; the order,
   // the barrier skip and the arc-length clamp mirror it exactly.
-  let bestGraze: { px: number; py: number; score: number } | null = null;
+  // Junction dots (#50) enter as a STRICT TIEBREAK under the crossing count,
+  // never above it: a seat that occludes one more flow line to spare a
+  // decorative dot would trade a ratcheted defect for a cosmetic one, so dots
+  // only choose between candidates the line-crossing score already ties.
+  let bestGraze: {
+    px: number;
+    py: number;
+    score: number;
+    dots: number;
+  } | null = null;
   for (
     let k = 0;
-    k <= SLIDE_MAX_STEPS && (bestGraze === null || bestGraze.score > 1);
+    k <= SLIDE_MAX_STEPS &&
+    (bestGraze === null || bestGraze.score > 1 || bestGraze.dots > 0);
     k++
   ) {
     const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
@@ -710,15 +800,21 @@ export function seatRateChip(
       const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
       if (crossesBarrier(py)) continue;
       if (!hardClearAt(px, py)) continue;
+      const box = boxAt(px, py);
       const score = field.foreignLineCrossings(
-        boxAt(px, py),
+        box,
         flowKey,
         target,
         entryBand,
         ownIds,
       );
-      if (bestGraze === null || score < bestGraze.score) {
-        bestGraze = { px, py, score };
+      const dots = field.dotsCovered(box);
+      if (
+        bestGraze === null ||
+        score < bestGraze.score ||
+        (score === bestGraze.score && dots < bestGraze.dots)
+      ) {
+        bestGraze = { px, py, score, dots };
       }
     }
   }
@@ -842,7 +938,7 @@ function edgeEndpoints(
 // below -- but they are one obstacle class to the seating phases, so the
 // collected set keeps the family only as a label.
 type JunctionDotKind = "lane" | "fanout" | "fanin" | "divergence";
-type JunctionDot = { x: number; y: number; kind: JunctionDotKind };
+export type JunctionDot = { x: number; y: number; kind: JunctionDotKind };
 
 export function deconflictChipAnchors(
   nodes: ReadonlyArray<RFAnyNode>,
@@ -1010,10 +1106,6 @@ export function deconflictChipAnchors(
     for (const id of from.whole) into.whole.add(id);
     for (const [id, z] of from.zones) into.zones.set(id, z);
   };
-
-  // The shared clearance field: every phase seats into `field.placed`, so a
-  // later phase yields to everything an earlier phase placed.
-  const field = makeClearanceField(edgeSegments, cards);
 
   // Phase 0 -- junction-dot geometry. Every junction dot the render layer draws
   // resolves here, before the first chip seats. Two families come straight off
@@ -1235,6 +1327,14 @@ export function deconflictChipAnchors(
   for (const p of faninJunctionByIndex.values()) addDot(p, "fanin");
   for (const p of fanoutJunctionByIndex.values()) addDot(p, "divergence");
 
+  // The shared clearance field: every phase seats into `field.placed`, so a
+  // later phase yields to everything an earlier phase placed. It carries the
+  // dot set as a third static obstacle class beside the edge polylines and the
+  // card rects -- hence its construction here, after phase 0, rather than
+  // before: the dots are known and fixed by now, and every seat that follows
+  // consults them through the one field.
+  const field = makeClearanceField(edgeSegments, cards, dotKeepoffs);
+
   // Phases 1 and 2 -- bus chips: a LONE-member trunk draws one aggregate drop
   // chip (on the owner member); a multi-member trunk draws none (issue #39).
   // Every trunk draws one rise chip per member, all on the trunk's lane.
@@ -1426,6 +1526,10 @@ export function deconflictChipAnchors(
       slot.flowKey,
       slot.target,
       slot.id,
+      undefined,
+      // The rise column is where the lane's junction dots live, so this seat
+      // takes the dot keep-off pass (#50).
+      true,
     );
     // seatChip's cascade is unbounded in y, so a KEPT rise whose lane slot is
     // blocked can still walk clean off the band into empty canvas -- the chip
@@ -1677,7 +1781,7 @@ export function deconflictChipAnchors(
       cardExemptFor(edge),
       entryBand,
     );
-    if (seat.tier === "exhausted" && import.meta.env.DEV) {
+      if (seat.tier === "exhausted" && import.meta.env.DEV) {
       // Dev/test-only tripwire, tree-shaken out of production builds (parity
       // with the render hook in src/pipeline/driver.ts). Never expected: cards
       // are finite, so the cascade should always find free space.

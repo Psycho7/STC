@@ -277,8 +277,21 @@ test.describe("DOM geometry audit", () => {
 // no ruling of its own. Later re-measures are recorded per table.
 // A SIXTH table joined during the trunk-rate legibility campaign
 // (DOT_COVER_BASELINE, junction dots hidden under a chip). It adds no ruling of
-// its own either: its first pins record the pre-keepoff state exactly as
-// measured, so the seating change that follows has a committed diff base.
+// its own either: its first pins recorded the pre-keepoff state exactly as
+// measured, so the seating change that followed had a committed diff base, and
+// that change then re-pinned the table DOWN.
+// That keep-off also SUPERSEDES, without retiring, the chips-over-dots ruling in
+// canvas.css (.flow-chip z-index 2 over .bus-junction z-index 1): the z-order
+// still decides who paints on top, but it is no longer the mechanism that
+// handles a chip landing on a dot -- seating avoids the landing wherever a seat
+// on the chip's own line allows, and this table ratchets what is left. The five
+// tables above were re-measured at the same commit: every cell held, except
+// multi6's padding graze, which read 0 instead of 1. That one is NOT re-pinned:
+// multi6's fit zoom moved (0.208893 -> 0.206472, one top-band rise chip lifting
+// a pitch grew the height-bound content box), and the graze audit reads node
+// rects mapped back through the camera, so a sub-eps graze flips with the
+// rounding. Edge paths and card positions are camera-independent and did not
+// move.
 // The row-chrome diet and the #41 slab-spacing fix, landed back to back,
 // together triggered a second wholesale re-measure. Eight of the thirty-five
 // cells moved: SEVEN moved DOWN and were re-pinned; ONE moved UP -- battery5
@@ -534,18 +547,34 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // ordinary corner. First recorded here at the campaign's pre-keepoff state, so
 // the counts below are a measurement of the defect, not a target; like every
 // table above it ratchets DOWN freely and moves UP only on a recorded ruling.
-// Two families make up the first recording: a lane rise chip covering a
-// junction dot 8-13 units from its own centre (its own dot, or a coincident
-// sibling member's), and the restored fan-in owner chip covering the merge dot
-// on battery5-xiranite's e:14 (the shared-run owner chip that replaced the
-// removed sigma, which used to keep a half-box off the junction).
+// Two families made up the first recording (10 corpus-wide): a lane rise chip
+// covering a junction dot 8-13 units from its own centre (its own dot, or a
+// coincident sibling member's), and the restored fan-in owner chip covering the
+// merge dot on battery5-xiranite's e:14 (the shared-run owner chip that replaced
+// the removed sigma, which used to keep a half-box off the junction).
+// Re-pinned DOWN to 6 by the seating keep-off (#50), which walks a chip along
+// its own line (or one pitch off its lane) to a seat that leaves the dot
+// visible, whenever such a seat exists. Cleared: default's water rise, the
+// battery5 and battery5-xiranite iron_powder rises, and multi6's
+// originium_enr_powder rise -- four lane rises that had a clear lane-side slot.
+// The SIX survivors are all cases where no seat on the chip's own polyline
+// clears the dot, measured per case:
+//   - four fan-out branch chips on the Sandleaf trunks (battery5 e:8,
+//     battery5-xiranite e:13, crystal e:8, equip4 e:10) sit 9 units past their
+//     trunk's split dot on a 118-unit leg; the box is wider than the whole leg,
+//     so every point on it covers the dot;
+//   - battery5-xiranite's fan-in owner chip (e:14) has 89 units of reach along
+//     its polyline against the ~93 its drawn box needs to clear the merge dot;
+//   - multi6's gas_inert rise (e:74) has its one lane-side slot blocked.
+// Clearing any of those means taking a chip OFF its own polyline, which the
+// off-path ratchet forbids without a ruling; they are reported as they stand.
 const DOT_COVER_BASELINE: Record<string, number> = {
-  default: 1,
-  battery5: 2,
-  "battery5-xiranite": 3,
+  default: 0,
+  battery5: 1,
+  "battery5-xiranite": 2,
   crystal: 1,
   equip4: 1,
-  multi6: 2,
+  multi6: 1,
   tundra: 0,
 };
 

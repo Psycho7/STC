@@ -94,9 +94,14 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     // Nothing seats a drop chip on a multi-member trunk, so the owner carries no
     // busDropDy at all.
     expect(busDropDyRawOf(out, "e0")).toBeUndefined();
-    // e0 takes the freed slot on the lane; e1 is hidden, not cascaded.
+    // e0 takes the freed slot; e1 is hidden, not cascaded. e0's rise lifts one
+    // pitch off the lane rather than seating flush on it: its slot sits a
+    // chamfer from the trunk's junction dot, so the seat takes the dot keep-off
+    // pass (#50) -- the same "beside the lane" offset the cascade uses, and
+    // still inside the one-pitch band that distinguishes a lane-side chip from
+    // an orphaned one.
     expect(busRiseHiddenOf(out, "e0")).toBe(false);
-    expect(busChipDyOf(out, "e0")).toBe(0);
+    expect(busChipDyOf(out, "e0")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
     expect(busRiseHiddenOf(out, "e1")).toBe(true);
     expect(busChipDyOf(out, "e1")).toBe(0);
   });

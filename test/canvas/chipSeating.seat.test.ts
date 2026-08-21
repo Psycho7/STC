@@ -593,6 +593,39 @@ describe("seatRateChip: trunk-aware foreignness for the aggregate (issue #28)", 
   });
 });
 
+describe("seatRateChip: junction-dot keep-off (#50)", () => {
+  it("slides along its own line off a dot its anchor box would swallow", () => {
+    // The fan-in case in miniature: nothing blocks the anchor, but a junction
+    // dot sits right under it, and a chip paints over the dot (z-order), so the
+    // merge marker is simply deleted. The seat must walk its own line until the
+    // box no longer covers the dot -- a wide box needs more than a half-width of
+    // centre separation to stop covering a point.
+    const field = makeClearanceField([], [], [{ x: 500, y: 0, kind: "fanin" }]);
+    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    expect(seat.tier).toBe("slide");
+    // Still on its own line: the keep-off never trades the line for a dot.
+    expect(seat.dy).toBe(0);
+    expect(Math.abs(seat.dx)).toBeGreaterThan(HALF_W);
+  });
+
+  it("keeps its fully clear anchor when no on-line seat clears the dot", () => {
+    // The keep-off is a PREFERENCE, not a hard invariant: on a short line every
+    // candidate box swallows the dot, and leaving the line (or grazing) to save
+    // a decorative marker would be the worse defect. The seat stays exactly
+    // where it sits today.
+    const field = makeClearanceField([], [], [{ x: 500, y: 0, kind: "fanin" }]);
+    const seat = seatRateChip(
+      field,
+      { pts: [[440, 0], [560, 0]], anchorX: 500, anchorY: 0 },
+      "own",
+      "t",
+      NO_EXEMPT,
+      NO_BAND,
+    );
+    expect(seat).toEqual({ dx: 0, dy: 0, tier: "anchor" });
+  });
+});
+
 describe("seatRateChip: slide barrier keeps branch chips in stack order (issue #28)", () => {
   it("clamps a pushed bottom branch below an already-seated sibling instead of crossing it", () => {
     // Three-branch fan-out on one junction column (multi6 Sandleaf lane): the
