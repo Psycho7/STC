@@ -39,12 +39,12 @@ function makeEdge(data: ItemEdgeData): Edge {
   };
 }
 
-function renderEdge(data: ItemEdgeData, zoom?: number) {
+function renderEdge(data: ItemEdgeData, zoom?: number, nodes: Node[] = NODES) {
   return render(
     <LocaleProvider locale="en">
       <div style={{ width: 800, height: 600 }}>
         <ReactFlow
-          nodes={NODES}
+          nodes={nodes}
           edges={[makeEdge(data)]}
           edgeTypes={edgeTypes}
           minZoom={0.05}
@@ -241,6 +241,38 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(sigma!.getAttribute("title")).toContain("Σ300/min");
   });
 
+  it("collapses a chipIconOnly rate chip above the icon-only zoom", async () => {
+    // The seating pass stamps chipIconOnly on a leg too short for the full box,
+    // so the collapse must come from the edge data, not from the zoom gate:
+    // zoom 1 is well ABOVE CHIP_ICON_ONLY_MAX_ZOOM and would keep the digits.
+    renderEdge({ item: "belt", rate: new Fraction(2, 1), chipIconOnly: true }, 1);
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.classList.contains("icon-only")).toBe(true);
+    // Icon kept, digits dropped; the exact rate stays on the hover tooltip.
+    expect(label!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
+    expect(label!.textContent).toBe("");
+    expect(label!.getAttribute("title")).toContain("120/min");
+  });
+
+  it("keeps a focused chipIconOnly chip's digits", async () => {
+    // Hover overrides the short-leg collapse the same way it overrides the zoom
+    // one, so no chip is permanently rate-less.
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(2, 1),
+        chipIconOnly: true,
+        focused: true,
+      },
+      1,
+    );
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.classList.contains("icon-only")).toBe(false);
+    expect(label!.textContent).toBe("120/min");
+  });
+
   it("marks the fan-in Sigma chip with the sigma variant class", async () => {
     // The aggregate is styled as a summary tag of the junction beside it, not
     // as one more per-edge rate chip, so it carries its own variant class.
@@ -277,6 +309,88 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     );
     expect(sigma).not.toBeNull();
     expect(sigma!.classList.contains("sigma")).toBe(true);
+  });
+});
+
+describe("canvas/ItemEdge declined fan-out dot", () => {
+  // The seating pass's own eps, mirrored (ItemEdge keeps it module-private).
+  const HIDE_STALE_EPS = 24;
+
+  // Source and target on DIFFERENT rows, far enough apart that a stamp seated on
+  // one port row is unambiguously stale against the other. Without that spread
+  // the two staleness axes are indistinguishable.
+  const SPLIT_ROW_NODES: Node[] = [
+    { id: "src", position: { x: 0, y: 0 }, data: { label: "src" } },
+    { id: "tgt", position: { x: 300, y: 160 }, data: { label: "tgt" } },
+  ];
+
+  // Live port rows, read off the drawn polyline's ends -- the same discovery the
+  // fan-in marker tests do, since the stale check compares a stamp to the props
+  // React Flow measured, not to anything the fixture can assert directly.
+  async function portRows(): Promise<{ sourceY: number; targetY: number }> {
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    const pts = parsePathPoints(
+      document
+        .querySelector<SVGPathElement>(".react-flow__edge-path")!
+        .getAttribute("d")!,
+    );
+    return { sourceY: pts[0]![1], targetY: pts[pts.length - 1]![1] };
+  }
+
+  async function fanoutDot(): Promise<HTMLElement | null> {
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge")).not.toBeNull(),
+    );
+    return document.querySelector<HTMLElement>(
+      '[data-testid^="fanout-junction-"]',
+    );
+  }
+
+  it("draws the dot for a stamp seated on the live SOURCE port row", async () => {
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
+    const { sourceY, targetY } = await portRows();
+    // Premise: the two rows are far enough apart to tell the axes apart.
+    expect(Math.abs(targetY - sourceY)).toBeGreaterThan(HIDE_STALE_EPS);
+    cleanup();
+
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        fanoutJunctionX: 120,
+        fanoutJunctionY: sourceY,
+      },
+      1,
+      SPLIT_ROW_NODES,
+    );
+    const dot = await fanoutDot();
+    expect(dot).not.toBeNull();
+    expect(dot!.getAttribute("data-testid")).toBe("fanout-junction-e1");
+  });
+
+  it("drops the dot for a stamp off the source row, even sitting on the target row", async () => {
+    // The divergence dot marks a split just outside the SOURCE port, so the
+    // drag-staleness check runs against the live source y. A stamp parked on the
+    // target row is exactly as stale as any other off-row stamp: it must vanish,
+    // not survive because the other end happens to agree with it.
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
+    const { sourceY, targetY } = await portRows();
+    expect(Math.abs(targetY - sourceY)).toBeGreaterThanOrEqual(HIDE_STALE_EPS);
+    cleanup();
+
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        fanoutJunctionX: 120,
+        fanoutJunctionY: targetY,
+      },
+      1,
+      SPLIT_ROW_NODES,
+    );
+    expect(await fanoutDot()).toBeNull();
   });
 });
 

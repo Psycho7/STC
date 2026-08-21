@@ -68,6 +68,13 @@ import type { RFAnyNode } from "./layout";
 const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
 const CHIP_HALF_W_WIDE = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
 
+// A leg shorter than this cannot hold the full rate chip anywhere on its own
+// line (rendered chips measure ~99-110 units; slideAlong clamps to the arc, so
+// on such a leg the anchor is the only candidate). Those chips collapse to the
+// icon-only variant instead of burying their endpoint cards; the exact rate
+// stays on the hover title.
+const SHORT_LEG_MAX = CHIP_HALF_W_WIDE;
+
 // Vertical pitch a colliding chip is bumped by each step, and the shared full
 // chip-box height. A full max-scale box height keeps the resolved clearance from
 // dropping below one box at any zoom.
@@ -202,13 +209,14 @@ export type CardRect = {
 // card"). So the exemption is on the chip CENTRE, not the box: a chip is exempt
 // from its own card while its centre stays within PORT_ZONE_DEPTH of the port
 // edge (in the corridor or a hair inside), and enters the body once the centre
-// crosses deeper. Depth is the recipe row's horizontal frame/padding strip
-// (canvas.css .rn-row padding: 0 12px) -- the frame between the card edge and the
-// row's item glyph (at the 14px port-side inset), so an exempt chip's centre
-// never sits on the glyph. A box-overlap rule instead would flag every on-line
-// chip (box wider than corridor) and fling it off its line -- the issue-#9
-// orphaned-chip regression this narrowing must avoid.
-export const PORT_ZONE_DEPTH = 12;
+// crosses deeper. Depth is the recipe row's port-side inset (canvas.css
+// .rn-row.input padding-left / .rn-row.output padding-right, both 8px) -- the
+// strip between the card edge and the row's item glyph, so an exempt chip's
+// centre stops at the glyph's leading edge and never sits on the glyph itself.
+// Re-derive it whenever that row padding changes. A box-overlap rule instead
+// would flag every on-line chip (box wider than corridor) and fling it off its
+// line -- the issue-#9 orphaned-chip regression this narrowing must avoid.
+export const PORT_ZONE_DEPTH = 8;
 
 export type PortZoneSide = "source" | "target";
 
@@ -861,6 +869,9 @@ export function deconflictChipAnchors(
     owner: boolean;
   };
   const fanoutGeomByIndex = new Map<number, FanoutGeom>();
+  // Item edges whose whole polyline is shorter than one rendered chip: their
+  // rate chip renders icon-only (see SHORT_LEG_MAX).
+  const shortLegByIndex = new Set<number>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item" && edge.type !== "bus") return;
     const ends = edgeEndpoints(edge, byId);
@@ -907,7 +918,16 @@ export function deconflictChipAnchors(
         ...routingHintsFromData(edge.data),
       });
       d = path;
-      itemGeomByIndex.set(index, { pts: parsePathPoints(d), lx, ly });
+      const itemPts = parsePathPoints(d);
+      itemGeomByIndex.set(index, { pts: itemPts, lx, ly });
+      let legLen = 0;
+      for (let i = 1; i < itemPts.length; i++) {
+        legLen += Math.hypot(
+          itemPts[i]![0] - itemPts[i - 1]![0],
+          itemPts[i]![1] - itemPts[i - 1]![1],
+        );
+      }
+      if (legLen < SHORT_LEG_MAX) shortLegByIndex.add(index);
     }
     const pts = itemGeomByIndex.get(index)?.pts ?? parsePathPoints(d);
     const segs: Array<readonly [number, number, number, number]> = [];
@@ -1578,6 +1598,72 @@ export function deconflictChipAnchors(
     }
   }
 
+  // Phase 3.6 -- declined fan-outs (#43): N >= 2 same-(item, source) item edges
+  // into >= 2 distinct targets whose gap fell outside routeFanoutEdges' span
+  // band stay plain ItemEdges. They leave the shared out-port coincident and
+  // peel off one at a time, so the reader sees ONE line and takes a member's
+  // rate for the whole flow. Mark the split with a junction dot on one owner
+  // edge -- the counterpart of the fan-in merge dot above, and of the dot a real
+  // fan-out trunk draws from BusEdge. Bus-typed members never reach here (they
+  // have no item geometry), so an accepted trunk is not double-marked. No
+  // aggregate chip rides along: a total would sit a few pixels from the source
+  // card's own output row, which already states it (#39), and a declined
+  // fan-out's shared prefix is too short to hold the box anyway. Presentational
+  // only -- no edge is retyped and no chip moves.
+  const fanoutJunctionByIndex = new Map<number, { x: number; y: number }>();
+  type DivergenceMember = {
+    index: number;
+    id: string;
+    target: string;
+    sx: number;
+    sy: number;
+    // x of the last vertex still on the source row, i.e. where this member
+    // peels off. Undefined for a member that never leaves the row.
+    bendX: number | undefined;
+  };
+  const divergenceGroups = new Map<string, DivergenceMember[]>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "item") return;
+    const geom = itemGeomByIndex.get(index);
+    if (geom === undefined) return;
+    const pts = geom.pts;
+    if (pts.length < 2) return;
+    const sx = pts[0]![0];
+    const sy = pts[0]![1];
+    // A backward member leaves through its own detour rail rather than sharing
+    // a forward prefix, so it neither carries the dot nor counts as a target of
+    // the split (the fan-in marker draws the same line at its own end).
+    if (pts[pts.length - 1]![0] <= sx) return;
+    let bendX: number | undefined;
+    for (let i = 1; i < pts.length; i++) {
+      if (Math.abs(pts[i]![1] - sy) > FANIN_EPS) {
+        bendX = pts[i - 1]![0];
+        break;
+      }
+    }
+    const key = flowKeyOf(edge);
+    const list = divergenceGroups.get(key) ?? [];
+    list.push({ index, id: edge.id, target: edge.target, sx, sy, bendX });
+    divergenceGroups.set(key, list);
+  });
+  for (const members of divergenceGroups.values()) {
+    if (members.length < 2) continue;
+    // Same-(item, source) edges into ONE unit are a parallel bundle drawn as a
+    // single line, not a split -- the mirror of the fan-in distinct-sources rule.
+    if (new Set(members.map((m) => m.target)).size < 2) continue;
+    // The split becomes visible where the FIRST member peels off; before that
+    // every member is still on the shared row. A group where nobody bends draws
+    // no visible divergence at all, so it gets no dot.
+    const bends = members.filter((m) => m.bendX !== undefined);
+    if (bends.length === 0) continue;
+    const junctionX = Math.min(...bends.map((m) => m.bendX!));
+    const owner = members.reduce((a, b) => (a.id <= b.id ? a : b));
+    // A dot at the port itself would read as part of the source card's own
+    // output row, not as a split in the run.
+    if (junctionX <= owner.sx) continue;
+    fanoutJunctionByIndex.set(owner.index, { x: junctionX, y: owner.sy });
+  }
+
   // Phase 4 -- item rate chips: each item edge's clear-segment anchor (cached
   // from the reconstruction above, exactly where ItemEdge renders it) goes
   // through seatRateChip's tier ladder: slide along the own polyline (fully
@@ -1693,9 +1779,12 @@ export function deconflictChipAnchors(
     const fanoutBranchHidden = fanoutBranchHiddenByIndex.has(index);
     const fanoutBranchHiddenAt = fanoutBranchHiddenAtByIndex.get(index);
     const faninJunction = faninJunctionByIndex.get(index);
+    const fanoutJunction = fanoutJunctionByIndex.get(index);
     const faninSigma = faninSigmaByIndex.get(index);
     const faninChipHidden = faninChipHiddenByIndex.has(index);
+    const chipIconOnly = shortLegByIndex.has(index);
     if (
+      !chipIconOnly &&
       labelDy === undefined &&
       labelDx === undefined &&
       busDropDy === undefined &&
@@ -1707,6 +1796,7 @@ export function deconflictChipAnchors(
       fanoutBranchDy === undefined &&
       !fanoutBranchHidden &&
       faninJunction === undefined &&
+      fanoutJunction === undefined &&
       faninSigma === undefined &&
       !faninChipHidden
     ) {
@@ -1718,6 +1808,7 @@ export function deconflictChipAnchors(
         ...edge.data,
         ...(labelDy !== undefined ? { labelDy } : {}),
         ...(labelDx !== undefined ? { labelDx } : {}),
+        ...(chipIconOnly ? { chipIconOnly: true as const } : {}),
         ...(busDropDy !== undefined ? { busDropDy } : {}),
         ...(busChipDy !== undefined ? { busChipDy } : {}),
         ...(busRiseHidden ? { busRiseHidden: true as const } : {}),
@@ -1729,6 +1820,12 @@ export function deconflictChipAnchors(
         ...(fanoutBranchHiddenAt !== undefined ? { fanoutBranchHiddenAt } : {}),
         ...(faninJunction !== undefined
           ? { faninJunctionX: faninJunction.x, faninJunctionY: faninJunction.y }
+          : {}),
+        ...(fanoutJunction !== undefined
+          ? {
+              fanoutJunctionX: fanoutJunction.x,
+              fanoutJunctionY: fanoutJunction.y,
+            }
           : {}),
         ...(faninSigma !== undefined
           ? {

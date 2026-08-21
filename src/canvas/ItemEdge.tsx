@@ -66,6 +66,10 @@ export type ItemEdgeData = {
   // its own polyline, so the label stays attached to the line it names. Added
   // to the label x. Optional and defaults to 0.
   labelDx?: number;
+  // Stamped by the seating pass on an edge whose whole polyline is shorter
+  // than one rendered chip: the chip renders icon-only (rate on hover) because
+  // no seat on the line can hold the full box.
+  chipIconOnly?: boolean;
   // Set by Canvas's hover focus on every non-focused edge. The chips read it
   // because EdgeLabelRenderer portals them outside the edge wrapper that carries
   // the `dimmed` class, so the wrapper's fade never reaches them; the chip's own
@@ -109,6 +113,18 @@ export type ItemEdgeData = {
   // (like the whole marker) drops once a drag moves the live port off the stamp.
   faninChipHidden?: boolean;
   faninChipHiddenAtY?: number;
+  // Declined fan-out marker (deconflictChipAnchors, #43). Where N >= 2 edges of
+  // the same (item, source) run to >= 2 distinct targets but their span falls
+  // outside routeFanoutEdges' band, no bus trunk forms: the members stay plain
+  // item edges that leave the shared out-port coincident and peel off one at a
+  // time, so the run reads as a single line carrying one member's rate. These
+  // fields are stamped on the ONE elected owner item edge of such a group (the
+  // point is on every member's line, so any of them could draw it) and mark the
+  // x where the first member leaves the source row, at the source port y. A
+  // group whose members all bind to one target is a parallel bundle, not a
+  // split, and gets nothing; nor does one where no member ever leaves the row.
+  fanoutJunctionX?: number;
+  fanoutJunctionY?: number;
 };
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
@@ -202,6 +218,7 @@ export function FlowChip({
   tear,
   dimmed,
   focused,
+  compact,
   variant,
   zoom,
 }: {
@@ -228,6 +245,10 @@ export function FlowChip({
   // Set on a hover-lit edge's chip: it keeps its digits below the icon-only
   // zoom so the hover surfaces the rate.
   focused?: boolean | undefined;
+  // Set on a chip whose edge has no room for the full box at any zoom (a leg
+  // shorter than one chip): it collapses to icon-only regardless of zoom. A
+  // hover-lit chip still wins, so the rate stays one hover away.
+  compact?: boolean | undefined;
   // Chip role beyond a plain per-edge rate: "sigma" is the fan-in aggregate,
   // styled as a summary tag of the merge junction it sits beside.
   variant?: "sigma" | undefined;
@@ -246,9 +267,13 @@ export function FlowChip({
   // their rate digits and render as the icon plus the optional sum glyph, so a
   // dense fit view stops blanketing. The exact rate stays on the title tooltip.
   // Zoom-gated member chips never reach here: they are already hidden by the
-  // higher LABEL_MIN_ZOOM gate at their call sites.
+  // higher LABEL_MIN_ZOOM gate at their call sites. `compact` collapses a chip
+  // at every zoom (its line is too short for the full box at any scale); the
+  // hover reveal overrides both, so no chip is permanently rate-less.
   const iconOnly =
-    zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM && !focused;
+    (compact === true ||
+      (zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM)) &&
+    !focused;
   const bodyText = iconOnly ? (marker ?? "") : text;
   return (
     <EdgeLabelRenderer>
@@ -413,6 +438,12 @@ export default function ItemEdge({
   const faninMarkerLive =
     edgeData?.faninJunctionY !== undefined &&
     !faninStale(edgeData.faninJunctionY);
+  // The declined fan-out dot sits near the SOURCE port, so it is stale-checked
+  // against the live source y instead of the target y -- same eps, same rule:
+  // once a drag moves the port off the stamp, drop the dot rather than float it.
+  const fanoutMarkerLive =
+    edgeData?.fanoutJunctionY !== undefined &&
+    Math.abs(edgeData.fanoutJunctionY - sourceY) < HIDE_STALE_EPS;
   // The zoom gate yields to the hover focus: a lit edge shows its rate at any
   // zoom. The overlap-driven hides above still win, since they are placement
   // rulings, not level of detail.
@@ -514,6 +545,7 @@ export default function ItemEdge({
           tear={edgeData?.isTearEdge}
           dimmed={edgeData?.dimmed}
           focused={edgeData?.focused}
+          compact={edgeData?.chipIconOnly === true}
           zoom={zoom}
         />
       ) : null}
@@ -539,6 +571,20 @@ export default function ItemEdge({
           testId={`fanin-junction-${id}`}
           x={edgeData.faninJunctionX}
           y={edgeData.faninJunctionY!}
+          color={kindStyle.stroke}
+          dimmed={edgeData.dimmed}
+          zoom={zoom}
+        />
+      ) : null}
+      {/* Declined fan-out divergence dot (#43, owner only): where coincident
+          same-flow item edges leave the shared out-port run for their own
+          targets. Same markup and stacking as the fan-in merge dot; dropped
+          while stale against the live source y. */}
+      {fanoutMarkerLive && edgeData?.fanoutJunctionX !== undefined ? (
+        <JunctionDot
+          testId={`fanout-junction-${id}`}
+          x={edgeData.fanoutJunctionX}
+          y={edgeData.fanoutJunctionY!}
           color={kindStyle.stroke}
           dimmed={edgeData.dimmed}
           zoom={zoom}
