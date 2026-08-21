@@ -76,8 +76,18 @@ const CHIP_HALF_W_WIDE = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
 // line (rendered chips measure ~99-110 units; slideAlong clamps to the arc, so
 // on such a leg the anchor is the only candidate). Those chips collapse to the
 // icon-only variant instead of burying their endpoint cards; the exact rate
-// stays on the hover title.
+// stays on the hover title. The same threshold governs a fan-out member's
+// BRANCH chip (#50): on a leg this short no seat keeps the full box off the
+// trunk's split dot either, and the collapsed box is narrow enough that one
+// exists.
 const SHORT_LEG_MAX = CHIP_HALF_W_WIDE;
+
+// Half-width of a COLLAPSED (icon-only) chip's box. Such a chip is a square:
+// the 16px item sprite plus the same 3px padding and 1px border the full chip
+// carries (.flow-chip.icon-only in canvas.css), i.e. CHIP_BOX_HEIGHT on both
+// axes, counter-scaled by the same cap. So its half-width IS the shared
+// half-height.
+const CHIP_HALF_W_ICON = CHIP_HALF_H;
 
 // Vertical pitch a colliding chip is bumped by each step, and the shared full
 // chip-box height. A full max-scale box height keeps the resolved clearance from
@@ -525,6 +535,18 @@ function seatChip(
   return dy;
 }
 
+// Total arc-length of a parsed polyline, the measure the short-leg rules are
+// stated in (see SHORT_LEG_MAX).
+function polylineLength(
+  pts: ReadonlyArray<readonly [number, number]>,
+): number {
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) {
+    len += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+  }
+  return len;
+}
+
 // Cumulative arc-length of point (x, y) along the parsed polyline. The point is
 // on exactly one segment by construction (a clear-segment anchor is a segment
 // midpoint), so this returns the length from the path start to it. Falls back to
@@ -651,14 +673,21 @@ export function seatRateChip(
   //              caller, the fan-out branch loop, hides nudge/escape/exhausted
   //              seats -- that hide is what makes a rendered crossing
   //              impossible, not the barrier alone.
+  //   iconOnly:  this chip renders collapsed to its item sprite (a short-leg
+  //              fan-out branch), so the box every tier reserves is the square
+  //              icon box instead of the wide worst case. Only a caller that
+  //              also STAMPS the collapse may pass it -- the seat and the render
+  //              must reserve the same box.
   opts?: {
     ownIds?: ReadonlySet<string> | undefined;
     barrierYs?: ReadonlyArray<number> | undefined;
+    iconOnly?: boolean | undefined;
   },
 ): RateSeat {
   const { pts, anchorX, anchorY } = path;
   const ownIds = opts?.ownIds;
   const barrierYs = opts?.barrierYs;
+  const halfW = opts?.iconOnly === true ? CHIP_HALF_W_ICON : CHIP_HALF_W_WIDE;
   // A slide candidate crosses a barrier when it and the anchor sit on OPPOSITE
   // sides of a seated sibling (their signed offsets from it differ), i.e. the
   // slide would jump past the sibling and invert the stack. Same-side and
@@ -683,7 +712,7 @@ export function seatRateChip(
   const boxAt = (px: number, py: number): ChipBox => ({
     x: px,
     y: py,
-    halfW: CHIP_HALF_W_WIDE,
+    halfW,
     halfH: CHIP_HALF_H,
   });
   // A candidate is clear when it clears every placed chip box, every foreign
@@ -758,12 +787,15 @@ export function seatRateChip(
   // side (a card or the foreign line itself) never clears. On a tie the positive
   // x wins. The reach's last step is clamped to the flush half-width even when
   // the pitch does not divide it.
+  // The reach is one half-width of the box THIS chip reserves, so a collapsed
+  // chip steps only as far as its own narrower box still holds the line.
+  const sidestepMax = Math.min(SIDESTEP_MAX, halfW);
   for (let step = 1; ; step++) {
-    const off = Math.min(step * SIDESTEP_PITCH, SIDESTEP_MAX);
+    const off = Math.min(step * SIDESTEP_PITCH, sidestepMax);
     for (const px of [anchorX + off, anchorX - off]) {
       if (isClear(px, anchorY)) return seat(px, anchorY, "sidestep");
     }
-    if (off >= SIDESTEP_MAX) break;
+    if (off >= sidestepMax) break;
   }
   // Tier 1b (graze), least-bad: no candidate on the line is fully clear, so
   // every remaining on-line seat crosses at least one foreign line (a
@@ -983,6 +1015,10 @@ export function deconflictChipAnchors(
   // Item edges whose whole polyline is shorter than one rendered chip: their
   // rate chip renders icon-only (see SHORT_LEG_MAX).
   const shortLegByIndex = new Set<number>();
+  // The same set for FAN-OUT members: their branch chip renders icon-only, and
+  // its seat below reserves the collapsed box so the narrower chip can slide
+  // clear of the trunk's split dot.
+  const shortBranchByIndex = new Set<number>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item" && edge.type !== "bus") return;
     const ends = edgeEndpoints(edge, byId);
@@ -998,13 +1034,15 @@ export function deconflictChipAnchors(
         ...routingHintsFromData(edge.data),
       });
       d = fan.path;
+      const fanPts = parsePathPoints(d);
       fanoutGeomByIndex.set(index, {
-        pts: parsePathPoints(d),
+        pts: fanPts,
         junction: fan.junction,
         trunkAnchor: fan.trunkAnchor,
         branchAnchor: fan.branchAnchor,
         owner: (edge.data as BusEdgeData | undefined)?.busChipOwner === true,
       });
+      if (polylineLength(fanPts) < SHORT_LEG_MAX) shortBranchByIndex.add(index);
     } else if (edge.type === "bus") {
       // Narrow the union on `"laneY" in` (the same discriminant laneBands and the
       // census helpers use) rather than a bare LaneBusEdgeData cast: it does not
@@ -1033,14 +1071,7 @@ export function deconflictChipAnchors(
       d = path;
       const itemPts = parsePathPoints(d);
       itemGeomByIndex.set(index, { pts: itemPts, lx, ly });
-      let legLen = 0;
-      for (let i = 1; i < itemPts.length; i++) {
-        legLen += Math.hypot(
-          itemPts[i]![0] - itemPts[i - 1]![0],
-          itemPts[i]![1] - itemPts[i - 1]![1],
-        );
-      }
-      if (legLen < SHORT_LEG_MAX) shortLegByIndex.add(index);
+      if (polylineLength(itemPts) < SHORT_LEG_MAX) shortLegByIndex.add(index);
     }
     const pts = itemGeomByIndex.get(index)?.pts ?? parsePathPoints(d);
     const segs: Array<readonly [number, number, number, number]> = [];
@@ -1709,7 +1740,13 @@ export function deconflictChipAnchors(
       edge.target,
       cardExemptFor(edge),
       entryBandOf(edge),
-      { barrierYs: seatedBranchYByTrunk.get(trunkKey) },
+      {
+        barrierYs: seatedBranchYByTrunk.get(trunkKey),
+        // A short-leg branch chip renders collapsed (stamped below), so it
+        // reserves the square icon box here: the wide box is broader than the
+        // leg, which is exactly why no seat on it could clear the split dot.
+        iconOnly: shortBranchByIndex.has(index),
+      },
     );
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
       // The hide below covers the exhausted tier too, but exhausting the
@@ -1831,8 +1868,10 @@ export function deconflictChipAnchors(
     const fanoutJunction = fanoutJunctionByIndex.get(index);
     const faninChipHidden = faninChipHiddenByIndex.has(index);
     const chipIconOnly = shortLegByIndex.has(index);
+    const fanoutBranchIconOnly = shortBranchByIndex.has(index);
     if (
       !chipIconOnly &&
+      !fanoutBranchIconOnly &&
       labelDy === undefined &&
       labelDx === undefined &&
       busDropDy === undefined &&
@@ -1863,6 +1902,9 @@ export function deconflictChipAnchors(
         ...(fanoutAggDy !== undefined ? { fanoutAggDy } : {}),
         ...(fanoutBranchDx !== undefined ? { fanoutBranchDx } : {}),
         ...(fanoutBranchDy !== undefined ? { fanoutBranchDy } : {}),
+        ...(fanoutBranchIconOnly
+          ? { fanoutBranchIconOnly: true as const }
+          : {}),
         ...(fanoutBranchHidden ? { fanoutBranchHidden: true as const } : {}),
         ...(fanoutBranchHiddenAt !== undefined ? { fanoutBranchHiddenAt } : {}),
         ...(faninJunction !== undefined

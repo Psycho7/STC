@@ -279,7 +279,11 @@ test.describe("DOM geometry audit", () => {
 // (DOT_COVER_BASELINE, junction dots hidden under a chip). It adds no ruling of
 // its own either: its first pins recorded the pre-keepoff state exactly as
 // measured, so the seating change that followed had a committed diff base, and
-// that change then re-pinned the table DOWN.
+// that change then re-pinned the table DOWN. It was re-pinned DOWN a second
+// time (10 -> 6 -> 2) when short-leg fan-out branch chips began collapsing to
+// their icon-only variant; the five tables above were re-measured at that
+// commit too and every one of their thirty-five cells held byte for byte,
+// including multi6's padding graze reading 0 against its pin of 1.
 // That keep-off also SUPERSEDES, without retiring, the chips-over-dots ruling in
 // canvas.css (.flow-chip z-index 2 over .bus-junction z-index 1): the z-order
 // still decides who paints on top, but it is no longer the mechanism that
@@ -557,23 +561,27 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // visible, whenever such a seat exists. Cleared: default's water rise, the
 // battery5 and battery5-xiranite iron_powder rises, and multi6's
 // originium_enr_powder rise -- four lane rises that had a clear lane-side slot.
-// The SIX survivors are all cases where no seat on the chip's own polyline
-// clears the dot, measured per case:
-//   - four fan-out branch chips on the Sandleaf trunks (battery5 e:8,
-//     battery5-xiranite e:13, crystal e:8, equip4 e:10) sit 9 units past their
-//     trunk's split dot on a 118-unit leg; the box is wider than the whole leg,
-//     so every point on it covers the dot;
+// Re-pinned DOWN again, to 2, by the short-leg collapse (#50): a fan-out member
+// whose whole polyline is shorter than one chip box now draws its branch chip
+// icon-only, and its seat reserves that same square box, so the four Sandleaf
+// trunk chips (battery5 e:8, battery5-xiranite e:13, crystal e:8, equip4 e:10)
+// -- each seated 9 units past its trunk's split dot on a 118-unit leg, with a
+// box wider than the whole leg -- now slide clear of the dot ON their own line.
+// The share digits they shed stay on their hover title and aria-label.
+// The TWO survivors are the cases where no seat on the chip's own polyline
+// clears the dot and no collapse applies, measured per case:
 //   - battery5-xiranite's fan-in owner chip (e:14) has 89 units of reach along
-//     its polyline against the ~93 its drawn box needs to clear the merge dot;
+//     its polyline against the ~93 its drawn box needs to clear the merge dot
+//     (its leg is long enough that the short-leg rule does not fire);
 //   - multi6's gas_inert rise (e:74) has its one lane-side slot blocked.
-// Clearing any of those means taking a chip OFF its own polyline, which the
-// off-path ratchet forbids without a ruling; they are reported as they stand.
+// Clearing either means taking a chip OFF its own polyline, which the off-path
+// ratchet forbids without a ruling; they are reported as they stand.
 const DOT_COVER_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 1,
-  "battery5-xiranite": 2,
-  crystal: 1,
-  equip4: 1,
+  battery5: 0,
+  "battery5-xiranite": 1,
+  crystal: 0,
+  equip4: 0,
   multi6: 1,
   tundra: 0,
 };

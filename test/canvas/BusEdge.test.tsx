@@ -296,6 +296,66 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(rise!.textContent).toBe("60/120");
   });
 
+  it("collapses a short-leg fan-out branch chip to icon-only at every zoom", async () => {
+    // A branch leg shorter than one chip box has no seat that keeps the full
+    // box off the trunk's split dot, so the seating pass stamps
+    // fanoutBranchIconOnly and the chip renders as the bare sprite -- at zoom 1,
+    // where no zoom LOD gate applies. The share wording survives on the
+    // aria-label and the hover title, so the number is one hover away.
+    // "belt" carries a sprite, so the icon survives the collapse.
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        trunkKey: "belt|src",
+        fanout: true,
+        busChipOwner: true,
+        busTotalRate: new Fraction(2, 1),
+        busDisplayTotalRate: new Fraction(2, 1),
+        busMemberCount: 2,
+        fanoutBranchIconOnly: true,
+      } as BusData,
+      1,
+    );
+    await findEdgePath();
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(rise).not.toBeNull();
+    expect(rise!.classList.contains("icon-only")).toBe(true);
+    expect(rise!.textContent).toBe("");
+    expect(rise!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
+    expect(rise!.getAttribute("aria-label")).toBe(
+      "Transport Belt x 60 of 120/min",
+    );
+    expect(rise!.getAttribute("title")).toBe("Transport Belt x 60 of 120/min");
+  });
+
+  it("keeps a long-leg fan-out branch chip's digits", async () => {
+    // The control for the collapse above: without the flag the same trunk's
+    // branch chip keeps its share digits.
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        trunkKey: "belt|src",
+        fanout: true,
+        busChipOwner: true,
+        busTotalRate: new Fraction(2, 1),
+        busDisplayTotalRate: new Fraction(2, 1),
+        busMemberCount: 2,
+      } as BusData,
+      1,
+    );
+    await findEdgePath();
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(rise).not.toBeNull();
+    expect(rise!.classList.contains("icon-only")).toBe(false);
+    expect(rise!.textContent).toBe("60/120");
+  });
+
   it("shows the DRAWN trunk total on the chip and the exact total on hover", async () => {
     // The chip total is the trunk's displayed total (the same rounding the
     // member chips use), so the visible members sum to the number shown; the

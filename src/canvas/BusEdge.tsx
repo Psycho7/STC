@@ -262,6 +262,10 @@ export default function BusEdge({
 
   // One chip at the drop point (where the flow enters the trunk) and one at the
   // rise point (where it leaves toward the target). Both sit on the lane.
+  // `compact` collapses a chip to its item sprite at every zoom: the seating
+  // pass stamps it on a fan-out branch whose leg is shorter than one chip box,
+  // where the full box has no seat that keeps it off the trunk's split dot. The
+  // share wording stays on the chip's label and title.
   const renderChip = (
     suffix: string,
     x: number,
@@ -269,6 +273,7 @@ export default function BusEdge({
     text: string,
     label: string,
     title: string,
+    compact = false,
   ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
@@ -282,6 +287,7 @@ export default function BusEdge({
       tear={edgeData?.isTearEdge}
       dimmed={edgeData?.dimmed}
       focused={edgeData?.focused}
+      compact={compact}
       zoom={zoom}
     />
   );
@@ -325,7 +331,15 @@ export default function BusEdge({
         ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
         : null}
       {riseText
-        ? renderChip("rise", branchX, branchY, riseText, riseLabel, riseTitle)
+        ? renderChip(
+            "rise",
+            branchX,
+            branchY,
+            riseText,
+            riseLabel,
+            riseTitle,
+            fanoutData?.fanoutBranchIconOnly === true,
+          )
         : null}
     </>
   );

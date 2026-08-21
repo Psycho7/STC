@@ -175,6 +175,13 @@ export type FanoutBusEdgeData = BusAggregate & {
   // recomputed anchor no longer matches the stamp.
   fanoutBranchHidden?: true;
   fanoutBranchHiddenAt?: { x: number; y: number };
+  // Set by deconflictChipAnchors when this member's whole polyline is shorter
+  // than one rendered chip: BusEdge collapses the branch chip to its icon-only
+  // variant at every zoom, the same rule chipIconOnly applies to a short item
+  // edge. The full box is wider than such a leg, so no seat on it can keep the
+  // chip off the trunk's split dot; the narrow box can. The share wording stays
+  // on the chip's aria-label and hover title.
+  fanoutBranchIconOnly?: true;
 };
 
 // Data fields the bus pass merges onto a member edge's existing `data`. A
