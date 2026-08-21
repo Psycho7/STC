@@ -279,7 +279,7 @@ either), with the other five plans between 0.44 and 0.90.
 
 ### Rulings carried out of the campaign
 
-Both provisional rulings below were controller best-judgment calls made mid-campaign
+All four rulings below were controller best-judgment calls made mid-campaign
 and are **pending user confirmation at sign-off**.
 
 - **Task 6 census ruling (provisional).** Authorized the icon-only collapse of
@@ -302,6 +302,18 @@ and are **pending user confirmation at sign-off**.
   shift by the 300 -> 302 border delta, and a new pinned assertion that a
   recipe's drawn width equals what `cards[]` claims (RED 302 vs 300 before the
   move, GREEN after).
+- **Ruling 7 amendment (provisional).** The spec sized the dot keepoff "at the
+  plan's fit zoom", but seating runs before a camera exists, so there is no fit
+  zoom to read at that point. The implementation uses a single corpus-worst-case
+  constant instead, `DOT_KEEPOFF = 16`, sized for the corpus's lowest fit (~0.21,
+  multi6). This is a miss in the spec's constraint rather than a deviation in the
+  implementation: a per-plan sizing would make every seat move with the camera.
+- **Aria display-total acceptance (provisional).** Task 4's brief said the
+  tooltip and aria label both carry the exact `busTotalRate`. The implementation
+  gives aria the DISPLAY total, matching the pre-existing `dropLabel` /
+  `dropTitle` convention, because a screen reader speaking a 17-digit exact
+  fraction is worse than one speaking the number on the chip. Accepted
+  deviation; the `title` attribute still carries the exact total.
 
 ### Residuals and follow-ups
 
