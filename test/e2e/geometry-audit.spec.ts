@@ -4,6 +4,7 @@ import {
   auditChipsOnOwnPath,
   auditChipsVsCards,
   auditDotsUnderChips,
+  auditEndpointParity,
   auditOwnCardPierces,
   auditSegmentsVsCards,
   auditSegmentsVsChips,
@@ -252,6 +253,10 @@ test.describe("DOM geometry audit", () => {
 //     baseline (the merge / split markers a chip's opaque box takes from the
 //     reader; chips deliberately paint above the dots, so the seating pass is
 //     what has to keep them apart);
+//   parity (SOFT ratchet): every drawn path's first / last vertex within a
+//     per-scenario tolerance of a model + PORT_DRIFT reconstruction of the same
+//     endpoint (the port contract the seating pass reconstructs from, checked
+//     against the frame React Flow actually drew);
 //   census: pairwise crossing count <= the pre-P2 baseline;
 //   detour: the tundra ore feed within 1.5x its endpoints' Manhattan gap.
 //
@@ -296,6 +301,11 @@ test.describe("DOM geometry audit", () => {
 // rects mapped back through the camera, so a sub-eps graze flips with the
 // rounding. Edge paths and card positions are camera-independent and did not
 // move.
+// A SEVENTH table joined in the same campaign (ENDPOINT_PARITY_TOL, drawn-vs-
+// rebuilt edge endpoints). It adds no ruling of its own either, and unlike the
+// six above it records no defect residue: it is a TOLERANCE, not a count, and
+// it says that two independent descriptions of the same port agree. Its first
+// pins were taken from an already-clean corpus.
 // The row-chrome diet and the #41 slab-spacing fix, landed back to back,
 // together triggered a second wholesale re-measure. Eight of the thirty-five
 // cells moved: SEVEN moved DOWN and were re-pinned; ONE moved UP -- battery5
@@ -589,6 +599,38 @@ const DOT_COVER_BASELINE: Record<string, number> = {
   tundra: 0,
 };
 
+// Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
+// per-axis gap allowed between an edge's drawn first / last vertex and a
+// reconstruction of that same endpoint from the node's card origin, the model
+// port geometry, and PORT_DRIFT (auditEndpointParity). The reconstruction is the
+// one chipSeating's edgeEndpoints performs, so this table states that the port
+// contract the seating pass reasons about is the port React Flow drew.
+//
+// A tolerance rather than a count, and deliberately coarse: the disagreement it
+// exists to catch is an endpoint resolving to the WRONG ROW, which lands a full
+// row pitch (22 units) or a whole card width out. Sub-unit residue is not a
+// defect -- ItemEdge's HIDE_STALE_EPS comment records ~1 unit of port-model
+// noise between a reconstruction and React Flow's measured handles, and sets its
+// own guard well above it for the same reason.
+//
+// Measured at the pin commit, per scenario, as the max over both axes and every
+// endpoint: default 0.000, battery5 0.004, battery5-xiranite 0.005,
+// crystal 0.002, equip4 0.001, multi6 0.005, tundra 0.000 (24-224 endpoints
+// each). Every one is double-precision residue from mapping client rects back
+// through the inverse viewport transform -- nothing structural survives -- so
+// the pins are a flat measured-max-plus-headroom 0.5, two orders of magnitude
+// above the noise and one and a half below a row pitch. They ratchet DOWN like
+// the tables above; a rise needs the same recorded ruling.
+const ENDPOINT_PARITY_TOL: Record<string, number> = {
+  default: 0.5,
+  battery5: 0.5,
+  "battery5-xiranite": 0.5,
+  crystal: 0.5,
+  equip4: 0.5,
+  multi6: 0.5,
+  tundra: 0.5,
+};
+
 async function loadScenario(page: Page, hash: string): Promise<void> {
   await page.goto(`/#${hash}`, { waitUntil: "load" });
   await waitForCanvasReady(page);
@@ -755,6 +797,32 @@ test.describe("segment placement audit", () => {
           `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotBaseline} among ${geom.dots.length} dots:\n${hiddenDotInventory.join("\n")}`,
         )
         .toBeLessThanOrEqual(dotBaseline);
+
+      // Endpoint parity: each drawn path starts and ends where a model +
+      // PORT_DRIFT reconstruction of the same port says it should. The two
+      // descriptions are independent -- the drawn vertex comes from React Flow's
+      // handle anchoring, the rebuilt one from the card origin plus the row
+      // geometry the routing model computes -- so a port resolving to the wrong
+      // row shows here as a full row-pitch gap. Reported as the worst endpoint,
+      // with every endpoint past the tolerance named.
+      const parities = auditEndpointParity(rawEdges, geom.nodes);
+      const worstParity = parities.reduce((m, p) => Math.max(m, p.delta), 0);
+      const parityTol = ENDPOINT_PARITY_TOL[scenario.id]!;
+      const parityInventory = parities
+        .filter((p) => p.delta > parityTol)
+        .map(
+          (p) =>
+            `  ${p.edgeId} ${p.end} on ${p.nodeType} ${p.nodeId}: ` +
+            `drawn (${p.drawn[0].toFixed(2)},${p.drawn[1].toFixed(2)}) vs ` +
+            `rebuilt (${p.rebuilt[0].toFixed(2)},${p.rebuilt[1].toFixed(2)}), ` +
+            `d=(${p.dx.toFixed(2)},${p.dy.toFixed(2)})`,
+        );
+      expect
+        .soft(
+          worstParity,
+          `${scenario.id}: worst endpoint parity ${worstParity.toFixed(3)} exceeds tolerance ${parityTol} among ${parities.length} endpoints (${parityInventory.length} past tolerance):\n${parityInventory.join("\n")}`,
+        )
+        .toBeLessThanOrEqual(parityTol);
 
       // Census: pairwise crossings never regress past the pre-P2 baseline.
       const crossings = countCrossings(geom.edges);

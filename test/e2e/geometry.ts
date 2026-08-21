@@ -9,7 +9,14 @@
 
 import { CHAMFER, PORT_STUB } from "../../src/canvas/edgePath";
 import { FANOUT_SPAN_MAX } from "../../src/canvas/busRouting";
-import { ENTRY_GUTTER_OVERHANG } from "../../src/canvas/dimensions";
+import {
+  ENTRY_GUTTER_OVERHANG,
+  RECIPE_HEADER_HEIGHT,
+  RECIPE_ROW_HEIGHT,
+  RECIPE_ROWS_TOP_PAD,
+  RECIPE_WIDTH,
+  recipeHeight,
+} from "../../src/canvas/dimensions";
 import { chipEntersOwnCardBody } from "../../src/canvas/chipSeating";
 
 export type Pt = readonly [number, number];
@@ -634,6 +641,145 @@ export function auditDotsUnderChips(
         });
         break;
       }
+    }
+  }
+  return out;
+}
+
+// A collected node carrying its per-side port items as well as its rect: what
+// the endpoint-parity audit needs and the other audits do not, kept off NodeRect
+// so nothing else has to supply it.
+export type PortedNode = NodeRect & {
+  inPorts: ReadonlyArray<string>;
+  outPorts: ReadonlyArray<string>;
+};
+
+type PortDrift = { sourceDx: number; targetDx: number; dy: number };
+
+// Drawn-vs-model port drift per node kind, MIRRORED from chipSeating's own
+// PORT_DRIFT (the module does not export it), the same way the unit suites
+// mirror it. React Flow anchors an edge at the OUTER edge of the handle's 8x8
+// box, not at the model port the routing passes compute, so the drawn path
+// starts and ends a few units off the model coordinate; chipSeating's
+// edgeEndpoints applies exactly these offsets to reconstruct the drawn frame.
+//
+// The mirror is the load-bearing copy HERE, and it is one-directional: the
+// drawn endpoints this audit reads come from React Flow's handle anchoring, not
+// from chipSeating, so editing the source table alone moves nothing here
+// (verified by mutating it). What the audit pins is the DOM contract both
+// tables describe -- card borders, handle sizing, row pitch -- so a change that
+// invalidates the source numbers reddens this table through the DOM, and this
+// copy then has to be re-derived alongside it.
+const PORT_DRIFT: Record<"recipe" | "product" | "other", PortDrift> = {
+  recipe: { sourceDx: 5, targetDx: -3, dy: 1 },
+  product: { sourceDx: 4, targetDx: -4, dy: 0 },
+  other: { sourceDx: 0, targetDx: 0, dy: 0 },
+};
+
+function driftOf(type: string): PortDrift {
+  if (type === "recipe") return PORT_DRIFT.recipe;
+  if (type === "product") return PORT_DRIFT.product;
+  return PORT_DRIFT.other;
+}
+
+// Node-local y of a recipe row's mid-line, mirroring recipeGeometry's rowHandleY
+// off the shared dimension constants (that helper is module-private). The row
+// index is the item's position in the node's own side, which the collected port
+// lists carry in model order.
+function recipeRowY(rowIndex: number): number {
+  return (
+    RECIPE_HEADER_HEIGHT +
+    RECIPE_ROWS_TOP_PAD +
+    rowIndex * RECIPE_ROW_HEIGHT +
+    RECIPE_ROW_HEIGHT / 2
+  );
+}
+
+// One endpoint's rebuilt-vs-drawn comparison, in graph units.
+export type EndpointParity = {
+  edgeId: string;
+  end: "source" | "target";
+  nodeId: string;
+  nodeType: string;
+  rebuilt: Pt;
+  drawn: Pt;
+  // Signed drawn - rebuilt, per axis, and the larger absolute of the two.
+  dx: number;
+  dy: number;
+  delta: number;
+};
+
+// Rebuild both endpoints of every edge the way chipSeating's edgeEndpoints does
+// -- the MODEL port (card origin + node width + the row's mid-line, or the card
+// centre when the item resolves to no row) shifted by PORT_DRIFT -- and compare
+// each against the first / last vertex of the path actually drawn.
+//
+// The model side is deliberately built from the card ORIGIN plus model
+// constants, never from the drawn row box: a reconstruction that read the row's
+// rendered mid-line would cancel PORT_DRIFT.dy against itself and agree by
+// construction. Here the row index comes from the port list and the y from
+// recipeRowY, so a port resolving to the wrong row shows up as a full row-pitch
+// delta. That is the disagreement class this audit exists for; sub-unit
+// residue is documented noise (ItemEdge's HIDE_STALE_EPS comment), which is why
+// its callers pin a tolerance rather than expect zero.
+//
+// Endpoints whose node is absent from the collected set are skipped, mirroring
+// edgeEndpoints returning null. A node kind the model gives no per-item port
+// (product, and container / loop kinds) rebuilds at the card centre, which is
+// what portOffsetY returns for it; the whole corpus currently lands every edge
+// endpoint on a recipe or a product, so a loop node acquiring a row-anchored
+// handle would show up here as a row-pitch gap rather than pass unnoticed.
+export function auditEndpointParity(
+  edges: ReadonlyArray<RawEdge>,
+  nodes: ReadonlyArray<PortedNode>,
+): EndpointParity[] {
+  const byId = new Map<string, PortedNode>();
+  for (const n of nodes) byId.set(n.nodeId, n);
+  const out: EndpointParity[] = [];
+  for (const edge of edges) {
+    const pts = parsePath(edge.d);
+    if (pts.length < 2) continue;
+    const ends = [
+      { end: "source" as const, node: byId.get(edge.source), drawn: pts[0]! },
+      {
+        end: "target" as const,
+        node: byId.get(edge.target),
+        drawn: pts[pts.length - 1]!,
+      },
+    ];
+    for (const { end, node, drawn } of ends) {
+      if (node === undefined) continue;
+      const drift = driftOf(node.type);
+      const isRecipe = node.type === "recipe";
+      const modelWidth = isRecipe ? RECIPE_WIDTH : node.right - node.left;
+      const ports = end === "source" ? node.outPorts : node.inPorts;
+      const rowIndex = isRecipe ? ports.indexOf(edge.item) : -1;
+      const modelHeight = isRecipe
+        ? recipeHeight(node.inPorts.length, node.outPorts.length)
+        : node.bottom - node.top;
+      // portOffsetY falls back to the card's vertical centre for an unresolved
+      // item / node kind, and driftedPortY leaves that fallback undrifted.
+      const localY =
+        rowIndex >= 0 ? recipeRowY(rowIndex) + drift.dy : modelHeight / 2;
+      const rebuilt: Pt = [
+        end === "source"
+          ? node.left + modelWidth + drift.sourceDx
+          : node.left + drift.targetDx,
+        node.top + localY,
+      ];
+      const dx = drawn[0] - rebuilt[0];
+      const dy = drawn[1] - rebuilt[1];
+      out.push({
+        edgeId: edge.id,
+        end,
+        nodeId: node.nodeId,
+        nodeType: node.type,
+        rebuilt,
+        drawn,
+        dx,
+        dy,
+        delta: Math.max(Math.abs(dx), Math.abs(dy)),
+      });
     }
   }
   return out;

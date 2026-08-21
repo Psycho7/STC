@@ -153,6 +153,15 @@ export type NodeGeom = {
   top: number;
   right: number;
   bottom: number;
+  // Item ids of the node's ports, in DOM order per side, read off the React Flow
+  // handle ids RecipeNode / LoopNode / ProductNode emit ("in:<item>" /
+  // "out:<item>"). DOM order IS the model row order (the components map the
+  // already-ordered port arrays), so an item's index here is the row index the
+  // routing model resolves it to -- what the endpoint-parity audit needs to
+  // rebuild a port y without reading the drawn row box. Empty for a node kind
+  // that carries no per-item handles.
+  inPorts: string[];
+  outPorts: string[];
 };
 export type ChipGeom = {
   edgeId: string;
@@ -214,6 +223,15 @@ export function collectGeometry(): Geometry {
     const r = el.getBoundingClientRect();
     const cls = el.className;
     const match = /react-flow__node-(\w+)/.exec(cls);
+    const inPorts: string[] = [];
+    const outPorts: string[] = [];
+    for (const h of Array.from(
+      el.querySelectorAll<HTMLElement>("[data-handleid]"),
+    )) {
+      const hid = h.getAttribute("data-handleid") ?? "";
+      if (hid.startsWith("in:")) inPorts.push(hid.slice(3));
+      else if (hid.startsWith("out:")) outPorts.push(hid.slice(4));
+    }
     return {
       nodeId: el.getAttribute("data-id") ?? "(node)",
       type: match?.[1] ?? "(type)",
@@ -221,6 +239,8 @@ export function collectGeometry(): Geometry {
       top: toGraphY(r.top),
       right: toGraphX(r.right),
       bottom: toGraphY(r.bottom),
+      inPorts,
+      outPorts,
     };
   });
 
