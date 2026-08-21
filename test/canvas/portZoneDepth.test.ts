@@ -11,9 +11,13 @@ import { resolve } from "node:path";
 import {
   CARD_BORDER,
   PORT_ZONE_DEPTH,
+  cardRectsFor,
   chipEntersOwnCardBody,
 } from "../../src/canvas/chipSeating";
 import { RECIPE_WIDTH } from "../../src/canvas/dimensions";
+import { nodeHeight } from "../../src/canvas/busRouting";
+import type { RFAnyNode } from "../../src/canvas/layout";
+import { mkRecipe, productNode, recipeNode } from "./busRouting.testkit";
 
 const css = readFileSync(
   resolve(process.cwd(), "src/canvas/canvas.css"),
@@ -82,5 +86,41 @@ describe("the port strip is measured inside the drawn card border", () => {
     const glyph = card.right - CARD_BORDER - PORT_ZONE_DEPTH;
     expect(chipEntersOwnCardBody(chipAt(glyph), card, "source")).toBe(false);
     expect(chipEntersOwnCardBody(chipAt(glyph - 1), card, "source")).toBe(true);
+  });
+});
+
+// The obstacle rects the seating pass runs against, straight from the function
+// deconflictChipAnchors builds them with. The e2e card-frame criterion rebuilds
+// RECIPE_WIDTH + cardGrowth from the same constants, so it agrees whether or not
+// the growth is applied here; only this test observes the application itself.
+describe("cardRectsFor grows the model box into the drawn frame", () => {
+  it("grows a recipe card by one border per side, origin fixed", () => {
+    const node = recipeNode("r", 1000, 400, mkRecipe("r", ["a"], ["b"]));
+    const nodes: RFAnyNode[] = [node];
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+
+    const [rect] = cardRectsFor(nodes, byId);
+
+    expect(rect).toEqual({
+      id: "r",
+      left: 1000,
+      top: 400,
+      right: 1000 + RECIPE_WIDTH + 2 * CARD_BORDER,
+      bottom: 400 + nodeHeight(node) + 2 * CARD_BORDER,
+    });
+    // Stated absolutely too, so a change to CARD_BORDER cannot move the frame
+    // while both sides of the comparison shift with it.
+    expect(rect!.right - rect!.left).toBe(302);
+    expect(rect!.bottom - rect!.top).toBe(nodeHeight(node) + 2);
+  });
+
+  it("leaves a product card at its model box", () => {
+    const node = productNode("p", 200, 60, 148, 78);
+    const nodes: RFAnyNode[] = [node];
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+
+    expect(cardRectsFor(nodes, byId)).toEqual([
+      { id: "p", left: 200, top: 60, right: 348, bottom: 138 },
+    ]);
   });
 });

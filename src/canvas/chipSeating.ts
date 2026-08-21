@@ -272,6 +272,8 @@ export function chipEntersOwnCardBody(
   const oy = Math.min(chip.bottom, card.bottom) - Math.max(chip.top, card.top);
   if (oy <= eps) return false; // not even level with the card: never on its body
   const cx = (chip.left + chip.right) / 2;
+  // CARD_BORDER is declared further down this file, next to the PORT_DRIFT /
+  // CARD_GROWTH tables it is derived with; hoisting makes it readable here.
   const depth = CARD_BORDER + PORT_ZONE_DEPTH;
   return side === "target" ? cx > card.left + depth : cx < card.right - depth;
 }
@@ -959,8 +961,8 @@ export const CARD_BORDER = 1;
 //   product: the model width ALREADY counts the card's borders (124 content +
 //     20 padding + 1 border + a 3 accent border = the 148 layout assigns), so
 //     the drawn box is the model box.
-//   loop / container: sized directly in model units with no border of their
-//     own, so likewise no growth.
+//   loop / container: sized by inline width / height in model units, so the
+//     border stays inside the box and likewise adds no growth.
 // Measured in-browser across the seven corpus scenarios (recipe 302 x
 // recipeHeight+2 everywhere, product 148x78, group == its model size, no loop
 // node in any corpus plan). Re-derive alongside PORT_DRIFT whenever a card's
@@ -978,6 +980,41 @@ export function cardGrowth(type: string | undefined): number {
   if (type === "recipe") return CARD_GROWTH.recipe;
   if (type === "product") return CARD_GROWTH.product;
   return CARD_GROWTH.other;
+}
+
+// The raw card rects a chip's box must stay clear of, so a chip never sits on
+// top of a foreign node (the P3 hard invariant). Every node type is included --
+// recipe / product / loop cards and group slabs -- mirroring the chip/card
+// audit; the per-edge exemption the seating pass applies is the same one the
+// audit applies.
+//
+// These are DRAWN border boxes, the same frame edgeEndpoints reconstructs the
+// polylines in: the model box grown by CARD_GROWTH, which is zero for every
+// kind but the recipe card, whose 1px border makes it 302 wide against the
+// model's 300 (see CARD_BORDER). The audit collects the rendered card rect
+// straight off the DOM, so measuring the model box here would leave the two
+// frames two units apart on every recipe -- a chip could clear a card in the
+// seating pass and overlap its drawn border in the browser.
+//
+// Exported so a unit test can observe the growth actually being applied: the
+// e2e card-frame criterion rebuilds the same constants and so cannot see this
+// call site at all.
+export function cardRectsFor(
+  nodes: ReadonlyArray<RFAnyNode>,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): CardRect[] {
+  return nodes.map((n) => {
+    const left = absoluteLeft(n, byId);
+    const top = absoluteTop(n, byId);
+    const growth = cardGrowth(n.type);
+    return {
+      id: n.id,
+      left,
+      top,
+      right: left + nodeWidth(n) + growth,
+      bottom: top + nodeHeight(n) + growth,
+    };
+  });
 }
 
 // The drawn port y for one endpoint. The recipe dy applies only when the port
@@ -1144,31 +1181,10 @@ export function deconflictChipAnchors(
     });
   });
 
-  // Raw card rects a chip's box must stay clear of, so a chip never sits on top
-  // of a foreign node (the P3 hard invariant). Every node type is included --
-  // recipe / product / loop cards and group slabs -- mirroring the chip/card
-  // audit; the per-edge exemption below (own source, target, and their
-  // containers) is the same one the audit applies.
-  //
-  // These are DRAWN border boxes, the same frame edgeEndpoints reconstructs the
-  // polylines in: the model box grown by CARD_GROWTH, which is zero for every
-  // kind but the recipe card, whose 1px border makes it 302 wide against the
-  // model's 300 (see CARD_BORDER). The audit collects the rendered card rect
-  // straight off the DOM, so measuring the model box here left the two frames
-  // two units apart on every recipe -- a chip could clear a card in the seating
-  // pass and overlap its drawn border in the browser.
-  const cards: CardRect[] = nodes.map((n) => {
-    const left = absoluteLeft(n, byId);
-    const top = absoluteTop(n, byId);
-    const growth = cardGrowth(n.type);
-    return {
-      id: n.id,
-      left,
-      top,
-      right: left + nodeWidth(n) + growth,
-      bottom: top + nodeHeight(n) + growth,
-    };
-  });
+  // The raw card rects a chip's box must stay clear of, in the drawn frame (see
+  // cardRectsFor). The per-edge exemption below (own source, target, and their
+  // containers) is the same one the chip/card audit applies.
+  const cards: CardRect[] = cardRectsFor(nodes, byId);
   // The card exemption for an edge's chips: its own source / target cards get a
   // port-adjacent zone (issue #10, exempt while the chip centre stays in the port
   // strip), their containing groups (one parentId level, same as the audit's

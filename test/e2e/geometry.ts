@@ -831,9 +831,9 @@ export function auditCardFrames(
   eps = 0.01,
 ): CardFrameMismatch[] {
   const out: CardFrameMismatch[] = [];
+  const growth = cardGrowth("recipe");
   for (const n of nodes) {
     if (n.type !== "recipe") continue;
-    const growth = cardGrowth(n.type);
     const seatingWidth = RECIPE_WIDTH + growth;
     const seatingHeight =
       recipeHeight(n.inPorts.length, n.outPorts.length) + growth;
