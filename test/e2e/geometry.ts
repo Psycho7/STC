@@ -574,6 +574,71 @@ export function auditChipsOnOwnPath(
   return out;
 }
 
+// A DRAWN junction dot's box in graph coordinates, tagged with its data-testid.
+export type DotRect = RawRect & { testId: string };
+
+export type DotCoverage = {
+  dotId: string;
+  chipEdgeId: string;
+  chipLabel: string;
+  // The dot's centre, so a report can name WHERE the hidden dot is.
+  at: Pt;
+  // The hiding chip's centre. An edge can own TWO chips (a bus drop and a bus
+  // rise), so naming the chip by its edge id alone does not identify the box
+  // that did the hiding.
+  chipAt: Pt;
+};
+
+// Every junction dot a chip box HIDES: the dot's drawn box lies inside a chip's
+// box except for at most `visibleEpsPx` screen pixels of overhang per side.
+// Chips paint above the dots in the shared edgelabel-renderer layer
+// (.flow-chip z-index 2 vs .bus-junction z-index 1, canvas.css) and are opaque,
+// so a dot under one is simply not there for the reader -- the merge / split it
+// marks reads as an ordinary corner.
+//
+// Coverage is judged against the dot box AS DRAWN (collected from the DOM),
+// which already carries the zoom-clamped radius at this camera; `fitZoom` only
+// converts the screen-pixel tolerance into the graph frame the rects live in, so
+// the same sliver of surviving dot counts the same on a 0.2x plan and a 0.9x
+// one. One entry per hidden dot (the first chip found hiding it), not per
+// (dot, chip) pair: the census counts dots the reader lost. COINCIDENT dots
+// count once for the same reason -- every member of one trunk draws the same
+// split point, and the reader sees one dot there.
+export function auditDotsUnderChips(
+  chips: ReadonlyArray<ChipRect>,
+  dots: ReadonlyArray<DotRect>,
+  fitZoom: number,
+  visibleEpsPx = 1,
+): DotCoverage[] {
+  const eps = visibleEpsPx / fitZoom;
+  const out: DotCoverage[] = [];
+  const seen = new Set<string>();
+  for (const dot of dots) {
+    const [cx, cy] = centreOf(dot);
+    const key = `${Math.round(cx)}|${Math.round(cy)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    for (const chip of chips) {
+      if (
+        dot.left >= chip.left - eps &&
+        dot.right <= chip.right + eps &&
+        dot.top >= chip.top - eps &&
+        dot.bottom <= chip.bottom + eps
+      ) {
+        out.push({
+          dotId: dot.testId,
+          chipEdgeId: chip.edgeId,
+          chipLabel: chip.label,
+          at: [cx, cy],
+          chipAt: centreOf(chip),
+        });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 export function polylineLength(pts: ReadonlyArray<Pt>): number {
   let total = 0;
   for (let i = 1; i < pts.length; i++) {

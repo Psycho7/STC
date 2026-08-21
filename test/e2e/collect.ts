@@ -163,10 +163,27 @@ export type ChipGeom = {
   right: number;
   bottom: number;
 };
+// One DRAWN junction dot: its data-testid hook (`bus-junction-<edge>` for the
+// lane / fan-out trunk families, `fanin-junction-<edge>` for the merge dot,
+// `fanout-junction-<edge>` for the declined-fan-out divergence dot) plus its box
+// in graph coordinates. The dot is sized in graph units from a zoom-clamped
+// screen radius, so its measured box already carries the extent it renders at
+// THIS camera - no radius has to be recomputed audit-side.
+export type DotGeom = {
+  testId: string;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
 export type Geometry = {
   edges: EdgeGeom[];
   nodes: NodeGeom[];
   chips: ChipGeom[];
+  dots: DotGeom[];
+  // The live camera zoom, needed to state a screen-pixel visibility tolerance
+  // in the graph frame the rects above live in.
+  zoom: number;
 };
 
 // Read the live flow-coordinate geometry: every edge path's id + `d`, every
@@ -232,7 +249,20 @@ export function collectGeometry(): Geometry {
     };
   });
 
-  return { edges, nodes, chips };
+  const dots = Array.from(
+    document.querySelectorAll<HTMLElement>(".bus-junction"),
+  ).map((el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      testId: el.getAttribute("data-testid") ?? "(dot)",
+      left: toGraphX(r.left),
+      top: toGraphY(r.top),
+      right: toGraphX(r.right),
+      bottom: toGraphY(r.bottom),
+    };
+  });
+
+  return { edges, nodes, chips, dots, zoom: k };
 }
 
 // One rendered thing the exam has to be able to point a camera at. `clientRect`

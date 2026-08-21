@@ -3,6 +3,7 @@ import { SCENARIOS, scenarioHash } from "./scenarios";
 import {
   auditChipsOnOwnPath,
   auditChipsVsCards,
+  auditDotsUnderChips,
   auditOwnCardPierces,
   auditSegmentsVsCards,
   auditSegmentsVsChips,
@@ -13,6 +14,7 @@ import {
   polylineLength,
   toRawEdges,
   type ChipRect,
+  type DotRect,
   type NodeRect,
   type RawEdge,
 } from "./geometry";
@@ -233,9 +235,10 @@ test.describe("DOM geometry audit", () => {
 // path's `d` (already in flow coordinates -- the viewport <g> carries the
 // pan/zoom transform) plus every node's raw card rect and every chip's box
 // (client rects mapped back through the inverse viewport transform, so edges,
-// cards, and chips share one coordinate system). The pure scoring in ./geometry
-// runs four tiers plus two independent checks, ALL evaluated on every run
-// (soft assertions), so one failing tier never hides another:
+// cards, and chips share one coordinate system), plus every junction dot's box.
+// The pure scoring in ./geometry runs four tiers plus three independent checks,
+// ALL evaluated on every run (soft assertions), so one failing tier never hides
+// another:
 //   tier 1 (HARD): zero edge segments entering a FOREIGN RAW (unpadded) card;
 //   tier 2 (SOFT ratchet): segments entering a foreign chip box <= per-scenario
 //     baseline (zero on sparse plans; 2B trades bounded line-occlusion on the
@@ -245,6 +248,10 @@ test.describe("DOM geometry audit", () => {
 //   tier 4 (P3): chip/foreign-card overlaps HARD ZERO on every scenario (the
 //     ratified acceptance criterion), plus chips-off-own-line as a SOFT ratchet
 //     (residue where parallel edges / bus lanes / card-hardness force a nudge);
+//   dots (SOFT ratchet): junction dots hidden under a chip box <= per-scenario
+//     baseline (the merge / split markers a chip's opaque box takes from the
+//     reader; chips deliberately paint above the dots, so the seating pass is
+//     what has to keep them apart);
 //   census: pairwise crossing count <= the pre-P2 baseline;
 //   detour: the tundra ore feed within 1.5x its endpoints' Manhattan gap.
 //
@@ -268,6 +275,10 @@ test.describe("DOM geometry audit", () => {
 // At the aggregate-chip removal all five tables were re-measured wholesale and
 // re-pinned DOWN to the actuals; no count rose at THAT re-measure, so it added
 // no ruling of its own. Later re-measures are recorded per table.
+// A SIXTH table joined during the trunk-rate legibility campaign
+// (DOT_COVER_BASELINE, junction dots hidden under a chip). It adds no ruling of
+// its own either: its first pins record the pre-keepoff state exactly as
+// measured, so the seating change that follows has a committed diff base.
 // The row-chrome diet and the #41 slab-spacing fix, landed back to back,
 // together triggered a second wholesale re-measure. Eight of the thirty-five
 // cells moved: SEVEN moved DOWN and were re-pinned; ONE moved UP -- battery5
@@ -516,6 +527,28 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   tundra: 0,
 };
 
+// Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
+// box at fit zoom. Chips paint ABOVE the dots by design (the z-order tier
+// asserted in the P1 gate above), so a chip seated on a dot does not merely
+// overlap it -- it deletes it, and the merge / split the dot marks reads as an
+// ordinary corner. First recorded here at the campaign's pre-keepoff state, so
+// the counts below are a measurement of the defect, not a target; like every
+// table above it ratchets DOWN freely and moves UP only on a recorded ruling.
+// Two families make up the first recording: a lane rise chip covering a
+// junction dot 8-13 units from its own centre (its own dot, or a coincident
+// sibling member's), and the restored fan-in owner chip covering the merge dot
+// on battery5-xiranite's e:14 (the shared-run owner chip that replaced the
+// removed sigma, which used to keep a half-box off the junction).
+const DOT_COVER_BASELINE: Record<string, number> = {
+  default: 1,
+  battery5: 2,
+  "battery5-xiranite": 3,
+  crystal: 1,
+  equip4: 1,
+  multi6: 2,
+  tundra: 0,
+};
+
 async function loadScenario(page: Page, hash: string): Promise<void> {
   await page.goto(`/#${hash}`, { waitUntil: "load" });
   await waitForCanvasReady(page);
@@ -661,6 +694,27 @@ test.describe("segment placement audit", () => {
           `${scenario.id}: ${ownPierces.length} own-card pierce(s) exceeds baseline ${ownPierceBaseline}:\n${ownPierceInventory.join("\n")}`,
         )
         .toBeLessThanOrEqual(ownPierceBaseline);
+
+      // Hidden-dot ratchet: junction dots swallowed by a chip box at fit zoom.
+      // The dot rects come from the DOM, so they carry the zoom-clamped radius
+      // the dot actually renders at; the camera zoom only converts the
+      // one-screen-pixel visibility tolerance into graph units.
+      const hiddenDots = auditDotsUnderChips(
+        chips,
+        geom.dots as DotRect[],
+        geom.zoom,
+      );
+      const hiddenDotInventory = hiddenDots.map(
+        (v) =>
+          `  ${v.dotId} at (${v.at[0].toFixed(1)},${v.at[1].toFixed(1)}) hidden under the chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
+      );
+      const dotBaseline = DOT_COVER_BASELINE[scenario.id]!;
+      expect
+        .soft(
+          hiddenDots.length,
+          `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotBaseline} among ${geom.dots.length} dots:\n${hiddenDotInventory.join("\n")}`,
+        )
+        .toBeLessThanOrEqual(dotBaseline);
 
       // Census: pairwise crossings never regress past the pre-P2 baseline.
       const crossings = countCrossings(geom.edges);
