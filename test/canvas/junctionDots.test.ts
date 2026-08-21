@@ -197,7 +197,10 @@ describe("junction dots: fan-in merge (stamped on the owner item edge)", () => {
 
     const owner = dataOf(out, "e:1:srcA->tgt"); // smallest id of the group
     expect(owner.faninJunctionX).toBe(905);
-    expect(owner.faninJunctionY).toBe(ty);
+    // On the DRAWN port row, so the dot sits on the run it marks: the model row
+    // y plus the recipe handle drift, which is what the members are drawn along.
+    expect(owner.faninJunctionY).toBe(drawnEnds(srcA, tgt).targetY);
+    expect(owner.faninJunctionY).toBe(ty + PORT_DY);
     expect(ty).toBe(197);
     // One dot per merge: the non-owner carries none.
     expect(dataOf(out, "e:2:srcB->tgt").faninJunctionX).toBeUndefined();

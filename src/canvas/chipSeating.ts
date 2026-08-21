@@ -915,10 +915,11 @@ export function seatRateChip(
 // Re-derive these if the card borders or paddings change, if handle sizing or
 // nesting changes (RecipeNode/ProductNode markup, .react-flow__handle CSS), or
 // if React Flow changes its handle-anchoring rule.
-// This table is not exported, so four suites keep hand copies of it:
+// This table is not exported, so five suites keep hand copies of it:
 // test/canvas/junctionDots.test.ts, test/canvas/shortLegChips.test.ts,
-// test/canvas/fanoutMarkers.test.ts, and test/e2e/geometry.ts. Update all four
-// when these numbers change -- the unit mirrors run this module's own code
+// test/canvas/fanoutMarkers.test.ts, test/canvas/faninMarkers.test.ts (the dy
+// alone), and test/e2e/geometry.ts. Update all five when these numbers change
+// -- the unit mirrors run this module's own code
 // alongside their copy, but the e2e mirror has no cross-check against src at
 // all, so a stale copy there stays silent.
 type PortDrift = { sourceDx: number; targetDx: number; dy: number };
@@ -1171,6 +1172,14 @@ export function deconflictChipAnchors(
   // at seat time, where a member that SLID onto the run is still caught. It is
   // presentational only: no edge is retyped and a fan-out member keeps its
   // fan-out role.
+  //
+  // Every comparison below is in the DRAWN frame: the port coordinates come from
+  // edgeEndpoints, the same reconstruction the polylines above were built from,
+  // so FANIN_EPS is a real collinearity tolerance rather than a budget already
+  // spent on the frame mismatch. Taking the raw model port instead left every
+  // recipe target off by PORT_DRIFT.recipe.dy (and the run's right bound off by
+  // targetDx), which sat exactly at the eps: the sub-pixel rounding of a
+  // fractional layout y was then enough to tip a genuine merge out of detection.
   const FANIN_EPS = 1;
   type FaninMember = {
     index: number;
@@ -1191,9 +1200,12 @@ export function deconflictChipAnchors(
   edges.forEach((edge, index) => {
     const item = edgeItem(edge);
     if (item === undefined) return;
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    if (source === undefined || target === undefined) return;
+    // The drawn target port, from the same reconstruction the polylines came
+    // from. Null only when an endpoint is missing from the node map, the case
+    // the geometry pass above skipped too.
+    const ends = edgeEndpoints(edge, byId);
+    if (ends === null) return;
+    const { tx, ty } = ends;
     const key = item + "|" + edge.target;
     const itemGeom = itemGeomByIndex.get(index);
     const fanGeom = fanoutGeomByIndex.get(index);
@@ -1224,8 +1236,6 @@ export function deconflictChipAnchors(
       faninExcludedKeys.add(key);
       return;
     }
-    const tx = absoluteLeft(target, byId);
-    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
     const secondLast = pts[pts.length - 2]!;
     if (Math.abs(secondLast[1] - ty) > FANIN_EPS) {
       // Final leg not at the port y: feeds the port off the shared run.

@@ -31,6 +31,17 @@ type FaninData = {
   fanout?: boolean;
 };
 
+// chipSeating's own PORT_DRIFT.recipe.dy, mirrored here (the module does not
+// export it): a recipe's drawn handle row sits one unit below the model row y,
+// so every drawn port y is the model port y plus this.
+const PORT_DY = 1;
+
+// The collinearity tolerance the fan-in detection applies, mirrored from
+// chipSeating's FANIN_EPS, and the two-decimal rounding every emitted path
+// coordinate carries (edgePath's `r`).
+const FANIN_EPS = 1;
+const r2 = (n: number): number => Math.round(n * 100) / 100;
+
 const dataOf = (edges: Edge[], id: string): FaninData =>
   (edges.find((e) => e.id === id)?.data as FaninData | undefined) ?? {};
 
@@ -70,8 +81,9 @@ describe("deconflictChipAnchors: fan-in markers", () => {
     const owner = dataOf(out, "e:1:srcA->tgt:s"); // lexicographically smallest id
     const other = dataOf(out, "e:2:srcB->tgt:s");
 
-    // The owner carries the marker.
-    expect(owner.faninJunctionY).toBe(ty);
+    // The owner carries the marker, stamped on the DRAWN port row (a unit below
+    // the model row y) so the dot sits on the line the member is drawn along.
+    expect(owner.faninJunctionY).toBe(ty + PORT_DY);
     // The dot marks where the last member joins the shared run (rightmost join),
     // which is the straight member's drawn source-right endpoint: model right
     // edge 900 plus the recipe source port drift of 5.
@@ -85,6 +97,49 @@ describe("deconflictChipAnchors: fan-in markers", () => {
     // member's chip is on its own bend leg -> kept.
     expect(other.faninChipHidden).toBe(true);
     expect(owner.faninChipHidden).toBeUndefined();
+  });
+
+  it("detects the merge when the drawn approach carries sub-unit noise", () => {
+    // Saturation guard. The detection compares the member's final leg against
+    // the target port; both sides must be read in the DRAWN frame. Reading the
+    // raw model port instead leaves a constant PORT_DY of slack between them,
+    // which is the whole FANIN_EPS budget -- so ANY real sub-unit noise on the
+    // drawn approach tips a genuine merge out of detection.
+    //
+    // The noise here is the one every laid-out plan carries: ELK positions cards
+    // at fractional y, and the path builder rounds each emitted coordinate to
+    // two decimals, so the drawn leg lands a few thousandths off the drawn port.
+    // The fixture is the first one above with the target nudged onto such a y.
+    const NUDGE = 0.006;
+    const tgtRecipe = mkRecipe("tgt", ["s"], []);
+    const tgt = orderedRecipeNode("tgt", 1000, 100 + NUDGE, ["s"]);
+    const modelTy = 100 + NUDGE + measureRecipe(tgtRecipe).inHandleYs[0]!;
+    const drawnTy = modelTy + PORT_DY;
+    const legY = r2(drawnTy); // what the emitted path puts the final leg at
+
+    // Premise: this leg is collinear with the port within eps in the drawn
+    // frame, and outside eps in the model frame. One geometry, two verdicts --
+    // which frame the comparison runs in decides whether the merge is seen.
+    expect(Math.abs(legY - drawnTy)).toBeLessThan(FANIN_EPS);
+    expect(Math.abs(legY - modelTy)).toBeGreaterThan(FANIN_EPS);
+
+    const srcA = recipeNode("srcA", 0, 0, mkRecipe("srcA", [], ["s"]));
+    const srcBRecipe = mkRecipe("srcB", [], ["s"]);
+    const srcBOutY0 = measureRecipe(srcBRecipe).outHandleYs[0]!;
+    const srcB = recipeNode("srcB", 600, modelTy - srcBOutY0, srcBRecipe);
+
+    const nodes: RFAnyNode[] = [srcA, srcB, tgt];
+    const out = deconflictChipAnchors(nodes, [
+      rateEdge("e:1:srcA->tgt:s", "srcA", "tgt", "s", new Fraction(4)),
+      rateEdge("e:2:srcB->tgt:s", "srcB", "tgt", "s", new Fraction(1)),
+    ]);
+
+    // The merge is still detected: dot on the owner, at the drawn port row.
+    const owner = dataOf(out, "e:1:srcA->tgt:s");
+    expect(owner.faninJunctionX).toBe(905);
+    expect(owner.faninJunctionY).toBeCloseTo(drawnTy, 6);
+    // And the on-run test that hides the non-owner reads the same frame.
+    expect(dataOf(out, "e:2:srcB->tgt:s").faninChipHidden).toBe(true);
   });
 
   it("keeps the owner's own chip when the owner is the member seated on the run", () => {
