@@ -1753,7 +1753,13 @@
      decorative (aria-hidden), so the chip must win. Strictly above the dot's
      z-index: 1 (below), which keeps a sibling member edge's dot from painting
      over the owner's aggregate chip on DOM order. An overlapped dot hides
-     behind the chip, which reads the same as suppressing it. */
+     behind the chip, which reads the same as suppressing it.
+     This order is now the FALLBACK, not the first line of defence (#50): the
+     seating pass keeps chip seats off the junction dots wherever a cheap seat
+     exists (a step along the chip's own line, one pitch off a lane), so the
+     overlap this rule resolves is the residue where no such seat does -- a chip
+     on a leg too short to hold its own box clear of the dot. The rule stays
+     because that residue is real and the digits still have to win it. */
   z-index: 2;
   /* Re-enable pointer events (the edgelabel-renderer sets none) so the native
      title tooltip shows the exact rate on hover. The nodrag/nopan classes keep
@@ -1808,19 +1814,14 @@
   opacity: 0.3;
 }
 
-/* Fan-in aggregate: a summary tag bound to the merge junction beside it, not
-   another flow chip. The dashed outline separates "total of the merged runs"
-   from the solid per-edge rate chips it sums; the leading sum glyph stays. */
-.flow-chip.sigma {
-  border-style: dashed;
-  background: rgba(20, 23, 27, 0.92);
-}
-
 /* Bus-trunk junction dot, portaled into the label layer alongside the chips (see
    BusEdge). z-index: 1 seats it above the plain edge segments but BELOW the flow
    chips (which set z-index: 2): the chip digits win, and an overlapping chip
-   hides the dot behind it. It carries its own dim rule for the same reason the
-   chips do: the edge wrapper's fade never reaches a portaled element. */
+   hides the dot behind it. Since #50 the seating pass avoids that overlap
+   instead of relying on this order (see .flow-chip above), and the
+   geometry-audit spec ratchets the dots still hidden. It carries its own dim
+   rule for the same reason the chips do: the edge wrapper's fade never reaches a
+   portaled element. */
 .bus-junction {
   border-radius: 50%;
   pointer-events: none;

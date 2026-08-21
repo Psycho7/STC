@@ -107,6 +107,30 @@ const buildInput = (): LayoutInput => {
   };
 };
 
+// Same plan, but with both recipe units parked inside one loop-box container so
+// the graph carries a container child with its own layoutOptions.
+const CONTAINER_ID = "c:loop";
+const buildContainerInput = (): LayoutInput => {
+  const input = buildInput();
+  const plan: RenderPlan = {
+    units: [
+      { ...recipeUnit, containerId: CONTAINER_ID },
+      { ...recipeUnit2, containerId: CONTAINER_ID },
+      loopUnit,
+    ],
+    edges: [planEdge("u:recipe", "u:recipe2", "o1")],
+    containers: [
+      {
+        kind: "loop-box",
+        id: CONTAINER_ID,
+        members: ["u:recipe", "u:recipe2"],
+        sccId: "scc:1",
+      },
+    ],
+  };
+  return { ...input, plan };
+};
+
 describe("layout-invariants: root layout options", () => {
   it("root id is 'root'", () => {
     const g = renderPlanToElkGraph(buildInput());
@@ -137,6 +161,28 @@ describe("layout-invariants: root layout options", () => {
     expect(g.layoutOptions?.["elk.layered.spacing.nodeNodeBetweenLayers"]).toBe(
       String(BETWEEN_LAYERS_SPACING),
     );
+  });
+
+  it("container spacing mirrors the root spacing pair", () => {
+    // A slab interior does not inherit the root spacing options, so the two
+    // strings are set a second time on every container. If they drift apart,
+    // slab members pack at ELK's default spacing and the corridor stops being
+    // wide enough for a rate chip. Pin both sides against the same constants.
+    const g = renderPlanToElkGraph(buildContainerInput());
+    const container = g.children.find((c) => c.id === CONTAINER_ID);
+    expect(container?.children?.length).toBe(2);
+    expect(container?.layoutOptions?.["elk.spacing.nodeNode"]).toBe(
+      String(NODE_NODE_SPACING),
+    );
+    expect(
+      container?.layoutOptions?.["elk.layered.spacing.nodeNodeBetweenLayers"],
+    ).toBe(String(BETWEEN_LAYERS_SPACING));
+    expect(container?.layoutOptions?.["elk.spacing.nodeNode"]).toBe(
+      g.layoutOptions?.["elk.spacing.nodeNode"],
+    );
+    expect(
+      container?.layoutOptions?.["elk.layered.spacing.nodeNodeBetweenLayers"],
+    ).toBe(g.layoutOptions?.["elk.layered.spacing.nodeNodeBetweenLayers"]);
   });
 
   it("cycleBreaking strategy = DEPTH_FIRST", () => {

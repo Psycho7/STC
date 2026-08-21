@@ -9,8 +9,18 @@
 
 import { CHAMFER, PORT_STUB } from "../../src/canvas/edgePath";
 import { FANOUT_SPAN_MAX } from "../../src/canvas/busRouting";
-import { ENTRY_GUTTER_OVERHANG } from "../../src/canvas/dimensions";
-import { chipEntersOwnCardBody } from "../../src/canvas/chipSeating";
+import {
+  ENTRY_GUTTER_OVERHANG,
+  RECIPE_HEADER_HEIGHT,
+  RECIPE_ROW_HEIGHT,
+  RECIPE_ROWS_TOP_PAD,
+  RECIPE_WIDTH,
+  recipeHeight,
+} from "../../src/canvas/dimensions";
+import {
+  cardGrowth,
+  chipEntersOwnCardBody,
+} from "../../src/canvas/chipSeating";
 
 export type Pt = readonly [number, number];
 
@@ -569,6 +579,277 @@ export function auditChipsOnOwnPath(
     const dist = pointToPolylineDistance(centreOf(chip), pts);
     if (dist > tol) {
       out.push({ chipEdgeId: chip.edgeId, chipLabel: chip.label, distance: dist });
+    }
+  }
+  return out;
+}
+
+// A DRAWN junction dot's box in graph coordinates, tagged with its data-testid.
+export type DotRect = RawRect & { testId: string };
+
+export type DotCoverage = {
+  dotId: string;
+  chipEdgeId: string;
+  chipLabel: string;
+  // The dot's centre, so a report can name WHERE the hidden dot is.
+  at: Pt;
+  // The hiding chip's centre. An edge can own TWO chips (a bus drop and a bus
+  // rise), so naming the chip by its edge id alone does not identify the box
+  // that did the hiding.
+  chipAt: Pt;
+};
+
+// Every junction dot a chip box HIDES: the dot's drawn box lies inside a chip's
+// box except for at most `visibleEpsPx` screen pixels of overhang per side.
+// Chips paint above the dots in the shared edgelabel-renderer layer
+// (.flow-chip z-index 2 vs .bus-junction z-index 1, canvas.css) and are opaque,
+// so a dot under one is simply not there for the reader -- the merge / split it
+// marks reads as an ordinary corner.
+//
+// Coverage is judged against the dot box AS DRAWN (collected from the DOM),
+// which already carries the zoom-clamped radius at this camera; `fitZoom` only
+// converts the screen-pixel tolerance into the graph frame the rects live in, so
+// the same sliver of surviving dot counts the same on a 0.2x plan and a 0.9x
+// one. One entry per hidden dot (the first chip found hiding it), not per
+// (dot, chip) pair: the census counts dots the reader lost. COINCIDENT dots
+// count once for the same reason -- every member of one trunk draws the same
+// split point, and the reader sees one dot there.
+export function auditDotsUnderChips(
+  chips: ReadonlyArray<ChipRect>,
+  dots: ReadonlyArray<DotRect>,
+  fitZoom: number,
+  visibleEpsPx = 1,
+): DotCoverage[] {
+  const eps = visibleEpsPx / fitZoom;
+  const out: DotCoverage[] = [];
+  const seen = new Set<string>();
+  for (const dot of dots) {
+    const [cx, cy] = centreOf(dot);
+    const key = `${Math.round(cx)}|${Math.round(cy)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    for (const chip of chips) {
+      if (
+        dot.left >= chip.left - eps &&
+        dot.right <= chip.right + eps &&
+        dot.top >= chip.top - eps &&
+        dot.bottom <= chip.bottom + eps
+      ) {
+        out.push({
+          dotId: dot.testId,
+          chipEdgeId: chip.edgeId,
+          chipLabel: chip.label,
+          at: [cx, cy],
+          chipAt: centreOf(chip),
+        });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+// A collected node carrying its per-side port items as well as its rect: what
+// the endpoint-parity audit needs and the other audits do not, kept off NodeRect
+// so nothing else has to supply it.
+export type PortedNode = NodeRect & {
+  inPorts: ReadonlyArray<string>;
+  outPorts: ReadonlyArray<string>;
+};
+
+type PortDrift = { sourceDx: number; targetDx: number; dy: number };
+
+// Drawn-vs-model port drift per node kind, MIRRORED from chipSeating's own
+// PORT_DRIFT (the module does not export it), the same way the unit suites
+// mirror it. React Flow anchors an edge at the OUTER edge of the handle's 8x8
+// box, not at the model port the routing passes compute, so the drawn path
+// starts and ends a few units off the model coordinate; chipSeating's
+// edgeEndpoints applies exactly these offsets to reconstruct the drawn frame.
+//
+// The mirror is the load-bearing copy HERE, and it is one-directional: the
+// drawn endpoints this audit reads come from React Flow's handle anchoring, not
+// from chipSeating, so editing the source table alone moves nothing here
+// (verified by mutating it). What the audit pins is the DOM contract both
+// tables describe -- card borders, handle sizing, row pitch -- so a change that
+// invalidates the source numbers reddens this table through the DOM, and this
+// copy then has to be re-derived alongside it.
+//
+// Nothing checks the two copies against each other, either. The unit-suite
+// mirrors at least run chipSeating's own code beside their copy; this one never
+// touches src, so a src edit that this file does not follow goes unnoticed until
+// the DOM contract itself moves. Treat the copy as hand-maintained.
+//
+// The product side carries a matching blind spot. The reconstruction takes a
+// product node's width from the DOM (node.right - node.left), so a change to
+// product width or border moves the drawn endpoint and the rebuilt one together
+// and this audit stays green. Recipes rebuild off the model RECIPE_WIDTH, so the
+// same class of change on a recipe card does redden.
+const PORT_DRIFT: Record<"recipe" | "product" | "other", PortDrift> = {
+  recipe: { sourceDx: 5, targetDx: -3, dy: 1 },
+  product: { sourceDx: 4, targetDx: -4, dy: 0 },
+  other: { sourceDx: 0, targetDx: 0, dy: 0 },
+};
+
+function driftOf(type: string): PortDrift {
+  if (type === "recipe") return PORT_DRIFT.recipe;
+  if (type === "product") return PORT_DRIFT.product;
+  return PORT_DRIFT.other;
+}
+
+// Node-local y of a recipe row's mid-line, mirroring recipeGeometry's rowHandleY
+// off the shared dimension constants (that helper is module-private). The row
+// index is the item's position in the node's own side, which the collected port
+// lists carry in model order.
+function recipeRowY(rowIndex: number): number {
+  return (
+    RECIPE_HEADER_HEIGHT +
+    RECIPE_ROWS_TOP_PAD +
+    rowIndex * RECIPE_ROW_HEIGHT +
+    RECIPE_ROW_HEIGHT / 2
+  );
+}
+
+// One endpoint's rebuilt-vs-drawn comparison, in graph units.
+export type EndpointParity = {
+  edgeId: string;
+  end: "source" | "target";
+  nodeId: string;
+  nodeType: string;
+  rebuilt: Pt;
+  drawn: Pt;
+  // Signed drawn - rebuilt, per axis, and the larger absolute of the two.
+  dx: number;
+  dy: number;
+  delta: number;
+};
+
+// Rebuild both endpoints of every edge the way chipSeating's edgeEndpoints does
+// -- the MODEL port (card origin + node width + the row's mid-line, or the card
+// centre when the item resolves to no row) shifted by PORT_DRIFT -- and compare
+// each against the first / last vertex of the path actually drawn.
+//
+// The model side is deliberately built from the card ORIGIN plus model
+// constants, never from the drawn row box: a reconstruction that read the row's
+// rendered mid-line would cancel PORT_DRIFT.dy against itself and agree by
+// construction. Here the row index comes from the port list and the y from
+// recipeRowY, so a port resolving to the wrong row shows up as a full row-pitch
+// delta. That is the disagreement class this audit exists for; sub-unit
+// residue is documented noise (ItemEdge's HIDE_STALE_EPS comment), which is why
+// its callers pin a tolerance rather than expect zero.
+//
+// Endpoints whose node is absent from the collected set are skipped, mirroring
+// edgeEndpoints returning null. A node kind the model gives no per-item port
+// (product, and container / loop kinds) rebuilds at the card centre, which is
+// what portOffsetY returns for it; the whole corpus currently lands every edge
+// endpoint on a recipe or a product, so a loop node entering the corpus would
+// show up here as a row-pitch gap rather than pass unnoticed. LoopNode already
+// renders row-anchored handles while portOffsetY answers with the card centre --
+// the mismatch is untested only because no corpus plan contains a loop node.
+export function auditEndpointParity(
+  edges: ReadonlyArray<RawEdge>,
+  nodes: ReadonlyArray<PortedNode>,
+): EndpointParity[] {
+  const byId = new Map<string, PortedNode>();
+  for (const n of nodes) byId.set(n.nodeId, n);
+  const out: EndpointParity[] = [];
+  for (const edge of edges) {
+    const pts = parsePath(edge.d);
+    if (pts.length < 2) continue;
+    const ends = [
+      { end: "source" as const, node: byId.get(edge.source), drawn: pts[0]! },
+      {
+        end: "target" as const,
+        node: byId.get(edge.target),
+        drawn: pts[pts.length - 1]!,
+      },
+    ];
+    for (const { end, node, drawn } of ends) {
+      if (node === undefined) continue;
+      const drift = driftOf(node.type);
+      const isRecipe = node.type === "recipe";
+      const modelWidth = isRecipe ? RECIPE_WIDTH : node.right - node.left;
+      const ports = end === "source" ? node.outPorts : node.inPorts;
+      const rowIndex = isRecipe ? ports.indexOf(edge.item) : -1;
+      const modelHeight = isRecipe
+        ? recipeHeight(node.inPorts.length, node.outPorts.length)
+        : node.bottom - node.top;
+      // portOffsetY falls back to the card's vertical centre for an unresolved
+      // item / node kind, and driftedPortY leaves that fallback undrifted.
+      const localY =
+        rowIndex >= 0 ? recipeRowY(rowIndex) + drift.dy : modelHeight / 2;
+      const rebuilt: Pt = [
+        end === "source"
+          ? node.left + modelWidth + drift.sourceDx
+          : node.left + drift.targetDx,
+        node.top + localY,
+      ];
+      const dx = drawn[0] - rebuilt[0];
+      const dy = drawn[1] - rebuilt[1];
+      out.push({
+        edgeId: edge.id,
+        end,
+        nodeId: node.nodeId,
+        nodeType: node.type,
+        rebuilt,
+        drawn,
+        dx,
+        dy,
+        delta: Math.max(Math.abs(dx), Math.abs(dy)),
+      });
+    }
+  }
+  return out;
+}
+
+// One node whose DRAWN card box disagrees with the box the seating pass
+// measures chips against.
+export type CardFrameMismatch = {
+  nodeId: string;
+  drawnWidth: number;
+  drawnHeight: number;
+  seatingWidth: number;
+  seatingHeight: number;
+};
+
+// Every RECIPE card whose drawn border box differs from the box chipSeating
+// builds for it. The seating pass's obstacle rects are the model box (card
+// origin, RECIPE_WIDTH, recipeHeight) grown by `cardGrowth`, which is IMPORTED
+// from src here rather than mirrored: a chip cleared against a card two units
+// narrower than the painted one is a chip the browser shows overlapping the
+// card's border, so the two frames have to be the same box, and this states it
+// against the DOM.
+//
+// Recipes only. A product or group card rebuilds its model width from the DOM
+// (nothing else knows it), so it would agree by construction -- the same blind
+// spot auditEndpointParity's product side documents. Recipes rebuild off the
+// model constants, so they carry the contract.
+//
+// A CRITERION, not a ratchet table: it holds at zero on every scenario, so it
+// adds no baseline and no ruling to the NOTE block's enumeration.
+export function auditCardFrames(
+  nodes: ReadonlyArray<PortedNode>,
+  eps = 0.01,
+): CardFrameMismatch[] {
+  const out: CardFrameMismatch[] = [];
+  const growth = cardGrowth("recipe");
+  for (const n of nodes) {
+    if (n.type !== "recipe") continue;
+    const seatingWidth = RECIPE_WIDTH + growth;
+    const seatingHeight =
+      recipeHeight(n.inPorts.length, n.outPorts.length) + growth;
+    const drawnWidth = n.right - n.left;
+    const drawnHeight = n.bottom - n.top;
+    if (
+      Math.abs(drawnWidth - seatingWidth) > eps ||
+      Math.abs(drawnHeight - seatingHeight) > eps
+    ) {
+      out.push({
+        nodeId: n.nodeId,
+        drawnWidth,
+        drawnHeight,
+        seatingWidth,
+        seatingHeight,
+      });
     }
   }
   return out;

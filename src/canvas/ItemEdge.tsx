@@ -82,31 +82,16 @@ export type ItemEdgeData = {
   // Fan-in marker (deconflictChipAnchors). Where 2+ forward same-item edges enter
   // one target in-port their final legs run collinear at the port y from a merge
   // point to the port; fan-in is otherwise structurally unmodeled (all trunk keys
-  // are (item, source), never (item, target)). These fields are stamped on the
-  // ONE elected owner item edge of such a group so its ItemEdge draws the shared
-  // marker: faninJunction* is the merge point (a bus-junction dot), faninSigma*
-  // the summed-rate aggregate chip anchor on the shared run, faninSigmaDx/Dy its
-  // seat offsets, faninTotalRate the sum over EVERY collinear forward member of
-  // the merged run and faninMemberCount that member count. A port that also
-  // receives a same-item feed outside the run (a lane-bus rise, a backward rail)
-  // gets no marker at all, so a displayed Sigma never understates the card's
-  // input row. Presentational only: no edge is retyped and no member's own rate
-  // changes (a dual-role edge that is a fan-out member at its source is summed
-  // here by its own rate, once).
+  // are (item, source), never (item, target)). This pair is stamped on the ONE
+  // elected owner item edge of such a group so its ItemEdge draws the merge point
+  // as a bus-junction dot. A port that also receives a same-item feed outside the
+  // run (a lane-bus rise, a backward rail) gets no marker at all. Presentational
+  // only: no edge is retyped and no member's own rate changes.
   faninJunctionX?: number;
   faninJunctionY?: number;
-  faninSigmaX?: number;
-  faninSigmaY?: number;
-  faninSigmaDx?: number;
-  faninSigmaDy?: number;
-  faninTotalRate?: Fraction;
-  // The same total as the members' own chips read it: the sum of their
-  // DISPLAY-rounded rates, so the aggregate and the member chips cross-check.
-  faninDisplayTotalRate?: Fraction;
-  faninMemberCount?: number;
-  // Set on a fan-in member whose OWN rate chip would sit ON the shared run
-  // (between the merge point and the port), where the summed Sigma already reads:
-  // ItemEdge then draws no rate chip, keeping the exact member rate on a
+  // Set on a NON-OWNER fan-in member whose OWN rate chip would sit ON the shared
+  // run (between the merge point and the port), where the owner's own rate chip
+  // reads: ItemEdge then draws no rate chip, keeping the exact member rate on a
   // transparent hover path (and the target card's input row). Members whose chip
   // sits on their own PRE-merge leg keep it. Mirrors the bus member-hide.
   // faninChipHiddenAtY records the port y the hide was decided at, so the hide
@@ -150,16 +135,18 @@ const GAS_DASH = "6 2 1 2";
 export const LABEL_MIN_ZOOM = 0.35;
 
 // Second, lower zoom LOD gate. Below it the chips that are EXEMPT from
-// LABEL_MIN_ZOOM (the bus aggregate drop chip, the fan-in summed aggregate, and a
-// lone member's long-detour rise chip) collapse to icon-only: the item icon plus
-// the optional sum glyph, with the rate digits dropped. This preserves the
-// "something flows here" signal while un-blanketing dense clusters at fit zoom;
-// the exact rate stays reachable on the chip's hover tooltip. Calibrated between
-// the dense-plan fit zooms that must collapse (battery5-xiranite ~0.28, multi6
-// ~0.17) and the sparse-plan fit zooms that must stay full (crystal ~0.46,
-// default ~0.76), measured in-browser at 1920x1080. Kept below LABEL_MIN_ZOOM so
-// the LOD stays monotonic: per-member chips drop first, then the surviving
-// aggregates shed their digits.
+// LABEL_MIN_ZOOM (the bus aggregate drop chip and a lone member's long-detour
+// rise chip) collapse to icon-only: the item icon alone, with the rate digits
+// dropped. This preserves the "something flows here" signal while un-blanketing
+// dense clusters at fit zoom; the exact rate stays reachable on the chip's hover
+// tooltip. Calibrated against the corpus fit zooms measured in-browser at
+// 1920x1080: the gate sits in the gap between the one plan that must collapse
+// (multi6, 0.21) and the densest plan that must stay full (battery5-xiranite,
+// 0.35 - just above LABEL_MIN_ZOOM, so nothing on it collapses either). The
+// remaining plans sit well clear: equip4 0.44, battery5 0.45, crystal 0.50,
+// tundra 0.66, default 0.90. Kept below LABEL_MIN_ZOOM so the LOD stays
+// monotonic: per-member chips drop first, then the surviving aggregates shed
+// their digits.
 export const CHIP_ICON_ONLY_MAX_ZOOM = 0.32;
 
 // Physical stroke-width bounds. Edge strokes are drawn in graph units, so the
@@ -212,14 +199,12 @@ export function FlowChip({
   y,
   item,
   text,
-  marker,
   label,
   title,
   tear,
   dimmed,
   focused,
   compact,
-  variant,
   zoom,
 }: {
   testId: string;
@@ -230,12 +215,6 @@ export function FlowChip({
   y: number;
   item?: ItemId | undefined;
   text?: string | undefined;
-  // Leading aggregate glyph (the sum "Sigma" glyph) kept when the chip
-  // collapses to icon-only below CHIP_ICON_ONLY_MAX_ZOOM. In the full chip the
-  // glyph already rides inside `text`; this prop only names what survives the
-  // collapse, so a plain member chip (no marker) collapses to the bare icon.
-  // Optional.
-  marker?: string | undefined;
   label: string;
   // Hover-tooltip text. Defaults to `label`; edges pass the exact, un-rounded
   // rate here so hovering reveals the precise value the rounded chip text hides.
@@ -249,9 +228,6 @@ export function FlowChip({
   // shorter than one chip): it collapses to icon-only regardless of zoom. A
   // hover-lit chip still wins, so the rate stays one hover away.
   compact?: boolean | undefined;
-  // Chip role beyond a plain per-edge rate: "sigma" is the fan-in aggregate,
-  // styled as a summary tag of the merge junction it sits beside.
-  variant?: "sigma" | undefined;
   // Live pane zoom, used to counter-scale the chip so it stays legible at the
   // dense-plan fit zoom. Optional: callers without a zoom leave the chip at its
   // natural size (scale 1).
@@ -264,8 +240,8 @@ export function FlowChip({
   const scale = zoom !== undefined ? chipCounterScale(zoom) : 1;
   const scalePart = scale !== 1 ? ` scale(${scale})` : "";
   // Below the icon-only zoom the surviving (LABEL_MIN_ZOOM-exempt) chips shed
-  // their rate digits and render as the icon plus the optional sum glyph, so a
-  // dense fit view stops blanketing. The exact rate stays on the title tooltip.
+  // their rate digits and render as the bare item icon, so a dense fit view
+  // stops blanketing. The exact rate stays on the title tooltip.
   // Zoom-gated member chips never reach here: they are already hidden by the
   // higher LABEL_MIN_ZOOM gate at their call sites. `compact` collapses a chip
   // at every zoom (its line is too short for the full box at any scale); the
@@ -274,7 +250,7 @@ export function FlowChip({
     (compact === true ||
       (zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM)) &&
     !focused;
-  const bodyText = iconOnly ? (marker ?? "") : text;
+  const bodyText = iconOnly ? "" : text;
   return (
     <EdgeLabelRenderer>
       <div
@@ -284,8 +260,7 @@ export function FlowChip({
           "nodrag nopan flow-chip" +
           (iconOnly ? " icon-only" : "") +
           (tear ? " red" : "") +
-          (dimmed ? " dimmed" : "") +
-          (variant !== undefined ? ` ${variant}` : "")
+          (dimmed ? " dimmed" : "")
         }
         aria-label={label}
         title={title ?? label}
@@ -296,8 +271,8 @@ export function FlowChip({
           ...chipAccentStyle(item),
         }}
       >
-        {/* An icon-less item collapsing with no marker leaves the box EMPTY on
-            purpose: it stays a tinted hover target carrying title/aria-label. */}
+        {/* An icon-less item that collapses leaves the box EMPTY on purpose: it
+            stays a tinted hover target carrying title/aria-label. */}
         {pos !== undefined ? (
           <span className="ico ico-16">
             <span className="spr" style={{ backgroundPosition: pos }} />
@@ -305,8 +280,8 @@ export function FlowChip({
         ) : null}
         {/* The text rides in its own span so the .flow-chip max-width clamp can
             ellipsize it (text-overflow does not reach a bare text node inside a
-            flex container). The title attribute above keeps the full value. When
-            collapsed the body is just the sum glyph (or nothing). */}
+            flex container). The title attribute above keeps the full value. A
+            collapsed chip has no body at all. */}
         {bodyText ? <span className="chip-text">{bodyText}</span> : null}
       </div>
     </EdgeLabelRenderer>
@@ -418,23 +393,23 @@ export default function ItemEdge({
   // marker fields are stamped absolute coordinates from the seating pass, and
   // nodes stay mouse-draggable without a re-seat. Once the stamped port y
   // diverges from the LIVE target port y (the targetY prop) past the eps, the
-  // dot, the Sigma, and the member hide all drop together -- a floating marker
-  // or a wrongly hidden chip is worse than a temporarily unmarked merge. The
-  // eps sits well above the ~1-unit port-model noise between the seating
-  // reconstruction and React Flow's measured handles, and well below any
-  // meaningful drag (half a max-scale chip box height).
+  // dot and the member hide drop together -- a floating marker or a wrongly
+  // hidden chip is worse than a temporarily unmarked merge. The eps sits well
+  // above the ~1-unit port-model noise between the seating reconstruction and
+  // React Flow's measured handles, and well below any meaningful drag (half a
+  // max-scale chip box height).
   const HIDE_STALE_EPS = 24;
   const faninStale = (stampY: number | undefined): boolean =>
     stampY !== undefined && Math.abs(stampY - targetY) >= HIDE_STALE_EPS;
-  // A fan-in member whose own rate chip would sit on the shared merged run draws
-  // no rate chip -- the summed Sigma reads there instead. The exact member rate
-  // stays reachable on the transparent hover path below (and the target card's
-  // input row), mirroring the bus member-hide. The hide only holds while the
-  // live port still matches the stamp (see the staleness guard above).
+  // A non-owner fan-in member whose own rate chip would sit on the shared merged
+  // run draws no rate chip -- the owner's own chip reads there instead. The exact
+  // member rate stays reachable on the transparent hover path below (and the
+  // target card's input row), mirroring the bus member-hide. The hide only holds
+  // while the live port still matches the stamp (see the staleness guard above).
   const ownChipHidden =
     edgeData?.faninChipHidden === true &&
     !faninStale(edgeData.faninChipHiddenAtY);
-  // The owner's marker (dot + Sigma) follows the same staleness rule.
+  // The owner's merge dot follows the same staleness rule.
   const faninMarkerLive =
     edgeData?.faninJunctionY !== undefined &&
     !faninStale(edgeData.faninJunctionY);
@@ -461,28 +436,6 @@ export default function ItemEdge({
   const exactTitle =
     edgeData && rateStr
       ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(edgeData.rate)}${unit}`
-      : "";
-
-  // Fan-in aggregate (owner only): the summed rate of every same-item edge into
-  // one target port, drawn on the shared run with a leading sum glyph. Exempt
-  // from the label zoom gate (like the bus aggregate) so the total survives at
-  // the dense-plan fit zoom; the exact total rides its own hover tooltip.
-  // The glyph is named once and fed to both the full-mode text and the marker
-  // prop, so the full and collapsed forms cannot diverge.
-  const faninMarker = "Σ";
-  const faninTotal = edgeData?.faninTotalRate;
-  const faninDisplayTotal = edgeData?.faninDisplayTotalRate ?? faninTotal;
-  const faninRateStr = faninDisplayTotal
-    ? formatRatePerMin(faninDisplayTotal)
-    : "";
-  const faninText = faninRateStr ? `${faninMarker}${faninRateStr}${unit}` : "";
-  const faninLabel =
-    edgeData && faninRateStr
-      ? `${i18n.displayName(edgeData.item)} x ${faninMarker}${faninRateStr}${unit}`
-      : "";
-  const faninTitle =
-    edgeData && faninRateStr && faninTotal
-      ? `${i18n.displayName(edgeData.item)} x ${faninMarker}${formatRateExactPerMin(faninTotal)}${unit}`
       : "";
 
   // chamferStepPath returns the label anchor on the polyline's PREFERRED CLEAR
@@ -587,29 +540,6 @@ export default function ItemEdge({
           y={edgeData.fanoutJunctionY!}
           color={kindStyle.stroke}
           dimmed={edgeData.dimmed}
-          zoom={zoom}
-        />
-      ) : null}
-      {/* Fan-in summed aggregate chip (owner only) on the shared run. Classified
-          bus-drop for the geometry audit (testid bus-edge-*-drop). The anchor
-          pair is stamped together, so both coordinates gate the render. */}
-      {faninMarkerLive &&
-      edgeData?.faninSigmaX !== undefined &&
-      edgeData.faninSigmaY !== undefined &&
-      faninText ? (
-        <FlowChip
-          testId={`bus-edge-fanin-${id}-drop`}
-          edgeId={id}
-          x={edgeData.faninSigmaX + (edgeData.faninSigmaDx ?? 0)}
-          y={edgeData.faninSigmaY + (edgeData.faninSigmaDy ?? 0)}
-          item={edgeData?.item}
-          text={faninText}
-          marker={faninMarker}
-          label={faninLabel}
-          title={faninTitle}
-          variant="sigma"
-          dimmed={edgeData?.dimmed}
-          focused={edgeData?.focused}
           zoom={zoom}
         />
       ) : null}

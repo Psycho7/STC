@@ -1,8 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 import {
+  auditCardFrames,
   auditChipsOnOwnPath,
   auditChipsVsCards,
+  auditDotsUnderChips,
+  auditEndpointParity,
   auditOwnCardPierces,
   auditSegmentsVsCards,
   auditSegmentsVsChips,
@@ -13,6 +16,7 @@ import {
   polylineLength,
   toRawEdges,
   type ChipRect,
+  type DotRect,
   type NodeRect,
   type RawEdge,
 } from "./geometry";
@@ -233,9 +237,10 @@ test.describe("DOM geometry audit", () => {
 // path's `d` (already in flow coordinates -- the viewport <g> carries the
 // pan/zoom transform) plus every node's raw card rect and every chip's box
 // (client rects mapped back through the inverse viewport transform, so edges,
-// cards, and chips share one coordinate system). The pure scoring in ./geometry
-// runs four tiers plus two independent checks, ALL evaluated on every run
-// (soft assertions), so one failing tier never hides another:
+// cards, and chips share one coordinate system), plus every junction dot's box.
+// The pure scoring in ./geometry runs four tiers plus three independent checks,
+// ALL evaluated on every run (soft assertions), so one failing tier never hides
+// another:
 //   tier 1 (HARD): zero edge segments entering a FOREIGN RAW (unpadded) card;
 //   tier 2 (SOFT ratchet): segments entering a foreign chip box <= per-scenario
 //     baseline (zero on sparse plans; 2B trades bounded line-occlusion on the
@@ -245,6 +250,18 @@ test.describe("DOM geometry audit", () => {
 //   tier 4 (P3): chip/foreign-card overlaps HARD ZERO on every scenario (the
 //     ratified acceptance criterion), plus chips-off-own-line as a SOFT ratchet
 //     (residue where parallel edges / bus lanes / card-hardness force a nudge);
+//   dots (SOFT ratchet): junction dots hidden under a chip box <= per-scenario
+//     baseline (the merge / split markers a chip's opaque box takes from the
+//     reader; chips deliberately paint above the dots, so the seating pass is
+//     what has to keep them apart);
+//   frames (HARD): every drawn recipe card box equals the box the seating pass
+//     measures chips against (card origin + model size + the card border), so
+//     the two run in ONE frame;
+//   parity (SOFT ratchet): every drawn path's first / last vertex within a
+//     per-scenario tolerance of a model + PORT_DRIFT reconstruction of the same
+//     endpoint (a MIRRORED copy of the port contract, checked against the frame
+//     React Flow actually drew -- a negative control on that drawn frame, not a
+//     probe of the seating pass's internals);
 //   census: pairwise crossing count <= the pre-P2 baseline;
 //   detour: the tundra ore feed within 1.5x its endpoints' Manhattan gap.
 //
@@ -268,6 +285,27 @@ test.describe("DOM geometry audit", () => {
 // At the aggregate-chip removal all five tables were re-measured wholesale and
 // re-pinned DOWN to the actuals; no count rose at THAT re-measure, so it added
 // no ruling of its own. Later re-measures are recorded per table.
+// A SIXTH table joined during the trunk-rate legibility campaign
+// (DOT_COVER_BASELINE, junction dots hidden under a chip). It adds no ruling of
+// its own either: its first pins recorded the pre-keepoff state exactly as
+// measured, so the seating change that followed had a committed diff base, and
+// that change then re-pinned the table DOWN. It was re-pinned DOWN a second
+// time (10 -> 6 -> 2) when short-leg fan-out branch chips began collapsing to
+// their icon-only variant; the five tables above were re-measured at that
+// commit too and every one of their thirty-five cells repeated the keep-off
+// actuals recorded just below, multi6's padding graze included.
+// That keep-off also SUPERSEDES, without retiring, the chips-over-dots ruling in
+// canvas.css (.flow-chip z-index 2 over .bus-junction z-index 1): the z-order
+// still decides who paints on top, but it is no longer the mechanism that
+// handles a chip landing on a dot -- seating avoids the landing wherever a seat
+// on the chip's own line allows, and this table ratchets what is left. The five
+// tables above were re-measured at the same commit: every cell held, except
+// multi6's padding graze, which read 0 instead of 1. That one is NOT re-pinned:
+// multi6's fit zoom moved (0.208893 -> 0.206472, one top-band rise chip lifting
+// a pitch grew the height-bound content box), and the graze audit reads node
+// rects mapped back through the camera, so a sub-eps graze flips with the
+// rounding. Edge paths and card positions are camera-independent and did not
+// move.
 // The row-chrome diet and the #41 slab-spacing fix, landed back to back,
 // together triggered a second wholesale re-measure. Eight of the thirty-five
 // cells moved: SEVEN moved DOWN and were re-pinned; ONE moved UP -- battery5
@@ -298,6 +336,17 @@ test.describe("DOM geometry audit", () => {
 // give the pierce rescue an off-own column where it previously had none, so
 // the walled cases named above no longer occur. The paragraph is kept as the
 // record of why the ratchet exists.
+// A SEVENTH table joined in the same campaign (ENDPOINT_PARITY_TOL, drawn-vs-
+// rebuilt edge endpoints). It adds no ruling of its own either, and unlike the
+// six above it records no defect residue: it is a TOLERANCE, not a count, and
+// it says that a mirrored description of a port still agrees with the port the
+// DOM shows -- a negative control on the drawn frame, detailed at
+// ENDPOINT_PARITY_TOL below. Its first pins were taken from an already-clean
+// corpus.
+// The card-frame check added alongside the cards[] frame move is a HARD
+// criterion, NOT an eighth table: it holds at zero everywhere, carries no
+// per-scenario baseline, and adds no ruling. The count of tables and of
+// standing rulings above is unchanged by it.
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -516,6 +565,91 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   tundra: 0,
 };
 
+// Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
+// box at fit zoom. Chips paint ABOVE the dots by design (the z-order tier
+// asserted in the P1 gate above), so a chip seated on a dot does not merely
+// overlap it -- it deletes it, and the merge / split the dot marks reads as an
+// ordinary corner. First recorded here at the campaign's pre-keepoff state, so
+// the counts below are a measurement of the defect, not a target; like every
+// table above it ratchets DOWN freely and moves UP only on a recorded ruling.
+// Two families made up the first recording (10 corpus-wide): a lane rise chip
+// covering a junction dot 8-13 units from its own centre (its own dot, or a
+// coincident sibling member's), and the restored fan-in owner chip covering the
+// merge dot on battery5-xiranite's e:14 (the shared-run owner chip that replaced
+// the removed sigma, which used to keep a half-box off the junction).
+// Re-pinned DOWN to 6 by the seating keep-off (#50), which walks a chip along
+// its own line (or one pitch off its lane) to a seat that leaves the dot
+// visible, whenever such a seat exists. Cleared: default's water rise, the
+// battery5 and battery5-xiranite iron_powder rises, and multi6's
+// originium_enr_powder rise -- four lane rises that had a clear lane-side slot.
+// Re-pinned DOWN again, to 2, by the short-leg collapse (#50): a fan-out member
+// whose whole polyline is shorter than one chip box now draws its branch chip
+// icon-only, and its seat reserves that same square box, so the four Sandleaf
+// trunk chips (battery5 e:8, battery5-xiranite e:13, crystal e:8, equip4 e:10)
+// -- each seated 9 units past its trunk's split dot on a 118-unit leg, with a
+// box wider than the whole leg -- now slide clear of the dot ON their own line.
+// The share digits they shed stay on their hover title and aria-label.
+// The TWO survivors are the cases where no seat on the chip's own polyline
+// clears the dot and no collapse applies, measured per case:
+//   - battery5-xiranite's fan-in owner chip (e:14) has 89 units of reach along
+//     its polyline against the ~93 its drawn box needs to clear the merge dot
+//     (its leg is long enough that the short-leg rule does not fire);
+//   - multi6's gas_inert rise (e:74) has its one lane-side slot blocked.
+// The two are stuck for different reasons. Clearing e:14 means taking a chip
+// OFF its own polyline, which the off-path ratchet forbids without a ruling.
+// e:74 is not an off-path case at all: the keep-off's one-pitch lane-side probe
+// is the seat that would clear it, and that slot is occupied -- crowding, not
+// the ratchet, is what holds it. Both are reported as they stand.
+const DOT_COVER_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 1,
+  crystal: 0,
+  equip4: 0,
+  multi6: 1,
+  tundra: 0,
+};
+
+// Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
+// per-axis gap allowed between an edge's drawn first / last vertex and a
+// reconstruction of that same endpoint from the node's card origin, the model
+// port geometry, and PORT_DRIFT (auditEndpointParity). The reconstruction runs
+// off a MIRRORED copy of chipSeating's port contract -- the same drift constants
+// and the same row math -- so what this table states is that that contract still
+// agrees with the DOM.
+//
+// It anchors on the DRAWN card origin, which makes it a NEGATIVE CONTROL on the
+// drawn frame: it says the frame did not move, and it catches a row-index or
+// port-contract regression, which lands a full row pitch out. It is NOT
+// sensitive to chipSeating's src-side internals -- zeroing the source PORT_DRIFT
+// leaves it green. See the mirror comment above PORT_DRIFT in test/e2e/geometry.ts
+// for that one-directionality and its blind spots.
+//
+// A tolerance rather than a count, and deliberately coarse: the disagreement it
+// exists to catch is an endpoint resolving to the WRONG ROW, which lands a full
+// row pitch (22 units) or a whole card width out. Sub-unit residue is not a
+// defect -- ItemEdge's HIDE_STALE_EPS comment records ~1 unit of port-model
+// noise between a reconstruction and React Flow's measured handles, and sets its
+// own guard well above it for the same reason.
+//
+// Measured at the pin commit, per scenario, as the max over both axes and every
+// endpoint: default 0.000, battery5 0.004, battery5-xiranite 0.005,
+// crystal 0.002, equip4 0.001, multi6 0.005, tundra 0.000 (24-224 endpoints
+// each). Every one is double-precision residue from mapping client rects back
+// through the inverse viewport transform -- nothing structural survives -- so
+// the pins are a flat measured-max-plus-headroom 0.5, two orders of magnitude
+// above the noise and one and a half below a row pitch. They ratchet DOWN like
+// the tables above; a rise needs the same recorded ruling.
+const ENDPOINT_PARITY_TOL: Record<string, number> = {
+  default: 0.5,
+  battery5: 0.5,
+  "battery5-xiranite": 0.5,
+  crystal: 0.5,
+  equip4: 0.5,
+  multi6: 0.5,
+  tundra: 0.5,
+};
+
 async function loadScenario(page: Page, hash: string): Promise<void> {
   await page.goto(`/#${hash}`, { waitUntil: "load" });
   await waitForCanvasReady(page);
@@ -661,6 +795,71 @@ test.describe("segment placement audit", () => {
           `${scenario.id}: ${ownPierces.length} own-card pierce(s) exceeds baseline ${ownPierceBaseline}:\n${ownPierceInventory.join("\n")}`,
         )
         .toBeLessThanOrEqual(ownPierceBaseline);
+
+      // Hidden-dot ratchet: junction dots swallowed by a chip box at fit zoom.
+      // The dot rects come from the DOM, so they carry the zoom-clamped radius
+      // the dot actually renders at; the camera zoom only converts the
+      // one-screen-pixel visibility tolerance into graph units.
+      const hiddenDots = auditDotsUnderChips(
+        chips,
+        geom.dots as DotRect[],
+        geom.zoom,
+      );
+      const hiddenDotInventory = hiddenDots.map(
+        (v) =>
+          `  ${v.dotId} at (${v.at[0].toFixed(1)},${v.at[1].toFixed(1)}) hidden under the chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
+      );
+      const dotBaseline = DOT_COVER_BASELINE[scenario.id]!;
+      expect
+        .soft(
+          hiddenDots.length,
+          `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotBaseline} among ${geom.dots.length} dots:\n${hiddenDotInventory.join("\n")}`,
+        )
+        .toBeLessThanOrEqual(dotBaseline);
+
+      // Card frames: the box the seating pass measures a recipe card by is the
+      // box the browser paints. Unlike the parity check below, which anchors on
+      // the drawn origin and so cannot see the seating pass's own frame, this
+      // one compares a DRAWN size against a rebuilt one, so a seating frame two
+      // units off the border box reddens it. Hard zero, no baseline.
+      const frameMismatches = auditCardFrames(geom.nodes);
+      const frameInventory = frameMismatches.map(
+        (m) =>
+          `  ${m.nodeId}: drawn ${m.drawnWidth.toFixed(2)}x${m.drawnHeight.toFixed(2)} ` +
+          `vs seating ${m.seatingWidth.toFixed(2)}x${m.seatingHeight.toFixed(2)}`,
+      );
+      expect
+        .soft(
+          frameMismatches.length,
+          `${scenario.id}: ${frameMismatches.length} recipe card(s) drawn in a different frame than the seating pass measures:\n${frameInventory.join("\n")}`,
+        )
+        .toBe(0);
+
+      // Endpoint parity: each drawn path starts and ends where a model +
+      // PORT_DRIFT reconstruction of the same port says it should. The two
+      // descriptions are independent -- the drawn vertex comes from React Flow's
+      // handle anchoring, the rebuilt one from the card origin plus the row
+      // geometry the routing model computes -- so a port resolving to the wrong
+      // row shows here as a full row-pitch gap. Reported as the worst endpoint,
+      // with every endpoint past the tolerance named.
+      const parities = auditEndpointParity(rawEdges, geom.nodes);
+      const worstParity = parities.reduce((m, p) => Math.max(m, p.delta), 0);
+      const parityTol = ENDPOINT_PARITY_TOL[scenario.id]!;
+      const parityInventory = parities
+        .filter((p) => p.delta > parityTol)
+        .map(
+          (p) =>
+            `  ${p.edgeId} ${p.end} on ${p.nodeType} ${p.nodeId}: ` +
+            `drawn (${p.drawn[0].toFixed(2)},${p.drawn[1].toFixed(2)}) vs ` +
+            `rebuilt (${p.rebuilt[0].toFixed(2)},${p.rebuilt[1].toFixed(2)}), ` +
+            `d=(${p.dx.toFixed(2)},${p.dy.toFixed(2)})`,
+        );
+      expect
+        .soft(
+          worstParity,
+          `${scenario.id}: worst endpoint parity ${worstParity.toFixed(3)} exceeds tolerance ${parityTol} among ${parities.length} endpoints (${parityInventory.length} past tolerance):\n${parityInventory.join("\n")}`,
+        )
+        .toBeLessThanOrEqual(parityTol);
 
       // Census: pairwise crossings never regress past the pre-P2 baseline.
       const crossings = countCrossings(geom.edges);

@@ -153,6 +153,15 @@ export type NodeGeom = {
   top: number;
   right: number;
   bottom: number;
+  // Item ids of the node's ports, in DOM order per side, read off the React Flow
+  // handle ids RecipeNode / LoopNode / ProductNode emit ("in:<item>" /
+  // "out:<item>"). DOM order IS the model row order (the components map the
+  // already-ordered port arrays), so an item's index here is the row index the
+  // routing model resolves it to -- what the endpoint-parity audit needs to
+  // rebuild a port y without reading the drawn row box. Empty for a node kind
+  // that carries no per-item handles.
+  inPorts: string[];
+  outPorts: string[];
 };
 export type ChipGeom = {
   edgeId: string;
@@ -163,10 +172,27 @@ export type ChipGeom = {
   right: number;
   bottom: number;
 };
+// One DRAWN junction dot: its data-testid hook (`bus-junction-<edge>` for the
+// lane / fan-out trunk families, `fanin-junction-<edge>` for the merge dot,
+// `fanout-junction-<edge>` for the declined-fan-out divergence dot) plus its box
+// in graph coordinates. The dot is sized in graph units from a zoom-clamped
+// screen radius, so its measured box already carries the extent it renders at
+// THIS camera - no radius has to be recomputed audit-side.
+export type DotGeom = {
+  testId: string;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
 export type Geometry = {
   edges: EdgeGeom[];
   nodes: NodeGeom[];
   chips: ChipGeom[];
+  dots: DotGeom[];
+  // The live camera zoom, needed to state a screen-pixel visibility tolerance
+  // in the graph frame the rects above live in.
+  zoom: number;
 };
 
 // Read the live flow-coordinate geometry: every edge path's id + `d`, every
@@ -197,6 +223,15 @@ export function collectGeometry(): Geometry {
     const r = el.getBoundingClientRect();
     const cls = el.className;
     const match = /react-flow__node-(\w+)/.exec(cls);
+    const inPorts: string[] = [];
+    const outPorts: string[] = [];
+    for (const h of Array.from(
+      el.querySelectorAll<HTMLElement>("[data-handleid]"),
+    )) {
+      const hid = h.getAttribute("data-handleid") ?? "";
+      if (hid.startsWith("in:")) inPorts.push(hid.slice(3));
+      else if (hid.startsWith("out:")) outPorts.push(hid.slice(4));
+    }
     return {
       nodeId: el.getAttribute("data-id") ?? "(node)",
       type: match?.[1] ?? "(type)",
@@ -204,6 +239,8 @@ export function collectGeometry(): Geometry {
       top: toGraphY(r.top),
       right: toGraphX(r.right),
       bottom: toGraphY(r.bottom),
+      inPorts,
+      outPorts,
     };
   });
 
@@ -232,7 +269,20 @@ export function collectGeometry(): Geometry {
     };
   });
 
-  return { edges, nodes, chips };
+  const dots = Array.from(
+    document.querySelectorAll<HTMLElement>(".bus-junction"),
+  ).map((el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      testId: el.getAttribute("data-testid") ?? "(dot)",
+      left: toGraphX(r.left),
+      top: toGraphY(r.top),
+      right: toGraphX(r.right),
+      bottom: toGraphY(r.bottom),
+    };
+  });
+
+  return { edges, nodes, chips, dots, zoom: k };
 }
 
 // One rendered thing the exam has to be able to point a camera at. `clientRect`
