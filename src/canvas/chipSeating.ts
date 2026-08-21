@@ -677,7 +677,11 @@ export function seatRateChip(
   //              fan-out branch), so the box every tier reserves is the square
   //              icon box instead of the wide worst case. Only a caller that
   //              also STAMPS the collapse may pass it -- the seat and the render
-  //              must reserve the same box.
+  //              must reserve the same box AT REST. Hover is the deliberate
+  //              exception: a focused chip re-expands to its digits (focused
+  //              overrides compact in ItemEdge), drawing the wide box the seat
+  //              did not reserve, so a hovered collapsed chip may transiently
+  //              overlap a neighbour chip. That is accepted, not a seating bug.
   opts?: {
     ownIds?: ReadonlySet<string> | undefined;
     barrierYs?: ReadonlyArray<number> | undefined;
@@ -805,7 +809,10 @@ export function seatRateChip(
   // candidates in the same order, score each by its foreign-line crossings, and
   // seat at the minimum. Strict less-than keeps the nearest-first,
   // forward-first preference on ties (an all-equal line still seats at the
-  // anchor), and a score of 1 cannot be beaten, so the walk stops there.
+  // anchor). The walk stops early only on the unbeatable combination: a score of
+  // 1 (zero is impossible here, tier 1 would have taken it) that also swallows
+  // no dot. A score-1 candidate that still covers a dot keeps the walk running,
+  // since a later candidate may tie the score with the dot left visible.
   // The walk is spelled out rather than run through slideAlong because that
   // helper seats at its first accepted candidate by construction; the order,
   // the barrier skip and the arc-length clamp mirror it exactly.
@@ -1818,7 +1825,7 @@ export function deconflictChipAnchors(
       cardExemptFor(edge),
       entryBand,
     );
-      if (seat.tier === "exhausted" && import.meta.env.DEV) {
+    if (seat.tier === "exhausted" && import.meta.env.DEV) {
       // Dev/test-only tripwire, tree-shaken out of production builds (parity
       // with the render hook in src/pipeline/driver.ts). Never expected: cards
       // are finite, so the cascade should always find free space.

@@ -282,8 +282,8 @@ test.describe("DOM geometry audit", () => {
 // that change then re-pinned the table DOWN. It was re-pinned DOWN a second
 // time (10 -> 6 -> 2) when short-leg fan-out branch chips began collapsing to
 // their icon-only variant; the five tables above were re-measured at that
-// commit too and every one of their thirty-five cells held byte for byte,
-// including multi6's padding graze reading 0 against its pin of 1.
+// commit too and every one of their thirty-five cells repeated the keep-off
+// actuals recorded just below, multi6's padding graze included.
 // That keep-off also SUPERSEDES, without retiring, the chips-over-dots ruling in
 // canvas.css (.flow-chip z-index 2 over .bus-junction z-index 1): the z-order
 // still decides who paints on top, but it is no longer the mechanism that
@@ -574,8 +574,11 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 //     its polyline against the ~93 its drawn box needs to clear the merge dot
 //     (its leg is long enough that the short-leg rule does not fire);
 //   - multi6's gas_inert rise (e:74) has its one lane-side slot blocked.
-// Clearing either means taking a chip OFF its own polyline, which the off-path
-// ratchet forbids without a ruling; they are reported as they stand.
+// The two are stuck for different reasons. Clearing e:14 means taking a chip
+// OFF its own polyline, which the off-path ratchet forbids without a ruling.
+// e:74 is not an off-path case at all: the keep-off's one-pitch lane-side probe
+// is the seat that would clear it, and that slot is occupied -- crowding, not
+// the ratchet, is what holds it. Both are reported as they stand.
 const DOT_COVER_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
