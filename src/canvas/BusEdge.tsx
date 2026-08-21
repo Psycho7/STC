@@ -33,7 +33,8 @@ export { junctionRadius };
 // target. On a lone-member trunk the rate chip (icon + rate/min) draws twice,
 // at the drop and rise columns on the lane, reusing ItemEdge's flow-chip markup
 // and zoom gate so a bus member reads the same as a plain item edge near what
-// it feeds; a multi-member trunk draws only the per-member rise chips.
+// it feeds; a multi-member trunk draws only the per-member rise chips, each
+// reading as a share of the trunk total ("30/270").
 export default function BusEdge({
   id,
   sourceX,
@@ -150,11 +151,14 @@ export default function BusEdge({
     edgeData !== undefined &&
     (zoom >= LABEL_MIN_ZOOM || longSingleRun || edgeData.focused === true);
   // The chip shows the trunk's DISPLAYED rate, the same rounding the member
-  // chips use, so the two agree; the tooltip below keeps the exact rate.
-  // Hand-built edges (tests, non-routed data) carry no display total and fall
-  // back to the exact one.
-  const dropDisplayRate = edgeData?.busDisplayTotalRate ?? totalRate;
-  const dropRateStr = dropDisplayRate ? formatRatePerMin(dropDisplayRate) : "";
+  // chips use, so the two agree; the tooltip below keeps the exact rate. The
+  // member chips read the same total on a multi-member trunk (see the share
+  // form below), so the two never disagree. Hand-built edges (tests,
+  // non-routed data) carry no display total and fall back to the exact one.
+  const displayTotalRate = edgeData?.busDisplayTotalRate ?? totalRate;
+  const dropRateStr = displayTotalRate
+    ? formatRatePerMin(displayTotalRate)
+    : "";
   const dropText = showAggChip && dropRateStr ? `${dropRateStr}${unit}` : "";
   const dropLabel =
     edgeData && dropRateStr
@@ -201,17 +205,48 @@ export default function BusEdge({
   const laneRiseHidden = laneData?.busRiseHidden === true;
   const memberChipHidden = branchHidden || laneRiseHidden;
   const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
+  // On a multi-member trunk the member chip reads as a SHARE of the trunk it
+  // runs in ("30/270") rather than a bare rate, so a lane number is never
+  // mistaken for the whole trunk's throughput (issue #45). The chip carries
+  // digits only: the unit would not fit the fixed chip box beside a decimal
+  // pair, and it differs per locale, so the label and tooltip below spell out
+  // the full localized wording instead. The total shown is the trunk's
+  // DISPLAYED total, so the visible members sum to the number on the chip;
+  // the tooltip keeps the exact one. A lone member is its own total, so it
+  // keeps the plain rate + unit reading.
+  const shareTotalStr =
+    memberCount > 1 && displayTotalRate
+      ? formatRatePerMin(displayTotalRate)
+      : "";
+  const isShare = memberRateStr !== "" && shareTotalStr !== "";
+  const plainRate = `${memberRateStr}${unit}`;
   const riseText =
     showMemberChip && memberRateStr && !memberChipHidden
-      ? `${memberRateStr}${unit}`
+      ? isShare
+        ? `${memberRateStr}/${shareTotalStr}`
+        : plainRate
       : "";
   const riseLabel =
     edgeData && memberRateStr
-      ? `${i18n.displayName(edgeData.item)} x ${memberRateStr}${unit}`
+      ? `${i18n.displayName(edgeData.item)} x ${
+          isShare
+            ? i18n.t("canvas.chip.share", {
+                rate: memberRateStr,
+                total: shareTotalStr,
+              })
+            : plainRate
+        }`
       : "";
   const riseTitle =
     edgeData && memberRateStr
-      ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(edgeData.rate)}${unit}`
+      ? `${i18n.displayName(edgeData.item)} x ${
+          isShare
+            ? i18n.t("canvas.chip.share", {
+                rate: formatRateExactPerMin(edgeData.rate),
+                total: totalRate ? formatRateExactPerMin(totalRate) : "",
+              })
+            : `${formatRateExactPerMin(edgeData.rate)}${unit}`
+        }`
       : "";
   // Per-member chip anchor: fan-out branch-leg midpoint (plus its offset), or the
   // lane rise slot (busChipX, the trunk's evenly distributed lane x, falling back

@@ -235,12 +235,91 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(
       document.querySelector('[data-testid="bus-edge-label-e1-drop"]'),
     ).toBeNull();
-    // The member's own rise chip is untouched: its plain share.
+    // The member's own rise chip carries the share instead: compact digits on
+    // the chip (no unit, so the pair fits the fixed chip box), full wording
+    // with the localized unit on the hover / aria text.
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(rise).not.toBeNull();
+    expect(rise!.textContent).toBe("60/120");
+    expect(rise!.getAttribute("aria-label")).toBe("Iron Plate x 60 of 120/min");
+    expect(rise!.getAttribute("title")).toBe("Iron Plate x 60 of 120/min");
+  });
+
+  it("keeps the plain rate on a single-member trunk's chips", async () => {
+    // The share form is a multi-member affordance only: on a lone member the
+    // rate IS the trunk total, so "60/60" would be noise. Both chips keep the
+    // plain "rate + unit" reading.
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(1, 1),
+        laneY: 500,
+        trunkKey: "Iron Plate|src",
+        busChipOwner: true,
+        busTotalRate: new Fraction(1, 1),
+        busMemberCount: 1,
+      },
+      1,
+    );
+    await findEdgePath();
     const rise = document.querySelector<HTMLElement>(
       '[data-testid="bus-edge-label-e1-rise"]',
     );
     expect(rise).not.toBeNull();
     expect(rise!.textContent).toBe("60/min");
+    expect(rise!.getAttribute("aria-label")).toBe("Iron Plate x 60/min");
+  });
+
+  it("shares the fan-out branch chips of a multi-member trunk too", async () => {
+    // Workstream B applies to every multi-member trunk member, lane rise and
+    // fan-out branch alike -- the branch chip reads the same share form.
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(1, 1),
+        trunkKey: "Iron Plate|src",
+        fanout: true,
+        busChipOwner: true,
+        busTotalRate: new Fraction(2, 1),
+        busDisplayTotalRate: new Fraction(2, 1),
+        busMemberCount: 3,
+      } as BusData,
+      1,
+    );
+    await findEdgePath();
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(rise).not.toBeNull();
+    expect(rise!.textContent).toBe("60/120");
+  });
+
+  it("shows the DRAWN trunk total on the chip and the exact total on hover", async () => {
+    // The chip total is the trunk's displayed total (the same rounding the
+    // member chips use), so the visible members sum to the number shown; the
+    // tooltip keeps the exact total behind it.
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(1, 1),
+        laneY: 500,
+        trunkKey: "Iron Plate|src",
+        busChipOwner: true,
+        busTotalRate: new Fraction(2, 1),
+        busDisplayTotalRate: new Fraction(199, 100),
+        busMemberCount: 2,
+      },
+      1,
+    );
+    await findEdgePath();
+    const rise = document.querySelector<HTMLElement>(
+      '[data-testid="bus-edge-label-e1-rise"]',
+    );
+    expect(rise).not.toBeNull();
+    expect(rise!.textContent).toBe("60/119.4");
+    expect(rise!.getAttribute("title")).toBe("Iron Plate x 60 of 120/min");
   });
 
   it("skips the branch chip of a fan-out member flagged fanoutBranchHidden", async () => {
@@ -349,7 +428,7 @@ describe("canvas/BusEdge trunk labels", () => {
     await findEdgePath();
     const title = document.querySelector(".react-flow__edge title");
     expect(title).not.toBeNull();
-    expect(title!.textContent).toBe("Iron Plate x 60/min");
+    expect(title!.textContent).toBe("Iron Plate x 60 of 120/min");
   });
 
   it("renders only the aggregate drop chip below the zoom threshold", async () => {
