@@ -35,10 +35,30 @@ const E_WATER = "e:1:D->E:water";
 
 // A: source of E_IRON. B: its target. C: a card neither edge owns. D / E: the
 // endpoints of E_WATER.
+// The cards below carry no ports: the measurement pass reads rects only, and an
+// invented port list would put item ids in the fixture that no edge here names.
 const geometry = (): Geometry => ({
   nodes: [
-    { nodeId: "A", type: "recipe", left: 0, top: 0, right: 100, bottom: 50 },
-    { nodeId: "B", type: "recipe", left: 400, top: 0, right: 500, bottom: 50 },
+    {
+      nodeId: "A",
+      type: "recipe",
+      left: 0,
+      top: 0,
+      right: 100,
+      bottom: 50,
+      inPorts: [],
+      outPorts: [],
+    },
+    {
+      nodeId: "B",
+      type: "recipe",
+      left: 400,
+      top: 0,
+      right: 500,
+      bottom: 50,
+      inPorts: [],
+      outPorts: [],
+    },
     {
       nodeId: "C",
       type: "recipe",
@@ -46,8 +66,19 @@ const geometry = (): Geometry => ({
       top: 200,
       right: 260,
       bottom: 260,
+      inPorts: [],
+      outPorts: [],
     },
-    { nodeId: "D", type: "recipe", left: 0, top: 400, right: 100, bottom: 450 },
+    {
+      nodeId: "D",
+      type: "recipe",
+      left: 0,
+      top: 400,
+      right: 100,
+      bottom: 450,
+      inPorts: [],
+      outPorts: [],
+    },
     {
       nodeId: "E",
       type: "recipe",
@@ -55,6 +86,8 @@ const geometry = (): Geometry => ({
       top: 400,
       right: 500,
       bottom: 450,
+      inPorts: [],
+      outPorts: [],
     },
   ],
   edges: [
@@ -96,6 +129,8 @@ const geometry = (): Geometry => ({
       bottom: 120,
     },
   ],
+  dots: [],
+  zoom: 1,
 });
 
 const CHIP_RATE_ID = "chip-rate-iron";
@@ -287,6 +322,8 @@ describe("measurementsFor", () => {
           top: 0,
           right: 100,
           bottom: 50,
+          inPorts: [],
+          outPorts: [],
         },
         {
           nodeId: "B",
@@ -295,6 +332,8 @@ describe("measurementsFor", () => {
           top: 0,
           right: 4100,
           bottom: 50,
+          inPorts: [],
+          outPorts: [],
         },
         {
           nodeId: "C",
@@ -303,10 +342,14 @@ describe("measurementsFor", () => {
           top: 200,
           right: 2060,
           bottom: 260,
+          inPorts: [],
+          outPorts: [],
         },
       ],
       edges: [{ id: E_IRON, d: "M 100,25 L 100,250 L 4000,250" }],
       chips: [],
+      dots: [],
+      zoom: 1,
     };
     const scene: SceneCollection = {
       transform: { x: 0, y: 0, zoom: 1 },
