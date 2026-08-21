@@ -37,7 +37,7 @@ All paths below are relative to `STC/.claude/worktrees/fix/chip-seating/`. Run a
 **Interfaces:**
 - Produces: the "before" numbers every later task's "verify" step compares against.
 
-- [ ] **Step 1: Run the unit suite and e2e suite untouched**
+- [x] **Step 1: Run the unit suite and e2e suite untouched** - the failure list was re-measured on the post-merge tree; the plan's "7 pre-existing failures" was stale. Actual: geometry-audit RAW gate on battery5 + multi6, inputs-panel 4, raw-and-transport 1, plus the placement-shots first-run flake.
 
 Run: `bun run test`
 Expected: green (develop baseline).
@@ -45,7 +45,7 @@ Expected: green (develop baseline).
 Run: `bun run test:e2e 2>&1 | tail -40`
 Expected: the known pre-existing failures only. Record the exact list of failing test titles.
 
-- [ ] **Step 2: Measure the true actuals behind all five ratchet tables**
+- [x] **Step 2: Measure the true actuals behind all five ratchet tables** - measured through a temporary probe calling the same audit functions instead of zeroing the tables (same numbers, no working-tree churn). Full 7x5 matrix recorded in the campaign ledger.
 
 The audit asserts `expect.soft(count).toBeLessThanOrEqual(baseline)`, so a count far below its pin is invisible. To read actuals, temporarily zero every entry of the five tables in `test/e2e/geometry-audit.spec.ts` (`CROSSING_BASELINE:429-437`, `PADDED_GRAZE_BASELINE:452-460`, `CHIP_SEGMENT_BASELINE:487-503`, `CHIP_OFFPATH_BASELINE:504-518`, `OWN_PIERCE_BASELINE:531-539`), run the audit, and harvest the reported counts from the soft-failure messages:
 
@@ -53,7 +53,7 @@ Run: `bunx playwright test geometry-audit 2>&1 | tee /tmp/claude-1000/-home-rins
 
 Record a 7-scenario x 5-table matrix of actuals. Expected per issue #34's exam: `battery5-xiranite` chip-segment 23 / off-path 2; `battery5` off-path ~1 actual vs 6 pinned; `equip4` off-path 0 actual vs 7 pinned.
 
-- [ ] **Step 3: Revert the zeroed tables**
+- [x] **Step 3: Revert the zeroed tables** - nothing to revert; the probe was deleted instead and the tree verified clean.
 
 Run: `git checkout -- test/e2e/geometry-audit.spec.ts && git status --short`
 Expected: clean tree.
@@ -68,7 +68,7 @@ Expected: clean tree.
 **Interfaces:**
 - Produces: a measured drift table `{recipe: {sourceDx, targetDx, dy}, product: {sourceDx, targetDx, dy}}` consumed by Task 3. Issue #34's exam reported source x drawn = model + 5 (recipe) / + 4 (product), target x drawn = model - 3, row y drawn = model + 1; this task confirms or replaces those numbers - no repo constant encodes them and the CSS facts (content-box cards with 1px/3px borders, xyflow's 8px handle box translated onto the edge) do not derive them unambiguously.
 
-- [ ] **Step 1: Add the probe describe**
+- [x] **Step 1: Add the probe describe** - the probe reused the audit's own `collectGeometry` and geometry helpers instead of the inline collector below, so the flow frame matches the one every ratchet derives.
 
 Append to `test/e2e/geometry-audit.spec.ts` a new describe. Copy the navigation and locale `beforeEach` verbatim from the `DOM geometry audit` describe at `test/e2e/geometry-audit.spec.ts:222-227` (same `addInitScript` pinning `aef.locale` to `en`, same per-scenario `page.goto` the existing tests use - reuse whatever helper they call). Then for the `battery5-xiranite` and `default` scenarios run:
 
@@ -169,7 +169,7 @@ Two adaptation points when wiring it in: (a) import `SCENARIOS` (or whatever the
 
 Note the caveat: the DOM node rect is the border-box while the model position is the RF node position - those coincide (RF positions the node div at `position.x/y` and the border grows inward or outward depending on box-sizing), so `s.left` IS the model left. If `dSy` comes out non-constant across rows of one card, the row formula assumption is wrong - stop and investigate `measureRecipe` before proceeding.
 
-- [ ] **Step 2: Run the probe and record the drift table**
+- [x] **Step 2: Run the probe and record the drift table** - recipe `{+5, -3, +1}` CONFIRMED; product REPLACED - measured `{+4, -4, 0}`, not the predicted `{4, -3, 1}`. Constant per (kind, side) across all seven scenarios; loop/group endpoints do not occur in the corpus.
 
 Run: `bunx playwright test geometry-audit -g "port drift probe" 2>&1 | tee /tmp/claude-1000/-home-rins-workspace-STC-workspace-STC/a426295a-8d12-4b8e-8dfe-452f040c30fe/scratchpad/port-drift.txt`
 
@@ -187,7 +187,7 @@ Expected: per-edge delta lines. The deltas must be CONSTANT per (node kind, endp
 - Consumes: the measured drift table from Task 2.
 - Produces: `edgeEndpoints` returning drawn-frame coordinates; every reconstructed polyline, anchor, and seat stamp now lands exactly on the drawn geometry. No signature changes.
 
-- [ ] **Step 1: Encode the drift in `edgeEndpoints`**
+- [x] **Step 1: Encode the drift in `edgeEndpoints`** - encoded with the measured product row `{4, -4, 0}`; loop/container get an explicit zero row; the recipe `dy` is skipped on the `nodeHeight/2` fallback path.
 
 In `src/canvas/chipSeating.ts`, above `edgeEndpoints`, add (values from Task 2; the numbers shown are issue #34's reported measurements and stand in only until the probe confirms them):
 
@@ -225,21 +225,21 @@ Then change the return of `edgeEndpoints`:
 
 If Task 2 showed `other`-kind nodes (loop boxes) carrying a consistent nonzero drift, add a third row to `PORT_DRIFT` with those values instead of zeros.
 
-- [ ] **Step 2: Check the shared consumer**
+- [x] **Step 2: Check the shared consumer** - green; no `contentBounds`/fit-zoom pin moved. One anchor pin did: the fan-in junction x in `test/canvas/faninMarkers.test.ts`, 900 -> 905.
 
 `edgeEndpoints` is shared by the seating pass and `contentBounds` (the function's own doc comment says both reconstruct the drawn geometry). The drift makes `contentBounds` more accurate but can move fit zoom by a fraction of a percent. Run:
 
 Run: `bun run test && bun run typecheck`
 Expected: green. If a `contentBounds`/fit-zoom unit pin fails by a hair (`test/canvas/chipSeating.bounds.test.ts:57,111`), update the pinned expected values to the new computed numbers - that is the drift correction expressing itself, not a regression. Any failure outside bounds/anchor pins is a real break: stop and investigate.
 
-- [ ] **Step 3: Remove the Task 2 probe describe**
+- [x] **Step 3: Remove the Task 2 probe describe** - probe and its temporary `src/canvas/dimensions` import removed together; zero diff in the spec.
 
 Delete the `port drift probe (temporary)` describe from `test/e2e/geometry-audit.spec.ts`.
 
 Run: `git diff --stat test/e2e/geometry-audit.spec.ts`
 Expected: no remaining diff in that file.
 
-- [ ] **Step 4: Verify against the audit**
+- [x] **Step 4: Verify against the audit** - the predicted DOWN move did not happen. The 1.00px drift artifact (e:5) is gone as predicted, but the corrected frame moved two other chips' on-line candidate sets and both now take a genuine escape (e:18 17.19px, e:34 20.52px), so `battery5-xiranite` off-path went UP 2 -> 3, not down to 1. Not re-pinned here; escalated, then ratified by the user on 2026-08-20 - see Task 6 Step 2 and the checklist ruling.
 
 Run: `bunx playwright test geometry-audit -g "battery5-xiranite"`
 Expected: PASS. Then zero `CHIP_OFFPATH_BASELINE` only (as in Task 1 Step 2), run `bunx playwright test geometry-audit`, and read the off-path actuals plus their reported distances:
@@ -247,14 +247,14 @@ Expected: PASS. Then zero `CHIP_OFFPATH_BASELINE` only (as in Task 1 Step 2), ru
 - The 0.50px residues on other scenarios gone; sub-`tol` values do not appear at all.
 Revert the zeroing (`git checkout -- test/e2e/geometry-audit.spec.ts`), then re-pin `CHIP_OFFPATH_BASELINE` downward to the measured actuals (e.g. `"battery5-xiranite": 1`; take every other scenario's measured value from this run, moving only down).
 
-- [ ] **Step 5: Regenerate visual baselines shifted by the chip moves**
+- [x] **Step 5: Regenerate visual baselines shifted by the chip moves** - nothing to regenerate here: placement-shots 7/7 at this commit (crystal's first-run flake passed on rerun). The battery5 golden went stale later, at Task 5's seat moves, and was regenerated in Task 6.
 
 Chips move by up to the drift magnitude (<= 5 units), so committed screenshots may diff:
 
 Run: `bunx playwright test placement-shots`
 Expected: pass, or diffs within each scenario's `maxDiffPixels`. If a scenario exceeds its budget, inspect the diff image under `test-results/` - only chip nudges of a few px are acceptable; anything else (edges moving, cards moving) is a break. Regenerate accepted baselines with `bunx playwright test placement-shots --update-snapshots`; they live in the gitignored `test/e2e/__screenshots__/` and are never committed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit** - commit 9df1371, without the off-path re-pin (escalated) and with the faninMarkers anchor pin instead of a bounds pin.
 
 ```bash
 git add src/canvas/chipSeating.ts test/e2e/geometry-audit.spec.ts test/canvas/chipSeating.bounds.test.ts
@@ -278,7 +278,7 @@ git commit -m "Align seating port model with drawn handle coordinates
 - Produces: `foreignLineCrossings(box: ChipBox, flowKey: string, target: string, entryBand?: EntryBand, ownIds?: ReadonlySet<string>): number` on `ClearanceField` - the number of foreign (edge, segment) pairs intersecting the box, with exactly `onForeignLine`'s own/cluster exemptions. Counting (edge, segment) pairs deliberately matches what `auditSegmentsVsChips` ratchets, so minimizing the score minimizes the audit count.
 - Consumes: existing `segIntersectsChipBox`, `centreInBand`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test** - placed in its own `ClearanceField` describe (the subject is not `seatRateChip`) and widened to 6 cases so every exemption is covered.
 
 Add to the graze-tier describe in `test/canvas/chipSeating.seat.test.ts` (follow the file's existing fixture style for `EdgeSegments` / `CardRect` construction; the shapes below use the public API only):
 
@@ -305,12 +305,12 @@ Add to the graze-tier describe in `test/canvas/chipSeating.seat.test.ts` (follow
 
 If the file's existing tests build `EdgeSegments` through a helper, use that helper with the same coordinates instead of raw literals.
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `bunx vitest run test/canvas/chipSeating.seat.test.ts`
 Expected: FAIL - `field.foreignLineCrossings is not a function`.
 
-- [ ] **Step 3: Implement the counting method**
+- [x] **Step 3: Implement the counting method**
 
 In the `ClearanceField` type (`src/canvas/chipSeating.ts:229-253`), add below `onForeignLine`:
 
@@ -349,12 +349,12 @@ In `makeClearanceField`, add below the `onForeignLine` implementation, mirroring
     },
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `bunx vitest run test/canvas/chipSeating.seat.test.ts`
 Expected: PASS (new test and all pre-existing).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** - commit 4fe5f6d.
 
 ```bash
 git add src/canvas/chipSeating.ts test/canvas/chipSeating.seat.test.ts
@@ -373,7 +373,7 @@ git commit -m "Add foreign-line crossing count to the clearance field"
 - Consumes: `foreignLineCrossings` from Task 4; existing locals `slideAlong`'s candidate walk (`anchorLen`, `total`, `pts`, `crossesBarrier`, `boxAt`, `hardClearAt`, `seat`).
 - Produces: unchanged `RateSeat` shape; graze seats still carry tier `"graze"`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test** - added, plus a companion pinning that an all-equal line still seats at the anchor.
 
 Add to the graze-tier describe:
 
@@ -410,12 +410,12 @@ Add to the graze-tier describe:
 
 Adapt the `CardExemption` / `EntryBand` literals to the file's existing fixture helpers if it has them. Sanity of the setup: with no cards and no placed chips, every on-line candidate is hard-clear, so first-hit grazing returns `dx: 0` today.
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `bunx vitest run test/canvas/chipSeating.seat.test.ts`
 Expected: FAIL with `seat.dx` = 0 (anchor) instead of 144.
 
-- [ ] **Step 3: Replace the graze fallback**
+- [x] **Step 3: Replace the graze fallback** - preceded by a behaviour-neutral extraction of the shared foreign-edge predicate (commit d744912), which the Task 4 review required before the boolean and the count could share a definition; the scan itself is commit 67b33cd.
 
 In `seatRateChip`, replace the single line at `src/canvas/chipSeating.ts:630`:
 
@@ -459,12 +459,12 @@ with:
   if (bestGraze !== null) return seat(bestGraze.px, bestGraze.py, "graze");
 ```
 
-- [ ] **Step 4: Run the unit suites**
+- [x] **Step 4: Run the unit suites** - green; no pre-existing pin needed updating.
 
 Run: `bunx vitest run test/canvas/chipSeating.seat.test.ts && bun run test && bun run typecheck && bun run lint`
 Expected: all green. Pre-existing graze-tier tests must still pass - they assert tier and clearance invariants, which are preserved; if one pinned an exact `dx/dy` that the scoring legitimately improves, update the pin and say so in the commit body.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** - commits d744912 + 67b33cd. Corpus chip-segment 24 -> 14 (battery5 5 -> 3, battery5-xiranite 19 -> 11), with off-path, chip-card, raw and crossings all held. e:18 / e:34 were NOT absorbed: an escape seat leaves the line by definition, so on-line rescoring cannot pull it back.
 
 ```bash
 git add src/canvas/chipSeating.ts test/canvas/chipSeating.seat.test.ts
@@ -486,7 +486,7 @@ minimum; hard tiers and the on-own-line preference are unchanged."
 **Interfaces:**
 - Consumes: Task 1's before-matrix, Tasks 3+5 landed.
 
-- [ ] **Step 1: Measure the after-actuals**
+- [x] **Step 1: Measure the after-actuals** - measured with the same probe as Tasks 1 and 3; nothing rose on any scenario relative to Task 5.
 
 Zero all five tables (as in Task 1 Step 2), run the full audit, harvest the 7x5 matrix:
 
@@ -494,11 +494,11 @@ Run: `bunx playwright test geometry-audit 2>&1 | tee /tmp/claude-1000/-home-rins
 
 Expected direction (from issue #34's inventory): `battery5-xiranite` chip-segment well below 23 (the e:20 seven-hit chip and the x=522 four-fan grazes should relocate); `battery5` chip-segment below 29; off-path unchanged from Task 3's re-pin. Every scenario must be at or below its Task 1 before-actual - a rise anywhere is a regression: stop, diagnose with the audit's violation listings, do not re-pin upward.
 
-- [ ] **Step 2: Restore the tables with the measured values**
+- [x] **Step 2: Restore the tables with the measured values** - four moves, not the wholesale slack the plan expected: three DOWN (chip-segment battery5 5 -> 3 and battery5-xiranite 23 -> 11, padded graze multi6 13 -> 12) and one UP, off-path battery5-xiranite 2 -> 3, taken only under the user's explicit ruling. Every other entry already equalled its actual - the battery5 off-path 6 and equip4 off-path 7 the plan expected to bank were already pinned at their actuals.
 
 Revert the zeroing, then set every entry of all five tables to its measured after-actual wherever that is LOWER than the current pin (this also banks the slack the issue flagged: battery5 off-path 6 -> measured, equip4 off-path 7 -> measured, default/crystal/tundra to their actuals). Leave any entry whose actual equals its pin untouched.
 
-- [ ] **Step 3: Record the multi6 caveat in the NOTE block**
+- [x] **Step 3: Record the multi6 caveat in the NOTE block** - added verbatim above the off-path table, alongside the ruling NOTE for the off-path raise and a note above `CHIP_SEGMENT_BASELINE` recording the DOWN move.
 
 Extend the NOTE comment block at `test/e2e/geometry-audit.spec.ts:385-393` with:
 
@@ -511,7 +511,7 @@ Extend the NOTE comment block at `test/e2e/geometry-audit.spec.ts:385-393` with:
 // reasons, not because that change broke anything.
 ```
 
-- [ ] **Step 4: Full verification**
+- [x] **Step 4: Full verification** - unit, typecheck and lint green; e2e failure list identical to Task 1's. battery5's placement-shots golden was stale (uniform ~10px camera shift plus two chips slid along their own lines, nothing stranded) and was regenerated after inspecting the diff; goldens are gitignored, so nothing tracked changed.
 
 Run: `bunx playwright test geometry-audit && bun run test && bun run typecheck && bun run lint`
 Expected: all green with the tightened pins.
@@ -519,7 +519,7 @@ Expected: all green with the tightened pins.
 Run: `bun run test:e2e 2>&1 | tail -40`
 Expected: exactly the Task 1 failure list, nothing new. If placement-shots diffs exceed budgets from the graze moves, inspect the diff images (chip relocations along their own lines are the expected change), regenerate the gitignored baselines with `--update-snapshots`, and re-inspect.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** - three commits: 36dd28f (re-pins and NOTEs), 25ee8cc (tie-rule test), 1ca390d (comment rewrap).
 
 ```bash
 git add test/e2e/geometry-audit.spec.ts
@@ -536,15 +536,15 @@ git commit -m "Tighten geometry ratchets to post-fix actuals
 **Files:**
 - No tracked changes. Captures go to the scratchpad, not the repo.
 
-- [ ] **Step 1: Capture and inspect (mandatory protocol)**
+- [x] **Step 1: Capture and inspect (mandatory protocol)** - fit shots plus zoom-1.0 crops of the named chips, captured with a scratch CLI rather than the exam harness (the harness tiles whole plans). battery5, battery5-xiranite, default and equip4 inspected; multi6 excluded as an LOD blind spot. The x=522 trunk column now pierces one chip instead of two, the sewage run is down from three consecutive segments to one, e:18 and e:34 are least-bad seats binding unambiguously to their own cards (e:34 covers part of its own tap subtitle - legibility nit, recorded not fixed), and the 48.33px escape chip remains, out of scope as predicted.
 
 With the audit's preview server (`bun run build && bun run preview --port 4173 --strictPort` if not already up), capture via playwright: the default plan at fit, `battery5-xiranite` at fit, and zoomed crops of the four locations issue #34 names (the x=522 gas trunk column, the x=2292 sewage run, the two Xircon Effluent chips). Compare against the issue's before-description: the four-fan trunk should no longer pierce both chips at their old seats, the sewage triple-pierce should relocate or shrink, the 48.33px chip is expected to REMAIN off-path (escape tier - out of scope, say so rather than hiding it). Inspect for wrongness, not presence: chips still on their own polylines, no new overlaps introduced at the relocated seats.
 
-- [ ] **Step 2: Push, open the PR**
+- [x] **Step 2: Push, open the PR** - PR #47 to `develop`, "Improve rate-chip seating on packed plans", humanizer-passed, before/after ratchet matrix in Testing, CI green, not merged.
 
 Open a PR to `develop` following the repo's PR guideline (goal-focused imperative title, Summary / Changes / Testing with facts-only evidence; run title and body through the humanizer skill first). Include the before/after ratchet matrix in Testing.
 
-- [ ] **Step 3: Draft the issue #34 comment**
+- [x] **Step 3: Draft the issue #34 comment** - drafted with the measured numbers (off-path 2 -> 3 under the ruling rather than 2 -> 1; chip-segment battery5-xiranite 23 -> 11, battery5 5 -> 3), not posted; open-vs-close left to the user.
 
 Post on issue #34 (adjusting numbers to the measured results):
 
@@ -558,10 +558,10 @@ Leave the issue OPEN if the deferred ADR-scale work should stay tracked there, o
 
 ## Verification checklist (whole plan)
 
-- [ ] `bun run test`, `bun run typecheck`, `bun run lint` green
-- [ ] `bunx playwright test geometry-audit` green with tightened pins; no baseline raised
-- [ ] `bun run test:e2e` failure list identical to the Task 1 recording
-- [ ] Off-path: battery5-xiranite pinned at 1 (only the 48.33px escape chip remains, explicitly out of scope)
-- [ ] Chip-segment: battery5-xiranite and battery5 measurably below 23 / 29
-- [ ] No probe or zeroed-table residue in the committed spec
-- [ ] Visual captures inspected; PR opened to develop; issue #34 comment drafted
+- [x] `bun run test`, `bun run typecheck`, `bun run lint` green (128 files, 1340 pass + 1 skip)
+- [x] `bunx playwright test geometry-audit` green with tightened pins, except the pre-existing ratified RAW gate on battery5 + multi6, which stays red; one baseline was raised, under the ruling below
+- [x] `bun run test:e2e` failure list identical to the Task 1 recording
+- [x] Off-path: battery5-xiranite pinned at 3, NOT the 1 this plan predicted. RULING (user, 2026-08-20): the raise 2 -> 3 is accepted. The port-drift correction exposed rather than caused two genuine least-bad escape seats (e:18 17.19px, e:34 20.52px) of the #41 short-corridor family, whose slab-spacing fix is the remedy; the 1.00px artifact the plan predicted away is indeed gone, and the seat tiers cannot absorb an escape. Recorded in the spec's ruling NOTE block, taking the standing count to six.
+- [x] Chip-segment: battery5-xiranite 23 -> 11 and battery5 3 (its pin was 5, not the 29 this plan assumed); corpus 24 -> 14
+- [x] No probe or zeroed-table residue in the committed spec
+- [x] Visual captures inspected; PR #47 opened to develop; issue #34 comment drafted, not posted
