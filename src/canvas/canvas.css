@@ -1808,14 +1808,6 @@
   opacity: 0.3;
 }
 
-/* Fan-in aggregate: a summary tag bound to the merge junction beside it, not
-   another flow chip. The dashed outline separates "total of the merged runs"
-   from the solid per-edge rate chips it sums; the leading sum glyph stays. */
-.flow-chip.sigma {
-  border-style: dashed;
-  background: rgba(20, 23, 27, 0.92);
-}
-
 /* Bus-trunk junction dot, portaled into the label layer alongside the chips (see
    BusEdge). z-index: 1 seats it above the plain edge segments but BELOW the flow
    chips (which set z-index: 2): the chip digits win, and an overlapping chip

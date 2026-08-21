@@ -4,6 +4,7 @@ import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import ItemEdge, {
   CHIP_ICON_ONLY_MAX_ZOOM,
+  LABEL_MIN_ZOOM,
   type ItemEdgeData,
 } from "../../src/canvas/ItemEdge";
 import { parsePathPoints } from "../../src/canvas/edgePath";
@@ -196,51 +197,6 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(label).toBeNull();
   });
 
-  it("collapses the exempt fan-in Sigma aggregate to icon-only below the icon-only zoom", async () => {
-    // Discover the live target port y from a plain render so the fan-in marker
-    // is seated on it (faninStale compares the stamp to the live targetY).
-    renderEdge({ item: "belt", rate: new Fraction(2, 1) }, 1);
-    await waitFor(() =>
-      expect(
-        document.querySelector(".react-flow__edge-path"),
-      ).not.toBeNull(),
-    );
-    const pts = parsePathPoints(
-      document
-        .querySelector<SVGPathElement>(".react-flow__edge-path")!
-        .getAttribute("d")!,
-    );
-    const targetY = pts[pts.length - 1]![1];
-    cleanup();
-
-    renderEdge(
-      {
-        item: "belt",
-        rate: new Fraction(1, 1),
-        faninJunctionX: 120,
-        faninJunctionY: targetY,
-        faninSigmaX: 150,
-        faninSigmaY: targetY,
-        faninTotalRate: new Fraction(5, 1), // 300/min
-        faninMemberCount: 3,
-      },
-      belowIconOnly,
-    );
-    await waitFor(() =>
-      expect(document.querySelector(".react-flow__edge")).not.toBeNull(),
-    );
-    const sigma = document.querySelector<HTMLElement>(
-      '[data-testid="bus-edge-fanin-e1-drop"]',
-    );
-    expect(sigma).not.toBeNull();
-    // Icon kept, only the sum glyph in the body, digits dropped.
-    expect(sigma!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
-    expect(sigma!.textContent).toBe("Σ");
-    expect(sigma!.classList.contains("icon-only")).toBe(true);
-    // The exact total still rides the hover tooltip.
-    expect(sigma!.getAttribute("title")).toContain("Σ300/min");
-  });
-
   it("collapses a chipIconOnly rate chip above the icon-only zoom", async () => {
     // The seating pass stamps chipIconOnly on a leg too short for the full box,
     // so the collapse must come from the edge data, not from the zoom gate:
@@ -273,9 +229,12 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(label!.textContent).toBe("120/min");
   });
 
-  it("marks the fan-in Sigma chip with the sigma variant class", async () => {
-    // The aggregate is styled as a summary tag of the junction beside it, not
-    // as one more per-edge rate chip, so it carries its own variant class.
+});
+
+describe("canvas/ItemEdge fan-in marker", () => {
+  // The marker is stale-checked against the LIVE target port y, so a fixture has
+  // to discover that y from a plain render before it can seat a stamp on it.
+  async function livePortY(): Promise<number> {
     renderEdge({ item: "belt", rate: new Fraction(2, 1) }, 1);
     await waitFor(() =>
       expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
@@ -285,9 +244,16 @@ describe("canvas/ItemEdge icon-only collapse", () => {
         .querySelector<SVGPathElement>(".react-flow__edge-path")!
         .getAttribute("d")!,
     );
-    const targetY = pts[pts.length - 1]![1];
+    const y = pts[pts.length - 1]![1];
     cleanup();
+    return y;
+  }
 
+  it("draws the merge dot and the owner's own rate chip, never an aggregate", async () => {
+    const targetY = await livePortY();
+    // The legacy aggregate stamp rides along on purpose: the seating pass no
+    // longer emits these fields, and no render path may be left that could turn
+    // them back into a chip. The cast is what feeds them past the data type.
     renderEdge(
       {
         item: "belt",
@@ -298,17 +264,48 @@ describe("canvas/ItemEdge icon-only collapse", () => {
         faninSigmaY: targetY,
         faninTotalRate: new Fraction(5, 1),
         faninMemberCount: 3,
-      },
+      } as ItemEdgeData,
       1,
     );
     await waitFor(() =>
-      expect(document.querySelector(".react-flow__edge")).not.toBeNull(),
+      expect(
+        document.querySelector('[data-testid="fanin-junction-e1"]'),
+      ).not.toBeNull(),
     );
-    const sigma = document.querySelector<HTMLElement>(
-      '[data-testid="bus-edge-fanin-e1-drop"]',
+    // The owner is an ordinary member chip: its OWN rate, not a total.
+    const label = document.querySelector<HTMLElement>(
+      '[data-testid="item-edge-label-e1"]',
     );
-    expect(sigma).not.toBeNull();
-    expect(sigma!.classList.contains("sigma")).toBe(true);
+    expect(label).not.toBeNull();
+    expect(label!.textContent).toBe("60/min");
+    expect(document.querySelector(".flow-chip.sigma")).toBeNull();
+    expect(
+      document.querySelector('[data-testid="bus-edge-fanin-e1-drop"]'),
+    ).toBeNull();
+  });
+
+  it("drops the owner's chip below the label zoom, leaving the dot alone", async () => {
+    // Accepted consequence of removing the gate-exempt aggregate: at a dense
+    // plan's fit zoom a fan-in port shows the dot and no number. The target
+    // card's input row still states the rate.
+    const targetY = await livePortY();
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        faninJunctionX: 120,
+        faninJunctionY: targetY,
+      },
+      LABEL_MIN_ZOOM - 0.05,
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="fanin-junction-e1"]'),
+      ).not.toBeNull(),
+    );
+    expect(
+      document.querySelector('[data-testid="item-edge-label-e1"]'),
+    ).toBeNull();
   });
 });
 

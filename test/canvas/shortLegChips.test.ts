@@ -17,7 +17,7 @@ import { productNode } from "./busRouting.testkit";
 
 // chipSeating's own CHIP_HALF_W_WIDE (MAX_CHIP_SCALE * CHIP_BOX_WIDTH / 2), the
 // short-leg threshold SHORT_LEG_MAX is defined as. Mirrored here (the module
-// does not export it), as faninMarkers.test.ts mirrors it.
+// does not export it).
 const CHIP_HALF_W_WIDE = 120;
 
 // Product handle drift, from chipSeating's PORT_DRIFT.product: the drawn source

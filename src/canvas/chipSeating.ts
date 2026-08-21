@@ -29,9 +29,7 @@
 // escape.
 
 import type { Edge } from "@xyflow/react";
-import Fraction from "fraction.js";
 
-import { quantizeRateToDisplay } from "../data/rate-format";
 import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH, MAX_CHIP_SCALE } from "./dimensions";
 import {
   CHAMFER,
@@ -1406,19 +1404,17 @@ export function deconflictChipAnchors(
   // Phase 3.5 -- fan-in markers: fan-in is structurally unmodeled (every trunk
   // key is (item, source), never (item, target)), so where 2+ forward same-item
   // edges enter ONE target in-port their final legs run collinear at the port y
-  // with no junction dot or aggregate. Stamp ONE merge dot and ONE summed-rate
-  // Sigma on the shared run (both drawn by the elected owner's ItemEdge), and
-  // suppress any member whose own rate chip would sit ON that shared run. This
-  // runs before the item phase so a suppressed member seats no chip, and after
-  // the fan-out phases so a dual-role edge's fan-out geometry is in hand. It is
-  // presentational only: no edge is retyped, a fan-out member keeps its fan-out
-  // role, and each member is summed by its own rate exactly once.
+  // with no junction dot. Stamp ONE merge dot on the shared run (drawn by the
+  // elected owner's ItemEdge), and suppress any NON-OWNER member whose own rate
+  // chip would sit ON that shared run. This runs before the item phase so a
+  // suppressed member seats no chip, and after the fan-out phases so a dual-role
+  // edge's fan-out geometry is in hand. It is presentational only: no edge is
+  // retyped and a fan-out member keeps its fan-out role.
   const FANIN_EPS = 1;
   type FaninMember = {
     index: number;
     id: string;
     source: string;
-    rate: Fraction;
     joinX: number;
     isItem: boolean;
     anchorX: number;
@@ -1428,8 +1424,8 @@ export function deconflictChipAnchors(
   const faninTargetByKey = new Map<string, { tx: number; ty: number }>();
   // (item, target) ports that ALSO receive a same-item edge outside the marker's
   // scope (a lane-bus rise, a backward rail, or any non-collinear approach). A
-  // Sigma there would sum only the collinear members and understate the card's
-  // input row, so such a port gets NO marker at all.
+  // dot there would mark only the collinear members' merge and misstate where
+  // the card's input row is fed from, so such a port gets NO marker at all.
   const faninExcludedKeys = new Set<string>();
   edges.forEach((edge, index) => {
     const item = edgeItem(edge);
@@ -1475,22 +1471,11 @@ export function deconflictChipAnchors(
       faninExcludedKeys.add(key);
       return;
     }
-    const rate = (edge.data as { rate?: unknown } | undefined)?.rate;
-    if (!(rate instanceof Fraction) && import.meta.env.DEV) {
-      // Dev/test-only tripwire, tree-shaken out of production builds (parity
-      // with the seating warnings above): a rate-less member sums as 0, so a
-      // marked port's Sigma would silently understate the card's input row.
-      console.warn(
-        `chip seating: fan-in member ${edge.id} carries no Fraction rate; ` +
-          "it sums as 0 in any Sigma aggregate on its port",
-      );
-    }
     const list = faninGroups.get(key) ?? [];
     list.push({
       index,
       id: edge.id,
       source: edge.source,
-      rate: rate instanceof Fraction ? rate : new Fraction(0),
       joinX: secondLast[0],
       isItem,
       anchorX,
@@ -1500,46 +1485,21 @@ export function deconflictChipAnchors(
     faninTargetByKey.set(key, { tx, ty });
   });
   const faninJunctionByIndex = new Map<number, { x: number; y: number }>();
-  type FaninSigma = {
-    x: number;
-    y: number;
-    dx: number;
-    dy: number;
-    total: Fraction;
-    displayTotal: Fraction;
-    count: number;
-  };
-  const faninSigmaByIndex = new Map<number, FaninSigma>();
   const faninChipHiddenByIndex = new Set<number>();
-  // Per item member of a fan-in group: the merge x and port y of its shared run.
-  // The item phase reads this to decide, AT SEAT TIME, whether the member's own
-  // chip landed ON the shared run (redundant with the Sigma) and should hide --
-  // a member chip that slides onto the run cannot be caught by its anchor alone.
+  // Per NON-OWNER item member of a fan-in group: the merge x and port y of its
+  // shared run. The item phase reads this to decide, AT SEAT TIME, whether the
+  // member's own chip landed ON the shared run (where the owner's own chip
+  // already reads) and should hide -- a member chip that slides onto the run
+  // cannot be caught by its anchor alone.
   const faninMemberRunByIndex = new Map<
     number,
     { mergeX: number; tx: number; ty: number }
   >();
-  // Sigma seats are DEFERRED to after the item phase so each member's own rate
-  // chip claims its pre-merge leg first (an aggregate is exempt from the on-own-
-  // line audit and yields to the concrete member chips it labels a total of).
-  type FaninSeatJob = {
-    ownerIndex: number;
-    ownerEdge: Edge;
-    anchorX: number;
-    ty: number;
-    runStart: number;
-    tx: number;
-    ownIds: ReadonlySet<string>;
-    total: Fraction;
-    displayTotal: Fraction;
-    count: number;
-  };
-  const faninSeatJobs: FaninSeatJob[] = [];
   for (const [key, members] of faninGroups) {
     if (members.length < 2) continue;
     // Mixed-feed port: an out-of-scope same-item edge (lane-bus rise, backward
-    // rail, non-collinear approach) also enters this port, so a Sigma over just
-    // the collinear members would contradict the card's input row. No marker.
+    // rail, non-collinear approach) also enters this port, so a dot on the
+    // collinear members' join would mark a partial merge. No marker.
     if (faninExcludedKeys.has(key)) continue;
     // Fan-in needs 2+ DISTINCT incoming flows. Same-(item, source) edges are one
     // flow (a parallel bundle already drawn as one visual line), not a merge, so
@@ -1555,45 +1515,16 @@ export function deconflictChipAnchors(
     const mergeX = Math.max(...members.map((m) => m.joinX));
     const runLen = tx - mergeX;
     if (runLen <= 2 * CHAMFER) continue; // no real shared run to mark
-    let total = new Fraction(0);
-    // Alongside the exact total, the sum of the members' DISPLAY-rounded rates:
-    // what a reader adding up the visible member chips gets (2-decimal rounding
-    // is not additive). The chip shows this one, the tooltip the exact total.
-    let displayTotal = new Fraction(0);
-    for (const m of members) {
-      total = total.add(m.rate);
-      displayTotal = displayTotal.add(quantizeRateToDisplay(m.rate));
-    }
     const owner = itemMembers.reduce((a, b) => (a.id <= b.id ? a : b));
-    const ownerEdge = edges[owner.index]!;
-    // Sigma anchor on the shared run, kept a chip half-box (bounded by half the
-    // run) right of the merge dot so the chip never covers it. Deferred seat.
-    const keepoff = Math.min(CHIP_HALF_W_WIDE, runLen / 2);
     faninJunctionByIndex.set(owner.index, { x: mergeX, y: ty });
-    faninSeatJobs.push({
-      ownerIndex: owner.index,
-      ownerEdge,
-      // Beside the junction dot, not mid-run: the Sigma is a summary tag of
-      // the merge, so it ANCHORS at the closest point that does not cover the
-      // dot (the keepoff). The anchor is only where the seat starts. The run
-      // handed to seatRateChip begins at the anchor, so its slide can move the
-      // chip in one direction only -- away from the dot -- and it does whenever
-      // the junction side is already taken. That happens on real plans: a
-      // member's own rate chip settles (phase 4) on its pre-merge leg beside
-      // the dot, chip-vs-chip is hard, and the Sigma must clear its box by a
-      // full wide-chip separation, which can land it a chip-box or more
-      // down-run. Nothing sticks: the seat is recomputed from this anchor every
-      // layout, so it returns beside the dot once the neighbour moves.
-      anchorX: mergeX + keepoff,
-      ty,
-      runStart: mergeX + keepoff,
-      tx,
-      ownIds: new Set(members.map((m) => m.id)),
-      total,
-      displayTotal,
-      count: members.length,
-    });
     for (const m of itemMembers) {
+      // The OWNER is exempt from the shared-run hide: it is the member that
+      // draws the merge dot, and since the summed aggregate that used to label
+      // this run was removed (#39, #45), hiding the owner too would leave the
+      // merged run carrying no number at all. Its chip seats under the ordinary
+      // member rules; only its non-owner siblings yield the run, their rates
+      // still readable on their own pre-merge legs.
+      if (m.index === owner.index) continue;
       faninMemberRunByIndex.set(m.index, { mergeX, tx, ty });
     }
   }
@@ -1710,12 +1641,13 @@ export function deconflictChipAnchors(
           "chip parked at its anchor (chip/card hard invariants abandoned)",
       );
     }
-    // A fan-in member whose own chip SEATED on the shared run (at the port y,
-    // between the merge and the port) is redundant with the summed Sigma there:
-    // pop its box and hide it (ItemEdge draws no rate chip, the exact rate stays
-    // on the hover path and the target card's input row). A member seated on its
-    // own PRE-merge leg (off the run) keeps its chip. Anchor-based hiding cannot
-    // catch a member that SLID onto the run, so this reads the seated centre.
+    // A non-owner fan-in member whose own chip SEATED on the shared run (at the
+    // port y, between the merge and the port) crowds the run the owner's chip
+    // reads on: pop its box and hide it (ItemEdge draws no rate chip, the exact
+    // rate stays on the hover path and the target card's input row). A member
+    // seated on its own PRE-merge leg (off the run) keeps its chip. Anchor-based
+    // hiding cannot catch a member that SLID onto the run, so this reads the
+    // seated centre.
     const run = faninMemberRunByIndex.get(index);
     if (run !== undefined) {
       const seatX = geom.lx + seat.dx;
@@ -1734,38 +1666,6 @@ export function deconflictChipAnchors(
     if (seat.dy !== 0) labelDyByIndex.set(index, seat.dy);
   }
 
-  // Phase 5 -- fan-in Sigma aggregates: seat each deferred owner Sigma on its
-  // shared run now that every member's rate chip is placed, so the wide Sigma box
-  // yields to the concrete member chips (the aggregate is exempt from the
-  // on-own-line audit) instead of shoving them off their pre-merge legs. Every
-  // member's collinear final leg is treated as own flow (ownIds) so the Sigma
-  // does not read them as foreign lines; NEVER_BAND gives no arrival-cluster
-  // exemption, so it clears every truly foreign line.
-  for (const job of faninSeatJobs) {
-    const runPts: ReadonlyArray<readonly [number, number]> = [
-      [job.runStart, job.ty],
-      [job.tx, job.ty],
-    ];
-    const seat = seatRateChip(
-      field,
-      { pts: runPts, anchorX: job.anchorX, anchorY: job.ty },
-      flowKeyOf(job.ownerEdge),
-      job.ownerEdge.target,
-      cardExemptFor(job.ownerEdge),
-      NEVER_BAND,
-      { ownIds: job.ownIds },
-    );
-    faninSigmaByIndex.set(job.ownerIndex, {
-      x: job.anchorX,
-      y: job.ty,
-      dx: seat.dx,
-      dy: seat.dy,
-      total: job.total,
-      displayTotal: job.displayTotal,
-      count: job.count,
-    });
-  }
-
   return edges.map((edge, index) => {
     const labelDy = labelDyByIndex.get(index);
     const labelDx = labelDxByIndex.get(index);
@@ -1780,7 +1680,6 @@ export function deconflictChipAnchors(
     const fanoutBranchHiddenAt = fanoutBranchHiddenAtByIndex.get(index);
     const faninJunction = faninJunctionByIndex.get(index);
     const fanoutJunction = fanoutJunctionByIndex.get(index);
-    const faninSigma = faninSigmaByIndex.get(index);
     const faninChipHidden = faninChipHiddenByIndex.has(index);
     const chipIconOnly = shortLegByIndex.has(index);
     if (
@@ -1797,7 +1696,6 @@ export function deconflictChipAnchors(
       !fanoutBranchHidden &&
       faninJunction === undefined &&
       fanoutJunction === undefined &&
-      faninSigma === undefined &&
       !faninChipHidden
     ) {
       return edge;
@@ -1825,17 +1723,6 @@ export function deconflictChipAnchors(
           ? {
               fanoutJunctionX: fanoutJunction.x,
               fanoutJunctionY: fanoutJunction.y,
-            }
-          : {}),
-        ...(faninSigma !== undefined
-          ? {
-              faninSigmaX: faninSigma.x,
-              faninSigmaY: faninSigma.y,
-              ...(faninSigma.dx !== 0 ? { faninSigmaDx: faninSigma.dx } : {}),
-              ...(faninSigma.dy !== 0 ? { faninSigmaDy: faninSigma.dy } : {}),
-              faninTotalRate: faninSigma.total,
-              faninDisplayTotalRate: faninSigma.displayTotal,
-              faninMemberCount: faninSigma.count,
             }
           : {}),
         // The hide is stamped with the port y it was decided at, so ItemEdge
@@ -1876,10 +1763,6 @@ type ChipAnchorData = {
   busRiseHidden?: boolean;
   busMemberCount?: number;
   faninChipHidden?: boolean;
-  faninSigmaX?: number;
-  faninSigmaY?: number;
-  faninSigmaDx?: number;
-  faninSigmaDy?: number;
 };
 
 // Content bounding box (flow coords) covering both the node cards AND every
@@ -1931,13 +1814,6 @@ export function contentBounds(
   for (const edge of edges) {
     const data = edge.data as ChipAnchorData | undefined;
     const ends = edgeEndpoints(edge, byId);
-    if (data?.faninSigmaX !== undefined) {
-      // The fan-in sum glyph carries an absolute anchor on edge data already.
-      unionChip(
-        data.faninSigmaX + (data.faninSigmaDx ?? 0),
-        (data.faninSigmaY ?? 0) + (data.faninSigmaDy ?? 0),
-      );
-    }
     if (ends === null) continue;
     const geom = {
       sourceX: ends.sx,
