@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 import {
+  auditCardFrames,
   auditChipsOnOwnPath,
   auditChipsVsCards,
   auditDotsUnderChips,
@@ -253,6 +254,9 @@ test.describe("DOM geometry audit", () => {
 //     baseline (the merge / split markers a chip's opaque box takes from the
 //     reader; chips deliberately paint above the dots, so the seating pass is
 //     what has to keep them apart);
+//   frames (HARD): every drawn recipe card box equals the box the seating pass
+//     measures chips against (card origin + model size + the card border), so
+//     the two run in ONE frame;
 //   parity (SOFT ratchet): every drawn path's first / last vertex within a
 //     per-scenario tolerance of a model + PORT_DRIFT reconstruction of the same
 //     endpoint (a MIRRORED copy of the port contract, checked against the frame
@@ -339,6 +343,10 @@ test.describe("DOM geometry audit", () => {
 // DOM shows -- a negative control on the drawn frame, detailed at
 // ENDPOINT_PARITY_TOL below. Its first pins were taken from an already-clean
 // corpus.
+// The card-frame check added alongside the cards[] frame move is a HARD
+// criterion, NOT an eighth table: it holds at zero everywhere, carries no
+// per-scenario baseline, and adds no ruling. The count of tables and of
+// standing rulings above is unchanged by it.
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -808,6 +816,24 @@ test.describe("segment placement audit", () => {
           `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotBaseline} among ${geom.dots.length} dots:\n${hiddenDotInventory.join("\n")}`,
         )
         .toBeLessThanOrEqual(dotBaseline);
+
+      // Card frames: the box the seating pass measures a recipe card by is the
+      // box the browser paints. Unlike the parity check below, which anchors on
+      // the drawn origin and so cannot see the seating pass's own frame, this
+      // one compares a DRAWN size against a rebuilt one, so a seating frame two
+      // units off the border box reddens it. Hard zero, no baseline.
+      const frameMismatches = auditCardFrames(geom.nodes);
+      const frameInventory = frameMismatches.map(
+        (m) =>
+          `  ${m.nodeId}: drawn ${m.drawnWidth.toFixed(2)}x${m.drawnHeight.toFixed(2)} ` +
+          `vs seating ${m.seatingWidth.toFixed(2)}x${m.seatingHeight.toFixed(2)}`,
+      );
+      expect
+        .soft(
+          frameMismatches.length,
+          `${scenario.id}: ${frameMismatches.length} recipe card(s) drawn in a different frame than the seating pass measures:\n${frameInventory.join("\n")}`,
+        )
+        .toBe(0);
 
       // Endpoint parity: each drawn path starts and ends where a model +
       // PORT_DRIFT reconstruction of the same port says it should. The two

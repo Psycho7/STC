@@ -216,7 +216,9 @@ function isForeignEdge(
   return !own && (!clusterExempt || edge.target !== target);
 }
 
-// A raw card rect a chip's box must stay clear of (the P3 hard invariant).
+// A raw card rect a chip's box must stay clear of (the P3 hard invariant), in
+// the DRAWN frame: the rendered border box, which is what the browser paints and
+// what the e2e audit measures (see CARD_GROWTH).
 export type CardRect = {
   id: string;
   left: number;
@@ -236,8 +238,10 @@ export type CardRect = {
 // edge (in the corridor or a hair inside), and enters the body once the centre
 // crosses deeper. Depth is the recipe row's port-side inset (canvas.css
 // .rn-row.input padding-left / .rn-row.output padding-right, both 8px) -- the
-// strip between the card edge and the row's item glyph, so an exempt chip's
+// strip between the ROW edge and the row's item glyph, so an exempt chip's
 // centre stops at the glyph's leading edge and never sits on the glyph itself.
+// The row sits inside the card's border, so the strip is measured from the card
+// edge inward by CARD_BORDER first (the card rects are drawn border boxes).
 // Re-derive it whenever that row padding changes. A box-overlap rule instead
 // would flag every on-line chip (box wider than corridor) and fling it off its
 // line -- the issue-#9 orphaned-chip regression this narrowing must avoid.
@@ -255,6 +259,10 @@ type PortZoneRect = { left: number; top: number; right: number; bottom: number }
 // "target" its left edge / in-port). Shared verbatim by the seating pass
 // (makeClearanceField) and the e2e chip/card audit so the gate and the placement
 // rule never drift.
+//
+// BOTH callers pass DRAWN card rects -- the audit reads them off the DOM, the
+// seating pass grows the model box by CARD_GROWTH -- so the strip starts one
+// CARD_BORDER inside the rect, where the row the depth is derived from begins.
 export function chipEntersOwnCardBody(
   chip: PortZoneRect,
   card: PortZoneRect,
@@ -264,9 +272,8 @@ export function chipEntersOwnCardBody(
   const oy = Math.min(chip.bottom, card.bottom) - Math.max(chip.top, card.top);
   if (oy <= eps) return false; // not even level with the card: never on its body
   const cx = (chip.left + chip.right) / 2;
-  return side === "target"
-    ? cx > card.left + PORT_ZONE_DEPTH
-    : cx < card.right - PORT_ZONE_DEPTH;
+  const depth = CARD_BORDER + PORT_ZONE_DEPTH;
+  return side === "target" ? cx > card.left + depth : cx < card.right - depth;
 }
 
 // Per-edge card exemption for the chip seat. Container slabs (group boxes) stay
@@ -936,6 +943,43 @@ function portDrift(node: RFAnyNode): PortDrift {
   return PORT_DRIFT.other;
 }
 
+// The card border, in graph units per side: the 1px frame a rendered card draws
+// around its content box (canvas.css .recipe-node / .product-node). It is the
+// same discrepancy PORT_DRIFT.recipe derives its handle offsets from, seen from
+// the box side instead of the port side, so the two must be re-derived together.
+export const CARD_BORDER = 1;
+
+// How much WIDER and TALLER a node's DRAWN border box is than the model box the
+// layout positions it by, per node kind. Its origin never moves: the wrapper
+// sits at the model position and the border grows the box on the right and the
+// bottom only.
+//   recipe: the card is content-box RECIPE_WIDTH (300) with a CARD_BORDER frame
+//     per side, so the drawn box is 302 wide and two units taller than
+//     recipeHeight -- exactly the offset PORT_DRIFT.recipe's derivation records.
+//   product: the model width ALREADY counts the card's borders (124 content +
+//     20 padding + 1 border + a 3 accent border = the 148 layout assigns), so
+//     the drawn box is the model box.
+//   loop / container: sized directly in model units with no border of their
+//     own, so likewise no growth.
+// Measured in-browser across the seven corpus scenarios (recipe 302 x
+// recipeHeight+2 everywhere, product 148x78, group == its model size, no loop
+// node in any corpus plan). Re-derive alongside PORT_DRIFT whenever a card's
+// border or box-sizing changes.
+const CARD_GROWTH: Record<"recipe" | "product" | "other", number> = {
+  recipe: 2 * CARD_BORDER,
+  product: 0,
+  other: 0,
+};
+
+// The drawn-vs-model box growth for one node kind, keyed by the `type` string
+// React Flow carries on the node (and the e2e audit reads off the DOM), so the
+// audit can state the same contract against the rendered card.
+export function cardGrowth(type: string | undefined): number {
+  if (type === "recipe") return CARD_GROWTH.recipe;
+  if (type === "product") return CARD_GROWTH.product;
+  return CARD_GROWTH.other;
+}
+
 // The drawn port y for one endpoint. The recipe dy applies only when the port
 // resolved to an actual row: portOffsetY falls back to the node's vertical
 // centre for an unresolvable item / order, and that fallback is a deliberate
@@ -1105,15 +1149,24 @@ export function deconflictChipAnchors(
   // recipe / product / loop cards and group slabs -- mirroring the chip/card
   // audit; the per-edge exemption below (own source, target, and their
   // containers) is the same one the audit applies.
+  //
+  // These are DRAWN border boxes, the same frame edgeEndpoints reconstructs the
+  // polylines in: the model box grown by CARD_GROWTH, which is zero for every
+  // kind but the recipe card, whose 1px border makes it 302 wide against the
+  // model's 300 (see CARD_BORDER). The audit collects the rendered card rect
+  // straight off the DOM, so measuring the model box here left the two frames
+  // two units apart on every recipe -- a chip could clear a card in the seating
+  // pass and overlap its drawn border in the browser.
   const cards: CardRect[] = nodes.map((n) => {
     const left = absoluteLeft(n, byId);
     const top = absoluteTop(n, byId);
+    const growth = cardGrowth(n.type);
     return {
       id: n.id,
       left,
       top,
-      right: left + nodeWidth(n),
-      bottom: top + nodeHeight(n),
+      right: left + nodeWidth(n) + growth,
+      bottom: top + nodeHeight(n) + growth,
     };
   });
   // The card exemption for an edge's chips: its own source / target cards get a

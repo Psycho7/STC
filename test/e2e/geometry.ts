@@ -17,7 +17,10 @@ import {
   RECIPE_WIDTH,
   recipeHeight,
 } from "../../src/canvas/dimensions";
-import { chipEntersOwnCardBody } from "../../src/canvas/chipSeating";
+import {
+  cardGrowth,
+  chipEntersOwnCardBody,
+} from "../../src/canvas/chipSeating";
 
 export type Pt = readonly [number, number];
 
@@ -792,6 +795,60 @@ export function auditEndpointParity(
         dx,
         dy,
         delta: Math.max(Math.abs(dx), Math.abs(dy)),
+      });
+    }
+  }
+  return out;
+}
+
+// One node whose DRAWN card box disagrees with the box the seating pass
+// measures chips against.
+export type CardFrameMismatch = {
+  nodeId: string;
+  drawnWidth: number;
+  drawnHeight: number;
+  seatingWidth: number;
+  seatingHeight: number;
+};
+
+// Every RECIPE card whose drawn border box differs from the box chipSeating
+// builds for it. The seating pass's obstacle rects are the model box (card
+// origin, RECIPE_WIDTH, recipeHeight) grown by `cardGrowth`, which is IMPORTED
+// from src here rather than mirrored: a chip cleared against a card two units
+// narrower than the painted one is a chip the browser shows overlapping the
+// card's border, so the two frames have to be the same box, and this states it
+// against the DOM.
+//
+// Recipes only. A product or group card rebuilds its model width from the DOM
+// (nothing else knows it), so it would agree by construction -- the same blind
+// spot auditEndpointParity's product side documents. Recipes rebuild off the
+// model constants, so they carry the contract.
+//
+// A CRITERION, not a ratchet table: it holds at zero on every scenario, so it
+// adds no baseline and no ruling to the NOTE block's enumeration.
+export function auditCardFrames(
+  nodes: ReadonlyArray<PortedNode>,
+  eps = 0.01,
+): CardFrameMismatch[] {
+  const out: CardFrameMismatch[] = [];
+  for (const n of nodes) {
+    if (n.type !== "recipe") continue;
+    const growth = cardGrowth(n.type);
+    const seatingWidth = RECIPE_WIDTH + growth;
+    const seatingHeight =
+      recipeHeight(n.inPorts.length, n.outPorts.length) + growth;
+    const drawnWidth = n.right - n.left;
+    const drawnHeight = n.bottom - n.top;
+    if (
+      Math.abs(drawnWidth - seatingWidth) > eps ||
+      Math.abs(drawnHeight - seatingHeight) > eps
+    ) {
+      out.push({
+        nodeId: n.nodeId,
+        drawnWidth,
+        drawnHeight,
+        seatingWidth,
+        seatingHeight,
       });
     }
   }
