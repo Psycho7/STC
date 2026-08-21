@@ -1,0 +1,22 @@
+{
+  "generatedBy": "tools/oracle/gate.test.ts",
+  "note": "Axes validated against CLOSED-FORM truth (both STC and GLPK match) are whitelisted. Excluded axes diverged from truth on one solver; reason + severity classification recorded. unboundedConstructible=false: the unbounded status mapping is UNVERIFIED (see STATUS-MAP.md).",
+  "unboundedConstructible": false,
+  "validatedAxes": [
+    "byproduct",
+    "chain",
+    "cyclic-target",
+    "multi-producer",
+    "raw-draw"
+  ],
+  "excluded": [
+    {
+      "axis": "no-producer",
+      "reason": "FactorioLab models any no-producer item as a free `unproduceable` supply, so the target STC deems unsatisfiable (deficit on X) solves in GLPK. The two solvers disagree because of FactorioLab's free-supply default, not because either solves the wrong LP.",
+      "classification": "adapter-artifact",
+      "expectedVerdict": "unsatisfiable",
+      "stcVerdict": "unsatisfiable",
+      "glpkVerdict": "satisfiable"
+    }
+  ]
+}

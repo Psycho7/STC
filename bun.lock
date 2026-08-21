@@ -15,6 +15,7 @@
       "devDependencies": {
         "@eslint/js": "^9.39.4",
         "@playwright/test": "1.59.1",
+        "@sideway/formula": "^3.0.1",
         "@testing-library/jest-dom": "^6.9.1",
         "@testing-library/react": "^16.3.2",
         "@testing-library/user-event": "^14.6.1",
@@ -25,6 +26,8 @@
         "eslint": "9",
         "eslint-plugin-react": "7",
         "eslint-plugin-react-hooks": "^7.1.1",
+        "glpk-ts": "^0.0.11",
+        "glpk-wasm": "^0.1.4",
         "jsdom": "^29.1.1",
         "prettier": "^3.8.3",
         "typescript": "5",
@@ -244,6 +247,8 @@
     "@rollup/rollup-win32-x64-gnu": ["@rollup/rollup-win32-x64-gnu@4.60.4", "", { "os": "win32", "cpu": "x64" }, "sha512-DRS4G7mi9lJxqEDezIkKCaUIKCrLUUDCUaCsTPCi/rtqaC6D/jjwslMQyiDU50Ka0JKpeXeRBFBAXwArY52vBw=="],
 
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.60.4", "", { "os": "win32", "cpu": "x64" }, "sha512-QVTUovf40zgTqlFVrKA1uXMVvU2QWEFWfAH8Wdc48IxLvrJMQVMBRjuQyUpzZCDkakImib9eVazbWlC6ksWtJw=="],
+
+    "@sideway/formula": ["@sideway/formula@3.0.1", "", {}, "sha512-/poHZJJVjx3L+zVD6g9KgHfYnb443oi7wLu/XKojDviHy6HOEOA6z1Trk5aR1dGcmPenJEgb2sK2I80LeS3MIg=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
@@ -548,6 +553,10 @@
     "globals": ["globals@14.0.0", "", {}, "sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ=="],
 
     "globalthis": ["globalthis@1.0.4", "", { "dependencies": { "define-properties": "^1.2.1", "gopd": "^1.0.1" } }, "sha512-DpLKbNU4WylpxJykQujfCcwYWiV/Jhm50Goo0wrVILAv5jOr9d+H+UR3PhSCD2rCCEIg0uc+G+muBTwD54JhDQ=="],
+
+    "glpk-ts": ["glpk-ts@0.0.11", "", { "dependencies": { "glpk-wasm": "^0.1.4" } }, "sha512-EcARL3PHoWp9dTwGku1d4Kj7cYH7b7QgBbPz7N6/1LeHR843Mr5GxWA174POs0If8JWq4gPw0PxDntnitNKO+g=="],
+
+    "glpk-wasm": ["glpk-wasm@0.1.4", "", {}, "sha512-U9GGe+UMa72IPobxMInrpoKXnwEeLaRtyyeYTT48LhcN07w+hRga9OdWB0n0+qg89hQRIl15tqSHxQCfqI6cRQ=="],
 
     "gopd": ["gopd@1.2.0", "", {}, "sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg=="],
 

@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "module": "ES2022",
+    "lib": ["ES2022", "dom"],
+    "types": ["node", "vite/client"],
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["flab/src/app/*"],
+      "src/environments": ["flab/src/environments"],
+      "glpk-ts/dist/status": ["../../node_modules/glpk-ts/dist/status.d.ts"],
+      "@aef/data/*": ["../../data/aef/*"],
+      "@aef/schema": ["../../tools/extractor/src/schema.ts"]
+    }
+  },
+  "include": [
+    "smoke.test.ts",
+    "adapter.ts",
+    "adapter.test.ts",
+    "compare.ts",
+    "compare.test.ts",
+    "gate.test.ts",
+    "corpus-run.test.ts",
+    "fixtures/pack.ts",
+    "fixtures/index.ts"
+  ]
+}
