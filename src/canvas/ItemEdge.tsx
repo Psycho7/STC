@@ -139,11 +139,14 @@ export const LABEL_MIN_ZOOM = 0.35;
 // rise chip) collapse to icon-only: the item icon alone, with the rate digits
 // dropped. This preserves the "something flows here" signal while un-blanketing
 // dense clusters at fit zoom; the exact rate stays reachable on the chip's hover
-// tooltip. Calibrated between the dense-plan fit zooms that must collapse
-// (battery5-xiranite ~0.28, multi6 ~0.17) and the sparse-plan fit zooms that
-// must stay full (crystal ~0.46, default ~0.76), measured in-browser at
-// 1920x1080. Kept below LABEL_MIN_ZOOM so the LOD stays monotonic: per-member
-// chips drop first, then the surviving aggregates shed their digits.
+// tooltip. Calibrated against the corpus fit zooms measured in-browser at
+// 1920x1080: the gate sits in the gap between the one plan that must collapse
+// (multi6, 0.21) and the densest plan that must stay full (battery5-xiranite,
+// 0.35 - just above LABEL_MIN_ZOOM, so nothing on it collapses either). The
+// remaining plans sit well clear: equip4 0.44, battery5 0.45, crystal 0.50,
+// tundra 0.66, default 0.90. Kept below LABEL_MIN_ZOOM so the LOD stays
+// monotonic: per-member chips drop first, then the surviving aggregates shed
+// their digits.
 export const CHIP_ICON_ONLY_MAX_ZOOM = 0.32;
 
 // Physical stroke-width bounds. Edge strokes are drawn in graph units, so the
