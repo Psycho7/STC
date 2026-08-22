@@ -249,6 +249,10 @@ describe("co-product fan-out pack census", () => {
 // loud: if it fails, the new id is either a real extractor (add it here) or a
 // recipe the ban would wrongly swallow (key the predicate on something other
 // than the netted input count).
+//
+// Deliberately spells out `in.length === 0` instead of calling
+// isExtractionRecipe: the census has to keep asking the concrete question even
+// if the predicate is later re-keyed, which is the drift it exists to catch.
 describe("extraction-recipe pack census", () => {
   const KNOWN_EXTRACTORS = [
     "gas_inert",

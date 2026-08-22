@@ -75,7 +75,7 @@ export const BIG_M_COST = 1e6;
 
 // Default cost weights. The ordering deficit >> recipe >> surplus is the cost
 // contract. Target-only and excluded-producer recipes get a big-M cost so the LP
-// only runs them when no alternative exists. Extraction recipes are the one
+// only runs them when no alternative exists. Miners and pumps are the one
 // excluded class this does not decide: solveLp gives them no variable at all,
 // so their big-M weight is never priced and no cost can make one run.
 export function recipeCostWeight(
@@ -152,7 +152,7 @@ export function solveLp(input: LpInput): LpResult {
   }
 
   // Sort recipes and items by id for deterministic iteration / lex-rank.
-  // Extraction recipes are dropped outright rather than priced at big-M: the
+  // Miners and pumps are dropped outright rather than priced at big-M: the
   // model gets no x_ variable for them, so no solution can run one. A big-M
   // cost would still let the LP recruit a miner whenever nothing else covers
   // the demand, which is exactly the case that matters - a raw item capped
@@ -176,10 +176,11 @@ export function solveLp(input: LpInput): LpResult {
   const demand = demandByItem(targets);
 
   // Lex rank per recipe (sorted by id) for the pass-2 tie-break. Ranked over
-  // the FULL sorted list, gaps for the dropped extractors included: only the
-  // relative order decides the tie-break, and keeping each surviving recipe on
-  // its historical rank means dropping an extractor cannot reshuffle which
-  // cost-equal solution pass 2 lands on.
+  // the FULL sorted list, gaps for the dropped miners included. The ranks are
+  // objective coefficients, not just an ordering, so compacting them would
+  // reweight the pass-2 objective and move which cost-equal solution wins;
+  // keeping every surviving recipe on its historical rank is what stops
+  // dropping a miner from silently reshuffling pinned plans.
   const lexRank = new Map<RecipeId, number>();
   sortedRecipes.forEach((r, i) => lexRank.set(r.id, i));
 

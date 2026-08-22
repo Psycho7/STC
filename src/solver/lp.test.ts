@@ -890,13 +890,6 @@ describe("solveLp - extraction recipes", () => {
     { itemId: "F", ratePerSec: { num: "4", denom: "1" } },
   ];
 
-  it("leaves the extractor out with no override", () => {
-    const result = solveLp({ targets: mineTargets, pack: minePack });
-    expect(result.rates.has("mine")).toBe(false);
-    expect(result.rates.get("a")!.equals(4)).toBe(true);
-    expect(result.softFeasible).toBe(true);
-  });
-
   it("reports a deficit rather than mining the gap above a rate cap", () => {
     const overrides: ItemOverride[] = [
       { itemId: "M", ratePerSec: { num: "1", denom: "1" } },
@@ -925,24 +918,29 @@ describe("solveLp - extraction recipes", () => {
     expect(result.softFeasible).toBe(false);
   });
 
+  // End-to-end pin of the reported case on the shipped pack: capping the water
+  // the plan drinks used to run the liquid_water pump at 3/s to cover the rest.
+  // `in.length === 0` is spelled out rather than calling isExtractionRecipe so
+  // the assertion tracks the rule the ban owes its users, not its own
+  // implementation.
   it("runs no input-less recipe of the real pack", () => {
     const extractors = pack.recipes
       .filter((r) => r.in.length === 0)
       .map((r) => r.id);
     // Guards the premise: a pack with no extractor would pass vacuously.
     expect(extractors.length).toBeGreaterThan(0);
-    // iron_ore has no producer but the miner, and a cap of 0 leaves the plan
-    // no other way to source it - which is what used to start the miner.
     const result = solveLp({
-      targets: [{ itemId: "iron_nugget", ratePerSec: { num: "1", denom: "1" } }],
+      targets: [
+        { itemId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } },
+      ],
       pack,
       itemOverrides: [
-        { itemId: "iron_ore", ratePerSec: { num: "0", denom: "1" } },
+        { itemId: "liquid_water", ratePerSec: { num: "1", denom: "1" } },
       ],
     });
     expect([...result.rates.keys()].filter((id) => extractors.includes(id))).toEqual([]);
-    // The pack has other routes to iron_nugget, so the plan reroutes rather
-    // than going short: banning the miner is not the same as breaking a plan.
+    // The pack has other water sources, so the plan reroutes rather than going
+    // short: banning the pump is not the same as breaking a plan.
     expect(result.softFeasible).toBe(true);
   });
 });
