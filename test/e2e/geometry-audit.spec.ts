@@ -1055,17 +1055,29 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // inside the box and so are valid seats here. That is the "strictly weaker"
 // relation in numbers, and it is why a Task 6 sidestep cannot redden this
 // counter.
+//
+// RE-MEASURED at 18 after the rise-slot clamp and the drop cascade cap. The
+// x-stranding family is gone: no chip is off its own line by more than one
+// cascade pitch any more (the worst was 663 units), and multi6 e:74's drop now
+// holds its junction. What is left is 16 bus chips at exactly 48.0 -- rise chips
+// lifted ONE pitch off their lane, by the junction-dot keep-off (#50) or by
+// crowding -- plus the same 2 label chips. That residue is structural at this
+// camera: the drawn box is 40 tall here, so a chip one pitch off its lane can
+// never touch it, while the seating pass ratifies one pitch as "beside the lane"
+// and hides anything past it. Clamping a stranded slot lands it at its own run's
+// far end, which is where that run's junction dot sits, so the keep-off lifts it
+// -- beside its own run beats spread onto a sibling's stroke.
 const SEAT_VALIDITY_BASELINE: Record<string, number> = {
   default: 1,
   battery5: 2,
-  "battery5-xiranite": 5,
+  "battery5-xiranite": 4,
   crystal: 0,
   equip4: 0,
-  multi6: 10,
+  multi6: 5,
   tundra: 0,
-  script43: 5,
-  "coupon-web": 2,
-  "gas-web": 5,
+  script43: 3,
+  "coupon-web": 1,
+  "gas-web": 2,
 };
 
 // Card intrusion: chips whose box reaches more than CARD_INTRUSION_BUDGET deep
@@ -1084,6 +1096,9 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
 // with only its centre still out in the port strip (multi6 e:30 / e:49,
 // script43 e:18 / e:21). Two are bus rise chips (script43 e:3 / e:4); the other
 // 86 are label chips.
+// Unmoved by the rise-slot clamp and the drop cascade cap: every cell re-read
+// identical. Both are lane-frame changes and this counter is dominated by label
+// chips at node ports.
 const CARD_INTRUSION_BASELINE: Record<string, number> = {
   default: 9,
   battery5: 6,
@@ -1110,13 +1125,21 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
 // plan. multi6 runs the other way, 16 here against 0 there: at its fit zoom the
 // chips that collide are not drawn at all, which is the blind spot the reading
 // camera exists to remove.
+//
+// RE-MEASURED at 48 after the drop cascade cap: multi6 16 -> 17, every other
+// cell identical. The one addition is multi6 e:74's gas_inert DROP chip, and it
+// is the R7 trade itself -- that chip used to clear the foreign stroke by
+// cascading three pitches into empty canvas (where it counted in seat validity
+// and outside-band instead); capped at one pitch it stays on its own junction
+// and grazes the stroke. A stroke through the box beats a rate chip with nothing
+// under it.
 const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 3,
   "battery5-xiranite": 7,
   crystal: 0,
   equip4: 1,
-  multi6: 16,
+  multi6: 17,
   tundra: 0,
   script43: 8,
   "coupon-web": 1,
@@ -1139,16 +1162,26 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
 // not ratcheted. Crystal and equip4 pin 0 because they render bus chips but NO
 // band rects (counter is unjudgeable there, not clean); tundra has no bus chips
 // at all.
+//
+// RE-MEASURED at 15 after the rise-slot clamp and the drop cascade cap
+// (battery5-xiranite 1 -> 3, multi6 3 -> 4, coupon-web 0 -> 1). The counter rose
+// for one reason: a clamped slot lands at its own run's far end, where that
+// run's junction dot sits, so the keep-off pass (#50) lifts the chip one pitch
+// and a band that reserves 24 does not cover it. The mechanism is unchanged --
+// every escape is still exactly one pitch out, and the population is now purely
+// rise chips: multi6 e:74, the corpus's only escaped DROP, came home when its
+// cascade was capped. Task 4's pad (one pitch plus a chip half-height) is sized
+// for exactly this set.
 const OUTSIDE_BAND_BASELINE: Record<string, number> = {
   default: 1,
   battery5: 1,
-  "battery5-xiranite": 1,
+  "battery5-xiranite": 3,
   crystal: 0,
   equip4: 0,
-  multi6: 3,
+  multi6: 4,
   tundra: 0,
   script43: 3,
-  "coupon-web": 0,
+  "coupon-web": 1,
   "gas-web": 2,
 };
 
@@ -1158,10 +1191,10 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
 // arithmetically against the tables (see the totals test) rather than summed
 // over a run, so it holds even when the suite is run one scenario at a time.
 const CENSUS_TOTALS = {
-  seatValidity: 30,
+  seatValidity: 18,
   cardIntrusion: 88,
-  foreignStroke: 47,
-  outsideBand: 11,
+  foreignStroke: 48,
+  outsideBand: 15,
 };
 
 function censusInventory(hits: ReadonlyArray<ChipCensusHit>): string {

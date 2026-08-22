@@ -480,6 +480,16 @@ function seatChip(
   // columns together -- and there, lifting the drop merely hands its lane slot
   // to the rise, which covers the same dot again. So the drop keeps its seat.
   avoidDots = false,
+  // Soft cascade cap, in steps (the bus DROP seat only). Inside the cap the
+  // seat is tried first against everything, then again with the FOREIGN-LINE
+  // preference relaxed -- the softest obstacle this seat consults, since a drop
+  // runs no dot pass -- so a drop chip grazing a foreign stroke beside its own
+  // junction beats a clean seat pitches away in empty canvas, where no rule
+  // hides it and nothing marks which trunk it belongs to. Chips (and, with a
+  // cardExempt, foreign cards) stay HARD throughout: when nothing inside the
+  // cap clears them the cap yields to the unbounded ladder below rather than
+  // let two chips overlap.
+  capSteps?: number,
 ): number {
   // Dot keep-off pass (#50). A rise chip sits ON the lane a chamfer from its own
   // trunk's junction dot, so at dy = 0 its box routinely swallows the dot. Probe
@@ -502,6 +512,37 @@ function seatChip(
     ) {
       field.placed.push(box);
       return dy;
+    }
+  }
+  if (capSteps !== undefined) {
+    const capped = cascadeClearDy(
+      field,
+      x,
+      y,
+      halfW,
+      halfH,
+      step,
+      flowKey,
+      target,
+      capSteps,
+      undefined,
+      cardExempt,
+    );
+    if (capped !== null) {
+      field.placed.push({ x, y: y + capped, halfW, halfH });
+      return capped;
+    }
+    let capDy = 0;
+    for (let steps = 0; steps <= capSteps; steps++) {
+      const box = { x, y: y + capDy, halfW, halfH };
+      if (
+        !field.overlapsChip(box) &&
+        (cardExempt === undefined || !field.entersForeignCard(box, cardExempt))
+      ) {
+        field.placed.push(box);
+        return capDy;
+      }
+      capDy += step;
     }
   }
   const clear = cascadeClearDy(
@@ -542,6 +583,26 @@ function seatChip(
   }
   field.placed.push({ x, y: y + dy, halfW, halfH });
   return dy;
+}
+
+// Clamp a lane member's trunk-wide rise slot into its OWN resolved lane run,
+// keeping one chamfer of slack at each end so the chip anchors on the straight
+// part of the run rather than on a corner bevel. A run with no interior left --
+// a hairpin (dropX === riseX), or a backward member whose two columns nearly
+// touch -- gets the run's midpoint instead. `undefined` in, `undefined` out:
+// that is the lone long-run member, whose slot routeBusEdges deliberately omits
+// so the chip falls back to the rise column at the consumer end (#32), and
+// whose zoom-gate exemption in BusEdge keys on the slot being ABSENT.
+function clampChipXToOwnRun(
+  busChipX: number | undefined,
+  dropX: number,
+  riseX: number,
+): number | undefined {
+  if (busChipX === undefined) return undefined;
+  const lo = Math.min(dropX, riseX);
+  const hi = Math.max(dropX, riseX);
+  if (hi - lo <= 2 * CHAMFER) return (lo + hi) / 2;
+  return Math.min(Math.max(busChipX, lo + CHAMFER), hi - CHAMFER);
 }
 
 // Total arc-length of a parsed polyline, the measure the short-leg rules are
@@ -1474,6 +1535,9 @@ export function deconflictChipAnchors(
   // drop.
   const busDropDyByIndex = new Map<number, number>();
   const busChipDyByIndex = new Map<number, number>();
+  // Clamped rise slots, stamped back onto edge data below so BusEdge's chip
+  // anchor and contentBounds' frame read the same x this pass seated.
+  const busChipXByIndex = new Map<number, number>();
   type BusSlot = {
     index: number;
     id: string;
@@ -1521,12 +1585,30 @@ export function deconflictChipAnchors(
       laneY: data.laneY,
       ...routingHintsFromData(edge.data),
     });
+    // Pull the trunk-wide rise slot back into this member's own lane run.
+    // routeBusEdges spreads a trunk's slots across the WHOLE trunk extent (the
+    // drop column out to the rightmost member's rise column) in edge-id order,
+    // but a member's own lane run ends at its OWN rise column -- so a member
+    // whose consumer sits near the source can be handed a slot hundreds of
+    // units past the point where its line leaves the lane, parking its rate
+    // chip on a sibling's stroke with nothing of its own beneath it.
+    // The clamp belongs HERE and not in routeBusEdges: these dropX / riseX come
+    // out of chamferBusPath with the stamped routing hints, so they are the
+    // columns actually drawn (assignEntryColumns staggers the rise afterwards
+    // and clearBusColumns may dodge either column by far more than a chamfer).
+    // It is per member and order-independent, so routeBusEdges' shuffled-input
+    // determinism is untouched; slots the clamp pushes together are resolved by
+    // the capacity check below, which hides the overflow.
+    const clampedChipX = clampChipXToOwnRun(data.busChipX, dropX, riseX);
+    if (clampedChipX !== undefined && clampedChipX !== data.busChipX) {
+      busChipXByIndex.set(index, clampedChipX);
+    }
     busSlots.push({
       index,
       id: edge.id,
       laneY: data.laneY,
       dropX,
-      riseChipX: data.busChipX ?? riseX,
+      riseChipX: clampedChipX ?? riseX,
       owner: data.busChipOwner === true,
       memberCount: data.busMemberCount ?? 1,
       // Top-band chips cascade UP (away from the graph below them); bottom-band
@@ -1556,6 +1638,14 @@ export function deconflictChipAnchors(
     }
     mergeExemptionInto(set, cardExemptFor(edge));
   }
+  // The drop chip's cascade is capped at ONE pitch. It is the only bus chip
+  // exempt from the label zoom gate (BusEdge), i.e. a lone trunk's only rate
+  // visible at fit zoom, and no hide rule exists for it -- so an unbounded
+  // cascade could walk it several pitches off its own band into empty canvas
+  // and nothing would catch it (multi6's gas_inert drop sat 144 units out). One
+  // pitch still reads as sitting beside its junction. The cap is soft against
+  // placed chips: see seatChip's capSteps.
+  const BUS_DROP_CASCADE_STEPS = 1;
   for (const slot of busSlots) {
     // Multi-member trunks draw no aggregate chip (issue #39), so seat none.
     if (!slot.owner || slot.memberCount > 1) continue;
@@ -1570,6 +1660,8 @@ export function deconflictChipAnchors(
       slot.target,
       slot.id,
       laneTrunkExempt.get(slot.trunkKey),
+      false,
+      BUS_DROP_CASCADE_STEPS,
     );
     if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
   }
@@ -1581,9 +1673,12 @@ export function deconflictChipAnchors(
   // target card's input row and its edge tooltip (mirroring fanoutBranchHidden).
   // No aggregate chip exists on a multi-member trunk (issue #39); the run's
   // capacity all goes to member rises, farthest from the junction first (edge-id
-  // tie-break), so a member that reads at the consumer end -- where the
-  // source-side junction cannot label it -- wins the scarce slots over a near
-  // one. Single-member trunks are exempt: a lone rise merely restates its own
+  // tie-break). Now that every slot is clamped into its own lane run, that
+  // distance IS the member's own run length, so the order reads as longest run
+  // first: a member that leaves the lane far from the shared junction -- where
+  // the source-side junction cannot label it -- wins the scarce slots over a
+  // near one, whose short run has no room for the wide box anyway.
+  // Single-member trunks are exempt: a lone rise merely restates its own
   // drop's rate, and the long-run lone member (Task 4) belongs at the consumer
   // end, so never capacity-hide it.
   const MIN_CHIP_SEP = 2 * CHIP_HALF_W_WIDE;
@@ -1949,6 +2044,7 @@ export function deconflictChipAnchors(
     const labelDx = labelDxByIndex.get(index);
     const busDropDy = busDropDyByIndex.get(index);
     const busChipDy = busChipDyByIndex.get(index);
+    const busChipX = busChipXByIndex.get(index);
     const busRiseHidden = busRiseHiddenByIndex.has(index);
     const fanoutAggDx = fanoutAggDxByIndex.get(index);
     const fanoutAggDy = fanoutAggDyByIndex.get(index);
@@ -1968,6 +2064,7 @@ export function deconflictChipAnchors(
       labelDx === undefined &&
       busDropDy === undefined &&
       busChipDy === undefined &&
+      busChipX === undefined &&
       !busRiseHidden &&
       fanoutAggDx === undefined &&
       fanoutAggDy === undefined &&
@@ -1989,6 +2086,11 @@ export function deconflictChipAnchors(
         ...(chipIconOnly ? { chipIconOnly: true as const } : {}),
         ...(busDropDy !== undefined ? { busDropDy } : {}),
         ...(busChipDy !== undefined ? { busChipDy } : {}),
+        // The clamped rise slot REPLACES routeBusEdges' trunk-wide one, so
+        // BusEdge's anchor and contentBounds' frame use the x this pass
+        // reserved a box at. Absent when the slot needed no clamping (and on
+        // the lone long-run member, which has no slot to clamp).
+        ...(busChipX !== undefined ? { busChipX } : {}),
         ...(busRiseHidden ? { busRiseHidden: true as const } : {}),
         ...(fanoutAggDx !== undefined ? { fanoutAggDx } : {}),
         ...(fanoutAggDy !== undefined ? { fanoutAggDy } : {}),

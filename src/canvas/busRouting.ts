@@ -534,9 +534,17 @@ export function routeBusEdges(
   // apart and never places a rise chip on the aggregate drop chip at dropX.
   // When the extent is too short to spread them (members feeding one nearby
   // layer, so maxRiseX <= dropX) the step collapses to 0 and every rise chip
-  // stacks at the drop column; deconflictChipAnchors then cascades the pile
-  // downward off the lane. Horizontal spacing here is only a hint -- the on-screen
-  // no-overlap guarantee is enforced by that vertical cascade, not by this x.
+  // stacks at the drop column.
+  //
+  // These slots are a trunk-wide SPREAD HINT, nothing more: the extent is a
+  // trunk-level quantity while a member's own lane run ends at its OWN rise
+  // column, so a slot here can land well past the point where that member's
+  // line leaves the lane. deconflictChipAnchors clamps every slot into the
+  // member's own resolved run (the columns as finally drawn, which this pass
+  // cannot see -- assignEntryColumns and clearBusColumns both move them
+  // afterwards) and stamps the corrected x back, then hides the members the
+  // shortened runs cannot host. Vertical no-overlap is enforced there too, by
+  // the lane cascade, never by this x.
   const busChipXByIndex = new Map<number, number>();
   const membersByTrunk = new Map<
     string,
