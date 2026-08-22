@@ -1673,11 +1673,13 @@ export function deconflictChipAnchors(
   // target card's input row and its edge tooltip (mirroring fanoutBranchHidden).
   // No aggregate chip exists on a multi-member trunk (issue #39); the run's
   // capacity all goes to member rises, farthest from the junction first (edge-id
-  // tie-break). Now that every slot is clamped into its own lane run, that
-  // distance IS the member's own run length, so the order reads as longest run
-  // first: a member that leaves the lane far from the shared junction -- where
-  // the source-side junction cannot label it -- wins the scarce slots over a
-  // near one, whose short run has no room for the wide box anyway.
+  // tie-break). The keep order measures the distance from the shared junction to
+  // the CLAMPED slot -- a proxy for run length on forward members only, since a
+  // backward member's run reverses and clamps back toward the drop column, so a
+  // long backward run can rank below a hairpin's zero-length one. What the order
+  // buys either way: a chip that ends up far from the shared junction -- where
+  // the source-side junction cannot label it -- wins the scarce slots over one
+  // sitting right beside that junction, which is crowded there anyway.
   // Single-member trunks are exempt: a lone rise merely restates its own
   // drop's rate, and the long-run lone member (Task 4) belongs at the consumer
   // end, so never capacity-hide it.
