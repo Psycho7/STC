@@ -1,4 +1,4 @@
-// Fixture data for the seven placement-regression scenarios. Each scenario is a
+// Fixture data for the ten placement-regression scenarios. Each scenario is a
 // named set of solver targets the app loads from a share hash. The spec encodes
 // these into v1 hashes at runtime with the app's own encoder, so the fixtures
 // stay regenerable from the target data rather than pinned to copied blobs.
@@ -102,6 +102,39 @@ export const SCENARIOS: Scenario[] = [
         itemId: "tundra_coupon",
         ratePerSec: { num: "1", denom: "2" }, // 30/min
       },
+    ],
+    maxDiffPixels: 0,
+  },
+  // The three below reproduce plans from the 2026-08-22 render exam, added so
+  // the chip-seating ratchets cover the v1.4 recipes that exposed the seating
+  // defects (script chains, the coupon web, and the gas web). All three take
+  // the exact-match budget: each re-rendered bit-identically to its golden on
+  // repeat runs, solo and in a full-corpus batch.
+  {
+    id: "script43",
+    title: "script43",
+    targets: [
+      { itemId: "equip_script_4_3", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+    ],
+    maxDiffPixels: 0,
+  },
+  {
+    id: "coupon-web",
+    title: "coupon-web",
+    targets: [
+      { itemId: "jinlong_coupon", ratePerSec: { num: "1", denom: "1" } }, // 60/min
+      { itemId: "filter_core", ratePerSec: { num: "1", denom: "4" } }, // 15/min
+      { itemId: "copper_jar", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+    ],
+    maxDiffPixels: 0,
+  },
+  {
+    id: "gas-web",
+    title: "gas-web",
+    targets: [
+      { itemId: "gas_xiranite_enr", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "gas_copper_enr2", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "gas_inert", ratePerSec: { num: "1", denom: "4" } }, // 15/min
     ],
     maxDiffPixels: 0,
   },

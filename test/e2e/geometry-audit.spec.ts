@@ -347,6 +347,15 @@ test.describe("DOM geometry audit", () => {
 // criterion, NOT an eighth table: it holds at zero everywhere, carries no
 // per-scenario baseline, and adds no ruling. The count of tables and of
 // standing rulings above is unchanged by it.
+// THREE SCENARIOS JOINED the corpus for the chip-seating F1+Z2 campaign:
+// script43, coupon-web and gas-web, the v1.4 plans whose seating defects the
+// campaign exists to fix. Every cell they add to the seven tables is a FIRST
+// RECORDING -- the audit ran on the untouched branch and each cell holds what
+// it reported -- so those cells state where the campaign starts, not a target
+// and not a ruling. They add no ruling of their own: both hard gates (RAW
+// segment/card, chip/foreign-card) and the card-frame check read zero on all
+// three. From here they ratchet DOWN under the same convention as every table
+// above. The measured figures are recorded per table below.
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -372,6 +381,8 @@ test.describe("DOM geometry audit", () => {
 // The comparison is against the harvest taken before either change, and this
 // cell was not differentially probed, so the single drop is not attributed to
 // one of the two.
+// First recordings for the three campaign scenarios: script43 55,
+// coupon-web 14, gas-web 42.
 const CROSSING_BASELINE: Record<string, number> = {
   default: 9,
   battery5: 8,
@@ -380,6 +391,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   equip4: 1,
   multi6: 415,
   tundra: 0,
+  script43: 55,
+  "coupon-web": 14,
+  "gas-web": 42,
 };
 
 // Padding-graze baseline (tier 3): segments that clip only a foreign card's
@@ -409,6 +423,12 @@ const CROSSING_BASELINE: Record<string, number> = {
 // The two survivors are outside slab interiors: a battery5 loop-group padding
 // clip (e:4 down the liquid_xiranite_poly slab's outer edge) and a multi6 tap
 // stub (e:79).
+// First recordings for the three campaign scenarios: script43 2 and
+// coupon-web 2 are one gas-tap approach each, counted twice because its
+// vertical leg and its corner diagonal both clip the same card's padding
+// (e:36 into q:10, e:16 into q:0); gas-web 1 is the corner diagonal of e:29
+// into q:6. All three are tap stubs in packed gutters, the family the survivors
+// above belong to.
 const PADDED_GRAZE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
@@ -417,6 +437,9 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   equip4: 0,
   multi6: 1,
   tundra: 0,
+  script43: 2,
+  "coupon-web": 2,
+  "gas-web": 1,
 };
 
 // P3 chip-tier ratchets. Chip seating follows the ratified priority order:
@@ -476,6 +499,12 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // line occlusions in the softest tier (RULING, 2026-08-21): the seating
 // priority puts on-line above foreign-line clearance, so the trade is accepted,
 // the depth edit stays, and the pin moves 11 -> 15.
+// First recordings for the three campaign scenarios: script43 13,
+// coupon-web 3, gas-web 20. Same family as the residue above -- long gas-tap
+// and surplus columns running the full height of the plan pass under label
+// chips seated on other edges' corridor legs. On script43 and gas-web a single
+// tap column accounts for several hits at once (gas-web e:24 crosses four
+// chips), so the counts track a handful of columns, not a spread of seats.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 3,
@@ -484,6 +513,9 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   equip4: 1,
   multi6: 0,
   tundra: 0,
+  script43: 13,
+  "coupon-web": 3,
+  "gas-web": 20,
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
 // candidates all overlap a card, so card-hardness pushes its seat off the line.
@@ -525,6 +557,8 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // still NOT retired. This cell and the battery5-xiranite chip-segment rise are
 // the SAME chip moving -- reverting the depth edit puts both back, so revert
 // this pin with it. battery5 measured 2 again, unchanged (ratified above).
+// The three campaign scenarios first recorded zero: no label chip on any of
+// them leaves its own polyline today.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 2,
@@ -533,6 +567,9 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   equip4: 0,
   multi6: 0,
   tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
 };
 
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
@@ -555,6 +592,8 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
 // probed at the parent commit. Pinned at zero everywhere, which
 // makes this tier an effective hard gate until something reintroduces a walled
 // corridor.
+// The three campaign scenarios first recorded zero too, so the gate now holds
+// across the ten-scenario corpus.
 const OWN_PIERCE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -563,6 +602,9 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   equip4: 0,
   multi6: 0,
   tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
 };
 
 // Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
@@ -600,6 +642,10 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // e:74 is not an off-path case at all: the keep-off's one-pitch lane-side probe
 // is the seat that would clear it, and that slot is occupied -- crowding, not
 // the ratchet, is what holds it. Both are reported as they stand.
+// First recordings for the three campaign scenarios: script43 0, coupon-web 0,
+// gas-web 1 -- a copper_nugget fan-out chip (e:11) covering the merge dot of
+// its sibling e:10 at (1233,349), the same fan-in owner shape as the
+// battery5-xiranite survivor above.
 const DOT_COVER_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -608,6 +654,9 @@ const DOT_COVER_BASELINE: Record<string, number> = {
   equip4: 0,
   multi6: 1,
   tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 1,
 };
 
 // Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
@@ -640,6 +689,9 @@ const DOT_COVER_BASELINE: Record<string, number> = {
 // the pins are a flat measured-max-plus-headroom 0.5, two orders of magnitude
 // above the noise and one and a half below a row pitch. They ratchet DOWN like
 // the tables above; a rise needs the same recorded ruling.
+// The three campaign scenarios measured the same residue and take the same flat
+// 0.5 pin: script43 0.003 (76 endpoints), coupon-web 0.001 (38), gas-web 0.001
+// (62).
 const ENDPOINT_PARITY_TOL: Record<string, number> = {
   default: 0.5,
   battery5: 0.5,
@@ -648,6 +700,9 @@ const ENDPOINT_PARITY_TOL: Record<string, number> = {
   equip4: 0.5,
   multi6: 0.5,
   tundra: 0.5,
+  script43: 0.5,
+  "coupon-web": 0.5,
+  "gas-web": 0.5,
 };
 
 async function loadScenario(page: Page, hash: string): Promise<void> {
