@@ -12,6 +12,7 @@ import type { ItemOverride } from "../data/plan";
 import type { RecipeId, ItemId } from "./types";
 import type { LpResult, LpInput } from "./lp";
 import type { InvariantResult } from "./invariants";
+import { isExtractionRecipe } from "../data/recipe-category";
 import {
   solveLp,
   recipeCostWeight,
@@ -151,6 +152,10 @@ export function assertOptimal(input: OptimalityInput): InvariantResult {
 
   for (const candidate of pack.recipes) {
     if (baseActive.has(candidate.id)) continue;
+    // An extraction recipe has no variable in the model, so forcing its cost to
+    // 0 changes nothing and the re-solve returns the base plan. Skipping keeps
+    // the candidate universe equal to the model's and saves a full solve each.
+    if (isExtractionRecipe(candidate)) continue;
     // Only consider candidates that produce an item already in the plan graph.
     const producesTouched = candidate.out.some((io) => touched.has(io.item));
     if (!producesTouched) continue;
