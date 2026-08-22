@@ -1099,15 +1099,44 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
 // Unmoved by the rise-slot clamp and the drop cascade cap: every cell re-read
 // identical. Both are lane-frame changes and this counter is dominated by label
 // chips at node ports.
+//
+// RE-MEASURED at 84 after the seating pass gained its own box-depth rule: the
+// tier-1 slide and the graze scorer now rank a candidate's depth into its OWN
+// endpoint cards (below the junction-dot keep-off in tier 1, below the
+// foreign-line crossing count in the graze tier), so a chip that used to stop
+// at the first otherwise-clear point keeps walking its line to one whose BOX
+// also clears the card. Six seats moved off a card (battery5 e:19,
+// battery5-xiranite e:28, multi6 e:12 / e:83 / e:84 / e:110, depths 9.5 to
+// 29.1) and two moved onto one at shallow depth (multi6 e:5 at 10.5, script43
+// e:17 at 15.4, both chips that shifted along their own lines as the seats
+// around them changed) -- hence script43 15, one ABOVE its first recording.
+// That cell is a measurement this campaign took, not a ratified trade, and the
+// plan's ratchet rule lets it be re-measured with its cause recorded.
+//
+// The DEEP class -- 21 chips whose depth saturates at the drawn box height, the
+// ones a reader sees lying ON a card -- did NOT move, and the reason is
+// availability, not ranking. Traced candidate by candidate at this camera: 12
+// of them (battery5 e:6 / e:11 / e:12, battery5-xiranite e:11 / e:14 / e:21,
+// crystal e:5, multi6 e:49, script43 e:21 / e:31 / e:32 / e:33) have exactly
+// one fully clear point on the whole line and it is the buried one -- every
+// shallower point on the corridor crosses a foreign line, and crossings
+// outrank depth by ruling; 7 (battery5-xiranite e:18 / e:20, gas-web e:17 /
+// e:25, multi6 e:30 / e:99, script43 e:18) have NO fully clear point, so their
+// seat comes from the sidestep or the graze scorer where the same precedence
+// applies; 2 (battery5-xiranite e:19, gas-web e:18) had a within-budget graze
+// candidate that lost on crossings. All 21 reserve a 240-wide worst-case box
+// while drawing 120-200 here, which is what makes the corridor interior look
+// blocked. Closing them needs either that box model or the crossings-vs-depth
+// precedence revisited, not another seat-preference term.
 const CARD_INTRUSION_BASELINE: Record<string, number> = {
   default: 9,
-  battery5: 6,
-  "battery5-xiranite": 8,
+  battery5: 5,
+  "battery5-xiranite": 7,
   crystal: 2,
   equip4: 3,
-  multi6: 27,
+  multi6: 24,
   tundra: 1,
-  script43: 14,
+  script43: 15,
   "coupon-web": 8,
   "gas-web": 10,
 };
@@ -1205,7 +1234,7 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
 // over a run, so it holds even when the suite is run one scenario at a time.
 const CENSUS_TOTALS = {
   seatValidity: 18,
-  cardIntrusion: 88,
+  cardIntrusion: 84,
   foreignStroke: 48,
   outsideBand: 0,
 };

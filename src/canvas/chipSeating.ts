@@ -278,6 +278,39 @@ export function chipEntersOwnCardBody(
   return side === "target" ? cx > card.left + depth : cx < card.right - depth;
 }
 
+// Seat-side companion to chipEntersOwnCardBody, and a DIFFERENT rule on the
+// same number: how much deeper than the port strip the chip's BOX reaches into
+// one of its own endpoint cards, in graph units, 0 when it stays within budget.
+// The centre rule above says whether the readable payload is buried; this one
+// says how much of the box the reader sees lying ON the card, which is the F1
+// complaint (a chip whose centre is still in the corridor but whose box is
+// swallowed by the card body). Both are needed: the centre rule is the hard
+// invariant every tier upholds, this one is a PREFERENCE the on-line tiers
+// minimise, so it can never fling a chip off its line (issue #9).
+//
+// Depth is the smaller of the two overlap extents. For a box lapping a card's
+// port edge that is the x-overlap; once the lap passes the box's own height the
+// depth saturates there, which is the "swallowed whole" state. Conservative in
+// the same direction as the e2e census counter (auditChipCardIntrusion in the
+// geometry audit), which mirrors this rule against the DRAWN box; the box here
+// is the seat's max-counter-scale reservation, so it is never narrower than the
+// box the census measures.
+//
+// The budget is the same CARD_BORDER + PORT_ZONE_DEPTH strip the centre rule
+// exempts (9): a chip lying across its own port strip is the normal on-line
+// state however wide it is. Taken as a default argument, not a module const,
+// because CARD_BORDER is declared further down the file.
+export function chipOwnCardIntrusion(
+  chip: PortZoneRect,
+  card: PortZoneRect,
+  budget = CARD_BORDER + PORT_ZONE_DEPTH,
+): number {
+  const ox = Math.min(chip.right, card.right) - Math.max(chip.left, card.left);
+  const oy = Math.min(chip.bottom, card.bottom) - Math.max(chip.top, card.top);
+  if (ox <= 0 || oy <= 0) return 0;
+  return Math.max(0, Math.min(ox, oy) - budget);
+}
+
 // Per-edge card exemption for the chip seat. Container slabs (group boxes) stay
 // wholly exempt; the edge's own source / target cards are exempt only while the
 // chip centre stays in their port-adjacent strip (issue #10), keyed by node id
@@ -345,6 +378,13 @@ export type ClearanceField = {
   // coversDot, for the graze tier's scored seat. Zero exactly when coversDot is
   // false.
   dotsCovered(box: ChipBox): number;
+  // Deepest over-budget reach of this box into one of the edge's OWN endpoint
+  // cards (chipOwnCardIntrusion, worst card), 0 when every one of them is within
+  // the port strip. Only own cards are asked: a foreign card is hard-blocked by
+  // entersForeignCard in every tier, so a candidate that got this far cannot be
+  // on one. Like coversDot this is a PREFERENCE -- the on-line tiers minimise it
+  // and no tier is blocked by it.
+  ownCardIntrusion(box: ChipBox, exempt: CardExemption): number;
 };
 
 export function makeClearanceField(
@@ -405,6 +445,22 @@ export function makeClearanceField(
     },
     coversDot: (box) => dots.some((d) => swallows(box, d)),
     dotsCovered: (box) => dots.reduce((n, d) => n + (swallows(box, d) ? 1 : 0), 0),
+    ownCardIntrusion: (box, exempt) => {
+      const chip = {
+        left: box.x - box.halfW,
+        top: box.y - box.halfH,
+        right: box.x + box.halfW,
+        bottom: box.y + box.halfH,
+      };
+      let worst = 0;
+      for (const c of cards) {
+        if (exempt.whole.has(c.id)) continue;
+        if (!exempt.zones.has(c.id)) continue;
+        const excess = chipOwnCardIntrusion(chip, c);
+        if (excess > worst) worst = excess;
+      }
+      return worst;
+    },
   };
 }
 
@@ -701,7 +757,10 @@ export type RateSeat = { dx: number; dy: number; tier: RateSeatTier };
 // Seat an item rate chip: the tiered seat the item phase (and 3b's fan-out
 // chips) run. Tier 1 slides ALONG THE OWN POLYLINE from the anchor, nearest
 // arc-length offset first, taking the first point clear of chips, cards, and
-// foreign lines -- the chip stays on the flow it labels. Tier 1b (graze)
+// foreign lines whose box also stays within the port strip of its own endpoint
+// cards -- the chip stays on the flow it labels without lying on the card it
+// runs into. Where the line offers no such point the tier still seats on it, at
+// the shallowest intrusion available. Tier 1b (graze)
 // repeats that slide upholding only the HARD invariants (chips and cards) and
 // seats at the LEAST-crossed candidate rather than the first one, grazing as
 // few foreign lines as the line allows: staying visibly attached to the own
@@ -808,48 +867,78 @@ export function seatRateChip(
     const box = boxAt(px, py);
     return !field.entersForeignCard(box, exempt) && !field.overlapsChip(box);
   };
-  // The slide walk of tier 1: along the line, nearest arc-length offset first,
-  // seating at the first candidate the tier's predicate accepts. Tier 1b walks
-  // the same candidates in the same order but scores them all, so it spells the
-  // walk out below instead of taking a first hit here.
-  const slideAlong = (
-    ok: (px: number, py: number) => boolean,
-    tierAt: (px: number, py: number) => RateSeatTier,
-  ): RateSeat | null => {
-    for (let k = 0; k <= SLIDE_MAX_STEPS; k++) {
-      const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
-      for (const delta of deltas) {
-        const len = anchorLen + delta;
-        if (len < 0 || len > total) continue;
-        const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
-        if (crossesBarrier(py)) continue;
-        if (ok(px, py)) return seat(px, py, tierAt(px, py));
-      }
+  // Every seat the on-line tiers may take, in the order they prefer them:
+  // along the own polyline, nearest arc-length offset first, forward before
+  // backward, with the barrier-crossing points and the off-the-arc offsets
+  // already dropped. Tier 1 and the graze tier both walk THIS list, scoring
+  // each candidate on their own terms, so the two can never drift apart in
+  // order or in reach.
+  const onLine: Array<readonly [number, number]> = [];
+  for (let k = 0; k <= SLIDE_MAX_STEPS; k++) {
+    const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
+    for (const delta of deltas) {
+      const len = anchorLen + delta;
+      if (len < 0 || len > total) continue;
+      const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
+      if (crossesBarrier(py)) continue;
+      onLine.push([px, py]);
     }
-    return null;
-  };
+  }
   // Tier 1: the slide taking the first FULLY clear point. Tier 1b (graze, in
   // the scan below) is reached when nothing on the line is fully clear. In a
   // braided corridor a parallel foreign line within a chip half-height poisons
   // every tier-1 candidate at once, yet the own line is otherwise empty -- the
   // chip belongs on it, icon and tint disambiguate the graze.
   //
-  // The tier runs in TWO passes for the junction-dot keep-off (#50): first over
-  // the candidates that are fully clear AND swallow no dot, then -- only if
-  // there is no such point on the whole line -- over the fully clear ones as
-  // before. Both passes accept the same tier, walk the same candidates in the
-  // same order, and stay ON the own line, so the keep-off can only reorder
-  // WITHIN tier 1: no chip is ever pushed to a coarser tier, off its line, or
-  // onto a foreign line to spare a dot.
+  // The tier SCORES its candidates instead of taking the first clear one, on
+  // two soft terms: the junction-dot keep-off (#50) and the own-card intrusion
+  // the box spends past its port strip (F1). Dots rank ABOVE intrusion, and
+  // both rank below staying fully clear:
+  //   - a candidate that hides no dot always beats one that does, which is the
+  //     keep-off exactly as it was: measured, ranking intrusion first instead
+  //     buys a handful of shallow card laps by burying four junction dots
+  //     (a fan-out split dot under its own short-leg branch chip is the
+  //     recurring shape), and a hidden split reads as an ordinary corner;
+  //   - among candidates that tie on dots, the shallowest intrusion wins, so
+  //     the slide keeps walking rather than parking the box on the card the
+  //     moment it is otherwise clear.
+  // The walk stops at the first candidate that is unbeatable on both (no dot,
+  // within budget), so an uncrowded chip still costs one candidate and still
+  // seats on its anchor. The acceptance set is unchanged -- every fully clear
+  // point is still a candidate -- so no chip is pushed to the sidestep, graze,
+  // nudge or escape tiers by either term (the issue-#9 blowback this rule must
+  // not cause); both terms can only reorder WITHIN tier 1, on the own line.
   const tierOf = (px: number, py: number): RateSeatTier =>
     px === anchorX && py === anchorY ? "anchor" : "slide";
-  const dotClearSlide = slideAlong(
-    (px, py) => isClear(px, py) && !field.coversDot(boxAt(px, py)),
-    tierOf,
-  );
-  if (dotClearSlide !== null) return dotClearSlide;
-  const fullyClearSlide = slideAlong(isClear, tierOf);
-  if (fullyClearSlide !== null) return fullyClearSlide;
+  let bestOnLine: {
+    px: number;
+    py: number;
+    dots: number;
+    intrusion: number;
+  } | null = null;
+  for (const [px, py] of onLine) {
+    if (bestOnLine !== null && bestOnLine.dots === 0 && bestOnLine.intrusion === 0) {
+      break;
+    }
+    if (!isClear(px, py)) continue;
+    const box = boxAt(px, py);
+    const dots = field.dotsCovered(box);
+    const intrusion = field.ownCardIntrusion(box, exempt);
+    if (
+      bestOnLine === null ||
+      dots < bestOnLine.dots ||
+      (dots === bestOnLine.dots && intrusion < bestOnLine.intrusion)
+    ) {
+      bestOnLine = { px, py, dots, intrusion };
+    }
+  }
+  if (bestOnLine !== null) {
+    return seat(
+      bestOnLine.px,
+      bestOnLine.py,
+      tierOf(bestOnLine.px, bestOnLine.py),
+    );
+  }
   // Tier 1c (sidestep): no fully clear point exists ALONG the own line, which on
   // a vertical corridor leg (or a short horizontal trunk the box wholly
   // overhangs) means a parallel foreign line the wide box cannot shed by any
@@ -883,48 +972,52 @@ export function seatRateChip(
   // 1 (zero is impossible here, tier 1 would have taken it) that also swallows
   // no dot. A score-1 candidate that still covers a dot keeps the walk running,
   // since a later candidate may tie the score with the dot left visible.
-  // The walk is spelled out rather than run through slideAlong because that
-  // helper seats at its first accepted candidate by construction; the order,
-  // the barrier skip and the arc-length clamp mirror it exactly.
-  // Junction dots (#50) enter as a STRICT TIEBREAK under the crossing count,
-  // never above it: a seat that occludes one more flow line to spare a
-  // decorative dot would trade a ratcheted defect for a cosmetic one, so dots
-  // only choose between candidates the line-crossing score already ties.
+  // Own-card intrusion (F1) and junction dots (#50) enter as STRICT TIEBREAKS
+  // under the crossing count, never above it, in that order: a seat that
+  // occludes one more flow line to keep its box off its own card would trade a
+  // ratcheted defect for a softer one, and a seat that buries its box on the
+  // card to spare a decorative dot would trade the readable state for a
+  // cosmetic one. So each term only chooses between candidates every term above
+  // it already ties.
+  // The early exit has to name all three or the two lower terms would never get
+  // to compare: the walk stops only on a candidate that is unbeatable on every
+  // one of them (a single crossing, within the intrusion budget, no dot).
   let bestGraze: {
     px: number;
     py: number;
     score: number;
+    intrusion: number;
     dots: number;
   } | null = null;
-  for (
-    let k = 0;
-    k <= SLIDE_MAX_STEPS &&
-    (bestGraze === null || bestGraze.score > 1 || bestGraze.dots > 0);
-    k++
-  ) {
-    const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
-    for (const delta of deltas) {
-      const len = anchorLen + delta;
-      if (len < 0 || len > total) continue;
-      const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
-      if (crossesBarrier(py)) continue;
-      if (!hardClearAt(px, py)) continue;
-      const box = boxAt(px, py);
-      const score = field.foreignLineCrossings(
-        box,
-        flowKey,
-        target,
-        entryBand,
-        ownIds,
-      );
-      const dots = field.dotsCovered(box);
-      if (
-        bestGraze === null ||
-        score < bestGraze.score ||
-        (score === bestGraze.score && dots < bestGraze.dots)
-      ) {
-        bestGraze = { px, py, score, dots };
-      }
+  for (const [px, py] of onLine) {
+    if (
+      bestGraze !== null &&
+      bestGraze.score <= 1 &&
+      bestGraze.intrusion === 0 &&
+      bestGraze.dots === 0
+    ) {
+      break;
+    }
+    if (!hardClearAt(px, py)) continue;
+    const box = boxAt(px, py);
+    const score = field.foreignLineCrossings(
+      box,
+      flowKey,
+      target,
+      entryBand,
+      ownIds,
+    );
+    const intrusion = field.ownCardIntrusion(box, exempt);
+    const dots = field.dotsCovered(box);
+    if (
+      bestGraze === null ||
+      score < bestGraze.score ||
+      (score === bestGraze.score && intrusion < bestGraze.intrusion) ||
+      (score === bestGraze.score &&
+        intrusion === bestGraze.intrusion &&
+        dots < bestGraze.dots)
+    ) {
+      bestGraze = { px, py, score, intrusion, dots };
     }
   }
   if (bestGraze !== null) return seat(bestGraze.px, bestGraze.py, "graze");

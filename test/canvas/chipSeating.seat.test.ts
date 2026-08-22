@@ -10,6 +10,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   chipEntersOwnCardBody,
+  chipOwnCardIntrusion,
   makeClearanceField,
   seatRateChip,
   type CardExemption,
@@ -439,12 +440,15 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
     ).toBe(false);
   });
 
-  it("(b) keeps a normal on-line chip whose centre is in the corridor on its anchor", () => {
-    // The wide box pokes 110 units past the in-port edge (chip.right 610 vs card
-    // left 500) -- unavoidable, the box is wider than the corridor -- but its
-    // CENTRE (490) is still in the corridor, so the chip is exempt and seats
-    // untouched. The regression guard that the narrowing did not reintroduce
-    // issue #9's orphaned chips by flinging every on-line chip off its line.
+  it("(b) keeps a normal on-line chip on its own line, sliding it off the card body it laps", () => {
+    // At the anchor the wide box pokes 110 units past the in-port edge
+    // (chip.right 610 vs card left 500) while its CENTRE (490) is still in the
+    // corridor, so the centre rule exempts it. The seat used to stop there; the
+    // box-depth preference keeps the slide walking to the nearest point where
+    // the BOX also clears the card (centre 370, box right 490), five slide steps
+    // back along a 500-unit line. The regression guard that neither rule
+    // reintroduced issue #9's orphaned chips: the seat is still tier 1, still on
+    // the own line, still at the port y.
     const card: CardRect = { id: "T", left: 500, top: -30, right: 900, bottom: 30 };
     const field = makeClearanceField([], [card]);
     const line = {
@@ -453,7 +457,8 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
       anchorY: 0,
     };
     const seat = seatRateChip(field, line, "own", "t", portZone("T", "target"), NO_BAND);
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "anchor" });
+    expect(seat).toEqual({ dx: -120, dy: 0, tier: "slide" });
+    expect(seatedBox(490, 0, seat).right).toBeLessThanOrEqual(card.left);
     expect(
       chipEntersOwnCardBody(seatedBox(490, 0, seat), card, "target"),
     ).toBe(false);
@@ -507,6 +512,155 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
     expect(
       chipEntersOwnCardBody(seatedBox(460, 0, seat), member, "target"),
     ).toBe(false);
+  });
+});
+
+// The card the intrusion fixtures below measure against: 400 wide, taller than a
+// chip box, its in-port edge at x=500.
+const INTRUSION_CARD: CardRect = {
+  id: "T",
+  left: 500,
+  top: -30,
+  right: 900,
+  bottom: 30,
+};
+
+describe("chipOwnCardIntrusion: box depth past the port strip", () => {
+  const boxAt = (cx: number): { left: number; top: number; right: number; bottom: number } => ({
+    left: cx - HALF_W,
+    top: -HALF_H,
+    right: cx + HALF_W,
+    bottom: HALF_H,
+  });
+
+  it("scores nothing while the box only laps the port strip", () => {
+    // Lap exactly the budget (CARD_BORDER 1 + PORT_ZONE_DEPTH 8): the strip a
+    // chip on its own line necessarily covers, which is not a defect.
+    expect(chipOwnCardIntrusion(boxAt(389), INTRUSION_CARD)).toBe(0);
+    // ...and nothing at all when the box stops at the border.
+    expect(chipOwnCardIntrusion(boxAt(380), INTRUSION_CARD)).toBe(0);
+    // ...or never reaches the card.
+    expect(chipOwnCardIntrusion(boxAt(200), INTRUSION_CARD)).toBe(0);
+  });
+
+  it("scores the depth past the budget once the lap crosses it", () => {
+    expect(chipOwnCardIntrusion(boxAt(390), INTRUSION_CARD)).toBe(1);
+    expect(chipOwnCardIntrusion(boxAt(420), INTRUSION_CARD)).toBe(31);
+  });
+
+  it("saturates at the box's smaller extent when the card swallows it", () => {
+    // Deep inside a card taller than the box: the depth is the box HEIGHT, not
+    // the x-overlap, so a chip parked on the body scores the same wherever on
+    // the body it sits.
+    const swallowed = 2 * HALF_H - 9;
+    expect(chipOwnCardIntrusion(boxAt(700), INTRUSION_CARD)).toBe(swallowed);
+    expect(chipOwnCardIntrusion(boxAt(650), INTRUSION_CARD)).toBe(swallowed);
+  });
+
+  it("ignores a card the box is not level with", () => {
+    const above = { left: 500, top: -300, right: 900, bottom: -100 };
+    expect(chipOwnCardIntrusion(boxAt(700), above)).toBe(0);
+  });
+});
+
+describe("seatRateChip: own-card intrusion preference (F1)", () => {
+  it("keeps a seat whose box laps exactly the port strip", () => {
+    // Boundary, from the legal side: box right 509, i.e. 9 past the card border,
+    // so the anchor is within budget and the slide does not move.
+    const field = makeClearanceField([], [INTRUSION_CARD]);
+    const seat = seatRateChip(
+      field,
+      {
+        pts: [[0, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+        anchorX: 389,
+        anchorY: 0,
+      },
+      "own",
+      "t",
+      portZone("T", "target"),
+      NO_BAND,
+    );
+    expect(seat).toEqual({ dx: 0, dy: 0, tier: "anchor" });
+  });
+
+  it("walks one slide step past a seat that laps one unit deeper", () => {
+    // Boundary, from the other side: one unit past the strip is over budget, so
+    // the anchor is walked past and the nearest within-budget candidate (one
+    // SLIDE_STEP back, box right 486) takes the seat. Nearest-first, so the
+    // walk stops at the first legal candidate rather than the shallowest one
+    // anywhere on the line.
+    const field = makeClearanceField([], [INTRUSION_CARD]);
+    const seat = seatRateChip(
+      field,
+      {
+        pts: [[0, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+        anchorX: 390,
+        anchorY: 0,
+      },
+      "own",
+      "t",
+      portZone("T", "target"),
+      NO_BAND,
+    );
+    expect(seat).toEqual({ dx: -24, dy: 0, tier: "slide" });
+  });
+
+  it("breaks a graze tie away from the card", () => {
+    // Every point on the line grazes the same parallel foreign line, so the
+    // whole line ties at one crossing and the old scorer stopped at the anchor
+    // with its box 110 units onto the card. The intrusion term now decides
+    // among those tied candidates: the seat walks back to the nearest one whose
+    // box is off the card body, still on its own line, still tier graze.
+    const field = makeClearanceField([PARALLEL_FOREIGN], [INTRUSION_CARD]);
+    const seat = seatRateChip(
+      field,
+      {
+        pts: [[0, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+        anchorX: 490,
+        anchorY: 0,
+      },
+      "own",
+      "t",
+      portZone("T", "target"),
+      NO_BAND,
+    );
+    expect(seat).toEqual({ dx: -120, dy: 0, tier: "graze" });
+    expect(seatedBox(490, 0, seat).right).toBeLessThanOrEqual(
+      INTRUSION_CARD.left,
+    );
+  });
+
+  it("keeps the junction-dot keep-off above the intrusion term", () => {
+    // The two soft terms in conflict, on a 200-unit leg that runs into the
+    // card: every dot-free candidate (>= 136 from the dot, one half-box plus
+    // the keep-off) laps the card past the budget, and every within-budget
+    // candidate (<= 389) swallows the dot. Dots win -- a buried split dot reads
+    // as an ordinary corner, while a lapped box is still legible -- so the seat
+    // is the nearest dot-free point and it pays the lap. Ranking the intrusion
+    // first instead parks it back on the anchor with the dot underneath, which
+    // is what four corpus plans measured when it was tried.
+    const field = makeClearanceField(
+      [],
+      [INTRUSION_CARD],
+      [{ x: 300, y: 0, kind: "fanout" }],
+    );
+    const seat = seatRateChip(
+      field,
+      {
+        pts: [[300, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+        anchorX: 380,
+        anchorY: 0,
+      },
+      "own",
+      "t",
+      portZone("T", "target"),
+      NO_BAND,
+    );
+    expect(seat).toEqual({ dx: 72, dy: 0, tier: "slide" });
+    expect(380 + seat.dx - 300).toBeGreaterThanOrEqual(HALF_W + 16);
+    expect(
+      chipOwnCardIntrusion(seatedBox(380, 0, seat), INTRUSION_CARD),
+    ).toBeGreaterThan(0);
   });
 });
 
