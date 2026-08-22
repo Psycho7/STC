@@ -175,8 +175,8 @@ test("multi-output recipe lists all products on the secondary line", () => {
   } as unknown as ComponentProps<typeof RecipeNode>;
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
   const products = container.querySelector(".rn-products");
-  expect(products?.textContent).toBe("plate · slag");
-  expect(products?.getAttribute("title")).toBe("plate · slag");
+  expect(products?.textContent).toBe("plate ·\u00A0slag");
+  expect(products?.getAttribute("title")).toBe("plate ·\u00A0slag");
 });
 
 // The products line is the only per-recipe discriminator on the card (the title
@@ -193,6 +193,10 @@ test("the header products line clamps to two lines instead of one ellipsized lin
   expect(block).not.toBeNull();
   expect(block![0]).toMatch(/-webkit-line-clamp:\s*2/);
   expect(block![0]).not.toMatch(/white-space:\s*nowrap/);
+  // CJK text breaks between any two Han characters by default, which splits
+  // a single item name mid-word across the clamp's two lines (zh exam Z4b).
+  // keep-all restricts breaks to the separator spaces the join provides.
+  expect(block![0]).toMatch(/word-break:\s*keep-all/);
 });
 
 // The raw machine id (e.g. "mk1") reads as debug output; the localized machine

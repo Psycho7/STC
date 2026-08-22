@@ -44,7 +44,9 @@ follow-ups.
    owner's plain rate chip returns, under the ordinary member-chip rules.
 6. **N is the drawn trunk's total** (`busDisplayTotalRate`), not the source
    card's full output. Sub-trunks split by `FANOUT_SPAN_MAX` show their own
-   total; the card row states the full output.
+   total; the card row states the full output. Superseded 2026-08-22 (ruling R2
+   of the zh-polish plan): `busDisplayTotalRate` is deleted and N now formats
+   the exact trunk total, so a chip total always matches the boundary cards.
 7. **Dot keepoff is sized at fit zoom**: the keepoff rect is the dot's
    graph-unit extent at the plan's fit zoom plus a small margin, and the
    acceptance bound is numeric (see Workstream C).
@@ -96,7 +98,9 @@ intact.
   per-locale "x of N/min" wording with the localized unit.
 - Chip text uses `busDisplayTotalRate` so visible members sum to the shown
   total; the tooltip may carry the exact `busTotalRate`. Both fields already
-  reach lane members and fan-out branch members.
+  reach lane members and fan-out branch members. Superseded 2026-08-22 (ruling
+  R2 of the zh-polish plan): chip text formats the exact `busTotalRate`, so the
+  denominator agrees with the boundary cards and members may sum a cent off it.
 - Applies in `BusEdge.tsx`'s shared member-chip markup. Single-member trunks
   keep plain "x/min". Icon-only collapse, zoom gate, and all seating extents
   are unchanged - `CHIP_HALF_W_WIDE` is a fixed constant, so B causes zero

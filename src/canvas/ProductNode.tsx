@@ -156,7 +156,7 @@ export default function ProductNode({
       </div>
       <div className="pn-rate">
         {rateValue}
-        <span className="unit">/min</span>
+        <span className="unit">{i18n.t("canvas.rate.unit")}</span>
         {capValue !== null ? (
           <span className="pn-rate__cap">
             {i18n.t("inputs.rate.cap", { rate: capValue })}

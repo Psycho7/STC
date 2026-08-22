@@ -39,23 +39,6 @@ export function formatRatePerMin(itemsPerSec: Fraction): string {
   return formatPerMin(perMin);
 }
 
-// The rate as its own chip reads it: parse the displayed string back into a
-// Fraction. Two-decimal rounding is not additive, so an aggregate that sums the
-// exact member rates can print a cent the member chips do not add up to;
-// summing quantized members instead makes the aggregate "the sum of the numbers
-// you can see". Parsing the display string keeps the round-trip true by
-// construction rather than restating the precision rule. An empty string (zero)
-// or exponent text (a huge non-integer that toFixed writes as "1e+21", which
-// Fraction cannot parse) falls back to the exact rate, mirroring the guards in
-// formatRateExactPerMin and ratePerSecToPerMin.
-export function quantizeRateToDisplay(itemsPerSec: Fraction): Fraction {
-  const text = formatRatePerMin(itemsPerSec);
-  if (text === "" || text.includes("e") || text.includes("E")) {
-    return itemsPerSec;
-  }
-  return new Fraction(text).div(60);
-}
-
 // Full-precision per-minute rate for hover tooltips: the un-rounded value the
 // 2-decimal display formatter hides. Uses the plain decimal when stringifying it
 // does not go exponential (the common case, a clean single value with no "/min"

@@ -35,14 +35,18 @@ export function buildRealizedRateByItem(
 // pn-rate row rather than this caption); outputs read
 // "<Direction> <Classification> <Rate>". The parts are joined by a middle-dot
 // separator. The direction and classification words are localized through the
-// i18n table; the numeric rate and the "/min" unit stay literal, matching the
-// pn-rate row on the same card.
+// i18n table; the numeric rate is literal and the unit comes from the locale's
+// canvas.rate.unit string.
 //
 // Direction is "In" for an inputProduct and "Out" for an outputProduct.
 // For an inputProduct, the classification is "tap" when the node is a fanout
 // slice of an aggregate input card, otherwise "raw" when item.raw is true and
 // "import" when it is not. For an outputProduct, it is data.flavor ("target" or
-// "surplus"), and the rate is formatRationalPerMin(rate) + "/min".
+// "surplus"), and the rate is formatRationalPerMin(rate) followed by the
+// locale's canvas.rate.unit string.
+//
+// The NBSP after each middle dot keeps a wrapped caption from stranding the
+// dot at line end; a break lands before the dot instead.
 //
 // `overrides` is accepted only to keep the signature stable for future captions
 // built from per-item override metadata; the helper does not read it today.
@@ -60,12 +64,12 @@ export function buildPnKind(
           ? "product.class.raw"
           : "product.class.import",
     );
-    return `${i18n.t("product.dir.in")} · ${classification}`;
+    return `${i18n.t("product.dir.in")} ·\u00A0${classification}`;
   }
   const flavor = i18n.t(
     data.flavor === "surplus"
       ? "product.flavor.surplus"
       : "product.flavor.target",
   );
-  return `${i18n.t("product.dir.out")} · ${flavor} · ${formatRationalPerMin(data.rate)}/min`;
+  return `${i18n.t("product.dir.out")} ·\u00A0${flavor} ·\u00A0${formatRationalPerMin(data.rate)}${i18n.t("canvas.rate.unit")}`;
 }

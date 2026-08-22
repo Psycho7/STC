@@ -131,7 +131,7 @@ export default function RecipeNode({
   // the title attribute keeps the full list hoverable.
   const productNames = recipe.out
     .map((p) => i18n.displayName(p.item))
-    .join(" · ");
+    .join(" ·\u00A0");
   // Same speed factor the solver applies (multiplier.ts); a missing machine
   // record (corrupt fixture) falls back to 1, the only value the pack uses.
   const speed =

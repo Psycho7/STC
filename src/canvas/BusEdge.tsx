@@ -150,15 +150,11 @@ export default function BusEdge({
   const showMemberChip =
     edgeData !== undefined &&
     (zoom >= LABEL_MIN_ZOOM || longSingleRun || edgeData.focused === true);
-  // The chip shows the trunk's DISPLAYED rate, the same rounding the member
-  // chips use, so the two agree; the tooltip below keeps the exact rate. The
-  // member chips read the same total on a multi-member trunk (see the share
-  // form below), so the two never disagree. Hand-built edges (tests,
-  // non-routed data) carry no display total and fall back to the exact one.
-  const displayTotalRate = edgeData?.busDisplayTotalRate ?? totalRate;
-  const dropRateStr = displayTotalRate
-    ? formatRatePerMin(displayTotalRate)
-    : "";
+  // The chip formats the trunk's EXACT total, rounded once, the same way the
+  // boundary cards format it, so a chip total and a card total never disagree.
+  // Members rounded independently can still sum a cent off that number; the
+  // tooltip below keeps the exact rate either way.
+  const dropRateStr = totalRate ? formatRatePerMin(totalRate) : "";
   const dropText = showAggChip && dropRateStr ? `${dropRateStr}${unit}` : "";
   const dropLabel =
     edgeData && dropRateStr
@@ -210,14 +206,12 @@ export default function BusEdge({
   // mistaken for the whole trunk's throughput (issue #45). The chip carries
   // digits only: the unit would not fit the fixed chip box beside a decimal
   // pair, and it differs per locale, so the label and tooltip below spell out
-  // the full localized wording instead. The total shown is the trunk's
-  // DISPLAYED total, so the visible members sum to the number on the chip;
-  // the tooltip keeps the exact one. A lone member is its own total, so it
-  // keeps the plain rate + unit reading.
+  // the full localized wording instead. The denominator is the trunk's exact
+  // total rounded once, matching the boundary cards, so the visible members may
+  // sum a cent off it; the tooltip keeps the exact one. A lone member is its
+  // own total, so it keeps the plain rate + unit reading.
   const shareTotalStr =
-    memberCount > 1 && displayTotalRate
-      ? formatRatePerMin(displayTotalRate)
-      : "";
+    memberCount > 1 && totalRate ? formatRatePerMin(totalRate) : "";
   const isShare = memberRateStr !== "" && shareTotalStr !== "";
   const plainRate = `${memberRateStr}${unit}`;
   const riseText =
