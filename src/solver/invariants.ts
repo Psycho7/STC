@@ -6,7 +6,7 @@ import type { LpResult } from "./lp";
 import { demandByItem, toleranceScaleFloor } from "./lp";
 import type { SolvePlanFull } from "./index";
 import { effectiveSupply } from "./effectiveSupply";
-import { isExcludedProducer } from "../data/recipe-category";
+import { isSanctionedAbsentProducer } from "../data/recipe-category";
 
 // Reference-free feasibility invariant checkers. Each function is pure: its
 // verdict comes only from its inputs, never from an external golden. The shared
@@ -196,9 +196,11 @@ function recipeIdsInLogical(full: SolvePlanFull): Set<string> {
 /**
  * Forward representability from the LP layer (full.rates) to the logical graph
  * (full.logical.nodes): every positive-rate recipe must appear as a recipe in
- * the logical graph, except ones isExcludedProducer covers (__domain_transfer
- * category or cost === -1 sink). Those are sanctioned boundary/sink recipes and
- * may carry a positive LP rate without a logical node.
+ * the logical graph, except ones isSanctionedAbsentProducer covers
+ * (__domain_transfer category or cost === -1 sink). Those are sanctioned
+ * boundary/sink recipes and may carry a positive LP rate without a logical
+ * node. An extraction recipe is NOT sanctioned here: the LP gives it no
+ * variable, so a positive rate on one is a defect worth reporting.
  *
  * The reverse direction (logical node -> positive LP rate) is a separate checker,
  * checkNoOrphanLogicalNodes, since it reports a known out-of-scope assembly
@@ -213,7 +215,7 @@ export function checkRepresentable(full: SolvePlanFull): InvariantResult {
     if (rate.compare(FRAC_ZERO) <= 0) continue;
     if (logicalIds.has(recipeId)) continue;
     const recipe = full.recipeById.get(recipeId);
-    if (recipe && isExcludedProducer(recipe)) continue;
+    if (recipe && isSanctionedAbsentProducer(recipe)) continue;
     violations.push(
       `positive-rate recipe ${recipeId} has no node in the logical graph`,
     );
