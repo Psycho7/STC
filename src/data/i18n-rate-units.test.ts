@@ -2,8 +2,8 @@ import { test, expect } from "vitest";
 import { loadI18n, type Locale } from "./i18n";
 
 // Every locale's rate-bearing strings must carry that locale's own unit.
-// zh/ja localize the unit as /分 (ru as /мин); a Latin "min" leaking into
-// those locales is the Z1 exam family.
+// zh/ja localize the unit as the CJK minute glyph and ru as the Cyrillic
+// abbreviation; a Latin "min" leaking into those locales is the Z1 exam family.
 const NON_LATIN_UNIT_LOCALES: Locale[] = ["zh", "ja", "ru"];
 const RATE_KEYS = [
   "product.tap.share",
