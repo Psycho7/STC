@@ -1,7 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 import {
+  CARD_INTRUSION_BUDGET,
+  auditBusChipsOutsideBand,
   auditCardFrames,
+  auditChipCardIntrusion,
+  auditChipForeignStrokes,
+  auditChipSeatValidity,
   auditChipsOnOwnPath,
   auditChipsVsCards,
   auditDotsUnderChips,
@@ -15,6 +20,8 @@ import {
   parsePath,
   polylineLength,
   toRawEdges,
+  type BandRect,
+  type ChipCensusHit,
   type ChipRect,
   type DotRect,
   type NodeRect,
@@ -356,6 +363,15 @@ test.describe("DOM geometry audit", () => {
 // segment/card, chip/foreign-card) and the card-frame check read zero on all
 // three. From here they ratchet DOWN under the same convention as every table
 // above. The measured figures are recorded per table below.
+// FOUR MORE TABLES joined in the same campaign, and they are NOT part of this
+// describe nor of the seven counted above: the reading-zoom seating census at
+// the bottom of this file runs its own describe at its own camera, because every
+// criterion here measures at fit zoom and one of them consumes that zoom. Its
+// four counters are first recordings on the same untouched branch, under the
+// same ratchet convention, and they add no ruling here. The one place the two
+// surfaces touch is the census's foreign-stroke counter, which shares
+// CHIP_SEGMENT_BASELINE's waiver code so no seat can be foreign to one and
+// waived by the other.
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -941,6 +957,304 @@ test.describe("segment placement audit", () => {
           )
           .toBeLessThanOrEqual(1.5 * direct);
       }
+    });
+  }
+});
+
+// -- reading-zoom seating census ---------------------------------------------
+//
+// Its OWN describe with its OWN page load, deliberately: every criterion in the
+// P2 describe above measures at FIT zoom (auditDotsUnderChips even consumes
+// geom.zoom), so moving the camera inside that test would silently re-frame
+// seven ratchets. Nothing is shared between the two but the collectors.
+//
+// The camera is a fixed reading zoom of 0.6, commanded through the exam hook the
+// app installs under `?exam=1` (Canvas.tsx). Why a fixed zoom at all: at
+// multi6's fit zoom (~0.21) BOTH chip LOD gates fire and nearly every chip is
+// not drawn, so a fit-zoom census of that plan measures almost nothing --
+// exactly why CHIP_OFFPATH_BASELINE["multi6"] is "unmeasured rather than clean".
+// 0.6 clears LABEL_MIN_ZOOM (0.35) and CHIP_ICON_ONLY_MAX_ZOOM (0.32) on every
+// plan, so every chip is drawn with its digits. React Flow does not virtualise
+// nodes or the edge-label layer here, so the chips that fall outside the pane at
+// that zoom are still mounted and still measure.
+//
+// The camera also fixes the chip BOX SIZE, which is why the numbers below are
+// only comparable to each other. A chip counter-scales by min(2, 1/zoom) about
+// its centre, so in graph units its box is 1.667x its natural size here, against
+// 2x at any fit zoom below 0.5 and 1.333x at the 0.75 the exam evidence was
+// gathered at. Every count in the four tables is therefore a reading at zoom
+// 0.6 and nothing else; re-measure the whole table if the camera moves.
+//
+// The pan keeps the world point that was at the pane centre at fit zoom in the
+// pane centre, so the frame is the middle of the plan on every scenario. It is
+// arbitrary for the measurement (all rects are mapped back to graph coordinates
+// and nothing is culled) and is fixed only so a debugging screenshot of a census
+// failure shows the same region every run.
+const CENSUS_ZOOM = 0.6;
+
+// The exam camera handle the app installs under `?exam=1`, declared locally the
+// same way tools/exam does: the app puts it on Window from a module this spec
+// has no reason to load, and the type is erased before any of it reaches the
+// browser.
+type ExamHook = { setViewport(v: { x: number; y: number; zoom: number }): void };
+type ExamWindow = Window & { __stcExam?: ExamHook };
+
+async function loadCensusScenario(page: Page, hash: string): Promise<void> {
+  await page.goto(`/?exam=1#${hash}`, { waitUntil: "load" });
+  await waitForCanvasReady(page);
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await waitForStableViewport(page);
+  await page.waitForFunction(
+    () => (window as ExamWindow).__stcExam !== undefined,
+    undefined,
+    { timeout: 10_000 },
+  );
+  await page.evaluate((zoom) => {
+    const hook = (window as ExamWindow).__stcExam!;
+    const pane = document
+      .querySelector<HTMLElement>(".react-flow")!
+      .getBoundingClientRect();
+    const vp = document.querySelector<HTMLElement>(".react-flow__viewport")!;
+    const m = new DOMMatrixReadOnly(getComputedStyle(vp).transform);
+    const worldCx = (pane.width / 2 - m.e) / m.a;
+    const worldCy = (pane.height / 2 - m.f) / m.a;
+    hook.setViewport({
+      x: pane.width / 2 - worldCx * zoom,
+      y: pane.height / 2 - worldCy * zoom,
+      zoom,
+    });
+  }, CENSUS_ZOOM);
+  await waitForStableViewport(page);
+}
+
+// FIRST RECORDINGS, all four tables. They were measured on the campaign's
+// pre-fix branch tip with every cell pinned at zero and the reported actual
+// read back out of the failure message, scenario by scenario. They state where
+// the campaign starts -- not a target, not a ruling -- and from here they
+// ratchet DOWN under the same convention as the seven tables above. Because
+// this campaign first recorded them, they may also be RE-measured freely inside
+// the campaign with the cause annotated; that licence ends when the campaign
+// does.
+//
+// Seat validity: chips whose own edge's polyline does not pass through their own
+// drawn box. Structural, all chip kinds, so it sees what auditChipsOnOwnPath
+// (label chips only, centre distance) cannot: the lane rise chips stranded at a
+// trunk-wide slot index and the drop chips cascaded off their lane. It is also
+// STRICTLY WEAKER than that centre rule for the chips both cover -- a sidestep
+// seat holds the line inside the box while moving the centre off it -- which is
+// why CHIP_OFFPATH_BASELINE reads 0 on the three plans that dominate here.
+// Measured 30 corpus-wide: 28 BUS chips -- the family the off-path ratchet
+// cannot see at all -- and 2 label chips. The 28 are lane rise chips parked at a
+// trunk-wide slot index far from where their own member leaves the lane (multi6
+// e:67 / e:77 / e:86 / e:88 / e:90 / e:92 / e:94 / e:108, script43's five
+// gas_xiranite rises e:24 / e:26 / e:27 / e:28 / e:29, gas-web's five, and so
+// on) plus the drop-side case with no guard at all (multi6 e:74, cascaded 144.2
+// off its lane). The 2 label chips are battery5 e:18 and battery5-xiranite e:4,
+// two of the four seats CHIP_OFFPATH_BASELINE already pins; the other two
+// (battery5 e:1 at 8.50 and battery5-xiranite e:18 at 17.18) keep their own line
+// inside the box and so are valid seats here. That is the "strictly weaker"
+// relation in numbers, and it is why a Task 6 sidestep cannot redden this
+// counter.
+const SEAT_VALIDITY_BASELINE: Record<string, number> = {
+  default: 1,
+  battery5: 2,
+  "battery5-xiranite": 5,
+  crystal: 0,
+  equip4: 0,
+  multi6: 10,
+  tundra: 0,
+  script43: 5,
+  "coupon-web": 2,
+  "gas-web": 5,
+};
+
+// Card intrusion: chips whose box reaches more than CARD_INTRUSION_BUDGET deep
+// past a node card's border, OWN cards included, container slabs excluded. A
+// depth rule, sharing its budget with the seating pass's own-card port-strip
+// exemption, so a chip lying across the port strip on its own line -- the normal
+// on-line state -- never counts however wide it is. Distinct from the tier-4
+// hard gate above, which is a CENTRE rule against foreign cards plus
+// chipEntersOwnCardBody on own ones; that gate stays at zero and is untouched.
+// Measured 88 corpus-wide, the largest of the four counters and the F1 family
+// the campaign names: a chip anchored on its own line a stub's length off the
+// port has half a box left over, and that half lands on the card. The depths
+// run from just past the budget to a full 40, and 21 of the 88 are at that 40:
+// 40 is the drawn chip HEIGHT at this camera, so the depth has saturated on the
+// vertical axis and the box is swallowed whole in x, sitting on the card body
+// with only its centre still out in the port strip (multi6 e:30 / e:49,
+// script43 e:18 / e:21). Two are bus rise chips (script43 e:3 / e:4); the other
+// 86 are label chips.
+const CARD_INTRUSION_BASELINE: Record<string, number> = {
+  default: 9,
+  battery5: 6,
+  "battery5-xiranite": 8,
+  crystal: 2,
+  equip4: 3,
+  multi6: 27,
+  tundra: 1,
+  script43: 14,
+  "coupon-web": 8,
+  "gas-web": 10,
+};
+
+// Foreign strokes: chips with at least one foreign flow's stroke through the
+// box. Same waiver set as CHIP_SEGMENT_BASELINE above (shared code, not a
+// re-implementation), so no seat can be foreign to one and waived by the other.
+// Three things make this count differ from that table: it counts CHIPS where
+// that one counts (segment, chip) pairs, it covers bus chips as well as label
+// chips, and it reads at the census camera rather than at fit zoom.
+// Measured 47 corpus-wide, 44 label chips and 3 bus chips (script43 1, gas-web
+// 2). The shape matches CHIP_SEGMENT_BASELINE's own note -- a few full-height
+// tap and surplus columns passing under many chips -- which is why the chip
+// count here (gas-web 11) sits below that table's pair count (20) for the same
+// plan. multi6 runs the other way, 16 here against 0 there: at its fit zoom the
+// chips that collide are not drawn at all, which is the blind spot the reading
+// camera exists to remove.
+const FOREIGN_STROKE_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 3,
+  "battery5-xiranite": 7,
+  crystal: 0,
+  equip4: 1,
+  multi6: 16,
+  tundra: 0,
+  script43: 8,
+  "coupon-web": 1,
+  "gas-web": 11,
+};
+
+// Outside band: bus chips whose box shares no vertical extent with the band its
+// own lane runs in. The band is bound from the LANE (the owner edge's horizontal
+// run inside a band strip), never from the chip box, or an escaped chip would
+// pick whichever band it landed near and the escape would vanish. Horizontal
+// overruns are reported in the same failure message but are NOT in this count.
+// Measured 11 corpus-wide: default e:14, battery5 e:16, battery5-xiranite e:2,
+// multi6 e:74 (drop) / e:94 / e:108, script43 e:24 / e:27 / e:28, gas-web
+// e:20 / e:23. Every one is exactly one cascade pitch out -- a box 40 tall
+// seated 48 off its lane, against a band that reserves 24 -- which is the whole
+// mechanism. The separately reported x-overflows measured 6 (default 1,
+// battery5 2, battery5-xiranite 2, multi6 1): a band's x-run is its trunk's own
+// drop-to-rise span plus a stub, and a chip seated at either end sticks out past
+// it. That is a band-width question, not a stranded chip, so it is reported and
+// not ratcheted.
+const OUTSIDE_BAND_BASELINE: Record<string, number> = {
+  default: 1,
+  battery5: 1,
+  "battery5-xiranite": 1,
+  crystal: 0,
+  equip4: 0,
+  multi6: 3,
+  tundra: 0,
+  script43: 3,
+  "coupon-web": 0,
+  "gas-web": 2,
+};
+
+// Corpus-wide totals, one per counter. The census is a campaign-level ratchet,
+// so the single number per counter is the figure the campaign moves; the
+// per-scenario tables above are what a failure is diagnosed from. Asserted
+// arithmetically against the tables (see the totals test) rather than summed
+// over a run, so it holds even when the suite is run one scenario at a time.
+const CENSUS_TOTALS = {
+  seatValidity: 30,
+  cardIntrusion: 88,
+  foreignStroke: 47,
+  outsideBand: 11,
+};
+
+function censusInventory(hits: ReadonlyArray<ChipCensusHit>): string {
+  return hits
+    .map((h) => `  ${h.chipId} (${h.chipKind}, "${h.chipLabel}"): ${h.detail}`)
+    .join("\n");
+}
+
+function sumOf(table: Record<string, number>): number {
+  return Object.values(table).reduce((a, b) => a + b, 0);
+}
+
+test.describe("chip seating census", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("aef.locale", "en");
+    });
+  });
+
+  test("corpus totals match the per-scenario tables", () => {
+    expect(sumOf(SEAT_VALIDITY_BASELINE)).toBe(CENSUS_TOTALS.seatValidity);
+    expect(sumOf(CARD_INTRUSION_BASELINE)).toBe(CENSUS_TOTALS.cardIntrusion);
+    expect(sumOf(FOREIGN_STROKE_BASELINE)).toBe(CENSUS_TOTALS.foreignStroke);
+    expect(sumOf(OUTSIDE_BAND_BASELINE)).toBe(CENSUS_TOTALS.outsideBand);
+  });
+
+  for (const scenario of SCENARIOS) {
+    test(scenario.id, async ({ page }) => {
+      const hash = await scenarioHash(scenario);
+      await loadCensusScenario(page, hash);
+
+      const geom = await page.evaluate(collectGeometry);
+
+      // The commanded camera has to be the camera that was measured: setViewport
+      // assigns the transform verbatim, but a driver that assumes its own zoom
+      // landed is exactly the mistake Canvas.tsx's hook comment warns about, and
+      // every count below is a reading at ONE zoom.
+      expect(
+        geom.zoom,
+        `${scenario.id}: census camera did not land at ${CENSUS_ZOOM}`,
+      ).toBeCloseTo(CENSUS_ZOOM, 5);
+
+      const chips = geom.chips as ChipRect[];
+      const rawEdges = toRawEdges(geom.edges);
+      const nodes: NodeRect[] = geom.nodes.map((n) => ({
+        nodeId: n.nodeId,
+        type: n.type,
+        left: n.left,
+        top: n.top,
+        right: n.right,
+        bottom: n.bottom,
+      }));
+
+      // Soft throughout, like the P2 describe: one red counter must not hide the
+      // other three, since the campaign moves them one fix at a time.
+
+      const invalid = auditChipSeatValidity(chips, geom.edges);
+      const seatBaseline = SEAT_VALIDITY_BASELINE[scenario.id]!;
+      expect
+        .soft(
+          invalid.length,
+          `${scenario.id}: ${invalid.length} chip(s) whose own line misses their box exceeds baseline ${seatBaseline} among ${chips.length} chips:\n${censusInventory(invalid)}`,
+        )
+        .toBeLessThanOrEqual(seatBaseline);
+
+      const intruding = auditChipCardIntrusion(chips, nodes);
+      const intrusionBaseline = CARD_INTRUSION_BASELINE[scenario.id]!;
+      expect
+        .soft(
+          intruding.length,
+          `${scenario.id}: ${intruding.length} chip(s) more than ${CARD_INTRUSION_BUDGET} deep inside a card exceeds baseline ${intrusionBaseline} among ${chips.length} chips:\n${censusInventory(intruding)}`,
+        )
+        .toBeLessThanOrEqual(intrusionBaseline);
+
+      const braided = auditChipForeignStrokes(chips, rawEdges, nodes);
+      const strokeBaseline = FOREIGN_STROKE_BASELINE[scenario.id]!;
+      expect
+        .soft(
+          braided.length,
+          `${scenario.id}: ${braided.length} chip(s) with a foreign stroke through the box exceeds baseline ${strokeBaseline} among ${chips.length} chips:\n${censusInventory(braided)}`,
+        )
+        .toBeLessThanOrEqual(strokeBaseline);
+
+      const { escapes, xOverflows } = auditBusChipsOutsideBand(
+        chips,
+        geom.edges,
+        geom.bands as BandRect[],
+      );
+      const bandBaseline = OUTSIDE_BAND_BASELINE[scenario.id]!;
+      expect
+        .soft(
+          escapes.length,
+          `${scenario.id}: ${escapes.length} bus chip(s) outside their band exceeds baseline ${bandBaseline} among ${geom.bands.length} band(s); ${xOverflows.length} x-overflow(s) reported, not counted:\n${censusInventory(escapes)}\n${censusInventory(xOverflows)}`,
+        )
+        .toBeLessThanOrEqual(bandBaseline);
     });
   }
 });

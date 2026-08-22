@@ -18,6 +18,8 @@ import {
   recipeHeight,
 } from "../../src/canvas/dimensions";
 import {
+  CARD_BORDER,
+  PORT_ZONE_DEPTH,
   cardGrowth,
   chipEntersOwnCardBody,
 } from "../../src/canvas/chipSeating";
@@ -323,6 +325,9 @@ export function auditOwnCardPierces(
 // data-edge-id hook FlowChip emits) and its family.
 export type ChipRect = RawRect & {
   edgeId: string;
+  // The chip's own data-testid: the element id a report names, since one edge
+  // can own both a rise and a drop chip.
+  testId: string;
   label: string;
   // "bus" = lane-anchored bus rise/branch chip (out of scope for the corridor
   // invariants), "bus-drop" = the trunk-seated aggregate chip (audited against
@@ -381,6 +386,38 @@ function centreInRect(p: Pt, r: RawRect): boolean {
 //     approaches converge. A rate chip out on the corridor is no longer masked
 //     by the shared target, so a chip lying across a sibling's line is flagged.
 // `nodes` supplies the target cards the entry bands are built from.
+//
+// The foreignness decision itself lives in chipForeignTo, shared with the
+// reading-zoom census below so the two can never call the same seat foreign and
+// waived respectively.
+function chipForeignTo(
+  chip: ChipRect,
+  edge: RawEdge,
+  edgeById: ReadonlyMap<string, RawEdge>,
+  cardById: ReadonlyMap<string, RawRect>,
+): boolean {
+  if (chip.edgeId === edge.id) return false;
+  const owner = edgeById.get(chip.edgeId);
+  if (
+    owner !== undefined &&
+    owner.item === edge.item &&
+    owner.source === edge.source
+  ) {
+    return false; // same flow: one visual line
+  }
+  if (owner !== undefined && owner.target === edge.target) {
+    // Arrival cluster, narrowed: entry and bus chips always exempt (pinned
+    // at the port / anchored on the lane by design); a rate chip is exempt
+    // only when its centre lies in the target's entry band.
+    if (chip.kind !== "label") return false;
+    const card = cardById.get(owner.target);
+    if (card !== undefined && centreInRect(centreOf(chip), entryBandOf(card))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function auditSegmentsVsChips(
   edges: ReadonlyArray<RawEdge>,
   chips: ReadonlyArray<ChipRect>,
@@ -397,25 +434,7 @@ export function auditSegmentsVsChips(
     if (pts.length === 0) continue;
     for (const [seg0, seg1] of segmentsOf(pts)) {
       for (const chip of chips) {
-        if (chip.edgeId === edge.id) continue;
-        const owner = edgeById.get(chip.edgeId);
-        if (
-          owner !== undefined &&
-          owner.item === edge.item &&
-          owner.source === edge.source
-        ) {
-          continue; // same flow: one visual line
-        }
-        if (owner !== undefined && owner.target === edge.target) {
-          // Arrival cluster, narrowed: entry and bus chips always exempt (pinned
-          // at the port / anchored on the lane by design); a rate chip is exempt
-          // only when its centre lies in the target's entry band.
-          if (chip.kind !== "label") continue;
-          const card = cardById.get(owner.target);
-          if (card !== undefined && centreInRect(centreOf(chip), entryBandOf(card))) {
-            continue;
-          }
-        }
+        if (!chipForeignTo(chip, edge, edgeById, cardById)) continue;
         if (segmentEntersRect(seg0, seg1, chip, eps)) {
           out.push({
             edgeId: edge.id,
@@ -876,4 +895,253 @@ export function endpointManhattan(pts: ReadonlyArray<Pt>): number {
 export function fmtSeg(seg: readonly [Pt, Pt]): string {
   const [a, b] = seg;
   return `(${a[0].toFixed(1)},${a[1].toFixed(1)})->(${b[0].toFixed(1)},${b[1].toFixed(1)})`;
+}
+
+// -- reading-zoom seating census ---------------------------------------------
+//
+// Four counters over the SAME collected snapshot as the audits above, taken at a
+// fixed reading zoom instead of fit zoom (the spec's own describe explains the
+// camera). They exist because the tiers above are blind to whole chip families:
+// auditChipsOnOwnPath sees "label" chips only and auditChipsVsCards skips "bus"
+// chips, so every lane rise / drop chip is invisible to both. Each counter here
+// covers ALL chip kinds and counts CHIPS, not (chip, other) pairs: the census
+// asks how many SEATS a reader would find wrong, and a chip crossed by four
+// foreign strokes is one bad seat, not four.
+//
+// The counters are deliberately not the same criteria as the tiers above -- they
+// are structural (does the line pass through the box), depth-based (how far past
+// a card border), and containment-based (is the box still in its band) -- so a
+// seat can be legal there and counted here. Where the two DO overlap
+// (foreign-stroke vs CHIP_SEGMENT_BASELINE) the waiver set is literally shared,
+// so the two can never move in opposite directions for one seat.
+export type ChipCensusHit = {
+  // The chip's data-testid: the element id a report names.
+  chipId: string;
+  chipEdgeId: string;
+  chipLabel: string;
+  chipKind: ChipRect["kind"];
+  // What this chip did, in the counter's own terms.
+  detail: string;
+};
+
+function censusHit(chip: ChipRect, detail: string): ChipCensusHit {
+  return {
+    chipId: chip.testId,
+    chipEdgeId: chip.edgeId,
+    chipLabel: chip.label,
+    chipKind: chip.kind,
+    detail,
+  };
+}
+
+// Every chip whose OWN edge's drawn polyline does not pass through its drawn
+// box -- the structural seat-validity rule. This is the e2e analogue of the
+// seating pass's segIntersectsChipBox, and deliberately NOT a centre-distance
+// rule like auditChipsOnOwnPath: a sidestep seat holds its own line inside the
+// box while moving the centre up to a half-width off it, and that seat is valid
+// -- the reader still sees the line enter the chip.
+//
+// Takes the RAW collected edges ({ id, d }) rather than parsed RawEdges so a
+// chip is never judged against an edge list that dropped its owner for id-shape
+// reasons: a chip whose owner path is genuinely absent from the DOM counts as
+// invalid, since no line at all reaches it.
+export function auditChipSeatValidity(
+  chips: ReadonlyArray<ChipRect>,
+  edges: ReadonlyArray<{ id: string; d: string }>,
+  eps = 0.5,
+): ChipCensusHit[] {
+  const pathById = new Map<string, string>();
+  for (const e of edges) pathById.set(e.id, e.d);
+  const out: ChipCensusHit[] = [];
+  for (const chip of chips) {
+    const d = pathById.get(chip.edgeId);
+    if (d === undefined) {
+      out.push(censusHit(chip, `owner edge ${chip.edgeId} draws no path`));
+      continue;
+    }
+    const pts = parsePath(d);
+    const on = segmentsOf(pts).some(([a, b]) =>
+      segmentEntersRect(a, b, chip, eps),
+    );
+    if (!on) {
+      const gap = pointToPolylineDistance(centreOf(chip), pts);
+      out.push(
+        censusHit(
+          chip,
+          `own polyline misses its box (centre ${gap.toFixed(1)} off the line)`,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// The intrusion budget a chip box may spend inside a node card: the port-side
+// strip a chip on its own line necessarily covers. Same depth the seating pass's
+// own-card exemption uses (chipEntersOwnCardBody), so a seat that is legal there
+// is never counted here.
+export const CARD_INTRUSION_BUDGET = CARD_BORDER + PORT_ZONE_DEPTH;
+
+// Every chip whose box reaches more than `budget` DEEP past a node card's
+// border, own endpoint cards included. Depth, not area: the legal state is a
+// wide box lying across the port strip, which is shallow but long (a 9-deep
+// strip seat already covers ~432 sq units at max chip scale, so no area
+// threshold can separate it from a chip parked on the card body). Penetration
+// depth is the smaller of the two overlap extents -- the distance the box would
+// have to move to leave the card -- so a box that only laps the port strip
+// scores its x-overlap and stays under budget however tall it is.
+//
+// Container slabs (type "group", the `loop:` boxes) are excluded outright: a
+// chip legitimately sits inside a slab its endpoints live in, and the slab's
+// border is not a card border the reader reads a chip against.
+export function auditChipCardIntrusion(
+  chips: ReadonlyArray<ChipRect>,
+  nodes: ReadonlyArray<NodeRect>,
+  budget = CARD_INTRUSION_BUDGET,
+): ChipCensusHit[] {
+  const cards = nodes.filter((n) => n.type !== "group");
+  const out: ChipCensusHit[] = [];
+  for (const chip of chips) {
+    let worst: { card: string; depth: number } | null = null;
+    for (const card of cards) {
+      const dx = Math.min(chip.right, card.right) - Math.max(chip.left, card.left);
+      const dy = Math.min(chip.bottom, card.bottom) - Math.max(chip.top, card.top);
+      if (dx <= 0 || dy <= 0) continue;
+      const depth = Math.min(dx, dy);
+      if (worst === null || depth > worst.depth) {
+        worst = { card: card.nodeId, depth };
+      }
+    }
+    if (worst !== null && worst.depth > budget) {
+      out.push(
+        censusHit(
+          chip,
+          `intrudes ${worst.depth.toFixed(1)} into card ${worst.card} (budget ${budget})`,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// Every chip whose box has a FOREIGN flow's stroke running through it. Same
+// foreignness rule as auditSegmentsVsChips (own edge skipped, same item+source
+// waived as one visual line, same-target arrival cluster waived), shared through
+// chipForeignTo -- what differs is the shape of the count (per chip, not per
+// segment) and the reach: this one is not restricted to any chip kind, so a lane
+// rise chip lying across someone else's column shows up here.
+export function auditChipForeignStrokes(
+  chips: ReadonlyArray<ChipRect>,
+  edges: ReadonlyArray<RawEdge>,
+  nodes: ReadonlyArray<NodeRect>,
+  eps = 0.5,
+): ChipCensusHit[] {
+  const edgeById = new Map<string, RawEdge>();
+  for (const e of edges) edgeById.set(e.id, e);
+  const cardById = new Map<string, RawRect>();
+  for (const n of nodes) cardById.set(n.nodeId, n);
+  const out: ChipCensusHit[] = [];
+  for (const chip of chips) {
+    const through: string[] = [];
+    for (const edge of edges) {
+      if (!chipForeignTo(chip, edge, edgeById, cardById)) continue;
+      const pts = parsePath(edge.d);
+      if (pts.length === 0) continue;
+      if (segmentsOf(pts).some(([a, b]) => segmentEntersRect(a, b, chip, eps))) {
+        through.push(edge.id);
+      }
+    }
+    if (through.length > 0) {
+      out.push(
+        censusHit(
+          chip,
+          `${through.length} foreign stroke(s) through its box: ${through.join(", ")}`,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+// A drawn bus band's rect, tagged with the data-testid BusBands emits
+// (`bus-band-top` / `bus-band-bottom`).
+export type BandRect = RawRect & { testId: string };
+
+// The band a lane-seated bus chip belongs to, recovered from the chip's LANE
+// rather than from its own box: the owner edge's longest HORIZONTAL run whose y
+// lies inside a band strip is that member's lane run, and its band is the one
+// the chip is supposed to stay in. Binding by the box instead (nearest band)
+// would make an escaped chip define its own target and the escape would never
+// count. A lane stroke is inside its band by construction (the band is the lane
+// extent padded), so a chip with no such run is not lane-seated at all -- a
+// fan-out branch or aggregate chip, which no band covers -- and is skipped.
+function laneBandOf(
+  d: string,
+  bands: ReadonlyArray<BandRect>,
+  eps: number,
+): BandRect | null {
+  let best: BandRect | null = null;
+  let bestRun = -1;
+  for (const [a, b] of segmentsOf(parsePath(d))) {
+    if (Math.abs(a[1] - b[1]) > eps) continue;
+    const y = (a[1] + b[1]) / 2;
+    for (const band of bands) {
+      if (y < band.top - eps || y > band.bottom + eps) continue;
+      const run = Math.abs(b[0] - a[0]);
+      if (run > bestRun) {
+        bestRun = run;
+        best = band;
+      }
+    }
+  }
+  return best;
+}
+
+// Bus chips that have left the tinted band their lane runs in. `escapes` are
+// the VERTICAL escapes -- the box shares no y with the band at all, which is
+// what a reader sees as a rate chip floating above / below the tint. A chip
+// touching the band edge counts as inside (the pad covers exactly one cascade
+// pitch, so containment has to be inclusive or the covered case reads as an
+// escape). `xOverflows` are reported alongside but kept OUT of the ratchet: a
+// box wider than the band's own x-run is a different, milder shape than a chip
+// off the lane entirely.
+export function auditBusChipsOutsideBand(
+  chips: ReadonlyArray<ChipRect>,
+  edges: ReadonlyArray<{ id: string; d: string }>,
+  bands: ReadonlyArray<BandRect>,
+  eps = 0.5,
+): { escapes: ChipCensusHit[]; xOverflows: ChipCensusHit[] } {
+  const escapes: ChipCensusHit[] = [];
+  const xOverflows: ChipCensusHit[] = [];
+  if (bands.length === 0) return { escapes, xOverflows };
+  const pathById = new Map<string, string>();
+  for (const e of edges) pathById.set(e.id, e.d);
+  for (const chip of chips) {
+    if (chip.kind === "label") continue;
+    const d = pathById.get(chip.edgeId);
+    if (d === undefined) continue;
+    const band = laneBandOf(d, bands, eps);
+    if (band === null) continue;
+    const overlapY =
+      Math.min(chip.bottom, band.bottom) - Math.max(chip.top, band.top);
+    if (overlapY <= eps) {
+      escapes.push(
+        censusHit(
+          chip,
+          `box [${chip.top.toFixed(0)},${chip.bottom.toFixed(0)}] is outside ` +
+            `${band.testId} [${band.top.toFixed(0)},${band.bottom.toFixed(0)}]`,
+        ),
+      );
+    }
+    if (chip.left < band.left - eps || chip.right > band.right + eps) {
+      xOverflows.push(
+        censusHit(
+          chip,
+          `box [${chip.left.toFixed(0)},${chip.right.toFixed(0)}] overruns ` +
+            `${band.testId} [${band.left.toFixed(0)},${band.right.toFixed(0)}] in x`,
+        ),
+      );
+    }
+  }
+  return { escapes, xOverflows };
 }
