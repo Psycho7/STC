@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RecipePack } from "@aef/schema";
-import { computeItemTiers, computeRecipeDepths } from "./recipe-depth";
+import { computeItemDepths, computeRecipeDepths } from "./recipe-depth";
+import { pack as realPack } from "./load";
 
 // Hand-built mini-packs. Only the fields computeRecipeDepths reads are set;
 // the rest of the RecipePack shape is cast away.
@@ -10,6 +11,7 @@ function mkPack(
     id: string;
     category?: string;
     cost?: number;
+    producers?: string[];
     in?: Array<{ item: string; qty: number }>;
     out?: Array<{ item: string; qty: number }>;
   }>,
@@ -20,6 +22,7 @@ function mkPack(
       id: r.id,
       category: r.category ?? "craft",
       cost: r.cost ?? 1,
+      producers: r.producers ?? [],
       in: r.in ?? [],
       out: r.out ?? [],
     })),
@@ -127,7 +130,40 @@ describe("computeRecipeDepths", () => {
     expect(depths.get("r_use")).toBe(2);
   });
 
-  it("leaves cycle-only recipes at POSITIVE_INFINITY", () => {
+  it("treats planter outputs as depth 0, resolving the seed loop per member", () => {
+    const pack = mkPack(
+      [{ id: "seed" }, { id: "crop" }, { id: "flour" }],
+      [
+        // Farming loop: the planter grows crop from its own seed, the seed
+        // collector recovers seed from crop. Neither touches a raw item.
+        {
+          id: "r_crop",
+          producers: ["planter_1"],
+          in: [{ item: "seed", qty: 1 }],
+          out: [{ item: "crop", qty: 1 }],
+        },
+        {
+          id: "r_seed",
+          producers: ["seedcol_1"],
+          in: [{ item: "crop", qty: 1 }],
+          out: [{ item: "seed", qty: 1 }],
+        },
+        {
+          id: "r_flour",
+          in: [{ item: "crop", qty: 1 }],
+          out: [{ item: "flour", qty: 1 }],
+        },
+      ],
+    );
+    const depths = computeRecipeDepths(pack);
+    // crop counts as raw (0), so its consumers start at 1; the planter recipe
+    // itself ranks 1 past the seed it consumes.
+    expect(depths.get("r_seed")).toBe(1);
+    expect(depths.get("r_flour")).toBe(1);
+    expect(depths.get("r_crop")).toBe(2);
+  });
+
+  it("leaves non-planter cycle-only recipes at POSITIVE_INFINITY", () => {
     const pack = mkPack(
       [{ id: "x" }, { id: "y" }],
       [
@@ -194,8 +230,8 @@ describe("computeRecipeDepths", () => {
   });
 });
 
-describe("computeItemTiers", () => {
-  it("(a) gives acyclic items their fixpoint min-producer depth", () => {
+describe("computeItemDepths", () => {
+  it("gives acyclic items their fixpoint min-producer depth", () => {
     const pack = mkPack(
       [{ id: "raw", raw: true }, { id: "a" }, { id: "b" }],
       [
@@ -211,20 +247,15 @@ describe("computeItemTiers", () => {
         },
       ],
     );
-    const tiers = computeItemTiers(pack);
+    const depths = computeItemDepths(pack);
     // a is produced by r_a (depth 1); b by r_b (depth 2).
-    expect(tiers.get("a")).toBe(1);
-    expect(tiers.get("b")).toBe(2);
+    expect(depths.get("a")).toBe(1);
+    expect(depths.get("b")).toBe(2);
   });
 
-  it("(a) takes the min over an item's producers", () => {
+  it("takes the min over an item's producers", () => {
     const pack = mkPack(
-      [
-        { id: "raw", raw: true },
-        { id: "a" },
-        { id: "b" },
-        { id: "p" },
-      ],
+      [{ id: "raw", raw: true }, { id: "a" }, { id: "b" }, { id: "p" }],
       [
         {
           id: "r_a",
@@ -249,35 +280,42 @@ describe("computeItemTiers", () => {
       ],
     );
     // p resolves to the shallower producer (depth 1).
-    expect(computeItemTiers(pack).get("p")).toBe(1);
+    expect(computeItemDepths(pack).get("p")).toBe(1);
   });
 
-  it("(b) gives loop items 1 + a tier-2 external input", () => {
+  it("puts a farmed crop at 0 and its seed one step later", () => {
     const pack = mkPack(
+      [{ id: "seed" }, { id: "crop" }],
       [
-        { id: "raw", raw: true },
-        { id: "a" },
-        { id: "e" },
-        { id: "p" },
-        { id: "q" },
+        {
+          id: "r_crop",
+          producers: ["planter_1"],
+          in: [{ item: "seed", qty: 1 }],
+          out: [{ item: "crop", qty: 1 }],
+        },
+        {
+          id: "r_seed",
+          producers: ["seedcol_1"],
+          in: [{ item: "crop", qty: 1 }],
+          out: [{ item: "seed", qty: 1 }],
+        },
       ],
+    );
+    const depths = computeItemDepths(pack);
+    expect(depths.get("crop")).toBe(0);
+    expect(depths.get("seed")).toBe(1);
+  });
+
+  it("leaves members of a non-planter loop at Infinity", () => {
+    const pack = mkPack(
+      [{ id: "raw", raw: true }, { id: "p" }, { id: "q" }],
       [
-        {
-          id: "r_a",
-          in: [{ item: "raw", qty: 1 }],
-          out: [{ item: "a", qty: 1 }],
-        },
-        {
-          id: "r_e",
-          in: [{ item: "a", qty: 1 }],
-          out: [{ item: "e", qty: 1 }],
-        },
-        // p <-> q loop, fed from outside by e (item-depth 2).
+        // p <-> q loop fed from outside by raw; no planter breaks it open.
         {
           id: "r_p",
           in: [
             { item: "q", qty: 1 },
-            { item: "e", qty: 1 },
+            { item: "raw", qty: 1 },
           ],
           out: [{ item: "p", qty: 1 }],
         },
@@ -288,80 +326,12 @@ describe("computeItemTiers", () => {
         },
       ],
     );
-    const tiers = computeItemTiers(pack);
-    expect(tiers.get("e")).toBe(2);
-    expect(tiers.get("p")).toBe(3);
-    expect(tiers.get("q")).toBe(3);
+    const depths = computeItemDepths(pack);
+    expect(depths.get("p")).toBe(Number.POSITIVE_INFINITY);
+    expect(depths.get("q")).toBe(Number.POSITIVE_INFINITY);
   });
 
-  it("(c) gives a self-consuming recipe with a raw input a finite tier", () => {
-    const pack = mkPack(
-      [{ id: "raw", raw: true }, { id: "x" }],
-      [
-        // x is both an input and the output; only raw feeds it from outside.
-        {
-          id: "r_x",
-          in: [
-            { item: "x", qty: 1 },
-            { item: "raw", qty: 1 },
-          ],
-          out: [{ item: "x", qty: 1 }],
-        },
-      ],
-    );
-    // Fixpoint leaves x at Infinity; SCC collapse gives 1 + raw(0).
-    expect(computeRecipeDepths(pack).get("r_x")).toBe(Number.POSITIVE_INFINITY);
-    expect(computeItemTiers(pack).get("x")).toBe(1);
-  });
-
-  it("(d) gives a downstream loop the upstream loop's tier + 1", () => {
-    const pack = mkPack(
-      [
-        { id: "raw", raw: true },
-        { id: "a" },
-        { id: "b" },
-        { id: "c" },
-        { id: "d" },
-      ],
-      [
-        // Loop 1 {a,b}, fed by raw.
-        {
-          id: "r_a",
-          in: [
-            { item: "b", qty: 1 },
-            { item: "raw", qty: 1 },
-          ],
-          out: [{ item: "a", qty: 1 }],
-        },
-        {
-          id: "r_b",
-          in: [{ item: "a", qty: 1 }],
-          out: [{ item: "b", qty: 1 }],
-        },
-        // Loop 2 {c,d}, fed by a from loop 1.
-        {
-          id: "r_c",
-          in: [
-            { item: "d", qty: 1 },
-            { item: "a", qty: 1 },
-          ],
-          out: [{ item: "c", qty: 1 }],
-        },
-        {
-          id: "r_d",
-          in: [{ item: "c", qty: 1 }],
-          out: [{ item: "d", qty: 1 }],
-        },
-      ],
-    );
-    const tiers = computeItemTiers(pack);
-    expect(tiers.get("a")).toBe(1);
-    expect(tiers.get("b")).toBe(1);
-    expect(tiers.get("c")).toBe(2);
-    expect(tiers.get("d")).toBe(2);
-  });
-
-  it("(e) leaves an excluded-only-producer item at Infinity", () => {
+  it("leaves an excluded-only-producer item at Infinity", () => {
     const pack = mkPack(
       [{ id: "raw", raw: true }, { id: "ex" }],
       [
@@ -373,11 +343,29 @@ describe("computeItemTiers", () => {
         },
       ],
     );
-    expect(computeItemTiers(pack).get("ex")).toBe(Number.POSITIVE_INFINITY);
+    expect(computeItemDepths(pack).get("ex")).toBe(Number.POSITIVE_INFINITY);
   });
 
-  it("(f) gives a raw item tier 0", () => {
+  it("gives a raw item depth 0", () => {
     const pack = mkPack([{ id: "raw", raw: true }], []);
-    expect(computeItemTiers(pack).get("raw")).toBe(0);
+    expect(computeItemDepths(pack).get("raw")).toBe(0);
+  });
+});
+
+describe("real pack ranking", () => {
+  it("assigns every item a finite depth", () => {
+    const depths = computeItemDepths(realPack);
+    const unranked = realPack.items
+      .map((i) => i.id)
+      .filter((id) => (depths.get(id) ?? Number.POSITIVE_INFINITY) === Number.POSITIVE_INFINITY);
+    expect(unranked).toEqual([]);
+  });
+
+  it("assigns every non-excluded recipe a finite depth", () => {
+    const depths = computeRecipeDepths(realPack);
+    const unranked = [...depths]
+      .filter(([, d]) => d === Number.POSITIVE_INFINITY)
+      .map(([id]) => id);
+    expect(unranked).toEqual([]);
   });
 });

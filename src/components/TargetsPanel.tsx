@@ -5,7 +5,7 @@ import type { Target } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
 import { producibleItemIds } from "../data/recipe-category";
 import { ratePerSecToPerMin } from "../data/rate-format";
-import { computeItemTiers } from "../data/recipe-depth";
+import { computeItemDepths } from "../data/recipe-depth";
 import { iconPosition } from "../canvas/iconSprite";
 import { ItemPickerPopup } from "./ItemPickerPopup";
 
@@ -47,8 +47,8 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     const ids = producibleItemIds(pack.recipes);
     return pack.items.filter((i) => ids.has(i.id));
   }, [pack]);
-  // Availability tier per item id, used by the picker popup to group tiles.
-  const tierByItemId = useMemo(() => computeItemTiers(pack), [pack]);
+  // Availability depth per item id, used by the picker popup to group tiles.
+  const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
   // Which row/draft the picker popup is open for, plus the trigger button that
   // opened it so focus can return there on close.
   const [pickerFor, setPickerFor] = useState<
