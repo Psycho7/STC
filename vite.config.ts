@@ -19,6 +19,15 @@ export default defineConfig({
   test: {
     // The extractor is a Bun subpackage with its own `bun test` runner; its
     // specs import bun:test, which vitest cannot resolve. Run them via bun.
-    exclude: [...configDefaults.exclude, "**/tools/extractor/**"],
+    //
+    // The GLPK vendor-oracle harness under tools/oracle has its own vitest
+    // config (tools/oracle/vitest.config.ts) with the `~` -> flab alias and
+    // the glpk-wasm setup; the main suite cannot resolve those imports, so it
+    // is excluded here and run separately.
+    exclude: [
+      ...configDefaults.exclude,
+      "**/tools/extractor/**",
+      "**/tools/oracle/**",
+    ],
   },
 });
