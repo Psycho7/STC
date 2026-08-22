@@ -66,10 +66,11 @@ test("routeBusEdges aggregates one trunk into a single owner chip with the summe
   }
 });
 
-test("routeBusEdges' aggregate matches the sum of the members' displayed rates", () => {
-  // 4.256/min and 2.856/min display as "4.26" and "2.86" (7.12), but the
-  // exact sum 7.112/min displays as "7.11": the aggregate chip denied the cent
-  // the two member chips show.
+test("routeBusEdges' aggregate keeps the exact total the cards format", () => {
+  // 4.256/min and 2.856/min display as "4.26" and "2.86" (sum 7.12), but the
+  // boundary cards format the exact total 7.112 as "7.11". The chip
+  // denominator must agree with the cards, not with the rounded member sum
+  // (exam Z3: 24.55-vs-24.56 read as an accounting error).
   const nodes = [
     productNode("s", 0),
     productNode("t1", 5000),
@@ -83,16 +84,12 @@ test("routeBusEdges' aggregate matches the sum of the members' displayed rates",
   const owner = routed.find(
     (e) => (e.data as { busChipOwner?: boolean }).busChipOwner,
   )!;
-  const d = owner.data as {
-    busDisplayTotalRate?: Fraction;
-    busTotalRate?: Fraction;
-  };
-  const memberSum = routed
-    .map((e) => Number(formatRatePerMin((e.data as { rate: Fraction }).rate)))
-    .reduce((a, b) => a + b, 0);
-  expect(formatRatePerMin(d.busDisplayTotalRate!)).toBe(memberSum.toFixed(2));
-  // The exact total survives for the aggregate's hover tooltip.
+  const d = owner.data as { busTotalRate?: Fraction };
+  expect(formatRatePerMin(d.busTotalRate!)).toBe("7.11");
   expect(d.busTotalRate!.equals(new Fraction("7.112").div(60))).toBe(true);
+  expect(
+    "busDisplayTotalRate" in (owner.data as Record<string, unknown>),
+  ).toBe(false);
 });
 
 test("routeBusEdges leaves a lone trunk member as its own owner with count 1", () => {
