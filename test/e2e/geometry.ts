@@ -977,9 +977,11 @@ export function auditChipSeatValidity(
 }
 
 // The intrusion budget a chip box may spend inside a node card: the port-side
-// strip a chip on its own line necessarily covers. Same depth the seating pass's
-// own-card exemption uses (chipEntersOwnCardBody), so a seat that is legal there
-// is never counted here.
+// strip a chip on its own line necessarily covers. chipEntersOwnCardBody is a
+// CENTRE test; this census is a BOX-depth test using the same budget number but
+// different rule. Centre-legal wide-box seats are counted here by design (F1
+// family: a chip whose centre is in the port strip but whose box overlaps the
+// card body past the budget).
 export const CARD_INTRUSION_BUDGET = CARD_BORDER + PORT_ZONE_DEPTH;
 
 // Every chip whose box reaches more than `budget` DEEP past a node card's
@@ -987,9 +989,11 @@ export const CARD_INTRUSION_BUDGET = CARD_BORDER + PORT_ZONE_DEPTH;
 // wide box lying across the port strip, which is shallow but long (a 9-deep
 // strip seat already covers ~432 sq units at max chip scale, so no area
 // threshold can separate it from a chip parked on the card body). Penetration
-// depth is the smaller of the two overlap extents -- the distance the box would
-// have to move to leave the card -- so a box that only laps the port strip
-// scores its x-overlap and stays under budget however tall it is.
+// depth is the smaller of the two overlap extents (overlapping x and y); for
+// partial overlap this equals the push-out distance, but for a chip contained in
+// a card it saturates at the chip's smaller extent. Conservative (never over-
+// reports): a box that only laps the port strip scores its x-overlap and stays
+// under budget however tall it is.
 //
 // Container slabs (type "group", the `loop:` boxes) are excluded outright: a
 // chip legitimately sits inside a slab its endpoints live in, and the slab's

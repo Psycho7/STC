@@ -1136,7 +1136,9 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
 // battery5 2, battery5-xiranite 2, multi6 1): a band's x-run is its trunk's own
 // drop-to-rise span plus a stub, and a chip seated at either end sticks out past
 // it. That is a band-width question, not a stranded chip, so it is reported and
-// not ratcheted.
+// not ratcheted. Crystal and equip4 pin 0 because they render bus chips but NO
+// band rects (counter is unjudgeable there, not clean); tundra has no bus chips
+// at all.
 const OUTSIDE_BAND_BASELINE: Record<string, number> = {
   default: 1,
   battery5: 1,
