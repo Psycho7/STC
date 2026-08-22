@@ -2290,6 +2290,13 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* CJK breaks between any two Han characters by default, so a single item
+     name like a 6-char powder splits mid-word across the clamp's two lines
+     and reads as a spurious gap. keep-all limits breaks to the separator
+     spaces; strict keeps small kana from starting a line. A name too long
+     for one line may clip; the title attribute recovers it on hover. */
+  word-break: keep-all;
+  line-break: strict;
 }
 
 /* React Flow's shipped style.css suppresses the node focus outline
