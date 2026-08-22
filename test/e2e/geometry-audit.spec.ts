@@ -1170,19 +1170,32 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
 // and a band that reserves 24 does not cover it. The mechanism is unchanged --
 // every escape is still exactly one pitch out, and the population is now purely
 // rise chips: multi6 e:74, the corpus's only escaped DROP, came home when its
-// cascade was capped. Task 4's pad (one pitch plus a chip half-height) is sized
-// for exactly this set.
+// cascade was capped.
+//
+// RE-MEASURED at 0 after BAND_Y_PAD grew to one cascade pitch plus a chip
+// half-height (24 -> 72): every escape in the corpus was a chip lifted exactly
+// one pitch, so the whole population is inside the tint now and the counter is a
+// hard zero on all ten scenarios. It is a real floor rather than a coincidence
+// of this corpus -- the seating cascade only leaves the pitch when no seat
+// within it clears a placed chip, and that escape hatch fires nowhere here. A
+// future escape means a chip past one pitch, which is exactly what this counter
+// should surface. The x-overflows measure 7 (default 1, battery5 2,
+// battery5-xiranite 2, multi6 2) and did NOT move with the pad: measured before
+// and after the same build, cell for cell. They are one higher than the 6 noted
+// above because multi6 gained one at the rise-slot clamp, which was never
+// re-measured for this counter. The pad is a y-axis change and BAND_X_MARGIN is
+// untouched, so this stays a band-width question, reported and not ratcheted.
 const OUTSIDE_BAND_BASELINE: Record<string, number> = {
-  default: 1,
-  battery5: 1,
-  "battery5-xiranite": 3,
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  multi6: 4,
+  multi6: 0,
   tundra: 0,
-  script43: 3,
-  "coupon-web": 1,
-  "gas-web": 2,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
 };
 
 // Corpus-wide totals, one per counter. The census is a campaign-level ratchet,
@@ -1194,7 +1207,7 @@ const CENSUS_TOTALS = {
   seatValidity: 18,
   cardIntrusion: 88,
   foreignStroke: 48,
-  outsideBand: 15,
+  outsideBand: 0,
 };
 
 function censusInventory(hits: ReadonlyArray<ChipCensusHit>): string {

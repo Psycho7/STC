@@ -641,9 +641,16 @@ export function laneBands(edges: ReadonlyArray<Edge>): LaneBands {
 // Vertical margin added above and below a band's lane extent so a single-lane
 // band (y0 == y1, zero-height by itself) still marks a visible region and a
 // multi-lane band wraps its lanes -- and the rise / drop chips seated on them --
-// with air. Half a lane pitch: a max-scale chip is one LANE_SPACING tall and
-// centred on its lane, so this clears its half-box.
-export const BAND_Y_PAD = LANE_SPACING / 2;
+// with air. A seated chip is not always ON its lane: the seating pass may lift
+// it one cascade pitch (one LANE_SPACING) to clear a junction dot or a foreign
+// line, so the pad is that pitch plus the half-box of a max-scale chip. Coverage
+// is exact at one pitch -- a chip lifted the full pitch has its outer edge on
+// the padded edge, touching it -- so anything asking "is this chip inside its
+// band" must treat the boundary as inside; there is no eps of slack here. A chip
+// beyond one pitch (the cascade cap's chip-vs-chip escape hatch) is not covered
+// by design: it is meant to show up as an out-of-band chip rather than be hidden
+// under a taller tint.
+export const BAND_Y_PAD = LANE_SPACING + (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
 
 // Horizontal margin added on each side of a band's trunk run for its x-extent.
 // One stub keeps the faint band from cutting exactly at the drop / rise columns.
