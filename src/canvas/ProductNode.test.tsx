@@ -47,6 +47,19 @@ function outputProps() {
   } as unknown as ComponentProps<typeof ProductNode>;
 }
 
+function fanoutInputProps() {
+  return {
+    data: {
+      kind: "inputProduct",
+      itemId: "ore",
+      rate: { num: "1", denom: "2" },
+      rateCap: { num: "1", denom: "1" },
+      isFanout: true,
+      parentRate: { num: "9", denom: "2" },
+    },
+  } as unknown as ComponentProps<typeof ProductNode>;
+}
+
 // React Flow passes the wrapper's `selected` flag as a NodeProp; the inner
 // .product-node must forward it so the card gets a visible selection treatment.
 test("selected prop forwards the selected class onto the card", () => {
@@ -89,4 +102,15 @@ test("pn-kind caption unit is localized in zh", () => {
   expect(kind).not.toBeNull();
   expect(kind!.textContent).toContain("/分");
   expect(kind!.textContent).not.toMatch(/min/i);
+});
+
+// Surface-level gate: a fanout input lights up every fine-print line at once
+// (rate, cap chip, tap share), so scanning the whole card catches any rate unit
+// that skipped the i18n table. The output card covers the pn-kind branch.
+test("zh product cards render no Latin min anywhere", () => {
+  const { container } = wrap(<ProductNode {...fanoutInputProps()} />, "zh");
+  expect(container.textContent).not.toMatch(/min/i);
+  cleanup();
+  const out = wrap(<ProductNode {...outputProps()} />, "zh");
+  expect(out.container.textContent).not.toMatch(/min/i);
 });
