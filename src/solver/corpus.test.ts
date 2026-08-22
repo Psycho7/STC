@@ -418,23 +418,28 @@ describe("Scenario 12: byproduct-only item target", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Scenario 13: raw item target via a miner recipe (miner runs)
+// Scenario 13: item target whose only producer is a miner (nothing runs)
 // ---------------------------------------------------------------------------
-describe("Scenario 13: raw item target via a miner recipe", () => {
-  it("runs the miner to net-export a non-boundary ore at the declared rate", () => {
+describe("Scenario 13: item target whose only producer is a miner", () => {
+  it("reports the demand as a deficit instead of running the miner", () => {
     const result = solveLp({
       targets: rawItemTargetViaMiner.targets,
       pack: rawItemTargetViaMiner.pack,
     });
 
-    expect(result.status).toBe("feasible");
-    expect(result.softFeasible).toBe(true);
+    // Nothing runs at all, so the status is "empty" - but unlike Scenario 14
+    // the demand has no boundary to fall back on, so it is not soft-feasible.
+    expect(result.status).toBe(rawItemTargetViaMinerGolden.status);
+    expect(result.softFeasible).toBe(rawItemTargetViaMinerGolden.softFeasible);
     assertObjective(result.objectiveValue, rawItemTargetViaMinerGolden.objectiveValue);
     expect(activeList(result)).toEqual(rawItemTargetViaMinerGolden.activeRecipes);
-    // Non-raw ore is not boundary-drawable: no draw, no deficit; the miner runs.
+    // Non-raw ore is not boundary-drawable and the miner is not in the model,
+    // so the whole declared rate lands in the deficit.
     expect(result.draws.has("ore")).toBe(false);
-    expect(result.deficit.size).toBe(0);
-    expect(result.rates.get("r_miner")!.equals(new Fraction(1))).toBe(true);
+    expect(result.rates.has("r_miner")).toBe(false);
+    expect(
+      result.deficit.get("ore")!.equals(new Fraction(rawItemTargetViaMinerGolden.deficit)),
+    ).toBe(true);
   });
 });
 

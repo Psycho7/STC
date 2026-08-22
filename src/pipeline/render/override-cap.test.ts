@@ -49,25 +49,29 @@ function inflow(plan: RenderPlan, toUnit: string, item: string): Fraction {
   return sum;
 }
 
-describe("finite supply cap below demand (iron_nugget-iron_ore, cap 1/4)", () => {
+// copper_ore rather than iron_ore: the residual above the cap has to come from
+// a real recipe, and copper_ore-liquid_water is one. iron_ore's only producer
+// is the miner, which no solution runs, so capping it short leaves the target
+// under-fed instead of splitting the demand.
+describe("finite supply cap below demand (copper_nugget-copper_ore, cap 1/4)", () => {
   const targets: ItemTarget[] = [
     {
-      itemId: "iron_nugget",
+      itemId: "copper_nugget",
       ratePerSec: { num: "1", denom: "1" },
     },
   ];
   const overrides: ItemOverride[] = [
-    { itemId: "iron_ore", ratePerSec: { num: "1", denom: "4" } },
+    { itemId: "copper_ore", ratePerSec: { num: "1", denom: "4" } },
   ];
 
   it("splits demand into residual producer edge + boundary draw, reconciled machine count", () => {
     const { plan } = solveAndRender(targets, overrides);
 
     const consumerUnit = plan.units.find(
-      (u) => isRecipeUnit(u) && u.recipeId === "iron_nugget-iron_ore",
+      (u) => isRecipeUnit(u) && u.recipeId === "copper_nugget",
     )!;
     const producerUnit = plan.units.find(
-      (u) => isRecipeUnit(u) && u.recipeId === "iron_ore",
+      (u) => isRecipeUnit(u) && u.recipeId === "copper_ore-liquid_water",
     )!;
     expect(consumerUnit).toBeDefined();
     expect(producerUnit).toBeDefined();
@@ -78,23 +82,23 @@ describe("finite supply cap below demand (iron_nugget-iron_ore, cap 1/4)", () =>
       (e) =>
         e.fromUnit === producerUnit.id &&
         e.toUnit === consumerUnit.id &&
-        e.item === "iron_ore",
+        e.item === "copper_ore",
     );
     expect(internal?.rate.equals(new Fraction(3, 4))).toBe(true);
     const boundary = plan.edges.find(
-      (e) => e.fromUnit === "u:in:iron_ore" && e.toUnit === consumerUnit.id,
+      (e) => e.fromUnit === "u:in:copper_ore" && e.toUnit === consumerUnit.id,
     );
     expect(boundary?.rate.equals(new Fraction(1, 4))).toBe(true);
-    expect(inflow(plan, consumerUnit.id, "iron_ore").equals(1)).toBe(true);
+    expect(inflow(plan, consumerUnit.id, "copper_ore").equals(1)).toBe(true);
 
-    // The producer's machine count derives from the reconciled residual rate
-    // (LP rate 3/4 -> ideal 9/4 machines), not the pre-cap full demand.
+    // The producer's machine count derives from the reconciled residual rate,
+    // not the pre-cap full demand.
     if (!isRecipeUnit(producerUnit)) throw new Error("expected recipe unit");
     expect(producerUnit.multiplicity).toEqual({ num: "9", denom: "4" });
 
     // Input product chip shows the realized draw next to the cap.
     const input = plan.units.find(
-      (u) => isInputProductUnit(u) && u.itemId === "iron_ore",
+      (u) => isInputProductUnit(u) && u.itemId === "copper_ore",
     );
     if (!input || !isInputProductUnit(input)) throw new Error("missing input");
     expect(input.rate).toEqual({ num: "1", denom: "4" });

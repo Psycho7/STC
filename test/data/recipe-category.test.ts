@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { Recipe } from "@aef/schema";
 import {
   isExcludedProducer,
+  isExtractionRecipe,
   isInputSupplyRecipe,
 } from "../../src/data/recipe-category";
 
+// Defaults describe an ordinary recipe, inputs included: an empty `in` is what
+// isExtractionRecipe keys on, so the cases that want an extractor say so.
 function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
   return {
     id: "r1",
@@ -13,8 +16,8 @@ function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
     icon: "",
     row: 0,
     time: 1,
-    in: [],
-    out: [],
+    in: [{ item: "ore", qty: 1 }],
+    out: [{ item: "ingot", qty: 1 }],
     producers: [],
     ...overrides,
   };
@@ -43,7 +46,29 @@ describe("data/recipe-category", () => {
     });
   });
 
+  describe("isExtractionRecipe", () => {
+    it("returns true for a recipe with no inputs", () => {
+      expect(
+        isExtractionRecipe(
+          makeRecipe({ in: [], out: [{ item: "iron_ore", qty: 1 }] }),
+        ),
+      ).toBe(true);
+    });
+
+    it("returns false as soon as one input is listed", () => {
+      expect(isExtractionRecipe(makeRecipe())).toBe(false);
+    });
+  });
+
   describe("isExcludedProducer", () => {
+    it("returns true when isExtractionRecipe is true", () => {
+      expect(
+        isExcludedProducer(
+          makeRecipe({ in: [], out: [{ item: "iron_ore", qty: 1 }] }),
+        ),
+      ).toBe(true);
+    });
+
     it("returns true when isInputSupplyRecipe is true", () => {
       expect(
         isExcludedProducer(makeRecipe({ category: "__domain_transfer" })),

@@ -5,7 +5,10 @@ import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipeId, ItemId } from "./types";
 import { effectiveSupply } from "./effectiveSupply";
-import { isExcludedProducer } from "../data/recipe-category";
+import {
+  isExcludedProducer,
+  isExtractionRecipe,
+} from "../data/recipe-category";
 
 export type LpInput = {
   targets: ReadonlyArray<ItemTarget>;
@@ -72,7 +75,9 @@ export const BIG_M_COST = 1e6;
 
 // Default cost weights. The ordering deficit >> recipe >> surplus is the cost
 // contract. Target-only and excluded-producer recipes get a big-M cost so the LP
-// only runs them when no alternative exists.
+// only runs them when no alternative exists. Extraction recipes are the one
+// excluded class this does not decide: solveLp gives them no variable at all,
+// so their big-M weight is never priced and no cost can make one run.
 export function recipeCostWeight(
   r: Recipe,
   overrides: Map<RecipeId, number> | undefined,
@@ -147,9 +152,16 @@ export function solveLp(input: LpInput): LpResult {
   }
 
   // Sort recipes and items by id for deterministic iteration / lex-rank.
-  const recipes = [...pack.recipes].sort((a, b) =>
+  // Extraction recipes are dropped outright rather than priced at big-M: the
+  // model gets no x_ variable for them, so no solution can run one. A big-M
+  // cost would still let the LP recruit a miner whenever nothing else covers
+  // the demand, which is exactly the case that matters - a raw item capped
+  // below what the plan consumes must report the shortfall as a deficit, not
+  // grow its own mine.
+  const sortedRecipes = [...pack.recipes].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
+  const recipes = sortedRecipes.filter((r) => !isExtractionRecipe(r));
   const items = [...pack.items].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
@@ -163,9 +175,13 @@ export function solveLp(input: LpInput): LpResult {
 
   const demand = demandByItem(targets);
 
-  // Lex rank per recipe (sorted by id) for the pass-2 tie-break.
+  // Lex rank per recipe (sorted by id) for the pass-2 tie-break. Ranked over
+  // the FULL sorted list, gaps for the dropped extractors included: only the
+  // relative order decides the tie-break, and keeping each surviving recipe on
+  // its historical rank means dropping an extractor cannot reshuffle which
+  // cost-equal solution pass 2 lands on.
   const lexRank = new Map<RecipeId, number>();
-  recipes.forEach((r, i) => lexRank.set(r.id, i));
+  sortedRecipes.forEach((r, i) => lexRank.set(r.id, i));
 
   // Per-recipe objective cost, computed once. buildModel reads it in both passes
   // (variable objective and the pass-2 cost cap) instead of recomputing.

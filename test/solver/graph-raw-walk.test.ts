@@ -93,15 +93,14 @@ describe("buildRecipeGraph raw termination (B1)", () => {
     expect(g.nodes.has("liquid_water")).toBe(false);
   });
 
-  it("targeting a raw item produces a single-node graph (target is raw)", () => {
-    // liquid_water item is raw, but its producer recipe is still seeded (the
-    // walk seeds every producer of a target item). With no inputs, no
-    // upstream walk happens.
+  it("targeting a raw item whose only producer is an extractor seeds nothing", () => {
+    // The walk seeds every non-excluded producer of a target item, and the
+    // pump that extracts liquid_water is excluded. Nothing is left to seed, so
+    // the demand surfaces as an LP deficit instead of a mined graph.
     const items = [mkItem("liquid_water", true)];
     const recipes = [mkRecipe("liquid_water", [], ["liquid_water"])];
     const g = buildRecipeGraph([tgt("liquid_water")], mkPack(items, recipes));
-    expect([...g.nodes.keys()]).toEqual(["liquid_water"]);
-    expect(g.outgoing.get("liquid_water")).toEqual([]);
+    expect(g.nodes.size).toBe(0);
   });
 
   it("non-raw mid-pipeline target walks through intermediates and stops at raw inputs", () => {
@@ -128,7 +127,9 @@ describe("buildRecipeGraph raw termination (B1)", () => {
     // No raw flags: existing behavior preserved (walk reaches every producer).
     const items = [mkItem("x", false), mkItem("y", false), mkItem("z", false)];
     const recipes = [
-      mkRecipe("a", [], ["x"]),
+      // `feed` has no producer, so `a` is still the chain's leaf; an empty `in`
+      // would make it an extraction recipe and drop it from the graph.
+      mkRecipe("a", ["feed"], ["x"]),
       mkRecipe("b", ["x"], ["y"]),
       mkRecipe("c", ["y"], ["z"]),
     ];
@@ -208,12 +209,12 @@ describe("buildRecipeGraph itemOverrides (B5)", () => {
 
 describe("buildRecipeGraph effectiveSupply termination matrix", () => {
   // Pack with a non-raw intermediate `mid` that has an in-pack producer.
-  //   sink <- mid <- mid-recipe (no inputs).
+  //   sink <- mid <- mid-recipe <- feed (no producer, so the walk stops there).
   function nonRawPack() {
     const items = [mkItem("mid", false), mkItem("sink", false)];
     const recipes = [
       mkRecipe("sink", ["mid"], ["sink"]),
-      mkRecipe("mid-recipe", [], ["mid"]),
+      mkRecipe("mid-recipe", ["feed"], ["mid"]),
     ];
     return mkPack(items, recipes);
   }

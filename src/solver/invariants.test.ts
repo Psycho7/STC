@@ -446,7 +446,10 @@ describe("checkRepresentable - detection power", () => {
       category: "material",
       time: 1,
       cost: 1,
-      in: [],
+      // An input is what keeps this an ordinary recipe: an empty `in` would
+      // make it an extraction recipe, which checkRepresentable sanctions as
+      // absent alongside the other excluded producers.
+      in: [{ item: "w", qty: 1 }],
       out: [{ item: "x", qty: 1 }],
     } as unknown as Recipe;
     const corrupted: SolvePlanFull = {
@@ -467,7 +470,10 @@ describe("checkRepresentable - detection power", () => {
       category: "__domain_transfer",
       time: 1,
       cost: 1,
-      in: [],
+      // An input keeps the category the only reason this fixture is sanctioned;
+      // with an empty `in` it would be an extraction recipe and the test would
+      // pass even if __domain_transfer stopped being excluded.
+      in: [{ item: "w", qty: 1 }],
       out: [{ item: "x", qty: 1 }],
     } as unknown as Recipe;
     const corrupted: SolvePlanFull = {

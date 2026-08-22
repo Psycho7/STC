@@ -8,12 +8,24 @@ export function isInputSupplyRecipe(recipe: Recipe): boolean {
   return recipe.category === "__domain_transfer";
 }
 
+// An extraction recipe consumes nothing and pulls a raw material out of the
+// ground: the 7 miner and pump recipes. A plan never builds one. Raw materials
+// arrive over the boundary as external supply, so an extractor is supply
+// metadata the same way a cross-domain transfer is, not a production step.
+export function isExtractionRecipe(recipe: Recipe): boolean {
+  return recipe.in.length === 0;
+}
+
 // Recipes that pickProducer should never rank as producers. That covers the
-// input-supply recipes plus anything carrying the cost === -1 sentinel, which
-// the recipe pack uses to mean "skip me by default" (today, the liquid_cleaner_1
-// waste sinks).
+// input-supply and extraction recipes plus anything carrying the cost === -1
+// sentinel, which the recipe pack uses to mean "skip me by default" (today, the
+// liquid_cleaner_1 waste sinks).
 export function isExcludedProducer(recipe: Recipe): boolean {
-  return isInputSupplyRecipe(recipe) || recipe.cost === -1;
+  return (
+    isInputSupplyRecipe(recipe) ||
+    isExtractionRecipe(recipe) ||
+    recipe.cost === -1
+  );
 }
 
 // A planter recipe grows a crop inside a self-sustaining seed loop (the seed

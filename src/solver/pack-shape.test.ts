@@ -4,6 +4,7 @@ import { pack } from "../data/load";
 import { buildRecipeGraphMulti } from "./graph";
 import { tarjanScc } from "./scc";
 import { makePack } from "./closed-form-fixtures";
+import { netSelfConsumption } from "./net-self";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 
@@ -237,5 +238,43 @@ describe("co-product fan-out pack census", () => {
   // delete the known-limit comment at the non-shared branch.
   test("shipped pack has no unprotected co-product fan-out", () => {
     expect(unprotectedCoProductFanouts(pack)).toEqual([]);
+  });
+});
+
+// The extraction ban keys on an empty `in`, and the solver applies it to the
+// NETTED pack: netSelfConsumption drops an item from `in` entirely when the
+// recipe's output of it exceeds its input, so a catalyst whose only input is
+// its own output would net to zero inputs and be banned silently. Nothing in
+// the shipped pack does that today. This census is what makes a future one
+// loud: if it fails, the new id is either a real extractor (add it here) or a
+// recipe the ban would wrongly swallow (key the predicate on something other
+// than the netted input count).
+describe("extraction-recipe pack census", () => {
+  const KNOWN_EXTRACTORS = [
+    "gas_inert",
+    "gas_xiranite",
+    "iron_ore",
+    "liquid_acid",
+    "liquid_water",
+    "originium_ore",
+    "quartz_sand",
+  ];
+
+  test("netting introduces no input-less recipe beyond the known extractors", () => {
+    const inputless = (p: RecipePack): string[] =>
+      p.recipes
+        .filter((r) => r.in.length === 0)
+        .map((r) => r.id)
+        .sort();
+    expect(inputless(pack)).toEqual(KNOWN_EXTRACTORS);
+    expect(inputless(netSelfConsumption(pack))).toEqual(KNOWN_EXTRACTORS);
+  });
+
+  test("every known extractor produces a raw item", () => {
+    const rawIds = new Set(pack.items.filter((i) => i.raw).map((i) => i.id));
+    for (const id of KNOWN_EXTRACTORS) {
+      const r = pack.recipes.find((x) => x.id === id)!;
+      expect(r.out.every((o) => rawIds.has(o.item))).toBe(true);
+    }
   });
 });

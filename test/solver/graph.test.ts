@@ -56,9 +56,12 @@ function tgt(itemId: string): ItemTarget {
   return { itemId, ratePerSec: { num: "1", denom: "1" } };
 }
 
+// Every leaf recipe here consumes a `feed` item no recipe produces, so the
+// walk terminates on it. A leaf with an empty `in` would be an extraction
+// recipe, which is excluded from the graph outright.
 describe("buildRecipeGraph", () => {
   it("returns a single-node graph for a target with no upstream", () => {
-    const p = pack([makeRecipe("root", [], ["root_out"])]);
+    const p = pack([makeRecipe("root", ["feed"], ["root_out"])]);
     const g = buildRecipeGraph([tgt("root_out")], p);
     expect([...g.nodes.keys()]).toEqual(["root"]);
     expect(g.outgoing.get("root")).toEqual([]);
@@ -66,7 +69,7 @@ describe("buildRecipeGraph", () => {
 
   it("walks a linear chain upstream", () => {
     const p = pack([
-      makeRecipe("a", [], ["x"]),
+      makeRecipe("a", ["feed"], ["x"]),
       makeRecipe("b", ["x"], ["y"]),
       makeRecipe("c", ["y"], ["z"]),
     ]);
@@ -78,8 +81,8 @@ describe("buildRecipeGraph", () => {
 
   it("selects multi-producer item by lex-min recipeId", () => {
     const p = pack([
-      makeRecipe("alt_z", [], ["z"]),
-      makeRecipe("aaa_z", [], ["z"]),
+      makeRecipe("alt_z", ["feed"], ["z"]),
+      makeRecipe("aaa_z", ["feed"], ["z"]),
       makeRecipe("consumer", ["z"], ["out"]),
     ]);
     const g = buildRecipeGraph([tgt("out")], p);
@@ -89,8 +92,8 @@ describe("buildRecipeGraph", () => {
 
   it("excludes cost === -1 producers of consumed items", () => {
     const p = pack([
-      makeRecipe("clean_z", [], ["z"], { cost: -1 } as Partial<Recipe>),
-      makeRecipe("normal_z", [], ["z"]),
+      makeRecipe("clean_z", ["feed"], ["z"], { cost: -1 } as Partial<Recipe>),
+      makeRecipe("normal_z", ["feed"], ["z"]),
       makeRecipe("consumer", ["z"], ["out"]),
     ]);
     const g = buildRecipeGraph([tgt("out")], p);
@@ -100,8 +103,8 @@ describe("buildRecipeGraph", () => {
 
   it("never seeds an excluded producer of the target item", () => {
     const p = pack([
-      makeRecipe("clean_z", [], ["z"], { cost: -1 } as Partial<Recipe>),
-      makeRecipe("normal_z", [], ["z"]),
+      makeRecipe("clean_z", ["feed"], ["z"], { cost: -1 } as Partial<Recipe>),
+      makeRecipe("normal_z", ["feed"], ["z"]),
     ]);
     const g = buildRecipeGraph([tgt("z")], p);
     expect(g.nodes.has("normal_z")).toBe(true);
@@ -111,7 +114,7 @@ describe("buildRecipeGraph", () => {
   it("seeds nothing for a target item with no producer", () => {
     // The demand surfaces as an LP deficit instead of a graph-layer throw;
     // plan validation rejects unknown targets before they reach the solver.
-    const p = pack([makeRecipe("a", [], ["x"])]);
+    const p = pack([makeRecipe("a", ["feed"], ["x"])]);
     const g = buildRecipeGraph([tgt("nonexistent")], p);
     expect(g.nodes.size).toBe(0);
   });
