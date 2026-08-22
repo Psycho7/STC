@@ -36,6 +36,17 @@ function inputProps(selected?: boolean) {
   } as unknown as ComponentProps<typeof ProductNode>;
 }
 
+function outputProps() {
+  return {
+    data: {
+      kind: "outputProduct",
+      itemId: "ore",
+      rate: { num: "2", denom: "1" },
+      flavor: "target",
+    },
+  } as unknown as ComponentProps<typeof ProductNode>;
+}
+
 // React Flow passes the wrapper's `selected` flag as a NodeProp; the inner
 // .product-node must forward it so the card gets a visible selection treatment.
 test("selected prop forwards the selected class onto the card", () => {
@@ -70,4 +81,12 @@ test("pn-rate unit is localized in zh", () => {
   expect(rate).not.toBeNull();
   expect(rate!.textContent).toContain("/分");
   expect(rate!.textContent).not.toMatch(/min/i);
+});
+
+test("pn-kind caption unit is localized in zh", () => {
+  const { container } = wrap(<ProductNode {...outputProps()} />, "zh");
+  const kind = container.querySelector(".pn-kind");
+  expect(kind).not.toBeNull();
+  expect(kind!.textContent).toContain("/分");
+  expect(kind!.textContent).not.toMatch(/min/i);
 });
