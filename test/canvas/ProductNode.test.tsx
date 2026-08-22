@@ -148,7 +148,7 @@ describe("ProductNode", () => {
       [makeItem("copper_ore", true)],
     );
     const kind = container.querySelector(".pn-kind");
-    expect(kind?.textContent).toBe("In · raw");
+    expect(kind?.textContent).toBe("In ·\u00A0raw");
   });
 
   it("renders the pn-kind caption for a target output via buildPnKind", () => {
@@ -162,7 +162,7 @@ describe("ProductNode", () => {
       [makeItem("copper_nugget", false)],
     );
     const kind = container.querySelector(".pn-kind");
-    expect(kind?.textContent).toBe("Out · target · 120/min");
+    expect(kind?.textContent).toBe("Out ·\u00A0target ·\u00A0120/min");
   });
 
   it("renders the realized rate primary row (no uncapped literal, no cap chip) when rateCap is absent", () => {
@@ -221,7 +221,9 @@ describe("ProductNode", () => {
     );
     const node = container.querySelector(".product-node");
     expect(node?.classList.contains("tap")).toBe(true);
-    expect(container.querySelector(".pn-kind")?.textContent).toBe("In · tap");
+    expect(container.querySelector(".pn-kind")?.textContent).toBe(
+      "In ·\u00A0tap",
+    );
     expect(container.querySelector(".pn-rate__of")?.textContent).toBe(
       "of 270/min",
     );
@@ -239,7 +241,9 @@ describe("ProductNode", () => {
     expect(
       container.querySelector(".product-node")?.classList.contains("tap"),
     ).toBe(false);
-    expect(container.querySelector(".pn-kind")?.textContent).toBe("In · raw");
+    expect(container.querySelector(".pn-kind")?.textContent).toBe(
+      "In ·\u00A0raw",
+    );
     expect(container.querySelector(".pn-rate__of")).toBeNull();
   });
 

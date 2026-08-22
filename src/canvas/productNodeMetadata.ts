@@ -45,6 +45,9 @@ export function buildRealizedRateByItem(
 // "surplus"), and the rate is formatRationalPerMin(rate) followed by the
 // locale's canvas.rate.unit string.
 //
+// The NBSP after each middle dot keeps a wrapped caption from stranding the
+// dot at line end; a break lands before the dot instead.
+//
 // `overrides` is accepted only to keep the signature stable for future captions
 // built from per-item override metadata; the helper does not read it today.
 export function buildPnKind(
@@ -61,12 +64,12 @@ export function buildPnKind(
           ? "product.class.raw"
           : "product.class.import",
     );
-    return `${i18n.t("product.dir.in")} · ${classification}`;
+    return `${i18n.t("product.dir.in")} ·\u00A0${classification}`;
   }
   const flavor = i18n.t(
     data.flavor === "surplus"
       ? "product.flavor.surplus"
       : "product.flavor.target",
   );
-  return `${i18n.t("product.dir.out")} · ${flavor} · ${formatRationalPerMin(data.rate)}${i18n.t("canvas.rate.unit")}`;
+  return `${i18n.t("product.dir.out")} ·\u00A0${flavor} ·\u00A0${formatRationalPerMin(data.rate)}${i18n.t("canvas.rate.unit")}`;
 }
