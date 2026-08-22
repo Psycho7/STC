@@ -31,14 +31,16 @@ function rankProducers(
   }
 
   // Raw-distance ranking: depthToRecipe[r] is one more than the deepest of r's
-  // inputs, with excluded and cycle-only recipes left at POSITIVE_INFINITY.
+  // inputs, with planter outputs seeded at 0 so seed-loop members rank too.
+  // Excluded recipes and cycles no planter breaks open stay at
+  // POSITIVE_INFINITY.
   const depthToRecipe = computeRecipeDepths(pack);
 
   // Order each item's candidate producers by (depth, id) ascending so the
-  // shallowest acyclic recipe comes first. Excluded recipes (no depthToRecipe
-  // entry) and cycle-only ones (POSITIVE_INFINITY) sink to the back, so the
-  // exclusion filter drops the excluded ones and a cycle-only recipe only wins
-  // when nothing acyclic exists.
+  // shallowest recipe comes first. Excluded recipes (no depthToRecipe entry)
+  // and unrankable ones (POSITIVE_INFINITY) sink to the back, so the exclusion
+  // filter drops the excluded ones and an unrankable recipe only wins when
+  // nothing ranked exists.
   for (const arr of producersByItem.values()) {
     arr.sort((a, b) => {
       const da = depthToRecipe.get(a) ?? Number.POSITIVE_INFINITY;

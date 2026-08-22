@@ -12,10 +12,10 @@ type Props = {
   disabledIds: ReadonlySet<string>;
   // The item of the row being edited, highlighted as selected.
   selectedId?: string | undefined;
-  // Availability tier per item id. POSITIVE_INFINITY marks items the tier
-  // fixpoint cannot rank (no non-excluded producer, or loops with no external
-  // finite feeder); they group under the unranked bucket. Computed once by the
-  // caller so the popup stays presentational.
+  // Availability depth per item id. POSITIVE_INFINITY marks items the depth
+  // fixpoint cannot rank (no non-excluded producer, or members of a cycle no
+  // planter breaks open); they group under the unranked bucket. Computed once
+  // by the caller so the popup stays presentational.
   tierByItemId: Map<string, number>;
   onPick: (itemId: string) => void;
   onClose: () => void;

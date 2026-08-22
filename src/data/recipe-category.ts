@@ -16,6 +16,15 @@ export function isExcludedProducer(recipe: Recipe): boolean {
   return isInputSupplyRecipe(recipe) || recipe.cost === -1;
 }
 
+// A planter recipe grows a crop inside a self-sustaining seed loop (the seed
+// collector recovers the seed from the crop), so once a planter exists the crop
+// is gatherable like a raw material. The depth ranking uses this to seed
+// planter outputs at depth 0; without it the seed loops keep most of the pack
+// unranked. Matched by machine prefix so future planter tiers stay covered.
+export function isPlanterRecipe(recipe: Recipe): boolean {
+  return (recipe.producers ?? []).some((p) => p.startsWith("planter"));
+}
+
 // A sink recipe consumes items and produces nothing back. A target rate is
 // undefined for such a recipe, so it can never be a target. The empty output
 // list covers both the cost === -1 liquid_cleaner_1 waste sinks and the
