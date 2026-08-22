@@ -61,3 +61,13 @@ test("input caption localizes the direction and classification in zh", () => {
   expect(kind).toContain("原料");
   expect(kind).not.toMatch(/In|raw/);
 });
+
+// The rate unit on the boundary card is canvas chrome, so it must come from the
+// i18n table rather than a hardcoded English suffix.
+test("pn-rate unit is localized in zh", () => {
+  const { container } = wrap(<ProductNode {...inputProps()} />, "zh");
+  const rate = container.querySelector(".pn-rate");
+  expect(rate).not.toBeNull();
+  expect(rate!.textContent).toContain("/分");
+  expect(rate!.textContent).not.toMatch(/min/i);
+});
