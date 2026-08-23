@@ -3,7 +3,7 @@
 Design for replacing the INPUT SUPPLY item dropdown with the same popup the
 targets panel already uses. Phase 1 of a two-phase split; phase 2 (a
 user-controlled recipe blocklist) gets its own spec and branch. Rulings were
-made on 2026-08-23 and revised four times the same day against four rounds of
+made on 2026-08-23 and revised five times the same day against five rounds of
 two-auditor review.
 
 ## Context
@@ -81,7 +81,7 @@ cleanup.
 | `items` | all of `pack.items` | same |
 | `tierByItemId` | `computeItemDepths(pack)`, memoized per pack | same |
 | `disabledIds` | the other override rows' items | every override item, plus every auto-row item |
-| `disabledHint` | omitted | "already in the panel, edit its row instead" |
+| `disabledHint` | omitted | `inputs.picker.listed` (copy below) |
 | `selectedId` | the row's own item | `undefined` |
 | `onPick` | own item returns early from the swap and arms nothing, then closes; otherwise `handleItemChange` swaps, carrying any rate, and arms `{ itemId, kind: "trigger" }` | appends `{ itemId }` and arms `{ itemId, kind: "rate" }`, then closes |
 | `onClose` | clears `pickerFor`, refocuses the trigger | same |
@@ -158,11 +158,19 @@ and the stale token is discarded when the next pick arms a new one.
 
 Focus lands on an input whose accessible name is the generic
 `inputs.rate.label`, identical across rows, so on its own a screen reader
-announces "Rate, edit" with no indication of which item it caps. The rate
-input therefore gains an `aria-describedby` pointing at its row's item-name
-element, joined with the existing invalid-rate message id when that is
-present. The accessible *name* is untouched, so every `getAllByLabelText`
-query keeps resolving.
+announces "Rate, edit" with no indication of which item it caps. Every rate
+input, on auto-rows and override rows alike, therefore gains an
+`aria-describedby` pointing at its row's item name, joined with the existing
+invalid-rate message id when that is present. The accessible *name* is
+untouched, so every `getAllByLabelText` query keeps resolving.
+
+The id must sit on a dedicated name node, never on the trigger button. A
+description resolves to the referenced element's accessible *name*, and the
+trigger's `aria-label` is the generic `inputs.item.label`, so pointing at the
+button would announce "Rate, edit, Item" and silently reinstate the problem
+this fixes. Override rows wrap the trigger's visible text in a
+`<span id={`i-name-${itemId}`}>`; auto-rows put the same id on their existing
+`.b-name` span.
 
 ### Picker state
 
@@ -201,6 +209,20 @@ translates them and passes them down; every existing `picker.` string is
 translated inside `ItemPickerPopup` itself. Everything else the design needs
 already exists in en, ja, ru and zh.
 
+Both follow the neighbours' conventions: sentence case, no trailing period,
+spaced em dash as in `inputs.empty`.
+
+```
+en  inputs.add.exhausted  All items already have a row
+    inputs.picker.listed  Dimmed items already have a row in the panel — edit that row instead
+zh  inputs.add.exhausted  所有物品均已添加
+    inputs.picker.listed  灰显的物品已在面板中 — 请直接编辑对应行
+ja  inputs.add.exhausted  すべてのアイテムが既に追加されています
+    inputs.picker.listed  グレー表示のアイテムは既にパネルにあります — 対応する行を直接編集してください
+ru  inputs.add.exhausted  Все предметы уже объявлены
+    inputs.picker.listed  Затемнённые предметы уже есть в панели — редактируйте их строки
+```
+
 ### Commit ordering
 
 Clicking any trigger blurs a dirty rate field first, so `commitFromLocal(...,
@@ -228,13 +250,20 @@ commits never bump `planEpoch`, so no remount discards local edit state.
   type-ahead outside that field, so Tab walks all 113 tiles and then leaves
   the `aria-modal` dialog. The rewritten comment records the gap rather than
   implying parity.
-- The exhausted add button needs its own rules. Today `.b-add:disabled` and
-  `.ak-app-shell button:disabled` match `:disabled` only, and `.b-add:hover`
-  is unconditional, so an `aria-disabled` button would render at full opacity
-  with a pointer cursor and still glow on hover. Add `[aria-disabled="true"]`
-  to the disabled rule's selector and guard the hover rule with
-  `:not([aria-disabled="true"])`. `.b-add:disabled` then has no consumer and
-  goes.
+- The exhausted add button needs its own rules, and specificity decides all
+  of them. The scoped `.b-add:disabled` rule is **extended, not deleted**: its
+  selector gains `, ... .b-add[aria-disabled="true"]`. A generic
+  `.ak-app-shell button[aria-disabled="true"]` would not do, because the base
+  `.ak-app-shell [data-testid="side-panel"] .b-add` rule outranks it and the
+  button would keep `cursor: pointer`. Only the equally scoped rule wins.
+  (Nothing sets `disabled` on a `.b-add` today, so that half of the selector
+  is dead either way; it costs nothing to keep.)
+- Two hover rules must be guarded, not one. Scoped `.b-add:hover` gains
+  `:not([aria-disabled="true"])` - but that unmasks the generic
+  `.ak-app-shell button:hover:not(:disabled)`, which outranks the base
+  `.b-add` rule and would repaint the inert button's dashed-lime face solid.
+  Guard that one too, or declare `background` and `border-color` in the
+  extended scoped rule above.
 - The `disabledHint` line needs a rule in the `.recipe-picker-*` family,
   sitting between `.recipe-picker-search` and `.recipe-picker-body`.
 
