@@ -5,7 +5,9 @@
 // Two coincident chips read as one, and on a bus lane the surviving chip lied
 // about the flow. deconflictChipAnchors runs last in the render pipeline
 // (after routeBusEdges, assignEntryColumns, and assignBendColumns, so it sees
-// the final laneY, entryX, bendX, and busChipX) and threads chip-nudge offsets
+// the final laneY, entryX and bendX; busChipX it takes as routeBusEdges left it
+// and REWRITES, clamping each member's slot into its own resolved lane run)
+// and threads chip-nudge offsets
 // onto edge data through one shared collision set (the ClearanceField).
 //
 // Seating runs in EXPLICIT PHASES, in this order -- the ordering is
@@ -30,9 +32,13 @@
 // Escapes follow the ratified priority order: chip-vs-chip and chip-vs-CARD
 // clearance are HARD invariants; staying on the own polyline and clearing
 // foreign flow lines are preferences that yield when the hard pair forces an
-// escape. Keeping off a junction dot (#50) is the WEAKEST preference of all: it
-// chooses between seats the tiers above already rank equal, and never costs a
-// chip its tier, its line, or a foreign-line clearance.
+// escape. Keeping off a junction dot (#50) is a SOFT preference throughout: it
+// never costs a chip its tier, its line, or a foreign-line clearance. Where it
+// ranks against the other soft terms depends on the tier, and the two orders
+// differ: within tier 1 the dot count outranks own-card intrusion (measured --
+// ranking intrusion first buries more split dots for a handful of shallow card
+// laps), while in the graze scorer the dot is the LAST tiebreak, under
+// crossings, then intrusion, then binding.
 
 import type { Edge } from "@xyflow/react";
 
@@ -118,7 +124,9 @@ const CHIP_CHROME_PX =
 const CHIP_GLYPH_PX = 7.5;
 
 // Upper bound on the localized rate unit a rate chip appends, in px, over ALL
-// FOUR locales: "/min" (en), "/мин" (ru), "/分" (zh and ja). The layout pass is
+// FOUR locales: the en slash-plus-three-letters "/min", the ru form of the same
+// shape (a slash plus three Cyrillic letters), and the zh/ja form (a slash plus
+// one Han glyph, which stands for the whole word). The layout pass is
 // deliberately locale-BLIND -- layout.ts records the standing invariant that ids
 // resolve to names at render time so switching locale never forces a relayout,
 // and this module imports no i18n -- so the seat reserves the WIDEST unit in
@@ -1295,7 +1303,11 @@ export function seatRateChip(
   // far as its own box still holds the line.
   // Built once and walked twice: here for a fully clear step, and again below
   // the graze scorer for a scored one where nothing is fully clear. Both walks
-  // take the SAME reach; there is no longer an asymmetry between them.
+  // take the SAME reach; there is no longer an asymmetry between them. One edge
+  // the shared build does move: the last step is clamped FLUSH to sidestepMax,
+  // so tier 1b' now sees a candidate at exactly the bound where its own
+  // scored-step bound used to filter that offset out. No corpus seat differs on
+  // it today.
   const sidestepMax = Math.min(SIDESTEP_MAX, halfW) / 2;
   const sidestepXs: number[] = [];
   for (let step = 1; ; step++) {

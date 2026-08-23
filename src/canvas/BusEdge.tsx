@@ -166,8 +166,9 @@ export default function BusEdge({
       : "";
 
   // Rise chip: each member draws its own, showing that member's share. Its x is
-  // the trunk's evenly distributed lane slot (busChipX) so members feeding the
-  // same layer spread along the lane instead of stacking at a shared rise vertex;
+  // the lane slot (busChipX): a trunk-wide spread so members feeding the same
+  // layer do not stack at a shared rise vertex, clamped by the seating pass into
+  // this member's own resolved run;
   // it falls back to the geometric rise column when the slot is absent (a
   // manually built edge). The chip sits on the lane at laneY. A fan-out member
   // flagged fanoutBranchHidden draws no branch chip at all: the seating pass
@@ -243,7 +244,8 @@ export default function BusEdge({
         }`
       : "";
   // Per-member chip anchor: fan-out branch-leg midpoint (plus its offset), or the
-  // lane rise slot (busChipX, the trunk's evenly distributed lane x, falling back
+  // lane rise slot (busChipX, the trunk-wide lane x clamped by the seating pass
+  // into this member's own resolved run, falling back
   // to the geometric rise column on a manually built edge or a lone long-run
   // member, whose slot routeBusEdges deliberately omits so this chip sits at the
   // consumer end) at laneY plus its lane nudge.

@@ -108,8 +108,8 @@ export const SCENARIOS: Scenario[] = [
   // The three below reproduce plans from the 2026-08-22 render exam, added so
   // the chip-seating ratchets cover the v1.4 recipes that exposed the seating
   // defects (script chains, the coupon web, and the gas web). All three take
-  // the exact-match budget: each re-rendered bit-identically to its golden on
-  // repeat runs, solo and in a full-corpus batch.
+  // the exact-match budget, whose criterion is that the plan renders
+  // bit-identically to its golden -- solo and in a full-corpus batch.
   {
     id: "script43",
     title: "script43",

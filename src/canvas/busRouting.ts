@@ -106,9 +106,12 @@ export type LaneBusEdgeData = BusAggregate & {
   // the union.
   fanout?: false;
   laneY: number;
-  // Lane x for this member's rise chip, assigned by routeBusEdges so a trunk's
-  // rise chips spread evenly along the lane instead of stacking near their rise
-  // vertices. BusEdge anchors the rise chip at (busChipX, laneY). Absent on
+  // Lane x for this member's rise chip. routeBusEdges assigns a trunk-wide
+  // spread so a trunk's rise chips do not stack near their rise vertices, and
+  // deconflictChipAnchors then REWRITES each member's slot, clamping it into
+  // that member's own resolved run -- so the value that reaches the render is a
+  // per-member in-run slot, not the even spread.
+  // BusEdge anchors the rise chip at (busChipX, laneY). Absent on
   // manually built edges AND, deliberately, on a lone member riding a long run
   // (extent > BUS_LONG_RUN_THRESHOLD): both fall back to the geometric rise
   // column, which for the long lone run puts the chip at the consumer end (#32).

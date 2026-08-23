@@ -426,7 +426,7 @@ test.describe("DOM geometry audit", () => {
 // WHAT THIS CLOSE-OUT DOES NOT CLAIM.
 //   1. F1 is NOT closed. The deep on-card class ends at 18 -- an enumerated,
 //      availability-bound residue under the realistic seat box -- and its
-//      instances are named in CARD_INTRUSION_BASELINE's note.
+//      instances are enumerable from CARD_INTRUSION_BASELINE's note.
 //   2. The coincidence-gated sidestep added for braid separation fired on ZERO
 //      corpus seats, so it produced no Z2 movement here. Its value against a
 //      braid is untested by this corpus.
@@ -578,9 +578,9 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // First recordings for the three campaign scenarios: script43 13,
 // coupon-web 3, gas-web 20. Same family as the residue above -- long gas-tap
 // and surplus columns running the full height of the plan pass under label
-// chips seated on other edges' corridor legs. On script43 and gas-web a single
-// tap column accounts for several hits at once (gas-web e:24 crosses four
-// chips), so the counts track a handful of columns, not a spread of seats.
+// chips seated on other edges' corridor legs. On gas-web a single tap column
+// accounts for several hits at once (e:24 crosses four chips), so the counts
+// track a handful of columns, not a spread of seats.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 3,
@@ -1356,12 +1356,23 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
 // of this corpus -- the seating cascade only leaves the pitch when no seat
 // within it clears a placed chip, and that escape hatch fires nowhere here. A
 // future escape means a chip past one pitch, which is exactly what this counter
-// should surface. The x-overflows measure 7 (default 1, battery5 2,
+// should surface -- with one blind spot: the test is "shares NO vertical extent
+// with the band rect", so it alarms an escape off an OUTER lane, while a chip on
+// an INTERIOR lane of a multi-lane band can be lifted two pitches and still land
+// inside that band's rect, unregistered.
+// The x-overflows measure 7 (default 1, battery5 2,
 // battery5-xiranite 2, multi6 2) and did NOT move with the pad: measured before
 // and after the same build, cell for cell. They are one higher than the 6 noted
 // above because multi6 gained one at the rise-slot clamp, which was never
 // re-measured for this counter. The pad is a y-axis change and BAND_X_MARGIN is
 // untouched, so this stays a band-width question, reported and not ratcheted.
+// The magnitudes across the campaign reconcile too, though they read as if they
+// grew: the one recorded before the campaign (multi6 e:3, 25 past the band's
+// right edge) was measured in exam-camera SCREEN px at zoom 0.75, about 33 world
+// units, and multi6 also GAINED an overflow at the T3 rise-slot clamp. So the
+// ~45 world units that chip overhangs today is a unit difference plus growth
+// already recorded at the clamp, not a new drift. Either way the counter tracks
+// the COUNT, so no magnitude moves it.
 const OUTSIDE_BAND_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
