@@ -14,6 +14,7 @@ import type { RecipePack, Recipe as StcRecipe } from "@aef/schema";
 import type { ItemTarget } from "../../src/data/targets";
 import type { ItemOverride } from "../../src/data/plan";
 import { effectiveSupply } from "../../src/solver/effectiveSupply";
+import { isExtractionRecipe } from "../../src/data/recipe-category";
 
 import {
   AdjustedRecipe,
@@ -132,8 +133,13 @@ export function buildAdapterInput(input: AdapterInput): AdapterOutput {
   freeItemIds.add(DOMAIN_KEY_TUNDRA);
 
   // 2. Build the adjusted-recipe map + the producer/consumer index maps.
+  //    Extraction recipes are dropped exactly as solveLp drops them. Leaving a
+  //    miner in the oracle's model would let GLPK cover a capped raw item's
+  //    shortfall by mining it, and STC's honest deficit would then read as a
+  //    cross-solver disagreement.
+  const modelRecipes = pack.recipes.filter((r) => !isExtractionRecipe(r));
   const adjustedRecipe: Record<string, AdjustedRecipe> = {};
-  for (const r of pack.recipes) adjustedRecipe[r.id] = toAdjustedRecipe(r);
+  for (const r of modelRecipes) adjustedRecipe[r.id] = toAdjustedRecipe(r);
 
   const itemIds = pack.items.map((i) => i.id);
   // Guarantee the hardcoded boundary item exists in the id list.
@@ -155,7 +161,7 @@ export function buildAdapterInput(input: AdapterInput): AdapterOutput {
     itemAvailableIoRecipeIds[id] = [];
   }
 
-  for (const r of pack.recipes) {
+  for (const r of modelRecipes) {
     const adj = adjustedRecipe[r.id]!;
     // `produces` is the precise "nets positive" set from finalizeRecipe; use it
     // so a catalytic in==out item is not miscounted as a producer.

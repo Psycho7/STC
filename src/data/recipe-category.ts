@@ -8,12 +8,32 @@ export function isInputSupplyRecipe(recipe: Recipe): boolean {
   return recipe.category === "__domain_transfer";
 }
 
-// Recipes that pickProducer should never rank as producers. That covers the
-// input-supply recipes plus anything carrying the cost === -1 sentinel, which
-// the recipe pack uses to mean "skip me by default" (today, the liquid_cleaner_1
-// waste sinks).
-export function isExcludedProducer(recipe: Recipe): boolean {
+// An extraction recipe consumes nothing and pulls a raw material out of the
+// ground: the 7 miner and pump recipes. A plan never builds one. Raw materials
+// arrive over the boundary as external supply, so an extractor is supply
+// metadata the same way a cross-domain transfer is, not a production step.
+export function isExtractionRecipe(recipe: Recipe): boolean {
+  return recipe.in.length === 0;
+}
+
+// Producers the LP may still fund - at big-M cost, when nothing else covers a
+// demand - but that the render never draws: the input-supply recipes plus
+// anything carrying the cost === -1 sentinel, which the recipe pack uses to
+// mean "skip me by default" (today, the liquid_cleaner_1 waste sinks). Their
+// absence from the logical graph is sanctioned rather than a defect, which is
+// what checkRepresentable keys on. Extraction recipes are deliberately NOT
+// here: they get no LP variable at all, so a positive rate on one is a real
+// defect and must stay reportable.
+export function isSanctionedAbsentProducer(recipe: Recipe): boolean {
   return isInputSupplyRecipe(recipe) || recipe.cost === -1;
+}
+
+// Recipes that pickProducer should never rank as producers: the sanctioned-
+// absent set plus the extractors. This is the union of both enforcement
+// strengths, so membership means "never walked or ranked" and nothing more -
+// what the LP charges a member is a separate question.
+export function isExcludedProducer(recipe: Recipe): boolean {
+  return isSanctionedAbsentProducer(recipe) || isExtractionRecipe(recipe);
 }
 
 // A planter recipe grows a crop inside a self-sustaining seed loop (the seed

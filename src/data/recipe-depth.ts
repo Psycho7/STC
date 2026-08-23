@@ -10,7 +10,8 @@ import { isExcludedProducer, isPlanterRecipe } from "./recipe-category";
 // pack nothing stays at POSITIVE_INFINITY. Excluded producers get no entry and
 // never feed either depth, so anything reachable only through an excluded
 // producer (or a cycle no planter breaks open) stays at POSITIVE_INFINITY.
-// Zero-input recipes are depth 1.
+// Extraction recipes are excluded producers, so they get no depth entry; the
+// raw items they would have ranked are already seeded at 0.
 function computeDepths(pack: RecipePack): {
   depthToRecipe: Map<string, number>;
   depthToItem: Map<string, number>;
@@ -52,11 +53,6 @@ function computeDepths(pack: RecipePack): {
         Number.POSITIVE_INFINITY
       )
         continue;
-      if (r.in.length === 0) {
-        depthToRecipe.set(r.id, 1);
-        changed = true;
-        continue;
-      }
       let maxIn = 0;
       let reachable = true;
       for (const inp of r.in) {

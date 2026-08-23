@@ -51,12 +51,14 @@ describe("computeRecipeDepths", () => {
     expect(depths.get("r_b")).toBe(2);
   });
 
-  it("gives a zero-input recipe depth 1", () => {
+  it("gives a zero-input recipe no depth at all", () => {
+    // A zero-input recipe extracts rather than produces, so it is an excluded
+    // producer and never ranks as a candidate.
     const pack = mkPack(
       [{ id: "z" }],
       [{ id: "r_z", in: [], out: [{ item: "z", qty: 1 }] }],
     );
-    expect(computeRecipeDepths(pack).get("r_z")).toBe(1);
+    expect(computeRecipeDepths(pack).has("r_z")).toBe(false);
   });
 
   it("takes the max over input depths (raw mixed with a deep input)", () => {

@@ -862,3 +862,85 @@ describe("solveLp - bounded supply draw", () => {
     expect(zeroCap.softFeasible).toBe(false);
   });
 });
+
+// An extraction recipe consumes nothing - a miner or a pump. A plan imports
+// raw material over the boundary instead of building one, so no solution may
+// run one at any rate. The ban is structural, not a cost preference: it holds
+// even when running the extractor is the only way to meet demand, in which
+// case the shortfall must surface as a deficit.
+//
+// Only a raw item with FINITE supply reaches this. An uncapped raw item gets
+// no mass-balance row at all, so its extractor sits at zero whatever the cost
+// model says; a rate cap or a `plan: true` override is what makes the row
+// exist and the miner attractive.
+describe("solveLp - extraction recipes", () => {
+  // mine: -> 1 M (an extractor). a: 1 M -> 1 F. M is raw, so only an override
+  // gives it a mass-balance row.
+  const minePack = makePack(
+    [
+      { id: "mine", time: 1, in: {}, out: { M: 1 } },
+      { id: "a", time: 1, in: { M: 1 }, out: { F: 1 } },
+    ],
+    [
+      { id: "F", stack: 1 },
+      { id: "M", raw: true, stack: 1 },
+    ],
+  );
+  const mineTargets: ItemTarget[] = [
+    { itemId: "F", ratePerSec: { num: "4", denom: "1" } },
+  ];
+
+  it("reports a deficit rather than mining the gap above a rate cap", () => {
+    const overrides: ItemOverride[] = [
+      { itemId: "M", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const result = solveLp({
+      targets: mineTargets,
+      pack: minePack,
+      itemOverrides: overrides,
+    });
+    expect(result.status).toBe("feasible");
+    expect(result.rates.has("mine")).toBe(false);
+    // The cap supplies 1/s of the 4/s the target needs; the rest is unmet.
+    expect(result.draws.get("M")!.equals(1)).toBe(true);
+    expect(result.softFeasible).toBe(false);
+    expect(result.deficit.get("F")!.equals(3)).toBe(true);
+    expectExactlyBalanced(result, minePack, mineTargets, overrides);
+  });
+
+  it("leaves the extractor out under a plan:true override too", () => {
+    const result = solveLp({
+      targets: mineTargets,
+      pack: minePack,
+      itemOverrides: [{ itemId: "M", plan: true }],
+    });
+    expect(result.rates.has("mine")).toBe(false);
+    expect(result.softFeasible).toBe(false);
+  });
+
+  // End-to-end pin of the reported case on the shipped pack: capping the water
+  // the plan drinks used to run the liquid_water pump at 3/s to cover the rest.
+  // `in.length === 0` is spelled out rather than calling isExtractionRecipe so
+  // the assertion tracks the rule the ban owes its users, not its own
+  // implementation.
+  it("runs no input-less recipe of the real pack", () => {
+    const extractors = pack.recipes
+      .filter((r) => r.in.length === 0)
+      .map((r) => r.id);
+    // Guards the premise: a pack with no extractor would pass vacuously.
+    expect(extractors.length).toBeGreaterThan(0);
+    const result = solveLp({
+      targets: [
+        { itemId: "copper_bottle", ratePerSec: { num: "2", denom: "1" } },
+      ],
+      pack,
+      itemOverrides: [
+        { itemId: "liquid_water", ratePerSec: { num: "1", denom: "1" } },
+      ],
+    });
+    expect([...result.rates.keys()].filter((id) => extractors.includes(id))).toEqual([]);
+    // The pack has other water sources, so the plan reroutes rather than going
+    // short: banning the pump is not the same as breaking a plan.
+    expect(result.softFeasible).toBe(true);
+  });
+});

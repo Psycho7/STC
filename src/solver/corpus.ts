@@ -820,14 +820,15 @@ export const byproductOnlyTargetGolden = {
 };
 
 // ---------------------------------------------------------------------------
-// Scenario 13: raw item target via a miner recipe (miner runs)
+// Scenario 13: item target whose only producer is a miner (nothing runs)
 //
-// "ore" is modeled NON-raw (raw:false) and produced by r_miner from nothing, so
-// it is NOT boundary-drawable: the LP must run the miner to net-export it rather
-// than pull it free from the boundary (that draw-satisfied case is Scenario
-// 14/15). Targeting ore runs the miner at the declared rate.
+// "ore" is modeled NON-raw (raw:false) and its only producer, r_miner, consumes
+// nothing. An extraction recipe never enters a solution, so the miner is absent
+// from the model entirely; non-raw ore is also not boundary-drawable (that
+// draw-satisfied case is Scenario 14/15), which leaves the demand unmet.
 //
-// ore demand 1/sec -> r_miner runs 1/sec. Objective = cost(r_miner) 1 = 1.
+// ore demand 1/sec -> nothing runs (status "empty"), deficit 1/sec. Objective
+// = DEFICIT_WEIGHT * 1 = 1e9.
 // ---------------------------------------------------------------------------
 export const rawItemTargetViaMiner = {
   pack: mkPack(
@@ -846,8 +847,11 @@ export const rawItemTargetViaMiner = {
 };
 
 export const rawItemTargetViaMinerGolden = {
-  objectiveValue: 1,
-  activeRecipes: ["r_miner"],
+  status: "empty",
+  softFeasible: false,
+  objectiveValue: 1e9,
+  activeRecipes: [] as string[],
+  deficit: 1,
 };
 
 // ---------------------------------------------------------------------------
@@ -879,11 +883,11 @@ export const freeBoundaryTargetGolden = {
 // ---------------------------------------------------------------------------
 // Scenario 15: free-boundary target that ALSO has a costly miner (draw wins)
 //
-// Same raw:true "ore" target, but now a miner r_mine (from nothing, cost 1)
-// could also produce it. The free boundary draw costs 0; running the miner
-// costs 1 and produces an unconstrained item (no row, no benefit), so the
-// cost-min LP keeps the miner idle and meets demand via the free draw. draw =
-// demand - net production = 1 - 0 = 1 (miner idle, net 0).
+// Same raw:true "ore" target, but now a miner r_mine could also produce it.
+// r_mine consumes nothing, so it is an extraction recipe and never reaches the
+// model at all; demand is met by the free boundary draw. draw = demand - net
+// production = 1 - 0 = 1 (miner absent, net 0). The pairing with Scenario 14
+// is what this pins: adding a miner to a free-boundary pack changes nothing.
 //
 // Nothing runs -> status "empty"; softFeasible true; draws{ore} = 1; deficit
 // empty. r_mine must NOT be active.
