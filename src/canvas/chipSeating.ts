@@ -821,6 +821,12 @@ const LAST_RESORT_CAP_STEPS = 200;
 // most that keeps the own line WITHIN the box (its edge flush to the line at the
 // cap), so the chip still reads as bound to its own leg while its box no longer
 // overlaps the neighbour.
+// This full reach belongs to the FULLY CLEAR step (tier 1c) alone, and only
+// because that tier is pre-existing and is reached solely when NO fully clear
+// on-line candidate exists -- a seat that sheds every foreign stroke buys the
+// flush step's risk back. The SCORED step (tier 1b') halves it: see the cap at
+// scoredStepMax, where the own line has to stay inside the box the chip PAINTS
+// at counter-scale 1, not the worst-case box it reserves.
 const SIDESTEP_PITCH = ENTRY_SLOT_PITCH;
 const SIDESTEP_MAX = CHIP_HALF_W_WIDE;
 
@@ -1224,20 +1230,30 @@ export function seatRateChip(
   // shed. Where the least-bad on-line candidate still has a foreign stroke
   // running alongside its own, no motion ALONG the line can help -- the two
   // strokes share the corridor for its whole length -- but a horizontal step
-  // can, by pushing the box off the neighbour while its far edge still holds
-  // the own line. So the same offsets are walked again under the HARD
-  // invariants only, scored on the same four terms, and one is taken only if it
-  // strictly beats the on-line seat: ties keep the chip on its line, which is
-  // the issue-#9 preference the graze tier exists to protect.
+  // can improve everything ranked AROUND the braid. So the same offsets are
+  // walked again under the HARD invariants only, scored on the same four terms,
+  // and one is taken only if it strictly beats the on-line seat: ties keep the
+  // chip on its line, which is the issue-#9 preference the graze tier exists to
+  // protect.
   //
-  // Two things this must not become. It is not nearest-first: shedding a stroke
-  // 3 units from the own line needs almost the whole reach, so the near offsets
-  // change nothing and only the far, nearly flush ones clear -- a first-hit
-  // walk would find none of them. And it is not ungated: the graze walk is
-  // already ~97 candidates against every segment of every edge, and a second
-  // pass over ~16 offsets on every chip that reaches this tier would multiply
-  // the cost of a synchronous layout pass for the chips that have nothing to
-  // gain. A braid detected by the walk above is what pays for the second pass.
+  // What the step cannot buy is the braid itself, and that is arithmetic, not
+  // ranking: a foreign stroke at gap g from the own line only leaves the box
+  // once the offset exceeds halfW - g, a braid has g <= BIND_NEAR (8) by
+  // definition, and the cap below is halfW / 2 -- 112 needed against 60 allowed
+  // for the 120 half-width. So the braid is the GATE, and what the step sheds
+  // is a FAR crossing the wide box straddles, own-card depth, or a buried
+  // junction dot.
+  //
+  // Two things this must not become. It is not nearest-first, and it keeps the
+  // BEST offset rather than the first improving one: the strokes a step can
+  // shed are the ones near the box's far edge, so a near offset often changes
+  // nothing while a farther one still inside the cap sheds more -- a walk that
+  // stopped at the first improvement would seat short of it. And it is not
+  // ungated: the graze walk is already ~97 candidates against every segment of
+  // every edge, and a second pass over ~16 offsets on every chip that reaches
+  // this tier would multiply the cost of a synchronous layout pass for the
+  // chips that have nothing to gain. A braid detected by the walk above is what
+  // pays for the second pass.
   //
   // Its reach is HALF the fully clear tier's, and that is not a taste call. The
   // reserved box is a worst case -- MAX_CHIP_SCALE, full label width -- while

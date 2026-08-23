@@ -295,6 +295,34 @@ describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine
     expect(field.foreignLineCrossings(BOX, "own", "U", OVER_BOX_BAND)).toBe(1);
   });
 
+  it("windows exactly the pairs it counts, and nothing where the boolean is clear", () => {
+    // The two invariants foreignLineWindows documents, on the same three-edge
+    // field the count test above uses: one window per counted (edge, segment)
+    // pair, and an empty array exactly when onForeignLine says clear. Both hold
+    // by construction (one shared predicate, one shared clip), which is
+    // precisely why a refactor could break them silently.
+    const field = makeClearanceField(
+      [
+        { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
+        { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
+        { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+      ],
+      [],
+    );
+    // BOX takes all three, FAR_BOX only the long horizontal, and the third box
+    // sits above every one of them so the empty case is exercised too.
+    const CLEAR_BOX = { x: 800, y: 20, halfW: 120, halfH: 24 };
+    for (const box of [BOX, FAR_BOX, CLEAR_BOX]) {
+      const windows = field.foreignLineWindows(box, "own", "T", AWAY_BAND);
+      expect(windows.length).toBe(
+        field.foreignLineCrossings(box, "own", "T", AWAY_BAND),
+      );
+      expect(windows.length === 0).toBe(
+        !field.onForeignLine(box, "own", "T", AWAY_BAND),
+      );
+    }
+  });
+
   it("agrees with onForeignLine on zero-vs-nonzero for identical arguments", () => {
     const field = makeClearanceField(
       [
@@ -914,6 +942,71 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       NO_BAND,
     );
     expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+  });
+
+  it("does not read a stroke that meets the own line and turns away as a braid", () => {
+    // The BOTH-ends half of the braid rule, which the nick fixture above cannot
+    // reach because its window is too short to be scored at all. Here the
+    // foreign stroke arrives along the corridor, touches the own leg, and peels
+    // off across the box: its window is long enough to score and ONE of its ends
+    // is 4 units from the own line, but the other is 100 units away, so the
+    // reader sees a stroke leaving, not a second lane under the chip. That is
+    // exactly the shape every transverse crossing has -- a stroke crossing the
+    // box leaves the own line by the half-height at its ends -- so relaxing the
+    // rule to either-end would make the braid term a near-copy of the crossing
+    // count and fire the gate almost everywhere.
+    //
+    // A 40-unit own leg leaves exactly one on-line candidate, and no step out to
+    // the full reach clears every stroke, so the graze tier owns the seat. With
+    // the gate correctly shut it stays at the anchor; read as a braid, the
+    // scored pass would step it 48 units off the line to shed the far vertical.
+    const field = makeClearanceField(
+      [
+        {
+          id: "peel",
+          flowKey: "a",
+          target: "other",
+          segs: [
+            // Approach: only its last 4 units are inside the box.
+            [-200, 300, 4, 480],
+            // Turn-away: wholly inside the box, one end on the leg, one across it.
+            [4, 480, 100, 520],
+          ],
+        },
+        // The crossing a step of 48 would shed, if the gate ever opened.
+        { id: "wide", flowKey: "b", target: "other", segs: [[-75, -100, -75, 1100]] },
+      ],
+      [],
+    );
+    const seat = seatRateChip(
+      field,
+      { pts: [[0, 480], [0, 520]], anchorX: 0, anchorY: 500 },
+      "own",
+      "t",
+      NO_EXEMPT,
+      NO_BAND,
+    );
+    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+  });
+
+  it("steps to the offset that sheds the most, not to the first that sheds any", () => {
+    // The scored pass keeps the BEST reachable offset. Two crossings sit at
+    // different depths in the box: the first step out (16) sheds the shallower
+    // one, and only the third (48, the last inside the half-reach cap) sheds
+    // both. A walk that stopped at the first strictly better offset would seat
+    // the chip at 16, still straddling a stroke it could have left behind.
+    const field = makeClearanceField(
+      [
+        vertical("braid", 5),
+        // Just past the box edge after one step out.
+        vertical("shallow", -110),
+        // Still inside the box until the third step.
+        vertical("deep", -80),
+      ],
+      [],
+    );
+    const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
+    expect(seat).toEqual({ dx: 48, dy: 0, tier: "sidestep" });
   });
 
   it("scores the fully clear step by own-card depth, not by nearness", () => {
