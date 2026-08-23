@@ -69,7 +69,7 @@ test("renders no hint line when the prop is absent", () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `bun run test -- src/components/ItemPickerPopup.test.tsx`
-Expected: FAIL, both new tests, `Unable to find an element by: [data-testid="picker-hint"]`.
+Expected: FAIL on the first test only, `Unable to find an element by: [data-testid="picker-hint"]`. The second test asserts the hint is absent, so it passes before the implementation exists; it is there to pin the absence once the prop lands.
 
 - [ ] **Step 3: Add the prop and render the line**
 
@@ -219,43 +219,39 @@ Row entry point only. Add still behaves as it does today; Task 5 changes it.
 In `test/components/InputsPanel.test.tsx`, replace the existing duplicate-selection test (the one calling `user.selectOptions(selects[1]!, "copper_ore")` and asserting `getByRole("alert")`) with:
 
 ```tsx
-test("a row trigger opens the picker with siblings disabled and its own item selected", async () => {
+it("a row trigger opens the picker with siblings disabled and its own item selected", async () => {
   const user = userEvent.setup();
   render(
-    <LocaleProvider locale="zh">
-      <InputsPanel
+    <InputsPanel
         itemOverrides={[{ itemId: "copper_ore" }, { itemId: "iron_ore" }]}
         onChange={() => {}}
         pack={fixturePack}
       />
-    </LocaleProvider>,
   );
   const triggers = screen.getAllByLabelText("物品");
   await user.click(triggers[0]!);
-  const own = document.querySelector('[data-item-id="copper_ore"]');
-  const sibling = document.querySelector('[data-item-id="iron_ore"]');
+  const own = pickerTile("copper_ore");
+  const sibling = pickerTile("iron_ore");
   expect(own).not.toBeNull();
-  expect((own as HTMLButtonElement).disabled).toBe(false);
+  expect(own!.disabled).toBe(false);
   expect(own!.className).toContain("selected");
-  expect((sibling as HTMLButtonElement).disabled).toBe(true);
+  expect(sibling!.disabled).toBe(true);
 });
 
-test("picking a different item swaps the row and keeps its rate", async () => {
+it("picking a different item swaps the row and keeps its rate", async () => {
   const user = userEvent.setup();
   const onChange = vi.fn();
   render(
-    <LocaleProvider locale="zh">
-      <InputsPanel
+    <InputsPanel
         itemOverrides={[
           { itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } },
         ]}
         onChange={onChange}
         pack={fixturePack}
       />
-    </LocaleProvider>,
   );
   await user.click(screen.getAllByLabelText("物品")[0]!);
-  await user.click(document.querySelector('[data-item-id="iron_ore"]')!);
+  await user.click(pickerTile("iron_ore")!);
   expect(onChange).toHaveBeenCalledTimes(1);
   const updater = onChange.mock.calls[0]![0] as (
     c: ItemOverride[],
@@ -264,32 +260,82 @@ test("picking a different item swaps the row and keeps its rate", async () => {
     .toEqual([{ itemId: "iron_ore", ratePerSec: { num: "1", denom: "2" } }]);
 });
 
-test("re-picking the row's own item commits nothing and raises no alert", async () => {
+it("a row popup leaves auto-row items enabled and shows no hint", async () => {
+  const user = userEvent.setup();
+  render(
+    <InputsPanel
+      itemOverrides={[{ itemId: "iron_ore" }]}
+      onChange={() => {}}
+      pack={fixturePack}
+      assumedRawItemIds={["copper_ore"]}
+    />,
+  );
+  // Open the picker from the override row, not from Add.
+  await user.click(screen.getAllByLabelText("物品")[0]!);
+  // copper_ore has an auto-row, but a row swap carries the row's rate onto it,
+  // so it is a live cap move and must stay pickable here. Only the Add popup
+  // dims it.
+  expect(pickerTile("copper_ore")!.disabled).toBe(false);
+  expect(screen.queryByTestId("picker-hint")).toBeNull();
+});
+
+it("Escape returns focus to the trigger that opened the picker", async () => {
+  const user = userEvent.setup();
+  render(
+    <InputsPanel
+      itemOverrides={[{ itemId: "copper_ore" }]}
+      onChange={() => {}}
+      pack={fixturePack}
+    />,
+  );
+  const trigger = screen.getAllByLabelText("物品")[0]!;
+  await user.click(trigger);
+  await user.keyboard("{Escape}");
+  expect(screen.queryByTestId("picker-tile")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+});
+
+it("re-picking the row's own item commits nothing and raises no alert", async () => {
   const user = userEvent.setup();
   const onChange = vi.fn();
   render(
-    <LocaleProvider locale="zh">
-      <InputsPanel
+    <InputsPanel
         itemOverrides={[{ itemId: "copper_ore" }]}
         onChange={onChange}
         pack={fixturePack}
       />
-    </LocaleProvider>,
   );
   await user.click(screen.getAllByLabelText("物品")[0]!);
-  await user.click(document.querySelector('[data-item-id="copper_ore"]')!);
+  await user.click(pickerTile("copper_ore")!);
   expect(onChange).not.toHaveBeenCalled();
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.queryByTestId("picker-tile")).toBeNull();
 });
 ```
 
-Conventions in this file, which the snippets above must follow: it uses `describe` / `it`, not bare `test`; it renders `<InputsPanel />` with no `LocaleProvider`, so the default `zh` locale applies and `getAllByLabelText("物品")` is the item query; and its fixture pack is `fixturePack`, whose items are `zinc`, `copper_ore` (raw), `copper_plate`, `iron_ore` (raw). Rewrite each snippet accordingly: `it(...)`, no provider wrapper, `pack={fixturePack}`. `ItemOverride` is already imported.
+**File conventions, and a required helper.** This block applies to every snippet in Tasks 3 to 6; it is repeated in each of those tasks because an engineer sees only their own task.
+
+- The file uses `describe` / `it`, never bare `test`. `vitest.config.ts` sets `globals: false`, so `test` is not even defined.
+- It renders `<InputsPanel />` bare, with no `LocaleProvider`. The default locale is `zh`, so the item query is `getAllByLabelText("物品")` and the rate query is `getAllByLabelText("速率")`.
+- Its fixture pack is `fixturePack`. Items: `zinc`, `copper_ore` (raw), `copper_plate`, `iron_ore` (raw).
+- `ItemOverride` is already imported. `useState` is NOT: add `import { useState } from "react";` the first time a snippet needs it.
+
+Add this helper once, near the top of the file. It is not optional. `data-item-id` appears on picker tiles, on auto-rows, and (after Task 3) on override rows. The popup portals to `document.body`, and Testing Library appends its container to `document.body` first, so a bare `[data-item-id="X"]` query returns the ROW, not the tile: `.disabled` reads `undefined` and `.className` reads `"b-row"`, and a correct implementation fails the assertion.
+
+```tsx
+function pickerTile(itemId: string): HTMLButtonElement | null {
+  return document.querySelector(
+    `[data-testid="picker-tile"][data-item-id="${itemId}"]`,
+  );
+}
+```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx`
-Expected: FAIL. `getAllByLabelText("物品")` still resolves (to the selects), but clicking one opens no dialog, so `[data-item-id=...]` is null.
+Expected: FAIL. `getAllByLabelText("物品")` still resolves, to the selects, but clicking one opens no dialog, so `pickerTile(...)` is null.
+
+Indentation in the snippets above may not match Prettier's output. `bun run format` is a CI gate, so run `bunx prettier --write` on the file before committing.
 
 - [ ] **Step 3: Add the imports and picker state**
 
@@ -304,7 +350,8 @@ import { ItemPickerPopup } from "./ItemPickerPopup";
 
 ```tsx
   // Availability depth per item id, used by the picker popup to group tiles.
-  // Every pack item is seeded, so nothing lands in the unranked bucket.
+  // computeItemDepths seeds every pack item; ones no recipe can reach land in
+  // the unranked bucket, which on the shipped pack is empty.
   const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
   // Which row the picker popup is open for, plus the trigger button that
   // opened it so focus can return there on close.
@@ -396,7 +443,9 @@ And add this function inside the component, after the `return (...)` block, mirr
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx`
-Expected: the three new tests PASS. Other tests in the file that use `selectOptions` will now fail; leave them for Task 8.
+Expected: the three new tests PASS, and the rest of this file stays green.
+
+This task does leave the repo red elsewhere, deliberately: `src/components/InputsPanel.test.tsx`'s UX-17 test reaches the item control through `getByRole("combobox")`, which no longer exists. That suite stays red from here until Task 8 retires it. Do not try to fix it inside this task.
 
 - [ ] **Step 8: Commit**
 
@@ -424,30 +473,32 @@ A committed swap unmounts the row, because rows are keyed by `itemId`, so `close
 Append to `test/components/InputsPanel.test.tsx`:
 
 ```tsx
-test("a committed swap moves focus to the swapped row's trigger", async () => {
+it("a committed swap moves focus to the swapped row's trigger", async () => {
   const user = userEvent.setup();
   function Parent() {
     const [rows, setRows] = useState<ItemOverride[]>([{ itemId: "copper_ore" }]);
     return (
-      <LocaleProvider locale="zh">
-        <InputsPanel
+      <InputsPanel
           itemOverrides={rows}
           onChange={(update) => setRows((cur) => update(cur))}
           pack={fixturePack}
         />
-      </LocaleProvider>
     );
   }
   render(<Parent />);
   await user.click(screen.getAllByLabelText("物品")[0]!);
-  await user.click(document.querySelector('[data-item-id="iron_ore"]')!);
+  await user.click(pickerTile("iron_ore")!);
   const trigger = screen.getAllByLabelText("物品")[0]!;
-  expect(trigger.textContent).toBe("iron_ore");
+  // Assert the row identity by id, not by rendered text: displayName resolves
+  // iron_ore to its localized name, which differs per locale.
+  expect(trigger.closest("[data-item-id]")?.getAttribute("data-item-id")).toBe(
+    "iron_ore",
+  );
   expect(document.activeElement).toBe(trigger);
 });
 ```
 
-Import `useState` from `react` in the test file if it is not already imported. The expected `textContent` is the localized display name of the swapped-in item; use whatever the fixture's `displayName` yields for it.
+Same file conventions as Task 3: `it(...)` not `test(...)`, no `LocaleProvider` wrapper, `pack={fixturePack}`, and the `pickerTile` helper. Add `import { useState } from "react";` if it is not there yet.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -540,39 +591,35 @@ git commit -m "Restore focus to the swapped input row's trigger"
 In `test/components/InputsPanel.test.tsx`, replace the existing add-button test (the one asserting `onChange` fires once with the first-unused item) with:
 
 ```tsx
-test("Add opens the picker and commits nothing until a pick", async () => {
+it("Add opens the picker and commits nothing until a pick", async () => {
   const user = userEvent.setup();
   const onChange = vi.fn();
   render(
-    <LocaleProvider locale="zh">
-      <InputsPanel
+    <InputsPanel
         itemOverrides={[]}
         onChange={onChange}
         pack={fixturePack}
         assumedRawItemIds={["copper_ore"]}
       />
-    </LocaleProvider>,
   );
   await user.click(screen.getByText(TEXT_ADD));
   expect(onChange).not.toHaveBeenCalled();
   expect(screen.getByTestId("picker-hint")).not.toBeNull();
   // The auto-row item already has a row, so its tile is dimmed here.
   expect(
-    (document.querySelector('[data-item-id="copper_ore"]') as HTMLButtonElement)
+    (pickerTile("copper_ore") as HTMLButtonElement)
       .disabled,
   ).toBe(true);
 });
 
-test("a pick from the Add picker appends an uncapped override", async () => {
+it("a pick from the Add picker appends an uncapped override", async () => {
   const user = userEvent.setup();
   const onChange = vi.fn();
   render(
-    <LocaleProvider locale="zh">
-      <InputsPanel itemOverrides={[]} onChange={onChange} pack={fixturePack} />
-    </LocaleProvider>,
+    <InputsPanel itemOverrides={[]} onChange={onChange} pack={fixturePack} />
   );
   await user.click(screen.getByText(TEXT_ADD));
-  await user.click(document.querySelector('[data-item-id="iron_ore"]')!);
+  await user.click(pickerTile("iron_ore")!);
   expect(onChange).toHaveBeenCalledTimes(1);
   const updater = onChange.mock.calls[0]![0] as (
     c: ItemOverride[],
@@ -582,35 +629,31 @@ test("a pick from the Add picker appends an uncapped override", async () => {
   expect(updater([{ itemId: "iron_ore" }])).toEqual([{ itemId: "iron_ore" }]);
 });
 
-test("a pick from the Add picker focuses the new row's rate input", async () => {
+it("a pick from the Add picker focuses the new row's rate input", async () => {
   const user = userEvent.setup();
   function Parent() {
     const [rows, setRows] = useState<ItemOverride[]>([]);
     return (
-      <LocaleProvider locale="zh">
-        <InputsPanel
+      <InputsPanel
           itemOverrides={rows}
           onChange={(update) => setRows((cur) => update(cur))}
           pack={fixturePack}
         />
-      </LocaleProvider>
     );
   }
   render(<Parent />);
   await user.click(screen.getByText(TEXT_ADD));
-  await user.click(document.querySelector('[data-item-id="iron_ore"]')!);
+  await user.click(pickerTile("iron_ore")!);
   const rateInput = screen.getAllByLabelText("速率")[0]!;
   expect(document.activeElement).toBe(rateInput);
 });
 
-test("the Add button is aria-disabled and inert when every item is claimed", async () => {
+it("the Add button is aria-disabled and inert when every item is claimed", async () => {
   const user = userEvent.setup();
   const onChange = vi.fn();
   const all = fixturePack.items.map((i) => ({ itemId: i.id }));
   render(
-    <LocaleProvider locale="zh">
-      <InputsPanel itemOverrides={all} onChange={onChange} pack={fixturePack} />
-    </LocaleProvider>,
+    <InputsPanel itemOverrides={all} onChange={onChange} pack={fixturePack} />
   );
   const add = screen.getByText(TEXT_ADD);
   expect(add.getAttribute("aria-disabled")).toBe("true");
@@ -676,7 +719,7 @@ Replace `handleAdd` entirely (its first-unused-id scan goes):
   }
 ```
 
-Add `import type { MouseEvent } from "react"` and use `MouseEvent<HTMLButtonElement>` if the file's import style prefers named type imports.
+Add `import type { MouseEvent } from "react";` and write the parameter as `e: MouseEvent<HTMLButtonElement>`. Do not write `React.MouseEvent`: `tsconfig.json` sets `verbatimModuleSyntax`, and no file under `src/` uses the `React.` namespace.
 
 Above the `return`, next to the existing `autoRows` computation:
 
@@ -843,16 +886,14 @@ Focus now lands silently on an input whose accessible name is the generic rate l
 Append to `test/components/InputsPanel.test.tsx`:
 
 ```tsx
-test("rate inputs are described by their row's item name", () => {
+it("rate inputs are described by their row's item name", () => {
   render(
-    <LocaleProvider locale="zh">
-      <InputsPanel
+    <InputsPanel
         itemOverrides={[{ itemId: "iron_ore" }]}
         onChange={() => {}}
         pack={fixturePack}
         assumedRawItemIds={["copper_ore"]}
       />
-    </LocaleProvider>,
   );
   for (const itemId of ["copper_ore", "iron_ore"]) {
     const nameEl = document.getElementById(`i-name-${itemId}`);
@@ -1002,21 +1043,25 @@ git commit -m "Remove the input row select and refresh its stale comments"
 
 Delete the whole `test("item picker options are sorted by localized display name, not id", ...)` block from `src/components/InputsPanel.test.tsx`. It asserts the global option sequence is collator-sorted across all 113 items by walking `querySelectorAll("option")`. The popup buckets by tier and sorts only within a bucket, so the global guarantee no longer holds and the test cannot be retargeted mechanically. Task 2 moved the surviving guarantee into `ItemPickerPopup.test.tsx`.
 
-- [ ] **Step 2: Fix any other combobox reference in the file**
+- [ ] **Step 2: Remove the import the deletion orphans**
+
+`import { pack as realPack } from "../data/load";` had the deleted test as its only consumer. Leaving it fails `bun run lint` under `@typescript-eslint/no-unused-vars`. Delete it, along with any other binding that test was alone in using.
+
+- [ ] **Step 3: Fix any other combobox reference in the file**
 
 Search the file for `getByRole("combobox")` and `querySelectorAll("option")`. Any remaining use belongs to the deleted test; if another test uses them, rewrite it to click the row trigger and then a `[data-item-id]` tile, following Task 3's pattern.
 
-- [ ] **Step 3: Run the suite**
+- [ ] **Step 4: Run the suite**
 
 Run: `bun run test -- src/components/InputsPanel.test.tsx`
 Expected: PASS, whole file.
 
-- [ ] **Step 4: Run every vitest suite**
+- [ ] **Step 5: Run every vitest suite**
 
 Run: `bun run test`
 Expected: PASS. `test/integration/inputs-panel-shell.test.tsx` must pass untouched; if it fails, something in Tasks 3 to 7 changed the rate control, which is out of scope.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/components/InputsPanel.test.tsx
@@ -1036,89 +1081,153 @@ Six tests, in file order. Two are replaced, one is restructured, three keep thei
 - Consumes: Tasks 3 to 7.
 - Produces: nothing.
 
-- [ ] **Step 1: Add a pick helper and delete the dead constants**
+- [ ] **Step 1: Baseline before changing anything**
 
-At the top of `test/e2e/inputs-panel.spec.ts`, add:
+This repo has known pre-existing e2e failures, and `bun run test:e2e` is not a CI gate. Record which of these six tests already fail on the merge base, so a pre-existing failure is never mistaken for a regression:
+
+```bash
+git stash --include-untracked
+bun run test:e2e -- inputs-panel 2>&1 | tail -40
+git stash pop
+```
+
+Write the failing test names down. Step 8 compares against this list, not against green.
+
+- [ ] **Step 2: Add a pick helper and delete the dead constants**
+
+Every tile locator MUST be scoped to `.recipe-picker`. `data-item-id` is on picker tiles, on canvas ProductNodes (`src/canvas/ProductNode.tsx`), on auto-rows, and now on override rows. `copper_powder` and `iron_powder` are default targets, so their canvas nodes exist in every default-plan test before the picker even opens; an unscoped locator matches two or more elements and Playwright fails with a strict-mode violation rather than a useful assertion error.
 
 ```ts
 // Add now opens the picker instead of committing a row, so every "add a row"
-// preamble is two steps: click Add, then click the item's tile.
-async function addInputRow(page: Page, itemId: string) {
+// preamble is two steps: click Add, then click the item's tile. The locator is
+// scoped to the dialog because data-item-id is also on canvas nodes and rows.
+async function addInputRow(page: Page, itemId: string): Promise<void> {
   await clickAddInput(page);
-  await page.locator(`[data-item-id="${itemId}"]`).click();
+  await page.locator(`.recipe-picker [data-item-id="${itemId}"]`).click();
 }
 ```
 
-Delete `FIRST_LEX_ITEM_ID` (used by Tests 1 and 3), and `SECOND_LEX_ITEM_ID`, `TEXT.duplicateAlert` and `COMMIT_DEBOUNCE_MS` (used by Test 3 alone). The last one's comment already describes a debounce the app no longer has.
+`Page` is already imported. Delete `FIRST_LEX_ITEM_ID` (used by Tests 1 and 3), and `SECOND_LEX_ITEM_ID`, `TEXT.duplicateAlert` and `COMMIT_DEBOUNCE_MS` (used by Test 3 alone). `COMMIT_DEBOUNCE_MS`'s comment already describes a debounce the app no longer has.
 
-- [ ] **Step 2: Replace Test 1**
+Item ids in this file are from the real pack, not the unit fixture. Raw items are `originium_ore, quartz_sand, iron_ore, copper_ore, gas_xiranite, liquid_water, liquid_acid, gas_inert, domain_key_tundra`; everything else is non-raw. There is no `copper_plate`.
 
-Test 1 asserts Add appends a row defaulting to the first lexical item. That behavior is gone. Replace its body:
+- [ ] **Step 3: Replace Test 1's body**
 
-```ts
-  await clickAddInput(page);
-  // No row yet: the picker is open and nothing has been committed.
-  await expect(inputRows(page)).toHaveCount(initialCount);
-  await expect(page.locator(".recipe-picker")).toBeVisible();
-  const hashBefore = page.url();
-  await page.locator('[data-item-id="copper_powder"]').click();
-  await expect(inputRows(page)).toHaveCount(initialCount + 1);
-  const row = inputRows(page).nth(initialCount);
-  await expect(row.getByRole("button", { name: TEXT.itemLabel })).toHaveText(
-    /.+/,
-  );
-  // An uncapped override: the rate field is empty and shows the unlimited
-  // placeholder.
-  await expect(row.locator("input")).toHaveValue("");
-  expect(page.url()).not.toBe(hashBefore);
-```
-
-- [ ] **Step 3: Replace Test 3**
-
-Test 3 drove a duplicate through `selectOption` and asserted the per-row alert plus an unchanged URL. The pick is impossible now, so assert the tile is dimmed instead:
+Keep the test's existing preamble (`attachConsoleListener`, `page.goto`, `waitForCanvasReady`, `waitForInputsPanel`, `const initialCount = ...`) and its trailing `await expectNoConsoleErrors(log)`. Replace only what sits between them:
 
 ```ts
-  await addInputRow(page, "copper_powder");
-  // Open the picker from a different row and confirm the taken item is dimmed.
-  await addInputRow(page, "copper_plate");
-  const secondRow = inputRows(page).nth(initialCount + 1);
-  await secondRow.getByRole("button", { name: TEXT.itemLabel }).click();
-  await expect(page.locator('[data-item-id="copper_powder"]')).toBeDisabled();
-  await page.keyboard.press("Escape");
-  await expect(page.locator(".recipe-picker")).toHaveCount(0);
+    await clickAddInput(page);
+    // No row yet: the picker is open and nothing has been committed.
+    await expect(inputRows(page)).toHaveCount(initialCount);
+    await expect(page.locator(".recipe-picker")).toBeVisible();
+    const urlBefore = page.url();
+
+    await page.locator('.recipe-picker [data-item-id="copper_powder"]').click();
+    await expect(inputRows(page)).toHaveCount(initialCount + 1);
+    // Pin the identity of the committed row, not merely that some row appeared.
+    await expect(
+      page.locator('[data-testid="input-row"][data-item-id="copper_powder"]'),
+    ).toHaveCount(1);
+    // An uncapped override: the rate field is empty.
+    await expect(inputRows(page).nth(initialCount).locator("input")).toHaveValue(
+      "",
+    );
+    // The hash is rewritten after the solve settles, so poll rather than read.
+    await expect.poll(() => page.url(), { timeout: 5_000 }).not.toBe(urlBefore);
 ```
 
-- [ ] **Step 4: Restructure Test 5**
+- [ ] **Step 4: Replace Test 3's body**
 
-Test 5 caps `copper_ore`, which is raw and consumed by the default plan, so it is an auto-row and its tile is dimmed in the Add picker. Drive the auto-row typing path instead, and drop the `nth(initialCount)` locator, since `input-row` counts overrides only:
+Same rule: keep the preamble and the trailing `expectNoConsoleErrors`. The old test drove a duplicate through `selectOption` and asserted the per-row alert. That pick is impossible now, so assert the tile is dimmed instead. Note the two rows use **different** items: once `copper_powder` has a row its tile is disabled, so a second `addInputRow` for the same id would time out on Playwright's actionability check.
 
 ```ts
-  const autoRow = page.locator(
-    '[data-testid="input-auto-row"][data-item-id="copper_ore"]',
-  );
-  await expect(autoRow).toHaveCount(1);
-  await autoRow.locator("input").fill("120");
-  await autoRow.locator("input").press("Enter");
-  // Typing a cap promotes the auto-row into a real override row.
-  await expect(
-    page.locator('[data-testid="input-row"][data-item-id="copper_ore"]'),
-  ).toHaveCount(1);
+    await addInputRow(page, "copper_powder");
+    await addInputRow(page, "iron_powder");
+    await expect(inputRows(page)).toHaveCount(initialCount + 2);
+
+    // Open the picker from the second row: the item the first row claims is
+    // dimmed, so a duplicate cannot be picked at all.
+    const secondRow = inputRows(page).nth(initialCount + 1);
+    await secondRow.getByRole("button", { name: TEXT.itemLabel }).click();
+    await expect(
+      page.locator('.recipe-picker [data-item-id="copper_powder"]'),
+    ).toBeDisabled();
+    // The row's own item stays enabled, as a confirm.
+    await expect(
+      page.locator('.recipe-picker [data-item-id="iron_powder"]'),
+    ).toBeEnabled();
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".recipe-picker")).toHaveCount(0);
 ```
 
-Keep the test's existing assertions about what lands in the plan and the URL hash, retargeted at that locator.
+- [ ] **Step 5: Restructure Test 5**
 
-- [ ] **Step 5: Re-preamble Tests 2, 4 and 6**
+Test 5 is "cap exceeding demand commits cleanly with no error banner". It caps `copper_ore`, which is raw and consumed by the default plan, so it is an auto-row and its tile is dimmed in the Add picker. Drive the auto-row typing path instead.
 
-In each, replace `await clickAddInput(page);` followed by `inputRows(page).nth(initialCount)` with `await addInputRow(page, "copper_powder");` and keep everything after it. `copper_powder` is not raw, so it is never an auto-row and its tile is always enabled. Their plan and URL assertions survive unchanged.
+Three things must be preserved. Keep the cap value `9999`: the test's whole premise is a cap **above** demand, and the default plan needs roughly 270 copper_ore/min, so a smaller number can produce an infeasible solve and the very error banner the test asserts is absent. Keep the `headerErrors` count-0 assertion. And re-capture a URL baseline before the fill, since the old `urlAfterItem` was captured after a `selectOption` that no longer happens.
 
-- [ ] **Step 6: Run the suite**
+```ts
+    const autoRow = page.locator(
+      '[data-testid="input-auto-row"][data-item-id="copper_ore"]',
+    );
+    await expect(autoRow).toHaveCount(1);
+
+    const urlBeforeCap = page.url();
+    const rateInput = autoRow.getByRole("textbox", { name: TEXT.rateLabel });
+    await rateInput.fill("9999");
+    // fill() does not blur, and the panel commits only on blur or Enter.
+    await rateInput.press("Enter");
+
+    // Typing a cap promotes the auto-row into a real override row.
+    await expect(
+      page.locator('[data-testid="input-row"][data-item-id="copper_ore"]'),
+    ).toHaveCount(1);
+    await expect
+      .poll(() => page.url(), { timeout: 5_000 })
+      .not.toBe(urlBeforeCap);
+```
+
+Delete `const initialCount = await inputRows(page).count();` from this test: its only consumer was the `nth(initialCount)` locator, and an unused binding fails `bun run lint`.
+
+- [ ] **Step 6: Re-preamble Tests 2, 4 and 6**
+
+These keep their assertions. In each, the two lines
+
+```ts
+    const select = newRow.getByRole("combobox", { name: TEXT.itemLabel });
+    await select.selectOption("copper_powder");
+```
+
+are deleted, and `await clickAddInput(page);` becomes `await addInputRow(page, "copper_powder");`. **Keep** the `const newRow = inputRows(page).nth(initialCount);` binding: the surviving `rateInput` lines below it depend on it.
+
+Test 2 is the exception: it calls `clickAddInput` twice and asserts `toHaveCount(initialCount + 2)`. It needs two `addInputRow` calls with two **different** non-raw items, because the first pick disables its own tile:
+
+```ts
+    await addInputRow(page, "copper_powder");
+    await addInputRow(page, "iron_powder");
+```
+
+Then adjust whatever the test removes afterwards to name the row it means.
+
+In Tests 4 and 6, add a commit gesture after the existing `rateInput.fill(...)`:
+
+```ts
+    await rateInput.press("Enter");
+```
+
+`fill()` sets the value and fires `input`, but never blurs, and `InputsPanel` commits only on blur or Enter. Without this the URL poll that follows has nothing to wait for. If these two tests were already in your Step 1 baseline as failing, this is likely why.
+
+- [ ] **Step 7: Format**
+
+Run: `bunx prettier --write test/e2e/inputs-panel.spec.ts`
+
+- [ ] **Step 8: Run the suite**
 
 Run: `bun run test:e2e -- inputs-panel`
-Expected: PASS, all six tests.
+Expected: no test fails that was passing in the Step 1 baseline. Tests 4 and 6 may move from failing to passing once the Enter press lands; that is an improvement, not a regression to investigate.
 
-If failures appear that look unrelated to this change, baseline first: `git stash && bun run test:e2e -- inputs-panel && git stash pop`. This repo has known pre-existing e2e failures in other spec files; only regressions inside `inputs-panel.spec.ts` count here.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add test/e2e/inputs-panel.spec.ts
