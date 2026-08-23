@@ -3,8 +3,8 @@
 Design for replacing the INPUT SUPPLY item dropdown with the same popup the
 targets panel already uses. Phase 1 of a two-phase split; phase 2 (a
 user-controlled recipe blocklist) gets its own spec and branch. Rulings were
-made on 2026-08-23 and revised three times the same day against three rounds
-of two-auditor review.
+made on 2026-08-23 and revised four times the same day against four rounds of
+two-auditor review.
 
 ## Context
 
@@ -81,9 +81,9 @@ cleanup.
 | `items` | all of `pack.items` | same |
 | `tierByItemId` | `computeItemDepths(pack)`, memoized per pack | same |
 | `disabledIds` | the other override rows' items | every override item, plus every auto-row item |
-| `disabledTitle` | omitted | "already listed in the panel" |
+| `disabledHint` | omitted | "already in the panel, edit its row instead" |
 | `selectedId` | the row's own item | `undefined` |
-| `onPick` | own item returns early from the swap, then closes; otherwise `handleItemChange` swaps, carrying any rate | appends `{ itemId }`, then closes |
+| `onPick` | own item returns early from the swap and arms nothing, then closes; otherwise `handleItemChange` swaps, carrying any rate, and arms `{ itemId, kind: "trigger" }` | appends `{ itemId }` and arms `{ itemId, kind: "rate" }`, then closes |
 | `onClose` | clears `pickerFor`, refocuses the trigger | same |
 
 A disabled tile therefore means one thing at each site: from a row, "another
@@ -94,9 +94,15 @@ exactly "items with a visible row", and neither site mixes the two meanings.
 The Add site is the one place a user can hit a disabled tile with no visible
 route forward: someone trying to cap copper ore from Add gets a dead tile and
 no cue that the panel's own auto-row does it. `ItemPickerPopup` gains an
-optional `disabledTitle` for that reason, rendered as the tile's `title` in
-place of the item name when the tile is disabled. `TargetsPanel` omits it and
-is unaffected.
+optional `disabledHint` for that reason, rendered as **a single visible line
+under the search box** whenever the prop is set. It is deliberately not a
+tile `title`: a natively `disabled` button dispatches no pointer events in
+Chromium or WebKit, so no tooltip appears, and `aria-label` beats `title` for
+the accessible name, so nothing is announced either. That is the same trap the
+add button avoids below, and making 113 tiles `aria-disabled` to dodge it
+would put them all in the tab order of a dialog that has no focus trap. Tiles
+keep `title` and `aria-label` set to the item name, disabled or not.
+`TargetsPanel` omits the prop and is unaffected.
 
 The row's own item stays enabled and highlighted so re-picking it reads as a
 confirm.
@@ -117,34 +123,46 @@ accessible name is therefore unchanged from the select, and existing
 
 `closePicker` is identical for both entry points and always refocuses the
 trigger, so Escape and backdrop click never strand focus on `document.body`.
-A pick additionally arms a **pending-focus id**, and because `closePicker`
-runs synchronously inside the click handler while the row mounts on the
-following commit, the pending-focus ref always fires last and wins. Two uses:
 
-- **Add.** The trigger is the add button, which survives, so refocusing it
-  alone would leave the user below the row they just created. The pick arms
-  the chosen item id; a callback ref on each row's rate input consumes it when
-  the matching row mounts, focuses it, and clears it. That is the only edit
-  that makes the new row do anything.
-- **Row swap.** Rows are keyed by `itemId`, so a committed swap unmounts the
-  row and its trigger, and the browser drops focus to `document.body` after
-  `closePicker` has already refocused the old button. Arming the pending-focus
-  id with `newItemId` and hanging a second callback ref on the row's
-  `b-pick-trigger` restores it. This is the same mechanism, so it is done
-  rather than accepted as a regression.
+A pick additionally arms a **pending-focus token**, `{ itemId, kind }`. The
+kind is load-bearing, not decoration: both consumers live on the same row, and
+React attaches refs in tree order, so the trigger inside `.info` completes
+before the rate input inside `.b-rate`. A bare item id would let the trigger
+ref swallow every token, and the Add path's rate focus would never fire. Each
+callback ref consumes the token only when the kind matches its own, then
+clears it.
 
-The row does not exist when `onPick` runs: the append travels `onChange` to
-`handleItemOverridesChange` to `commitPlan` to `setPlan`. If the row never
-arrives, because `validatePlan` rejected the commit or because the panel is
-rendered standalone with an `onChange` that never feeds the prop back, as
-`test/components/InputsPanel.test.tsx` does, the pending id is cleared on the
-next pick rather than left armed.
+- **Add** arms `kind: "rate"`. The trigger is the add button, which survives,
+  so refocusing it alone would leave the user below the row they just created.
+  The rate input is the only edit that makes the new row do anything.
+- **Row swap** arms `kind: "trigger"`. Rows are keyed by `itemId`, so a
+  committed swap unmounts the row and its trigger, and the browser drops focus
+  to `document.body` after `closePicker` has already refocused the old button.
+  The swapped row's trigger is the right landing point: it is the control the
+  user invoked, and the rate carried over, so focusing the rate input would
+  imply an edit they did not start.
+- **Own-item confirm** arms nothing. The row never unmounts, so `closePicker`
+  refocuses the surviving trigger and there is nothing to restore. Arming here
+  would leave a token that no mount consumes until some unrelated later
+  remount yanks focus.
+
+Because `closePicker` runs synchronously inside the click handler while the
+row mounts on the following commit, a consumed token always fires last and
+wins. The row does not exist when `onPick` runs: the append travels `onChange`
+to `handleItemOverridesChange` to `commitPlan` to `setPlan`. If the row never
+arrives, because the updater returned the same reference or `validatePlan`
+rejected the commit, or because the panel is rendered standalone with an
+`onChange` that never feeds the prop back, as `test/components/InputsPanel.test.tsx`
+does, no row mounts, `closePicker`'s refocus is already the correct end state,
+and the stale token is discarded when the next pick arms a new one.
 
 Focus lands on an input whose accessible name is the generic
-`inputs.rate.label`, identical across rows, so a screen reader announces
-"Rate, edit" with no indication of which item it caps. That genericity is
-pre-existing and shared with every other row; per-row labels would break the
-`getAllByLabelText` queries both unit suites rely on. Accepted as is.
+`inputs.rate.label`, identical across rows, so on its own a screen reader
+announces "Rate, edit" with no indication of which item it caps. The rate
+input therefore gains an `aria-describedby` pointing at its row's item-name
+element, joined with the existing invalid-rate message id when that is
+present. The accessible *name* is untouched, so every `getAllByLabelText`
+query keeps resolving.
 
 ### Picker state
 
@@ -177,8 +195,11 @@ a solve is in flight. Without it the user would get a dialog of 113 disabled
 tiles, since `picker.empty` only covers an empty search.
 
 Two new strings, in all four locales: `inputs.add.exhausted` for that title
-and `picker.disabled.listed` for the Add popup's `disabledTitle`. Everything
-else the design needs already exists in en, ja, ru and zh.
+and `inputs.picker.listed` for the Add popup's `disabledHint`. Both live in
+the `inputs.` namespace rather than `picker.`, because `InputsPanel`
+translates them and passes them down; every existing `picker.` string is
+translated inside `ItemPickerPopup` itself. Everything else the design needs
+already exists in en, ja, ru and zh.
 
 ### Commit ordering
 
@@ -189,7 +210,7 @@ only; a rate commit that already happened is not undone. This matches what
 clicking the old select did, and the panel survives it because mutation
 commits never bump `planEpoch`, so no remount discards local edit state.
 
-### Cleanup this change forces
+### CSS
 
 - The `.b-pick select` face, option, hover and focus rules in `canvas.css`
   lose their last consumer and are deleted. Nothing else depends on them: the
@@ -207,6 +228,18 @@ commits never bump `planEpoch`, so no remount discards local edit state.
   type-ahead outside that field, so Tab walks all 113 tiles and then leaves
   the `aria-modal` dialog. The rewritten comment records the gap rather than
   implying parity.
+- The exhausted add button needs its own rules. Today `.b-add:disabled` and
+  `.ak-app-shell button:disabled` match `:disabled` only, and `.b-add:hover`
+  is unconditional, so an `aria-disabled` button would render at full opacity
+  with a pointer cursor and still glow on hover. Add `[aria-disabled="true"]`
+  to the disabled rule's selector and guard the hover rule with
+  `:not([aria-disabled="true"])`. `.b-add:disabled` then has no consumer and
+  goes.
+- The `disabledHint` line needs a rule in the `.recipe-picker-*` family,
+  sitting between `.recipe-picker-search` and `.recipe-picker-body`.
+
+### Other cleanup
+
 - `handleAdd`'s first-unused-id scan goes.
 - The `sortedItems` and `collator` memos go with it: the popup sorts
   internally, so the only remaining consumer is the section-head denominator,
@@ -235,7 +268,9 @@ hand-crafted URL, and left alone here.
 rates and mocks the solver, and never touches the item control.
 
 `test/components/InputsPanel.test.tsx` reaches the control through
-`getAllByLabelText` plus `selectOptions`. Two of its tests lose their subject:
+`getAllByLabelText` plus `selectOptions`, and is the suite whose queries
+constrain the rate input's accessible name. Two of its tests lose their
+subject:
 
 - The add-button test asserts `onChange` fires once with the first-unused-id
   append, which is exactly what ruling 2 removes. Rewritten against the
@@ -247,17 +282,17 @@ rates and mocks the solver, and never touches the item control.
   mirroring `TargetsPanel`.
 
 `src/components/InputsPanel.test.tsx` uses `getByRole("combobox")` and walks
-`querySelectorAll("option")`. Its UX-17 test asserts the **global** option
-sequence is collator-sorted across all 113 items. `ItemPickerPopup` buckets by
-tier and sorts only within a bucket, so that guarantee narrows and the test
-cannot be retargeted mechanically. It is dropped from this suite and replaced
-by a within-group ordering assertion in `ItemPickerPopup.test.tsx`, which
-today asserts group-head order only. That assertion needs a fixture whose
-within-tier array order differs from collator order; the current four-item
-fixture is already in name order per tier, so it proves nothing as it stands.
-Three tests in this suite do wrap the panel in a parent that feeds the updated
-list back, so a pick there mounts a real row and can assert the pending-focus
-behavior.
+`querySelectorAll("option")`; it selects rate inputs by role, not by label.
+Its UX-17 test asserts the **global** option sequence is collator-sorted
+across all 113 items. `ItemPickerPopup` buckets by tier and sorts only within
+a bucket, so that guarantee narrows and the test cannot be retargeted
+mechanically. It is dropped from this suite and replaced by a within-group
+ordering assertion in `ItemPickerPopup.test.tsx`, which today asserts
+group-head order only. That assertion needs a fixture whose within-tier array
+order differs from collator order; the current four-item fixture is already in
+name order per tier, so it proves nothing as it stands. Three of this suite's
+four parent wrappers do feed the updated list back, so a pick there mounts a
+real row and can assert the pending-focus behavior.
 
 Playwright (`test/e2e/inputs-panel.spec.ts`, six tests in file order):
 
@@ -276,21 +311,23 @@ Playwright (`test/e2e/inputs-panel.spec.ts`, six tests in file order):
   `nth(initialCount)`. The row does not exist until a pick, so each preamble
   gains an interleaved popup step. Their plan and URL assertions survive
   unchanged.
-- Four constants become dead and are removed: `FIRST_LEX_ITEM_ID` and
-  `SECOND_LEX_ITEM_ID` with Test 1, `TEXT.duplicateAlert` and
-  `COMMIT_DEBOUNCE_MS` with Test 3. The last one's comment already describes a
-  debounce the app no longer has.
+- Four constants become dead: `FIRST_LEX_ITEM_ID`, used by Tests 1 and 3, and
+  `SECOND_LEX_ITEM_ID`, `TEXT.duplicateAlert` and `COMMIT_DEBOUNCE_MS`, used
+  by Test 3 alone. The last one's comment already describes a debounce the app
+  no longer has.
 
 New coverage:
 
 - A pick from the add popup appends an uncapped override and focuses its rate
-  input.
+  input, not its trigger.
 - A committed row swap focuses the swapped row's trigger.
+- An own-item confirm leaves focus on the surviving trigger and arms nothing.
 - A row's own tile renders selected and enabled; re-picking it commits no
   change and raises no duplicate alert.
 - Another override row's item renders disabled from a row popup; every
   auto-row item renders disabled from the Add popup and enabled from a row
   popup.
+- The Add popup renders the `disabledHint` line; a row popup does not.
 - Swapping a capped row onto a consumed raw item carries the cap.
 - Escape and backdrop click close without committing a pick, and return focus
   to the trigger.
