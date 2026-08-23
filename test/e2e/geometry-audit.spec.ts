@@ -372,6 +372,66 @@ test.describe("DOM geometry audit", () => {
 // surfaces touch is the census's foreign-stroke counter, which shares
 // CHIP_SEGMENT_BASELINE's waiver code so no seat can be foreign to one and
 // waived by the other.
+//
+// CAMPAIGN CLOSE-OUT -- chip seating F1 (rate chips ride onto their own cards)
+// and Z2 (corridor braids, stranded bus chips, band escapes). Everything below
+// was re-measured on the ten-scenario corpus at this commit.
+//
+// PIN MOVEMENT. Across the whole campaign exactly ONE cell in the seven tables
+// above moved for a scenario that already existed: DOT_COVER_BASELINE battery5
+// 0 -> 1, the trade written out in full at that table. Every other change those
+// tables took is a first recording for the three scenarios that joined. The
+// four census tables at the bottom of this file went 30 / 88 / 47 / 11 at their
+// first recording to 18 / 70 / 39 / 0 here (seat validity, card intrusion,
+// foreign stroke, outside band), and the deep on-card class inside card
+// intrusion went 21 -> 18. Each move is attributed to the change that caused it
+// in the per-table notes.
+//
+// THE RULINGS behind those numbers, in the order they were taken:
+//   R1  No foreign-card work. Zero foreign-card chip overlaps corpus-wide, so
+//       the hard foreign-card tier and its e2e gate were left untouched.
+//   R2  Two chips with identical icon and identical rate text are a label
+//       CONTENT problem, not a seat geometry one. Out of scope here.
+//   R3  A bus rise slot is clamped into its own member's resolved run even when
+//       that hides more chips for capacity: a hidden chip keeps its rate on the
+//       target card's input row, a stranded one names nothing.
+//   R4  The band pad is a constant -- one lane spacing plus a max-scale chip
+//       half height -- and covers a chip lifted one cascade pitch INCLUSIVELY,
+//       so containment assertions carry no eps margin.
+//   R5  Item rate chips are never hidden. An off-path item chip stays visible
+//       and stays counted.
+//   R6  The census reads at a fixed reading zoom above both chip LOD gates,
+//       never at fit zoom, so the chips that collide are the chips it measures.
+//   R7  The lone-trunk drop chip's cascade is capped at one pitch and relaxes
+//       dots before foreign lines inside the cap; chip-vs-chip stays hard.
+//   R8  Own-card intrusion is a two-level SOFT rule (the tier-1 slide walks
+//       past an over-budget candidate, the graze tier scores it). Foreign cards
+//       stay hard everywhere.
+//   R9  Seat validity is "the own polyline intersects the drawn box", not a
+//       centre distance, so a sidestep seat counts as a valid seat.
+//   R10 The census intrusion counter is a BOX-DEPTH rule while the seating
+//       exemption is a CENTRE rule, so it can never floor at zero. The seat
+//       work is judged on the deep class plus the total, not on zero.
+//   R11 Ranking depth ABOVE crossings was measured and REJECTED: it trades a
+//       legible-but-ugly occlusion for ownership ambiguity and hid a
+//       default-plan rate chip. The lever taken instead was a realistic
+//       per-chip reserved seat box.
+//   R12 Coincident-column braids are a PERMANENT seating residual. Excluding a
+//       foreign stroke a few units away while keeping the own stroke painted at
+//       every zoom is impossible under any box model, so no seat offset clears
+//       them. Disambiguation, if it is ever wanted, is a render-layer or a
+//       routing change, not a seating one.
+//   R13 The single UP move above, stated in full at DOT_COVER_BASELINE.
+//
+// WHAT THIS CLOSE-OUT DOES NOT CLAIM.
+//   1. F1 is NOT closed. The deep on-card class ends at 18 -- an enumerated,
+//      availability-bound residue under the realistic seat box -- and its
+//      instances are named in CARD_INTRUSION_BASELINE's note.
+//   2. The coincidence-gated sidestep added for braid separation fired on ZERO
+//      corpus seats, so it produced no Z2 movement here. Its value against a
+//      braid is untested by this corpus.
+//   3. The Z2 coincident-column braids are still on screen. They are the R12
+//      residual: ratified, not fixed.
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached

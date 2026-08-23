@@ -65,7 +65,7 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - This list is the campaign's expected-red baseline: later tasks compare against it, not against an assumed set.
 
 **Acceptance:**
-- [ ] Failure list recorded in the progress ledger with test names.
+- [x] Failure list recorded in the progress ledger with test names.
 
 ### Task 1: Register the three v1.4 scenarios
 
@@ -82,10 +82,10 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Watch the hard tier-1 RAW zero gate: if a new scenario lands a RAW pierce, that is a hard failure needing investigation (against the Task 0 baseline), not a pin.
 
 **Acceptance:**
-- [ ] `bun run typecheck` + `bun run lint` clean.
-- [ ] Geometry-audit e2e green for the three new scenarios with the recorded pins; existing scenarios' pins untouched; failure set == Task 0 baseline.
-- [ ] `placement-shots` produces goldens locally for the three ids (one scenario per invocation).
-- [ ] Commit.
+- [x] `bun run typecheck` + `bun run lint` clean.
+- [x] Geometry-audit e2e green for the three new scenarios with the recorded pins; existing scenarios' pins untouched; failure set == Task 0 baseline.
+- [x] `placement-shots` produces goldens locally for the three ids (one scenario per invocation).
+- [x] Commit.
 
 ### Task 2: Close the bus-chip audit hole and add the seating census
 
@@ -103,9 +103,9 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Failure messages name offending chip element ids (existing table style).
 
 **Acceptance:**
-- [ ] New criterion green with measured pins on all 10 scenarios.
-- [ ] Existing criteria untouched (same pins; failure set == Task 0 baseline).
-- [ ] Commit.
+- [x] New criterion green with measured pins on all 10 scenarios.
+- [x] Existing criteria untouched (same pins; failure set == Task 0 baseline).
+- [x] Commit.
 
 ### Task 3: Clamp bus rise slots into their own resolved run + cap the drop cascade
 
@@ -121,11 +121,11 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Unit tests: (a) clamp-into-own-run across a multi-member trunk incl. one backward member (riseX < dropX -> midpoint); (b) drop cascade never exceeds one pitch when a within-cap seat exists, preferring dot-overlap over exceeding it; (c) lone long-run member still has `busChipX === undefined`. `busRouting.classify.test.ts` stays GREEN UNMODIFIED - `routeBusEdges` is behaviourally untouched by this task (the clamp lives in the seating pass); an implementer editing those tests to pass is a red flag, not a re-pin.
 
 **Acceptance:**
-- [ ] Unit tests green (`busRouting.classify.test.ts` and its shuffled-input determinism test pass unmodified).
-- [ ] Census seat-validity drops sharply; record actuals, ratchet the campaign pins down.
-- [ ] Fit-zoom / LOD cascade check: full audit run; any moved pin in the seven existing tables re-measured and recorded with a one-line cause (`contentBounds` shrink is expected; more drawn chips after a fit-zoom rise is the known cascade, A-R3). Failure set compared against Task 0 baseline.
-- [ ] Visual spot-check on multi6 (e:108 area) and script43 trunk: no stranded bus chips.
-- [ ] Commit(s) - clamp and drop-cap may be separate commits.
+- [x] Unit tests green (`busRouting.classify.test.ts` and its shuffled-input determinism test pass unmodified).
+- [x] Census seat-validity drops sharply; record actuals, ratchet the campaign pins down.
+- [x] Fit-zoom / LOD cascade check: full audit run; any moved pin in the seven existing tables re-measured and recorded with a one-line cause (`contentBounds` shrink is expected; more drawn chips after a fit-zoom rise is the known cascade, A-R3). Failure set compared against Task 0 baseline.
+- [x] Visual spot-check on multi6 (e:108 area) and script43 trunk: no stranded bus chips.
+- [x] Commit(s) - clamp and drop-cap may be separate commits.
 
 ### Task 4: Band pad covers lifted chips
 
@@ -138,9 +138,9 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Update census outside-band pins: expect 0 VERTICAL escapes; the one known x-overflow (multi6 e:3-rise, 25px past band right) is tracked separately and may or may not clear via Task 3 (A-R6).
 
 **Acceptance:**
-- [ ] Census outside-band vertical escapes = 0, pins updated; x-overflow status recorded.
-- [ ] multi6 top band tint does not touch the nearest node row (8px margin under `LANE_TOP_OFFSET` 80) - screenshot check.
-- [ ] Commit.
+- [x] Census outside-band vertical escapes = 0, pins updated; x-overflow status recorded.
+- [x] multi6 top band tint does not touch the nearest node row (8px margin under `LANE_TOP_OFFSET` 80) - screenshot check.
+- [x] Commit.
 
 ### Task 5: Own-card intrusion - seat-side predicate and graze penalty
 
@@ -158,10 +158,10 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Unit tests: boundary of the new predicate (9px-past-border legal, beyond rejected in tier-1), graze tie broken away from a card, and existing centre-rule pins untouched.
 
 **Acceptance:**
-- [ ] Census card-intrusion: deep class (full-extent saturations, 21 at Task 2 baseline) -> zero or enumerated residue, total drops; pins ratcheted down to actuals (ruling R10).
-- [ ] Census seat-validity does NOT rise (no escape blowback).
-- [ ] All unit + e2e green vs Task 0 baseline; moved pins recorded with causes.
-- [ ] Commit.
+- [x] Census card-intrusion: deep class (full-extent saturations, 21 at Task 2 baseline) -> zero or enumerated residue, total drops; pins ratcheted down to actuals (ruling R10).
+- [x] Census seat-validity does NOT rise (no escape blowback).
+- [x] All unit + e2e green vs Task 0 baseline; moved pins recorded with causes.
+- [x] Commit.
 
 ### Task 6: Braid separation - own-line binding term and scored sidestep
 
@@ -176,10 +176,10 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Unit tests: binding penalty ranks a clean candidate above a coincident one; sidestep fires only under coincidence and can select the far offset; determinism (same input, same seats).
 
 **Acceptance:**
-- [ ] Census foreign-stroke count drops (record actuals); pins ratcheted down; residual coincident class enumerated.
-- [ ] script43 capture: salmon 150/分 chip no longer sits on the green stroke.
-- [ ] `CHIP_SEGMENT_BASELINE` moves re-measured and recorded; `faninMarkers.test.ts` green.
-- [ ] Commit.
+- [x] Census foreign-stroke count drops (record actuals); pins ratcheted down; residual coincident class enumerated.
+- [x] script43 capture: salmon 150/分 chip no longer sits on the green stroke. **SUPERSEDED by R12** - the Task 7 capture shows e:15 still on a column where its own gas stroke and a green stroke run ~3 world px apart. That is R12's class A, which the ruling proves no seat offset can clear; the box is closed on the ruling, not on the original wording.
+- [x] `CHIP_SEGMENT_BASELINE` moves re-measured and recorded; `faninMarkers.test.ts` green.
+- [x] Commit.
 
 ### Task 6b: Realistic per-chip seat box (added by ruling R11)
 
@@ -198,10 +198,10 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Locale verification: a Playwright check (probe.ts has --locale and --eval; jsdom stubs offsetWidth so vitest cannot do this) over all four locales (zh/en/ja/ru) asserting drawn `offsetWidth <= estimator's natural width` for a sample of chips on 2-3 plans.
 
 **Acceptance:**
-- [ ] Deep class shrinks with per-instance enumeration of the remainder (no closure promise); card-intrusion total drops from 84; seat-validity and foreign-stroke do not rise; pins ratcheted with causes.
-- [ ] Four-locale width-bound check green.
-- [ ] All gates green vs Task 0 baseline; moved pins recorded with causes.
-- [ ] Commit.
+- [x] Deep class shrinks with per-instance enumeration of the remainder (no closure promise); card-intrusion total drops from 84; seat-validity and foreign-stroke do not rise; pins ratcheted with causes.
+- [x] Four-locale width-bound check green.
+- [x] All gates green vs Task 0 baseline; moved pins recorded with causes.
+- [x] Commit.
 
 ### Task 7: Full re-measure, visual verification, close-out
 
@@ -214,9 +214,13 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - Confirm the two ratified item-chip escapes (battery5 e:18/e:1) still render as before (R5).
 
 **Acceptance:**
-- [ ] All gates green vs Task 0 baseline.
-- [ ] Every Task 3-6 before/after documented in the progress ledger with pin numbers.
-- [ ] Plan checkboxes all ticked; commit close-out.
+- [x] All gates green vs Task 0 baseline.
+- [x] Every Task 3-6 before/after documented in the progress ledger with pin numbers.
+- [x] Plan checkboxes all ticked; commit close-out.
+
+**Close-out state.** Census 30 / 88 (21 deep) / 47 / 11 at first recording -> 18 / 70 (18 deep) / 39 / 0 here. Gates at close-out: typecheck, lint and vitest (1430 pass / 1 skip) clean; the e2e failure set is the Task 0 baseline exactly (6 failures: geometry-audit multi6 RAW, inputs-panel 180/235/280/342, raw-and-transport:171); all ten placement-shots goldens regenerated one per invocation and re-verified green. Across the seven pre-existing audit tables the campaign moved exactly one pre-existing cell, the R13 UP move.
+
+**What is NOT closed.** F1 ends with an 18-instance enumerated deep on-card residue, availability-bound under the realistic seat box. Z2's coincident-column braids are the R12 permanent seating residual; the ownership cue that would resolve them is a render-layer change filed separately. The braid tier's coincidence-gated sidestep fired on zero corpus seats, so it bought no Z2 movement here.
 
 ---
 
