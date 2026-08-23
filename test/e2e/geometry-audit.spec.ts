@@ -662,9 +662,23 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // gas-web 1 -- a copper_nugget fan-out chip (e:11) covering the merge dot of
 // its sibling e:10 at (1233,349), the same fan-in owner shape as the
 // battery5-xiranite survivor above.
+//
+// RE-MEASURED at 4 after the per-chip reserved seat box (Task 6b): battery5
+// 0 -> 1, one arrival, and it is a RATIFIED TRADE rather than a keep-off
+// regression. battery5 e:18 (Xircon Effluent 240/min) used to have no seat on
+// its own polyline at all and sat 40.9 units OFF it -- an orphan chip, counted
+// in seat validity, with its fan-in merge dot visible only because the chip had
+// left. With the narrower box the chip seats back ON its line and its box now
+// covers that dot. The pass's own priority order decides this one: keeping off
+// a junction dot is the WEAKEST preference there is and never costs a chip its
+// line (chipSeating's header), so a chip on its line over a dot beats a chip
+// floating beside its line with the dot showing. SEAT_VALIDITY_BASELINE's
+// battery5 cell drops from 2 to 1 in the same move. This is an UP move on a
+// pre-existing pin, so it is a RULING FLAG for the campaign close-out, not a
+// silent re-pin.
 const DOT_COVER_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 0,
+  battery5: 1,
   "battery5-xiranite": 1,
   crystal: 0,
   equip4: 0,
@@ -1064,7 +1078,11 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // Measured: an unbounded scored sidestep put multi6 e:18 at the flush 120 and
 // this counter read 19, the chip floating a full half-width off its line with
 // its two foreign strokes shed. The shipped tier caps its reach at half the
-// reserve for exactly that reason, and the counter holds at 18.
+// reserve for exactly that reason, and the counter holds at 18. Task 6b
+// extended that same bound to the FULLY CLEAR step (tier 1c), which had kept the
+// full reach: measured against the per-chip box, leaving 1c uncapped read 19
+// here while capping it holds 18 and drops card-intrusion and foreign-stroke
+// further as well (ruling R12).
 //
 // RE-MEASURED at 18 after the rise-slot clamp and the drop cascade cap. The
 // x-stranding family is gone: no chip is off its own line by more than one
@@ -1077,13 +1095,20 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // and hides anything past it. Clamping a stranded slot lands it at its own run's
 // far end, which is where that run's junction dot sits, so the keep-off lifts it
 // -- beside its own run beats spread onto a sibling's stroke.
+// RE-MEASURED at 18 after the per-chip reserved seat box (Task 6b). The total
+// holds; two cells swap. battery5 2 -> 1: e:18 had no seat on its own polyline
+// under the worst-case box and sat 40.9 units off it; the narrower box gives it
+// one (it pays a junction dot for it, see DOT_COVER_BASELINE). multi6 5 -> 6:
+// e:35 (Ferrium Powder 600/min) went the other way, displaced off its line by
+// the re-seating cascade as its neighbours took the corridor room the narrower
+// boxes freed. Both cells are campaign-own measurements, re-measured with cause.
 const SEAT_VALIDITY_BASELINE: Record<string, number> = {
   default: 1,
-  battery5: 2,
+  battery5: 1,
   "battery5-xiranite": 4,
   crystal: 0,
   equip4: 0,
-  multi6: 5,
+  multi6: 6,
   tundra: 0,
   script43: 3,
   "coupon-web": 1,
@@ -1148,16 +1173,34 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
 // on-line tiers carry, and three seats (script43 e:37, gas-web e:9 / e:30, 13
 // to 18 deep) stepped one pitch further to a slot off the card. The deep class
 // is untouched by it: none of those three saturated.
+//
+// RE-MEASURED at 70 after the per-chip reserved seat box (Task 6b), which
+// reserves an upper bound on what each chip will DRAW (chrome + its own rate
+// text + the widest localized unit, clamped by the CSS max-width) instead of the
+// widest box that clamp allows -- 166 to 234 units against a flat 240 across
+// this corpus. Sixteen intrusions left the counter and six arrived; the DEEP
+// class went 21 -> 18. Nine of the original deep saturations cleared: the eight
+// Task 5 traced to "the only fully clear point on the line IS the buried one"
+// (battery5 e:6, battery5-xiranite e:11, crystal e:5, multi6 e:49, script43
+// e:21 / e:31 / e:32 / e:33 -- the narrower box makes a shallower point on the
+// same corridor clear) plus battery5-xiranite e:19, whose within-budget graze
+// candidate stopped losing on crossings. Six arrived (battery5 e:18,
+// battery5-xiranite e:34, multi6 e:18 / e:41 / e:43, gas-web's copper_nugget
+// fan-out share chip): chips that gained on-line candidates and settled on one
+// the crossing count ranks above depth, which is the precedence ruling R11 kept.
+// The twelve survivors run 166 to 234 wide; the widest of them
+// (battery5-xiranite e:20, "238.36/min") is 3% off the CSS clamp and had nothing
+// to gain, exactly as the box model predicts.
 const CARD_INTRUSION_BASELINE: Record<string, number> = {
-  default: 9,
-  battery5: 5,
+  default: 5,
+  battery5: 4,
   "battery5-xiranite": 7,
   crystal: 2,
   equip4: 3,
-  multi6: 24,
+  multi6: 22,
   tundra: 1,
-  script43: 14,
-  "coupon-web": 8,
+  script43: 11,
+  "coupon-web": 7,
   "gas-web": 8,
 };
 
@@ -1182,17 +1225,26 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
 // and outside-band instead); capped at one pitch it stays on its own junction
 // and grazes the stroke. A stroke through the box beats a rate chip with nothing
 // under it.
+//
+// RE-MEASURED at 39 after the per-chip reserved seat box (Task 6b), the largest
+// single drop this campaign has taken on any counter. It is the mechanism
+// working directly rather than a ranking change: this counter reads the DRAWN
+// box, and most of its population was class C from the Task 6 enumeration --
+// full-height tap and surplus columns passing under a box the seat had to
+// reserve at the full clamp width. A box reserved at its own text width both
+// straddles fewer columns and has more clear seats to choose from. Nine chips
+// left across seven scenarios; none arrived.
 const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 3,
-  "battery5-xiranite": 7,
+  battery5: 2,
+  "battery5-xiranite": 5,
   crystal: 0,
   equip4: 1,
-  multi6: 17,
+  multi6: 14,
   tundra: 0,
-  script43: 8,
+  script43: 6,
   "coupon-web": 1,
-  "gas-web": 11,
+  "gas-web": 10,
 };
 
 // Outside band: bus chips whose box shares no vertical extent with the band its
@@ -1254,8 +1306,8 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
 // over a run, so it holds even when the suite is run one scenario at a time.
 const CENSUS_TOTALS = {
   seatValidity: 18,
-  cardIntrusion: 81,
-  foreignStroke: 48,
+  cardIntrusion: 70,
+  foreignStroke: 39,
   outsideBand: 0,
 };
 

@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 import {
   chipEntersOwnCardBody,
   chipOwnCardIntrusion,
+  chipSeatHalfW,
   makeClearanceField,
   seatRateChip,
   type CardExemption,
@@ -693,14 +694,55 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
 });
 
 describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (issue #28)", () => {
-  it("steps a chip off a foreign vertical 16 units away instead of straddling it", () => {
-    // Twin vertical corridors 16 units apart (fan-out branch legs right of a
-    // card): the own leg at x=0, a FOREIGN leg at x=16. A wide chip box seated on
-    // the own leg (half-width 120) necessarily straddles the foreign leg, and no
-    // vertical motion clears it: slide-along-leg, nudge, and cascade all hold x
-    // on a vertical leg, so the pre-sidestep seat grazed the neighbour. The
-    // sidestep tier steps the box horizontally away from the foreign leg toward
-    // the own leg's free side until the box clears the foreign leg.
+  it("steps a chip off a foreign vertical inside its box instead of straddling it", () => {
+    // Twin vertical corridors (fan-out branch legs right of a card): the own leg
+    // at x=0, a FOREIGN leg at x=80. A wide chip box seated on the own leg
+    // (half-width 120) necessarily straddles the foreign leg, and no vertical
+    // motion clears it: slide-along-leg, nudge, and cascade all hold x on a
+    // vertical leg, so the pre-sidestep seat grazed the neighbour. The sidestep
+    // tier steps the box horizontally away from the foreign leg toward the own
+    // leg's free side until the box clears the foreign leg.
+    //
+    // RE-PINNED at gap 80 (was 16) when the sidestep took the counter-scale-1
+    // containment bound (Task 6b, ruling R12): a stroke at gap g leaves the box
+    // only past offset halfW - g, so at g = 16 the step needed is 104 against a
+    // reach of 60 and no step sheds it any more -- the companion test below pins
+    // exactly that. At g = 80 the shed costs 40, inside the bound, so the tier
+    // still does the work this fixture was written for.
+    const ownVertical = {
+      pts: [[0, 0], [0, 1000]] as ReadonlyArray<readonly [number, number]>,
+      anchorX: 0,
+      anchorY: 500,
+    };
+    const foreignVertical: EdgeSegments = {
+      id: "foreign",
+      flowKey: "foreign",
+      target: "elsewhere",
+      segs: [[80, -1000, 80, 2000]],
+    };
+    const field = makeClearanceField([foreignVertical], []);
+    const seat = seatRateChip(field, ownVertical, "own", "t", NO_EXEMPT, NO_BAND);
+    const cx = ownVertical.anchorX + seat.dx;
+    // The seated box no longer overlaps the foreign leg at x=80: a wide box needs
+    // a full half-width of centre separation to clear a vertical line.
+    expect(Math.abs(cx - 80)).toBeGreaterThanOrEqual(HALF_W);
+    // Escaped toward the free side (left, away from the foreign leg at +80).
+    expect(seat.dx).toBeLessThan(0);
+    // The own leg (x=0) still lies within the box the chip PAINTS, so the chip
+    // reads as bound to it -- the step stays within the containment bound, half
+    // the reserved half-width.
+    expect(Math.abs(seat.dx)).toBeLessThanOrEqual(HALF_W / 2);
+    // A pure horizontal escape: no vertical move off the anchor.
+    expect(seat.dy).toBe(0);
+    expect(seat.tier).toBe("sidestep");
+  });
+
+  it("declines the step when shedding the foreign vertical would leave the painted box", () => {
+    // The other side of the bound above, and the cost R12 accepted: the same
+    // twin corridors at the 16-unit gap the issue-#28 fixture was written at.
+    // Shedding a stroke that close needs an offset of 104 while the reach is 60,
+    // so no step is fully clear and the chip stays ON its own line in the graze
+    // tier rather than floating a full half-width off it at reading zoom.
     const ownVertical = {
       pts: [[0, 0], [0, 1000]] as ReadonlyArray<readonly [number, number]>,
       anchorX: 0,
@@ -714,18 +756,7 @@ describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (iss
     };
     const field = makeClearanceField([foreignVertical], []);
     const seat = seatRateChip(field, ownVertical, "own", "t", NO_EXEMPT, NO_BAND);
-    const cx = ownVertical.anchorX + seat.dx;
-    // The seated box no longer overlaps the foreign leg at x=16: a wide box needs
-    // a full half-width of centre separation to clear a vertical line.
-    expect(Math.abs(cx - 16)).toBeGreaterThanOrEqual(HALF_W);
-    // Escaped toward the free side (left, away from the foreign leg at +16).
-    expect(seat.dx).toBeLessThan(0);
-    // The own leg (x=0) still lies within the box, so the chip reads as bound to
-    // it -- the escape stays within one half-width of the line.
-    expect(Math.abs(seat.dx)).toBeLessThanOrEqual(HALF_W);
-    // A pure horizontal escape: no vertical move off the anchor.
-    expect(seat.dy).toBe(0);
-    expect(seat.tier).toBe("sidestep");
+    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
   });
 
   it("still grazes (stays on the line) when the foreign line is parallel to the own line", () => {
@@ -753,23 +784,30 @@ describe("seatRateChip: trunk-aware foreignness for the aggregate (issue #28)", 
       id: "d",
       flowKey: "trunk", // same item|source as the trunk, yet a separate edge
       target: "td",
-      segs: [[210, -1000, 210, 1000]],
+      // RE-PINNED (with the trunk below) when the sidestep took the
+      // counter-scale-1 containment bound (Task 6b, ruling R12): the old
+      // geometry needed a step of 60 out of a reach of 120, and the shed landed
+      // exactly ON the clip test's boundary once the reach became 60. Shifted
+      // right by 15 with the trunk, so the flush step at the bound sheds the
+      // stroke by 5 units of real clearance and the fixture still tests
+      // trunk-aware foreignness rather than the clip's edge case.
+      segs: [[225, -1000, 225, 1000]],
     };
     const field = makeClearanceField([member, direct], []);
     const trunk = {
-      pts: [[100, 0], [200, 0]] as ReadonlyArray<readonly [number, number]>,
-      anchorX: 150,
+      pts: [[110, 0], [210, 0]] as ReadonlyArray<readonly [number, number]>,
+      anchorX: 160,
       anchorY: 0,
     };
     const seat = seatRateChip(field, trunk, "trunk", "t", NO_EXEMPT, NO_BAND, {
       ownIds: new Set(["m"]),
     });
-    // Stepped off the direct edge's vertical (x=210): a wide box needs a full
+    // Stepped off the direct edge's vertical (x=225): a wide box needs a full
     // half-width of centre separation to clear it.
     const cx = trunk.anchorX + seat.dx;
-    expect(Math.abs(cx - 210)).toBeGreaterThanOrEqual(HALF_W);
-    // Still within a half-width of its own trunk column, purely horizontal.
-    expect(Math.abs(seat.dx)).toBeLessThanOrEqual(HALF_W);
+    expect(Math.abs(cx - 225)).toBeGreaterThanOrEqual(HALF_W);
+    // Still inside the box it paints, purely horizontal.
+    expect(Math.abs(seat.dx)).toBeLessThanOrEqual(HALF_W / 2);
     expect(seat.dy).toBe(0);
     expect(seat.tier).toBe("sidestep");
   });
@@ -1013,17 +1051,25 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     // The hole the sidestep used to have: it took the first step that cleared
     // everything, so it could park a box on the chip's OWN card that the slide
     // above it walks its whole line to avoid. Here a short leg leaves exactly
-    // one on-line candidate and a foreign stroke poisons it; two steps out are
-    // clear, and the nearer one laps the source card past the port strip while
-    // the farther one clears it.
-    const card: CardRect = { id: "S", left: -400, right: -12, top: 470, bottom: 530 };
+    // one on-line candidate and a foreign stroke poisons it; three steps out are
+    // clear, and the nearer ones lap the source card past the port strip while
+    // the third clears it.
+    //
+    // RE-PINNED from the 112 step to the 48 one when this tier took the
+    // counter-scale-1 containment bound (Task 6b, ruling R12), which caps the
+    // reach at 60. The card and the cutting stroke moved left with it so the
+    // fixture keeps its shape: the first clear step still laps the card (25
+    // deep), the second still laps it (9 deep, the budget), and the third is off
+    // it -- so a first-hit walk would still seat at 16 and this test still kills
+    // that mutation.
+    const card: CardRect = { id: "S", left: -400, right: -70, top: 470, bottom: 530 };
     const field = makeClearanceField(
       [
         {
           id: "cut",
           flowKey: "a",
           target: "other",
-          segs: [[-1000, 500, -30, 500]],
+          segs: [[-1000, 500, -110, 500]],
         },
       ],
       [card],
@@ -1036,7 +1082,7 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       portZone("S", "source"),
       NO_BAND,
     );
-    expect(seat).toEqual({ dx: 112, dy: 0, tier: "sidestep" });
+    expect(seat).toEqual({ dx: 48, dy: 0, tier: "sidestep" });
     expect(
       chipOwnCardIntrusion(seatedBox(0, 500, seat), card),
     ).toBe(0);
@@ -1068,5 +1114,100 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       NO_BAND,
     );
     expect(again).toEqual(a);
+  });
+});
+
+// Per-chip seat box (Task 6b): the seat reserves an upper bound on what the chip
+// will DRAW instead of the widest box the CSS clamp allows. Everything below is
+// arithmetic over the exported estimator plus one seat the narrowing frees.
+describe("chipSeatHalfW: the per-chip reserved box", () => {
+  // The .flow-chip chrome (canvas.css): 16px sprite + 6px gap + 7px padding per
+  // side + 1px border per side. Mirrored here so a change to either number
+  // shows up as a failing expectation rather than a silently re-derived one.
+  const CHROME = 16 + 6 + 2 * 7 + 2 * 1;
+  const GLYPH = 7.5;
+  const UNIT = 34;
+  const ICON = (MAX_CHIP_SCALE * 24) / 2;
+
+  it("reserves the chip's own text width, not the worst-case box", () => {
+    // "150" plus the unit: 38 + 3 glyphs + the widest localized unit = 94.5px
+    // natural, reserved at MAX_CHIP_SCALE and halved.
+    expect(chipSeatHalfW({ body: "150", unit: true }, false)).toBe(
+      (MAX_CHIP_SCALE * (CHROME + 3 * GLYPH + UNIT)) / 2,
+    );
+    expect(chipSeatHalfW({ body: "150", unit: true }, false)).toBeLessThan(
+      HALF_W,
+    );
+  });
+
+  it("charges no unit to a share chip, which draws digits only", () => {
+    // A multi-member bus rise reads "30/270" with no unit (issue #45), so the
+    // 34px unit reserve must not be charged to it.
+    expect(chipSeatHalfW({ body: "30/270", unit: false }, false)).toBe(
+      (MAX_CHIP_SCALE * (CHROME + 6 * GLYPH)) / 2,
+    );
+  });
+
+  it("clamps at the CSS max-width, which is the old worst case", () => {
+    // .flow-chip has max-width: 120px and ellipsizes past it, so no estimate may
+    // exceed CHIP_BOX_WIDTH however long the digits get.
+    expect(chipSeatHalfW({ body: "1234567.89", unit: true }, false)).toBe(
+      HALF_W,
+    );
+  });
+
+  it("falls back to the worst case when there is no text to measure", () => {
+    // Fixtures without a rate, and edges whose rate rounds to the empty string
+    // (which draw no chip at all): over-reserving an invisible box is harmless,
+    // guessing a narrow one is not.
+    expect(chipSeatHalfW(undefined, false)).toBe(HALF_W);
+    expect(chipSeatHalfW({ body: "", unit: true }, false)).toBe(HALF_W);
+  });
+
+  it("reserves the square icon box for a collapsed chip, text or not", () => {
+    expect(chipSeatHalfW({ body: "150", unit: true }, true)).toBe(ICON);
+    expect(chipSeatHalfW(undefined, true)).toBe(ICON);
+  });
+
+  it("seats a chip in a corridor the worst-case box could not fit", () => {
+    // Two foreign verticals 210 units apart, walling in a 200-unit horizontal
+    // own line. The 240-wide worst-case box cannot sit between them anywhere:
+    // it needs 120 of clearance either side and only 105 exists, so every
+    // on-line candidate crosses a stroke, no sidestep inside the containment
+    // bound helps, and the seat is a graze at the anchor. A chip drawing
+    // "30/270" reserves 166, half of which is 83 -- it fits, so the same seat is
+    // fully clear and stays a tier-1 anchor.
+    const wall = (x: number): EdgeSegments => ({
+      id: `w${x}`,
+      flowKey: "foreign",
+      target: "elsewhere",
+      segs: [[x, -1000, x, 1000]],
+    });
+    const walls = [wall(395), wall(605)];
+    const line = {
+      pts: [[400, 0], [600, 0]] as ReadonlyArray<readonly [number, number]>,
+      anchorX: 500,
+      anchorY: 0,
+    };
+    const wide = seatRateChip(
+      makeClearanceField(walls, []),
+      line,
+      "own",
+      "t",
+      NO_EXEMPT,
+      NO_BAND,
+    );
+    expect(wide.tier).toBe("graze");
+
+    const narrow = seatRateChip(
+      makeClearanceField(walls, []),
+      line,
+      "own",
+      "t",
+      NO_EXEMPT,
+      NO_BAND,
+      { text: { body: "30/270", unit: false } },
+    );
+    expect(narrow).toEqual({ dx: 0, dy: 0, tier: "anchor" });
   });
 });

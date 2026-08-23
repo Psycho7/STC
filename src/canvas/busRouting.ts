@@ -193,8 +193,10 @@ export type BandExtent = { y0: number; y1: number };
 export type LaneBands = { top: BandExtent | null; bottom: BandExtent | null };
 
 // Read a Fraction rate off an edge's data, or undefined when it is absent or not
-// a Fraction (older fixtures may omit it).
-function edgeRate(edge: Edge): Fraction | undefined {
+// a Fraction (older fixtures may omit it). Exported because the chip-seating
+// pass reads the same field to predict a chip's drawn text, and two readers of
+// one loosely typed field would be free to disagree about what counts as a rate.
+export function edgeRate(edge: Edge): Fraction | undefined {
   const rate = (edge.data as { rate?: unknown } | undefined)?.rate;
   return rate instanceof Fraction ? rate : undefined;
 }

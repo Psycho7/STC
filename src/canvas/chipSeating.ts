@@ -53,11 +53,13 @@ import {
   absoluteLeft,
   absoluteTop,
   edgeItem,
+  edgeRate,
   nodeHeight,
   nodeWidth,
   portOffsetY,
   type BusEdgeData,
 } from "./busRouting";
+import { formatRatePerMin } from "../data/rate-format";
 import type { RFAnyNode } from "./layout";
 
 // Chip half-extents, in graph units. A chip counter-scales up to MAX_CHIP_SCALE
@@ -88,6 +90,124 @@ const SHORT_LEG_MAX = CHIP_HALF_W_WIDE;
 // axes, counter-scaled by the same cap. So its half-width IS the shared
 // half-height.
 const CHIP_HALF_W_ICON = CHIP_HALF_H;
+
+// Chrome the .flow-chip box carries around its body text, in px at natural
+// scale, straight off the CSS rule (canvas.css .flow-chip / .ico-16): a 16px
+// item sprite, the 6px flex gap between sprite and text, 7px of padding per
+// side, and a 1px border per side under box-sizing: border-box. A chip whose
+// item has no sprite draws neither icon nor gap, and one on an item with no
+// text draws no text -- both are charged regardless, which only makes the bound
+// safer and keeps the layout pass free of the icon table. Re-derive alongside
+// CHIP_BOX_WIDTH whenever that rule's padding, gap, border or sprite size
+// changes.
+const CHIP_ICON_PX = 16;
+const CHIP_GAP_PX = 6;
+const CHIP_PAD_X_PX = 7;
+const CHIP_BORDER_PX = 1;
+const CHIP_CHROME_PX =
+  CHIP_ICON_PX + CHIP_GAP_PX + 2 * CHIP_PAD_X_PX + 2 * CHIP_BORDER_PX;
+
+// Upper bound on one body glyph's advance, in px. A chip body is digits plus
+// "." and "/" only (formatRatePerMin is locale-independent ASCII), set at 11px
+// weight 700 in --font-num, and letter-spacing: -0.01em only subtracts. The
+// font stack is remote ("Space Grotesk", then "JetBrains Mono", the Han faces,
+// and generic monospace), so the bound has to survive a box where the webfont
+// never arrived: measured in-browser at 11px/700, the WIDEST of those glyphs is
+// 6.89px in Space Grotesk and in JetBrains Mono, 6.50px in generic monospace,
+// and less in every other fallback. 7.5 keeps ~9% headroom over the worst.
+const CHIP_GLYPH_PX = 7.5;
+
+// Upper bound on the localized rate unit a rate chip appends, in px, over ALL
+// FOUR locales: "/min" (en), "/мин" (ru), "/分" (zh and ja). The layout pass is
+// deliberately locale-BLIND -- layout.ts records the standing invariant that ids
+// resolve to names at render time so switching locale never forces a relayout,
+// and this module imports no i18n -- so the seat reserves the WIDEST unit in
+// every locale rather than the active one, and one seat stays correct in all
+// four. The Latin and Cyrillic 4-glyph forms are the widest; the zh/ja glyph is
+// the narrowest, not the widest. Measured in-browser at 11px/700 across the
+// stack (see the four-locale width-bound check): 24.56px worst in the live
+// font, 27.56px worst under substitution. 34 keeps ~23% headroom over that.
+const CHIP_UNIT_MAX_PX = 34;
+
+// What one chip's box is going to DRAW, as the seat needs to know it: the body
+// string the component builds, and whether the localized rate unit follows it.
+// Mirrors the chip text in ItemEdge (rate + unit) and BusEdge (aggregate total +
+// unit; a multi-member share "30/270", digits only, no unit), so the callers
+// below build it from the same edge-data fields at seating time. The seat and
+// the render must agree on the box AT REST; the four-locale probe check is the
+// cross-check that they do.
+export type ChipText = { body: string; unit: boolean };
+
+// The half-width one chip's seat reserves, in graph units. The rendered box is
+// CHIP_CHROME_PX plus the body text plus the unit, clamped by the CSS
+// max-width: 120px (which ellipsizes rather than growing past it), and it
+// counter-scales up to MAX_CHIP_SCALE about its centre -- so the zoom-safe
+// reserve is MAX_CHIP_SCALE times that natural width, and half of it is the
+// half-extent every tier measures with.
+//
+// Why estimate at all: reserving CHIP_BOX_WIDTH for every chip charges the
+// widest box the clamp allows to a chip that draws half of it, and that surplus
+// is what makes a corridor read as blocked to the seat while it is open to the
+// reader. Only the GLYPH width is estimated here; the digits come from the real
+// formatter, so the string is exact and only its advance is bounded.
+//
+// Two fallbacks, both to the old worst case: a chip collapsed to its item sprite
+// reserves the square icon box (exact, not an estimate), and a chip with no
+// usable rate -- a fixture that omits it, an edge whose rate rounds to the empty
+// string -- reserves CHIP_BOX_WIDTH, which draws nothing at all and so can only
+// over-reserve. No lower clamp is needed: CHIP_CHROME_PX alone already exceeds
+// the icon box.
+export function chipSeatHalfW(
+  text: ChipText | undefined,
+  iconOnly: boolean,
+): number {
+  if (iconOnly) return CHIP_HALF_W_ICON;
+  if (text === undefined || text.body === "") return CHIP_HALF_W_WIDE;
+  const natural =
+    CHIP_CHROME_PX +
+    CHIP_GLYPH_PX * text.body.length +
+    (text.unit ? CHIP_UNIT_MAX_PX : 0);
+  return (MAX_CHIP_SCALE * Math.min(CHIP_BOX_WIDTH, natural)) / 2;
+}
+
+// The chip text a plain rate chip draws: the item edge's own rate through the
+// real display formatter, plus the unit (ItemEdge). The formatter returns "" for
+// a zero rate, which is exactly when ItemEdge draws no chip -- the estimator
+// takes that as "no usable rate" and reserves the worst case for an invisible
+// box, which can only over-reserve.
+function rateChipText(edge: Edge): ChipText | undefined {
+  const rate = edgeRate(edge);
+  return rate === undefined
+    ? undefined
+    : { body: formatRatePerMin(rate), unit: true };
+}
+
+// The chip text a fan-out trunk's AGGREGATE chip draws: the trunk total (falling
+// back to this member's own rate, as BusEdge does) plus the unit. Only seated on
+// a single-member trunk, where the total IS that member's rate (issue #39).
+function aggregateChipText(edge: Edge): ChipText | undefined {
+  const total = (edge.data as BusEdgeData | undefined)?.busTotalRate;
+  return total === undefined
+    ? rateChipText(edge)
+    : { body: formatRatePerMin(total), unit: true };
+}
+
+// The chip text a fan-out member's BRANCH chip draws. On a multi-member trunk it
+// is the SHARE, "30/270" -- digits only, no unit, because the unit would not fit
+// the box beside a decimal pair and differs per locale, so the full localized
+// wording rides the label and title instead (BusEdge, issue #45). A lone member
+// is its own total and keeps the plain rate + unit reading.
+function branchChipText(edge: Edge): ChipText | undefined {
+  const plain = rateChipText(edge);
+  if (plain === undefined || plain.body === "") return plain;
+  const data = edge.data as BusEdgeData | undefined;
+  if ((data?.busMemberCount ?? 1) <= 1) return plain;
+  const total = data?.busTotalRate ?? edgeRate(edge)!;
+  const shareTotal = formatRatePerMin(total);
+  return shareTotal === ""
+    ? plain
+    : { body: `${plain.body}/${shareTotal}`, unit: false };
+}
 
 // Vertical pitch a colliding chip is bumped by each step, and the shared full
 // chip-box height. A full max-scale box height keeps the resolved clearance from
@@ -817,16 +937,20 @@ const LAST_RESORT_CAP_STEPS = 200;
 // half-width -- which it cannot on a vertical leg, and cannot along a short
 // horizontal trunk whose whole span the box already overhangs. The sidestep
 // steps the box in x, away from the foreign line toward the own line's free
-// side, by ENTRY_SLOT_PITCH increments out to one half-width. That reach is the
-// most that keeps the own line WITHIN the box (its edge flush to the line at the
-// cap), so the chip still reads as bound to its own leg while its box no longer
-// overlaps the neighbour.
-// This full reach belongs to the FULLY CLEAR step (tier 1c) alone, and only
-// because that tier is pre-existing and is reached solely when NO fully clear
-// on-line candidate exists -- a seat that sheds every foreign stroke buys the
-// flush step's risk back. The SCORED step (tier 1b') halves it: see the cap at
-// scoredStepMax, where the own line has to stay inside the box the chip PAINTS
-// at counter-scale 1, not the worst-case box it reserves.
+// side, by ENTRY_SLOT_PITCH increments.
+//
+// The reach is HALF the reserved half-width, and the halving is a containment
+// bound rather than a taste call. The reserve is what the chip may draw at
+// MAX_CHIP_SCALE; at counter-scale 1 (zoom 1 and above) it paints half of that,
+// so an offset past halfW / 2 puts the own line outside the PAINTED box and the
+// chip reads as an orphan floating beside its line -- the issue-#9 defect the
+// whole tier ladder exists to prevent. BOTH sidestep tiers take that bound:
+// the fully clear step (tier 1c) and the scored step (tier 1b'). Tier 1c used
+// to keep the full half-width on the argument that a seat shedding every
+// foreign stroke buys the flush step's risk back; measured against the
+// per-chip seat box that argument no longer pays -- capping it holds
+// seat-validity at its baseline and drops card-intrusion and foreign-stroke
+// further than the uncapped tier does (Task 6b, ruling R12).
 const SIDESTEP_PITCH = ENTRY_SLOT_PITCH;
 const SIDESTEP_MAX = CHIP_HALF_W_WIDE;
 
@@ -924,25 +1048,30 @@ export function seatRateChip(
   //              the fan-out branch loop, hides nudge/escape/exhausted seats --
   //              that hide is what makes a rendered crossing impossible, not the
   //              barrier alone.
-  //   iconOnly:  this chip renders collapsed to its item sprite (a short-leg
-  //              fan-out branch), so the box every tier reserves is the square
-  //              icon box instead of the wide worst case. Only a caller that
-  //              also STAMPS the collapse may pass it -- the seat and the render
-  //              must reserve the same box AT REST. Hover is the deliberate
-  //              exception: a focused chip re-expands to its digits (focused
-  //              overrides compact in ItemEdge), drawing the wide box the seat
-  //              did not reserve, so a hovered collapsed chip may transiently
-  //              overlap a neighbour chip. That is accepted, not a seating bug.
+  //   iconOnly:  this chip renders collapsed to its item sprite (a short leg),
+  //              so the box every tier reserves is the square icon box instead
+  //              of the wide worst case. Only a caller that also STAMPS the
+  //              collapse may pass it -- the seat and the render must reserve
+  //              the same box AT REST. Hover is the deliberate exception: a
+  //              focused chip re-expands to its digits (focused overrides
+  //              compact in ItemEdge), drawing the wide box the seat did not
+  //              reserve, so a hovered collapsed chip may transiently overlap a
+  //              neighbour chip. That is accepted, not a seating bug.
+  //   text:      the body string this chip will DRAW plus whether the localized
+  //              unit follows it, from which the reserved half-width is
+  //              estimated (chipSeatHalfW). Omitted, the seat falls back to the
+  //              full CHIP_BOX_WIDTH worst case.
   opts?: {
     ownIds?: ReadonlySet<string> | undefined;
     barrierYs?: ReadonlyArray<number> | undefined;
     iconOnly?: boolean | undefined;
+    text?: ChipText | undefined;
   },
 ): RateSeat {
   const { pts, anchorX, anchorY } = path;
   const ownIds = opts?.ownIds;
   const barrierYs = opts?.barrierYs;
-  const halfW = opts?.iconOnly === true ? CHIP_HALF_W_ICON : CHIP_HALF_W_WIDE;
+  const halfW = chipSeatHalfW(opts?.text, opts?.iconOnly === true);
   // A slide candidate crosses a barrier when it and the anchor sit on OPPOSITE
   // sides of a seated sibling (their signed offsets from it differ), i.e. the
   // slide would jump past the sibling and invert the stack. Same-side and
@@ -1154,17 +1283,20 @@ export function seatRateChip(
   // overhangs) means a parallel foreign line the wide box cannot shed by any
   // vertical motion. Step the box horizontally off the line -- away from the
   // foreign line, toward the own line's free side -- keeping the own line within
-  // the box (offset <= one half-width). Both directions are probed nearest-first
+  // the box the chip PAINTS (offset <= half the reserved half-width, the
+  // containment bound at SIDESTEP_MAX). Both directions are probed nearest-first
   // so the free side wins: clearing the foreign line by moving toward it would
   // take more than a half-width plus a pitch (past the reach), and the blocked
   // side (a card or the foreign line itself) never clears. On a tie the positive
-  // x wins. The reach's last step is clamped to the flush half-width even when
-  // the pitch does not divide it.
-  // The reach is one half-width of the box THIS chip reserves, so a collapsed
-  // chip steps only as far as its own narrower box still holds the line.
+  // x wins. The reach's last step is clamped flush to the bound even when the
+  // pitch does not divide it.
+  // The reach is derived from the box THIS chip reserves, so a collapsed chip --
+  // or one whose estimated box is narrower than the worst case -- steps only as
+  // far as its own box still holds the line.
   // Built once and walked twice: here for a fully clear step, and again below
-  // the graze scorer for a scored one where nothing is fully clear.
-  const sidestepMax = Math.min(SIDESTEP_MAX, halfW);
+  // the graze scorer for a scored one where nothing is fully clear. Both walks
+  // take the SAME reach; there is no longer an asymmetry between them.
+  const sidestepMax = Math.min(SIDESTEP_MAX, halfW) / 2;
   const sidestepXs: number[] = [];
   for (let step = 1; ; step++) {
     const off = Math.min(step * SIDESTEP_PITCH, sidestepMax);
@@ -1239,10 +1371,11 @@ export function seatRateChip(
   // What the step cannot buy is the braid itself, and that is arithmetic, not
   // ranking: a foreign stroke at gap g from the own line only leaves the box
   // once the offset exceeds halfW - g, a braid has g <= BIND_NEAR (8) by
-  // definition, and the cap below is halfW / 2 -- 112 needed against 60 allowed
-  // for the 120 half-width. So the braid is the GATE, and what the step sheds
-  // is a FAR crossing the wide box straddles, own-card depth, or a buried
-  // junction dot.
+  // definition, and the reach is halfW / 2 -- 112 needed against 60 allowed for
+  // the 120 half-width, and the per-chip seat box shrinks BOTH sides of that
+  // comparison (ruling R12), so it never closes. So the braid is the GATE, and
+  // what the step sheds is a FAR crossing the wide box straddles, own-card
+  // depth, or a buried junction dot.
   //
   // Two things this must not become. It is not nearest-first, and it keeps the
   // BEST offset rather than the first improving one: the strokes a step can
@@ -1255,26 +1388,19 @@ export function seatRateChip(
   // chips that have nothing to gain. A braid detected by the walk above is what
   // pays for the second pass.
   //
-  // Its reach is HALF the fully clear tier's, and that is not a taste call. The
-  // reserved box is a worst case -- MAX_CHIP_SCALE, full label width -- while
-  // the chip DRAWS at the camera's counter-scale, so the reserve is an upper
-  // bound on the painted box and the flush step's "the line is still in the
-  // box" is a claim about paint that may not exist. At an offset within half
-  // the reserve the own line stays inside the painted box down to counter-scale
-  // 1 (zoom 1), which covers every reading camera; at the flush step it is
-  // outside it above zoom 0.5, and the chip reads as an orphan floating beside
-  // its line -- the issue-#9 defect the whole ladder exists to prevent.
-  // Measured: uncapped, the only seat in the corpus this tier moved to the
-  // flush step (multi6 e:18) shed both its strokes and became exactly that
-  // orphan. Shedding a 3-unit braid needs almost the whole reserve, so under
-  // this cap the tier cannot separate the tightest braids at all; that is the
-  // R11 trade, and it is the realistic per-chip seat box (Task 6b), not a
-  // longer reach, that buys it back.
-  const scoredStepMax = sidestepMax / 2;
+  // Its reach is sidestepMax, the containment bound the fully clear tier now
+  // shares (SIDESTEP_MAX derives it): at an offset within half the reserve the
+  // own line stays inside the painted box down to counter-scale 1 (zoom 1),
+  // which covers every reading camera; past it the chip reads as an orphan
+  // floating beside its line. Measured before the bound reached tier 1c: the
+  // one corpus seat this tier moved to a flush 120 (multi6 e:18) shed both its
+  // strokes and became exactly that orphan. Shedding a 3-unit braid needs
+  // almost the whole reserve, so under this bound neither tier can separate the
+  // tightest braids at all -- that is the R11/R12 trade, and the per-chip seat
+  // box does not buy it back, because it narrows the reach in step with the box.
   if (bestGraze !== null && bestGraze.s.binding > 0) {
     let stepped: { px: number; s: GrazeScore } | null = null;
     for (const px of sidestepXs) {
-      if (Math.abs(px - anchorX) > scoredStepMax) continue;
       if (!hardClearAt(px, anchorY)) continue;
       const s = scoreIfBetter(boxAt(px, anchorY), stepped?.s ?? bestGraze.s);
       if (s !== null) stepped = { px, s };
@@ -2223,7 +2349,10 @@ export function deconflictChipAnchors(
       edge.target,
       trunkExempt.get((edge.data as BusEdgeData).trunkKey) ?? cardExemptFor(edge),
       NEVER_BAND,
-      { ownIds: trunkMemberIds.get((edge.data as BusEdgeData).trunkKey) },
+      {
+        ownIds: trunkMemberIds.get((edge.data as BusEdgeData).trunkKey),
+        text: aggregateChipText(edge),
+      },
     );
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
       // Dev/test-only tripwire, tree-shaken out of production builds (parity with
@@ -2289,6 +2418,7 @@ export function deconflictChipAnchors(
         // reserves the square icon box here: the wide box is broader than the
         // leg, which is exactly why no seat on it could clear the split dot.
         iconOnly: shortBranchByIndex.has(index),
+        text: branchChipText(edge),
       },
     );
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
@@ -2360,6 +2490,13 @@ export function deconflictChipAnchors(
       edge.target,
       cardExemptFor(edge),
       entryBand,
+      {
+        // A short-leg item chip renders collapsed at every zoom (chipIconOnly,
+        // stamped below from the same set), so it reserves the square icon box
+        // rather than the wide worst case it never draws.
+        iconOnly: shortLegByIndex.has(index),
+        text: rateChipText(edge),
+      },
     );
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
       // Dev/test-only tripwire, tree-shaken out of production builds (parity
