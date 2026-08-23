@@ -10,7 +10,10 @@ import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
-import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
+import {
+  chipSeatHalfW,
+  deconflictChipAnchors,
+} from "../../src/canvas/chipSeating";
 import {
   chamferStepPath,
   chamferFanoutPath,
@@ -191,7 +194,12 @@ describe("deconflictChipAnchors: per-chip reserved box", () => {
     const anchors = edges.map((e) => chipAnchorOf(nodes, e));
     const apart = Math.abs(anchors[1]! - anchors[0]!);
     expect(apart).toBeLessThan(2 * CHIP_HALF_W_WIDE); // premise: wide boxes clash
-    expect(apart).toBeGreaterThan(2 * 94.5); // ...and estimated ones do not
+    // ...and estimated ones do not. Taken from the seat's own estimator so a
+    // change to the chrome, glyph or unit constants fails here rather than
+    // silently invalidating the premise.
+    expect(apart).toBeGreaterThan(
+      2 * chipSeatHalfW({ body: "180", unit: true }, false),
+    );
 
     const out = deconflictChipAnchors(nodes, edges);
     for (const e of edges) {

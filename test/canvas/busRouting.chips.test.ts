@@ -625,6 +625,31 @@ describe("deconflictChipAnchors: bus drop cascade cap", () => {
     expect(Math.abs(e2Y - (laneY + pitch))).toBeGreaterThanOrEqual(pitch);
     expect(busDropDyOf(out, "e2")).toBe(2 * pitch);
   });
+
+  it("breaks the cap rather than enter a foreign card", () => {
+    // The other half of the cap's hard pair: foreign CARDS stay hard inside the
+    // cap exactly as placed chips do. One lone trunk, and a foreign card
+    // (nobody's endpoint, so no exemption reaches it) laid over the drop column
+    // across BOTH in-cap seats -- the lane and one pitch down. Every seat the
+    // cap offers enters the card, so the seat falls through to the unbounded
+    // ladder and lands two pitches out, the first seat clear of the card.
+    const pitch = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60),
+      productNode("t0", 1400, 0, 100, 60),
+      // Spans y 280..360: it covers the lane seat's box (276..324) and the
+      // one-pitch seat's (324..372), and clears the two-pitch seat's
+      // (372..420). Its x straddles the drop column, so the box laps it there.
+      productNode("blk", 100, 280, 100, 80),
+    ];
+    const out = deconflictChipAnchors(nodes, [loneBus("t0")]);
+    const dropDy = busDropDyOf(out, "e0");
+    expect(dropDy).toBeGreaterThan(pitch);
+    expect(dropDy).toBe(2 * pitch);
+    // ...and the seat it took really is off the card: box top (chip centre minus
+    // a max-scale half height) sits below the card's bottom edge.
+    expect(laneY + dropDy - pitch / 2).toBeGreaterThanOrEqual(360);
+  });
 });
 
 describe("deconflictChipAnchors: reconstruction tripwires", () => {

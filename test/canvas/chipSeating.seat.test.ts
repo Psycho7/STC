@@ -307,19 +307,34 @@ describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine
         { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
         { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
         { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+        // A same-target sibling, so the OVER_BOX_BAND case below actually runs
+        // the arrival-cluster exemption: without one, every band is equivalent
+        // here and a windows walk that skipped the exemption would still agree
+        // with the count.
+        { id: "sib", flowKey: "d", target: "T", segs: [[20, 0, 20, 200]] },
       ],
       [],
     );
-    // BOX takes all three, FAR_BOX only the long horizontal, and the third box
-    // sits above every one of them so the empty case is exercised too.
+    // BOX takes all four, FAR_BOX only the long horizontal, and the third box
+    // sits above every one of them so the empty case is exercised too. BOX runs
+    // twice: under AWAY_BAND the sibling counts like any foreign line, under
+    // OVER_BOX_BAND it is waived, and the windows have to follow either way.
     const CLEAR_BOX = { x: 800, y: 20, halfW: 120, halfH: 24 };
-    for (const box of [BOX, FAR_BOX, CLEAR_BOX]) {
-      const windows = field.foreignLineWindows(box, "own", "T", AWAY_BAND);
+    const cases: ReadonlyArray<
+      [{ x: number; y: number; halfW: number; halfH: number }, EntryBand]
+    > = [
+      [BOX, AWAY_BAND],
+      [FAR_BOX, AWAY_BAND],
+      [CLEAR_BOX, AWAY_BAND],
+      [BOX, OVER_BOX_BAND],
+    ];
+    for (const [box, band] of cases) {
+      const windows = field.foreignLineWindows(box, "own", "T", band);
       expect(windows.length).toBe(
-        field.foreignLineCrossings(box, "own", "T", AWAY_BAND),
+        field.foreignLineCrossings(box, "own", "T", band),
       );
       expect(windows.length === 0).toBe(
-        !field.onForeignLine(box, "own", "T", AWAY_BAND),
+        !field.onForeignLine(box, "own", "T", band),
       );
     }
   });
