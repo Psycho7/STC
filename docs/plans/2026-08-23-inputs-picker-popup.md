@@ -18,7 +18,7 @@ Design spec: `docs/specs/2026-08-23-inputs-picker-popup-design.md`.
 - Every new UI string must be added to all four locales: `zh`, `en`, `ja`, `ru`. `Record<Locale, Record<UiKey, string>>` makes a missing locale a compile error; a missing `UiKey` union entry is not, so add the key to the union too.
 - Do not touch `TargetsPanel.tsx` behavior. It shares `ItemPickerPopup`, so every change there must be backwards compatible via optional props.
 - Do not modify `test/integration/inputs-panel-shell.test.tsx`. It never touches the item control.
-- Verification commands: `bun run typecheck`, `bun run lint`, `bun run test`, `bun run test:e2e`.
+- Verification commands: `bun run typecheck`, `bun run lint`, `bun run test`, `bun run test:e2e`. CI runs lint, typecheck, typecheck:tools, test and build. It does NOT run `format` or `test:e2e`, so those two are on you.
 
 ## File structure
 
@@ -32,6 +32,41 @@ Design spec: `docs/specs/2026-08-23-inputs-picker-popup-design.md`.
 | `test/e2e/inputs-panel.spec.ts` | Playwright suite | Modify: replace 2 tests, restructure 1, re-preamble 3, drop 4 constants |
 | `src/canvas/canvas.css` | Styling | Modify: delete select rules, rewrite comment, add hint + aria-disabled rules |
 | `src/data/i18n.ts` | UI strings | Modify: 2 new keys across 4 locales |
+
+---
+
+### Task 0: Record the e2e baseline
+
+Run this FIRST, before any file is touched. `bun run test:e2e` is not a CI gate and this repo has known pre-existing e2e failures, so the only way to tell a regression from an inherited failure is to measure the suite before the change. Measuring it later is worse than not measuring: by Task 9 the select is already gone, every legacy test fails on `getByRole("combobox")`, and a "no new failures" gate passes vacuously.
+
+**Files:**
+- Create: `docs/plans/.e2e-baseline.txt` (scratch, not committed)
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: the list of `inputs-panel` tests already failing on this branch's merge base, which Task 9 Step 7 compares against.
+
+- [ ] **Step 1: Run the suite on the untouched tree**
+
+```bash
+bun run test:e2e -- inputs-panel 2>&1 | tee docs/plans/.e2e-baseline.txt | tail -40
+```
+
+Do not use `git stash` for this. At Task 0 the tree is already clean, so a stash saves nothing and a following `git stash pop` either errors or applies an unrelated stash entry from another session.
+
+- [ ] **Step 2: Record the result**
+
+Write the names of the failing tests into the plan itself, replacing this line, so a later task does not have to re-derive them:
+
+> Baseline failures on the merge base: _fill this in_
+
+Expect some. Tests 4 and 6 in particular fill a rate with `fill()` and never blur, and the panel commits only on blur or Enter, so their URL polls have nothing to wait for. Task 9 fixes that.
+
+- [ ] **Step 3: Do not commit the scratch file**
+
+```bash
+echo "docs/plans/.e2e-baseline.txt" >> .git/info/exclude
+```
 
 ---
 
@@ -305,15 +340,36 @@ it("re-picking the row's own item commits nothing and raises no alert", async ()
         pack={fixturePack}
       />
   );
-  await user.click(screen.getAllByLabelText("物品")[0]!);
+  const trigger = screen.getAllByLabelText("物品")[0]!;
+  await user.click(trigger);
   await user.click(pickerTile("copper_ore")!);
   expect(onChange).not.toHaveBeenCalled();
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.queryByTestId("picker-tile")).toBeNull();
+  // The row never unmounts on a confirm, so focus returns to the same button.
+  expect(document.activeElement).toBe(trigger);
+});
+
+it("a backdrop click returns focus to the trigger", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  render(
+    <InputsPanel
+      itemOverrides={[{ itemId: "copper_ore" }]}
+      onChange={onChange}
+      pack={fixturePack}
+    />,
+  );
+  const trigger = screen.getAllByLabelText("物品")[0]!;
+  await user.click(trigger);
+  await user.click(document.querySelector(".recipe-picker-backdrop")!);
+  expect(screen.queryByTestId("picker-tile")).toBeNull();
+  expect(onChange).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(trigger);
 });
 ```
 
-**File conventions, and a required helper.** This block applies to every snippet in Tasks 3 to 6; it is repeated in each of those tasks because an engineer sees only their own task.
+**File conventions, and a required helper.** This block applies to every snippet in Tasks 3 to 6. Tasks 4, 5 and 6 each point back here. The helper below is declared ONCE, by this task; a later task must use it, never redeclare it, or `bun run typecheck` fails on a duplicate implementation.
 
 - The file uses `describe` / `it`, never bare `test`. `vitest.config.ts` sets `globals: false`, so `test` is not even defined.
 - It renders `<InputsPanel />` bare, with no `LocaleProvider`. The default locale is `zh`, so the item query is `getAllByLabelText("物品")` and the rate query is `getAllByLabelText("速率")`.
@@ -333,9 +389,11 @@ function pickerTile(itemId: string): HTMLButtonElement | null {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx`
-Expected: FAIL. `getAllByLabelText("物品")` still resolves, to the selects, but clicking one opens no dialog, so `pickerTile(...)` is null.
+Expected: FAIL on five of the seven. The four that call `pickerTile(...)!` throw, because clicking a `<select>` opens no dialog, and the auto-row test's hint assertion is the fifth.
 
-Indentation in the snippets above may not match Prettier's output. `bun run format` is a CI gate, so run `bunx prettier --write` on the file before committing.
+Two are honestly not red-first, and that is fine: the Escape test and the backdrop test both end by asserting `document.activeElement` is the clicked control, which is trivially true of a focused `<select>`. They exist to pin the focus contract once `closePicker` owns it, and they would catch a `closePicker` that forgot to refocus.
+
+Indentation in the snippets above may not match Prettier's output. CI runs lint, typecheck, test and build, not `format`, so this will not fail the build - but run `bunx prettier --write test/components/InputsPanel.test.tsx` before committing anyway, and do the same in Tasks 4, 5 and 6, rather than leaving the whole formatting debt to Task 10.
 
 - [ ] **Step 3: Add the imports and picker state**
 
@@ -443,7 +501,7 @@ And add this function inside the component, after the `return (...)` block, mirr
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx`
-Expected: the three new tests PASS, and the rest of this file stays green.
+Expected: all seven new tests PASS, and the rest of this file stays green.
 
 This task does leave the repo red elsewhere, deliberately: `src/components/InputsPanel.test.tsx`'s UX-17 test reaches the item control through `getByRole("combobox")`, which no longer exists. That suite stays red from here until Task 8 retires it. Do not try to fix it inside this task.
 
@@ -498,7 +556,7 @@ it("a committed swap moves focus to the swapped row's trigger", async () => {
 });
 ```
 
-Same file conventions as Task 3: `it(...)` not `test(...)`, no `LocaleProvider` wrapper, `pack={fixturePack}`, and the `pickerTile` helper. Add `import { useState } from "react";` if it is not there yet.
+Follow the file conventions in Task 3 Step 1: `it(...)` not `test(...)`, no `LocaleProvider` wrapper (default locale `zh`), `pack={fixturePack}`. Use the `pickerTile` helper Task 3 declared; do not redeclare it. Add `import { useState } from "react";` if it is not there yet. Append inside the existing `describe("InputsPanel", ...)` block, so the suite does not end up split.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -1081,19 +1139,7 @@ Six tests, in file order. Two are replaced, one is restructured, three keep thei
 - Consumes: Tasks 3 to 7.
 - Produces: nothing.
 
-- [ ] **Step 1: Baseline before changing anything**
-
-This repo has known pre-existing e2e failures, and `bun run test:e2e` is not a CI gate. Record which of these six tests already fail on the merge base, so a pre-existing failure is never mistaken for a regression:
-
-```bash
-git stash --include-untracked
-bun run test:e2e -- inputs-panel 2>&1 | tail -40
-git stash pop
-```
-
-Write the failing test names down. Step 8 compares against this list, not against green.
-
-- [ ] **Step 2: Add a pick helper and delete the dead constants**
+- [ ] **Step 1: Add a pick helper and delete the dead constants**
 
 Every tile locator MUST be scoped to `.recipe-picker`. `data-item-id` is on picker tiles, on canvas ProductNodes (`src/canvas/ProductNode.tsx`), on auto-rows, and now on override rows. `copper_powder` and `iron_powder` are default targets, so their canvas nodes exist in every default-plan test before the picker even opens; an unscoped locator matches two or more elements and Playwright fails with a strict-mode violation rather than a useful assertion error.
 
@@ -1111,9 +1157,9 @@ async function addInputRow(page: Page, itemId: string): Promise<void> {
 
 Item ids in this file are from the real pack, not the unit fixture. Raw items are `originium_ore, quartz_sand, iron_ore, copper_ore, gas_xiranite, liquid_water, liquid_acid, gas_inert, domain_key_tundra`; everything else is non-raw. There is no `copper_plate`.
 
-- [ ] **Step 3: Replace Test 1's body**
+- [ ] **Step 2: Replace Test 1's body and title**
 
-Keep the test's existing preamble (`attachConsoleListener`, `page.goto`, `waitForCanvasReady`, `waitForInputsPanel`, `const initialCount = ...`) and its trailing `await expectNoConsoleErrors(log)`. Replace only what sits between them:
+The old title, "Add input row defaults to first unused itemId (lex-sorted)", describes behavior that no longer exists. Retitle it "Add opens the picker and a pick appends an uncapped override". Keep the test's existing preamble (`attachConsoleListener`, `page.goto`, `waitForCanvasReady`, `waitForInputsPanel`, `const initialCount = ...`) and its trailing `await expectNoConsoleErrors(log)`. Replace only what sits between them:
 
 ```ts
     await clickAddInput(page);
@@ -1136,9 +1182,9 @@ Keep the test's existing preamble (`attachConsoleListener`, `page.goto`, `waitFo
     await expect.poll(() => page.url(), { timeout: 5_000 }).not.toBe(urlBefore);
 ```
 
-- [ ] **Step 4: Replace Test 3's body**
+- [ ] **Step 3: Replace Test 3's body and title**
 
-Same rule: keep the preamble and the trailing `expectNoConsoleErrors`. The old test drove a duplicate through `selectOption` and asserted the per-row alert. That pick is impossible now, so assert the tile is dimmed instead. Note the two rows use **different** items: once `copper_powder` has a row its tile is disabled, so a second `addInputRow` for the same id would time out on Playwright's actionability check.
+Retitle from "Duplicate-guard surfaces error and does not propagate" to "A claimed item's tile is disabled in the picker". Same rule: keep the preamble and the trailing `expectNoConsoleErrors`. The old test drove a duplicate through `selectOption` and asserted the per-row alert. That pick is impossible now, so assert the tile is dimmed instead. Note the two rows use **different** items: once `copper_powder` has a row its tile is disabled, so a second `addInputRow` for the same id would time out on Playwright's actionability check.
 
 ```ts
     await addInputRow(page, "copper_powder");
@@ -1161,7 +1207,7 @@ Same rule: keep the preamble and the trailing `expectNoConsoleErrors`. The old t
     await expect(page.locator(".recipe-picker")).toHaveCount(0);
 ```
 
-- [ ] **Step 5: Restructure Test 5**
+- [ ] **Step 4: Restructure Test 5**
 
 Test 5 is "cap exceeding demand commits cleanly with no error banner". It caps `copper_ore`, which is raw and consumed by the default plan, so it is an auto-row and its tile is dimmed in the Add picker. Drive the auto-row typing path instead.
 
@@ -1190,7 +1236,7 @@ Three things must be preserved. Keep the cap value `9999`: the test's whole prem
 
 Delete `const initialCount = await inputRows(page).count();` from this test: its only consumer was the `nth(initialCount)` locator, and an unused binding fails `bun run lint`.
 
-- [ ] **Step 6: Re-preamble Tests 2, 4 and 6**
+- [ ] **Step 5: Re-preamble Tests 2, 4 and 6**
 
 These keep their assertions. In each, the two lines
 
@@ -1208,26 +1254,22 @@ Test 2 is the exception: it calls `clickAddInput` twice and asserts `toHaveCount
     await addInputRow(page, "iron_powder");
 ```
 
-Then adjust whatever the test removes afterwards to name the row it means.
+Test 2 has neither a `select` nor a `newRow` binding to begin with: it only calls `clickAddInput` twice and then removes `nth(initialCount)`. That removal locator is still correct (it is the `copper_powder` row), so nothing after the preamble needs changing.
 
-In Tests 4 and 6, add a commit gesture after the existing `rateInput.fill(...)`:
+Add `await rateInput.press("Enter");` after **every** `rateInput.fill(...)` in Tests 4 and 6. Test 4 fills **twice** - once with `"30"` to cap, and again with `""` to uncap - and each fill is followed by its own URL poll, so one Enter press fixes only the first half and the test still times out on the second. Test 6 fills once.
 
-```ts
-    await rateInput.press("Enter");
-```
+`fill()` sets the value and fires `input`, but never blurs, and `InputsPanel` commits only on blur or Enter. Without this the URL poll that follows has nothing to wait for. If these tests were in your Task 0 baseline as failing, this is likely why.
 
-`fill()` sets the value and fires `input`, but never blurs, and `InputsPanel` commits only on blur or Enter. Without this the URL poll that follows has nothing to wait for. If these two tests were already in your Step 1 baseline as failing, this is likely why.
-
-- [ ] **Step 7: Format**
+- [ ] **Step 6: Format**
 
 Run: `bunx prettier --write test/e2e/inputs-panel.spec.ts`
 
-- [ ] **Step 8: Run the suite**
+- [ ] **Step 7: Run the suite**
 
 Run: `bun run test:e2e -- inputs-panel`
-Expected: no test fails that was passing in the Step 1 baseline. Tests 4 and 6 may move from failing to passing once the Enter press lands; that is an improvement, not a regression to investigate.
+Expected: no test fails that was passing in the Task 0 baseline. Tests 4 and 6 may move from failing to passing once the Enter press lands; that is an improvement, not a regression to investigate.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add test/e2e/inputs-panel.spec.ts
