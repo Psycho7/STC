@@ -34,6 +34,7 @@
 - **R7 - Drop-chip cascade is capped, not hidden.** The drop chip is deliberately zoom-gate-exempt (`BusEdge.tsx:119-124`) - it is a lone trunk's only fit-zoom-visible rate, and no `busDropHidden` plumbing exists. So: cap its cascade at one pitch (|dy| <= 48) and, within the cap, relax obstacles in softness order (foreign lines soft; dots softest). The cap is SOFT against placed chips only: if no |dy| <= 48 seat clears placed chips, the cascade may exceed one pitch rather than overlap a chip (chip-vs-chip stays hard - the P1 zero-overlap gate depends on it). That escape hatch is expected to fire zero times in-corpus; any firing shows up in the outside-band census counter and gets recorded. No hiding, no new data fields.
 - **R8 - Own-card intrusion is a two-level soft rule, not a hard block.** Tier-1 slide treats an over-budget intruding candidate as not-clear (walks past it); the graze tier scores intrusion as a soft penalty between crossings and dots. It never blocks nudge/escape and never applies to foreign cards (those stay hard). This avoids the issue-#9 blowback the source records at `chipSeating.ts:246-247` (a hard box rule flings short-leg chips into escape - the exact at-risk seats are script43 e:31/e:33/e:32/e:21 and gas-web e:25/e:17/e:18, A-R8).
 - **R10 - Card-intrusion residue is structural; Task 5 is judged on the deep class.** (Added after Task 2 review.) The census card-intrusion counter is a BOX-depth rule while the seating exemption is a CENTRE rule - same number (9), different rule - so shallow centre-legal seats (box wider than the corridor) can never reach zero. Task 5's acceptance: the deep class (intrusions saturating at the full chip extent - chips a reader sees ON the card, 21 cases at Task 2 baseline) reaches zero or an enumerated residue, AND the total drops; the counter's comment must not claim rule-parity with `chipEntersOwnCardBody`.
+- **R11 - Depth-above-crossings flip REJECTED; realistic seat box is the F1 lever.** (Added after Task 5 review.) Task 5 proved the 21 deep on-card seats are availability-bound: no within-budget clear on-line candidate exists for them under the reserved 240x48 box. Flipping the ranking (depth above crossings) was measured (deep 21->2, but foreign-stroke +19 concentrated on the same chips, one default-plan rate chip silently hidden, seat-validity +1) and rejected: it trades a legible-but-ugly defect for ownership ambiguity and inverts the precedence Task 6 assumes. Revisit only behind four gates recorded in the Task 5 review. Instead, Task 6b (below) narrows the RESERVED seat box toward the drawn width - the proof instance is battery5-xiranite e:11, a 153-unit corridor its drawn 135-wide box fits but the reserved 240 box cannot. The Task 5 deep class stands as enumerated residue until Task 6b.
 - **R9 - Seat-validity is structural.** The census seat-validity criterion is "own edge's polyline intersects the drawn chip box" (e2e analogue of `segIntersectsChipBox`), NOT a centre-distance rule. A sidestep seat keeps its line in the box by construction and must count as valid, or Task 6 red-flags its own fix (audit B8).
 
 ## Task order and dependencies
@@ -176,6 +177,24 @@ T0-T2 land the measurement surface BEFORE any fix so every fix task shows a meas
 - [ ] Census foreign-stroke count drops (record actuals); pins ratcheted down; residual coincident class enumerated.
 - [ ] script43 capture: salmon 150/分 chip no longer sits on the green stroke.
 - [ ] `CHIP_SEGMENT_BASELINE` moves re-measured and recorded; `faninMarkers.test.ts` green.
+- [ ] Commit.
+
+### Task 6b: Realistic per-chip seat box (added by ruling R11)
+
+**Files:** `src/canvas/chipSeating.ts` (seat half-width derivation, `CHIP_HALF_W_WIDE` consumers in `seatRateChip` callers), possibly `src/canvas/ItemEdge.tsx`/`BusEdge.tsx` only to READ how drawn width is derived (no render changes), unit tests.
+
+**Why:** the seating pass reserves `CHIP_HALF_W_WIDE = 120` (240 wide, worst case at max counter-scale) for every non-icon chip, while the deep-class chips draw 135-200 wide. The corridor is blocked only for the SEAT, never for the reader. Narrowing the reserved box to a per-chip realistic width frees clear on-line candidates and closes the deep class without buying crossings (proof: battery5-xiranite e:11).
+
+**Requirements:**
+- Derive a per-chip seat half-width from the chip's label content at layout time (no DOM measurement available in the pass - estimate from character count/classes like the existing icon-only stamp does structurally; the `chipIconOnly` plumbing at `SHORT_LEG_MAX` proves a per-chip half-extent threads through `seatRateChip`).
+- The estimate must be an UPPER bound on the drawn width in BOTH locales - zh draws wider per glyph and zh is the corpus that filed F1; a seat box narrower than the zh drawn box regresses occlusion invisibly in en measurements. Floor at `CHIP_HALF_W_ICON`, cap at `CHIP_HALF_W_WIDE`. Document the estimator and its safety margin.
+- Hover re-expansion (`ItemEdge.tsx` re-expands icon-only chips on hover) is out of scope: the invariant is defined at rest, matching the existing icon-only precedent.
+- Landmines: every census counter and `CHIP_SEGMENT_BASELINE` can move (narrower boxes = fewer stroke overlaps but seats can shift); fan-in seam (`faninMarkers.test.ts`); the Task 5 tier-1 drift finding (unbounded slide to global-shallowest) shrinks naturally as more chips gain within-budget candidates - re-measure, and if drift instances remain, add the distance pin the Task 5 review suggested.
+- Acceptance per R10/R11: census card-intrusion deep class 21 -> 0 or a small enumerated residue with per-instance causes; total drops from 84; seat-validity and foreign-stroke do not rise; pins ratcheted with causes; zh spot-check (capture 2-3 named instances with --locale zh) proving the estimator holds there.
+
+**Acceptance:**
+- [ ] Deep class closed or enumerated; census pins ratcheted; zh spot-check clean.
+- [ ] All gates green vs Task 0 baseline; moved pins recorded with causes.
 - [ ] Commit.
 
 ### Task 7: Full re-measure, visual verification, close-out
