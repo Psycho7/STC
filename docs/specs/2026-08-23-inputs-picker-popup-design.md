@@ -3,7 +3,8 @@
 Design for replacing the INPUT SUPPLY item dropdown with the same popup the
 targets panel already uses. Phase 1 of a two-phase split; phase 2 (a
 user-controlled recipe blocklist) gets its own spec and branch. Rulings were
-made on 2026-08-23 and revised the same day after a two-auditor spec audit.
+made on 2026-08-23 and revised twice the same day against two rounds of
+two-auditor review.
 
 ## Context
 
@@ -24,34 +25,41 @@ plan immediately, which fires a solve for a row the user never chose.
 
 ## Rulings
 
-1. **The input picker offers all pack items**, the same set the dropdown
-   offers today. Restricting it to raw and cross-domain items would read as
-   cleaner but silently removes the ability to declare an arbitrary
-   intermediate as a boundary import, which the current control allows.
+1. **The input picker renders all pack items**, the same set the dropdown
+   offers today; ruling 3 governs which of them are enabled. Restricting the
+   set itself to raw and cross-domain items would read as cleaner but silently
+   removes the ability to declare an arbitrary intermediate as a boundary
+   import, which the current control allows.
 2. **Add opens the picker instead of committing a row.** The row is created
    when the user picks an item. Targets need a heavier draft mechanism because
    a target is meaningless without a nonzero rate; an input override is
    meaningful with no rate at all for a non-raw item, where a bare
    `{ itemId }` flips `effectiveSupply` from 0 (must be built on site) to
    Infinity (free boundary import). Picking is therefore enough to commit.
-3. **Auto-row items are not pickable.** Every item currently rendered as an
-   auto-row is disabled in the popup, from both entry points. Picking one
-   would append a bare `{ itemId }` override, which for a raw item is
-   solver-identical to the auto-row it replaces (`effectiveSupply` returns
-   Infinity either way) while still firing a full re-solve and hash rewrite.
-   The user would watch a near-identical row vanish from the auto block and
-   reappear at the end of the override block, having changed nothing. Capping
-   an assumed-raw item stays what it is today: type into the auto-row, which
-   `commitAutoRate` promotes to a real override carrying the rate.
+3. **Auto-row items are disabled in the Add popup only.** A pick there appends
+   a bare `{ itemId }`, which for a raw item is solver-identical to the
+   auto-row it replaces (`effectiveSupply` returns Infinity either way) while
+   still firing a full re-solve and hash rewrite; the user would watch a
+   near-identical row vanish from the auto block and reappear at the end of
+   the override block, having changed nothing. Capping an assumed-raw item
+   stays what it is today: type into the auto-row, which `commitAutoRate`
+   promotes to a real override carrying the rate.
+
+   From an existing row the same tiles stay **enabled**, because that pick is
+   not a bare append. `handleItemChange` carries the row's `ratePerSec` to the
+   new item, so swapping a capped row onto a consumed raw item moves a live
+   cap. Disabling it would strand a user who wants exactly that: they would
+   have to delete the row and retype the number into the auto-row.
 4. **Depth grouping is reused unchanged.** `computeItemDepths` seeds every
    entry in `pack.items`, not just producible ones, and all 113 rank on the
-   shipped pack, so the popup's unranked bucket stays empty and no new
-   grouping mode is needed.
+   shipped pack (tiers 0 through 8), so the popup's unranked bucket stays
+   empty and no new grouping mode is needed.
 
 Ruling 3 leaves one honest gap: a raw item the plan does not currently consume
-has no auto-row, so it stays pickable, and the override it creates is a no-op
-until the user types a cap. That is the same thing the row is for, and the same
-thing today's add button produces, so it is accepted rather than special-cased.
+has no auto-row, so it stays pickable from Add, and the override it creates is
+a no-op until the user types a cap. That is the same thing the row is for, and
+the same thing today's add button produces, so it is accepted rather than
+special-cased.
 
 ## Design
 
@@ -62,14 +70,19 @@ disabled set, the selected id, and the depth map, and reports a pick. Nothing
 in it is target-specific, and it re-declares `--icons-url` on its own backdrop,
 so a second mount site needs no portal or sprite work.
 
-Props per entry point:
-
 | prop | from a row | from Add |
 | --- | --- | --- |
 | `items` | all of `pack.items` | same |
 | `tierByItemId` | `computeItemDepths(pack)`, memoized per pack | same |
-| `disabledIds` | other override rows' items, plus every auto-row item | all override items, plus every auto-row item |
+| `disabledIds` | the other override rows' items | every override item, plus every auto-row item |
 | `selectedId` | the row's own item | `undefined` |
+| `onPick` | own item is a confirm and returns early; otherwise `handleItemChange` swaps, carrying the rate | appends `{ itemId }`, arms the pending focus below |
+| `onClose` | clears `pickerFor`, refocuses the trigger | clears `pickerFor`, does **not** refocus the trigger |
+
+A disabled tile therefore means one thing at each site: from a row, "another
+override row already claims this"; from Add, "this item already has a row in
+the panel". Neither needs a distinguishing reason announced, because neither
+site mixes the two meanings.
 
 The row's own item stays enabled and highlighted so re-picking it reads as a
 confirm.
@@ -88,18 +101,28 @@ generic `inputs.item.label`, the visible text is the localized item name, and
 accessible name is therefore unchanged from the select, and existing
 `getByLabelText` queries keep resolving.
 
-Focus:
+**Row swap.** `triggerRef` holds the button and `closePicker` refocuses it.
+Because React batches the update, the button is still mounted when
+`closePicker` runs, so the `document.contains` guard passes and `focus()`
+succeeds; the re-render then unmounts the row (rows are keyed by `itemId`) and
+the browser resets focus to `document.body`. The end state is a lost focus
+ring, which is a regression from the select and is accepted: `TargetsPanel`
+behaves identically today. Fixing it means giving rows a synthetic React key,
+at which point row identity no longer matches the key of `localRates`,
+`dirty` and `invalidIds`, all of which are keyed by `itemId`, so a second
+id-to-row mapping appears. Not worth it here.
 
-- From a row, `triggerRef` holds the button and `closePicker` returns focus to
-  it. A committed swap unmounts the row, because rows are keyed by `itemId`,
-  so the `document.contains` guard fires and focus falls to `document.body`.
-  That is a regression from the select, which keeps focus, and it is accepted:
-  `TargetsPanel` behaves identically today, and fixing it means re-keying rows
-  by a synthetic id, which also re-keys `localRates`, `dirty` and `invalidIds`.
-- From Add, the trigger is the add button, which survives, so the guard never
-  fires. Returning focus there would leave the user below the row they just
-  created, so an add-pick instead focuses the **new row's rate input**, which
-  is the only edit that makes the row do anything.
+**Add pick.** The trigger is the add button, which survives, so refocusing it
+would leave the user below the row they just created. Instead the pick stores
+the chosen item id as a pending-focus id and `onClose` skips the trigger
+refocus entirely. The row does not exist yet at that moment: the append
+travels `onChange` to `handleItemOverridesChange` to `commitPlan` to
+`setPlan`, so the row mounts on a later render. A callback ref on each row's
+rate input consumes the pending id when the matching row mounts, focuses it,
+and clears it. If the row never arrives, because `validatePlan` rejected the
+commit or because the panel is rendered standalone with an `onChange` that
+never feeds the prop back, as both unit suites do, the pending id is cleared
+on the next pick rather than left armed.
 
 ### Picker state
 
@@ -116,9 +139,19 @@ For `add`, the pick appends `{ itemId }` with no rate. The updater re-checks
 for an existing entry with that id before appending, so a pick racing a prop
 update that already inserted the row is a no-op rather than a duplicate.
 
-The add button is hidden when every pack item already has an override or an
-auto-row. Today that case silently no-ops; without the guard it would open a
-dialog of 113 disabled tiles, and `picker.empty` only covers an empty search.
+The add button is **disabled with an explanatory `title`**, not hidden, when
+nothing is pickable, so it does not vanish from a panel where `TargetsPanel`'s
+equivalent always stays put. The condition is
+`displayedInputCount(itemOverrides, assumedRawItemIds) === pack.items.length`,
+the same arithmetic the Add popup's `disabledIds` uses. It is a guard rather
+than a live case: with 113 items and 9 raw ones it is unreachable on the
+shipped pack, and both it and `disabledIds` are derived from the last
+completed render through `buildRealizedRateByItem`, so they lag the plan while
+a solve is in flight. Without it the user would get a dialog of 113 disabled
+tiles, since `picker.empty` only covers an empty search.
+
+This is the one new string: an `inputs.add.exhausted` title in all four
+locales. Everything else the design needs already exists in en, ja, ru and zh.
 
 ### Commit ordering
 
@@ -132,11 +165,15 @@ commits never bump `planEpoch`, so no remount discards local edit state.
 ### Cleanup this change forces
 
 - The `.b-pick select` face, option, hover and focus rules in `canvas.css`
-  lose their last consumer and are deleted, along with the block comment above
-  them that justifies the native select by its ARIA, keyboard navigation,
-  type-ahead, IME composition and mobile native picker. Those are a real loss;
-  the popup's search box is the replacement affordance, and the comment is
-  rewritten to say so rather than left asserting the opposite.
+  lose their last consumer and are deleted. Nothing else depends on them: the
+  locale switcher's selects are styled through `.ak-app-shell select` and
+  `.topbar select`.
+- The block comment above them is **rewritten, not deleted** - it also
+  documents `.b-pick` and the caret affordance, both of which survive. What
+  goes is its justification of the native select by its ARIA, keyboard
+  navigation, type-ahead, IME composition and mobile native picker. Those are
+  a real loss; the popup's search box is the replacement affordance, and the
+  comment should say so rather than be left asserting the opposite.
 - `handleAdd`'s first-unused-id scan goes.
 - The `sortedItems` and `collator` memos go with it: the popup sorts
   internally, so the only remaining consumer is the section-head denominator,
@@ -160,31 +197,42 @@ hand-crafted URL, and left alone here.
 `test/integration/inputs-panel-shell.test.tsx` is **not** in scope: it edits
 rates and mocks the solver, and never touches the item control.
 
-The two unit suites reach the control by different paths, and only one is a
-selector swap:
+`test/components/InputsPanel.test.tsx` reaches the control through
+`getAllByLabelText` plus `selectOptions`. Two of its tests lose their subject:
 
-- `test/components/InputsPanel.test.tsx` uses `getAllByLabelText` plus
-  `selectOptions`. Its duplicate-selection test loses its trigger: with
-  auto-rows and sibling rows disabled and the own-item confirm guard, no
-  gesture reaches `setDuplicateError`. The test is dropped and the state stays
-  as defense-in-depth, mirroring `TargetsPanel`.
-- `src/components/InputsPanel.test.tsx` uses `getByRole("combobox")` and walks
-  `querySelectorAll("option")`. Its UX-17 test asserts the **global** option
-  sequence is collator-sorted across all 113 items. `ItemPickerPopup` buckets
-  by tier and sorts only within a bucket, so that guarantee narrows and the
-  test cannot be retargeted mechanically. It is dropped from this suite; if
-  `ItemPickerPopup.test.tsx` does not already assert per-group name ordering,
-  it gains that assertion.
+- The add-button test asserts `onChange` fires once with the first-unused-id
+  append, which is exactly what ruling 2 removes. Rewritten against the
+  popup; the fixture comment describing the first-unused-lex pick goes stale
+  with it.
+- The duplicate-selection test loses its trigger, because with sibling rows
+  disabled and the own-item confirm guard no gesture reaches
+  `setDuplicateError`. Dropped; the state stays as defense-in-depth,
+  mirroring `TargetsPanel`.
 
-Playwright (`test/e2e/inputs-panel.spec.ts`, six tests):
+`src/components/InputsPanel.test.tsx` uses `getByRole("combobox")` and walks
+`querySelectorAll("option")`. Its UX-17 test asserts the **global** option
+sequence is collator-sorted across all 113 items. `ItemPickerPopup` buckets by
+tier and sorts only within a bucket, so that guarantee narrows and the test
+cannot be retargeted mechanically. It is dropped from this suite and replaced
+by a within-group ordering assertion in `ItemPickerPopup.test.tsx`, which
+today asserts group-head order only. That assertion needs a fixture whose
+within-tier array order differs from collator order; the current four-item
+fixture is already in name order per tier, so it proves nothing as it stands.
+
+Playwright (`test/e2e/inputs-panel.spec.ts`, six tests in file order):
 
 - Test 1 asserts Add commits a row defaulting to the first lexical item. That
-  is the behavior ruling 2 removes, so the test is replaced by "Add opens the
-  popup and commits nothing; a pick appends an uncapped override".
+  is the behavior ruling 2 removes, so it is replaced by "Add opens the popup
+  and commits nothing; a pick appends an uncapped override".
 - Test 3 drives a duplicate through `selectOption` and asserts the alert plus
-  an unchanged URL. The pick is impossible once the tile is disabled, so the
-  test is deleted and replaced by an assertion that the tile renders disabled.
-- Tests 2, 4, 5 and 6 all locate their row via `clickAddInput()` then
+  an unchanged URL. The pick is impossible once the tile is disabled, so it is
+  deleted and replaced by an assertion that the tile renders disabled.
+- Test 5 caps `copper_ore`, which is raw and consumed by the default plan, so
+  it is an auto-row and ruling 3 disables its tile in the Add popup. This is a
+  restructure, not a preamble edit: it is rewritten against the auto-row
+  typing path, and its `nth(initialCount)` locator goes, since `input-row`
+  counts overrides only.
+- Tests 2, 4 and 6 locate their row via `clickAddInput()` then
   `nth(initialCount)`. The row does not exist until a pick, so each preamble
   gains an interleaved popup step. Their plan and URL assertions survive
   unchanged.
@@ -196,8 +244,13 @@ New coverage:
   input.
 - A row's own tile renders selected and enabled; re-picking it commits no
   change and raises no duplicate alert.
-- Another override row's item, and every auto-row item, render disabled.
-- The add button is absent when every item is claimed.
+- Another override row's item renders disabled from a row popup; every
+  auto-row item renders disabled from the Add popup and enabled from a row
+  popup.
+- Swapping a capped row onto a consumed raw item carries the cap.
+- The add button is disabled when every item is claimed. Pinned to
+  `test/components/InputsPanel.test.tsx`, whose four-item fixture is the only
+  place the condition is reachable.
 - Escape and backdrop click close without committing a pick.
 
 ## Out of scope
