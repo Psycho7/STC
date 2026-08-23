@@ -1315,6 +1315,69 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
   "gas-web": 0,
 };
 
+// TIER-1 SLIDE DRIFT, re-measured after the per-chip reserved seat box
+// (Task 6b, ruling R11). Not a counter and not ratcheted -- a measurement
+// recorded next to the counters it belongs with, because the audit surface
+// cannot pin it (see the last paragraph).
+//
+// Drift is how far along its own polyline a rate chip walks from its anchor
+// before it settles: the arc-length offset the on-line tiers (tier 1 and the
+// graze scorer) choose in seatRateChip. Task 5's fourth concern recorded that
+// nearest-first became only a TIEBREAK there -- a chip crosses the whole line to
+// shave one unit of own-card depth if every nearer candidate laps deeper -- and
+// the T6b audit predicted narrowing the box could make it WORSE, since a
+// narrower box also makes MORE distant candidates clear. Measured rather than
+// assumed. One slide step is SLIDE_STEP = 24 world units and the walk is capped
+// at SLIDE_MAX_STEPS = 48 steps, so the reach is 1152 units either way.
+//
+// Per scenario, over the seats that took an on-line tier, "before" at the Task
+// 6b parent (939a7aa) and "after" at the per-chip box, same corpus, same
+// en locale:
+//
+//   scenario           drifted/seats before   after      max before -> after
+//   default                   1/13            6/13        504 -> 504  (21 steps)
+//   battery5                 11/21           14/23        960 -> 960  (40 steps)
+//   battery5-xiranite        21/33           21/34        744 -> 720  (31 -> 30)
+//   crystal                   2/10            2/10         72 ->  48  ( 3 ->  2)
+//   equip4                    3/13            3/13        288 -> 240  (12 -> 10)
+//   multi6                   48/85           55/86        792 -> 696  (33 -> 29)
+//   tundra                    2/7             3/7          48 ->  48  ( 2 steps)
+//   script43                 21/28           24/28       1080 -> 1032 (45 -> 43)
+//   coupon-web                4/16            5/16        288 -> 288  (12 steps)
+//   gas-web                  17/24           19/24       1080 -> 1032 (45 -> 43)
+//   corpus                  130/250         152/254
+//
+// Two readings, and they point in opposite directions:
+//   - the MAXIMA did not get worse anywhere. Six scenarios fell, four held, none
+//     rose, and the far tail is the same edges on both sides (battery5 e:4 at 40
+//     steps, script43 e:10 and gas-web e:3 at 45 -> 43). So the audit's R-d
+//     prediction did not land on the distances.
+//   - it did land on the COUNT. 22 more chips leave their anchor at all, and
+//     every one of those additions is SHORT: bucketed by step count the corpus
+//     goes 0 steps 120 -> 102, 1-2 steps 47 -> 81, 3-5 steps 39 -> 28, 6-10
+//     23 -> 26, 11-20 9 -> 6, 21+ 12 -> 11. More chips move, and they move one
+//     or two steps, while the long walks thin out. That is the narrower box
+//     giving the dot and depth terms shallower candidates to prefer, which is
+//     the mechanism the whole task rests on.
+//
+// So drift is MATERIAL -- 11 chips still walk 21 steps or more, up to 43 steps
+// (1032 units, about five of their own box widths off the anchor) -- and it is
+// PRE-EXISTING rather than anything Task 6b introduced. It is a real follow-up
+// for the campaign, ranked as its own question: a distance cap on the walk would
+// trade card depth back for nearness, which is a ruling, not a tuning.
+//
+// Why there is no baseline TABLE here. Every counter above is measured from
+// DRAWN rects, and drift is a distance from the chip's ANCHOR -- the
+// clear-segment anchor edgePath returns per route shape, a layout-internal point
+// no DOM read recovers (the chip renders at anchor + labelDx/labelDy, and only
+// the sum is visible). Pinning drift means mirroring that anchor in
+// test/e2e/geometry.ts the way PORT_DRIFT mirrors the port contract, across
+// every route shape -- its own task, not a comment. The numbers above were taken
+// by temporarily recording the winning candidate's arc-length delta in
+// seatRateChip's two on-line walks, building, and reading the record per
+// scenario through tools/exam/probe.ts --eval; the instrumentation was reverted,
+// and the recipe is repeatable from this note.
+//
 // Corpus-wide totals, one per counter. The census is a campaign-level ratchet,
 // so the single number per counter is the figure the campaign moves; the
 // per-scenario tables above are what a failure is diagnosed from. Asserted
