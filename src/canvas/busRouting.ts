@@ -106,9 +106,12 @@ export type LaneBusEdgeData = BusAggregate & {
   // the union.
   fanout?: false;
   laneY: number;
-  // Lane x for this member's rise chip, assigned by routeBusEdges so a trunk's
-  // rise chips spread evenly along the lane instead of stacking near their rise
-  // vertices. BusEdge anchors the rise chip at (busChipX, laneY). Absent on
+  // Lane x for this member's rise chip. routeBusEdges assigns a trunk-wide
+  // spread so a trunk's rise chips do not stack near their rise vertices, and
+  // deconflictChipAnchors then REWRITES each member's slot, clamping it into
+  // that member's own resolved run -- so the value that reaches the render is a
+  // per-member in-run slot, not the even spread.
+  // BusEdge anchors the rise chip at (busChipX, laneY). Absent on
   // manually built edges AND, deliberately, on a lone member riding a long run
   // (extent > BUS_LONG_RUN_THRESHOLD): both fall back to the geometric rise
   // column, which for the long lone run puts the chip at the consumer end (#32).
@@ -193,8 +196,10 @@ export type BandExtent = { y0: number; y1: number };
 export type LaneBands = { top: BandExtent | null; bottom: BandExtent | null };
 
 // Read a Fraction rate off an edge's data, or undefined when it is absent or not
-// a Fraction (older fixtures may omit it).
-function edgeRate(edge: Edge): Fraction | undefined {
+// a Fraction (older fixtures may omit it). Exported because the chip-seating
+// pass reads the same field to predict a chip's drawn text, and two readers of
+// one loosely typed field would be free to disagree about what counts as a rate.
+export function edgeRate(edge: Edge): Fraction | undefined {
   const rate = (edge.data as { rate?: unknown } | undefined)?.rate;
   return rate instanceof Fraction ? rate : undefined;
 }
@@ -534,9 +539,17 @@ export function routeBusEdges(
   // apart and never places a rise chip on the aggregate drop chip at dropX.
   // When the extent is too short to spread them (members feeding one nearby
   // layer, so maxRiseX <= dropX) the step collapses to 0 and every rise chip
-  // stacks at the drop column; deconflictChipAnchors then cascades the pile
-  // downward off the lane. Horizontal spacing here is only a hint -- the on-screen
-  // no-overlap guarantee is enforced by that vertical cascade, not by this x.
+  // stacks at the drop column.
+  //
+  // These slots are a trunk-wide SPREAD HINT, nothing more: the extent is a
+  // trunk-level quantity while a member's own lane run ends at its OWN rise
+  // column, so a slot here can land well past the point where that member's
+  // line leaves the lane. deconflictChipAnchors clamps every slot into the
+  // member's own resolved run (the columns as finally drawn, which this pass
+  // cannot see -- assignEntryColumns and clearBusColumns both move them
+  // afterwards) and stamps the corrected x back, then hides the members the
+  // shortened runs cannot host. Vertical no-overlap is enforced there too, by
+  // the lane cascade, never by this x.
   const busChipXByIndex = new Map<number, number>();
   const membersByTrunk = new Map<
     string,
@@ -633,9 +646,16 @@ export function laneBands(edges: ReadonlyArray<Edge>): LaneBands {
 // Vertical margin added above and below a band's lane extent so a single-lane
 // band (y0 == y1, zero-height by itself) still marks a visible region and a
 // multi-lane band wraps its lanes -- and the rise / drop chips seated on them --
-// with air. Half a lane pitch: a max-scale chip is one LANE_SPACING tall and
-// centred on its lane, so this clears its half-box.
-export const BAND_Y_PAD = LANE_SPACING / 2;
+// with air. A seated chip is not always ON its lane: the seating pass may lift
+// it one cascade pitch (one LANE_SPACING) to clear a junction dot or a foreign
+// line, so the pad is that pitch plus the half-box of a max-scale chip. Coverage
+// is exact at one pitch -- a chip lifted the full pitch has its outer edge on
+// the padded edge, touching it -- so anything asking "is this chip inside its
+// band" must treat the boundary as inside; there is no eps of slack here. A chip
+// beyond one pitch (the cascade cap's chip-vs-chip escape hatch) is not covered
+// by design: it is meant to show up as an out-of-band chip rather than be hidden
+// under a taller tint.
+export const BAND_Y_PAD = LANE_SPACING + (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
 
 // Horizontal margin added on each side of a band's trunk run for its x-extent.
 // One stub keeps the faint band from cutting exactly at the drop / rise columns.

@@ -1,7 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 import {
+  CARD_INTRUSION_BUDGET,
+  auditBusChipsOutsideBand,
   auditCardFrames,
+  auditChipCardIntrusion,
+  auditChipForeignStrokes,
+  auditChipSeatValidity,
   auditChipsOnOwnPath,
   auditChipsVsCards,
   auditDotsUnderChips,
@@ -15,6 +20,8 @@ import {
   parsePath,
   polylineLength,
   toRawEdges,
+  type BandRect,
+  type ChipCensusHit,
   type ChipRect,
   type DotRect,
   type NodeRect,
@@ -347,6 +354,84 @@ test.describe("DOM geometry audit", () => {
 // criterion, NOT an eighth table: it holds at zero everywhere, carries no
 // per-scenario baseline, and adds no ruling. The count of tables and of
 // standing rulings above is unchanged by it.
+// THREE SCENARIOS JOINED the corpus for the chip-seating F1+Z2 campaign:
+// script43, coupon-web and gas-web, the v1.4 plans whose seating defects the
+// campaign exists to fix. Every cell they add to the seven tables is a FIRST
+// RECORDING -- the audit ran on the untouched branch and each cell holds what
+// it reported -- so those cells state where the campaign starts, not a target
+// and not a ruling. They add no ruling of their own: both hard gates (RAW
+// segment/card, chip/foreign-card) and the card-frame check read zero on all
+// three. From here they ratchet DOWN under the same convention as every table
+// above. The measured figures are recorded per table below.
+// FOUR MORE TABLES joined in the same campaign, and they are NOT part of this
+// describe nor of the seven counted above: the reading-zoom seating census at
+// the bottom of this file runs its own describe at its own camera, because every
+// criterion here measures at fit zoom and one of them consumes that zoom. Its
+// four counters are first recordings on the same untouched branch, under the
+// same ratchet convention, and they add no ruling here. The one place the two
+// surfaces touch is the census's foreign-stroke counter, which shares
+// CHIP_SEGMENT_BASELINE's waiver code so no seat can be foreign to one and
+// waived by the other.
+//
+// CAMPAIGN CLOSE-OUT -- chip seating F1 (rate chips ride onto their own cards)
+// and Z2 (corridor braids, stranded bus chips, band escapes). Everything below
+// was re-measured on the ten-scenario corpus at this commit.
+//
+// PIN MOVEMENT. Across the whole campaign exactly ONE cell in the seven tables
+// above moved for a scenario that already existed: DOT_COVER_BASELINE battery5
+// 0 -> 1, the trade written out in full at that table. Every other change those
+// tables took is a first recording for the three scenarios that joined. The
+// four census tables at the bottom of this file went 30 / 88 / 47 / 11 at their
+// first recording to 18 / 70 / 39 / 0 here (seat validity, card intrusion,
+// foreign stroke, outside band), and the deep on-card class inside card
+// intrusion went 21 -> 18. Each move is attributed to the change that caused it
+// in the per-table notes.
+//
+// THE RULINGS behind those numbers, in the order they were taken:
+//   R1  No foreign-card work. Zero foreign-card chip overlaps corpus-wide, so
+//       the hard foreign-card tier and its e2e gate were left untouched.
+//   R2  Two chips with identical icon and identical rate text are a label
+//       CONTENT problem, not a seat geometry one. Out of scope here.
+//   R3  A bus rise slot is clamped into its own member's resolved run even when
+//       that hides more chips for capacity: a hidden chip keeps its rate on the
+//       target card's input row, a stranded one names nothing.
+//   R4  The band pad is a constant -- one lane spacing plus a max-scale chip
+//       half height -- and covers a chip lifted one cascade pitch INCLUSIVELY,
+//       so containment assertions carry no eps margin.
+//   R5  Item rate chips are never hidden. An off-path item chip stays visible
+//       and stays counted.
+//   R6  The census reads at a fixed reading zoom above both chip LOD gates,
+//       never at fit zoom, so the chips that collide are the chips it measures.
+//   R7  The lone-trunk drop chip's cascade is capped at one pitch and relaxes
+//       dots before foreign lines inside the cap; chip-vs-chip stays hard.
+//   R8  Own-card intrusion is a two-level SOFT rule (the tier-1 slide walks
+//       past an over-budget candidate, the graze tier scores it). Foreign cards
+//       stay hard everywhere.
+//   R9  Seat validity is "the own polyline intersects the drawn box", not a
+//       centre distance, so a sidestep seat counts as a valid seat.
+//   R10 The census intrusion counter is a BOX-DEPTH rule while the seating
+//       exemption is a CENTRE rule, so it can never floor at zero. The seat
+//       work is judged on the deep class plus the total, not on zero.
+//   R11 Ranking depth ABOVE crossings was measured and REJECTED: it trades a
+//       legible-but-ugly occlusion for ownership ambiguity and hid a
+//       default-plan rate chip. The lever taken instead was a realistic
+//       per-chip reserved seat box.
+//   R12 Coincident-column braids are a PERMANENT seating residual. Excluding a
+//       foreign stroke a few units away while keeping the own stroke painted at
+//       every zoom is impossible under any box model, so no seat offset clears
+//       them. Disambiguation, if it is ever wanted, is a render-layer or a
+//       routing change, not a seating one.
+//   R13 The single UP move above, stated in full at DOT_COVER_BASELINE.
+//
+// WHAT THIS CLOSE-OUT DOES NOT CLAIM.
+//   1. F1 is NOT closed. The deep on-card class ends at 18 -- an enumerated,
+//      availability-bound residue under the realistic seat box -- and its
+//      instances are enumerable from CARD_INTRUSION_BASELINE's note.
+//   2. The coincidence-gated sidestep added for braid separation fired on ZERO
+//      corpus seats, so it produced no Z2 movement here. Its value against a
+//      braid is untested by this corpus.
+//   3. The Z2 coincident-column braids are still on screen. They are the R12
+//      residual: ratified, not fixed.
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -372,6 +457,8 @@ test.describe("DOM geometry audit", () => {
 // The comparison is against the harvest taken before either change, and this
 // cell was not differentially probed, so the single drop is not attributed to
 // one of the two.
+// First recordings for the three campaign scenarios: script43 55,
+// coupon-web 14, gas-web 42.
 const CROSSING_BASELINE: Record<string, number> = {
   default: 9,
   battery5: 8,
@@ -380,6 +467,9 @@ const CROSSING_BASELINE: Record<string, number> = {
   equip4: 1,
   multi6: 415,
   tundra: 0,
+  script43: 55,
+  "coupon-web": 14,
+  "gas-web": 42,
 };
 
 // Padding-graze baseline (tier 3): segments that clip only a foreign card's
@@ -409,6 +499,12 @@ const CROSSING_BASELINE: Record<string, number> = {
 // The two survivors are outside slab interiors: a battery5 loop-group padding
 // clip (e:4 down the liquid_xiranite_poly slab's outer edge) and a multi6 tap
 // stub (e:79).
+// First recordings for the three campaign scenarios: script43 2 and
+// coupon-web 2 are one gas-tap approach each, counted twice because its
+// vertical leg and its corner diagonal both clip the same card's padding
+// (e:36 into q:10, e:16 into q:0); gas-web 1 is the corner diagonal of e:29
+// into q:6. All three are tap stubs in packed gutters, the family the survivors
+// above belong to.
 const PADDED_GRAZE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
@@ -417,6 +513,9 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   equip4: 0,
   multi6: 1,
   tundra: 0,
+  script43: 2,
+  "coupon-web": 2,
+  "gas-web": 1,
 };
 
 // P3 chip-tier ratchets. Chip seating follows the ratified priority order:
@@ -476,6 +575,12 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // line occlusions in the softest tier (RULING, 2026-08-21): the seating
 // priority puts on-line above foreign-line clearance, so the trade is accepted,
 // the depth edit stays, and the pin moves 11 -> 15.
+// First recordings for the three campaign scenarios: script43 13,
+// coupon-web 3, gas-web 20. Same family as the residue above -- long gas-tap
+// and surplus columns running the full height of the plan pass under label
+// chips seated on other edges' corridor legs. On gas-web a single tap column
+// accounts for several hits at once (e:24 crosses four chips), so the counts
+// track a handful of columns, not a spread of seats.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 3,
@@ -484,6 +589,9 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   equip4: 1,
   multi6: 0,
   tundra: 0,
+  script43: 13,
+  "coupon-web": 3,
+  "gas-web": 20,
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
 // candidates all overlap a card, so card-hardness pushes its seat off the line.
@@ -525,6 +633,8 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // still NOT retired. This cell and the battery5-xiranite chip-segment rise are
 // the SAME chip moving -- reverting the depth edit puts both back, so revert
 // this pin with it. battery5 measured 2 again, unchanged (ratified above).
+// The three campaign scenarios first recorded zero: no label chip on any of
+// them leaves its own polyline today.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 2,
@@ -533,6 +643,9 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   equip4: 0,
   multi6: 0,
   tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
 };
 
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
@@ -555,6 +668,8 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
 // probed at the parent commit. Pinned at zero everywhere, which
 // makes this tier an effective hard gate until something reintroduces a walled
 // corridor.
+// The three campaign scenarios first recorded zero too, so the gate now holds
+// across the ten-scenario corpus.
 const OWN_PIERCE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -563,6 +678,9 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   equip4: 0,
   multi6: 0,
   tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
 };
 
 // Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
@@ -600,14 +718,42 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // e:74 is not an off-path case at all: the keep-off's one-pitch lane-side probe
 // is the seat that would clear it, and that slot is occupied -- crowding, not
 // the ratchet, is what holds it. Both are reported as they stand.
+// First recordings for the three campaign scenarios: script43 0, coupon-web 0,
+// gas-web 1 -- a copper_nugget fan-out chip (e:11) covering the merge dot of
+// its sibling e:10 at (1233,349), the same fan-in owner shape as the
+// battery5-xiranite survivor above.
+//
+// RE-MEASURED at 4 after the per-chip reserved seat box (Task 6b): battery5
+// 0 -> 1, one arrival, and it is a RATIFIED TRADE rather than a keep-off
+// regression. battery5 e:18 (Xircon Effluent 240/min) used to have no seat on
+// its own polyline at all and sat 40.9 units OFF it -- an orphan chip, counted
+// in seat validity, with its fan-in merge dot visible only because the chip had
+// left. With the narrower box the chip seats back ON its line and its box now
+// covers that dot. The pass's own priority order decides this one: keeping off
+// a junction dot is the WEAKEST preference there is and never costs a chip its
+// line (chipSeating's header), so a chip on its line over a dot beats a chip
+// floating beside its line with the dot showing. SEAT_VALIDITY_BASELINE's
+// battery5 cell drops from 2 to 1 in the same move.
+// The dot is not the only cost, and the whole trade is stated here: the same
+// on-line seat also deepens that chip's OWN-card intrusion on u:class:q:17 from
+// 27.7 to 40.0, so battery5 e:18 is simultaneously one of the six deep-class
+// arrivals enumerated in CARD_INTRUSION_BASELINE's note below. So the move buys
+// one seat-validity case with one junction dot AND one deep-class saturation.
+// RATIFIED at the Task 6b review as ruling R13 (the campaign plan carries the
+// same trade): seat validity is structural, the dot is the weakest preference in
+// the pass, and the depth is the crossings-over-depth precedence R11 declined to
+// reopen. It remains the campaign's only UP move on a pre-existing pin.
 const DOT_COVER_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 0,
+  battery5: 1,
   "battery5-xiranite": 1,
   crystal: 0,
   equip4: 0,
   multi6: 1,
   tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 1,
 };
 
 // Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
@@ -640,6 +786,9 @@ const DOT_COVER_BASELINE: Record<string, number> = {
 // the pins are a flat measured-max-plus-headroom 0.5, two orders of magnitude
 // above the noise and one and a half below a row pitch. They ratchet DOWN like
 // the tables above; a rise needs the same recorded ruling.
+// The three campaign scenarios measured the same residue and take the same flat
+// 0.5 pin: script43 0.003 (76 endpoints), coupon-web 0.001 (38), gas-web 0.001
+// (62).
 const ENDPOINT_PARITY_TOL: Record<string, number> = {
   default: 0.5,
   battery5: 0.5,
@@ -648,6 +797,9 @@ const ENDPOINT_PARITY_TOL: Record<string, number> = {
   equip4: 0.5,
   multi6: 0.5,
   tundra: 0.5,
+  script43: 0.5,
+  "coupon-web": 0.5,
+  "gas-web": 0.5,
 };
 
 async function loadScenario(page: Page, hash: string): Promise<void> {
@@ -886,6 +1038,522 @@ test.describe("segment placement audit", () => {
           )
           .toBeLessThanOrEqual(1.5 * direct);
       }
+    });
+  }
+});
+
+// -- reading-zoom seating census ---------------------------------------------
+//
+// Its OWN describe with its OWN page load, deliberately: every criterion in the
+// P2 describe above measures at FIT zoom (auditDotsUnderChips even consumes
+// geom.zoom), so moving the camera inside that test would silently re-frame
+// seven ratchets. Nothing is shared between the two but the collectors.
+//
+// The camera is a fixed reading zoom of 0.6, commanded through the exam hook the
+// app installs under `?exam=1` (Canvas.tsx). Why a fixed zoom at all: at
+// multi6's fit zoom (~0.21) BOTH chip LOD gates fire and nearly every chip is
+// not drawn, so a fit-zoom census of that plan measures almost nothing --
+// exactly why CHIP_OFFPATH_BASELINE["multi6"] is "unmeasured rather than clean".
+// 0.6 clears LABEL_MIN_ZOOM (0.35) and CHIP_ICON_ONLY_MAX_ZOOM (0.32) on every
+// plan, so every chip is drawn with its digits. React Flow does not virtualise
+// nodes or the edge-label layer here, so the chips that fall outside the pane at
+// that zoom are still mounted and still measure.
+//
+// The camera also fixes the chip BOX SIZE, which is why the numbers below are
+// only comparable to each other. A chip counter-scales by min(2, 1/zoom) about
+// its centre, so in graph units its box is 1.667x its natural size here, against
+// 2x at any fit zoom below 0.5 and 1.333x at the 0.75 the exam evidence was
+// gathered at. Every count in the four tables is therefore a reading at zoom
+// 0.6 and nothing else; re-measure the whole table if the camera moves.
+//
+// The pan keeps the world point that was at the pane centre at fit zoom in the
+// pane centre, so the frame is the middle of the plan on every scenario. It is
+// arbitrary for the measurement (all rects are mapped back to graph coordinates
+// and nothing is culled) and is fixed only so a debugging screenshot of a census
+// failure shows the same region every run.
+const CENSUS_ZOOM = 0.6;
+
+// The exam camera handle the app installs under `?exam=1`, declared locally the
+// same way tools/exam does: the app puts it on Window from a module this spec
+// has no reason to load, and the type is erased before any of it reaches the
+// browser.
+type ExamHook = { setViewport(v: { x: number; y: number; zoom: number }): void };
+type ExamWindow = Window & { __stcExam?: ExamHook };
+
+async function loadCensusScenario(page: Page, hash: string): Promise<void> {
+  await page.goto(`/?exam=1#${hash}`, { waitUntil: "load" });
+  await waitForCanvasReady(page);
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await waitForStableViewport(page);
+  await page.waitForFunction(
+    () => (window as ExamWindow).__stcExam !== undefined,
+    undefined,
+    { timeout: 10_000 },
+  );
+  await page.evaluate((zoom) => {
+    const hook = (window as ExamWindow).__stcExam!;
+    const pane = document
+      .querySelector<HTMLElement>(".react-flow")!
+      .getBoundingClientRect();
+    const vp = document.querySelector<HTMLElement>(".react-flow__viewport")!;
+    const m = new DOMMatrixReadOnly(getComputedStyle(vp).transform);
+    const worldCx = (pane.width / 2 - m.e) / m.a;
+    const worldCy = (pane.height / 2 - m.f) / m.a;
+    hook.setViewport({
+      x: pane.width / 2 - worldCx * zoom,
+      y: pane.height / 2 - worldCy * zoom,
+      zoom,
+    });
+  }, CENSUS_ZOOM);
+  await waitForStableViewport(page);
+}
+
+// FIRST RECORDINGS, all four tables. They were measured on the campaign's
+// pre-fix branch tip with every cell pinned at zero and the reported actual
+// read back out of the failure message, scenario by scenario. They state where
+// the campaign starts -- not a target, not a ruling -- and from here they
+// ratchet DOWN under the same convention as the seven tables above. Because
+// this campaign first recorded them, they may also be RE-measured freely inside
+// the campaign with the cause annotated; that licence ends when the campaign
+// does.
+//
+// Seat validity: chips whose own edge's polyline does not pass through their own
+// drawn box. Structural, all chip kinds, so it sees what auditChipsOnOwnPath
+// (label chips only, centre distance) cannot: the lane rise chips stranded at a
+// trunk-wide slot index and the drop chips cascaded off their lane. It is also
+// STRICTLY WEAKER than that centre rule for the chips both cover -- a sidestep
+// seat holds the line inside the box while moving the centre off it -- which is
+// why CHIP_OFFPATH_BASELINE reads 0 on the three plans that dominate here.
+// Measured 30 corpus-wide: 28 BUS chips -- the family the off-path ratchet
+// cannot see at all -- and 2 label chips. The 28 are lane rise chips parked at a
+// trunk-wide slot index far from where their own member leaves the lane (multi6
+// e:67 / e:77 / e:86 / e:88 / e:90 / e:92 / e:94 / e:108, script43's five
+// gas_xiranite rises e:24 / e:26 / e:27 / e:28 / e:29, gas-web's five, and so
+// on) plus the drop-side case with no guard at all (multi6 e:74, cascaded 144.2
+// off its lane). The 2 label chips are battery5 e:18 and battery5-xiranite e:4,
+// two of the four seats CHIP_OFFPATH_BASELINE already pins; the other two
+// (battery5 e:1 at 8.50 and battery5-xiranite e:18 at 17.18) keep their own line
+// inside the box and so are valid seats here. That is the "strictly weaker"
+// relation in numbers.
+//
+// It does NOT make the counter immune to a sidestep, as first recorded here.
+// The seat reserves a worst-case box (max counter-scale, full label width) and
+// the reach that keeps the own line "inside the box" is measured against THAT,
+// while this census measures the box the chip actually paints -- 20% narrower
+// at this camera before any label-width slack. A step at the flush end of the
+// reach therefore holds the line inside the reserve and outside the paint.
+// Measured: an unbounded scored sidestep put multi6 e:18 at the flush 120 and
+// this counter read 19, the chip floating a full half-width off its line with
+// its two foreign strokes shed. The shipped tier caps its reach at half the
+// reserve for exactly that reason, and the counter holds at 18. Task 6b
+// extended that same bound to the FULLY CLEAR step (tier 1c), which had kept the
+// full reach: measured against the per-chip box, leaving 1c uncapped read 19
+// here while capping it holds 18 and drops card-intrusion and foreign-stroke
+// further as well (ruling R12).
+//
+// RE-MEASURED at 18 after the rise-slot clamp and the drop cascade cap. The
+// x-stranding family is gone: no chip is off its own line by more than one
+// cascade pitch any more (the worst was 663 units), and multi6 e:74's drop now
+// holds its junction. What is left is 16 bus chips at exactly 48.0 -- rise chips
+// lifted ONE pitch off their lane, by the junction-dot keep-off (#50) or by
+// crowding -- plus the same 2 label chips. That residue is structural at this
+// camera: the drawn box is 40 tall here, so a chip one pitch off its lane can
+// never touch it, while the seating pass ratifies one pitch as "beside the lane"
+// and hides anything past it. Clamping a stranded slot lands it at its own run's
+// far end, which is where that run's junction dot sits, so the keep-off lifts it
+// -- beside its own run beats spread onto a sibling's stroke.
+// RE-MEASURED at 18 after the per-chip reserved seat box (Task 6b). The total
+// holds; two cells swap. battery5 2 -> 1: e:18 had no seat on its own polyline
+// under the worst-case box and sat 40.9 units off it; the narrower box gives it
+// one (it pays a junction dot for it, see DOT_COVER_BASELINE). multi6 5 -> 6:
+// e:35 (Ferrium Powder 600/min) went the other way, displaced off its line by
+// the re-seating cascade as its neighbours took the corridor room the narrower
+// boxes freed. Both cells are campaign-own measurements, re-measured with cause.
+const SEAT_VALIDITY_BASELINE: Record<string, number> = {
+  default: 1,
+  battery5: 1,
+  "battery5-xiranite": 4,
+  crystal: 0,
+  equip4: 0,
+  multi6: 6,
+  tundra: 0,
+  script43: 3,
+  "coupon-web": 1,
+  "gas-web": 2,
+};
+
+// Card intrusion: chips whose box reaches more than CARD_INTRUSION_BUDGET deep
+// past a node card's border, OWN cards included, container slabs excluded. A
+// depth rule, sharing its budget with the seating pass's own-card port-strip
+// exemption, so a chip lying across the port strip on its own line -- the normal
+// on-line state -- never counts however wide it is. Distinct from the tier-4
+// hard gate above, which is a CENTRE rule against foreign cards plus
+// chipEntersOwnCardBody on own ones; that gate stays at zero and is untouched.
+// Measured 88 corpus-wide, the largest of the four counters and the F1 family
+// the campaign names: a chip anchored on its own line a stub's length off the
+// port has half a box left over, and that half lands on the card. The depths
+// run from just past the budget to a full 40, and 21 of the 88 are at that 40:
+// 40 is the drawn chip HEIGHT at this camera, so the depth has saturated on the
+// vertical axis and the box is swallowed whole in x, sitting on the card body
+// with only its centre still out in the port strip (multi6 e:30 / e:49,
+// script43 e:18 / e:21). Two are bus rise chips (script43 e:3 / e:4); the other
+// 86 are label chips.
+// Unmoved by the rise-slot clamp and the drop cascade cap: every cell re-read
+// identical. Both are lane-frame changes and this counter is dominated by label
+// chips at node ports.
+//
+// RE-MEASURED at 84 after the seating pass gained its own box-depth rule: the
+// tier-1 slide and the graze scorer now rank a candidate's depth into its OWN
+// endpoint cards (below the junction-dot keep-off in tier 1, below the
+// foreign-line crossing count in the graze tier), so a chip that used to stop
+// at the first otherwise-clear point keeps walking its line to one whose BOX
+// also clears the card. Six seats moved off a card (battery5 e:19,
+// battery5-xiranite e:28, multi6 e:12 / e:83 / e:84 / e:110, depths 9.5 to
+// 29.1) and two moved onto one at shallow depth (multi6 e:5 at 10.5, script43
+// e:17 at 15.4, both chips that shifted along their own lines as the seats
+// around them changed) -- hence script43 15, one ABOVE its first recording.
+// That cell is a measurement this campaign took, not a ratified trade, and the
+// plan's ratchet rule lets it be re-measured with its cause recorded.
+//
+// The DEEP class -- 21 chips whose depth saturates at the drawn box height, the
+// ones a reader sees lying ON a card -- did NOT move, and the reason is
+// availability, not ranking. Traced candidate by candidate at this camera: 12
+// of them (battery5 e:6 / e:11 / e:12, battery5-xiranite e:11 / e:14 / e:21,
+// crystal e:5, multi6 e:49, script43 e:21 / e:31 / e:32 / e:33) have exactly
+// one fully clear point on the whole line and it is the buried one -- every
+// shallower point on the corridor crosses a foreign line, and crossings
+// outrank depth by ruling; 7 (battery5-xiranite e:18 / e:20, gas-web e:17 /
+// e:25, multi6 e:30 / e:99, script43 e:18) have NO fully clear point, so their
+// seat comes from the sidestep or the graze scorer where the same precedence
+// applies; 2 (battery5-xiranite e:19, gas-web e:18) had a within-budget graze
+// candidate that lost on crossings. All 21 reserve a 240-wide worst-case box
+// while drawing 120-200 here, which is what makes the corridor interior look
+// blocked. Closing them needs either that box model or the crossings-vs-depth
+// precedence revisited, not another seat-preference term.
+//
+// RE-MEASURED at 81 after the sidestep tier started scoring its steps instead
+// of taking the first fully clear one (script43 15 -> 14, gas-web 10 -> 8).
+// That tier fires where NO point on the own line is clear, and until now it
+// took the nearest clear horizontal step whatever that step landed on -- so it
+// could park a box on the chip's own card that the slide above it had walked
+// its whole line to avoid. It now carries the same own-card depth term the two
+// on-line tiers carry, and three seats (script43 e:37, gas-web e:9 / e:30, 13
+// to 18 deep) stepped one pitch further to a slot off the card. The deep class
+// is untouched by it: none of those three saturated.
+//
+// RE-MEASURED at 70 after the per-chip reserved seat box (Task 6b), which
+// reserves an upper bound on what each chip will DRAW (chrome + its own rate
+// text + the widest localized unit, clamped by the CSS max-width) instead of the
+// widest box that clamp allows -- 166 to 234 units against a flat 240 across
+// this corpus. Counted by chip identity, SEVENTEEN intrusions left the counter
+// and six arrived (81 - 17 + 6 = 70); the DEEP class went 21 -> 18.
+// The two sixes below are DIFFERENT SETS that overlap in five. A COUNTER
+// arrival is a chip that was off this counter entirely and now laps a card past
+// the budget at any depth; a DEEP arrival is a chip whose depth saturates at the
+// drawn box height. multi6 e:52's rise chip is a counter arrival that is not
+// deep (34.7 -- past the budget, short of saturation), and battery5 e:18 is a
+// deep arrival that is not a counter arrival (it was already counted at 27.7 and
+// deepened to 40.0 on u:class:q:17, the same seat DOT_COVER_BASELINE's ruling
+// note above trades for). The other five are both.
+// Nine of the original deep saturations cleared: the eight
+// Task 5 traced to "the only fully clear point on the line IS the buried one"
+// (battery5 e:6, battery5-xiranite e:11, crystal e:5, multi6 e:49, script43
+// e:21 / e:31 / e:32 / e:33 -- the narrower box makes a shallower point on the
+// same corridor clear) plus battery5-xiranite e:19, whose within-budget graze
+// candidate stopped losing on crossings. Six arrived (battery5 e:18,
+// battery5-xiranite e:34, multi6 e:18 / e:41 / e:43, gas-web's copper_nugget
+// fan-out share chip): chips that gained on-line candidates and settled on one
+// the crossing count ranks above depth, which is the precedence ruling R11 kept.
+// The twelve survivors run 166 to 234 wide; the widest of them
+// (battery5-xiranite e:20, "238.36/min") is 3% off the CSS clamp and had nothing
+// to gain, exactly as the box model predicts.
+const CARD_INTRUSION_BASELINE: Record<string, number> = {
+  default: 5,
+  battery5: 4,
+  "battery5-xiranite": 7,
+  crystal: 2,
+  equip4: 3,
+  multi6: 22,
+  tundra: 1,
+  script43: 11,
+  "coupon-web": 7,
+  "gas-web": 8,
+};
+
+// Foreign strokes: chips with at least one foreign flow's stroke through the
+// box. Same waiver set as CHIP_SEGMENT_BASELINE above (shared code, not a
+// re-implementation), so no seat can be foreign to one and waived by the other.
+// Three things make this count differ from that table: it counts CHIPS where
+// that one counts (segment, chip) pairs, it covers bus chips as well as label
+// chips, and it reads at the census camera rather than at fit zoom.
+// Measured 47 corpus-wide, 44 label chips and 3 bus chips (script43 1, gas-web
+// 2). The shape matches CHIP_SEGMENT_BASELINE's own note -- a few full-height
+// tap and surplus columns passing under many chips -- which is why the chip
+// count here (gas-web 11) sits below that table's pair count (20) for the same
+// plan. multi6 runs the other way, 16 here against 0 there: at its fit zoom the
+// chips that collide are not drawn at all, which is the blind spot the reading
+// camera exists to remove.
+//
+// RE-MEASURED at 48 after the drop cascade cap: multi6 16 -> 17, every other
+// cell identical. The one addition is multi6 e:74's gas_inert DROP chip, and it
+// is the R7 trade itself -- that chip used to clear the foreign stroke by
+// cascading three pitches into empty canvas (where it counted in seat validity
+// and outside-band instead); capped at one pitch it stays on its own junction
+// and grazes the stroke. A stroke through the box beats a rate chip with nothing
+// under it.
+//
+// RE-MEASURED at 39 after the per-chip reserved seat box (Task 6b), the largest
+// single drop this campaign has taken on any counter. It is the mechanism
+// working directly rather than a ranking change: this counter reads the DRAWN
+// box, and most of its population was class C from the Task 6 enumeration --
+// full-height tap and surplus columns passing under a box the seat had to
+// reserve at the full clamp width. A box reserved at its own text width both
+// straddles fewer columns and has more clear seats to choose from. Nine chips
+// left across seven scenarios; none arrived.
+const FOREIGN_STROKE_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 2,
+  "battery5-xiranite": 5,
+  crystal: 0,
+  equip4: 1,
+  multi6: 14,
+  tundra: 0,
+  script43: 6,
+  "coupon-web": 1,
+  "gas-web": 10,
+};
+
+// Outside band: bus chips whose box shares no vertical extent with the band its
+// own lane runs in. The band is bound from the LANE (the owner edge's horizontal
+// run inside a band strip), never from the chip box, or an escaped chip would
+// pick whichever band it landed near and the escape would vanish. Horizontal
+// overruns are reported in the same failure message but are NOT in this count.
+// Measured 11 corpus-wide: default e:14, battery5 e:16, battery5-xiranite e:2,
+// multi6 e:74 (drop) / e:94 / e:108, script43 e:24 / e:27 / e:28, gas-web
+// e:20 / e:23. Every one is exactly one cascade pitch out -- a box 40 tall
+// seated 48 off its lane, against a band that reserves 24 -- which is the whole
+// mechanism. The separately reported x-overflows measured 6 (default 1,
+// battery5 2, battery5-xiranite 2, multi6 1): a band's x-run is its trunk's own
+// drop-to-rise span plus a stub, and a chip seated at either end sticks out past
+// it. That is a band-width question, not a stranded chip, so it is reported and
+// not ratcheted. Crystal and equip4 pin 0 because they render bus chips but NO
+// band rects (counter is unjudgeable there, not clean); tundra has no bus chips
+// at all.
+//
+// RE-MEASURED at 15 after the rise-slot clamp and the drop cascade cap
+// (battery5-xiranite 1 -> 3, multi6 3 -> 4, coupon-web 0 -> 1). The counter rose
+// for one reason: a clamped slot lands at its own run's far end, where that
+// run's junction dot sits, so the keep-off pass (#50) lifts the chip one pitch
+// and a band that reserves 24 does not cover it. The mechanism is unchanged --
+// every escape is still exactly one pitch out, and the population is now purely
+// rise chips: multi6 e:74, the corpus's only escaped DROP, came home when its
+// cascade was capped.
+//
+// RE-MEASURED at 0 after BAND_Y_PAD grew to one cascade pitch plus a chip
+// half-height (24 -> 72): every escape in the corpus was a chip lifted exactly
+// one pitch, so the whole population is inside the tint now and the counter is a
+// hard zero on all ten scenarios. It is a real floor rather than a coincidence
+// of this corpus -- the seating cascade only leaves the pitch when no seat
+// within it clears a placed chip, and that escape hatch fires nowhere here. A
+// future escape means a chip past one pitch, which is exactly what this counter
+// should surface -- with one blind spot: the test is "shares NO vertical extent
+// with the band rect", so it alarms an escape off an OUTER lane, while a chip on
+// an INTERIOR lane of a multi-lane band can be lifted two pitches and still land
+// inside that band's rect, unregistered.
+// The x-overflows measure 7 (default 1, battery5 2,
+// battery5-xiranite 2, multi6 2) and did NOT move with the pad: measured before
+// and after the same build, cell for cell. They are one higher than the 6 noted
+// above because multi6 gained one at the rise-slot clamp, which was never
+// re-measured for this counter. The pad is a y-axis change and BAND_X_MARGIN is
+// untouched, so this stays a band-width question, reported and not ratcheted.
+// The magnitudes across the campaign reconcile too, though they read as if they
+// grew: the one recorded before the campaign (multi6 e:3, 25 past the band's
+// right edge) was measured in exam-camera SCREEN px at zoom 0.75, about 33 world
+// units, and multi6 also GAINED an overflow at the T3 rise-slot clamp. So the
+// ~45 world units that chip overhangs today is a unit difference plus growth
+// already recorded at the clamp, not a new drift. Either way the counter tracks
+// the COUNT, so no magnitude moves it.
+const OUTSIDE_BAND_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+};
+
+// TIER-1 SLIDE DRIFT, re-measured after the per-chip reserved seat box
+// (Task 6b, ruling R11). Not a counter and not ratcheted -- a measurement
+// recorded next to the counters it belongs with, because the audit surface
+// cannot pin it (see the last paragraph).
+//
+// Drift is how far along its own polyline a rate chip walks from its anchor
+// before it settles: the arc-length offset the on-line tiers (tier 1 and the
+// graze scorer) choose in seatRateChip. Task 5's fourth concern recorded that
+// nearest-first became only a TIEBREAK there -- a chip crosses the whole line to
+// shave one unit of own-card depth if every nearer candidate laps deeper -- and
+// the T6b audit predicted narrowing the box could make it WORSE, since a
+// narrower box also makes MORE distant candidates clear. Measured rather than
+// assumed. One slide step is SLIDE_STEP = 24 world units and the walk is capped
+// at SLIDE_MAX_STEPS = 48 steps, so the reach is 1152 units either way.
+//
+// Per scenario, over the seats that took an on-line tier, "before" at the Task
+// 6b parent (939a7aa) and "after" at the per-chip box, same corpus, same
+// en locale:
+//
+//   scenario           drifted/seats before   after      max before -> after
+//   default                   1/13            6/13        504 -> 504  (21 steps)
+//   battery5                 11/21           14/23        960 -> 960  (40 steps)
+//   battery5-xiranite        21/33           21/34        744 -> 720  (31 -> 30)
+//   crystal                   2/10            2/10         72 ->  48  ( 3 ->  2)
+//   equip4                    3/13            3/13        288 -> 240  (12 -> 10)
+//   multi6                   48/85           55/86        792 -> 696  (33 -> 29)
+//   tundra                    2/7             3/7          48 ->  48  ( 2 steps)
+//   script43                 21/28           24/28       1080 -> 1032 (45 -> 43)
+//   coupon-web                4/16            5/16        288 -> 288  (12 steps)
+//   gas-web                  17/24           19/24       1080 -> 1032 (45 -> 43)
+//   corpus                  130/250         152/254
+//
+// Two readings, and they point in opposite directions:
+//   - the MAXIMA did not get worse anywhere. Six scenarios fell, four held, none
+//     rose, and the far tail is the same edges on both sides (battery5 e:4 at 40
+//     steps, script43 e:10 and gas-web e:3 at 45 -> 43). So the audit's R-d
+//     prediction did not land on the distances.
+//   - it did land on the COUNT. 22 more chips leave their anchor at all, and
+//     every one of those additions is SHORT: bucketed by step count the corpus
+//     goes 0 steps 120 -> 102, 1-2 steps 47 -> 81, 3-5 steps 39 -> 28, 6-10
+//     23 -> 26, 11-20 9 -> 6, 21+ 12 -> 11. More chips move, and they move one
+//     or two steps, while the long walks thin out. That is the narrower box
+//     giving the dot and depth terms shallower candidates to prefer, which is
+//     the mechanism the whole task rests on.
+//
+// So drift is MATERIAL -- 11 chips still walk 21 steps or more, up to 43 steps
+// (1032 units, about five of their own box widths off the anchor) -- and it is
+// PRE-EXISTING rather than anything Task 6b introduced. It is a real follow-up
+// for the campaign, ranked as its own question: a distance cap on the walk would
+// trade card depth back for nearness, which is a ruling, not a tuning.
+//
+// Why there is no baseline TABLE here. Every counter above is measured from
+// DRAWN rects, and drift is a distance from the chip's ANCHOR -- the
+// clear-segment anchor edgePath returns per route shape, a layout-internal point
+// no DOM read recovers (the chip renders at anchor + labelDx/labelDy, and only
+// the sum is visible). Pinning drift means mirroring that anchor in
+// test/e2e/geometry.ts the way PORT_DRIFT mirrors the port contract, across
+// every route shape -- its own task, not a comment. The numbers above were taken
+// by temporarily recording the winning candidate's arc-length delta in
+// seatRateChip's two on-line walks, building, and reading the record per
+// scenario through tools/exam/probe.ts --eval; the instrumentation was reverted,
+// and the recipe is repeatable from this note.
+//
+// Corpus-wide totals, one per counter. The census is a campaign-level ratchet,
+// so the single number per counter is the figure the campaign moves; the
+// per-scenario tables above are what a failure is diagnosed from. Asserted
+// arithmetically against the tables (see the totals test) rather than summed
+// over a run, so it holds even when the suite is run one scenario at a time.
+const CENSUS_TOTALS = {
+  seatValidity: 18,
+  cardIntrusion: 70,
+  foreignStroke: 39,
+  outsideBand: 0,
+};
+
+function censusInventory(hits: ReadonlyArray<ChipCensusHit>): string {
+  return hits
+    .map((h) => `  ${h.chipId} (${h.chipKind}, "${h.chipLabel}"): ${h.detail}`)
+    .join("\n");
+}
+
+function sumOf(table: Record<string, number>): number {
+  return Object.values(table).reduce((a, b) => a + b, 0);
+}
+
+test.describe("chip seating census", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("aef.locale", "en");
+    });
+  });
+
+  test("corpus totals match the per-scenario tables", () => {
+    expect(sumOf(SEAT_VALIDITY_BASELINE)).toBe(CENSUS_TOTALS.seatValidity);
+    expect(sumOf(CARD_INTRUSION_BASELINE)).toBe(CENSUS_TOTALS.cardIntrusion);
+    expect(sumOf(FOREIGN_STROKE_BASELINE)).toBe(CENSUS_TOTALS.foreignStroke);
+    expect(sumOf(OUTSIDE_BAND_BASELINE)).toBe(CENSUS_TOTALS.outsideBand);
+  });
+
+  for (const scenario of SCENARIOS) {
+    test(scenario.id, async ({ page }) => {
+      const hash = await scenarioHash(scenario);
+      await loadCensusScenario(page, hash);
+
+      const geom = await page.evaluate(collectGeometry);
+
+      // The commanded camera has to be the camera that was measured: setViewport
+      // assigns the transform verbatim, but a driver that assumes its own zoom
+      // landed is exactly the mistake Canvas.tsx's hook comment warns about, and
+      // every count below is a reading at ONE zoom.
+      expect(
+        geom.zoom,
+        `${scenario.id}: census camera did not land at ${CENSUS_ZOOM}`,
+      ).toBeCloseTo(CENSUS_ZOOM, 5);
+
+      const chips = geom.chips as ChipRect[];
+      const rawEdges = toRawEdges(geom.edges);
+      const nodes: NodeRect[] = geom.nodes.map((n) => ({
+        nodeId: n.nodeId,
+        type: n.type,
+        left: n.left,
+        top: n.top,
+        right: n.right,
+        bottom: n.bottom,
+      }));
+
+      // Soft throughout, like the P2 describe: one red counter must not hide the
+      // other three, since the campaign moves them one fix at a time.
+
+      const invalid = auditChipSeatValidity(chips, geom.edges);
+      const seatBaseline = SEAT_VALIDITY_BASELINE[scenario.id]!;
+      expect
+        .soft(
+          invalid.length,
+          `${scenario.id}: ${invalid.length} chip(s) whose own line misses their box exceeds baseline ${seatBaseline} among ${chips.length} chips:\n${censusInventory(invalid)}`,
+        )
+        .toBeLessThanOrEqual(seatBaseline);
+
+      const intruding = auditChipCardIntrusion(chips, nodes);
+      const intrusionBaseline = CARD_INTRUSION_BASELINE[scenario.id]!;
+      expect
+        .soft(
+          intruding.length,
+          `${scenario.id}: ${intruding.length} chip(s) more than ${CARD_INTRUSION_BUDGET} deep inside a card exceeds baseline ${intrusionBaseline} among ${chips.length} chips:\n${censusInventory(intruding)}`,
+        )
+        .toBeLessThanOrEqual(intrusionBaseline);
+
+      const braided = auditChipForeignStrokes(chips, rawEdges, nodes);
+      const strokeBaseline = FOREIGN_STROKE_BASELINE[scenario.id]!;
+      expect
+        .soft(
+          braided.length,
+          `${scenario.id}: ${braided.length} chip(s) with a foreign stroke through the box exceeds baseline ${strokeBaseline} among ${chips.length} chips:\n${censusInventory(braided)}`,
+        )
+        .toBeLessThanOrEqual(strokeBaseline);
+
+      const { escapes, xOverflows } = auditBusChipsOutsideBand(
+        chips,
+        geom.edges,
+        geom.bands as BandRect[],
+      );
+      const bandBaseline = OUTSIDE_BAND_BASELINE[scenario.id]!;
+      expect
+        .soft(
+          escapes.length,
+          `${scenario.id}: ${escapes.length} bus chip(s) outside their band exceeds baseline ${bandBaseline} among ${geom.bands.length} band(s); ${xOverflows.length} x-overflow(s) reported, not counted:\n${censusInventory(escapes)}\n${censusInventory(xOverflows)}`,
+        )
+        .toBeLessThanOrEqual(bandBaseline);
     });
   }
 });

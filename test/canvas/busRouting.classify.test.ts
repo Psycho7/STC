@@ -494,6 +494,31 @@ describe("busBandRegions", () => {
     expect(regions[0]!.height).toBe(2 * BAND_Y_PAD);
   });
 
+  it("covers a chip lifted a full cascade pitch, touching the padded edge", () => {
+    // The pad exists for chips the seating pass lifts off their lane, so pin the
+    // worst kept case: a max-scale box centred one cascade pitch (LANE_SPACING)
+    // above the lane. Its outer edge lands ON the padded edge -- exact equality,
+    // no slack -- which is why every "chip inside its band" check has to count
+    // the boundary as inside.
+    const nodes: RFAnyNode[] = [
+      recipeNode("s", 0, 0, r),
+      recipeNode("t", far, 0, r),
+      recipeNode("mid", 600, 0, r),
+    ];
+    const edges = [mkEdge("e0", "s", "t", "b")];
+
+    const out = routeBusEdges(nodes, edges);
+    const laneY = laneBands(out).bottom!.y0;
+    const region = busBandRegions(nodes, out)[0]!;
+
+    const halfBox = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
+    const liftedTop = laneY - LANE_SPACING - halfBox;
+    const liftedBottom = laneY + LANE_SPACING + halfBox;
+
+    expect(liftedTop).toBe(region.y);
+    expect(liftedBottom).toBe(region.y + region.height);
+  });
+
   it("returns no regions when no edge rides a lane", () => {
     // A short forward edge is never a bus member, so laneBands is all-null and
     // there is nothing to shade.

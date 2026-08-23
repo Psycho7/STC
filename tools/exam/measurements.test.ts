@@ -101,6 +101,7 @@ const geometry = (): Geometry => ({
     // Far from its own edge's polyline and clear of everything else.
     {
       edgeId: E_IRON,
+      testId: CHIP_RATE_ID,
       label: "12/min",
       kind: "label",
       left: 700,
@@ -111,6 +112,7 @@ const geometry = (): Geometry => ({
     // Seated inside foreign card C, above the y=250 leg that crosses it.
     {
       edgeId: E_WATER,
+      testId: CHIP_DROP_ID,
       label: "water",
       kind: "bus-drop",
       left: 210,
@@ -121,6 +123,7 @@ const geometry = (): Geometry => ({
     // Straddles E_IRON's x=100 leg.
     {
       edgeId: E_WATER,
+      testId: CHIP_RISE_ID,
       label: "water rise",
       kind: "bus",
       left: 90,
@@ -130,6 +133,7 @@ const geometry = (): Geometry => ({
     },
   ],
   dots: [],
+  bands: [],
   zoom: 1,
 });
 
@@ -349,6 +353,7 @@ describe("measurementsFor", () => {
       edges: [{ id: E_IRON, d: "M 100,25 L 100,250 L 4000,250" }],
       chips: [],
       dots: [],
+      bands: [],
       zoom: 1,
     };
     const scene: SceneCollection = {
@@ -371,6 +376,7 @@ describe("measurementsFor", () => {
     // A bus-drop chip hanging off the bottom-right corner of foreign card C.
     geom.chips.push({
       edgeId: E_WATER,
+      testId: CHIP_PARTIAL_ID,
       label: "water partial",
       kind: "bus-drop",
       left: 240,
@@ -404,6 +410,7 @@ describe("measurementsFor", () => {
     // there is no overlap to intersect.
     geom.chips.push({
       edgeId: E_WATER,
+      testId: CHIP_PAST_ID,
       label: "water past strip",
       kind: "label",
       left: 520,

@@ -10,7 +10,10 @@ import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
-import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
+import {
+  chipSeatHalfW,
+  deconflictChipAnchors,
+} from "../../src/canvas/chipSeating";
 import {
   chamferStepPath,
   chamferFanoutPath,
@@ -89,6 +92,40 @@ const polylineLength = (
   return len;
 };
 
+// Three product cards in a row, each `gap` apart, and the two item edges
+// between them: a chain of two short legs whose chips sit close enough to
+// contest each other under the WIDE reserve and not under the collapsed one.
+const chainFixture = (
+  gap: number,
+): { nodes: RFAnyNode[]; edges: Edge[] } => {
+  const xs = [0, CARD_W + gap, 2 * (CARD_W + gap)];
+  const nodes: RFAnyNode[] = xs.map((x, i) =>
+    productNode(`n${i}`, x, CARD_Y, CARD_W, CARD_H),
+  );
+  const edges: Edge[] = [0, 1].map((i) => ({
+    id: `e:${i}:n${i}->n${i + 1}:w`,
+    type: "item",
+    source: `n${i}`,
+    target: `n${i + 1}`,
+    data: { item: "w", rate: new Fraction(3) },
+  }));
+  return { nodes, edges };
+};
+
+// The chip anchor chamferStepPath puts on an edge of the chain fixture, in the
+// drawn frame the seating pass reconstructs.
+const chipAnchorOf = (nodes: RFAnyNode[], edge: Edge): number => {
+  const src = nodes.find((n) => n.id === edge.source)!;
+  const tgt = nodes.find((n) => n.id === edge.target)!;
+  const [, lx] = chamferStepPath({
+    sourceX: src.position.x + CARD_W + PRODUCT_DX,
+    sourceY: CARD_Y + CARD_H / 2,
+    targetX: tgt.position.x - PRODUCT_DX,
+    targetY: CARD_Y + CARD_H / 2,
+  });
+  return lx;
+};
+
 const iconOnlyOf = (edges: Edge[], id: string): boolean | undefined =>
   (
     edges.find((e) => e.id === id)?.data as
@@ -113,6 +150,66 @@ describe("deconflictChipAnchors: short-leg icon-only flag", () => {
 
     const out = deconflictChipAnchors(nodes, edges);
     expect(iconOnlyOf(out, "e:1:src->tgt:w")).toBeUndefined();
+  });
+
+  it("reserves the collapsed box for the stamped chip, not the wide one", () => {
+    // The stamp used to be render-only for ITEM chips: the seat still reserved
+    // the 240-wide worst case for a chip that draws 48, which is the largest
+    // single conservatism the pass carried (Task 6b). Two short legs in a chain
+    // put their chips 136 apart -- inside the 240 of centre separation two wide
+    // boxes need, outside the 48 two collapsed ones need. Under the wide
+    // reserve the second chip is shoved off its anchor; under the collapsed one
+    // both sit where they belong.
+    const { nodes, edges } = chainFixture(36);
+    const anchors = edges.map((e) => chipAnchorOf(nodes, e));
+    // Premise: the two anchors are in exactly that window.
+    const apart = Math.abs(anchors[1]! - anchors[0]!);
+    expect(apart).toBeGreaterThan(2 * CHIP_HALF_W_ICON);
+    expect(apart).toBeLessThan(2 * CHIP_HALF_W_WIDE);
+
+    const out = deconflictChipAnchors(nodes, edges);
+    for (const e of edges) {
+      expect(iconOnlyOf(out, e.id)).toBe(true); // premise: both collapsed
+      const data = out.find((o) => o.id === e.id)?.data as
+        | { labelDx?: number; labelDy?: number }
+        | undefined;
+      expect(data?.labelDx).toBeUndefined();
+      expect(data?.labelDy).toBeUndefined();
+    }
+  });
+});
+
+// The rest of the same change (Task 6b): a chip that is NOT collapsed reserves
+// the box its own rate text will draw rather than the widest box the CSS clamp
+// allows, so two chips the worst case reads as contesting each other are
+// actually clear.
+describe("deconflictChipAnchors: per-chip reserved box", () => {
+  it("leaves two chips at their anchors when only the worst-case box collides", () => {
+    // 130 units of corridor -> a 122-unit leg (past the collapse threshold, so
+    // both chips draw their digits) with the two anchors 230 apart. Two
+    // worst-case boxes need 240 of centre separation and would shove the second
+    // chip along its leg; two boxes sized to "180/min" need 189, so neither
+    // moves.
+    const { nodes, edges } = chainFixture(130);
+    const anchors = edges.map((e) => chipAnchorOf(nodes, e));
+    const apart = Math.abs(anchors[1]! - anchors[0]!);
+    expect(apart).toBeLessThan(2 * CHIP_HALF_W_WIDE); // premise: wide boxes clash
+    // ...and estimated ones do not. Taken from the seat's own estimator so a
+    // change to the chrome, glyph or unit constants fails here rather than
+    // silently invalidating the premise.
+    expect(apart).toBeGreaterThan(
+      2 * chipSeatHalfW({ body: "180", unit: true }, false),
+    );
+
+    const out = deconflictChipAnchors(nodes, edges);
+    for (const e of edges) {
+      expect(iconOnlyOf(out, e.id)).toBeUndefined(); // premise: neither collapsed
+      const data = out.find((o) => o.id === e.id)?.data as
+        | { labelDx?: number; labelDy?: number }
+        | undefined;
+      expect(data?.labelDx).toBeUndefined();
+      expect(data?.labelDy).toBeUndefined();
+    }
   });
 });
 

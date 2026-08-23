@@ -67,6 +67,25 @@ function busDropDyRawOf(edges: Edge[], id: string): number | undefined {
   return d?.busDropDy;
 }
 
+// The rise slot as it stands AFTER seating: routeBusEdges' trunk-wide slot,
+// replaced by the clamped one where the seating pass moved it. This is the x
+// BusEdge anchors the rise chip at and contentBounds frames.
+function busChipXOf(edges: Edge[], id: string): number | undefined {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { busChipX?: number }
+    | undefined;
+  return d?.busChipX;
+}
+
+// The raw rise stamp, which busChipDyOf's 0 default cannot distinguish from an
+// absent one: a member seated on the lane stamps nothing at all.
+function busChipDyRawOf(edges: Edge[], id: string): number | undefined {
+  const d = edges.find((e) => e.id === id)?.data as
+    | { busChipDy?: number }
+    | undefined;
+  return d?.busChipDy;
+}
+
 describe("deconflictChipAnchors: bus lane cascade", () => {
   it("keeps the rises the short run supports; no aggregate column is reserved", () => {
     // Two input-product feeders share one trunk (ore|agg) but sit so close that
@@ -284,10 +303,16 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     expect(busChipDyOf(out, "e1")).toBe(0);
   });
 
-  it("leaves a well-spread trunk's chips on the lane", () => {
+  it("leaves a well-spread trunk's chips beside their own runs", () => {
     // Three members feeding distinct far layers spread their rise slots evenly
     // across a wide lane extent, so no chip crowds another and none is nudged.
     // The trunk is multi-member, so it seats no aggregate drop chip either.
+    // The two far members keep their lane seat. The NEAREST member does not:
+    // its trunk-wide slot (2533.5) sat 1400 units past its own rise column, so
+    // the slot clamp pulls it back onto its own run, where the run's own
+    // junction dot sits -- the wide box swallows the dot wherever it lands near
+    // that end, so the dot keep-off pass (#50) lifts it one pitch off the lane.
+    // Beside its own run beats spread onto a sibling's stroke.
     const r = mkRecipe("r", ["a"], ["b"]);
     const far = 300 + (BUS_SPAN_THRESHOLD + 50);
     const nodes: RFAnyNode[] = [
@@ -303,22 +328,31 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     ];
     const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
     for (const id of ["e0", "e1", "e2"]) {
-      expect(busChipDyOf(out, id)).toBe(0);
       expect(busDropDyRawOf(out, id)).toBeUndefined();
+      expect(busRiseHiddenOf(out, id)).toBe(false);
     }
+    expect(busChipDyOf(out, "e1")).toBe(0);
+    expect(busChipDyOf(out, "e2")).toBe(0);
+    // Top band, so the nearest member's dot keep-off lifts it upward.
+    expect(busChipDyOf(out, "e0")).toBe(-(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT));
+    expect(busChipXOf(out, "e0")).toBe(1130);
   });
 
-  it("holds a drop chip on its junction unless a foreign trunk's line crosses it", () => {
+  it("holds both drop chips on their junctions when only foreign lines cross", () => {
     // Two SINGLE-member trunks off ONE aggregate (items "a" and "b" -> lanes 0
     // and 1, same drop column) -- a lone member still draws its drop chip, so
     // this is where drop seating survives (issue #39). Seating is two-phase (all
     // drops, then all rises) so no CHIP can knock a drop off its junction.
     // Trunk b's chip (bottom lane) holds: nothing foreign crosses it. Trunk a's
-    // chip CANNOT hold: trunk b's drop vertical descends through its junction on
-    // the shared drop column, and a chip never sits on a foreign flow's line, so
-    // it cascades below both lanes (two steps: one clears b's vertical run down
-    // to lane 1, the next clears b's lane clearance band). t2 carries no edge; it
-    // stays in the fixture to hold the band geometry the offsets are measured in.
+    // chip is crossed -- trunk b's drop vertical descends through its junction on
+    // the shared drop column -- and used to cascade two pitches to clear it,
+    // landing well below both lanes in empty canvas where no rule hides it. The
+    // drop cascade is capped at one pitch now, and inside that cap the
+    // foreign-line preference is the first thing relaxed, so the chip stays on
+    // its own junction and grazes b's vertical instead. b's placed CHIP one lane
+    // down stays hard throughout; it just does not reach the lane-0 seat.
+    // t2 carries no edge; it stays in the fixture to hold the band geometry the
+    // offsets are measured in.
     const nodes: RFAnyNode[] = [
       recipeNode("anchor", 0, 0, mkRecipe("anchor", ["x"], ["y"])),
       inputProductNode("agg", "ore", 0, 1000),
@@ -331,17 +365,290 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
       mkEdge("e2", "agg", "t3", "b"),
     ];
     const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
-    expect(busDropDyOf(out, "e0")).toBe(2 * (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT));
+    expect(busDropDyOf(out, "e0")).toBe(0);
     expect(busDropDyOf(out, "e2")).toBe(0);
-    // Both trunks are lone members, exempt from the CAPACITY check -- but on this
-    // short run each rise sits on its own drop column and cascades three pitches
-    // to clear it, well off the band, so the off-band rule hides both. A lone
-    // rise only restates its own drop's rate anyway, and that drop is still on
-    // its junction above.
+    // Both trunks are lone members, exempt from the CAPACITY check -- and on
+    // this short run each rise sits on its own drop column, right under its own
+    // drop chip. Trunk a's rise still cascades clean off the band and is hidden
+    // by the off-band rule (a lone rise only restates its own drop's rate, which
+    // is still on its junction above). Trunk b's rise clears one pitch below its
+    // lane now that trunk a's drop no longer cascades down into that space, so
+    // it keeps its seat: capping the drop gave the lower lane its room back.
     expect(busRiseHiddenOf(out, "e0")).toBe(true);
-    expect(busRiseHiddenOf(out, "e2")).toBe(true);
     expect(busChipDyOf(out, "e0")).toBe(0);
-    expect(busChipDyOf(out, "e2")).toBe(0);
+    expect(busRiseHiddenOf(out, "e2")).toBe(false);
+    expect(busChipDyOf(out, "e2")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+  });
+});
+
+describe("deconflictChipAnchors: bus rise slot clamp", () => {
+  // routeBusEdges spreads a trunk's rise slots across the WHOLE trunk extent in
+  // edge-id order, so a member's slot index says nothing about where that
+  // member's own lane run ends. The seating pass clamps every slot into the
+  // member's own resolved run and stamps the corrected x back onto edge data,
+  // which is what BusEdge draws and what contentBounds frames.
+  const laneY = 300;
+  const mkBus = (
+    id: string,
+    target: string,
+    busChipX: number | undefined,
+    memberCount: number,
+  ): Edge => ({
+    id,
+    source: "s",
+    target,
+    type: "bus",
+    data: {
+      item: "w",
+      rate: new Fraction(1),
+      laneY,
+      trunkKey: "w|s",
+      ...(busChipX === undefined ? {} : { busChipX }),
+      busChipOwner: id === "e0",
+      busMemberCount: memberCount,
+      busBand: "bottom" as const,
+    },
+  });
+
+  it("pulls every out-of-run slot back onto its member's own run", () => {
+    // One trunk off a source whose right edge is 100, so every member drops at
+    // busDropBase(100) = 132. Four members, three of them handed a slot at 2000
+    // -- far past where their own lines leave the lane, the multi6 rise-anchor
+    // family. Each clamps into its own run with a chamfer of slack:
+    //   e0 forward to x=1400: run 132..1368, slot 800 already inside -> kept.
+    //   e1 forward to x=600:  run 132..568, slot 2000 -> 568 - 8 = 560.
+    //   e2 BACKWARD to x=-400: the run reverses (rise -432, drop 132) and the
+    //      slot clamps to the drop end, 132 - 8 = 124.
+    //   e3 forward to x=140: the gap is under the two-column budget, so the
+    //      path is a hairpin with drop === rise === 120 and no interior at all
+    //      -- the slot goes to that midpoint rather than a chamfer outside it.
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60),
+      productNode("t0", 1400, 0, 100, 60),
+      productNode("t1", 600, 200, 100, 60),
+      productNode("t2", -400, 400, 100, 60),
+      productNode("t3", 140, 600, 100, 60),
+    ];
+    const out = deconflictChipAnchors(nodes, [
+      mkBus("e0", "t0", 800, 4),
+      mkBus("e1", "t1", 2000, 4),
+      mkBus("e2", "t2", 2000, 4),
+      mkBus("e3", "t3", 2000, 4),
+    ]);
+    expect(busChipXOf(out, "e0")).toBe(800);
+    expect(busChipXOf(out, "e1")).toBe(560);
+    expect(busChipXOf(out, "e2")).toBe(124);
+    expect(busChipXOf(out, "e3")).toBe(120);
+    // e2 and e3 end up 4 units apart, far under the wide-chip separation, so the
+    // capacity check hides one of them (ruling: shortening the runs hides more
+    // rise chips, and the rate stays on the target card's input row). WHICH one
+    // goes is decided by keep-order distance from the junction at 132: e3 sits
+    // 12 out and e2 only 8, so e3 takes the slot and e2 is the overflow -- this
+    // has nothing to do with run length (e2's backward run is 564 long, e3's
+    // hairpin run is 0), because both clamp to within a few units of the drop
+    // column. The clamp itself is per member and unaffected by the outcome.
+    expect(busRiseHiddenOf(out, "e2")).toBe(true);
+    expect(busRiseHiddenOf(out, "e3")).toBe(false);
+  });
+
+  it("stamps a clamped slot even when the member carries no other stamp", () => {
+    // The same trunk without the hairpin member, so nothing crowds e2 out of
+    // its seat: it seats on the lane (no busChipDy) and survives the capacity
+    // check (no busRiseHidden), leaving the clamped x as the ONLY thing seating
+    // has to say about it. That is the case the stamp-block's early return can
+    // swallow, sending the stale trunk-wide 2000 to BusEdge instead of 124.
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60),
+      productNode("t0", 1400, 0, 100, 60),
+      productNode("t1", 600, 200, 100, 60),
+      productNode("t2", -400, 400, 100, 60),
+    ];
+    const out = deconflictChipAnchors(nodes, [
+      mkBus("e0", "t0", 800, 3),
+      mkBus("e1", "t1", 2000, 3),
+      mkBus("e2", "t2", 2000, 3),
+    ]);
+    expect(busChipXOf(out, "e2")).toBe(124);
+    expect(busChipDyRawOf(out, "e2")).toBeUndefined();
+    expect(busRiseHiddenOf(out, "e2")).toBe(false);
+  });
+
+  it("puts a member with no run interior at its run's midpoint", () => {
+    // t1's left edge is 174, so the run is 132..142: ten units, positive but
+    // under the two chamfers the clamp wants to keep clear. Clamping into
+    // [lo + CHAMFER, hi - CHAMFER] would invert the interval and pin the chip
+    // at 134, an arbitrary point that is neither end of the run. The collapse
+    // branch takes the midpoint instead.
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60),
+      productNode("t0", 1400, 0, 100, 60),
+      productNode("t1", 174, 200, 100, 60),
+    ];
+    const out = deconflictChipAnchors(nodes, [
+      mkBus("e0", "t0", 800, 2),
+      mkBus("e1", "t1", 2000, 2),
+    ]);
+    expect(busChipXOf(out, "e1")).toBe(137);
+  });
+
+  it("leaves the lone long-run member with no slot at all", () => {
+    // routeBusEdges deliberately omits the slot for a lone member on a long run
+    // (#32) and BusEdge keys the rise chip's zoom-gate exemption on that
+    // ABSENCE, so the clamp must not invent one: undefined in, undefined out.
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60),
+      productNode("t0", 1400, 0, 100, 60),
+    ];
+    const out = deconflictChipAnchors(nodes, [mkBus("e0", "t0", undefined, 1)]);
+    expect(busChipXOf(out, "e0")).toBeUndefined();
+  });
+});
+
+describe("deconflictChipAnchors: bus drop cascade cap", () => {
+  // The drop chip is the only bus chip exempt from the label zoom gate and has
+  // no hide rule, so its cascade is capped at one pitch: past that it reads as
+  // an orphan floating off the band with nothing to bind it to a trunk.
+  const laneY = 300;
+  const loneBus = (target: string): Edge => ({
+    id: "e0",
+    source: "s",
+    target,
+    type: "bus",
+    data: {
+      item: "a",
+      rate: new Fraction(1),
+      laneY,
+      trunkKey: "a|s",
+      busChipOwner: true,
+      busMemberCount: 1,
+      busBand: "bottom" as const,
+    },
+  });
+  // A foreign horizontal at y, drawn from x = -500 to x = 600 so it crosses the
+  // drop column (132) while both its cards stay clear of the chip box there --
+  // chip-vs-card is hard and would otherwise decide the seat instead.
+  const foreign = (
+    id: string,
+    y: number,
+  ): { nodes: RFAnyNode[]; edge: Edge } => ({
+    nodes: [
+      productNode(`fs-${id}`, -600, y - 30, 100, 60),
+      productNode(`ft-${id}`, 600, y - 30, 100, 60),
+    ],
+    edge: {
+      id,
+      source: `fs-${id}`,
+      target: `ft-${id}`,
+      type: "item",
+      data: { item: "f", rate: new Fraction(1) },
+    },
+  });
+
+  it("cascades one pitch when that clears the foreign line", () => {
+    const f0 = foreign("f0", laneY);
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60),
+      productNode("t0", 1400, 0, 100, 60),
+      ...f0.nodes,
+    ];
+    const out = deconflictChipAnchors(nodes, [loneBus("t0"), f0.edge]);
+    expect(busDropDyOf(out, "e0")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+  });
+
+  it("grazes a foreign line rather than cascading past the cap", () => {
+    // Both seats inside the cap are crossed (the lane itself and one pitch
+    // below). Clearing the lines would take a third seat two pitches out; the
+    // cap relaxes the foreign-line preference instead and the chip stays on its
+    // own junction.
+    const f0 = foreign("f0", laneY);
+    const f1 = foreign("f1", laneY + MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60),
+      productNode("t0", 1400, 0, 100, 60),
+      ...f0.nodes,
+      ...f1.nodes,
+    ];
+    const out = deconflictChipAnchors(nodes, [loneBus("t0"), f0.edge, f1.edge]);
+    expect(busDropDyOf(out, "e0")).toBe(0);
+  });
+
+  it("breaks the cap rather than overlap a chip already placed", () => {
+    // The cap relaxes the foreign-line preference, never the chip tier. Three
+    // lone trunks all drop at 132: two off s1 on adjacent lanes (300 and 348,
+    // one LANE_SPACING apart), and one off s2 that shares lane 300. Drops seat
+    // in edge-id order, so by the time e2 is seated both of its in-cap seats --
+    // its own lane and one pitch down -- hold another trunk's drop chip. There
+    // is no third seat inside the cap, so the seat falls through to the
+    // unbounded ladder and lands two pitches out, clear of both.
+    const pitch = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+    const trunk = (
+      id: string,
+      source: string,
+      target: string,
+      item: string,
+      lane: number,
+    ): Edge => ({
+      id,
+      source,
+      target,
+      type: "bus",
+      data: {
+        item,
+        rate: new Fraction(1),
+        laneY: lane,
+        trunkKey: `${item}|${source}`,
+        busChipOwner: true,
+        busMemberCount: 1,
+        busBand: "bottom" as const,
+      },
+    });
+    const nodes: RFAnyNode[] = [
+      productNode("s1", 0, 0, 100, 60),
+      productNode("t0", 1400, 0, 100, 60),
+      productNode("t1", 1400, 500, 100, 60),
+      productNode("s2", 0, 900, 100, 60),
+      productNode("t2", 1400, 1000, 100, 60),
+    ];
+    const out = deconflictChipAnchors(nodes, [
+      trunk("e0", "s1", "t0", "a", laneY),
+      trunk("e1", "s1", "t1", "b", laneY + pitch),
+      trunk("e2", "s2", "t2", "c", laneY),
+    ]);
+    // The two blockers keep their own junctions.
+    expect(busDropDyOf(out, "e0")).toBe(0);
+    expect(busDropDyOf(out, "e1")).toBe(0);
+    // The seat e2 takes clears both blockers -- chip centres a full max-scale
+    // box height apart do not overlap on y -- which it can only do by exceeding
+    // the cap.
+    const e2Y = laneY + busDropDyOf(out, "e2");
+    expect(Math.abs(e2Y - laneY)).toBeGreaterThanOrEqual(pitch);
+    expect(Math.abs(e2Y - (laneY + pitch))).toBeGreaterThanOrEqual(pitch);
+    expect(busDropDyOf(out, "e2")).toBe(2 * pitch);
+  });
+
+  it("breaks the cap rather than enter a foreign card", () => {
+    // The other half of the cap's hard pair: foreign CARDS stay hard inside the
+    // cap exactly as placed chips do. One lone trunk, and a foreign card
+    // (nobody's endpoint, so no exemption reaches it) laid over the drop column
+    // across BOTH in-cap seats -- the lane and one pitch down. Every seat the
+    // cap offers enters the card, so the seat falls through to the unbounded
+    // ladder and lands two pitches out, the first seat clear of the card.
+    const pitch = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60),
+      productNode("t0", 1400, 0, 100, 60),
+      // Spans y 280..360: it covers the lane seat's box (276..324) and the
+      // one-pitch seat's (324..372), and clears the two-pitch seat's
+      // (372..420). Its x straddles the drop column, so the box laps it there.
+      productNode("blk", 100, 280, 100, 80),
+    ];
+    const out = deconflictChipAnchors(nodes, [loneBus("t0")]);
+    const dropDy = busDropDyOf(out, "e0");
+    expect(dropDy).toBeGreaterThan(pitch);
+    expect(dropDy).toBe(2 * pitch);
+    // ...and the seat it took really is off the card: box top (chip centre minus
+    // a max-scale half height) sits below the card's bottom edge.
+    expect(laneY + dropDy - pitch / 2).toBeGreaterThanOrEqual(360);
   });
 });
 

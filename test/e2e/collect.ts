@@ -165,8 +165,24 @@ export type NodeGeom = {
 };
 export type ChipGeom = {
   edgeId: string;
+  // The chip's own data-testid (`item-edge-label-<edge>`,
+  // `bus-edge-label-<edge>-rise|-drop`). An edge can own TWO chips, so the edge
+  // id alone does not name the box a report is about; the seating census names
+  // this instead.
+  testId: string;
   label: string;
   kind: "label" | "bus" | "bus-drop";
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+// One DRAWN bus band: the tinted lane strip BusBands paints per band, keyed by
+// the `bus-band-top` / `bus-band-bottom` testid it emits, with its box in graph
+// coordinates. The band is the air a lane's rise / drop chips are supposed to
+// stay inside, so the census needs it in the same frame as the chip boxes.
+export type BandGeom = {
+  testId: string;
   left: number;
   top: number;
   right: number;
@@ -190,6 +206,7 @@ export type Geometry = {
   nodes: NodeGeom[];
   chips: ChipGeom[];
   dots: DotGeom[];
+  bands: BandGeom[];
   // The live camera zoom, needed to state a screen-pixel visibility tolerance
   // in the graph frame the rects above live in.
   zoom: number;
@@ -251,6 +268,7 @@ export function collectGeometry(): Geometry {
     const testId = el.getAttribute("data-testid") ?? "";
     return {
       edgeId: el.getAttribute("data-edge-id") ?? "",
+      testId: testId !== "" ? testId : "(chip)",
       label: el.getAttribute("aria-label") ?? "(chip)",
       // Chip families: the trunk-seated aggregate chip ("bus-drop", testid
       // suffix -drop), audited against foreign cards with a trunk-member
@@ -282,7 +300,24 @@ export function collectGeometry(): Geometry {
     };
   });
 
-  return { edges, nodes, chips, dots, zoom: k };
+  // Bands are read with the SAME toGraphX/toGraphY as the rects above, so a band
+  // and a chip box compare directly. BusBands renders at most one div per band,
+  // and only for a band that holds a routed trunk, so this list is empty on a
+  // plan with no bus lanes.
+  const bands = Array.from(
+    document.querySelectorAll<HTMLElement>(".bus-band"),
+  ).map((el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      testId: el.getAttribute("data-testid") ?? "(band)",
+      left: toGraphX(r.left),
+      top: toGraphY(r.top),
+      right: toGraphX(r.right),
+      bottom: toGraphY(r.bottom),
+    };
+  });
+
+  return { edges, nodes, chips, dots, bands, zoom: k };
 }
 
 // One rendered thing the exam has to be able to point a camera at. `clientRect`
