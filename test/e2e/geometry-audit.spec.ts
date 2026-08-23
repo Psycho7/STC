@@ -1053,8 +1053,18 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // two of the four seats CHIP_OFFPATH_BASELINE already pins; the other two
 // (battery5 e:1 at 8.50 and battery5-xiranite e:18 at 17.18) keep their own line
 // inside the box and so are valid seats here. That is the "strictly weaker"
-// relation in numbers, and it is why a Task 6 sidestep cannot redden this
-// counter.
+// relation in numbers.
+//
+// It does NOT make the counter immune to a sidestep, as first recorded here.
+// The seat reserves a worst-case box (max counter-scale, full label width) and
+// the reach that keeps the own line "inside the box" is measured against THAT,
+// while this census measures the box the chip actually paints -- 20% narrower
+// at this camera before any label-width slack. A step at the flush end of the
+// reach therefore holds the line inside the reserve and outside the paint.
+// Measured: an unbounded scored sidestep put multi6 e:18 at the flush 120 and
+// this counter read 19, the chip floating a full half-width off its line with
+// its two foreign strokes shed. The shipped tier caps its reach at half the
+// reserve for exactly that reason, and the counter holds at 18.
 //
 // RE-MEASURED at 18 after the rise-slot clamp and the drop cascade cap. The
 // x-stranding family is gone: no chip is off its own line by more than one
@@ -1128,6 +1138,16 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
 // while drawing 120-200 here, which is what makes the corridor interior look
 // blocked. Closing them needs either that box model or the crossings-vs-depth
 // precedence revisited, not another seat-preference term.
+//
+// RE-MEASURED at 81 after the sidestep tier started scoring its steps instead
+// of taking the first fully clear one (script43 15 -> 14, gas-web 10 -> 8).
+// That tier fires where NO point on the own line is clear, and until now it
+// took the nearest clear horizontal step whatever that step landed on -- so it
+// could park a box on the chip's own card that the slide above it had walked
+// its whole line to avoid. It now carries the same own-card depth term the two
+// on-line tiers carry, and three seats (script43 e:37, gas-web e:9 / e:30, 13
+// to 18 deep) stepped one pitch further to a slot off the card. The deep class
+// is untouched by it: none of those three saturated.
 const CARD_INTRUSION_BASELINE: Record<string, number> = {
   default: 9,
   battery5: 5,
@@ -1136,9 +1156,9 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   equip4: 3,
   multi6: 24,
   tundra: 1,
-  script43: 15,
+  script43: 14,
   "coupon-web": 8,
-  "gas-web": 10,
+  "gas-web": 8,
 };
 
 // Foreign strokes: chips with at least one foreign flow's stroke through the
@@ -1234,7 +1254,7 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
 // over a run, so it holds even when the suite is run one scenario at a time.
 const CENSUS_TOTALS = {
   seatValidity: 18,
-  cardIntrusion: 84,
+  cardIntrusion: 81,
   foreignStroke: 48,
   outsideBand: 0,
 };

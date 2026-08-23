@@ -807,3 +807,173 @@ describe("seatRateChip: slide barrier keeps branch chips in stack order (issue #
     expect(leg.anchorY + seat.dy).toBeGreaterThan(384);
   });
 });
+
+describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", () => {
+  // A vertical own leg, long enough that the slide has real reach, with the
+  // anchor at its middle. Every seat on it holds x = 0, which is what makes a
+  // parallel neighbour unshakeable by any on-line motion.
+  const OWN_LEG = {
+    pts: [[0, 0], [0, 1000]] as ReadonlyArray<readonly [number, number]>,
+    anchorX: 0,
+    anchorY: 500,
+  };
+  const vertical = (id: string, x: number): EdgeSegments => ({
+    id,
+    flowKey: id,
+    target: "elsewhere",
+    segs: [[x, -100, x, 1100]],
+  });
+
+  it("prefers a crossing stroke over one braided with the own line", () => {
+    // Both halves of a horizontal own line graze exactly one foreign stroke, so
+    // the crossing count cannot separate them and neither can the card or dot
+    // terms. What differs is WHERE the stroke runs: on the left it lies 4 units
+    // off the own line and reads as the chip's own lane; on the right it cuts
+    // across the box 20 units above, which no reader mistakes for the flow the
+    // chip labels. The seat walks the length of the line to trade one for the
+    // other.
+    const field = makeClearanceField(
+      [
+        // Braided: coincident with the own line out to x = 600.
+        { id: "braid", flowKey: "a", target: "other", segs: [[-2000, 4, 600, 4]] },
+        // Crossing: inside the box (half-height 24) but clear of the own line.
+        { id: "over", flowKey: "b", target: "other", segs: [[600, 20, 2000, 20]] },
+      ],
+      [],
+    );
+    // The own line runs well past the slide's whole reach in both directions:
+    // a foreign window that hangs off the END of the own polyline is not
+    // braided with it (there is no own stroke there to confuse it with), and a
+    // short own line would score that as the win instead of the real one.
+    const seat = seatRateChip(
+      field,
+      { pts: [[-1200, 0], [1800, 0]], anchorX: 300, anchorY: 0 },
+      "own",
+      "T",
+      NO_EXEMPT,
+      NO_BAND,
+    );
+    // The first candidate whose box has left the braid's reach (x = 600).
+    expect(seat).toEqual({ dx: 432, dy: 0, tier: "graze" });
+  });
+
+  it("steps off the line to shed a crossing when a braid pins the on-line seat", () => {
+    // A vertical leg with two foreign verticals in the box: one braided 5 units
+    // off it, one crossing 75 units off. No on-line seat and no fully clear step
+    // exists, so the graze tier owns the seat -- and its braid is what licenses
+    // the second, scored pass over the horizontal steps. The step that sheds the
+    // distant stroke is the THIRD one out, not the first: the nearer two change
+    // nothing, and a first-hit walk would never reach it.
+    const field = makeClearanceField([vertical("braid", 5), vertical("wide", -75)], []);
+    const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
+    expect(seat).toEqual({ dx: 48, dy: 0, tier: "sidestep" });
+  });
+
+  it("stays on the line when the same two strokes are not braided with it", () => {
+    // The gate, and nothing else, changed: the near vertical moves from 5 units
+    // off the own line to 40, so no stroke in the box is braided with it and the
+    // scored pass is never run. Same two crossings, same reachable steps, same
+    // arithmetic -- the seat stays on its own line at the anchor.
+    const field = makeClearanceField([vertical("apart", 40), vertical("wide", -75)], []);
+    const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
+    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+  });
+
+  it("will not step past half the reach even when the far step scores better", () => {
+    // Same braid, but the crossing stroke sits 40 units off the line, so shedding
+    // it needs a step of 80 -- two thirds of the reserved half-width. The
+    // reserved box is a worst case and the chip paints a narrower one, so a step
+    // that far holds the own line inside the reserve and outside the paint: the
+    // chip would read as an orphan beside its line. The scored pass declines it
+    // and the seat stays on the line, grazing both.
+    const field = makeClearanceField([vertical("braid", 5), vertical("mid", -40)], []);
+    const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
+    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+  });
+
+  it("does not read a stroke that only nicks the own line as a braid", () => {
+    // The run-length half of the braid rule. A six-unit foreign stub sits three
+    // units off the own line -- close enough by distance alone -- but nothing
+    // that short is a lane the reader could mistake for the chip's own, and no
+    // horizontal step can shed it anyway. So it must not license the scored
+    // pass: the seat stays on its line, grazing both strokes, where dropping
+    // the length test steps it 48 units off to shed the far one.
+    const field = makeClearanceField(
+      [
+        { id: "nick", flowKey: "a", target: "other", segs: [[260, -3, 260, 3]] },
+        { id: "far", flowKey: "b", target: "other", segs: [[185, -500, 185, 500]] },
+      ],
+      [],
+    );
+    const seat = seatRateChip(
+      field,
+      { pts: [[240, 0], [280, 0]], anchorX: 260, anchorY: 0 },
+      "own",
+      "t",
+      NO_EXEMPT,
+      NO_BAND,
+    );
+    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+  });
+
+  it("scores the fully clear step by own-card depth, not by nearness", () => {
+    // The hole the sidestep used to have: it took the first step that cleared
+    // everything, so it could park a box on the chip's OWN card that the slide
+    // above it walks its whole line to avoid. Here a short leg leaves exactly
+    // one on-line candidate and a foreign stroke poisons it; two steps out are
+    // clear, and the nearer one laps the source card past the port strip while
+    // the farther one clears it.
+    const card: CardRect = { id: "S", left: -400, right: -12, top: 470, bottom: 530 };
+    const field = makeClearanceField(
+      [
+        {
+          id: "cut",
+          flowKey: "a",
+          target: "other",
+          segs: [[-1000, 500, -30, 500]],
+        },
+      ],
+      [card],
+    );
+    const seat = seatRateChip(
+      field,
+      { pts: [[0, 480], [0, 520]], anchorX: 0, anchorY: 500 },
+      "own",
+      "t",
+      portZone("S", "source"),
+      NO_BAND,
+    );
+    expect(seat).toEqual({ dx: 112, dy: 0, tier: "sidestep" });
+    expect(
+      chipOwnCardIntrusion(seatedBox(0, 500, seat), card),
+    ).toBe(0);
+  });
+
+  it("seats the same chip identically whatever order the obstacles arrive in", () => {
+    // Every term the scorers use is a count or a distance over the whole
+    // obstacle set, so the seat may not depend on the order the segments were
+    // collected in. Same field, members reversed.
+    const forward = makeClearanceField(
+      [vertical("braid", 5), vertical("wide", -75), vertical("far", 300)],
+      [],
+    );
+    const backward = makeClearanceField(
+      [vertical("far", 300), vertical("wide", -75), vertical("braid", 5)],
+      [],
+    );
+    const a = seatRateChip(forward, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
+    const b = seatRateChip(backward, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
+    expect(a).toEqual(b);
+    // ...and twice through the same field state, which is the plain
+    // reproducibility half of the same property.
+    const again = seatRateChip(
+      makeClearanceField([vertical("braid", 5), vertical("wide", -75), vertical("far", 300)], []),
+      OWN_LEG,
+      "own",
+      "t",
+      NO_EXEMPT,
+      NO_BAND,
+    );
+    expect(again).toEqual(a);
+  });
+});
