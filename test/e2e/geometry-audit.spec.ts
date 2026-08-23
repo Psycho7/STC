@@ -673,9 +673,16 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // a junction dot is the WEAKEST preference there is and never costs a chip its
 // line (chipSeating's header), so a chip on its line over a dot beats a chip
 // floating beside its line with the dot showing. SEAT_VALIDITY_BASELINE's
-// battery5 cell drops from 2 to 1 in the same move. This is an UP move on a
-// pre-existing pin, so it is a RULING FLAG for the campaign close-out, not a
-// silent re-pin.
+// battery5 cell drops from 2 to 1 in the same move.
+// The dot is not the only cost, and the whole trade is stated here: the same
+// on-line seat also deepens that chip's OWN-card intrusion on u:class:q:17 from
+// 27.7 to 40.0, so battery5 e:18 is simultaneously one of the six deep-class
+// arrivals enumerated in CARD_INTRUSION_BASELINE's note below. So the move buys
+// one seat-validity case with one junction dot AND one deep-class saturation.
+// RATIFIED at the Task 6b review as ruling R13 (the campaign plan carries the
+// same trade): seat validity is structural, the dot is the weakest preference in
+// the pass, and the depth is the crossings-over-depth precedence R11 declined to
+// reopen. It remains the campaign's only UP move on a pre-existing pin.
 const DOT_COVER_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
@@ -1178,8 +1185,17 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
 // reserves an upper bound on what each chip will DRAW (chrome + its own rate
 // text + the widest localized unit, clamped by the CSS max-width) instead of the
 // widest box that clamp allows -- 166 to 234 units against a flat 240 across
-// this corpus. Sixteen intrusions left the counter and six arrived; the DEEP
-// class went 21 -> 18. Nine of the original deep saturations cleared: the eight
+// this corpus. Counted by chip identity, SEVENTEEN intrusions left the counter
+// and six arrived (81 - 17 + 6 = 70); the DEEP class went 21 -> 18.
+// The two sixes below are DIFFERENT SETS that overlap in five. A COUNTER
+// arrival is a chip that was off this counter entirely and now laps a card past
+// the budget at any depth; a DEEP arrival is a chip whose depth saturates at the
+// drawn box height. multi6 e:52's rise chip is a counter arrival that is not
+// deep (34.7 -- past the budget, short of saturation), and battery5 e:18 is a
+// deep arrival that is not a counter arrival (it was already counted at 27.7 and
+// deepened to 40.0 on u:class:q:17, the same seat DOT_COVER_BASELINE's ruling
+// note above trades for). The other five are both.
+// Nine of the original deep saturations cleared: the eight
 // Task 5 traced to "the only fully clear point on the line IS the buried one"
 // (battery5 e:6, battery5-xiranite e:11, crystal e:5, multi6 e:49, script43
 // e:21 / e:31 / e:32 / e:33 -- the narrower box makes a shallower point on the
