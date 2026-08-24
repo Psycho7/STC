@@ -1397,7 +1397,7 @@ Run `bun run dev`, open the app, and confirm by looking, not by presence:
 > - `addExhausted` is false on the default plan (`aria-disabled` absent), as
 >   expected at 4 of 113 items.
 
-- [ ] **Step 3: Commit any fixes**
+- [x] **Step 3: Commit any fixes**
 
 ```bash
 git add -A
@@ -1409,3 +1409,76 @@ git commit -m "Fix issues found in verification"
 Spec coverage: ruling 1 is Task 3 and 5 (`items: pack.items` at both sites); ruling 2 is Task 5; ruling 3 is Task 5's two `disabledIds` sets; ruling 4 is Task 3's `tierByItemId`. Trigger and focus is Tasks 3, 4, 5 and 6. Picker state is Task 5. Commit ordering needs no code: the blur-first behavior falls out of the existing `onBlur` handler and is asserted indirectly by Task 9's Test 5. CSS is Tasks 1, 5 and 7. Other cleanup is Task 7. Testing is Tasks 2, 3, 5, 6, 8 and 9.
 
 Names used consistently across tasks: `pickerFor`, `triggerRef`, `closePicker`, `pendingFocus`, `focusOnMount`, `rateDescribedBy`, `addExhausted`, `renderPicker`, `PendingFocus`, `i-name-${itemId}`, `inputs.picker.listed`, `inputs.add.exhausted`, `disabledHint`, `recipe-picker-hint`, `picker-hint`, `addInputRow`.
+
+---
+
+## Post-implementation review round
+
+Two auditors reviewed the implementation diff: one on fidelity and coverage,
+one adversarial on the focus mechanism. Between them, 16 findings. Everything
+below is committed and gated.
+
+### Fixed as defects
+
+- **e2e Test 4 held a vacuous URL poll.** `urlAfterItem` was read before the
+  add's own hash rewrite landed, so the cap poll could be satisfied by the ADD's
+  rewrite and the assertions after it sampled a still-uncapped canvas, where the
+  bare node locator matches two elements. Same family the Task 0 note diagnosed
+  in the baseline. Now polls the add commit first, and asserts the import node
+  by count so a stray node reports as a count mismatch rather than a strict-mode
+  violation. Ran three times consecutively, 7 of 7 each time.
+- **The pending-focus token had no expiry.** `focusOnMount` is an inline arrow,
+  so React re-attaches it on every render, not only on mount: the name and the
+  comment were both wrong. A token armed by a pick the owner never applied sat
+  armed indefinitely and fired on any later commit that happened to render a row
+  with the same item id. Latent rather than live, since the App always applies
+  these edits. Bounded to one commit by an effect that clears it after the
+  commit in which it was armed; ref callbacks run before effects, so a consumed
+  token is already gone. Regression test verified red-green.
+- **The row popup rendered on for a row that had gone.** Returns null now.
+- **`addExhausted` used `===` where the invariant is `>=`.** The count sums a
+  set never intersected with `pack.items`, so a list carrying an unknown or
+  duplicate item overshoots and `===` fails open on exactly the all-dimmed grid
+  the guard exists to prevent.
+- **The disabled-tile hint rendered when nothing was dimmed.** Gated on the set
+  being non-empty.
+- **The hint failed contrast.** `--ak-text-decoration` is about 3.4:1 at 11px.
+  It carries instruction rather than decoration, so it took
+  `--ak-text-secondary`.
+- **The name-vs-id sort guarantee was dropped, not moved.** Task 2's replacement
+  uses fixture ids whose `displayName` falls back to the id, so it cannot tell a
+  name sort from an id sort. Restored on the real pack in zh, and verified
+  load-bearing by switching the popup to an id sort.
+- **Stale e2e comments.** The seeding helpers still described the old
+  below-demand-cap premise the Task 9 deviation disproved.
+- **The duplicate guard is unreachable.** Kept as defence in depth, now labelled
+  as such rather than reading like live code.
+
+### Fixed as design changes, decided by the user
+
+- **Triggers announced identically.** `aria-label` overrides a button's content,
+  so every row's trigger announced the bare "Item" and a screen-reader user
+  could not tell which row they were opening the picker for. The `<select>` this
+  replaced announced its item as the control's value, so this was a real
+  regression. Both panels now name the trigger by its item, via two new i18n
+  keys across four locales; an empty draft keeps its call-to-action string.
+  Ruling: fix both panels, accepting that it reaches outside this branch's
+  subject.
+- **The row popup allowed a swap that destroys a row for nothing.** Ruling 3
+  kept auto-row tiles enabled so a capped row could move its cap onto them.
+  With no cap to carry, the same gesture only trades a real row for a bare
+  override whose supply is Infinity either way, and deletes the original row.
+  Ruling: refine ruling 3 to the capability it actually protects - auto-row
+  tiles stay enabled only when the row carries a rate. The dimming is explained
+  by the same hint line the Add popup uses.
+- **The dialog had no keyboard model.** The spec accepted "no focus trap, no
+  arrow-key grid navigation" as the price of leaving the native select; this
+  branch doubles the affected surface by adding a second caller. Ruling: build
+  it now, for both panels. See the keyboard section of the spec.
+
+### Judged and not acted on
+
+- **The below-demand cap defect is not filed as an issue.** Ruling: leave the
+  record in this plan and in e2e Test 7, which pins the behaviour.
+- **One auditor reported Task 10 as never executed.** Stale read: it had been
+  recorded in a commit that landed after the file was read.
