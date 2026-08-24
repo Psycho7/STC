@@ -255,7 +255,7 @@ Row entry point only. Add still behaves as it does today; Task 5 changes it.
 - Consumes: `ItemPickerPopup` from Task 1.
 - Produces: `InputsPanel` renders one `button.b-pick-trigger` per override row, with `aria-label={i18n.t("inputs.item.label")}`, `aria-haspopup="dialog"`, `title` and visible text both the localized item name. Local state `pickerFor: { kind: "row"; itemId: string } | null` and a `closePicker()` that always refocuses the stored trigger.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `test/components/InputsPanel.test.tsx`, replace the existing duplicate-selection test (the one calling `user.selectOptions(selects[1]!, "copper_ore")` and asserting `getByRole("alert")`) with:
 
@@ -392,7 +392,7 @@ function pickerTile(itemId: string): HTMLButtonElement | null {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx`
 Expected: FAIL on five of the six. Four throw on `pickerTile(...)!` or assert against a dialog that never opens, because clicking a `<select>` opens nothing. The backdrop test is the fifth: `document.querySelector(".recipe-picker-backdrop")` is null pre-implementation, so the click throws.
@@ -401,7 +401,7 @@ Exactly one is not red-first, and that is fine: the Escape test ends by assertin
 
 Indentation in the snippets above may not match Prettier's output. CI runs lint, typecheck, test and build, not `format`, so this will not fail the build - but run `bunx prettier --write test/components/InputsPanel.test.tsx` before committing anyway, and do the same in Tasks 4, 5 and 6, rather than leaving the whole formatting debt to Task 10.
 
-- [ ] **Step 3: Add the imports and picker state**
+- [x] **Step 3: Add the imports and picker state**
 
 In `src/components/InputsPanel.tsx`, add to the imports:
 
@@ -434,7 +434,7 @@ import { ItemPickerPopup } from "./ItemPickerPopup";
   }
 ```
 
-- [ ] **Step 4: Tag override rows with their item id**
+- [x] **Step 4: Tag override rows with their item id**
 
 Auto-rows already carry `data-item-id`; override rows do not, so no selector can address one by item. Both the unit tests in Task 6 and the e2e selectors in Task 9 need it. Add to the override row's wrapping `div`, next to `data-testid="input-row"`:
 
@@ -442,7 +442,7 @@ Auto-rows already carry `data-item-id`; override rows do not, so no selector can
             data-item-id={row.itemId}
 ```
 
-- [ ] **Step 5: Replace the select with a trigger button**
+- [x] **Step 5: Replace the select with a trigger button**
 
 In the override-row JSX, replace the whole `<span className="b-pick"><select ...>...</select></span>` block with:
 
@@ -466,7 +466,7 @@ In the override-row JSX, replace the whole `<span className="b-pick"><select ...
               </span>
 ```
 
-- [ ] **Step 6: Render the popup**
+- [x] **Step 6: Render the popup**
 
 Immediately before the closing `</div>` of the `boundary-section` wrapper, after the `<button className="b-add">`:
 
@@ -504,14 +504,14 @@ And add this function inside the component, after the `return (...)` block, mirr
   }
 ```
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx`
 Expected: all six new tests PASS, and the rest of this file stays green.
 
 This task does leave the repo red elsewhere, deliberately: `src/components/InputsPanel.test.tsx`'s UX-17 test reaches the item control through `getByRole("combobox")`, which no longer exists. That suite stays red from here until Task 8 retires it. Do not try to fix it inside this task.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/components/InputsPanel.tsx test/components/InputsPanel.test.tsx

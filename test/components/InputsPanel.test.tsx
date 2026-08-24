@@ -34,6 +34,15 @@ function mkRecipe(id: string): Recipe {
   };
 }
 
+// data-item-id appears on picker tiles, on auto-rows and on override rows, and
+// the popup portals to document.body alongside the Testing Library container,
+// so a bare [data-item-id] query can resolve to a row instead of a tile.
+function pickerTile(itemId: string): HTMLButtonElement | null {
+  return document.querySelector(
+    `[data-testid="picker-tile"][data-item-id="${itemId}"]`,
+  );
+}
+
 // Fixture pack: items intentionally out of lex order in the array so the
 // "first unused (sorted lex)" picker has something to do.
 const fixturePack: RecipePack = {
@@ -99,25 +108,119 @@ describe("InputsPanel", () => {
     expect(next[1]).toEqual({ itemId: "iron_ore" });
   });
 
-  it("duplicate itemId selection surfaces per-row error and does not call onChange", async () => {
-    const onChange = vi.fn();
+  it("a row trigger opens the picker with siblings disabled and its own item selected", async () => {
     const user = userEvent.setup();
-    const overrides: ItemOverride[] = [
-      { itemId: "copper_ore" },
-      { itemId: "iron_ore" },
-    ];
     render(
       <InputsPanel
-        itemOverrides={overrides}
+        itemOverrides={[{ itemId: "copper_ore" }, { itemId: "iron_ore" }]}
+        onChange={() => {}}
+        pack={fixturePack}
+      />,
+    );
+    const triggers = screen.getAllByLabelText("物品");
+    await user.click(triggers[0]!);
+    const own = pickerTile("copper_ore");
+    const sibling = pickerTile("iron_ore");
+    expect(own).not.toBeNull();
+    expect(own!.disabled).toBe(false);
+    expect(own!.className).toContain("selected");
+    expect(sibling!.disabled).toBe(true);
+  });
+
+  it("picking a different item swaps the row and keeps its rate", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } },
+        ]}
         onChange={onChange}
         pack={fixturePack}
       />,
     );
-    const selects = screen.getAllByLabelText("物品");
-    await user.selectOptions(selects[1]!, "copper_ore");
+    await user.click(screen.getAllByLabelText("物品")[0]!);
+    await user.click(pickerTile("iron_ore")!);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const updater = onChange.mock.calls[0]![0] as (
+      c: ItemOverride[],
+    ) => ItemOverride[];
+    expect(
+      updater([{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }]),
+    ).toEqual([{ itemId: "iron_ore", ratePerSec: { num: "1", denom: "2" } }]);
+  });
+
+  it("a row popup leaves auto-row items enabled and shows no hint", async () => {
+    const user = userEvent.setup();
+    render(
+      <InputsPanel
+        itemOverrides={[{ itemId: "iron_ore" }]}
+        onChange={() => {}}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore"]}
+      />,
+    );
+    // Open the picker from the override row, not from Add.
+    await user.click(screen.getAllByLabelText("物品")[0]!);
+    // copper_ore has an auto-row, but a row swap carries the row's rate onto it,
+    // so it is a live cap move and must stay pickable here. Only the Add popup
+    // dims it.
+    expect(pickerTile("copper_ore")!.disabled).toBe(false);
+    expect(screen.queryByTestId("picker-hint")).toBeNull();
+  });
+
+  it("Escape returns focus to the trigger that opened the picker", async () => {
+    const user = userEvent.setup();
+    render(
+      <InputsPanel
+        itemOverrides={[{ itemId: "copper_ore" }]}
+        onChange={() => {}}
+        pack={fixturePack}
+      />,
+    );
+    const trigger = screen.getAllByLabelText("物品")[0]!;
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("picker-tile")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("re-picking the row's own item commits nothing and raises no alert", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel
+        itemOverrides={[{ itemId: "copper_ore" }]}
+        onChange={onChange}
+        pack={fixturePack}
+      />,
+    );
+    const trigger = screen.getAllByLabelText("物品")[0]!;
+    await user.click(trigger);
+    await user.click(pickerTile("copper_ore")!);
     expect(onChange).not.toHaveBeenCalled();
-    const alert = screen.getByRole("alert");
-    expect(alert.textContent).toMatch(/已声明/);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByTestId("picker-tile")).toBeNull();
+    // The row never unmounts on a confirm, so focus returns to the same button.
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("a backdrop click returns focus to the trigger", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel
+        itemOverrides={[{ itemId: "copper_ore" }]}
+        onChange={onChange}
+        pack={fixturePack}
+      />,
+    );
+    const trigger = screen.getAllByLabelText("物品")[0]!;
+    await user.click(trigger);
+    await user.click(document.querySelector(".recipe-picker-backdrop")!);
+    expect(screen.queryByTestId("picker-tile")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("empty rate string commits as { itemId } (uncap sentinel)", () => {

@@ -6,6 +6,8 @@ import type { RationalString } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
 import { formatRationalPerMin, ratePerSecToPerMin } from "../data/rate-format";
 import { iconPosition } from "../canvas/iconSprite";
+import { computeItemDepths } from "../data/recipe-depth";
+import { ItemPickerPopup } from "./ItemPickerPopup";
 
 type Props = {
   itemOverrides: ItemOverride[];
@@ -76,10 +78,7 @@ export function InputsPanel({
   const i18n = useI18n();
   // Locale-aware compare so the picker scans by the displayed name, not the
   // internal id, in every locale.
-  const collator = useMemo(
-    () => new Intl.Collator(i18n.locale),
-    [i18n.locale],
-  );
+  const collator = useMemo(() => new Intl.Collator(i18n.locale), [i18n.locale]);
   // Sorted items drive both the picker order and the first-unused-id pick when
   // the user adds a row. Ordered by localized display name (the name shown), not
   // internal id. Re-sorting every render is fine at a few hundred items.
@@ -97,6 +96,25 @@ export function InputsPanel({
     for (const it of pack.items) m.set(it.id, it);
     return m;
   }, [pack]);
+  // Availability depth per item id, used by the picker popup to group tiles.
+  // computeItemDepths seeds every pack item; ones no recipe can reach land in
+  // the unranked bucket, which on the shipped pack is empty.
+  const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
+  // Which row the picker popup is open for, plus the trigger button that
+  // opened it so focus can return there on close.
+  const [pickerFor, setPickerFor] = useState<{
+    kind: "row";
+    itemId: string;
+  } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  function closePicker() {
+    setPickerFor(null);
+    const btn = triggerRef.current;
+    triggerRef.current = null;
+    // The trigger may have been removed (a committed swap unmounts its row),
+    // so guard the focus.
+    if (btn && document.contains(btn)) btn.focus();
+  }
 
   const [duplicateError, setDuplicateError] = useState<{
     rowId: string;
@@ -448,6 +466,7 @@ export function InputsPanel({
             key={row.itemId}
             className="b-row"
             data-testid="input-row"
+            data-item-id={row.itemId}
             data-is-raw={isRaw ? "true" : "false"}
             data-is-also-target={isAlsoTarget ? "true" : "false"}
           >
@@ -463,18 +482,21 @@ export function InputsPanel({
             </span>
             <div className="info">
               <span className="b-pick">
-                <select
+                <button
+                  type="button"
+                  className="b-pick-trigger"
                   aria-label={i18n.t("inputs.item.label")}
+                  aria-haspopup="dialog"
+                  // title shows the full localised item name on hover, for
+                  // when the trigger truncates long names at narrow widths.
                   title={i18n.displayName(row.itemId)}
-                  value={row.itemId}
-                  onChange={(e) => handleItemChange(row.itemId, e.target.value)}
+                  onClick={(e) => {
+                    triggerRef.current = e.currentTarget;
+                    setPickerFor({ kind: "row", itemId: row.itemId });
+                  }}
                 >
-                  {sortedItems.map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {i18n.displayName(it.id)}
-                    </option>
-                  ))}
-                </select>
+                  {i18n.displayName(row.itemId)}
+                </button>
               </span>
               {uncapped && realizedPerMin !== null ? (
                 <div className="b-needed" data-testid="input-realized-rate">
@@ -555,6 +577,33 @@ export function InputsPanel({
       <button className="b-add" onClick={handleAdd}>
         {i18n.t("inputs.add")}
       </button>
+      {pickerFor !== null ? renderPicker() : null}
     </div>
   );
+
+  function renderPicker() {
+    if (pickerFor === null) return null;
+    const rowId = pickerFor.itemId;
+    // Disable items the other override rows already claim; the row's own item
+    // stays enabled and highlighted so re-picking it reads as a confirm.
+    const disabledIds = new Set<string>(
+      itemOverrides.filter((o) => o.itemId !== rowId).map((o) => o.itemId),
+    );
+    return (
+      <ItemPickerPopup
+        items={pack.items}
+        disabledIds={disabledIds}
+        selectedId={rowId}
+        tierByItemId={tierByItemId}
+        onPick={(newId) => {
+          // Re-picking the row's own (still-enabled, highlighted) item is a
+          // confirm, not a swap; without this guard the dup check would match
+          // the row against itself and raise a false duplicate alert.
+          if (newId !== rowId) handleItemChange(rowId, newId);
+          closePicker();
+        }}
+        onClose={closePicker}
+      />
+    );
+  }
 }
