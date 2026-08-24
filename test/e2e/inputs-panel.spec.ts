@@ -294,11 +294,13 @@ test.describe("InputsPanel golden-path coverage", () => {
     // the input ProductNode renders with the cap badge.
     //
     // The value is deliberately at or above copper_powder's total demand. A cap
-    // BELOW demand does not produce a partial import: the solver has to run the
-    // in-graph producer for the shortfall anyway, and once that producer is on,
-    // it makes the whole amount and draws nothing across the boundary, so no
-    // input node exists to assert on. Only a cap the solver can satisfy
-    // entirely by importing keeps the boundary node.
+    // BELOW demand does not produce a partial import, it flips the route: with
+    // copper_powder no longer free, the cheap liquid_copper recipe that eats it
+    // stops being optimal and the solver switches to the phase-transfer recipe,
+    // which consumes none. Nothing in-graph consumes copper_powder then, and a
+    // boundary input node is only emitted for an item an in-graph machine
+    // consumes, so there is no node left to assert on. Only a cap the solver
+    // can satisfy entirely by importing keeps the boundary node.
     const urlAfterItem = page.url();
     await rateInput.fill("120");
     // fill() does not blur, and the panel commits only on blur or Enter.
@@ -403,12 +405,14 @@ test.describe("InputsPanel golden-path coverage", () => {
     // rule: both the input ProductNode (cyan) and the output ProductNode (lime)
     // must render.
     //
-    // Uncapped is the load-bearing part, not an omission. With unlimited supply
-    // the solver imports the whole amount and runs no in-graph producer, which
-    // is what puts copper_powder across the boundary. Any finite cap it cannot
-    // meet on its own forces the producer on, and the producer then covers the
-    // whole demand and draws nothing across the boundary, so the input node
-    // disappears.
+    // Uncapped is the load-bearing part, not an omission. Unlimited supply is a
+    // structural fork, not a large number: it drops the item's mass-balance row
+    // and its producer chain, which makes the liquid_copper recipe that eats
+    // copper_powder the cheap route, and that in-graph consumption is what puts
+    // the item across the boundary. It also enables the target passthrough this
+    // test checks, which finite-supply items never take. Any finite cap flips
+    // the route to the phase-transfer recipe, which consumes no copper_powder,
+    // and both input nodes disappear.
     const urlBefore = page.url();
     await addInputRow(page, "copper_powder");
 

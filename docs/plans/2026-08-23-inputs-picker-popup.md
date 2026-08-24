@@ -1296,10 +1296,20 @@ Match by position, not by name: Tests 1 and 3 were retitled in Steps 2 and 3, so
 > | cap 30/min | none (same) |
 > | cap 120/min | `u:in:copper_powder`, `u:out:copper_powder` |
 >
-> A cap the solver cannot meet on its own forces the in-graph producer on, and the
-> producer then covers the whole demand and draws nothing across the boundary. So
-> both tests had been asserting the UNCAPPED shape all along while their comments
-> claimed a below-demand cap. Fixed by matching each test to the shape it needs:
+> The mechanism is a route switch in the LP, not a render threshold. Unlimited
+> supply is a structural fork: `effectiveSupply === Infinity` drops the item's
+> mass-balance row and stops producer expansion, which makes the `liquid_copper`
+> recipe that consumes copper_powder the cheap route. Any finite cap restores that
+> row and the producer chain, the LP switches to `phase_trans_1-liquid_copper`
+> (which consumes no copper_powder), and nothing in-graph consumes the item, so no
+> boundary input node is emitted. The `u:in:<item>:target` passthrough is also
+> hard-gated on infinite supply. So both tests had been asserting the UNCAPPED
+> shape all along while their comments claimed a below-demand cap.
+>
+> Out-of-scope observation, not fixed here: in the capped cases the LP still
+> reports a nonzero `draws` entry for copper_powder that never reaches the canvas.
+> At cap 1/2 the output node claims 1/2 with no incoming edges at all. The finite-
+> supply exclusion on the target passthrough is where that draw is dropped. Fixed by matching each test to the shape it needs:
 > Test 4's cap goes 30 -> 120/min (a cap the solver satisfies by importing), and
 > Test 6 drops the rate fill entirely and asserts the dual emission on the uncapped
 > override, which is the only state that emits the `:target` passthrough it checks.
