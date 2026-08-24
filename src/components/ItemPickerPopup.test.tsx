@@ -110,3 +110,17 @@ test("backdrop click fires onClose; a click inside the panel does not", () => {
   fireEvent.click(document.querySelector(".recipe-picker-backdrop")!);
   expect(props.onClose).toHaveBeenCalledTimes(1);
 });
+
+test("renders the disabled hint line when the prop is set", () => {
+  renderPopup({ disabledHint: "already in the panel" });
+  const hint = screen.getByTestId("picker-hint");
+  expect(hint.textContent).toBe("already in the panel");
+  // The hint is a sibling of the scroll body, not inside it, so it never
+  // scrolls out of view.
+  expect(hint.parentElement?.className).toBe("recipe-picker");
+});
+
+test("renders no hint line when the prop is absent", () => {
+  renderPopup();
+  expect(screen.queryByTestId("picker-hint")).toBeNull();
+});

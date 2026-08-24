@@ -17,6 +17,13 @@ type Props = {
   // planter breaks open); they group under the unranked bucket. Computed once
   // by the caller so the popup stays presentational.
   tierByItemId: Map<string, number>;
+  // Optional one-line explanation of what a dimmed tile means, rendered under
+  // the search box. A caller that disables tiles for a reason the grid cannot
+  // show passes it; a caller whose disabled tiles are self-explanatory omits
+  // it. Not a per-tile title: a disabled button dispatches no pointer events,
+  // so a title on one never renders a tooltip, and aria-label beats title for
+  // the accessible name, so nothing is announced either.
+  disabledHint?: string | undefined;
   onPick: (itemId: string) => void;
   onClose: () => void;
 };
@@ -26,6 +33,7 @@ export function ItemPickerPopup({
   disabledIds,
   selectedId,
   tierByItemId,
+  disabledHint,
   onPick,
   onClose,
 }: Props) {
@@ -112,6 +120,11 @@ export function ItemPickerPopup({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        {disabledHint !== undefined ? (
+          <div className="recipe-picker-hint" data-testid="picker-hint">
+            {disabledHint}
+          </div>
+        ) : null}
         <div className="recipe-picker-body">
           {groups.length === 0 ? (
             <div className="recipe-picker-empty" data-testid="picker-empty">

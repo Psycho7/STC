@@ -87,7 +87,7 @@ Expect some. Tests 4 and 6 in particular fill a rate with `fill()` and never blu
 - Consumes: nothing.
 - Produces: `ItemPickerPopup` accepts `disabledHint?: string`. When set, the dialog renders `<div className="recipe-picker-hint" data-testid="picker-hint">{disabledHint}</div>` between the search input and `.recipe-picker-body`. When absent, no such element exists.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `src/components/ItemPickerPopup.test.tsx`:
 
@@ -107,12 +107,12 @@ test("renders no hint line when the prop is absent", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `bun run test -- src/components/ItemPickerPopup.test.tsx`
 Expected: FAIL on the first test only, `Unable to find an element by: [data-testid="picker-hint"]`. The second test asserts the hint is absent, so it passes before the implementation exists; it is there to pin the absence once the prop lands.
 
-- [ ] **Step 3: Add the prop and render the line**
+- [x] **Step 3: Add the prop and render the line**
 
 In `src/components/ItemPickerPopup.tsx`, add to the `Props` type after `tierByItemId`:
 
@@ -138,7 +138,7 @@ Then insert between the `<input className="recipe-picker-search" ... />` element
         ) : null}
 ```
 
-- [ ] **Step 4: Add the CSS rule**
+- [x] **Step 4: Add the CSS rule**
 
 In `src/canvas/canvas.css`, immediately after the `.recipe-picker-search:focus` block:
 
@@ -153,12 +153,12 @@ In `src/canvas/canvas.css`, immediately after the `.recipe-picker-search:focus` 
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `bun run test -- src/components/ItemPickerPopup.test.tsx`
 Expected: PASS, all tests in the file.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/ItemPickerPopup.tsx src/components/ItemPickerPopup.test.tsx src/canvas/canvas.css
