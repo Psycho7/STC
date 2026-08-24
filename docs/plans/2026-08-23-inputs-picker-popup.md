@@ -40,7 +40,7 @@ Design spec: `docs/specs/2026-08-23-inputs-picker-popup-design.md`.
 Run this FIRST, before any file is touched. `bun run test:e2e` is not a CI gate and this repo has known pre-existing e2e failures, so the only way to tell a regression from an inherited failure is to measure the suite before the change. Measuring it later is worse than not measuring: by Task 9 the select is already gone, every legacy test fails on `getByRole("combobox")`, and a "no new failures" gate passes vacuously.
 
 **Files:**
-- Create: `docs/plans/.e2e-baseline.txt` (scratch, not committed)
+- Create: `.artifacts/e2e-baseline.txt` (scratch; `.artifacts/` is already gitignored)
 
 **Interfaces:**
 - Consumes: nothing.
@@ -49,8 +49,11 @@ Run this FIRST, before any file is touched. `bun run test:e2e` is not a CI gate 
 - [ ] **Step 1: Run the suite on the untouched tree**
 
 ```bash
-bun run test:e2e -- inputs-panel 2>&1 | tee docs/plans/.e2e-baseline.txt | tail -40
+mkdir -p .artifacts
+bun run test:e2e -- inputs-panel 2>&1 | tee .artifacts/e2e-baseline.txt | tail -40
 ```
+
+`.artifacts/` is already in `.gitignore`, so the scratch file can never be swept into a commit by a later `git add -A`. Do not try to add it to `.git/info/exclude`: execution happens in a git worktree, where `.git` is a pointer file rather than a directory, and the redirect fails.
 
 Do not use `git stash` for this. At Task 0 the tree is already clean, so a stash saves nothing and a following `git stash pop` either errors or applies an unrelated stash entry from another session.
 
@@ -61,12 +64,6 @@ Write the names of the failing tests into the plan itself, replacing this line, 
 > Baseline failures on the merge base: _fill this in_
 
 Expect some. Tests 4 and 6 in particular fill a rate with `fill()` and never blur, and the panel commits only on blur or Enter, so their URL polls have nothing to wait for. Task 9 fixes that.
-
-- [ ] **Step 3: Do not commit the scratch file**
-
-```bash
-echo "docs/plans/.e2e-baseline.txt" >> .git/info/exclude
-```
 
 ---
 
@@ -389,9 +386,9 @@ function pickerTile(itemId: string): HTMLButtonElement | null {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx`
-Expected: FAIL on five of the seven. The four that call `pickerTile(...)!` throw, because clicking a `<select>` opens no dialog, and the auto-row test's hint assertion is the fifth.
+Expected: FAIL on five of the six. Four throw on `pickerTile(...)!` or assert against a dialog that never opens, because clicking a `<select>` opens nothing. The backdrop test is the fifth: `document.querySelector(".recipe-picker-backdrop")` is null pre-implementation, so the click throws.
 
-Two are honestly not red-first, and that is fine: the Escape test and the backdrop test both end by asserting `document.activeElement` is the clicked control, which is trivially true of a focused `<select>`. They exist to pin the focus contract once `closePicker` owns it, and they would catch a `closePicker` that forgot to refocus.
+Exactly one is not red-first, and that is fine: the Escape test ends by asserting `document.activeElement` is the clicked control, which is trivially true of a focused `<select>`. It exists to pin the focus contract once `closePicker` owns it, and it would catch a `closePicker` that forgot to refocus. Do not "fix" it into vacuity.
 
 Indentation in the snippets above may not match Prettier's output. CI runs lint, typecheck, test and build, not `format`, so this will not fail the build - but run `bunx prettier --write test/components/InputsPanel.test.tsx` before committing anyway, and do the same in Tasks 4, 5 and 6, rather than leaving the whole formatting debt to Task 10.
 
@@ -501,7 +498,7 @@ And add this function inside the component, after the `return (...)` block, mirr
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx`
-Expected: all seven new tests PASS, and the rest of this file stays green.
+Expected: all six new tests PASS, and the rest of this file stays green.
 
 This task does leave the repo red elsewhere, deliberately: `src/components/InputsPanel.test.tsx`'s UX-17 test reaches the item control through `getByRole("combobox")`, which no longer exists. That suite stays red from here until Task 8 retires it. Do not try to fix it inside this task.
 
@@ -721,6 +718,10 @@ it("the Add button is aria-disabled and inert when every item is claimed", async
 });
 ```
 
+Use the `pickerTile` helper Task 3 declared; do not redeclare it, or `bun run typecheck` fails on a duplicate implementation. Append inside the existing `describe("InputsPanel", ...)` block.
+
+Also delete the fixture comment above `fixturePack` that this task falsifies: "items intentionally out of lex order in the array so the 'first unused (sorted lex)' picker has something to do". There is no first-unused pick any more.
+
 Define `TEXT_ADD` near the top of the file from the exact `inputs.add` zh string in `src/data/i18n.ts`; read it out of the file rather than guessing. The rate query is `getAllByLabelText("速率")`, as the rest of this suite already uses.
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -770,7 +771,7 @@ In `src/components/InputsPanel.tsx`, widen the state type:
 Replace `handleAdd` entirely (its first-unused-id scan goes):
 
 ```tsx
-  function handleAdd(e: React.MouseEvent<HTMLButtonElement>) {
+  function handleAdd(e: MouseEvent<HTMLButtonElement>) {
     if (addExhausted) return;
     triggerRef.current = e.currentTarget;
     setPickerFor({ kind: "add" });
@@ -1043,7 +1044,7 @@ In `src/components/InputsPanel.tsx`, delete the `collator` and `sortedItems` `us
 
 In `src/canvas/canvas.css`, delete the `.b-pick select` face, hover, focus, focus-visible and `select option` rules. The locale switcher is the app's only other `<select>` and is styled through `.ak-app-shell select` and `.ak-app-shell .topbar select`, so nothing else depends on them.
 
-Rewrite the block comment above them. It must still document `.b-pick` as the row's name-surface slot in the fixed row layout, the persistent caret as the touch and discoverability affordance, and why the caret stays minimal instead of reinstating a boxed select. What goes is the `color-scheme: dark` sentence and the justification of the native select. Record honestly that the popup only partly replaces it:
+Rewrite the block comment above them, and keep it short: `.b-pick-trigger` already ships its own comment further down the file, added for `TargetsPanel`, which says the trigger is a bare button that opens the popup. Do not restate that. What this comment must still document `.b-pick` as the row's name-surface slot in the fixed row layout, the persistent caret as the touch and discoverability affordance, and why the caret stays minimal instead of reinstating a boxed select. What goes is the `color-scheme: dark` sentence and the justification of the native select. Record honestly that the popup only partly replaces it:
 
 ```css
 /* The picker is the row's name surface itself. The row layout is fixed: icon,
@@ -1141,6 +1142,8 @@ Six tests, in file order. Two are replaced, one is restructured, three keep thei
 
 - [ ] **Step 1: Add a pick helper and delete the dead constants**
 
+Delete the four-line comment above the lex constants along with them; it explains a pinning that no longer exists.
+
 Every tile locator MUST be scoped to `.recipe-picker`. `data-item-id` is on picker tiles, on canvas ProductNodes (`src/canvas/ProductNode.tsx`), on auto-rows, and now on override rows. `copper_powder` and `iron_powder` are default targets, so their canvas nodes exist in every default-plan test before the picker even opens; an unscoped locator matches two or more elements and Playwright fails with a strict-mode violation rather than a useful assertion error.
 
 ```ts
@@ -1211,6 +1214,8 @@ Retitle from "Duplicate-guard surfaces error and does not propagate" to "A claim
 
 Test 5 is "cap exceeding demand commits cleanly with no error banner". It caps `copper_ore`, which is raw and consumed by the default plan, so it is an auto-row and its tile is dimmed in the Add picker. Drive the auto-row typing path instead.
 
+Same rule as Steps 2 and 3: keep the preamble and the trailing `expectNoConsoleErrors(log)`, replace what sits between. That deletes `await clickAddInput(page)`, the `const newRow = ...` binding and the `select` / `selectOption` pair. **Keep** the existing `copperOreInput` ProductNode assertion that follows: the item still crosses the boundary with a cap, so its input node must still render, and dropping the assertion would quietly narrow what this test proves.
+
 Three things must be preserved. Keep the cap value `9999`: the test's whole premise is a cap **above** demand, and the default plan needs roughly 270 copper_ore/min, so a smaller number can produce an infeasible solve and the very error banner the test asserts is absent. Keep the `headerErrors` count-0 assertion. And re-capture a URL baseline before the fill, since the old `urlAfterItem` was captured after a `selectOption` that no longer happens.
 
 ```ts
@@ -1267,7 +1272,9 @@ Run: `bunx prettier --write test/e2e/inputs-panel.spec.ts`
 - [ ] **Step 7: Run the suite**
 
 Run: `bun run test:e2e -- inputs-panel`
-Expected: no test fails that was passing in the Task 0 baseline. Tests 4 and 6 may move from failing to passing once the Enter press lands; that is an improvement, not a regression to investigate.
+Expected: no test fails that was passing in the Task 0 baseline.
+
+Match by position, not by name: Tests 1 and 3 were retitled in Steps 2 and 3, so their baseline rows have no counterpart and they are exempt from the gate. Tests 2, 4, 5 and 6 keep their titles and are the ones the gate covers. Tests 4 and 6 may move from failing to passing once the Enter press lands; that is an improvement, not a regression to investigate.
 
 - [ ] **Step 8: Commit**
 
@@ -1285,10 +1292,12 @@ git commit -m "Drive the input panel e2e suite through the item picker"
 - [ ] **Step 1: Run every gate**
 
 ```bash
-bun run typecheck && bun run lint && bun run format && bun run test && bun run test:e2e
+bun run typecheck && bun run lint && bun run test && bun run test:e2e
 ```
 
-Expected: all clean, except pre-existing e2e failures outside `inputs-panel.spec.ts`. Record which of those were already failing on `origin/develop` before blaming this branch.
+`bun run format` is deliberately NOT in this chain. It is `prettier --check .` over the whole repo, it already fails on the untouched tree (198 files, including files this branch never touches), and an `&&` chain would abort there and never reach `test` or `test:e2e` - the two checks this step exists for. Format the files you touched with `bunx prettier --write` instead, as each task instructs.
+
+Expected: typecheck, lint and test clean. For e2e, compare against the Task 0 baseline: no test that was passing there may fail now. Tests 1 and 3 were renamed, so match them by position, not by name.
 
 - [ ] **Step 2: Visual check in the browser**
 
