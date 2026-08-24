@@ -178,7 +178,7 @@ The panel suite currently owns the "sorted by localized display name" guarantee 
 - Consumes: `ItemPickerPopup` from Task 1.
 - Produces: nothing consumed by later tasks.
 
-- [ ] **Step 1: Fix the fixture so the assertion can fail**
+- [x] **Step 1: Fix the fixture so the assertion can fail**
 
 The current tier-1 items are `alpha, bravo`, already in collator order, so a sort assertion would pass even with the sort removed. Replace the `ITEMS` and `TIERS` blocks in `src/components/ItemPickerPopup.test.tsx`:
 
@@ -203,7 +203,7 @@ const TIERS = new Map<string, number>([
 ]);
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Append to `src/components/ItemPickerPopup.test.tsx`:
 
@@ -225,16 +225,16 @@ test("sorts tiles by localized name within each group, not by array order", () =
 });
 ```
 
-- [ ] **Step 3: Run the whole file to verify the fixture change did not break the existing tests**
+- [x] **Step 3: Run the whole file to verify the fixture change did not break the existing tests**
 
 Run: `bun run test -- src/components/ItemPickerPopup.test.tsx`
 Expected: PASS. The new test passes immediately because the popup already sorts; the point of Step 1 is that it would now fail if the sort were removed. If any pre-existing test in the file fails, it was asserting against the old fixture ids: update its expected ids to the new fixture rather than reverting the fixture.
 
-- [ ] **Step 4: Verify the test is load-bearing**
+- [x] **Step 4: Verify the test is load-bearing**
 
 Temporarily delete the `.sort(...)` call inside the `groups` memo in `src/components/ItemPickerPopup.tsx` (the inner one applied to `group`, not the outer `.sort((a, b) => a.tier - b.tier)`), re-run the file, confirm the new test FAILS, then restore the sort and re-run to confirm PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/ItemPickerPopup.test.tsx

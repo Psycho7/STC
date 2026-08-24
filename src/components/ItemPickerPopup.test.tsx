@@ -13,19 +13,23 @@ function mkItem(id: string): Item {
   return { id, category: "cat", icon: id } as unknown as Item;
 }
 
+// Tier 1 is deliberately NOT in name order in the array, so a within-group
+// ordering assertion fails if the popup stops sorting.
 const ITEMS = [
-  mkItem("alpha"),
-  mkItem("bravo"),
-  mkItem("charlie"),
   mkItem("delta"),
+  mkItem("bravo"),
+  mkItem("alpha"),
+  mkItem("charlie"),
+  mkItem("echo"),
 ];
 
-// alpha, bravo -> tier 1; charlie -> tier 2; delta -> Infinity.
+// alpha, bravo, delta -> tier 1; charlie -> tier 2; echo -> Infinity.
 const TIERS = new Map<string, number>([
   ["alpha", 1],
   ["bravo", 1],
+  ["delta", 1],
   ["charlie", 2],
-  ["delta", Number.POSITIVE_INFINITY],
+  ["echo", Number.POSITIVE_INFINITY],
 ]);
 
 function renderPopup(
@@ -123,4 +127,20 @@ test("renders the disabled hint line when the prop is set", () => {
 test("renders no hint line when the prop is absent", () => {
   renderPopup();
   expect(screen.queryByTestId("picker-hint")).toBeNull();
+});
+
+test("sorts tiles by localized name within each group, not by array order", () => {
+  renderPopup();
+  const groups = [...document.querySelectorAll(".recipe-picker-group")];
+  const namesPerGroup = groups.map((g) =>
+    [...g.querySelectorAll(".recipe-picker-tile-label")].map(
+      (el) => el.textContent ?? "",
+    ),
+  );
+  const collator = new Intl.Collator("en");
+  for (const names of namesPerGroup) {
+    expect(names).toEqual([...names].sort((a, b) => collator.compare(a, b)));
+  }
+  // Tier 1 specifically: array order was delta, bravo, alpha.
+  expect(namesPerGroup[0]).toEqual(["alpha", "bravo", "delta"]);
 });
