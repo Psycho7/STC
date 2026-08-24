@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+// Aliased: the bare name would shadow the DOM KeyboardEvent the document-level
+// Escape listener below is typed against.
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { Item } from "@aef/schema";
 import { useI18n } from "../data/i18n-context";
@@ -43,6 +46,11 @@ export function ItemPickerPopup({
   const i18n = useI18n();
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // The tile the grid's single tab stop currently sits on. Null until the user
+  // moves it, so the derived rovingId below can follow selectedId and the
+  // search results without an effect.
+  const [activeId, setActiveId] = useState<string | null>(null);
   const collator = useMemo(() => new Intl.Collator(i18n.locale), [i18n.locale]);
 
   // Autofocus the search box on open; a document-level Escape closes.
@@ -88,6 +96,110 @@ export function ItemPickerPopup({
       .sort((a, b) => a.tier - b.tier);
   }, [items, search, tierByItemId, collator, i18n]);
 
+  // Enabled tiles in visual order. Disabled tiles are real disabled buttons and
+  // take no focus, so they are not stops.
+  const navIds = useMemo(
+    () =>
+      groups.flatMap((g) =>
+        g.items.filter((it) => !disabledIds.has(it.id)).map((it) => it.id),
+      ),
+    [groups, disabledIds],
+  );
+
+  // The grid is ONE tab stop, not one per tile: on the shipped pack a tabbable
+  // tile per item would put ~250 stops between the search box and the end of
+  // the dialog. The stop starts on the row's current item when there is one, so
+  // Tab out of the search box lands on what the user is editing.
+  const rovingId =
+    activeId !== null && navIds.includes(activeId)
+      ? activeId
+      : selectedId !== undefined && navIds.includes(selectedId)
+        ? selectedId
+        : (navIds[0] ?? null);
+
+  function focusTile(id: string) {
+    setActiveId(id);
+    dialogRef.current
+      ?.querySelector<HTMLButtonElement>(
+        `[data-testid="picker-tile"][data-item-id="${id}"]`,
+      )
+      ?.focus();
+  }
+
+  // Everything inside the dialog that Tab can reach: the close button, the
+  // search box, and the grid's single roving stop.
+  function tabbables(): HTMLElement[] {
+    const root = dialogRef.current;
+    if (!root) return [];
+    return [
+      ...root.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input:not([disabled])",
+      ),
+    ].filter((el) => el.tabIndex >= 0);
+  }
+
+  // Columns come from the live grid rather than a constant, since the template
+  // is responsive. An environment that does not compute the property (jsdom)
+  // reports none, and one column degrades Up/Down into Left/Right rather than
+  // throwing.
+  function columnsFor(tile: HTMLElement): number {
+    const grid = tile.closest(".recipe-picker-grid");
+    if (!grid) return 1;
+    const cols = getComputedStyle(grid)
+      .gridTemplateColumns.split(" ")
+      .filter(Boolean).length;
+    return cols > 0 ? cols : 1;
+  }
+
+  function onDialogKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Tab") {
+      // aria-modal alone does not confine Tab. Without this, Tab off the last
+      // stop leaves the dialog for the page behind the backdrop, which the
+      // user cannot see and can only come back from by tabbing the whole way
+      // round.
+      const stops = tabbables();
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      if (!first || !last) return;
+      const at = e.shiftKey ? first : last;
+      if (document.activeElement !== at) return;
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+      return;
+    }
+    const tile = e.target as HTMLElement;
+    if (tile.dataset["testid"] !== "picker-tile") return;
+    const from = navIds.indexOf(tile.dataset["itemId"] ?? "");
+    if (from < 0) return;
+    const cols = columnsFor(tile);
+    let to: number;
+    switch (e.key) {
+      case "ArrowRight":
+        to = from + 1;
+        break;
+      case "ArrowLeft":
+        to = from - 1;
+        break;
+      case "ArrowDown":
+        to = from + cols;
+        break;
+      case "ArrowUp":
+        to = from - cols;
+        break;
+      case "Home":
+        to = 0;
+        break;
+      case "End":
+        to = navIds.length - 1;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    const id = navIds[Math.max(0, Math.min(navIds.length - 1, to))];
+    if (id !== undefined) focusTile(id);
+  }
+
   return createPortal(
     // The portal escapes .ak-app-shell where --icons-url lives, so the backdrop
     // re-declares it or every sprite tile renders blank.
@@ -97,11 +209,13 @@ export function ItemPickerPopup({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         className="recipe-picker"
         role="dialog"
         aria-modal="true"
         aria-label={i18n.t("picker.title")}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={onDialogKeyDown}
       >
         <div className="recipe-picker-head">
           <span className="recipe-picker-title">{i18n.t("picker.title")}</span>
@@ -156,6 +270,7 @@ export function ItemPickerPopup({
                         data-testid="picker-tile"
                         data-item-id={it.id}
                         disabled={disabledIds.has(it.id)}
+                        tabIndex={it.id === rovingId ? 0 : -1}
                         aria-label={name}
                         title={name}
                         onClick={() => onPick(it.id)}

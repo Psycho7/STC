@@ -758,10 +758,11 @@
    at the right edge of the product-name slot marks the affordance for touch and
    for first-impression discoverability, without bringing back the boxed-select
    redundancy an earlier pass had. Moving off a native <select> costs the
-   platform's keyboard nav, type-ahead, IME composition and mobile native
-   picker; the dialog's search box replaces finding an item by name, but it has
-   no focus trap, no arrow-key grid navigation, and no type-ahead outside that
-   field, so Tab walks every tile and then leaves the dialog. */
+   platform's type-ahead, IME composition and mobile native picker; the dialog's
+   search box replaces finding an item by name, and the grid supplies its own
+   arrow-key navigation, a single roving tab stop and a Tab trap in place of the
+   select's built-in keyboard handling. What is still gone is type-ahead outside
+   the search field. */
 .ak-app-shell [data-testid="side-panel"] .b-row .b-pick {
   position: relative;
   display: block;

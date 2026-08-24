@@ -180,3 +180,94 @@ test("sorts by localized name rather than by id, on the real pack in zh", () => 
   }
   expect(sawDivergence).toBe(true);
 });
+
+function tiles(): HTMLButtonElement[] {
+  return [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="picker-tile"]',
+    ),
+  ];
+}
+
+test("the grid is one tab stop, not one per tile", () => {
+  renderPopup({ disabledIds: new Set(["bravo"]) });
+  const tabbable = tiles().filter((t) => t.tabIndex === 0);
+  // A tabbable tile per item would put one stop per pack item between the
+  // search box and the end of the dialog.
+  expect(tabbable.length).toBe(1);
+  // With nothing selected the stop starts on the first enabled tile in visual
+  // order, which is alpha (tier 1, name-sorted, bravo disabled).
+  expect(tabbable[0]!.getAttribute("data-item-id")).toBe("alpha");
+});
+
+test("the tab stop starts on the selected tile when there is one", () => {
+  renderPopup({ selectedId: "charlie" });
+  const tabbable = tiles().filter((t) => t.tabIndex === 0);
+  expect(tabbable.map((t) => t.getAttribute("data-item-id"))).toEqual([
+    "charlie",
+  ]);
+});
+
+test("arrow keys walk the grid and skip disabled tiles", () => {
+  renderPopup({ disabledIds: new Set(["bravo"]) });
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  // Tier 1 is alpha, bravo, delta by name; bravo is disabled and takes no
+  // focus, so Right from alpha lands on delta.
+  fireEvent.keyDown(alpha, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(tile("delta"));
+  fireEvent.keyDown(tile("delta")!, { key: "ArrowLeft" });
+  expect(document.activeElement).toBe(alpha);
+  // End crosses group boundaries to the last enabled tile overall.
+  fireEvent.keyDown(alpha, { key: "End" });
+  expect(document.activeElement).toBe(tile("echo"));
+  fireEvent.keyDown(tile("echo")!, { key: "Home" });
+  expect(document.activeElement).toBe(alpha);
+});
+
+test("arrow movement clamps at both ends instead of wrapping", () => {
+  renderPopup();
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  fireEvent.keyDown(alpha, { key: "ArrowLeft" });
+  expect(document.activeElement).toBe(alpha);
+  const echo = tile("echo")!;
+  echo.focus();
+  fireEvent.keyDown(echo, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(echo);
+});
+
+test("moving the tab stop leaves exactly one tabbable tile behind", () => {
+  renderPopup();
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  fireEvent.keyDown(alpha, { key: "End" });
+  const tabbable = tiles().filter((t) => t.tabIndex === 0);
+  expect(tabbable.map((t) => t.getAttribute("data-item-id"))).toEqual(["echo"]);
+});
+
+test("Tab is trapped inside the dialog at both ends", () => {
+  renderPopup();
+  const close = screen.getByLabelText(/close/i);
+  const stop = tiles().find((t) => t.tabIndex === 0)!;
+  // Forward off the last stop comes back to the first, rather than leaving for
+  // the page behind the backdrop.
+  stop.focus();
+  fireEvent.keyDown(stop, { key: "Tab" });
+  expect(document.activeElement).toBe(close);
+  // And backward off the first goes to the last.
+  fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(stop);
+});
+
+test("Tab in the middle of the ring is left to the browser", () => {
+  const props = renderPopup();
+  const search = screen.getByLabelText(/search/i) as HTMLInputElement;
+  search.focus();
+  const handled = fireEvent.keyDown(search, { key: "Tab" });
+  // fireEvent returns false when a handler called preventDefault. The search
+  // box is neither end of the ring, so nothing intercepts it.
+  expect(handled).toBe(true);
+  expect(document.activeElement).toBe(search);
+  expect(props.onClose).not.toHaveBeenCalled();
+});

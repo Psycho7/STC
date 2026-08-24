@@ -670,20 +670,35 @@ export function InputsPanel({
     // popup was open. Rendering on regardless would highlight a tile for a row
     // that no longer exists and let a pick arm a focus token for a commit that
     // can never apply.
-    if (!itemOverrides.some((o) => o.itemId === rowId)) return null;
-    // Only the other override rows are disabled here. Auto-row items stay
-    // enabled: for a capped row handleItemChange carries the rate onto the
-    // new item, so this is a live cap move, and blocking it would force a
-    // delete-and-retype.
+    const row = itemOverrides.find((o) => o.itemId === rowId);
+    if (row === undefined) return null;
+    // The other override rows are always disabled. Auto-row items depend on
+    // whether this row carries a cap: with one, handleItemChange moves the cap
+    // onto the new item, which is a live capability, and blocking it would
+    // force a delete-and-retype. Without one the swap only trades a real row
+    // for a bare override on a raw item, whose supply stays Infinity either
+    // way - the same worthless pick the Add popup already refuses, except this
+    // one destroys the row it came from. To cap a raw item, type into its
+    // auto-row.
     const disabledIds = new Set<string>(
       itemOverrides.filter((o) => o.itemId !== rowId).map((o) => o.itemId),
     );
+    if (row.ratePerSec === undefined) {
+      for (const id of assumedRawItemIds ?? []) disabledIds.add(id);
+    }
     return (
       <ItemPickerPopup
         items={pack.items}
         disabledIds={disabledIds}
         selectedId={rowId}
         tierByItemId={tierByItemId}
+        // Same line as the Add popup, and accurate for both reasons a tile is
+        // dimmed here: a sibling row already claims the item, or it has an
+        // auto-row this uncapped row cannot usefully take over. Either way the
+        // advice is to edit that row instead.
+        disabledHint={
+          disabledIds.size > 0 ? i18n.t("inputs.picker.listed") : undefined
+        }
         onPick={(newId) => {
           // Re-picking the row's own (still-enabled, highlighted) item is a
           // confirm, not a swap; without this guard the dup check would match

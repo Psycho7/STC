@@ -200,7 +200,27 @@ describe("InputsPanel", () => {
     ).toEqual([{ itemId: "iron_ore", ratePerSec: { num: "1", denom: "2" } }]);
   });
 
-  it("a row popup leaves auto-row items enabled and shows no hint", async () => {
+  it("a capped row's popup leaves auto-row items enabled", async () => {
+    const user = userEvent.setup();
+    render(
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "iron_ore", ratePerSec: { num: "1", denom: "2" } },
+        ]}
+        onChange={() => {}}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore"]}
+      />,
+    );
+    // Open the picker from the override row, not from Add.
+    await user.click(screen.getAllByLabelText("物品")[0]!);
+    // copper_ore has an auto-row, but this swap carries the row's cap onto it,
+    // so it is a live cap move and must stay pickable. Only the Add popup and
+    // the uncapped row popup dim it.
+    expect(pickerTile("copper_ore")!.disabled).toBe(false);
+  });
+
+  it("an uncapped row's popup dims auto-row items and says why", async () => {
     const user = userEvent.setup();
     render(
       <InputsPanel
@@ -210,13 +230,12 @@ describe("InputsPanel", () => {
         assumedRawItemIds={["copper_ore"]}
       />,
     );
-    // Open the picker from the override row, not from Add.
     await user.click(screen.getAllByLabelText("物品")[0]!);
-    // copper_ore has an auto-row, but a row swap carries the row's rate onto it,
-    // so it is a live cap move and must stay pickable here. Only the Add popup
-    // dims it.
-    expect(pickerTile("copper_ore")!.disabled).toBe(false);
-    expect(screen.queryByTestId("picker-hint")).toBeNull();
+    // With no cap to carry, swapping onto copper_ore would trade a real row for
+    // a bare override whose supply is Infinity either way, and delete the
+    // iron_ore row doing it.
+    expect(pickerTile("copper_ore")!.disabled).toBe(true);
+    expect(screen.getByTestId("picker-hint")).not.toBeNull();
   });
 
   it("Escape returns focus to the trigger that opened the picker", async () => {

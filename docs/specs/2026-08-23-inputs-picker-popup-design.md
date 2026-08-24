@@ -100,7 +100,8 @@ tile `title`: a natively `disabled` button dispatches no pointer events in
 Chromium or WebKit, so no tooltip appears, and `aria-label` beats `title` for
 the accessible name, so nothing is announced either. That is the same trap the
 add button avoids below, and making 113 tiles `aria-disabled` to dodge it
-would put them all in the tab order of a dialog that has no focus trap. Tiles
+would make every one of them focusable, defeating the single roving tab stop
+the grid now uses. Tiles
 keep `title` and `aria-label` set to the item name, disabled or not.
 `TargetsPanel` omits the prop and is unaffected.
 
@@ -244,12 +245,13 @@ commits never bump `planEpoch`, so no remount discards local edit state.
   that caret stays minimal rather than reinstating a boxed select. What goes
   is the `color-scheme: dark` sentence and, more importantly, the
   justification of the native select by its ARIA, keyboard navigation,
-  type-ahead, IME composition and mobile native picker. Those are a real loss
-  and the popup only partly replaces them: its search box covers finding an
-  item by name, but it has no focus trap, no arrow-key grid navigation, and no
-  type-ahead outside that field, so Tab walks all 113 tiles and then leaves
-  the `aria-modal` dialog. The rewritten comment records the gap rather than
-  implying parity.
+  type-ahead, IME composition and mobile native picker. The rewritten comment
+  records what the popup does and does not replace rather than implying
+  parity. **Amended after review:** the original text recorded the missing
+  focus trap and arrow-key navigation as an accepted loss. They were built
+  instead, so the comment records the narrower residue - type-ahead outside
+  the search field, IME composition and the mobile native picker. See the
+  keyboard section below.
 - The exhausted add button needs its own rules, and specificity decides all
   of them. The scoped `.b-add:disabled` rule is **extended, not deleted**: its
   selector gains `, ... .b-add[aria-disabled="true"]`. A generic
@@ -368,3 +370,31 @@ New coverage:
 
 Recipe filtering, which lands separately in phase 2. The targets panel is not
 touched. No changes below `src/solver/` or `src/pipeline/`.
+
+## Keyboard model (added after review)
+
+The original spec accepted "no focus trap, no arrow-key grid navigation" as
+the price of leaving the native `<select>`. Review found that this branch
+doubles the affected surface by adding a second caller, so the gap was closed
+in `ItemPickerPopup` rather than deferred. Both panels get it.
+
+- **One roving tab stop, not one per tile.** Every tile carries
+  `tabIndex={-1}` except the active one. Without this the shipped pack puts
+  roughly 250 stops between the search box and the end of the dialog. The stop
+  starts on `selectedId` when the caller passes one, so tabbing out of the
+  search box lands on the item being edited, and it follows the search results
+  when the grid is filtered.
+- **Arrow keys move within the grid.** Left and Right step one enabled tile;
+  Up and Down step one row, where the column count is read from the live grid's
+  computed `grid-template-columns` rather than a constant, since the template is
+  responsive. Home and End jump to the first and last enabled tile, crossing
+  tier-group boundaries. Movement clamps at both ends instead of wrapping.
+  Disabled tiles are real `disabled` buttons and take no focus, so they are
+  never stops.
+- **Tab is trapped.** `aria-modal` does not confine Tab on its own. Tab off the
+  last stop returns to the first and Shift+Tab off the first goes to the last;
+  in the middle of the ring the event is left to the browser.
+- **Still missing, deliberately:** type-ahead outside the search field, IME
+  composition on the grid itself, and the mobile native picker. The search box
+  covers finding an item by name in every locale, which is what type-ahead was
+  mostly used for.
