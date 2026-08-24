@@ -949,7 +949,7 @@ Focus now lands silently on an input whose accessible name is the generic rate l
 - Consumes: Task 5.
 - Produces: every rate input, on both row kinds, carries `aria-describedby` referencing `i-name-${itemId}`, joined with `i-rate-err-${itemId}` when the row is invalid.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `test/components/InputsPanel.test.tsx`:
 
@@ -975,12 +975,12 @@ it("rate inputs are described by their row's item name", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx -t "described by"`
 Expected: FAIL, `expected null not to be null`.
 
-- [ ] **Step 3: Add the name nodes**
+- [x] **Step 3: Add the name nodes**
 
 The id must sit on a dedicated node, never on the trigger button: a description resolves to the referenced element's accessible name, and the trigger's `aria-label` is the generic item label, so pointing at the button would announce "Rate, edit, Item".
 
@@ -1003,7 +1003,7 @@ Auto row, add the id to the existing `.b-name` span:
               >
 ```
 
-- [ ] **Step 4: Point both rate inputs at them**
+- [x] **Step 4: Point both rate inputs at them**
 
 Add a helper inside the component:
 
@@ -1020,12 +1020,12 @@ Add a helper inside the component:
 
 Replace the `aria-describedby` expression on both the auto-row input and the override-row input with `aria-describedby={rateDescribedBy(itemId)}` and `aria-describedby={rateDescribedBy(row.itemId)}` respectively.
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx -t "described by"`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/InputsPanel.tsx test/components/InputsPanel.test.tsx

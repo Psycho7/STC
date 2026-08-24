@@ -129,6 +129,14 @@ export function InputsPanel({
     pendingFocus.current = null;
     el.focus();
   }
+  // The row's item name plus, when present, the invalid-rate message. The
+  // name is a description rather than a label so the accessible NAME stays
+  // the generic rate label every existing query resolves by.
+  function rateDescribedBy(itemId: string): string {
+    const ids = [`i-name-${itemId}`];
+    if (invalidIds.has(itemId)) ids.push(`i-rate-err-${itemId}`);
+    return ids.join(" ");
+  }
   function closePicker() {
     setPickerFor(null);
     const btn = triggerRef.current;
@@ -420,6 +428,7 @@ export function InputsPanel({
             <div className="info">
               <span
                 className="b-name"
+                id={`i-name-${itemId}`}
                 title={i18n.displayName(itemId)}
                 data-testid="input-auto-name"
               >
@@ -446,9 +455,7 @@ export function InputsPanel({
                 inputMode="decimal"
                 aria-label={i18n.t("inputs.rate.label")}
                 aria-invalid={invalidIds.has(itemId) ? true : undefined}
-                aria-describedby={
-                  invalidIds.has(itemId) ? `i-rate-err-${itemId}` : undefined
-                }
+                aria-describedby={rateDescribedBy(itemId)}
                 className={invalidIds.has(itemId) ? "invalid" : undefined}
                 placeholder={i18n.t("inputs.unlimited")}
                 value={displayedRate}
@@ -522,7 +529,9 @@ export function InputsPanel({
                     setPickerFor({ kind: "row", itemId: row.itemId });
                   }}
                 >
-                  {i18n.displayName(row.itemId)}
+                  <span id={`i-name-${row.itemId}`}>
+                    {i18n.displayName(row.itemId)}
+                  </span>
                 </button>
               </span>
               {uncapped && realizedPerMin !== null ? (
@@ -562,11 +571,7 @@ export function InputsPanel({
                 ref={(el) => focusOnMount(el, row.itemId, "rate")}
                 aria-label={i18n.t("inputs.rate.label")}
                 aria-invalid={invalidIds.has(row.itemId) ? true : undefined}
-                aria-describedby={
-                  invalidIds.has(row.itemId)
-                    ? `i-rate-err-${row.itemId}`
-                    : undefined
-                }
+                aria-describedby={rateDescribedBy(row.itemId)}
                 className={invalidIds.has(row.itemId) ? "invalid" : undefined}
                 placeholder={
                   uncapped

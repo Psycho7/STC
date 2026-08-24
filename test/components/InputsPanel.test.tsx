@@ -614,4 +614,24 @@ describe("InputsPanel", () => {
     ).toBe("iron_ore");
     expect(document.activeElement).toBe(trigger);
   });
+
+  it("rate inputs are described by their row's item name", () => {
+    render(
+      <InputsPanel
+        itemOverrides={[{ itemId: "iron_ore" }]}
+        onChange={() => {}}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore"]}
+      />,
+    );
+    for (const itemId of ["copper_ore", "iron_ore"]) {
+      const nameEl = document.getElementById(`i-name-${itemId}`);
+      expect(nameEl).not.toBeNull();
+      const row = document.querySelector(`[data-item-id="${itemId}"]`);
+      const input = row!.querySelector("input")!;
+      expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(
+        `i-name-${itemId}`,
+      );
+    }
+  });
 });
