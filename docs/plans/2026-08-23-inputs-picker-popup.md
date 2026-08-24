@@ -1048,12 +1048,11 @@ Rewrite the block comment above them, and keep it short: `.b-pick-trigger` alrea
 
 ```css
 /* The picker is the row's name surface itself. The row layout is fixed: icon,
-   product-name, item-id, rate, and a remove control. The product-name slot is
-   a borderless button that opens the item picker dialog, so it reads as the
-   heading line rather than a control. A small persistent caret at the right
-   edge marks the affordance for touch and for first-impression
-   discoverability, without bringing back the boxed-select redundancy an
-   earlier pass had. Moving off a native <select> costs the platform's
+   product-name, item-id, rate, and a remove control. A small persistent caret
+   at the right edge of the product-name slot marks the affordance for touch
+   and for first-impression discoverability, without bringing back the
+   boxed-select redundancy an earlier pass had. Moving off a native <select>
+   costs the platform's
    keyboard nav, type-ahead, IME composition and mobile native picker; the
    dialog's search box replaces finding an item by name, but it has no focus
    trap, no arrow-key grid navigation, and no type-ahead outside that field,
@@ -1297,7 +1296,9 @@ bun run typecheck && bun run lint && bun run test && bun run test:e2e
 
 `bun run format` is deliberately NOT in this chain. It is `prettier --check .` over the whole repo, it already fails on the untouched tree (198 files, including files this branch never touches), and an `&&` chain would abort there and never reach `test` or `test:e2e` - the two checks this step exists for. Format the files you touched with `bunx prettier --write` instead, as each task instructs.
 
-Expected: typecheck, lint and test clean. For e2e, compare against the Task 0 baseline: no test that was passing there may fail now. Tests 1 and 3 were renamed, so match them by position, not by name.
+Expected: typecheck, lint and test clean.
+
+For e2e this runs the whole Playwright suite, which is wider than the Task 0 baseline. Two different rules apply. Inside `inputs-panel.spec.ts`, compare against the Task 0 baseline: no test that was passing there may fail now, and Tests 1 and 3 are exempt because they were retitled, so match by position. Outside it, the Task 0 baseline has no rows at all; this repo carries known pre-existing failures in other specs, so judge those against `origin/develop` before attributing anything to this branch.
 
 - [ ] **Step 2: Visual check in the browser**
 
