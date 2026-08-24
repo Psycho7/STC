@@ -1148,7 +1148,7 @@ Six tests, in file order. Two are replaced, one is restructured, three keep thei
 - Consumes: Tasks 3 to 7.
 - Produces: nothing.
 
-- [ ] **Step 1: Add a pick helper and delete the dead constants**
+- [x] **Step 1: Add a pick helper and delete the dead constants**
 
 Delete the four-line comment above the lex constants along with them; it explains a pinning that no longer exists.
 
@@ -1168,7 +1168,7 @@ async function addInputRow(page: Page, itemId: string): Promise<void> {
 
 Item ids in this file are from the real pack, not the unit fixture. Raw items are `originium_ore, quartz_sand, iron_ore, copper_ore, gas_xiranite, liquid_water, liquid_acid, gas_inert, domain_key_tundra`; everything else is non-raw. There is no `copper_plate`.
 
-- [ ] **Step 2: Replace Test 1's body and title**
+- [x] **Step 2: Replace Test 1's body and title**
 
 The old title, "Add input row defaults to first unused itemId (lex-sorted)", describes behavior that no longer exists. Retitle it "Add opens the picker and a pick appends an uncapped override". Keep the test's existing preamble (`attachConsoleListener`, `page.goto`, `waitForCanvasReady`, `waitForInputsPanel`, `const initialCount = ...`) and its trailing `await expectNoConsoleErrors(log)`. Replace only what sits between them:
 
@@ -1193,7 +1193,7 @@ The old title, "Add input row defaults to first unused itemId (lex-sorted)", des
     await expect.poll(() => page.url(), { timeout: 5_000 }).not.toBe(urlBefore);
 ```
 
-- [ ] **Step 3: Replace Test 3's body and title**
+- [x] **Step 3: Replace Test 3's body and title**
 
 Retitle from "Duplicate-guard surfaces error and does not propagate" to "A claimed item's tile is disabled in the picker". Same rule: keep the preamble and the trailing `expectNoConsoleErrors`. The old test drove a duplicate through `selectOption` and asserted the per-row alert. That pick is impossible now, so assert the tile is dimmed instead. Note the two rows use **different** items: once `copper_powder` has a row its tile is disabled, so a second `addInputRow` for the same id would time out on Playwright's actionability check.
 
@@ -1218,7 +1218,7 @@ Retitle from "Duplicate-guard surfaces error and does not propagate" to "A claim
     await expect(page.locator(".recipe-picker")).toHaveCount(0);
 ```
 
-- [ ] **Step 4: Restructure Test 5**
+- [x] **Step 4: Restructure Test 5**
 
 Test 5 is "cap exceeding demand commits cleanly with no error banner". It caps `copper_ore`, which is raw and consumed by the default plan, so it is an auto-row and its tile is dimmed in the Add picker. Drive the auto-row typing path instead.
 
@@ -1249,7 +1249,7 @@ Three things must be preserved. Keep the cap value `9999`: the test's whole prem
 
 Delete `const initialCount = await inputRows(page).count();` from this test: its only consumer was the `nth(initialCount)` locator, and an unused binding fails `bun run lint`.
 
-- [ ] **Step 5: Re-preamble Tests 2, 4 and 6**
+- [x] **Step 5: Re-preamble Tests 2, 4 and 6**
 
 These keep their assertions. In each, the two lines
 
@@ -1273,18 +1273,40 @@ Add `await rateInput.press("Enter");` after **every** `rateInput.fill(...)` in T
 
 `fill()` sets the value and fires `input`, but never blurs, and `InputsPanel` commits only on blur or Enter. Without this the URL poll that follows has nothing to wait for. If these tests were in your Task 0 baseline as failing, this is likely why.
 
-- [ ] **Step 6: Format**
+- [x] **Step 6: Format**
 
 Run: `bunx prettier --write test/e2e/inputs-panel.spec.ts`
 
-- [ ] **Step 7: Run the suite**
+- [x] **Step 7: Run the suite**
 
 Run: `bun run test:e2e -- inputs-panel`
 Expected: no test fails that was passing in the Task 0 baseline.
 
 Match by position, not by name: Tests 1 and 3 were retitled in Steps 2 and 3, so their baseline rows have no counterpart and they are exempt from the gate. Tests 2, 4, 5 and 6 keep their titles and are the ones the gate covers. Tests 4 and 6 may move from failing to passing once the Enter press lands; that is an improvement, not a regression to investigate.
 
-- [ ] **Step 8: Commit**
+> **Deviation, found by running Step 7.** Adding the Enter press made Tests 4 and 6
+> commit their rate for the first time, and both then failed: with a finite cap on
+> `copper_powder` no `inputProduct` node renders at all. A probe over the seeded
+> plan pinned the mechanism:
+>
+> | copper_powder override | nodes emitted |
+> | --- | --- |
+> | uncapped | `u:in:copper_powder`, `u:in:copper_powder:target`, `u:out:copper_powder` |
+> | cap 6/min | none (solver runs `loop:copper_powder` instead) |
+> | cap 30/min | none (same) |
+> | cap 120/min | `u:in:copper_powder`, `u:out:copper_powder` |
+>
+> A cap the solver cannot meet on its own forces the in-graph producer on, and the
+> producer then covers the whole demand and draws nothing across the boundary. So
+> both tests had been asserting the UNCAPPED shape all along while their comments
+> claimed a below-demand cap. Fixed by matching each test to the shape it needs:
+> Test 4's cap goes 30 -> 120/min (a cap the solver satisfies by importing), and
+> Test 6 drops the rate fill entirely and asserts the dual emission on the uncapped
+> override, which is the only state that emits the `:target` passthrough it checks.
+>
+> Result: 6 passed, 0 failed, against a 2-passed / 4-failed baseline.
+
+- [x] **Step 8: Commit**
 
 ```bash
 git add test/e2e/inputs-panel.spec.ts

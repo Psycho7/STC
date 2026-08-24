@@ -60,19 +60,7 @@ const TEXT = {
   removeInput: "移除",
   itemLabel: "物品",
   rateLabel: "速率",
-  duplicateAlert: "该物品已声明",
 } as const;
-
-// The first lex-sorted item id in the AEF recipe pack. Asserted by Test 1 to
-// pin the Add behaviour (first unused id, lex-sorted) to a concrete value
-// rather than just "any unused id". Pinned to the upstream submodule SHA at
-// the time of writing; if the pack reshuffles the lex ordering, update here.
-const FIRST_LEX_ITEM_ID = "bottled_food_1";
-const SECOND_LEX_ITEM_ID = "bottled_food_2";
-
-// Debounce inside InputsPanel.commitRate. Tests waiting on a rate-cap commit
-// must outlast this delay; the App's solver re-run then follows.
-const COMMIT_DEBOUNCE_MS = 150;
 
 // ---------------------------------------------------------------------------
 // Dual-listed-plan seeding (Tests 4 and 6).
@@ -162,6 +150,14 @@ async function clickAddInput(page: Page): Promise<void> {
   await page.getByRole("button", { name: TEXT.addInput }).click();
 }
 
+// Add now opens the picker instead of committing a row, so every "add a row"
+// preamble is two steps: click Add, then click the item's tile. The locator is
+// scoped to the dialog because data-item-id is also on canvas nodes and rows.
+async function addInputRow(page: Page, itemId: string): Promise<void> {
+  await clickAddInput(page);
+  await page.locator(`.recipe-picker [data-item-id="${itemId}"]`).click();
+}
+
 async function expectNoConsoleErrors(log: ConsoleLog): Promise<void> {
   expect(
     log.errors,
@@ -177,7 +173,7 @@ async function expectNoConsoleErrors(log: ConsoleLog): Promise<void> {
 }
 
 test.describe("InputsPanel golden-path coverage", () => {
-  test("Test 1: Add input row defaults to first unused itemId (lex-sorted)", async ({
+  test("Test 1: Add opens the picker and a pick appends an uncapped override", async ({
     page,
   }) => {
     const log = attachConsoleListener(page);
@@ -187,14 +183,23 @@ test.describe("InputsPanel golden-path coverage", () => {
 
     const initialCount = await inputRows(page).count();
     await clickAddInput(page);
-    await expect(inputRows(page)).toHaveCount(initialCount + 1);
+    // No row yet: the picker is open and nothing has been committed.
+    await expect(inputRows(page)).toHaveCount(initialCount);
+    await expect(page.locator(".recipe-picker")).toBeVisible();
+    const urlBefore = page.url();
 
-    // The new row is appended at the end; its item picker defaults to the
-    // first lex-sorted unused id. The default plan ships no itemOverrides, so
-    // the first lex item in the pack is the expected pick.
-    const newRow = inputRows(page).nth(initialCount);
-    const select = newRow.getByRole("combobox", { name: TEXT.itemLabel });
-    await expect(select).toHaveValue(FIRST_LEX_ITEM_ID);
+    await page.locator('.recipe-picker [data-item-id="copper_powder"]').click();
+    await expect(inputRows(page)).toHaveCount(initialCount + 1);
+    // Pin the identity of the committed row, not merely that some row appeared.
+    await expect(
+      page.locator('[data-testid="input-row"][data-item-id="copper_powder"]'),
+    ).toHaveCount(1);
+    // An uncapped override: the rate field is empty.
+    await expect(
+      inputRows(page).nth(initialCount).locator("input"),
+    ).toHaveValue("");
+    // The hash is rewritten after the solve settles, so poll rather than read.
+    await expect.poll(() => page.url(), { timeout: 5_000 }).not.toBe(urlBefore);
 
     await expectNoConsoleErrors(log);
   });
@@ -208,8 +213,9 @@ test.describe("InputsPanel golden-path coverage", () => {
     await waitForInputsPanel(page);
 
     const initialCount = await inputRows(page).count();
-    await clickAddInput(page);
-    await clickAddInput(page);
+    // Two different items: the first pick disables its own tile.
+    await addInputRow(page, "copper_powder");
+    await addInputRow(page, "iron_powder");
     await expect(inputRows(page)).toHaveCount(initialCount + 2);
 
     const urlBefore = page.url();
@@ -232,7 +238,7 @@ test.describe("InputsPanel golden-path coverage", () => {
     await expectNoConsoleErrors(log);
   });
 
-  test("Test 3: Duplicate-guard surfaces error and does not propagate", async ({
+  test("Test 3: A claimed item's tile is disabled in the picker", async ({
     page,
   }) => {
     const log = attachConsoleListener(page);
@@ -241,38 +247,24 @@ test.describe("InputsPanel golden-path coverage", () => {
     await waitForInputsPanel(page);
 
     const initialCount = await inputRows(page).count();
-    await clickAddInput(page);
-    await clickAddInput(page);
+    await addInputRow(page, "copper_powder");
+    await addInputRow(page, "iron_powder");
     await expect(inputRows(page)).toHaveCount(initialCount + 2);
 
-    // First added row already holds FIRST_LEX_ITEM_ID (default pick).
-    // Second added row holds SECOND_LEX_ITEM_ID (next unused lex id).
-    // Force the second row's picker to FIRST_LEX_ITEM_ID to trigger the dup.
-    const secondAddedRow = inputRows(page).nth(initialCount + 1);
-    const secondSelect = secondAddedRow.getByRole("combobox", {
-      name: TEXT.itemLabel,
-    });
+    // Open the picker from the second row: the item the first row claims is
+    // dimmed, so a duplicate cannot be picked at all.
+    const secondRow = inputRows(page).nth(initialCount + 1);
+    await secondRow.getByRole("button", { name: TEXT.itemLabel }).click();
+    await expect(
+      page.locator('.recipe-picker [data-item-id="copper_powder"]'),
+    ).toBeDisabled();
+    // The row's own item stays enabled, as a confirm.
+    await expect(
+      page.locator('.recipe-picker [data-item-id="iron_powder"]'),
+    ).toBeEnabled();
 
-    // Sanity: confirm second row is the SECOND lex id (paired-default rule).
-    await expect(secondSelect).toHaveValue(SECOND_LEX_ITEM_ID);
-
-    const urlBefore = page.url();
-
-    await secondSelect.selectOption(FIRST_LEX_ITEM_ID);
-
-    // Per-row duplicate alert appears on the offending row.
-    const alert = secondAddedRow.getByRole("alert");
-    await expect(alert).toBeVisible();
-    await expect(alert).toHaveText(TEXT.duplicateAlert);
-
-    // onChange did NOT propagate: URL hash unchanged after the duplicate pick.
-    // Give the App a tick to debounce, then re-verify.
-    await page.waitForTimeout(COMMIT_DEBOUNCE_MS);
-    expect(page.url()).toBe(urlBefore);
-
-    // The select control itself reflects the user's literal click (browser
-    // <select> updates its DOM value even though onChange was rejected). The
-    // load-bearing assertion is the unchanged URL above.
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".recipe-picker")).toHaveCount(0);
 
     await expectNoConsoleErrors(log);
   });
@@ -290,21 +282,27 @@ test.describe("InputsPanel golden-path coverage", () => {
     await waitForInputsPanel(page);
 
     const initialCount = await inputRows(page).count();
-    await clickAddInput(page);
-    const newRow = inputRows(page).nth(initialCount);
-
     // Use copper_powder: a target output of the seeded plan that is also
     // consumed by liquid_copper, so the override renders an input node. The
     // dual-listing render is asserted in Test 6; here we only check rate commit.
-    const select = newRow.getByRole("combobox", { name: TEXT.itemLabel });
-    await select.selectOption("copper_powder");
+    await addInputRow(page, "copper_powder");
+    const newRow = inputRows(page).nth(initialCount);
 
     const rateInput = newRow.getByRole("textbox", { name: TEXT.rateLabel });
 
-    // Set a rate of 30/min. After debounce the URL hash updates and
+    // Set a rate of 120/min. Once the commit lands the URL hash updates and
     // the input ProductNode renders with the cap badge.
+    //
+    // The value is deliberately at or above copper_powder's total demand. A cap
+    // BELOW demand does not produce a partial import: the solver has to run the
+    // in-graph producer for the shortfall anyway, and once that producer is on,
+    // it makes the whole amount and draws nothing across the boundary, so no
+    // input node exists to assert on. Only a cap the solver can satisfy
+    // entirely by importing keeps the boundary node.
     const urlAfterItem = page.url();
-    await rateInput.fill("30");
+    await rateInput.fill("120");
+    // fill() does not blur, and the panel commits only on blur or Enter.
+    await rateInput.press("Enter");
     await expect
       .poll(() => page.url(), { timeout: 5_000 })
       .not.toBe(urlAfterItem);
@@ -313,7 +311,7 @@ test.describe("InputsPanel golden-path coverage", () => {
       '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_powder"]',
     );
     await expect(copperPowderInput).toBeAttached();
-    // The node renders the cap (30/min) once the override commits.
+    // The node renders the cap (120/min) once the override commits.
     await expect(copperPowderInput).toContainText("/分");
 
     const urlAfterCap = page.url();
@@ -321,6 +319,7 @@ test.describe("InputsPanel golden-path coverage", () => {
     // Clear the rate field: empty string commits as uncap (override remains
     // but without ratePerSec). URL hash should change again.
     await rateInput.fill("");
+    await rateInput.press("Enter");
     await expect
       .poll(() => page.url(), { timeout: 5_000 })
       .not.toBe(urlAfterCap);
@@ -347,23 +346,28 @@ test.describe("InputsPanel golden-path coverage", () => {
     await waitForCanvasReady(page);
     await waitForInputsPanel(page);
 
-    const initialCount = await inputRows(page).count();
-    await clickAddInput(page);
-    const newRow = inputRows(page).nth(initialCount);
+    // copper_ore is a raw boundary input for the default plan, so it is an
+    // auto-row and its tile is dimmed in the Add picker. Cap it by typing into
+    // the auto-row instead. The value stays well above the actual demand
+    // (roughly 270/min), which is the premise of this test.
+    const autoRow = page.locator(
+      '[data-testid="input-auto-row"][data-item-id="copper_ore"]',
+    );
+    await expect(autoRow).toHaveCount(1);
 
-    // copper_ore is a raw boundary input for the default plan; set a cap well
-    // above the actual demand (default copper_bottle demand is small).
-    const select = newRow.getByRole("combobox", { name: TEXT.itemLabel });
-    await select.selectOption("copper_ore");
-
-    const urlAfterItem = page.url();
-
-    const rateInput = newRow.getByRole("textbox", { name: TEXT.rateLabel });
+    const urlBeforeCap = page.url();
+    const rateInput = autoRow.getByRole("textbox", { name: TEXT.rateLabel });
     await rateInput.fill("9999");
+    // fill() does not blur, and the panel commits only on blur or Enter.
+    await rateInput.press("Enter");
 
+    // Typing a cap promotes the auto-row into a real override row.
+    await expect(
+      page.locator('[data-testid="input-row"][data-item-id="copper_ore"]'),
+    ).toHaveCount(1);
     await expect
       .poll(() => page.url(), { timeout: 5_000 })
-      .not.toBe(urlAfterItem);
+      .not.toBe(urlBeforeCap);
 
     // The input ProductNode for copper_ore still renders, no error banner.
     const copperOreInput = page.locator(
@@ -394,24 +398,21 @@ test.describe("InputsPanel golden-path coverage", () => {
     await waitForCanvasReady(page);
     await waitForInputsPanel(page);
 
-    const initialCount = await inputRows(page).count();
-    await clickAddInput(page);
-    const newRow = inputRows(page).nth(initialCount);
-
     // copper_powder is a target output AND is consumed by liquid_copper in the
-    // seeded plan. Adding it as an input override with a finite rate cap (below
-    // its total demand) triggers the dual-emission rule: both the input
-    // ProductNode (cyan) and the output ProductNode (lime) must render.
-    const select = newRow.getByRole("combobox", { name: TEXT.itemLabel });
-    await select.selectOption("copper_powder");
+    // seeded plan. An uncapped input override on it triggers the dual-emission
+    // rule: both the input ProductNode (cyan) and the output ProductNode (lime)
+    // must render.
+    //
+    // Uncapped is the load-bearing part, not an omission. With unlimited supply
+    // the solver imports the whole amount and runs no in-graph producer, which
+    // is what puts copper_powder across the boundary. Any finite cap it cannot
+    // meet on its own forces the producer on, and the producer then covers the
+    // whole demand and draws nothing across the boundary, so the input node
+    // disappears.
+    const urlBefore = page.url();
+    await addInputRow(page, "copper_powder");
 
-    const urlAfterItem = page.url();
-    const rateInput = newRow.getByRole("textbox", { name: TEXT.rateLabel });
-    await rateInput.fill("6"); // 6/min == 0.1/s, well under default demand.
-
-    await expect
-      .poll(() => page.url(), { timeout: 5_000 })
-      .not.toBe(urlAfterItem);
+    await expect.poll(() => page.url(), { timeout: 5_000 }).not.toBe(urlBefore);
 
     await waitForCanvasReady(page);
 
