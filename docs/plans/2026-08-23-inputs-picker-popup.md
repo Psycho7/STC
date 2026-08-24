@@ -650,7 +650,7 @@ git commit -m "Restore focus to the swapped input row's trigger"
 - Consumes: Tasks 1, 3 and 4.
 - Produces: `pickerFor` widens to `{ kind: "row"; itemId: string } | { kind: "add" }`. Two new i18n keys, `inputs.picker.listed` and `inputs.add.exhausted`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `test/components/InputsPanel.test.tsx`, replace the existing add-button test (the one asserting `onChange` fires once with the first-unused item) with:
 
@@ -733,12 +733,12 @@ Also delete the fixture comment above `fixturePack` that this task falsifies: "i
 
 Define `TEXT_ADD` near the top of the file from the exact `inputs.add` zh string in `src/data/i18n.ts`; read it out of the file rather than guessing. The rate query is `getAllByLabelText("速率")`, as the rest of this suite already uses.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx`
 Expected: FAIL on all four new tests. The first fails because Add still commits immediately.
 
-- [ ] **Step 3: Add the two i18n keys**
+- [x] **Step 3: Add the two i18n keys**
 
 In `src/data/i18n.ts`, add to the `UiKey` union next to the other `inputs.` keys:
 
@@ -767,7 +767,7 @@ Then add to each of the four locale records, next to their `inputs.add` entry:
       "Затемнённые предметы уже есть в панели — редактируйте их строки",
 ```
 
-- [ ] **Step 4: Widen `pickerFor` and rewrite `handleAdd`**
+- [x] **Step 4: Widen `pickerFor` and rewrite `handleAdd`**
 
 In `src/components/InputsPanel.tsx`, widen the state type:
 
@@ -801,7 +801,7 @@ Above the `return`, next to the existing `autoRows` computation:
     displayedInputCount(itemOverrides, assumedRawItemIds) === pack.items.length;
 ```
 
-- [ ] **Step 5: Make the Add button inert rather than disabled**
+- [x] **Step 5: Make the Add button inert rather than disabled**
 
 Replace the add button:
 
@@ -819,7 +819,7 @@ Replace the add button:
       </button>
 ```
 
-- [ ] **Step 6: Branch `renderPicker` on the entry point**
+- [x] **Step 6: Branch `renderPicker` on the entry point**
 
 Replace `renderPicker` from Task 3:
 
@@ -885,7 +885,7 @@ Replace `renderPicker` from Task 3:
   }
 ```
 
-- [ ] **Step 7: Consume the rate token on the rate input**
+- [x] **Step 7: Consume the rate token on the rate input**
 
 Add the callback ref to the override row's rate `<input>`:
 
@@ -893,12 +893,12 @@ Add the callback ref to the override row's rate `<input>`:
                 ref={(el) => focusOnMount(el, row.itemId, "rate")}
 ```
 
-- [ ] **Step 8: Run the tests to verify they pass**
+- [x] **Step 8: Run the tests to verify they pass**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx`
 Expected: the four new tests PASS.
 
-- [ ] **Step 9: Add the aria-disabled CSS**
+- [x] **Step 9: Add the aria-disabled CSS**
 
 In `src/canvas/canvas.css`, extend the scoped disabled rule's selector and guard both hover rules. Specificity is the whole point here: a generic `.ak-app-shell button[aria-disabled="true"]` is (0,2,1) and loses to the base `.ak-app-shell [data-testid="side-panel"] .b-add` at (0,3,0), so the button would keep `cursor: pointer`.
 
@@ -928,7 +928,7 @@ And guard the generic hover rule, which is (0,3,1) and would otherwise outrank t
 
 Nothing else in the app sets `aria-disabled`, so the guard has no other effect.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/components/InputsPanel.tsx src/data/i18n.ts src/canvas/canvas.css test/components/InputsPanel.test.tsx

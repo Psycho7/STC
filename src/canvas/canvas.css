@@ -296,7 +296,7 @@
   letter-spacing: 0.02em;
 }
 
-.ak-app-shell button:hover:not(:disabled) {
+.ak-app-shell button:hover:not(:disabled):not([aria-disabled="true"]) {
   background: var(--ak-bg-tertiary);
   border-color: var(--ak-divider-strong);
 }
@@ -1103,13 +1103,16 @@
   font-weight: 700;
   font-size: 12px;
 }
-.ak-app-shell [data-testid="side-panel"] .b-add:hover {
+.ak-app-shell
+  [data-testid="side-panel"]
+  .b-add:hover:not([aria-disabled="true"]) {
   background: rgba(203, 255, 64, 0.08);
   border-color: var(--ak-accent-lime);
   color: var(--ak-accent-lime-bright);
   box-shadow: 0 0 22px rgba(203, 255, 64, 0.12);
 }
-.ak-app-shell [data-testid="side-panel"] .b-add:disabled {
+.ak-app-shell [data-testid="side-panel"] .b-add:disabled,
+.ak-app-shell [data-testid="side-panel"] .b-add[aria-disabled="true"] {
   opacity: 0.35;
   cursor: not-allowed;
   box-shadow: none;

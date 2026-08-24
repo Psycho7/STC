@@ -35,6 +35,9 @@ function mkRecipe(id: string): Recipe {
   };
 }
 
+// The zh (default-locale) label of the Add button, from src/data/i18n.ts.
+const TEXT_ADD = "添加输入";
+
 // data-item-id appears on picker tiles, on auto-rows and on override rows, and
 // the popup portals to document.body alongside the Testing Library container,
 // so a bare [data-item-id] query can resolve to a row instead of a tile.
@@ -44,8 +47,6 @@ function pickerTile(itemId: string): HTMLButtonElement | null {
   );
 }
 
-// Fixture pack: items intentionally out of lex order in the array so the
-// "first unused (sorted lex)" picker has something to do.
 const fixturePack: RecipePack = {
   schemaVersion: "0.2" as RecipePack["schemaVersion"],
   source: {
@@ -85,28 +86,76 @@ describe("InputsPanel", () => {
     expect(screen.getAllByTestId("input-row").length).toBe(2);
   });
 
-  it("Add input button appends a new row with first unused item by display name", async () => {
-    const onChange = vi.fn();
+  it("Add opens the picker and commits nothing until a pick", async () => {
     const user = userEvent.setup();
-    // The picker orders by localized (zh, the default) display name, not id:
-    // copper_ore ("赤铜矿"), iron_ore ("蓝铁矿"), then copper_plate / zinc (which
-    // fall back to their ids). copper_ore is taken, so the first unused is
-    // "iron_ore".
-    const overrides: ItemOverride[] = [{ itemId: "copper_ore" }];
+    const onChange = vi.fn();
     render(
       <InputsPanel
-        itemOverrides={overrides}
+        itemOverrides={[]}
+        onChange={onChange}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore"]}
+      />,
+    );
+    await user.click(screen.getByText(TEXT_ADD));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("picker-hint")).not.toBeNull();
+    // The auto-row item already has a row, so its tile is dimmed here.
+    expect((pickerTile("copper_ore") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("a pick from the Add picker appends an uncapped override", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel itemOverrides={[]} onChange={onChange} pack={fixturePack} />,
+    );
+    await user.click(screen.getByText(TEXT_ADD));
+    await user.click(pickerTile("iron_ore")!);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const updater = onChange.mock.calls[0]![0] as (
+      c: ItemOverride[],
+    ) => ItemOverride[];
+    expect(updater([])).toEqual([{ itemId: "iron_ore" }]);
+    // Racing a prop update that already inserted the row is a no-op.
+    expect(updater([{ itemId: "iron_ore" }])).toEqual([{ itemId: "iron_ore" }]);
+  });
+
+  it("a pick from the Add picker focuses the new row's rate input", async () => {
+    const user = userEvent.setup();
+    function Parent() {
+      const [rows, setRows] = useState<ItemOverride[]>([]);
+      return (
+        <InputsPanel
+          itemOverrides={rows}
+          onChange={(update) => setRows((cur) => update(cur))}
+          pack={fixturePack}
+        />
+      );
+    }
+    render(<Parent />);
+    await user.click(screen.getByText(TEXT_ADD));
+    await user.click(pickerTile("iron_ore")!);
+    const rateInput = screen.getAllByLabelText("速率")[0]!;
+    expect(document.activeElement).toBe(rateInput);
+  });
+
+  it("the Add button is aria-disabled and inert when every item is claimed", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const all = fixturePack.items.map((i) => ({ itemId: i.id }));
+    render(
+      <InputsPanel
+        itemOverrides={all}
         onChange={onChange}
         pack={fixturePack}
       />,
     );
-    await user.click(screen.getByRole("button", { name: /添加输入/ }));
-    expect(onChange).toHaveBeenCalledTimes(1);
-    const next = (
-      onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
-    )(overrides);
-    expect(next.length).toBe(2);
-    expect(next[1]).toEqual({ itemId: "iron_ore" });
+    const add = screen.getByText(TEXT_ADD);
+    expect(add.getAttribute("aria-disabled")).toBe("true");
+    await user.click(add);
+    expect(screen.queryByTestId("picker-tile")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("a row trigger opens the picker with siblings disabled and its own item selected", async () => {

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import type { MouseEvent } from "react";
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
 import type { ItemOverride } from "../data/plan";
@@ -109,10 +110,9 @@ export function InputsPanel({
   const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
   // Which row the picker popup is open for, plus the trigger button that
   // opened it so focus can return there on close.
-  const [pickerFor, setPickerFor] = useState<{
-    kind: "row";
-    itemId: string;
-  } | null>(null);
+  const [pickerFor, setPickerFor] = useState<
+    { kind: "row"; itemId: string } | { kind: "add" } | null
+  >(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   // Armed by a pick, consumed by the matching row's callback ref on the next
   // commit. A stale token (the commit was rejected, or the panel is rendered
@@ -349,13 +349,10 @@ export function InputsPanel({
     });
   }
 
-  function handleAdd() {
-    onChange((current) => {
-      const used = new Set(current.map((o) => o.itemId));
-      const candidate = sortedItems.find((it) => !used.has(it.id));
-      if (!candidate) return current;
-      return [...current, { itemId: candidate.id }];
-    });
+  function handleAdd(e: MouseEvent<HTMLButtonElement>) {
+    if (addExhausted) return;
+    triggerRef.current = e.currentTarget;
+    setPickerFor({ kind: "add" });
   }
 
   // Auto-rows are every assumed-raw item WITHOUT an explicit override, shown
@@ -366,6 +363,13 @@ export function InputsPanel({
     (id) => !overrideIds.has(id),
   );
   const showEmptyState = itemOverrides.length === 0 && autoRows.length === 0;
+  // Every item already has a row, so the picker would open on an all-dimmed
+  // grid. Unreachable on the shipped pack, but a hand-crafted plan can carry
+  // one override per item. Derived from the last completed render (autoRows
+  // comes from realized demand), so it lags an in-flight solve; that is
+  // harmless for a guard.
+  const addExhausted =
+    displayedInputCount(itemOverrides, assumedRawItemIds) === pack.items.length;
 
   return (
     <div className="boundary-section" data-testid="inputs-section">
@@ -555,6 +559,7 @@ export function InputsPanel({
               <input
                 type="text"
                 inputMode="decimal"
+                ref={(el) => focusOnMount(el, row.itemId, "rate")}
                 aria-label={i18n.t("inputs.rate.label")}
                 aria-invalid={invalidIds.has(row.itemId) ? true : undefined}
                 aria-describedby={
@@ -597,7 +602,15 @@ export function InputsPanel({
           </div>
         );
       })}
-      <button className="b-add" onClick={handleAdd}>
+      <button
+        className="b-add"
+        onClick={handleAdd}
+        // aria-disabled, not disabled: a disabled button is not focusable, so
+        // keyboard and screen-reader users would never reach the title that
+        // explains why it does nothing.
+        aria-disabled={addExhausted ? true : undefined}
+        title={addExhausted ? i18n.t("inputs.add.exhausted") : undefined}
+      >
         {i18n.t("inputs.add")}
       </button>
       {pickerFor !== null ? renderPicker() : null}
@@ -606,9 +619,43 @@ export function InputsPanel({
 
   function renderPicker() {
     if (pickerFor === null) return null;
+    if (pickerFor.kind === "add") {
+      // Everything with a visible row is dimmed: the explicit overrides plus
+      // the auto-rows. Picking an auto-row item would append a bare override,
+      // which for a raw item leaves effectiveSupply at Infinity either way -
+      // a full re-solve and hash rewrite that changes nothing, and a row that
+      // jumps from the auto block to the end of the override block. Capping
+      // one stays what it is today: type into its auto-row.
+      const disabledIds = new Set<string>([
+        ...itemOverrides.map((o) => o.itemId),
+        ...(assumedRawItemIds ?? []),
+      ]);
+      return (
+        <ItemPickerPopup
+          items={pack.items}
+          disabledIds={disabledIds}
+          tierByItemId={tierByItemId}
+          disabledHint={i18n.t("inputs.picker.listed")}
+          onPick={(newId) => {
+            // The row mounts on a later commit, so hand its rate input the
+            // focus: it is the only edit that makes the new row do anything.
+            pendingFocus.current = { itemId: newId, kind: "rate" };
+            onChange((current) =>
+              current.some((o) => o.itemId === newId)
+                ? current
+                : [...current, { itemId: newId }],
+            );
+            closePicker();
+          }}
+          onClose={closePicker}
+        />
+      );
+    }
     const rowId = pickerFor.itemId;
-    // Disable items the other override rows already claim; the row's own item
-    // stays enabled and highlighted so re-picking it reads as a confirm.
+    // Only the other override rows are disabled here. Auto-row items stay
+    // enabled: for a capped row handleItemChange carries the rate onto the
+    // new item, so this is a live cap move, and blocking it would force a
+    // delete-and-retype.
     const disabledIds = new Set<string>(
       itemOverrides.filter((o) => o.itemId !== rowId).map((o) => o.itemId),
     );

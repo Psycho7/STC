@@ -43,6 +43,8 @@ export type UiKey =
   | "inputs.remove"
   | "inputs.remove.label"
   | "inputs.add"
+  | "inputs.add.exhausted"
+  | "inputs.picker.listed"
   | "inputs.duplicate"
   | "inputs.unlimited"
   | "inputs.needed"
@@ -123,6 +125,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.remove": "移除",
     "inputs.remove.label": "移除输入行",
     "inputs.add": "添加输入",
+    "inputs.add.exhausted": "所有物品均已添加",
+    "inputs.picker.listed": "灰显的物品已在面板中 — 请直接编辑对应行",
     "inputs.duplicate": "该物品已声明",
     "inputs.unlimited": "无限",
     "inputs.needed": "需求 {rate}/分",
@@ -196,6 +200,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.remove": "Remove",
     "inputs.remove.label": "Remove input row",
     "inputs.add": "Add input",
+    "inputs.add.exhausted": "All items already have a row",
+    "inputs.picker.listed":
+      "Dimmed items already have a row in the panel — edit that row instead",
     "inputs.duplicate": "Item already declared",
     "inputs.unlimited": "Unlimited",
     "inputs.needed": "needed {rate}/min",
@@ -269,6 +276,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.remove": "削除",
     "inputs.remove.label": "入力行を削除",
     "inputs.add": "入力を追加",
+    "inputs.add.exhausted": "すべてのアイテムが既に追加されています",
+    "inputs.picker.listed":
+      "グレー表示のアイテムは既にパネルにあります — 対応する行を直接編集してください",
     "inputs.duplicate": "このアイテムは既に登録されています",
     "inputs.unlimited": "無制限",
     "inputs.needed": "必要 {rate}/分",
@@ -342,6 +352,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.remove": "Удалить",
     "inputs.remove.label": "Удалить строку входа",
     "inputs.add": "Добавить вход",
+    "inputs.add.exhausted": "Все предметы уже объявлены",
+    "inputs.picker.listed":
+      "Затемнённые предметы уже есть в панели — редактируйте их строки",
     "inputs.duplicate": "Предмет уже объявлен",
     "inputs.unlimited": "Без ограничений",
     "inputs.needed": "нужно {rate}/мин",
