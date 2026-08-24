@@ -285,8 +285,19 @@ test.describe("InputsPanel golden-path coverage", () => {
     // Use copper_powder: a target output of the seeded plan that is also
     // consumed by liquid_copper, so the override renders an input node. The
     // dual-listing render is asserted in Test 6; here we only check rate commit.
+    const urlBeforeAdd = page.url();
     await addInputRow(page, "copper_powder");
     const newRow = inputRows(page).nth(initialCount);
+
+    // Let the add's own hash rewrite land before baselining the cap's. Reading
+    // the URL straight after the pick can capture it pre-rewrite, and then the
+    // cap poll below is satisfied by the ADD's rewrite instead: the assertions
+    // that follow would sample a canvas that is still uncapped, where the item
+    // has both an import unit and a target passthrough and the bare node
+    // locator matches two elements.
+    await expect
+      .poll(() => page.url(), { timeout: 5_000 })
+      .not.toBe(urlBeforeAdd);
 
     const rateInput = newRow.getByRole("textbox", { name: TEXT.rateLabel });
 
@@ -312,7 +323,10 @@ test.describe("InputsPanel golden-path coverage", () => {
     const copperPowderInput = page.locator(
       '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_powder"]',
     );
-    await expect(copperPowderInput).toBeAttached();
+    // Count first, not toBeAttached: a capped item has exactly one import unit,
+    // and asserting the count makes a stray second node report as a count
+    // mismatch rather than as a strict-mode violation on the next assertion.
+    await expect(copperPowderInput).toHaveCount(1);
     // The node renders the cap (120/min) once the override commits.
     await expect(copperPowderInput).toContainText("/分");
 
@@ -442,6 +456,60 @@ test.describe("InputsPanel golden-path coverage", () => {
     await expect(copperPowderInput).toBeAttached();
     await expect(copperPowderTargetFeed).toBeAttached();
     await expect(copperPowderOutput).toBeAttached();
+
+    await expectNoConsoleErrors(log);
+  });
+
+  test("Test 7: A below-demand cap drops the item's boundary input node", async ({
+    page,
+  }) => {
+    const log = attachConsoleListener(page);
+    await page.goto(`/#${await makeDualListedPlanHash()}`, {
+      waitUntil: "load",
+    });
+    await waitForCanvasReady(page);
+    await waitForInputsPanel(page);
+
+    // This pins current behaviour, it does not endorse it. Tests 4 and 6 pick
+    // cap values that keep their boundary nodes; this one takes the third case,
+    // which neither covers and which nothing else in the suite would notice
+    // changing.
+    //
+    // With copper_powder capped below its demand the solver abandons the
+    // liquid_copper recipe that consumes it for the phase-transfer route, which
+    // consumes none, so no in-graph machine consumes copper_powder and no
+    // boundary input node is emitted for it. The LP still reports a nonzero
+    // draw for the item that never reaches the canvas: the output node below
+    // ends up claiming the full target rate with nothing feeding it.
+    const initialCount = await inputRows(page).count();
+    const urlBeforeAdd = page.url();
+    await addInputRow(page, "copper_powder");
+    await expect
+      .poll(() => page.url(), { timeout: 5_000 })
+      .not.toBe(urlBeforeAdd);
+
+    const urlAfterItem = page.url();
+    const rateInput = inputRows(page)
+      .nth(initialCount)
+      .getByRole("textbox", { name: TEXT.rateLabel });
+    await rateInput.fill("30"); // 30/min == 0.5/s, under total demand.
+    await rateInput.press("Enter");
+    await expect
+      .poll(() => page.url(), { timeout: 5_000 })
+      .not.toBe(urlAfterItem);
+    await waitForCanvasReady(page);
+
+    await expect(
+      page.locator(
+        '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_powder"]',
+      ),
+    ).toHaveCount(0);
+    // The output node stays: copper_powder is still a target.
+    await expect(
+      page.locator(
+        '[data-testid="product-node"][data-flavor="outputProduct"][data-item-id="copper_powder"]',
+      ),
+    ).toHaveCount(1);
 
     await expectNoConsoleErrors(log);
   });

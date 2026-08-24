@@ -634,4 +634,114 @@ describe("InputsPanel", () => {
       );
     }
   });
+
+  it("swapping a capped row onto an auto-row item carries the cap and retires the auto-row", async () => {
+    const user = userEvent.setup();
+    function Parent() {
+      const [rows, setRows] = useState<ItemOverride[]>([
+        { itemId: "zinc", ratePerSec: { num: "3", denom: "1" } },
+      ]);
+      return (
+        <InputsPanel
+          itemOverrides={rows}
+          onChange={(update) => setRows((cur) => update(cur))}
+          pack={fixturePack}
+          assumedRawItemIds={["copper_ore", "iron_ore"]}
+        />
+      );
+    }
+    render(<Parent />);
+    // The override row's trigger is the only 物品 control; auto-rows have none.
+    await user.click(screen.getAllByLabelText("物品")[0]!);
+    await user.click(pickerTile("copper_ore")!);
+    // The swapped row keeps the cap: 3/s serializes to 180/min in the field.
+    const row = document.querySelector(
+      '[data-testid="input-row"][data-item-id="copper_ore"]',
+    );
+    expect(row).not.toBeNull();
+    expect(row!.querySelector("input")!.value).toBe("180");
+    // copper_ore now has an override, so its auto-row is gone and it renders
+    // exactly once. iron_ore is untouched and stays an auto-row.
+    expect(
+      document.querySelectorAll('[data-item-id="copper_ore"]').length,
+    ).toBe(1);
+    const autoIds = [...screen.getAllByTestId("input-auto-row")].map((el) =>
+      el.getAttribute("data-item-id"),
+    );
+    expect(autoIds).toEqual(["iron_ore"]);
+  });
+
+  it("Add is exhausted when overrides and auto-rows together cover the pack", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel
+        itemOverrides={[{ itemId: "zinc" }, { itemId: "copper_plate" }]}
+        onChange={onChange}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore", "iron_ore"]}
+      />,
+    );
+    // Two overrides plus two auto-rows is all four fixture items. Counting only
+    // the overrides would read 2 of 4 and leave Add live on an all-dimmed grid.
+    const add = screen.getByText(TEXT_ADD);
+    expect(add.getAttribute("aria-disabled")).toBe("true");
+    await user.click(add);
+    expect(screen.queryByTestId("picker-tile")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("a dirty rate edit commits before the trigger opens the picker", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel
+        itemOverrides={[{ itemId: "copper_ore" }]}
+        onChange={onChange}
+        pack={fixturePack}
+      />,
+    );
+    const rate = screen.getAllByLabelText("速率")[0]!;
+    await user.click(rate);
+    await user.keyboard("60");
+    expect(onChange).not.toHaveBeenCalled();
+    // Clicking the trigger blurs the rate field, and blur is a commit. The cap
+    // must not be swallowed by the popup opening.
+    await user.click(screen.getAllByLabelText("物品")[0]!);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const updater = onChange.mock.calls[0]![0] as (
+      c: ItemOverride[],
+    ) => ItemOverride[];
+    expect(updater([{ itemId: "copper_ore" }])).toEqual([
+      { itemId: "copper_ore", ratePerSec: { num: "1", denom: "1" } },
+    ]);
+    // queryAllBy, not queryBy: the open grid has a tile per fixture item and
+    // the singular query throws on multiple matches.
+    expect(screen.queryAllByTestId("picker-tile").length).toBeGreaterThan(0);
+  });
+
+  it("the picker opens and picks by keyboard alone", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <InputsPanel
+        itemOverrides={[{ itemId: "copper_ore" }]}
+        onChange={onChange}
+        pack={fixturePack}
+      />,
+    );
+    const trigger = screen.getAllByLabelText("物品")[0]!;
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    // The dialog autofocuses its search box, so typing narrows without a click.
+    const search = document.querySelector(".recipe-picker-search");
+    expect(document.activeElement).toBe(search);
+    // Tiles are real buttons: focusable, and Enter activates them.
+    const target = pickerTile("iron_ore")!;
+    target.focus();
+    expect(document.activeElement).toBe(target);
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("picker-tile")).toBeNull();
+  });
 });
