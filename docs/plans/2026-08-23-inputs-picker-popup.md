@@ -1329,7 +1329,7 @@ git commit -m "Drive the input panel e2e suite through the item picker"
 
 **Files:** none modified unless a gate fails.
 
-- [ ] **Step 1: Run every gate**
+- [x] **Step 1: Run every gate**
 
 ```bash
 bun run typecheck && bun run lint && bun run test && bun run test:e2e
@@ -1341,7 +1341,7 @@ Expected: typecheck, lint and test clean.
 
 For e2e this runs the whole Playwright suite, which is wider than the Task 0 baseline. Two different rules apply. Inside `inputs-panel.spec.ts`, compare against the Task 0 baseline: no test that was passing there may fail now, and Tests 1 and 3 are exempt because they were retitled, so match by position. Outside it, the Task 0 baseline has no rows at all; this repo carries known pre-existing failures in other specs, so judge those against `origin/develop` before attributing anything to this branch.
 
-- [ ] **Step 2: Visual check in the browser**
+- [x] **Step 2: Visual check in the browser**
 
 Run `bun run dev`, open the app, and confirm by looking, not by presence:
 
@@ -1352,6 +1352,50 @@ Run `bun run dev`, open the app, and confirm by looking, not by presence:
 - Picking a different item from a row swaps it and the focus ring is on the swapped row's trigger.
 - Escape and a backdrop click both return the focus ring to the trigger that opened the picker.
 - Long names truncate with an ellipsis and show the full name on hover.
+
+> **Gate results.** `typecheck` clean, `lint` clean, `test` 1450 passed / 1 skipped
+> across 134 files.
+>
+> `test:e2e -- inputs-panel`: 6 passed, 0 failed, against a 2-passed / 4-failed
+> Task 0 baseline. Every gated test (2 and 6) still passes; 1, 3, 4 and 5 all moved
+> from failing to passing.
+>
+> Full `test:e2e`: 12 failures on the first run, 2 on the second. The 10 that
+> vanished were `placement-shots`, whose screenshot baselines are gitignored and so
+> were absent in a fresh worktree; the first run writes them. The 2 that remain,
+> `geometry-audit multi6` and `raw-and-transport override copper_ore plan:true`,
+> reproduce identically on a detached `origin/develop` worktree, so they are
+> inherited, not caused here. No spec outside `inputs-panel.spec.ts` touches the
+> inputs panel controls at all (no `combobox`, `selectOption`, `b-pick` or
+> `input-row` reference anywhere else under `test/e2e/`).
+>
+> **Step 2 evidence.** Driven through Playwright with programmatic focus readback
+> plus screenshots, since this session has no interactive browser. Captures kept in
+> `.artifacts/shots/` (gitignored).
+>
+> - Resting panel: the row name reads as a heading with the cyan caret at the right
+>   edge of the name slot, no box. The section-head denominator reads `113`, from
+>   `pack.items.length`.
+> - Row picker: own item outlined lime as selected, sibling row's item dimmed, no
+>   hint line (`hintCount=0`).
+> - Add picker: hint line renders under the search box and stays anchored there
+>   when the grid scrolls or filters; exactly the 3 auto-row items
+>   (`copper_ore`, `iron_ore`, `liquid_water`) are dimmed out of 113 tiles.
+> - Pick from Add: row appended and focus lands on its rate input
+>   (`{tag: INPUT, label: 速率, row: copper_powder}`).
+> - Swap from a row: focus lands on the swapped row's trigger
+>   (`{tag: BUTTON, cls: b-pick-trigger, row: iron_powder}`).
+> - Escape and backdrop click: focus returns to the trigger that opened the picker
+>   in both cases. No focus RING is painted, because `:focus-visible` does not match
+>   a mouse-opened dialog; that is the pre-existing `.b-pick-trigger` rule and
+>   applies to the targets panel identically.
+> - Truncation: no name in the shipped zh pack overflows the trigger even at a
+>   1100px viewport, so the real pack never exercises it. Forcing a 31-character
+>   name confirms the rule works: `scrollWidth 455 vs clientWidth 166`,
+>   `overflow: hidden`, `text-overflow: ellipsis`, and the caret stays visible.
+>   `title` carries the full name.
+> - `addExhausted` is false on the default plan (`aria-disabled` absent), as
+>   expected at 4 of 113 items.
 
 - [ ] **Step 3: Commit any fixes**
 
