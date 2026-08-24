@@ -1106,29 +1106,29 @@ git commit -m "Remove the input row select and refresh its stale comments"
 - Consumes: Task 7.
 - Produces: nothing.
 
-- [ ] **Step 1: Delete the test**
+- [x] **Step 1: Delete the test**
 
 Delete the whole `test("item picker options are sorted by localized display name, not id", ...)` block from `src/components/InputsPanel.test.tsx`. It asserts the global option sequence is collator-sorted across all 113 items by walking `querySelectorAll("option")`. The popup buckets by tier and sorts only within a bucket, so the global guarantee no longer holds and the test cannot be retargeted mechanically. Task 2 moved the surviving guarantee into `ItemPickerPopup.test.tsx`.
 
-- [ ] **Step 2: Remove the import the deletion orphans**
+- [x] **Step 2: Remove the import the deletion orphans**
 
 `import { pack as realPack } from "../data/load";` had the deleted test as its only consumer. Leaving it fails `bun run lint` under `@typescript-eslint/no-unused-vars`. Delete it, along with any other binding that test was alone in using.
 
-- [ ] **Step 3: Fix any other combobox reference in the file**
+- [x] **Step 3: Fix any other combobox reference in the file**
 
 Search the file for `getByRole("combobox")` and `querySelectorAll("option")`. Any remaining use belongs to the deleted test; if another test uses them, rewrite it to click the row trigger and then a `[data-item-id]` tile, following Task 3's pattern.
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `bun run test -- src/components/InputsPanel.test.tsx`
 Expected: PASS, whole file.
 
-- [ ] **Step 5: Run every vitest suite**
+- [x] **Step 5: Run every vitest suite**
 
 Run: `bun run test`
 Expected: PASS. `test/integration/inputs-panel-shell.test.tsx` must pass untouched; if it fails, something in Tasks 3 to 7 changed the rate control, which is out of scope.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/InputsPanel.test.tsx
