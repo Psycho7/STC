@@ -96,26 +96,30 @@ export function ItemPickerPopup({
       .sort((a, b) => a.tier - b.tier);
   }, [items, search, tierByItemId, collator, i18n]);
 
-  // Enabled tiles in visual order. Disabled tiles are real disabled buttons and
-  // take no focus, so they are not stops.
+  // Every tile in visual order, disabled included. Arithmetic runs over this
+  // list rather than over the enabled subset so that "one row down" is one
+  // actual row: skipping disabled tiles first would make the step drift by
+  // however many are interleaved above. Disabled tiles are real disabled
+  // buttons and take no focus, so a landing on one walks on to the next
+  // enabled tile in the direction of travel.
   const navIds = useMemo(
-    () =>
-      groups.flatMap((g) =>
-        g.items.filter((it) => !disabledIds.has(it.id)).map((it) => it.id),
-      ),
-    [groups, disabledIds],
+    () => groups.flatMap((g) => g.items.map((it) => it.id)),
+    [groups],
   );
+  const firstEnabled = navIds.find((id) => !disabledIds.has(id)) ?? null;
 
   // The grid is ONE tab stop, not one per tile: on the shipped pack a tabbable
   // tile per item would put ~250 stops between the search box and the end of
   // the dialog. The stop starts on the row's current item when there is one, so
   // Tab out of the search box lands on what the user is editing.
   const rovingId =
-    activeId !== null && navIds.includes(activeId)
+    activeId !== null && navIds.includes(activeId) && !disabledIds.has(activeId)
       ? activeId
-      : selectedId !== undefined && navIds.includes(selectedId)
+      : selectedId !== undefined &&
+          navIds.includes(selectedId) &&
+          !disabledIds.has(selectedId)
         ? selectedId
-        : (navIds[0] ?? null);
+        : firstEnabled;
 
   function focusTile(id: string) {
     setActiveId(id);
@@ -173,31 +177,47 @@ export function ItemPickerPopup({
     if (from < 0) return;
     const cols = columnsFor(tile);
     let to: number;
+    let step: 1 | -1;
     switch (e.key) {
       case "ArrowRight":
         to = from + 1;
+        step = 1;
         break;
       case "ArrowLeft":
         to = from - 1;
+        step = -1;
         break;
       case "ArrowDown":
         to = from + cols;
+        step = 1;
         break;
       case "ArrowUp":
         to = from - cols;
+        step = -1;
         break;
       case "Home":
         to = 0;
+        step = 1;
         break;
       case "End":
         to = navIds.length - 1;
+        step = -1;
         break;
       default:
         return;
     }
     e.preventDefault();
-    const id = navIds[Math.max(0, Math.min(navIds.length - 1, to))];
-    if (id !== undefined) focusTile(id);
+    // Clamp rather than wrap, then walk on past any disabled tiles the landing
+    // cell hits. A move with no enabled tile beyond it stays put.
+    let at = Math.max(0, Math.min(navIds.length - 1, to));
+    while (at >= 0 && at < navIds.length) {
+      const id = navIds[at];
+      if (id !== undefined && !disabledIds.has(id)) {
+        focusTile(id);
+        return;
+      }
+      at += step;
+    }
   }
 
   return createPortal(

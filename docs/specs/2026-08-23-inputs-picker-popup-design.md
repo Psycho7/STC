@@ -384,13 +384,19 @@ in `ItemPickerPopup` rather than deferred. Both panels get it.
   starts on `selectedId` when the caller passes one, so tabbing out of the
   search box lands on the item being edited, and it follows the search results
   when the grid is filtered.
-- **Arrow keys move within the grid.** Left and Right step one enabled tile;
-  Up and Down step one row, where the column count is read from the live grid's
+- **Arrow keys move within the grid.** Left and Right step one cell; Up and
+  Down step one row, where the column count is read from the live grid's
   computed `grid-template-columns` rather than a constant, since the template is
-  responsive. Home and End jump to the first and last enabled tile, crossing
-  tier-group boundaries. Movement clamps at both ends instead of wrapping.
-  Disabled tiles are real `disabled` buttons and take no focus, so they are
-  never stops.
+  responsive. Home and End jump to the first and last tile, crossing tier-group
+  boundaries. Movement clamps at both ends instead of wrapping.
+- **The step is over every cell, then it walks off disabled ones.** Disabled
+  tiles are real `disabled` buttons and take no focus, so they cannot be
+  landings, but they still occupy grid cells. Stepping over the enabled subset
+  instead would make "one row down" drift by however many disabled tiles sit
+  above, so the arithmetic runs over the full list and a landing on a disabled
+  cell continues in the direction of travel to the next enabled one. A move with
+  no enabled tile beyond it stays put. Verified in the browser at five columns:
+  Down holds the column and Right holds the row.
 - **Tab is trapped.** `aria-modal` does not confine Tab on its own. Tab off the
   last stop returns to the first and Shift+Tab off the first goes to the last;
   in the middle of the ring the event is left to the browser.

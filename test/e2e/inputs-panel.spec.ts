@@ -263,7 +263,11 @@ test.describe("InputsPanel golden-path coverage", () => {
     // Open the picker from the second row: the item the first row claims is
     // dimmed, so a duplicate cannot be picked at all.
     const secondRow = inputRows(page).nth(initialCount + 1);
-    await secondRow.getByRole("button", { name: TEXT.itemLabel }).click();
+    // exact: false - the trigger's accessible name is the label plus the
+    // row's item, so it never equals the bare label.
+    await secondRow
+      .getByRole("button", { name: TEXT.itemLabel, exact: false })
+      .click();
     await expect(
       page.locator('.recipe-picker [data-item-id="copper_powder"]'),
     ).toBeDisabled();

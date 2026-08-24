@@ -523,7 +523,15 @@ export function InputsPanel({
                   type="button"
                   className="b-pick-trigger"
                   ref={(el) => focusOnMount(el, row.itemId, "trigger")}
-                  aria-label={i18n.t("inputs.item.label")}
+                  // The name goes in the accessible NAME, not just the visible
+                  // text: aria-label overrides the button's content, so a bare
+                  // "Item" would make every row's trigger announce identically
+                  // and a screen-reader user could not tell which row they were
+                  // about to open the picker for. The <select> this replaced
+                  // announced its item as the control's value.
+                  aria-label={i18n.t("inputs.item.selected", {
+                    name: i18n.displayName(row.itemId),
+                  })}
                   aria-haspopup="dialog"
                   // title shows the full localised item name on hover, for
                   // when the trigger truncates long names at narrow widths.

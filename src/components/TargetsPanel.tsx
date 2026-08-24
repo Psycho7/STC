@@ -52,9 +52,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
   // Which row/draft the picker popup is open for, plus the trigger button that
   // opened it so focus can return there on close.
   const [pickerFor, setPickerFor] = useState<
-    | { kind: "row"; itemId: string }
-    | { kind: "draft"; draftId: string }
-    | null
+    { kind: "row"; itemId: string } | { kind: "draft"; draftId: string } | null
   >(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   function closePicker() {
@@ -272,7 +270,12 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                 <button
                   type="button"
                   className="b-pick-trigger"
-                  aria-label={i18n.t("targets.item.label")}
+                  // The name goes in the accessible NAME, not just the visible
+                  // text: aria-label overrides the button's content, so a bare
+                  // "item" would make every row's trigger announce identically.
+                  aria-label={i18n.t("targets.item.selected", {
+                    name: i18n.displayName(t.itemId),
+                  })}
                   aria-haspopup="dialog"
                   // title shows the full localised item name on hover, for
                   // when the trigger truncates long names at narrow widths.
@@ -361,7 +364,16 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                     "b-pick-trigger" +
                     (draft.itemId === "" ? " placeholder" : "")
                   }
-                  aria-label={i18n.t("targets.item.label")}
+                  // An empty draft has no item to name, so it keeps the
+                  // call-to-action string; once picked it names the item like a
+                  // target row's trigger does.
+                  aria-label={
+                    draft.itemId !== ""
+                      ? i18n.t("targets.item.selected", {
+                          name: i18n.displayName(draft.itemId),
+                        })
+                      : i18n.t("targets.item.choose")
+                  }
                   aria-haspopup="dialog"
                   title={
                     draft.itemId !== ""

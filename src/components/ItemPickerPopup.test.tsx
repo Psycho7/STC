@@ -271,3 +271,25 @@ test("Tab in the middle of the ring is left to the browser", () => {
   expect(document.activeElement).toBe(search);
   expect(props.onClose).not.toHaveBeenCalled();
 });
+
+test("a move with no enabled tile beyond it stays put", () => {
+  // Everything after alpha in visual order is disabled, so Right, Down and End
+  // all have nowhere to land.
+  renderPopup({ disabledIds: new Set(["bravo", "delta", "charlie", "echo"]) });
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  for (const key of ["ArrowRight", "ArrowDown", "End"]) {
+    fireEvent.keyDown(alpha, { key });
+    expect(document.activeElement).toBe(alpha);
+  }
+});
+
+test("the roving stop never lands on a disabled tile", () => {
+  // alpha is both the selected id and disabled: the stop has to fall through to
+  // the first enabled tile rather than park somewhere unfocusable.
+  renderPopup({ selectedId: "alpha", disabledIds: new Set(["alpha"]) });
+  const tabbable = tiles().filter((t) => t.tabIndex === 0);
+  expect(tabbable.map((t) => t.getAttribute("data-item-id"))).toEqual([
+    "bravo",
+  ]);
+});
