@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import type { Item, Recipe, RecipePack } from "@aef/schema";
 import { InputsPanel } from "../../src/components/InputsPanel";
 import type { ItemOverride } from "../../src/data/plan";
@@ -537,5 +538,31 @@ describe("InputsPanel", () => {
     expect(rows[0]!.getAttribute("data-is-also-target")).toBe("false");
     expect(rows[1]!.getAttribute("data-is-raw")).toBe("false");
     expect(rows[1]!.getAttribute("data-is-also-target")).toBe("true");
+  });
+
+  it("a committed swap moves focus to the swapped row's trigger", async () => {
+    const user = userEvent.setup();
+    function Parent() {
+      const [rows, setRows] = useState<ItemOverride[]>([
+        { itemId: "copper_ore" },
+      ]);
+      return (
+        <InputsPanel
+          itemOverrides={rows}
+          onChange={(update) => setRows((cur) => update(cur))}
+          pack={fixturePack}
+        />
+      );
+    }
+    render(<Parent />);
+    await user.click(screen.getAllByLabelText("物品")[0]!);
+    await user.click(pickerTile("iron_ore")!);
+    const trigger = screen.getAllByLabelText("物品")[0]!;
+    // Assert the row identity by id, not by rendered text: displayName resolves
+    // iron_ore to its localized name, which differs per locale.
+    expect(
+      trigger.closest("[data-item-id]")?.getAttribute("data-item-id"),
+    ).toBe("iron_ore");
+    expect(document.activeElement).toBe(trigger);
   });
 });

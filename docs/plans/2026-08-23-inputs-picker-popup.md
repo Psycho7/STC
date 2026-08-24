@@ -532,7 +532,7 @@ A committed swap unmounts the row, because rows are keyed by `itemId`, so `close
 - Consumes: Task 3's `pickerFor` and `closePicker`.
 - Produces: a module-local type `PendingFocus = { itemId: string; kind: "rate" | "trigger" }` and a `pendingFocusRef` whose token each row's callback ref consumes only on a matching `kind`. Task 5 arms `kind: "rate"`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `test/components/InputsPanel.test.tsx`:
 
@@ -564,12 +564,12 @@ it("a committed swap moves focus to the swapped row's trigger", async () => {
 
 Follow the file conventions in Task 3 Step 1: `it(...)` not `test(...)`, no `LocaleProvider` wrapper (default locale `zh`), `pack={fixturePack}`. Use the `pickerTile` helper Task 3 declared; do not redeclare it. Add `import { useState } from "react";` if it is not there yet. Append inside the existing `describe("InputsPanel", ...)` block, so the suite does not end up split.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx -t "committed swap"`
 Expected: FAIL, `expected <body> to be <button>`.
 
-- [ ] **Step 3: Add the pending-focus token**
+- [x] **Step 3: Add the pending-focus token**
 
 In `src/components/InputsPanel.tsx`, above the component:
 
@@ -602,7 +602,7 @@ Inside the component, next to `triggerRef`:
   }
 ```
 
-- [ ] **Step 4: Arm on swap and consume on the trigger**
+- [x] **Step 4: Arm on swap and consume on the trigger**
 
 In `renderPicker`'s `onPick`, change the swap branch:
 
@@ -625,12 +625,12 @@ Add the callback ref to the trigger button from Task 3:
                   ref={(el) => focusOnMount(el, row.itemId, "trigger")}
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `bun run test -- test/components/InputsPanel.test.tsx -t "committed swap"`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/InputsPanel.tsx test/components/InputsPanel.test.tsx

@@ -67,6 +67,13 @@ function parsePerMinToOptional(
   return { num: n!, denom: d! };
 }
 
+// A focus target armed by a pick and consumed on the commit that mounts the
+// row. The kind matters: both consumers live on the same row and React
+// attaches refs in tree order, so the trigger inside .info completes before
+// the rate input inside .b-rate. A bare item id would let the trigger ref
+// swallow every token and the add path's rate focus would never fire.
+type PendingFocus = { itemId: string; kind: "rate" | "trigger" };
+
 export function InputsPanel({
   itemOverrides,
   onChange,
@@ -107,6 +114,21 @@ export function InputsPanel({
     itemId: string;
   } | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  // Armed by a pick, consumed by the matching row's callback ref on the next
+  // commit. A stale token (the commit was rejected, or the panel is rendered
+  // with an onChange that never feeds the prop back) is simply overwritten by
+  // the next pick.
+  const pendingFocus = useRef<PendingFocus | null>(null);
+  function focusOnMount(
+    el: HTMLElement | null,
+    itemId: string,
+    kind: PendingFocus["kind"],
+  ) {
+    const want = pendingFocus.current;
+    if (!el || !want || want.itemId !== itemId || want.kind !== kind) return;
+    pendingFocus.current = null;
+    el.focus();
+  }
   function closePicker() {
     setPickerFor(null);
     const btn = triggerRef.current;
@@ -485,6 +507,7 @@ export function InputsPanel({
                 <button
                   type="button"
                   className="b-pick-trigger"
+                  ref={(el) => focusOnMount(el, row.itemId, "trigger")}
                   aria-label={i18n.t("inputs.item.label")}
                   aria-haspopup="dialog"
                   // title shows the full localised item name on hover, for
@@ -599,7 +622,13 @@ export function InputsPanel({
           // Re-picking the row's own (still-enabled, highlighted) item is a
           // confirm, not a swap; without this guard the dup check would match
           // the row against itself and raise a false duplicate alert.
-          if (newId !== rowId) handleItemChange(rowId, newId);
+          if (newId !== rowId) {
+            // The swap unmounts this row (rows are keyed by itemId), so
+            // closePicker's refocus lands on a button the next commit
+            // removes. Hand focus to the swapped row's trigger instead.
+            pendingFocus.current = { itemId: newId, kind: "trigger" };
+            handleItemChange(rowId, newId);
+          }
           closePicker();
         }}
         onClose={closePicker}
