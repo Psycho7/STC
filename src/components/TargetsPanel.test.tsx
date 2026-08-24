@@ -589,3 +589,29 @@ test("empty-target placeholder localizes under zh", () => {
     "未声明任何目标产物 — 点击下方按钮添加",
   );
 });
+
+// aria-label overrides a button's content, so a bare "item" made every row's
+// trigger announce identically and a screen-reader user could not tell which
+// row they were about to open the picker for. Each trigger names its own item;
+// an empty draft keeps the call to action, since it has no item to name.
+test("each item trigger is named by its own item", () => {
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={targets3().slice(0, 2)}
+        onChange={vi.fn()}
+        pack={PACK}
+      />
+    </LocaleProvider>,
+  );
+  expect(
+    screen
+      .getAllByLabelText(/^Item:/)
+      .map((el) => el.getAttribute("aria-label")),
+  ).toEqual(["Item: widget", "Item: gadget"]);
+  fireEvent.click(screen.getByRole("button", { name: "Add target" }));
+  const draftRow = screen.getByTestId("target-draft-row");
+  expect(within(draftRow).getByLabelText("Choose an item...").tagName).toBe(
+    "BUTTON",
+  );
+});

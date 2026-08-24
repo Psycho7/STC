@@ -6,26 +6,33 @@ import type { ComponentProps } from "react";
 import type { Item } from "@aef/schema";
 import { ItemPickerPopup } from "./ItemPickerPopup";
 import { LocaleProvider } from "../data/i18n-context";
+import { pack as realPack } from "../data/load";
+import { computeItemDepths } from "../data/recipe-depth";
 
 afterEach(cleanup);
+afterEach(() => vi.restoreAllMocks());
 
 function mkItem(id: string): Item {
   return { id, category: "cat", icon: id } as unknown as Item;
 }
 
+// Tier 1 is deliberately NOT in name order in the array, so a within-group
+// ordering assertion fails if the popup stops sorting.
 const ITEMS = [
-  mkItem("alpha"),
-  mkItem("bravo"),
-  mkItem("charlie"),
   mkItem("delta"),
+  mkItem("bravo"),
+  mkItem("alpha"),
+  mkItem("charlie"),
+  mkItem("echo"),
 ];
 
-// alpha, bravo -> tier 1; charlie -> tier 2; delta -> Infinity.
+// alpha, bravo, delta -> tier 1; charlie -> tier 2; echo -> Infinity.
 const TIERS = new Map<string, number>([
   ["alpha", 1],
   ["bravo", 1],
+  ["delta", 1],
   ["charlie", 2],
-  ["delta", Number.POSITIVE_INFINITY],
+  ["echo", Number.POSITIVE_INFINITY],
 ]);
 
 function renderPopup(
@@ -49,6 +56,22 @@ function renderPopup(
 
 function tile(itemId: string): HTMLButtonElement | null {
   return document.querySelector(`[data-item-id="${itemId}"]`);
+}
+
+function tiles(): HTMLButtonElement[] {
+  return [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="picker-tile"]',
+    ),
+  ];
+}
+
+// The ids of every tile Tab can reach. The grid is meant to expose exactly one,
+// so asserting the whole array pins the count and the identity together.
+function tabStopIds(): string[] {
+  return tiles()
+    .filter((t) => t.tabIndex === 0)
+    .map((t) => t.getAttribute("data-item-id") ?? "");
 }
 
 function groupHeads(): string[] {
@@ -109,4 +132,186 @@ test("backdrop click fires onClose; a click inside the panel does not", () => {
   expect(props.onClose).not.toHaveBeenCalled();
   fireEvent.click(document.querySelector(".recipe-picker-backdrop")!);
   expect(props.onClose).toHaveBeenCalledTimes(1);
+});
+
+test("renders the disabled hint line when the prop is set", () => {
+  renderPopup({ disabledHint: "already in the panel" });
+  const hint = screen.getByTestId("picker-hint");
+  expect(hint.textContent).toBe("already in the panel");
+  // The hint is a sibling of the scroll body, not inside it, so it never
+  // scrolls out of view.
+  expect(hint.parentElement?.className).toBe("recipe-picker");
+});
+
+test("renders no hint line when the prop is absent", () => {
+  renderPopup();
+  expect(screen.queryByTestId("picker-hint")).toBeNull();
+});
+
+test("sorts tiles by localized name within each group, not by array order", () => {
+  renderPopup();
+  const groups = [...document.querySelectorAll(".recipe-picker-group")];
+  const namesPerGroup = groups.map((g) =>
+    [...g.querySelectorAll(".recipe-picker-tile-label")].map(
+      (el) => el.textContent ?? "",
+    ),
+  );
+  const collator = new Intl.Collator("en");
+  for (const names of namesPerGroup) {
+    expect(names).toEqual([...names].sort((a, b) => collator.compare(a, b)));
+  }
+  // Tier 1 specifically: array order was delta, bravo, alpha.
+  expect(namesPerGroup[0]).toEqual(["alpha", "bravo", "delta"]);
+});
+
+// The fixture above cannot pin this: its ids have no i18n entries, so
+// displayName falls back to the id and a name sort is indistinguishable from an
+// id sort. Only the real pack in a non-latin locale separates the two, which is
+// what the retired InputsPanel option-order test used to guarantee.
+test("sorts by localized name rather than by id, on the real pack in zh", () => {
+  render(
+    <LocaleProvider locale="zh">
+      <ItemPickerPopup
+        items={realPack.items}
+        disabledIds={new Set<string>()}
+        tierByItemId={computeItemDepths(realPack)}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+      />
+    </LocaleProvider>,
+  );
+  const collator = new Intl.Collator("zh");
+  const groups = [...document.querySelectorAll(".recipe-picker-group")];
+  expect(groups.length).toBeGreaterThan(1);
+  let sawDivergence = false;
+  for (const g of groups) {
+    const tiles = [...g.querySelectorAll('[data-testid="picker-tile"]')];
+    const names = tiles.map(
+      (t) => t.querySelector(".recipe-picker-tile-label")?.textContent ?? "",
+    );
+    expect(names).toEqual([...names].sort((a, b) => collator.compare(a, b)));
+    // And the result differs from an id sort somewhere, which is the half that
+    // proves the key is the name and not the id.
+    const ids = tiles.map((t) => t.getAttribute("data-item-id") ?? "");
+    if (ids.join() !== [...ids].sort().join()) sawDivergence = true;
+  }
+  expect(sawDivergence).toBe(true);
+});
+
+test("the grid is one tab stop, not one per tile", () => {
+  renderPopup({ disabledIds: new Set(["bravo"]) });
+  // A tabbable tile per item would put one stop per pack item between the
+  // search box and the end of the dialog. With nothing selected that one stop
+  // starts on the first enabled tile in visual order, which is alpha (tier 1,
+  // name-sorted, bravo disabled).
+  expect(tabStopIds()).toEqual(["alpha"]);
+});
+
+test("the tab stop starts on the selected tile when there is one", () => {
+  renderPopup({ selectedId: "charlie" });
+  expect(tabStopIds()).toEqual(["charlie"]);
+});
+
+test("arrow keys walk the grid and skip disabled tiles", () => {
+  renderPopup({ disabledIds: new Set(["bravo"]) });
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  // Tier 1 is alpha, bravo, delta by name; bravo is disabled and takes no
+  // focus, so Right from alpha lands on delta.
+  fireEvent.keyDown(alpha, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(tile("delta"));
+  fireEvent.keyDown(tile("delta")!, { key: "ArrowLeft" });
+  expect(document.activeElement).toBe(alpha);
+  // End crosses group boundaries to the last enabled tile overall.
+  fireEvent.keyDown(alpha, { key: "End" });
+  expect(document.activeElement).toBe(tile("echo"));
+  fireEvent.keyDown(tile("echo")!, { key: "Home" });
+  expect(document.activeElement).toBe(alpha);
+});
+
+test("Up and Down step a whole grid row, not one tile", () => {
+  // jsdom computes no grid template, so columnsFor falls back to one column and
+  // Up/Down would silently degrade into Left/Right - which is exactly the drift
+  // this test exists to catch. Report two columns and tier 1 lays out as
+  // alpha, bravo / delta, so Down from alpha must reach delta, not bravo.
+  const real = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation(((el: Element) =>
+    el.classList?.contains("recipe-picker-grid")
+      ? ({ gridTemplateColumns: "40px 40px" } as CSSStyleDeclaration)
+      : real(el)) as typeof window.getComputedStyle);
+  renderPopup();
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  fireEvent.keyDown(alpha, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(tile("delta"));
+  fireEvent.keyDown(tile("delta")!, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(alpha);
+  // Right still steps one cell, so the two axes cannot collapse into each other.
+  fireEvent.keyDown(alpha, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(tile("bravo"));
+});
+
+test("arrow movement clamps at both ends instead of wrapping", () => {
+  renderPopup();
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  fireEvent.keyDown(alpha, { key: "ArrowLeft" });
+  expect(document.activeElement).toBe(alpha);
+  const echo = tile("echo")!;
+  echo.focus();
+  fireEvent.keyDown(echo, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(echo);
+});
+
+test("moving the tab stop leaves exactly one tabbable tile behind", () => {
+  renderPopup();
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  fireEvent.keyDown(alpha, { key: "End" });
+  expect(tabStopIds()).toEqual(["echo"]);
+});
+
+test("Tab is trapped inside the dialog at both ends", () => {
+  renderPopup();
+  const close = screen.getByLabelText(/close/i);
+  const stop = tiles().find((t) => t.tabIndex === 0)!;
+  // Forward off the last stop comes back to the first, rather than leaving for
+  // the page behind the backdrop.
+  stop.focus();
+  fireEvent.keyDown(stop, { key: "Tab" });
+  expect(document.activeElement).toBe(close);
+  // And backward off the first goes to the last.
+  fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(stop);
+});
+
+test("Tab in the middle of the ring is left to the browser", () => {
+  const props = renderPopup();
+  const search = screen.getByLabelText(/search/i) as HTMLInputElement;
+  search.focus();
+  const handled = fireEvent.keyDown(search, { key: "Tab" });
+  // fireEvent returns false when a handler called preventDefault. The search
+  // box is neither end of the ring, so nothing intercepts it.
+  expect(handled).toBe(true);
+  expect(document.activeElement).toBe(search);
+  expect(props.onClose).not.toHaveBeenCalled();
+});
+
+test("a move with no enabled tile beyond it stays put", () => {
+  // Everything after alpha in visual order is disabled, so Right, Down and End
+  // all have nowhere to land.
+  renderPopup({ disabledIds: new Set(["bravo", "delta", "charlie", "echo"]) });
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  for (const key of ["ArrowRight", "ArrowDown", "End"]) {
+    fireEvent.keyDown(alpha, { key });
+    expect(document.activeElement).toBe(alpha);
+  }
+});
+
+test("the roving stop never lands on a disabled tile", () => {
+  // alpha is both the selected id and disabled: the stop has to fall through to
+  // the first enabled tile rather than park somewhere unfocusable.
+  renderPopup({ selectedId: "alpha", disabledIds: new Set(["alpha"]) });
+  expect(tabStopIds()).toEqual(["bravo"]);
 });

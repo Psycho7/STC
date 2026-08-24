@@ -8,8 +8,8 @@ export type UiKey =
   | "targets.remove"
   | "targets.rate.unit"
   | "targets.rate.label"
-  | "targets.item.label"
   | "targets.item.choose"
+  | "item.selected"
   | "targets.remove.label"
   | "targets.duplicate"
   | "targets.head.sub"
@@ -33,7 +33,6 @@ export type UiKey =
   | "app.frozen.edit"
   | "app.locale.label"
   | "inputs.title"
-  | "inputs.item.label"
   | "inputs.rate.label"
   | "inputs.rate.unit"
   | "canvas.rate.unit"
@@ -43,6 +42,8 @@ export type UiKey =
   | "inputs.remove"
   | "inputs.remove.label"
   | "inputs.add"
+  | "inputs.add.exhausted"
+  | "inputs.picker.listed"
   | "inputs.duplicate"
   | "inputs.unlimited"
   | "inputs.needed"
@@ -86,8 +87,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "删除",
     "targets.rate.unit": "件 / 分钟",
     "targets.rate.label": "速率",
-    "targets.item.label": "物品",
     "targets.item.choose": "选择物品…",
+    "item.selected": "物品：{name}",
     "targets.remove.label": "删除目标",
     "targets.duplicate": "物品 ID 重复: {itemId}",
     "targets.head.sub": "// 声明产出速率 · 件 / 分钟",
@@ -113,7 +114,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "编辑",
     "app.locale.label": "语言",
     "inputs.title": "输入",
-    "inputs.item.label": "物品",
     "inputs.rate.label": "速率",
     "inputs.rate.unit": "/分",
     "canvas.rate.unit": "/分",
@@ -123,6 +123,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.remove": "移除",
     "inputs.remove.label": "移除输入行",
     "inputs.add": "添加输入",
+    "inputs.add.exhausted": "所有物品均已添加",
+    "inputs.picker.listed": "灰显的物品已在面板中 — 请直接编辑对应行",
     "inputs.duplicate": "该物品已声明",
     "inputs.unlimited": "无限",
     "inputs.needed": "需求 {rate}/分",
@@ -157,8 +159,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "Remove",
     "targets.rate.unit": "items / minute",
     "targets.rate.label": "rate",
-    "targets.item.label": "item",
     "targets.item.choose": "Choose an item...",
+    "item.selected": "Item: {name}",
     "targets.remove.label": "remove target",
     "targets.duplicate": "Duplicate item id: {itemId}",
     "targets.head.sub": "// declared output rates · items per minute",
@@ -186,7 +188,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "Edit",
     "app.locale.label": "Language",
     "inputs.title": "Inputs",
-    "inputs.item.label": "Item",
     "inputs.rate.label": "Rate",
     "inputs.rate.unit": "/min",
     "canvas.rate.unit": "/min",
@@ -196,6 +197,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.remove": "Remove",
     "inputs.remove.label": "Remove input row",
     "inputs.add": "Add input",
+    "inputs.add.exhausted": "All items already have a row",
+    "inputs.picker.listed":
+      "Dimmed items already have a row in the panel — edit that row instead",
     "inputs.duplicate": "Item already declared",
     "inputs.unlimited": "Unlimited",
     "inputs.needed": "needed {rate}/min",
@@ -230,8 +234,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "削除",
     "targets.rate.unit": "個 / 分",
     "targets.rate.label": "レート",
-    "targets.item.label": "アイテム",
     "targets.item.choose": "アイテムを選択…",
+    "item.selected": "アイテム：{name}",
     "targets.remove.label": "ターゲットを削除",
     "targets.duplicate": "アイテム ID の重複: {itemId}",
     "targets.head.sub": "// 宣言された産出レート · 個 / 分",
@@ -259,7 +263,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "編集",
     "app.locale.label": "言語",
     "inputs.title": "入力",
-    "inputs.item.label": "アイテム",
     "inputs.rate.label": "レート",
     "inputs.rate.unit": "/分",
     "canvas.rate.unit": "/分",
@@ -269,6 +272,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.remove": "削除",
     "inputs.remove.label": "入力行を削除",
     "inputs.add": "入力を追加",
+    "inputs.add.exhausted": "すべてのアイテムが既に追加されています",
+    "inputs.picker.listed":
+      "グレー表示のアイテムは既にパネルにあります — 対応する行を直接編集してください",
     "inputs.duplicate": "このアイテムは既に登録されています",
     "inputs.unlimited": "無制限",
     "inputs.needed": "必要 {rate}/分",
@@ -303,8 +309,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "Удалить",
     "targets.rate.unit": "шт. / мин",
     "targets.rate.label": "скорость",
-    "targets.item.label": "предмет",
     "targets.item.choose": "Выберите предмет…",
+    "item.selected": "Предмет: {name}",
     "targets.remove.label": "удалить цель",
     "targets.duplicate": "Дублирующийся ID предмета: {itemId}",
     "targets.head.sub": "// заявленные скорости вывода · шт. / мин",
@@ -332,7 +338,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "Изменить",
     "app.locale.label": "Язык",
     "inputs.title": "Входы",
-    "inputs.item.label": "Предмет",
     "inputs.rate.label": "Скорость",
     "inputs.rate.unit": "/мин",
     "canvas.rate.unit": "/мин",
@@ -342,6 +347,9 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.remove": "Удалить",
     "inputs.remove.label": "Удалить строку входа",
     "inputs.add": "Добавить вход",
+    "inputs.add.exhausted": "Все предметы уже объявлены",
+    "inputs.picker.listed":
+      "Затемнённые предметы уже есть в панели — редактируйте их строки",
     "inputs.duplicate": "Предмет уже объявлен",
     "inputs.unlimited": "Без ограничений",
     "inputs.needed": "нужно {rate}/мин",

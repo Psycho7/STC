@@ -52,16 +52,19 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
   // Which row/draft the picker popup is open for, plus the trigger button that
   // opened it so focus can return there on close.
   const [pickerFor, setPickerFor] = useState<
-    | { kind: "row"; itemId: string }
-    | { kind: "draft"; draftId: string }
-    | null
+    { kind: "row"; itemId: string } | { kind: "draft"; draftId: string } | null
   >(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   function closePicker() {
     setPickerFor(null);
     const btn = triggerRef.current;
     triggerRef.current = null;
-    // The trigger may have been removed (a promoted draft), so guard the focus.
+    // The trigger may have been removed (a promoted draft, or a row swapped
+    // onto another item - rows are keyed by itemId), so guard the focus. When
+    // it has gone, focus falls to the body: InputsPanel hands it to the
+    // replacement row instead, and this panel does not yet. Fixing it here
+    // wants the same pending-focus token, or row keys that survive an item
+    // swap.
     if (btn && document.contains(btn)) btn.focus();
   }
   const [duplicateError, setDuplicateError] = useState<{
@@ -272,7 +275,12 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                 <button
                   type="button"
                   className="b-pick-trigger"
-                  aria-label={i18n.t("targets.item.label")}
+                  // The name goes in the accessible NAME, not just the visible
+                  // text: aria-label overrides the button's content, so a bare
+                  // "item" would make every row's trigger announce identically.
+                  aria-label={i18n.t("item.selected", {
+                    name: i18n.displayName(t.itemId),
+                  })}
                   aria-haspopup="dialog"
                   // title shows the full localised item name on hover, for
                   // when the trigger truncates long names at narrow widths.
@@ -361,7 +369,16 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                     "b-pick-trigger" +
                     (draft.itemId === "" ? " placeholder" : "")
                   }
-                  aria-label={i18n.t("targets.item.label")}
+                  // An empty draft has no item to name, so it keeps the
+                  // call-to-action string; once picked it names the item like a
+                  // target row's trigger does.
+                  aria-label={
+                    draft.itemId !== ""
+                      ? i18n.t("item.selected", {
+                          name: i18n.displayName(draft.itemId),
+                        })
+                      : i18n.t("targets.item.choose")
+                  }
                   aria-haspopup="dialog"
                   title={
                     draft.itemId !== ""
