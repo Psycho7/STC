@@ -84,21 +84,6 @@ export function InputsPanel({
   assumedRawItemIds,
 }: Props) {
   const i18n = useI18n();
-  // Locale-aware compare so the picker scans by the displayed name, not the
-  // internal id, in every locale.
-  const collator = useMemo(() => new Intl.Collator(i18n.locale), [i18n.locale]);
-  // Sorted items drive both the picker order and the first-unused-id pick when
-  // the user adds a row. Ordered by localized display name (the name shown), not
-  // internal id. Re-sorting every render is fine at a few hundred items.
-  const sortedItems = useMemo(
-    () =>
-      pack.items
-        .slice()
-        .sort((a, b) =>
-          collator.compare(i18n.displayName(a.id), i18n.displayName(b.id)),
-        ),
-    [pack, collator, i18n],
-  );
   const itemById = useMemo(() => {
     const m = new Map<string, (typeof pack.items)[number]>();
     for (const it of pack.items) m.set(it.id, it);
@@ -389,7 +374,7 @@ export function InputsPanel({
             {displayedInputCount(itemOverrides, assumedRawItemIds)}
           </span>
           {" / "}
-          {sortedItems.length}
+          {pack.items.length}
         </span>
       </div>
       <div className="side-section-sub">

@@ -5,10 +5,13 @@ import { useI18n } from "../data/i18n-context";
 import { iconPosition, iconSheetUrl } from "../canvas/iconSprite";
 
 type Props = {
-  // Already-filtered producible items; the caller decides what is pickable.
+  // The pickable catalogue. The caller decides what belongs here: targets pass
+  // only producible items, inputs pass the whole pack.
   items: Item[];
-  // Items another target/draft already claims. Their tiles render disabled so
-  // a duplicate can't be picked, rather than surfacing a post-hoc error.
+  // Items the caller has already spoken for. Their tiles render disabled so a
+  // duplicate cannot be picked, rather than surfacing a post-hoc error. What
+  // counts as spoken for is the caller's business; disabledHint is how it
+  // explains a reason the grid cannot show.
   disabledIds: ReadonlySet<string>;
   // The item of the row being edited, highlighted as selected.
   selectedId?: string | undefined;

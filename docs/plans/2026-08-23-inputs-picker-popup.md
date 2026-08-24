@@ -1045,11 +1045,11 @@ git commit -m "Describe input rate fields by their row's item name"
 - Consumes: Tasks 3 and 5.
 - Produces: no behavior change. The section-head denominator reads `pack.items.length`.
 
-- [ ] **Step 1: Delete the sortedItems and collator memos**
+- [x] **Step 1: Delete the sortedItems and collator memos**
 
 In `src/components/InputsPanel.tsx`, delete the `collator` and `sortedItems` `useMemo` blocks and their comments. Their last consumer was the option list and `handleAdd`, both gone. Replace the section-head denominator `{sortedItems.length}` with `{pack.items.length}`. Drop the now-unused `Intl.Collator` reference.
 
-- [ ] **Step 2: Delete the dead CSS and rewrite the comment**
+- [x] **Step 2: Delete the dead CSS and rewrite the comment**
 
 In `src/canvas/canvas.css`, delete the `.b-pick select` face, hover, focus, focus-visible and `select option` rules. The locale switcher is the app's only other `<select>` and is styled through `.ak-app-shell select` and `.ak-app-shell .topbar select`, so nothing else depends on them.
 
@@ -1068,7 +1068,7 @@ Rewrite the block comment above them, and keep it short: `.b-pick-trigger` alrea
    so Tab walks every tile and then leaves the dialog. */
 ```
 
-- [ ] **Step 3: Rewrite the two stale popup prop comments**
+- [x] **Step 3: Rewrite the two stale popup prop comments**
 
 In `src/components/ItemPickerPopup.tsx`, the `items` comment says "Already-filtered producible items", which the input picker violates by passing all of `pack.items`, and the `disabledIds` comment is written in terms of targets and drafts:
 
@@ -1083,12 +1083,12 @@ In `src/components/ItemPickerPopup.tsx`, the `items` comment says "Already-filte
   disabledIds: ReadonlySet<string>;
 ```
 
-- [ ] **Step 4: Verify nothing regressed**
+- [x] **Step 4: Verify nothing regressed**
 
 Run: `bun run typecheck && bun run lint && bun run test -- src/components test/components`
 Expected: typecheck and lint clean. Test failures at this point should only be in `src/components/InputsPanel.test.tsx`, which Task 8 handles.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/InputsPanel.tsx src/components/ItemPickerPopup.tsx src/canvas/canvas.css
