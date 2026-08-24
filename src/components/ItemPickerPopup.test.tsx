@@ -10,6 +10,7 @@ import { pack as realPack } from "../data/load";
 import { computeItemDepths } from "../data/recipe-depth";
 
 afterEach(cleanup);
+afterEach(() => vi.restoreAllMocks());
 
 function mkItem(id: string): Item {
   return { id, category: "cat", icon: id } as unknown as Item;
@@ -223,6 +224,28 @@ test("arrow keys walk the grid and skip disabled tiles", () => {
   expect(document.activeElement).toBe(tile("echo"));
   fireEvent.keyDown(tile("echo")!, { key: "Home" });
   expect(document.activeElement).toBe(alpha);
+});
+
+test("Up and Down step a whole grid row, not one tile", () => {
+  // jsdom computes no grid template, so columnsFor falls back to one column and
+  // Up/Down would silently degrade into Left/Right - which is exactly the drift
+  // this test exists to catch. Report two columns and tier 1 lays out as
+  // alpha, bravo / delta, so Down from alpha must reach delta, not bravo.
+  const real = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation(((el: Element) =>
+    el.classList?.contains("recipe-picker-grid")
+      ? ({ gridTemplateColumns: "40px 40px" } as CSSStyleDeclaration)
+      : real(el)) as typeof window.getComputedStyle);
+  renderPopup();
+  const alpha = tile("alpha")!;
+  alpha.focus();
+  fireEvent.keyDown(alpha, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(tile("delta"));
+  fireEvent.keyDown(tile("delta")!, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(alpha);
+  // Right still steps one cell, so the two axes cannot collapse into each other.
+  fireEvent.keyDown(alpha, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(tile("bravo"));
 });
 
 test("arrow movement clamps at both ends instead of wrapping", () => {

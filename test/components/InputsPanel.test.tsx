@@ -37,6 +37,10 @@ function mkRecipe(id: string): Recipe {
 
 // The zh (default-locale) label of the Add button, from src/data/i18n.ts.
 const TEXT_ADD = "添加输入";
+// The default locale here is zh, so the hint copy is pinned in zh. Asserting
+// the string, not just the element, is what ties the rendered hint to
+// inputs.picker.listed rather than to any string the popup happened to get.
+const TEXT_PICKER_HINT = "灰显的物品已在面板中 — 请直接编辑对应行";
 
 // data-item-id appears on picker tiles, on auto-rows and on override rows, and
 // the popup portals to document.body alongside the Testing Library container,
@@ -99,7 +103,9 @@ describe("InputsPanel", () => {
     );
     await user.click(screen.getByText(TEXT_ADD));
     expect(onChange).not.toHaveBeenCalled();
-    expect(screen.getByTestId("picker-hint")).not.toBeNull();
+    expect(screen.getByTestId("picker-hint").textContent).toBe(
+      TEXT_PICKER_HINT,
+    );
     // The auto-row item already has a row, so its tile is dimmed here.
     expect((pickerTile("copper_ore") as HTMLButtonElement).disabled).toBe(true);
   });
@@ -235,7 +241,9 @@ describe("InputsPanel", () => {
     // a bare override whose supply is Infinity either way, and delete the
     // iron_ore row doing it.
     expect(pickerTile("copper_ore")!.disabled).toBe(true);
-    expect(screen.getByTestId("picker-hint")).not.toBeNull();
+    expect(screen.getByTestId("picker-hint").textContent).toBe(
+      TEXT_PICKER_HINT,
+    );
   });
 
   it("Escape returns focus to the trigger that opened the picker", async () => {
@@ -741,9 +749,9 @@ describe("InputsPanel", () => {
 
   // Scoped deliberately: this pins that the trigger opens on Enter, that the
   // dialog autofocuses its search box, and that tiles are real buttons Enter
-  // activates. It does NOT walk the tab order. The dialog has no focus trap and
-  // no arrow-key grid, which is a known accepted tradeoff of moving off the
-  // native select, so there is no tab-order contract here to assert.
+  // activates. It does NOT walk the tab order or the arrow-key grid; those
+  // belong to the popup and are covered in ItemPickerPopup.test.tsx, which
+  // owns them for both panels that mount it.
   it("the trigger opens on Enter and a focused tile picks on Enter", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

@@ -1415,7 +1415,7 @@ Names used consistently across tasks: `pickerFor`, `triggerRef`, `closePicker`, 
 ## Post-implementation review round
 
 Two auditors reviewed the implementation diff: one on fidelity and coverage,
-one adversarial on the focus mechanism. Between them, 16 findings. Everything
+one adversarial on the focus mechanism. Between them, 14 findings. Everything
 below is committed and gated.
 
 ### Fixed as defects

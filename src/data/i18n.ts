@@ -8,7 +8,6 @@ export type UiKey =
   | "targets.remove"
   | "targets.rate.unit"
   | "targets.rate.label"
-  | "targets.item.label"
   | "targets.item.choose"
   | "targets.item.selected"
   | "targets.remove.label"
@@ -34,7 +33,6 @@ export type UiKey =
   | "app.frozen.edit"
   | "app.locale.label"
   | "inputs.title"
-  | "inputs.item.label"
   | "inputs.item.selected"
   | "inputs.rate.label"
   | "inputs.rate.unit"
@@ -90,7 +88,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "删除",
     "targets.rate.unit": "件 / 分钟",
     "targets.rate.label": "速率",
-    "targets.item.label": "物品",
     "targets.item.choose": "选择物品…",
     "targets.item.selected": "物品：{name}",
     "targets.remove.label": "删除目标",
@@ -118,7 +115,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "编辑",
     "app.locale.label": "语言",
     "inputs.title": "输入",
-    "inputs.item.label": "物品",
     "inputs.item.selected": "物品：{name}",
     "inputs.rate.label": "速率",
     "inputs.rate.unit": "/分",
@@ -165,7 +161,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "Remove",
     "targets.rate.unit": "items / minute",
     "targets.rate.label": "rate",
-    "targets.item.label": "item",
     "targets.item.choose": "Choose an item...",
     "targets.item.selected": "Item: {name}",
     "targets.remove.label": "remove target",
@@ -195,7 +190,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "Edit",
     "app.locale.label": "Language",
     "inputs.title": "Inputs",
-    "inputs.item.label": "Item",
     "inputs.item.selected": "Item: {name}",
     "inputs.rate.label": "Rate",
     "inputs.rate.unit": "/min",
@@ -243,7 +237,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "削除",
     "targets.rate.unit": "個 / 分",
     "targets.rate.label": "レート",
-    "targets.item.label": "アイテム",
     "targets.item.choose": "アイテムを選択…",
     "targets.item.selected": "アイテム：{name}",
     "targets.remove.label": "ターゲットを削除",
@@ -273,7 +266,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "編集",
     "app.locale.label": "言語",
     "inputs.title": "入力",
-    "inputs.item.label": "アイテム",
     "inputs.item.selected": "アイテム：{name}",
     "inputs.rate.label": "レート",
     "inputs.rate.unit": "/分",
@@ -321,7 +313,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.remove": "Удалить",
     "targets.rate.unit": "шт. / мин",
     "targets.rate.label": "скорость",
-    "targets.item.label": "предмет",
     "targets.item.choose": "Выберите предмет…",
     "targets.item.selected": "Предмет: {name}",
     "targets.remove.label": "удалить цель",
@@ -351,7 +342,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "Изменить",
     "app.locale.label": "Язык",
     "inputs.title": "Входы",
-    "inputs.item.label": "Предмет",
     "inputs.item.selected": "Предмет: {name}",
     "inputs.rate.label": "Скорость",
     "inputs.rate.unit": "/мин",

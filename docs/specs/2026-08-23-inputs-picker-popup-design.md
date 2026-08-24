@@ -45,15 +45,17 @@ plan immediately, which fires a solve for a row the user never chose.
    stays what it is today: type into the auto-row, which `commitAutoRate`
    promotes to a real override carrying the rate.
 
-   From an existing row the same tiles stay **enabled**. For a capped row that
-   pick is not a bare append at all: `handleItemChange` carries the row's
-   `ratePerSec` to the new item, so the swap moves a live cap, and disabling
-   it would strand a user who wants exactly that, forcing them to delete the
-   row and retype the number into the auto-row. An **uncapped** row swapped
-   onto a consumed raw item does reproduce the bare-append churn the Add-side
-   ban exists to prevent. That is tolerated: the row already exists, so
-   nothing new appears, and the swap still deletes the old import, which is a
-   real change rather than a no-op.
+   From an existing row the same tiles stay **enabled only while the row
+   carries a cap** (amended after implementation review; the ruling first read
+   "enabled from any row"). For a capped row the pick is not a bare append at
+   all: `handleItemChange` carries the row's `ratePerSec` to the new item, so
+   the swap moves a live cap, and disabling it would strand a user who wants
+   exactly that, forcing them to delete the row and retype the number into
+   the auto-row. An **uncapped** row has no cap to carry, so the same gesture
+   only trades a real row for a bare override whose supply is Infinity either
+   way, and destroys the row it came from - the Add-side churn plus a
+   deletion. Those tiles are dimmed too, explained by the same hint line the
+   Add popup uses.
 4. **Depth grouping is reused unchanged.** `computeItemDepths` seeds every
    entry in `pack.items`, not just producible ones, and all 113 rank on the
    shipped pack (tiers 0 through 8), so the popup's unranked bucket stays
@@ -80,16 +82,18 @@ cleanup.
 | --- | --- | --- |
 | `items` | all of `pack.items` | same |
 | `tierByItemId` | `computeItemDepths(pack)`, memoized per pack | same |
-| `disabledIds` | the other override rows' items | every override item, plus every auto-row item |
-| `disabledHint` | omitted | `inputs.picker.listed` (copy below) |
+| `disabledIds` | the other override rows' items, plus every auto-row item when the row is uncapped | every override item, plus every auto-row item |
+| `disabledHint` | `inputs.picker.listed` (copy below) | same |
 | `selectedId` | the row's own item | `undefined` |
 | `onPick` | own item returns early from the swap and arms nothing, then closes; otherwise `handleItemChange` swaps, carrying any rate, and arms `{ itemId, kind: "trigger" }` | appends `{ itemId }` and arms `{ itemId, kind: "rate" }`, then closes |
 | `onClose` | clears `pickerFor`, refocuses the trigger | same |
 
-A disabled tile therefore means one thing at each site: from a row, "another
-override row already claims this"; from Add, "this item already has a row in
-the panel". Auto-rows already exclude overridden items, so the Add union is
-exactly "items with a visible row", and neither site mixes the two meanings.
+A disabled tile therefore means the same thing at both sites: "this item
+already has a row in the panel - edit that row instead". Auto-rows already
+exclude overridden items, so the Add union is exactly "items with a visible
+row", and an uncapped row's union is that same set minus the row's own item.
+A capped row is the one exception, dimming only its sibling override rows,
+because it can carry its cap onto an auto-row item.
 
 The Add site is the one place a user can hit a disabled tile with no visible
 route forward: someone trying to cap copper ore from Add gets a dead tile and
