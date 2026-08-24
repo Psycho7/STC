@@ -46,7 +46,7 @@ Run this FIRST, before any file is touched. `bun run test:e2e` is not a CI gate 
 - Consumes: nothing.
 - Produces: the list of `inputs-panel` tests already failing on this branch's merge base, which Task 9 Step 7 compares against.
 
-- [ ] **Step 1: Run the suite on the untouched tree**
+- [x] **Step 1: Run the suite on the untouched tree**
 
 ```bash
 mkdir -p .artifacts
@@ -57,11 +57,20 @@ bun run test:e2e -- inputs-panel 2>&1 | tee .artifacts/e2e-baseline.txt | tail -
 
 Do not use `git stash` for this. At Task 0 the tree is already clean, so a stash saves nothing and a following `git stash pop` either errors or applies an unrelated stash entry from another session.
 
-- [ ] **Step 2: Record the result**
+- [x] **Step 2: Record the result**
 
 Write the names of the failing tests into the plan itself, replacing this line, so a later task does not have to re-derive them:
 
-> Baseline failures on the merge base: _fill this in_
+> Baseline failures on the merge base (`bun run test:e2e -- inputs-panel`, 4 failed / 2 passed):
+>
+> - Test 1 (Add input row defaults to first unused itemId): FAIL. `FIRST_LEX_ITEM_ID` is stale; the select holds `domain_key_tundra`, not `bottled_food_1`. Retitled in Task 9 Step 2, so exempt from the gate.
+> - Test 2 (Remove input row): PASS. Gated.
+> - Test 3 (Duplicate-guard): FAIL. `SECOND_LEX_ITEM_ID` is stale; the second row holds `liquid_acid`. Retitled in Task 9 Step 3, so exempt.
+> - Test 4 (Cap a rate, then clear it): FAIL. Strict-mode violation: the bare `[data-flavor="inputProduct"][data-item-id="copper_powder"]` locator resolves to 2 nodes (the import unit and `u:in:copper_powder:target`). Pre-existing and unrelated to the picker.
+> - Test 5 (Cap exceeding demand): FAIL. Same family: the `copper_ore` inputProduct locator resolves to 3 nodes (the import unit plus two tap replicas).
+> - Test 6 (Dual-listed item): PASS. It already pins each input unit by exact node id. Gated.
+>
+> Correction to the note below: the missing blur is real (the panel commits only on blur or Enter) but it is NOT what fails Tests 4 and 6 today. Their URL polls pass vacuously, because the baseline URL is captured immediately after `selectOption` and the hash rewrite from THAT commit lands during the poll. Test 6 passes outright. Adding the `Enter` press is still required for the rate commit to happen at all, but it will not turn Test 4 or 5 green: their remaining failure is the strict-mode locator above, which Task 9 leaves in place.
 
 Expect some. Tests 4 and 6 in particular fill a rate with `fill()` and never blur, and the panel commits only on blur or Enter, so their URL polls have nothing to wait for. Task 9 fixes that.
 
