@@ -58,6 +58,22 @@ function tile(itemId: string): HTMLButtonElement | null {
   return document.querySelector(`[data-item-id="${itemId}"]`);
 }
 
+function tiles(): HTMLButtonElement[] {
+  return [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="picker-tile"]',
+    ),
+  ];
+}
+
+// The ids of every tile Tab can reach. The grid is meant to expose exactly one,
+// so asserting the whole array pins the count and the identity together.
+function tabStopIds(): string[] {
+  return tiles()
+    .filter((t) => t.tabIndex === 0)
+    .map((t) => t.getAttribute("data-item-id") ?? "");
+}
+
 function groupHeads(): string[] {
   return [...document.querySelectorAll(".recipe-picker-group-head")].map(
     (el) => el.textContent ?? "",
@@ -182,31 +198,18 @@ test("sorts by localized name rather than by id, on the real pack in zh", () => 
   expect(sawDivergence).toBe(true);
 });
 
-function tiles(): HTMLButtonElement[] {
-  return [
-    ...document.querySelectorAll<HTMLButtonElement>(
-      '[data-testid="picker-tile"]',
-    ),
-  ];
-}
-
 test("the grid is one tab stop, not one per tile", () => {
   renderPopup({ disabledIds: new Set(["bravo"]) });
-  const tabbable = tiles().filter((t) => t.tabIndex === 0);
   // A tabbable tile per item would put one stop per pack item between the
-  // search box and the end of the dialog.
-  expect(tabbable.length).toBe(1);
-  // With nothing selected the stop starts on the first enabled tile in visual
-  // order, which is alpha (tier 1, name-sorted, bravo disabled).
-  expect(tabbable[0]!.getAttribute("data-item-id")).toBe("alpha");
+  // search box and the end of the dialog. With nothing selected that one stop
+  // starts on the first enabled tile in visual order, which is alpha (tier 1,
+  // name-sorted, bravo disabled).
+  expect(tabStopIds()).toEqual(["alpha"]);
 });
 
 test("the tab stop starts on the selected tile when there is one", () => {
   renderPopup({ selectedId: "charlie" });
-  const tabbable = tiles().filter((t) => t.tabIndex === 0);
-  expect(tabbable.map((t) => t.getAttribute("data-item-id"))).toEqual([
-    "charlie",
-  ]);
+  expect(tabStopIds()).toEqual(["charlie"]);
 });
 
 test("arrow keys walk the grid and skip disabled tiles", () => {
@@ -265,8 +268,7 @@ test("moving the tab stop leaves exactly one tabbable tile behind", () => {
   const alpha = tile("alpha")!;
   alpha.focus();
   fireEvent.keyDown(alpha, { key: "End" });
-  const tabbable = tiles().filter((t) => t.tabIndex === 0);
-  expect(tabbable.map((t) => t.getAttribute("data-item-id"))).toEqual(["echo"]);
+  expect(tabStopIds()).toEqual(["echo"]);
 });
 
 test("Tab is trapped inside the dialog at both ends", () => {
@@ -311,8 +313,5 @@ test("the roving stop never lands on a disabled tile", () => {
   // alpha is both the selected id and disabled: the stop has to fall through to
   // the first enabled tile rather than park somewhere unfocusable.
   renderPopup({ selectedId: "alpha", disabledIds: new Set(["alpha"]) });
-  const tabbable = tiles().filter((t) => t.tabIndex === 0);
-  expect(tabbable.map((t) => t.getAttribute("data-item-id"))).toEqual([
-    "bravo",
-  ]);
+  expect(tabStopIds()).toEqual(["bravo"]);
 });

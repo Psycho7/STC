@@ -51,6 +51,21 @@ function pickerTile(itemId: string): HTMLButtonElement | null {
   );
 }
 
+// onChange takes a functional updater, so every assertion about what a gesture
+// commits runs that updater over a starting list. The cast is the same at every
+// call site and only hides the assertion under it.
+function firstUpdater(
+  onChange: ReturnType<typeof vi.fn>,
+): (current: ItemOverride[]) => ItemOverride[] {
+  return onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[];
+}
+
+// Every override row names its trigger "物品：<name>" under the default zh
+// locale, so this is the row's item picker button.
+function rowTrigger(n = 0): HTMLElement {
+  return screen.getAllByLabelText(/^物品/)[n]!;
+}
+
 const fixturePack: RecipePack = {
   schemaVersion: "0.2" as RecipePack["schemaVersion"],
   source: {
@@ -119,9 +134,7 @@ describe("InputsPanel", () => {
     await user.click(screen.getByText(TEXT_ADD));
     await user.click(pickerTile("iron_ore")!);
     expect(onChange).toHaveBeenCalledTimes(1);
-    const updater = onChange.mock.calls[0]![0] as (
-      c: ItemOverride[],
-    ) => ItemOverride[];
+    const updater = firstUpdater(onChange);
     expect(updater([])).toEqual([{ itemId: "iron_ore" }]);
     // Racing a prop update that already inserted the row is a no-op.
     expect(updater([{ itemId: "iron_ore" }])).toEqual([{ itemId: "iron_ore" }]);
@@ -195,12 +208,10 @@ describe("InputsPanel", () => {
         pack={fixturePack}
       />,
     );
-    await user.click(screen.getAllByLabelText(/^物品/)[0]!);
+    await user.click(rowTrigger());
     await user.click(pickerTile("iron_ore")!);
     expect(onChange).toHaveBeenCalledTimes(1);
-    const updater = onChange.mock.calls[0]![0] as (
-      c: ItemOverride[],
-    ) => ItemOverride[];
+    const updater = firstUpdater(onChange);
     expect(
       updater([{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }]),
     ).toEqual([{ itemId: "iron_ore", ratePerSec: { num: "1", denom: "2" } }]);
@@ -219,7 +230,7 @@ describe("InputsPanel", () => {
       />,
     );
     // Open the picker from the override row, not from Add.
-    await user.click(screen.getAllByLabelText(/^物品/)[0]!);
+    await user.click(rowTrigger());
     // copper_ore has an auto-row, but this swap carries the row's cap onto it,
     // so it is a live cap move and must stay pickable. Only the Add popup and
     // the uncapped row popup dim it.
@@ -236,7 +247,7 @@ describe("InputsPanel", () => {
         assumedRawItemIds={["copper_ore"]}
       />,
     );
-    await user.click(screen.getAllByLabelText(/^物品/)[0]!);
+    await user.click(rowTrigger());
     // With no cap to carry, swapping onto copper_ore would trade a real row for
     // a bare override whose supply is Infinity either way, and delete the
     // iron_ore row doing it.
@@ -255,7 +266,7 @@ describe("InputsPanel", () => {
         pack={fixturePack}
       />,
     );
-    const trigger = screen.getAllByLabelText(/^物品/)[0]!;
+    const trigger = rowTrigger();
     await user.click(trigger);
     await user.keyboard("{Escape}");
     expect(screen.queryByTestId("picker-tile")).toBeNull();
@@ -272,7 +283,7 @@ describe("InputsPanel", () => {
         pack={fixturePack}
       />,
     );
-    const trigger = screen.getAllByLabelText(/^物品/)[0]!;
+    const trigger = rowTrigger();
     await user.click(trigger);
     await user.click(pickerTile("copper_ore")!);
     expect(onChange).not.toHaveBeenCalled();
@@ -292,7 +303,7 @@ describe("InputsPanel", () => {
         pack={fixturePack}
       />,
     );
-    const trigger = screen.getAllByLabelText(/^物品/)[0]!;
+    const trigger = rowTrigger();
     await user.click(trigger);
     await user.click(document.querySelector(".recipe-picker-backdrop")!);
     expect(screen.queryByTestId("picker-tile")).toBeNull();
@@ -319,9 +330,7 @@ describe("InputsPanel", () => {
       expect(onChange).not.toHaveBeenCalled();
       fireEvent.blur(input);
       expect(onChange).toHaveBeenCalledTimes(1);
-      const next = (
-        onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
-      )(overrides);
+      const next = firstUpdater(onChange)(overrides);
       expect(next).toEqual([{ itemId: "copper_ore" }]);
     } finally {
       vi.useRealTimers();
@@ -371,9 +380,7 @@ describe("InputsPanel", () => {
     const removeButtons = screen.getAllByTestId("remove-input");
     await user.click(removeButtons[1]!);
     expect(onChange).toHaveBeenCalledTimes(1);
-    const next = (
-      onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
-    )(overrides);
+    const next = firstUpdater(onChange)(overrides);
     expect(next).toEqual([{ itemId: "copper_ore" }, { itemId: "zinc" }]);
   });
 
@@ -508,9 +515,7 @@ describe("InputsPanel", () => {
       fireEvent.change(input, { target: { value: "180" } });
       fireEvent.blur(input);
       expect(onChange).toHaveBeenCalledTimes(1);
-      const next = (
-        onChange.mock.calls[0]![0] as (c: ItemOverride[]) => ItemOverride[]
-      )([]);
+      const next = firstUpdater(onChange)([]);
       // 180/min -> 3/s = "3/1".
       expect(next).toEqual([
         { itemId: "copper_ore", ratePerSec: { num: "3", denom: "1" } },
@@ -631,9 +636,9 @@ describe("InputsPanel", () => {
       );
     }
     render(<Parent />);
-    await user.click(screen.getAllByLabelText(/^物品/)[0]!);
+    await user.click(rowTrigger());
     await user.click(pickerTile("iron_ore")!);
-    const trigger = screen.getAllByLabelText(/^物品/)[0]!;
+    const trigger = rowTrigger();
     // Assert the row identity by id, not by rendered text: displayName resolves
     // iron_ore to its localized name, which differs per locale.
     expect(
@@ -679,7 +684,7 @@ describe("InputsPanel", () => {
     }
     render(<Parent />);
     // The override row's trigger is the only 物品 control; auto-rows have none.
-    await user.click(screen.getAllByLabelText(/^物品/)[0]!);
+    await user.click(rowTrigger());
     await user.click(pickerTile("copper_ore")!);
     // The swapped row keeps the cap: 3/s serializes to 180/min in the field.
     const row = document.querySelector(
@@ -734,11 +739,9 @@ describe("InputsPanel", () => {
     expect(onChange).not.toHaveBeenCalled();
     // Clicking the trigger blurs the rate field, and blur is a commit. The cap
     // must not be swallowed by the popup opening.
-    await user.click(screen.getAllByLabelText(/^物品/)[0]!);
+    await user.click(rowTrigger());
     expect(onChange).toHaveBeenCalledTimes(1);
-    const updater = onChange.mock.calls[0]![0] as (
-      c: ItemOverride[],
-    ) => ItemOverride[];
+    const updater = firstUpdater(onChange);
     expect(updater([{ itemId: "copper_ore" }])).toEqual([
       { itemId: "copper_ore", ratePerSec: { num: "1", denom: "1" } },
     ]);
@@ -762,7 +765,7 @@ describe("InputsPanel", () => {
         pack={fixturePack}
       />,
     );
-    const trigger = screen.getAllByLabelText(/^物品/)[0]!;
+    const trigger = rowTrigger();
     trigger.focus();
     await user.keyboard("{Enter}");
     // The dialog autofocuses its search box, so typing narrows without a click.
@@ -797,7 +800,7 @@ describe("InputsPanel", () => {
       );
     }
     render(<Parent />);
-    await user.click(screen.getAllByLabelText(/^物品/)[0]!);
+    await user.click(rowTrigger());
     await user.click(pickerTile("zinc")!);
     // Park focus somewhere unrelated, as a user would.
     const grow = screen.getByText("grow");

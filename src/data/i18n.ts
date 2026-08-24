@@ -9,7 +9,7 @@ export type UiKey =
   | "targets.rate.unit"
   | "targets.rate.label"
   | "targets.item.choose"
-  | "targets.item.selected"
+  | "item.selected"
   | "targets.remove.label"
   | "targets.duplicate"
   | "targets.head.sub"
@@ -33,7 +33,6 @@ export type UiKey =
   | "app.frozen.edit"
   | "app.locale.label"
   | "inputs.title"
-  | "inputs.item.selected"
   | "inputs.rate.label"
   | "inputs.rate.unit"
   | "canvas.rate.unit"
@@ -89,7 +88,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "件 / 分钟",
     "targets.rate.label": "速率",
     "targets.item.choose": "选择物品…",
-    "targets.item.selected": "物品：{name}",
+    "item.selected": "物品：{name}",
     "targets.remove.label": "删除目标",
     "targets.duplicate": "物品 ID 重复: {itemId}",
     "targets.head.sub": "// 声明产出速率 · 件 / 分钟",
@@ -115,7 +114,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "编辑",
     "app.locale.label": "语言",
     "inputs.title": "输入",
-    "inputs.item.selected": "物品：{name}",
     "inputs.rate.label": "速率",
     "inputs.rate.unit": "/分",
     "canvas.rate.unit": "/分",
@@ -162,7 +160,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "items / minute",
     "targets.rate.label": "rate",
     "targets.item.choose": "Choose an item...",
-    "targets.item.selected": "Item: {name}",
+    "item.selected": "Item: {name}",
     "targets.remove.label": "remove target",
     "targets.duplicate": "Duplicate item id: {itemId}",
     "targets.head.sub": "// declared output rates · items per minute",
@@ -190,7 +188,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "Edit",
     "app.locale.label": "Language",
     "inputs.title": "Inputs",
-    "inputs.item.selected": "Item: {name}",
     "inputs.rate.label": "Rate",
     "inputs.rate.unit": "/min",
     "canvas.rate.unit": "/min",
@@ -238,7 +235,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "個 / 分",
     "targets.rate.label": "レート",
     "targets.item.choose": "アイテムを選択…",
-    "targets.item.selected": "アイテム：{name}",
+    "item.selected": "アイテム：{name}",
     "targets.remove.label": "ターゲットを削除",
     "targets.duplicate": "アイテム ID の重複: {itemId}",
     "targets.head.sub": "// 宣言された産出レート · 個 / 分",
@@ -266,7 +263,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "編集",
     "app.locale.label": "言語",
     "inputs.title": "入力",
-    "inputs.item.selected": "アイテム：{name}",
     "inputs.rate.label": "レート",
     "inputs.rate.unit": "/分",
     "canvas.rate.unit": "/分",
@@ -314,7 +310,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "targets.rate.unit": "шт. / мин",
     "targets.rate.label": "скорость",
     "targets.item.choose": "Выберите предмет…",
-    "targets.item.selected": "Предмет: {name}",
+    "item.selected": "Предмет: {name}",
     "targets.remove.label": "удалить цель",
     "targets.duplicate": "Дублирующийся ID предмета: {itemId}",
     "targets.head.sub": "// заявленные скорости вывода · шт. / мин",
@@ -342,7 +338,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.frozen.edit": "Изменить",
     "app.locale.label": "Язык",
     "inputs.title": "Входы",
-    "inputs.item.selected": "Предмет: {name}",
     "inputs.rate.label": "Скорость",
     "inputs.rate.unit": "/мин",
     "canvas.rate.unit": "/мин",

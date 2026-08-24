@@ -59,7 +59,12 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     setPickerFor(null);
     const btn = triggerRef.current;
     triggerRef.current = null;
-    // The trigger may have been removed (a promoted draft), so guard the focus.
+    // The trigger may have been removed (a promoted draft, or a row swapped
+    // onto another item - rows are keyed by itemId), so guard the focus. When
+    // it has gone, focus falls to the body: InputsPanel hands it to the
+    // replacement row instead, and this panel does not yet. Fixing it here
+    // wants the same pending-focus token, or row keys that survive an item
+    // swap.
     if (btn && document.contains(btn)) btn.focus();
   }
   const [duplicateError, setDuplicateError] = useState<{
@@ -273,7 +278,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                   // The name goes in the accessible NAME, not just the visible
                   // text: aria-label overrides the button's content, so a bare
                   // "item" would make every row's trigger announce identically.
-                  aria-label={i18n.t("targets.item.selected", {
+                  aria-label={i18n.t("item.selected", {
                     name: i18n.displayName(t.itemId),
                   })}
                   aria-haspopup="dialog"
@@ -369,7 +374,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                   // target row's trigger does.
                   aria-label={
                     draft.itemId !== ""
-                      ? i18n.t("targets.item.selected", {
+                      ? i18n.t("item.selected", {
                           name: i18n.displayName(draft.itemId),
                         })
                       : i18n.t("targets.item.choose")

@@ -112,14 +112,9 @@ export function ItemPickerPopup({
   // tile per item would put ~250 stops between the search box and the end of
   // the dialog. The stop starts on the row's current item when there is one, so
   // Tab out of the search box lands on what the user is editing.
-  const rovingId =
-    activeId !== null && navIds.includes(activeId) && !disabledIds.has(activeId)
-      ? activeId
-      : selectedId !== undefined &&
-          navIds.includes(selectedId) &&
-          !disabledIds.has(selectedId)
-        ? selectedId
-        : firstEnabled;
+  const canRove = (id: string | undefined | null): id is string =>
+    id != null && navIds.includes(id) && !disabledIds.has(id);
+  const rovingId = [activeId, selectedId].find(canRove) ?? firstEnabled;
 
   function focusTile(id: string) {
     setActiveId(id);
@@ -149,10 +144,11 @@ export function ItemPickerPopup({
   function columnsFor(tile: HTMLElement): number {
     const grid = tile.closest(".recipe-picker-grid");
     if (!grid) return 1;
-    const cols = getComputedStyle(grid)
-      .gridTemplateColumns.split(" ")
-      .filter(Boolean).length;
-    return cols > 0 ? cols : 1;
+    return Math.max(
+      1,
+      getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean)
+        .length,
+    );
   }
 
   function onDialogKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
@@ -175,7 +171,6 @@ export function ItemPickerPopup({
     if (tile.dataset["testid"] !== "picker-tile") return;
     const from = navIds.indexOf(tile.dataset["itemId"] ?? "");
     if (from < 0) return;
-    const cols = columnsFor(tile);
     let to: number;
     let step: 1 | -1;
     switch (e.key) {
@@ -187,12 +182,14 @@ export function ItemPickerPopup({
         to = from - 1;
         step = -1;
         break;
+      // Only the row moves need the column count, and reading it forces a
+      // style recalc, so the sideways keys never pay for it.
       case "ArrowDown":
-        to = from + cols;
+        to = from + columnsFor(tile);
         step = 1;
         break;
       case "ArrowUp":
-        to = from - cols;
+        to = from - columnsFor(tile);
         step = -1;
         break;
       case "Home":
