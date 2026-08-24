@@ -2414,12 +2414,15 @@
   outline: 0;
   border-color: var(--ak-accent-cyan);
 }
+/* Instruction, not decoration, so it takes --ak-text-secondary rather than the
+   --ak-text-decoration the neighbouring empty-state uses: the latter is about
+   3.4:1 on the panel ground and misses the 4.5:1 contrast floor at 11px. */
 .recipe-picker-hint {
   margin: 0 18px 10px;
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.5;
-  color: var(--ak-text-decoration);
+  color: var(--ak-text-secondary);
   letter-spacing: 0.04em;
 }
 .recipe-picker-body {

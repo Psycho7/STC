@@ -6,6 +6,8 @@ import type { ComponentProps } from "react";
 import type { Item } from "@aef/schema";
 import { ItemPickerPopup } from "./ItemPickerPopup";
 import { LocaleProvider } from "../data/i18n-context";
+import { pack as realPack } from "../data/load";
+import { computeItemDepths } from "../data/recipe-depth";
 
 afterEach(cleanup);
 
@@ -143,4 +145,38 @@ test("sorts tiles by localized name within each group, not by array order", () =
   }
   // Tier 1 specifically: array order was delta, bravo, alpha.
   expect(namesPerGroup[0]).toEqual(["alpha", "bravo", "delta"]);
+});
+
+// The fixture above cannot pin this: its ids have no i18n entries, so
+// displayName falls back to the id and a name sort is indistinguishable from an
+// id sort. Only the real pack in a non-latin locale separates the two, which is
+// what the retired InputsPanel option-order test used to guarantee.
+test("sorts by localized name rather than by id, on the real pack in zh", () => {
+  render(
+    <LocaleProvider locale="zh">
+      <ItemPickerPopup
+        items={realPack.items}
+        disabledIds={new Set<string>()}
+        tierByItemId={computeItemDepths(realPack)}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+      />
+    </LocaleProvider>,
+  );
+  const collator = new Intl.Collator("zh");
+  const groups = [...document.querySelectorAll(".recipe-picker-group")];
+  expect(groups.length).toBeGreaterThan(1);
+  let sawDivergence = false;
+  for (const g of groups) {
+    const tiles = [...g.querySelectorAll('[data-testid="picker-tile"]')];
+    const names = tiles.map(
+      (t) => t.querySelector(".recipe-picker-tile-label")?.textContent ?? "",
+    );
+    expect(names).toEqual([...names].sort((a, b) => collator.compare(a, b)));
+    // And the result differs from an id sort somewhere, which is the half that
+    // proves the key is the name and not the id.
+    const ids = tiles.map((t) => t.getAttribute("data-item-id") ?? "");
+    if (ids.join() !== [...ids].sort().join()) sawDivergence = true;
+  }
+  expect(sawDivergence).toBe(true);
 });

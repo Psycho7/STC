@@ -720,7 +720,12 @@ describe("InputsPanel", () => {
     expect(screen.queryAllByTestId("picker-tile").length).toBeGreaterThan(0);
   });
 
-  it("the picker opens and picks by keyboard alone", async () => {
+  // Scoped deliberately: this pins that the trigger opens on Enter, that the
+  // dialog autofocuses its search box, and that tiles are real buttons Enter
+  // activates. It does NOT walk the tab order. The dialog has no focus trap and
+  // no arrow-key grid, which is a known accepted tradeoff of moving off the
+  // native select, so there is no tab-order contract here to assert.
+  it("the trigger opens on Enter and a focused tile picks on Enter", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(
@@ -743,5 +748,40 @@ describe("InputsPanel", () => {
     await user.keyboard("{Enter}");
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("picker-tile")).toBeNull();
+  });
+
+  it("an unapplied pick does not leave a token that steals focus later", async () => {
+    const user = userEvent.setup();
+    function Parent() {
+      const [rows, setRows] = useState<ItemOverride[]>([
+        { itemId: "copper_plate" },
+      ]);
+      return (
+        <>
+          <button onClick={() => setRows([{ itemId: "zinc" }])}>grow</button>
+          <InputsPanel
+            itemOverrides={rows}
+            // Deliberately inert: the pick is armed but never applied, which is
+            // what leaves a token behind.
+            onChange={() => {}}
+            pack={fixturePack}
+          />
+        </>
+      );
+    }
+    render(<Parent />);
+    await user.click(screen.getAllByLabelText("物品")[0]!);
+    await user.click(pickerTile("zinc")!);
+    // Park focus somewhere unrelated, as a user would.
+    const grow = screen.getByText("grow");
+    grow.focus();
+    expect(document.activeElement).toBe(grow);
+    // A later, unrelated commit brings a zinc row into existence. The stale
+    // token must not fire: focus stays where the user put it.
+    await user.click(grow);
+    expect(
+      document.querySelector('[data-testid="input-row"][data-item-id="zinc"]'),
+    ).not.toBeNull();
+    expect(document.activeElement).toBe(grow);
   });
 });

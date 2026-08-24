@@ -63,16 +63,25 @@ const TEXT = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Dual-listed-plan seeding (Tests 4 and 6).
+// Dual-listed-plan seeding (Tests 4, 6 and 7).
 //
-// The dual-emission rule renders an item as BOTH a boundary input (the imported
-// cap, FIRST layer) and an output product (LAST layer) only when that item is
-// genuinely consumed inside the plan. copper_powder is consumed solely by the
-// liquid_copper recipe, which the default plan never instantiates, so on the
-// default plan an override on copper_powder produces no input node. We seed a
-// plan whose targets include both copper_powder and liquid_copper: copper_powder
-// is then produced (its own target) and consumed (by liquid_copper), so a cap
-// below its total demand surfaces both nodes.
+// The dual-emission rule renders an item as BOTH a boundary input (FIRST layer)
+// and an output product (LAST layer) only when that item is genuinely consumed
+// inside the plan. copper_powder is consumed solely by the liquid_copper
+// recipe, which the default plan never instantiates, so on the default plan an
+// override on copper_powder produces no input node. We seed a plan whose
+// targets include both copper_powder and liquid_copper, which puts the
+// liquid_copper recipe in play.
+//
+// What the override's rate does next is not a matter of degree. Unlimited
+// supply is a structural fork: it drops copper_powder's mass-balance row and
+// its producer chain, which makes the liquid_copper recipe the cheap route and
+// is what actually puts the item across the boundary. Any finite cap restores
+// the row, the solver switches to phase_trans_1-liquid_copper (which consumes
+// no copper_powder), and nothing in-graph consumes the item, so no input node
+// is emitted. Only a cap the solver can meet entirely by importing keeps one.
+// Test 6 takes the uncapped case, Test 4 the import-covered cap, Test 7 the
+// below-demand cap.
 //
 // The wire encoder and pack self-read mirror raw-and-transport.spec.ts so this
 // spec stays self-contained and does not pull SPA modules through the bundler.
@@ -127,10 +136,10 @@ async function encodePlanWireToHash(wire: object): Promise<string> {
   return `v1.${b64}`;
 }
 
-// Targets [copper_powder, liquid_copper] make copper_powder dual-listed:
-// produced as a target and consumed by liquid_copper. copper_powder total
-// demand is liquid_copper's draw plus the copper_powder target rate, so any
-// cap below that surfaces an input node beside the target output node.
+// Targets [copper_powder, liquid_copper] make copper_powder dual-listable:
+// produced as a target, and consumed by liquid_copper whenever the solver picks
+// that recipe. Which nodes surface depends on the override's rate; see the
+// block comment above.
 async function makeDualListedPlanHash(): Promise<string> {
   return encodePlanWireToHash({
     pack: [PACK_META.id, PACK_META.schemaVersion, PACK_META.sourceCommit],

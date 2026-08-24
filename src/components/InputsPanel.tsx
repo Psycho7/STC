@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
@@ -68,11 +68,11 @@ function parsePerMinToOptional(
   return { num: n!, denom: d! };
 }
 
-// A focus target armed by a pick and consumed on the commit that mounts the
-// row. The kind matters: both consumers live on the same row and React
-// attaches refs in tree order, so the trigger inside .info completes before
-// the rate input inside .b-rate. A bare item id would let the trigger ref
-// swallow every token and the add path's rate focus would never fire.
+// A focus target armed by a pick and consumed by the row that renders on the
+// very next commit. The kind matters: both consumers live on the same row and
+// React attaches refs in tree order, so the trigger inside .info completes
+// before the rate input inside .b-rate. A bare item id would let the trigger
+// ref swallow every token and the add path's rate focus would never fire.
 type PendingFocus = { itemId: string; kind: "rate" | "trigger" };
 
 export function InputsPanel({
@@ -104,6 +104,16 @@ export function InputsPanel({
   // with an onChange that never feeds the prop back) is simply overwritten by
   // the next pick.
   const pendingFocus = useRef<PendingFocus | null>(null);
+  // The token lives for exactly one commit. focusOnMount is an inline arrow, so
+  // React re-attaches it on every render, not only on mount: an unconsumed
+  // token would otherwise sit armed indefinitely and fire on some later,
+  // unrelated commit that happens to render a row with the same item id,
+  // yanking focus out of whatever the user was doing. Ref callbacks run before
+  // effects within a commit, so a token the matching row consumed is already
+  // null here; one whose commit never applied is dropped.
+  useEffect(() => {
+    pendingFocus.current = null;
+  });
   function focusOnMount(
     el: HTMLElement | null,
     itemId: string,
@@ -131,6 +141,11 @@ export function InputsPanel({
     if (btn && document.contains(btn)) btn.focus();
   }
 
+  // Defence in depth, not a reachable path. The row popup disables every other
+  // override row's tile using the same set handleItemChange tests, and a
+  // disabled button dispatches no click, so nothing in the UI can drive a
+  // duplicate here. Kept so a future entry point that forgets to disable its
+  // tiles degrades to an inline message rather than a silent row swap.
   const [duplicateError, setDuplicateError] = useState<{
     rowId: string;
     itemId: string;
@@ -361,8 +376,12 @@ export function InputsPanel({
   // one override per item. Derived from the last completed render (autoRows
   // comes from realized demand), so it lags an in-flight solve; that is
   // harmless for a guard.
+  // >= rather than ===: displayedInputCount sums a set that is never
+  // intersected with pack.items, so a list carrying an unknown or duplicate
+  // item overshoots. validatePlan rejects both today, but == would fail open on
+  // exactly the all-dimmed grid this guard exists to prevent.
   const addExhausted =
-    displayedInputCount(itemOverrides, assumedRawItemIds) === pack.items.length;
+    displayedInputCount(itemOverrides, assumedRawItemIds) >= pack.items.length;
 
   return (
     <div className="boundary-section" data-testid="inputs-section">
@@ -625,7 +644,12 @@ export function InputsPanel({
           items={pack.items}
           disabledIds={disabledIds}
           tierByItemId={tierByItemId}
-          disabledHint={i18n.t("inputs.picker.listed")}
+          // Before the first solve lands there are no auto-rows and no
+          // overrides, so nothing is dimmed and the hint would explain an
+          // absence.
+          disabledHint={
+            disabledIds.size > 0 ? i18n.t("inputs.picker.listed") : undefined
+          }
           onPick={(newId) => {
             // The row mounts on a later commit, so hand its rate input the
             // focus: it is the only edit that makes the new row do anything.
@@ -642,6 +666,11 @@ export function InputsPanel({
       );
     }
     const rowId = pickerFor.itemId;
+    // The row may have gone (removed, or swapped by another commit) while the
+    // popup was open. Rendering on regardless would highlight a tile for a row
+    // that no longer exists and let a pick arm a focus token for a commit that
+    // can never apply.
+    if (!itemOverrides.some((o) => o.itemId === rowId)) return null;
     // Only the other override rows are disabled here. Auto-row items stay
     // enabled: for a capped row handleItemChange carries the rate onto the
     // new item, so this is a live cap move, and blocking it would force a
