@@ -1,86 +1,20 @@
 import { test, expect, type ConsoleMessage, type Page } from "@playwright/test";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import type { ItemOverride } from "../../src/data/plan";
+import { planHash } from "./plan-hash";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
-
-// Walk upward from this file to find the parent repo that owns the AEF data
-// pack. Matches the same discovery the app's vite.config.ts uses so the spec
-// works equally well from the main factorio/ checkout (depth ~3) and from a
-// worktree at factorio-plan/.worktrees/<branch>/ (depth ~5).
-function findParentRoot(start: string): string {
-  let dir = start;
-  while (dir !== dirname(dir)) {
-    if (existsSync(join(dir, "data/aef/recipe-pack.json"))) return dir;
-    dir = dirname(dir);
-  }
-  throw new Error(
-    "Cannot locate parent root containing data/aef/recipe-pack.json",
-  );
-}
-
-// Pack metadata is read from the repo's recipe-pack.json at test load. Doing it
-// at test boot (rather than hard-coding) keeps the URL-hash fixtures aligned
-// with whatever sourceCommit / schemaVersion ships with the build under test.
-// loadPlan validates only schemaVersion, so the third pack-tuple element
-// (legacy submoduleSha, now sourceCommit) is informational.
-type PackMeta = { id: string; schemaVersion: string; sourceCommit: string };
-const PACK_META: PackMeta = (() => {
-  const parentRoot = findParentRoot(resolve(import.meta.dirname));
-  const packPath = join(parentRoot, "data/aef/recipe-pack.json");
-  const raw = JSON.parse(readFileSync(packPath, "utf8")) as {
-    schemaVersion: string;
-    source: { name: string; sourceCommit?: string };
-  };
-  return {
-    id: raw.source.name,
-    schemaVersion: raw.schemaVersion,
-    sourceCommit: raw.source.sourceCommit ?? "",
-  };
-})();
-
-// PlanV2 wire-format gzip+base64url encoder. Mirrors the app's encoding/v2
-// path; kept local so the spec is self-contained and does not pull SPA modules
-// through the test bundler.
-async function encodePlanWireToHash(wire: object): Promise<string> {
-  const json = JSON.stringify(wire);
-  const bytes = new TextEncoder().encode(json);
-  const readable = new ReadableStream({
-    start(controller) {
-      controller.enqueue(bytes);
-      controller.close();
-    },
-  });
-  const stream = readable.pipeThrough(new CompressionStream("gzip"));
-  const buf = await new Response(stream).arrayBuffer();
-  const arr = new Uint8Array(buf);
-  let binary = "";
-  for (let i = 0; i < arr.length; i++) {
-    binary += String.fromCharCode(arr[i] as number);
-  }
-  const b64 = btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
-  return `v1.${b64}`;
-}
-
-type ItemOverride = { itemId: string; plan?: true };
 
 async function makeHashForCopperNugget(
   itemOverrides?: ItemOverride[],
 ): Promise<string> {
-  const wire: Record<string, unknown> = {
-    pack: [PACK_META.id, PACK_META.schemaVersion, PACK_META.sourceCommit],
-    title: "",
-    targets: [
-      { itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },
-    ],
-  };
-  if (itemOverrides && itemOverrides.length > 0) {
-    wire["itemOverrides"] = itemOverrides;
-  }
-  return encodePlanWireToHash(wire);
+  const targets = [
+    { itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },
+  ];
+  return planHash(
+    itemOverrides && itemOverrides.length > 0
+      ? { targets, itemOverrides }
+      : { targets },
+  );
 }
 
 // Mirrors the existing render-pipeline spec: capture console errors AND
