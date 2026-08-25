@@ -299,10 +299,10 @@ export function edgeItem(edge: Edge): string | undefined {
 
 // Exemption set for an edge's own geometry: each given endpoint node plus one
 // parentId level (its container box -- a grouped endpoint's runs legitimately
-// start / end inside their own group). Every obstacle filter in the routing
-// and chip-seating passes shares this rule, so what counts as "own" geometry
-// is decided once.
-export function ownExempt(nodes: ReadonlyArray<RFAnyNode>): Set<string> {
+// start / end inside their own group). Every obstacle filter in this module's
+// routing passes shares this rule, so what counts as "own" geometry is decided
+// once.
+function ownExempt(nodes: ReadonlyArray<RFAnyNode>): Set<string> {
   const exempt = new Set<string>();
   for (const n of nodes) {
     exempt.add(n.id);
