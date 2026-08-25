@@ -1,6 +1,5 @@
 import { test, expect, type ConsoleMessage, type Page } from "@playwright/test";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { planHash } from "./plan-hash";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -83,67 +82,12 @@ const TEXT = {
 // Test 6 takes the uncapped case, Test 4 the import-covered cap, Test 7 the
 // below-demand cap.
 //
-// The wire encoder and pack self-read mirror raw-and-transport.spec.ts so this
-// spec stays self-contained and does not pull SPA modules through the bundler.
-function findParentRoot(start: string): string {
-  let dir = start;
-  while (dir !== dirname(dir)) {
-    if (existsSync(join(dir, "data/aef/recipe-pack.json"))) return dir;
-    dir = dirname(dir);
-  }
-  throw new Error(
-    "Cannot locate parent root containing data/aef/recipe-pack.json",
-  );
-}
-
-// Pack triple for the wire envelope. loadPlan validates only schemaVersion, so
-// the third element (legacy submoduleSha, now sourceCommit) is informational.
-const PACK_META = (() => {
-  const parentRoot = findParentRoot(resolve(import.meta.dirname));
-  const raw = JSON.parse(
-    readFileSync(join(parentRoot, "data/aef/recipe-pack.json"), "utf8"),
-  ) as {
-    schemaVersion: string;
-    source: { name: string; sourceCommit?: string };
-  };
-  return {
-    id: raw.source.name,
-    schemaVersion: raw.schemaVersion,
-    sourceCommit: raw.source.sourceCommit ?? "",
-  };
-})();
-
-async function encodePlanWireToHash(wire: object): Promise<string> {
-  const bytes = new TextEncoder().encode(JSON.stringify(wire));
-  const readable = new ReadableStream({
-    start(controller) {
-      controller.enqueue(bytes);
-      controller.close();
-    },
-  });
-  const buf = await new Response(
-    readable.pipeThrough(new CompressionStream("gzip")),
-  ).arrayBuffer();
-  const arr = new Uint8Array(buf);
-  let binary = "";
-  for (let i = 0; i < arr.length; i++) {
-    binary += String.fromCharCode(arr[i] as number);
-  }
-  const b64 = btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
-  return `v1.${b64}`;
-}
-
 // Targets [copper_powder, liquid_copper] make copper_powder dual-listable:
 // produced as a target, and consumed by liquid_copper whenever the solver picks
 // that recipe. Which nodes surface depends on the override's rate; see the
 // block comment above.
 async function makeDualListedPlanHash(): Promise<string> {
-  return encodePlanWireToHash({
-    pack: [PACK_META.id, PACK_META.schemaVersion, PACK_META.sourceCommit],
-    title: "",
+  return planHash({
     targets: [
       { itemId: "copper_powder", ratePerSec: { num: "1", denom: "2" } },
       { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "2" } },
