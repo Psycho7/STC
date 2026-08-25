@@ -14,11 +14,10 @@ import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import {
   routeBusEdges,
   routeFanoutEdges,
-  nodeWidth,
-  portOffsetY,
   BUS_SPAN_THRESHOLD,
   FANOUT_SPAN_MIN,
 } from "../../src/canvas/busRouting";
+import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
 import {
   chamferBusPath,
   chamferFanoutPath,

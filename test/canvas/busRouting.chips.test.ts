@@ -8,12 +8,12 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import {
-  portOffsetY,
   routeBusEdges,
   routeFanoutEdges,
   BUS_SPAN_THRESHOLD,
   LANE_SPACING,
 } from "../../src/canvas/busRouting";
+import { portOffsetY } from "../../src/canvas/nodeGeometry";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import type { RFAnyNode } from "../../src/canvas/layout";

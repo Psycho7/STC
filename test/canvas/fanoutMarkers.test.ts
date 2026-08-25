@@ -14,11 +14,10 @@ import type { Edge } from "@xyflow/react";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import {
   routeFanoutEdges,
-  nodeWidth,
-  portOffsetY,
   FANOUT_SPAN_MIN,
   FANOUT_SPAN_MAX,
 } from "../../src/canvas/busRouting";
+import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
 import {
   CHAMFER,
   chamferStepPath,

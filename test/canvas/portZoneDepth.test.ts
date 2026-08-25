@@ -15,7 +15,7 @@ import {
   chipEntersOwnCardBody,
 } from "../../src/canvas/chipSeating";
 import { RECIPE_WIDTH } from "../../src/canvas/dimensions";
-import { nodeHeight } from "../../src/canvas/busRouting";
+import { nodeHeight } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { mkRecipe, productNode, recipeNode } from "./busRouting.testkit";
 

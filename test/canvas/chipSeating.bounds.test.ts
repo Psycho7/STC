@@ -23,7 +23,7 @@ import {
   absoluteTop,
   nodeHeight,
   nodeWidth,
-} from "../../src/canvas/busRouting";
+} from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { productNode } from "./busRouting.testkit";
 import { pack } from "../../src/data/load";

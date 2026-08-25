@@ -23,14 +23,13 @@ import {
   entryGutterRects,
   gutterWidth,
   paddedObstacles,
-  nodeWidth,
-  portOffsetY,
   BUS_SPAN_THRESHOLD,
   FANOUT_SPAN_MAX,
   FANOUT_SPAN_MIN,
   LANE_TOP_OFFSET,
   LANE_SPACING,
 } from "../../src/canvas/busRouting";
+import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import {
