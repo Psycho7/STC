@@ -15,8 +15,9 @@
 // `data` (bus members are retyped `type: "bus"`).
 //
 // The seventh and final pipeline pass -- chip seating (deconflictChipAnchors)
-// -- lives in chipSeating.ts; it consumes this module's shared node/edge
-// geometry helpers (absoluteLeft .. portOffsetY) and padding constants.
+// -- lives in chipSeating.ts; it consumes this module's edge-data readers and
+// padding constants. The model-frame node accessors both modules read live in
+// nodeGeometry.ts.
 
 import type { Edge } from "@xyflow/react";
 import Fraction from "fraction.js";
@@ -47,16 +48,6 @@ import {
   portOffsetY,
 } from "./nodeGeometry";
 import type { RFAnyNode } from "./layout";
-
-// TEMPORARY: keeps existing importers working until they point at
-// ./nodeGeometry directly.
-export {
-  absoluteLeft,
-  absoluteTop,
-  nodeHeight,
-  nodeWidth,
-  portOffsetY,
-} from "./nodeGeometry";
 
 // A "long" edge reaches past two full layers. One layer is a column gap plus a
 // recipe node, so the threshold is 2 * (gap + recipe width). Derived from the
