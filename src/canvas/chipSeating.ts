@@ -56,15 +56,17 @@ import {
   ENTRY_SLOT_PITCH,
   OBSTACLE_PAD_LEFT,
   OBSTACLE_PAD_Y,
-  absoluteLeft,
-  absoluteTop,
   edgeItem,
   edgeRate,
+  type BusEdgeData,
+} from "./busRouting";
+import {
+  absoluteLeft,
+  absoluteTop,
   nodeHeight,
   nodeWidth,
   portOffsetY,
-  type BusEdgeData,
-} from "./busRouting";
+} from "./nodeGeometry";
 import { formatRatePerMin } from "../data/rate-format";
 import type { RFAnyNode } from "./layout";
 
