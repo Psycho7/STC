@@ -129,6 +129,12 @@ export function demandByItem(targets: ReadonlyArray<ItemTarget>): Map<ItemId, nu
   return demand;
 }
 
+// Relative tolerance for comparing pass-2's recomputed objective against
+// pass-1's cost cap, floored so a zero-cost cap still admits solver noise.
+// This is the OBJECTIVE/COST domain, deliberately NOT the plan-rate REL_TOL
+// above: the two answer different questions and may move apart.
+const COST_REL_TOL = 1e-6;
+
 // Primary-pass objective recomputed from a raw solve's float primals, using the
 // same weights buildModel("primary") minimizes: sum_r cost(r)*x_r +
 // SURPLUS_WEIGHT*surplus + DEFICIT_WEIGHT*deficit. Infinite-supply items carry no
@@ -315,7 +321,7 @@ export function solveLp(input: LpInput): LpResult {
     // when it matches pass-1's within tolerance; otherwise fall back to the
     // validated cost-optimal pass-1. Also covers "pass-2 numerically infeasible".
     const pass2Cost = primaryObjective(pass2, recipes, items, costById);
-    const costTol = Math.max(Math.abs(costCap) * 1e-6, 1e-6);
+    const costTol = Math.max(Math.abs(costCap) * COST_REL_TOL, COST_REL_TOL);
     const pass2Valid =
       pass2.feasible !== false && Math.abs(pass2Cost - costCap) <= costTol;
     lpResult = pass2Valid ? pass2 : pass1;
