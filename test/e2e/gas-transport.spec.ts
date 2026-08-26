@@ -3,8 +3,9 @@
 // :has(), and the stretched pattern the lit-state rule substitutes. Screenshots
 // land in the gitignored .artifacts/ dir for eyeball review after a change.
 import { test, expect, type Page } from "@playwright/test";
-import { existsSync, readFileSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { mkdirSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { planHash } from "./plan-hash";
 
 test.use({ viewport: { width: 1920, height: 1080 } });
 
@@ -13,61 +14,11 @@ const VH = 1080;
 const SHOTS = resolve(import.meta.dirname, "../../.artifacts/gas-visual");
 mkdirSync(SHOTS, { recursive: true });
 
-function findParentRoot(start: string): string {
-  let dir = start;
-  while (dir !== dirname(dir)) {
-    if (existsSync(join(dir, "data/aef/recipe-pack.json"))) return dir;
-    dir = dirname(dir);
-  }
-  throw new Error(
-    "Cannot locate parent root containing data/aef/recipe-pack.json",
-  );
-}
-
-const PACK_META = (() => {
-  const packPath = join(
-    findParentRoot(resolve(import.meta.dirname)),
-    "data/aef/recipe-pack.json",
-  );
-  const raw = JSON.parse(readFileSync(packPath, "utf8")) as {
-    schemaVersion: string;
-    source: { name: string; sourceCommit?: string };
-  };
-  return {
-    id: raw.source.name,
-    schemaVersion: raw.schemaVersion,
-    sourceCommit: raw.source.sourceCommit ?? "",
-  };
-})();
-
-async function encodeHash(wire: object): Promise<string> {
-  const bytes = new TextEncoder().encode(JSON.stringify(wire));
-  const readable = new ReadableStream({
-    start(c) {
-      c.enqueue(bytes);
-      c.close();
-    },
-  });
-  const buf = await new Response(
-    readable.pipeThrough(new CompressionStream("gzip")),
-  ).arrayBuffer();
-  const arr = new Uint8Array(buf);
-  let binary = "";
-  for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i]!);
-  const b64 = btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
-  return `v1.${b64}`;
-}
-
 // copper_jar consumes gas_inert, copper_enr2 consumes gas_copper_enr2 and
 // gas_xiranite, and both chains pull liquid water and copper ore, so one plan
 // puts all three carriers on the canvas at once.
 async function gasPlanHash(): Promise<string> {
-  return encodeHash({
-    pack: [PACK_META.id, PACK_META.schemaVersion, PACK_META.sourceCommit],
-    title: "",
+  return planHash({
     targets: [
       { itemId: "copper_jar", ratePerSec: { num: "1", denom: "2" } },
       { itemId: "copper_enr2", ratePerSec: { num: "1", denom: "2" } },

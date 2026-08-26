@@ -7,7 +7,7 @@
 // minute, so each target's trailing comment records the original per-minute
 // figure (per-second = per-minute / 60).
 
-import { encodePlan, type Plan } from "../../src/data/plan";
+import { planHash } from "./plan-hash";
 
 export type ScenarioTarget = {
   itemId: string;
@@ -27,15 +27,6 @@ export type Scenario = {
   // node or edge moves.
   maxDiffPixels: number;
 };
-
-// Recipe-pack triple for the wire envelope: [source name, schemaVersion,
-// sourceCommit]. Mirrors data/aef/recipe-pack.json; loadPlan validates the
-// schemaVersion against the live pack, so this must track the shipped pack.
-export const PACK: [id: string, schemaVersion: string, sha: string] = [
-  "endfield-calc/factoriolab",
-  "0.2",
-  "4fc462948fe9f652db20258953dd8dc09b3dfc97",
-];
 
 export const SCENARIOS: Scenario[] = [
   {
@@ -145,11 +136,5 @@ export const SCENARIOS: Scenario[] = [
 // guarantees the exact wire format the app decodes. Shared by every spec that
 // loads a scenario, so all of them agree on the scenario -> hash mapping.
 export async function scenarioHash(scenario: Scenario): Promise<string> {
-  const plan: Plan = {
-    version: 1,
-    pack: { id: PACK[0], schemaVersion: PACK[1], submoduleSha: PACK[2] },
-    title: scenario.title,
-    targets: scenario.targets,
-  };
-  return encodePlan(plan);
+  return planHash({ title: scenario.title, targets: scenario.targets });
 }
