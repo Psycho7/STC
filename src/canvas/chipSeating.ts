@@ -56,7 +56,12 @@
 
 import type { Edge } from "@xyflow/react";
 
-import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH, MAX_CHIP_SCALE } from "./dimensions";
+import {
+  CHIP_BOX_HEIGHT,
+  CHIP_BOX_WIDTH,
+  HIDE_STALE_EPS,
+  MAX_CHIP_SCALE,
+} from "./dimensions";
 import {
   CHAMFER,
   chamferBusPath,
@@ -2700,6 +2705,9 @@ type ChipAnchorData = {
   fanoutBranchDx?: number;
   fanoutBranchDy?: number;
   fanoutBranchHidden?: boolean;
+  // The anchors the two stamped hides were decided at. A hide only holds while
+  // its stamp still matches the live anchor, so the reader needs them both.
+  fanoutBranchHiddenAt?: { x: number; y: number };
   laneY?: number;
   busChipX?: number;
   busDropDy?: number;
@@ -2707,6 +2715,7 @@ type ChipAnchorData = {
   busRiseHidden?: boolean;
   busMemberCount?: number;
   faninChipHidden?: boolean;
+  faninChipHiddenAtY?: number;
 };
 
 // Content bounding box (flow coords) covering both the node cards AND every
@@ -2767,7 +2776,15 @@ export function contentBounds(
       ...routingHintsFromData(edge.data),
     };
     if (edge.type === "item") {
-      if (data?.faninChipHidden === true) continue;
+      // Staleness parity with ItemEdge: the fan-in member hide holds only while
+      // the stamped port y is still within HIDE_STALE_EPS of the LIVE target y,
+      // so a drag that moved the port brings the chip back -- and the frame with
+      // it. An ABSENT stamp is not stale, which keeps the chip out of the rect
+      // exactly as the renderer keeps it off the canvas.
+      const stampY = data?.faninChipHiddenAtY;
+      const faninStale =
+        stampY !== undefined && Math.abs(stampY - ends.ty) >= HIDE_STALE_EPS;
+      if (data?.faninChipHidden === true && !faninStale) continue;
       const [, lx, ly] = chamferStepPath(geom);
       unionChip(lx + (data?.labelDx ?? 0), ly + (data?.labelDy ?? 0));
     } else if (edge.type === "bus" && data?.fanout === true) {
@@ -2780,7 +2797,17 @@ export function contentBounds(
           fan.trunkAnchor.y + (data.fanoutAggDy ?? 0),
         );
       }
-      if (data.fanoutBranchHidden !== true) {
+      // Staleness parity with BusEdge, whose rule differs from the fan-in one
+      // above: per-axis, strict, and an ABSENT stamp still hides. (BusEdge also
+      // un-hides when its fan path is null; here the branch already resolved a
+      // fan-out path, so that arm cannot arise.)
+      const hiddenAt = data.fanoutBranchHiddenAt;
+      const branchHidden =
+        data.fanoutBranchHidden === true &&
+        (hiddenAt === undefined ||
+          (Math.abs(fan.branchAnchor.x - hiddenAt.x) < HIDE_STALE_EPS &&
+            Math.abs(fan.branchAnchor.y - hiddenAt.y) < HIDE_STALE_EPS));
+      if (!branchHidden) {
         unionChip(
           fan.branchAnchor.x + (data.fanoutBranchDx ?? 0),
           fan.branchAnchor.y + (data.fanoutBranchDy ?? 0),
