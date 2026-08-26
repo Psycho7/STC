@@ -29,6 +29,20 @@
 // Within each phase, edges are processed in edge-id (or target-map insertion)
 // order, so the whole pass is pure and deterministic.
 //
+// Phase boundaries, measured rather than assumed -- the phases are NOT separable
+// modules. No seating phase reads another seating phase's accumulator: the 13
+// index maps phases 1/2, 3 and 4 write between them flow only to the emit loop
+// at the end of deconflictChipAnchors. Their sole coupling is field.placed --
+// every seat tests overlapsChip against everything seated so far -- so the phase
+// order is a PRIORITY order, not a data dependency: reordering changes which
+// chip keeps a contested position and which one yields its seat at the rollback
+// sites. The one accumulator that crosses backwards is faninChipHiddenByIndex,
+// declared with the phase 0a state and written in phase 4. The wide-reach region
+// is the reconstruction that runs before phase 0, whose geometry maps every
+// later phase reads -- not any seating phase. So a phase seam would carry only
+// field.placed, to exactly one caller each, and would turn the ordering the
+// compiler guarantees here into a call-site convention.
+//
 // Escapes follow the ratified priority order: chip-vs-chip and chip-vs-CARD
 // clearance are HARD invariants; staying on the own polyline and clearing
 // foreign flow lines are preferences that yield when the hard pair forces an
