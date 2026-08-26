@@ -101,6 +101,22 @@ export function toleranceScaleFloor(demand: Map<ItemId, number>): number {
   return maxDemand > 0 ? Math.min(1, maxDemand) : 1;
 }
 
+// Relative tolerance for PLAN-RATE residuals, shared by the extraction hygiene
+// gate and every invariant checker (solver and render). Always applied as
+// Math.max(toleranceScaleFloor(demandByItem(targets)), |magnitude|) * REL_TOL.
+//
+// Directional constraint: the extraction hygiene gate must never leave a
+// residual checkMassBalance would tag, i.e. the gate's tolerance stays at or
+// below the checkers'. Both are this one value today. An extraction gate that
+// ever needs to be looser must declare its own constant that is <= REL_TOL;
+// raising this shared constant instead inverts that direction silently, so
+// raising it is forbidden.
+//
+// Not the LP objective tolerance (solver/optimality), not the transport
+// capacity tolerance (pipeline/expand/edge-rates), and not for tools/oracle,
+// whose cross-check must stay independent of this value.
+export const REL_TOL = 1e-6;
+
 // Demand per item: sum over targets of the requested net-export rate.
 // Duplicate targets on the same item accumulate. Shared with the invariant
 // checkers so model and checks read demand the same way.
