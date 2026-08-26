@@ -1790,6 +1790,24 @@ export function deconflictChipAnchors(
     for (const [id, z] of from.zones) into.zones.set(id, z);
   };
 
+  // The target entry band of an edge: the padded-left gutter of its consumer
+  // card, mirroring paddedObstacles' overhangs. The arrival-cluster exemption
+  // holds only while a rate chip's centre sits here (the narrowed rate-chip
+  // rule), so both the fan-out branch phase and the item phase build it. The
+  // non-null assertion holds because every caller has already skipped an edge
+  // whose target is missing from byId.
+  const entryBandOf = (edge: Edge): EntryBand => {
+    const target = byId.get(edge.target)!;
+    const tx = absoluteLeft(target, byId);
+    const targetTop = absoluteTop(target, byId);
+    return {
+      left: tx - OBSTACLE_PAD_LEFT,
+      right: tx,
+      top: targetTop - OBSTACLE_PAD_Y,
+      bottom: targetTop + nodeHeight(target) + OBSTACLE_PAD_Y,
+    };
+  };
+
   // Phase 0 -- junction-dot geometry. Every junction dot the render layer draws
   // resolves here, before the first chip seats. Two families come straight off
   // the path builders the reconstruction above already ran (the lane members'
@@ -2304,17 +2322,6 @@ export function deconflictChipAnchors(
     .sort((a, b) =>
       a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0,
     );
-  const entryBandOf = (edge: Edge): EntryBand => {
-    const target = byId.get(edge.target)!;
-    const tx = absoluteLeft(target, byId);
-    const targetTop = absoluteTop(target, byId);
-    return {
-      left: tx - OBSTACLE_PAD_LEFT,
-      right: tx,
-      top: targetTop - OBSTACLE_PAD_Y,
-      bottom: targetTop + nodeHeight(target) + OBSTACLE_PAD_Y,
-    };
-  };
   // Card exemption for a trunk's AGGREGATE chip: the union over every member of
   // the trunk. The aggregate spans the shared trunk feeding ALL the members'
   // targets, and its wide box necessarily reaches into the target column, so it
@@ -2500,17 +2507,7 @@ export function deconflictChipAnchors(
     const geom = itemGeomByIndex.get(index);
     const target = byId.get(edge.target);
     if (geom === undefined || target === undefined) continue;
-    const tx = absoluteLeft(target, byId);
-    // Target entry band: the padded-left gutter of the consumer card, mirroring
-    // paddedObstacles' overhangs. The arrival-cluster exemption holds only while
-    // the chip's centre sits here (the narrowed rate-chip rule).
-    const targetTop = absoluteTop(target, byId);
-    const entryBand: EntryBand = {
-      left: tx - OBSTACLE_PAD_LEFT,
-      right: tx,
-      top: targetTop - OBSTACLE_PAD_Y,
-      bottom: targetTop + nodeHeight(target) + OBSTACLE_PAD_Y,
-    };
+    const entryBand = entryBandOf(edge);
     const seat = seatRateChip(
       field,
       { pts: geom.pts, anchorX: geom.lx, anchorY: geom.ly },
