@@ -252,6 +252,10 @@ export type CapEdge = {
   capacity: Fraction;
 };
 
+// Capacity tolerance, deliberately local rather than the shared plan-rate
+// REL_TOL in solver/lp: this path is exact-Fraction and needs the tolerance as
+// a Fraction, which it hoists below because the cap scans every producer on
+// every plan. A shared float constant would have to be re-lifted per call.
 const CAP_REL_TOL = 1e-6;
 // Hoisted constants: building a Fraction from the float tolerance is costly, and
 // the cap runs (and scans every producer) on every plan, so construct these once.

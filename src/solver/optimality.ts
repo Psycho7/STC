@@ -27,7 +27,10 @@ import {
 // rates map. A recipe present in result.rates already passed that filter.
 const ACTIVE_EPS = 1e-12;
 
-// Relative tolerance for objective comparisons, matching invariants.ts.
+// Relative tolerance for objective comparisons. Deliberately its own knob: it
+// works in the LP OBJECTIVE domain (costs, floored at an absolute 1 below),
+// not the plan-rate domain the shared REL_TOL in ./lp covers. It carries the
+// same value today by coincidence, not by contract - do not fuse the two.
 const REL_TOL = 1e-6;
 
 /**
