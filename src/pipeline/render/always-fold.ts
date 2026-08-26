@@ -17,10 +17,7 @@ import { isMachineRecipeVertex, isMachineSccVertex } from "../types";
 import { assignLabelSides } from "./policy";
 import { deriveBoundaryProducts } from "./boundary-products";
 import { rationalToString } from "./rational";
-
-const unitIdForClass = (replicaId: ReplicaId): RenderUnitId =>
-  `u:class:${replicaId}`;
-const unitIdForScc = (v: MachineSccVertex): RenderUnitId => `u:scc:${v.sccId}`;
+import { unitIdForClass, unitIdForScc } from "./unit-ids";
 
 /**
  * Always-fold render policy. Groups MachineRecipeVertex by replicaId and emits
@@ -83,7 +80,7 @@ export const AlwaysFoldRender: RenderPolicy = (input): RenderPlan => {
     .slice()
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const v of sortedScc) {
-    const id = unitIdForScc(v);
+    const id = unitIdForScc(v.sccId);
     unitIdByVertex.set(v.id, id);
     if (sccEmitted.has(id)) continue;
     sccEmitted.add(id);
