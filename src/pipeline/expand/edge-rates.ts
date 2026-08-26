@@ -7,21 +7,11 @@
 import Fraction from "fraction.js";
 import type { Recipe } from "@aef/schema";
 import type { LogicalGraph } from "../../canvas/layout";
-import { supplyShareKey } from "../../solver/replicate";
-import type {
-  ItemId,
-  RecipeId,
-  Replica,
-  ReplicaId,
-} from "../../solver/types";
-
-// Replica ids separate their counter with `#`, which the canvas layout treats
-// as a stamp-suffix marker, so assembleLogicalGraph swaps `#` for `~` before
-// using the id as a logical node id. Same swap here, so the allocator can match
-// a logical-edge endpoint string back to its replica.
-function safeId(replicaId: ReplicaId): string {
-  return replicaId.replace(/#/g, "~");
-}
+import {
+  logicalNodeIdForReplica,
+  supplyShareKey,
+} from "../../solver/replicate";
+import type { ItemId, RecipeId, Replica } from "../../solver/types";
 
 /**
  * Works out the demand rate on each edge.
@@ -70,7 +60,8 @@ export function computeEdgeRates(args: {
   const { logical, replicas, recipeById, rates, supplyShares, boundaryShare } =
     args;
   const replicaBySafeId = new Map<string, Replica>();
-  for (const r of replicas) replicaBySafeId.set(safeId(r.id), r);
+  for (const r of replicas)
+    replicaBySafeId.set(logicalNodeIdForReplica(r.id), r);
 
   const result = new Map<string, Fraction>();
   const ZERO = new Fraction(0);
@@ -79,7 +70,8 @@ export function computeEdgeRates(args: {
     port.startsWith("in:") ? port.slice("in:".length) : port;
 
   // Pre-pass: group INPUT edges (consumer treats the item as a recipe input) by
-  // (consumer replica safeId, item). Each consumer STAMP's demand for an item
+  // (consumer replica logical-node id, item). Each consumer STAMP's demand for
+  // an item
   // splits across its inbound edges in proportion to each source replica's
   // output of that item. A single inbound edge collapses to share/sum = 1,
   // leaving single-producer wiring bit-identical; several edges apportion the

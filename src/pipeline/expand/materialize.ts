@@ -6,6 +6,7 @@ import type {
   LogicalRecipeNode,
 } from "../../canvas/layout";
 import type { Replica } from "../../solver/types";
+import { logicalNodeIdForReplica } from "../../solver/replicate";
 import type {
   ItemId,
   MachineEdge,
@@ -46,10 +47,6 @@ export type ExpandMultipliersInput = {
 };
 
 const STAMP_SEP = "~~m";
-
-function safeId(replicaId: ReplicaId): string {
-  return replicaId.replace(/#/g, "~");
-}
 
 function machineVertexId(
   logicalNodeId: string,
@@ -119,8 +116,9 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
     return entry.transportKind;
   }
 
-  // Index logical recipe nodes by id, and replicas by their safeId-form id so we
-  // can recover consumerPath/sharedAtArticulation from a logical-node id.
+  // Index logical recipe nodes by id, and replicas by their logical-node-id
+  // form so we can recover consumerPath/sharedAtArticulation from a
+  // logical-node id.
   const recipeNodes: LogicalRecipeNode[] = logical.nodes.filter(
     (n): n is LogicalRecipeNode => n.kind === "recipe",
   );
@@ -128,7 +126,8 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
   for (const n of recipeNodes) nodeById.set(n.id, n);
 
   const replicaByLogicalId = new Map<string, Replica>();
-  for (const r of replicas) replicaByLogicalId.set(safeId(r.id), r);
+  for (const r of replicas)
+    replicaByLogicalId.set(logicalNodeIdForReplica(r.id), r);
 
   // Build vertices. SCC stand-in nodes become a single MachineSccVertex; other
   // nodes materialize into `multiplier` MachineRecipeVertex stamps.
