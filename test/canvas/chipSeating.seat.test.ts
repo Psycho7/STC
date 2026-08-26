@@ -1228,3 +1228,54 @@ describe("chipSeatHalfW: the per-chip reserved box", () => {
     expect(narrow).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
   });
 });
+
+describe("ClearanceField: the seat / unseat contract", () => {
+  it("unseat frees the position again for a later seat", () => {
+    const field = makeClearanceField([], []);
+    const taken = {
+      x: LINE.anchorX,
+      y: LINE.anchorY,
+      halfW: HALF_W,
+      halfH: HALF_H,
+    };
+    const box = field.seat({ ...taken });
+    expect(field.placed).toEqual([box]);
+    expect(field.overlapsChip(taken)).toBe(true);
+
+    field.unseat(box);
+    // Back to the prior state, not merely "one shorter": the released box is
+    // no obstacle to anything.
+    expect(field.placed).toEqual([]);
+    expect(field.overlapsChip(taken)).toBe(false);
+
+    // ...and the freed position takes the next seat, at the anchor tier, rather
+    // than the slide a lingering phantom box would have forced.
+    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
+  });
+
+  it("returns the box it seated, centred at the anchor plus the offsets", () => {
+    // The slide tier moves the chip off its anchor, so the handle and the
+    // offsets can disagree here if they are ever derived apart.
+    const field = makeClearanceField([], [INTRUSION_CARD]);
+    const line = {
+      pts: [[0, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+      anchorX: 390,
+      anchorY: 0,
+    };
+    const seat = seatRateChip(
+      field,
+      line,
+      "own",
+      "t",
+      portZone("T", "target"),
+      NO_BAND,
+    );
+    expect(seat.tier).toBe("slide");
+    expect(seat.box.x).toBe(line.anchorX + seat.dx);
+    expect(seat.box.y).toBe(line.anchorY + seat.dy);
+    // And it is the box the field actually holds, by identity.
+    expect(field.placed).toEqual([seat.box]);
+    expect(field.placed[0]).toBe(seat.box);
+  });
+});
