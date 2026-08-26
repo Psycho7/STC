@@ -245,7 +245,7 @@ describe("expandMultipliers / MachineEdge.transportKind", () => {
 // RenderEdge.transportKind / driver threading.
 // ---------------------------------------------------------------------------
 
-describe("buildRenderPlan / RenderEdge.transportKind end-to-end", () => {
+describe("renderPlanFromSolve / RenderEdge.transportKind end-to-end", () => {
   it("propagates pack-derived transportKind onto every RenderEdge", () => {
     const full = solvePlanWithIntermediates(
       defaultTargets(),

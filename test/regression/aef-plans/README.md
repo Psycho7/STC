@@ -1,7 +1,7 @@
 # AEF-plan regression fixtures
 
 This directory holds JSON fixtures that exercise the full render pipeline
-(`solvePlanWithIntermediates` -> `buildRenderPlan` -> `layoutRenderPlan`)
+(`solvePlanWithIntermediates` -> `renderPlanFromSolve` -> `layoutRenderPlan`)
 against the AEF recipe pack. Each fixture pins a target list and a small set
 of structural expectations against the resulting `RenderPlan`.
 
