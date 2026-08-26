@@ -21,6 +21,7 @@ import {
 } from "../types";
 
 import { rationalFromString } from "./rational";
+import { unitIdForOutputProduct } from "./unit-ids";
 
 export type { InvariantResult };
 
@@ -607,7 +608,7 @@ export function checkTargetOutputsSatisfied(
   for (const edge of plan.edges) {
     const declared = declaredByItem.get(edge.item);
     if (declared === undefined) continue;
-    if (edge.toUnit !== `u:out:${edge.item}`) continue;
+    if (edge.toUnit !== unitIdForOutputProduct(edge.item)) continue;
     actualByItem.set(
       edge.item,
       (actualByItem.get(edge.item) ?? FRAC_ZERO).add(edge.rate),
