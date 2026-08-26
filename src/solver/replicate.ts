@@ -281,6 +281,28 @@ function newReplicaId(state: ReplicateState, prefix: string): ReplicaId {
   return `${prefix}#${state.nextId++}`;
 }
 
+/**
+ * Maps a replica id to the logical node id built from it, swapping the `#`
+ * counter separator newReplicaId mints for `~`. Pure and total: an id with no
+ * `#` comes back unchanged, and the mapping is injective over minted ids as
+ * long as no recipe id contains `~`.
+ *
+ * This lives here, and callers must call it rather than re-implement it,
+ * because three stages have to produce byte-identical strings for the same
+ * replica: assemble mints LogicalRecipeNode.id and the edge endpoints,
+ * materialize rebuilds machine vertex ids from those logical node ids, and the
+ * edge-rate allocator matches a logical-edge endpoint STRING back to its
+ * replica by equality. A divergence between them does not throw - the match
+ * just fails and edge rates are silently dropped.
+ *
+ * The output is a within-pass identifier, not a wire format (plans persist as
+ * targets and overrides; node ids are recomputed every render), but fixtures
+ * and the render corpus golden pin it, so treat the grammar as stable.
+ */
+export function logicalNodeIdForReplica(replicaId: ReplicaId): string {
+  return replicaId.replace(/#/g, "~");
+}
+
 // Accumulate one committed-flow record (items/s) into supplyShares.
 function recordSupplyShare(
   state: ReplicateState,
