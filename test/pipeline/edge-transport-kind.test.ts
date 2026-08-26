@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import type { Item, Recipe, Stoich, TransportKindId } from "@aef/schema";
-import { buildRenderPlan } from "../../src/pipeline/driver";
-import { assertRenderInvariants } from "../../src/pipeline/render/invariants";
+import { renderPlanFromSolve } from "../../src/pipeline/driver";
 import { expandMultipliers } from "../../src/pipeline/expand";
 import type {
   LogicalEdge,
@@ -254,36 +253,7 @@ describe("buildRenderPlan / RenderEdge.transportKind end-to-end", () => {
       loadTransportConfig(defaultTransportConfig, pack),
     );
     const itemById = new Map(pack.items.map((i) => [i.id, i]));
-    const { plan } = buildRenderPlan({
-      logical: full.logical,
-      replicas: full.replicas,
-      multipliers: full.multipliers,
-      idealCount: full.idealCount,
-      classByReplicaId: full.classByReplicaId,
-      classToQuotient: full.classToQuotient,
-      condensation: full.condensation,
-      torn: full.torn,
-      recipeById: full.recipeById,
-      rates: full.rates,
-      supplyShares: full.supplyShares,
-      boundaryShare: full.boundaryShare,
-      itemById,
-      machineById: new Map(pack.machines.map((m) => [m.id, m])),
-      itemOverrides: [],
-      targets: defaultTargets(),
-      pack,
-    });
-
-    // TEMPORARY (measurement step): run the DEV render-invariant hook that
-    // renderPlanFromSolve applies, so this site is measured before the driver
-    // collapse routes it through the hook permanently.
-    assertRenderInvariants({
-      plan,
-      rates: full.rates,
-      pack,
-      targets: defaultTargets(),
-      itemOverrides: [],
-    });
+    const { plan } = renderPlanFromSolve(full, pack, defaultTargets(), []);
     expect(plan.edges.length).toBeGreaterThan(0);
     for (const e of plan.edges) {
       const item = itemById.get(e.item);

@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import App from "../../src/App";
-import { buildRenderPlan } from "../../src/pipeline/driver";
-import { assertRenderInvariants } from "../../src/pipeline/render/invariants";
+import { renderPlanFromSolve } from "../../src/pipeline/driver";
 import { solvePlanWithIntermediates } from "../../src/solver";
 import { pack } from "../../src/data/load";
 import {
@@ -53,36 +52,7 @@ describe("integration: render plan emits only MVP unit kinds", () => {
       pack,
       loadTransportConfig(defaultTransportConfig, pack),
     );
-    const { plan } = buildRenderPlan({
-      logical: full.logical,
-      replicas: full.replicas,
-      multipliers: full.multipliers,
-      idealCount: full.idealCount,
-      classByReplicaId: full.classByReplicaId,
-      classToQuotient: full.classToQuotient,
-      condensation: full.condensation,
-      torn: full.torn,
-      recipeById: full.recipeById,
-      rates: full.rates,
-      supplyShares: full.supplyShares,
-      boundaryShare: full.boundaryShare,
-      itemById: new Map(pack.items.map((i) => [i.id, i])),
-      machineById: new Map(pack.machines.map((m) => [m.id, m])),
-      itemOverrides: [],
-      targets: defaultTargets(),
-      pack,
-    });
-
-    // TEMPORARY (measurement step): run the DEV render-invariant hook that
-    // renderPlanFromSolve applies, so this site is measured before the driver
-    // collapse routes it through the hook permanently.
-    assertRenderInvariants({
-      plan,
-      rates: full.rates,
-      pack,
-      targets: defaultTargets(),
-      itemOverrides: [],
-    });
+    const { plan } = renderPlanFromSolve(full, pack, defaultTargets(), []);
     const allowed = new Set<string>(RENDER_UNIT_KINDS);
     for (const u of plan.units) {
       expect(allowed.has(u.kind)).toBe(true);

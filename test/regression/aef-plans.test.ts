@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { solvePlanWithIntermediates } from "../../src/solver";
-import { buildRenderPlan } from "../../src/pipeline/driver";
-import { assertRenderInvariants } from "../../src/pipeline/render/invariants";
+import { renderPlanFromSolve } from "../../src/pipeline/driver";
 import { layoutRenderPlan } from "../../src/canvas/layout";
 import { pack } from "../../src/data/load";
 import {
@@ -100,36 +99,12 @@ describe("regression: AEF render-plan fixtures", () => {
           tConfig,
           itemOverrides,
         );
-        const { plan } = buildRenderPlan({
-          logical: full.logical,
-          replicas: full.replicas,
-          multipliers: full.multipliers,
-          idealCount: full.idealCount,
-          classByReplicaId: full.classByReplicaId,
-          classToQuotient: full.classToQuotient,
-          condensation: full.condensation,
-          torn: full.torn,
-          recipeById: full.recipeById,
-          rates: full.rates,
-          supplyShares: full.supplyShares,
-          boundaryShare: full.boundaryShare,
-          itemById: new Map(pack.items.map((i) => [i.id, i])),
-          machineById: new Map(pack.machines.map((m) => [m.id, m])),
-          itemOverrides,
-          targets,
-          pack,
-        });
-
-        // TEMPORARY (measurement step): run the DEV render-invariant hook that
-        // renderPlanFromSolve applies, so this site is measured before the
-        // driver collapse routes it through the hook permanently.
-        assertRenderInvariants({
-          plan,
-          rates: full.rates,
+        const { plan } = renderPlanFromSolve(
+          full,
           pack,
           targets,
           itemOverrides,
-        });
+        );
 
         // Layout must succeed; we do not snapshot positions here (those are
         // ELK-dependent and noisy under version bumps). The call itself

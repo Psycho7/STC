@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
-import { buildRenderPlan } from "../../src/pipeline/driver";
-import { assertRenderInvariants } from "../../src/pipeline/render/invariants";
+import { renderPlanFromSolve } from "../../src/pipeline/driver";
 import { solvePlanWithIntermediates } from "../../src/solver";
 import { pack } from "../../src/data/load";
 import {
@@ -32,7 +31,7 @@ function emitProducts(
 ): {
   inputs: RenderUnitInputProduct[];
   outputs: RenderUnitOutputProduct[];
-  plan: ReturnType<typeof buildRenderPlan>["plan"];
+  plan: ReturnType<typeof renderPlanFromSolve>["plan"];
   recipeById: ReadonlyMap<string, Recipe>;
 } {
   const tConfig = loadTransportConfig(defaultTransportConfig, pack);
@@ -43,38 +42,12 @@ function emitProducts(
     tConfig,
     itemOverrides,
   );
-  const itemById = new Map(pack.items.map((i) => [i.id, i]));
-  const machineById = new Map(pack.machines.map((m) => [m.id, m]));
-  const { plan } = buildRenderPlan({
-    logical: full.logical,
-    replicas: full.replicas,
-    multipliers: full.multipliers,
-    idealCount: full.idealCount,
-    classByReplicaId: full.classByReplicaId,
-    classToQuotient: full.classToQuotient,
-    condensation: full.condensation,
-    torn: full.torn,
-    recipeById: full.recipeById,
-    rates: full.rates,
-    supplyShares: full.supplyShares,
-    boundaryShare: full.boundaryShare,
-    itemById,
-    machineById,
-    itemOverrides,
-    targets: solverTargets,
+  const { plan } = renderPlanFromSolve(
+    full,
     pack,
-  });
-
-  // TEMPORARY (measurement step): run the DEV render-invariant hook that
-  // renderPlanFromSolve applies, so this site is measured before the driver
-  // collapse routes it through the hook permanently.
-  assertRenderInvariants({
-    plan,
-    rates: full.rates,
-    pack,
-    targets: solverTargets,
+    solverTargets,
     itemOverrides,
-  });
+  );
   const inputs = plan.units.filter(isInputProductUnit);
   const outputs = plan.units.filter(isOutputProductUnit);
   return { inputs, outputs, plan, recipeById: full.recipeById };
