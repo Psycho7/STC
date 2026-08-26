@@ -5,7 +5,7 @@ import type { ItemOverride } from "../../data/plan";
 import type { InvariantResult } from "../../solver/invariants";
 import { effectiveSupply } from "../../solver/effectiveSupply";
 import { netSelfConsumption } from "../../solver/net-self";
-import { demandByItem, toleranceScaleFloor } from "../../solver/lp";
+import { REL_TOL, demandByItem, toleranceScaleFloor } from "../../solver/lp";
 import type {
   RenderPlan,
   RenderUnitId,
@@ -21,13 +21,15 @@ import {
 } from "../types";
 
 import { rationalFromString } from "./rational";
+import { unitIdForOutputProduct } from "./unit-ids";
 
 export type { InvariantResult };
 
-// Relative tolerance, same value the solver invariants use. Exported so
-// boundary-products suppresses phantom surpluses at the exact threshold
-// checkBoundaryProductsJustified tags at.
-export const REL_TOL = 1e-6;
+// Re-exported from the solver so render-layer callers have one import site for
+// the plan-rate tolerance: boundary-products suppresses phantom surpluses at
+// the exact threshold checkBoundaryProductsJustified tags at, and both read
+// the same binding. See solver/lp for the domain and the directional rule.
+export { REL_TOL };
 
 // Plan-magnitude floor for tolerance scales, shared with the solver checkers
 // and the extraction hygiene gate. Sub-unit plans shrink the floor to their
@@ -607,7 +609,7 @@ export function checkTargetOutputsSatisfied(
   for (const edge of plan.edges) {
     const declared = declaredByItem.get(edge.item);
     if (declared === undefined) continue;
-    if (edge.toUnit !== `u:out:${edge.item}`) continue;
+    if (edge.toUnit !== unitIdForOutputProduct(edge.item)) continue;
     actualByItem.set(
       edge.item,
       (actualByItem.get(edge.item) ?? FRAC_ZERO).add(edge.rate),

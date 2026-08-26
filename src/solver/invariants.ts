@@ -3,7 +3,7 @@ import type { RecipePack } from "@aef/schema";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { LpResult } from "./lp";
-import { demandByItem, toleranceScaleFloor } from "./lp";
+import { REL_TOL, demandByItem, toleranceScaleFloor } from "./lp";
 import type { SolvePlanFull } from "./index";
 import { effectiveSupply } from "./effectiveSupply";
 import { isSanctionedAbsentProducer } from "../data/recipe-category";
@@ -16,10 +16,6 @@ export type InvariantResult = {
   ok: boolean;
   violations: string[];
 };
-
-// Relative tolerance for floating residual comparisons, matching the mass-balance
-// test in lp.test.ts.
-const REL_TOL = 1e-6;
 
 function rateOf(result: LpResult, recipeId: string): number {
   return result.rates.get(recipeId)?.valueOf() ?? 0;

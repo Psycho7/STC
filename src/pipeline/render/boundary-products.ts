@@ -18,6 +18,14 @@ import type { ItemOverride } from "../../data/plan";
 import type { Item, Recipe, RecipePack } from "@aef/schema";
 import { rationalFromString, rationalToString } from "./rational";
 import { REL_TOL } from "./invariants";
+import {
+  unitIdForInputAggregate,
+  unitIdForInputContainer,
+  unitIdForInputTap,
+  unitIdForInputTargetFeed,
+  unitIdForOutputProduct,
+  unitIdForSurplus,
+} from "./unit-ids";
 
 // When a raw item is consumed across several buckets, the renderer emits an
 // aggregate input node `u:in:<item>` fanning out to per-bucket slice nodes. A
@@ -40,27 +48,22 @@ const bucketFor = (
   containerId === undefined
     ? { kind: "tap", consumerUnit }
     : { kind: "container", containerId };
-const unitIdForInputAggregate = (item: ItemId): RenderUnitId => `u:in:${item}`;
+// BoundaryBucket is local to this file, so these two stay here as thin
+// dispatchers over the shared constructors.
 const unitIdForInputFanout = (
   item: ItemId,
   bucket: BoundaryBucket,
 ): RenderUnitId =>
   bucket.kind === "container"
-    ? `u:in:${item}:${bucket.containerId}`
-    : `u:in:${item}:tap:${bucket.consumerUnit}`;
+    ? unitIdForInputContainer(item, bucket.containerId)
+    : unitIdForInputTap(item, bucket.consumerUnit);
 const unitIdForInputSingleBucket = (
   item: ItemId,
   bucket: BoundaryBucket,
 ): RenderUnitId =>
   bucket.kind === "container"
-    ? `u:in:${item}:${bucket.containerId}`
-    : `u:in:${item}`;
-const unitIdForOutputProduct = (item: ItemId): RenderUnitId => `u:out:${item}`;
-// Dedicated boundary import that feeds a free-supply target item's export
-// passthrough; distinct from the consumer-feeding input ids so consumer
-// plumbing is untouched.
-const unitIdForInputTargetFeed = (item: ItemId): RenderUnitId =>
-  `u:in:${item}:target`;
+    ? unitIdForInputContainer(item, bucket.containerId)
+    : unitIdForInputAggregate(item);
 const boundaryKey = (item: ItemId, bucket: BoundaryBucket): string =>
   bucket.kind === "container"
     ? `${item}\0c\0${bucket.containerId}`
@@ -954,7 +957,7 @@ export function deriveBoundaryProducts(
     const totalSurplus = surplusByItem.get(item)!;
     const itemMeta = itemById.get(item);
     if (!itemMeta) continue;
-    const surplusUnitId: RenderUnitId = `u:surplus:${item}`;
+    const surplusUnitId = unitIdForSurplus(item);
     outputProducts.push({
       id: surplusUnitId,
       kind: "outputProduct",

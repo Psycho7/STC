@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import {
   assignSplitRoles,
+  logicalNodeIdForReplica,
   replicatePerConsumer,
   splitConsumerDemand,
   supplyShareKey,
@@ -1323,5 +1324,19 @@ describe("replicatePerConsumer: self-consuming recipe guard", () => {
         augmented: new Set<RecipeId>(),
       }),
     ).toThrow(/self-consuming/);
+  });
+});
+
+describe("logicalNodeIdForReplica", () => {
+  it("swaps the replica counter separator for the logical-node one", () => {
+    expect(logicalNodeIdForReplica("r:U#0")).toBe("r:U~0");
+  });
+
+  it("converts every separator in the id", () => {
+    expect(logicalNodeIdForReplica("r:U#1#2")).toBe("r:U~1~2");
+  });
+
+  it("returns an id with no separator unchanged", () => {
+    expect(logicalNodeIdForReplica("r:U")).toBe("r:U");
   });
 });

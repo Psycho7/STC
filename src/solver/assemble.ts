@@ -15,17 +15,7 @@ import type {
   TornEdge,
 } from "./types";
 import { wireConnections } from "./wiring";
-
-/**
- * Replica ids are `r:<recipeId>#<counter>`, using `#` as the separator. The
- * canvas layout treats `#` as a stamp-suffix marker (see stripStampSuffix in
- * src/canvas/layout.ts), so passing a replica id straight through as
- * LogicalRecipeNode.id breaks node lookup once layout runs. `~` is ignored by
- * the layout pipeline, so swap `#` for `~` to dodge the collision.
- */
-function safeId(replicaId: ReplicaId): string {
-  return replicaId.replace(/#/g, "~");
-}
+import { logicalNodeIdForReplica } from "./replicate";
 
 /**
  * Translates the solver's output (replicas, multipliers, torn edges) into the
@@ -99,7 +89,7 @@ export function assembleLogicalGraph(args: {
     if (!recipe) continue;
     const node: LogicalRecipeNode = {
       kind: "recipe",
-      id: safeId(r.id),
+      id: logicalNodeIdForReplica(r.id),
       recipe,
       multiplier: multipliers.get(r.id) ?? 1,
       expanded: false,
@@ -127,8 +117,8 @@ export function assembleLogicalGraph(args: {
 }
 
 function buildEdge(pId: ReplicaId, cId: ReplicaId, item: string): LogicalEdge {
-  const source = safeId(pId);
-  const target = safeId(cId);
+  const source = logicalNodeIdForReplica(pId);
+  const target = logicalNodeIdForReplica(cId);
   return {
     id: `${source}->${target}:${item}`,
     source,
@@ -143,8 +133,8 @@ function buildReturnArc(
   cId: ReplicaId,
   item: string,
 ): LogicalEdge {
-  const source = safeId(pId);
-  const target = safeId(cId);
+  const source = logicalNodeIdForReplica(pId);
+  const target = logicalNodeIdForReplica(cId);
   return {
     id: `${source}->return->${target}:${item}`,
     source,

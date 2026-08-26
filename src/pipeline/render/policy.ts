@@ -1,6 +1,4 @@
 import type {
-  MachineRecipeVertex,
-  MachineSccVertex,
   MachineVertexId,
   RenderEdge,
   RenderPlan,
@@ -13,11 +11,7 @@ import type {
 } from "../types";
 import { isMachineRecipeVertex, isMachineSccVertex } from "../types";
 import { deriveBoundaryProducts } from "./boundary-products";
-
-const unitIdForRecipe = (v: MachineRecipeVertex): RenderUnitId => `u:${v.id}`;
-// Every SCC vertex with the same sccId collapses to one loop unit so all
-// inbound and outbound edges resolve to the same render endpoint.
-const unitIdForScc = (v: MachineSccVertex): RenderUnitId => `u:scc:${v.sccId}`;
+import { unitIdForRecipe, unitIdForScc } from "./unit-ids";
 
 // Assigns a labelSide to each edge based on the per-item degree at each
 // endpoint. Runs in O(E) and mutates the input array in place.
@@ -77,7 +71,7 @@ export const NoFoldRender: RenderPolicy = (input): RenderPlan => {
 
   for (const v of sortedVertices) {
     if (isMachineRecipeVertex(v)) {
-      const id = unitIdForRecipe(v);
+      const id = unitIdForRecipe(v.id);
       const base: Omit<RenderUnitRecipe, "containerId"> = {
         id,
         kind: "recipe",
@@ -94,7 +88,7 @@ export const NoFoldRender: RenderPolicy = (input): RenderPlan => {
       continue;
     }
     if (isMachineSccVertex(v)) {
-      const id = unitIdForScc(v);
+      const id = unitIdForScc(v.sccId);
       unitIdByVertex.set(v.id, id);
       if (sccUnitEmitted.has(id)) continue;
       sccUnitEmitted.add(id);

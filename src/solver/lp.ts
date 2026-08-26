@@ -101,6 +101,24 @@ export function toleranceScaleFloor(demand: Map<ItemId, number>): number {
   return maxDemand > 0 ? Math.min(1, maxDemand) : 1;
 }
 
+// Relative tolerance for PLAN-RATE residuals, shared by the extraction hygiene
+// gate and every invariant checker (solver and render). Applied as
+// Math.max(toleranceScaleFloor(demandByItem(targets)), |magnitude|) * REL_TOL.
+// The cap-slack check in solver/invariants floors at an absolute 1 instead,
+// because a plan-scale floor is too tight against large caps.
+//
+// Directional constraint: the extraction hygiene gate must never leave a
+// residual checkMassBalance would tag, i.e. the gate's tolerance stays at or
+// below the checkers'. Both are this one value today. An extraction gate that
+// ever needs to be looser must declare its own constant that is <= REL_TOL;
+// raising this shared constant instead inverts that direction silently, so
+// raising it is forbidden.
+//
+// Not the LP objective tolerance (solver/optimality), not the transport
+// capacity tolerance (pipeline/expand/edge-rates), and not for tools/oracle,
+// whose cross-check must stay independent of this value.
+export const REL_TOL = 1e-6;
+
 // Demand per item: sum over targets of the requested net-export rate.
 // Duplicate targets on the same item accumulate. Shared with the invariant
 // checkers so model and checks read demand the same way.
@@ -112,6 +130,12 @@ export function demandByItem(targets: ReadonlyArray<ItemTarget>): Map<ItemId, nu
   }
   return demand;
 }
+
+// Relative tolerance for comparing pass-2's recomputed objective against
+// pass-1's cost cap, floored so a zero-cost cap still admits solver noise.
+// This is the OBJECTIVE/COST domain, deliberately NOT the plan-rate REL_TOL
+// above: the two answer different questions and may move apart.
+const COST_REL_TOL = 1e-6;
 
 // Primary-pass objective recomputed from a raw solve's float primals, using the
 // same weights buildModel("primary") minimizes: sum_r cost(r)*x_r +
@@ -299,7 +323,7 @@ export function solveLp(input: LpInput): LpResult {
     // when it matches pass-1's within tolerance; otherwise fall back to the
     // validated cost-optimal pass-1. Also covers "pass-2 numerically infeasible".
     const pass2Cost = primaryObjective(pass2, recipes, items, costById);
-    const costTol = Math.max(Math.abs(costCap) * 1e-6, 1e-6);
+    const costTol = Math.max(Math.abs(costCap) * COST_REL_TOL, COST_REL_TOL);
     const pass2Valid =
       pass2.feasible !== false && Math.abs(pass2Cost - costCap) <= costTol;
     lpResult = pass2Valid ? pass2 : pass1;
@@ -350,14 +374,15 @@ export function solveLp(input: LpInput): LpResult {
 //  - NOISE_CEILING_REL: noise-sweep candidate ceiling relative to plan scale.
 //    Deliberately decoupled from (two decades above) the snap radius: epsilon
 //    chains exist precisely because they exceed the snap radius (1/900900).
-//  - MB_REL_TOL: mirror of the invariant checkers' REL_TOL. Residuals the
-//    extraction leaves unreported must stay below what checkMassBalance tags.
+//  - Mass-balance residuals use the shared REL_TOL declared above: residuals
+//    the extraction leaves unreported must stay at or below what
+//    checkMassBalance tags, which is why the gate reads the checkers' own
+//    constant rather than a local copy that could drift above it.
 //  - DEFICIT_MATERIAL_REL: materiality threshold for raw deficit variables,
 //    relative to the item's demand.
 const SNAP_REL = 1e-6;
 const RATE_ZERO = 1e-12;
 const NOISE_CEILING_REL = 1e-4;
-const MB_REL_TOL = 1e-6;
 const DEFICIT_MATERIAL_REL = 1e-9;
 
 const FRAC_ZERO = new Fraction(0);
@@ -515,7 +540,7 @@ function extractResult(args: ExtractArgs): LpResult {
   // checkMassBalance mirror: the residual tolerance the checkers tag at.
   const scaleFloor = toleranceScaleFloor(demand);
   const mbTol = (itemId: ItemId): number =>
-    Math.max(scaleFloor, Math.abs(demand.get(itemId) ?? 0)) * MB_REL_TOL;
+    Math.max(scaleFloor, Math.abs(demand.get(itemId) ?? 0)) * REL_TOL;
 
   // Repair loop: zeroing candidates must not leave an item with a raw-clean
   // negative slack the checkers would tag. Re-admit zeroed producers of a
