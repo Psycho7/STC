@@ -102,8 +102,10 @@ export function toleranceScaleFloor(demand: Map<ItemId, number>): number {
 }
 
 // Relative tolerance for PLAN-RATE residuals, shared by the extraction hygiene
-// gate and every invariant checker (solver and render). Always applied as
+// gate and every invariant checker (solver and render). Applied as
 // Math.max(toleranceScaleFloor(demandByItem(targets)), |magnitude|) * REL_TOL.
+// The cap-slack check in solver/invariants floors at an absolute 1 instead,
+// because a plan-scale floor is too tight against large caps.
 //
 // Directional constraint: the extraction hygiene gate must never leave a
 // residual checkMassBalance would tag, i.e. the gate's tolerance stays at or

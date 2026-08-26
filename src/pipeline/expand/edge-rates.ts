@@ -71,13 +71,12 @@ export function computeEdgeRates(args: {
 
   // Pre-pass: group INPUT edges (consumer treats the item as a recipe input) by
   // (consumer replica logical-node id, item). Each consumer STAMP's demand for
-  // an item
-  // splits across its inbound edges in proportion to each source replica's
-  // output of that item. A single inbound edge collapses to share/sum = 1,
-  // leaving single-producer wiring bit-identical; several edges apportion the
-  // stamp demand so inbound rates sum to exactly the demand and never overfeed.
-  // Output-side edges (consumer carries the item only as an output) keep
-  // producer-side billing in the loop below.
+  // an item splits across its inbound edges in proportion to each source
+  // replica's output of that item. A single inbound edge collapses to
+  // share/sum = 1, leaving single-producer wiring bit-identical; several edges
+  // apportion the stamp demand so inbound rates sum to exactly the demand and
+  // never overfeed. Output-side edges (consumer carries the item only as an
+  // output) keep producer-side billing in the loop below.
   const inputEdgesByGroup = new Map<
     string,
     { edges: typeof logical.edges; inQty: number }
