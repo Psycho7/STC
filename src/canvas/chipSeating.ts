@@ -526,11 +526,26 @@ export type CardExemption = {
 
 // The shared clearance state every seating phase runs against: the chips
 // placed so far plus the two static obstacle sets (reconstructed edge
-// polylines and raw card rects), exposed through the three named predicates
-// each seat composes. `placed` is mutated as chips seat, so later phases see
+// polylines and raw card rects), exposed through the named predicates each
+// seat composes. Chips enter through `seat` as they seat, so later phases see
 // everything earlier phases placed.
 export type ClearanceField = {
+  // Every box seated so far, append-ordered by seat time. This IS the phase
+  // priority record: a later seat yields to every earlier box. Read it freely;
+  // do not mutate it -- `seat` and `unseat` are the only ways in and out.
   placed: ChipBox[];
+  // Reserve one box and return it. Exactly one box enters the field per call,
+  // and the returned box is that box: the rollback handle AND the authoritative
+  // seated centre. Callers read `box.x` / `box.y` rather than re-deriving the
+  // centre from their anchor plus the offsets they were handed, which can drift
+  // from what was actually reserved.
+  seat(box: ChipBox): ChipBox;
+  // Release a box `seat` returned, by reference identity, so an undone seat
+  // leaves no phantom obstacle blocking a later chip. Valid only for the most
+  // recent seat on this field: interleaving two live seats and releasing the
+  // older one is unsupported, and a box that is absent or not last leaves the
+  // set unchanged and fires a DEV-only tripwire.
+  unseat(box: ChipBox): void;
   overlapsChip(box: ChipBox): boolean;
   // A foreign card is any obstacle whose id is neither wholly exempt (a
   // container slab) nor an own endpoint card. Own endpoint cards are obstacles
@@ -629,6 +644,24 @@ export function makeClearanceField(
     Math.abs(box.y - dot.y) < box.halfH + DOT_KEEPOFF;
   return {
     placed,
+    seat: (box) => {
+      placed.push(box);
+      return box;
+    },
+    unseat: (box) => {
+      if (placed[placed.length - 1] === box) {
+        placed.pop();
+        return;
+      }
+      if (import.meta.env.DEV) {
+        // Dev/test-only tripwire, tree-shaken out of production builds (parity
+        // with the seat-exhaustion warnings below), where the call is a no-op.
+        console.warn(
+          "chip seating: unseat on a box that is not the most recent seat " +
+            "(absent, or seated before another live seat); field unchanged",
+        );
+      }
+    },
     overlapsChip: (box) => placed.some((b) => chipBoxesOverlap(b, box)),
     entersForeignCard: (box, exempt) =>
       cards.some((c) => {
@@ -784,7 +817,7 @@ function seatChip(
   // cap clears them the cap yields to the unbounded ladder below rather than
   // let two chips overlap.
   capSteps?: number,
-): number {
+): { dy: number; box: ChipBox } {
   // Dot keep-off pass (#50). A rise chip sits ON the lane a chamfer from its own
   // trunk's junction dot, so at dy = 0 its box routinely swallows the dot. Probe
   // the lane slot and then ONE pitch along the band's own cascade direction,
@@ -804,8 +837,7 @@ function seatChip(
       (cardExempt === undefined || !field.entersForeignCard(box, cardExempt)) &&
       !field.coversDot(box)
     ) {
-      field.placed.push(box);
-      return dy;
+      return { dy, box: field.seat(box) };
     }
   }
   if (capSteps !== undefined) {
@@ -823,8 +855,10 @@ function seatChip(
       cardExempt,
     );
     if (capped !== null) {
-      field.placed.push({ x, y: y + capped, halfW, halfH });
-      return capped;
+      return {
+        dy: capped,
+        box: field.seat({ x, y: y + capped, halfW, halfH }),
+      };
     }
     let capDy = 0;
     for (let steps = 0; steps <= capSteps; steps++) {
@@ -833,8 +867,7 @@ function seatChip(
         !field.overlapsChip(box) &&
         (cardExempt === undefined || !field.entersForeignCard(box, cardExempt))
       ) {
-        field.placed.push(box);
-        return capDy;
+        return { dy: capDy, box: field.seat(box) };
       }
       capDy += step;
     }
@@ -853,8 +886,7 @@ function seatChip(
     cardExempt,
   );
   if (clear !== null) {
-    field.placed.push({ x, y: y + clear, halfW, halfH });
-    return clear;
+    return { dy: clear, box: field.seat({ x, y: y + clear, halfW, halfH }) };
   }
   // Segment-clear seat not found within the cap: fall back to the chips-only
   // cascade so crowding never regresses past the pre-segment behaviour.
@@ -875,8 +907,7 @@ function seatChip(
   ) {
     dy += step;
   }
-  field.placed.push({ x, y: y + dy, halfW, halfH });
-  return dy;
+  return { dy, box: field.seat({ x, y: y + dy, halfW, halfH }) };
 }
 
 // Clamp a lane member's trunk-wide rise slot into its OWN resolved lane run,
@@ -1017,7 +1048,16 @@ export type RateSeatTier =
   | "escape"
   | "exhausted";
 
-export type RateSeat = { dx: number; dy: number; tier: RateSeatTier };
+// The seated result: the offsets from the render anchor, the tier that produced
+// them, and the box actually reserved in the field -- the rollback handle for a
+// caller that decides to hide the chip after seeing the tier, and the
+// authoritative seated centre.
+export type RateSeat = {
+  dx: number;
+  dy: number;
+  tier: RateSeatTier;
+  box: ChipBox;
+};
 
 // Seat an item rate chip: the tiered seat the item phase (and 3b's fan-out
 // chips) run. Tier 1 slides ALONG THE OWN POLYLINE from the anchor, nearest
@@ -1135,8 +1175,8 @@ export function seatRateChip(
     );
   };
   const seat = (px: number, py: number, tier: RateSeatTier): RateSeat => {
-    field.placed.push(boxAt(px, py));
-    return { dx: px - anchorX, dy: py - anchorY, tier };
+    const box = field.seat(boxAt(px, py));
+    return { dx: px - anchorX, dy: py - anchorY, tier, box };
   };
   const hardClearAt = (px: number, py: number): boolean => {
     const box = boxAt(px, py);
@@ -2175,7 +2215,7 @@ export function deconflictChipAnchors(
   for (const slot of busSlots) {
     // Multi-member trunks draw no aggregate chip (issue #39), so seat none.
     if (!slot.owner || slot.memberCount > 1) continue;
-    const dropDy = seatChip(
+    const { dy: dropDy } = seatChip(
       field,
       slot.dropX,
       slot.laneY,
@@ -2262,7 +2302,7 @@ export function deconflictChipAnchors(
     // A capacity-hidden rise seats nothing, so its phantom box never blocks a
     // later chip and no busChipDy is stamped (BusEdge draws no rise chip).
     if (busRiseHiddenByIndex.has(slot.index)) continue;
-    const riseDy = seatChip(
+    const { dy: riseDy, box: riseBox } = seatChip(
       field,
       slot.riseChipX,
       slot.laneY,
@@ -2282,11 +2322,11 @@ export function deconflictChipAnchors(
     // ends up with no stroke touching it, the same orphan silhouette the
     // capacity check above hides a crowded rise to avoid (issue #37). One step
     // still reads as sitting beside the lane; two or more do not, so past that
-    // the rise is unseatable: undo its seat (seatChip pushes exactly one box)
-    // and hide it, its rate staying on the target card's input row and the edge
-    // tooltip like every other hidden member's.
+    // the rise is unseatable: release its seat (seatChip reserves exactly one
+    // box, and hands it back) and hide it, its rate staying on the target card's
+    // input row and the edge tooltip like every other hidden member's.
     if (Math.abs(riseDy) > CHIP_PITCH_Y) {
-      field.placed.pop();
+      field.unseat(riseBox);
       busRiseHiddenByIndex.add(slot.index);
       continue;
     }
@@ -2472,10 +2512,10 @@ export function deconflictChipAnchors(
     // shown remains on the target card's input row and in the edge tooltip.
     // The hide is stamped with the branch anchor it was decided at, so BusEdge
     // can drop it once a node drag moves the live anchor away from the stamp.
-    // Pop the seat the off-line tiers pushed so the phantom box never blocks a
-    // later chip.
+    // Release the seat the off-line tiers reserved so the phantom box never
+    // blocks a later chip.
     if (seat.tier === "nudge" || seat.tier === "escape" || seat.tier === "exhausted") {
-      field.placed.pop();
+      field.unseat(seat.box);
       fanoutBranchHiddenByIndex.add(index);
       fanoutBranchHiddenAtByIndex.set(index, geom.branchAnchor);
       continue;
@@ -2534,7 +2574,7 @@ export function deconflictChipAnchors(
     }
     // A non-owner fan-in member whose own chip SEATED on the shared run (at the
     // port y, between the merge and the port) crowds the run the owner's chip
-    // reads on: pop its box and hide it (ItemEdge draws no rate chip, the exact
+    // reads on: release its box and hide it (ItemEdge draws no rate chip, the exact
     // rate stays on the hover path and the target card's input row). A member
     // seated on its own PRE-merge leg (off the run) keeps its chip. Anchor-based
     // hiding cannot catch a member that SLID onto the run, so this reads the
@@ -2548,7 +2588,7 @@ export function deconflictChipAnchors(
         seatX >= run.mergeX - FANIN_EPS &&
         seatX <= run.tx + FANIN_EPS
       ) {
-        field.placed.pop();
+        field.unseat(seat.box);
         faninChipHiddenByIndex.add(index);
         continue;
       }
