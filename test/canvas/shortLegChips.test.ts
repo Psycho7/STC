@@ -20,11 +20,8 @@ import {
   parsePathPoints,
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
-import {
-  routeFanoutEdges,
-  nodeWidth,
-  portOffsetY,
-} from "../../src/canvas/busRouting";
+import { routeFanoutEdges } from "../../src/canvas/busRouting";
+import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import {

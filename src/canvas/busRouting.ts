@@ -15,8 +15,9 @@
 // `data` (bus members are retyped `type: "bus"`).
 //
 // The seventh and final pipeline pass -- chip seating (deconflictChipAnchors)
-// -- lives in chipSeating.ts; it consumes this module's shared node/edge
-// geometry helpers (absoluteLeft .. portOffsetY) and padding constants.
+// -- lives in chipSeating.ts; it consumes this module's edge-data readers and
+// padding constants. The model-frame node accessors both modules read live in
+// nodeGeometry.ts.
 
 import type { Edge } from "@xyflow/react";
 import Fraction from "fraction.js";
@@ -27,7 +28,6 @@ import {
   ENTRY_GUTTER_OVERHANG,
   MAX_CHIP_SCALE,
   RECIPE_WIDTH,
-  loopBoxDimensions,
 } from "./dimensions";
 import {
   CHAMFER,
@@ -40,8 +40,13 @@ import {
   forwardStepGeometry,
   type ObstacleRect,
 } from "./edgePath";
-import { measureRecipe } from "./recipeGeometry";
-import { orderByItem } from "./orderByItem";
+import {
+  absoluteLeft,
+  absoluteTop,
+  nodeHeight,
+  nodeWidth,
+  portOffsetY,
+} from "./nodeGeometry";
 import type { RFAnyNode } from "./layout";
 
 // A "long" edge reaches past two full layers. One layer is a column gap plus a
@@ -204,77 +209,6 @@ export function edgeRate(edge: Edge): Fraction | undefined {
   return rate instanceof Fraction ? rate : undefined;
 }
 
-// Absolute left-edge x for a node. Container children store a parent-relative
-// position, so resolve one level of `parentId` and add the parent's own x.
-// Mirrors test/canvas/edgeSpans.ts.
-export function absoluteLeft(
-  node: RFAnyNode,
-  byId: ReadonlyMap<string, RFAnyNode>,
-): number {
-  const localX = node.position?.x ?? 0;
-  if (node.parentId === undefined) return localX;
-  const parent = byId.get(node.parentId);
-  return localX + (parent?.position?.x ?? 0);
-}
-
-// Absolute top-edge y for a node, resolving one level of `parentId` (same rule
-// as absoluteLeft, on the vertical axis).
-export function absoluteTop(
-  node: RFAnyNode,
-  byId: ReadonlyMap<string, RFAnyNode>,
-): number {
-  const localY = node.position?.y ?? 0;
-  if (node.parentId === undefined) return localY;
-  const parent = byId.get(node.parentId);
-  return localY + (parent?.position?.y ?? 0);
-}
-
-// Only recipe / loop unit nodes omit an explicit width. Every recipe node is a
-// fixed RECIPE_WIDTH; product and container nodes carry width on the node.
-// Mirrors test/canvas/edgeSpans.ts.
-export function nodeWidth(node: RFAnyNode): number {
-  return node.width ?? RECIPE_WIDTH;
-}
-
-// Height of a node. Recipe and loop nodes carry no top-level `height` (React
-// Flow measures them at render), so derive it from the same geometry helpers
-// the layout uses; product and container nodes carry height directly.
-export function nodeHeight(node: RFAnyNode): number {
-  switch (node.type) {
-    case "recipe":
-      return measureRecipe(node.data.recipe).height;
-    case "loop":
-      return loopBoxDimensions(node.data.interior).height;
-    default:
-      return node.height ?? 0;
-  }
-}
-
-// Node-local y of the port carrying `item` on the given side, or the node's
-// vertical center when the port cannot be resolved (product / loop node, or a
-// missing item / order). Mirrors RecipeNode's handle placement: handles sit in
-// the ELK-resolved row order, so the row index is the item's position in the
-// ordered rows.
-export function portOffsetY(
-  node: RFAnyNode,
-  item: string | undefined,
-  side: "in" | "out",
-): number {
-  if (node.type === "recipe" && item !== undefined) {
-    const recipe = node.data.recipe;
-    const rows = side === "in" ? recipe.in : recipe.out;
-    const order = side === "in" ? node.data.inputOrder : node.data.outputOrder;
-    const idx = orderByItem(rows, order).findIndex((r) => r.item === item);
-    if (idx >= 0) {
-      const geom = measureRecipe(recipe);
-      const ys = side === "in" ? geom.inHandleYs : geom.outHandleYs;
-      const y = ys[idx];
-      if (y !== undefined) return y;
-    }
-  }
-  return nodeHeight(node) / 2;
-}
-
 // Per-edge horizontal span: the empty gap between the source node's right edge
 // and the target node's left edge, floored at 0. Backward edges collapse to 0.
 // Mirrors test/canvas/edgeSpans.ts.
@@ -299,10 +233,10 @@ export function edgeItem(edge: Edge): string | undefined {
 
 // Exemption set for an edge's own geometry: each given endpoint node plus one
 // parentId level (its container box -- a grouped endpoint's runs legitimately
-// start / end inside their own group). Every obstacle filter in the routing
-// and chip-seating passes shares this rule, so what counts as "own" geometry
-// is decided once.
-export function ownExempt(nodes: ReadonlyArray<RFAnyNode>): Set<string> {
+// start / end inside their own group). Every obstacle filter in this module's
+// routing passes shares this rule, so what counts as "own" geometry is decided
+// once.
+function ownExempt(nodes: ReadonlyArray<RFAnyNode>): Set<string> {
   const exempt = new Set<string>();
   for (const n of nodes) {
     exempt.add(n.id);
