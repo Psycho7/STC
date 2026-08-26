@@ -9,6 +9,7 @@
 import { describe, it, expect } from "vitest";
 import { solvePlanWithIntermediates } from "../../../src/solver";
 import { buildRenderPlan } from "../../../src/pipeline/driver";
+import { assertRenderInvariants } from "../../../src/pipeline/render/invariants";
 import { AlwaysFoldRender } from "../../../src/pipeline/render/always-fold";
 import { layoutRenderPlan } from "../../../src/canvas/layout";
 import { pack } from "../../../src/data/load";
@@ -59,6 +60,18 @@ function buildAlwaysFoldPlan(): RenderPlan {
     targets,
     pack,
   });
+
+  // TEMPORARY (measurement step): run the DEV render-invariant hook that
+  // renderPlanFromSolve applies, so this site is measured before the driver
+  // collapse routes it through the hook permanently.
+  assertRenderInvariants({
+    plan: built.plan,
+    rates: full.rates,
+    pack,
+    targets,
+    itemOverrides,
+  });
+
   const policyInput: RenderPolicyInput = {
     containers: built.containers,
     machineGraph: built.machineGraph,

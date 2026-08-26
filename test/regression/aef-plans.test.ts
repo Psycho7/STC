@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { solvePlanWithIntermediates } from "../../src/solver";
 import { buildRenderPlan } from "../../src/pipeline/driver";
+import { assertRenderInvariants } from "../../src/pipeline/render/invariants";
 import { layoutRenderPlan } from "../../src/canvas/layout";
 import { pack } from "../../src/data/load";
 import {
@@ -117,6 +118,17 @@ describe("regression: AEF render-plan fixtures", () => {
           itemOverrides,
           targets,
           pack,
+        });
+
+        // TEMPORARY (measurement step): run the DEV render-invariant hook that
+        // renderPlanFromSolve applies, so this site is measured before the
+        // driver collapse routes it through the hook permanently.
+        assertRenderInvariants({
+          plan,
+          rates: full.rates,
+          pack,
+          targets,
+          itemOverrides,
         });
 
         // Layout must succeed; we do not snapshot positions here (those are

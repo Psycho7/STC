@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import { buildRenderPlan } from "../../src/pipeline/driver";
+import { assertRenderInvariants } from "../../src/pipeline/render/invariants";
 import { solvePlanWithIntermediates } from "../../src/solver";
 import { pack } from "../../src/data/load";
 import {
@@ -35,6 +36,17 @@ describe("pipeline driver: default AEF targets", () => {
       itemOverrides: [],
       targets,
       pack,
+    });
+
+    // TEMPORARY (measurement step): run the DEV render-invariant hook that
+    // renderPlanFromSolve applies, so this site is measured before the driver
+    // collapse routes it through the hook permanently.
+    assertRenderInvariants({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
     });
 
     expect(plan.units.length).toBeGreaterThan(0);
@@ -90,6 +102,17 @@ describe("pipeline driver: default AEF targets", () => {
       itemOverrides: [],
       targets,
       pack,
+    });
+
+    // TEMPORARY (measurement step): run the DEV render-invariant hook that
+    // renderPlanFromSolve applies, so this site is measured before the driver
+    // collapse routes it through the hook permanently.
+    assertRenderInvariants({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
     });
 
     const targetRecipe = pack.recipes.find((r) => r.id === targetRecipeId);
@@ -182,6 +205,17 @@ describe("pipeline driver: default AEF targets", () => {
       itemOverrides: [],
       targets,
       pack,
+    });
+
+    // TEMPORARY (measurement step): run the DEV render-invariant hook that
+    // renderPlanFromSolve applies, so this site is measured before the driver
+    // collapse routes it through the hook permanently.
+    assertRenderInvariants({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
     });
     const planterUnits = plan.units.filter(
       (u) => u.kind === "recipe" && u.recipeId === targetRecipeId,
