@@ -366,14 +366,15 @@ export function solveLp(input: LpInput): LpResult {
 //  - NOISE_CEILING_REL: noise-sweep candidate ceiling relative to plan scale.
 //    Deliberately decoupled from (two decades above) the snap radius: epsilon
 //    chains exist precisely because they exceed the snap radius (1/900900).
-//  - MB_REL_TOL: mirror of the invariant checkers' REL_TOL. Residuals the
-//    extraction leaves unreported must stay below what checkMassBalance tags.
+//  - Mass-balance residuals use the shared REL_TOL declared above: residuals
+//    the extraction leaves unreported must stay at or below what
+//    checkMassBalance tags, which is why the gate reads the checkers' own
+//    constant rather than a local copy that could drift above it.
 //  - DEFICIT_MATERIAL_REL: materiality threshold for raw deficit variables,
 //    relative to the item's demand.
 const SNAP_REL = 1e-6;
 const RATE_ZERO = 1e-12;
 const NOISE_CEILING_REL = 1e-4;
-const MB_REL_TOL = 1e-6;
 const DEFICIT_MATERIAL_REL = 1e-9;
 
 const FRAC_ZERO = new Fraction(0);
@@ -531,7 +532,7 @@ function extractResult(args: ExtractArgs): LpResult {
   // checkMassBalance mirror: the residual tolerance the checkers tag at.
   const scaleFloor = toleranceScaleFloor(demand);
   const mbTol = (itemId: ItemId): number =>
-    Math.max(scaleFloor, Math.abs(demand.get(itemId) ?? 0)) * MB_REL_TOL;
+    Math.max(scaleFloor, Math.abs(demand.get(itemId) ?? 0)) * REL_TOL;
 
   // Repair loop: zeroing candidates must not leave an item with a raw-clean
   // negative slack the checkers would tag. Re-admit zeroed producers of a
