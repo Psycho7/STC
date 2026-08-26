@@ -15,6 +15,7 @@ import {
   chamferFanoutPath,
   routingHintsFromData,
 } from "./edgePath";
+import { HIDE_STALE_EPS } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
@@ -177,12 +178,8 @@ export default function BusEdge({
   // this edge's hover tooltip below). The hide only holds while the live
   // branch anchor still matches the one it was stamped at: nodes stay
   // mouse-draggable and the seating pass does not rerun on drag, so once the
-  // anchors diverge the hide is stale and the chip returns. The stamp comes
-  // from the seating pass's port reconstruction, which disagrees with React
-  // Flow's measured handles by up to ~1 unit, so the divergence threshold sits
-  // well above that noise and well below any drag that frees seating room
-  // (half a max-scale chip box height).
-  const HIDE_STALE_EPS = 24;
+  // anchors diverge the hide is stale and the chip returns. The divergence
+  // threshold is the shared HIDE_STALE_EPS, sized in dimensions.ts.
   const hiddenAt = fanoutData?.fanoutBranchHiddenAt;
   const branchHidden =
     fanoutData?.fanoutBranchHidden === true &&
