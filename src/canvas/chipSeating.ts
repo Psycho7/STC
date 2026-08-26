@@ -532,8 +532,9 @@ export type CardExemption = {
 export type ClearanceField = {
   // Every box seated so far, append-ordered by seat time. This IS the phase
   // priority record: a later seat yields to every earlier box. Read it freely;
-  // do not mutate it -- `seat` and `unseat` are the only ways in and out.
-  placed: ChipBox[];
+  // it is not mutable from out here -- `seat` and `unseat` are the only ways in
+  // and out.
+  readonly placed: ReadonlyArray<ChipBox>;
   // Reserve one box and return it. Exactly one box enters the field per call,
   // and the returned box is that box: the rollback handle AND the authoritative
   // seated centre. Callers read `box.x` / `box.y` rather than re-deriving the
@@ -2523,7 +2524,7 @@ export function deconflictChipAnchors(
     // The chip seated on its column: record its centre-y as a barrier for the
     // next same-trunk branch so a pushed later branch cannot slide across it.
     const seatedYs = seatedBranchYByTrunk.get(trunkKey) ?? [];
-    seatedYs.push(geom.branchAnchor.y + seat.dy);
+    seatedYs.push(seat.box.y);
     seatedBranchYByTrunk.set(trunkKey, seatedYs);
     if (seat.dx !== 0) fanoutBranchDxByIndex.set(index, seat.dx);
     if (seat.dy !== 0) fanoutBranchDyByIndex.set(index, seat.dy);
@@ -2581,8 +2582,8 @@ export function deconflictChipAnchors(
     // seated centre.
     const run = faninMemberRunByIndex.get(index);
     if (run !== undefined) {
-      const seatX = geom.lx + seat.dx;
-      const seatY = geom.ly + seat.dy;
+      const seatX = seat.box.x;
+      const seatY = seat.box.y;
       if (
         Math.abs(seatY - run.ty) <= FANIN_EPS &&
         seatX >= run.mergeX - FANIN_EPS &&

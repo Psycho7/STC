@@ -63,7 +63,7 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
   it("slides along its own line past a blocking chip instead of leaving it", () => {
     const field = makeClearanceField([PARALLEL_FOREIGN], []);
     // A wide chip already sits exactly on the anchor.
-    field.placed.push({
+    field.seat({
       x: LINE.anchorX,
       y: LINE.anchorY,
       halfW: (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2,
@@ -879,9 +879,9 @@ describe("seatRateChip: slide barrier keeps branch chips in stack order (issue #
     };
     const field = makeClearanceField([], []);
     // Mid-branch sibling already seated at y=384 on the shared column.
-    field.placed.push({ x: 0, y: 384, halfW: HALF_W, halfH: HALF_H });
+    field.seat({ x: 0, y: 384, halfW: HALF_W, halfH: HALF_H });
     // Foreign lane chip covering [408, 640]: blocks the anchor and below it.
-    field.placed.push({ x: 0, y: 524, halfW: HALF_W, halfH: 116 });
+    field.seat({ x: 0, y: 524, halfW: HALF_W, halfH: 116 });
     const seat = seatRateChip(field, leg, "own", "t", NO_EXEMPT, NO_BAND, {
       barrierYs: [384],
     });
