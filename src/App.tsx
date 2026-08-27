@@ -27,6 +27,7 @@ import type { ItemOverride, Plan } from "./data/plan";
 import {
   defaultTransportConfig,
   loadTransportConfig,
+  type TransportConfig,
 } from "./data/transport-config";
 import type { Target } from "./data/targets";
 import { pack } from "./data/load";
@@ -101,6 +102,15 @@ const splashDetailStyle: CSSProperties = {
   opacity: 0.7,
   wordBreak: "break-word",
 };
+
+// Validated once at import: loadTransportConfig is a pure check over the two
+// module constants and hands back its first argument, so the outcome (including
+// an UnknownCarrierError throw on a pack the config cannot carry) is the same on
+// every run.
+const transportConfig: TransportConfig = loadTransportConfig(
+  defaultTransportConfig,
+  pack,
+);
 
 // A dismissible banner error. "load" wraps a hash-decode / validation failure
 // (the pasted link, not the solver); "solver" wraps an exception thrown while
@@ -218,7 +228,6 @@ function AppInner() {
   // hashchange event, so for self-writes this is belt-and-braces; it becomes
   // load-bearing if a hash write ever switches to a location.hash assignment.
   const lastHandledHashRef = useRef<string | null>(null);
-  const tConfigRef = useRef(loadTransportConfig(defaultTransportConfig, pack));
   // Accepted transient: this recomputes from the synchronously committed plan,
   // so ProductNode override chips on the still-stale canvas nodes update
   // against the new overrides during the solve window. Sub-second cosmetic
@@ -279,7 +288,7 @@ function AppInner() {
         const full = solvePlanWithIntermediates(
           targets,
           pack,
-          tConfigRef.current,
+          transportConfig,
           itemOverrides,
           recipeCosts,
         );
@@ -368,7 +377,7 @@ function AppInner() {
       const full = solvePlanWithIntermediates(
         targets,
         pack,
-        tConfigRef.current,
+        transportConfig,
         itemOverrides,
         recipeCosts,
       );
