@@ -51,6 +51,10 @@ import {
   routeFanoutEdges,
 } from "./busRouting";
 import { deconflictChipAnchors } from "./chipSeating";
+// Type-only: ItemEdge.tsx declares the canvas edge payload this module stamps.
+// Erased at compile time, so it adds no runtime or bundler edge, and ItemEdge
+// imports none of layout / busRouting / chipSeating, so there is no cycle.
+import type { ItemEdgeData } from "./ItemEdge";
 import type {
   Container,
   ContainerId,
@@ -676,11 +680,7 @@ export function fromElkRenderLayout(
     const renderEdge = idx !== null ? plan.edges[idx] : undefined;
     const itemId = renderEdge?.item ?? portToItem(sourcePort);
     const rate = renderEdge?.rate ?? new Fraction(0);
-    const edgeData: {
-      item: ItemId;
-      rate: Fraction;
-      transportKind?: TransportKindId;
-    } = {
+    const edgeData: ItemEdgeData = {
       item: itemId,
       rate,
     };
