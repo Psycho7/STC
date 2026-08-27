@@ -137,6 +137,9 @@ export function InputsPanel({
   // override row or an auto-row, never both at once. The autoRows filter below
   // ("every assumed-raw item WITHOUT an explicit override") is what enforces
   // that; break it and the two sets start disagreeing about the same item.
+  // The split also means an invalid flag does NOT follow an item across a
+  // family change (auto row promoted to override, or override reverting to
+  // auto): the stale cue the shared set used to carry over is dropped now.
   const rowEdit = useRateEdit({
     emptyMeans: "uncap",
     keepTextAfterCommit: true,
@@ -162,7 +165,8 @@ export function InputsPanel({
   // (the promoted row displays the seeded copy), so it is dropped afterwards
   // and a later auto-row rebirth comes back as Unlimited, not a stale cap.
   // Separate invalid set from rowEdit, on the disjointness invariant noted
-  // there and enforced by the autoRows filter below.
+  // there and enforced by the autoRows filter below; as noted there, the
+  // flag does not carry across a family change either.
   const autoEdit = useRateEdit({
     emptyMeans: "uncap",
     keepTextAfterCommit: false,
