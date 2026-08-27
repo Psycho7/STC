@@ -1,4 +1,5 @@
 import Fraction from "fraction.js";
+import type { RationalString } from "./targets";
 
 // Strip a trailing fractional zero run (and a bare trailing dot) from a decimal
 // string, leaving integers untouched. "0.0050" -> "0.005", "8.50" -> "8.5",
@@ -94,4 +95,24 @@ export function ratePerSecToPerMin(rps: {
     return text;
   }
   return perMin.toFraction(false);
+}
+
+// The inverse of ratePerSecToPerMin: an items-per-minute value typed into a
+// rate input, as an integer ("120"), decimal ("30.5"), or rational ("1/3"),
+// turned back into a per-second rational. Returns undefined if it can't parse
+// or the result is negative. The empty string does not parse either (Fraction
+// throws on it), so what "no text" means is left to the caller.
+export function parsePerMinToRatePerSec(
+  perMinStr: string,
+): RationalString | undefined {
+  let f: Fraction;
+  try {
+    f = new Fraction(perMinStr).div(new Fraction(60));
+  } catch {
+    return undefined;
+  }
+  if (f.compare(0) < 0) return undefined;
+  const s = f.toFraction(false);
+  const [n, d] = s.includes("/") ? s.split("/") : [s, "1"];
+  return { num: n!, denom: d! };
 }

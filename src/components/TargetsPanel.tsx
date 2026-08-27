@@ -1,10 +1,12 @@
 import { useMemo, useRef, useState } from "react";
-import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
 import { producibleItemIds } from "../data/recipe-category";
-import { ratePerSecToPerMin } from "../data/rate-format";
+import {
+  parsePerMinToRatePerSec,
+  ratePerSecToPerMin,
+} from "../data/rate-format";
 import { computeItemDepths } from "../data/recipe-depth";
 import { iconPosition } from "../canvas/iconSprite";
 import { ItemPickerPopup } from "./ItemPickerPopup";
@@ -19,24 +21,6 @@ type Props = {
   onChange: (update: (current: Target[]) => Target[]) => void;
   pack: RecipePack;
 };
-
-// Accepts an items-per-minute value as an integer ("120"), decimal ("30.5"), or
-// rational ("1/3"). Returns undefined if it can't parse or the result is
-// negative.
-function parsePerMinToRationalPerSec(
-  perMinStr: string,
-): { num: string; denom: string } | undefined {
-  let f: Fraction;
-  try {
-    f = new Fraction(perMinStr).div(new Fraction(60));
-  } catch {
-    return undefined;
-  }
-  if (f.compare(0) < 0) return undefined;
-  const s = f.toFraction(false);
-  const [n, d] = s.includes("/") ? s.split("/") : [s, "1"];
-  return { num: n!, denom: d! };
-}
 
 export function TargetsPanel({ targets, onChange, pack }: Props) {
   const i18n = useI18n();
@@ -101,7 +85,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
   // Returns true iff the text parsed. Invalid text is left in place so the user
   // can finish typing; a failed parse never mutates the plan.
   function commitRate(itemId: string, perMinStr: string): boolean {
-    const parsed = parsePerMinToRationalPerSec(perMinStr);
+    const parsed = parsePerMinToRatePerSec(perMinStr);
     if (!parsed) return false;
     onChange((current) => {
       const idx = current.findIndex((t) => t.itemId === itemId);
@@ -224,7 +208,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
   // store the updated draft. A nonzero rate is required so an empty or 0 draft
   // never churns a re-solve for a row that renders nothing.
   function applyDraft(next: { id: string; itemId: string; rate: string }) {
-    const parsed = parsePerMinToRationalPerSec(next.rate);
+    const parsed = parsePerMinToRatePerSec(next.rate);
     const ready =
       next.itemId !== "" && parsed !== undefined && parsed.num !== "0";
     if (ready) {

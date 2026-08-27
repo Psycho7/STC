@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
 import type { ItemOverride } from "../data/plan";
 import type { RationalString } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
-import { formatRationalPerMin, ratePerSecToPerMin } from "../data/rate-format";
+import {
+  formatRationalPerMin,
+  parsePerMinToRatePerSec,
+  ratePerSecToPerMin,
+} from "../data/rate-format";
 import { iconPosition } from "../canvas/iconSprite";
 import { computeItemDepths } from "../data/recipe-depth";
 import { ItemPickerPopup } from "./ItemPickerPopup";
@@ -55,16 +58,7 @@ function parsePerMinToOptional(
   perMinStr: string,
 ): RationalString | undefined | "INVALID" {
   if (perMinStr.trim() === "") return undefined;
-  let f: Fraction;
-  try {
-    f = new Fraction(perMinStr).div(new Fraction(60));
-  } catch {
-    return "INVALID";
-  }
-  if (f.compare(0) < 0) return "INVALID";
-  const s = f.toFraction(false);
-  const [n, d] = s.includes("/") ? s.split("/") : [s, "1"];
-  return { num: n!, denom: d! };
+  return parsePerMinToRatePerSec(perMinStr) ?? "INVALID";
 }
 
 // A focus target armed by a pick and consumed by the row that renders on the
