@@ -9,7 +9,11 @@ import {
   strokeForKind,
   type ItemEdgeData,
 } from "./ItemEdge";
-import { BUS_LONG_RUN_THRESHOLD, type BusEdgeData } from "./busRouting";
+import {
+  BUS_LONG_RUN_THRESHOLD,
+  isTrunkOwner,
+  type BusEdgeData,
+} from "./busRouting";
 import {
   chamferBusPath,
   chamferFanoutPath,
@@ -129,7 +133,7 @@ export default function BusEdge({
   // the summed total restated the source card's own rate while reading as one
   // more flow, so the members' own chips and the card rates carry the
   // information (issue #39). The junction dot still marks the trunk.
-  const isOwner = edgeData?.busChipOwner ?? true;
+  const isOwner = isTrunkOwner(edgeData);
   const totalRate = edgeData?.busTotalRate ?? edgeData?.rate;
   const memberCount = edgeData?.busMemberCount ?? 1;
   // Per-member (rise / branch) chip gate: zoom-gated by default, but a lone

@@ -109,6 +109,18 @@ export type BusAggregate = {
   busChipOwner?: boolean;
 };
 
+// A bus member owns its trunk's shared drawings (the trunk segment, junction
+// dot, and aggregate chip) unless explicitly flagged otherwise. ABSENT data, or
+// an absent busChipOwner, counts as OWNER, so an un-annotated fixture keeps the
+// whole-group highlight and its aggregate chip. One helper owns that default
+// for every reader that agrees with it, instead of the same `!== false` /
+// `?? true` rule being restated at each site. The parameter is PARTIAL because
+// chipSeating's flat chip-anchor view carries busChipOwner without trunkKey; the
+// helper reads only the one field, so the wider shape costs nothing.
+export function isTrunkOwner(data: Partial<BusAggregate> | undefined): boolean {
+  return data?.busChipOwner ?? true;
+}
+
 // Lane-trunk member (routeBusEdges): rides a band lane at laneY.
 export type LaneBusEdgeData = BusAggregate & {
   // Discriminant: absent / false on a lane member. Present-and-true only on the

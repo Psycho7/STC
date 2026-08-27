@@ -77,6 +77,7 @@ import {
   OBSTACLE_PAD_Y,
   edgeItem,
   edgeRate,
+  isTrunkOwner,
   type BusEdgeData,
 } from "./busRouting";
 import {
@@ -1750,6 +1751,10 @@ export function deconflictChipAnchors(
         junction: fan.junction,
         trunkAnchor: fan.trunkAnchor,
         branchAnchor: fan.branchAnchor,
+        // Deliberately STRICTER than isTrunkOwner, which reads absent as owner:
+        // routeFanoutEdges always stamps the field in production, so the two
+        // rules only diverge on hand-built fixtures. Unifying them is
+        // render-visible and out of scope here.
         owner: (edge.data as BusEdgeData | undefined)?.busChipOwner === true,
       });
       if (polylineLength(fanPts) < SHORT_LEG_MAX) shortBranchByIndex.add(index);
@@ -2181,6 +2186,10 @@ export function deconflictChipAnchors(
       laneY: data.laneY,
       dropX,
       riseChipX: clampedChipX ?? riseX,
+      // Deliberately STRICTER than isTrunkOwner, which reads absent as owner:
+      // routeBusEdges always stamps the field in production, so the two rules
+      // only diverge on hand-built fixtures. Unifying them is render-visible
+      // and out of scope here.
       owner: data.busChipOwner === true,
       memberCount: data.busMemberCount ?? 1,
       // Top-band chips cascade UP (away from the graph below them); bottom-band
@@ -2791,7 +2800,7 @@ export function contentBounds(
       const fan = chamferFanoutPath(geom);
       // A multi-member trunk renders no aggregate chip (issue #39), so it
       // frames none.
-      if (data.busChipOwner !== false && (data.busMemberCount ?? 1) === 1) {
+      if (isTrunkOwner(data) && (data.busMemberCount ?? 1) === 1) {
         unionChip(
           fan.trunkAnchor.x + (data.fanoutAggDx ?? 0),
           fan.trunkAnchor.y + (data.fanoutAggDy ?? 0),
@@ -2815,7 +2824,7 @@ export function contentBounds(
       }
     } else if (edge.type === "bus" && data?.laneY !== undefined) {
       const bus = chamferBusPath({ ...geom, laneY: data.laneY });
-      if (data.busChipOwner !== false && (data.busMemberCount ?? 1) === 1) {
+      if (isTrunkOwner(data) && (data.busMemberCount ?? 1) === 1) {
         unionChip(bus.dropX, data.laneY + (data.busDropDy ?? 0));
       }
       if (data.busRiseHidden !== true) {
