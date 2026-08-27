@@ -39,6 +39,7 @@ import {
   clearRailY,
   forwardStepGeometry,
   type ObstacleRect,
+  type RoutingHints,
 } from "./edgePath";
 import {
   absoluteLeft,
@@ -48,6 +49,10 @@ import {
   portOffsetY,
 } from "./nodeGeometry";
 import type { RFAnyNode } from "./layout";
+// Type-only: ItemEdge.tsx declares the base canvas edge payload these passes
+// stamp onto and read back. Erased at compile time, so it adds no runtime or
+// bundler edge, and ItemEdge imports none of this module.
+import type { ItemEdgeData } from "./ItemEdge";
 
 // A "long" edge reaches past two full layers. One layer is a column gap plus a
 // recipe node, so the threshold is 2 * (gap + recipe width). Derived from the
@@ -205,6 +210,8 @@ export type LaneBands = { top: BandExtent | null; bottom: BandExtent | null };
 // pass reads the same field to predict a chip's drawn text, and two readers of
 // one loosely typed field would be free to disagree about what counts as a rate.
 export function edgeRate(edge: Edge): Fraction | undefined {
+  // Deliberately weaker than ItemEdgeData: older fixtures carry a non-Fraction
+  // rate, so the guard below has to see `unknown` rather than a claimed type.
   const rate = (edge.data as { rate?: unknown } | undefined)?.rate;
   return rate instanceof Fraction ? rate : undefined;
 }
@@ -227,6 +234,8 @@ function isInputProduct(node: RFAnyNode | undefined): boolean {
 }
 
 export function edgeItem(edge: Edge): string | undefined {
+  // Deliberately weaker than ItemEdgeData: older fixtures carry a non-string
+  // item, so the guard below has to see `unknown` rather than a claimed type.
   const item = (edge.data as { item?: unknown } | undefined)?.item;
   return typeof item === "string" ? item : undefined;
 }
@@ -645,11 +654,7 @@ export function busBandRegions(
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) continue;
-    const cols = edge.data as {
-      dropX?: number;
-      riseX?: number;
-      entryX?: number;
-    };
+    const cols = edge.data as RoutingHints;
     const sx = absoluteLeft(source, byId) + nodeWidth(source);
     const tx = absoluteLeft(target, byId);
     const dropCol = cols.dropX ?? busDropBase(sx);
@@ -1028,7 +1033,7 @@ function occupiesGutterColumn(
     // A fan-out member approaches its target horizontally off the shared
     // junction column (mid-corridor), never up the target's entry gutter, so it
     // stakes no gutter column and does not widen the band.
-    if ((edge.data as { fanout?: unknown } | undefined)?.fanout === true) {
+    if ((edge.data as BusEdgeData | undefined)?.fanout === true) {
       return false;
     }
     // narrow-forward hairpin claims no column
@@ -1238,7 +1243,7 @@ export function assignBendColumns(
     if (edgeItem(edge) === undefined) continue;
     // Respect a pre-stamped bendX (a demoted trunk bound to its proven clear
     // column): re-fanning it could move the bend back onto a blocked column.
-    if ((edge.data as { bendX?: number } | undefined)?.bendX !== undefined) {
+    if ((edge.data as ItemEdgeData | undefined)?.bendX !== undefined) {
       continue;
     }
     const source = byId.get(edge.source);
@@ -1845,10 +1850,7 @@ export function clearBusColumns(
       // Drop / rise column defaults: the shared bases (busDropBase /
       // busRiseBase, the latter keeping the staggered entryX when present).
       dropBase: busDropBase(sx),
-      riseBase: busRiseBase(
-        tx,
-        (edge.data as { entryX?: number } | undefined)?.entryX,
-      ),
+      riseBase: busRiseBase(tx, (edge.data as ItemEdgeData | undefined)?.entryX),
     });
   });
 
@@ -2125,7 +2127,7 @@ export function clampBackwardRails(
     // the source port to the entry column (or one stub before the target port).
     const xrDesired = sx + PORT_STUB;
     const xlDesired =
-      (edge.data as { entryX?: number } | undefined)?.entryX ?? tx - PORT_STUB;
+      (edge.data as ItemEdgeData | undefined)?.entryX ?? tx - PORT_STUB;
     const preferredY = sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2;
     const railY = clearRailY(
       preferredY,
@@ -2280,7 +2282,7 @@ export function jogForwardLegs(
     // stamped hint is always one the drawer consumes. forwardStepGeometry is
     // the drawer's own bend-column derivation, so the leg's start x matches the
     // drawn path by construction.
-    const bendHint = (edge.data as { bendX?: number } | undefined)?.bendX;
+    const bendHint = (edge.data as ItemEdgeData | undefined)?.bendX;
     const { chamfer, bx } = forwardStepGeometry(sx, tx, bendHint);
     if (sy === ty) return;
     if (Math.abs(ty - sy) <= 2 * chamfer) return;
