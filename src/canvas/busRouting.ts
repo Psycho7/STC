@@ -1,14 +1,7 @@
 // Whole-graph pre-render ROUTING passes for the blueprint canvas. Layout runs
-// them in order after ELK places the nodes (each consumes the previous ones'
-// stamps; see layoutRenderPlan in layout.ts):
-//   1. routeBusEdges       classify long / boundary-feeder edges into bus
-//                          trunks, each on a lane in a top or bottom band.
-//   2. assignEntryColumns  stake out per-target entry-gutter columns.
-//   3. clearBusColumns     move bus drop / rise verticals clear of foreign
-//                          cards / gutters.
-//   4. assignBendColumns   stagger the remaining item edges' bend columns.
-//   5. jogForwardLegs      bend a blocked forward final leg to a clear y.
-//   6. clampBackwardRails  move backward detour rails clear of spanned cards.
+// them in order after ELK places the nodes, each consuming the previous ones'
+// stamps; ROUTING_PASSES in layout.ts is that order, with a per-entry note on
+// what each pass does.
 // Every pass is pure and deterministic: no React, no Date/random, no mutation
 // of the inputs. Nodes are read only for geometry (absolute positions and
 // sizes); they pass through untouched. Passes merge routing fields onto edge
