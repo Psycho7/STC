@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
-import { buildRenderPlan } from "../../src/pipeline/driver";
+import { renderPlanFromSolve } from "../../src/pipeline/driver";
 import { solvePlanWithIntermediates } from "../../src/solver";
 import { pack } from "../../src/data/load";
 import {
@@ -17,25 +17,12 @@ describe("pipeline driver: default AEF targets", () => {
       loadTransportConfig(defaultTransportConfig, pack),
     );
     const targets = defaultTargets();
-    const { plan, machineGraph, containers } = buildRenderPlan({
-      logical: full.logical,
-      replicas: full.replicas,
-      multipliers: full.multipliers,
-      idealCount: full.idealCount,
-      classByReplicaId: full.classByReplicaId,
-      classToQuotient: full.classToQuotient,
-      condensation: full.condensation,
-      torn: full.torn,
-      recipeById: full.recipeById,
-      rates: full.rates,
-      supplyShares: full.supplyShares,
-      boundaryShare: full.boundaryShare,
-      itemById: new Map(pack.items.map((i) => [i.id, i])),
-      machineById: new Map(pack.machines.map((m) => [m.id, m])),
-      itemOverrides: [],
-      targets,
+    const { plan, machineGraph, containers } = renderPlanFromSolve(
+      full,
       pack,
-    });
+      targets,
+      [],
+    );
 
     expect(plan.units.length).toBeGreaterThan(0);
     expect(plan.edges.length).toBeGreaterThan(0);
@@ -72,25 +59,7 @@ describe("pipeline driver: default AEF targets", () => {
       pack,
       loadTransportConfig(defaultTransportConfig, pack),
     );
-    const { plan } = buildRenderPlan({
-      logical: full.logical,
-      replicas: full.replicas,
-      multipliers: full.multipliers,
-      idealCount: full.idealCount,
-      classByReplicaId: full.classByReplicaId,
-      classToQuotient: full.classToQuotient,
-      condensation: full.condensation,
-      torn: full.torn,
-      recipeById: full.recipeById,
-      rates: full.rates,
-      supplyShares: full.supplyShares,
-      boundaryShare: full.boundaryShare,
-      itemById: new Map(pack.items.map((i) => [i.id, i])),
-      machineById: new Map(pack.machines.map((m) => [m.id, m])),
-      itemOverrides: [],
-      targets,
-      pack,
-    });
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
 
     const targetRecipe = pack.recipes.find((r) => r.id === targetRecipeId);
     if (!targetRecipe) throw new Error("test fixture missing");
@@ -164,25 +133,7 @@ describe("pipeline driver: default AEF targets", () => {
 
     // Pipeline render: expect two recipe render units for the planter
     // (distinct replica ids) plus one for the picker.
-    const { plan } = buildRenderPlan({
-      logical: full.logical,
-      replicas: full.replicas,
-      multipliers: full.multipliers,
-      idealCount: full.idealCount,
-      classByReplicaId: full.classByReplicaId,
-      classToQuotient: full.classToQuotient,
-      condensation: full.condensation,
-      torn: full.torn,
-      recipeById: full.recipeById,
-      rates: full.rates,
-      supplyShares: full.supplyShares,
-      boundaryShare: full.boundaryShare,
-      itemById: new Map(pack.items.map((i) => [i.id, i])),
-      machineById: new Map(pack.machines.map((m) => [m.id, m])),
-      itemOverrides: [],
-      targets,
-      pack,
-    });
+    const { plan } = renderPlanFromSolve(full, pack, targets, []);
     const planterUnits = plan.units.filter(
       (u) => u.kind === "recipe" && u.recipeId === targetRecipeId,
     );

@@ -1,15 +1,12 @@
 // Heuristic #9 (next-stage invariant): the render policy's output is consumed
-// by ELK Layered. This test pipes AlwaysFoldRender's output through the same
-// layoutRenderPlan() entry point the driver uses and asserts the resulting
-// laid-out graph is well-formed. Until T13 wires AlwaysFoldRender into the
-// driver, we re-invoke the policy directly on the same RenderPolicyInput the
-// driver would assemble (containers + machineGraph from buildRenderPlan plus
-// the original solver intermediates).
+// by ELK Layered. The driver runs AlwaysFoldRender as its final stage, so this
+// test takes the plan renderPlanFromSolve returns and pipes it through the same
+// layoutRenderPlan() entry point the canvas uses, then asserts the laid-out
+// graph is well-formed.
 
 import { describe, it, expect } from "vitest";
 import { solvePlanWithIntermediates } from "../../../src/solver";
-import { buildRenderPlan } from "../../../src/pipeline/driver";
-import { AlwaysFoldRender } from "../../../src/pipeline/render/always-fold";
+import { renderPlanFromSolve } from "../../../src/pipeline/driver";
 import { layoutRenderPlan } from "../../../src/canvas/layout";
 import { pack } from "../../../src/data/load";
 import {
@@ -17,17 +14,10 @@ import {
   loadTransportConfig,
 } from "../../../src/data/transport-config";
 import { defaultTargets } from "../../../src/data/targets";
-import type {
-  RenderPolicyInput,
-  RenderPlan,
-} from "../../../src/pipeline/types";
+import type { RenderPlan } from "../../../src/pipeline/types";
 import type { ItemOverride } from "../../../src/data/plan";
 
-// Build a realistic RenderPolicyInput + RenderPlan via the default-targets
-// plan. We use buildRenderPlan to obtain the post-cluster containers and the
-// container-aware MachineGraph the driver feeds into the render stage, then
-// hand both to AlwaysFoldRender directly. This isolates the test from T13
-// (which will swap the driver's policy from NoFoldRender to AlwaysFoldRender).
+// The default-targets plan, rendered exactly the way the app renders it.
 function buildAlwaysFoldPlan(): RenderPlan {
   const targets = defaultTargets();
   const itemOverrides: ItemOverride[] = [];
@@ -38,39 +28,7 @@ function buildAlwaysFoldPlan(): RenderPlan {
     tConfig,
     itemOverrides,
   );
-  const itemById = new Map(pack.items.map((i) => [i.id, i]));
-  const machineById = new Map(pack.machines.map((m) => [m.id, m]));
-  const built = buildRenderPlan({
-    logical: full.logical,
-    replicas: full.replicas,
-    multipliers: full.multipliers,
-    idealCount: full.idealCount,
-    classByReplicaId: full.classByReplicaId,
-    classToQuotient: full.classToQuotient,
-    condensation: full.condensation,
-    torn: full.torn,
-    recipeById: full.recipeById,
-    rates: full.rates,
-    supplyShares: full.supplyShares,
-    boundaryShare: full.boundaryShare,
-    itemById,
-    machineById,
-    itemOverrides,
-    targets,
-    pack,
-  });
-  const policyInput: RenderPolicyInput = {
-    containers: built.containers,
-    machineGraph: built.machineGraph,
-    targets,
-    itemOverrides,
-    itemById,
-    recipeById: full.recipeById,
-    pack,
-    idealCount: full.idealCount,
-    boundaryShare: full.boundaryShare,
-  };
-  return AlwaysFoldRender(policyInput);
+  return renderPlanFromSolve(full, pack, targets, itemOverrides).plan;
 }
 
 describe("AlwaysFoldRender -> ELK acceptance", () => {

@@ -8,21 +8,11 @@
 // rendering so the render policy still sees the per-replica edges before they
 // fold together.
 
-import Fraction from "fraction.js";
-import type { Item, Machine, Recipe, RecipePack } from "@aef/schema";
-import type { LogicalGraph } from "../canvas/layout";
+import type { RecipePack } from "@aef/schema";
 import type { ItemOverride } from "../data/plan";
 import type { ItemTarget } from "../data/targets";
 import type { SolvePlanFull } from "../solver";
-import type {
-  Condensation,
-  ItemId,
-  RecipeId,
-  Replica,
-  ReplicaId,
-  SccId,
-  TornEdge,
-} from "../solver/types";
+import type { SccId } from "../solver/types";
 import { PillarsOnly } from "./cluster";
 import { expandMultipliers } from "./expand";
 import { computeEdgeRates } from "./expand/edge-rates";
@@ -36,61 +26,34 @@ import type {
   MachineRecipeVertex,
   MachineSccVertex,
   MachineVertex,
-  NetIOPort,
   RenderPlan,
 } from "./types";
 
-export type RenderPipelineInput = {
-  logical: LogicalGraph;
-  replicas: ReadonlyArray<Replica>;
-  multipliers: ReadonlyMap<ReplicaId, number>;
-  /** Rational machine count per replica (no ceiling). */
-  idealCount: ReadonlyMap<ReplicaId, Fraction>;
-  condensation: Condensation;
-  torn: ReadonlyArray<TornEdge>;
-  recipeById: ReadonlyMap<RecipeId, Recipe>;
-  rates: ReadonlyMap<RecipeId, Fraction>;
-  /**
-   * Committed producer-recipe -> consumer-recipe item flow (items/s), keyed by
-   * `supplyShareKey`. Recorded for shared producers only; computeEdgeRates uses
-   * it as the per-consumer demand-split weight.
-   */
-  supplyShares: ReadonlyMap<string, Fraction>;
-  /**
-   * Per finite-capped item the LP drew from the boundary: the fraction of its
-   * consumption in-graph producers cover (`boundaryResidualShare`). Missing
-   * entries mean share 1. computeEdgeRates nets each consumer's demand by it;
-   * deriveBoundaryProducts sizes the boundary import as the complement.
-   */
-  boundaryShare: ReadonlyMap<ItemId, Fraction>;
-  itemById: ReadonlyMap<ItemId, Item>;
-  machineById: ReadonlyMap<string, Machine>;
-  itemOverrides: ReadonlyArray<ItemOverride>;
-  targets: ReadonlyArray<ItemTarget>;
-  // The solver hands class ids out as opaque branded strings. Both maps pass
-  // through untouched so canvas highlighting can go from a replica id to its
-  // bisimulation class and back to whichever quotient replica stands in for it.
-  classByReplicaId: ReadonlyMap<ReplicaId, string>;
-  classToQuotient: ReadonlyMap<string, ReplicaId>;
-  // Just the pack slice the render policy needs: it only reads `pack.items` for
-  // effective supply. Passing it saves rebuilding it from `itemById`.
-  pack: Pick<RecipePack, "items">;
-};
-
 export type RenderPipelineOutput = {
   plan: RenderPlan;
+  /** Container-tagged: every vertex carries containerId where one applies. */
   machineGraph: MachineGraph;
   containers: ContainerSet;
-  classByReplicaId: ReadonlyMap<ReplicaId, string>;
-  classToQuotient: ReadonlyMap<string, ReplicaId>;
 };
 
 /**
  * Run the pipeline over the solver's intermediate results and return a
  * RenderPlan that layoutRenderPlan() consumes directly.
+ *
+ * `pack` must be the RAW pack and `targets`/`itemOverrides` must be the same
+ * values handed to the solvePlanWithIntermediates call that produced `full`;
+ * the DEV invariant hook checks the plan against them.
+ *
+ * Stage order is internal: cluster -> edge rates -> expand -> container tagging
+ * -> AlwaysFoldRender. The tagging phase mutates vertices into a shape the type
+ * system cannot distinguish from the untagged one, which is why it stays inside
+ * this function instead of being reachable from a caller.
  */
-export function buildRenderPlan(
-  input: RenderPipelineInput,
+export function renderPlanFromSolve(
+  full: SolvePlanFull,
+  pack: RecipePack,
+  targets: ReadonlyArray<ItemTarget>,
+  itemOverrides: ReadonlyArray<ItemOverride>,
 ): RenderPipelineOutput {
   const {
     logical,
@@ -98,19 +61,21 @@ export function buildRenderPlan(
     multipliers,
     idealCount,
     condensation,
-    torn,
     recipeById,
     rates,
     supplyShares,
     boundaryShare,
-    itemById,
-    machineById,
-    itemOverrides,
-    targets,
-    classByReplicaId,
-    classToQuotient,
-    pack,
-  } = input;
+  } = full;
+
+  // Raw versus netted, and both are used deliberately. `recipeById` above is
+  // the NETTED recipe map (netSelfConsumption ran before the solver built it),
+  // so downstream rates match what the LP solved. `pack` is the RAW pack, and
+  // the itemById/machineById maps below are built from it; the render policy
+  // also reads `pack.items` raw for effective supply. Never rebuild these two
+  // maps from `recipeById`, and never pass a netted pack in: the result is a
+  // silently wrong-stoichiometry render, not a crash.
+  const itemById = new Map(pack.items.map((i) => [i.id, i]));
+  const machineById = new Map(pack.machines.map((m) => [m.id, m]));
 
   // Keep only surviving replicas. assembleLogicalGraph already dropped zero-rate
   // replicas from the multipliers map, and the pipeline works from that set.
@@ -131,18 +96,10 @@ export function buildRenderPlan(
     boundaryShare,
   });
 
-  const sccByLogicalNodeId = computeSccNetIO({
-    condensation,
-    torn,
-    rates,
-    recipeById,
-  });
-
   const machineGraph = expandMultipliers({
     logical,
     replicas: surviving,
     edgeRatesByLogicalEdgeId,
-    sccByLogicalNodeId,
     itemById,
     idealCount,
     machineById,
@@ -186,77 +143,19 @@ export function buildRenderPlan(
     boundaryShare,
   });
 
-  return {
-    plan,
-    machineGraph: containerAwareGraph,
-    containers,
-    classByReplicaId,
-    classToQuotient,
-  };
-}
-
-/**
- * Builds metadata for SCC stand-in nodes. assembleLogicalGraph never collapses
- * SCC members into one node -- each shows as its own recipe vertex inside a
- * loop-box container -- so there is nothing to describe and this returns an
- * empty map. If the upstream layer ever emits a single stand-in node per
- * non-trivial SCC, fill this map keyed by that node's id.
- */
-function computeSccNetIO(args: {
-  condensation: Condensation;
-  torn: ReadonlyArray<TornEdge>;
-  rates: ReadonlyMap<RecipeId, Fraction>;
-  recipeById: ReadonlyMap<RecipeId, Recipe>;
-}): ReadonlyMap<string, { sccId: SccId; netIO: ReadonlyArray<NetIOPort> }> {
-  void args;
-  return new Map();
-}
-
-/**
- * Assemble a RenderPipelineInput from solver output and run buildRenderPlan.
- * Shared by App.tsx and any CLI surface needing the same render assembly.
- */
-export function renderPlanFromSolve(
-  full: SolvePlanFull,
-  pack: RecipePack,
-  targets: ReadonlyArray<ItemTarget>,
-  itemOverrides: ReadonlyArray<ItemOverride>,
-): RenderPipelineOutput {
-  const itemById = new Map(pack.items.map((i) => [i.id, i]));
-  const machineById = new Map(pack.machines.map((m) => [m.id, m]));
-  const output = buildRenderPlan({
-    logical: full.logical,
-    replicas: full.replicas,
-    multipliers: full.multipliers,
-    idealCount: full.idealCount,
-    classByReplicaId: full.classByReplicaId,
-    classToQuotient: full.classToQuotient,
-    condensation: full.condensation,
-    torn: full.torn,
-    recipeById: full.recipeById,
-    rates: full.rates,
-    supplyShares: full.supplyShares,
-    boundaryShare: full.boundaryShare,
-    itemById,
-    machineById,
-    itemOverrides,
-    targets,
-    pack,
-  });
-
   // Dev/test-only: assert render invariants, tree-shaken out of production
   // builds (parity with the solver hook in src/solver/index.ts).
   if (import.meta.env.DEV) {
     assertRenderInvariants({
-      plan: output.plan,
-      rates: full.rates,
+      plan,
+      rates,
       pack,
       targets,
       itemOverrides,
     });
   }
 
-  return output;
+  return { plan, machineGraph: containerAwareGraph, containers };
 }
 
 // Re-exported so callers can grab MachineEdge without reaching into

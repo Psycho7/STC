@@ -20,7 +20,7 @@
 //
 // The LogicalGraph types used to live in a separate layout module that no longer
 // exists. They sit here now because both the solver and the fixture builder
-// still create LogicalGraph instances, which feed buildRenderPlan before
+// still create LogicalGraph instances, which feed renderPlanFromSolve before
 // layoutRenderPlan ever runs.
 
 import type { Item, Recipe } from "@aef/schema";
@@ -72,7 +72,7 @@ import type { RationalString } from "../data/targets";
 // LogicalGraph types
 //
 // These sit between the solver (`assembleLogicalGraph`) and the render pipeline
-// (`buildRenderPlan`). They live in this file because the canvas is what reads
+// (`renderPlanFromSolve`). They live in this file because the canvas is what reads
 // them; the solver just imports the types from here. `GroupId` is re-exported
 // from pipeline/types (its real home is solver/types) so older importers that
 // reach for `from "../canvas/layout"` keep working.

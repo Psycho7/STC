@@ -1,7 +1,7 @@
 # AEF-plan regression fixtures
 
 This directory holds JSON fixtures that exercise the full render pipeline
-(`solvePlanWithIntermediates` -> `buildRenderPlan` -> `layoutRenderPlan`)
+(`solvePlanWithIntermediates` -> `renderPlanFromSolve` -> `layoutRenderPlan`)
 against the AEF recipe pack. Each fixture pins a target list and a small set
 of structural expectations against the resulting `RenderPlan`.
 
@@ -67,6 +67,14 @@ larger set can be dropped in without any wiring changes.
    for structural regressions, not snapshot equality.
 4. Run `bun run test -- test/regression/aef-plans.test.ts`. The new file
    should be picked up automatically.
+
+Every fixture also inherits a hard DEV gate. The runner sends each plan
+through `assertRenderInvariants`, which throws under `import.meta.env.DEV`
+listing every render-invariant violation. A fixture whose plan is dirty
+crashes the test case instead of failing an expectation, so read the thrown
+message first. If the plan is dirty for a known, accepted residual, set
+`vi.stubEnv("DEV", false)` in the runner with a comment naming that residual
+rather than relaxing the fixture's expectations.
 
 ## Updating expectations after an intentional pipeline change
 
