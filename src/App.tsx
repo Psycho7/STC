@@ -68,6 +68,15 @@ async function renderFromFull(
   return { nodes: laid.nodes as Node[], edges: laid.edges };
 }
 
+// Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
+// with per-replica kind:"recipe" stamps, so neither the raw length nor the
+// recipe-stamp count matches what a RECIPES chip claims to show.
+function countDistinctRecipes(logical: LogicalGraph): number {
+  return new Set(
+    logical.nodes.flatMap((n) => (n.kind === "recipe" ? [n.recipe.id] : [])),
+  ).size;
+}
+
 // Loading and error surfaces render inside the themed .ak-app-shell so there is
 // no unstyled white page. These lay out a centered card; the shell class
 // supplies the dark background and text color.
@@ -165,7 +174,7 @@ function AppInner() {
   // Mutation handlers read and write it synchronously so a commit never builds
   // on a stale snapshot while a solve is still in flight.
   const planRef = useRef<Plan | null>(null);
-  const [logical, setLogical] = useState<LogicalGraph | null>(null);
+  const [recipeCount, setRecipeCount] = useState<number | null>(null);
   // Which section anchor is in view inside the side rail. Drives the skewed-tab
   // highlight so it reads as a "you-are-here" pill, not a toggle. Computed by an
   // IntersectionObserver watching the two section anchors.
@@ -302,7 +311,7 @@ function AppInner() {
         if (myGen !== solveGen.current) return;
         planRef.current = nextPlan;
         setPlan(nextPlan);
-        setLogical(full.logical);
+        setRecipeCount(countDistinctRecipes(full.logical));
         setNodes(laid.nodes);
         setEdges(laid.edges);
         setLayoutGeneration((g) => g + 1);
@@ -383,7 +392,7 @@ function AppInner() {
       );
       const laid = await renderFromFull(full, itemOverrides, targets);
       if (myGen !== solveGen.current) return;
-      setLogical(full.logical);
+      setRecipeCount(countDistinctRecipes(full.logical));
       setNodes(laid.nodes);
       setEdges(laid.edges);
       setLayoutGeneration((g) => g + 1);
@@ -471,7 +480,7 @@ function AppInner() {
       </div>
     );
   }
-  if (!plan || !logical) {
+  if (!plan || recipeCount === null) {
     return (
       <div className="ak-app-shell" style={splashStyle}>
         <div>{i18n.t("app.loading")}</div>
@@ -505,12 +514,6 @@ function AppInner() {
   };
 
   const targetCount = plan.targets.length;
-  // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
-  // with per-replica kind:"recipe" stamps, so neither the raw length nor the
-  // recipe-stamp count matches what a RECIPES chip claims to show.
-  const recipeCount = new Set(
-    logical.nodes.flatMap((n) => (n.kind === "recipe" ? [n.recipe.id] : [])),
-  ).size;
 
   return (
     <div
