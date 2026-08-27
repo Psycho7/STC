@@ -122,11 +122,13 @@ const transportConfig: TransportConfig = loadTransportConfig(
 );
 
 // A dismissible banner error. "load" wraps a hash-decode / validation failure
-// (the pasted link, not the solver); "solver" wraps an exception thrown while
-// solving a valid plan, which the render layer maps to localized copy (naming
-// the implicated items for an LpInfeasibleError).
+// (the pasted link, not the solver); "edit" wraps an in-app edit that
+// validatePlan rejected; "solver" wraps an exception thrown while solving a
+// valid plan, which the render layer maps to localized copy (naming the
+// implicated items for an LpInfeasibleError).
 type BannerError =
   | { kind: "load"; message: string }
+  | { kind: "edit"; message: string }
   | { kind: "solver"; error: unknown };
 
 type SideSection = "targets" | "inputs";
@@ -363,9 +365,9 @@ function AppInner() {
   function commitPlan(nextPlan: Plan): void {
     const error = validatePlan(nextPlan, pack);
     if (error) {
-      // A rejected edit is a plan-validity problem (the load wrapper), and the
-      // canvas keeps the last good render, so mark it stale.
-      setMutationError({ kind: "load", message: describePlanLoadError(error) });
+      // The edit itself is what validatePlan rejected, and the canvas keeps the
+      // last good render, so mark it stale.
+      setMutationError({ kind: "edit", message: describePlanLoadError(error) });
       setStale(true);
       return;
     }
@@ -493,11 +495,14 @@ function AppInner() {
   // the banner is dismissed until the next successful solve; otherwise READY.
   const status: CanvasStatus = pending ? "SOLVING" : stale ? "ERROR" : "READY";
 
-  // Localized banner copy. Load/validation failures use the load wrapper; a
-  // solver exception maps to a body that names the implicated items when it is
-  // an infeasibility, falling back to the raw solver message otherwise.
+  // Localized banner copy. A bad link uses the load wrapper and a rejected edit
+  // its own wrapper; a solver exception maps to a body that names the
+  // implicated items when it is an infeasibility, falling back to the raw
+  // solver message otherwise.
   const bannerText = (err: BannerError): string => {
     if (err.kind === "load") return i18n.t("app.error.load", { message: err.message });
+    if (err.kind === "edit")
+      return i18n.t("app.error.edit", { message: err.message });
     const e = err.error;
     if (e instanceof LpInfeasibleError) {
       const ids =
