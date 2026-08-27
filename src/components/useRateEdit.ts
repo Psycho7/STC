@@ -4,9 +4,9 @@ import type { RationalString } from "../data/targets";
 import { parsePerMinToRatePerSec } from "../data/rate-format";
 
 // Everything a rate input needs from the protocol. `inputProps` is spread onto
-// the input; every other attribute (aria-label, aria-describedby, placeholder,
-// ref, testids) stays at the call site, which is what keeps panels with
-// different DOM intact.
+// the input; every other attribute a row wants - its label, its description,
+// its hint text, its ref, its testids - stays at the call site, which is what
+// keeps panels with differing DOM intact.
 export type RateField = {
   invalid: boolean;
   inputProps: {
