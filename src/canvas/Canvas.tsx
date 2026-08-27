@@ -22,6 +22,7 @@ import ItemEdge from "./ItemEdge";
 import BusEdge from "./BusEdge";
 import BusBands from "./BusBands";
 import { contentBounds } from "./chipSeating";
+import type { BusAggregate } from "./busRouting";
 import type { RFAnyNode } from "./layout";
 import { useI18n } from "../data/i18n-context";
 import type { CSSProperties } from "react";
@@ -371,8 +372,7 @@ function CanvasInner({
       endpointsByEdge.set(edge.id, [edge.source, edge.target]);
       pushInto(edgesByNode, edge.source, edge.id);
       pushInto(edgesByNode, edge.target, edge.id);
-      const trunkKey = (edge.data as { trunkKey?: unknown } | undefined)
-        ?.trunkKey;
+      const trunkKey = (edge.data as BusAggregate | undefined)?.trunkKey;
       // trunkKey is item + "|" + source, so a lane trunk and a fan-out trunk
       // leaving the SAME (item, source) port share ONE trunkKey and merge into a
       // single hover group here. Each sub-trunk still keeps its own aggregate
@@ -410,9 +410,7 @@ function CanvasInner({
       }
     } else {
       const edge = adjacency.edgeById.get(hovered.id);
-      const data = edge?.data as
-        | { trunkKey?: unknown; busChipOwner?: unknown }
-        | undefined;
+      const data = edge?.data as BusAggregate | undefined;
       const trunkKey = data?.trunkKey;
       // A bus edge belongs to a trunk (every same-trunkKey member). Two hover
       // modes split off which members light:
@@ -437,7 +435,7 @@ function CanvasInner({
           for (const edgeId of trunkEdges) {
             if (edgeId === hovered.id) continue;
             const sibData = adjacency.edgeById.get(edgeId)?.data as
-              | { busChipOwner?: unknown }
+              | BusAggregate
               | undefined;
             if (isOwner(sibData)) lightEdge(edgeId);
           }
