@@ -1,13 +1,16 @@
 import { useMemo, useRef, useState } from "react";
-import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
 import { producibleItemIds } from "../data/recipe-category";
-import { ratePerSecToPerMin } from "../data/rate-format";
+import {
+  parsePerMinToRatePerSec,
+  ratePerSecToPerMin,
+} from "../data/rate-format";
 import { computeItemDepths } from "../data/recipe-depth";
 import { iconPosition } from "../canvas/iconSprite";
 import { ItemPickerPopup } from "./ItemPickerPopup";
+import { useRateEdit } from "./useRateEdit";
 
 type Props = {
   targets: Target[];
@@ -19,24 +22,6 @@ type Props = {
   onChange: (update: (current: Target[]) => Target[]) => void;
   pack: RecipePack;
 };
-
-// Accepts an items-per-minute value as an integer ("120"), decimal ("30.5"), or
-// rational ("1/3"). Returns undefined if it can't parse or the result is
-// negative.
-function parsePerMinToRationalPerSec(
-  perMinStr: string,
-): { num: string; denom: string } | undefined {
-  let f: Fraction;
-  try {
-    f = new Fraction(perMinStr).div(new Fraction(60));
-  } catch {
-    return undefined;
-  }
-  if (f.compare(0) < 0) return undefined;
-  const s = f.toFraction(false);
-  const [n, d] = s.includes("/") ? s.split("/") : [s, "1"];
-  return { num: n!, denom: d! };
-}
 
 export function TargetsPanel({ targets, onChange, pack }: Props) {
   const i18n = useI18n();
@@ -71,96 +56,25 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     rowId: string;
     itemId: string;
   } | null>(null);
-  // In-flight edit values keyed by itemId. A row without an entry falls back
-  // to the prop-derived value, so a new `targets` prop updates the visible rate
-  // without a separate sync effect. Keying by id (not row index) keeps an
-  // uncommitted edit attached to its row across removals and reorders. The text
-  // is committed only on blur or Enter, and the committed string is kept here as
-  // the display value (re-serializing ratePerSec would turn "1/3" into a float).
-  const [localRates, setLocalRates] = useState<Map<string, string>>(new Map());
-  // Item ids whose localRates text has not yet been committed. Guards the
-  // blur/Enter commit so re-blurring an unedited field never re-fires a solve.
-  // The owner remounts this panel (via a key keyed on plan identity) when it
-  // navigates to a new plan, which drops all uncommitted local edit state, so
-  // there is no cross-plan carryover to clear here.
-  const dirty = useRef<Set<string>>(new Set());
-  // Item ids whose last commit attempt failed to parse. Drives the input's
-  // aria-invalid flag and the inline error message. Typing clears the flag; a
-  // successful commit or a blur-revert clears it too.
-  const [invalidIds, setInvalidIds] = useState<Set<string>>(new Set());
-  function markInvalid(itemId: string, on: boolean) {
-    setInvalidIds((prev) => {
-      if (on === prev.has(itemId)) return prev;
-      const next = new Set(prev);
-      if (on) next.add(itemId);
-      else next.delete(itemId);
-      return next;
-    });
-  }
-
-  // Returns true iff the text parsed. Invalid text is left in place so the user
-  // can finish typing; a failed parse never mutates the plan.
-  function commitRate(itemId: string, perMinStr: string): boolean {
-    const parsed = parsePerMinToRationalPerSec(perMinStr);
-    if (!parsed) return false;
-    onChange((current) => {
-      const idx = current.findIndex((t) => t.itemId === itemId);
-      // Row removed since the edit: no-op (same reference).
-      if (idx < 0) return current;
-      const next = current.slice();
-      next[idx] = { ...next[idx]!, ratePerSec: parsed };
-      return next;
-    });
-    return true;
-  }
-
-  function handleRateChange(itemId: string, value: string) {
-    dirty.current.add(itemId);
-    // Typing clears any prior invalid cue; the value is re-checked on commit.
-    markInvalid(itemId, false);
-    setLocalRates((prev) => new Map(prev).set(itemId, value));
-  }
-
-  // Commit the row's uncommitted text on blur (revert=true) or Enter
-  // (revert=false). Only a dirty row acts; a successful parse commits and clears
-  // the dirty/invalid flags. On a failed parse, Enter surfaces the invalid cue
-  // and keeps the bad text so the user can fix it, while a blur reverts the
-  // field to its last-good value so it never sticks on rejected input.
-  function commitFromLocal(itemId: string, revert: boolean) {
-    if (!dirty.current.has(itemId)) return;
-    const value = localRates.get(itemId);
-    if (value === undefined) return;
-    if (commitRate(itemId, value)) {
-      dirty.current.delete(itemId);
-      markInvalid(itemId, false);
-      return;
-    }
-    if (revert) {
-      dirty.current.delete(itemId);
-      markInvalid(itemId, false);
-      setLocalRates((prev) => {
-        if (!prev.has(itemId)) return prev;
-        const next = new Map(prev);
-        next.delete(itemId);
+  // The rate edit/commit/revert protocol for the target rows. A target needs a
+  // rate, so empty text is invalid rather than a commit, and the committed
+  // string is kept as the display value.
+  const rateEdit = useRateEdit({
+    emptyMeans: "invalid",
+    keepTextAfterCommit: true,
+    // A failed parse never mutates the plan, so this runs only for a rate the
+    // row can take; under emptyMeans "invalid" parsed is never undefined.
+    commit: (itemId, parsed) => {
+      onChange((current) => {
+        const idx = current.findIndex((t) => t.itemId === itemId);
+        // Row removed since the edit: no-op (same reference).
+        if (idx < 0) return current;
+        const next = current.slice();
+        next[idx] = { ...next[idx]!, ratePerSec: parsed! };
         return next;
       });
-    } else {
-      markInvalid(itemId, true);
-    }
-  }
-
-  // Drop the in-flight edit text and dirty flag for a row that is going away, so
-  // a stale entry can never redisplay on a later row that reuses the same id.
-  function clearPendingEdit(itemId: string) {
-    dirty.current.delete(itemId);
-    markInvalid(itemId, false);
-    setLocalRates((prev) => {
-      if (!prev.has(itemId)) return prev;
-      const next = new Map(prev);
-      next.delete(itemId);
-      return next;
-    });
-  }
+    },
+  });
 
   function handleItemChange(oldItemId: string, newItemId: string) {
     const dup = targets.some((t) => t.itemId === newItemId);
@@ -169,19 +83,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
       return;
     }
     setDuplicateError(null);
-    // An uncommitted rate edit follows the row to its new id, dirty flag and all,
-    // so the user can still blur to commit it under the swapped item.
-    const pendingValue = localRates.get(oldItemId);
-    if (pendingValue !== undefined) {
-      const wasDirty = dirty.current.delete(oldItemId);
-      if (wasDirty) dirty.current.add(newItemId);
-      setLocalRates((prev) => {
-        const next = new Map(prev);
-        next.delete(oldItemId);
-        next.set(newItemId, pendingValue);
-        return next;
-      });
-    }
+    rateEdit.carryPendingEdit(oldItemId, newItemId);
     onChange((current) => {
       const idx = current.findIndex((t) => t.itemId === oldItemId);
       if (idx < 0) return current;
@@ -194,7 +96,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
 
   function handleRemove(itemId: string) {
     setDuplicateError(null);
-    clearPendingEdit(itemId);
+    rateEdit.clearPendingEdit(itemId);
     onChange((current) => {
       const next = current.filter((t) => t.itemId !== itemId);
       return next.length === current.length ? current : next;
@@ -224,7 +126,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
   // store the updated draft. A nonzero rate is required so an empty or 0 draft
   // never churns a re-solve for a row that renders nothing.
   function applyDraft(next: { id: string; itemId: string; rate: string }) {
-    const parsed = parsePerMinToRationalPerSec(next.rate);
+    const parsed = parsePerMinToRatePerSec(next.rate);
     const ready =
       next.itemId !== "" && parsed !== undefined && parsed.num !== "0";
     if (ready) {
@@ -256,8 +158,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
       ) : null}
       {targets.map((t) => {
         const iconPos = iconPosition(t.itemId);
-        const displayedRate =
-          localRates.get(t.itemId) ?? ratePerSecToPerMin(t.ratePerSec);
+        const rate = rateEdit.field(t.itemId, ratePerSecToPerMin(t.ratePerSec));
         return (
           <div key={t.itemId} className="b-row" data-testid="target-row">
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
@@ -310,22 +211,13 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                 type="text"
                 inputMode="decimal"
                 aria-label={i18n.t("targets.rate.label")}
-                aria-invalid={invalidIds.has(t.itemId) ? true : undefined}
                 aria-describedby={
-                  invalidIds.has(t.itemId)
-                    ? `t-rate-err-${t.itemId}`
-                    : undefined
+                  rate.invalid ? `t-rate-err-${t.itemId}` : undefined
                 }
-                className={invalidIds.has(t.itemId) ? "invalid" : undefined}
-                value={displayedRate}
-                onChange={(e) => handleRateChange(t.itemId, e.target.value)}
-                onBlur={() => commitFromLocal(t.itemId, true)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitFromLocal(t.itemId, false);
-                }}
+                {...rate.inputProps}
               />
               <span className="unit">{i18n.t("targets.rate.unit")}</span>
-              {invalidIds.has(t.itemId) ? (
+              {rate.invalid ? (
                 <span
                   className="b-rate-err"
                   id={`t-rate-err-${t.itemId}`}

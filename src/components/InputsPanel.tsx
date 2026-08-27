@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
 import type { ItemOverride } from "../data/plan";
 import type { RationalString } from "../data/targets";
@@ -8,6 +7,7 @@ import { formatRationalPerMin, ratePerSecToPerMin } from "../data/rate-format";
 import { iconPosition } from "../canvas/iconSprite";
 import { computeItemDepths } from "../data/recipe-depth";
 import { ItemPickerPopup } from "./ItemPickerPopup";
+import { useRateEdit } from "./useRateEdit";
 
 type Props = {
   itemOverrides: ItemOverride[];
@@ -45,26 +45,6 @@ export function displayedInputCount(
     (id) => !overrideIds.has(id),
   ).length;
   return itemOverrides.length + autoCount;
-}
-
-// Behaves a little differently from the parser in TargetsPanel. Empty string
-// means "uncap" (no rate limit). A negative or unparseable input returns the
-// "INVALID" marker, letting the caller keep the prior value. A valid rate parses
-// into a RationalString.
-function parsePerMinToOptional(
-  perMinStr: string,
-): RationalString | undefined | "INVALID" {
-  if (perMinStr.trim() === "") return undefined;
-  let f: Fraction;
-  try {
-    f = new Fraction(perMinStr).div(new Fraction(60));
-  } catch {
-    return "INVALID";
-  }
-  if (f.compare(0) < 0) return "INVALID";
-  const s = f.toFraction(false);
-  const [n, d] = s.includes("/") ? s.split("/") : [s, "1"];
-  return { num: n!, denom: d! };
 }
 
 // A focus target armed by a pick and consumed by the row that renders on the
@@ -126,9 +106,9 @@ export function InputsPanel({
   // The row's item name plus, when present, the invalid-rate message. The
   // name is a description rather than a label so the accessible NAME stays
   // the generic rate label every existing query resolves by.
-  function rateDescribedBy(itemId: string): string {
+  function rateDescribedBy(itemId: string, invalid: boolean): string {
     const ids = [`i-name-${itemId}`];
-    if (invalidIds.has(itemId)) ids.push(`i-rate-err-${itemId}`);
+    if (invalid) ids.push(`i-rate-err-${itemId}`);
     return ids.join(" ");
   }
   function closePicker() {
@@ -149,170 +129,62 @@ export function InputsPanel({
     rowId: string;
     itemId: string;
   } | null>(null);
-  // In-flight edit values keyed by itemId. A row without an entry falls back
-  // to the prop-derived value, so a new `itemOverrides` prop updates the visible
-  // rate without a separate sync effect. Keying by id (not row index) keeps an
-  // uncommitted edit attached to its row across removals and reorders. Text is
-  // committed only on blur or Enter; the committed string is kept here as the
-  // display value (re-serializing ratePerSec would turn "1/3" into a float).
-  const [localRates, setLocalRates] = useState<Map<string, string>>(new Map());
-  // In-flight edits for auto-rows, keyed by itemId. On commit a valid rate
-  // creates a new ItemOverride, turning the auto-row into an explicit override
-  // row. The local string only needs to survive until commit: once the prop list
-  // grows, the next render replaces the auto-row and the local entry is orphaned.
-  const [localAutoRates, setLocalAutoRates] = useState<Map<string, string>>(
-    new Map(),
-  );
-  // Item ids whose local text has not yet been committed, one set per row kind.
-  // Guards the blur/Enter commit so re-blurring an unedited field never re-fires
-  // a solve.
-  // The owner remounts this panel (via a key keyed on plan identity) when it
-  // navigates to a new plan, dropping all uncommitted local edit state, so there
-  // is no cross-plan carryover to clear here.
-  const dirty = useRef<Set<string>>(new Set());
-  const dirtyAuto = useRef<Set<string>>(new Set());
-  // Item ids whose last commit attempt failed to parse (INVALID). Drives the
-  // input's aria-invalid flag and the inline error message. Shared across auto
-  // and override rows since an item is only ever one or the other at a time.
-  const [invalidIds, setInvalidIds] = useState<Set<string>>(new Set());
-  function markInvalid(itemId: string, on: boolean) {
-    setInvalidIds((prev) => {
-      if (on === prev.has(itemId)) return prev;
-      const next = new Set(prev);
-      if (on) next.add(itemId);
-      else next.delete(itemId);
-      return next;
-    });
-  }
-
-  // Returns false only on INVALID, so the caller keeps the prior value and the
-  // local edit string for the user to fix.
-  function commitRate(itemId: string, perMinStr: string): boolean {
-    const parsed = parsePerMinToOptional(perMinStr);
-    if (parsed === "INVALID") return false;
-    onChange((current) => {
-      const idx = current.findIndex((o) => o.itemId === itemId);
-      // Row removed since the edit: no-op (same reference).
-      if (idx < 0) return current;
-      const next = current.slice();
-      if (parsed === undefined) {
-        // Uncapped: drop ratePerSec from the override.
-        next[idx] = { itemId };
-      } else {
-        next[idx] = { itemId, ratePerSec: parsed };
-      }
-      return next;
-    });
-    return true;
-  }
-
-  function handleRateChange(itemId: string, value: string) {
-    dirty.current.add(itemId);
-    markInvalid(itemId, false);
-    setLocalRates((prev) => new Map(prev).set(itemId, value));
-  }
-
-  // Commit an override row's uncommitted text on blur (revert=true) or Enter
-  // (revert=false). A valid parse (including empty = uncap) commits and clears
-  // the flags. On INVALID, Enter surfaces the cue and keeps the text; blur
-  // reverts the field to its last-good value.
-  function commitFromLocal(itemId: string, revert: boolean) {
-    if (!dirty.current.has(itemId)) return;
-    const value = localRates.get(itemId);
-    if (value === undefined) return;
-    if (commitRate(itemId, value)) {
-      dirty.current.delete(itemId);
-      markInvalid(itemId, false);
-      return;
-    }
-    if (revert) {
-      dirty.current.delete(itemId);
-      markInvalid(itemId, false);
-      setLocalRates((prev) => {
-        if (!prev.has(itemId)) return prev;
-        const next = new Map(prev);
-        next.delete(itemId);
+  // The rate edit/commit/revert protocol for the explicit override rows. Empty
+  // text is a valid commit here (uncapped), and the committed string is kept as
+  // the display value.
+  // This instance and autoEdit below carry SEPARATE invalid sets, which is
+  // equivalent to the one shared set only because an item is only ever an
+  // override row or an auto-row, never both at once. The autoRows filter below
+  // ("every assumed-raw item WITHOUT an explicit override") is what enforces
+  // that; break it and the two sets start disagreeing about the same item.
+  // The split also means an invalid flag does NOT follow an item across a
+  // family change (auto row promoted to override, or override reverting to
+  // auto): the stale cue the shared set used to carry over is dropped now.
+  const rowEdit = useRateEdit({
+    emptyMeans: "uncap",
+    keepTextAfterCommit: true,
+    commit: (itemId, parsed) => {
+      onChange((current) => {
+        const idx = current.findIndex((o) => o.itemId === itemId);
+        // Row removed since the edit: no-op (same reference).
+        if (idx < 0) return current;
+        const next = current.slice();
+        if (parsed === undefined) {
+          // Uncapped: drop ratePerSec from the override.
+          next[idx] = { itemId };
+        } else {
+          next[idx] = { itemId, ratePerSec: parsed };
+        }
         return next;
       });
-    } else {
-      markInvalid(itemId, true);
-    }
-  }
-
-  // Drop the in-flight edit text and dirty flag for a row that is going away, so
-  // a stale entry can never redisplay on a later row that reuses the same id.
-  function clearPendingEdit(itemId: string) {
-    dirty.current.delete(itemId);
-    markInvalid(itemId, false);
-    setLocalRates((prev) => {
-      if (!prev.has(itemId)) return prev;
-      const next = new Map(prev);
-      next.delete(itemId);
-      return next;
-    });
-  }
-
-  // Promote an auto-row into a real override entry. Empty or INVALID strings
-  // leave it as an auto-row, since "Unlimited" is the auto state. Guard against
-  // re-adding the same itemId in case the commit races with a prop update that
-  // already inserted the override. Returns false only on INVALID, so the
-  // caller keeps the local text for the user to fix.
-  function commitAutoRate(itemId: string, perMinStr: string): boolean {
-    const parsed = parsePerMinToOptional(perMinStr);
-    if (parsed === "INVALID") return false;
-    if (parsed === undefined) return true;
-    onChange((current) =>
-      current.some((o) => o.itemId === itemId)
-        ? current
-        : [...current, { itemId, ratePerSec: parsed }],
-    );
-    return true;
-  }
-
-  function handleAutoRateChange(itemId: string, value: string) {
-    dirtyAuto.current.add(itemId);
-    markInvalid(itemId, false);
-    setLocalAutoRates((prev) => new Map(prev).set(itemId, value));
-  }
-
-  // Prune the in-flight auto text so a later auto-row rebirth comes back as
-  // Unlimited, not a stale cap.
-  function dropAutoText(itemId: string) {
-    setLocalAutoRates((prev) => {
-      if (!prev.has(itemId)) return prev;
-      const next = new Map(prev);
-      next.delete(itemId);
-      return next;
-    });
-  }
-
-  // Commit an auto-row's uncommitted text on blur (revert=true) or Enter
-  // (revert=false). A non-empty valid value promotes the auto-row into an
-  // override; carry its committed text over to localRates so the new override
-  // row shows what the user typed instead of the re-serialized Fraction. An
-  // empty value is a no-op (stays Unlimited). On INVALID, Enter surfaces the cue
-  // and keeps the text; blur reverts the field to Unlimited (empty).
-  function commitAutoFromLocal(itemId: string, revert: boolean) {
-    if (!dirtyAuto.current.has(itemId)) return;
-    const value = localAutoRates.get(itemId);
-    if (value === undefined) return;
-    if (commitAutoRate(itemId, value)) {
-      dirtyAuto.current.delete(itemId);
-      markInvalid(itemId, false);
-      if (value.trim() !== "") {
-        setLocalRates((prev) => new Map(prev).set(itemId, value));
+    },
+  });
+  // The same protocol for the auto-rows. A valid non-empty rate promotes the
+  // auto-row into an explicit override; an empty one is a no-op, since
+  // "Unlimited" is the auto state. The text only needs to survive until commit
+  // (the promoted row displays the seeded copy), so it is dropped afterwards
+  // and a later auto-row rebirth comes back as Unlimited, not a stale cap.
+  // Separate invalid set from rowEdit, on the disjointness invariant noted
+  // there and enforced by the autoRows filter below; as noted there, the
+  // flag does not carry across a family change either.
+  const autoEdit = useRateEdit({
+    emptyMeans: "uncap",
+    keepTextAfterCommit: false,
+    commit: (itemId, parsed, text) => {
+      // Guard against re-adding the same itemId in case the commit races with
+      // a prop update that already inserted the override.
+      if (parsed !== undefined) {
+        onChange((current) =>
+          current.some((o) => o.itemId === itemId)
+            ? current
+            : [...current, { itemId, ratePerSec: parsed }],
+        );
       }
-      dropAutoText(itemId);
-      return;
-    }
-    if (revert) {
-      dirtyAuto.current.delete(itemId);
-      markInvalid(itemId, false);
-      dropAutoText(itemId);
-    } else {
-      markInvalid(itemId, true);
-    }
-  }
+      // Carry the committed text over to the override rows so the promoted row
+      // shows what the user typed instead of the re-serialized Fraction.
+      if (text.trim() !== "") rowEdit.seedCommittedText(itemId, text);
+    },
+  });
 
   function handleItemChange(oldItemId: string, newItemId: string) {
     const dup = itemOverrides.some((o) => o.itemId === newItemId);
@@ -321,18 +193,7 @@ export function InputsPanel({
       return;
     }
     setDuplicateError(null);
-    // An uncommitted cap edit follows the row to its new id, dirty flag and all.
-    const pendingValue = localRates.get(oldItemId);
-    if (pendingValue !== undefined) {
-      const wasDirty = dirty.current.delete(oldItemId);
-      if (wasDirty) dirty.current.add(newItemId);
-      setLocalRates((prev) => {
-        const next = new Map(prev);
-        next.delete(oldItemId);
-        next.set(newItemId, pendingValue);
-        return next;
-      });
-    }
+    rowEdit.carryPendingEdit(oldItemId, newItemId);
     onChange((current) => {
       const idx = current.findIndex((o) => o.itemId === oldItemId);
       if (idx < 0) return current;
@@ -349,7 +210,7 @@ export function InputsPanel({
 
   function handleRemove(itemId: string) {
     setDuplicateError(null);
-    clearPendingEdit(itemId);
+    rowEdit.clearPendingEdit(itemId);
     onChange((current) => {
       const next = current.filter((o) => o.itemId !== itemId);
       return next.length === current.length ? current : next;
@@ -397,7 +258,7 @@ export function InputsPanel({
         const item = itemById.get(itemId);
         const isAlsoTarget = targetItemIds?.has(itemId) === true;
         const iconPos = iconPosition(item?.icon ?? itemId);
-        const displayedRate = localAutoRates.get(itemId) ?? "";
+        const rate = autoEdit.field(itemId, "");
         const realized = realizedRateByItem?.get(itemId);
         const realizedPerMin =
           realized !== undefined ? formatRationalPerMin(realized) : null;
@@ -449,19 +310,12 @@ export function InputsPanel({
                 type="text"
                 inputMode="decimal"
                 aria-label={i18n.t("inputs.rate.label")}
-                aria-invalid={invalidIds.has(itemId) ? true : undefined}
-                aria-describedby={rateDescribedBy(itemId)}
-                className={invalidIds.has(itemId) ? "invalid" : undefined}
+                aria-describedby={rateDescribedBy(itemId, rate.invalid)}
                 placeholder={i18n.t("inputs.unlimited")}
-                value={displayedRate}
-                onChange={(e) => handleAutoRateChange(itemId, e.target.value)}
-                onBlur={() => commitAutoFromLocal(itemId, true)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitAutoFromLocal(itemId, false);
-                }}
+                {...rate.inputProps}
               />
               <span className="unit">{i18n.t("inputs.rate.unit")}</span>
-              {invalidIds.has(itemId) ? (
+              {rate.invalid ? (
                 <span
                   className="b-rate-err"
                   id={`i-rate-err-${itemId}`}
@@ -480,9 +334,10 @@ export function InputsPanel({
         const isAlsoTarget = targetItemIds?.has(row.itemId) === true;
         const iconPos = iconPosition(item?.icon ?? row.itemId);
         const uncapped = row.ratePerSec === undefined;
-        const displayedRate =
-          localRates.get(row.itemId) ??
-          (row.ratePerSec ? ratePerSecToPerMin(row.ratePerSec) : "");
+        const rate = rowEdit.field(
+          row.itemId,
+          row.ratePerSec ? ratePerSecToPerMin(row.ratePerSec) : "",
+        );
         // Realized demand from the latest render pass. If the prop is missing
         // (nothing rendered yet) or the item isn't in the map, show nothing
         // until the next solve finishes.
@@ -573,23 +428,16 @@ export function InputsPanel({
                 inputMode="decimal"
                 ref={(el) => focusOnMount(el, row.itemId, "rate")}
                 aria-label={i18n.t("inputs.rate.label")}
-                aria-invalid={invalidIds.has(row.itemId) ? true : undefined}
-                aria-describedby={rateDescribedBy(row.itemId)}
-                className={invalidIds.has(row.itemId) ? "invalid" : undefined}
+                aria-describedby={rateDescribedBy(row.itemId, rate.invalid)}
                 placeholder={
                   uncapped
                     ? i18n.t("inputs.unlimited")
                     : i18n.t("inputs.rate.placeholder")
                 }
-                value={displayedRate}
-                onChange={(e) => handleRateChange(row.itemId, e.target.value)}
-                onBlur={() => commitFromLocal(row.itemId, true)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitFromLocal(row.itemId, false);
-                }}
+                {...rate.inputProps}
               />
               <span className="unit">{i18n.t("inputs.rate.unit")}</span>
-              {invalidIds.has(row.itemId) ? (
+              {rate.invalid ? (
                 <span
                   className="b-rate-err"
                   id={`i-rate-err-${row.itemId}`}
@@ -648,7 +496,7 @@ export function InputsPanel({
     // override, which for a raw item leaves effectiveSupply at Infinity either
     // way: a full re-solve and hash rewrite that changes nothing, and from a
     // row it destroys the row it came from as well. To cap a raw item, type
-    // into its auto-row, which commitAutoRate promotes to a real override.
+    // into its auto-row, whose commit promotes it to a real override.
     // Add reaches this with row undefined, so it filters nothing out and takes
     // the raw-item branch, which is exactly its own rule.
     const disabledIds = new Set<string>(
