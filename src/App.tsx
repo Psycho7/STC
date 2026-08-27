@@ -186,9 +186,6 @@ function AppInner() {
     io.observe(inputsEl);
     return () => io.disconnect();
   }, [plan]);
-  // Cached full solver output for the current Plan. Survives mutation paths that
-  // re-run the render pipeline but not the solver.
-  const fullRef = useRef<SolvePlanFull | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   // `pending` is true while a solve + layout generation is in flight. It drives
@@ -294,7 +291,6 @@ function AppInner() {
           history.replaceState(null, "", newHash);
         }
         if (myGen !== solveGen.current) return;
-        fullRef.current = full;
         planRef.current = nextPlan;
         setPlan(nextPlan);
         setLogical(full.logical);
@@ -378,7 +374,6 @@ function AppInner() {
       );
       const laid = await renderFromFull(full, itemOverrides, targets);
       if (myGen !== solveGen.current) return;
-      fullRef.current = full;
       setLogical(full.logical);
       setNodes(laid.nodes);
       setEdges(laid.edges);
