@@ -680,16 +680,12 @@ export function fromElkRenderLayout(
       item: ItemId;
       rate: Fraction;
       transportKind?: TransportKindId;
-      labelSide?: "source" | "target";
     } = {
       item: itemId,
       rate,
     };
     if (renderEdge?.transportKind !== undefined) {
       edgeData.transportKind = renderEdge.transportKind;
-    }
-    if (renderEdge?.labelSide !== undefined) {
-      edgeData.labelSide = renderEdge.labelSide;
     }
     return {
       id: e.id,

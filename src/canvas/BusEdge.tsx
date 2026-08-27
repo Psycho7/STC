@@ -277,7 +277,6 @@ export default function BusEdge({
       text={text}
       label={label}
       title={title}
-      tear={edgeData?.isTearEdge}
       dimmed={edgeData?.dimmed}
       focused={edgeData?.focused}
       compact={compact}
