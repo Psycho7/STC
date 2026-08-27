@@ -43,6 +43,19 @@ export const PORT_HEIGHT = 8;
 export const CHIP_BOX_HEIGHT = 24;
 export const MAX_CHIP_SCALE = 2;
 
+// How far a stamped hide anchor may drift from the live one before the hide is
+// treated as stale and the chip comes back. The seating pass stamps the anchor
+// a hide was decided at, and nodes stay mouse-draggable without a re-seat, so a
+// drag can move the geometry out from under a decision nothing recomputes: past
+// this threshold a floating marker or a wrongly hidden chip is worse than an
+// unmarked merge, and the renderers drop the hide. The threshold sits well
+// above the ~1-unit port-model disagreement between the seating pass's
+// reconstruction and React Flow's measured handles, and well below any drag
+// that frees real seating room -- half the height of a chip box at its
+// counter-scale cap. Note the coupling: changing either chip-box constant moves
+// this threshold with it.
+export const HIDE_STALE_EPS = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
+
 // Horizontal chip-box metrics, the x-axis analogs of CHIP_BOX_HEIGHT. A chip's
 // on-screen width is roughly constant at low zoom (it counter-scales by 1/zoom,
 // capped at MAX_CHIP_SCALE), so in graph units its box is at most

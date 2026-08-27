@@ -55,13 +55,15 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
   it("seats at the anchor on its own line when only a foreign line blocks it", () => {
     const field = makeClearanceField([PARALLEL_FOREIGN], []);
     const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+    // toMatchObject, not toEqual: a RateSeat also carries the ChipBox the field
+    // reserved, which every seat assertion here is indifferent to.
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
   it("slides along its own line past a blocking chip instead of leaving it", () => {
     const field = makeClearanceField([PARALLEL_FOREIGN], []);
     // A wide chip already sits exactly on the anchor.
-    field.placed.push({
+    field.seat({
       x: LINE.anchorX,
       y: LINE.anchorY,
       halfW: (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2,
@@ -81,7 +83,7 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
   it("still prefers a fully clear on-line seat when one exists (anchor tier)", () => {
     const field = makeClearanceField([], []);
     const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "anchor" });
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
   });
 
   it("clamps an anchor rounding pushed past the polyline end instead of sliding", () => {
@@ -501,7 +503,7 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
       anchorY: 0,
     };
     const seat = seatRateChip(field, line, "own", "t", portZone("T", "target"), NO_BAND);
-    expect(seat).toEqual({ dx: -120, dy: 0, tier: "slide" });
+    expect(seat).toMatchObject({ dx: -120, dy: 0, tier: "slide" });
     expect(seatedBox(490, 0, seat).right).toBeLessThanOrEqual(card.left);
     expect(
       chipEntersOwnCardBody(seatedBox(490, 0, seat), card, "target"),
@@ -624,7 +626,7 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
       portZone("T", "target"),
       NO_BAND,
     );
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "anchor" });
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
   });
 
   it("walks one slide step past a seat that laps one unit deeper", () => {
@@ -646,7 +648,7 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
       portZone("T", "target"),
       NO_BAND,
     );
-    expect(seat).toEqual({ dx: -24, dy: 0, tier: "slide" });
+    expect(seat).toMatchObject({ dx: -24, dy: 0, tier: "slide" });
   });
 
   it("breaks a graze tie away from the card", () => {
@@ -668,7 +670,7 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
       portZone("T", "target"),
       NO_BAND,
     );
-    expect(seat).toEqual({ dx: -120, dy: 0, tier: "graze" });
+    expect(seat).toMatchObject({ dx: -120, dy: 0, tier: "graze" });
     expect(seatedBox(490, 0, seat).right).toBeLessThanOrEqual(
       INTRUSION_CARD.left,
     );
@@ -700,7 +702,7 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
       portZone("T", "target"),
       NO_BAND,
     );
-    expect(seat).toEqual({ dx: 72, dy: 0, tier: "slide" });
+    expect(seat).toMatchObject({ dx: 72, dy: 0, tier: "slide" });
     expect(380 + seat.dx - 300).toBeGreaterThanOrEqual(HALF_W + 16);
     expect(
       chipOwnCardIntrusion(seatedBox(380, 0, seat), INTRUSION_CARD),
@@ -771,7 +773,7 @@ describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (iss
     };
     const field = makeClearanceField([foreignVertical], []);
     const seat = seatRateChip(field, ownVertical, "own", "t", NO_EXEMPT, NO_BAND);
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
   it("still grazes (stays on the line) when the foreign line is parallel to the own line", () => {
@@ -781,7 +783,7 @@ describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (iss
     // than flying off. Guards that the sidestep never regresses the #9 fix.
     const field = makeClearanceField([PARALLEL_FOREIGN], []);
     const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 });
 
@@ -857,7 +859,7 @@ describe("seatRateChip: junction-dot keep-off (#50)", () => {
       NO_EXEMPT,
       NO_BAND,
     );
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "anchor" });
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
   });
 });
 
@@ -877,9 +879,9 @@ describe("seatRateChip: slide barrier keeps branch chips in stack order (issue #
     };
     const field = makeClearanceField([], []);
     // Mid-branch sibling already seated at y=384 on the shared column.
-    field.placed.push({ x: 0, y: 384, halfW: HALF_W, halfH: HALF_H });
+    field.seat({ x: 0, y: 384, halfW: HALF_W, halfH: HALF_H });
     // Foreign lane chip covering [408, 640]: blocks the anchor and below it.
-    field.placed.push({ x: 0, y: 524, halfW: HALF_W, halfH: 116 });
+    field.seat({ x: 0, y: 524, halfW: HALF_W, halfH: 116 });
     const seat = seatRateChip(field, leg, "own", "t", NO_EXEMPT, NO_BAND, {
       barrierYs: [384],
     });
@@ -935,7 +937,7 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       NO_BAND,
     );
     // The first candidate whose box has left the braid's reach (x = 600).
-    expect(seat).toEqual({ dx: 432, dy: 0, tier: "graze" });
+    expect(seat).toMatchObject({ dx: 432, dy: 0, tier: "graze" });
   });
 
   it("steps off the line to shed a crossing when a braid pins the on-line seat", () => {
@@ -947,7 +949,7 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     // nothing, and a first-hit walk would never reach it.
     const field = makeClearanceField([vertical("braid", 5), vertical("wide", -75)], []);
     const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
-    expect(seat).toEqual({ dx: 48, dy: 0, tier: "sidestep" });
+    expect(seat).toMatchObject({ dx: 48, dy: 0, tier: "sidestep" });
   });
 
   it("stays on the line when the same two strokes are not braided with it", () => {
@@ -957,7 +959,7 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     // arithmetic -- the seat stays on its own line at the anchor.
     const field = makeClearanceField([vertical("apart", 40), vertical("wide", -75)], []);
     const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
   it("will not step past half the reach even when the far step scores better", () => {
@@ -969,7 +971,7 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     // and the seat stays on the line, grazing both.
     const field = makeClearanceField([vertical("braid", 5), vertical("mid", -40)], []);
     const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
   it("does not read a stroke that only nicks the own line as a braid", () => {
@@ -994,7 +996,7 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       NO_EXEMPT,
       NO_BAND,
     );
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
   it("does not read a stroke that meets the own line and turns away as a braid", () => {
@@ -1039,7 +1041,7 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       NO_EXEMPT,
       NO_BAND,
     );
-    expect(seat).toEqual({ dx: 0, dy: 0, tier: "graze" });
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
   it("steps to the offset that sheds the most, not to the first that sheds any", () => {
@@ -1059,7 +1061,7 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       [],
     );
     const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
-    expect(seat).toEqual({ dx: 48, dy: 0, tier: "sidestep" });
+    expect(seat).toMatchObject({ dx: 48, dy: 0, tier: "sidestep" });
   });
 
   it("scores the fully clear step by own-card depth, not by nearness", () => {
@@ -1097,7 +1099,7 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       portZone("S", "source"),
       NO_BAND,
     );
-    expect(seat).toEqual({ dx: 48, dy: 0, tier: "sidestep" });
+    expect(seat).toMatchObject({ dx: 48, dy: 0, tier: "sidestep" });
     expect(
       chipOwnCardIntrusion(seatedBox(0, 500, seat), card),
     ).toBe(0);
@@ -1223,6 +1225,57 @@ describe("chipSeatHalfW: the per-chip reserved box", () => {
       NO_BAND,
       { text: { body: "30/270", unit: false } },
     );
-    expect(narrow).toEqual({ dx: 0, dy: 0, tier: "anchor" });
+    expect(narrow).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
+  });
+});
+
+describe("ClearanceField: the seat / unseat contract", () => {
+  it("unseat frees the position again for a later seat", () => {
+    const field = makeClearanceField([], []);
+    const taken = {
+      x: LINE.anchorX,
+      y: LINE.anchorY,
+      halfW: HALF_W,
+      halfH: HALF_H,
+    };
+    const box = field.seat({ ...taken });
+    expect(field.placed).toEqual([box]);
+    expect(field.overlapsChip(taken)).toBe(true);
+
+    field.unseat(box);
+    // Back to the prior state, not merely "one shorter": the released box is
+    // no obstacle to anything.
+    expect(field.placed).toEqual([]);
+    expect(field.overlapsChip(taken)).toBe(false);
+
+    // ...and the freed position takes the next seat, at the anchor tier, rather
+    // than the slide a lingering phantom box would have forced.
+    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
+  });
+
+  it("returns the box it seated, centred at the anchor plus the offsets", () => {
+    // The slide tier moves the chip off its anchor, so the handle and the
+    // offsets can disagree here if they are ever derived apart.
+    const field = makeClearanceField([], [INTRUSION_CARD]);
+    const line = {
+      pts: [[0, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+      anchorX: 390,
+      anchorY: 0,
+    };
+    const seat = seatRateChip(
+      field,
+      line,
+      "own",
+      "t",
+      portZone("T", "target"),
+      NO_BAND,
+    );
+    expect(seat.tier).toBe("slide");
+    expect(seat.box.x).toBe(line.anchorX + seat.dx);
+    expect(seat.box.y).toBe(line.anchorY + seat.dy);
+    // And it is the box the field actually holds, by identity.
+    expect(field.placed).toEqual([seat.box]);
+    expect(field.placed[0]).toBe(seat.box);
   });
 });

@@ -9,7 +9,7 @@ import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
-import { MAX_CHIP_SCALE } from "./dimensions";
+import { HIDE_STALE_EPS, MAX_CHIP_SCALE } from "./dimensions";
 import { chamferStepPath, routingHintsFromData } from "./edgePath";
 import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
@@ -394,11 +394,8 @@ export default function ItemEdge({
   // nodes stay mouse-draggable without a re-seat. Once the stamped port y
   // diverges from the LIVE target port y (the targetY prop) past the eps, the
   // dot and the member hide drop together -- a floating marker or a wrongly
-  // hidden chip is worse than a temporarily unmarked merge. The eps sits well
-  // above the ~1-unit port-model noise between the seating reconstruction and
-  // React Flow's measured handles, and well below any meaningful drag (half a
-  // max-scale chip box height).
-  const HIDE_STALE_EPS = 24;
+  // hidden chip is worse than a temporarily unmarked merge. The threshold is
+  // the shared HIDE_STALE_EPS, sized in dimensions.ts.
   const faninStale = (stampY: number | undefined): boolean =>
     stampY !== undefined && Math.abs(stampY - targetY) >= HIDE_STALE_EPS;
   // A non-owner fan-in member whose own rate chip would sit on the shared merged

@@ -10,12 +10,14 @@ import type { Edge } from "@xyflow/react";
 
 import { contentBounds } from "../../src/canvas/chipSeating";
 import {
+  chamferFanoutPath,
   chamferStepPath,
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
 import {
   CHIP_BOX_HEIGHT,
   CHIP_BOX_WIDTH,
+  HIDE_STALE_EPS,
   MAX_CHIP_SCALE,
 } from "../../src/canvas/dimensions";
 import {
@@ -105,6 +107,111 @@ describe("contentBounds: chip extents", () => {
     expect(bounds.x + bounds.width).toBeGreaterThanOrEqual(
       busChipX + CHIP_HALF_W,
     );
+  });
+});
+
+// The two stamped hides (a fan-in member's rate chip, a fan-out member's branch
+// chip) are decided at a stamped anchor and never recomputed on drag, so both
+// renderers drop a hide whose stamp has drifted past HIDE_STALE_EPS from the
+// live anchor and draw the chip again. The fit rect has to agree with them:
+// framing a chip the canvas hides depresses the fit zoom for nothing, and
+// skipping one it draws clips that chip at the viewport rim.
+describe("contentBounds: stale hides frame the chip again", () => {
+  // The bare node box, the rect when no chip reaches outside the cards.
+  const NODE_BOX = {
+    x: 0,
+    y: 0,
+    width: TX + NODE_W,
+    height: NODE_H,
+  };
+
+  const faninEdges = (hiddenAtY: number): Edge[] => {
+    const data = {
+      item: "ore",
+      rate: new Fraction(1),
+      labelDy: 900,
+      faninChipHidden: true,
+      faninChipHiddenAtY: hiddenAtY,
+    };
+    return [{ id: "e1", type: "item", source: "a", target: "b", data }];
+  };
+
+  it("skips a fan-in member chip whose stamp still matches the live port", () => {
+    // Stamp == the live target port y: the hide holds, ItemEdge draws no chip,
+    // so the 900-unit cascade below the cards frames nothing.
+    expect(contentBounds(NODES, faninEdges(TY))).toEqual(NODE_BOX);
+  });
+
+  it("frames a fan-in member chip whose stamp has drifted off the live port", () => {
+    // A drag moved the port exactly HIDE_STALE_EPS off the stamp. The renderer
+    // treats that as stale (its test is >=) and draws the chip, so the rect has
+    // to grow down to it.
+    const edges = faninEdges(TY + HIDE_STALE_EPS);
+    const [, lx, ly] = chamferStepPath({
+      sourceX: SX,
+      sourceY: SY,
+      targetX: TX,
+      targetY: TY,
+      ...routingHintsFromData(edges[0]!.data),
+    });
+    const boxLeft = Math.min(0, lx - CHIP_HALF_W);
+    const boxRight = Math.max(TX + NODE_W, lx + CHIP_HALF_W);
+    const boxTop = Math.min(0, ly + 900 - CHIP_HALF_H);
+    const boxBottom = Math.max(NODE_H, ly + 900 + CHIP_HALF_H);
+
+    expect(contentBounds(NODES, edges)).toEqual({
+      x: boxLeft,
+      y: boxTop,
+      width: boxRight - boxLeft,
+      height: boxBottom - boxTop,
+    });
+  });
+
+  // A non-owner fan-out member (busChipOwner false, so no aggregate chip is
+  // framed) whose branch chip cascaded 900 units below its leg.
+  const fanoutEdges = (hiddenAt: { x: number; y: number }): Edge[] => {
+    const data = {
+      item: "ore",
+      rate: new Fraction(1),
+      fanout: true,
+      busChipOwner: false,
+      fanoutBranchDy: 900,
+      fanoutBranchHidden: true,
+      fanoutBranchHiddenAt: hiddenAt,
+    };
+    return [{ id: "e1", type: "bus", source: "a", target: "b", data }];
+  };
+  const branchAnchorOf = (edges: Edge[]): { x: number; y: number } =>
+    chamferFanoutPath({
+      sourceX: SX,
+      sourceY: SY,
+      targetX: TX,
+      targetY: TY,
+      ...routingHintsFromData(edges[0]!.data),
+    }).branchAnchor;
+
+  it("skips a fan-out branch chip whose stamp still matches the live anchor", () => {
+    const live = branchAnchorOf(fanoutEdges({ x: 0, y: 0 }));
+    expect(contentBounds(NODES, fanoutEdges(live))).toEqual(NODE_BOX);
+  });
+
+  it("frames a fan-out branch chip whose stamp has drifted off the live anchor", () => {
+    // Drift on x alone is enough: BusEdge's rule is per-axis and strict, so a
+    // gap of exactly HIDE_STALE_EPS is already stale.
+    const live = branchAnchorOf(fanoutEdges({ x: 0, y: 0 }));
+    const edges = fanoutEdges({ x: live.x + HIDE_STALE_EPS, y: live.y });
+    const cy = live.y + 900;
+    const boxLeft = Math.min(0, live.x - CHIP_HALF_W);
+    const boxRight = Math.max(TX + NODE_W, live.x + CHIP_HALF_W);
+    const boxTop = Math.min(0, cy - CHIP_HALF_H);
+    const boxBottom = Math.max(NODE_H, cy + CHIP_HALF_H);
+
+    expect(contentBounds(NODES, edges)).toEqual({
+      x: boxLeft,
+      y: boxTop,
+      width: boxRight - boxLeft,
+      height: boxBottom - boxTop,
+    });
   });
 });
 
