@@ -48,6 +48,16 @@ export function assignLabelSides(edges: RenderEdge[]): void {
  *    for the same item is suppressed (target wins) - except free-supply
  *    target items, which keep their boundary feed for consumers; the
  *    declared export arrives via a dedicated passthrough import.
+ *
+ * RETAINED DELIBERATELY: this policy has no production caller. It is kept as
+ * the differential parity oracle for `deriveBoundaryProducts`. 18 tests in
+ * test/pipeline/policy-product-units.test.ts drive
+ * src/pipeline/render/boundary-products.ts through NoFoldRender, and
+ * test/pipeline/render/always-fold.test.ts asserts AlwaysFoldRender emits
+ * identical boundary product units for the same input. Deleting NoFoldRender
+ * would cost that coverage: AlwaysFoldRender folds stamps, so its unit ids
+ * differ and the tests cannot be re-pointed unchanged. RenderPolicy in
+ * src/pipeline/types.ts is a real seam only for as long as this stays.
  */
 export const NoFoldRender: RenderPolicy = (input): RenderPlan => {
   const {
