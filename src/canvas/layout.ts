@@ -51,6 +51,10 @@ import {
   routeFanoutEdges,
 } from "./busRouting";
 import { deconflictChipAnchors } from "./chipSeating";
+// Type-only: ItemEdge.tsx declares the canvas edge payload this module stamps.
+// Erased at compile time, so it adds no runtime or bundler edge, and ItemEdge
+// imports none of layout / busRouting / chipSeating, so there is no cycle.
+import type { ItemEdgeData } from "./ItemEdge";
 import type {
   Container,
   ContainerId,
@@ -676,20 +680,12 @@ export function fromElkRenderLayout(
     const renderEdge = idx !== null ? plan.edges[idx] : undefined;
     const itemId = renderEdge?.item ?? portToItem(sourcePort);
     const rate = renderEdge?.rate ?? new Fraction(0);
-    const edgeData: {
-      item: ItemId;
-      rate: Fraction;
-      transportKind?: TransportKindId;
-      labelSide?: "source" | "target";
-    } = {
+    const edgeData: ItemEdgeData = {
       item: itemId,
       rate,
     };
     if (renderEdge?.transportKind !== undefined) {
       edgeData.transportKind = renderEdge.transportKind;
-    }
-    if (renderEdge?.labelSide !== undefined) {
-      edgeData.labelSide = renderEdge.labelSide;
     }
     return {
       id: e.id,
@@ -870,6 +866,49 @@ function splitPortRef(ref: string): [string, string] {
   return [ref.slice(0, dot), ref.slice(dot + 1)];
 }
 
+// One post-layout routing pass: nodes in their final absolute positions plus the
+// edges so far, and a new edge array out. Passes are pure -- they never mutate
+// the inputs or the input edges' `data` -- and an empty edge array is legal, on
+// which every pass is a no-op. No pass throws; an unrecognised or unstamped edge
+// passes through unchanged.
+export type RoutingPass = (
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<RFEdge>,
+) => RFEdge[];
+
+// The post-layout routing passes, in the order layoutRenderPlan runs them.
+// ARRAY ORDER IS THE CONTRACT: each entry consumes the stamps every earlier
+// entry left. Nothing makes a reorder a compile error -- all eight passes share
+// one signature -- so the order is pinned by test/canvas/layout-pass-order.test.ts
+// instead, and reordering these entries silently changes routing geometry.
+export const ROUTING_PASSES: ReadonlyArray<{
+  readonly name: string;
+  readonly run: RoutingPass;
+}> = [
+  // Classify long / boundary-feeder edges into bus trunks, each on a lane in a
+  // top or bottom band.
+  { name: "routeBusEdges", run: routeBusEdges },
+  // Consolidate N >= 2 same-source-port edges in one layer gap onto a shared
+  // junction column (a fan-out trunk, retyped bus but off-lane).
+  { name: "routeFanoutEdges", run: routeFanoutEdges },
+  // Stake out per-target entry-gutter columns so backward rails and bus rises
+  // into one node stay parallel.
+  { name: "assignEntryColumns", run: assignEntryColumns },
+  // Move bus drop / rise verticals clear of any foreign card / gutter (starts
+  // from the entry stagger).
+  { name: "clearBusColumns", run: clearBusColumns },
+  // Stagger the remaining item edges' bend columns so their verticals fan out
+  // (clamped clear of gutters).
+  { name: "assignBendColumns", run: assignBendColumns },
+  // Bend a blocked forward final leg to a clear y so it does not cross an
+  // intervening card (reads bendX).
+  { name: "jogForwardLegs", run: jogForwardLegs },
+  // Move the backward detour rails clear of the cards they span.
+  { name: "clampBackwardRails", run: clampBackwardRails },
+  // Stack crowded chips (entry, bus, midpoint) so none coincide.
+  { name: "deconflictChipAnchors", run: deconflictChipAnchors },
+];
+
 // layoutRenderPlan: one elk.layout() call per cycle.
 
 const elk = new ELK();
@@ -881,46 +920,14 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   const elkGraph = renderPlanToElkGraph(input);
   const laid = (await elk.layout(elkGraph)) as ElkGraph;
   const { nodes, edges } = fromElkRenderLayout(laid, input);
-  // Post-layout routing passes, in order (each consumes the previous ones'
-  // stamps; final absolute node positions are known here):
-  //   1. routeBusEdges       classify long / boundary-feeder edges into bus
-  //                          trunks, each on a lane in a top or bottom band.
-  //   1b. routeFanoutEdges   consolidate N >= 2 same-source-port edges in one
-  //                          layer gap onto a shared junction column (a fan-out
-  //                          trunk, retyped bus but off-lane).
-  //   2. assignEntryColumns  stake out per-target entry-gutter columns so
-  //                          backward rails and bus rises into one node stay
-  //                          parallel.
-  //   3. clearBusColumns     move bus drop / rise verticals clear of any foreign
-  //                          card / gutter (starts from the entry stagger).
-  //   4. assignBendColumns   stagger the remaining item edges' bend columns so
-  //                          their verticals fan out (clamped clear of gutters).
-  //   5. jogForwardLegs      bend a blocked forward final leg to a clear y so it
-  //                          does not cross an intervening card (reads bendX).
-  //   6. clampBackwardRails  move the backward detour rails clear of the cards
-  //                          they span.
-  //   7. deconflictChipAnchors stack crowded chips (entry, bus, midpoint) so
-  //                          none coincide.
+  // Left fold over ROUTING_PASSES: every pass sees the SAME nodes array
+  // fromElkRenderLayout returned (final absolute positions), never a re-derived
+  // one, plus the previous pass's output edges.
   return {
     nodes,
-    edges: deconflictChipAnchors(
-      nodes,
-      clampBackwardRails(
-        nodes,
-        jogForwardLegs(
-          nodes,
-          assignBendColumns(
-            nodes,
-            clearBusColumns(
-              nodes,
-              assignEntryColumns(
-                nodes,
-                routeFanoutEdges(nodes, routeBusEdges(nodes, edges)),
-              ),
-            ),
-          ),
-        ),
-      ),
+    edges: ROUTING_PASSES.reduce<RFEdge[]>(
+      (routed, pass) => pass.run(nodes, routed),
+      edges,
     ),
   };
 }

@@ -117,24 +117,11 @@ describe("canvas/ItemEdge", () => {
     expect(label!.classList.contains("nopan")).toBe(true);
   });
 
-  it("renders the label inside .flow-chip without .red when isTearEdge is absent", async () => {
+  it("renders the label inside .flow-chip", async () => {
     renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) });
     const label = await findLabel();
     expect(label).not.toBeNull();
     expect(label!.classList.contains("flow-chip")).toBe(true);
-    expect(label!.classList.contains("red")).toBe(false);
-  });
-
-  it("renders .flow-chip.red when isTearEdge is true", async () => {
-    renderEdge({
-      item: "Iron Plate",
-      rate: new Fraction(2, 1),
-      isTearEdge: true,
-    });
-    const label = await findLabel();
-    expect(label).not.toBeNull();
-    expect(label!.classList.contains("flow-chip")).toBe(true);
-    expect(label!.classList.contains("red")).toBe(true);
   });
 
   it("sets --chip-accent to itemColor of the edge item", async () => {
@@ -426,8 +413,7 @@ describe("canvas/ItemEdge label placement", () => {
     // Nodes at different y so the drawn path bends: the forward step has a
     // vertical bend column. The clear-segment anchor (2B) rides that vertical,
     // NOT the geometric midpoint (which drifts onto a horizontal) and NOT the
-    // old labelSide target-y pin. labelSide is set to prove it no longer moves
-    // the label.
+    // target y.
     const nodes: Node[] = [
       { id: "src", position: { x: 0, y: 0 }, data: { label: "src" } },
       { id: "tgt", position: { x: 300, y: 100 }, data: { label: "tgt" } },
@@ -438,11 +424,7 @@ describe("canvas/ItemEdge label placement", () => {
           <ReactFlow
             nodes={nodes}
             edges={[
-              makeEdge({
-                item: "Iron Plate",
-                rate: new Fraction(2, 1),
-                labelSide: "target",
-              }),
+              makeEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }),
             ]}
             edgeTypes={edgeTypes}
           />
@@ -492,7 +474,7 @@ describe("canvas/ItemEdge label placement", () => {
     expect(ay).not.toBe(targetY);
   });
 
-  it("falls back to the smoothstep midpoint when labelSide is undefined", async () => {
+  it("falls back to the smoothstep midpoint", async () => {
     renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) });
     const label = await findLabel();
     expect(label).not.toBeNull();

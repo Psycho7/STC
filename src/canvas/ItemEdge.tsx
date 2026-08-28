@@ -23,16 +23,6 @@ export type ItemEdgeData = {
   // the belt default; an unknown value also lands on the belt default instead
   // of throwing.
   transportKind?: TransportKindId;
-  // Fan-in/fan-out side hint stamped by assignLabelSides in the render
-  // pipeline. Nothing reads it anymore: the rate chip always sits at the path
-  // midpoint chamferStepPath reports. Retained on the data only for potential
-  // future routing use.
-  labelSide?: "source" | "target";
-  // Set when this edge is the chosen tear edge of an SCC, which switches the
-  // label chip to its red variant. It is optional and defaults to falsy.
-  // Nothing sets it yet because SCC self-edges currently collapse into the loop
-  // unit, so this is here ahead of the producer wiring that will fill it in.
-  isTearEdge?: boolean;
   // Bend column x assigned by the stagger pass (assignBendColumns). Optional:
   // when absent the path builder centers the bend at the corridor midpoint.
   bendX?: number;
@@ -189,9 +179,9 @@ export function chipAccentStyle(item?: ItemId): React.CSSProperties {
 // on (x, y) by the double translate, tinted to the item through
 // chipAccentStyle, carrying the full "Name x rate/min" string on aria-label and
 // title, with an optional 16px item sprite followed by the optional chip text.
-// `tear` switches to the red tear-edge variant; `dimmed` appends the `dimmed`
-// class so a chip fades with its edge under the hover ego-network (the edge
-// wrapper's own dim never reaches the portaled chip).
+// `dimmed` appends the `dimmed` class so a chip fades with its edge under the
+// hover ego-network (the edge wrapper's own dim never reaches the portaled
+// chip).
 export function FlowChip({
   testId,
   edgeId,
@@ -201,7 +191,6 @@ export function FlowChip({
   text,
   label,
   title,
-  tear,
   dimmed,
   focused,
   compact,
@@ -219,7 +208,6 @@ export function FlowChip({
   // Hover-tooltip text. Defaults to `label`; edges pass the exact, un-rounded
   // rate here so hovering reveals the precise value the rounded chip text hides.
   title?: string | undefined;
-  tear?: boolean | undefined;
   dimmed?: boolean | undefined;
   // Set on a hover-lit edge's chip: it keeps its digits below the icon-only
   // zoom so the hover surfaces the rate.
@@ -259,7 +247,6 @@ export function FlowChip({
         className={
           "nodrag nopan flow-chip" +
           (iconOnly ? " icon-only" : "") +
-          (tear ? " red" : "") +
           (dimmed ? " dimmed" : "")
         }
         aria-label={label}
@@ -441,9 +428,7 @@ export default function ItemEdge({
   // slides along the polyline to a clear point and normally keeps the chip on the
   // line it labels, but its escape tier deliberately seats it OFF the line when
   // that is the only way to uphold the hard chip-vs-chip / chip-vs-card
-  // invariants (the ratcheted off-path residue). labelSide is no longer read
-  // here or anywhere else, and is retained on the edge data only for potential
-  // future routing.
+  // invariants (the ratcheted off-path residue).
   // Memoized on the endpoints and edge data: the geometry does not depend on
   // zoom, and the zoom subscription above re-renders every edge each zoom tick.
   const [edgePath, labelX, labelY] = useMemo(
@@ -492,7 +477,6 @@ export default function ItemEdge({
           text={chipText}
           label={fullLabel}
           title={exactTitle}
-          tear={edgeData?.isTearEdge}
           dimmed={edgeData?.dimmed}
           focused={edgeData?.focused}
           compact={edgeData?.chipIconOnly === true}

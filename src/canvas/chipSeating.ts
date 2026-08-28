@@ -77,7 +77,10 @@ import {
   OBSTACLE_PAD_Y,
   edgeItem,
   edgeRate,
+  isTrunkOwner,
   type BusEdgeData,
+  type FanoutBusEdgeData,
+  type LaneBusEdgeData,
 } from "./busRouting";
 import {
   absoluteLeft,
@@ -87,6 +90,9 @@ import {
   portOffsetY,
 } from "./nodeGeometry";
 import { formatRatePerMin } from "../data/rate-format";
+// Type-only: ItemEdge.tsx declares the base canvas edge payload this pass seats
+// chips for. Erased at compile time, so it adds no runtime or bundler edge.
+import type { ItemEdgeData } from "./ItemEdge";
 import type { RFAnyNode } from "./layout";
 
 // Chip half-extents, in graph units. A chip counter-scales up to MAX_CHIP_SCALE
@@ -1750,6 +1756,10 @@ export function deconflictChipAnchors(
         junction: fan.junction,
         trunkAnchor: fan.trunkAnchor,
         branchAnchor: fan.branchAnchor,
+        // Deliberately STRICTER than isTrunkOwner, which reads absent as owner:
+        // routeFanoutEdges always stamps the field in production, so the two
+        // rules only diverge on hand-built fixtures. Unifying them is
+        // render-visible and out of scope here.
         owner: (edge.data as BusEdgeData | undefined)?.busChipOwner === true,
       });
       if (polylineLength(fanPts) < SHORT_LEG_MAX) shortBranchByIndex.add(index);
@@ -2181,6 +2191,10 @@ export function deconflictChipAnchors(
       laneY: data.laneY,
       dropX,
       riseChipX: clampedChipX ?? riseX,
+      // Deliberately STRICTER than isTrunkOwner, which reads absent as owner:
+      // routeBusEdges always stamps the field in production, so the two rules
+      // only diverge on hand-built fixtures. Unifying them is render-visible
+      // and out of scope here.
       owner: data.busChipOwner === true,
       memberCount: data.busMemberCount ?? 1,
       // Top-band chips cascade UP (away from the graph below them); bottom-band
@@ -2694,29 +2708,38 @@ export type ContentRect = { x: number; y: number; width: number; height: number 
 // The edge-data fields contentBounds needs to place a chip: which families the
 // edge draws, their anchors' inputs, their seated nudges, and their hides. Flat
 // and all-optional rather than the BusEdgeData / ItemEdgeData unions, because
-// this reader takes one uniform view over every edge type.
-type ChipAnchorData = {
-  labelDx?: number;
-  labelDy?: number;
-  fanout?: boolean;
-  busChipOwner?: boolean;
-  fanoutAggDx?: number;
-  fanoutAggDy?: number;
-  fanoutBranchDx?: number;
-  fanoutBranchDy?: number;
-  fanoutBranchHidden?: boolean;
-  // The anchors the two stamped hides were decided at. A hide only holds while
-  // its stamp still matches the live anchor, so the reader needs them both.
-  fanoutBranchHiddenAt?: { x: number; y: number };
-  laneY?: number;
-  busChipX?: number;
-  busDropDy?: number;
-  busChipDy?: number;
-  busRiseHidden?: boolean;
-  busMemberCount?: number;
-  faninChipHidden?: boolean;
-  faninChipHiddenAtY?: number;
-};
+// this reader takes one uniform view over every edge type. Picked from the
+// three declaring types rather than restated, so renaming a field there breaks
+// this build instead of silently leaving a reader behind. Each hide is Picked
+// together with the anchor it was decided at: a hide only holds while its stamp
+// still matches the live anchor, so the reader needs them both.
+type ChipAnchorData = Partial<
+  Pick<
+    ItemEdgeData,
+    "labelDx" | "labelDy" | "faninChipHidden" | "faninChipHiddenAtY"
+  > &
+    Pick<
+      LaneBusEdgeData,
+      | "laneY"
+      | "busChipX"
+      | "busDropDy"
+      | "busChipDy"
+      | "busRiseHidden"
+      | "busMemberCount"
+      | "busChipOwner"
+    > &
+    Pick<
+      FanoutBusEdgeData,
+      | "fanoutAggDx"
+      | "fanoutAggDy"
+      | "fanoutBranchDx"
+      | "fanoutBranchDy"
+      | "fanoutBranchHidden"
+      | "fanoutBranchHiddenAt"
+    >
+  // `fanout` is the only name this view declares itself: the two union arms
+  // type it `false` and `true`, so the intersection cannot Pick it.
+> & { fanout?: boolean };
 
 // Content bounding box (flow coords) covering both the node cards AND every
 // seated edge-label chip, for the camera fit. React Flow's fitView frames node
@@ -2791,7 +2814,7 @@ export function contentBounds(
       const fan = chamferFanoutPath(geom);
       // A multi-member trunk renders no aggregate chip (issue #39), so it
       // frames none.
-      if (data.busChipOwner !== false && (data.busMemberCount ?? 1) === 1) {
+      if (isTrunkOwner(data) && (data.busMemberCount ?? 1) === 1) {
         unionChip(
           fan.trunkAnchor.x + (data.fanoutAggDx ?? 0),
           fan.trunkAnchor.y + (data.fanoutAggDy ?? 0),
@@ -2815,7 +2838,7 @@ export function contentBounds(
       }
     } else if (edge.type === "bus" && data?.laneY !== undefined) {
       const bus = chamferBusPath({ ...geom, laneY: data.laneY });
-      if (data.busChipOwner !== false && (data.busMemberCount ?? 1) === 1) {
+      if (isTrunkOwner(data) && (data.busMemberCount ?? 1) === 1) {
         unionChip(bus.dropX, data.laneY + (data.busDropDy ?? 0));
       }
       if (data.busRiseHidden !== true) {
