@@ -6,7 +6,7 @@ import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { augmentGraphWithLpSupport, buildRecipeGraphMulti } from "./graph";
 import { tarjanScc, condense } from "./scc";
-import { solveLp, type LpResult, type LpSolver } from "./lp";
+import { solveLp, type LpResult } from "./lp";
 import { boundaryResidualShare } from "./boundary-share";
 import { articulationPoints } from "./bctree";
 import { pickTearEdges } from "./tear";
@@ -172,7 +172,6 @@ function runSolvePipeline(
   tConfig: TransportConfig,
   itemOverrides: ItemOverride[] | undefined,
   recipeCosts: Map<RecipeId, number> | undefined,
-  solver: LpSolver,
 ): { full: SolvePlanFull; lpResult: LpResult } {
   // Everything below (graph walk, LP, replication, assembly, and the
   // recipeById map that feeds the render pipeline) must see the netted form;
@@ -183,7 +182,7 @@ function runSolvePipeline(
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
   const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
-  const lpResult = solver({
+  const lpResult = solveLp({
     targets,
     pack,
     itemOverrides: itemOverrides ?? [],
@@ -287,7 +286,6 @@ export function solvePlanWithIntermediates(
   tConfig: TransportConfig,
   itemOverrides?: ItemOverride[],
   recipeCosts?: Map<RecipeId, number>,
-  solver: LpSolver = solveLp,
 ): SolvePlanFull {
   const { full, lpResult } = runSolvePipeline(
     targets,
@@ -295,7 +293,6 @@ export function solvePlanWithIntermediates(
     tConfig,
     itemOverrides,
     recipeCosts,
-    solver,
   );
 
   if (import.meta.env.DEV) {
