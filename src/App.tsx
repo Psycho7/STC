@@ -27,6 +27,7 @@ import type { ItemOverride, Plan } from "./data/plan";
 import {
   defaultTransportConfig,
   loadTransportConfig,
+  type TransportConfig,
 } from "./data/transport-config";
 import type { Target } from "./data/targets";
 import { pack } from "./data/load";
@@ -67,6 +68,15 @@ async function renderFromFull(
   return { nodes: laid.nodes as Node[], edges: laid.edges };
 }
 
+// Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
+// with per-replica kind:"recipe" stamps, so neither the raw length nor the
+// recipe-stamp count matches what a RECIPES chip claims to show.
+function countDistinctRecipes(logical: LogicalGraph): number {
+  return new Set(
+    logical.nodes.flatMap((n) => (n.kind === "recipe" ? [n.recipe.id] : [])),
+  ).size;
+}
+
 // Loading and error surfaces render inside the themed .ak-app-shell so there is
 // no unstyled white page. These lay out a centered card; the shell class
 // supplies the dark background and text color.
@@ -102,12 +112,23 @@ const splashDetailStyle: CSSProperties = {
   wordBreak: "break-word",
 };
 
+// Validated once at import: loadTransportConfig is a pure check over the two
+// module constants and hands back its first argument, so the outcome (including
+// an UnknownCarrierError throw on a pack the config cannot carry) is the same on
+// every run.
+const transportConfig: TransportConfig = loadTransportConfig(
+  defaultTransportConfig,
+  pack,
+);
+
 // A dismissible banner error. "load" wraps a hash-decode / validation failure
-// (the pasted link, not the solver); "solver" wraps an exception thrown while
-// solving a valid plan, which the render layer maps to localized copy (naming
-// the implicated items for an LpInfeasibleError).
+// (the pasted link, not the solver); "edit" wraps an in-app edit that
+// validatePlan rejected; "solver" wraps an exception thrown while solving a
+// valid plan, which the render layer maps to localized copy (naming the
+// implicated items for an LpInfeasibleError).
 type BannerError =
   | { kind: "load"; message: string }
+  | { kind: "edit"; message: string }
   | { kind: "solver"; error: unknown };
 
 type SideSection = "targets" | "inputs";
@@ -155,7 +176,7 @@ function AppInner() {
   // Mutation handlers read and write it synchronously so a commit never builds
   // on a stale snapshot while a solve is still in flight.
   const planRef = useRef<Plan | null>(null);
-  const [logical, setLogical] = useState<LogicalGraph | null>(null);
+  const [recipeCount, setRecipeCount] = useState<number | null>(null);
   // Which section anchor is in view inside the side rail. Drives the skewed-tab
   // highlight so it reads as a "you-are-here" pill, not a toggle. Computed by an
   // IntersectionObserver watching the two section anchors.
@@ -186,9 +207,6 @@ function AppInner() {
     io.observe(inputsEl);
     return () => io.disconnect();
   }, [plan]);
-  // Cached full solver output for the current Plan. Survives mutation paths that
-  // re-run the render pipeline but not the solver.
-  const fullRef = useRef<SolvePlanFull | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   // `pending` is true while a solve + layout generation is in flight. It drives
@@ -221,7 +239,6 @@ function AppInner() {
   // hashchange event, so for self-writes this is belt-and-braces; it becomes
   // load-bearing if a hash write ever switches to a location.hash assignment.
   const lastHandledHashRef = useRef<string | null>(null);
-  const tConfigRef = useRef(loadTransportConfig(defaultTransportConfig, pack));
   // Accepted transient: this recomputes from the synchronously committed plan,
   // so ProductNode override chips on the still-stale canvas nodes update
   // against the new overrides during the solve window. Sub-second cosmetic
@@ -282,7 +299,7 @@ function AppInner() {
         const full = solvePlanWithIntermediates(
           targets,
           pack,
-          tConfigRef.current,
+          transportConfig,
           itemOverrides,
           recipeCosts,
         );
@@ -294,10 +311,9 @@ function AppInner() {
           history.replaceState(null, "", newHash);
         }
         if (myGen !== solveGen.current) return;
-        fullRef.current = full;
         planRef.current = nextPlan;
         setPlan(nextPlan);
-        setLogical(full.logical);
+        setRecipeCount(countDistinctRecipes(full.logical));
         setNodes(laid.nodes);
         setEdges(laid.edges);
         setLayoutGeneration((g) => g + 1);
@@ -349,9 +365,9 @@ function AppInner() {
   function commitPlan(nextPlan: Plan): void {
     const error = validatePlan(nextPlan, pack);
     if (error) {
-      // A rejected edit is a plan-validity problem (the load wrapper), and the
-      // canvas keeps the last good render, so mark it stale.
-      setMutationError({ kind: "load", message: describePlanLoadError(error) });
+      // The edit itself is what validatePlan rejected, and the canvas keeps the
+      // last good render, so mark it stale.
+      setMutationError({ kind: "edit", message: describePlanLoadError(error) });
       setStale(true);
       return;
     }
@@ -372,14 +388,13 @@ function AppInner() {
       const full = solvePlanWithIntermediates(
         targets,
         pack,
-        tConfigRef.current,
+        transportConfig,
         itemOverrides,
         recipeCosts,
       );
       const laid = await renderFromFull(full, itemOverrides, targets);
       if (myGen !== solveGen.current) return;
-      fullRef.current = full;
-      setLogical(full.logical);
+      setRecipeCount(countDistinctRecipes(full.logical));
       setNodes(laid.nodes);
       setEdges(laid.edges);
       setLayoutGeneration((g) => g + 1);
@@ -467,7 +482,7 @@ function AppInner() {
       </div>
     );
   }
-  if (!plan || !logical) {
+  if (!plan || recipeCount === null) {
     return (
       <div className="ak-app-shell" style={splashStyle}>
         <div>{i18n.t("app.loading")}</div>
@@ -480,11 +495,14 @@ function AppInner() {
   // the banner is dismissed until the next successful solve; otherwise READY.
   const status: CanvasStatus = pending ? "SOLVING" : stale ? "ERROR" : "READY";
 
-  // Localized banner copy. Load/validation failures use the load wrapper; a
-  // solver exception maps to a body that names the implicated items when it is
-  // an infeasibility, falling back to the raw solver message otherwise.
+  // Localized banner copy. A bad link uses the load wrapper and a rejected edit
+  // its own wrapper; a solver exception maps to a body that names the
+  // implicated items when it is an infeasibility, falling back to the raw
+  // solver message otherwise.
   const bannerText = (err: BannerError): string => {
     if (err.kind === "load") return i18n.t("app.error.load", { message: err.message });
+    if (err.kind === "edit")
+      return i18n.t("app.error.edit", { message: err.message });
     const e = err.error;
     if (e instanceof LpInfeasibleError) {
       const ids =
@@ -501,12 +519,6 @@ function AppInner() {
   };
 
   const targetCount = plan.targets.length;
-  // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
-  // with per-replica kind:"recipe" stamps, so neither the raw length nor the
-  // recipe-stamp count matches what a RECIPES chip claims to show.
-  const recipeCount = new Set(
-    logical.nodes.flatMap((n) => (n.kind === "recipe" ? [n.recipe.id] : [])),
-  ).size;
 
   return (
     <div

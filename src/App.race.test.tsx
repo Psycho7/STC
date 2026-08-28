@@ -5,7 +5,9 @@
 // must not revert the first edit, and both edits must reach the encoded URL
 // hash. A second guard proves the debounce race is gone: an uncommitted edit
 // left in a field when the plan is navigated away is discarded, never applied
-// to the newly loaded plan.
+// to the newly loaded plan. A third guard covers the other half of that
+// contract: committing one row must NOT remount the panel, so an uncommitted
+// edit sitting in another row survives.
 //
 // The solve window is made deterministic by mocking layoutRenderPlan with a
 // manually resolved deferred, so no real-timing race window is involved.
@@ -166,4 +168,48 @@ test("an uncommitted edit is discarded when the plan is navigated away", async (
   expect(outcome.kind).toBe("loaded");
   if (outcome.kind !== "loaded") return;
   expect(outcome.plan.targets.length).toBe(2);
+});
+
+test("an uncommitted edit survives a commit in another row", async () => {
+  render(<App />);
+
+  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
+  layoutGate.pending.shift()!();
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(window.location.hash).not.toBe(""));
+  const hashAfterLoad = window.location.hash;
+
+  const targetsSection = screen.getByTestId("targets-section");
+  const inputs = within(targetsSection).getAllByLabelText(
+    /rate/i,
+  ) as HTMLInputElement[];
+  expect(inputs.length).toBe(3);
+  expect(inputs[0]!.value).toBe("120");
+  expect(inputs[1]!.value).toBe("30");
+
+  // Row 1: typed but never blurred, so nothing commits and no solve runs.
+  fireEvent.change(inputs[1]!, { target: { value: "777" } });
+  expect(inputs[1]!.value).toBe("777");
+  expect(layoutGate.pending.length).toBe(0);
+
+  // Row 0: a real blur commit. It replaces the plan, but a mutation commit must
+  // not bump planEpoch, so the panel keeps its identity.
+  fireEvent.change(inputs[0]!, { target: { value: "600" } });
+  fireEvent.blur(inputs[0]!);
+  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
+  layoutGate.pending.shift()!();
+  await waitFor(() => expect(window.location.hash).not.toBe(hashAfterLoad));
+
+  // Re-query rather than reusing the captured elements: a remount swaps in new
+  // input nodes, and the detached originals would keep their old values and
+  // hide the regression.
+  const after = within(screen.getByTestId("targets-section")).getAllByLabelText(
+    /rate/i,
+  ) as HTMLInputElement[];
+  expect(after.length).toBe(3);
+  // The commit landed...
+  expect(after[0]!.value).toBe("600");
+  // ...and row 1's uncommitted text was not wiped by a panel remount ("30" here
+  // means the panel remounted and dropped the in-flight edit).
+  expect(after[1]!.value).toBe("777");
 });

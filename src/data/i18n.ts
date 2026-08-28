@@ -23,6 +23,7 @@ export type UiKey =
   | "picker.close.label"
   | "app.loading"
   | "app.error.load"
+  | "app.error.edit"
   | "app.error.corrupt"
   | "app.error.reset"
   | "app.error.solver"
@@ -102,6 +103,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "picker.close.label": "关闭",
     "app.loading": "正在加载布局...",
     "app.error.load": "加载方案失败: {message}",
+    "app.error.edit": "无法应用此更改: {message}",
     "app.error.corrupt": "此分享链接已损坏，或来自更新版本的规划器。",
     "app.error.reset": "从新方案开始",
     "app.error.solver": "求解器错误: {message}",
@@ -174,6 +176,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "picker.close.label": "Close",
     "app.loading": "Loading layout...",
     "app.error.load": "Failed to load plan: {message}",
+    "app.error.edit": "Cannot apply this change: {message}",
     "app.error.corrupt":
       "This share link is damaged or from a newer version of the planner.",
     "app.error.reset": "Start with a fresh plan",
@@ -249,6 +252,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "picker.close.label": "閉じる",
     "app.loading": "レイアウトを読み込み中...",
     "app.error.load": "プランの読み込みに失敗しました: {message}",
+    "app.error.edit": "この変更を適用できません: {message}",
     "app.error.corrupt":
       "この共有リンクは破損しているか、新しいバージョンのプランナーのものです。",
     "app.error.reset": "新しいプランで開始",
@@ -324,6 +328,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "picker.close.label": "Закрыть",
     "app.loading": "Загрузка макета...",
     "app.error.load": "Не удалось загрузить план: {message}",
+    "app.error.edit": "Не удалось применить изменение: {message}",
     "app.error.corrupt":
       "Эта ссылка повреждена или создана в более новой версии планировщика.",
     "app.error.reset": "Начать с нового плана",
