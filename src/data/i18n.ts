@@ -30,8 +30,6 @@ export type UiKey =
   | "app.error.infeasible"
   | "app.error.infeasible.generic"
   | "app.error.dismiss"
-  | "app.frozen.notice"
-  | "app.frozen.edit"
   | "app.locale.label"
   | "inputs.title"
   | "inputs.rate.label"
@@ -111,9 +109,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "无可行方案，涉及：{items}。请提高供给上限或降低目标产量。",
     "app.error.infeasible.generic": "当前目标与供给上限下无可行方案。",
     "app.error.dismiss": "关闭",
-    "app.frozen.notice":
-      "这是一个已冻结的 v1 方案。编辑会丢弃它并清空目标列表。",
-    "app.frozen.edit": "编辑",
     "app.locale.label": "语言",
     "inputs.title": "输入",
     "inputs.rate.label": "速率",
@@ -186,9 +181,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.generic":
       "No feasible plan for the current targets and supply caps.",
     "app.error.dismiss": "Dismiss",
-    "app.frozen.notice":
-      "This is a frozen v1 plan. Editing will discard it and start an empty target list.",
-    "app.frozen.edit": "Edit",
     "app.locale.label": "Language",
     "inputs.title": "Inputs",
     "inputs.rate.label": "Rate",
@@ -262,9 +254,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.generic":
       "現在のターゲットと供給上限では実行可能な計画がありません。",
     "app.error.dismiss": "閉じる",
-    "app.frozen.notice":
-      "これは凍結された v1 プランです。編集すると破棄され、空のターゲットリストが開始されます。",
-    "app.frozen.edit": "編集",
     "app.locale.label": "言語",
     "inputs.title": "入力",
     "inputs.rate.label": "レート",
@@ -338,9 +327,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.generic":
       "Нет допустимого плана для текущих целей и лимитов поставок.",
     "app.error.dismiss": "Закрыть",
-    "app.frozen.notice":
-      "Это замороженный план v1. Редактирование удалит его и начнёт пустой список целей.",
-    "app.frozen.edit": "Изменить",
     "app.locale.label": "Язык",
     "inputs.title": "Входы",
     "inputs.rate.label": "Скорость",
