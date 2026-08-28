@@ -9,7 +9,8 @@ import {
   chamferStepPath,
   chamferBusPath,
   chamferFanoutPath,
-  pathPointAt,
+  parsePathPoints,
+  pathPointAtPts,
   routingHintsFromData,
   PORT_STUB,
   CHAMFER,
@@ -21,28 +22,29 @@ import {
   distanceToPolyline,
 } from "./pathAssertions";
 
-describe("pathPointAt", () => {
+describe("pathPointAtPts", () => {
   // Two segments of length 10 (horizontal) then 30 (vertical); total 40. The
   // chip-slide pass reads off-midpoint fractions to move a blocked label along
   // its own line, so the interpolation must be exact and clamp out of range.
   const D = "M 0,0 L 10,0 L 10,30";
+  const P = parsePathPoints(D);
   it("returns the first vertex at frac 0", () => {
-    expect(pathPointAt(D, 0)).toEqual([0, 0]);
+    expect(pathPointAtPts(P, 0)).toEqual([0, 0]);
   });
   it("lands exactly on the shared vertex when the fraction hits a seg boundary", () => {
     // 0.25 of 40 = 10 = the whole first segment, so the point is the corner.
-    expect(pathPointAt(D, 0.25)).toEqual([10, 0]);
+    expect(pathPointAtPts(P, 0.25)).toEqual([10, 0]);
   });
   it("interpolates within the covering segment", () => {
     // 0.5 of 40 = 20; 10 covers the first segment, the remaining 10 runs 10
     // down the 30-long vertical: (10, 10).
-    expect(pathPointAt(D, 0.5)).toEqual([10, 10]);
+    expect(pathPointAtPts(P, 0.5)).toEqual([10, 10]);
   });
   it("clamps a fraction past 1 to the final vertex", () => {
-    expect(pathPointAt(D, 2)).toEqual([10, 30]);
+    expect(pathPointAtPts(P, 2)).toEqual([10, 30]);
   });
   it("clamps a negative fraction to the first vertex", () => {
-    expect(pathPointAt(D, -1)).toEqual([0, 0]);
+    expect(pathPointAtPts(P, -1)).toEqual([0, 0]);
   });
 });
 
