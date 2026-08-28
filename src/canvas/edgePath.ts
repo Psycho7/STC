@@ -306,20 +306,15 @@ export function parsePathPoints(
   );
 }
 
-// pathPointAt: the point at `frac` (0..1) of the cumulative polyline length of
-// an absolute "M x,y L x,y ..." path string, the only form this module emits.
+// pathPointAtPts: the point at `frac` (0..1) of the cumulative polyline length
+// of an already-parsed vertex list, as produced by parsePathPoints from an
+// absolute "M x,y L x,y ..." path string (the only form this module emits).
 // Walks the segments accumulating length until the fraction of the total is
 // covered, then interpolates within the covering segment. Coordinates come back
 // through r() so anchors stay as stable as the path coordinates they derive
 // from. The chip de-confliction pass uses off-midpoint fractions to slide a
-// blocked label along its own line.
-export function pathPointAt(d: string, frac: number): [number, number] {
-  return pathPointAtPts(parsePathPoints(d), frac);
-}
-
-// pathPointAtPts: pathPointAt over an already-parsed vertex list, for callers
-// (the chip slide loop) that probe dozens of candidates per path and hoist the
-// parse to one parsePathPoints call per edge.
+// blocked label along its own line; it probes dozens of candidates per path and
+// hoists the parse to one parsePathPoints call per edge.
 export function pathPointAtPts(
   pts: ReadonlyArray<readonly [number, number]>,
   frac: number,
