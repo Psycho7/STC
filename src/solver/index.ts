@@ -100,9 +100,9 @@ function runBisim(
 
 /**
  * Full solver output, returned by `solvePlanWithIntermediates` for callers that
- * feed the render pipeline. `logical` is the LogicalGraph `solvePlan` returns;
- * the extra fields expose the intermediates the cluster, expand, bisim, and
- * render stages need.
+ * feed the render pipeline. `logical` is the assembled LogicalGraph; the extra
+ * fields expose the intermediates the cluster, expand, bisim, and render stages
+ * need.
  */
 export type SolvePlanFull = {
   logical: LogicalGraph;
@@ -156,12 +156,11 @@ export type SolvePlanFull = {
   boundaryShare: Map<ItemId, Fraction>;
 };
 
-// Shared pipeline behind both entry points. Runs the full solve (graph build,
-// SCC condensation, LP solve, replication, bisim, multiplier assignment, FFD
-// packing, tear-edge rebuild, logical-graph assembly) and returns the assembled
-// SolvePlanFull plus the raw LpResult. It does NOT run the dev-only invariant
-// assertions; those stay with solvePlanWithIntermediates so solvePlan keeps its
-// lighter contract.
+// Shared pipeline behind the public entry point. Runs the full solve (graph
+// build, SCC condensation, LP solve, replication, bisim, multiplier assignment,
+// FFD packing, tear-edge rebuild, logical-graph assembly) and returns the
+// assembled SolvePlanFull plus the raw LpResult. It does NOT run the dev-only
+// invariant assertions; those stay with solvePlanWithIntermediates.
 //
 // The TornEdge[] is rebuilt here because the LP solver returns no torn-edge
 // metadata; return-arc rendering needs the full TornEdge objects with their
@@ -278,32 +277,9 @@ function runSolvePipeline(
 }
 
 /**
- * Solve a plan and return just the assembled LogicalGraph. Lighter entry point
- * for callers that don't need the render-pipeline intermediates; it skips the
- * dev-only invariant assertions that solvePlanWithIntermediates runs.
- */
-export function solvePlan(
-  targets: ReadonlyArray<ItemTarget>,
-  pack: RecipePack,
-  tConfig: TransportConfig,
-  itemOverrides?: ItemOverride[],
-  recipeCosts?: Map<RecipeId, number>,
-  solver: LpSolver = solveLp,
-): LogicalGraph {
-  return runSolvePipeline(
-    targets,
-    pack,
-    tConfig,
-    itemOverrides,
-    recipeCosts,
-    solver,
-  ).full.logical;
-}
-
-/**
- * Like `solvePlan` but also returns the intermediate artifacts the render
- * pipeline (cluster, expand, bisim, render) needs, and runs the reference-free
- * invariant assertions in dev/test builds.
+ * Solve a plan and return the assembled LogicalGraph together with the
+ * intermediate artifacts the render pipeline (cluster, expand, bisim, render)
+ * needs. Runs the reference-free invariant assertions in dev/test builds.
  */
 export function solvePlanWithIntermediates(
   targets: ReadonlyArray<ItemTarget>,
