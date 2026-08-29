@@ -55,31 +55,34 @@ describe("computeEdgeSpans", () => {
 const REPRO_FRAGMENT =
   "v1.H4sIAAAAAAAAAxXMyw6CMBAF0H-566pYHtL-gTsTl4SQMjM1jbwsZUX4d8PurM6OxdEXtoFM7IMMfCE30M07SnMM8-B6KGRXDYXCU1FpU9RejK9Kzb3OdFmbMmeumTLT5-zJPNAqpJAGgQUUkosfSStssyMkGZ8MC_ltYelWimFJXdGdfXRJXhLfQrA7pm2ExR0KLNN8Wmc4jvb4A_HsvUGyAAAA";
 
+// Decode the repro fragment and run it through the solver + render pipeline;
+// both census tests lay out the same solved plan.
+async function solvedReproPlan() {
+  const outcome = await loadPlan(REPRO_FRAGMENT, pack);
+  if (outcome.kind === "error") {
+    throw new Error(`repro fragment failed to load: ${JSON.stringify(outcome.error)}`);
+  }
+  const { targets, itemOverrides, recipeCosts } = planToSolverArgs(outcome.plan);
+  const tConfig = loadTransportConfig(defaultTransportConfig, pack);
+  const full = solvePlanWithIntermediates(
+    targets,
+    pack,
+    tConfig,
+    itemOverrides,
+    recipeCosts,
+  );
+  const itemById = new Map(pack.items.map((i) => [i.id, i]));
+  const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
+  return { plan, recipeById: full.recipeById, itemById };
+}
+
 describe("edge-span census: repro plan", () => {
   it("every long non-bus edge has a provably clear direct corridor", async () => {
-    const outcome = await loadPlan(REPRO_FRAGMENT, pack);
-    if (outcome.kind === "error") {
-      throw new Error(`repro fragment failed to load: ${JSON.stringify(outcome.error)}`);
-    }
-    const { targets, itemOverrides, recipeCosts } = planToSolverArgs(outcome.plan);
-    const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      tConfig,
-      itemOverrides,
-      recipeCosts,
-    );
-    const itemById = new Map(pack.items.map((i) => [i.id, i]));
-    const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
+    const { plan, recipeById, itemById } = await solvedReproPlan();
     // Time the layout + bus-routing pass (routeBusEdges runs inside
     // layoutRenderPlan). Spec acceptance: under 2 s on the repro plan.
     const layoutStart = performance.now();
-    const laid = await layoutRenderPlan({
-      plan,
-      recipeById: full.recipeById,
-      itemById,
-    });
+    const laid = await layoutRenderPlan({ plan, recipeById, itemById });
     const layoutMs = performance.now() - layoutStart;
 
     // Full-census spans (all edges) for the record.
@@ -120,5 +123,27 @@ describe("edge-span census: repro plan", () => {
     expect(blocked.map((e) => e.id)).toEqual([]);
     // Spec perf criterion: layout plus bus routing stays under 2 s.
     expect(layoutMs).toBeLessThan(2000);
+  });
+
+  it("busLanesEnabled: false yields zero bus-typed edges on a plan that otherwise has them", async () => {
+    const { plan, recipeById, itemById } = await solvedReproPlan();
+
+    const on = await layoutRenderPlan({ plan, recipeById, itemById });
+    const off = await layoutRenderPlan({
+      plan,
+      recipeById,
+      itemById,
+      busLanesEnabled: false,
+    });
+
+    // The default arm proves the fixture exercises the toggle at all.
+    expect(on.edges.some((e) => e.type === "bus")).toBe(true);
+    expect(off.edges.every((e) => e.type === "item")).toBe(true);
+    // No bus stamp survives either: fan-out trunks mark `fanout` on data.
+    expect(
+      off.edges.some(
+        (e) => (e.data as { fanout?: boolean } | undefined)?.fanout === true,
+      ),
+    ).toBe(false);
   });
 });

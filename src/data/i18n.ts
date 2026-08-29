@@ -31,6 +31,7 @@ export type UiKey =
   | "app.error.infeasible.generic"
   | "app.error.dismiss"
   | "app.locale.label"
+  | "app.busLanes.label"
   | "inputs.title"
   | "inputs.rate.label"
   | "inputs.rate.unit"
@@ -110,6 +111,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.generic": "当前目标与供给上限下无可行方案。",
     "app.error.dismiss": "关闭",
     "app.locale.label": "语言",
+    "app.busLanes.label": "总线通道",
     "inputs.title": "输入",
     "inputs.rate.label": "速率",
     "inputs.rate.unit": "/分",
@@ -182,6 +184,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "No feasible plan for the current targets and supply caps.",
     "app.error.dismiss": "Dismiss",
     "app.locale.label": "Language",
+    "app.busLanes.label": "Bus lanes",
     "inputs.title": "Inputs",
     "inputs.rate.label": "Rate",
     "inputs.rate.unit": "/min",
@@ -255,6 +258,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "現在のターゲットと供給上限では実行可能な計画がありません。",
     "app.error.dismiss": "閉じる",
     "app.locale.label": "言語",
+    "app.busLanes.label": "バスレーン",
     "inputs.title": "入力",
     "inputs.rate.label": "レート",
     "inputs.rate.unit": "/分",
@@ -328,6 +332,7 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "Нет допустимого плана для текущих целей и лимитов поставок.",
     "app.error.dismiss": "Закрыть",
     "app.locale.label": "Язык",
+    "app.busLanes.label": "Шинные линии",
     "inputs.title": "Входы",
     "inputs.rate.label": "Скорость",
     "inputs.rate.unit": "/мин",

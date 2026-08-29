@@ -150,6 +150,9 @@ export type LayoutInput = {
   // interior gets laid out by the SCC renderer in a later pass.
   // TODO: swap the placeholder for the real size once SCC interior layout exists.
   interiorByLoopId?: ReadonlyMap<SccId, LoopInteriorSize>;
+  // When explicitly false, routeBusEdges and routeFanoutEdges are skipped so
+  // every edge renders as a plain item edge. Absent or true runs both passes.
+  busLanesEnabled?: boolean;
 };
 
 // An ELK port output with a transport kind tacked on. ELK happily carries
@@ -885,8 +888,8 @@ export const ROUTING_PASSES: ReadonlyArray<{
   readonly name: string;
   readonly run: RoutingPass;
 }> = [
-  // Classify long / boundary-feeder edges into bus trunks, each on a lane in a
-  // top or bottom band.
+  // Classify long-span edges into bus trunks, each on a lane in a top or
+  // bottom band.
   { name: "routeBusEdges", run: routeBusEdges },
   // Consolidate N >= 2 same-source-port edges in one layer gap onto a shared
   // junction column (a fan-out trunk, retyped bus but off-lane).
@@ -920,14 +923,21 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   const elkGraph = renderPlanToElkGraph(input);
   const laid = (await elk.layout(elkGraph)) as ElkGraph;
   const { nodes, edges } = fromElkRenderLayout(laid, input);
-  // Left fold over ROUTING_PASSES: every pass sees the SAME nodes array
+  // With bus lanes off, drop the two passes that stamp bus formations; the
+  // remaining passes are no-ops on unstamped edges, so no other change is
+  // needed. Matched by function identity so a pass rename cannot silently
+  // defeat the filter.
+  const passes =
+    input.busLanesEnabled === false
+      ? ROUTING_PASSES.filter(
+          (p) => p.run !== routeBusEdges && p.run !== routeFanoutEdges,
+        )
+      : ROUTING_PASSES;
+  // Left fold over the passes: every pass sees the SAME nodes array
   // fromElkRenderLayout returned (final absolute positions), never a re-derived
   // one, plus the previous pass's output edges.
   return {
     nodes,
-    edges: ROUTING_PASSES.reduce<RFEdge[]>(
-      (routed, pass) => pass.run(nodes, routed),
-      edges,
-    ),
+    edges: passes.reduce<RFEdge[]>((routed, pass) => pass.run(nodes, routed), edges),
   };
 }

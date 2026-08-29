@@ -471,6 +471,17 @@
   color: var(--ak-accent-red);
 }
 
+.topbar .bus-lanes-toggle {
+  cursor: pointer;
+}
+
+/* Outranks the generic .ak-app-shell .topbar button:hover rule below so the
+   active tint survives hover. */
+.ak-app-shell .topbar .bus-lanes-toggle.on {
+  border-color: var(--ak-accent-lime);
+  color: var(--ak-accent-lime);
+}
+
 /* Override the generic .ak-app-shell button rule inside the topbar so the
    locale switcher + action buttons keep their topbar look. */
 .ak-app-shell .topbar select,

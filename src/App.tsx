@@ -41,6 +41,7 @@ import { planToSolverArgs } from "./solver/planToSolverArgs";
 import { renderPlanFromSolve } from "./pipeline/driver";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
+import { BusLanesToggle } from "./components/BusLanesToggle";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
 import { displayedInputCount } from "./components/InputsPanel";
@@ -52,6 +53,7 @@ async function renderFromFull(
   full: SolvePlanFull,
   itemOverrides: ReadonlyArray<import("./data/plan").ItemOverride>,
   targets: ReadonlyArray<import("./data/targets").Target>,
+  busLanesEnabled: boolean,
 ): Promise<{ nodes: Node[]; edges: Edge[] }> {
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
@@ -64,6 +66,7 @@ async function renderFromFull(
     plan,
     recipeById: rawRecipeById,
     itemById,
+    busLanesEnabled,
   });
   return { nodes: laid.nodes as Node[], edges: laid.edges };
 }
@@ -121,6 +124,28 @@ const transportConfig: TransportConfig = loadTransportConfig(
   pack,
 );
 
+// Bus-lane preference persistence. A view-only setting, so it lives in
+// localStorage (like the locale), never in the plan wire / URL hash.
+const BUS_LANES_STORAGE_KEY = "aef.busLanes";
+
+function readStoredBusLanesEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem(BUS_LANES_STORAGE_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function writeStoredBusLanesEnabled(next: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(BUS_LANES_STORAGE_KEY, next ? "on" : "off");
+  } catch {
+    // Private mode / storage denied: the toggle still works for this session.
+  }
+}
+
 // A dismissible banner error. "load" wraps a hash-decode / validation failure
 // (the pasted link, not the solver); "edit" wraps an in-app edit that
 // validatePlan rejected; "solver" wraps an exception thrown while solving a
@@ -176,6 +201,14 @@ function AppInner() {
   // Mutation handlers read and write it synchronously so a commit never builds
   // on a stale snapshot while a solve is still in flight.
   const planRef = useRef<Plan | null>(null);
+  // Bus-lane routing preference. The ref is the synchronous authority (same
+  // role planRef plays for the plan): the toggle handler writes it before
+  // kicking off a solve, and both render paths read it, so neither a stale
+  // closure nor loadFromHash's dependency list ever sees an old value.
+  const [busLanesEnabled, setBusLanesEnabled] = useState<boolean>(
+    readStoredBusLanesEnabled,
+  );
+  const busLanesEnabledRef = useRef(busLanesEnabled);
   const [recipeCount, setRecipeCount] = useState<number | null>(null);
   // Which section anchor is in view inside the side rail. Drives the skewed-tab
   // highlight so it reads as a "you-are-here" pill, not a toggle. Computed by an
@@ -303,7 +336,12 @@ function AppInner() {
           itemOverrides,
           recipeCosts,
         );
-        const laid = await renderFromFull(full, itemOverrides, targets);
+        const laid = await renderFromFull(
+          full,
+          itemOverrides,
+          targets,
+          busLanesEnabledRef.current,
+        );
         if (outcome.kind === "seeded") {
           const newHash = "#" + (await encodePlan(nextPlan));
           if (myGen !== solveGen.current) return;
@@ -392,7 +430,12 @@ function AppInner() {
         itemOverrides,
         recipeCosts,
       );
-      const laid = await renderFromFull(full, itemOverrides, targets);
+      const laid = await renderFromFull(
+        full,
+        itemOverrides,
+        targets,
+        busLanesEnabledRef.current,
+      );
       if (myGen !== solveGen.current) return;
       setRecipeCount(countDistinctRecipes(full.logical));
       setNodes(laid.nodes);
@@ -411,6 +454,19 @@ function AppInner() {
     } finally {
       if (myGen === solveGen.current) setPending(false);
     }
+  }
+
+  // Flip the bus-lane preference and re-render the committed plan through the
+  // existing solve path. The solver result is unchanged by the toggle; reusing
+  // scheduleSolve keeps one race-guarded pipeline instead of a second
+  // layout-only path caching solver output.
+  function handleToggleBusLanes(): void {
+    const next = !busLanesEnabledRef.current;
+    busLanesEnabledRef.current = next;
+    setBusLanesEnabled(next);
+    writeStoredBusLanesEnabled(next);
+    const current = planRef.current;
+    if (current) void scheduleSolve(current);
   }
 
   function handleTargetsChange(update: (current: Target[]) => Target[]): void {
@@ -567,6 +623,10 @@ function AppInner() {
             >
               {status}
             </span>
+            <BusLanesToggle
+              enabled={busLanesEnabled}
+              onToggle={handleToggleBusLanes}
+            />
             <LocaleSwitcher />
           </div>
         </div>
