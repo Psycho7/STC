@@ -51,8 +51,6 @@ import {
   maxBottom,
   minTop,
   orderedRecipeNode,
-  busDropDyOf,
-  busChipDyOf,
 } from "./busRouting.testkit";
 
 describe("routeBusEdges", () => {
@@ -168,8 +166,10 @@ describe("routeBusEdges", () => {
     expect(banana.laneY).toBe(bandTop + LANE_SPACING);
   });
 
-  it("classifies an input-product -> input-product feeder as bus even when short", () => {
+  it("leaves a short input-product -> input-product feeder as a plain item edge", () => {
     // Aggregate and tap sit one next to the other (span well under threshold).
+    // Feeders no longer ride the bus by node kind; span is the only rule, so a
+    // short feeder stays a direct item edge.
     const nodes: RFAnyNode[] = [
       inputProductNode("agg", "ore", 0, 0),
       inputProductNode("tap", "ore", 200, 0), // gap 200 - 148 = 52 < 820
@@ -178,30 +178,8 @@ describe("routeBusEdges", () => {
 
     const out = routeBusEdges(nodes, edges);
 
-    expect(out[0]!.type).toBe("bus");
-    const data = out[0]!.data as { trunkKey: string; busChipX?: number };
-    expect(data.trunkKey).toBe("ore|agg");
-    // A lone member on a SHORT run (extent under BUS_LONG_RUN_THRESHOLD) keeps
-    // its lane slot -- only long lone runs drop it for consumer-end labeling.
-    expect(data.busChipX).toBeDefined();
-  });
-
-  it("keeps a backward lone member's lane slot (extent 0 stays under the threshold)", () => {
-    // Task 4 skips the lane slot only for a lone member whose forward extent
-    // clears BUS_LONG_RUN_THRESHOLD. A BACKWARD feeder (tap left of aggregate)
-    // has a non-positive extent clamped to 0, so the skip must NOT fire and the
-    // slot must survive -- a guard on the extent-0 arithmetic against future
-    // edits of the skip condition.
-    const nodes: RFAnyNode[] = [
-      inputProductNode("agg", "ore", 500, 0), // right edge 648
-      inputProductNode("tap", "ore", 0, 0), // left of the aggregate: backward
-    ];
-    const edges = [mkEdge("e0", "agg", "tap", "ore")];
-
-    const out = routeBusEdges(nodes, edges);
-
-    expect(out[0]!.type).toBe("bus");
-    expect((out[0]!.data as { busChipX?: number }).busChipX).toBeDefined();
+    expect(out[0]!.type).toBe("item");
+    expect((out[0]!.data as { trunkKey?: string }).trunkKey).toBeUndefined();
   });
 
   it("is deterministic: shuffled input order yields identical output", () => {
@@ -375,35 +353,18 @@ describe("routeBusEdges two-sided lane bands (9B)", () => {
     expect(bands.bottom).not.toBeNull();
   });
 
-  it("cascades a lone top-band member's rise chip UP off its lane", () => {
-    // A LONE input-product feeder in the upper half (a node far below sends the
-    // trunk to the top band) whose short run collapses the rise slot onto the
-    // drop column. A lone member is exempt from the #24 capacity hide (its rise
-    // merely restates its own drop's rate but keeps it near the consumer), so it
-    // still cascades -- and in the top band that cascade must run UPWARD (negative
-    // dy) so the chip moves away from the graph below, not toward it.
-    const nodes: RFAnyNode[] = [
-      inputProductNode("agg", "ore", 0, 0),
-      inputProductNode("tap", "ore", 200, 0),
-      recipeNode("low", 0, 3000, r),
-    ];
-    const edges = [mkEdge("e0", "agg", "tap", "ore")];
-    const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
-    const pitch = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
-    expect(bandOf(out, "e0")).toBe("top");
-    // Owner drop chip settles on the lane; the lone rise piles UPWARD off it.
-    expect(busDropDyOf(out, "e0")).toBe(0);
-    expect(busChipDyOf(out, "e0")).toBe(-pitch);
-  });
-
   it("sends an exact-midline trunk to the bottom band, deterministically", () => {
-    // A lone bothInput feeder whose source and target ports share one y: its
-    // mean member port Y equals the graph midline exactly. The tiebreak sends it
-    // to the bottom band (the pre-split default), and two runs agree.
+    // A lone long-span feeder whose source and target ports share one y: its
+    // mean member port Y equals the graph midline exactly (the mid blocker has
+    // the same height and y, so it moves neither bound). The blocker keeps the
+    // corridor unprovable so the lone member stays on the lane instead of
+    // demoting. The tiebreak sends it to the bottom band (the pre-split
+    // default), and two runs agree.
     const bothFar = 148 + (BUS_SPAN_THRESHOLD + 50);
     const nodes: RFAnyNode[] = [
       inputProductNode("agg", "ore", 0, 0),
       inputProductNode("tap", "ore", bothFar, 0),
+      inputProductNode("mid", "ore", 500, 0),
     ];
     const edges = [mkEdge("e0", "agg", "tap", "ore")];
 
@@ -590,10 +551,10 @@ describe("routeBusEdges single-member demotion (9C)", () => {
     expect(out[1]!.type).toBe("bus");
   });
 
-  it("leaves a lone bothInput feeder on the bus regardless of its corridor", () => {
+  it("demotes a lone input-product feeder like any other clear-corridor member", () => {
     // A long aggregate -> tap feeder: a single-member trunk whose corridor is
-    // clear, yet excluded from demotion because bothInput trunks ride the bus to
-    // cross the whole graph, not for span.
+    // clear. Node kind grants no exemption, so it demotes to a plain item edge
+    // exactly like a lone recipe-to-recipe member would.
     const bothFar = 148 + (BUS_SPAN_THRESHOLD + 50);
     const nodes: RFAnyNode[] = [
       inputProductNode("agg", "ore", 0, 0),
@@ -603,8 +564,8 @@ describe("routeBusEdges single-member demotion (9C)", () => {
 
     const out = routeBusEdges(nodes, edges);
 
-    expect(out[0]!.type).toBe("bus");
-    expect((out[0]!.data as { trunkKey?: string }).trunkKey).toBe("ore|agg");
+    expect(out[0]!.type).toBe("item");
+    expect((out[0]!.data as { trunkKey?: string }).trunkKey).toBeUndefined();
   });
 
   it("demotes deterministically across shuffled node order", () => {
@@ -926,19 +887,26 @@ describe("routeFanoutEdges (6C)", () => {
     expect(out[1]!.type).toBe("item");
   });
 
-  it("does NOT fan out bothInput feeders", () => {
+  it("fans out input-product feeders like any other qualifying pair", () => {
+    // Aggregate -> tap feeders get no special treatment: two short-gap edges
+    // off one aggregate port group into a fan-out trunk exactly as recipe
+    // edges would (gap 152 inside the (FANOUT_SPAN_MIN, FANOUT_SPAN_MAX]
+    // window).
     const nodes: RFAnyNode[] = [
-      inputProductNode("agg", "ore", 0, 0),
-      inputProductNode("t1", "ore", 200, 0),
-      inputProductNode("t2", "ore", 200, 200),
+      inputProductNode("agg", "ore", 0, 0), // right edge 148
+      inputProductNode("t1", "ore", 300, 0),
+      inputProductNode("t2", "ore", 300, 200),
     ];
     const edges = [
       mkEdge("e0", "agg", "t1", "ore"),
       mkEdge("e1", "agg", "t2", "ore"),
     ];
     const out = routeFanoutEdges(nodes, edges);
-    expect(out[0]!.type).toBe("item");
-    expect(out[1]!.type).toBe("item");
+    for (const id of ["e0", "e1"]) {
+      const edge = out.find((e) => e.id === id)!;
+      expect(edge.type).toBe("bus");
+      expect((edge.data as { fanout?: boolean }).fanout).toBe(true);
+    }
   });
 
   it("does NOT double-capture long-span bus members", () => {
@@ -1257,24 +1225,4 @@ describe("routeBusEdges trunk rise-chip slots", () => {
     }
   });
 
-  it("stacks rise slots at the drop column when the lane extent is too short", () => {
-    // Two input-product feeders sit almost adjacent, so the rise column lands at
-    // or left of the drop column and the extent is non-positive. The step
-    // collapses to 0 so every member's rise slot falls on the drop column;
-    // deconflictChipAnchors then cascades the coincident pile downward off the
-    // lane rather than spreading it horizontally past the rise column.
-    const nodes: RFAnyNode[] = [
-      inputProductNode("agg", "ore", 0, 0), // right edge 148
-      inputProductNode("t1", "ore", 200, 0), // bothInput feeder -> bus
-      inputProductNode("t2", "ore", 200, 200),
-    ];
-    const edges = [
-      mkEdge("e0", "agg", "t1", "ore"),
-      mkEdge("e1", "agg", "t2", "ore"),
-    ];
-    const out = routeBusEdges(nodes, edges);
-    const dropX = 148 + PORT_STUB + CHAMFER; // 180
-    expect(busChipXOf(out, "e0")).toBeCloseTo(dropX, 6);
-    expect(busChipXOf(out, "e1")).toBeCloseTo(dropX, 6);
-  });
 });

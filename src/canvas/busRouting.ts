@@ -234,10 +234,6 @@ function edgeSpan(
   return Math.max(0, targetLeft - sourceRight);
 }
 
-function isInputProduct(node: RFAnyNode | undefined): boolean {
-  return node?.type === "product" && node.data.kind === "inputProduct";
-}
-
 export function edgeItem(edge: Edge): string | undefined {
   // Deliberately weaker than ItemEdgeData: older fixtures carry a non-string
   // item, so the guard below has to see `unknown` rather than a claimed type.
@@ -301,7 +297,7 @@ function memberPortMidY(
   return (sy + ty) / 2;
 }
 
-// routeBusEdges: classify long / boundary-feeder edges as bus members and give
+// routeBusEdges: classify long edges as bus members and give
 // each (item, source) trunk one lane, in a top or bottom band chosen by where
 // the trunk's members lean (Task 13). Non-member edges pass through unchanged;
 // member edges are retyped and get `{ laneY, trunkKey, busBand, ... }` merged
@@ -314,8 +310,7 @@ export function routeBusEdges(
   for (const node of nodes) byId.set(node.id, node);
 
   // First pass: classify. An edge is a bus member iff its span exceeds the
-  // threshold, or both endpoints are input-product nodes (the aggregate -> tap
-  // feeder, which rides the bus regardless of span).
+  // threshold.
   const trunkKeyByEdgeIndex = new Map<number, string>();
   const trunks = new Map<string, { item: string; source: string }>();
 
@@ -326,9 +321,7 @@ export function routeBusEdges(
     const item = edgeItem(edge);
     if (item === undefined) return;
 
-    const bothInput = isInputProduct(source) && isInputProduct(target);
-    const isBus =
-      edgeSpan(source, target, byId) > BUS_SPAN_THRESHOLD || bothInput;
+    const isBus = edgeSpan(source, target, byId) > BUS_SPAN_THRESHOLD;
     if (!isBus) return;
 
     const trunkKey = item + "|" + edge.source;
@@ -343,10 +336,9 @@ export function routeBusEdges(
   // below so no bus scaffolding leaks onto a demoted edge. A lone forward member
   // (span > threshold) whose direct item-edge corridor is provably clear needs no
   // lane detour: dropped from the bus set it flows on as a plain item edge, and
-  // assignBendColumns / jogForwardLegs route it directly. bothInput feeders are
-  // excluded -- they ride the bus to cross the whole graph, not for span -- and
-  // backward members keep the lane (their corridor is the rail shape, not this
-  // forward leg). Conservative: any unproven corridor keeps today's bus lane.
+  // assignBendColumns / jogForwardLegs route it directly. Backward members keep
+  // the lane (their corridor is the rail shape, not this forward leg).
+  // Conservative: any unproven corridor keeps today's bus lane.
   const memberIndicesByTrunk = new Map<string, number[]>();
   trunkKeyByEdgeIndex.forEach((trunkKey, index) => {
     const list = memberIndicesByTrunk.get(trunkKey) ?? [];
@@ -367,11 +359,10 @@ export function routeBusEdges(
       const edge = edges[index]!;
       const source = byId.get(edge.source)!;
       const target = byId.get(edge.target)!;
-      if (isInputProduct(source) && isInputProduct(target)) continue; // bothInput
       // Forward only. Unreachable under current classification (edgeSpan floors
-      // at 0, so a non-bothInput member always has gap > 0); kept as a guard so
-      // a future classifier change cannot silently demote a backward member,
-      // whose corridor is the rail shape, not this forward leg.
+      // at 0, so a member always has gap > 0); kept as a guard so a future
+      // classifier change cannot silently demote a backward member, whose
+      // corridor is the rail shape, not this forward leg.
       if (nodeGap(source, target, byId) <= 0) continue;
       const item = edgeItem(edge);
       if (!forwardCorridorClear(source, target, item, byId, obstacles)) {
@@ -703,8 +694,7 @@ export function busBandRegions(
 //
 // Classification bounds, all so a fan-out never captures an edge another pass
 // owns: still type "item" (not a bus member / demoted); forward with a positive
-// gap at most FANOUT_SPAN_MAX (one layer, strictly under BUS_SPAN_THRESHOLD);
-// not a bothInput feeder (those ride the bus to cross the whole graph); a
+// gap at most FANOUT_SPAN_MAX (one layer, strictly under BUS_SPAN_THRESHOLD); a
 // resolvable item. Grouping is unconditional at N >= 2 sharing a source port --
 // the junction is the point of the formation. Non-members pass through by
 // reference. Pure and deterministic: grouping, owner election (lex-smallest edge
@@ -727,7 +717,6 @@ export function routeFanoutEdges(
     if (source === undefined || target === undefined) return;
     const item = edgeItem(edge);
     if (item === undefined) return;
-    if (isInputProduct(source) && isInputProduct(target)) return; // bothInput
     const gap = nodeGap(source, target, byId);
     if (gap <= FANOUT_SPAN_MIN || gap > FANOUT_SPAN_MAX) return;
     const trunkKey = item + "|" + edge.source;

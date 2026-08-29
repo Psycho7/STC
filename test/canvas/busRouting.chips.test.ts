@@ -12,6 +12,7 @@ import {
   routeFanoutEdges,
   BUS_SPAN_THRESHOLD,
   LANE_SPACING,
+  LANE_TOP_OFFSET,
 } from "../../src/canvas/busRouting";
 import { portOffsetY } from "../../src/canvas/nodeGeometry";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
@@ -23,6 +24,8 @@ import {
   inputProductNode,
   mkEdge,
   productNode,
+  maxBottom,
+  minTop,
   busDropDyOf,
   busChipDyOf,
 } from "./busRouting.testkit";
@@ -86,11 +89,42 @@ function busChipDyRawOf(edges: Edge[], id: string): number | undefined {
   return d?.busChipDy;
 }
 
+// A collapsed-extent lane trunk: every rise slot stacked on the drop column.
+// routeBusEdges no longer produces one (span-only membership means the run is
+// always at least a layer long), so these fixtures stamp the bus data by hand
+// -- the seating rules under test are generic and still fire whenever chips
+// crowd one column on a real trunk.
+const shortRunBus = (
+  id: string,
+  source: string,
+  target: string,
+  item: string,
+  laneY: number,
+  opts: { owner: boolean; memberCount: number; band?: "top" | "bottom" },
+): Edge => ({
+  id,
+  source,
+  target,
+  type: "bus",
+  data: {
+    item,
+    rate: new Fraction(1),
+    laneY,
+    trunkKey: item + "|" + source,
+    busChipX: 180, // the drop column: 148 (agg right edge) + PORT_STUB + CHAMFER
+    busChipOwner: opts.owner,
+    busMemberCount: opts.memberCount,
+    ...(opts.owner
+      ? { busTotalRate: new Fraction(opts.memberCount) }
+      : {}),
+    busBand: opts.band ?? ("bottom" as const),
+  },
+});
+
 describe("deconflictChipAnchors: bus lane cascade", () => {
   it("keeps the rises the short run supports; no aggregate column is reserved", () => {
-    // Two input-product feeders share one trunk (ore|agg) but sit so close that
-    // the lane extent collapses: routeBusEdges stacks both rise slots on the same
-    // column (riseChipX 180 for both, against a drop column at 174). The trunk is
+    // Two feeders share one trunk (ore|agg) and sit so close that the lane
+    // extent collapses: both rise slots land on the drop column. The trunk is
     // multi-member, so it draws and seats NO aggregate chip (issue #39) and the
     // kept set starts empty: the first member tried keeps its slot and the second,
     // 0 units away, cannot clear the wide-chip x-separation (2 * 120 = 240) and is
@@ -105,11 +139,18 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
       inputProductNode("t1", "ore", 200, 1000),
       inputProductNode("t2", "ore", 200, 1200),
     ];
+    const laneY = maxBottom(nodes) + LANE_TOP_OFFSET;
     const edges = [
-      mkEdge("e0", "agg", "t1", "ore"),
-      mkEdge("e1", "agg", "t2", "ore"),
+      shortRunBus("e0", "agg", "t1", "ore", laneY, {
+        owner: true,
+        memberCount: 2,
+      }),
+      shortRunBus("e1", "agg", "t2", "ore", laneY, {
+        owner: false,
+        memberCount: 2,
+      }),
     ];
-    const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
+    const out = deconflictChipAnchors(nodes, edges);
     // Nothing seats a drop chip on a multi-member trunk, so the owner carries no
     // busDropDy at all.
     expect(busDropDyRawOf(out, "e0")).toBeUndefined();
@@ -360,11 +401,18 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
       inputProductNode("t2", "ore", 200, 1200),
       inputProductNode("t3", "ore", 200, 1400),
     ];
+    const bandTop = maxBottom(nodes) + LANE_TOP_OFFSET;
     const edges = [
-      mkEdge("e0", "agg", "t1", "a"),
-      mkEdge("e2", "agg", "t3", "b"),
+      shortRunBus("e0", "agg", "t1", "a", bandTop, {
+        owner: true,
+        memberCount: 1,
+      }),
+      shortRunBus("e2", "agg", "t3", "b", bandTop + LANE_SPACING, {
+        owner: true,
+        memberCount: 1,
+      }),
     ];
-    const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
+    const out = deconflictChipAnchors(nodes, edges);
     expect(busDropDyOf(out, "e0")).toBe(0);
     expect(busDropDyOf(out, "e2")).toBe(0);
     // Both trunks are lone members, exempt from the CAPACITY check -- and on
@@ -378,6 +426,32 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     expect(busChipDyOf(out, "e0")).toBe(0);
     expect(busRiseHiddenOf(out, "e2")).toBe(false);
     expect(busChipDyOf(out, "e2")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+  });
+
+  it("cascades a lone top-band member's rise chip UP off its lane", () => {
+    // A LONE member in the top band whose collapsed run puts the rise slot on
+    // the drop column. A lone member is exempt from the #24 capacity hide (its
+    // rise merely restates its own drop's rate but keeps it near the consumer),
+    // so it still cascades -- and in the top band that cascade must run UPWARD
+    // (negative dy) so the chip moves away from the graph below, not toward it.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("agg", "ore", 0, 0),
+      inputProductNode("tap", "ore", 200, 0),
+      recipeNode("low", 0, 3000, mkRecipe("low", ["a"], ["b"])),
+    ];
+    const laneY = minTop(nodes) - LANE_TOP_OFFSET;
+    const edges = [
+      shortRunBus("e0", "agg", "tap", "ore", laneY, {
+        owner: true,
+        memberCount: 1,
+        band: "top",
+      }),
+    ];
+    const out = deconflictChipAnchors(nodes, edges);
+    const pitch = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+    // Owner drop chip settles on the lane; the lone rise piles UPWARD off it.
+    expect(busDropDyOf(out, "e0")).toBe(0);
+    expect(busChipDyOf(out, "e0")).toBe(-pitch);
   });
 });
 

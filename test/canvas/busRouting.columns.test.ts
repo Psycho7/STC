@@ -656,18 +656,34 @@ describe("clearBusColumns", () => {
   });
 
   it("leaves the narrow-forward hairpin member untouched", () => {
-    // Two input-product feeders sit adjacent (gap 52 < budget 64), so the bus path
-    // collapses to a midpoint hairpin with no distinct drop / rise column. Even
-    // with a foreign card nearby, clearBusColumns stamps nothing.
+    // A bus member whose endpoints sit adjacent (gap 52 < budget 64) collapses
+    // to a midpoint hairpin with no distinct drop / rise column, so even with a
+    // foreign card nearby clearBusColumns stamps nothing. Span-only
+    // classification can no longer produce such a member, so the stamps are
+    // hand-built; the hairpin guard inside clearBusColumns is unchanged.
     const nodes: RFAnyNode[] = [
       inputProductNode("agg", "ore", 0, 0),
       inputProductNode("tap", "ore", 200, 0),
       inputProductNode("block", "ore", 150, 300, 148, 78),
     ];
-    const out = clearBusColumns(
-      nodes,
-      routeBusEdges(nodes, [mkEdge("e0", "agg", "tap", "ore")]),
-    );
+    const hairpinBus: Edge = {
+      id: "e0",
+      source: "agg",
+      target: "tap",
+      type: "bus",
+      data: {
+        item: "ore",
+        rate: new Fraction(1),
+        // Bottom band top: block's bottom (378) + LANE_TOP_OFFSET, lane slot 0.
+        laneY: 378 + 80,
+        trunkKey: "ore|agg",
+        busChipOwner: true,
+        busMemberCount: 1,
+        busTotalRate: new Fraction(1),
+        busBand: "bottom" as const,
+      },
+    };
+    const out = clearBusColumns(nodes, [hairpinBus]);
     expect(dropXOf(out, "e0")).toBeUndefined();
     expect(riseXOf(out, "e0")).toBeUndefined();
   });
@@ -778,9 +794,12 @@ describe("clearBusColumns", () => {
   });
 
   it("keeps a backward (gap <= 0) rise on the port side through the same resolver", () => {
-    // Backward bus member: a bothInput feeder whose target ("t") sits left of its
-    // source ("agg"), so gap <= 0 and clearBusColumns routes it through the same
-    // clearColumnKeepingLeg call (no forward early-return). A sibling ("sib")
+    // Backward bus member: the target ("t") sits left of its source ("agg"), so
+    // gap <= 0 and clearBusColumns routes it through the same
+    // clearColumnKeepingLeg call (no forward early-return). Span-only
+    // classification can never produce a backward member (backward spans floor
+    // at 0), so the bus stamps are hand-built; clearBusColumns' backward path
+    // itself is unchanged and this pins its own-side clamp. A sibling ("sib")
     // left of the target straddles the default rise column (tx - PORT_STUB -
     // CHAMFER = -32) below the port row (its top sits under the port y, so
     // leftward approach legs stay clear). Without the own-side guard the
@@ -796,10 +815,24 @@ describe("clearBusColumns", () => {
       inputProductNode("t", "ore", 0, 0, 148, 78), // target, left 0, port y 39
       inputProductNode("sib", "ore", -150, 60, 148, 78), // raw [-150, -2] y [60, 138]
     ];
-    const out = clearBusColumns(
-      nodes,
-      routeBusEdges(nodes, [mkEdge("e0", "agg", "t", "ore")]),
-    );
+    // Bottom band top: sib's bottom (138) + LANE_TOP_OFFSET, lane slot 0.
+    const backwardBus: Edge = {
+      id: "e0",
+      source: "agg",
+      target: "t",
+      type: "bus",
+      data: {
+        item: "ore",
+        rate: new Fraction(1),
+        laneY: 138 + 80,
+        trunkKey: "ore|agg",
+        busChipOwner: true,
+        busMemberCount: 1,
+        busTotalRate: new Fraction(1),
+        busBand: "bottom" as const,
+      },
+    };
+    const out = clearBusColumns(nodes, [backwardBus]);
     const riseX = riseXOf(out, "e0");
     // A clamp-valid leftward column: never at or right of the port (x >= tx
     // would tunnel the target's body).

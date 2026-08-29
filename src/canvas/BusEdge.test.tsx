@@ -93,7 +93,13 @@ test("routeBusEdges' aggregate keeps the exact total the cards format", () => {
 });
 
 test("routeBusEdges leaves a lone trunk member as its own owner with count 1", () => {
-  const nodes = [productNode("s", 0), productNode("t1", 5000)];
+  // The mid blocker keeps the lone member's corridor unprovable so it stays on
+  // the lane (a clear corridor would demote it to a plain item edge).
+  const nodes = [
+    productNode("s", 0),
+    productNode("mid", 2500),
+    productNode("t1", 5000),
+  ];
   const edges = [busMemberEdge("e:1", "t1", new Fraction(400))];
   const routed = routeBusEdges(nodes, edges);
   const d = routed[0]!.data as {
