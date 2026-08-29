@@ -7,7 +7,7 @@
 // sizes); they pass through untouched. Passes merge routing fields onto edge
 // `data` (bus members are retyped `type: "bus"`).
 //
-// The seventh and final pipeline pass -- chip seating (deconflictChipAnchors)
+// The eighth and final pipeline pass -- chip seating (deconflictChipAnchors)
 // -- lives in chipSeating.ts; it consumes this module's edge-data readers and
 // padding constants. The model-frame node accessors both modules read live in
 // nodeGeometry.ts.

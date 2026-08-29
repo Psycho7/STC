@@ -549,7 +549,8 @@ export function checkConsumerInputsNotOverfed(
  * edge.rate over edges whose toUnit is `u:out:<X>` and item is X.
  *
  * Shortfall-only: violation iff actual < declared - slack, slack =
- * max(1, declared) * REL_TOL. Excess is left to the over-connection checkers.
+ * max(planScaleFloor(targets), declared) * REL_TOL. Excess is left to the
+ * over-connection checkers.
  */
 export function checkTargetOutputsSatisfied(
   args: RenderInvariantArgs,

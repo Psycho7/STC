@@ -69,12 +69,13 @@ larger set can be dropped in without any wiring changes.
    should be picked up automatically.
 
 Every fixture also inherits a hard DEV gate. The runner sends each plan
-through `assertRenderInvariants`, which throws under `import.meta.env.DEV`
-listing every render-invariant violation. A fixture whose plan is dirty
-crashes the test case instead of failing an expectation, so read the thrown
-message first. If the plan is dirty for a known, accepted residual, set
-`vi.stubEnv("DEV", false)` in the runner with a comment naming that residual
-rather than relaxing the fixture's expectations.
+through `renderPlanFromSolve`, which asserts the render invariants and throws
+under `import.meta.env.DEV` listing every violation. A fixture whose plan is
+dirty crashes the test case instead of failing an expectation, so read the
+thrown message first. If the plan is dirty for a known, accepted residual,
+set `vi.stubEnv("DEV", false)` around that one fixture's case -- not for the
+whole runner -- with a comment naming the residual, rather than relaxing the
+fixture's expectations.
 
 ## Updating expectations after an intentional pipeline change
 

@@ -17,10 +17,11 @@ import type {
 //     the unit that carries item X is a selector; deriving what rate should
 //     arrive there is accounting, and the checkers keep deriving that
 //     independently on purpose (double entry).
-//  2. It must not import the render invariant module or the boundary product
-//     emitter in this directory. The emitter already imports the checkers, so
-//     hosting these constructors in either of those files would cycle. Hence a
-//     third module, importing only ../types.
+//  2. It must not import invariants.ts (the render invariant module) or
+//     boundary-products.ts (the boundary product emitter) in this directory.
+//     The emitter already imports the checkers, so hosting these constructors
+//     in either of those files would cycle. Hence a third module, importing
+//     only ../types.
 //
 // The grammar is `u:`-prefixed and `:`-separated. Injectivity across the
 // families assumes item, container and vertex ids contain no `:` and that no
