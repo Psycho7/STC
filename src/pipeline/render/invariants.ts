@@ -114,42 +114,6 @@ function consumptionByItem(
   return result;
 }
 
-// Per item: sum of out.qty * rate over all recipes (exact Fraction math).
-export function internalProductionByItem(
-  rates: ReadonlyMap<RecipeId, Fraction>,
-  pack: RecipePack,
-): Map<ItemId, Fraction> {
-  return productionByItem(rates, pack);
-}
-
-// Per item: sum of in.qty * rate over all recipes (exact Fraction math).
-export function internalConsumptionByItem(
-  rates: ReadonlyMap<RecipeId, Fraction>,
-  pack: RecipePack,
-): Map<ItemId, Fraction> {
-  return consumptionByItem(rates, pack);
-}
-
-// Per item: production minus consumption.
-export function internalNetByItem(
-  rates: ReadonlyMap<RecipeId, Fraction>,
-  pack: RecipePack,
-): Map<ItemId, Fraction> {
-  const production = internalProductionByItem(rates, pack);
-  const consumption = internalConsumptionByItem(rates, pack);
-  const itemIds = new Set<ItemId>([
-    ...production.keys(),
-    ...consumption.keys(),
-  ]);
-  const result = new Map<ItemId, Fraction>();
-  for (const id of itemIds) {
-    const prod = production.get(id) ?? new Fraction(0);
-    const cons = consumption.get(id) ?? new Fraction(0);
-    result.set(id, prod.sub(cons));
-  }
-  return result;
-}
-
 // ---------------------------------------------------------------------------
 // Checkers
 // ---------------------------------------------------------------------------
@@ -221,8 +185,8 @@ export function checkBoundaryProductsJustified(
   const { plan, rates, pack, targets, itemOverrides } = args;
   const violations: string[] = [];
 
-  const production = internalProductionByItem(rates, pack);
-  const consumption = internalConsumptionByItem(rates, pack);
+  const production = productionByItem(rates, pack);
+  const consumption = consumptionByItem(rates, pack);
   const demandOf = demandByItem(targets);
   const scaleFloor = planScaleFloor(targets);
 

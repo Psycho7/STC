@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import Fraction from "fraction.js";
-import { LpInfeasibleError, solvePlan, solvePlanWithIntermediates } from "./index";
+import { LpInfeasibleError, solvePlanWithIntermediates } from "./index";
 import {
   splitTargetProducers,
   coProductTarget,
@@ -111,18 +111,9 @@ describe("solver status handling", () => {
     expect(full.logical.nodes.length).toBe(0);
   });
 
-  it("does not throw on an empty-but-feasible optimum (solvePlan)", () => {
-    const logical = solvePlan(
-      emptyFeasibleTargets,
-      emptyFeasiblePack,
-      defaultTransportConfig,
-    );
-    expect(logical.nodes.length).toBe(0);
-  });
-
   // (a) Infeasible: status "infeasible" is unreachable through the public API
   // with real packs (universal slack, see the override note above), so the flag
-  // forces solveLp's status. Both entry points must surface it as a throw whose
+  // forces solveLp's status. The entry point must surface it as a throw whose
   // message matches /infeasible/.
   const targets: ItemTarget[] = [
     {
@@ -131,14 +122,11 @@ describe("solver status handling", () => {
     },
   ];
 
-  it("throws on infeasible status (both entry points)", () => {
+  it("throws on infeasible status", () => {
     lpStatusOverride.status = "infeasible";
     try {
       expect(() =>
         solvePlanWithIntermediates(targets, pack, defaultTransportConfig),
-      ).toThrow(/infeasible/);
-      expect(() =>
-        solvePlan(targets, pack, defaultTransportConfig),
       ).toThrow(/infeasible/);
     } finally {
       lpStatusOverride.status = undefined;
