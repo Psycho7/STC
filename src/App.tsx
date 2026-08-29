@@ -500,7 +500,8 @@ function AppInner() {
   // implicated items when it is an infeasibility, falling back to the raw
   // solver message otherwise.
   const bannerText = (err: BannerError): string => {
-    if (err.kind === "load") return i18n.t("app.error.load", { message: err.message });
+    if (err.kind === "load")
+      return i18n.t("app.error.load", { message: err.message });
     if (err.kind === "edit")
       return i18n.t("app.error.edit", { message: err.message });
     const e = err.error;

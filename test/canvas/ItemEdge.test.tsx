@@ -7,6 +7,7 @@ import ItemEdge, {
   LABEL_MIN_ZOOM,
   type ItemEdgeData,
 } from "../../src/canvas/ItemEdge";
+import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
 import { parsePathPoints } from "../../src/canvas/edgePath";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
@@ -297,9 +298,6 @@ describe("canvas/ItemEdge fan-in marker", () => {
 });
 
 describe("canvas/ItemEdge declined fan-out dot", () => {
-  // The seating pass's own eps, mirrored (ItemEdge keeps it module-private).
-  const HIDE_STALE_EPS = 24;
-
   // Source and target on DIFFERENT rows, far enough apart that a stamp seated on
   // one port row is unambiguously stale against the other. Without that spread
   // the two staleness axes are indistinguishable.

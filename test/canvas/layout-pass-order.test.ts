@@ -21,6 +21,19 @@ describe("canvas/ROUTING_PASSES", () => {
       "clampBackwardRails",
       "deconflictChipAnchors",
     ]);
+    // Pin the run identities too: the entry names above are free-form strings,
+    // so a mislabelled entry would still pass the list check while running a
+    // different pass.
+    expect(ROUTING_PASSES.map((p) => p.run.name)).toEqual([
+      "routeBusEdges",
+      "routeFanoutEdges",
+      "assignEntryColumns",
+      "clearBusColumns",
+      "assignBendColumns",
+      "jogForwardLegs",
+      "clampBackwardRails",
+      "deconflictChipAnchors",
+    ]);
   });
 
   it("is a no-op chain on an empty edge list", () => {

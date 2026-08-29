@@ -11,10 +11,11 @@ import { dirname, join, resolve } from "node:path";
 import { encodePlan, type ItemOverride, type Plan } from "../../src/data/plan";
 import type { RationalString, Target } from "../../src/data/targets";
 
-// Walk upward from this file to find the parent repo that owns the AEF data
+// Walk upward from this file to find the repo root that owns the AEF data
 // pack. Matches the same discovery the app's vite.config.ts uses so the spec
-// works equally well from the main factorio/ checkout (depth ~3) and from a
-// worktree at factorio-plan/.worktrees/<branch>/ (depth ~5).
+// works equally well from the main STC/ checkout and from a worktree at
+// STC/.claude/worktrees/<branch>/ -- the pack ships inside the repo, so the
+// walk lands on the root at depth ~2 from this file either way.
 function findParentRoot(start: string): string {
   let dir = start;
   while (dir !== dirname(dir)) {
