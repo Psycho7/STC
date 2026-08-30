@@ -18,6 +18,7 @@ import Fraction from "fraction.js";
 import {
   BETWEEN_LAYERS_SPACING,
   CHIP_BOX_HEIGHT,
+  CHIP_BOX_WIDTH,
   ENTRY_GUTTER_OVERHANG,
   MAX_CHIP_SCALE,
   RECIPE_WIDTH,
@@ -194,6 +195,14 @@ export type FanoutBusEdgeData = BusAggregate & {
   // chip off the trunk's split dot; the narrow box can. The share wording stays
   // on the chip's aria-label and hover title.
   fanoutBranchIconOnly?: true;
+  // Set by routeFanoutEdges on every member of a trunk whose corridor is
+  // CONTESTED: sibling trunks spread across one layer gap closer than a
+  // worst-case chip half-box, so a full-width branch chip anywhere on the
+  // column would lap a sibling's vertical at some zoom. The seating pass takes
+  // it as iconOnly (the same collapsed render fanoutBranchIconOnly gets); the
+  // share wording stays on the aria-label / hover title and the rate on the
+  // target card's row.
+  fanoutContested?: true;
 };
 
 // Data fields the bus pass merges onto a member edge's existing `data`. A
@@ -735,13 +744,25 @@ export function routeFanoutEdges(
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
 
-  // Per-trunk aggregate + shared junction column.
-  const totalByTrunk = new Map<string, Fraction>();
-  const countByTrunk = new Map<string, number>();
-  const ownerByTrunk = new Map<string, string>();
-  const junctionXByTrunk = new Map<string, number>();
-  const memberTrunk = new Set<number>();
-  for (const [trunkKey, indices] of fanoutTrunks) {
+  // Geometry pass: resolve each trunk's shared-port geometry and corridor
+  // before any column is chosen, so trunks CONTESTING one corridor can be seen
+  // together and spread instead of each independently taking the midpoint.
+  type TrunkGeom = {
+    trunkKey: string;
+    indices: number[];
+    total: Fraction;
+    owner: string;
+    sx: number;
+    sy: number;
+    yLo: number;
+    yHi: number;
+    corLo: number;
+    corHi: number;
+    memberLegs: Array<{ tx: number; ty: number }>;
+    exempt: Set<string>;
+    desired: number;
+  };
+  const geoms: TrunkGeom[] = fanoutTrunks.map(([trunkKey, indices]) => {
     let total = new Fraction(0);
     let owner: string | undefined;
     let corridorRight = Infinity;
@@ -769,7 +790,99 @@ export function routeFanoutEdges(
       endpoints.push(target);
       memberLegs.push({ tx, ty });
     }
-    const exempt = ownExempt(endpoints);
+    const corLo = sx + PORT_STUB + CHAMFER;
+    const corHi = corridorRight - PORT_STUB - CHAMFER;
+    return {
+      trunkKey,
+      indices,
+      total,
+      owner: owner!,
+      sx,
+      sy,
+      yLo,
+      yHi,
+      corLo,
+      corHi,
+      memberLegs,
+      exempt: ownExempt(endpoints),
+      desired: clamp((sx + corridorRight) / 2, corLo, corHi),
+    };
+  });
+
+  // Contested-corridor spread (#81): trunks sharing one corridor (same [corLo,
+  // corHi] window, overlapping y-spans) must not share a column, or their
+  // verticals draw as one line and the later trunk's stroke runs straight
+  // through the earlier trunk's chips and junction dot. The chip pass cannot
+  // repair that -- a coincident foreign stroke sits within its braid tolerance
+  // of the chip's own line, exactly the "impossible by construction" case its
+  // ranking discounts -- and a corridor this narrow leaves no clear seat to
+  // slide to, so the columns themselves must spread. n contesting trunks take
+  // evenly spaced desired columns across the whole corridor (ends included:
+  // maximum pairwise separation is what keeps a sibling's vertical out of a
+  // trunk chip's drawn box); a lone trunk keeps the midpoint. Top-to-bottom by
+  // source-port y, so the spread follows reading order; trunkKey breaks ties.
+  geoms.sort(
+    (a, b) =>
+      a.corLo - b.corLo ||
+      a.corHi - b.corHi ||
+      a.sy - b.sy ||
+      (a.trunkKey < b.trunkKey ? -1 : a.trunkKey > b.trunkKey ? 1 : 0),
+  );
+  const contestedTrunks = new Set<string>();
+  for (let i = 0; i < geoms.length; ) {
+    // One corridor window: the run of trunks sharing (corLo, corHi) to the
+    // pixel, chained while their y-spans overlap the group's running extent.
+    let j = i + 1;
+    let hi = geoms[i]!.yHi;
+    while (
+      j < geoms.length &&
+      Math.round(geoms[j]!.corLo) === Math.round(geoms[i]!.corLo) &&
+      Math.round(geoms[j]!.corHi) === Math.round(geoms[i]!.corHi) &&
+      geoms[j]!.yLo <= hi
+    ) {
+      hi = Math.max(hi, geoms[j]!.yHi);
+      j++;
+    }
+    const n = j - i;
+    if (n >= 2) {
+      const { corLo, corHi } = geoms[i]!;
+      const pitch = (corHi - corLo) / (n - 1);
+      for (let k = 0; k < n; k++) {
+        geoms[i + k]!.desired = corLo + k * pitch;
+      }
+      // The spread separates the COLUMNS, but a worst-case (max counter-scale)
+      // chip box centred on one column can still reach a sibling's vertical
+      // when the pitch is narrower than its half-width. No seat anywhere on
+      // such a column sheds that stroke, so the members' branch chips collapse
+      // to the icon-only render instead (fanoutContested, stamped below).
+      if (pitch < (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2) {
+        for (let k = 0; k < n; k++) {
+          contestedTrunks.add(geoms[i + k]!.trunkKey);
+        }
+      }
+    }
+    i = j;
+  }
+
+  // Junction columns already claimed by earlier trunks, each a virtual obstacle
+  // for the trunks still resolving -- the safety net under the spread above for
+  // corridors it does not group (offset windows, y-chains broken by rounding).
+  // Half-width chosen so the padded keep-out (clearColumnX adds CHAMFER on each
+  // side) spans one PORT_STUB each way: columns closer than a stub read as one
+  // column. Y-extent is the trunk's own span, so trunks in disjoint rows may
+  // still stack on one x.
+  const JUNCTION_KEEPOUT_HALF = PORT_STUB - CHAMFER;
+  const claimedColumns: PaddedObstacle[] = [];
+
+  // Per-trunk aggregate + shared junction column.
+  const totalByTrunk = new Map<string, Fraction>();
+  const countByTrunk = new Map<string, number>();
+  const ownerByTrunk = new Map<string, string>();
+  const junctionXByTrunk = new Map<string, number>();
+  const memberTrunk = new Set<number>();
+  for (const geom of geoms) {
+    const { trunkKey, indices, total, owner, sx, sy } = geom;
+    const { yLo, yHi, corLo, corHi, memberLegs, exempt, desired } = geom;
 
     // Shared junction column, resolved with ACCEPTANCE so the whole formation
     // stays clear of foreign cards -- not just the vertical column. A candidate
@@ -781,16 +894,16 @@ export function routeFanoutEdges(
     // per-edge clamp (chamferFanoutPath re-clamps each member to its [lo, hi], so
     // a shared column outside a tighter member's range would split the trunk).
     // Own source / targets and their containers are exempt.
-    const foreignPadded = obstacles.filter((o) => !exempt.has(o.nodeId));
+    const foreignPadded = [
+      ...obstacles.filter((o) => !exempt.has(o.nodeId)),
+      ...claimedColumns,
+    ];
     const foreignRaw = rawCards.filter((o) => !exempt.has(o.nodeId));
-    const corLo = sx + PORT_STUB + CHAMFER;
-    const corHi = corridorRight - PORT_STUB - CHAMFER;
     const legsClear = (x: number): boolean =>
       !connectingLegBlocked(sx, sy, x, foreignRaw) &&
       memberLegs.every((l) => !connectingLegBlocked(l.tx, l.ty, x, foreignRaw));
     const accept = (x: number): boolean =>
       x >= corLo && x <= corHi && legsClear(x);
-    const desired = clamp((sx + corridorRight) / 2, corLo, corHi);
     const junctionX = clearColumnX(desired, yLo, yHi, foreignPadded, {
       towardTarget: 1,
       accept,
@@ -812,10 +925,18 @@ export function routeFanoutEdges(
     );
     if (!columnClear || !accept(junctionX)) continue;
 
+    claimedColumns.push({
+      nodeId: "fanout-junction:" + trunkKey,
+      kind: "gutter",
+      left: junctionX - JUNCTION_KEEPOUT_HALF,
+      right: junctionX + JUNCTION_KEEPOUT_HALF,
+      top: spanLo,
+      bottom: spanHi,
+    });
     for (const index of indices) memberTrunk.add(index);
     totalByTrunk.set(trunkKey, total);
     countByTrunk.set(trunkKey, indices.length);
-    ownerByTrunk.set(trunkKey, owner!);
+    ownerByTrunk.set(trunkKey, owner);
     junctionXByTrunk.set(trunkKey, junctionX);
   }
 
@@ -833,6 +954,9 @@ export function routeFanoutEdges(
         busTotalRate: totalByTrunk.get(trunkKey)!,
         busMemberCount: countByTrunk.get(trunkKey)!,
         busChipOwner: edge.id === ownerByTrunk.get(trunkKey),
+        ...(contestedTrunks.has(trunkKey)
+          ? { fanoutContested: true as const }
+          : {}),
       },
     };
   });

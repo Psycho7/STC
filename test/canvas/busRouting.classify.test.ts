@@ -909,6 +909,118 @@ describe("routeFanoutEdges (6C)", () => {
     }
   });
 
+  it("gives two trunks sharing one corridor distinct junction columns", () => {
+    // Two aggregate -> tap trunks in one layer gap (the default plan's ore and
+    // water tap columns, issue #81). Left alone, both resolve the corridor
+    // midpoint and their verticals draw as one line, with the later trunk's
+    // stroke running through the earlier trunk's chips and junction dot.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("aggA", "ore", 0, 0),
+      inputProductNode("aggB", "water", 0, 120),
+      inputProductNode("tA1", "ore", 300, 0),
+      inputProductNode("tA2", "ore", 300, 240),
+      inputProductNode("tB1", "water", 300, 120),
+      inputProductNode("tB2", "water", 300, 360),
+    ];
+    const edges = [
+      mkEdge("e0", "aggA", "tA1", "ore"),
+      mkEdge("e1", "aggA", "tA2", "ore"),
+      mkEdge("e2", "aggB", "tB1", "water"),
+      mkEdge("e3", "aggB", "tB2", "water"),
+    ];
+    const out = routeFanoutEdges(nodes, edges);
+    for (const id of ["e0", "e1", "e2", "e3"]) {
+      expect(out.find((e) => e.id === id)!.type).toBe("bus");
+    }
+    const jxA = fanData(out, "e0").junctionX!;
+    const jxB = fanData(out, "e2").junctionX!;
+    expect(Math.abs(jxA - jxB)).toBeGreaterThanOrEqual(PORT_STUB);
+    // Order-independence: shuffled edges resolve the same columns per trunk.
+    const shuffled = routeFanoutEdges(nodes, [
+      edges[3]!,
+      edges[1]!,
+      edges[2]!,
+      edges[0]!,
+    ]);
+    expect(fanData(shuffled, "e0").junctionX).toBe(jxA);
+    expect(fanData(shuffled, "e2").junctionX).toBe(jxB);
+  });
+
+  it("spreads a tight-corridor pair to the corridor ends", () => {
+    // One-gap corridor: usable width 410 - 300 - 2 * (PORT_STUB + CHAMFER) = 46.
+    // Two contesting trunks spread to the corridor ends, the widest separation
+    // the window allows.
+    const rc = mkRecipe("rc", ["a"], ["c"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s1", 0, 0, r),
+      recipeNode("s2", 0, 300, rc),
+      recipeNode("t1", oneGap, 0, r),
+      recipeNode("t2", oneGap, 300, r),
+      recipeNode("t3", oneGap, 150, r),
+      recipeNode("t4", oneGap, 600, r),
+    ];
+    const edges = [
+      mkEdge("e0", "s1", "t1", "b"),
+      mkEdge("e1", "s1", "t2", "b"),
+      mkEdge("e2", "s2", "t3", "c"),
+      mkEdge("e3", "s2", "t4", "c"),
+    ];
+    const out = routeFanoutEdges(nodes, edges);
+    for (const id of ["e0", "e1", "e2", "e3"]) {
+      expect(out.find((e) => e.id === id)!.type).toBe("bus");
+    }
+    // The top trunk (sy order) takes the corridor's low end; the other spreads
+    // as far right as the obstacle model allows, at least a PORT_STUB away.
+    expect(fanData(out, "e0").junctionX).toBe(300 + PORT_STUB + CHAMFER);
+    expect(
+      fanData(out, "e2").junctionX! - fanData(out, "e0").junctionX!,
+    ).toBeGreaterThanOrEqual(PORT_STUB);
+  });
+
+  it("leaves a trunk unformed when the spread pitch falls under the column keep-out", () => {
+    // THREE trunks contesting the same 46-unit corridor: the spread pitch (23)
+    // sits under the one-PORT_STUB column keep-out, so one trunk finds no
+    // acceptable distinct column and its members stay plain item edges (the
+    // existing no-formation fallback); the formed trunks keep distinct columns.
+    const rc = mkRecipe("rc", ["a"], ["c"]);
+    const rd = mkRecipe("rd", ["a"], ["d"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("s1", 0, 0, r),
+      recipeNode("s2", 0, 300, rc),
+      recipeNode("s3", 0, 600, rd),
+      recipeNode("t1", oneGap, 0, r),
+      recipeNode("t2", oneGap, 900, r),
+      recipeNode("t3", oneGap, 150, r),
+      recipeNode("t4", oneGap, 750, r),
+      recipeNode("t5", oneGap, 450, r),
+      recipeNode("t6", oneGap, 1050, r),
+    ];
+    const edges = [
+      mkEdge("e0", "s1", "t1", "b"),
+      mkEdge("e1", "s1", "t2", "b"),
+      mkEdge("e2", "s2", "t3", "c"),
+      mkEdge("e3", "s2", "t4", "c"),
+      mkEdge("e4", "s3", "t5", "d"),
+      mkEdge("e5", "s3", "t6", "d"),
+    ];
+    const out = routeFanoutEdges(nodes, edges);
+    const formed = ["e0", "e2", "e4"].filter(
+      (id) => out.find((e) => e.id === id)!.type === "bus",
+    );
+    expect(formed).toHaveLength(2);
+    const columns = formed.map((id) => fanData(out, id).junctionX!);
+    expect(Math.abs(columns[0]! - columns[1]!)).toBeGreaterThanOrEqual(
+      PORT_STUB,
+    );
+    // The unformed trunk's members BOTH stayed plain item edges.
+    const unformedOwner = ["e0", "e2", "e4"].find(
+      (id) => !formed.includes(id),
+    )!;
+    const sibling = { e0: "e1", e2: "e3", e4: "e5" }[unformedOwner]!;
+    expect(out.find((e) => e.id === unformedOwner)!.type).toBe("item");
+    expect(out.find((e) => e.id === sibling)!.type).toBe("item");
+  });
+
   it("does NOT double-capture long-span bus members", () => {
     // A two-member long-span trunk is already a lane bus after routeBusEdges;
     // routeFanoutEdges (running on that output) must leave them on the lane, not

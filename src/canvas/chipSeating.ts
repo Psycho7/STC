@@ -2509,10 +2509,14 @@ export function deconflictChipAnchors(
       entryBandOf(edge),
       {
         barrierYs: seatedBranchYByTrunk.get(trunkKey),
-        // A short-leg branch chip renders collapsed (stamped below), so it
-        // reserves the square icon box here: the wide box is broader than the
-        // leg, which is exactly why no seat on it could clear the split dot.
-        iconOnly: shortBranchByIndex.has(index),
+        // A short-leg or contested-corridor branch chip renders collapsed
+        // (stamped below), so it reserves the square icon box here: the wide
+        // box is broader than the leg (short-leg) or reaches the sibling
+        // trunk's column from every seat (contested), which is exactly why no
+        // full seat could clear the split dot / sibling stroke.
+        iconOnly:
+          shortBranchByIndex.has(index) ||
+          (edge.data as FanoutBusEdgeData).fanoutContested === true,
         text: branchChipText(edge),
       },
     );
@@ -2634,7 +2638,10 @@ export function deconflictChipAnchors(
     const fanoutJunction = fanoutJunctionByIndex.get(index);
     const faninChipHidden = faninChipHiddenByIndex.has(index);
     const chipIconOnly = shortLegByIndex.has(index);
-    const fanoutBranchIconOnly = shortBranchByIndex.has(index);
+    const fanoutBranchIconOnly =
+      shortBranchByIndex.has(index) ||
+      (fanoutGeomByIndex.has(index) &&
+        (edge.data as FanoutBusEdgeData).fanoutContested === true);
     if (
       !chipIconOnly &&
       !fanoutBranchIconOnly &&
