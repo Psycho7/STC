@@ -185,7 +185,12 @@ export async function runCli(argv: string[]): Promise<string> {
   }
 
   // --- Run LP ---
-  const lpResult = solveLp({ targets, pack, itemOverrides, recipeCosts });
+  const lpResult = solveLp({
+    targets,
+    pack,
+    itemOverrides,
+    ...(recipeCosts !== undefined ? { recipeCosts } : {}),
+  });
 
   const lines: string[] = [];
 
@@ -252,7 +257,7 @@ export async function runCli(argv: string[]): Promise<string> {
       targets,
       pack,
       itemOverrides,
-      recipeCosts,
+      ...(recipeCosts !== undefined ? { recipeCosts } : {}),
     });
 
     lines.push("# invariants");
@@ -366,9 +371,9 @@ export async function runCli(argv: string[]): Promise<string> {
     lines.push("# render-invariants");
     for (let i = 0; i < Math.min(results.length, RENDER_INVARIANT_NAMES.length); i++) {
       for (const l of fmtVerdict(
-        RENDER_INVARIANT_NAMES[i],
-        results[i].ok,
-        results[i].violations,
+        RENDER_INVARIANT_NAMES[i]!,
+        results[i]!.ok,
+        results[i]!.violations,
       )) {
         lines.push(l);
       }

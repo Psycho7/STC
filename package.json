@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "format": "prettier --check .",
     "typecheck": "tsc --noEmit",
-    "typecheck:tools": "tsc --noEmit -p tsconfig.tools.json",
+    "typecheck:tools": "tsc --noEmit -p tsconfig.tools.json && tsc --noEmit -p tools/oracle/tsconfig.json",
     "extract": "bun run tools/extractor/src/extract.ts",
     "test:e2e": "playwright test"
   },

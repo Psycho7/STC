@@ -1,13 +1,14 @@
 {
-  // Typecheck gate for the exam harness under tools/, which the root config's
-  // `include` does not reach and which nothing under src/ or test/ imports, so
-  // `tsc --noEmit` would never see it. Scoped to tools/exam on purpose: the
-  // other tools (extractor, solver-cli, oracle) are not known to be clean under
-  // these options, and dragging them in would make this gate unlandable.
+  // Typecheck gate for the tools/ CLIs, which the root config's `include` does
+  // not reach and which nothing under src/ or test/ imports, so `tsc --noEmit`
+  // would never see them. Covers tools/exam and tools/solver-cli; tools/oracle
+  // needs its own path aliases and is checked by its own tsconfig (chained in
+  // the typecheck:tools script). tools/extractor is not known to be clean under
+  // these options, and dragging it in would make this gate unlandable.
   //
   // src/vite-env.d.ts is listed because ambient declarations are only picked up
   // from `include`, not from the import graph, and the exam CLI reaches src
   // modules that use import.meta.env and the ?url asset imports it declares.
   "extends": "./tsconfig.json",
-  "include": ["tools/exam", "src/vite-env.d.ts"]
+  "include": ["tools/exam", "tools/solver-cli", "src/vite-env.d.ts"]
 }
