@@ -56,6 +56,7 @@ export type RateEdit = {
   clearPendingEdit: (itemId: string) => void;
   carryPendingEdit: (oldItemId: string, newItemId: string) => void;
   seedCommittedText: (itemId: string, text: string) => void;
+  pruneEditsTo: (liveItemIds: ReadonlySet<string>) => void;
 };
 
 // The edit / commit / revert / invalid protocol behind one rate input family.
@@ -194,6 +195,29 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     // new row shows that instead of the re-serialized Fraction.
     seedCommittedText(itemId, text) {
       setTexts((prev) => new Map(prev).set(itemId, text));
+    },
+    // Drop every pending / seeded entry whose row has left the family, whatever
+    // removed it: clearPendingEdit covers only the explicit remove button, but
+    // a row can also disappear when its backing collection changes under the
+    // panel, and a surviving entry would resurface if the same item returns.
+    pruneEditsTo(liveItemIds) {
+      for (const id of [...dirty.current]) {
+        if (!liveItemIds.has(id)) dirty.current.delete(id);
+      }
+      setInvalidIds((prev) => {
+        const stale = [...prev].filter((id) => !liveItemIds.has(id));
+        if (stale.length === 0) return prev;
+        const next = new Set(prev);
+        for (const id of stale) next.delete(id);
+        return next;
+      });
+      setTexts((prev) => {
+        const stale = [...prev.keys()].filter((id) => !liveItemIds.has(id));
+        if (stale.length === 0) return prev;
+        const next = new Map(prev);
+        for (const id of stale) next.delete(id);
+        return next;
+      });
     },
   };
 }
