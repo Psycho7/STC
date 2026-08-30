@@ -4,6 +4,7 @@ import {
   formatRateExactPerMin,
   formatRatePerMin,
   formatRationalPerMin,
+  parsePerMinToRatePerSec,
   ratePerSecToPerMin,
 } from "./rate-format";
 
@@ -143,4 +144,22 @@ test("ratePerSecToPerMin round-trips a beyond-double rate through the panel pars
   const text = ratePerSecToPerMin(rps);
   const reparsed = new Fraction(text).div(60);
   expect(reparsed.equals(new Fraction(perMinDigits).div(60))).toBe(true);
+});
+
+test("parsePerMinToRatePerSec parses integer, decimal, and rational text", () => {
+  // 120/min = 2/s; 30.5/min = 61/120 per sec; "1/3"/min = 1/180 per sec.
+  expect(parsePerMinToRatePerSec("120")).toEqual({ num: "2", denom: "1" });
+  expect(parsePerMinToRatePerSec("30.5")).toEqual({ num: "61", denom: "120" });
+  expect(parsePerMinToRatePerSec("1/3")).toEqual({ num: "1", denom: "180" });
+  // A whole-number result still carries an explicit "1" denominator.
+  expect(parsePerMinToRatePerSec("0")).toEqual({ num: "0", denom: "1" });
+});
+
+test("parsePerMinToRatePerSec rejects negatives, garbage, and empty text", () => {
+  expect(parsePerMinToRatePerSec("-5")).toBeUndefined();
+  expect(parsePerMinToRatePerSec("abc")).toBeUndefined();
+  // Fraction throws on the empty string; what "no text" means stays with the
+  // caller (useRateEdit's emptyMeans).
+  expect(parsePerMinToRatePerSec("")).toBeUndefined();
+  expect(parsePerMinToRatePerSec("   ")).toBeUndefined();
 });

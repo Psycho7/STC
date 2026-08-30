@@ -6,7 +6,7 @@
 // floating in empty canvas. Staying on the own line, even when that grazes a
 // foreign line, must outrank leaving the line.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import {
   chipEntersOwnCardBody,
@@ -1252,6 +1252,33 @@ describe("ClearanceField: the seat / unseat contract", () => {
     // than the slide a lingering phantom box would have forced.
     const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
+  });
+
+  it("unseat of a non-last or absent box is a warned no-op", () => {
+    const field = makeClearanceField([], []);
+    const mkBox = (x: number) => ({
+      x,
+      y: LINE.anchorY,
+      halfW: HALF_W,
+      halfH: HALF_H,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Absent: a box the field never seated leaves it untouched.
+      field.unseat(mkBox(0));
+      expect(field.placed).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      // Not last: a box seated BEFORE another live seat stays placed, and so
+      // does the later seat -- the pop applies only to the most recent seat.
+      const first = field.seat(mkBox(100));
+      const second = field.seat(mkBox(400));
+      field.unseat(first);
+      expect(field.placed).toEqual([first, second]);
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("returns the box it seated, centred at the anchor plus the offsets", () => {
