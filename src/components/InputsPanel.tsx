@@ -149,16 +149,33 @@ export function InputsPanel({
         // Row removed since the edit: no-op (same reference).
         if (idx < 0) return current;
         const next = current.slice();
+        // Spread the existing override so a rate edit never drops its other
+        // fields (a hand-authored hash can carry plan: true).
+        const row = { ...next[idx]! };
         if (parsed === undefined) {
           // Uncapped: drop ratePerSec from the override.
-          next[idx] = { itemId };
+          delete row.ratePerSec;
         } else {
-          next[idx] = { itemId, ratePerSec: parsed };
+          row.ratePerSec = parsed;
         }
+        next[idx] = row;
         return next;
       });
     },
   });
+  // Prune pending / seeded texts for rows that left the override list by any
+  // route: handleRemove clears its own row, but a promoted override can also
+  // vanish when the list changes under the panel, and a surviving seeded text
+  // would resurface if the item's row returns.
+  const overrideIds = useMemo(
+    () => new Set(itemOverrides.map((o) => o.itemId)),
+    [itemOverrides],
+  );
+  useEffect(() => {
+    rowEdit.pruneEditsTo(overrideIds);
+    // rowEdit is rebuilt every render; the prune depends only on the live ids.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overrideIds]);
   // The same protocol for the auto-rows. A valid non-empty rate promotes the
   // auto-row into an explicit override; an empty one is a no-op, since
   // "Unlimited" is the auto state. The text only needs to survive until commit
@@ -200,10 +217,9 @@ export function InputsPanel({
       if (current.some((o) => o.itemId === newItemId)) return current;
       const next = current.slice();
       const row = next[idx]!;
-      // Keep any rate the row had when the user swaps the item.
-      next[idx] = row.ratePerSec
-        ? { itemId: newItemId, ratePerSec: row.ratePerSec }
-        : { itemId: newItemId };
+      // Keep any rate (and every other override field, e.g. plan) when the
+      // user swaps the item; only itemId changes.
+      next[idx] = { ...row, itemId: newItemId };
       return next;
     });
   }
@@ -217,10 +233,9 @@ export function InputsPanel({
     });
   }
 
-  // Auto-rows are every assumed-raw item WITHOUT an explicit override, shown
-  // regardless of how many overrides exist. Capping one item no longer hides the
-  // realized demand of the remaining raw inputs.
-  const overrideIds = new Set(itemOverrides.map((o) => o.itemId));
+  // Auto-rows are every assumed-raw item WITHOUT an explicit override
+  // (overrideIds above), shown regardless of how many overrides exist. Capping
+  // one item no longer hides the realized demand of the remaining raw inputs.
   const autoRows = (assumedRawItemIds ?? []).filter(
     (id) => !overrideIds.has(id),
   );

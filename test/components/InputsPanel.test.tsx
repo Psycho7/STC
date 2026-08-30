@@ -337,6 +337,94 @@ describe("InputsPanel", () => {
     }
   });
 
+  it("a rate edit and an item swap both keep ItemOverride.plan", async () => {
+    // plan: true only ever arrives on a hand-authored hash; the rebuild sites
+    // must spread the existing override so an edit does not silently strip it.
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const overrides: ItemOverride[] = [
+      { itemId: "copper_ore", plan: true, ratePerSec: { num: "1", denom: "1" } },
+    ];
+    render(
+      <InputsPanel
+        itemOverrides={overrides}
+        onChange={onChange}
+        pack={fixturePack}
+      />,
+    );
+    const input = screen.getAllByLabelText("速率")[0]!;
+    fireEvent.change(input, { target: { value: "120" } });
+    fireEvent.blur(input);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(firstUpdater(onChange)(overrides)).toEqual([
+      { itemId: "copper_ore", plan: true, ratePerSec: { num: "2", denom: "1" } },
+    ]);
+
+    await user.click(rowTrigger());
+    await user.click(pickerTile("iron_ore")!);
+    expect(onChange).toHaveBeenCalledTimes(2);
+    const swap = onChange.mock.calls[1]![0] as (
+      current: ItemOverride[],
+    ) => ItemOverride[];
+    expect(swap(overrides)).toEqual([
+      { itemId: "iron_ore", plan: true, ratePerSec: { num: "1", denom: "1" } },
+    ]);
+  });
+
+  it("prunes a promoted row's seeded text when the override leaves by prop change", () => {
+    // Promotion seeds the override family's display text without the dirty
+    // flag; only handleRemove used to clear it, so an override dropped by any
+    // other route left the text behind to resurface when the item returned.
+    const onChange = vi.fn();
+    const view = render(
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={onChange}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore"]}
+      />,
+    );
+    const auto = screen.getAllByLabelText("速率")[0]!;
+    fireEvent.change(auto, { target: { value: "60" } });
+    fireEvent.blur(auto);
+    // The commit promotes and seeds "60" into the override family.
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    // The parent applies the promotion, then later drops the override by some
+    // route other than the row's X button...
+    view.rerender(
+      <InputsPanel
+        itemOverrides={[
+          { itemId: "copper_ore", ratePerSec: { num: "1", denom: "1" } },
+        ]}
+        onChange={onChange}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore"]}
+      />,
+    );
+    view.rerender(
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={onChange}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore"]}
+      />,
+    );
+    // ...and when the item returns as an uncapped override, the field shows
+    // the fresh prop-derived value, not the stale seeded "60".
+    view.rerender(
+      <InputsPanel
+        itemOverrides={[{ itemId: "copper_ore" }]}
+        onChange={onChange}
+        pack={fixturePack}
+        assumedRawItemIds={["copper_ore"]}
+      />,
+    );
+    const row = screen.getByTestId("input-row");
+    const rate = row.querySelector("input")!;
+    expect(rate.value).toBe("");
+  });
+
   it("negative rate is rejected: retains prior value, does not call onChange", () => {
     vi.useFakeTimers();
     try {
