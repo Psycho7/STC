@@ -339,6 +339,65 @@ test("uncommitted rate edit follows the row across an item swap", () => {
   ]);
 });
 
+test("an item swap hands focus to the swapped row's trigger", () => {
+  // The swap unmounts the row (keys are itemIds), so without the pending-focus
+  // token the picker's close refocus falls to the body.
+  let latest: Target[] = [
+    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
+  ];
+  function Parent() {
+    const [t, setT] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <TargetsPanel
+          targets={t}
+          onChange={(update) => {
+            latest = update(latest);
+            setT(latest);
+          }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  fireEvent.click(screen.getByLabelText(/item/i));
+  pickTile("gadget");
+  const trigger = screen.getByLabelText(/gadget/i);
+  expect(document.activeElement).toBe(trigger);
+});
+
+test("a promoted draft hands focus to the new row's rate input", () => {
+  let latest: Target[] = [];
+  function Parent() {
+    const [t, setT] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <TargetsPanel
+          targets={t}
+          onChange={(update) => {
+            latest = update(latest);
+            setT(latest);
+          }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  fireEvent.click(screen.getByText(/add/i));
+  fireEvent.click(screen.getByLabelText(/choose/i));
+  pickTile("widget");
+  const draftRate = rateInputs()[0]!;
+  fireEvent.change(draftRate, { target: { value: "60" } });
+  fireEvent.keyDown(draftRate, { key: "Enter" });
+  // The draft promoted into a real row; its rate input carries the focus on.
+  expect(latest).toEqual([
+    { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
+  ]);
+  expect(document.activeElement).toBe(rateInputs()[0]!);
+});
+
 // Removing a row that has an uncommitted edit must never commit that edit.
 test("removing a row with an uncommitted edit does not commit it", () => {
   let latest: Target[] = targets3();
@@ -503,6 +562,41 @@ test("a draft with an item but a zero rate does not commit", () => {
 });
 
 // Removing a draft is a purely local action: the plan is never touched.
+test("a draft's unparseable rate shows the invalid cue; zero stays quiet", () => {
+  let latest: Target[] = [];
+  function Parent() {
+    const [t, setT] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <TargetsPanel
+          targets={t}
+          onChange={(update) => {
+            latest = update(latest);
+            setT(latest);
+          }}
+          pack={PACK}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  fireEvent.click(screen.getByText(/add/i));
+  const draftRate = rateInputs()[0]!;
+  fireEvent.change(draftRate, { target: { value: "abc" } });
+  fireEvent.keyDown(draftRate, { key: "Enter" });
+  expect(latest).toEqual([]);
+  expect(draftRate.getAttribute("aria-invalid")).toBe("true");
+  expect(screen.getByTestId("rate-invalid")).toBeTruthy();
+  // Typing clears the cue.
+  fireEvent.change(draftRate, { target: { value: "ab" } });
+  expect(draftRate.getAttribute("aria-invalid")).toBeNull();
+  // The pinned zero-rate refusal stays quiet (its cue needs a ruling).
+  fireEvent.change(draftRate, { target: { value: "0" } });
+  fireEvent.keyDown(draftRate, { key: "Enter" });
+  expect(latest).toEqual([]);
+  expect(draftRate.getAttribute("aria-invalid")).toBeNull();
+});
+
 test("removing a draft never touches the plan", () => {
   const onChange = vi.fn();
   render(

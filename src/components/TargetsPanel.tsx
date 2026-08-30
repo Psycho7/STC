@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RecipePack } from "@aef/schema";
 import type { Target } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
@@ -11,6 +11,8 @@ import { computeItemDepths } from "../data/recipe-depth";
 import { iconPosition } from "../canvas/iconSprite";
 import { ItemPickerPopup } from "./ItemPickerPopup";
 import { useRateEdit } from "./useRateEdit";
+
+type PendingFocus = { itemId: string; kind: "rate" | "trigger" };
 
 type Props = {
   targets: Target[];
@@ -45,12 +47,31 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     const btn = triggerRef.current;
     triggerRef.current = null;
     // The trigger may have been removed (a promoted draft, or a row swapped
-    // onto another item - rows are keyed by itemId), so guard the focus. When
-    // it has gone, focus falls to the body: InputsPanel hands it to the
-    // replacement row instead, and this panel does not yet. Fixing it here
-    // wants the same pending-focus token, or row keys that survive an item
-    // swap.
+    // onto another item - rows are keyed by itemId), so guard the focus. The
+    // removed cases hand focus to the replacement row through the
+    // pending-focus token below instead.
     if (btn && document.contains(btn)) btn.focus();
+  }
+  // Armed by a pick or a draft promotion, consumed by the matching row's
+  // callback ref on the next commit (the InputsPanel token, same rules): a
+  // swap or promotion unmounts the element that held focus, so the token
+  // hands it to the replacement row.
+  const pendingFocus = useRef<PendingFocus | null>(null);
+  // The token lives for exactly one commit: ref callbacks run before effects,
+  // so a consumed token is already null here and an unapplied one is dropped
+  // rather than firing on a later unrelated commit.
+  useEffect(() => {
+    pendingFocus.current = null;
+  });
+  function focusOnMount(
+    el: HTMLElement | null,
+    itemId: string,
+    kind: PendingFocus["kind"],
+  ) {
+    const want = pendingFocus.current;
+    if (!el || !want || want.itemId !== itemId || want.kind !== kind) return;
+    pendingFocus.current = null;
+    el.focus();
   }
   const [duplicateError, setDuplicateError] = useState<{
     rowId: string;
@@ -109,7 +130,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
   // has both a chosen item and a committed nonzero rate; drafts are local
   // state, so navigation (which remounts the panel) drops them.
   const [drafts, setDrafts] = useState<
-    Array<{ id: string; itemId: string; rate: string }>
+    Array<{ id: string; itemId: string; rate: string; invalid?: boolean }>
   >([]);
   const draftSeq = useRef(0);
 
@@ -126,11 +147,19 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
   // item and a committed nonzero rate (dropping the draft), otherwise just
   // store the updated draft. A nonzero rate is required so an empty or 0 draft
   // never churns a re-solve for a row that renders nothing.
-  function applyDraft(next: { id: string; itemId: string; rate: string }) {
+  function applyDraft(next: {
+    id: string;
+    itemId: string;
+    rate: string;
+    invalid?: boolean;
+  }) {
     const parsed = parsePerMinToRatePerSec(next.rate);
     const ready =
       next.itemId !== "" && parsed !== undefined && parsed.num !== "0";
     if (ready) {
+      // Promotion swaps the draft's inputs for the new row's, so hand the
+      // focus to the replacement rate input.
+      pendingFocus.current = { itemId: next.itemId, kind: "rate" };
       onChange((current) =>
         current.some((t) => t.itemId === next.itemId)
           ? current
@@ -138,7 +167,13 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
       );
       removeDraft(next.id);
     } else {
-      setDrafts((prev) => prev.map((d) => (d.id === next.id ? next : d)));
+      // Cue an unparseable non-empty rate the way a committed row does. Empty
+      // text stays quiet (a fresh draft blurs constantly), and so does the
+      // pinned zero-rate refusal, whose cue still needs a ruling.
+      const invalid = next.rate.trim() !== "" && parsed === undefined;
+      setDrafts((prev) =>
+        prev.map((d) => (d.id === next.id ? { ...next, invalid } : d)),
+      );
     }
   }
 
@@ -187,6 +222,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                   // title shows the full localised item name on hover, for
                   // when the trigger truncates long names at narrow widths.
                   title={i18n.displayName(t.itemId)}
+                  ref={(el) => focusOnMount(el, t.itemId, "trigger")}
                   onClick={(e) => {
                     triggerRef.current = e.currentTarget;
                     setPickerFor({ kind: "row", itemId: t.itemId });
@@ -215,6 +251,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                 aria-describedby={
                   rate.invalid ? `t-rate-err-${t.itemId}` : undefined
                 }
+                ref={(el) => focusOnMount(el, t.itemId, "rate")}
                 {...rate.inputProps}
               />
               <span className="unit">{i18n.t("targets.rate.unit")}</span>
@@ -294,11 +331,20 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                 type="text"
                 inputMode="decimal"
                 aria-label={i18n.t("targets.rate.label")}
+                aria-invalid={draft.invalid === true ? true : undefined}
+                aria-describedby={
+                  draft.invalid === true ? `t-rate-err-${draft.id}` : undefined
+                }
+                className={draft.invalid === true ? "invalid" : undefined}
                 value={draft.rate}
                 onChange={(e) =>
                   setDrafts((prev) =>
                     prev.map((d) =>
-                      d.id === draft.id ? { ...d, rate: e.target.value } : d,
+                      d.id === draft.id
+                        ? // Typing clears the cue; the value is re-checked on
+                          // the next apply, like the committed-row protocol.
+                          { ...d, rate: e.target.value, invalid: false }
+                        : d,
                     ),
                   )
                 }
@@ -308,6 +354,15 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
                 }}
               />
               <span className="unit">{i18n.t("targets.rate.unit")}</span>
+              {draft.invalid === true ? (
+                <span
+                  className="b-rate-err"
+                  id={`t-rate-err-${draft.id}`}
+                  data-testid="rate-invalid"
+                >
+                  {i18n.t("rate.invalid")}
+                </span>
+              ) : null}
             </div>
             <button
               className="b-remove"
@@ -347,7 +402,13 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
             // Re-picking the row's own (still-enabled, highlighted) item is a
             // confirm, not a swap; without this guard the dup check would match
             // the row itself and raise a false duplicate alert.
-            if (newId !== rowId) handleItemChange(rowId, newId);
+            if (newId !== rowId) {
+              // The swap unmounts this row (rows are keyed by itemId), so
+              // closePicker's refocus lands on a button the next commit
+              // removes. Hand focus to the swapped row's trigger instead.
+              pendingFocus.current = { itemId: newId, kind: "trigger" };
+              handleItemChange(rowId, newId);
+            }
             closePicker();
           }}
           onClose={closePicker}
