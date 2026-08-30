@@ -63,14 +63,15 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     emptyMeans: "invalid",
     keepTextAfterCommit: true,
     // A failed parse never mutates the plan, so this runs only for a rate the
-    // row can take; under emptyMeans "invalid" parsed is never undefined.
+    // row can take; the "invalid" arm of RateEditConfig types parsed
+    // non-optional.
     commit: (itemId, parsed) => {
       onChange((current) => {
         const idx = current.findIndex((t) => t.itemId === itemId);
         // Row removed since the edit: no-op (same reference).
         if (idx < 0) return current;
         const next = current.slice();
-        next[idx] = { ...next[idx]!, ratePerSec: parsed! };
+        next[idx] = { ...next[idx]!, ratePerSec: parsed };
         return next;
       });
     },

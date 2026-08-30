@@ -19,22 +19,37 @@ export type RateField = {
   };
 };
 
-export type RateEditConfig = {
-  // "invalid": empty text fails to parse and takes the invalid path (targets).
-  // "uncap":   empty text is a valid commit with parsed === undefined (inputs).
-  emptyMeans: "invalid" | "uncap";
-  // true  keeps the committed text as the display value (a committed "1/3"
-  //       must not re-serialize into a float on the next render).
-  // false drops it, so the row falls back to its fallbackText after commit.
-  keepTextAfterCommit: boolean;
-  // Called only after a successful parse. The hook never builds a plan row:
-  // the caller decides spread-vs-rebuild and may call onChange from here.
-  commit: (
-    itemId: string,
-    parsed: RationalString | undefined,
-    text: string,
-  ) => void;
-};
+// A union discriminated on emptyMeans, so commit's parsed type carries the
+// empty-text contract: an "invalid" instance can never commit undefined (empty
+// text takes the failed-parse path), and its callers need no non-null
+// assertion; only an "uncap" instance commits undefined (the "no rate limit"
+// commit for empty text).
+export type RateEditConfig =
+  | {
+      // "invalid": empty text fails to parse and takes the invalid path
+      // (targets).
+      emptyMeans: "invalid";
+      // true  keeps the committed text as the display value (a committed "1/3"
+      //       must not re-serialize into a float on the next render).
+      // false drops it, so the row falls back to its fallbackText after
+      //       commit.
+      keepTextAfterCommit: boolean;
+      // Called only after a successful parse. The hook never builds a plan
+      // row: the caller decides spread-vs-rebuild and may call onChange from
+      // here.
+      commit: (itemId: string, parsed: RationalString, text: string) => void;
+    }
+  | {
+      // "uncap": empty text is a valid commit with parsed === undefined
+      // (inputs).
+      emptyMeans: "uncap";
+      keepTextAfterCommit: boolean;
+      commit: (
+        itemId: string,
+        parsed: RationalString | undefined,
+        text: string,
+      ) => void;
+    };
 
 export type RateEdit = {
   field: (itemId: string, fallbackText: string) => RateField;
@@ -105,15 +120,24 @@ export function useRateEdit(config: RateEditConfig): RateEdit {
     if (!dirty.current.has(itemId)) return;
     const text = texts.get(itemId);
     if (text === undefined) return;
-    // Under "uncap" an empty field is a valid commit meaning "no rate limit";
-    // under "invalid" it takes the failed-parse path like any other bad text.
-    const uncap = config.emptyMeans === "uncap" && text.trim() === "";
-    const parsed = uncap ? undefined : parsePerMinToRatePerSec(text);
-    if (uncap || parsed !== undefined) {
-      config.commit(itemId, parsed, text);
+    function finishCommit(): void {
       dirty.current.delete(itemId);
       markInvalid(itemId, false);
       if (!config.keepTextAfterCommit) dropText(itemId);
+    }
+    // Under "uncap" an empty field is a valid commit meaning "no rate limit";
+    // under "invalid" it takes the failed-parse path like any other bad text.
+    // The branch order carries the RateEditConfig union's contract without a
+    // cast: only the "uncap" arm ever commits undefined.
+    if (config.emptyMeans === "uncap" && text.trim() === "") {
+      config.commit(itemId, undefined, text);
+      finishCommit();
+      return;
+    }
+    const parsed = parsePerMinToRatePerSec(text);
+    if (parsed !== undefined) {
+      config.commit(itemId, parsed, text);
+      finishCommit();
       return;
     }
     if (revert) {
