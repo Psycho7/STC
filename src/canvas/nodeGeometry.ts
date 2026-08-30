@@ -104,3 +104,13 @@ export function portOffsetY(
   }
   return nodeHeight(node) / 2;
 }
+
+// Did portOffsetY resolve `y` to an actual row on this node, rather than the
+// centre fallback? Exact on recipe nodes by the discriminator in item 4 of the
+// header contract (rows at 97 + 22i can never equal the centre 59 + 11 *
+// maxRows); the canonical statement of that proof lives there, and callers that
+// need "resolved vs fallback" must go through this predicate instead of
+// restating the numbers.
+export function portRowResolved(node: RFAnyNode, y: number): boolean {
+  return !(node.type === "recipe" && y === nodeHeight(node) / 2);
+}

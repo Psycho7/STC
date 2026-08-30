@@ -88,6 +88,7 @@ import {
   nodeHeight,
   nodeWidth,
   portOffsetY,
+  portRowResolved,
 } from "./nodeGeometry";
 import { formatRatePerMin } from "../data/rate-format";
 // Type-only: ItemEdge.tsx declares the base canvas edge payload this pass seats
@@ -1641,18 +1642,16 @@ export function cardRectsFor(
 // The drawn port y for one endpoint. The recipe dy applies only when the port
 // resolved to an actual row: portOffsetY falls back to the node's vertical
 // centre for an unresolvable item / order, and that fallback is a deliberate
-// approximation of an unknown row, not a row shifted by the card border. A row
-// mid-line can never coincide with the centre -- rows sit at 97 + 22i and the
-// card centre at 59 + 11*maxRows, and 22i + 38 = 11*maxRows has no integer
-// solution -- so comparing against the centre is an exact test for "resolved".
+// approximation of an unknown row, not a row shifted by the card border.
+// portRowResolved tells the two apart exactly (its row-vs-centre proof lives
+// with it in nodeGeometry.ts).
 function driftedPortY(
   node: RFAnyNode,
   item: string | undefined,
   side: "in" | "out",
 ): number {
   const y = portOffsetY(node, item, side);
-  const centreFallback = node.type === "recipe" && y === nodeHeight(node) / 2;
-  return centreFallback ? y : y + portDrift(node).dy;
+  return portRowResolved(node, y) ? y + portDrift(node).dy : y;
 }
 
 // The four port coordinates an edge's path builders take, resolved the same way
