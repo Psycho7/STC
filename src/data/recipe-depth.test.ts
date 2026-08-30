@@ -371,3 +371,12 @@ describe("real pack ranking", () => {
     expect(unranked).toEqual([]);
   });
 });
+
+describe("depth memoization", () => {
+  it("returns the same maps for repeated calls on one pack", () => {
+    // Identity, not just equality: the fixpoint runs once per pack object and
+    // repeated solves reuse it.
+    expect(computeRecipeDepths(realPack)).toBe(computeRecipeDepths(realPack));
+    expect(computeItemDepths(realPack)).toBe(computeItemDepths(realPack));
+  });
+});

@@ -88,14 +88,33 @@ function computeDepths(pack: RecipePack): {
   return { depthToRecipe, depthToItem };
 }
 
+// Depth results memoized per pack object. The pack is a module-level constant
+// in the app (one entry for the whole session) and the fixpoint is pure in it,
+// so identity keying is exact; a WeakMap keeps test-built packs collectable.
+// The expensive repeat caller is the solver (once per solve); the panel call
+// sites are already useMemo'd.
+const depthsByPack = new WeakMap<
+  RecipePack,
+  ReturnType<typeof computeDepths>
+>();
+
+function cachedDepths(pack: RecipePack): ReturnType<typeof computeDepths> {
+  let depths = depthsByPack.get(pack);
+  if (depths === undefined) {
+    depths = computeDepths(pack);
+    depthsByPack.set(pack, depths);
+  }
+  return depths;
+}
+
 // Recipe ranks for the solver: pickProducer orders each item's candidate
 // producers by this depth.
 export function computeRecipeDepths(pack: RecipePack): Map<string, number> {
-  return computeDepths(pack).depthToRecipe;
+  return cachedDepths(pack).depthToRecipe;
 }
 
 // Item ranks for the UI: the recipe picker groups target tiles by this depth.
 // Same fixpoint as computeRecipeDepths, viewed from the item side.
 export function computeItemDepths(pack: RecipePack): Map<string, number> {
-  return computeDepths(pack).depthToItem;
+  return cachedDepths(pack).depthToItem;
 }
