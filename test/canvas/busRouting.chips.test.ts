@@ -595,6 +595,11 @@ describe("deconflictChipAnchors: bus drop cascade cap", () => {
       trunkKey: "a|s",
       busChipOwner: true,
       busMemberCount: 1,
+      // A lane slot, as routeBusEdges hands a lone member on a SHORT run: with
+      // it present the member is not a long lone run, so the drop chip still
+      // seats here and these cascade pins keep their subject (#83 defers the
+      // slot-less long-run drop instead).
+      busChipX: 400,
       busBand: "bottom" as const,
     },
   });

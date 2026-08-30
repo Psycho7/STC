@@ -97,11 +97,13 @@ describe("canvas/BusEdge", () => {
   });
 
   it("draws the junction dot in the HTML label layer at (branch point, laneY)", async () => {
+    // Multi-member: a lone trunk has no branch point and draws no dot (#83).
     renderEdge({
       item: "Iron Plate",
       rate: new Fraction(2, 1),
       laneY: 500,
       trunkKey: "Iron Plate|src",
+      busMemberCount: 2,
     });
     await findEdgePath();
     // No SVG circle any more: the dot moved into the label layer so it z-wins
@@ -128,6 +130,7 @@ describe("canvas/BusEdge", () => {
       rate: new Fraction(2, 1),
       laneY: 500,
       trunkKey: "Iron Plate|src",
+      busMemberCount: 2,
       dimmed: true,
     } as unknown as BusData);
     await findEdgePath();
@@ -515,12 +518,14 @@ describe("canvas/BusEdge trunk labels", () => {
 
   it("exempts the rise chip on a lone member's long detour below the zoom threshold", async () => {
     // A single-member trunk whose lane run spans several layers (FAR_NODES) is a
-    // long detour: its rise end sits far from the source-side drop chip, so the
-    // consumer would arrive unlabeled at fit zoom. The rise chip is exempted from
-    // the zoom gate too, so both ends are labeled (#32). routeBusEdges omits the
-    // lane slot (busChipX) for this case -- as this manually built edge does --
-    // so the chip must anchor at the geometric rise column (busRiseBase of the
-    // target port), the consumer end, not mid-lane.
+    // long detour: its rise end sits far from the source, so the consumer
+    // would arrive unlabeled at fit zoom. The rise chip is exempted from the
+    // zoom gate (#32) and is the trunk's ONE label: the drop chip stays
+    // undrawn, since restating the same rate two screens back reads as a
+    // second flow (#83). routeBusEdges omits the lane slot (busChipX) for this
+    // case -- as this manually built edge does -- so the chip must anchor at
+    // the geometric rise column (busRiseBase of the target port), the consumer
+    // end, not mid-lane.
     renderEdge(
       {
         item: "Iron Plate",
@@ -533,11 +538,10 @@ describe("canvas/BusEdge trunk labels", () => {
     );
     const path = await findEdgePath();
     const labels = chips();
-    expect(labels).toHaveLength(2);
-    expect(labels.map((l) => l.getAttribute("data-testid")).sort()).toEqual([
-      "bus-edge-label-e1-drop",
+    expect(labels).toHaveLength(1);
+    expect(labels[0]!.getAttribute("data-testid")).toBe(
       "bus-edge-label-e1-rise",
-    ]);
+    );
     // Anchor check: the rise chip's x sits on the drawn rise column, one
     // busRiseBase inside the target port (the path's final point).
     const end = path
@@ -551,6 +555,28 @@ describe("canvas/BusEdge trunk labels", () => {
       /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/,
     );
     expect(Number(t![1])).toBeCloseTo(busRiseBase(tx), 1);
+  });
+
+  it("falls back to the drop chip when a long lone run's rise chip is hidden", async () => {
+    // The seating pass hid the rise (busRiseHidden), so the drop chip returns
+    // as the trunk's always-on label; without it the whole run is unlabeled.
+    renderEdge(
+      {
+        item: "Iron Plate",
+        rate: new Fraction(2, 1),
+        laneY: 500,
+        trunkKey: "Iron Plate|src",
+        busRiseHidden: true,
+      } as unknown as BusData,
+      0.3,
+      FAR_NODES,
+    );
+    await findEdgePath();
+    const labels = chips();
+    expect(labels).toHaveLength(1);
+    expect(labels[0]!.getAttribute("data-testid")).toBe(
+      "bus-edge-label-e1-drop",
+    );
   });
 
   it("collapses the exempt aggregate drop chip to icon-only below the icon-only zoom", async () => {

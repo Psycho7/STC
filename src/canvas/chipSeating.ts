@@ -72,6 +72,7 @@ import {
   routingHintsFromData,
 } from "./edgePath";
 import {
+  BUS_LONG_RUN_THRESHOLD,
   ENTRY_SLOT_PITCH,
   OBSTACLE_PAD_LEFT,
   OBSTACLE_PAD_Y,
@@ -1778,7 +1779,13 @@ export function deconflictChipAnchors(
         ...routingHintsFromData(edge.data),
       });
       d = lane.path;
-      laneJunctionByIndex.set(index, lane.junction);
+      // A lone-member trunk draws no junction dot (nothing branches at its
+      // corner; BusEdge mirrors this), so it registers no keep-off either --
+      // otherwise the keep-off would evict the rise chip off the lane to dodge
+      // a dot that is not there (#83).
+      if ((data?.busMemberCount ?? 1) > 1) {
+        laneJunctionByIndex.set(index, lane.junction);
+      }
     } else {
       const [path, lx, ly] = chamferStepPath({
         sourceX: sx,
@@ -2129,6 +2136,11 @@ export function deconflictChipAnchors(
     // Lane members sharing this trunk. Only a lone member draws (and so seats)
     // an aggregate drop chip.
     memberCount: number;
+    // Lone member on a long lane detour: its rise chip is zoom-gate exempt
+    // (#32) and labels the trunk on its own, so the drop seat is DEFERRED and
+    // taken only if the rise phase ends up hiding that chip (BusEdge mirrors
+    // the draw condition).
+    longSingleRun: boolean;
     step: number;
     flowKey: string;
     target: string;
@@ -2196,6 +2208,12 @@ export function deconflictChipAnchors(
       // and out of scope here.
       owner: data.busChipOwner === true,
       memberCount: data.busMemberCount ?? 1,
+      // Mirrors BusEdge's longSingleRun: keyed to routeBusEdges' own long-run
+      // decision through the ABSENT lane slot, on the same drawn columns.
+      longSingleRun:
+        (data.busMemberCount ?? 1) === 1 &&
+        data.busChipX === undefined &&
+        Math.abs(riseX - dropX) > BUS_LONG_RUN_THRESHOLD,
       // Top-band chips cascade UP (away from the graph below them); bottom-band
       // and un-banded chips cascade DOWN. Signed step drives seatChip's walk.
       step: data.busBand === "top" ? -CHIP_NUDGE_STEP : CHIP_NUDGE_STEP,
@@ -2231,9 +2249,7 @@ export function deconflictChipAnchors(
   // pitch still reads as sitting beside its junction. The cap is soft against
   // placed chips: see seatChip's capSteps.
   const BUS_DROP_CASCADE_STEPS = 1;
-  for (const slot of busSlots) {
-    // Multi-member trunks draw no aggregate chip (issue #39), so seat none.
-    if (!slot.owner || slot.memberCount > 1) continue;
+  const seatDropChip = (slot: BusSlot): void => {
     const { dy: dropDy } = seatChip(
       field,
       slot.dropX,
@@ -2249,6 +2265,15 @@ export function deconflictChipAnchors(
       BUS_DROP_CASCADE_STEPS,
     );
     if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
+  };
+  for (const slot of busSlots) {
+    // Multi-member trunks draw no aggregate chip (issue #39), so seat none.
+    if (!slot.owner || slot.memberCount > 1) continue;
+    // A long lone run defers its drop seat past the rise phase (#83): the rise
+    // chip labels the trunk on its own, so the drop draws (and seats) only as
+    // the fallback for a hidden rise, below.
+    if (slot.longSingleRun) continue;
+    seatDropChip(slot);
   }
   // Capacity check before seating the rises. A short lane run cannot host every
   // member rise chip at the wide-chip x-separation (2 * CHIP_HALF_W_WIDE); left
@@ -2350,6 +2375,14 @@ export function deconflictChipAnchors(
       continue;
     }
     if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
+  }
+  // Deferred long-lone-run drop seats (#83): the rise phase hid the trunk's
+  // only chip, so the drop steps back in as the always-on label BusEdge falls
+  // back to; a trunk whose rise seated keeps the single consumer-end label.
+  for (const slot of busSlots) {
+    if (!slot.owner || slot.memberCount > 1 || !slot.longSingleRun) continue;
+    if (!busRiseHiddenByIndex.has(slot.index)) continue;
+    seatDropChip(slot);
   }
 
   // Phase 3 -- fan-out trunk chips: each fan-out trunk draws one aggregate chip

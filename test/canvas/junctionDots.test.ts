@@ -111,13 +111,24 @@ describe("junction dots: lane bus member (BusEdge branch dot)", () => {
     const seated = deconflictChipAnchors(nodes, routed);
     expect(dataOf(seated, "e:1").laneY).toBe(laneY);
 
-    // ...and the cached dot is READ, not merely cached (#50): the member's rise
-    // chip anchors on the lane a chamfer right of this junction, so its box
-    // would swallow the dot at dy 0. The keep-off lifts it exactly one lane
-    // pitch (bottom band, so downward), the same distance the rise loop already
-    // accepts as "beside the lane". This is the pin that fails if the cached
-    // lane dot ever stops matching the drawn one above.
-    expect(dataOf(seated, "e:1").busChipDy).toBe(CHIP_PITCH);
+    // A LONE member draws no dot (nothing branches at its corner, #83), so the
+    // keep-off never fires and its rise chip stays seated ON the lane.
+    expect(dataOf(seated, "e:1").busChipDy).toBeUndefined();
+
+    // Stamped multi-member, the dot returns -- and the cached dot is READ, not
+    // merely cached (#50): the member's rise chip anchors on the lane a
+    // chamfer right of this junction, so its box would swallow the dot at
+    // dy 0. The keep-off lifts it exactly one lane pitch (bottom band, so
+    // downward), the same distance the rise loop already accepts as "beside
+    // the lane". This is the pin that fails if the cached lane dot ever stops
+    // matching the drawn one above.
+    const multi = routed.map((e) =>
+      e.id === "e:1"
+        ? { ...e, data: { ...e.data, busMemberCount: 2 } }
+        : e,
+    );
+    const seatedMulti = deconflictChipAnchors(nodes, multi);
+    expect(dataOf(seatedMulti, "e:1").busChipDy).toBe(CHIP_PITCH);
     expect(Math.abs(CHIP_PITCH)).toBeGreaterThan(CHIP_HALF_H);
   });
 });

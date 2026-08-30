@@ -314,16 +314,28 @@ export default function BusEdge({
       ) : null}
       {/* Junction dot at the lane branch point (bus member), reusing the shared
           JunctionDot markup. It sits BELOW the flow chips in the shared
-          edgelabel-renderer layer, so the aggregate chip's digits win. */}
-      <JunctionDot
-        testId={`bus-junction-${id}`}
-        x={junction.x}
-        y={junction.y}
-        color={kindStyle.stroke}
-        dimmed={edgeData?.dimmed}
-        zoom={zoom}
-      />
-      {isOwner && memberCount === 1 && dropText
+          edgelabel-renderer layer, so the aggregate chip's digits win. A
+          lone-member lane trunk draws none: nothing branches at its corner, and
+          a dot there only evicts the rise chip through the seating keep-off
+          (#83). Fan-out members always branch (N >= 2), so they keep theirs. */}
+      {fan !== null || memberCount > 1 ? (
+        <JunctionDot
+          testId={`bus-junction-${id}`}
+          x={junction.x}
+          y={junction.y}
+          color={kindStyle.stroke}
+          dimmed={edgeData?.dimmed}
+          zoom={zoom}
+        />
+      ) : null}
+      {/* On a LONG lone run the rise chip already labels the trunk at every
+          zoom (#32), so a drop chip restating the same rate two screens away
+          reads as a second flow (#83); it returns only when the rise chip is
+          hidden and would otherwise leave the trunk unlabeled. */}
+      {isOwner &&
+      memberCount === 1 &&
+      dropText &&
+      (!longSingleRun || memberChipHidden)
         ? renderChip("drop", aggX, aggY, dropText, dropLabel, dropTitle)
         : null}
       {riseText
