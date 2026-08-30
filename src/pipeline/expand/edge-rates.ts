@@ -59,9 +59,9 @@ export function computeEdgeRates(args: {
 }): Map<string, Fraction> {
   const { logical, replicas, recipeById, rates, supplyShares, boundaryShare } =
     args;
-  const replicaBySafeId = new Map<string, Replica>();
+  const replicaByLogicalId = new Map<string, Replica>();
   for (const r of replicas)
-    replicaBySafeId.set(logicalNodeIdForReplica(r.id), r);
+    replicaByLogicalId.set(logicalNodeIdForReplica(r.id), r);
 
   const result = new Map<string, Fraction>();
   const ZERO = new Fraction(0);
@@ -84,7 +84,7 @@ export function computeEdgeRates(args: {
   const groupKey = (target: string, item: string): string => `${target}\0${item}`;
   for (const e of logical.edges) {
     const item = itemFor(e.targetPort);
-    const consumer = replicaBySafeId.get(e.target);
+    const consumer = replicaByLogicalId.get(e.target);
     if (!consumer) continue;
     const recipe = recipeById.get(consumer.recipeId);
     if (!recipe) continue;
@@ -111,9 +111,9 @@ export function computeEdgeRates(args: {
   const capInputs: CapEdge[] = [];
   for (const [key, group] of inputEdgesByGroup) {
     const sep = key.indexOf("\0");
-    const targetSafeId = key.slice(0, sep);
+    const targetLogicalId = key.slice(0, sep);
     const item = key.slice(sep + 1);
-    const consumer = replicaBySafeId.get(targetSafeId)!;
+    const consumer = replicaByLogicalId.get(targetLogicalId)!;
     // In-graph producer edges carry only the residual share of the stamp's
     // demand; the boundary-served fraction (1 - share) arrives via the
     // boundary input product. Missing entries default to share 1.
@@ -123,7 +123,7 @@ export function computeEdgeRates(args: {
     const consumerRate = rates.get(consumer.recipeId);
 
     // Production share per edge (the capacity and the no-record weight).
-    const producers = group.edges.map((e) => replicaBySafeId.get(e.source));
+    const producers = group.edges.map((e) => replicaByLogicalId.get(e.source));
     const shares = producers.map((p) => outputShare(p, item));
 
     // For a producer RECIPE with a recorded committed flow to this consumer
@@ -180,7 +180,7 @@ export function computeEdgeRates(args: {
       capInputs.push({
         edgeId: e.id,
         producerId: e.source,
-        groupKey: `${targetSafeId}\0${item}`,
+        groupKey: `${targetLogicalId}\0${item}`,
         item,
         rate,
         capacity: shares[i]!,
@@ -205,13 +205,13 @@ export function computeEdgeRates(args: {
     if (result.has(e.id)) continue;
     const item = itemFor(e.targetPort);
     let rate = ZERO;
-    const consumer = replicaBySafeId.get(e.target);
+    const consumer = replicaByLogicalId.get(e.target);
     const consumerRecipe = consumer
       ? recipeById.get(consumer.recipeId)
       : undefined;
     if (consumer && consumerRecipe) {
       // Output-side billing: producer delivers its own output of the item.
-      const producer = replicaBySafeId.get(e.source);
+      const producer = replicaByLogicalId.get(e.source);
       if (producer) {
         const prodRecipe = recipeById.get(producer.recipeId);
         const outStoich = prodRecipe?.out.find((s) => s.item === item);
@@ -236,7 +236,7 @@ export function computeEdgeRates(args: {
 export type CapEdge = {
   edgeId: string;
   producerId: string;
-  /** `${consumerSafeId}\0${item}` - the demand group the edge belongs to. */
+  /** `${consumerLogicalId}\0${item}` - the demand group the edge belongs to. */
   groupKey: string;
   item: string;
   rate: Fraction;
