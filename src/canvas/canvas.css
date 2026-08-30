@@ -323,14 +323,8 @@
   background: rgba(225, 53, 30, 0.08);
 }
 
-/* Status messages (frozen banner / mutation error) keep their semantic colors
-   but on the dark base. */
-.ak-app-shell [data-testid="frozen-banner"] {
-  background: rgba(255, 241, 25, 0.08) !important;
-  color: var(--ak-accent-yellow);
-  border-bottom: 1px solid rgba(255, 241, 25, 0.3);
-}
-
+/* Status messages (mutation error) keep their semantic colors but on the dark
+   base. */
 .ak-app-shell [role="alert"] {
   background: rgba(225, 53, 30, 0.1) !important;
   color: var(--ak-accent-red) !important;
@@ -1798,14 +1792,6 @@
 
 .bus-junction.dimmed {
   opacity: 0.3;
-}
-
-.flow-chip.red {
-  border-color: var(--ak-accent-red);
-  color: var(--ak-accent-red);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.12),
-    0 0 12px rgba(225, 53, 30, 0.18);
 }
 
 .product-node {
