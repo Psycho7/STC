@@ -105,6 +105,7 @@ describe("exam camera hook", () => {
     expect(typeof window.__stcExam?.setViewport).toBe("function");
     expect(typeof window.__stcExam?.fitView).toBe("function");
     expect(typeof window.__stcExam?.contentBounds).toBe("function");
+    expect(typeof window.__stcExam?.chipReservations).toBe("function");
   });
 
   test("contentBounds returns null for an empty graph", () => {

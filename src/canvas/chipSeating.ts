@@ -246,6 +246,45 @@ export function branchChipText(edge: Edge): ChipText | undefined {
     : { body: `${plain.body}/${shareTotal}`, unit: false };
 }
 
+// One row per chip an edge CAN draw, keyed by the FlowChip testId, carrying the
+// ChipText the seat measures and the natural-scale width it reserves
+// (reservedPx: the un-counter-scaled bound, min(CHIP_BOX_WIDTH, estimated
+// natural width)). Exam-only: the four-locale width-bound spec walks the
+// rendered .flow-chip boxes and compares each against its row, which is what
+// keeps CHIP_GLYPH_PX / CHIP_UNIT_MAX_PX honest when the .flow-chip CSS or a
+// locale's unit string drifts. Render gates (zoom, hides, the icon-only
+// collapse) are deliberately ignored here: the spec looks rows up by testId, so
+// a row for a chip that never renders is inert, while a rendered chip with no
+// row is a new chip family the estimator does not cover -- the spec fails it.
+export type ExamChipReservation = {
+  testId: string;
+  body: string;
+  unit: boolean;
+  reservedPx: number;
+};
+
+export function examChipReservations(edges: Edge[]): ExamChipReservation[] {
+  const out: ExamChipReservation[] = [];
+  const push = (testId: string, text: ChipText | undefined): void => {
+    if (text === undefined) return;
+    out.push({
+      testId,
+      body: text.body,
+      unit: text.unit,
+      reservedPx: (2 * chipSeatHalfW(text, false)) / MAX_CHIP_SCALE,
+    });
+  };
+  for (const edge of edges) {
+    if (edge.type === "item") {
+      push(`item-edge-label-${edge.id}`, rateChipText(edge));
+    } else if (edge.type === "bus") {
+      push(`bus-edge-label-${edge.id}-drop`, aggregateChipText(edge));
+      push(`bus-edge-label-${edge.id}-rise`, branchChipText(edge));
+    }
+  }
+  return out;
+}
+
 // Vertical pitch a colliding chip is bumped by each step, and the shared full
 // chip-box height. A full max-scale box height keeps the resolved clearance from
 // dropping below one box at any zoom.

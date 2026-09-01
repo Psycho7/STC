@@ -21,7 +21,7 @@ import ProductNode from "./ProductNode";
 import ItemEdge from "./ItemEdge";
 import BusEdge from "./BusEdge";
 import BusBands from "./BusBands";
-import { contentBounds } from "./chipSeating";
+import { contentBounds, examChipReservations } from "./chipSeating";
 import { isTrunkOwner, type BusAggregate } from "./busRouting";
 import type { RFAnyNode } from "./layout";
 import { useI18n } from "../data/i18n-context";
@@ -42,6 +42,12 @@ declare global {
         width: number;
         height: number;
       } | null;
+      chipReservations(): Array<{
+        testId: string;
+        body: string;
+        unit: boolean;
+        reservedPx: number;
+      }>;
     };
   }
 }
@@ -260,6 +266,9 @@ function CanvasInner({
         fitContent();
       },
       contentBounds: () => contentBounds(nodes as unknown as RFAnyNode[], edges),
+      // Per-chip seat-width reservations for the four-locale width-bound spec;
+      // plain edge-data reads, as inert as contentBounds.
+      chipReservations: () => examChipReservations(edges),
     };
     return () => {
       delete window.__stcExam;

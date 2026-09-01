@@ -15,6 +15,7 @@ import {
   chipEntersOwnCardBody,
   chipOwnCardIntrusion,
   chipSeatHalfW,
+  examChipReservations,
   makeClearanceField,
   seatRateChip,
   type CardExemption,
@@ -1367,5 +1368,57 @@ describe("aggregateChipText / branchChipText", () => {
     expect(chipSeatHalfW(undefined, false)).toBe(
       (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2,
     );
+  });
+});
+
+describe("examChipReservations", () => {
+  const edge = (id: string, type: string, data: Record<string, unknown>) =>
+    ({
+      id,
+      source: "s",
+      target: "t",
+      type,
+      data: { item: "a", ...data },
+    }) as unknown as Parameters<typeof examChipReservations>[0][number];
+
+  it("maps each edge to its FlowChip testIds with the builder texts", () => {
+    const rows = examChipReservations([
+      edge("i1", "item", { rate: new Fraction(1, 2) }), // 30/min
+      edge("b1", "bus", {
+        rate: new Fraction(1, 2), // 30/min
+        busMemberCount: 2,
+        busTotalRate: new Fraction(9, 2), // 270/min
+      }),
+    ]);
+    expect(rows).toEqual([
+      {
+        testId: "item-edge-label-i1",
+        body: "30",
+        unit: true,
+        reservedPx: (2 * chipSeatHalfW({ body: "30", unit: true }, false)) /
+          MAX_CHIP_SCALE,
+      },
+      {
+        testId: "bus-edge-label-b1-drop",
+        body: "270",
+        unit: true,
+        reservedPx: (2 * chipSeatHalfW({ body: "270", unit: true }, false)) /
+          MAX_CHIP_SCALE,
+      },
+      {
+        testId: "bus-edge-label-b1-rise",
+        body: "30/270",
+        unit: false,
+        reservedPx:
+          (2 * chipSeatHalfW({ body: "30/270", unit: false }, false)) /
+          MAX_CHIP_SCALE,
+      },
+    ]);
+  });
+
+  it("skips edges with no usable rate: their chips never draw a box", () => {
+    expect(
+      examChipReservations([edge("x", "item", {}), edge("y", "bus", {})]),
+    ).toEqual([]);
   });
 });
