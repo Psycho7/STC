@@ -222,7 +222,7 @@ function rateChipText(edge: Edge): ChipText | undefined {
 // The chip text a fan-out trunk's AGGREGATE chip draws: the trunk total (falling
 // back to this member's own rate, as BusEdge does) plus the unit. Only seated on
 // a single-member trunk, where the total IS that member's rate (issue #39).
-function aggregateChipText(edge: Edge): ChipText | undefined {
+export function aggregateChipText(edge: Edge): ChipText | undefined {
   const total = (edge.data as BusEdgeData | undefined)?.busTotalRate;
   return total === undefined
     ? rateChipText(edge)
@@ -234,7 +234,7 @@ function aggregateChipText(edge: Edge): ChipText | undefined {
 // the box beside a decimal pair and differs per locale, so the full localized
 // wording rides the label and title instead (BusEdge, issue #45). A lone member
 // is its own total and keeps the plain rate + unit reading.
-function branchChipText(edge: Edge): ChipText | undefined {
+export function branchChipText(edge: Edge): ChipText | undefined {
   const plain = rateChipText(edge);
   if (plain === undefined || plain.body === "") return plain;
   const data = edge.data as BusEdgeData | undefined;

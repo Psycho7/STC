@@ -208,6 +208,36 @@ describe("deconflictChipAnchors: per-chip reserved box", () => {
       expect(data?.labelDy).toBeUndefined();
     }
   });
+
+  it("pins the tier-1 slide drift: a realistic-box clash slides exactly one step", () => {
+    // Same chain, but a 7-glyph body ("1234.57") widens the estimated box to
+    // 124.5px natural: two of those need 249 of centre separation against the
+    // 239 the chain provides, so the later chip must move. One 24-unit slide
+    // step buys back the 10 missing, so the stamped drift is EXACTLY one step
+    // on one chip - the fixture-level numeric pin the corpus drift
+    // re-measurements lacked.
+    const { nodes, edges } = chainFixture(130);
+    const wide = edges.map((e) => ({
+      ...e,
+      data: { ...(e.data as object), rate: new Fraction(123457, 6000) },
+    }));
+    const anchors = wide.map((e) => chipAnchorOf(nodes, e));
+    const apart = Math.abs(anchors[1]! - anchors[0]!);
+    const half = chipSeatHalfW({ body: "1234.57", unit: true }, false);
+    expect(2 * half - apart).toBeCloseTo(10, 5); // premise: 10-unit clash
+
+    const out = deconflictChipAnchors(nodes, wide);
+    const dataOf = (id: string) =>
+      out.find((e) => e.id === id)?.data as
+        | { labelDx?: number; labelDy?: number }
+        | undefined;
+    const drifts = wide.map((e) => dataOf(e.id)?.labelDx);
+    // One chip keeps its anchor, the other slides exactly one 24-unit step;
+    // nothing leaves the horizontal leg.
+    expect(drifts.filter((d) => d === undefined)).toHaveLength(1);
+    expect(drifts.filter((d) => d !== undefined && Math.abs(d) === 24)).toHaveLength(1);
+    for (const e of wide) expect(dataOf(e.id)?.labelDy).toBeUndefined();
+  });
 });
 
 // The same rule for a fan-out trunk's per-member BRANCH chip (issue #50). A

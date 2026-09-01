@@ -1120,10 +1120,19 @@ export function auditBusChipsOutsideBand(
   edges: ReadonlyArray<{ id: string; d: string }>,
   bands: ReadonlyArray<BandRect>,
   eps = 0.5,
-): { escapes: ChipCensusHit[]; xOverflows: ChipCensusHit[] } {
+): {
+  escapes: ChipCensusHit[];
+  xOverflows: ChipCensusHit[];
+  // Bus chips that bind to NO lane band (fan-out formations, short runs, or a
+  // plan with no bands at all). They are exempt from the two counters above by
+  // construction, so the hard zeros there are only trustworthy alongside this
+  // inventory: a routing change that silently unbinds a chip moves it into
+  // this set instead of vanishing from the audit.
+  skipped: ChipCensusHit[];
+} {
   const escapes: ChipCensusHit[] = [];
   const xOverflows: ChipCensusHit[] = [];
-  if (bands.length === 0) return { escapes, xOverflows };
+  const skipped: ChipCensusHit[] = [];
   const pathById = new Map<string, string>();
   for (const e of edges) pathById.set(e.id, e.d);
   for (const chip of chips) {
@@ -1131,7 +1140,10 @@ export function auditBusChipsOutsideBand(
     const d = pathById.get(chip.edgeId);
     if (d === undefined) continue;
     const band = laneBandOf(d, bands, eps);
-    if (band === null) continue;
+    if (band === null) {
+      skipped.push(censusHit(chip, "binds to no lane band"));
+      continue;
+    }
     const overlapY =
       Math.min(chip.bottom, band.bottom) - Math.max(chip.top, band.top);
     if (overlapY <= eps) {
@@ -1153,5 +1165,5 @@ export function auditBusChipsOutsideBand(
       );
     }
   }
-  return { escapes, xOverflows };
+  return { escapes, xOverflows, skipped };
 }

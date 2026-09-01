@@ -7,8 +7,11 @@
 // foreign line, must outrank leaving the line.
 
 import { describe, it, expect, vi } from "vitest";
+import Fraction from "fraction.js";
 
 import {
+  aggregateChipText,
+  branchChipText,
   chipEntersOwnCardBody,
   chipOwnCardIntrusion,
   chipSeatHalfW,
@@ -1304,5 +1307,65 @@ describe("ClearanceField: the seat / unseat contract", () => {
     // And it is the box the field actually holds, by identity.
     expect(field.placed).toEqual([seat.box]);
     expect(field.placed[0]).toBe(seat.box);
+  });
+});
+
+describe("aggregateChipText / branchChipText", () => {
+  // Minimal fan-out member edges: only the fields the builders read.
+  const member = (data: Record<string, unknown>) =>
+    ({
+      id: "e0",
+      source: "s",
+      target: "t",
+      type: "bus",
+      data: { item: "a", ...data },
+    }) as unknown as Parameters<typeof branchChipText>[0];
+
+  it("branch: a multi-member trunk reads as a unit-less share of the total", () => {
+    const text = branchChipText(
+      member({
+        rate: new Fraction(1, 2), // 30/min
+        busMemberCount: 2,
+        busTotalRate: new Fraction(9, 2), // 270/min
+      }),
+    );
+    expect(text).toEqual({ body: "30/270", unit: false });
+  });
+
+  it("branch: a lone member keeps the plain rate + unit reading", () => {
+    const text = branchChipText(
+      member({ rate: new Fraction(1, 2), busMemberCount: 1 }),
+    );
+    expect(text).toEqual({ body: "30", unit: true });
+  });
+
+  it("branch: multi-member with busTotalRate absent falls back to its own rate as the total", () => {
+    const text = branchChipText(
+      member({ rate: new Fraction(1, 2), busMemberCount: 2 }),
+    );
+    expect(text).toEqual({ body: "30/30", unit: false });
+  });
+
+  it("aggregate: shows the trunk total with unit, falling back to the member rate", () => {
+    expect(
+      aggregateChipText(
+        member({ rate: new Fraction(1, 2), busTotalRate: new Fraction(9, 2) }),
+      ),
+    ).toEqual({ body: "270", unit: true });
+    expect(aggregateChipText(member({ rate: new Fraction(1, 2) }))).toEqual({
+      body: "30",
+      unit: true,
+    });
+  });
+
+  it("a missing rate reserves the worst case", () => {
+    // Both builders return undefined with no usable rate, and the estimator
+    // charges the full clamp width to that invisible box (over-reserve only).
+    const noRate = member({});
+    expect(branchChipText(noRate)).toBeUndefined();
+    expect(aggregateChipText(noRate)).toBeUndefined();
+    expect(chipSeatHalfW(undefined, false)).toBe(
+      (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2,
+    );
   });
 });

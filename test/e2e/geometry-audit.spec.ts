@@ -1386,6 +1386,29 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
   "gas-web": 0,
 };
 
+// BAND-UNBOUND INVENTORY (#58). Bus chips the outside-band counter SKIPS
+// because their edge binds to no lane band: fan-out formations, short runs,
+// and band-less plans. An EXACT pin, not a ratchet, in either direction: the
+// hard zeros above are only trustworthy while this set is accounted for, and a
+// routing change that silently unbinds a lane chip moves it here instead of
+// vanishing from the audit. Re-measure and re-pin (with the inventory from the
+// failure message) whenever routing legitimately changes what forms a band.
+// Measured 2026-08-30 (post #81/#83: contested tap fan-outs spread, lone-trunk
+// drop chips gone): every entry is a fan-out formation chip or a short-run
+// rise, except the two zeros, whose bus chips all carry an in-band lane run.
+const SKIPPED_BAND_INVENTORY: Record<string, number> = {
+  default: 4,
+  battery5: 2,
+  "battery5-xiranite": 2,
+  crystal: 2,
+  equip4: 2,
+  multi6: 13,
+  tundra: 0,
+  script43: 2,
+  "coupon-web": 0,
+  "gas-web": 3,
+};
+
 // TIER-1 SLIDE DRIFT, re-measured after the per-chip reserved seat box
 // (Task 6b, ruling R11). Not a counter and not ratcheted -- a measurement
 // recorded next to the counters it belongs with, because the audit surface
@@ -1542,7 +1565,7 @@ test.describe("chip seating census", () => {
         )
         .toBeLessThanOrEqual(strokeBaseline);
 
-      const { escapes, xOverflows } = auditBusChipsOutsideBand(
+      const { escapes, xOverflows, skipped } = auditBusChipsOutsideBand(
         chips,
         geom.edges,
         geom.bands as BandRect[],
@@ -1554,6 +1577,14 @@ test.describe("chip seating census", () => {
           `${scenario.id}: ${escapes.length} bus chip(s) outside their band exceeds baseline ${bandBaseline} among ${geom.bands.length} band(s); ${xOverflows.length} x-overflow(s) reported, not counted:\n${censusInventory(escapes)}\n${censusInventory(xOverflows)}`,
         )
         .toBeLessThanOrEqual(bandBaseline);
+
+      const skippedPin = SKIPPED_BAND_INVENTORY[scenario.id]!;
+      expect
+        .soft(
+          skipped.length,
+          `${scenario.id}: ${skipped.length} band-unbound bus chip(s) != inventory pin ${skippedPin}:\n${censusInventory(skipped)}`,
+        )
+        .toBe(skippedPin);
     });
   }
 });
