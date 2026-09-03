@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { SCENARIOS, scenarioHash } from "./scenarios";
+import { SCENARIOS, extraScenariosFromEnv, scenarioHash } from "./scenarios";
 import {
   CARD_INTRUSION_BUDGET,
   auditBusChipsOutsideBand,
@@ -96,6 +96,40 @@ function fmtRect(r: AuditChipRect): string {
   return `[${r.x.toFixed(1)},${r.y.toFixed(1)} ${r.width.toFixed(1)}x${r.height.toFixed(1)}]`;
 }
 
+// The fixed corpus plus whatever EXAM_EXTRA_SCENARIOS names. The extras are
+// rotating exam plans: they get every ZERO-TOLERANCE check in this file (those
+// state an invariant, not a count, so they hold on any plan), but none of the
+// per-scenario baseline tables below has an entry for them, and a table is a
+// pinned measurement -- a missing entry is unknown, never zero.
+const AUDIT_SCENARIOS = [...SCENARIOS, ...extraScenariosFromEnv()];
+
+// A baseline read that tolerates a scenario the table does not pin. Returns null
+// and records why, so the caller can leave that one ratchet unasserted while the
+// rest of the test runs.
+function baselineFor(
+  table: Record<string, number>,
+  tableName: string,
+  scenarioId: string,
+  unpinned: string[],
+): number | null {
+  const pinned = table[scenarioId];
+  if (pinned === undefined) {
+    unpinned.push(`${scenarioId} has no ${tableName} entry (rotating plan)`);
+    return null;
+  }
+  return pinned;
+}
+
+// Ends a test as skipped when any ratchet in it had no baseline entry, naming
+// every table it could not read. Call it LAST: test.skip aborts the test where
+// it is called, so anything after it would not run, while assertions made before
+// it still stand -- a soft failure recorded earlier still reddens the test
+// rather than being swallowed by the skip. That ordering is what lets one test
+// both report its zero-tolerance verdict and declare its ratchets unmeasured.
+function skipUnpinnedRatchets(unpinned: string[]): void {
+  if (unpinned.length > 0) test.skip(true, unpinned.join("; "));
+}
+
 test.describe("DOM geometry audit", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
@@ -103,7 +137,7 @@ test.describe("DOM geometry audit", () => {
     });
   });
 
-  for (const scenario of SCENARIOS) {
+  for (const scenario of AUDIT_SCENARIOS) {
     test(scenario.id, async ({ page }) => {
       const hash = await scenarioHash(scenario);
       await page.goto(`/#${hash}`, { waitUntil: "load" });
@@ -832,8 +866,9 @@ test.describe("segment placement audit", () => {
     });
   });
 
-  for (const scenario of SCENARIOS) {
+  for (const scenario of AUDIT_SCENARIOS) {
     test(scenario.id, async ({ page }) => {
+      const unpinned: string[] = [];
       const hash = await scenarioHash(scenario);
       await loadScenario(page, hash);
 
@@ -876,13 +911,20 @@ test.describe("segment placement audit", () => {
         (v) =>
           `  ${v.edgeId} seg ${fmtSeg(v.seg)} pierces chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
       );
-      const chipSegBaseline = CHIP_SEGMENT_BASELINE[scenario.id]!;
-      expect
-        .soft(
-          chipHits.length,
-          `${scenario.id}: ${chipHits.length} segment/chip intersection(s) exceeds baseline ${chipSegBaseline} among ${geom.chips.length} chips:\n${chipInventory.join("\n")}`,
-        )
-        .toBeLessThanOrEqual(chipSegBaseline);
+      const chipSegBaseline = baselineFor(
+        CHIP_SEGMENT_BASELINE,
+        "CHIP_SEGMENT_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (chipSegBaseline !== null) {
+        expect
+          .soft(
+            chipHits.length,
+            `${scenario.id}: ${chipHits.length} segment/chip intersection(s) exceeds baseline ${chipSegBaseline} among ${geom.chips.length} chips:\n${chipInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(chipSegBaseline);
+      }
 
       // Tier 4 (P3). Chip-vs-card is the RATIFIED HARD gate: zero chip boxes
       // entering a FOREIGN raw card, on every scenario. The seating pass
@@ -907,13 +949,20 @@ test.describe("segment placement audit", () => {
         (v) =>
           `  chip of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its polyline`,
       );
-      const offPathBaseline = CHIP_OFFPATH_BASELINE[scenario.id]!;
-      expect
-        .soft(
-          offPath.length,
-          `${scenario.id}: ${offPath.length} label chip(s) off their own polyline exceeds baseline ${offPathBaseline}:\n${offPathInventory.join("\n")}`,
-        )
-        .toBeLessThanOrEqual(offPathBaseline);
+      const offPathBaseline = baselineFor(
+        CHIP_OFFPATH_BASELINE,
+        "CHIP_OFFPATH_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (offPathBaseline !== null) {
+        expect
+          .soft(
+            offPath.length,
+            `${scenario.id}: ${offPath.length} label chip(s) off their own polyline exceeds baseline ${offPathBaseline}:\n${offPathInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(offPathBaseline);
+      }
 
       // Tier 3 (SOFT ratchet): padding-only grazes stay at or below the
       // recorded baseline. These clip a foreign card's padding overhang (entry
@@ -923,13 +972,20 @@ test.describe("segment placement audit", () => {
       const grazeInventory = grazes.map(
         (v) => `  ${v.edgeId} seg ${fmtSeg(v.seg)} grazes padding of ${v.card}`,
       );
-      const grazeBaseline = PADDED_GRAZE_BASELINE[scenario.id]!;
-      expect
-        .soft(
-          grazes.length,
-          `${scenario.id}: ${grazes.length} padding graze(s) exceeds baseline ${grazeBaseline}:\n${grazeInventory.join("\n")}`,
-        )
-        .toBeLessThanOrEqual(grazeBaseline);
+      const grazeBaseline = baselineFor(
+        PADDED_GRAZE_BASELINE,
+        "PADDED_GRAZE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (grazeBaseline !== null) {
+        expect
+          .soft(
+            grazes.length,
+            `${scenario.id}: ${grazes.length} padding graze(s) exceeds baseline ${grazeBaseline}:\n${grazeInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(grazeBaseline);
+      }
 
       // Own-endpoint-pierce ratchet: segments running inside their OWN source /
       // target card's raw body. Tier 1 exempts endpoint cards and cannot see
@@ -940,13 +996,20 @@ test.describe("segment placement audit", () => {
         (v) =>
           `  ${v.edgeId} seg ${fmtSeg(v.seg)} runs inside own ${v.role} card ${v.card}`,
       );
-      const ownPierceBaseline = OWN_PIERCE_BASELINE[scenario.id]!;
-      expect
-        .soft(
-          ownPierces.length,
-          `${scenario.id}: ${ownPierces.length} own-card pierce(s) exceeds baseline ${ownPierceBaseline}:\n${ownPierceInventory.join("\n")}`,
-        )
-        .toBeLessThanOrEqual(ownPierceBaseline);
+      const ownPierceBaseline = baselineFor(
+        OWN_PIERCE_BASELINE,
+        "OWN_PIERCE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (ownPierceBaseline !== null) {
+        expect
+          .soft(
+            ownPierces.length,
+            `${scenario.id}: ${ownPierces.length} own-card pierce(s) exceeds baseline ${ownPierceBaseline}:\n${ownPierceInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(ownPierceBaseline);
+      }
 
       // Hidden-dot ratchet: junction dots swallowed by a chip box at fit zoom.
       // The dot rects come from the DOM, so they carry the zoom-clamped radius
@@ -961,13 +1024,20 @@ test.describe("segment placement audit", () => {
         (v) =>
           `  ${v.dotId} at (${v.at[0].toFixed(1)},${v.at[1].toFixed(1)}) hidden under the chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
       );
-      const dotBaseline = DOT_COVER_BASELINE[scenario.id]!;
-      expect
-        .soft(
-          hiddenDots.length,
-          `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotBaseline} among ${geom.dots.length} dots:\n${hiddenDotInventory.join("\n")}`,
-        )
-        .toBeLessThanOrEqual(dotBaseline);
+      const dotBaseline = baselineFor(
+        DOT_COVER_BASELINE,
+        "DOT_COVER_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (dotBaseline !== null) {
+        expect
+          .soft(
+            hiddenDots.length,
+            `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotBaseline} among ${geom.dots.length} dots:\n${hiddenDotInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(dotBaseline);
+      }
 
       // Card frames: the box the seating pass measures a recipe card by is the
       // box the browser paints. Unlike the parity check below, which anchors on
@@ -996,32 +1066,46 @@ test.describe("segment placement audit", () => {
       // with every endpoint past the tolerance named.
       const parities = auditEndpointParity(rawEdges, geom.nodes);
       const worstParity = parities.reduce((m, p) => Math.max(m, p.delta), 0);
-      const parityTol = ENDPOINT_PARITY_TOL[scenario.id]!;
-      const parityInventory = parities
-        .filter((p) => p.delta > parityTol)
-        .map(
-          (p) =>
-            `  ${p.edgeId} ${p.end} on ${p.nodeType} ${p.nodeId}: ` +
-            `drawn (${p.drawn[0].toFixed(2)},${p.drawn[1].toFixed(2)}) vs ` +
-            `rebuilt (${p.rebuilt[0].toFixed(2)},${p.rebuilt[1].toFixed(2)}), ` +
-            `d=(${p.dx.toFixed(2)},${p.dy.toFixed(2)})`,
-        );
-      expect
-        .soft(
-          worstParity,
-          `${scenario.id}: worst endpoint parity ${worstParity.toFixed(3)} exceeds tolerance ${parityTol} among ${parities.length} endpoints (${parityInventory.length} past tolerance):\n${parityInventory.join("\n")}`,
-        )
-        .toBeLessThanOrEqual(parityTol);
+      const parityTol = baselineFor(
+        ENDPOINT_PARITY_TOL,
+        "ENDPOINT_PARITY_TOL",
+        scenario.id,
+        unpinned,
+      );
+      if (parityTol !== null) {
+        const parityInventory = parities
+          .filter((p) => p.delta > parityTol)
+          .map(
+            (p) =>
+              `  ${p.edgeId} ${p.end} on ${p.nodeType} ${p.nodeId}: ` +
+              `drawn (${p.drawn[0].toFixed(2)},${p.drawn[1].toFixed(2)}) vs ` +
+              `rebuilt (${p.rebuilt[0].toFixed(2)},${p.rebuilt[1].toFixed(2)}), ` +
+              `d=(${p.dx.toFixed(2)},${p.dy.toFixed(2)})`,
+          );
+        expect
+          .soft(
+            worstParity,
+            `${scenario.id}: worst endpoint parity ${worstParity.toFixed(3)} exceeds tolerance ${parityTol} among ${parities.length} endpoints (${parityInventory.length} past tolerance):\n${parityInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(parityTol);
+      }
 
       // Census: pairwise crossings never regress past the pre-P2 baseline.
       const crossings = countCrossings(geom.edges);
-      const baseline = CROSSING_BASELINE[scenario.id]!;
-      expect
-        .soft(
-          crossings,
-          `${scenario.id}: ${crossings} crossings exceeds pre-P2 baseline ${baseline}`,
-        )
-        .toBeLessThanOrEqual(baseline);
+      const baseline = baselineFor(
+        CROSSING_BASELINE,
+        "CROSSING_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (baseline !== null) {
+        expect
+          .soft(
+            crossings,
+            `${scenario.id}: ${crossings} crossings exceeds pre-P2 baseline ${baseline}`,
+          )
+          .toBeLessThanOrEqual(baseline);
+      }
 
       // Detour: the tundra ore feed stays within 1.5x its endpoints' Manhattan
       // distance. Only tundra carries the long ore feed the bound targets.
@@ -1038,6 +1122,8 @@ test.describe("segment placement audit", () => {
           )
           .toBeLessThanOrEqual(1.5 * direct);
       }
+
+      skipUnpinnedRatchets(unpinned);
     });
   }
 });
@@ -1508,8 +1594,9 @@ test.describe("chip seating census", () => {
     expect(sumOf(OUTSIDE_BAND_BASELINE)).toBe(CENSUS_TOTALS.outsideBand);
   });
 
-  for (const scenario of SCENARIOS) {
+  for (const scenario of AUDIT_SCENARIOS) {
     test(scenario.id, async ({ page }) => {
+      const unpinned: string[] = [];
       const hash = await scenarioHash(scenario);
       await loadCensusScenario(page, hash);
 
@@ -1539,52 +1626,89 @@ test.describe("chip seating census", () => {
       // other three, since the campaign moves them one fix at a time.
 
       const invalid = auditChipSeatValidity(chips, geom.edges);
-      const seatBaseline = SEAT_VALIDITY_BASELINE[scenario.id]!;
-      expect
-        .soft(
-          invalid.length,
-          `${scenario.id}: ${invalid.length} chip(s) whose own line misses their box exceeds baseline ${seatBaseline} among ${chips.length} chips:\n${censusInventory(invalid)}`,
-        )
-        .toBeLessThanOrEqual(seatBaseline);
+      const seatBaseline = baselineFor(
+        SEAT_VALIDITY_BASELINE,
+        "SEAT_VALIDITY_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (seatBaseline !== null) {
+        expect
+          .soft(
+            invalid.length,
+            `${scenario.id}: ${invalid.length} chip(s) whose own line misses their box exceeds baseline ${seatBaseline} among ${chips.length} chips:\n${censusInventory(invalid)}`,
+          )
+          .toBeLessThanOrEqual(seatBaseline);
+      }
 
       const intruding = auditChipCardIntrusion(chips, nodes);
-      const intrusionBaseline = CARD_INTRUSION_BASELINE[scenario.id]!;
-      expect
-        .soft(
-          intruding.length,
-          `${scenario.id}: ${intruding.length} chip(s) more than ${CARD_INTRUSION_BUDGET} deep inside a card exceeds baseline ${intrusionBaseline} among ${chips.length} chips:\n${censusInventory(intruding)}`,
-        )
-        .toBeLessThanOrEqual(intrusionBaseline);
+      const intrusionBaseline = baselineFor(
+        CARD_INTRUSION_BASELINE,
+        "CARD_INTRUSION_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (intrusionBaseline !== null) {
+        expect
+          .soft(
+            intruding.length,
+            `${scenario.id}: ${intruding.length} chip(s) more than ${CARD_INTRUSION_BUDGET} deep inside a card exceeds baseline ${intrusionBaseline} among ${chips.length} chips:\n${censusInventory(intruding)}`,
+          )
+          .toBeLessThanOrEqual(intrusionBaseline);
+      }
 
       const braided = auditChipForeignStrokes(chips, rawEdges, nodes);
-      const strokeBaseline = FOREIGN_STROKE_BASELINE[scenario.id]!;
-      expect
-        .soft(
-          braided.length,
-          `${scenario.id}: ${braided.length} chip(s) with a foreign stroke through the box exceeds baseline ${strokeBaseline} among ${chips.length} chips:\n${censusInventory(braided)}`,
-        )
-        .toBeLessThanOrEqual(strokeBaseline);
+      const strokeBaseline = baselineFor(
+        FOREIGN_STROKE_BASELINE,
+        "FOREIGN_STROKE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (strokeBaseline !== null) {
+        expect
+          .soft(
+            braided.length,
+            `${scenario.id}: ${braided.length} chip(s) with a foreign stroke through the box exceeds baseline ${strokeBaseline} among ${chips.length} chips:\n${censusInventory(braided)}`,
+          )
+          .toBeLessThanOrEqual(strokeBaseline);
+      }
 
       const { escapes, xOverflows, skipped } = auditBusChipsOutsideBand(
         chips,
         geom.edges,
         geom.bands as BandRect[],
       );
-      const bandBaseline = OUTSIDE_BAND_BASELINE[scenario.id]!;
-      expect
-        .soft(
-          escapes.length,
-          `${scenario.id}: ${escapes.length} bus chip(s) outside their band exceeds baseline ${bandBaseline} among ${geom.bands.length} band(s); ${xOverflows.length} x-overflow(s) reported, not counted:\n${censusInventory(escapes)}\n${censusInventory(xOverflows)}`,
-        )
-        .toBeLessThanOrEqual(bandBaseline);
+      const bandBaseline = baselineFor(
+        OUTSIDE_BAND_BASELINE,
+        "OUTSIDE_BAND_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (bandBaseline !== null) {
+        expect
+          .soft(
+            escapes.length,
+            `${scenario.id}: ${escapes.length} bus chip(s) outside their band exceeds baseline ${bandBaseline} among ${geom.bands.length} band(s); ${xOverflows.length} x-overflow(s) reported, not counted:\n${censusInventory(escapes)}\n${censusInventory(xOverflows)}`,
+          )
+          .toBeLessThanOrEqual(bandBaseline);
+      }
 
-      const skippedPin = SKIPPED_BAND_INVENTORY[scenario.id]!;
-      expect
-        .soft(
-          skipped.length,
-          `${scenario.id}: ${skipped.length} band-unbound bus chip(s) != inventory pin ${skippedPin}:\n${censusInventory(skipped)}`,
-        )
-        .toBe(skippedPin);
+      const skippedPin = baselineFor(
+        SKIPPED_BAND_INVENTORY,
+        "SKIPPED_BAND_INVENTORY",
+        scenario.id,
+        unpinned,
+      );
+      if (skippedPin !== null) {
+        expect
+          .soft(
+            skipped.length,
+            `${scenario.id}: ${skipped.length} band-unbound bus chip(s) != inventory pin ${skippedPin}:\n${censusInventory(skipped)}`,
+          )
+          .toBe(skippedPin);
+      }
+
+      skipUnpinnedRatchets(unpinned);
     });
   }
 });
@@ -1596,7 +1720,7 @@ test.describe("edge reload determinism", () => {
     });
   });
 
-  for (const scenario of SCENARIOS) {
+  for (const scenario of AUDIT_SCENARIOS) {
     test(scenario.id, async ({ page }) => {
       const hash = await scenarioHash(scenario);
 

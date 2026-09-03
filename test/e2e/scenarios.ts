@@ -7,6 +7,8 @@
 // minute, so each target's trailing comment records the original per-minute
 // figure (per-second = per-minute / 60).
 
+import { readFileSync } from "node:fs";
+
 import { planHash } from "./plan-hash";
 
 export type ScenarioTarget = {
@@ -137,4 +139,56 @@ export const SCENARIOS: Scenario[] = [
 // loads a scenario, so all of them agree on the scenario -> hash mapping.
 export async function scenarioHash(scenario: Scenario): Promise<string> {
   return planHash({ title: scenario.title, targets: scenario.targets });
+}
+
+const EXTRA_SCENARIOS_ENV = "EXAM_EXTRA_SCENARIOS";
+
+// Extra scenarios injected through EXAM_EXTRA_SCENARIOS: a JSON file holding an
+// array in the Scenario shape, appended to SCENARIOS by the specs that opt in.
+// The rotating exam corpus arrives this way -- plans that are not part of the
+// fixed corpus above and therefore carry no baseline entry anywhere.
+//
+// Read SYNCHRONOUSLY, and re-read on every call: a spec builds its test list at
+// import time, so the scenarios have to exist before Playwright enumerates the
+// file. Nothing async can run that early.
+//
+// Every violation throws, naming the file. A silently dropped or half-parsed
+// entry would show up as a plan that simply was not examined, which is the one
+// failure mode a rotating corpus cannot afford.
+export function extraScenariosFromEnv(): Scenario[] {
+  const path = process.env[EXTRA_SCENARIOS_ENV];
+  if (path === undefined || path === "") return [];
+
+  function fail(detail: string): never {
+    throw new Error(`${EXTRA_SCENARIOS_ENV}=${path}: ${detail}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch (err) {
+    return fail(`cannot read as JSON (${(err as Error).message})`);
+  }
+  if (!Array.isArray(parsed)) return fail("expected an array of scenarios");
+
+  const seen = new Set(SCENARIOS.map((s) => s.id));
+  const extra: Scenario[] = [];
+  parsed.forEach((raw, i) => {
+    const at = `entry ${i}`;
+    if (typeof raw !== "object" || raw === null) fail(`${at} is not an object`);
+    const entry = raw as Partial<Scenario>;
+    if (typeof entry.id !== "string" || entry.id === "")
+      fail(`${at} has no string "id"`);
+    if (typeof entry.title !== "string" || entry.title === "")
+      fail(`${at} ("${entry.id}") has no string "title"`);
+    if (!Array.isArray(entry.targets) || entry.targets.length === 0)
+      fail(`${at} ("${entry.id}") has no non-empty "targets" array`);
+    if (typeof entry.maxDiffPixels !== "number")
+      fail(`${at} ("${entry.id}") has no numeric "maxDiffPixels"`);
+    if (seen.has(entry.id))
+      fail(`${at} id "${entry.id}" collides with an existing scenario id`);
+    seen.add(entry.id);
+    extra.push(entry as Scenario);
+  });
+  return extra;
 }
