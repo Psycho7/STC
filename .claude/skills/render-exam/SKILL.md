@@ -32,11 +32,17 @@ needed. Every push deploys to the `stc-preview` Cloudflare project:
 The slug is the branch lowercased, with every run of non-alphanumeric characters turned into
 `-` and the result cut to 28 characters.
 
+Put the URL you picked in `BASE` and type it nowhere else. Steps 3 and 6 both read it:
+
+```bash
+BASE=https://stc-preview.pages.dev   # or the branch preview, or the local fallback below
+```
+
 Prove the deployment is the commit you mean before capturing anything. Every build stamps its
 own commit into the page:
 
 ```bash
-curl -s https://stc-preview.pages.dev | rg -o 'name="stc-commit" content="[^"]+"'
+curl -s "$BASE" | rg -o 'name="stc-commit" content="[^"]+"'
 git rev-parse --short=7 origin/develop
 ```
 
@@ -45,12 +51,15 @@ not deployed that commit yet or the deploy failed, so wait for it or fall back. 
 page at all means the served build predates the stamp: redeploy it, and do not examine it as
 it stands.
 
-Local fallback, for work that is not pushed:
+Local fallback, for work that is not pushed. It has to be a production build: the DEV render
+hooks hard-fail on residual-dirty plans, which the exam has to photograph, so do not substitute
+`bun run dev`.
 
 ```bash
 bun run build
 bun run preview --port 4174 --strictPort   # background it
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:4174/   # poll until 200
+BASE=http://localhost:4174
+curl -s -o /dev/null -w "%{http_code}\n" "$BASE/"   # poll until 200
 ```
 
 Port 4174 on purpose: Playwright's `webServer` owns 4173 for the e2e suite, so step 4 can run
@@ -70,10 +79,22 @@ Start by comparing the pack fingerprint. The first line of `.artifacts/exam/hash
 `# pack <sourceCommit> <gameVersion>`; if the last exam's ledger names a different pack, the
 recipes moved underneath the corpus and its ids are not comparable with this run's.
 
+Read that line before you run anything, because the next command overwrites the file holding it
+(both lines fail harmlessly on a first exam, when there is no ledger yet):
+
 ```bash
-bun run tools/exam/coverage.ts                    # the fixed core, report only
+head -1 .artifacts/exam/hashes.tsv                      # the previous exam's pack
+cp .artifacts/exam/hashes.tsv .artifacts/exam/hashes.prev.tsv
+```
+
+Then rebuild the ledger:
+
+```bash
+bun run tools/exam/coverage.ts                    # rewrites the ledger to the four core rows
 bun run tools/exam/coverage.ts --fill --max 4     # plus up to 4 rotating plans
 ```
+
+`--max 4` is the tool's own default, not a value this exam tuned.
 
 Both runs rewrite `.artifacts/exam/hashes.tsv` with the fingerprint line and one
 `<id>\t<hash>` row per plan; `--fill` appends the rotating rows after the core ones and writes
@@ -98,12 +119,16 @@ while IFS=$'\t' read -r id hash; do
   case "$id" in \#*) continue ;; esac
   systemd-run --user --scope -q -p MemoryMax=2G -p MemorySwapMax=512M -- \
     bun --smol run tools/exam/capture.ts \
-      --base-url https://stc-preview.pages.dev \
-      --hash "$hash" --plan-id "$id" --locale en --out .artifacts/exam
+      --base-url "$BASE" \
+      --hash "$hash" --plan-id "$id" --locale en --out .artifacts/exam \
+      < /dev/null || echo "capture $id exit=$?"
 done < .artifacts/exam/hashes.tsv
 ```
 
-The `#` fingerprint line is skipped; every other row is a plan. Other flags: `--target-zoom`
+The `#` fingerprint line is skipped; every other row is a plan. The `|| echo` keeps the exit
+code, which the loop would otherwise swallow and the final report has to name for every capture
+that failed. `< /dev/null` stops a capture from eating the ledger the loop is reading. Other
+flags: `--target-zoom`
 (default 0.75), `--locale` (default `en`; a `zh` exam is its own run, never a mix),
 `--max-tiles` (default 64), `--seam-margin` (default 64). Outputs land in
 `.artifacts/exam/<id>/` as `scene.json` plus an `images/` subdirectory holding `00-fit.png`,
@@ -153,13 +178,30 @@ else, rerun only that spec at the branch point in a throwaway worktree:
 ```bash
 git worktree add .claude/worktrees/exam-base "$(git merge-base HEAD origin/develop)"
 (cd .claude/worktrees/exam-base && bun install && \
-  bun run test:e2e geometry-audit --grep "segment placement audit > multi6")
+  bun run test:e2e geometry-audit --grep "segment placement audit multi6")
 git worktree remove .claude/worktrees/exam-base
 ```
+
+The `--grep` pattern is the describe title and the test title joined by SPACES. The `>` in the
+failset above is what the reporter prints between them; a pattern carrying it matches no test
+and the run passes empty, so drop it when you turn a failset entry into a grep.
 
 From the workspace root the first line is `git -C STC worktree add .claude/worktrees/exam-base
 <merge-base sha>`. A test that fails identically on the base commit is not something this exam
 found.
+
+A rotating plan is attributed the same way, once the base run is handed the same rotating set:
+
+```bash
+rot=$PWD/.artifacts/exam/rotating.json          # absolute, resolved before the cd
+(cd .claude/worktrees/exam-base && bun install && \
+  EXAM_EXTRA_SCENARIOS=$rot bun run test:e2e geometry-audit --grep "<describe> <test>")
+```
+
+The absolute path is the point: a relative value resolves against the root of whichever
+checkout is running, which in there is the base worktree, and the rotating set is not in it. A
+base commit older than the env hook cannot answer the question at all. Judge that failure on
+its own evidence, and never promote it to a finding because nothing could be compared.
 
 ### 5. Build the workflow args from the ledgers
 
@@ -305,7 +347,7 @@ Refuters answer through `tools/exam/probe.ts`, which boots one plan, optionally 
 camera (`--zoom` and `--center` together), and runs one named op:
 
 ```bash
-bun run tools/exam/probe.ts --base-url https://stc-preview.pages.dev --hash <planHash> \
+bun run tools/exam/probe.ts --base-url "$BASE" --hash <planHash> \
   --locale en --op hover-edge --arg id='<edgeId>'
 ```
 
