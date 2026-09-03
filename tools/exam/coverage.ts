@@ -2,6 +2,7 @@
 // Usage:
 //   bun run tools/exam/coverage.ts [--all | --scenarios <json>]
 //                                  [--json] [--hashes <path>]
+//                                  [--fill [--max <n>] [--out <path>]]
 //
 // Solves every scenario in the selected set headlessly (no browser, no
 // layout), reads what each solved render plan actually exercises, and diffs
@@ -18,6 +19,13 @@
 // .artifacts/exam/hashes.tsv) with the pack fingerprint and the share hash of
 // each scenario it just measured, so the capture step can replay exactly the
 // plans this report describes.
+//
+// --fill then greedily grows a rotating set on top of that floor: it targets
+// the outputs the uncovered recipes make, solves each once, and repeatedly
+// takes whichever single-target plan brings in the most still-uncovered
+// recipes. The picks land in --out (default .artifacts/exam/rotating.json) and
+// are appended to the ledger after the core rows. Whatever stays uncovered is
+// printed as a residue with the reason it could not be reached.
 //
 // Exit codes:
 //   0  report printed
@@ -36,7 +44,11 @@ import {
   type Container,
   type RenderPlan,
 } from "../../src/pipeline/types";
-import { isExcludedProducer } from "../../src/data/recipe-category";
+import {
+  isExcludedProducer,
+  isSinkRecipe,
+  producibleItemIds,
+} from "../../src/data/recipe-category";
 import { solvePlanWithIntermediates } from "../../src/solver/index";
 import {
   SCENARIOS,
@@ -55,6 +67,14 @@ export const CORE_SCENARIO_IDS = [
 ] as const;
 
 export const DEFAULT_HASHES_PATH = ".artifacts/exam/hashes.tsv";
+export const DEFAULT_ROTATING_PATH = ".artifacts/exam/rotating.json";
+
+// How many rotating plans a fill run may add on top of the core.
+export const DEFAULT_FILL_MAX = 4;
+
+// The rate every rotating plan asks for: 30/min, the modal rate across the
+// existing corpus, as the exact rational the wire format carries.
+const FILL_RATE = { num: "1", denom: "2" } as const;
 
 export type PackFingerprint = {
   sourceCommit: string;
@@ -304,6 +324,192 @@ export async function writeHashesTsv(
   await writeFile(path, lines.join("\n") + "\n", "utf8");
 }
 
+// Write the rotating scenario set: a JSON array in the Scenario shape, ready
+// to hand back to --scenarios or to a capture run. Parent directories are
+// created.
+export async function writeRotatingJson(
+  path: string,
+  scenarios: ReadonlyArray<Scenario>,
+): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(scenarios, null, 2) + "\n", "utf8");
+}
+
+// ---------------------------------------------------------------------------
+// Gap filling
+// ---------------------------------------------------------------------------
+
+// Why a still-uncovered recipe stayed that way.
+export type ResidueReason =
+  // A candidate solve made one of this recipe's outputs and ran something else
+  // to do it. The recipe is reachable; the LP just never prefers it.
+  | "LP prefers another producer"
+  // No candidate plan brought the recipe in, and none produced its output by
+  // another route either.
+  | "no candidate scored"
+  // Every candidate item this recipe offers threw when solved.
+  | "candidate solve failed";
+
+export type ResidueEntry = NamedId & { reason: ResidueReason };
+
+export type FillOptions = {
+  // Cap on rotating plans. Defaults to DEFAULT_FILL_MAX.
+  max?: number;
+};
+
+export type FillResult = {
+  // The rotating plans, in pick order.
+  picked: Scenario[];
+  // What each pick exercises, same order and ids as picked.
+  plans: PlanCoverage[];
+  // Recipes still uncovered after the picks, by id, with the reason.
+  residue: ResidueEntry[];
+};
+
+// One rotating plan: a single target for one item at the corpus-modal rate.
+// The title feeds the share hash, so it is the id and nothing else - a title
+// derived from pack text would move the hash whenever the pack renamed a thing.
+function rotatingScenario(itemId: string): Scenario {
+  const id = `rot-${itemId}`;
+  return {
+    id,
+    title: id,
+    targets: [{ itemId, ratePerSec: { ...FILL_RATE } }],
+    maxDiffPixels: 0,
+  };
+}
+
+// Items a rotating plan is allowed to target: the outputs of the recipes the
+// core left uncovered, minus sink recipes (they yield nothing to aim a rate at)
+// and minus anything outside producibleItemIds, which is what the plan loader
+// itself accepts as a target. Sorted, so every downstream tie-break is stable.
+function candidateItems(
+  pack: RecipePack,
+  uncovered: ReadonlySet<string>,
+): string[] {
+  const producible = producibleItemIds(pack.recipes);
+  const items = new Set<string>();
+  for (const r of pack.recipes) {
+    if (!uncovered.has(r.id) || isSinkRecipe(r)) continue;
+    for (const o of r.out) {
+      if (o.qty > 0 && producible.has(o.item)) items.add(o.item);
+    }
+  }
+  return [...items].sort();
+}
+
+// Greedy set cover over the recipes the core missed.
+//
+// Every candidate is solved once up front: a candidate's solution does not
+// change as picks accumulate, only its score against the shrinking uncovered
+// set does. Each solve keeps only its PlanCoverage summary; the render plan
+// behind it is dropped before the next candidate runs, so a hundred-candidate
+// sweep never holds a hundred solutions.
+export async function fillGaps(
+  pack: RecipePack,
+  coverage: CoverageReport,
+  opts: FillOptions = {},
+): Promise<FillResult> {
+  const max = opts.max ?? DEFAULT_FILL_MAX;
+  const remaining = new Set(
+    uncoveredRecipes(pack, coverage.union).map((r) => r.id),
+  );
+  const items = candidateItems(pack, remaining);
+
+  const solved = new Map<string, PlanCoverage>();
+  const failed = new Set<string>();
+  for (const itemId of items) {
+    try {
+      solved.set(itemId, await coverOne(pack, rotatingScenario(itemId)));
+    } catch {
+      failed.add(itemId);
+    }
+  }
+
+  const picked: Scenario[] = [];
+  const plans: PlanCoverage[] = [];
+  const taken = new Set<string>();
+  while (picked.length < max) {
+    let bestItem: string | undefined;
+    let bestScore = 0;
+    // items is sorted and the comparison is strict, so a tie keeps the
+    // lexicographically first item and the run stays byte-identical.
+    for (const itemId of items) {
+      if (taken.has(itemId)) continue;
+      const cov = solved.get(itemId);
+      if (!cov) continue;
+      let score = 0;
+      for (const id of cov.recipeIds) if (remaining.has(id)) score += 1;
+      if (score > bestScore) {
+        bestScore = score;
+        bestItem = itemId;
+      }
+    }
+    if (bestItem === undefined) break;
+    taken.add(bestItem);
+    const cov = solved.get(bestItem)!;
+    picked.push(rotatingScenario(bestItem));
+    plans.push(cov);
+    for (const id of cov.recipeIds) remaining.delete(id);
+  }
+
+  return {
+    picked,
+    plans,
+    residue: classifyResidue(pack, remaining, solved, failed),
+  };
+}
+
+// Label what is left. A recipe whose every candidate item threw is reported as
+// a failed solve; otherwise, if any candidate solve made one of its outputs
+// without running it, the LP had the choice and took another producer; failing
+// both, nothing a candidate plan reached ever touched it.
+function classifyResidue(
+  pack: RecipePack,
+  remaining: ReadonlySet<string>,
+  solved: ReadonlyMap<string, PlanCoverage>,
+  failed: ReadonlySet<string>,
+): ResidueEntry[] {
+  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const producible = producibleItemIds(pack.recipes);
+
+  // What each candidate solve made, so "the LP had another producer" can be
+  // asked once per solve rather than re-walked per recipe.
+  const madeBy: { made: Set<string>; ran: Set<string> }[] = [];
+  for (const cov of solved.values()) {
+    const made = new Set<string>();
+    for (const id of cov.recipeIds) {
+      for (const o of recipeById.get(id)?.out ?? []) made.add(o.item);
+    }
+    madeBy.push({ made, ran: new Set(cov.recipeIds) });
+  }
+
+  const out: ResidueEntry[] = [];
+  for (const { id, name } of denominatorRecipes(pack)
+    .filter((r) => remaining.has(r.id))
+    .map((r) => ({ id: r.id, name: r.name }))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    const recipe = recipeById.get(id)!;
+    const own = isSinkRecipe(recipe)
+      ? []
+      : recipe.out
+          .filter((o) => o.qty > 0 && producible.has(o.item))
+          .map((o) => o.item);
+    let reason: ResidueReason;
+    if (own.length > 0 && own.every((i) => failed.has(i))) {
+      reason = "candidate solve failed";
+    } else if (
+      madeBy.some((s) => !s.ran.has(id) && own.some((i) => s.made.has(i)))
+    ) {
+      reason = "LP prefers another producer";
+    } else {
+      reason = "no candidate scored";
+    }
+    out.push({ id, name, reason });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Scenario selection
 // ---------------------------------------------------------------------------
@@ -386,6 +592,8 @@ function formatReport(
   pack: RecipePack,
   report: CoverageReport,
   hashesPath: string,
+  fill: FillResult | undefined,
+  rotatingPath: string,
 ): string {
   const lines: string[] = [];
   lines.push(
@@ -453,14 +661,55 @@ function formatReport(
   lines.push(...table(["id", "name"], missMachines.map((m) => [m.id, m.name])));
   lines.push("");
 
+  if (fill) lines.push(...fillSection(fill, report.union));
+
   lines.push(`hashes ${hashesPath}`);
+  if (fill) lines.push(`rotating ${rotatingPath}`);
   return lines.join("\n");
+}
+
+// The rotating picks and the residue. "new" is what a pick added on top of the
+// core plus the picks before it, so the column sums to the coverage the whole
+// rotating set bought.
+function fillSection(fill: FillResult, base: CoverageUnion): string[] {
+  const lines: string[] = [];
+  const covered = new Set(base.recipeIds);
+
+  const rows = fill.plans.map((p) => {
+    const added = p.recipeIds.filter((id) => !covered.has(id));
+    for (const id of added) covered.add(id);
+    return [
+      p.id,
+      String(p.recipeIds.length),
+      String(p.machineIds.length),
+      String(added.length),
+    ];
+  });
+  lines.push(`# rotating (${fill.picked.length})`);
+  lines.push(...table(["id", "recipes", "machines", "new"], rows));
+  lines.push("");
+
+  const byReason = new Map<string, number>();
+  for (const r of fill.residue)
+    byReason.set(r.reason, (byReason.get(r.reason) ?? 0) + 1);
+  lines.push(`# residue (${fill.residue.length})`);
+  for (const [reason, n] of [...byReason].sort()) lines.push(`${reason}: ${n}`);
+  lines.push(
+    ...table(
+      ["id", "name", "reason"],
+      fill.residue.map((r) => [r.id, r.name, r.reason]),
+    ),
+  );
+  lines.push("");
+  return lines;
 }
 
 function toJson(
   pack: RecipePack,
   report: CoverageReport,
   hashesPath: string,
+  fill: FillResult | undefined,
+  rotatingPath: string,
 ): string {
   return JSON.stringify(
     {
@@ -481,6 +730,16 @@ function toJson(
       },
       uncoveredRecipes: uncoveredRecipes(pack, report.union),
       uncoveredMachines: uncoveredMachines(pack, report.union),
+      ...(fill
+        ? {
+            rotating: {
+              path: rotatingPath,
+              scenarios: fill.picked,
+              plans: fill.plans,
+              residue: fill.residue,
+            },
+          }
+        : {}),
     },
     null,
     2,
@@ -494,8 +753,11 @@ function toJson(
 export async function runCli(argv: string[]): Promise<string> {
   let all = false;
   let json = false;
+  let fill = false;
+  let max = DEFAULT_FILL_MAX;
   let scenariosJson: string | undefined;
   let hashesPath = DEFAULT_HASHES_PATH;
+  let rotatingPath = DEFAULT_ROTATING_PATH;
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -503,6 +765,20 @@ export async function runCli(argv: string[]): Promise<string> {
       all = true;
     } else if (a === "--json") {
       json = true;
+    } else if (a === "--fill") {
+      fill = true;
+    } else if (a === "--max") {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("--"))
+        return "error: --max requires a value";
+      max = Number(argv[++i]);
+      if (!Number.isInteger(max) || max < 1)
+        return "error: --max must be a positive integer";
+    } else if (a === "--out") {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("--"))
+        return "error: --out requires a value";
+      rotatingPath = argv[++i]!;
     } else if (a === "--scenarios") {
       const next = argv[i + 1];
       if (next === undefined || next.startsWith("--"))
@@ -520,6 +796,11 @@ export async function runCli(argv: string[]): Promise<string> {
 
   if (all && scenariosJson !== undefined)
     return "error: provide at most one of --all or --scenarios";
+  if (
+    !fill &&
+    (max !== DEFAULT_FILL_MAX || rotatingPath !== DEFAULT_ROTATING_PATH)
+  )
+    return "error: --max and --out only apply with --fill";
 
   let scenarios: Scenario[];
   if (scenariosJson !== undefined) {
@@ -533,10 +814,26 @@ export async function runCli(argv: string[]): Promise<string> {
   }
 
   const report = await collectCoverage(shippedPack, scenarios);
-  await writeHashesTsv(hashesPath, shippedPack, report.plans);
+  const filled = fill
+    ? await fillGaps(shippedPack, report, { max })
+    : undefined;
+
+  // Core rows first, then the rotating ones, so the ledger reads in the order
+  // the exam runs them. Duplicate ids would make a row unaddressable, and a
+  // hand-written --scenarios set can collide with the rot- names.
+  const rows = [...report.plans, ...(filled?.plans ?? [])];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (seen.has(r.id))
+      return `error: duplicate scenario id "${r.id}" in the hash ledger`;
+    seen.add(r.id);
+  }
+  await writeHashesTsv(hashesPath, shippedPack, rows);
+  if (filled) await writeRotatingJson(rotatingPath, filled.picked);
+
   return json
-    ? toJson(shippedPack, report, hashesPath)
-    : formatReport(shippedPack, report, hashesPath);
+    ? toJson(shippedPack, report, hashesPath, filled, rotatingPath)
+    : formatReport(shippedPack, report, hashesPath, filled, rotatingPath);
 }
 
 if (import.meta.main) {

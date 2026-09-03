@@ -7,9 +7,12 @@ import type { Scenario } from "../../test/e2e/scenarios";
 import {
   CORE_SCENARIO_IDS,
   collectCoverage,
+  fillGaps,
   uncoveredMachines,
   uncoveredRecipes,
   writeHashesTsv,
+  writeRotatingJson,
+  type CoverageReport,
 } from "./coverage";
 
 // Synthetic pack: two recipes make the same item, one of them strictly
@@ -176,5 +179,196 @@ describe("writeHashesTsv", () => {
     expect(lines[0]).toBe("# pack cafe1234 v0.0");
     expect(lines).toHaveLength(2);
     expect(lines[1]).toBe(`synth\t${report.plans[0]!.hash}`);
+  });
+});
+
+// Synthetic pack for the gap filler. Everything hangs off one raw ore:
+//
+//   ore -> mid -> left  \
+//              -> right  -> top -> (sink)
+//   ore -> mid            (a second, dearer mid producer the LP never runs)
+//   ore -> alpha
+//   ore -> zeta
+//   ore -> ghost          (producer machine does not exist: the solve throws)
+//
+// r_mid yields 2 per cycle against r_alt_mid's 1, so the LP runs r_mid at half
+// the rate and r_alt_mid never appears. Targeting "top" therefore covers four
+// recipes in one plan while "left" and "right" cover two overlapping ones, so
+// a greedy pick must take top first even though "alpha" sorts ahead of it.
+function fillPack(): RecipePack {
+  const item = (id: string, raw: boolean) => ({
+    id, name: id, category: "test", icon: "", row: 0, raw, transportKind: "belt",
+  });
+  const machine = (id: string) => ({
+    id, name: id, icon: "", speed: 1, powerType: "electric", powerKw: 0, hideRate: false,
+  });
+  const recipe = (
+    id: string,
+    ins: [string, number][],
+    outs: [string, number][],
+    producer: string,
+  ) => ({
+    id, name: `${id} name`, category: "test", icon: "", row: 0, time: 1,
+    in: ins.map(([i, qty]) => ({ item: i, qty })),
+    out: outs.map(([i, qty]) => ({ item: i, qty })),
+    producers: [producer],
+  });
+
+  return {
+    schemaVersion: "0.2",
+    source: {
+      name: "synth",
+      sourceRepo: "synth",
+      sourceCommit: "cafe1234",
+      gameVersion: "v0.0",
+      extractedAt: "1970-01-01T00:00:00.000Z",
+    },
+    categories: [],
+    locations: [],
+    items: [
+      item("ore", true),
+      item("mid", false),
+      item("left", false),
+      item("right", false),
+      item("top", false),
+      item("alpha", false),
+      item("zeta", false),
+      item("ghost", false),
+    ],
+    machines: [machine("m1"), machine("m2")],
+    transports: [],
+    recipes: [
+      recipe("r_mid", [["ore", 1]], [["mid", 2]], "m1"),
+      recipe("r_alt_mid", [["ore", 1]], [["mid", 1]], "m2"),
+      recipe("r_left", [["mid", 1]], [["left", 1]], "m1"),
+      recipe("r_right", [["mid", 1]], [["right", 1]], "m1"),
+      recipe("r_top", [["left", 1], ["right", 1]], [["top", 1]], "m1"),
+      recipe("r_alpha", [["ore", 1]], [["alpha", 1]], "m1"),
+      recipe("r_zeta", [["ore", 1]], [["zeta", 1]], "m1"),
+      recipe("r_sink", [["top", 1]], [], "m1"),
+      recipe("r_ghost", [["ore", 1]], [["ghost", 1]], "m_missing"),
+    ],
+  } as unknown as RecipePack;
+}
+
+const EMPTY_UNION = () => ({
+  recipeIds: new Set<string>(),
+  machineIds: new Set<string>(),
+  selfConsumingRecipeIds: new Set<string>(),
+});
+
+// A coverage report whose core covered nothing, so the filler faces the whole
+// denominator.
+function emptyCoverage(pack: RecipePack): CoverageReport {
+  return {
+    fingerprint: {
+      sourceCommit: pack.source.sourceCommit,
+      gameVersion: pack.source.gameVersion,
+    },
+    plans: [],
+    union: EMPTY_UNION(),
+    featureTotals: {
+      loopBoxes: 0,
+      loopMembers: 0,
+      fanoutInputs: 0,
+      aggregateInputs: 0,
+      partialStamps: 0,
+      multiplicityTotal: "0",
+    },
+  };
+}
+
+describe("fillGaps", () => {
+  it("picks by cover size, breaks ties by item id, and classes the residue", async () => {
+    const pack = fillPack();
+    const fill = await fillGaps(pack, emptyCoverage(pack));
+
+    expect(fill.picked.map((s) => s.id)).toEqual([
+      "rot-top",
+      "rot-alpha",
+      "rot-zeta",
+    ]);
+    expect(fill.picked[0]).toEqual({
+      id: "rot-top",
+      title: "rot-top",
+      targets: [{ itemId: "top", ratePerSec: { num: "1", denom: "2" } }],
+      maxDiffPixels: 0,
+    });
+
+    expect(fill.plans.map((p) => p.id)).toEqual([
+      "rot-top",
+      "rot-alpha",
+      "rot-zeta",
+    ]);
+    expect(fill.plans[0]!.recipeIds).toEqual([
+      "r_left",
+      "r_mid",
+      "r_right",
+      "r_top",
+    ]);
+    expect(fill.plans[0]!.hash.startsWith("v1.")).toBe(true);
+
+    expect(fill.residue).toEqual([
+      {
+        id: "r_alt_mid",
+        name: "r_alt_mid name",
+        reason: "LP prefers another producer",
+      },
+      { id: "r_ghost", name: "r_ghost name", reason: "candidate solve failed" },
+      { id: "r_sink", name: "r_sink name", reason: "no candidate scored" },
+    ]);
+  });
+
+  it("never turns a sink recipe into a candidate", async () => {
+    const pack = fillPack();
+    const fill = await fillGaps(pack, emptyCoverage(pack), { max: 99 });
+    // r_sink yields nothing, so no target rate can ask for it. It stays
+    // uncovered however large the budget grows, and no plan is built for it.
+    expect(fill.picked.map((s) => s.id)).not.toContain("rot-r_sink");
+    expect(fill.residue.find((r) => r.id === "r_sink")?.reason).toBe(
+      "no candidate scored",
+    );
+  });
+
+  it("stops at --max and leaves the rest in the residue", async () => {
+    const pack = fillPack();
+    const fill = await fillGaps(pack, emptyCoverage(pack), { max: 1 });
+
+    expect(fill.picked.map((s) => s.id)).toEqual(["rot-top"]);
+    expect(fill.residue.map((r) => r.id)).toEqual([
+      "r_alpha",
+      "r_alt_mid",
+      "r_ghost",
+      "r_sink",
+      "r_zeta",
+    ]);
+  });
+
+  it("skips recipes the core already covered", async () => {
+    const pack = fillPack();
+    const coverage = emptyCoverage(pack);
+    for (const id of ["r_mid", "r_left", "r_right", "r_top"])
+      coverage.union.recipeIds.add(id);
+
+    const fill = await fillGaps(pack, coverage, { max: 4 });
+    expect(fill.picked.map((s) => s.id)).toEqual(["rot-alpha", "rot-zeta"]);
+  });
+});
+
+describe("writeRotatingJson", () => {
+  it("writes the scenario array as pretty JSON", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "stc-rotating-"));
+    const path = join(dir, "nested", "rotating.json");
+    const scenario: Scenario = {
+      id: "rot-top",
+      title: "rot-top",
+      targets: [{ itemId: "top", ratePerSec: { num: "1", denom: "2" } }],
+      maxDiffPixels: 0,
+    };
+    await writeRotatingJson(path, [scenario]);
+
+    const text = await readFile(path, "utf8");
+    expect(text.endsWith("\n")).toBe(true);
+    expect(JSON.parse(text)).toEqual([scenario]);
   });
 });
