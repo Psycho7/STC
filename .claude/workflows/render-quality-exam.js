@@ -10,7 +10,7 @@ export const meta = {
 }
 
 // args: {
-//   plans: [{ id, dir, url, images: [{file, what}], tiles: [{file, kind, viewportTransform, safeRegion}], coverage }],
+//   plans: [{ id, dir, url, locale, images: [{file, what}], tiles: [{file, kind, viewportTransform, safeRegion}], coverage }],
 //   measurements: { [planId]: Measurement[] },
 //   examDir,
 //   conventions,
@@ -22,9 +22,12 @@ export const meta = {
 //                   about the design, and it is a tracked doc rather than a
 //                   paragraph here so a rendering change can be made to update
 //                   it. Required and non-empty.
-//   plans[].locale  the locale the capture was taken in, when the capture
-//                   recorded one. Anything but `en` sends the evaluator to the
-//                   conventions doc's locale section as well.
+//   plans[].locale  the language the capture booted, as scene.json recorded it.
+//                   Required, because both ends of the exam turn on it:
+//                   anything but `en` sends the evaluator to the conventions
+//                   doc's locale section as well, and a refuter boots the plan
+//                   itself, so probing it in another language would measure a
+//                   different rendering than the one under exam.
 //   plans[].dir     absolute IMAGES directory the capture wrote, which is
 //                   `<examDir>/<planId>/<imagesDir>` and holds nothing but images
 //   plans[].images  every image the capture produced, with a one-line description
@@ -97,6 +100,15 @@ const TILE_KINDS = ['fit', 'tile', 'corrective']
 for (const p of plans) {
   if (!p || typeof p.id !== 'string' || typeof p.dir !== 'string') {
     throw new Error(`render-quality-exam: every plan needs a string id and dir, got ${JSON.stringify(p)}`)
+  }
+  // Required rather than defaulted to `en`: a zh capture whose locale went
+  // missing reads as an en one all the way through, and both the evaluator's
+  // brief and the refuter's probe command would then be about a rendering
+  // nobody shot.
+  if (typeof p.locale !== 'string' || p.locale.trim() === '') {
+    throw new Error(
+      `render-quality-exam: plan ${p.id} needs scene.json's locale, the language the capture booted (e.g. "en"), got ${JSON.stringify(p.locale)}`,
+    )
   }
   // `dir` is handed to a cold evaluator, so it decides what that evaluator can
   // reach by listing it. The capture writes the images one level BELOW the plan
@@ -288,8 +300,9 @@ const FINDINGS_SCHEMA = {
 }
 
 // A capture in another language is judged against the same conventions plus their
-// locale section, which lists what goes wrong in text that is not English. Read
-// optionally here: a plan that records no locale is treated as the en case.
+// locale section, which lists what goes wrong in text that is not English. An en
+// capture gets nothing extra: it must not be sent chasing CJK typography that is
+// not in its images.
 const localeBrief = (p) =>
   typeof p.locale === 'string' && p.locale !== '' && p.locale !== 'en'
     ? `\nThis plan was captured in locale "${p.locale}", not en, so the "Locale notes" section above applies to it as well.\n`
@@ -681,9 +694,9 @@ You are not a second opinion and not a reviewer. For each finding, look for the 
 
 THE ONLY EVIDENCE THAT COUNTS is the output of the probe CLI against the running app:
 
-    bun run tools/exam/probe.ts --base-url ${baseUrl} --hash '${hash}' --op <op> --arg k=v [--arg k=v]
+    bun run tools/exam/probe.ts --base-url ${baseUrl} --hash '${hash}' --locale ${plan.locale} --op <op> --arg k=v [--arg k=v]
 
-Run it from the repo root with Bash. It boots the plan, runs at most one named op, and prints one JSON object to stdout. Ops and their arguments:
+Run it from the repo root with Bash. It boots the plan, runs at most one named op, and prints one JSON object to stdout. Keep \`--locale ${plan.locale}\` on every run: it is the language this capture was shot in, and dropping it probes a differently rendered app. Ops and their arguments:
 - \`hover-edge\` --arg id=<edgeId>, \`hover-node\` --arg id=<nodeId>: does hovering the thing engage, and what dims? It samples points ON the edge's own geometry, which is the whole reason it exists.
 - \`contrast\` --arg selector=<css>: contrast ratio of an element against what is painted behind it.
 - \`delta-e\` --arg a=<css> --arg b=<css>: perceptual colour distance between two elements.

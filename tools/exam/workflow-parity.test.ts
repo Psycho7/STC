@@ -527,7 +527,7 @@ const CONVENTIONS = [
 
 // The args the orchestrator builds, in one place, so a test can take it apart
 // to check what the workflow refuses.
-function workflowArgs(specs: PlanSpec[], locale?: string): Record<string, unknown> {
+function workflowArgs(specs: PlanSpec[], locale = "en"): Record<string, unknown> {
   return {
     examDir: "/exam",
     conventions: CONVENTIONS,
@@ -545,11 +545,25 @@ function workflowArgs(specs: PlanSpec[], locale?: string): Record<string, unknow
         correctiveReserve: 0,
         capHit: false,
       },
-      ...(locale === undefined ? {} : { locale }),
+      locale,
     })),
     measurements: Object.fromEntries(specs.map((spec) => [spec.id, spec.measurements])),
   };
 }
+
+// The workflow over args a test has taken apart, with every global stubbed to
+// answer nothing: what is under test here is which args it refuses, so nothing
+// past the validation prologue has to produce anything.
+const runArgs = (args: unknown): Promise<WorkflowResult> =>
+  compileWorkflow()(
+    args,
+    () => Promise.resolve(null),
+    (tasks) => Promise.all(tasks.map((task) => task())),
+    undefined,
+    () => {},
+    undefined,
+    undefined,
+  );
 
 async function runWorkflow(
   specs: PlanSpec[],
@@ -727,7 +741,9 @@ describe("the evaluator prompt is briefed from the conventions doc", () => {
   });
 
   // A non-en capture is judged against the same doc plus its locale section; an
-  // en one must not be sent chasing CJK typography it cannot see.
+  // en one must not be sent chasing CJK typography it cannot see. The refuter
+  // end of the same fact: it boots the plan itself, and booting it in another
+  // language would probe a different rendering than the one under exam.
   test("points a non-en plan at the locale section, and an en plan at nothing extra", async () => {
     const spec: PlanSpec = {
       id: "loc",
@@ -743,6 +759,21 @@ describe("the evaluator prompt is briefed from the conventions doc", () => {
     expect(zh.prompts.get("evaluate:loc")).toContain('captured in locale "zh"');
     expect(zh.prompts.get("evaluate:loc")).toContain('"Locale notes" section');
     expect(en.prompts.get("evaluate:loc")).not.toContain("captured in locale");
+
+    expect(zh.prompts.get("refute:loc:chip-adrift")).toContain("--locale zh");
+    expect(en.prompts.get("refute:loc:chip-adrift")).toContain("--locale en");
+  });
+
+  test("refuses a plan carrying no locale", async () => {
+    const spec: PlanSpec = {
+      id: "bare",
+      findings: [],
+      measurements: [CHIP],
+      tiles: TILES,
+    };
+    const bare = workflowArgs([spec]);
+    for (const plan of bare.plans as Array<Record<string, unknown>>) delete plan.locale;
+    await expect(runArgs(bare)).rejects.toThrow(/render-quality-exam: plan bare .*locale/);
   });
 
   test("refuses args carrying no conventions", async () => {
@@ -754,17 +785,7 @@ describe("the evaluator prompt is briefed from the conventions doc", () => {
     };
     const bare = workflowArgs([spec]);
     delete bare.conventions;
-    await expect(
-      compileWorkflow()(
-        bare,
-        () => Promise.resolve(null),
-        (tasks) => Promise.all(tasks.map((task) => task())),
-        undefined,
-        () => {},
-        undefined,
-        undefined,
-      ),
-    ).rejects.toThrow(/render-quality-exam: .*conventions/);
+    await expect(runArgs(bare)).rejects.toThrow(/render-quality-exam: .*conventions/);
   });
 });
 
