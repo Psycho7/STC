@@ -13,8 +13,14 @@ export const meta = {
 //   plans: [{ id, dir, url, locale, images: [{file, what}], tiles: [{file, kind, viewportTransform, safeRegion}], coverage }],
 //   measurements: { [planId]: Measurement[] },
 //   examDir,
+//   repoRoot,
 //   conventions,
 // }
+//   repoRoot        absolute path of the checkout the probe CLI lives in. A
+//                   refuter runs Bash wherever its own agent was started, which
+//                   is not necessarily the checkout, so the command it is given
+//                   names the probe absolutely rather than telling it where to
+//                   stand. Required and absolute.
 //   conventions     the render-conventions doc, verbatim: what the canvas is
 //                   trying to draw, and which behaviours are deliberate. A
 //                   script cannot read a file, so the orchestrator reads it and
@@ -76,6 +82,17 @@ const examDir = input && typeof input.examDir === 'string' ? input.examDir.repla
 if (examDir === '' || !examDir.startsWith('/')) {
   throw new Error(
     `render-quality-exam: examDir must be the absolute directory the capture wrote into, got ${JSON.stringify(input && input.examDir)}`,
+  )
+}
+// Where the probe CLI is, absolutely. A relative path in the refuter's command
+// resolves against whatever directory that agent's Bash starts in; when it
+// misses, the probe exits as a harness failure, and a harness failure settles
+// nothing in either direction - it is the one outcome that costs a refuter its
+// whole run without telling it the finding was wrong.
+const repoRoot = input && typeof input.repoRoot === 'string' ? input.repoRoot.replace(/\/+$/, '') : ''
+if (repoRoot === '' || !repoRoot.startsWith('/')) {
+  throw new Error(
+    `render-quality-exam: repoRoot must be the absolute path of the checkout holding tools/exam/probe.ts, got ${JSON.stringify(input && input.repoRoot)}`,
   )
 }
 // The whole of what an evaluator is told about the design it is judging. It is a
@@ -694,9 +711,9 @@ You are not a second opinion and not a reviewer. For each finding, look for the 
 
 THE ONLY EVIDENCE THAT COUNTS is the output of the probe CLI against the running app:
 
-    bun run tools/exam/probe.ts --base-url ${baseUrl} --hash '${hash}' --locale ${plan.locale} --op <op> --arg k=v [--arg k=v]
+    bun run ${repoRoot}/tools/exam/probe.ts --base-url ${baseUrl} --hash '${hash}' --locale ${plan.locale} --op <op> --arg k=v [--arg k=v]
 
-Run it from the repo root with Bash. It boots the plan, runs at most one named op, and prints one JSON object to stdout. Keep \`--locale ${plan.locale}\` on every run: it is the language this capture was shot in, and dropping it probes a differently rendered app. Ops and their arguments:
+Run it with Bash. The path above is absolute, so it works from whatever directory you are in; do not cd anywhere first. It boots the plan, runs at most one named op, and prints one JSON object to stdout. Keep \`--locale ${plan.locale}\` on every run: it is the language this capture was shot in, and dropping it probes a differently rendered app. Ops and their arguments:
 - \`hover-edge\` --arg id=<edgeId>, \`hover-node\` --arg id=<nodeId>: does hovering the thing engage, and what dims? It samples points ON the edge's own geometry, which is the whole reason it exists.
 - \`contrast\` --arg selector=<css>: contrast ratio of an element against what is painted behind it.
 - \`delta-e\` --arg a=<css> --arg b=<css>: perceptual colour distance between two elements.

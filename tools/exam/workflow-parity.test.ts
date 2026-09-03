@@ -527,9 +527,15 @@ const CONVENTIONS = [
 
 // The args the orchestrator builds, in one place, so a test can take it apart
 // to check what the workflow refuses.
+// Where the orchestrator says the checkout is. Distinctive, so an assertion that
+// the probe path is absolute cannot pass on a relative one that happens to
+// contain the same suffix.
+const REPO_ROOT = "/srv/checkouts/stc";
+
 function workflowArgs(specs: PlanSpec[], locale = "en"): Record<string, unknown> {
   return {
     examDir: "/exam",
+    repoRoot: REPO_ROOT,
     conventions: CONVENTIONS,
     plans: specs.map((spec) => ({
       id: spec.id,
@@ -786,6 +792,37 @@ describe("the evaluator prompt is briefed from the conventions doc", () => {
     const bare = workflowArgs([spec]);
     delete bare.conventions;
     await expect(runArgs(bare)).rejects.toThrow(/render-quality-exam: .*conventions/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The probe command a refuter is handed
+//
+// A refuter runs Bash wherever its own agent starts, which is not necessarily
+// the checkout: a relative `tools/exam/probe.ts` then resolves to nothing, and
+// the harness failure that follows settles no claim in either direction. So the
+// path is built from `args.repoRoot` and the briefing says so.
+// ---------------------------------------------------------------------------
+
+describe("the refuter's probe command is absolute", () => {
+  test("names the probe under args.repoRoot and drops the repo-root instruction", async () => {
+    const { prompts } = await runWorkflow([solo({})]);
+    const prompt = prompts.get("refute:solo:chip-adrift");
+
+    expect(prompt).toContain(`bun run ${REPO_ROOT}/tools/exam/probe.ts`);
+    expect(prompt).not.toContain("from the repo root");
+  });
+
+  test("refuses args carrying no repoRoot, and a relative one", async () => {
+    const spec: PlanSpec = { id: "bare", findings: [], measurements: [CHIP], tiles: TILES };
+
+    const missing = workflowArgs([spec]);
+    delete missing.repoRoot;
+    await expect(runArgs(missing)).rejects.toThrow(/render-quality-exam: .*repoRoot/);
+
+    await expect(runArgs({ ...workflowArgs([spec]), repoRoot: "STC" })).rejects.toThrow(
+      /render-quality-exam: .*repoRoot/,
+    );
   });
 });
 
