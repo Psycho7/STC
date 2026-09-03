@@ -353,7 +353,7 @@ Every verdict carries the same keys whatever produced it, so one filter reads th
 | `mechanismVerdict` | the same on the stated cause; `null` when the finding stated none |
 | `mechanismStripped` | the cause struck out; `null` unless `FILE_SYMPTOM_ONLY` |
 | `disposition` | the table above, derived from the two verdicts and nothing else |
-| `corroboratedBy` | the measurement ids (`<planId>#<index>:<kind>`) that carried the finding past refutation; `[]` for anything a refuter answered |
+| `corroboratedBy` | the measurement ids (`<planId>#<index>:<kind>`) that carried the finding past refutation; `[]` for anything a refuter answered. Check that the measurement's KIND answers the claim: the join is by footprint, so a routing claim can be paired with a card-intrusion measurement at the same place, that is a place hit, not a corroboration, and the finding still needs a probe |
 | `probeCommand`, `probeOutput` | what was run and what it printed; `null` for a corroborated finding, which never reached an agent, and for a refuter that ran nothing |
 | `reasoning` | how that settles the claim; `null` when none was given |
 | `correctedObservation` | what is actually true, when the symptom is real but stated wrongly; `null` otherwise |
@@ -395,7 +395,15 @@ restate the finding yourself against the evidence image (then treat it as your o
 disproving it before filing) or drop it. Do not file one as it stands. Read the evidence image
 for every major finding yourself and drop or downgrade what the pixels do not show; the
 workflow's "nothing is auto-dropped" rule binds the machine, not you, and this pass is where a
-finding the pixels do not support dies.
+finding the pixels do not support dies. The 24 px margin frames the claim, not its context, so
+recut each major at 400-600 px around the rect with `crop.ts --image ... --rect` before ruling: a
+128x70 crop shows that a chip exists, not what it overlaps. A coincidence or shared-route claim
+cannot be ruled on from pixels at all: two edges within a stroke width of each other paint as one
+line at every zoom the exam shoots, so probe the edge paths (`--eval` over the
+`.react-flow__edge` `d` attributes) before keeping one, whatever its verdict says. The tile an
+evaluator cites can also be off by one - the one DROP this procedure has recorded was a chip in
+`10-tile-r3c0.png` cited as `r3c1` - so open the neighbouring tile before dropping a finding whose
+rect looks empty.
 
 Check what is already open before writing anything new:
 
@@ -407,20 +415,38 @@ Match each surviving finding to an open issue by defect FAMILY - same mechanism,
 A finding that belongs to an open family is a reconfirmation comment on that issue, naming the
 plan and the evidence, not a second issue. Only a family nothing covers earns a new issue.
 
+That listing hides closed families. Before writing a new issue, search `--state all` for the same
+mechanism: a finding that matches a closed issue is a reopen question for the user, not a new
+file.
+
 Cut the evidence crops from the saved return:
 
 ```bash
-bun run tools/exam/crop.ts --verdicts .artifacts/exam/<date>-run.json
+mkdir -p .artifacts/exam/crops
+bun run tools/exam/crop.ts --verdicts .artifacts/exam/<date>-run.json \
+  > .artifacts/exam/crops/index.json
 ```
 
-That crops every evidence entry of every `FILE` and `FILE_SYMPTOM_ONLY` verdict with a 24 px
-margin into `.artifacts/exam/crops/`, named `<findingId>-<n>.png` with the id's colon
-flattened to `-`. A `HUMAN_REVIEW` or `humanRuling` finding you decide to file is not in that
-pass and there is no margin flag, so cut those by hand:
+Redirect it for the reason step 5 gives: the return carries a record per crop and runs to tens of
+kilobytes, and the counts to report are `crops | length`, `skipped | length` and `failed | length`,
+read back out of that file. That crops every evidence entry of every `FILE` and
+`FILE_SYMPTOM_ONLY` verdict with a 24 px margin into `.artifacts/exam/crops/`, named
+`<findingId>-<n>.png` with the id's colon flattened to `-`. A `HUMAN_REVIEW` or `humanRuling`
+finding you decide to file is not in that pass and there is no margin flag, so cut those by hand:
 
 ```bash
 bun run tools/exam/crop.ts --image .artifacts/exam/<plan>/images/<tile>.png \
   --rect <x>,<y>,<w>,<h> --out .artifacts/exam/crops/<name>.png
+```
+
+A `humanRuling` entry names its evidence differently from a verdict: the image is
+`evidence[].image`, a bare file name, not `file`, and the rect is `evidence[].rect` as
+`[x, y, w, h]`. Build the two flags out of it rather than transcribing them:
+
+```bash
+jq -r '.humanRuling[] | select(.id == "<id>") | . as $f | .evidence[]
+       | "--image .artifacts/exam/\($f.planId)/images/\(.image) --rect \(.rect | join(","))"' \
+  .artifacts/exam/<date>-run.json
 ```
 
 Write each new issue body to `.artifacts/exam/issues/<slug>.md` and hand the user the
