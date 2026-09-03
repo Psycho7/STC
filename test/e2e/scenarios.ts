@@ -8,6 +8,7 @@
 // figure (per-second = per-minute / 60).
 
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { planHash } from "./plan-hash";
 
@@ -156,8 +157,13 @@ const EXTRA_SCENARIOS_ENV = "EXAM_EXTRA_SCENARIOS";
 // entry would show up as a plan that simply was not examined, which is the one
 // failure mode a rotating corpus cannot afford.
 export function extraScenariosFromEnv(): Scenario[] {
-  const path = process.env[EXTRA_SCENARIOS_ENV];
-  if (path === undefined || path === "") return [];
+  const raw = process.env[EXTRA_SCENARIOS_ENV];
+  if (raw === undefined || raw === "") return [];
+  // Playwright workers and Vitest pools each pick their own cwd, so a relative
+  // value has to mean the same file wherever the run was launched from: anchor
+  // it to the repo root (two levels up from test/e2e). resolve passes an
+  // absolute value through untouched.
+  const path = resolve(import.meta.dirname, "../..", raw);
 
   function fail(detail: string): never {
     throw new Error(`${EXTRA_SCENARIOS_ENV}=${path}: ${detail}`);
@@ -173,10 +179,11 @@ export function extraScenariosFromEnv(): Scenario[] {
 
   const seen = new Set(SCENARIOS.map((s) => s.id));
   const extra: Scenario[] = [];
-  parsed.forEach((raw, i) => {
+  parsed.forEach((item, i) => {
     const at = `entry ${i}`;
-    if (typeof raw !== "object" || raw === null) fail(`${at} is not an object`);
-    const entry = raw as Partial<Scenario>;
+    if (typeof item !== "object" || item === null)
+      fail(`${at} is not an object`);
+    const entry = item as Partial<Scenario>;
     if (typeof entry.id !== "string" || entry.id === "")
       fail(`${at} has no string "id"`);
     if (typeof entry.title !== "string" || entry.title === "")

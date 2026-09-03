@@ -3,10 +3,10 @@
 // error is the sole way to report a bad file. Its validation is therefore worth
 // a suite of its own, here rather than under test/e2e/ (Vitest is kept out of
 // that directory; the loader itself pulls in no Playwright runtime).
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 import { SCENARIOS, extraScenariosFromEnv } from "./e2e/scenarios";
 
@@ -20,6 +20,12 @@ function withFile(contents: string): string {
   return path;
 }
 
+// Loader-relative path spelling: the loader anchors a relative value at the
+// repo root (two levels up from test/e2e), which is one level up from here.
+function relativeToRepoRoot(absolute: string): string {
+  return relative(resolve(import.meta.dirname, ".."), absolute);
+}
+
 const ROT = {
   id: "rot-bottled_food_3",
   title: "rot-bottled_food_3",
@@ -27,8 +33,18 @@ const ROT = {
   maxDiffPixels: 0,
 };
 
+// The variable may already be set in the developer's shell, which would make
+// the unset case pass for the wrong reason. Clear it on both sides.
+beforeEach(() => {
+  delete process.env[ENV];
+});
+
 afterEach(() => {
   delete process.env[ENV];
+});
+
+afterAll(() => {
+  rmSync(dir, { recursive: true, force: true });
 });
 
 describe("extraScenariosFromEnv", () => {
@@ -74,5 +90,17 @@ describe("extraScenariosFromEnv", () => {
   it("rejects an id repeated inside the file", () => {
     withFile(JSON.stringify([ROT, ROT]));
     expect(() => extraScenariosFromEnv()).toThrow(/entry 1 id .* collides/);
+  });
+
+  it("resolves a relative path against the repo root, not the cwd", () => {
+    const abs = withFile(JSON.stringify([ROT]));
+    // The same file named relative to the repo root loads identically, and the
+    // error text reports the resolved absolute path.
+    process.env[ENV] = relativeToRepoRoot(abs);
+    expect(extraScenariosFromEnv()).toEqual([ROT]);
+    process.env[ENV] = relativeToRepoRoot(join(dir, "absent.json"));
+    expect(() => extraScenariosFromEnv()).toThrow(
+      new RegExp(`${ENV}=${join(dir, "absent.json")}:`),
+    );
   });
 });

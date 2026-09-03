@@ -103,9 +103,14 @@ function fmtRect(r: AuditChipRect): string {
 // pinned measurement -- a missing entry is unknown, never zero.
 const AUDIT_SCENARIOS = [...SCENARIOS, ...extraScenariosFromEnv()];
 
+// The fixed corpus, which every table below is required to pin in full.
+const FIXED_IDS = new Set(SCENARIOS.map((s) => s.id));
+
 // A baseline read that tolerates a scenario the table does not pin. Returns null
 // and records why, so the caller can leave that one ratchet unasserted while the
-// rest of the test runs.
+// rest of the test runs. Only a rotating id earns that tolerance: a fixed-corpus
+// id with no entry means the table lost a row, so it throws instead of quietly
+// downgrading its own membership guard to a skip.
 function baselineFor(
   table: Record<string, number>,
   tableName: string,
@@ -114,6 +119,11 @@ function baselineFor(
 ): number | null {
   const pinned = table[scenarioId];
   if (pinned === undefined) {
+    if (FIXED_IDS.has(scenarioId))
+      throw new Error(
+        `${tableName} has no entry for fixed-corpus scenario "${scenarioId}": ` +
+          `every SCENARIOS id must stay pinned in every baseline table`,
+      );
     unpinned.push(`${scenarioId} has no ${tableName} entry (rotating plan)`);
     return null;
   }
