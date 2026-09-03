@@ -195,34 +195,36 @@ describe("writeHashesTsv", () => {
 // the rate and r_alt_mid never appears. Targeting "top" therefore covers four
 // recipes in one plan while "left" and "right" cover two overlapping ones, so
 // a greedy pick must take top first even though "alpha" sorts ahead of it.
-function fillPack(): RecipePack {
-  const item = (id: string, raw: boolean) => ({
-    id, name: id, category: "test", icon: "", row: 0, raw, transportKind: "belt",
-  });
-  const machine = (id: string) => ({
-    id, name: id, icon: "", speed: 1, powerType: "electric", powerKw: 0, hideRate: false,
-  });
-  const recipe = (
-    id: string,
-    ins: [string, number][],
-    outs: [string, number][],
-    producer: string,
-  ) => ({
-    id, name: `${id} name`, category: "test", icon: "", row: 0, time: 1,
-    in: ins.map(([i, qty]) => ({ item: i, qty })),
-    out: outs.map(([i, qty]) => ({ item: i, qty })),
-    producers: [producer],
-  });
+const item = (id: string, raw: boolean) => ({
+  id, name: id, category: "test", icon: "", row: 0, raw, transportKind: "belt",
+});
+const machine = (id: string) => ({
+  id, name: id, icon: "", speed: 1, powerType: "electric", powerKw: 0, hideRate: false,
+});
+const recipe = (
+  id: string,
+  ins: [string, number][],
+  outs: [string, number][],
+  producer: string,
+) => ({
+  id, name: `${id} name`, category: "test", icon: "", row: 0, time: 1,
+  in: ins.map(([i, qty]) => ({ item: i, qty })),
+  out: outs.map(([i, qty]) => ({ item: i, qty })),
+  producers: [producer],
+});
 
+const SYNTH_SOURCE = {
+  name: "synth",
+  sourceRepo: "synth",
+  sourceCommit: "cafe1234",
+  gameVersion: "v0.0",
+  extractedAt: "1970-01-01T00:00:00.000Z",
+};
+
+function fillPack(): RecipePack {
   return {
     schemaVersion: "0.2",
-    source: {
-      name: "synth",
-      sourceRepo: "synth",
-      sourceCommit: "cafe1234",
-      gameVersion: "v0.0",
-      extractedAt: "1970-01-01T00:00:00.000Z",
-    },
+    source: SYNTH_SOURCE,
     categories: [],
     locations: [],
     items: [
@@ -247,6 +249,40 @@ function fillPack(): RecipePack {
       recipe("r_zeta", [["ore", 1]], [["zeta", 1]], "m1"),
       recipe("r_sink", [["top", 1]], [], "m1"),
       recipe("r_ghost", [["ore", 1]], [["ghost", 1]], "m_missing"),
+    ],
+  } as unknown as RecipePack;
+}
+
+// Synthetic pack where one candidate item throws while a recipe that also
+// makes it is covered by another pick:
+//
+//   ore -> a + b          (r_pair, sound)
+//   ore -> b (x3)         (r_b_fast, producer machine does not exist)
+//
+// Targeting "b" is cheaper through r_b_fast (three per cycle against one), so
+// that solve throws; targeting "a" runs r_pair and covers it, byproduct b and
+// all. So b is a failed candidate whose other producing recipe still lands in
+// a pick.
+function failedCandidatePack(): RecipePack {
+  return {
+    schemaVersion: "0.2",
+    source: SYNTH_SOURCE,
+    categories: [],
+    locations: [],
+    items: [item("ore", true), item("a", false), item("b", false)],
+    machines: [machine("m1")],
+    transports: [],
+    recipes: [
+      recipe(
+        "r_pair",
+        [["ore", 1]],
+        [
+          ["a", 1],
+          ["b", 1],
+        ],
+        "m1",
+      ),
+      recipe("r_b_fast", [["ore", 1]], [["b", 3]], "m_missing"),
     ],
   } as unknown as RecipePack;
 }
@@ -322,9 +358,10 @@ describe("fillGaps", () => {
   it("never turns a sink recipe into a candidate", async () => {
     const pack = fillPack();
     const fill = await fillGaps(pack, emptyCoverage(pack), { max: 99 });
-    // r_sink yields nothing, so no target rate can ask for it. It stays
-    // uncovered however large the budget grows, and no plan is built for it.
-    expect(fill.picked.map((s) => s.id)).not.toContain("rot-r_sink");
+    // r_sink yields nothing, so no target rate can ask for it. The sink filter
+    // itself is unobservable - a sink has no outputs, so it contributes no
+    // candidate item either way - and what can be asserted is the consequence:
+    // r_sink stays uncovered however large the budget grows.
     expect(fill.residue.find((r) => r.id === "r_sink")?.reason).toBe(
       "no candidate scored",
     );
@@ -341,6 +378,36 @@ describe("fillGaps", () => {
       "r_ghost",
       "r_sink",
       "r_zeta",
+    ]);
+  });
+
+  it("counts budget-exhausted residue as reachable by an unpicked candidate", async () => {
+    const pack = fillPack();
+    const fill = await fillGaps(pack, emptyCoverage(pack), { max: 1 });
+
+    // r_alpha and r_zeta are only uncovered because the budget ran out: their
+    // own candidate plans solved and were never picked. r_sink is genuinely
+    // unreachable, so it must not be counted.
+    const scored = fill.residue.filter(
+      (r) => r.reason === "no candidate scored",
+    );
+    expect(scored.map((r) => r.id)).toEqual(["r_alpha", "r_sink", "r_zeta"]);
+    expect(fill.reachableByUnpicked).toBe(2);
+  });
+
+  it("lists a failed candidate even when another pick covers its recipe", async () => {
+    const pack = failedCandidatePack();
+    const fill = await fillGaps(pack, emptyCoverage(pack));
+
+    expect(fill.picked.map((s) => s.id)).toEqual(["rot-a"]);
+    // r_pair also makes b, and the rot-a pick covers it - the failure is still
+    // reported, because it is a fact about the candidate, not about the gap.
+    expect(fill.plans[0]!.recipeIds).toEqual(["r_pair"]);
+    expect(fill.failed).toEqual([
+      {
+        itemId: "b",
+        message: "recipe r_b_fast has no resolvable producer (m_missing)",
+      },
     ]);
   });
 

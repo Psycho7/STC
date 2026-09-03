@@ -25,7 +25,9 @@
 // takes whichever single-target plan brings in the most still-uncovered
 // recipes. The picks land in --out (default .artifacts/exam/rotating.json) and
 // are appended to the ledger after the core rows. Whatever stays uncovered is
-// printed as a residue with the reason it could not be reached.
+// printed as a residue with the reason it could not be reached, alongside how
+// much of that residue a larger --max would still have reached. A candidate
+// whose solve throws is listed and skipped, never fatal.
 //
 // Exit codes:
 //   0  report printed
@@ -352,6 +354,10 @@ export type ResidueReason =
 
 export type ResidueEntry = NamedId & { reason: ResidueReason };
 
+// A candidate whose solve threw. Non-fatal, but reported: a silent skip hides
+// a broken pack entry behind a residue line that blames the LP.
+export type FailedCandidate = { itemId: string; message: string };
+
 export type FillOptions = {
   // Cap on rotating plans. Defaults to DEFAULT_FILL_MAX.
   max?: number;
@@ -364,6 +370,13 @@ export type FillResult = {
   plans: PlanCoverage[];
   // Recipes still uncovered after the picks, by id, with the reason.
   residue: ResidueEntry[];
+  // Candidates whose solve threw, in item id order.
+  failed: FailedCandidate[];
+  // How many "no candidate scored" residue recipes some unpicked candidate's
+  // solution already runs. Those are not unreachable, only out of budget: the
+  // three reason classes describe the run, this counts what a larger --max
+  // would reach.
+  reachableByUnpicked: number;
 };
 
 // One rotating plan: a single target for one item at the corpus-modal rate.
@@ -379,21 +392,31 @@ function rotatingScenario(itemId: string): Scenario {
   };
 }
 
-// Items a rotating plan is allowed to target: the outputs of the recipes the
-// core left uncovered, minus sink recipes (they yield nothing to aim a rate at)
-// and minus anything outside producibleItemIds, which is what the plan loader
-// itself accepts as a target. Sorted, so every downstream tie-break is stable.
+// The items one recipe offers a rotating plan to aim a rate at: its positive
+// outputs, minus anything outside producibleItemIds (what the plan loader
+// itself accepts as a target). A sink recipe offers none - it has no outputs
+// at all, so the guard is intent rather than arithmetic.
+function candidateItemsOf(
+  recipe: Recipe,
+  producible: ReadonlySet<string>,
+): string[] {
+  if (isSinkRecipe(recipe)) return [];
+  return recipe.out
+    .filter((o) => o.qty > 0 && producible.has(o.item))
+    .map((o) => o.item);
+}
+
+// Every item a rotating plan may target: the candidate items of the recipes
+// the core left uncovered. Sorted, so every downstream tie-break is stable.
 function candidateItems(
   pack: RecipePack,
   uncovered: ReadonlySet<string>,
+  producible: ReadonlySet<string>,
 ): string[] {
-  const producible = producibleItemIds(pack.recipes);
   const items = new Set<string>();
   for (const r of pack.recipes) {
-    if (!uncovered.has(r.id) || isSinkRecipe(r)) continue;
-    for (const o of r.out) {
-      if (o.qty > 0 && producible.has(o.item)) items.add(o.item);
-    }
+    if (!uncovered.has(r.id)) continue;
+    for (const item of candidateItemsOf(r, producible)) items.add(item);
   }
   return [...items].sort();
 }
@@ -411,18 +434,22 @@ export async function fillGaps(
   opts: FillOptions = {},
 ): Promise<FillResult> {
   const max = opts.max ?? DEFAULT_FILL_MAX;
+  const producible = producibleItemIds(pack.recipes);
   const remaining = new Set(
     uncoveredRecipes(pack, coverage.union).map((r) => r.id),
   );
-  const items = candidateItems(pack, remaining);
+  const items = candidateItems(pack, remaining, producible);
 
   const solved = new Map<string, PlanCoverage>();
-  const failed = new Set<string>();
+  const failed: FailedCandidate[] = [];
   for (const itemId of items) {
     try {
       solved.set(itemId, await coverOne(pack, rotatingScenario(itemId)));
-    } catch {
-      failed.add(itemId);
+    } catch (err: unknown) {
+      failed.push({
+        itemId,
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -453,48 +480,59 @@ export async function fillGaps(
     for (const id of cov.recipeIds) remaining.delete(id);
   }
 
-  return {
-    picked,
-    plans,
-    residue: classifyResidue(pack, remaining, solved, failed),
-  };
+  const { residue, reachableByUnpicked } = classifyResidue(
+    pack,
+    remaining,
+    solved,
+    new Set(failed.map((f) => f.itemId)),
+    producible,
+    taken,
+  );
+  return { picked, plans, residue, failed, reachableByUnpicked };
 }
 
 // Label what is left. A recipe whose every candidate item threw is reported as
 // a failed solve; otherwise, if any candidate solve made one of its outputs
 // without running it, the LP had the choice and took another producer; failing
 // both, nothing a candidate plan reached ever touched it.
+//
+// Those three classes describe the run, not the pack: a recipe an unpicked
+// candidate would have covered lands in "no candidate scored" once --max runs
+// out. Counting those separately keeps the classes as specified and still says
+// how much of the residue is only a budget away.
 function classifyResidue(
   pack: RecipePack,
   remaining: ReadonlySet<string>,
   solved: ReadonlyMap<string, PlanCoverage>,
   failed: ReadonlySet<string>,
-): ResidueEntry[] {
+  producible: ReadonlySet<string>,
+  taken: ReadonlySet<string>,
+): { residue: ResidueEntry[]; reachableByUnpicked: number } {
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
-  const producible = producibleItemIds(pack.recipes);
 
   // What each candidate solve made, so "the LP had another producer" can be
   // asked once per solve rather than re-walked per recipe.
   const madeBy: { made: Set<string>; ran: Set<string> }[] = [];
-  for (const cov of solved.values()) {
+  // Everything an unpicked candidate's solution runs: the recipes a larger
+  // --max could still have taken.
+  const unpickedRuns = new Set<string>();
+  for (const [itemId, cov] of solved) {
     const made = new Set<string>();
     for (const id of cov.recipeIds) {
       for (const o of recipeById.get(id)?.out ?? []) made.add(o.item);
     }
     madeBy.push({ made, ran: new Set(cov.recipeIds) });
+    if (!taken.has(itemId))
+      for (const id of cov.recipeIds) unpickedRuns.add(id);
   }
 
   const out: ResidueEntry[] = [];
+  let reachableByUnpicked = 0;
   for (const { id, name } of denominatorRecipes(pack)
     .filter((r) => remaining.has(r.id))
     .map((r) => ({ id: r.id, name: r.name }))
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
-    const recipe = recipeById.get(id)!;
-    const own = isSinkRecipe(recipe)
-      ? []
-      : recipe.out
-          .filter((o) => o.qty > 0 && producible.has(o.item))
-          .map((o) => o.item);
+    const own = candidateItemsOf(recipeById.get(id)!, producible);
     let reason: ResidueReason;
     if (own.length > 0 && own.every((i) => failed.has(i))) {
       reason = "candidate solve failed";
@@ -504,10 +542,11 @@ function classifyResidue(
       reason = "LP prefers another producer";
     } else {
       reason = "no candidate scored";
+      if (unpickedRuns.has(id)) reachableByUnpicked += 1;
     }
     out.push({ id, name, reason });
   }
-  return out;
+  return { residue: out, reachableByUnpicked };
 }
 
 // ---------------------------------------------------------------------------
@@ -661,7 +700,7 @@ function formatReport(
   lines.push(...table(["id", "name"], missMachines.map((m) => [m.id, m.name])));
   lines.push("");
 
-  if (fill) lines.push(...fillSection(fill, report.union));
+  if (fill) lines.push(...fillSection(pack, fill, report.union));
 
   lines.push(`hashes ${hashesPath}`);
   if (fill) lines.push(`rotating ${rotatingPath}`);
@@ -671,13 +710,19 @@ function formatReport(
 // The rotating picks and the residue. "new" is what a pick added on top of the
 // core plus the picks before it, so the column sums to the coverage the whole
 // rotating set bought.
-function fillSection(fill: FillResult, base: CoverageUnion): string[] {
+function fillSection(
+  pack: RecipePack,
+  fill: FillResult,
+  base: CoverageUnion,
+): string[] {
   const lines: string[] = [];
   const covered = new Set(base.recipeIds);
+  const machines = new Set(base.machineIds);
 
   const rows = fill.plans.map((p) => {
     const added = p.recipeIds.filter((id) => !covered.has(id));
     for (const id of added) covered.add(id);
+    for (const id of p.machineIds) machines.add(id);
     return [
       p.id,
       String(p.recipeIds.length),
@@ -687,13 +732,36 @@ function fillSection(fill: FillResult, base: CoverageUnion): string[] {
   });
   lines.push(`# rotating (${fill.picked.length})`);
   lines.push(...table(["id", "recipes", "machines", "new"], rows));
+  lines.push(
+    `after fill: recipes ${covered.size}/${denominatorRecipes(pack).length}` +
+      `  machines ${machines.size}/${denominatorMachines(pack).length}`,
+  );
   lines.push("");
+
+  if (fill.failed.length > 0) {
+    lines.push(`# failed candidates (${fill.failed.length})`);
+    lines.push(
+      ...table(
+        ["item", "error"],
+        fill.failed.map((f) => [f.itemId, f.message]),
+      ),
+    );
+    lines.push("");
+  }
 
   const byReason = new Map<string, number>();
   for (const r of fill.residue)
     byReason.set(r.reason, (byReason.get(r.reason) ?? 0) + 1);
   lines.push(`# residue (${fill.residue.length})`);
-  for (const [reason, n] of [...byReason].sort()) lines.push(`${reason}: ${n}`);
+  for (const [reason, n] of [...byReason].sort()) {
+    // The budget note rides on the class it qualifies: those recipes are out of
+    // budget, not out of reach.
+    const note =
+      reason === "no candidate scored" && fill.reachableByUnpicked > 0
+        ? ` (${fill.reachableByUnpicked} reachable by an unpicked candidate; raise --max)`
+        : "";
+    lines.push(`${reason}: ${n}${note}`);
+  }
   lines.push(
     ...table(
       ["id", "name", "reason"],
@@ -737,6 +805,8 @@ function toJson(
               scenarios: fill.picked,
               plans: fill.plans,
               residue: fill.residue,
+              reachableByUnpicked: fill.reachableByUnpicked,
+              failed: fill.failed,
             },
           }
         : {}),
@@ -755,6 +825,10 @@ export async function runCli(argv: string[]): Promise<string> {
   let json = false;
   let fill = false;
   let max = DEFAULT_FILL_MAX;
+  // Presence, not value: --max 4 or --out with the default path is still a
+  // flag that does nothing without --fill, and should say so.
+  let sawMax = false;
+  let sawOut = false;
   let scenariosJson: string | undefined;
   let hashesPath = DEFAULT_HASHES_PATH;
   let rotatingPath = DEFAULT_ROTATING_PATH;
@@ -772,6 +846,7 @@ export async function runCli(argv: string[]): Promise<string> {
       if (next === undefined || next.startsWith("--"))
         return "error: --max requires a value";
       max = Number(argv[++i]);
+      sawMax = true;
       if (!Number.isInteger(max) || max < 1)
         return "error: --max must be a positive integer";
     } else if (a === "--out") {
@@ -779,6 +854,7 @@ export async function runCli(argv: string[]): Promise<string> {
       if (next === undefined || next.startsWith("--"))
         return "error: --out requires a value";
       rotatingPath = argv[++i]!;
+      sawOut = true;
     } else if (a === "--scenarios") {
       const next = argv[i + 1];
       if (next === undefined || next.startsWith("--"))
@@ -796,10 +872,7 @@ export async function runCli(argv: string[]): Promise<string> {
 
   if (all && scenariosJson !== undefined)
     return "error: provide at most one of --all or --scenarios";
-  if (
-    !fill &&
-    (max !== DEFAULT_FILL_MAX || rotatingPath !== DEFAULT_ROTATING_PATH)
-  )
+  if (!fill && (sawMax || sawOut))
     return "error: --max and --out only apply with --fill";
 
   let scenarios: Scenario[];
