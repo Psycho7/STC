@@ -88,15 +88,36 @@ describe("readProvenance", () => {
     );
   });
 
+  // A build with no reachable git history stamps the literal "unknown", so
+  // every field is present and nothing downstream would object - but the scene
+  // it would write names no build, which is the one thing this check exists to
+  // stop.
+  test("rejects the unknown stamp", () => {
+    expect(readProvenance({ commit: "unknown", pack: PACK })).toBe(
+      'window.__stcExam.commit is "unknown": the build could not name itself',
+    );
+  });
+
   test("reports a build with no pack fingerprint", () => {
     expect(readProvenance({ commit: "fea16ad" })).toBe(
       "window.__stcExam.pack is missing",
     );
+  });
+
+  // An empty half is not an absent pack: reporting it as one sends the reader
+  // hunting through a field that is right there.
+  test("names the empty half of a half-filled pack", () => {
     expect(
       readProvenance({
         commit: "fea16ad",
         pack: { sourceCommit: "6a006762", gameVersion: "" },
       }),
-    ).toBe("window.__stcExam.pack is missing");
+    ).toBe("window.__stcExam.pack.gameVersion is missing");
+    expect(
+      readProvenance({
+        commit: "fea16ad",
+        pack: { sourceCommit: "", gameVersion: "1.4" },
+      }),
+    ).toBe("window.__stcExam.pack.sourceCommit is missing");
   });
 });
