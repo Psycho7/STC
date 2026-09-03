@@ -13,7 +13,18 @@ export const meta = {
 //   plans: [{ id, dir, url, images: [{file, what}], tiles: [{file, kind, viewportTransform, safeRegion}], coverage }],
 //   measurements: { [planId]: Measurement[] },
 //   examDir,
+//   conventions,
 // }
+//   conventions     the render-conventions doc, verbatim: what the canvas is
+//                   trying to draw, and which behaviours are deliberate. A
+//                   script cannot read a file, so the orchestrator reads it and
+//                   passes the text. It is the ONE thing an evaluator is told
+//                   about the design, and it is a tracked doc rather than a
+//                   paragraph here so a rendering change can be made to update
+//                   it. Required and non-empty.
+//   plans[].locale  the locale the capture was taken in, when the capture
+//                   recorded one. Anything but `en` sends the evaluator to the
+//                   conventions doc's locale section as well.
 //   plans[].dir     absolute IMAGES directory the capture wrote, which is
 //                   `<examDir>/<planId>/<imagesDir>` and holds nothing but images
 //   plans[].images  every image the capture produced, with a one-line description
@@ -62,6 +73,18 @@ const examDir = input && typeof input.examDir === 'string' ? input.examDir.repla
 if (examDir === '' || !examDir.startsWith('/')) {
   throw new Error(
     `render-quality-exam: examDir must be the absolute directory the capture wrote into, got ${JSON.stringify(input && input.examDir)}`,
+  )
+}
+// The whole of what an evaluator is told about the design it is judging. It is a
+// tracked doc the orchestrator reads and passes the text of, not a paragraph in
+// this file: a rule written here drifts from the renderer with nothing to catch
+// it, which is exactly what the paragraph this replaced did. Required, because
+// an evaluator briefed on no design at all files the intended behaviour.
+const conventions = input && typeof input.conventions === 'string' ? input.conventions.trim() : ''
+if (conventions === '') {
+  throw new Error(
+    'render-quality-exam: conventions must be the text of the render-conventions doc, non-empty; ' +
+      'an evaluator given no design to judge against reports the design as the defect',
   )
 }
 const measurementsByPlan = new Map()
@@ -264,6 +287,14 @@ const FINDINGS_SCHEMA = {
   required: ['planId', 'overall', 'blindSpotsAcknowledged', 'findings'],
 }
 
+// A capture in another language is judged against the same conventions plus their
+// locale section, which lists what goes wrong in text that is not English. Read
+// optionally here: a plan that records no locale is treated as the en case.
+const localeBrief = (p) =>
+  typeof p.locale === 'string' && p.locale !== '' && p.locale !== 'en'
+    ? `\nThis plan was captured in locale "${p.locale}", not en, so the "Locale notes" section above applies to it as well.\n`
+    : ''
+
 const evalPrompt = (p) => {
   const list = p.images.map((im) => `- ${p.dir}/${im.file} :: ${im.what}`).join('\n')
   return `You are a rendering-quality examiner for the STC blueprint canvas (Arknights: Endfield factory planner; React Flow). You are given screenshots of ONE fully solved production plan, "${p.id}". Judge what a reader sees.
@@ -277,14 +308,10 @@ ${list}
 
 Prefer a zoom tile as evidence. The fit overview is a different, much lower camera; cite it only for a whole-graph claim that no tile can show.
 
-Domain, so you can judge correctness:
-- Recipe cards: header with recipe name + machine multiplier (xN), then input rows (left ports) and output rows (right ports); port handles carry small glyphs. Product chips (cyan) are boundary inputs/outputs. Group slabs/loop boxes contain member cards.
-- Edges: orthogonal chamfered polylines, colored by item; they leave a source's RIGHT side and enter a target's LEFT side (arrowheads must point right, into the target). Each item edge carries one rate chip (icon + N/min) that should sit ON its own line.
-- Bus lanes: long edges route through shared horizontal lanes in faint tinted bands (labeled BUS) above/below the node block. A multi-member trunk carries NO aggregate total: only the per-member rise chips spread along the lane, plus the junction dots. A lone-member trunk shows that member's own rate chip at its drop.
-- Fan-out trunks: same-source edges one layer over share a junction column marked with a dot; each member carries its own rate chip on its branch, and no aggregate rides the shared trunk. Fan-in merges are the mirror image: several same-item edges joining one target port share a run marked with a dot, and the member that draws the dot keeps its own rate chip on that run.
-- No chip anywhere shows a bare summed total. Every rate chip states ONE edge's rate, the one exception being a member chip on a multi-member bus trunk, which reads as that member's share of the trunk ("30/270"); totals otherwise live on the node cards' rows.
-- Intentional behaviours -- do NOT report these as defects: rate chips are hidden below zoom 0.35 (fit shots of a dense plan show few chips or none, and card details fade at low zoom by design); a chip on a leg too short for its box renders icon-only at ANY zoom, fan-out branch chips and item-edge chips alike, and keeps its rate on the hover title and aria label -- a digit-less square chip is intentional, not a missing rate; a fan-out branch chip, or a fan-in member chip that would land on the shared run, may be deliberately hidden (the rate remains on the target card's input row); a hover screenshot, if any, intentionally dims everything outside the hovered ego-network.
+RENDER CONVENTIONS, so you can judge correctness. What the canvas is trying to draw, including the behaviours that are deliberate and must not be reported as defects:
 
+${conventions}
+${localeBrief(p)}
 COVERAGE LEDGER for this plan, written by the capture itself:
 ${JSON.stringify(p.coverage, null, 2)}
 

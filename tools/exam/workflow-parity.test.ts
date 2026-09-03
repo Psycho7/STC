@@ -514,15 +514,23 @@ type PlanSpec = {
   tiles: TileFrame[];
 };
 
-async function runWorkflow(
-  specs: PlanSpec[],
-  // What a refuter answers, by the agent label the workflow gave it. The default
-  // answers nothing, which is what the routing table wants: it is about where a
-  // finding is SENT, and a stubbed verdict would only exercise the coercion.
-  refute: (label: string) => unknown = () => null,
-): Promise<{ result: WorkflowResult; logs: string[] }> {
-  const args = {
+// Stands in for docs/render-conventions.md, which the orchestrator reads off
+// disk and passes through. A distinctive body, so the assertion that the prompt
+// carries it verbatim cannot pass on some other paragraph.
+const CONVENTIONS = [
+  "## Cards",
+  "Stub conventions for the parity harness: cards, edges and chips.",
+  "",
+  "## Locale notes",
+  "Stub locale paragraph.",
+].join("\n");
+
+// The args the orchestrator builds, in one place, so a test can take it apart
+// to check what the workflow refuses.
+function workflowArgs(specs: PlanSpec[], locale?: string): Record<string, unknown> {
+  return {
     examDir: "/exam",
+    conventions: CONVENTIONS,
     plans: specs.map((spec) => ({
       id: spec.id,
       dir: `/exam/${spec.id}/images`,
@@ -537,9 +545,21 @@ async function runWorkflow(
         correctiveReserve: 0,
         capHit: false,
       },
+      ...(locale === undefined ? {} : { locale }),
     })),
     measurements: Object.fromEntries(specs.map((spec) => [spec.id, spec.measurements])),
   };
+}
+
+async function runWorkflow(
+  specs: PlanSpec[],
+  // What a refuter answers, by the agent label the workflow gave it. The default
+  // answers nothing, which is what the routing table wants: it is about where a
+  // finding is SENT, and a stubbed verdict would only exercise the coercion.
+  refute: (label: string) => unknown = () => null,
+  locale?: string,
+): Promise<{ result: WorkflowResult; logs: string[]; prompts: Map<string, string> }> {
+  const args = workflowArgs(specs, locale);
 
   const evaluations = new Map(
     specs.map((spec) => [
@@ -554,7 +574,9 @@ async function runWorkflow(
   );
 
   const logs: string[] = [];
-  const agent: AgentStub = (_prompt, options) => {
+  const prompts = new Map<string, string>();
+  const agent: AgentStub = (prompt, options) => {
+    prompts.set(options.label, prompt);
     if (!options.label.startsWith("evaluate:")) {
       return Promise.resolve(refute(options.label));
     }
@@ -570,7 +592,7 @@ async function runWorkflow(
     undefined,
     undefined,
   );
-  return { result, logs };
+  return { result, logs, prompts };
 }
 
 // Started once at import and awaited by each test: the workflow evaluates the
@@ -676,6 +698,73 @@ function schemaClaimTypes(): string[] {
 describe("the workflow's evaluator schema offers the module's claim types", () => {
   test("its claimType enum is exactly CLAIM_TYPES", () => {
     expect([...schemaClaimTypes()].sort()).toEqual([...CLAIM_TYPES].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The conventions doc
+//
+// What the canvas is trying to draw used to be two paragraphs hardcoded in the
+// prompt, and they drifted from the renderer without anything noticing. They now
+// live in docs/render-conventions.md, which the orchestrator reads and passes as
+// `args.conventions`. Two ways that goes wrong silently: the doc reaches the
+// prompt truncated or not at all, and the old paragraphs survive alongside it
+// and contradict it.
+// ---------------------------------------------------------------------------
+
+describe("the evaluator prompt is briefed from the conventions doc", () => {
+  test("carries args.conventions verbatim and none of the old hardcoded domain text", async () => {
+    const { prompts } = await RAN;
+    const evaluatorPrompts = [...prompts.entries()]
+      .filter(([label]) => label.startsWith("evaluate:"))
+      .map(([, prompt]) => prompt);
+
+    expect(evaluatorPrompts.length).toBeGreaterThan(0);
+    for (const prompt of evaluatorPrompts) {
+      expect(prompt).toContain(CONVENTIONS);
+      expect(prompt).not.toContain("Domain, so you can judge correctness");
+    }
+  });
+
+  // A non-en capture is judged against the same doc plus its locale section; an
+  // en one must not be sent chasing CJK typography it cannot see.
+  test("points a non-en plan at the locale section, and an en plan at nothing extra", async () => {
+    const spec: PlanSpec = {
+      id: "loc",
+      findings: [finding({ id: "chip-adrift", evidence: AWAY })],
+      measurements: [CHIP],
+      tiles: TILES,
+    };
+    const zh = await runWorkflow([spec], () => null, "zh");
+    const en = await runWorkflow([spec], () => null, "en");
+
+    // Matched on the brief the workflow adds, not on the section name: the doc
+    // it splices in names that section itself, in every locale.
+    expect(zh.prompts.get("evaluate:loc")).toContain('captured in locale "zh"');
+    expect(zh.prompts.get("evaluate:loc")).toContain('"Locale notes" section');
+    expect(en.prompts.get("evaluate:loc")).not.toContain("captured in locale");
+  });
+
+  test("refuses args carrying no conventions", async () => {
+    const spec: PlanSpec = {
+      id: "bare",
+      findings: [],
+      measurements: [CHIP],
+      tiles: TILES,
+    };
+    const bare = workflowArgs([spec]);
+    delete bare.conventions;
+    await expect(
+      compileWorkflow()(
+        bare,
+        () => Promise.resolve(null),
+        (tasks) => Promise.all(tasks.map((task) => task())),
+        undefined,
+        () => {},
+        undefined,
+        undefined,
+      ),
+    ).rejects.toThrow(/render-quality-exam: .*conventions/);
   });
 });
 
