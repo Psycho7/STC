@@ -1,0 +1,180 @@
+import { describe, it, expect } from "vitest";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { RecipePack } from "@aef/schema";
+import type { Scenario } from "../../test/e2e/scenarios";
+import {
+  CORE_SCENARIO_IDS,
+  collectCoverage,
+  uncoveredMachines,
+  uncoveredRecipes,
+  writeHashesTsv,
+} from "./coverage";
+
+// Synthetic pack: two recipes make the same item, one of them strictly
+// cheaper, plus the two shapes the denominator filter must drop (a
+// __domain_transfer supply recipe and an input-less extraction recipe). The
+// cheaper producer is named last in id order on purpose, so a report that
+// fell back to a lexicographic pick instead of reading the solution would
+// name the wrong winner.
+function synthPack(): RecipePack {
+  return {
+    schemaVersion: "0.2",
+    source: {
+      name: "synth",
+      sourceRepo: "synth",
+      sourceCommit: "cafe1234",
+      gameVersion: "v0.0",
+      extractedAt: "1970-01-01T00:00:00.000Z",
+    },
+    categories: [],
+    locations: [],
+    items: [
+      { id: "ore", name: "ore", category: "test", icon: "", row: 0, raw: true, transportKind: "belt" },
+      { id: "domain_key", name: "domain_key", category: "test", icon: "", row: 0, raw: true, transportKind: "belt" },
+      { id: "widget", name: "widget", category: "test", icon: "", row: 0, raw: false, transportKind: "belt" },
+    ],
+    machines: [
+      { id: "m_poor", name: "poor press", icon: "", speed: 1, powerType: "electric", powerKw: 0, hideRate: false },
+      { id: "m_good", name: "good press", icon: "", speed: 1, powerType: "electric", powerKw: 0, hideRate: false },
+      { id: "m_extract", name: "miner", icon: "", speed: 1, powerType: "electric", powerKw: 0, hideRate: false },
+      { id: "__domain_transfer", name: "transfer", icon: "", speed: 1, powerType: "electric", powerKw: 0, hideRate: true },
+    ],
+    transports: [],
+    recipes: [
+      {
+        id: "aa_widget_poor",
+        name: "poor widget",
+        category: "test",
+        icon: "",
+        row: 0,
+        time: 1,
+        in: [{ item: "ore", qty: 1 }],
+        out: [{ item: "widget", qty: 1 }],
+        producers: ["m_poor"],
+      },
+      {
+        id: "zz_widget_good",
+        name: "good widget",
+        category: "test",
+        icon: "",
+        row: 0,
+        time: 1,
+        // Self-consuming: widget appears in both in and out, netting to 2.
+        in: [{ item: "ore", qty: 1 }, { item: "widget", qty: 1 }],
+        out: [{ item: "widget", qty: 3 }],
+        producers: ["m_good"],
+      },
+      {
+        id: "transfer_widget",
+        name: "widget transfer",
+        category: "__domain_transfer",
+        icon: "",
+        row: 999,
+        time: 3600,
+        in: [{ item: "domain_key", qty: 1 }],
+        out: [{ item: "widget", qty: 150 }],
+        producers: ["__domain_transfer"],
+      },
+      {
+        id: "ore_extract",
+        name: "ore miner",
+        category: "test",
+        icon: "",
+        row: 0,
+        time: 1,
+        in: [],
+        out: [{ item: "ore", qty: 1 }],
+        producers: ["m_extract"],
+      },
+    ],
+  } as unknown as RecipePack;
+}
+
+const SYNTH_SCENARIO: Scenario = {
+  id: "synth",
+  title: "synth",
+  targets: [{ itemId: "widget", ratePerSec: { num: "1", denom: "1" } }],
+  maxDiffPixels: 0,
+};
+
+describe("CORE_SCENARIO_IDS", () => {
+  it("is the fixed four-plan core", () => {
+    expect([...CORE_SCENARIO_IDS]).toEqual([
+      "default",
+      "battery5-xiranite",
+      "multi6",
+      "gas-web",
+    ]);
+  });
+});
+
+describe("collectCoverage on a synthetic pack", () => {
+  it("covers only the producer the solve chose", async () => {
+    const pack = synthPack();
+    const report = await collectCoverage(pack, [SYNTH_SCENARIO]);
+
+    expect(report.fingerprint).toEqual({
+      sourceCommit: "cafe1234",
+      gameVersion: "v0.0",
+    });
+    expect(report.plans).toHaveLength(1);
+
+    const plan = report.plans[0]!;
+    expect(plan.id).toBe("synth");
+    expect(plan.hash.startsWith("v1.")).toBe(true);
+    expect(plan.recipeIds).toEqual(["zz_widget_good"]);
+    expect(plan.machineIds).toEqual(["m_good"]);
+    expect(plan.selfConsumingRecipeIds).toEqual(["zz_widget_good"]);
+
+    expect([...report.union.recipeIds]).toEqual(["zz_widget_good"]);
+    expect([...report.union.machineIds]).toEqual(["m_good"]);
+  });
+
+  it("reports the un-chosen producer as uncovered and never the excluded ones", async () => {
+    const pack = synthPack();
+    const report = await collectCoverage(pack, [SYNTH_SCENARIO]);
+
+    expect(uncoveredRecipes(pack, report.union)).toEqual([
+      { id: "aa_widget_poor", name: "poor widget" },
+    ]);
+    expect(uncoveredMachines(pack, report.union)).toEqual([
+      { id: "m_poor", name: "poor press" },
+    ]);
+  });
+});
+
+describe("uncoveredRecipes denominator", () => {
+  it("drops transfer and extraction recipes even when nothing is covered", () => {
+    const pack = synthPack();
+    const empty = {
+      recipeIds: new Set<string>(),
+      machineIds: new Set<string>(),
+      selfConsumingRecipeIds: new Set<string>(),
+    };
+    expect(uncoveredRecipes(pack, empty).map((r) => r.id)).toEqual([
+      "aa_widget_poor",
+      "zz_widget_good",
+    ]);
+    expect(uncoveredMachines(pack, empty).map((m) => m.id)).toEqual([
+      "m_good",
+      "m_poor",
+    ]);
+  });
+});
+
+describe("writeHashesTsv", () => {
+  it("writes the fingerprint comment then one row per plan", async () => {
+    const pack = synthPack();
+    const report = await collectCoverage(pack, [SYNTH_SCENARIO]);
+    const dir = await mkdtemp(join(tmpdir(), "stc-coverage-"));
+    const path = join(dir, "nested", "hashes.tsv");
+    await writeHashesTsv(path, pack, report.plans);
+
+    const lines = (await readFile(path, "utf8")).trimEnd().split("\n");
+    expect(lines[0]).toBe("# pack cafe1234 v0.0");
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe(`synth\t${report.plans[0]!.hash}`);
+  });
+});
