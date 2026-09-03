@@ -35,11 +35,13 @@ export { junctionRadius };
 // the trunk visually draws once without any cross-edge coordination. Each edge
 // draws its own junction dot at the lane branch point (just before its rise).
 // Stroke reuses ItemEdge's strokeForKind; the markerEnd arrow stays at the
-// target. On a lone-member trunk the rate chip (icon + rate/min) draws twice,
-// at the drop and rise columns on the lane, reusing ItemEdge's flow-chip markup
-// and zoom gate so a bus member reads the same as a plain item edge near what
-// it feeds; a multi-member trunk draws only the per-member rise chips, each
-// reading as a share of the trunk total ("30/270").
+// target. A lone-member trunk labels itself with the rate chip (icon +
+// rate/min), reusing ItemEdge's flow-chip markup and zoom gate so a bus member
+// reads the same as a plain item edge near what it feeds: on a long lane run
+// only the rise chip draws, on a short one the drop chip draws alongside it,
+// and the drop returns whenever the rise is hidden. A multi-member trunk draws
+// only the per-member rise chips, each reading as a share of the trunk total
+// ("30/270").
 export default function BusEdge({
   id,
   sourceX,
