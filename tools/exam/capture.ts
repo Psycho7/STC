@@ -72,10 +72,16 @@ import {
 // has no reason to load, and these three methods are the whole contract. The
 // type is erased before any of it reaches the browser, so referring to it from
 // inside a page.evaluate callback is safe.
+// The provenance pair is optional on this type even though the app always
+// installs it: the page under exam may be a deployment built before the hook
+// carried it, and that case has to be detectable at runtime rather than assumed
+// away by the type.
 type ExamHook = {
   setViewport(v: Viewport): void;
   fitView(): void;
   contentBounds(): Rect | null;
+  commit?: string;
+  pack?: { sourceCommit: string; gameVersion: string };
 };
 type ExamWindow = Window & { __stcExam?: ExamHook };
 
@@ -260,6 +266,41 @@ export function examUrl(baseUrl: string, hash: string): string {
   const base = baseUrl.replace(/\/+$/, "");
   const frag = hash.startsWith("#") ? hash.slice(1) : hash;
   return `${base}/?exam=1#${frag}`;
+}
+
+// What the page says it was built from. Both halves are required on a scene:
+// an unattributed capture cannot be checked against the tip under exam or
+// against the pack ledger afterwards, and by the time anyone notices the images
+// are already on disk with nothing to tie them to.
+export type Provenance = {
+  commit: string;
+  pack: { sourceCommit: string; gameVersion: string };
+};
+
+// Validate the pair read off the exam hook. Returns the provenance, or a
+// message naming what a build too old to carry it is missing. Split out from
+// the capture so the missing-field cases are pinned without a browser.
+export function readProvenance(raw: {
+  commit?: string | undefined;
+  pack?: { sourceCommit: string; gameVersion: string } | undefined;
+}): Provenance | string {
+  const commit = raw.commit;
+  const pack = raw.pack;
+  if (typeof commit !== "string" || commit === "") {
+    return "window.__stcExam.commit is missing";
+  }
+  if (
+    typeof pack?.sourceCommit !== "string" ||
+    pack.sourceCommit === "" ||
+    typeof pack.gameVersion !== "string" ||
+    pack.gameVersion === ""
+  ) {
+    return "window.__stcExam.pack is missing";
+  }
+  return {
+    commit,
+    pack: { sourceCommit: pack.sourceCommit, gameVersion: pack.gameVersion },
+  };
 }
 
 // Open a page on the plan and wait until it is examinable. Mirrors the settled
@@ -574,6 +615,22 @@ async function capture(opts: Options): Promise<number> {
       return 3;
     }
 
+    // Read before a single shot is taken: a capture whose build cannot be named
+    // is unattributable evidence, and stopping here costs a page load where
+    // stopping later costs a whole plan's images.
+    const provenance = readProvenance(
+      await page.evaluate(() => {
+        const hook = (window as ExamWindow).__stcExam!;
+        return { commit: hook.commit, pack: hook.pack };
+      }),
+    );
+    if (typeof provenance === "string") {
+      console.error(
+        `error: ${opts.planId}: ${provenance}; the served build predates the exam provenance stamp, redeploy before capturing`,
+      );
+      return 3;
+    }
+
     const contentRect = await page.evaluate(
       () => (window as ExamWindow).__stcExam!.contentBounds(),
     );
@@ -754,6 +811,8 @@ async function capture(opts: Options): Promise<number> {
       hash: opts.hash,
       url: examUrl(opts.baseUrl, opts.hash),
       locale: opts.locale,
+      commit: provenance.commit,
+      pack: provenance.pack,
       imagesDir: IMAGES_SUBDIR,
       status: coverage.uncovered.length === 0 ? "complete" : "partial",
       viewport: {

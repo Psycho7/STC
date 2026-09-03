@@ -112,6 +112,15 @@ export type SceneDoc = {
   hash: string;
   url: string;
   locale: string;
+  // Which build these images came from, read off the running page rather than
+  // off this machine: the exam drives a deployed preview by default, and a
+  // deploy that lagged or failed would otherwise leave a capture of an older
+  // build indistinguishable from a capture of the tip. `commit` is the app's git
+  // commit (`-dirty` when the build came from a modified worktree, "unknown"
+  // when it was built with no git to ask); `pack` is the recipe pack's vendor
+  // fingerprint, comparable against the disk-side hashes ledger.
+  commit: string;
+  pack: { sourceCommit: string; gameVersion: string };
   // Directory the images live in, relative to this document. It is a separate
   // directory from the one holding this document on purpose: an evaluator is
   // given the image directory and must judge the pixels without the geometry

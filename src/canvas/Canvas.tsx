@@ -25,6 +25,7 @@ import { contentBounds, examChipReservations } from "./chipSeating";
 import { isTrunkOwner, type BusAggregate } from "./busRouting";
 import type { RFAnyNode } from "./layout";
 import { useI18n } from "../data/i18n-context";
+import { pack } from "../data/load";
 import type { CSSProperties } from "react";
 import { iconSheetUrl } from "./iconSprite";
 
@@ -48,6 +49,13 @@ declare global {
         unit: boolean;
         reservedPx: number;
       }>;
+      // Provenance of the build being driven, so a capture is stamped with what
+      // it actually photographed. The exam defaults to a deployed preview, and
+      // deploy lag would otherwise make an older build indistinguishable from
+      // the tip once the images are on disk. Values, not getters: neither can
+      // change while the page is loaded.
+      commit: string;
+      pack: { sourceCommit: string; gameVersion: string };
     };
   }
 }
@@ -269,6 +277,11 @@ function CanvasInner({
       // Per-chip seat-width reservations for the four-locale width-bound spec;
       // plain edge-data reads, as inert as contentBounds.
       chipReservations: () => examChipReservations(edges),
+      commit: __STC_COMMIT__,
+      pack: {
+        sourceCommit: pack.source.sourceCommit,
+        gameVersion: pack.source.gameVersion,
+      },
     };
     return () => {
       delete window.__stcExam;

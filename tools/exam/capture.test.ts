@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { assertZoomAchieved, correctiveFileName, examUrl } from "./capture";
+import {
+  assertZoomAchieved,
+  correctiveFileName,
+  examUrl,
+  readProvenance,
+} from "./capture";
 
 describe("correctiveFileName", () => {
   // The regression: bus chip ids carry their family suffix at the END, so two
@@ -53,5 +58,45 @@ describe("examUrl", () => {
     expect(examUrl("http://localhost:4174/", "#p=1")).toBe(
       "http://localhost:4174/?exam=1#p=1",
     );
+  });
+});
+
+describe("readProvenance", () => {
+  const PACK = { sourceCommit: "6a006762", gameVersion: "1.4" };
+
+  test("passes a fully stamped build through", () => {
+    expect(readProvenance({ commit: "fea16ad", pack: PACK })).toEqual({
+      commit: "fea16ad",
+      pack: PACK,
+    });
+  });
+
+  test("keeps a dirty local stamp", () => {
+    const got = readProvenance({ commit: "fea16ad-dirty", pack: PACK });
+    expect(typeof got === "string" ? got : got.commit).toBe("fea16ad-dirty");
+  });
+
+  // A deployment built before the stamp existed still installs the hook, so the
+  // capture only learns of it here. It must name the gap rather than write a
+  // scene nothing can be attributed to.
+  test("reports a build with no commit", () => {
+    expect(readProvenance({ pack: PACK })).toBe(
+      "window.__stcExam.commit is missing",
+    );
+    expect(readProvenance({ commit: "", pack: PACK })).toBe(
+      "window.__stcExam.commit is missing",
+    );
+  });
+
+  test("reports a build with no pack fingerprint", () => {
+    expect(readProvenance({ commit: "fea16ad" })).toBe(
+      "window.__stcExam.pack is missing",
+    );
+    expect(
+      readProvenance({
+        commit: "fea16ad",
+        pack: { sourceCommit: "6a006762", gameVersion: "" },
+      }),
+    ).toBe("window.__stcExam.pack is missing");
   });
 });
