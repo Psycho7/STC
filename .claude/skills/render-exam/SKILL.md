@@ -87,8 +87,9 @@ Read that line first, then clear the plan directories, in that order. Clearing m
 step 5 globs every `<id>/scene.json` under `.artifacts/exam`. The ledgers are rewritten each
 run, the plan directories are not, so a rotating plan the last exam picked would be evaluated
 as part of this one. Clear only the plan directories: the saved run files, the issue bodies and
-the crops from earlier exams live beside them and are the record you compare against. The
-`head -1` fails harmlessly on a first exam, when there is no ledger yet:
+the crops from earlier exams live beside them and are the record you compare against. On a
+first exam there is no `.artifacts/exam` yet and both lines fail harmlessly, the `head -1` on
+the missing ledger and the `find` on the missing directory:
 
 ```bash
 head -1 .artifacts/exam/hashes.tsv   # the previous exam's pack; keep the value, the coverage run below rewrites the file
@@ -143,8 +144,9 @@ flags: `--target-zoom`
 `--max-tiles` (default 64), `--seam-margin` (default 64). Outputs land in
 `.artifacts/exam/<id>/` as `scene.json` plus an `images/` subdirectory holding `00-fit.png`,
 `10-tile-r<row>c<col>.png` and `20-corrective-<nnn>-<slug>.png` (the index is zero-padded to
-three digits). The `N tiles` the CLI prints counts grid tiles only and `00-fit.png` is written
-in addition, so `scene.json`'s `tiles` array holds N+1 entries. The split is structural: an
+three digits). The `N tiles` the CLI prints counts the grid and the corrective shots together,
+everything but `00-fit.png`, which is written in addition, so `scene.json`'s `tiles` array holds
+N+1 entries. The count in parentheses beside it says how many of the N were corrective. The split is structural: an
 evaluator is handed `images/` and judges the pixels cold, so the ledger it must not read is not
 in the directory it can list. There is no smoke test, because capture fails fast by itself:
 
@@ -195,25 +197,32 @@ current tip is: geometry-audit segment placement audit > multi6 (RAW pierce). Fo
 else, rerun only that spec at the branch point in a throwaway worktree:
 
 ```bash
-git worktree add .claude/worktrees/exam-base "$(git merge-base HEAD origin/develop)"
-(cd .claude/worktrees/exam-base && bun install && \
+main="$(git rev-parse --path-format=absolute --git-common-dir)/.."
+base="$(git merge-base HEAD origin/develop)"
+git -C "$main" worktree add .claude/worktrees/exam-base "$base"
+(cd "$main/.claude/worktrees/exam-base" && bun install && \
   bun run test:e2e geometry-audit --grep "segment placement audit multi6")
-git worktree remove .claude/worktrees/exam-base
+git -C "$main" worktree remove .claude/worktrees/exam-base
 ```
+
+`git worktree add` resolves a relative path against the CWD, not against the repository. Run
+from a branch worktree, a bare `.claude/worktrees/exam-base` would put the base checkout INSIDE
+the branch under exam. `--git-common-dir` is the shared `.git` from either place, so `$main` is
+the main checkout whether you started there or in a worktree, and the same three lines work from
+both. Resolve `$base` before the `git -C`: revisions handed to `git -C "$main"` resolve in the
+main checkout, where `HEAD` is a different commit.
 
 The `--grep` pattern is the describe title and the test title joined by SPACES. The `>` in the
 failset above is what the reporter prints between them; a pattern carrying it matches no test
 and the run passes empty, so drop it when you turn a failset entry into a grep.
 
-From the workspace root the first line is `git -C STC worktree add .claude/worktrees/exam-base
-<merge-base sha>`. A test that fails identically on the base commit is not something this exam
-found.
+A test that fails identically on the base commit is not something this exam found.
 
 A rotating plan is attributed the same way, once the base run is handed the same rotating set:
 
 ```bash
 rot=$PWD/.artifacts/exam/rotating.json          # absolute, resolved before the cd
-(cd .claude/worktrees/exam-base && bun install && \
+(cd "$main/.claude/worktrees/exam-base" && bun install && \
   EXAM_EXTRA_SCENARIOS="$rot" bun run test:e2e geometry-audit --grep "<describe> <test>")
 ```
 
@@ -395,9 +404,15 @@ restate the finding yourself against the evidence image (then treat it as your o
 disproving it before filing) or drop it. Do not file one as it stands. Read the evidence image
 for every major finding yourself and drop or downgrade what the pixels do not show; the
 workflow's "nothing is auto-dropped" rule binds the machine, not you, and this pass is where a
-finding the pixels do not support dies. The 24 px margin frames the claim, not its context, so
-recut each major at 400-600 px around the rect with `crop.ts --image ... --rect` before ruling: a
-128x70 crop shows that a chip exists, not what it overlaps. A coincidence or shared-route claim
+finding the pixels do not support dies. The standing 24 px margin frames the claim, not its
+context, so recut the majors at 400-600 px before ruling: a 128x70 crop shows that a chip exists,
+not what it overlaps. `--margin` does it for a whole batch, in either mode, so nothing is recut
+by hand:
+
+```bash
+bun run tools/exam/crop.ts --verdicts .artifacts/exam/<date>-run.json \
+  --out-dir .artifacts/exam/crops/wide --margin 500 > /dev/null
+``` A coincidence or shared-route claim
 cannot be ruled on from pixels at all: two edges within a stroke width of each other paint as one
 line at every zoom the exam shoots, so probe the edge paths (`--eval` over the
 `.react-flow__edge` `d` attributes) before keeping one, whatever its verdict says. The tile an
@@ -429,23 +444,32 @@ bun run tools/exam/crop.ts --verdicts .artifacts/exam/<date>-run.json \
 
 Redirect it for the reason step 5 gives: the return carries a record per crop and runs to tens of
 kilobytes, and the counts to report are `crops | length`, `skipped | length` and `failed | length`,
-read back out of that file. That crops every evidence entry of every `FILE` and
+read back out of that file. A nonzero `skipped` or `failed` also exits 1: the JSON is still
+written, and the exit says a requested crop has no picture, not that the run broke. That crops
+every evidence entry of every `FILE` and
 `FILE_SYMPTOM_ONLY` verdict with a 24 px margin into `.artifacts/exam/crops/`, named
-`<findingId>-<n>.png` with the id's colon flattened to `-`. A `HUMAN_REVIEW` or `humanRuling`
-finding you decide to file is not in that pass and there is no margin flag, so cut those by hand:
+`<findingId>-<n>.png` with the id's colon flattened to `-`. `--margin <px>` changes that margin
+for the whole run, and `--margin 0` cuts to the rect exactly.
+
+A `HUMAN_REVIEW` or `humanRuling` finding you decide to file is not in that pass, so cut those
+one at a time, with the same `--margin` when the rect needs framing:
 
 ```bash
 bun run tools/exam/crop.ts --image .artifacts/exam/<plan>/images/<tile>.png \
-  --rect <x>,<y>,<w>,<h> --out .artifacts/exam/crops/<name>.png
+  --rect <x>,<y>,<w>,<h> --out .artifacts/exam/crops/<name>.png --margin 500
 ```
 
 A `humanRuling` entry names its evidence differently from a verdict: the image is
 `evidence[].image`, a bare file name, not `file`, and the rect is `evidence[].rect` as
-`[x, y, w, h]`. Build the two flags out of it rather than transcribing them:
+`[x, y, w, h]`. Build the whole triple out of it rather than transcribing anything. The `--out`
+name is the one `--verdicts` would have written, so a crop cut here sits in the same series as
+the rest:
 
 ```bash
-jq -r '.humanRuling[] | select(.id == "<id>") | . as $f | .evidence[]
-       | "--image .artifacts/exam/\($f.planId)/images/\(.image) --rect \(.rect | join(","))"' \
+jq -r '.humanRuling[] | select(.id == "<id>") | . as $f | .evidence | to_entries[]
+       | "--image .artifacts/exam/\($f.planId)/images/\(.value.image)"
+         + " --rect \(.value.rect | join(","))"
+         + " --out .artifacts/exam/crops/\($f.id | gsub("[^A-Za-z0-9._-]"; "-"))-\(.key + 1).png"' \
   .artifacts/exam/<date>-run.json
 ```
 
@@ -516,8 +540,8 @@ A ledger of what was captured and measured, with no verdicts in it.
 | `00-fit.png` is shot at the app's fit zoom, not `targetZoom` | Chips are LOD-hidden below `lodGates.labelMinZoom`; compare `fit.zoom` against `lodGates` before believing anything the fit overview does not show |
 | The exam runs `?exam=1`, query before fragment | Without it `window.__stcExam` is absent and both CLIs exit 3. The CLIs build the URL; a hand-written one is where this goes wrong |
 | Repo convention forbids committed binaries | Captures go to gitignored `.artifacts/`; issue images to the orphan assets branch only |
-| The step 3 capture loop is bash, and the interactive shell here is fish | `IFS=$'\t'` and `case` are bash syntax; paste the loop into bash or it dies on the first line |
-| Step 4's `.claude/worktrees/exam-base` lands beside the branch worktrees | An exam run from `.claude/worktrees/feat/...` is standing in that same root, so the base checkout is a sibling of the branch under exam, never a directory inside it |
+| Every fenced block in this procedure is bash, and the interactive shell here is fish | `IFS=$'\t'`, `case`, `$(...)` assignment and `$'...'` are bash syntax; paste any of these blocks into bash rather than running them line by line in fish |
+| Step 4's `.claude/worktrees/exam-base` lands wherever you are standing | `git worktree add` takes a relative path against the CWD, so run from a branch worktree it nests the base checkout INSIDE the branch under exam. Address it through `$(git rev-parse --path-format=absolute --git-common-dir)/..`, which is the main checkout from either place, and resolve any `HEAD`-relative sha before the `git -C` |
 
 ## When NOT to use
 
