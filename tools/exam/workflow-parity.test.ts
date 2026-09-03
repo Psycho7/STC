@@ -484,15 +484,43 @@ const AsyncFunction = Object.getPrototypeOf(async function () {
   /* type carrier only */
 }).constructor as FunctionConstructor;
 
+// A pipeline stage, as the runtime hands it its arguments: the previous stage's
+// result (the item itself for the first stage), the item, and its index.
+type Stage = (previous: unknown, item: unknown, index: number) => unknown;
+
 type WorkflowRunner = (
   args: unknown,
   agent: AgentStub,
   parallel: (tasks: Array<() => Promise<unknown>>) => Promise<unknown[]>,
+  pipeline: (items: unknown[], ...stages: Stage[]) => Promise<unknown[]>,
   phase: unknown,
   log: (message: string) => void,
   budget: unknown,
   workflow: unknown,
 ) => Promise<WorkflowResult>;
+
+// The two fan-out globals, as the runtime documents them. `parallel` is a
+// BARRIER over thunks; `pipeline` runs each item through every stage on its own,
+// with no barrier between stages, so one item can be in stage 2 while another is
+// still in stage 1 - which is the whole reason the workflow uses it. An item
+// whose stage throws drops to null and skips the rest of its own chain only.
+const parallelStub = (tasks: Array<() => Promise<unknown>>): Promise<unknown[]> =>
+  Promise.all(tasks.map((task) => task()));
+
+const pipelineStub = (items: unknown[], ...stages: Stage[]): Promise<unknown[]> =>
+  Promise.all(
+    items.map(async (item, index) => {
+      let value: unknown = item;
+      for (const stage of stages) {
+        try {
+          value = await stage(value, item, index);
+        } catch {
+          return null;
+        }
+      }
+      return value;
+    }),
+  );
 
 function compileWorkflow(): WorkflowRunner {
   const raw = readFileSync(WORKFLOW_PATH, "utf8");
@@ -512,6 +540,7 @@ function compileWorkflow(): WorkflowRunner {
     "args",
     "agent",
     "parallel",
+    "pipeline",
     "phase",
     "log",
     "budget",
@@ -579,7 +608,8 @@ const runArgs = (args: unknown): Promise<WorkflowResult> =>
   compileWorkflow()(
     args,
     () => Promise.resolve(null),
-    (tasks) => Promise.all(tasks.map((task) => task())),
+    parallelStub,
+    pipelineStub,
     undefined,
     () => {},
     undefined,
@@ -621,7 +651,8 @@ async function runWorkflow(
   const result = await compileWorkflow()(
     args,
     agent,
-    (tasks) => Promise.all(tasks.map((task) => task())),
+    parallelStub,
+    pipelineStub,
     undefined,
     (message: string) => logs.push(message),
     undefined,
@@ -807,6 +838,71 @@ describe("the evaluator prompt is briefed from the conventions doc", () => {
     const bare = workflowArgs([spec]);
     delete bare.conventions;
     await expect(runArgs(bare)).rejects.toThrow(/render-quality-exam: .*conventions/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// One plan does not wait for another
+//
+// Evaluate, triage and refute used to be separated by barriers, so the fastest
+// plan's findings sat idle until the slowest evaluator returned - on a corpus
+// where one plan is much larger than the rest, that is most of the run. The
+// chain is per plan now, and nothing else in this file would notice a barrier
+// coming back: every other test either runs one plan or resolves every stub
+// immediately.
+// ---------------------------------------------------------------------------
+
+describe("a plan runs through the exam without waiting for the others", () => {
+  test("refutes one plan's finding while another plan's evaluator is still out", async () => {
+    const specs: PlanSpec[] = ["fast", "slow"].map((id) => ({
+      id,
+      findings: [finding({ id: "chip-adrift", evidence: AWAY })],
+      measurements: [CHIP],
+      tiles: TILES,
+    }));
+    const evaluationOf = (spec: PlanSpec) => ({
+      planId: spec.id,
+      overall: "stubbed evaluation",
+      blindSpotsAcknowledged: [],
+      findings: spec.findings,
+    });
+
+    let release = (): void => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const prompts: string[] = [];
+    const agent: AgentStub = (_prompt, options) => {
+      prompts.push(options.label);
+      if (options.label === "evaluate:slow") return held.then(() => evaluationOf(specs[1]!));
+      if (options.label === "evaluate:fast") return Promise.resolve(evaluationOf(specs[0]!));
+      return Promise.resolve(null);
+    };
+
+    const run = compileWorkflow()(
+      workflowArgs(specs),
+      agent,
+      parallelStub,
+      pipelineStub,
+      undefined,
+      () => {},
+      undefined,
+      undefined,
+    );
+
+    // Let every pending microtask and timer settle: "fast" has nothing left to
+    // await, and "slow" is still holding its evaluator open.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(prompts).toContain("refute:fast:chip-adrift");
+    expect(prompts).not.toContain("refute:slow:chip-adrift");
+
+    release();
+    const result = await run;
+    expect(result.verdicts.map((v) => v.findingId)).toEqual([
+      "fast:chip-adrift",
+      "slow:chip-adrift",
+    ]);
+    expect(result.findings.map((f) => f.id)).toEqual(["fast:chip-adrift", "slow:chip-adrift"]);
   });
 });
 

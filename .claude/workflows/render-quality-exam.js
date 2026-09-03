@@ -408,23 +408,13 @@ const stampIds = (planId, result) => {
   return { ...result, planId, findings }
 }
 
-const evaluations = (
-  await parallel(
-    plans.map((p) => () =>
-      agent(evalPrompt(p), { label: `evaluate:${p.id}`, phase: 'Evaluate', schema: FINDINGS_SCHEMA }).then((r) =>
-        r === null ? null : stampIds(p.id, r),
-      ),
-    ),
+// Stage one of the per-plan chain: judge this plan's images, and stamp the ids
+// everything downstream is keyed by. `null` when the agent was skipped or died,
+// which the second stage reads as "this plan contributed nothing".
+const evaluatePlan = (p) =>
+  agent(evalPrompt(p), { label: `evaluate:${p.id}`, phase: 'Evaluate', schema: FINDINGS_SCHEMA }).then((r) =>
+    r === null ? null : stampIds(p.id, r),
   )
-).filter(Boolean)
-
-const skipped = plans.filter((p) => !evaluations.some((e) => e.planId === p.id))
-if (skipped.length > 0) log(`Not evaluated (agent returned nothing): ${skipped.map((p) => p.id).join(', ')}`)
-
-// Flattened for the steps that work finding by finding, same objects as above.
-const findings = evaluations.flatMap((e) => e.findings)
-
-log(`${evaluations.length}/${plans.length} plans evaluated, ${findings.length} findings`)
 
 // ---------------------------------------------------------------------------
 // TRIAGE - a copy of tools/exam/triage.ts, which is the tested original.
@@ -642,7 +632,7 @@ function validateFinding(finding) {
 
 const planById = new Map(plans.map((p) => [p.id, p]))
 
-const triaged = findings.map((f) => {
+const triageFinding = (f) => {
   const plan = planById.get(f.planId)
   const violations = plan === undefined ? [`planId "${String(f.planId)}" is not a plan under exam`] : validateFinding(f)
   if (violations.length > 0) return { finding: f, violations, route: null, corroborations: [] }
@@ -658,15 +648,11 @@ const triaged = findings.map((f) => {
     corroboratedBy: corroborations.map((m) => `${f.planId}#${measurements.indexOf(m)}:${m.kind}`),
     route: routeFinding(f, corroborations),
   }
-})
+}
 
-const invalid = triaged.filter((t) => t.route === null)
-const routed = (route) => triaged.filter((t) => t.route === route)
-const histogram = ['CORROBORATED', 'REFUTE_INDIVIDUAL', 'REFUTE_BATCH', 'HUMAN_RULING']
-  .map((r) => `${r}=${routed(r).length}`)
-  .join(' ')
-log(`Triage: ${histogram} INVALID=${invalid.length}`)
-for (const t of invalid) log(`  invalid ${t.finding.id}: ${t.violations.join('; ')}`)
+const ROUTES = ['CORROBORATED', 'REFUTE_INDIVIDUAL', 'REFUTE_BATCH', 'HUMAN_RULING']
+const routedIn = (rows, route) => rows.filter((t) => t.route === route)
+const histogramOf = (rows) => ROUTES.map((r) => `${r}=${routedIn(rows, r).length}`).join(' ')
 
 // ---------------------------------------------------------------------------
 // REFUTE
@@ -911,66 +897,115 @@ const answerFor = (finding, answers) => {
 // an object cannot be matched to a finding id, so it counts as no answer at all.
 const answerObjects = (list) => (Array.isArray(list) ? list.filter((v) => v !== null && typeof v === 'object') : [])
 
-const batches = new Map()
-for (const t of routed('REFUTE_BATCH')) {
-  if (!batches.has(t.finding.planId)) batches.set(t.finding.planId, [])
-  batches.get(t.finding.planId).push(t.finding)
+// Stage two of the per-plan chain: everything that happens to ONE plan's
+// findings once its evaluator has answered - triage, the verdicts the join
+// already settled, and the refuters for the rest. Nothing in it reads another
+// plan, which is why it can run while other plans are still being evaluated.
+//
+// Every agent() call here passes `phase` explicitly. Stages race: the global
+// phase() cursor is one value for the whole script, and a plan entering Refute
+// while another is still in Evaluate would file both under whichever ran last.
+const triageAndRefute = async (evaluation, p) => {
+  if (evaluation === null || evaluation === undefined) return null
+
+  const triaged = evaluation.findings.map(triageFinding)
+  log(`${p.id}: ${histogramOf(triaged)} INVALID=${routedIn(triaged, null).length}`)
+
+  const batch = routedIn(triaged, 'REFUTE_BATCH').map((t) => t.finding)
+  const refuteTasks = [
+    // One finding was asked about, so one answer is expected - and it is still
+    // matched on `findingId` rather than assumed. An agent handed one finding can
+    // answer about another, and a verdict is keyed by id, so taking its word for
+    // it would relabel that probe output as this finding's and file it.
+    ...routedIn(triaged, 'REFUTE_INDIVIDUAL').map((t) => () =>
+      agent(refutePrompt(p, t.finding), {
+        label: `refute:${t.finding.id}`,
+        phase: 'Refute',
+        schema: REFUTE_SCHEMA,
+      }).then((r) => {
+        const { raw, missReason } = answerFor(t.finding, answerObjects([r]))
+        return [coerceVerdict(t.finding, raw, missReason)]
+      }),
+    ),
+    // One batch per plan, and this is one plan: the grouping the batch used to
+    // need is what the chain is now keyed by.
+    ...(batch.length === 0
+      ? []
+      : [
+          () =>
+            agent(refuteBatchPrompt(p, batch), {
+              label: `refute-batch:${p.id}`,
+              phase: 'Refute',
+              schema: REFUTE_BATCH_SCHEMA,
+            }).then((r) => {
+              const answers = answerObjects(r === null ? null : r.verdicts)
+              const verdicts = batch.map((f) => {
+                const { raw, missReason } = answerFor(f, answers)
+                return coerceVerdict(f, raw, missReason)
+              })
+              // Answers about ids nobody asked about are logged rather than dropped:
+              // they are the evidence that the batch ran and its ids were renamed, and
+              // without them the run looks exactly like an agent that said nothing.
+              const asked = new Set(batch.map((f) => f.id))
+              const extra = answers.filter((v) => !asked.has(v.findingId))
+              if (extra.length > 0) {
+                log(
+                  `refute-batch:${p.id} answered about ${extra.length} id(s) not in this batch, ignored: ${extra
+                    .map((v) => JSON.stringify(v.findingId))
+                    .join(', ')}`,
+                )
+              }
+              return verdicts
+            }),
+        ]),
+  ]
+
+  const verdicts = [
+    ...routedIn(triaged, 'CORROBORATED').map(corroboratedVerdict),
+    ...(refuteTasks.length === 0 ? [] : (await parallel(refuteTasks)).flat()),
+  ]
+  return { evaluation, triaged, verdicts }
 }
 
-const refuteTasks = [
-  // One finding was asked about, so one answer is expected - and it is still
-  // matched on `findingId` rather than assumed. An agent handed one finding can
-  // answer about another, and a verdict is keyed by id, so taking its word for
-  // it would relabel that probe output as this finding's and file it.
-  ...routed('REFUTE_INDIVIDUAL').map((t) => () => {
-    const plan = planById.get(t.finding.planId)
-    return agent(refutePrompt(plan, t.finding), {
-      label: `refute:${t.finding.id}`,
-      phase: 'Refute',
-      schema: REFUTE_SCHEMA,
-    }).then((r) => {
-      const { raw, missReason } = answerFor(t.finding, answerObjects([r]))
-      return [coerceVerdict(t.finding, raw, missReason)]
-    })
-  }),
-  ...[...batches.entries()].map(([planId, group]) => () => {
-    const plan = planById.get(planId)
-    return agent(refuteBatchPrompt(plan, group), {
-      label: `refute-batch:${planId}`,
-      phase: 'Refute',
-      schema: REFUTE_BATCH_SCHEMA,
-    }).then((r) => {
-      const answers = answerObjects(r === null ? null : r.verdicts)
-      const verdicts = group.map((f) => {
-        const { raw, missReason } = answerFor(f, answers)
-        return coerceVerdict(f, raw, missReason)
-      })
-      // Answers about ids nobody asked about are logged rather than dropped:
-      // they are the evidence that the batch ran and its ids were renamed, and
-      // without them the run looks exactly like an agent that said nothing.
-      const asked = new Set(group.map((f) => f.id))
-      const extra = answers.filter((v) => !asked.has(v.findingId))
-      if (extra.length > 0) {
-        log(
-          `refute-batch:${planId} answered about ${extra.length} id(s) not in this batch, ignored: ${extra
-            .map((v) => JSON.stringify(v.findingId))
-            .join(', ')}`,
-        )
-      }
-      return verdicts
-    })
-  }),
-]
+// ---------------------------------------------------------------------------
+// RUN
+//
+// One chain per plan, with NO barrier between the phases: a plan whose evaluator
+// came back early is triaged and refuted while the slower plans are still being
+// judged. The exam used to wait for the last evaluator before triaging anything,
+// and on a corpus with one plan much larger than the rest that wait was most of
+// the run. Every reported number below is computed once the chains have all
+// resolved, so it says the same thing it said when the phases were separated.
+// ---------------------------------------------------------------------------
 
-const verdicts = [
-  ...routed('CORROBORATED').map(corroboratedVerdict),
-  ...(refuteTasks.length === 0 ? [] : (await parallel(refuteTasks)).flat()),
-]
+const chains = await pipeline(plans, evaluatePlan, triageAndRefute)
 
+// A chain answers `null` for a plan its evaluator never judged, and for one a
+// stage threw in. Both mean the same thing here: the plan contributed nothing,
+// and it is named in the log rather than passed over.
+const done = chains.map((c) => (c === null || c === undefined ? { evaluation: null, triaged: [], verdicts: [] } : c))
+
+const evaluations = done.map((c) => c.evaluation).filter(Boolean)
+const skipped = plans.filter((p) => !evaluations.some((e) => e.planId === p.id))
+if (skipped.length > 0) log(`Not evaluated (agent returned nothing): ${skipped.map((p) => p.id).join(', ')}`)
+
+// Flattened for the steps that work finding by finding, same objects as above.
+const findings = evaluations.flatMap((e) => e.findings)
+
+log(`${evaluations.length}/${plans.length} plans evaluated, ${findings.length} findings`)
+
+const triaged = done.flatMap((c) => c.triaged)
+const invalid = routedIn(triaged, null)
+log(`Triage: ${histogramOf(triaged)} INVALID=${invalid.length}`)
+for (const t of invalid) log(`  invalid ${t.finding.id}: ${t.violations.join('; ')}`)
+
+const verdicts = done.flatMap((c) => c.verdicts)
 const dispositions = ['FILE', 'FILE_SYMPTOM_ONLY', 'HUMAN_REVIEW', 'DROP']
   .map((d) => `${d}=${verdicts.filter((v) => v.disposition === d).length}`)
   .join(' ')
-log(`Refute: ${verdicts.length} verdicts, ${dispositions}; ${routed('HUMAN_RULING').length} awaiting a human ruling`)
+log(
+  `Refute: ${verdicts.length} verdicts, ${dispositions}; ${routedIn(triaged, 'HUMAN_RULING').length} awaiting a human ruling`,
+)
 
 return {
   evaluations,
@@ -980,6 +1015,6 @@ return {
   // No verdict is synthesised for either of these. A subjective claim has no
   // probe that settles it, and an invalid one is a defect of the report; both
   // are handed back for a person to rule on rather than resolved here.
-  humanRuling: routed('HUMAN_RULING').map((t) => t.finding),
+  humanRuling: routedIn(triaged, 'HUMAN_RULING').map((t) => t.finding),
   invalid: invalid.map((t) => ({ id: t.finding.id, planId: t.finding.planId, violations: t.violations })),
 }
