@@ -1,9 +1,17 @@
 // Evidence cropper for the render-quality exam.
 // Usage:
 //   bun run tools/exam/crop.ts --image <png> --rect x,y,w,h --out <png> [...]
+//                              [--margin <px>]
 //   bun run tools/exam/crop.ts --verdicts <run.json>
 //                              [--exam-dir .artifacts/exam]
 //                              [--out-dir .artifacts/exam/crops]
+//                              [--margin <px>]
+//
+// --margin is the context kept on all four sides of every rect in the run: 0 by
+// default for explicit triples, MARGIN_PX for --verdicts, and whatever is passed
+// in either mode. A crop cut to the rect alone shows that the marked thing
+// exists; a few hundred pixels of margin show what it sits next to, which is
+// what a claim about overlap or drift is actually ruled on.
 //
 // A finding is filed with a crop of the tile it was seen in, because a reader
 // handed a 1920x1080 tile and a sentence has to hunt for the thing being
@@ -34,20 +42,23 @@
 // Exit codes:
 //   0  every requested crop was written
 //   1  harness failure (bad flags, unreadable run file, browser error), or at
-//      least one crop could not be made
+//      least one requested crop was not written - whether it failed in the
+//      browser or was skipped before a job was ever built for it
 //
 // A malformed evidence entry is skipped and named in the report rather than
 // failing the run: one unusable rect among twenty must not cost the other
-// nineteen their crops.
+// nineteen their crops. It still counts against the exit code and against `ok`,
+// because a skip is a piece of evidence with no picture, which is the same hole
+// in the record as a crop that failed.
 
 import { chromium, type Browser } from "@playwright/test";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Rect } from "./tiling";
 
-// Context kept around every evidence rect in --verdicts mode. Wide enough to
-// show what the marked thing sits next to, narrow enough that the mark is still
-// the subject of the picture.
+// Context kept around every evidence rect in --verdicts mode when --margin says
+// nothing. Wide enough to show what the marked thing sits next to, narrow enough
+// that the mark is still the subject of the picture.
 export const MARGIN_PX = 24;
 export const DEFAULT_EXAM_DIR = ".artifacts/exam";
 export const DEFAULT_OUT_DIR = ".artifacts/exam/crops";
@@ -66,7 +77,13 @@ export type CropJob = {
 
 export type Options =
   | { mode: "explicit"; jobs: CropJob[] }
-  | { mode: "verdicts"; verdicts: string; examDir: string; outDir: string };
+  | {
+      mode: "verdicts";
+      verdicts: string;
+      examDir: string;
+      outDir: string;
+      margin: number;
+    };
 
 // ---------------------------------------------------------------------------
 // PNG header
@@ -181,8 +198,9 @@ function rectFromTuple(tuple: unknown): Rect | null {
 // caller sees exactly which evidence has no crop.
 export function cropJobsFromRun(
   run: unknown,
-  opts: { examDir: string; outDir: string },
+  opts: { examDir: string; outDir: string; margin?: number },
 ): { jobs: CropJob[]; skipped: string[] } | string {
+  const margin = opts.margin ?? MARGIN_PX;
   if (!isRecord(run)) return "error: the run file is not a JSON object";
   const findings: unknown = run.findings;
   const verdicts: unknown = run.verdicts;
@@ -257,7 +275,7 @@ export function cropJobsFromRun(
       jobs.push({
         image: path.join(opts.examDir, planId, "images", image),
         rect,
-        margin: MARGIN_PX,
+        margin,
         out: path.join(opts.outDir, cropFileName(findingId, n)),
         label:
           where === ""
@@ -298,6 +316,7 @@ export function parseArgs(argv: string[]): Options | string {
   let verdicts: string | null = null;
   let examDir: string | null = null;
   let outDir: string | null = null;
+  let margin: number | null = null;
 
   const value = (i: number): string | null => {
     const next = argv[i + 1];
@@ -330,8 +349,10 @@ export function parseArgs(argv: string[]): Options | string {
         const out = argv[++i]!;
         if (image === null) return "error: --out with no --image before it";
         if (rect === null) return "error: --out with no --rect before it";
-        // Explicit crops take no margin: the caller asked for a rect and gets
-        // exactly that rect, which is what makes the size checkable.
+        // Explicit crops take no margin unless --margin asks for one: the
+        // caller asked for a rect and gets exactly that rect, which is what
+        // makes the size checkable. The margin is applied below, once, so it
+        // reaches triples written before the flag as well as after it.
         jobs.push({ image, rect, margin: 0, out, label: image });
         image = null;
         rect = null;
@@ -349,6 +370,20 @@ export function parseArgs(argv: string[]): Options | string {
         if (v === null) return "error: --out-dir requires a directory";
         outDir = argv[++i]!;
         break;
+      case "--margin": {
+        if (v === null) return "error: --margin requires a pixel count";
+        const raw = argv[++i]!;
+        // Whole pixels only, and zero is a legitimate ask: a fractional margin
+        // would be snapped outwards by the clamp anyway, so accepting one would
+        // silently hand back a rect nobody asked for. The blank is checked
+        // first because Number("") is 0, and an empty value is a mistake about
+        // the command line rather than a request for no margin.
+        const px = raw.trim() === "" ? Number.NaN : Number(raw);
+        if (!Number.isInteger(px) || px < 0)
+          return `error: --margin must be a whole number of pixels, zero or more, got "${v}"`;
+        margin = px;
+        break;
+      }
       default:
         return `error: unknown argument "${a}"`;
     }
@@ -366,6 +401,7 @@ export function parseArgs(argv: string[]): Options | string {
       verdicts,
       examDir: examDir ?? DEFAULT_EXAM_DIR,
       outDir: outDir ?? DEFAULT_OUT_DIR,
+      margin: margin ?? MARGIN_PX,
     };
   }
   if (examDir !== null)
@@ -374,7 +410,10 @@ export function parseArgs(argv: string[]): Options | string {
     return "error: --out-dir is only meaningful with --verdicts";
   if (jobs.length === 0)
     return "error: nothing to crop; pass --image/--rect/--out or --verdicts";
-  return { mode: "explicit", jobs };
+  return {
+    mode: "explicit",
+    jobs: margin === null ? jobs : jobs.map((job) => ({ ...job, margin })),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -468,9 +507,21 @@ async function jobsFor(
   const built = cropJobsFromRun(parsed, {
     examDir: opts.examDir,
     outDir: opts.outDir,
+    margin: opts.margin,
   });
   if (typeof built === "string") throw new Error(built);
   return built;
+}
+
+// Whether the run delivered everything that was asked of it. A skip counts
+// against it exactly as a failure does: both leave a piece of evidence with no
+// picture, and the caller that reads `ok` is deciding whether to go looking for
+// files on disk.
+export function cropRunOk(result: {
+  skipped: string[];
+  failed: string[];
+}): boolean {
+  return result.failed.length === 0 && result.skipped.length === 0;
 }
 
 if (import.meta.main) {
@@ -508,12 +559,9 @@ if (import.meta.main) {
     await browser.close();
   }
 
+  const ok = cropRunOk({ skipped: work.skipped, failed });
   console.log(
-    JSON.stringify(
-      { ok: failed.length === 0, crops, skipped: work.skipped, failed },
-      null,
-      2,
-    ),
+    JSON.stringify({ ok, crops, skipped: work.skipped, failed }, null, 2),
   );
-  process.exit(failed.length === 0 ? 0 : 1);
+  process.exit(ok ? 0 : 1);
 }

@@ -3,6 +3,7 @@ import {
   cropFileName,
   cropJobsFromRun,
   cropRect,
+  cropRunOk,
   parseArgs,
   pngSize,
   DEFAULT_EXAM_DIR,
@@ -81,6 +82,15 @@ describe("cropRect", () => {
     expect(
       cropRect({ x: 1900, y: 1060, width: 20, height: 20 }, 24, IMAGE),
     ).toEqual({ x: 1876, y: 1036, width: 44, height: 44 });
+  });
+
+  // The margin a reader asks for when a 128x70 crop showed only that a chip
+  // exists. It is allowed to swallow the image; what comes back is the whole
+  // picture, not a refusal.
+  test("clamps a margin wider than the image to the image", () => {
+    expect(
+      cropRect({ x: 900, y: 500, width: 100, height: 50 }, 4000, IMAGE),
+    ).toEqual({ x: 0, y: 0, width: 1920, height: 1080 });
   });
 
   test("clamps a rect that itself overhangs the image", () => {
@@ -242,6 +252,12 @@ describe("cropJobsFromRun", () => {
     expect(jobs[0]!.margin).toBe(MARGIN_PX);
   });
 
+  test("carries a caller's margin to every job", () => {
+    const built = cropJobsFromRun(run(), { ...OPTS, margin: 400 });
+    if (typeof built === "string") throw new Error(built);
+    expect(built.jobs.map((j) => j.margin)).toEqual([400, 400, 400]);
+  });
+
   test("skips a verdict whose finding is missing, and says so", () => {
     const value = run() as { verdicts: Array<{ findingId: string }> };
     value.verdicts[0]!.findingId = "multi6:not-a-finding";
@@ -336,6 +352,7 @@ describe("parseArgs", () => {
       verdicts: "run.json",
       examDir: DEFAULT_EXAM_DIR,
       outDir: DEFAULT_OUT_DIR,
+      margin: MARGIN_PX,
     });
   });
 
@@ -354,6 +371,7 @@ describe("parseArgs", () => {
       verdicts: "run.json",
       examDir: "/tmp/exam",
       outDir: "/tmp/crops",
+      margin: MARGIN_PX,
     });
   });
 
@@ -433,5 +451,75 @@ describe("parseArgs", () => {
 
   test("rejects a flag with no value", () => {
     expect(parseArgs(["--image", "--rect", "0,0,1,1"])).toMatch(/--image/);
+  });
+
+  // A margin given alongside explicit triples applies to all of them, wherever
+  // in the line it was written: it is a property of the run, not of the triple
+  // it happens to follow.
+  test("applies an explicit margin to every triple", () => {
+    const parsed = parseArgs([
+      "--image",
+      "a.png",
+      "--rect",
+      "0,0,10,10",
+      "--out",
+      "a-crop.png",
+      "--margin",
+      "500",
+      "--image",
+      "b.png",
+      "--rect",
+      "5,5,10,10",
+      "--out",
+      "b-crop.png",
+    ]);
+    if (typeof parsed === "string") throw new Error(parsed);
+    expect(parsed.mode === "explicit" && parsed.jobs.map((j) => j.margin)).toEqual([
+      500, 500,
+    ]);
+  });
+
+  test("overrides the standing margin in verdicts mode", () => {
+    expect(parseArgs(["--verdicts", "run.json", "--margin", "0"])).toEqual({
+      mode: "verdicts",
+      verdicts: "run.json",
+      examDir: DEFAULT_EXAM_DIR,
+      outDir: DEFAULT_OUT_DIR,
+      margin: 0,
+    });
+    expect(parseArgs(["--verdicts", "run.json"])).toEqual({
+      mode: "verdicts",
+      verdicts: "run.json",
+      examDir: DEFAULT_EXAM_DIR,
+      outDir: DEFAULT_OUT_DIR,
+      margin: MARGIN_PX,
+    });
+  });
+
+  test("rejects a margin that is not a non-negative whole number", () => {
+    for (const bad of ["-4", "4.5", "wide", ""]) {
+      expect(parseArgs(["--verdicts", "run.json", "--margin", bad])).toMatch(
+        /--margin/,
+      );
+    }
+    expect(parseArgs(["--margin", "--verdicts", "run.json"])).toMatch(
+      /--margin/,
+    );
+  });
+});
+
+// A skipped entry is a crop the caller asked for and did not get, which is the
+// same hole in the evidence as a failed one. Reporting ok on it sent a reader
+// looking for a file that was never written.
+describe("cropRunOk", () => {
+  test("is true only when nothing was skipped and nothing failed", () => {
+    expect(cropRunOk({ skipped: [], failed: [] })).toBe(true);
+    expect(cropRunOk({ skipped: [], failed: ["a.png: no overlap"] })).toBe(
+      false,
+    );
+    expect(cropRunOk({ skipped: ["x: no evidence"], failed: [] })).toBe(false);
+    expect(
+      cropRunOk({ skipped: ["x: no evidence"], failed: ["a.png: no overlap"] }),
+    ).toBe(false);
   });
 });
