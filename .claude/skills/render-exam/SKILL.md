@@ -83,15 +83,16 @@ Start by comparing the pack fingerprint. The first line of `.artifacts/exam/hash
 `# pack <sourceCommit> <gameVersion>`; if the last exam's ledger names a different pack, the
 recipes moved underneath the corpus and its ids are not comparable with this run's.
 
-Read that line first, then clear the exam directory, in that order: the clear takes the file the
-fingerprint lives in. Clearing matters because step 5 globs every `<id>/scene.json` under
-`.artifacts/exam`. The ledgers are rewritten each run, the plan directories are not, so a
-rotating plan the last exam picked would be evaluated as part of this one. The `head -1` fails
-harmlessly on a first exam, when there is no ledger yet:
+Read that line first, then clear the plan directories, in that order. Clearing matters because
+step 5 globs every `<id>/scene.json` under `.artifacts/exam`. The ledgers are rewritten each
+run, the plan directories are not, so a rotating plan the last exam picked would be evaluated
+as part of this one. Clear only the plan directories: the saved run files, the issue bodies and
+the crops from earlier exams live beside them and are the record you compare against. The
+`head -1` fails harmlessly on a first exam, when there is no ledger yet:
 
 ```bash
-head -1 .artifacts/exam/hashes.tsv   # the previous exam's pack; keep the value, the next line takes the file
-rm -rf .artifacts/exam
+head -1 .artifacts/exam/hashes.tsv   # the previous exam's pack; keep the value, the coverage run below rewrites the file
+find .artifacts/exam -mindepth 1 -maxdepth 1 -type d ! -name issues ! -name crops -exec rm -rf {} +
 ```
 
 Then rebuild the ledger:
