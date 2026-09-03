@@ -31,8 +31,8 @@ export type CommitStampInput = {
   envCommit?: string | undefined;
   // `git rev-parse --short=7 HEAD`, or undefined when git could not answer.
   headSha?: string | undefined;
-  // Whether `git status --porcelain` reported anything. The suffix it produces
-  // is what tells an exam of uncommitted local work apart from an exam of a tip.
+  // Whether the worktree carries a tracked change. The suffix it produces is
+  // what tells an exam of uncommitted local work apart from an exam of a tip.
   dirty?: boolean | undefined;
 };
 
@@ -56,18 +56,37 @@ function git(args: string[]): string {
 
 // Read the stamp from the environment, falling back to git and then to
 // UNKNOWN_COMMIT. Runs at config load, which includes every vitest run, so it
-// must never throw and never require a git checkout.
+// must never throw and never require a git checkout. `run` is the seam the
+// tests drive: a real git is not a thing a unit test can put into a chosen
+// state.
 export function resolveCommitStamp(
   env: Record<string, string | undefined> = process.env,
+  run: (args: string[]) => string = git,
 ): string {
   const envCommit = env.STC_COMMIT;
   if (envCommit?.trim()) return formatCommitStamp({ envCommit });
+
+  // The two reads get their own try each. A rev-parse that already answered is
+  // knowledge about the build, and a status that fails afterwards does not take
+  // it away: falling back to UNKNOWN_COMMIT there would attribute the bundle to
+  // no commit at all over a question that was only ever about the suffix.
+  let headSha: string;
   try {
-    return formatCommitStamp({
-      headSha: git(["rev-parse", "--short=7", "HEAD"]),
-      dirty: git(["status", "--porcelain"]).trim() !== "",
-    });
+    headSha = run(["rev-parse", "--short=7", "HEAD"]);
   } catch {
     return formatCommitStamp({});
   }
+
+  // --untracked-files=no on purpose. This repo keeps untracked working
+  // documents around by convention, so a plain --porcelain would report a
+  // change on every developer machine and stamp every local build -dirty
+  // forever - which costs the suffix the one job it has, telling uncommitted
+  // work apart from a tip. Only tracked edits change what the bundle contains.
+  let dirty = false;
+  try {
+    dirty = run(["status", "--porcelain", "--untracked-files=no"]).trim() !== "";
+  } catch {
+    dirty = false;
+  }
+  return formatCommitStamp({ headSha, dirty });
 }

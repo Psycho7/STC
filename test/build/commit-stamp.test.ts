@@ -67,4 +67,44 @@ describe("resolveCommitStamp", () => {
   test("reads a stamp with no override set", () => {
     expect(resolveCommitStamp({})).toMatch(/^([0-9a-f]{7,}(-dirty)?|unknown)$/);
   });
+
+  // Untracked files are ignored on purpose: the repo keeps untracked plan
+  // documents by convention, and counting them would stamp every local build
+  // dirty forever, which costs the suffix the one meaning it has.
+  test("asks git to ignore untracked files", () => {
+    const calls: string[][] = [];
+    const run = (args: string[]): string => {
+      calls.push(args);
+      return args[0] === "rev-parse" ? "fea16ad\n" : "";
+    };
+    expect(resolveCommitStamp({}, run)).toBe("fea16ad");
+    expect(calls).toEqual([
+      ["rev-parse", "--short=7", "HEAD"],
+      ["status", "--porcelain", "--untracked-files=no"],
+    ]);
+  });
+
+  test("marks the worktree dirty when status reports a tracked change", () => {
+    const run = (args: string[]): string =>
+      args[0] === "rev-parse" ? "fea16ad\n" : " M src/App.tsx\n";
+    expect(resolveCommitStamp({}, run)).toBe("fea16ad-dirty");
+  });
+
+  // A status that fails after rev-parse already answered says nothing about
+  // the history: throwing the sha away would attribute the build to no commit
+  // at all, which is strictly worse than an unproven-clean stamp.
+  test("keeps the head sha when only the status read fails", () => {
+    const run = (args: string[]): string => {
+      if (args[0] === "rev-parse") return "fea16ad\n";
+      throw new Error("status unavailable");
+    };
+    expect(resolveCommitStamp({}, run)).toBe("fea16ad");
+  });
+
+  test("falls back when the head read fails", () => {
+    const run = (): string => {
+      throw new Error("not a git repository");
+    };
+    expect(resolveCommitStamp({}, run)).toBe(UNKNOWN_COMMIT);
+  });
 });
