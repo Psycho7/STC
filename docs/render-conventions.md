@@ -74,6 +74,10 @@ rows. A trunk total on a chip and the same total on a card come from one
 formatter, so they should read alike; members rounded independently can still sum
 a cent off that number.
 
+Chips, machine cards, boundary cards, product-chip captions and the totals lines
+all draw from one formatter, so a plan shows one rate unit throughout. A mix
+inside a single plan, `/min` beside `/MIN`, is a defect and not a style.
+
 A seating pass places each chip on the line it labels, sliding it along that line
 past cards, dots and other chips. A chip that had to move is still bound to its
 own polyline; one that reads as belonging to a neighbouring line is a defect. A
@@ -104,10 +108,8 @@ Do not report these as defects.
 Read this section as well when the capture's locale is not `en`.
 
 Every surface is localised, the rate unit included: zh and ja write `/分` where
-en writes `/min`. One capture should show one form of it. Chips, machine cards,
-boundary cards, product-chip captions and the totals lines all draw from the same
-formatter, so a mix within a single plan (`/分` beside `/min` beside `/MIN`) is a
-defect and not a style.
+en writes `/min`. One capture should show one form of it, and the one-unit rule
+under Rate chips covers `/分` beside `/min` as well.
 
 CJK text carries its own failure modes, and they are what to look for in a
 non-`en` capture:

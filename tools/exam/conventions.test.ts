@@ -36,6 +36,18 @@ const SECTIONS = [
 const headingLines = (text: string): string[] =>
   text.split("\n").filter((line) => line.startsWith("#"));
 
+// The body under one `## ` heading, up to the next one. Which section a rule
+// sits in is itself a claim the doc makes: an evaluator reading an `en` capture
+// is told to skip Locale notes, so a rule parked there is a rule it never sees.
+const section = (text: string, name: string): string => {
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) => line.trim() === `## ${name}`);
+  if (start === -1) return "";
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => line.startsWith("## "));
+  return (end === -1 ? rest : rest.slice(0, end)).join("\n");
+};
+
 describe("docs/render-conventions.md", () => {
   test("carries every section the prompt refers to, in order", () => {
     const found = headingLines(doc())
@@ -66,6 +78,18 @@ describe("docs/render-conventions.md", () => {
     expect(text).toContain(
       "the drop chip returns whenever the rise chip is hidden",
     );
+  });
+
+  // The unit mix is visible in `en` on its own: the kind row is uppercased by
+  // CSS, so `/MIN` can sit beside `/min` with no locale involved. The rule
+  // therefore belongs in Rate chips; in Locale notes an `en` evaluator, told to
+  // skip that section, would never be briefed on it.
+  test("states the one-unit rule where an en evaluator reads it", () => {
+    const chips = flat(section(doc(), "Rate chips"));
+    expect(chips).toContain("all draw from one formatter");
+    expect(chips).toContain("`/min` beside `/MIN`");
+    expect(chips).toContain("is a defect and not a style");
+    expect(flat(section(doc(), "Locale notes"))).not.toContain("`/MIN`");
   });
 
   // The second cause of a collapsed branch chip, alongside the short leg.
