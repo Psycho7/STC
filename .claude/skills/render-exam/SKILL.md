@@ -60,12 +60,16 @@ bun run build
 bun run preview --port 4174 --strictPort   # background it
 BASE=http://localhost:4174
 curl -s -o /dev/null -w "%{http_code}\n" "$BASE/"   # poll until 200
+curl -s "$BASE" | rg -o 'name="stc-commit" content="[^"]+"'
 ```
 
+The local build stamps itself too, and that last line is what the report quotes for a fallback
+run. A worktree with untracked or modified files stamps a `-dirty` suffix; report that
+separately in the final report as "exam of uncommitted work" instead of pinning the findings to
+a commit nobody else can check out.
+
 Port 4174 on purpose: Playwright's `webServer` owns 4173 for the e2e suite, so step 4 can run
-without disturbing the exam server. A local build of a worktree with untracked or modified
-files stamps a `-dirty` suffix; report that separately in the final report as "exam of
-uncommitted work" instead of pinning the findings to a commit nobody else can check out.
+without disturbing the exam server.
 
 Step 4's geometry audit never touches this server: Playwright builds and serves the checkout
 itself.
@@ -79,12 +83,15 @@ Start by comparing the pack fingerprint. The first line of `.artifacts/exam/hash
 `# pack <sourceCommit> <gameVersion>`; if the last exam's ledger names a different pack, the
 recipes moved underneath the corpus and its ids are not comparable with this run's.
 
-Read that line before you run anything, because the next command overwrites the file holding it
-(both lines fail harmlessly on a first exam, when there is no ledger yet):
+Read that line first, then clear the exam directory, in that order: the clear takes the file the
+fingerprint lives in. Clearing matters because step 5 globs every `<id>/scene.json` under
+`.artifacts/exam`. The ledgers are rewritten each run, the plan directories are not, so a
+rotating plan the last exam picked would be evaluated as part of this one. The `head -1` fails
+harmlessly on a first exam, when there is no ledger yet:
 
 ```bash
-head -1 .artifacts/exam/hashes.tsv                      # the previous exam's pack
-cp .artifacts/exam/hashes.tsv .artifacts/exam/hashes.prev.tsv
+head -1 .artifacts/exam/hashes.tsv   # the previous exam's pack; keep the value, the next line takes the file
+rm -rf .artifacts/exam
 ```
 
 Then rebuild the ledger:
@@ -100,8 +107,10 @@ Both runs rewrite `.artifacts/exam/hashes.tsv` with the fingerprint line and one
 `<id>\t<hash>` row per plan; `--fill` appends the rotating rows after the core ones and writes
 the picked scenarios to `.artifacts/exam/rotating.json`, which step 4 feeds back to the audit.
 
-The report has three parts worth reading: per-plan and union coverage, the uncovered recipes,
-and (after `--fill`) the residue grouped by the reason each recipe stayed out. A large residue
+The report has five parts: per-plan and union coverage, the uncovered recipes, the uncovered
+machines, the `# rotating` table of picked plans with its `after fill` totals, and the residue
+grouped by the reason each recipe stayed out. The `# rotating` table is the only place the final
+report's "each rotating plan and the recipes it brought in" comes from. A large residue
 is expected and is not a corpus defect - most of it is alternate producers of an item the LP
 never prefers, so no single-target plan can make the solver run them. The only part a bigger
 `--max` would move is the count carried by the `reachable by an unpicked candidate; raise
@@ -133,9 +142,10 @@ flags: `--target-zoom`
 `--max-tiles` (default 64), `--seam-margin` (default 64). Outputs land in
 `.artifacts/exam/<id>/` as `scene.json` plus an `images/` subdirectory holding `00-fit.png`,
 `10-tile-r<row>c<col>.png` and `20-corrective-<nnn>-<slug>.png` (the index is zero-padded to
-three digits). The split is structural: an evaluator is handed `images/` and judges the pixels
-cold, so the ledger it must not read is not in the directory it can list. There is no smoke
-test, because capture fails fast by itself:
+three digits). The `N tiles` the CLI prints counts grid tiles only and `00-fit.png` is written
+in addition, so `scene.json`'s `tiles` array holds N+1 entries. The split is structural: an
+evaluator is handed `images/` and judges the pixels cold, so the ledger it must not read is not
+in the directory it can list. There is no smoke test, because capture fails fast by itself:
 
 | exit | what happened | what you do |
 | --- | --- | --- |
@@ -171,6 +181,14 @@ zero-tolerance assertion first and only then ends as skipped, naming the id and 
 could not read. A fixed-corpus id missing a baseline row throws instead, because that is a
 table that lost a row.
 
+Each rotating plan produces four results, not one: `DOM geometry audit` and `edge reload
+determinism` pass, `segment placement audit` and `chip seating census` skip. So the fixed corpus
+alone tallies `1 failed / 40 passed`, and with four rotating plans admitted the same run reads
+`1 failed / 8 skipped / 48 passed`. Those two tallies are what a correct run looks like.
+
+The list reporter prints a skip without its reason. To read the reason, rerun that one test with
+`--reporter=json` and pull `annotations[].description`, or open the HTML report.
+
 Attribute every failure to a commit before calling it a finding. The stable failset on the
 current tip is: geometry-audit segment placement audit > multi6 (RAW pierce). For anything
 else, rerun only that spec at the branch point in a throwaway worktree:
@@ -195,7 +213,7 @@ A rotating plan is attributed the same way, once the base run is handed the same
 ```bash
 rot=$PWD/.artifacts/exam/rotating.json          # absolute, resolved before the cd
 (cd .claude/worktrees/exam-base && bun install && \
-  EXAM_EXTRA_SCENARIOS=$rot bun run test:e2e geometry-audit --grep "<describe> <test>")
+  EXAM_EXTRA_SCENARIOS="$rot" bun run test:e2e geometry-audit --grep "<describe> <test>")
 ```
 
 The absolute path is the point: a relative value resolves against the root of whichever
@@ -206,7 +224,9 @@ its own evidence, and never promote it to a finding because nothing could be com
 ### 5. Build the workflow args from the ledgers
 
 One jq over every `scene.json` emits the whole args object, so nothing is retyped and no field
-is invented. Run it from the repo root:
+is invented. Run it from the repo root and keep the output in a file: it runs to tens of
+kilobytes, of which `conventions` alone is 6 KB of prose, and an object that lives only in the
+transcript is one compaction away from being retyped by hand.
 
 ```bash
 jq -s --arg examDir "$PWD/.artifacts/exam" --arg repoRoot "$PWD" \
@@ -227,7 +247,7 @@ jq -s --arg examDir "$PWD/.artifacts/exam" --arg repoRoot "$PWD" \
     tiles: [.tiles[] | {file, kind, viewportTransform, safeRegion}]
   }],
   measurements: ([.[] | {key: .planId, value: (.measurements | map({kind, footprint, detail}))}] | from_entries)
-}' .artifacts/exam/*/scene.json
+}' .artifacts/exam/*/scene.json > .artifacts/exam/workflow-args.json
 ```
 
 What each part is for, because passing the wrong thing here fails silently rather than loudly:
@@ -273,6 +293,9 @@ jq -sr --arg ledgerPack "$ledgerPack" '
 ' .artifacts/exam/*/scene.json
 ```
 
+The first two print nothing on a clean run: empty output is the clean answer, no partial capture
+and no console error, rather than a command that misfired.
+
 The third line is the layout-feature census: bus bands and junction dots are the only features
 the ledger records by their own kind. Icon-only chips are not in it (the chip record carries no
 icon-only flag) and neither are fan-out columns (nothing records them), so read the census as
@@ -282,9 +305,11 @@ two counts, not as an inventory of what the layout did.
 
 From the MAIN session (the Workflow tool is not available inside subagents).
 
-`Workflow({name: "render-quality-exam", args: <the object step 5 printed>})` - that is,
-`{examDir, repoRoot, conventions, plans: [{id, dir, url, locale, images, tiles, coverage}],
-measurements}`.
+Pass the parsed contents of `.artifacts/exam/workflow-args.json` as `args`, whether you name the
+workflow or point at its `scriptPath`:
+`Workflow({name: "render-quality-exam", args: <parsed .artifacts/exam/workflow-args.json>})`.
+That object is `{examDir, repoRoot, conventions, plans: [{id, dir, url, locale, images, tiles,
+coverage}], measurements}`.
 
 Write the return to `.artifacts/exam/<date>-run.json` with the Write tool the moment it comes
 back, before reading a single verdict: step 7's crops are cut from that file, and a return that
@@ -350,6 +375,9 @@ camera (`--zoom` and `--center` together), and runs one named op:
 bun run tools/exam/probe.ts --base-url "$BASE" --hash <planHash> \
   --locale en --op hover-edge --arg id='<edgeId>'
 ```
+
+That invocation is an illustration. A refuter never composes its own: the workflow builds each
+real command by splitting the plan's `url` out of `scene.json`.
 
 Ops: `hover-edge`, `hover-node`, `contrast`, `delta-e`, `chip-binding`, `rect`,
 `computed-style`, `text-overflow`; `--eval <file.js>` is the escape hatch and `--shot
@@ -461,6 +489,8 @@ A ledger of what was captured and measured, with no verdicts in it.
 | `00-fit.png` is shot at the app's fit zoom, not `targetZoom` | Chips are LOD-hidden below `lodGates.labelMinZoom`; compare `fit.zoom` against `lodGates` before believing anything the fit overview does not show |
 | The exam runs `?exam=1`, query before fragment | Without it `window.__stcExam` is absent and both CLIs exit 3. The CLIs build the URL; a hand-written one is where this goes wrong |
 | Repo convention forbids committed binaries | Captures go to gitignored `.artifacts/`; issue images to the orphan assets branch only |
+| The step 3 capture loop is bash, and the interactive shell here is fish | `IFS=$'\t'` and `case` are bash syntax; paste the loop into bash or it dies on the first line |
+| Step 4's `.claude/worktrees/exam-base` lands beside the branch worktrees | An exam run from `.claude/worktrees/feat/...` is standing in that same root, so the base checkout is a sibling of the branch under exam, never a directory inside it |
 
 ## When NOT to use
 
