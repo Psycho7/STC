@@ -61,6 +61,14 @@ import {
 // The four plans the exam always runs. They were picked to saturate the three
 // carriers and the tap-replication shapes between them, so a rotating set can
 // be judged against a fixed floor.
+//
+// The floor they reach, on pack 6a006762 / game v1.4: the core union covers
+// 50 of 173 recipes and 17 of 23 machines, leaving 123 recipes uncovered, and
+// a `--fill --max 4` run brings that to 103. Written down because none of it is
+// derivable from this list by reading it, and a run that reports different
+// numbers on the same pack means the core, the scenarios or the counting drifted
+// rather than that the corpus got better. On a new pack the figures move by
+// design; re-anchor them here rather than deleting them.
 export const CORE_SCENARIO_IDS = [
   "default",
   "battery5-xiranite",
@@ -185,10 +193,7 @@ function isLoopBox(c: Container): boolean {
   return c.kind === "loop-box";
 }
 
-function featuresOf(
-  plan: RenderPlan,
-  partialStamps: number,
-): FeatureCounts {
+function featuresOf(plan: RenderPlan, partialStamps: number): FeatureCounts {
   const loopBoxIds = new Set(
     plan.containers.filter(isLoopBox).map((c) => c.id),
   );
@@ -305,7 +310,12 @@ export async function collectCoverage(
   }
   totals.multiplicityTotal = multiplicity.toFraction();
 
-  return { fingerprint: fingerprintOf(pack), plans, union, featureTotals: totals };
+  return {
+    fingerprint: fingerprintOf(pack),
+    plans,
+    union,
+    featureTotals: totals,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -603,8 +613,7 @@ function parseScenarioJson(raw: string): Scenario[] | string {
       id: e.id,
       title: typeof e.title === "string" ? e.title : e.id,
       targets: e.targets as Scenario["targets"],
-      maxDiffPixels:
-        typeof e.maxDiffPixels === "number" ? e.maxDiffPixels : 0,
+      maxDiffPixels: typeof e.maxDiffPixels === "number" ? e.maxDiffPixels : 0,
     });
   }
   return out;
@@ -623,7 +632,10 @@ function table(header: string[], rows: string[][]): string[] {
     Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)),
   );
   const line = (cells: string[]) =>
-    cells.map((c, i) => pad(c, widths[i] ?? 0)).join("  ").trimEnd();
+    cells
+      .map((c, i) => pad(c, widths[i] ?? 0))
+      .join("  ")
+      .trimEnd();
   return [line(header), ...rows.map(line)];
 }
 
@@ -693,11 +705,21 @@ function formatReport(
   lines.push("");
 
   lines.push(`# uncovered recipes (${missRecipes.length})`);
-  lines.push(...table(["id", "name"], missRecipes.map((r) => [r.id, r.name])));
+  lines.push(
+    ...table(
+      ["id", "name"],
+      missRecipes.map((r) => [r.id, r.name]),
+    ),
+  );
   lines.push("");
 
   lines.push(`# uncovered machines (${missMachines.length})`);
-  lines.push(...table(["id", "name"], missMachines.map((m) => [m.id, m.name])));
+  lines.push(
+    ...table(
+      ["id", "name"],
+      missMachines.map((m) => [m.id, m.name]),
+    ),
+  );
   lines.push("");
 
   if (fill) lines.push(...fillSection(pack, fill, report.union));
@@ -912,8 +934,13 @@ export async function runCli(argv: string[]): Promise<string> {
 if (import.meta.main) {
   runCli(process.argv.slice(2))
     .then((out) => {
+      // An error goes to stderr so that --json keeps stdout parseable: a caller
+      // piping this into jq gets either JSON or nothing, never a sentence.
+      if (out.startsWith("error:")) {
+        console.error(out);
+        process.exit(1);
+      }
       console.log(out);
-      if (out.startsWith("error:")) process.exit(1);
     })
     .catch((err: unknown) => {
       console.error("fatal:", err);
