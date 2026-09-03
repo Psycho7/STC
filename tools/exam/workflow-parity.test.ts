@@ -1056,3 +1056,113 @@ describe("a refuter's answer is matched to the finding it answers", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// A plan that fell out of the run
+//
+// A chain comes back null only when one of its stages THREW, and that plan
+// loses the findings, triage rows and verdicts it had already produced. An
+// evaluator that returned nothing is a different failure - nothing was ever
+// produced - and the two used to be reported under one line, so a thrown stage
+// read as a silent agent and its lost rows went unmentioned.
+// ---------------------------------------------------------------------------
+
+// `pipeline` as the runtime resolves it, with stage two made to throw for ONE
+// named plan; every other item runs untouched.
+const throwingStageTwo =
+  (planId: string) =>
+  (items: unknown[], ...stages: Stage[]): Promise<unknown[]> =>
+    pipelineStub(
+      items,
+      ...stages.map(
+        (stage, stageIndex): Stage =>
+          (previous, item, index) => {
+            if (stageIndex === 1 && (item as { id: string }).id === planId) {
+              throw new Error(`stage two threw for ${planId}`);
+            }
+            return stage(previous, item, index);
+          },
+      ),
+    );
+
+// `parallel` as the runtime resolves it: a thunk that throws does not fail the
+// whole barrier, it resolves to null in that slot.
+const forgivingParallel = (tasks: Array<() => Promise<unknown>>): Promise<unknown[]> =>
+  Promise.all(tasks.map((task) => Promise.resolve().then(task).catch(() => null)));
+
+describe("a plan that produced nothing is named for the reason it produced nothing", () => {
+  test("separates a thrown stage from an evaluator that returned nothing, and keeps the rest", async () => {
+    const specs: PlanSpec[] = ["boom", "silent", "ok"].map((id) => ({
+      id,
+      findings: [finding({ id: "chip-adrift", evidence: AWAY })],
+      measurements: [CHIP],
+      tiles: TILES,
+    }));
+    const agent: AgentStub = (_prompt, options) => {
+      if (options.label === "evaluate:silent") return Promise.resolve(null);
+      if (options.label.startsWith("evaluate:")) {
+        const id = options.label.slice("evaluate:".length);
+        return Promise.resolve({
+          planId: id,
+          overall: "stubbed evaluation",
+          blindSpotsAcknowledged: [],
+          findings: specs.find((s) => s.id === id)?.findings ?? [],
+        });
+      }
+      return Promise.resolve(null);
+    };
+
+    const logs: string[] = [];
+    const result = await compileWorkflow()(
+      workflowArgs(specs),
+      agent,
+      parallelStub,
+      throwingStageTwo("boom"),
+      undefined,
+      (message: string) => logs.push(message),
+      undefined,
+      undefined,
+    );
+
+    expect(logs).toContain("Not evaluated (agent returned nothing): silent");
+    expect(logs).toContain("Dropped (a stage threw): boom");
+
+    // The surviving plan keeps everything it produced.
+    expect(result.findings.map((f) => f.id)).toEqual(["ok:chip-adrift"]);
+    expect(result.triage.map((row) => row.id)).toEqual(["ok:chip-adrift"]);
+    expect(result.verdicts.map((v) => v.findingId)).toEqual(["ok:chip-adrift"]);
+  });
+
+  test("a refuter task that threw costs its findings a verdict, and says so", async () => {
+    const specs = [solo({})];
+    const agent: AgentStub = (_prompt, options) => {
+      if (options.label.startsWith("evaluate:")) {
+        return Promise.resolve({
+          planId: "solo",
+          overall: "stubbed evaluation",
+          blindSpotsAcknowledged: [],
+          findings: specs[0]!.findings,
+        });
+      }
+      throw new Error("the refuter blew up");
+    };
+
+    const logs: string[] = [];
+    // Before the fix the null slot survived `.flat()` and the disposition
+    // summary read `.disposition` off it, so this run threw a TypeError.
+    const result = await compileWorkflow()(
+      workflowArgs(specs),
+      agent,
+      forgivingParallel,
+      pipelineStub,
+      undefined,
+      (message: string) => logs.push(message),
+      undefined,
+      undefined,
+    );
+
+    expect(result.verdicts).toEqual([]);
+    expect(result.findings.map((f) => f.id)).toEqual(["solo:chip-adrift"]);
+    expect(logs).toContain("solo: 1 refuter task(s) threw, so their findings carry no verdict");
+  });
+});

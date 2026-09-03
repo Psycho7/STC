@@ -80,7 +80,8 @@ const plans = input && input.plans
 
 if (!Array.isArray(plans) || plans.length === 0) {
   throw new Error(
-    'render-quality-exam requires args {plans: [{id, dir, url, images, tiles, coverage}], measurements, examDir}',
+    'render-quality-exam requires args {plans: [{id, dir, url, locale, images, tiles, coverage}], ' +
+      'measurements, examDir, repoRoot, conventions}',
   )
 }
 const examDir = input && typeof input.examDir === 'string' ? input.examDir.replace(/\/+$/, '') : ''
@@ -905,8 +906,12 @@ const answerObjects = (list) => (Array.isArray(list) ? list.filter((v) => v !== 
 // Every agent() call here passes `phase` explicitly. Stages race: the global
 // phase() cursor is one value for the whole script, and a plan entering Refute
 // while another is still in Evaluate would file both under whichever ran last.
+// An evaluator that answered nothing is an EMPTY chain, not a null one: it costs
+// this plan its findings and nothing else. Only a stage that THREW answers null,
+// and that one loses rows the plan had already produced, so the two have to be
+// distinguishable where they are reported.
 const triageAndRefute = async (evaluation, p) => {
-  if (evaluation === null || evaluation === undefined) return null
+  if (evaluation === null || evaluation === undefined) return { evaluation: null, triaged: [], verdicts: [] }
 
   const triaged = evaluation.findings.map(triageFinding)
   log(`${p.id}: ${histogramOf(triaged)} INVALID=${routedIn(triaged, null).length}`)
@@ -960,10 +965,19 @@ const triageAndRefute = async (evaluation, p) => {
         ]),
   ]
 
-  const verdicts = [
-    ...routedIn(triaged, 'CORROBORATED').map(corroboratedVerdict),
-    ...(refuteTasks.length === 0 ? [] : (await parallel(refuteTasks)).flat()),
-  ]
+  // A thunk that threw resolves to null in its own slot rather than failing the
+  // barrier, so the flattened answers can hold nulls. Dropping them keeps the
+  // rest of the plan, and the count is logged because the findings that task was
+  // given now have NO verdict at all - they are absent from the dispositions
+  // rather than sitting in HUMAN_REVIEW, which nothing downstream can tell from
+  // a finding that was never routed to a refuter.
+  const answers = refuteTasks.length === 0 ? [] : (await parallel(refuteTasks)).flat()
+  const lost = answers.filter((v) => !v).length
+  if (lost > 0) {
+    log(`${p.id}: ${lost} refuter task(s) threw, so their findings carry no verdict`)
+  }
+
+  const verdicts = [...routedIn(triaged, 'CORROBORATED').map(corroboratedVerdict), ...answers.filter(Boolean)]
   return { evaluation, triaged, verdicts }
 }
 
@@ -980,14 +994,25 @@ const triageAndRefute = async (evaluation, p) => {
 
 const chains = await pipeline(plans, evaluatePlan, triageAndRefute)
 
-// A chain answers `null` for a plan its evaluator never judged, and for one a
-// stage threw in. Both mean the same thing here: the plan contributed nothing,
-// and it is named in the log rather than passed over.
-const done = chains.map((c) => (c === null || c === undefined ? { evaluation: null, triaged: [], verdicts: [] } : c))
+// A chain answers `null` only for a plan a STAGE THREW in; a plan its evaluator
+// never judged comes back as an empty chain. Both contributed nothing, and both
+// are named in the log, but under separate lines: a thrown stage also discarded
+// whatever triage rows, verdicts, rulings and invalid entries that plan had
+// already produced, which is a bug to chase rather than a silent agent to re-run.
+// Kept in index order alongside `plans`, since a null carries no plan id itself.
+const done = chains.map((c, i) => {
+  const chain = c === null || c === undefined ? { evaluation: null, triaged: [], verdicts: [] } : c
+  return { plan: plans[i], threw: c === null || c === undefined, ...chain }
+})
+
+const notEvaluated = done.filter((c) => !c.threw && c.evaluation === null)
+if (notEvaluated.length > 0) {
+  log(`Not evaluated (agent returned nothing): ${notEvaluated.map((c) => c.plan.id).join(', ')}`)
+}
+const threw = done.filter((c) => c.threw)
+if (threw.length > 0) log(`Dropped (a stage threw): ${threw.map((c) => c.plan.id).join(', ')}`)
 
 const evaluations = done.map((c) => c.evaluation).filter(Boolean)
-const skipped = plans.filter((p) => !evaluations.some((e) => e.planId === p.id))
-if (skipped.length > 0) log(`Not evaluated (agent returned nothing): ${skipped.map((p) => p.id).join(', ')}`)
 
 // Flattened for the steps that work finding by finding, same objects as above.
 const findings = evaluations.flatMap((e) => e.findings)
