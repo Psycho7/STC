@@ -474,9 +474,9 @@ describe("parseArgs", () => {
       "b-crop.png",
     ]);
     if (typeof parsed === "string") throw new Error(parsed);
-    expect(parsed.mode === "explicit" && parsed.jobs.map((j) => j.margin)).toEqual([
-      500, 500,
-    ]);
+    expect(
+      parsed.mode === "explicit" && parsed.jobs.map((j) => j.margin),
+    ).toEqual([500, 500]);
   });
 
   test("overrides the standing margin in verdicts mode", () => {

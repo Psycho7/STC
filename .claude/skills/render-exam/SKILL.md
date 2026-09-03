@@ -209,7 +209,9 @@ git -C "$main" worktree remove .claude/worktrees/exam-base
 from a branch worktree, a bare `.claude/worktrees/exam-base` would put the base checkout INSIDE
 the branch under exam. `--git-common-dir` is the shared `.git` from either place, so `$main` is
 the main checkout whether you started there or in a worktree, and the same three lines work from
-both. Resolve `$base` before the `git -C`: revisions handed to `git -C "$main"` resolve in the
+both. Both must be inside the `STC` code checkout: from `STC-workspace/`, `--git-common-dir`
+names the doc repo's `.git` and the recipe targets the wrong repository. Resolve `$base` before
+the `git -C`: revisions handed to `git -C "$main"` resolve in the
 main checkout, where `HEAD` is a different commit.
 
 The `--grep` pattern is the describe title and the test title joined by SPACES. The `>` in the
@@ -221,6 +223,7 @@ A test that fails identically on the base commit is not something this exam foun
 A rotating plan is attributed the same way, once the base run is handed the same rotating set:
 
 ```bash
+# same shell as the block above: $main is still set
 rot=$PWD/.artifacts/exam/rotating.json          # absolute, resolved before the cd
 (cd "$main/.claude/worktrees/exam-base" && bun install && \
   EXAM_EXTRA_SCENARIOS="$rot" bun run test:e2e geometry-audit --grep "<describe> <test>")
@@ -411,8 +414,11 @@ by hand:
 
 ```bash
 bun run tools/exam/crop.ts --verdicts .artifacts/exam/<date>-run.json \
-  --out-dir .artifacts/exam/crops/wide --margin 500 > /dev/null
-``` A coincidence or shared-route claim
+  --out-dir .artifacts/exam/crops/wide --margin 500
+```
+
+Keep its output: the `skipped` list names the evidence that got no crop, and a nonzero exit
+means the batch is incomplete. A coincidence or shared-route claim
 cannot be ruled on from pixels at all: two edges within a stroke width of each other paint as one
 line at every zoom the exam shoots, so probe the edge paths (`--eval` over the
 `.react-flow__edge` `d` attributes) before keeping one, whatever its verdict says. The tile an

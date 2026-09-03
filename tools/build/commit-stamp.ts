@@ -84,7 +84,8 @@ export function resolveCommitStamp(
   // work apart from a tip. Only tracked edits change what the bundle contains.
   let dirty = false;
   try {
-    dirty = run(["status", "--porcelain", "--untracked-files=no"]).trim() !== "";
+    dirty =
+      run(["status", "--porcelain", "--untracked-files=no"]).trim() !== "";
   } catch {
     dirty = false;
   }
