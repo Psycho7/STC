@@ -55,7 +55,7 @@ rides the shared trunk.
 Several such trunks can be forced into one corridor, and the columns are then
 spread across it to keep them apart. Where that spread still leaves them closer
 together than a chip is wide, the corridor is contested: no seat anywhere on such
-a column sheds the sibling's stroke, so those branch chips seat and render
+a column clears the sibling's stroke, so those branch chips seat and render
 icon-only, the same collapsed render a short-leg branch gets. Their rates stay on
 the target cards.
 
@@ -70,12 +70,15 @@ No chip anywhere shows a bare summed total. Every rate chip states one edge's
 rate. The single exception is a member chip on a multi-member bus trunk, which
 reads as that member's share of the trunk ("30/270"); a lone member is its own
 total and keeps the plain rate and unit. Totals otherwise live on the node cards'
-rows, and a chip total and a card total are formatted the same way so they never
-disagree.
+rows. A trunk total on a chip and the same total on a card come from one
+formatter, so they should read alike; members rounded independently can still sum
+a cent off that number.
 
 A seating pass places each chip on the line it labels, sliding it along that line
 past cards, dots and other chips. A chip that had to move is still bound to its
-own polyline; one that reads as belonging to a neighbouring line is a defect.
+own polyline; one that reads as belonging to a neighbouring line is a defect. A
+lane chip seated one lane pitch beside its lane is clearing a junction dot, not
+changing lines.
 
 ## Intentional behaviours
 
@@ -85,8 +88,11 @@ Do not report these as defects.
   shows few chips or none, and card detail fades at low zoom by design.
 - A chip on a leg too short for its box renders icon-only at any zoom, fan-out
   branch chips and item-edge chips alike, and so does a fan-out branch chip on a
-  contested corridor. Both keep the rate on the hover title and the aria label. A
-  digit-less square chip is intentional, not a missing rate.
+  contested corridor. Low zoom is a third cause: below zoom 0.32 the two chips
+  exempt from the 0.35 gate (the bus drop chip and a lone member's long-run rise
+  chip) render icon-only as well. All of them keep the rate on the hover title
+  and the aria label. A digit-less square chip is intentional, not a missing
+  rate.
 - A fan-out branch chip, or a fan-in member chip that would land on the shared
   run, may be deliberately hidden. The rate remains on the target card's input
   row.
@@ -97,7 +103,7 @@ Do not report these as defects.
 
 Read this section as well when the capture's locale is not `en`.
 
-Every surface is localized, the rate unit included: zh and ja write `/分` where
+Every surface is localised, the rate unit included: zh and ja write `/分` where
 en writes `/min`. One capture should show one form of it. Chips, machine cards,
 boundary cards, product-chip captions and the totals lines all draw from the same
 formatter, so a mix within a single plan (`/分` beside `/min` beside `/MIN`) is a

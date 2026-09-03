@@ -32,8 +32,9 @@ export { junctionRadius };
 // rightward, chamfer down into the shared lane, run along it, then chamfer up
 // (or down) at the rise column and enter the target with a final rightward stub.
 // Every edge of one trunk shares the same laneY, so their lane runs overlap and
-// the trunk visually draws once without any cross-edge coordination. Each edge
-// draws its own junction dot at the lane branch point (just before its rise).
+// the trunk visually draws once without any cross-edge coordination. Every edge
+// but a lone member draws its own junction dot at the lane branch point (just
+// before its rise).
 // Stroke reuses ItemEdge's strokeForKind; the markerEnd arrow stays at the
 // target. A lone-member trunk labels itself with the rate chip (icon +
 // rate/min), reusing ItemEdge's flow-chip markup and zoom gate so a bus member
