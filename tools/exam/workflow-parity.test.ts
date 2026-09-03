@@ -500,12 +500,24 @@ type WorkflowRunner = (
 ) => Promise<WorkflowResult>;
 
 // The two fan-out globals, as the runtime documents them. `parallel` is a
-// BARRIER over thunks; `pipeline` runs each item through every stage on its own,
-// with no barrier between stages, so one item can be in stage 2 while another is
-// still in stage 1 - which is the whole reason the workflow uses it. An item
-// whose stage throws drops to null and skips the rest of its own chain only.
+// BARRIER over thunks, and a thunk that throws does not fail the barrier: that
+// slot resolves to null and the others complete. `pipeline` runs each item
+// through every stage on its own, with no barrier between stages, so one item
+// can be in stage 2 while another is still in stage 1 - which is the whole
+// reason the workflow uses it. An item whose stage throws drops to null and
+// skips the rest of its own chain only.
+//
+// One stub each, faithful to that. A stricter `parallel` that let a throw
+// escape would pass every test here while pinning behaviour the runtime does
+// not have, which is the failure mode a parity suite exists to avoid.
 const parallelStub = (tasks: Array<() => Promise<unknown>>): Promise<unknown[]> =>
-  Promise.all(tasks.map((task) => task()));
+  Promise.all(
+    tasks.map((task) =>
+      Promise.resolve()
+        .then(task)
+        .catch(() => null),
+    ),
+  );
 
 const pipelineStub = (items: unknown[], ...stages: Stage[]): Promise<unknown[]> =>
   Promise.all(
@@ -1085,11 +1097,6 @@ const throwingStageTwo =
       ),
     );
 
-// `parallel` as the runtime resolves it: a thunk that throws does not fail the
-// whole barrier, it resolves to null in that slot.
-const forgivingParallel = (tasks: Array<() => Promise<unknown>>): Promise<unknown[]> =>
-  Promise.all(tasks.map((task) => Promise.resolve().then(task).catch(() => null)));
-
 describe("a plan that produced nothing is named for the reason it produced nothing", () => {
   test("separates a thrown stage from an evaluator that returned nothing, and keeps the rest", async () => {
     const specs: PlanSpec[] = ["boom", "silent", "ok"].map((id) => ({
@@ -1153,7 +1160,7 @@ describe("a plan that produced nothing is named for the reason it produced nothi
     const result = await compileWorkflow()(
       workflowArgs(specs),
       agent,
-      forgivingParallel,
+      parallelStub,
       pipelineStub,
       undefined,
       (message: string) => logs.push(message),

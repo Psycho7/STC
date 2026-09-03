@@ -292,7 +292,9 @@ export type Provenance = {
 // without a browser.
 export function readProvenance(raw: {
   commit?: string | undefined;
-  pack?: { sourceCommit: string; gameVersion: string } | undefined;
+  // Null as well as undefined: the hook builds this from the loaded pack, and a
+  // page with nothing to report hands back a null rather than omitting the key.
+  pack?: { sourceCommit: string; gameVersion: string } | null | undefined;
 }): Provenance | string {
   const commit = raw.commit;
   const pack = raw.pack;
@@ -306,7 +308,10 @@ export function readProvenance(raw: {
   if (commit === UNKNOWN_COMMIT) {
     return `window.__stcExam.commit is "${UNKNOWN_COMMIT}": the build could not name itself`;
   }
-  if (pack === undefined) {
+  // Null and undefined alike: an absent pack is one diagnosis, and letting the
+  // null through would report a missing sourceCommit instead, sending an
+  // operator to look inside an object that is not there.
+  if (pack === undefined || pack === null) {
     return "window.__stcExam.pack is missing";
   }
   if (typeof pack.sourceCommit !== "string" || pack.sourceCommit === "") {

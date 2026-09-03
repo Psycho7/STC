@@ -98,8 +98,17 @@ describe("readProvenance", () => {
     );
   });
 
+  // The hook reads its fingerprint out of the loaded pack, and a page that got
+  // that far with nothing to report hands back a null rather than leaving the
+  // key off. Both are the same absence, and only the undefined half used to be
+  // caught: the null fell through to the field reads below it and reported a
+  // missing sourceCommit, which sends an operator hunting inside a pack that is
+  // not there.
   test("reports a build with no pack fingerprint", () => {
     expect(readProvenance({ commit: "fea16ad" })).toBe(
+      "window.__stcExam.pack is missing",
+    );
+    expect(readProvenance({ commit: "fea16ad", pack: null })).toBe(
       "window.__stcExam.pack is missing",
     );
   });
