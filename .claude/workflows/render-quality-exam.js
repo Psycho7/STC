@@ -11,7 +11,7 @@ export const meta = {
 
 // args: {
 //   plans: [{ id, dir, url, locale, images: [{file, what}], tiles: [{file, kind, viewportTransform, safeRegion}], coverage }],
-//   measurements: { [planId]: Measurement[] },
+//   measurements: { [planId]: [{kind, footprint, detail}] },
 //   examDir,
 //   repoRoot,
 //   conventions,
@@ -53,7 +53,12 @@ export const meta = {
 //                   withheld from evaluators (see COLD below) and consumed by the
 //                   footprint join that triages findings. Required per plan, and an
 //                   empty array is a real answer - the measurement pass runs on
-//                   every capture, so `[]` means measured and clean.
+//                   every capture, so `[]` means measured and clean. Reduced to the
+//                   three fields the join and the verdict actually use: the `kind`
+//                   that says which claim it can witness, the world `footprint` it
+//                   occupies, and the `detail` a corroborated verdict quotes.
+//                   scene.json's `elementIds` is deliberately NOT passed - nothing
+//                   here reads it, and it stays in the ledger a refuter can open.
 //
 // COLD. An evaluator receives images and the coverage ledger, and nothing else: no
 // measurements, no earlier findings, no open-issue list. That independence is what

@@ -90,8 +90,23 @@ const POINT: Measurement = {
   detail: "chip:9 anchor coincides with a segment of e:0:A->B:iron",
 };
 
+// A measurement as the orchestrator hands it over: `{kind, footprint, detail}`
+// and nothing else. `elementIds` stays in scene.json and in the Measurement type
+// - a refuter resolves ids from the ledger - but neither the join nor the
+// verdict builder reads it, so the args drop it. A copy that started requiring
+// it would reject the real args while every fixture carrying it stayed green.
+const TRIMMED = {
+  kind: CHIP.kind,
+  footprint: CHIP.footprint,
+  detail: CHIP.detail,
+} as unknown as Measurement;
+
 const CASES: Case[] = [
   kase("rect over the projected footprint", finding()),
+
+  kase("measurement passed without elementIds, as the args trim it", finding(), {
+    measurements: [TRIMMED],
+  }),
 
   kase(
     "rect 500 px away on the same element",
