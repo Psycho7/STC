@@ -1286,7 +1286,8 @@ describe("routeBusEdges trunk rise-chip slots", () => {
     // Lane extent runs from the drop column (sourceRight 300 + stub + chamfer) to
     // the members' shared rise column (targetLeft - stub - chamfer). With n = 3
     // members the extent splits into n + 1 = 4 equal gaps and each slot sits at
-    // (i + 1)/4 of it, ordered by edge id.
+    // (i + 1)/4 of it, ranked by rise column with edge id breaking ties -- all
+    // three members share one rise column here, so the tiebreak orders them.
     const dropX = 300 + PORT_STUB + CHAMFER;
     const maxRiseX = far - PORT_STUB - CHAMFER;
     const step = (maxRiseX - dropX) / 4;

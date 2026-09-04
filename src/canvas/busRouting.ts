@@ -480,10 +480,18 @@ export function routeBusEdges(
   // same layer would otherwise anchor near-coincident at their rise vertices, so
   // give every member a chip x-slot spaced across the lane extent from the drop
   // column (dropX, where the owner's aggregate drop chip sits) to the rightmost
-  // member's rise column. Members are ordered by edge id so the assignment is
-  // deterministic regardless of edge order. Slots sit at fraction (i+1)/(n+1) of
-  // the extent, which keeps every slot -- and the drop-side gap -- one even step
-  // apart and never places a rise chip on the aggregate drop chip at dropX.
+  // member's rise column. Members are ordered by RISE COLUMN (leftmost first,
+  // edge id breaking ties), not edge id: the spread walks the extent from the
+  // drop column outward, so ranking by rise column hands each member a slot in
+  // the stretch of lane its own run actually covers. Id order instead let a
+  // far-running member draw the drop-side slot -- legally inside its own long
+  // run, so the seating clamp had nothing to pull back -- parking its rate chip
+  // beside a short sibling's rise column while the sibling's own clamped slot
+  // crowded it off the lane and hid (battery5-xiranite e:29/e:31/e:32). The
+  // assignment stays deterministic regardless of edge order: riseX is geometry
+  // and the tiebreak is id. Slots sit at fraction (i+1)/(n+1) of the extent,
+  // which keeps every slot -- and the drop-side gap -- one even step apart and
+  // never places a rise chip on the aggregate drop chip at dropX.
   // When the extent is too short to spread them (members feeding one nearby
   // layer, so maxRiseX <= dropX) the step collapses to 0 and every rise chip
   // stacks at the drop column.
@@ -532,7 +540,21 @@ export function routeBusEdges(
     // the two stay in sync by construction. Backward lone members keep their
     // slot (their forward extent is 0, under the threshold).
     if (members.length === 1 && extent > BUS_LONG_RUN_THRESHOLD) continue;
-    members.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    // Rise-column rank (see the slot comment above): slot i+1 of n+1 walks the
+    // extent from the drop column outward, so the member whose run ENDS first
+    // (leftmost rise column) takes the drop-side slot and the rightmost
+    // member's slot lands nearest its own corner. Edge id breaks ties (members
+    // sharing one rise column, e.g. a layer stack) and keeps the whole
+    // assignment independent of input edge order.
+    members.sort((a, b) =>
+      a.riseX !== b.riseX
+        ? a.riseX - b.riseX
+        : a.id < b.id
+          ? -1
+          : a.id > b.id
+            ? 1
+            : 0,
+    );
     const n = members.length;
     const step = extent / (n + 1);
     members.forEach((m, i) => {

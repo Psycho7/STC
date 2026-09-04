@@ -126,6 +126,16 @@ const SHORT_LEG_MAX = CHIP_HALF_W_WIDE;
 // half-height.
 const CHIP_HALF_W_ICON = CHIP_HALF_H;
 
+// Minimum centre x-separation two WIDE bus rise chips must keep when they
+// share one lane run -- the capacity floor the bus rise pass hides against
+// (see deconflictChipAnchors). Also, deliberately, the WIDTH of the rise-end
+// window clampChipXToOwnRun intersects a member's own run with, so a rise
+// chip is never seated more than one separation from the corner it labels:
+// the window is exactly as wide as the closest two chips may sit, so a chip
+// held at its window's far edge still clears a sibling parked at its own
+// corner beside it.
+const MIN_CHIP_SEP = 2 * CHIP_HALF_W_WIDE;
+
 // Chrome the .flow-chip box carries around its body text, in px at natural
 // scale, straight off the CSS rule (canvas.css .flow-chip / .ico-16): a 16px
 // item sprite, the 6px flex gap between sprite and text, 7px of padding per
@@ -972,14 +982,25 @@ function seatChip(
   return { dy, box: field.seat({ x, y: y + dy, halfW, halfH }) };
 }
 
-// Clamp a lane member's trunk-wide rise slot into its OWN resolved lane run,
-// keeping one chamfer of slack at each end so the chip anchors on the straight
-// part of the run rather than on a corner bevel. A run with no interior left --
-// a hairpin (dropX === riseX), or a backward member whose two columns nearly
-// touch -- gets the run's midpoint instead. `undefined` in, `undefined` out:
-// that is the lone long-run member, whose slot routeBusEdges deliberately omits
-// so the chip falls back to the rise column at the consumer end (#32), and
-// whose zoom-gate exemption in BusEdge keys on the slot being ABSENT.
+// Clamp a lane member's trunk-wide rise slot into a WINDOW at the member's
+// OWN rise end: the resolved run intersected with [riseX - MIN_CHIP_SEP,
+// riseX] for a forward member, or [riseX, riseX + MIN_CHIP_SEP] for a
+// backward one (whose rise end is the run's LEFT end), keeping one chamfer of
+// slack at each cut so the chip anchors on the straight part of the run
+// rather than on a corner bevel. The window makes the clamp two-sided. The
+// old clamp only pulled out-of-run slots back IN, so a long-running member
+// whose slot already sat inside its own run kept it -- legally, but hundreds
+// of units from the rise corner it labels and plausibly right beside a short
+// sibling's column (battery5-xiranite: the "300/687.95" rise chip under the
+// 297.95 member's dogleg). With the window, no rise chip sits more than one
+// MIN_CHIP_SEP from its own corner whatever the spread pass does; members
+// whose windows crowd (two feeding one column) are decided by the capacity
+// check, untouched. A run with no interior left -- a hairpin (dropX ===
+// riseX), or a backward member whose two columns nearly touch -- gets the
+// run's midpoint instead. `undefined` in, `undefined` out: that is the lone
+// long-run member, whose slot routeBusEdges deliberately omits so the chip
+// falls back to the rise column at the consumer end (#32), and whose
+// zoom-gate exemption in BusEdge keys on the slot being ABSENT.
 function clampChipXToOwnRun(
   busChipX: number | undefined,
   dropX: number,
@@ -989,7 +1010,18 @@ function clampChipXToOwnRun(
   const lo = Math.min(dropX, riseX);
   const hi = Math.max(dropX, riseX);
   if (hi - lo <= 2 * CHAMFER) return (lo + hi) / 2;
-  return Math.min(Math.max(busChipX, lo + CHAMFER), hi - CHAMFER);
+  // Direction-aware rise-end window, one MIN_CHIP_SEP wide, ending at the
+  // member's own rise column and reaching back along the run toward the drop
+  // column.
+  const windowLo = riseX >= dropX ? riseX - MIN_CHIP_SEP : riseX;
+  const windowHi = riseX >= dropX ? riseX : riseX + MIN_CHIP_SEP;
+  // Intersect with the chamfer-slack run. Never empty on this branch: the
+  // run is longer than two chamfers, so [lo + CHAMFER, hi - CHAMFER] is
+  // non-empty, and its rise-side end sits one chamfer INSIDE the window
+  // while its drop-side end is cut only when the run outlengths the window.
+  const clampLo = Math.max(lo + CHAMFER, windowLo);
+  const clampHi = Math.min(hi - CHAMFER, windowHi);
+  return Math.min(Math.max(busChipX, clampLo), clampHi);
 }
 
 // Total arc-length of a parsed polyline, the measure the short-leg rules are
@@ -2340,8 +2372,8 @@ export function deconflictChipAnchors(
   // sitting right beside that junction, which is crowded there anyway.
   // Single-member trunks are exempt: a lone rise merely restates its own
   // drop's rate, and the long-run lone member (Task 4) belongs at the consumer
-  // end, so never capacity-hide it.
-  const MIN_CHIP_SEP = 2 * CHIP_HALF_W_WIDE;
+  // end, so never capacity-hide it. (MIN_CHIP_SEP itself is module scope:
+  // clampChipXToOwnRun's rise-end window shares the constant.)
   const busRiseHiddenByIndex = new Set<number>();
   const slotsByTrunk = new Map<string, BusSlot[]>();
   for (const slot of busSlots) {

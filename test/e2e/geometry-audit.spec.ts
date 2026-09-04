@@ -1421,7 +1421,13 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
   tundra: 0,
   script43: 3,
   "coupon-web": 1,
-  "gas-web": 2,
+  // 2 -> 0 at the Task 5 rise-seat re-measure (2026-09-04): the plan's
+  // gas_xiranite lane-trunk rise chips moved off their trunk-wide spread slots
+  // into their own rise-end windows, and the one seat that sat a pitch off its
+  // own polyline now sits flush on its run. The gas-web cell had 1 of headroom
+  // against the pin even before this (measured 1 at Task 3); the re-pin takes
+  // the measured 0.
+  "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
 };
@@ -1532,7 +1538,11 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   // reserves the plain rate + unit, and e:12's wider reserve re-seats it off
   // q:8's body -- trading that deep lap for one foreign stroke under its box
   // (gas-web foreignStroke actual 8 -> 9, still under its pin).
-  "gas-web": 8,
+  // 8 -> 7 at the Task 5 rise-seat re-measure (2026-09-04): the same
+  // rise-window re-seating that emptied the seat-validity cell moved the
+  // re-seated gas_xiranite rise chip off the card body it had been lapping.
+  // foreignStroke on this plan held at 9 (pin 10).
+  "gas-web": 7,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 5,
 };
@@ -1758,12 +1768,14 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
 // arithmetically against the tables (see the totals test) rather than summed
 // over a run, so it holds even when the suite is run one scenario at a time.
 const CENSUS_TOTALS = {
-  seatValidity: 18,
+  // 18 -> 16 at the Task 5 rise-seat re-measure (gas-web 2 -> 0; 2026-09-04).
+  seatValidity: 16,
   // 77 -> 78 and 43 -> 44 at the exam-surfaced R4 ratification (gas-web
   // card intrusion, default foreign stroke; 2026-09-04). 78 -> 77 at the R3
   // share-form reservation (gas-web card intrusion back down with e:12's
-  // re-seat; 2026-09-04, Task 3).
-  cardIntrusion: 77,
+  // re-seat; 2026-09-04, Task 3). 77 -> 76 at the Task 5 rise-seat re-measure
+  // (gas-web 8 -> 7; 2026-09-04).
+  cardIntrusion: 76,
   foreignStroke: 44,
   outsideBand: 0,
 };
