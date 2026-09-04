@@ -509,6 +509,16 @@ test.describe("DOM geometry audit", () => {
 // (controller best-judgment call recorded the same day); the family's
 // follow-on tasks (fan-out branch window, per-chip bus seat box) are expected
 // to buy some of it back.
+//
+// R9, same campaign -- loop returns leave the frames. Task 7's corridor
+// routing moved 25 cells DOWN (multi6 crossing 415 -> 121 among them) and
+// five UP: battery5 crossing 9 -> 13 and rot-bottled_food_3 3 -> 5 (rails
+// now cross mid-graph corridors they used to overfly the whole graph; the
+// Task 9 crossing cue exists to mark exactly these), coupon-web chip-segment
+// 3 -> 4 and foreign-stroke 1 -> 2 (one event counted twice: e:15's corridor
+// run under the e:8 chip), gas-web card-intrusion 7 -> 8 (a re-seated chip
+// rode its rail's new anchor). Ratified under the R7 precedent (controller
+// best-judgment call, ruling question unanswered, 2026-09-04).
 
 // TASK 7 -- loop returns in the corridor, not on the frame (2026-09-04). Two
 // routing changes: clearRailY now escapes over only the CONNECTED BAND of
@@ -561,8 +571,11 @@ test.describe("DOM geometry audit", () => {
 const CROSSING_BASELINE: Record<string, number> = {
   default: 4, // 9 -> 4, Task 7 y-window re-measure
   // 8 -> 9 at the exam-surfaced R4 re-measure (declared output rows flip the
-  // copper_nugget ports; ratified 2026-09-04).
-  battery5: 9,
+  // copper_nugget ports; ratified 2026-09-04). 9 -> 13 at R9 (2026-09-04):
+  // loop returns stay in the mid-graph instead of flying over it, so their
+  // rails cross corridors they used to overfly (Task 7; the crossing cue
+  // marks them). rot-bottled_food_3 3 -> 5, same cause.
+  battery5: 13,
   "battery5-xiranite": 47, // 55 -> 47, Task 7
   crystal: 1,
   equip4: 1,
@@ -571,7 +584,7 @@ const CROSSING_BASELINE: Record<string, number> = {
   script43: 26, // 55 -> 26, Task 7
   "coupon-web": 13, // 14 -> 13, Task 7
   "gas-web": 39, // 42 -> 39, Task 7
-  "rot-bottled_food_3": 3,
+  "rot-bottled_food_3": 5, // 3 -> 5 at R9, same cause as battery5
   "rot-bottled_food_4": 20, // 22 -> 20, Task 7
 };
 
@@ -704,7 +717,10 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   multi6: 0,
   tundra: 0,
   script43: 7, // 13 -> 7, Task 7
-  "coupon-web": 3,
+  // 3 -> 4 at R9 (2026-09-04): e:15's new corridor run (Task 7 loop-return
+  // routing) passes under the e:8 "Separator Core" chip -- one event, also
+  // counted by the coupon-web foreign-stroke cell.
+  "coupon-web": 4,
   "gas-web": 9, // 20 -> 9, Task 7
   "rot-bottled_food_3": 0, // 2 -> 0, Task 7
   "rot-bottled_food_4": 2,
@@ -1650,7 +1666,9 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   // rise-window re-seating that emptied the seat-validity cell moved the
   // re-seated gas_xiranite rise chip off the card body it had been lapping.
   // foreignStroke on this plan held at 9 (pin 10).
-  "gas-web": 7,
+  // 7 -> 8 at R9 (2026-09-04): a re-seated chip rode its rail's new anchor
+  // (Task 7).
+  "gas-web": 8,
   "rot-bottled_food_3": 3,
   "rot-bottled_food_4": 5,
 };
@@ -1704,7 +1722,9 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   multi6: 10, // 15 -> 10, Task 7
   tundra: 0,
   script43: 6, // 7 -> 6, Task 7
-  "coupon-web": 1,
+  // 1 -> 2 at R9 (2026-09-04): the other half of the e:15-under-e:8 event
+  // the chip-segment cell names (Task 7 corridor run).
+  "coupon-web": 2,
   "gas-web": 8, // 10 -> 8, Task 7
   "rot-bottled_food_3": 0, // 2 -> 0, Task 7
   "rot-bottled_food_4": 2,
@@ -1889,12 +1909,16 @@ const CENSUS_TOTALS = {
   // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
   // measured 8 against its pin 7 and is LEFT AT 7 (STOP, see the Task 7 note
   // above), so the pin sum is 77 while the measured sum is 78.
-  cardIntrusion: 77,
+  // R9 (2026-09-04) ratifies that held cell: 77 -> 78.
+  cardIntrusion: 78,
   // 46 -> 36 at the Task 7 loop-return re-measure (multi6 15 -> 10, script43
   // 7 -> 6, gas-web 10 -> 8, rot-bottled_food_3 2 -> 0). coupon-web measured 2
   // against its pin 1 and is LEFT AT 1 (STOP), so the pin sum is 36 while the
   // measured sum is 37.
-  foreignStroke: 36,
+  // R9 (2026-09-04) ratifies the two held STOP cells: 77 -> 78 (gas-web
+  // card intrusion, the re-seated chip on its rail's new anchor) and
+  // 36 -> 37 (coupon-web foreign stroke, the e:15-under-e:8 corridor run).
+  foreignStroke: 37,
   outsideBand: 0,
 };
 
