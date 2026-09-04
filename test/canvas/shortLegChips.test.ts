@@ -35,9 +35,9 @@ import {
 } from "./busRouting.testkit";
 
 // chipSeating's own CHIP_HALF_W_WIDE (MAX_CHIP_SCALE * CHIP_BOX_WIDTH / 2),
-// which the fan-out BRANCH short-leg threshold SHORT_LEG_MAX is defined as (the
-// item rule gates on the per-chip natural width instead; see
-// usableWidthCollapses). Mirrored here (the module does not export it).
+// which the fan-out BRANCH short-leg rule USED to gate on as SHORT_LEG_MAX
+// (both the item and the branch rule now gate on the per-chip natural width;
+// see usableWidthCollapses). Mirrored here (the module does not export it).
 const CHIP_HALF_W_WIDE = 120;
 
 // Product handle drift, from chipSeating's PORT_DRIFT.product: the drawn source
@@ -394,8 +394,8 @@ const NARROW_GAP = 110;
 const fanoutFixture = (): {
   nodes: RFAnyNode[];
   routed: Edge[];
-  levelLen: number;
-  downLen: number;
+  levelExtent: number;
+  downExtent: number;
 } => {
   const src = fanProducer("src", 0, 0);
   const tgtX = nodeWidth(src) + NARROW_GAP;
@@ -412,35 +412,149 @@ const fanoutFixture = (): {
     fanEdge("e:1", "src", "level"),
     fanEdge("e:2", "src", "down"),
   ]);
-  const lenOf = (tgt: RFRecipeNode, id: string): number =>
-    polylineLength(
-      parsePathPoints(
-        chamferFanoutPath({
-          ...drawnFanEnds(src, tgt),
-          ...routingHintsFromData(fanDataOf(routed, id)),
-        }).path,
-      ),
-    );
+  // The x-extent of one member's OWN leg -- the suffix after the junction,
+  // which the branch short-leg rule gates on (the whole-polyline arc length
+  // the old rule read is reported alongside as the premise it used to be).
+  const extentOf = (tgt: RFRecipeNode, id: string): number => {
+    const fan = chamferFanoutPath({
+      ...drawnFanEnds(src, tgt),
+      ...routingHintsFromData(fanDataOf(routed, id)),
+    });
+    const pts = parsePathPoints(fan.path);
+    let i = 1;
+    while (i < pts.length && pts[i]![0] < fan.junction.x) i++;
+    const suffix = [
+      [fan.junction.x, fan.junction.y] as const,
+      ...pts.slice(i + 1),
+    ];
+    return polylineXExtent(suffix);
+  };
   return {
     nodes,
     routed,
-    levelLen: lenOf(level, "e:1"),
-    downLen: lenOf(down, "e:2"),
+    levelExtent: extentOf(level, "e:1"),
+    downExtent: extentOf(down, "e:2"),
   };
+};
+
+// A two-member fan-out trunk in a ROOMY corridor with a 13-unit RISER member
+// (rot-bottled_food_3's Sandleaf shape, Task 8): the source ports at the row,
+// one consumer's drawn in-port sits 13 units ABOVE the drawn out-port -- a
+// single-diagonal branch, far too little vertical for its own chip -- and the
+// other 300 below (an ordinary long leg that keeps the trunk multi-member, so
+// no aggregate chip rides it). The corridor is wide enough that the member's
+// WHOLE polyline (shared trunk prefix included) clears one max-scale chip box,
+// which is what let the old arc-length stamp vouch for the riser's full box.
+const RISER_GAP = 158; // card-edge gap -> a 150-unit port-to-port corridor
+const RISER_DY = 13;
+const riserFixture = (): {
+  nodes: RFAnyNode[];
+  routed: Edge[];
+  src: RFRecipeNode;
+  riser: RFRecipeNode;
+  down: RFRecipeNode;
+} => {
+  const src = fanProducer("src", 0, 0);
+  const tgtX = nodeWidth(src) + RISER_GAP;
+  // Place the riser consumer so its DRAWN in-port y sits RISER_DY above the
+  // drawn out-port y (the port drift cancels: both rows resolve the item).
+  const probe = fanConsumer("riser", tgtX, 0);
+  const riserY =
+    portOffsetY(src, FAN_ITEM, "out") -
+    RISER_DY -
+    portOffsetY(probe, FAN_ITEM, "in");
+  const riser = fanConsumer("riser", tgtX, riserY);
+  const down = fanConsumer("down", tgtX, riserY + RISER_DY + 300);
+  const nodes: RFAnyNode[] = [src, riser, down];
+  const routed = routeFanoutEdges(nodes, [
+    fanEdge("e:1", "src", "riser"),
+    fanEdge("e:2", "src", "down"),
+  ]);
+  return { nodes, routed, src, riser, down };
+};
+
+// The riser member's drawn polyline and its post-junction suffix (the sub-
+// polyline its branch chip owns: junction vertex -> diagonal -> target port),
+// from the same path builder and hints the seating pass reconstructs with.
+const riserGeometry = (
+  fixture: ReturnType<typeof riserFixture>,
+): {
+  pts: ReadonlyArray<readonly [number, number]>;
+  suffix: ReadonlyArray<readonly [number, number]>;
+  junction: { x: number; y: number };
+  branchAnchor: { x: number; y: number };
+} => {
+  const fan = chamferFanoutPath({
+    ...drawnFanEnds(fixture.src, fixture.riser),
+    ...routingHintsFromData(fanDataOf(fixture.routed, "e:1")),
+  });
+  const pts = parsePathPoints(fan.path);
+  // Slice at the junction vertex: the first vertex at or beyond the junction's
+  // x on the shared row (mirrors the stamper's own slice, without borrowing it).
+  let i = 1;
+  while (i < pts.length && pts[i]![0] < fan.junction.x) i++;
+  return {
+    pts,
+    suffix: [[fan.junction.x, fan.junction.y] as const, ...pts.slice(i + 1)],
+    junction: fan.junction,
+    branchAnchor: fan.branchAnchor,
+  };
+};
+
+// The riser fixture plus one FOREIGN item edge running horizontally across
+// the corridor three units above the trunk candidates' box band and inside
+// every leg-side candidate's band: the push that the confinement is tested
+// against. A foreign stroke through a box is a HARD tier-1 blocker, so at HEAD
+// (seat on the whole polyline) the only fully-clear on-line candidates are on
+// the shared trunk prefix; on the member's own leg the same stroke blocks the
+// anchor and the whole 13-unit riser.
+const riserPushFixture = (): {
+  nodes: RFAnyNode[];
+  routed: Edge[];
+  src: RFRecipeNode;
+  riser: RFRecipeNode;
+  lineY: number;
+  sy: number;
+} => {
+  const base = riserFixture();
+  const sy = drawnFanEnds(base.src, base.riser).sourceY;
+  const lineY = sy - 27;
+  const fs = productNode("fs", -1054, lineY - CARD_H / 2, CARD_W, CARD_H);
+  const ft = productNode("ft", 1000, lineY - CARD_H / 2, CARD_W, CARD_H);
+  const nodes: RFAnyNode[] = [...base.nodes, fs, ft];
+  const edges: Edge[] = [
+    ...base.routed,
+    {
+      id: "f:1",
+      type: "item",
+      source: "fs",
+      target: "ft",
+      data: { item: "z", rate: new Fraction(1) },
+    },
+  ];
+  return { nodes, routed: edges, src: base.src, riser: base.riser, lineY, sy };
 };
 
 describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
   it("stamps fanoutBranchIconOnly on a branch shorter than one chip", () => {
-    const { nodes, routed, levelLen, downLen } = fanoutFixture();
-    // Premises: the trunk really formed, the level member's leg cannot hold the
-    // full box, and the branching member's can.
+    const { nodes, routed, levelExtent, downExtent } = fanoutFixture();
+    // Premises: the trunk really formed, and NEITHER member's OWN leg -- the
+    // suffix after the junction, the run each branch chip actually draws on --
+    // holds this chip's reserved width ("1"/min reserves 79.5). Task 8
+    // re-derivation: the gate used to read the whole-polyline arc length, so
+    // the down member's 400-unit vertical kept its full chip; on its own leg
+    // that vertical offers no horizontal run a wide box can use, so both
+    // members collapse now (and the collapse is what lets each seat clear the
+    // split dot on the narrow corridor).
     expect(routed.map((e) => e.type)).toEqual(["bus", "bus"]);
-    expect(levelLen).toBeLessThan(CHIP_HALF_W_WIDE);
-    expect(downLen).toBeGreaterThanOrEqual(CHIP_HALF_W_WIDE);
+    const reserved =
+      (2 * chipSeatHalfW({ body: "1", unit: true }, false)) / MAX_CHIP_SCALE;
+    expect(levelExtent).toBeLessThan(reserved);
+    expect(downExtent).toBeLessThan(reserved);
 
     const seated = deconflictChipAnchors(nodes, routed);
     expect(fanDataOf(seated, "e:1").fanoutBranchIconOnly).toBe(true);
-    expect(fanDataOf(seated, "e:2").fanoutBranchIconOnly).toBeUndefined();
+    expect(fanDataOf(seated, "e:2").fanoutBranchIconOnly).toBe(true);
   });
 
   it("seats the collapsed branch chip clear of the trunk's split dot", () => {
@@ -468,5 +582,76 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     expect(cy).toBe(fan.branchAnchor.y);
     expect(cx).toBeGreaterThanOrEqual(drawnFanEnds(src, level).sourceX);
     expect(cx).toBeLessThanOrEqual(drawnFanEnds(src, level).targetX);
+  });
+
+  it("collapses a long-trunk riser whose own leg cannot hold its chip", () => {
+    // The rot-bottled_food_3 finding (Task 8): a 13-unit diagonal branch off a
+    // long trunk. The member's WHOLE polyline (shared trunk prefix included)
+    // spans more than one max-scale chip box, so the old TOTAL-ARC-LENGTH stamp
+    // never fired and the seat reserved a full "300/min" box on a leg whose own
+    // horizontal run is a fraction of it -- every seat on the leg buries the
+    // trunk's split dot, and the box reads as a trunk label. The gate now
+    // measures the member's OWN leg (the suffix after the junction) against the
+    // width THIS chip reserves, exactly the item rule's usable-width bound.
+    const fixture = riserFixture();
+    const geom = riserGeometry(fixture);
+    // Premises: the trunk really formed, the branch really is a 13-unit riser,
+    // and the drawn geometry separates the two rules -- the whole polyline
+    // clears one chip box (the old rule's bound, why this was red there) while
+    // the member's own leg does not clear THIS chip's reserved width.
+    expect(fixture.routed.map((e) => e.type)).toEqual(["bus", "bus"]);
+    const ends = drawnFanEnds(fixture.src, fixture.riser);
+    expect(Math.abs(ends.targetY - ends.sourceY)).toBe(RISER_DY);
+    expect(polylineLength(geom.pts)).toBeGreaterThanOrEqual(CHIP_HALF_W_WIDE);
+    expect(polylineXExtent(geom.suffix)).toBeLessThan(
+      (2 * chipSeatHalfW({ body: "300", unit: true }, false)) / MAX_CHIP_SCALE,
+    );
+
+    const seated = deconflictChipAnchors(fixture.nodes, fixture.routed);
+    expect(fanDataOf(seated, "e:1").fanoutBranchIconOnly).toBe(true);
+  });
+
+  it("seats a pushed branch chip on its own leg, never back across the junction", () => {
+    // The confinement half of the Task 8 fix: the branch seat used to slide
+    // over the WHOLE polyline, trunk prefix included, so a branch chip pushed
+    // off its anchor walked back across the junction and parked on the shared
+    // trunk -- its box reading as a trunk label stood at the split. The push
+    // here is a foreign stroke crossing the corridor: it is a HARD tier-1
+    // blocker, it sits inside every leg-side candidate's box band (the whole
+    // leg is a 13-unit riser, so every leg candidate's box reaches it) and
+    // outside the trunk candidates' band, so on the full polyline the only
+    // fully-clear seats are on the shared prefix. On the member's OWN leg the
+    // same push has nowhere left to go: the chip keeps its anchor (graze) or
+    // slides within the leg, and never crosses the junction column.
+    const fixture = riserPushFixture();
+    const geom = riserGeometry({
+      nodes: fixture.nodes,
+      routed: fixture.routed,
+      src: fixture.src,
+      riser: fixture.riser,
+      down: fixture.riser, // unused by riserGeometry
+    });
+    // Premises: the trunk formed, the riser is a 13-unit diagonal, and the
+    // foreign line really is the push described -- inside the leg band (any
+    // leg candidate's box reaches up to 24 past the riser's top row) and clear
+    // of the trunk band.
+    expect(fixture.routed.slice(0, 2).map((e) => e.type)).toEqual([
+      "bus",
+      "bus",
+    ]);
+    expect(Math.abs(fixture.lineY - fixture.sy)).toBe(27);
+    expect(Math.abs(fixture.lineY - (fixture.sy - RISER_DY))).toBeLessThan(
+      CHIP_HALF_W_ICON,
+    );
+    expect(Math.abs(fixture.lineY - fixture.sy)).toBeGreaterThan(
+      CHIP_HALF_W_ICON,
+    );
+
+    const seated = deconflictChipAnchors(fixture.nodes, fixture.routed);
+    const data = fanDataOf(seated, "e:1");
+    expect(data.fanoutBranchHidden).toBeUndefined(); // the chip still draws
+    const cx =
+      (geom.branchAnchor.x as number) + ((data.fanoutBranchDx as number) ?? 0);
+    expect(cx).toBeGreaterThanOrEqual(geom.junction.x);
   });
 });

@@ -109,15 +109,20 @@ import type { RFAnyNode } from "./layout";
 const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
 const CHIP_HALF_W_WIDE = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
 
-// A fan-out member's whole polyline shorter than this cannot hold its full
-// BRANCH chip anywhere on its own line (#50): no seat keeps the box off the
-// trunk's split dot, and the collapsed box is narrow enough that one exists.
-// Stated in TOTAL ARC LENGTH because the branch chip's corridor is the whole
-// trunk run, whose horizontal extent the branch verticals share. The ITEM
-// short-leg rule used to share this constant; it now measures the polyline's
-// per-chip usable width instead (usableWidthCollapses above), which no longer
-// counts the vertical travel a horizontal chip cannot use.
-const SHORT_LEG_MAX = CHIP_HALF_W_WIDE;
+// The fan-out BRANCH short-leg rule shares the item rule's usable-width gate
+// (usableWidthCollapses above): a member whose OWN leg -- the sub-polyline
+// AFTER the junction, never the trunk-including whole polyline -- lacks the
+// horizontal run for its chip's reserved box has no seat on that leg that
+// keeps the box off the trunk's split dot either (#50; the keep-off square
+// alone reaches DOT_KEEPOFF past the box's half-width), and the collapsed
+// box is narrow enough that one exists. Measuring the leg rather than the
+// whole polyline, a long shared trunk can no longer vouch for a 13-unit
+// riser's full "300/min" box: the trunk prefix is the trunk's to draw on, not
+// the branch chip's. The rule USED to state this as a total-arc-length bound
+// against the widest box (SHORT_LEG_MAX = CHIP_HALF_W_WIDE), which both
+// counted vertical travel a horizontal chip cannot use and let the shared
+// trunk prefix puff the measure -- the two failures Task 6's item rule fixed
+// first.
 
 // Half-width of a COLLAPSED (icon-only) chip's box. Such a chip is a square:
 // the 16px item sprite plus the same 3px padding and 1px border the full chip
@@ -233,7 +238,10 @@ export function chipSeatHalfW(
 // 28-unit leg still collapses, a wide rate text still collapses on a corridor
 // its own box outruns, and no chip without usable rate (the undefined-text
 // fallback above, CHIP_BOX_WIDTH wide) changes class -- for it the new bound
-// IS the old number.
+// IS the old number. The fan-out BRANCH rule gates on the same measure over
+// the member's own leg (the suffix after the junction), where the old
+// arc-length bound additionally let the shared trunk prefix vouch for a leg
+// the chip's box outruns.
 export function usableWidthCollapses(
   text: ChipText | undefined,
   pts: ReadonlyArray<readonly [number, number]>,
@@ -1054,16 +1062,39 @@ function clampChipXToOwnRun(
   return Math.min(Math.max(busChipX, clampLo), clampHi);
 }
 
-// Total arc-length of a parsed polyline, the measure the fan-out BRANCH
-// short-leg rule is stated in (see SHORT_LEG_MAX).
-function polylineLength(
+// The sub-polyline a fan-out member's BRANCH chip draws on: the suffix from
+// the trunk's junction point onward (junction -> branch column -> target
+// port), the branch-side counterpart of the aggregate seat's trunk-prefix
+// truncation below. The full polyline includes the shared trunk prefix, and
+// the branch seat's slide walks BOTH directions from the anchor, so a branch
+// chip seated on the full polyline can walk back across the junction onto the
+// shared trunk -- the box then reads as a trunk label and buries the split
+// dot from the side the reader approaches it. Every fan-out path starts with
+// the horizontal run all members share, and the junction point sits ON that
+// run as an exact polyline vertex for branching and small-dy (diagonal)
+// members alike (chamferFanoutPath emits `jx - CHAMFER, sy` as the first
+// turn), so the slice is the member's own leg plus, for a shared-y member,
+// its post-junction run -- the junction vertex is prepended there because a
+// straight path has no vertex of its own at that x. The source-port vertex at
+// index 0 is always strictly left of the junction (the corridor clamps the
+// junction column a stub-plus-chamfer out), so the scan starts past it.
+function branchLegAfterJunction(
   pts: ReadonlyArray<readonly [number, number]>,
-): number {
-  let len = 0;
-  for (let i = 1; i < pts.length; i++) {
-    len += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+  junction: { x: number; y: number },
+): ReadonlyArray<readonly [number, number]> {
+  let i = 1;
+  while (i < pts.length && pts[i]![0] < junction.x) i++;
+  const rest = pts.slice(i);
+  const head = rest[0];
+  if (
+    head !== undefined &&
+    rest.length >= 2 &&
+    Math.abs(head[0] - junction.x) <= 1 &&
+    Math.abs(head[1] - junction.y) <= 1
+  ) {
+    return rest;
   }
-  return len;
+  return [[junction.x, junction.y] as const, ...rest];
 }
 
 // Cumulative arc-length of point (x, y) along the parsed polyline. The point is
@@ -1828,6 +1859,9 @@ export function deconflictChipAnchors(
   // re-parses the `d` -- the lockstep mirror of itemGeomByIndex for rate chips.
   type FanoutGeom = {
     pts: ReadonlyArray<readonly [number, number]>;
+    // The member's OWN leg (see branchLegAfterJunction): the polyline the
+    // branch chip's seat slides over and the branch short-leg rule measures.
+    branchPts: ReadonlyArray<readonly [number, number]>;
     junction: { x: number; y: number };
     trunkAnchor: { x: number; y: number };
     branchAnchor: { x: number; y: number };
@@ -1861,8 +1895,10 @@ export function deconflictChipAnchors(
       });
       d = fan.path;
       const fanPts = parsePathPoints(d);
+      const branchPts = branchLegAfterJunction(fanPts, fan.junction);
       fanoutGeomByIndex.set(index, {
         pts: fanPts,
+        branchPts,
         junction: fan.junction,
         trunkAnchor: fan.trunkAnchor,
         branchAnchor: fan.branchAnchor,
@@ -1872,7 +1908,11 @@ export function deconflictChipAnchors(
         // render-visible and out of scope here.
         owner: (edge.data as BusEdgeData | undefined)?.busChipOwner === true,
       });
-      if (polylineLength(fanPts) < SHORT_LEG_MAX) shortBranchByIndex.add(index);
+      // The branch short-leg gate reads the member's OWN leg, never the
+      // trunk-including polyline: the whole-polyline arc length let a long
+      // shared trunk vouch for a 13-unit riser's full box (Task 8).
+      if (usableWidthCollapses(branchChipText(edge), branchPts))
+        shortBranchByIndex.add(index);
     } else if (edge.type === "bus") {
       // Narrow the union on `"laneY" in` (the same discriminant laneBands and the
       // census helpers use) rather than a bare LaneBusEdgeData cast: it does not
@@ -2142,6 +2182,14 @@ export function deconflictChipAnchors(
   // fan-out's shared prefix is too short to hold the box anyway. Presentational
   // only -- no edge is retyped and no chip moves.
   const fanoutJunctionByIndex = new Map<number, { x: number; y: number }>();
+  // Keep-off points for the DECLINED group's dot-less corners: every bending
+  // member's own peel-off column, whether or not the group renders a dot (the
+  // non-owner peel-offs never do, and a group whose first bend hugs the port
+  // renders none at all). A chip parked on one of those corners reads as the
+  // junction the reader never gets to see, so they carry the same keep-off
+  // rect geometry as the drawn dots -- but through the same dot set and the
+  // same weakest-preference rank, never as a hard term (R13).
+  const divergenceKeepoffs: Array<{ x: number; y: number }> = [];
   type DivergenceMember = {
     index: number;
     id: string;
@@ -2187,6 +2235,12 @@ export function deconflictChipAnchors(
     // no visible divergence at all, so it gets no dot.
     const bends = members.filter((m) => m.bendX !== undefined);
     if (bends.length === 0) continue;
+    // EVERY bending member's own peel-off column carries a keep-off, dotted or
+    // not: only the first peel-off can ever render the dot, and the port-hug
+    // guard below can suppress even that -- but each column is still where one
+    // line visibly becomes two, and a chip standing on it impersonates the
+    // junction (the #43 reopen).
+    for (const m of bends) divergenceKeepoffs.push({ x: m.bendX!, y: m.sy });
     const junctionX = Math.min(...bends.map((m) => m.bendX!));
     const owner = members.reduce((a, b) => (a.id <= b.id ? a : b));
     // A dot at the port itself would read as part of the source card's own
@@ -2209,6 +2263,9 @@ export function deconflictChipAnchors(
   for (const g of fanoutGeomByIndex.values()) addDot(g.junction, "fanout");
   for (const p of faninJunctionByIndex.values()) addDot(p, "fanin");
   for (const p of fanoutJunctionByIndex.values()) addDot(p, "divergence");
+  // The declined groups' dot-less corners join the same set (deduped against
+  // the owner dot above when the first peel-off's column IS the dot's).
+  for (const p of divergenceKeepoffs) addDot(p, "divergence");
 
   // The shared clearance field: every phase seats into `field.placed`, so a
   // later phase yields to everything an earlier phase placed. It carries the
@@ -2639,10 +2696,21 @@ export function deconflictChipAnchors(
   for (const { edge, index } of branchOrder) {
     const geom = fanoutGeomByIndex.get(index)!;
     const trunkKey = (edge.data as BusEdgeData).trunkKey;
+    // The branch chip slides over its OWN leg only (geom.branchPts, the
+    // suffix after the junction) -- the mirror of the aggregate seat's
+    // trunk-prefix truncation above. On the full polyline the slide could
+    // walk back across the junction onto the shared trunk, where the box
+    // reads as a trunk label and buries the split dot from the left; on the
+    // leg the same push goes down the member's own column instead. The
+    // branch anchor is on the leg by construction for branching and diagonal
+    // members (the column's midpoint, the diagonal's); a shared-y member's
+    // whole-corridor midpoint can sit left of the junction, where the arc
+    // resolver falls back to the leg's own midpoint -- its seat moves ONTO
+    // the leg, which is the point.
     const seat = seatRateChip(
       field,
       {
-        pts: geom.pts,
+        pts: geom.branchPts,
         anchorX: geom.branchAnchor.x,
         anchorY: geom.branchAnchor.y,
       },

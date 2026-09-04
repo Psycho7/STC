@@ -539,6 +539,22 @@ test.describe("DOM geometry audit", () => {
 // pierce (e:97 into q:56) is unchanged. An EIGHTH table joined: FRAME_RIDE
 // (first recording, detailed at the table).
 //
+// TASK 8 -- fan-out branch chips confined to their own leg (2026-09-04).
+// Three seating changes, all in chipSeating's fan-out branch path: the branch
+// seat slides over the member's OWN leg (the suffix after the junction, the
+// mirror of the aggregate seat's trunk truncation) instead of the
+// trunk-including polyline; the branch short-leg rule gates on that leg's
+// usable width (the item rule's per-chip measure) instead of the whole
+// polyline's arc length, so a long shared trunk can no longer vouch for a
+// 13-unit riser's full box; and every bending member of a DECLINED fan-out
+// carries a junction-dot keep-off at its own peel-off column (dot-less
+// corners included) through the same weakest-preference dot term. Wholesale
+// re-measure of every table on all twelve scenarios: EIGHT cells moved, ALL
+// DOWN, re-pinned with cause at each cell. NO cell rose (DOT_COVER's two
+// departures are the family's own findings: rot-bottled_food_3's split dot
+// under the 300/min riser chip, script43's e:3 dot under the e:4 share chip).
+// The dot's rank in the seating preferences is untouched (R13).
+//
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
 // worktree, since deleted). Current routing must never produce MORE crossings
@@ -716,12 +732,17 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   equip4: 1,
   multi6: 0,
   tundra: 0,
-  script43: 7, // 13 -> 7, Task 7
+  // 13 -> 7, Task 7. 7 -> 5, Task 8: two (segment, chip) pairs left with the
+  // fan-out branch chips the leg confinement re-seated (the surviving five
+  // are the same full-height tap/surplus columns under label chips).
+  script43: 5,
   // 3 -> 4 at R9 (2026-09-04): e:15's new corridor run (Task 7 loop-return
   // routing) passes under the e:8 "Separator Core" chip -- one event, also
   // counted by the coupon-web foreign-stroke cell.
   "coupon-web": 4,
-  "gas-web": 9, // 20 -> 9, Task 7
+  // 20 -> 9, Task 7. 9 -> 8, Task 8: one tap-column-under-chip event left
+  // with the re-seated branch chips.
+  "gas-web": 8,
   "rot-bottled_food_3": 0, // 2 -> 0, Task 7
   "rot-bottled_food_4": 2,
 };
@@ -939,10 +960,16 @@ const DOT_COVER_BASELINE: Record<string, number> = {
   // 0 -> 1 at the exam-surfaced R4 re-measure: the junction dot of e:3 hides
   // under the e:4 Cuprium share chip whose port row flipped (ratified
   // 2026-09-04; supersedes R13's single-raise restriction for this campaign).
-  script43: 1,
+  // 1 -> 0, Task 8: the branch chip seats on its own leg now and the riser
+  // legs collapse to the icon box, so the share chip no longer parks over
+  // the split.
+  script43: 0,
   "coupon-web": 0,
   "gas-web": 0, // 1 -> 0, Task 7
-  "rot-bottled_food_3": 1,
+  // 1 -> 0, Task 8: the Sandleaf 300/min riser chip (the family's own
+  // finding) collapses to the icon box and slides down its 13-unit leg clear
+  // of the split dot it used to bury from the trunk side.
+  "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 1,
 };
 
@@ -1533,7 +1560,10 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
   "battery5-xiranite": 4,
   crystal: 0,
   equip4: 0,
-  multi6: 1, // 6 -> 1, Task 7
+  // 6 -> 1, Task 7. 1 -> 0, Task 8: the fan-out branch chips seat on their
+  // own legs now, and the one chip whose box had left its line came home
+  // with the narrower collapsed reserve.
+  multi6: 0,
   tundra: 0,
   script43: 1, // 3 -> 1, Task 7
   "coupon-web": 0, // 1 -> 0, Task 7
@@ -1654,7 +1684,10 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   equip4: 3,
   multi6: 22, // 23 -> 22, Task 7
   tundra: 1,
-  script43: 11, // 12 -> 11, Task 7
+  // 12 -> 11, Task 7. 11 -> 10, Task 8: one of the R8 un-collapsed-arrival
+  // laps left with the branch-leg re-seating (the re-seated riser chips no
+  // longer ride their trunks into the card band).
+  script43: 10,
   "coupon-web": 8,
   // 8 -> 9 at the exam-surfaced R4 re-measure: the e:12 copper_nugget-rise
   // chip lands 40 units into card q:8 (ratified 2026-09-04). Back to 8 at the
@@ -1667,8 +1700,9 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   // re-seated gas_xiranite rise chip off the card body it had been lapping.
   // foreignStroke on this plan held at 9 (pin 10).
   // 7 -> 8 at R9 (2026-09-04): a re-seated chip rode its rail's new anchor
-  // (Task 7).
-  "gas-web": 8,
+  // (Task 7). 8 -> 7, Task 8: that R9 arrival left with the branch-leg
+  // re-seating.
+  "gas-web": 7,
   "rot-bottled_food_3": 3,
   "rot-bottled_food_4": 5,
 };
@@ -1721,11 +1755,16 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   // per-chip usable-width short-leg gate. Ratified under the R7 precedent.
   multi6: 10, // 15 -> 10, Task 7
   tundra: 0,
-  script43: 6, // 7 -> 6, Task 7
+  // 7 -> 6, Task 7. 6 -> 5, Task 8: the same departure the script43
+  // chip-segment cell names (one stroke-under-chip event left with the
+  // re-seated branch chips).
+  script43: 5,
   // 1 -> 2 at R9 (2026-09-04): the other half of the e:15-under-e:8 event
   // the chip-segment cell names (Task 7 corridor run).
   "coupon-web": 2,
-  "gas-web": 8, // 10 -> 8, Task 7
+  // 10 -> 8, Task 7. 8 -> 7, Task 8: one tap-column-under-chip event left
+  // with the re-seated branch chips (the gas-web chip-segment cell's twin).
+  "gas-web": 7,
   "rot-bottled_food_3": 0, // 2 -> 0, Task 7
   "rot-bottled_food_4": 2,
 };
@@ -1904,13 +1943,16 @@ const CENSUS_TOTALS = {
   // anchors ride their rails' new local-band y, and five plans' stranded seats
   // re-seated onto their own lines (default 1 -> 0, battery5 1 -> 0, multi6
   // 6 -> 1, script43 3 -> 1, coupon-web 1 -> 0).
-  seatValidity: 6,
+  // 6 -> 5 at the Task 8 branch-leg re-measure (multi6 1 -> 0).
+  seatValidity: 5,
   // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
   // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
   // measured 8 against its pin 7 and is LEFT AT 7 (STOP, see the Task 7 note
   // above), so the pin sum is 77 while the measured sum is 78.
   // R9 (2026-09-04) ratifies that held cell: 77 -> 78.
-  cardIntrusion: 78,
+  // 78 -> 76 at the Task 8 branch-leg re-measure (script43 11 -> 10,
+  // gas-web 8 -> 7).
+  cardIntrusion: 76,
   // 46 -> 36 at the Task 7 loop-return re-measure (multi6 15 -> 10, script43
   // 7 -> 6, gas-web 10 -> 8, rot-bottled_food_3 2 -> 0). coupon-web measured 2
   // against its pin 1 and is LEFT AT 1 (STOP), so the pin sum is 36 while the
@@ -1918,7 +1960,9 @@ const CENSUS_TOTALS = {
   // R9 (2026-09-04) ratifies the two held STOP cells: 77 -> 78 (gas-web
   // card intrusion, the re-seated chip on its rail's new anchor) and
   // 36 -> 37 (coupon-web foreign stroke, the e:15-under-e:8 corridor run).
-  foreignStroke: 37,
+  // 37 -> 35 at the Task 8 branch-leg re-measure (script43 6 -> 5,
+  // gas-web 8 -> 7).
+  foreignStroke: 35,
   outsideBand: 0,
 };
 

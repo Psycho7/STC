@@ -14,6 +14,10 @@ import {
   LANE_SPACING,
   LANE_TOP_OFFSET,
 } from "../../src/canvas/busRouting";
+import {
+  chamferFanoutPath,
+  routingHintsFromData,
+} from "../../src/canvas/edgePath";
 import { portOffsetY } from "../../src/canvas/nodeGeometry";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import {
@@ -25,6 +29,7 @@ import type { RFAnyNode } from "../../src/canvas/layout";
 import {
   mkRecipe,
   recipeNode,
+  orderedRecipeNode,
   inputProductNode,
   mkEdge,
   productNode,
@@ -974,19 +979,27 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
   });
 
   it("seats the short-path branch chip the removed aggregate used to cover", () => {
-    // A same-y member's branch degenerates to the straight in-corridor trunk,
-    // and the narrow corridor is shorter than one max-scale chip box, so while
-    // the owner's aggregate box sat on that corridor there was no chip/card-clear
-    // point anywhere on the member's own polyline and its branch chip was hidden.
-    // The multi-member trunk draws no aggregate now (issue #39), so the corridor
-    // is free and the branch chip seats -- at its own anchor, stamping nothing.
-    // The far member keeps its branch chip too: its long vertical leg is clear.
+    // A short-branch member's leg degenerates to the in-corridor run past the
+    // junction, and that leg is narrower than the chip's own reserved box, so
+    // while the owner's aggregate box sat on that corridor there was no
+    // chip/card-clear point anywhere on the member's own leg and its branch
+    // chip was hidden. The multi-member trunk draws no aggregate (issue #39),
+    // so the corridor is free and the branch chip seats. Task 8 re-derivation:
+    // the branch short-leg rule now measures the member's OWN leg (the suffix
+    // after the junction) against the chip's natural width, so BOTH members
+    // collapse to the icon-only variant here -- the short member's riser leg
+    // and the far member's vertical offer no horizontal run a full box can
+    // slide along -- and the narrow box is what lets the seat clear the split
+    // dot: the short member's chip stamps the slide it took along its own leg
+    // (down and right of the junction), instead of parking at an anchor whose
+    // wide box buried the dot. The far member keeps its chip at its anchor.
     const branchOf = (edges: Edge[], id: string) =>
       edges.find((e) => e.id === id)!.data as {
         fanoutBranchHidden?: true;
         fanoutBranchHiddenAt?: { x: number; y: number };
         fanoutBranchDx?: number;
         fanoutBranchDy?: number;
+        fanoutBranchIconOnly?: true;
       };
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
@@ -994,24 +1007,57 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
       recipeNode("t2", oneGap, 400, r), // far below: long clear branch leg
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
-    const out = deconflictChipAnchors(nodes, routeFanoutEdges(nodes, edges));
+    const routed = routeFanoutEdges(nodes, edges);
+    const out = deconflictChipAnchors(nodes, routed);
     expect(branchOf(out, "e0").fanoutBranchHidden).toBeUndefined();
     expect(branchOf(out, "e0").fanoutBranchHiddenAt).toBeUndefined();
-    expect(branchOf(out, "e0").fanoutBranchDx).toBeUndefined();
-    expect(branchOf(out, "e0").fanoutBranchDy).toBeUndefined();
+    expect(branchOf(out, "e0").fanoutBranchIconOnly).toBe(true);
     expect(branchOf(out, "e1").fanoutBranchHidden).toBeUndefined();
     expect(branchOf(out, "e1").fanoutBranchHiddenAt).toBeUndefined();
+    expect(branchOf(out, "e1").fanoutBranchIconOnly).toBe(true);
+    // The slide stayed on the short member's own leg: the seated centre sits
+    // between the junction column and the target port, never back across the
+    // junction onto the shared trunk prefix (the Task 8 confinement).
+    // Drawn-port reconstruction (chipSeating's PORT_DRIFT.recipe, inline: out
+    // handle +5 past the model right edge, in handle -3, and the +1 row drift
+    // only on rows that resolve the item -- the source's does, t1's "a"-row
+    // card does not for item "b").
+    const src = nodes[0]!;
+    const t1 = nodes[1]!;
+    const fan = chamferFanoutPath({
+      sourceX: src.position.x + 300 + 5,
+      sourceY: 0 + portOffsetY(src, "b", "out") + 1,
+      targetX: t1.position.x - 3,
+      targetY: 0 + portOffsetY(t1, "b", "in"),
+      ...routingHintsFromData(out.find((e) => e.id === "e0")!.data),
+    });
+    const cx = fan.branchAnchor.x + (branchOf(out, "e0").fanoutBranchDx ?? 0);
+    const cy = fan.branchAnchor.y + (branchOf(out, "e0").fanoutBranchDy ?? 0);
+    expect(cx).toBeGreaterThanOrEqual(fan.junction.x);
+    expect(cx).toBeLessThanOrEqual(t1.position.x - 3);
+    // Clear of the split dot's keep-off square on at least one axis (half the
+    // collapsed box plus DOT_KEEPOFF), so the dot stays visible under nothing.
+    expect(
+      Math.abs(cx - fan.junction.x) >= 24 + 16 ||
+        Math.abs(cy - fan.junction.y) >= 24 + 16,
+    ).toBe(true);
   });
 
   it("keeps the DEV exhausted tripwire when a branch seat exhausts before hiding", () => {
-    // Two foreign wall cards straddle the same-y member's escape column: they
-    // leave the port rows (and so the fan-out classification's trunk / leg /
-    // column acceptance) clear, but block every off-line candidate the nudge
-    // and escape cascades probe, over the full LAST_RESORT_CAP_STEPS range. The
-    // half-gap between them is derived to stay 4 units under the chip's own
-    // half-height, so a change to the chip box cannot silently un-wall this
-    // fixture: the member's short line has no clear stretch either and the branch
-    // seat runs the whole ladder and returns "exhausted". The chip is still
+    // Two foreign wall cards straddle the members' shared row: they leave the
+    // row itself (and so the fan-out classification's trunk / leg / column
+    // acceptance) clear, but block every candidate the seat can reach. Task 8
+    // re-derivation: the branch seat now slides only over the member's OWN leg
+    // (the suffix after the junction), and the short-leg rule collapses that
+    // leg's chip to the icon-only box -- so the walls must sit where even a
+    // 48-unit collapsed box cannot clear them (x 330..430 spans every on-line
+    // candidate and both sidestep directions), and the members must be LEVEL
+    // with the source row so the walls do not also eat the trunk's y-span and
+    // defeat the columnClear formation test. The half-gap between the walls is
+    // derived to stay 4 units under the box's half-height, so a change to the
+    // chip box cannot silently un-wall this fixture, and the walls run 9700
+    // tall -- past LAST_RESORT_CAP_STEPS * CHIP_NUDGE_STEP (9600) plus box
+    // slack -- so the nudge and escape cascades exhaust too. The chip is still
     // hidden (the hide covers all off-line tiers), but the DEV tripwire must
     // fire: an exhausted cascade is a seating regression, not an intentional
     // hide, and folding it silently into the hide path would mask it.
@@ -1020,17 +1066,22 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
         fanoutBranchHidden?: true;
         fanoutBranchHiddenAt?: { x: number; y: number };
       };
-    const sy = portOffsetY(recipeNode("s", 0, 0, r), "b", "out");
+    const s = recipeNode("s", 0, 0, r);
+    // Level consumers: the drawn in-port row equals the drawn out-port row, so
+    // both members' legs run along it and the trunk's y-span degenerates to the
+    // row itself (outside the walls' gap, clearing columnClear).
+    const probe = orderedRecipeNode("probe", 0, 0, ["b"]);
+    const levelY = portOffsetY(s, "b", "out") - portOffsetY(probe, "b", "in");
+    const sy = portOffsetY(s, "b", "out");
     // Chip half-height is (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2 = 24; the wall
     // half-gap must stay under it for the line to count as blocked.
     const wallHalfGap = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2 - 4;
-    // 9700 > LAST_RESORT_CAP_STEPS * CHIP_NUDGE_STEP (9600) plus box slack.
     const nodes: RFAnyNode[] = [
-      recipeNode("s", 0, 0, r),
-      recipeNode("t1", oneGap, 0, r), // same y: straight member, short path
-      recipeNode("t2", oneGap, 400, r),
-      productNode("wallTop", 240, sy - wallHalfGap - 9700, 80, 9700),
-      productNode("wallBot", 240, sy + wallHalfGap, 80, 9700),
+      s,
+      orderedRecipeNode("t1", oneGap, levelY, ["b"]), // level member
+      orderedRecipeNode("t2", oneGap + 210, levelY, ["b"]), // level, farther
+      productNode("wallTop", 330, sy - wallHalfGap - 9700, 100, 9700),
+      productNode("wallBot", 330, sy + wallHalfGap, 100, 9700),
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
