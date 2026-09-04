@@ -177,21 +177,21 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
 
   it("keeps the farther rise chip and hides the near one when only one fits", () => {
     // A hand-built 2-member trunk (w|s) whose drop column sits at
-    // busDropBase(sourceRight) = 132. The members' rise columns are 32 apart
-    // (t0 -> 868, t1 -> 900), so under the rise-end window clamp both stamped
-    // slots (232 and 432, both left of either window) park at their own
-    // window's near edge: e0 -> 628 and e1 -> 660. Those sit 32 apart, under
-    // the wide-chip separation (2 * 120 = 240), so the run supports exactly
-    // ONE rise and the ordering rule decides which. The capacity check tries
-    // members FARTHEST-from-the-drop-column first: e1 (660, 528 off) is tried
-    // before e0 (628, 496 off) and takes the only slot; e0 then sits 32 from
-    // the kept x and is hidden. A member that reads at the consumer end beats
-    // a near one, so inverting the comparator would flip this result.
+    // busDropBase(sourceRight) = 132. Both members feed ONE layer (t0 and t1
+    // share the rise column 868), so the trunk's rise columns are co-located
+    // and the stamped slots keep their spread positions: 232 and 432, both
+    // inside the co-extensive run, 200 apart -- under the wide-chip
+    // separation (2 * 120 = 240), so the run supports exactly ONE rise and
+    // the ordering rule decides which. The capacity check tries members
+    // FARTHEST-from-the-drop-column first: e1 (432, 300 off) is tried before
+    // e0 (232, 100 off) and takes the only slot; e0 then sits 200 from the
+    // kept x and is hidden. A member that reads at the consumer end beats a
+    // near one, so inverting the comparator would flip this result.
     const laneY = 300;
     const nodes: RFAnyNode[] = [
       productNode("s", 0, 0, 100, 60), // right edge 100 -> dropX 132
       productNode("t0", 900, 0, 100, 60),
-      productNode("t1", 932, 200, 100, 60),
+      productNode("t1", 900, 200, 100, 60),
     ];
     const mkBus = (
       id: string,
@@ -229,18 +229,20 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
   });
 
   it("hides a lane rise whose cascade carries it off the band", () => {
-    // A KEPT rise (the capacity check clears both members: their windows sit
-    // 528 apart) whose lane seat is blocked by foreign lines at the lane and
+    // A KEPT rise (the capacity check clears both members: their slots sit
+    // 240 apart) whose lane seat is blocked by foreign lines at the lane and
     // at the next two steps below it. The seat clears only 3 pitches down --
     // far off the band, in empty canvas with no stroke touching it -- so the
-    // rise is hidden instead, like a crowded one. e0's slot (700) falls inside
-    // its own rise-end window (rise 868 -> [628, 860]), so the window clamp
-    // keeps it right where the fixture needs it, under the foreign lines;
-    // e1's slot (940) clamps into its own window at 1228, clear of them.
+    // rise is hidden instead, like a crowded one. Both members feed ONE layer
+    // (t0 and t1 share the rise column 1368), so the trunk's rise columns are
+    // co-located and e0's stamped slot (700) keeps its spread position, under
+    // the foreign lines; e1's slot (940) sits past them.
     // Trunk "b|s2"'s lane at y=410 both forces that third step and gives the
     // pop a witness: its own rise column coincides with the hidden chip's
     // would-be seat (700, 444), 34 units away, so a phantom box left behind
-    // would push it off ITS lane.
+    // would push it off ITS lane. (t2 sits at 900, not beside the pair: its
+    // column sets trunk b's OWN single-member geometry, whose window clamp
+    // keeps b0's slot at 700 -- the witness.)
     const laneY = 300;
     const mkBus = (
       id: string,
@@ -276,8 +278,8 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     });
     const nodes: RFAnyNode[] = [
       productNode("s", 0, 0, 100, 60), // right edge 100
-      productNode("t0", 900, 0, 100, 60), // rise column 868
-      productNode("t1", 1500, 200, 100, 60), // rise column 1468
+      productNode("t0", 1400, 0, 100, 60), // rise column 1368
+      productNode("t1", 1400, 200, 100, 60), // rise column 1368
       productNode("s2", 0, 700, 100, 60),
       productNode("t2", 900, 700, 100, 60),
       // Two foreign horizontals at y = 300 and y = 348, spanning x 600..800.
@@ -311,11 +313,11 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     // The same trunk with only the lane-level foreign line: the rise clears one
     // pitch below the lane, still adjacent to it and reading as a lane chip, so
     // it seats and stamps its offset rather than hiding. One step is the line
-    // between "beside the lane" and "floating off the band". e0's slot (700)
-    // clamps to its window's near edge (1128 of rise 1368's [1128, 1360]), so
-    // the foreign line is laid across THAT seat; e1's slot (940) clamps into
-    // its own window (1528 of rise 1768's [1528, 1760]), 400 clear of e0, past
-    // the line and past e0's junction dot at 1360, so it holds its lane.
+    // between "beside the lane" and "floating off the band". Both members feed
+    // ONE layer (t0 and t1 share the rise column 1368), so the trunk's rise
+    // columns are co-located and the stamped slots keep their spread
+    // positions: the foreign line is laid across e0's seat (700) while e1's
+    // slot (940) sits 240 past it, clear of the line, so e1 holds its lane.
     const laneY = 300;
     const mkBus = (
       id: string,
@@ -341,9 +343,9 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     const nodes: RFAnyNode[] = [
       productNode("s", 0, 0, 100, 60),
       productNode("t0", 1400, 0, 100, 60),
-      productNode("t1", 1800, 200, 100, 60),
-      productNode("fs", 800, 270, 100, 60),
-      productNode("ft", 1100, 270, 100, 60),
+      productNode("t1", 1400, 200, 100, 60),
+      productNode("fs", 500, 270, 100, 60),
+      productNode("ft", 800, 270, 100, 60),
     ];
     const edges: Edge[] = [
       mkBus("e0", "t0", 700, true),
@@ -709,6 +711,59 @@ describe("deconflictChipAnchors: bus rise slot clamp", () => {
         `${id} distance from its own rise column`,
       ).toBeLessThanOrEqual(W);
       expect(busRiseHiddenOf(out, id), `${id} rise hidden`).toBe(false);
+    }
+    // Multi-member trunk: no aggregate drop chip exists to seat either.
+    expect(busDropDyRawOf(out, "e0")).toBeUndefined();
+  });
+
+  it("keeps co-located same-layer members on their spread slots, none hidden", () => {
+    // The same-layer family the rise-end window defeated: one product source
+    // (right edge 300 -> dropX 332) feeding three recipes stacked in ONE far
+    // layer at x 1920 (span 1620 > BUS_SPAN_THRESHOLD). The members' runs are
+    // co-extensive -- every rise column lands on 1888, entry staggering moves
+    // a column by a row pitch at most -- so the trunk-wide spread is the pass
+    // that separates their rate chips along the shared run (721 / 1110 /
+    // 1499 when each member kept its slot). The window clamps ALL THREE onto
+    // the one MIN_CHIP_SEP-wide stretch at the shared rise end (1648), and the
+    // capacity check then hides two of the three: the window, built for
+    // mixed-length runs like the battery5 case above, defeats the spread
+    // exactly when the members it separates share their rise column. So the
+    // clamp must keep the spread slots for a trunk whose slotted members'
+    // rise columns are co-located within one MIN_CHIP_SEP -- every chip stays
+    // on the shared run, separated by the spread, and all three stay visible.
+    const r = mkRecipe("r", ["w"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      productNode("s", 200, 0, 100, 60), // right edge 300 -> dropX 332
+      recipeNode("t0", 1920, 0, r), // rise column 1888, all three members
+      recipeNode("t1", 1920, 300, r),
+      recipeNode("t2", 1920, 600, r),
+    ];
+    const edges = [
+      mkEdge("e0", "s", "t0", "w"),
+      mkEdge("e1", "s", "t1", "w"),
+      mkEdge("e2", "s", "t2", "w"),
+    ];
+    const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
+    const xs = (["e0", "e1", "e2"] as const).map((id) => {
+      expect(busRiseHiddenOf(out, id), `${id} rise hidden`).toBe(false);
+      const x = busChipXOf(out, id);
+      expect(x, `${id} spread slot`).toBeDefined();
+      return x!;
+    });
+    // Informational: the slots the spread hands out, logged so a re-derivation
+    // shows its own values instead of trusting a pinned triple.
+    console.log("same-layer rise slots:", xs.join(" / "));
+    // MIN_CHIP_SEP in chipSeating is 2 * CHIP_HALF_W_WIDE; asserted through
+    // the dimensions constants so a chip-box change rederives this with it.
+    const W = MAX_CHIP_SCALE * CHIP_BOX_WIDTH;
+    expect(W).toBe(240);
+    for (let i = 0; i < xs.length; i++) {
+      for (let j = i + 1; j < xs.length; j++) {
+        expect(
+          Math.abs(xs[i]! - xs[j]!),
+          `slots ${i}/${j} separated by the spread`,
+        ).toBeGreaterThanOrEqual(W);
+      }
     }
     // Multi-member trunk: no aggregate drop chip exists to seat either.
     expect(busDropDyRawOf(out, "e0")).toBeUndefined();

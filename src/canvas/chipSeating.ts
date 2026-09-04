@@ -1007,15 +1007,36 @@ function seatChip(
 // long-run member, whose slot routeBusEdges deliberately omits so the chip
 // falls back to the rise column at the consumer end (#32), and whose
 // zoom-gate exemption in BusEdge keys on the slot being ABSENT.
+//
+// The window has one carve-out, `riseColumnsCoLocated`: a trunk whose slotted
+// members ALL carry rise columns within one MIN_CHIP_SEP of each other
+// (same-layer targets, whose lane runs are therefore co-extensive). Every
+// member's window cuts the SAME stretch out of that shared run, so the
+// two-sided clamp parks the whole trunk on it -- a window one MIN_CHIP_SEP
+// wide hosts at most one chip -- and the capacity check hides the rest,
+// defeating the trunk-wide spread, which exists to separate exactly these
+// members: same-layer members anchor near-coincident at their rise vertices
+// because assignEntryColumns staggers the entry gutter per target, not per
+// layer. For those trunks the slot keeps its spread position, clamped into
+// the member's own run only (the pull-in-only form the clamp had before the
+// window): co-extensive runs cover the whole spread extent, so the slot stays
+// on the member's own stroke wherever the spread put it, and the spread --
+// not the window -- separates the chips. A trunk whose rise columns stand
+// apart (mixed-length runs, the battery5 shape the window was built for)
+// keeps the window.
 function clampChipXToOwnRun(
   busChipX: number | undefined,
   dropX: number,
   riseX: number,
+  riseColumnsCoLocated: boolean,
 ): number | undefined {
   if (busChipX === undefined) return undefined;
   const lo = Math.min(dropX, riseX);
   const hi = Math.max(dropX, riseX);
   if (hi - lo <= 2 * CHAMFER) return (lo + hi) / 2;
+  if (riseColumnsCoLocated) {
+    return Math.min(Math.max(busChipX, lo + CHAMFER), hi - CHAMFER);
+  }
   // Direction-aware rise-end window, one MIN_CHIP_SEP wide, ending at the
   // member's own rise column and reaching back along the run toward the drop
   // column.
@@ -2372,6 +2393,12 @@ export function deconflictChipAnchors(
     id: string;
     laneY: number;
     dropX: number;
+    // The member's own resolved rise column, the clamp's window reference.
+    riseX: number;
+    // The trunk-wide spread slot as routeBusEdges stamped it, before the
+    // clamp: undefined for the lone long-run member, whose riseChipX falls
+    // back to the rise column and whom the clamp leaves slotless.
+    riseSlot: number | undefined;
     riseChipX: number;
     owner: boolean;
     // Lane members sharing this trunk. Only a lone member draws (and so seats)
@@ -2432,28 +2459,28 @@ export function deconflictChipAnchors(
     });
     // Pull the trunk-wide rise slot back into this member's own lane run.
     // routeBusEdges spreads a trunk's slots across the WHOLE trunk extent (the
-    // drop column out to the rightmost member's rise column) in edge-id order,
-    // but a member's own lane run ends at its OWN rise column -- so a member
-    // whose consumer sits near the source can be handed a slot hundreds of
-    // units past the point where its line leaves the lane, parking its rate
-    // chip on a sibling's stroke with nothing of its own beneath it.
+    // drop column out to the rightmost member's rise column), but a member's
+    // own lane run ends at its OWN rise column -- so a member whose consumer
+    // sits near the source can be handed a slot hundreds of units past the
+    // point where its line leaves the lane, parking its rate chip on a
+    // sibling's stroke with nothing of its own beneath it.
     // The clamp belongs HERE and not in routeBusEdges: these dropX / riseX come
     // out of chamferBusPath with the stamped routing hints, so they are the
     // columns actually drawn (assignEntryColumns staggers the rise afterwards
     // and clearBusColumns may dodge either column by far more than a chamfer).
-    // It is per member and order-independent, so routeBusEdges' shuffled-input
+    // The slots are collected raw here and clamped just below the loop: the
+    // clamp's co-location carve-out needs a trunk-level fact (see there). It
+    // stays per member and order-independent, so routeBusEdges' shuffled-input
     // determinism is untouched; slots the clamp pushes together are resolved by
     // the capacity check below, which hides the overflow.
-    const clampedChipX = clampChipXToOwnRun(data.busChipX, dropX, riseX);
-    if (clampedChipX !== undefined && clampedChipX !== data.busChipX) {
-      busChipXByIndex.set(index, clampedChipX);
-    }
     busSlots.push({
       index,
       id: edge.id,
       laneY: data.laneY,
       dropX,
-      riseChipX: clampedChipX ?? riseX,
+      riseX,
+      riseSlot: data.busChipX,
+      riseChipX: data.busChipX ?? riseX,
       // Deliberately STRICTER than isTrunkOwner, which reads absent as owner:
       // routeBusEdges always stamps the field in production, so the two rules
       // only diverge on hand-built fixtures. Unifying them is render-visible
@@ -2476,6 +2503,44 @@ export function deconflictChipAnchors(
       dropHalfW: chipSeatHalfW(aggregateChipText(edge), false),
       riseHalfW: chipSeatHalfW(branchChipText(edge), false),
     });
+  }
+  // Trunk grouping over the lane slots, shared by the rise-slot clamp below
+  // and the capacity check further down.
+  const slotsByTrunk = new Map<string, BusSlot[]>();
+  for (const slot of busSlots) {
+    const list = slotsByTrunk.get(slot.trunkKey) ?? [];
+    list.push(slot);
+    slotsByTrunk.set(slot.trunkKey, list);
+  }
+  // The one trunk-level fact the clamp cannot see per member: whether the
+  // trunk's slotted members carry CO-LOCATED rise columns, every column within
+  // one MIN_CHIP_SEP of the rest -- same-layer targets, whose lane runs are
+  // co-extensive. Two or more slotted members are needed for the question to
+  // exist at all: a lone slot bears no sibling to separate from, so it keeps
+  // the window (a chip still belongs beside the corner it labels). Trunks
+  // whose rise columns stand apart keep the window for every member too.
+  const coLocatedTrunks = new Set<string>();
+  for (const [trunkKey, slots] of slotsByTrunk) {
+    const slotted = slots.filter((s) => s.riseSlot !== undefined);
+    if (slotted.length < 2) continue;
+    const minRise = Math.min(...slotted.map((s) => s.riseX));
+    const maxRise = Math.max(...slotted.map((s) => s.riseX));
+    if (maxRise - minRise <= MIN_CHIP_SEP) coLocatedTrunks.add(trunkKey);
+  }
+  for (const slot of busSlots) {
+    // undefined in, undefined out: the lone long-run member keeps its absent
+    // slot and its riseChipX fallback to the rise column.
+    const clampedChipX = clampChipXToOwnRun(
+      slot.riseSlot,
+      slot.dropX,
+      slot.riseX,
+      coLocatedTrunks.has(slot.trunkKey),
+    );
+    if (clampedChipX === undefined) continue;
+    if (clampedChipX !== slot.riseSlot) {
+      busChipXByIndex.set(slot.index, clampedChipX);
+    }
+    slot.riseChipX = clampedChipX;
   }
   // Card exemption for a lane trunk's AGGREGATE drop chip: the union over every
   // lane member of the trunk (member targets + shared source + containers),
@@ -2549,12 +2614,6 @@ export function deconflictChipAnchors(
   // end, so never capacity-hide it. (MIN_CHIP_SEP itself is module scope:
   // clampChipXToOwnRun's rise-end window shares the constant.)
   const busRiseHiddenByIndex = new Set<number>();
-  const slotsByTrunk = new Map<string, BusSlot[]>();
-  for (const slot of busSlots) {
-    const list = slotsByTrunk.get(slot.trunkKey) ?? [];
-    list.push(slot);
-    slotsByTrunk.set(slot.trunkKey, list);
-  }
   for (const [, slots] of slotsByTrunk) {
     if (slots.length < 2) continue;
     // The drop column no longer reserves a slot, but it stays the ordering
