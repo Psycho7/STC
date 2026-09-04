@@ -496,6 +496,18 @@ test.describe("DOM geometry audit", () => {
 // campaign's single sanctioned raise; this one is a separate, ratified trade
 // of the exam-surfaced campaign. DOWN moves recorded at the same re-measure
 // ride the per-table notes as usual.
+//
+// R8, same campaign -- the per-chip usable-width short-leg gate. Wide label
+// chips that used to collapse to icon-only on straight legs (their arc length
+// fell under the global SHORT_LEG_MAX even though the leg's x-extent fit the
+// chip's own natural width) now stay full. The declared exposure,
+// card-intrusion on default, HELD; the actual cost landed on five other
+// scenarios as seven UP cells -- five card-intrusion arrivals (wide chips
+// riding their own straight legs into card bodies) and two foreign-stroke
+// arrivals -- detailed at the two tables. Ratified under the R7 precedent
+// (controller best-judgment call recorded the same day); the family's
+// follow-on tasks (fan-out branch window, per-chip bus seat box) are expected
+// to buy some of it back.
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -1525,13 +1537,21 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
 const CARD_INTRUSION_BASELINE: Record<string, number> = {
   default: 5,
   battery5: 4,
-  "battery5-xiranite": 7,
+  // R8 (2026-09-04), the per-chip usable-width short-leg gate: wide label
+  // chips that used to collapse now stay full on straight legs, and the
+  // un-collapsed arrivals lap their own endpoint cards -- battery5-xiranite
+  // 7 -> 8 (e:3 "238.36/min"), multi6 22 -> 23 (e:53 "Steel x 300/min",
+  // 15 deep), script43 11 -> 12 (e:2 + e:16 "150/min", 13.4 deep),
+  // coupon-web 7 -> 8 (e:0 "5.56/min", 9.1 vs budget 9), rot-bottled_food_3
+  // 2 -> 3 (e:9 "300/min", 17 deep). default HELD at 5 (the plan's declared
+  // exposure; e:1 lapped nothing). Ratified under the R7 precedent.
+  "battery5-xiranite": 8,
   crystal: 2,
   equip4: 3,
-  multi6: 22,
+  multi6: 23,
   tundra: 1,
-  script43: 11,
-  "coupon-web": 7,
+  script43: 12,
+  "coupon-web": 8,
   // 8 -> 9 at the exam-surfaced R4 re-measure: the e:12 copper_nugget-rise
   // chip lands 40 units into card q:8 (ratified 2026-09-04). Back to 8 at the
   // R3 share-form reservation (2026-09-04, Task 3): a fan-out branch chip now
@@ -1543,7 +1563,7 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   // re-seated gas_xiranite rise chip off the card body it had been lapping.
   // foreignStroke on this plan held at 9 (pin 10).
   "gas-web": 7,
-  "rot-bottled_food_3": 2,
+  "rot-bottled_food_3": 3,
   "rot-bottled_food_4": 5,
 };
 
@@ -1590,9 +1610,12 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   "battery5-xiranite": 5,
   crystal: 0,
   equip4: 1,
-  multi6: 14,
+  // R8 (2026-09-04): multi6 14 -> 15 (e:108 originium tap) and script43
+  // 6 -> 7 (the same e:2/e:16 arrivals the card-intrusion cell names) at the
+  // per-chip usable-width short-leg gate. Ratified under the R7 precedent.
+  multi6: 15,
   tundra: 0,
-  script43: 6,
+  script43: 7,
   "coupon-web": 1,
   "gas-web": 10,
   "rot-bottled_food_3": 2,
@@ -1775,8 +1798,12 @@ const CENSUS_TOTALS = {
   // share-form reservation (gas-web card intrusion back down with e:12's
   // re-seat; 2026-09-04, Task 3). 77 -> 76 at the Task 5 rise-seat re-measure
   // (gas-web 8 -> 7; 2026-09-04).
-  cardIntrusion: 76,
-  foreignStroke: 44,
+  // 76 -> 81 and 44 -> 46 at the R8 ratification (2026-09-04): the per-chip
+  // usable-width short-leg gate keeps five wide chips that used to collapse,
+  // and their arrivals lap cards (5 cells) and take foreign strokes (2 cells)
+  // as recorded at the two tables.
+  cardIntrusion: 81,
+  foreignStroke: 46,
   outsideBand: 0,
 };
 
