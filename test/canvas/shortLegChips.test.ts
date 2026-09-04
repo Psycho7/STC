@@ -1,10 +1,13 @@
 // Short-leg rate chips (issue #41, direction C). A rendered rate chip is ~99-110
-// graph units wide, so an edge whose WHOLE polyline is shorter than one chip has
-// nowhere on its own line to hold the full box -- seatRateChip's slide clamps to
-// the arc, leaving the anchor as the only candidate, and the box buries the
-// endpoint cards. deconflictChipAnchors stamps chipIconOnly on such an edge so
-// ItemEdge collapses the chip to its icon-only variant (the exact rate survives
-// on the hover title).
+// graph units wide, so an edge whose polyline lacks the USABLE WIDTH for its own
+// chip's box -- the x-extent a wide horizontal box can slide along, measured
+// against the width THIS chip's text reserves at natural scale -- has nowhere on
+// its own line to hold the full box: seatRateChip's slide clamps to the arc,
+// leaving the anchor as the only candidate, and the box buries the endpoint
+// cards. deconflictChipAnchors stamps chipIconOnly on such an edge so ItemEdge
+// collapses the chip to its icon-only variant (the exact rate survives on the
+// hover title). The rule is per chip: a short rate text reserves a narrow box,
+// so a corridor the widest chip cannot use may still hold it.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
@@ -31,9 +34,10 @@ import {
   mkRecipe,
 } from "./busRouting.testkit";
 
-// chipSeating's own CHIP_HALF_W_WIDE (MAX_CHIP_SCALE * CHIP_BOX_WIDTH / 2), the
-// short-leg threshold SHORT_LEG_MAX is defined as. Mirrored here (the module
-// does not export it).
+// chipSeating's own CHIP_HALF_W_WIDE (MAX_CHIP_SCALE * CHIP_BOX_WIDTH / 2),
+// which the fan-out BRANCH short-leg threshold SHORT_LEG_MAX is defined as (the
+// item rule gates on the per-chip natural width instead; see
+// usableWidthCollapses). Mirrored here (the module does not export it).
 const CHIP_HALF_W_WIDE = 120;
 
 // Product handle drift, from chipSeating's PORT_DRIFT.product: the drawn source
@@ -77,8 +81,52 @@ const rowFixture = (
   return { nodes, edges, legLen: polylineLength(parsePathPoints(d)) };
 };
 
-// Arc length of a reconstructed polyline, the measure both short-leg rules are
-// stated in (chipSeating sums the same segments).
+// Three item edges across ONE 118-unit corridor (the exam finding's geometry,
+// default e:1 / e:2 / e:4): rows at separate y bands so their cards never meet,
+// one straight leg and two whose target sits 17 units below / above the source
+// port, so the leg steps (H run, chamfer, V run, chamfer, H run). Reports each
+// row's drawn leg as parsed points so the test can state its own premises.
+const CORRIDOR_GAP = 126; // card-edge gap -> an 118-unit port-to-port corridor
+const corridorFixture = (): {
+  nodes: RFAnyNode[];
+  edges: Edge[];
+  legs: Array<{ pts: ReadonlyArray<readonly [number, number]> }>;
+} => {
+  const rows = [0, 200, 400];
+  const dys = [0, 17, -17];
+  const nodes: RFAnyNode[] = [];
+  const edges: Edge[] = [];
+  const legs: Array<{ pts: ReadonlyArray<readonly [number, number]> }> = [];
+  rows.forEach((rowY, i) => {
+    const srcX = 0;
+    const tgtX = srcX + CARD_W + CORRIDOR_GAP;
+    nodes.push(productNode(`s${i}`, srcX, rowY, CARD_W, CARD_H));
+    nodes.push(productNode(`t${i}`, tgtX, rowY + dys[i]!, CARD_W, CARD_H));
+    const id = `e:${i}:s${i}->t${i}:w`;
+    edges.push({
+      id,
+      type: "item",
+      source: `s${i}`,
+      target: `t${i}`,
+      data: { item: "w", rate: new Fraction(3) },
+    });
+    // The drawn polyline, from the same path builder chipSeating reconstructs
+    // it with (rowFixture's contract).
+    const [d] = chamferStepPath({
+      sourceX: srcX + CARD_W + PRODUCT_DX,
+      sourceY: rowY + CARD_H / 2,
+      targetX: tgtX - PRODUCT_DX,
+      targetY: rowY + dys[i]! + CARD_H / 2,
+    });
+    legs.push({ pts: parsePathPoints(d) });
+  });
+  return { nodes, edges, legs };
+};
+
+// Arc length of a reconstructed polyline, the measure the BRANCH short-leg
+// rule is stated in (chipSeating sums the same segments), and the x-extent the
+// ITEM rule gates on (chipSeating's usableWidthCollapses spans the same
+// points).
 const polylineLength = (
   pts: ReadonlyArray<readonly [number, number]>,
 ): number => {
@@ -87,6 +135,18 @@ const polylineLength = (
     len += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
   }
   return len;
+};
+
+const polylineXExtent = (
+  pts: ReadonlyArray<readonly [number, number]>,
+): number => {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const [x] of pts) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+  }
+  return maxX - minX;
 };
 
 // Three product cards in a row, each `gap` apart, and the two item edges
@@ -134,10 +194,46 @@ describe("deconflictChipAnchors: short-leg icon-only flag", () => {
   it("stamps chipIconOnly on an edge shorter than one chip", () => {
     // 36 units of corridor -> a 28-unit leg, the shape of battery5's e:8.
     const { nodes, edges, legLen } = rowFixture(36);
-    expect(legLen).toBeLessThan(CHIP_HALF_W_WIDE); // premise: no seat fits
+    // Premise: no seat fits -- the leg is shorter than THIS chip's own reserved
+    // width at natural scale (94.5 for a "180/min" body), the per-chip bound
+    // the collapse gates on, not the widest box the CSS clamp allows.
+    expect(legLen).toBeLessThan(
+      (2 * chipSeatHalfW({ body: "180", unit: true }, false)) / MAX_CHIP_SCALE,
+    );
 
     const out = deconflictChipAnchors(nodes, edges);
     expect(iconOnlyOf(out, "e:1:src->tgt:w")).toBe(true);
+  });
+
+  it("classifies straight and dogleg siblings across one corridor identically", () => {
+    // The exam finding (default e:1/e:2/e:4, "ferrium-leg-icon-only-while-
+    // twin-leg-labelled"): three legs across one 118-unit corridor. Under the
+    // old TOTAL-ARC-LENGTH gate the straight leg (arc 118 < the 120 threshold)
+    // collapsed to its icon while both dogleg twins (arc 125.6 apiece: the same
+    // corridor plus their 17-unit steps and chamfers) kept full chips -- yet
+    // every leg offers the SAME 118 units of horizontal run, and the doglegs'
+    // per-segment runs are SHORTER than the straight one's. Arc length counts
+    // vertical travel a horizontal chip cannot use; the collapse must read the
+    // corridor's x-extent against the chip's own reserved width instead.
+    const { nodes, edges, legs } = corridorFixture();
+    const arcs = legs.map((l) => polylineLength(l.pts));
+    const extents = legs.map((l) => polylineXExtent(l.pts));
+    // Premises, old rule's split first: the straight leg measured under the
+    // threshold, both doglegs over it (why this test is red at the arc gate).
+    expect(arcs[0]).toBeLessThan(CHIP_HALF_W_WIDE);
+    expect(arcs[1]).toBeGreaterThanOrEqual(CHIP_HALF_W_WIDE);
+    expect(arcs[2]).toBeGreaterThanOrEqual(CHIP_HALF_W_WIDE);
+    // ...and the new rule's: one corridor, three times over, all wider than
+    // this chip's own box ("180/min" reserves 94.5), so all three carry it.
+    expect(extents[0]).toBe(extents[1]);
+    expect(extents[0]).toBe(extents[2]);
+    expect(extents[0]).toBeGreaterThan(
+      (2 * chipSeatHalfW({ body: "180", unit: true }, false)) / MAX_CHIP_SCALE,
+    );
+
+    const out = deconflictChipAnchors(nodes, edges);
+    const flags = edges.map((e) => iconOnlyOf(out, e.id));
+    expect(new Set(flags).size).toBe(1); // identical for all three siblings
   });
 
   it("leaves a full-corridor edge unflagged", () => {

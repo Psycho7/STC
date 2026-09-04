@@ -109,14 +109,14 @@ import type { RFAnyNode } from "./layout";
 const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
 const CHIP_HALF_W_WIDE = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
 
-// A leg shorter than this cannot hold the full rate chip anywhere on its own
-// line (rendered chips measure ~99-110 units; slideAlong clamps to the arc, so
-// on such a leg the anchor is the only candidate). Those chips collapse to the
-// icon-only variant instead of burying their endpoint cards; the exact rate
-// stays on the hover title. The same threshold governs a fan-out member's
-// BRANCH chip (#50): on a leg this short no seat keeps the full box off the
-// trunk's split dot either, and the collapsed box is narrow enough that one
-// exists.
+// A fan-out member's whole polyline shorter than this cannot hold its full
+// BRANCH chip anywhere on its own line (#50): no seat keeps the box off the
+// trunk's split dot, and the collapsed box is narrow enough that one exists.
+// Stated in TOTAL ARC LENGTH because the branch chip's corridor is the whole
+// trunk run, whose horizontal extent the branch verticals share. The ITEM
+// short-leg rule used to share this constant; it now measures the polyline's
+// per-chip usable width instead (usableWidthCollapses above), which no longer
+// counts the vertical travel a horizontal chip cannot use.
 const SHORT_LEG_MAX = CHIP_HALF_W_WIDE;
 
 // Half-width of a COLLAPSED (icon-only) chip's box. Such a chip is a square:
@@ -215,6 +215,36 @@ export function chipSeatHalfW(
     CHIP_GLYPH_PX * text.body.length +
     (text.unit ? CHIP_UNIT_MAX_PX : 0);
   return (MAX_CHIP_SCALE * Math.min(CHIP_BOX_WIDTH, natural)) / 2;
+}
+
+// Does this chip's polyline lack the usable width to hold its own full box
+// anywhere on its own line -- the short-leg collapse? The measure is the
+// polyline's X-EXTENT, the horizontal run a wide box can slide along, held
+// against the width THIS chip reserves at natural scale (the same
+// 2 * chipSeatHalfW / MAX_CHIP_SCALE quantity examChipReservations reports as
+// reservedPx). The old rule compared TOTAL ARC LENGTH against the widest chip
+// every chip draws (SHORT_LEG_MAX), which failed two ways at once: it counted
+// vertical travel a horizontal box cannot use, and it charged a narrow rate
+// text the CSS clamp's worst case. Across one 118-unit corridor the STRAIGHT
+// leg (arc 118) collapsed to its icon while its dogleg twins (arc 129 and 151,
+// each with a SHORTER horizontal run per segment) kept full chips, and a
+// "240/min" box ~96 wide collapsed on a leg that holds it. X-extent classifies
+// all three identically (118 each) while the threshold stays per chip: a
+// 28-unit leg still collapses, a wide rate text still collapses on a corridor
+// its own box outruns, and no chip without usable rate (the undefined-text
+// fallback above, CHIP_BOX_WIDTH wide) changes class -- for it the new bound
+// IS the old number.
+export function usableWidthCollapses(
+  text: ChipText | undefined,
+  pts: ReadonlyArray<readonly [number, number]>,
+): boolean {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const [x] of pts) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+  }
+  return maxX - minX < (2 * chipSeatHalfW(text, false)) / MAX_CHIP_SCALE;
 }
 
 // The chip text a plain rate chip draws: the item edge's own rate through the
@@ -1024,8 +1054,8 @@ function clampChipXToOwnRun(
   return Math.min(Math.max(busChipX, clampLo), clampHi);
 }
 
-// Total arc-length of a parsed polyline, the measure the short-leg rules are
-// stated in (see SHORT_LEG_MAX).
+// Total arc-length of a parsed polyline, the measure the fan-out BRANCH
+// short-leg rule is stated in (see SHORT_LEG_MAX).
 function polylineLength(
   pts: ReadonlyArray<readonly [number, number]>,
 ): number {
@@ -1808,8 +1838,8 @@ export function deconflictChipAnchors(
   // Taken from the same chamferBusPath result the polyline comes from, so the
   // cached dot is the drawn dot rather than a second derivation of it.
   const laneJunctionByIndex = new Map<number, { x: number; y: number }>();
-  // Item edges whose whole polyline is shorter than one rendered chip: their
-  // rate chip renders icon-only (see SHORT_LEG_MAX).
+  // Item edges whose polyline lacks the usable width for their own rate chip
+  // (see usableWidthCollapses): their rate chip renders icon-only.
   const shortLegByIndex = new Set<number>();
   // The same set for FAN-OUT members: their branch chip renders icon-only, and
   // its seat below reserves the collapsed box so the narrower chip can slide
@@ -1877,7 +1907,8 @@ export function deconflictChipAnchors(
       d = path;
       const itemPts = parsePathPoints(d);
       itemGeomByIndex.set(index, { pts: itemPts, lx, ly });
-      if (polylineLength(itemPts) < SHORT_LEG_MAX) shortLegByIndex.add(index);
+      if (usableWidthCollapses(rateChipText(edge), itemPts))
+        shortLegByIndex.add(index);
     }
     const pts = itemGeomByIndex.get(index)?.pts ?? parsePathPoints(d);
     const segs: Array<readonly [number, number, number, number]> = [];
