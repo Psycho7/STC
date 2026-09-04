@@ -523,6 +523,16 @@ test.describe("DOM geometry audit", () => {
 // run under the e:8 chip), gas-web card-intrusion 7 -> 8 (a re-seated chip
 // rode its rail's new anchor). Ratified under the R7 precedent (controller
 // best-judgment call, ruling question unanswered, 2026-09-04).
+//
+// R10, same campaign -- out-of-band rail strikes padded by the full gap. A
+// review pass found the y-window's struck-outside predicate comparing the
+// candidate rail against raw card edges, so a backward rail could park one
+// unit off a spanned card that the pre-band whole-graph behaviour always
+// cleared by the full gap. Padding the predicate restores the documented
+// clearance; dense-graph rails settle further out, costing four cells
+// (multi6 crossing 121 -> 137 and foreign-stroke 10 -> 15, multi6
+// card-intrusion 22 -> 23, gas-web crossing 39 -> 40 -- every one green at
+// HEAD by differential rebuild). User-ratified 2026-09-04.
 
 // TASK 7 -- loop returns in the corridor, not on the frame (2026-09-04). Two
 // routing changes: clearRailY now escapes over only the CONNECTED BAND of
@@ -599,11 +609,14 @@ const CROSSING_BASELINE: Record<string, number> = {
   "battery5-xiranite": 47, // 55 -> 47, Task 7
   crystal: 1,
   equip4: 1,
-  multi6: 121, // 415 -> 121, Task 7
+  multi6: 137, // 415 -> 121, Task 7. 121 -> 137 at R10 (2026-09-04):
+  // out-of-band rail strikes padded by the full gap, so multi6's dense
+  // backward rails settle further out and cross more mid-graph corridors.
   tundra: 0,
   script43: 26, // 55 -> 26, Task 7
   "coupon-web": 13, // 14 -> 13, Task 7
-  "gas-web": 39, // 42 -> 39, Task 7
+  "gas-web": 40, // 42 -> 39, Task 7. 39 -> 40 at R10, same cause as
+  // multi6.
   "rot-bottled_food_3": 5, // 3 -> 5 at R9, same cause as battery5
   "rot-bottled_food_4": 20, // 22 -> 20, Task 7
 };
@@ -1687,7 +1700,8 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   "battery5-xiranite": 7, // 8 -> 7, Task 7
   crystal: 2,
   equip4: 3,
-  multi6: 22, // 23 -> 22, Task 7
+  multi6: 23, // 23 -> 22, Task 7. 22 -> 23 at R10 (2026-09-04): a chip
+  // rode its rail's further-out landing into a card band.
   tundra: 1,
   // 12 -> 11, Task 7. 11 -> 10, Task 8: one of the R8 un-collapsed-arrival
   // laps left with the branch-leg re-seating (the re-seated riser chips no
@@ -1758,7 +1772,8 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   // R8 (2026-09-04): multi6 14 -> 15 (e:108 originium tap) and script43
   // 6 -> 7 (the same e:2/e:16 arrivals the card-intrusion cell names) at the
   // per-chip usable-width short-leg gate. Ratified under the R7 precedent.
-  multi6: 10, // 15 -> 10, Task 7
+  multi6: 15, // 15 -> 10, Task 7. 10 -> 15 at R10 (2026-09-04): five
+  // chips' boxes take foreign strokes where their rails now run.
   tundra: 0,
   // 7 -> 6, Task 7. 6 -> 5, Task 8: the same departure the script43
   // chip-segment cell names (one stroke-under-chip event left with the
@@ -1943,6 +1958,8 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
 // per-scenario tables above are what a failure is diagnosed from. Asserted
 // arithmetically against the tables (see the totals test) rather than summed
 // over a run, so it holds even when the suite is run one scenario at a time.
+// R10 (2026-09-04) moves multi6 cardIntrusion +1 and foreignStroke +5
+// (cells detailed at the two tables); totals follow: 76 -> 77, 35 -> 40.
 const CENSUS_TOTALS = {
   // 16 -> 6 at the Task 7 loop-return re-measure (2026-09-04): backward chip
   // anchors ride their rails' new local-band y, and five plans' stranded seats
@@ -1957,7 +1974,7 @@ const CENSUS_TOTALS = {
   // R9 (2026-09-04) ratifies that held cell: 77 -> 78.
   // 78 -> 76 at the Task 8 branch-leg re-measure (script43 11 -> 10,
   // gas-web 8 -> 7).
-  cardIntrusion: 76,
+  cardIntrusion: 77,
   // 46 -> 36 at the Task 7 loop-return re-measure (multi6 15 -> 10, script43
   // 7 -> 6, gas-web 10 -> 8, rot-bottled_food_3 2 -> 0). coupon-web measured 2
   // against its pin 1 and is LEFT AT 1 (STOP), so the pin sum is 36 while the
@@ -1967,7 +1984,7 @@ const CENSUS_TOTALS = {
   // 36 -> 37 (coupon-web foreign stroke, the e:15-under-e:8 corridor run).
   // 37 -> 35 at the Task 8 branch-leg re-measure (script43 6 -> 5,
   // gas-web 8 -> 7).
-  foreignStroke: 35,
+  foreignStroke: 40,
   outsideBand: 0,
 };
 
