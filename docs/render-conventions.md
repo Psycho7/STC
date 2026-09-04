@@ -28,6 +28,12 @@ side, so every arrowhead points right, into its target. Each item edge carries
 one rate chip (the item icon and a rate per minute), and that chip belongs on its
 own line.
 
+A container's frame is kept clear of strokes. A loop's return edge runs in the
+corridor, never along the box border: its two verticals hold a fixed gap off the
+container's side borders, and its rail escapes only the cards it actually spans
+-- one connected band of them -- rather than flying over every card that shares
+its x-range. A stroke and a slab or band border drawn as one line is a defect.
+
 ## Bus lanes
 
 Long edges route through shared horizontal lanes, drawn as faint tinted bands

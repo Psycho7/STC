@@ -11,6 +11,7 @@ import {
   auditChipsVsCards,
   auditDotsUnderChips,
   auditEndpointParity,
+  auditFrameRides,
   auditOwnCardPierces,
   auditSegmentsVsCards,
   auditSegmentsVsChips,
@@ -509,6 +510,25 @@ test.describe("DOM geometry audit", () => {
 // follow-on tasks (fan-out branch window, per-chip bus seat box) are expected
 // to buy some of it back.
 
+// TASK 7 -- loop returns in the corridor, not on the frame (2026-09-04). Two
+// routing changes: clearRailY now escapes over only the CONNECTED BAND of
+// strike intervals around the preferred y (a rail no longer hoists over every
+// x-overlapping card at once), and a backward rail's two verticals keep
+// CONTAINER_COLUMN_GAP off a container slab's side borders when both endpoints
+// share that container (border-band obstacles; the raw fallback tier also
+// widened from RAW_GAP to the container gap for every slab). Wholesale
+// re-measure of every table on all twelve scenarios. DOWN moves are re-pinned
+// with cause at each cell. FIVE cells measured ABOVE their pins and are LEFT
+// AT THE HEAD PIN, red, pending a controller ruling (R7/R8 precedents noted;
+// a new UP still needs one): CROSSING battery5 9 -> 13 and rot-bottled_food_3
+// 3 -> 5 (rails now cross the mid-graph corridors they used to fly over),
+// CHIP_SEGMENT coupon-web 3 -> 4 and FOREIGN_STROKE coupon-web 1 -> 2 (the
+// e:15 gas_xiranite return's new corridor run at y 613 passes under the e:8
+// "Separator Core" chip box), CARD_INTRUSION gas-web 7 -> 8 (a re-seated label
+// chip laps a card past the budget). multi6's standing expected-failset RAW
+// pierce (e:97 into q:56) is unchanged. An EIGHTH table joined: FRAME_RIDE
+// (first recording, detailed at the table).
+//
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
 // worktree, since deleted). Current routing must never produce MORE crossings
@@ -539,20 +559,20 @@ test.describe("DOM geometry audit", () => {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): rot-bottled_food_3 3, rot-bottled_food_4 22.
 const CROSSING_BASELINE: Record<string, number> = {
-  default: 9,
+  default: 4, // 9 -> 4, Task 7 y-window re-measure
   // 8 -> 9 at the exam-surfaced R4 re-measure (declared output rows flip the
   // copper_nugget ports; ratified 2026-09-04).
   battery5: 9,
-  "battery5-xiranite": 55,
+  "battery5-xiranite": 47, // 55 -> 47, Task 7
   crystal: 1,
   equip4: 1,
-  multi6: 415,
+  multi6: 121, // 415 -> 121, Task 7
   tundra: 0,
-  script43: 55,
-  "coupon-web": 14,
-  "gas-web": 42,
+  script43: 26, // 55 -> 26, Task 7
+  "coupon-web": 13, // 14 -> 13, Task 7
+  "gas-web": 39, // 42 -> 39, Task 7
   "rot-bottled_food_3": 3,
-  "rot-bottled_food_4": 22,
+  "rot-bottled_food_4": 20, // 22 -> 20, Task 7
 };
 
 // Padding-graze baseline (tier 3): segments that clip only a foreign card's
@@ -599,12 +619,12 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  multi6: 1,
+  multi6: 0, // 1 -> 0, Task 7
   tundra: 0,
   script43: 2,
   "coupon-web": 2,
   "gas-web": 1,
-  "rot-bottled_food_3": 2,
+  "rot-bottled_food_3": 0, // 2 -> 0, Task 7
   "rot-bottled_food_4": 1,
 };
 
@@ -678,15 +698,15 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 3,
-  "battery5-xiranite": 15,
+  "battery5-xiranite": 0, // 15 -> 0, Task 7
   crystal: 0,
   equip4: 1,
   multi6: 0,
   tundra: 0,
-  script43: 13,
+  script43: 7, // 13 -> 7, Task 7
   "coupon-web": 3,
-  "gas-web": 20,
-  "rot-bottled_food_3": 2,
+  "gas-web": 9, // 20 -> 9, Task 7
+  "rot-bottled_food_3": 0, // 2 -> 0, Task 7
   "rot-bottled_food_4": 2,
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
@@ -736,8 +756,8 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // the campaign): both zero, no label chip leaves its own polyline on either.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 2,
-  "battery5-xiranite": 2,
+  battery5: 0, // 2 -> 0, Task 7
+  "battery5-xiranite": 0, // 2 -> 0, Task 7
   crystal: 0,
   equip4: 0,
   multi6: 0,
@@ -787,6 +807,45 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+
+};
+
+// Frame-ride ratchet (Task 7, loop-backedge-braids-container family): edge
+// segments running ALONG a container slab's border (within FRAME_RIDE_TOL = 16,
+// matching CONTAINER_COLUMN_GAP, for more than two port stubs of overlap) and
+// backward item edges running along a bus band's border, either side. The
+// stroke and the border then read as one line -- the #29 follow-on the rail-gap
+// fix left behind on the VERTICALS, plus the band-bottom variant. A FIRST
+// RECORDING at the Task 7 fix commit, so every cell states where the campaign
+// is after the y-window and container-column fixes, not a target; it ratchets
+// DOWN under the same convention as every table above. The two rot- cells are
+// campaign-first measurements (2026-09-04) like their rows in the tables above.
+// Note the counter's blind spots by design: a stroke within 16 of a frame for
+// LESS than two port stubs (a crossing or corner) never counts, and container
+// borders are read from the drawn DOM rects.
+// First-recording residue, two hits corpus-wide, both shapes the Task 7 fix
+// deliberately does not touch: battery5's e:9 (xiranite_poly) keeps its
+// default column 9 off loop:liquid_xiranite_poly's right border because only
+// its SOURCE is a member (the shared-parent un-exemption needs both), and
+// rot-bottled_food_4's e:12 is a FORWARD tap's jog-descent column 2 off
+// loop:plant_grass_1's left border -- a jogForwardLegs column, outside the
+// loop-return family. Every loop-return column and rail the fix owns reads
+// 16+ off its frame (multi6 e:48 at 1340/580 vs borders 1356/564,
+// rot-bottled_rec_hp_1 e:3 at 1086/294 vs 1070/278, verified by probe).
+const FRAME_RIDE_BASELINE: Record<string, number> = {
+  default: 0,
+  battery5: 1, // first recording, Task 7 (e:9)
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 1, // first recording, Task 7 (e:12)
+
 };
 
 // Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
@@ -856,17 +915,17 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 const DOT_COVER_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
-  "battery5-xiranite": 1,
+  "battery5-xiranite": 0, // 1 -> 0, Task 7
   crystal: 0,
   equip4: 0,
-  multi6: 1,
+  multi6: 0, // 1 -> 0, Task 7
   tundra: 0,
   // 0 -> 1 at the exam-surfaced R4 re-measure: the junction dot of e:3 hides
   // under the e:4 Cuprium share chip whose port row flipped (ratified
   // 2026-09-04; supersedes R13's single-raise restriction for this campaign).
   script43: 1,
   "coupon-web": 0,
-  "gas-web": 1,
+  "gas-web": 0, // 1 -> 0, Task 7
   "rot-bottled_food_3": 1,
   "rot-bottled_food_4": 1,
 };
@@ -1130,6 +1189,35 @@ test.describe("segment placement audit", () => {
             `${scenario.id}: ${ownPierces.length} own-card pierce(s) exceeds baseline ${ownPierceBaseline}:\n${ownPierceInventory.join("\n")}`,
           )
           .toBeLessThanOrEqual(ownPierceBaseline);
+      }
+
+      // Frame-ride ratchet (Task 7): segments running along a container
+      // slab's border, and backward item rails running along a bus band's
+      // border. Stroke-on-frame braids are the loop-return family this counter
+      // exists to hold at zero; see FRAME_RIDE_BASELINE above.
+      const frameRides = auditFrameRides(
+        rawEdges,
+        nodes,
+        geom.bands as BandRect[],
+      );
+      const frameRideInventory = frameRides.map(
+        (v) =>
+          `  ${v.edgeId} rides the ${v.border} border of ${v.target} ` +
+          `${v.distance.toFixed(1)} off it (${v.kind}), seg ${fmtSeg(v.seg)}`,
+      );
+      const frameRideBaseline = baselineFor(
+        FRAME_RIDE_BASELINE,
+        "FRAME_RIDE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (frameRideBaseline !== null) {
+        expect
+          .soft(
+            frameRides.length,
+            `${scenario.id}: ${frameRides.length} frame/band ride(s) exceeds baseline ${frameRideBaseline} among ${geom.bands.length} band(s):\n${frameRideInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(frameRideBaseline);
       }
 
       // Hidden-dot ratchet: junction dots swallowed by a chip box at fit zoom.
@@ -1424,15 +1512,15 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero; every chip holds its own line inside its box.
 const SEAT_VALIDITY_BASELINE: Record<string, number> = {
-  default: 1,
-  battery5: 1,
+  default: 0, // 1 -> 0, Task 7
+  battery5: 0, // 1 -> 0, Task 7
   "battery5-xiranite": 4,
   crystal: 0,
   equip4: 0,
-  multi6: 6,
+  multi6: 1, // 6 -> 1, Task 7
   tundra: 0,
-  script43: 3,
-  "coupon-web": 1,
+  script43: 1, // 3 -> 1, Task 7
+  "coupon-web": 0, // 1 -> 0, Task 7
   // 2 -> 0 at the Task 5 rise-seat re-measure (2026-09-04): the plan's
   // gas_xiranite lane-trunk rise chips moved off their trunk-wide spread slots
   // into their own rise-end windows, and the one seat that sat a pitch off its
@@ -1536,7 +1624,7 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
 // cards.
 const CARD_INTRUSION_BASELINE: Record<string, number> = {
   default: 5,
-  battery5: 4,
+  battery5: 3, // 4 -> 3, Task 7
   // R8 (2026-09-04), the per-chip usable-width short-leg gate: wide label
   // chips that used to collapse now stay full on straight legs, and the
   // un-collapsed arrivals lap their own endpoint cards -- battery5-xiranite
@@ -1545,12 +1633,12 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   // coupon-web 7 -> 8 (e:0 "5.56/min", 9.1 vs budget 9), rot-bottled_food_3
   // 2 -> 3 (e:9 "300/min", 17 deep). default HELD at 5 (the plan's declared
   // exposure; e:1 lapped nothing). Ratified under the R7 precedent.
-  "battery5-xiranite": 8,
+  "battery5-xiranite": 7, // 8 -> 7, Task 7
   crystal: 2,
   equip4: 3,
-  multi6: 23,
+  multi6: 22, // 23 -> 22, Task 7
   tundra: 1,
-  script43: 12,
+  script43: 11, // 12 -> 11, Task 7
   "coupon-web": 8,
   // 8 -> 9 at the exam-surfaced R4 re-measure: the e:12 copper_nugget-rise
   // chip lands 40 units into card q:8 (ratified 2026-09-04). Back to 8 at the
@@ -1613,12 +1701,12 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   // R8 (2026-09-04): multi6 14 -> 15 (e:108 originium tap) and script43
   // 6 -> 7 (the same e:2/e:16 arrivals the card-intrusion cell names) at the
   // per-chip usable-width short-leg gate. Ratified under the R7 precedent.
-  multi6: 15,
+  multi6: 10, // 15 -> 10, Task 7
   tundra: 0,
-  script43: 7,
+  script43: 6, // 7 -> 6, Task 7
   "coupon-web": 1,
-  "gas-web": 10,
-  "rot-bottled_food_3": 2,
+  "gas-web": 8, // 10 -> 8, Task 7
+  "rot-bottled_food_3": 0, // 2 -> 0, Task 7
   "rot-bottled_food_4": 2,
 };
 
@@ -1688,6 +1776,7 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+
 };
 
 // BAND-UNBOUND INVENTORY (#58). Bus chips the outside-band counter SKIPS
@@ -1791,19 +1880,21 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
 // arithmetically against the tables (see the totals test) rather than summed
 // over a run, so it holds even when the suite is run one scenario at a time.
 const CENSUS_TOTALS = {
-  // 18 -> 16 at the Task 5 rise-seat re-measure (gas-web 2 -> 0; 2026-09-04).
-  seatValidity: 16,
-  // 77 -> 78 and 43 -> 44 at the exam-surfaced R4 ratification (gas-web
-  // card intrusion, default foreign stroke; 2026-09-04). 78 -> 77 at the R3
-  // share-form reservation (gas-web card intrusion back down with e:12's
-  // re-seat; 2026-09-04, Task 3). 77 -> 76 at the Task 5 rise-seat re-measure
-  // (gas-web 8 -> 7; 2026-09-04).
-  // 76 -> 81 and 44 -> 46 at the R8 ratification (2026-09-04): the per-chip
-  // usable-width short-leg gate keeps five wide chips that used to collapse,
-  // and their arrivals lap cards (5 cells) and take foreign strokes (2 cells)
-  // as recorded at the two tables.
-  cardIntrusion: 81,
-  foreignStroke: 46,
+  // 16 -> 6 at the Task 7 loop-return re-measure (2026-09-04): backward chip
+  // anchors ride their rails' new local-band y, and five plans' stranded seats
+  // re-seated onto their own lines (default 1 -> 0, battery5 1 -> 0, multi6
+  // 6 -> 1, script43 3 -> 1, coupon-web 1 -> 0).
+  seatValidity: 6,
+  // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
+  // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
+  // measured 8 against its pin 7 and is LEFT AT 7 (STOP, see the Task 7 note
+  // above), so the pin sum is 77 while the measured sum is 78.
+  cardIntrusion: 77,
+  // 46 -> 36 at the Task 7 loop-return re-measure (multi6 15 -> 10, script43
+  // 7 -> 6, gas-web 10 -> 8, rot-bottled_food_3 2 -> 0). coupon-web measured 2
+  // against its pin 1 and is LEFT AT 1 (STOP), so the pin sum is 36 while the
+  // measured sum is 37.
+  foreignStroke: 36,
   outsideBand: 0,
 };
 

@@ -321,6 +321,112 @@ export function auditOwnCardPierces(
   return out;
 }
 
+// Frame rides: edge segments that run ALONG a container slab's border or a bus
+// band's border, close enough that the stroke and the border read as one line
+// (the loop-backedge-braids-container family, #29 follow-on). Two kinds:
+//   frame -- a vertical segment within `tol` of a container's left/right border
+//     (overlapping the border's y-run by more than two port stubs, so a
+//     legitimate perpendicular crossing or a short corner never counts), or a
+//     horizontal segment within `tol` of a container's top/bottom border with
+//     the same overlap rule. Diagonal chamfers never ride a frame.
+//   band -- a horizontal run of a BACKWARD item edge (target at or left of the
+//     source, mirroring clampBackwardRails' nodeGap test) within `tol` of a bus
+//     band's top/bottom border, either side: the dashed return that read as one
+//     line with the band tint's edge ran 8 units inside the band bottom.
+// Deliberately NOT exempting the endpoints' own containers: a return between
+// two members of one slab is exactly the shape whose columns may hug the frame,
+// and the routing now keeps them CONTAINER_COLUMN_GAP off it (Task 7). The
+// tolerance matches that constant. Pure and deterministic.
+export type FrameRideHit = {
+  edgeId: string;
+  kind: "frame" | "band";
+  // The container node id (frame) or band testid (band) whose border is ridden.
+  target: string;
+  border: "left" | "right" | "top" | "bottom";
+  seg: [Pt, Pt];
+  distance: number;
+};
+
+export const FRAME_RIDE_TOL = 16;
+
+// Minimum parallel overlap before a near-border run counts as riding it: two
+// port stubs. Port stubs and corner chamfers legitimately touch a border zone
+// briefly while crossing or turning; a ride is a long parallel run.
+const FRAME_RIDE_MIN_OVERLAP = 2 * PORT_STUB;
+
+export function auditFrameRides(
+  edges: ReadonlyArray<RawEdge>,
+  nodes: ReadonlyArray<NodeRect>,
+  bands: ReadonlyArray<BandRect>,
+  tol = FRAME_RIDE_TOL,
+  eps = 0.5,
+): FrameRideHit[] {
+  const nodeById = new Map<string, NodeRect>();
+  for (const n of nodes) nodeById.set(n.nodeId, n);
+  const containers = nodes.filter(
+    (n) => n.type === "group" || n.type === "loop",
+  );
+  const limit = tol - eps;
+  const out: FrameRideHit[] = [];
+  const push = (
+    edgeId: string,
+    kind: "frame" | "band",
+    target: string,
+    border: FrameRideHit["border"],
+    p0: Pt,
+    p1: Pt,
+    distance: number,
+  ): void => {
+    out.push({ edgeId, kind, target, border, seg: [p0, p1], distance });
+  };
+  for (const edge of edges) {
+    const pts = parsePath(edge.d);
+    if (pts.length === 0) continue;
+    const s = nodeById.get(edge.source);
+    const t = nodeById.get(edge.target);
+    const backward = s !== undefined && t !== undefined && t.left <= s.right;
+    for (const [p0, p1] of segmentsOf(pts)) {
+      const vertical = p0[0] === p1[0];
+      const horizontal = p0[1] === p1[1];
+      if (!vertical && !horizontal) continue; // a chamfer diagonal
+      if (vertical) {
+        const yLo = Math.min(p0[1], p1[1]);
+        const yHi = Math.max(p0[1], p1[1]);
+        const overlapY = (r: { top: number; bottom: number }): number =>
+          Math.max(0, Math.min(yHi, r.bottom) - Math.max(yLo, r.top));
+        for (const c of containers) {
+          if (overlapY(c) <= FRAME_RIDE_MIN_OVERLAP) continue;
+          const dl = Math.abs(p0[0] - c.left);
+          const dr = Math.abs(p0[0] - c.right);
+          if (dl < limit) push(edge.id, "frame", c.nodeId, "left", p0, p1, dl);
+          if (dr < limit) push(edge.id, "frame", c.nodeId, "right", p0, p1, dr);
+        }
+        continue;
+      }
+      const xLo = Math.min(p0[0], p1[0]);
+      const xHi = Math.max(p0[0], p1[0]);
+      const overlapX = (r: { left: number; right: number }): number =>
+        Math.max(0, Math.min(xHi, r.right) - Math.max(xLo, r.left));
+      for (const c of containers) {
+        if (overlapX(c) <= FRAME_RIDE_MIN_OVERLAP) continue;
+        const dt = Math.abs(p0[1] - c.top);
+        const db = Math.abs(p0[1] - c.bottom);
+        if (dt < limit) push(edge.id, "frame", c.nodeId, "top", p0, p1, dt);
+        if (db < limit) push(edge.id, "frame", c.nodeId, "bottom", p0, p1, db);
+      }
+      if (!backward) continue;
+      for (const b of bands) {
+        if (overlapX(b) <= FRAME_RIDE_MIN_OVERLAP) continue;
+        const dt = Math.abs(p0[1] - b.top);
+        const db = Math.abs(p0[1] - b.bottom);
+        if (dt < limit) push(edge.id, "band", b.testId, "top", p0, p1, dt);
+        if (db < limit) push(edge.id, "band", b.testId, "bottom", p0, p1, db);
+      }
+    }
+  }
+  return out;
+}
+
 // A rendered chip box in flow coordinates, tagged with its owning edge (the
 // data-edge-id hook FlowChip emits) and its family.
 export type ChipRect = RawRect & {
