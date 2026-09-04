@@ -1078,7 +1078,7 @@ function clampChipXToOwnRun(
 // straight path has no vertex of its own at that x. The source-port vertex at
 // index 0 is always strictly left of the junction (the corridor clamps the
 // junction column a stub-plus-chamfer out), so the scan starts past it.
-function branchLegAfterJunction(
+export function branchLegAfterJunction(
   pts: ReadonlyArray<readonly [number, number]>,
   junction: { x: number; y: number },
 ): ReadonlyArray<readonly [number, number]> {

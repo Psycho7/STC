@@ -14,6 +14,7 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import {
+  branchLegAfterJunction,
   chipSeatHalfW,
   deconflictChipAnchors,
 } from "../../src/canvas/chipSeating";
@@ -413,21 +414,17 @@ const fanoutFixture = (): {
     fanEdge("e:2", "src", "down"),
   ]);
   // The x-extent of one member's OWN leg -- the suffix after the junction,
-  // which the branch short-leg rule gates on (the whole-polyline arc length
-  // the old rule read is reported alongside as the premise it used to be).
+  // which the branch short-leg rule gates on -- measured with the production
+  // branchLegAfterJunction slice, so the premise reads the same leg the rule
+  // does (the whole-polyline arc length the old rule read is reported
+  // alongside as the premise it used to be).
   const extentOf = (tgt: RFRecipeNode, id: string): number => {
     const fan = chamferFanoutPath({
       ...drawnFanEnds(src, tgt),
       ...routingHintsFromData(fanDataOf(routed, id)),
     });
     const pts = parsePathPoints(fan.path);
-    let i = 1;
-    while (i < pts.length && pts[i]![0] < fan.junction.x) i++;
-    const suffix = [
-      [fan.junction.x, fan.junction.y] as const,
-      ...pts.slice(i + 1),
-    ];
-    return polylineXExtent(suffix);
+    return polylineXExtent(branchLegAfterJunction(pts, fan.junction));
   };
   return {
     nodes,
@@ -489,13 +486,11 @@ const riserGeometry = (
     ...routingHintsFromData(fanDataOf(fixture.routed, "e:1")),
   });
   const pts = parsePathPoints(fan.path);
-  // Slice at the junction vertex: the first vertex at or beyond the junction's
-  // x on the shared row (mirrors the stamper's own slice, without borrowing it).
-  let i = 1;
-  while (i < pts.length && pts[i]![0] < fan.junction.x) i++;
   return {
     pts,
-    suffix: [[fan.junction.x, fan.junction.y] as const, ...pts.slice(i + 1)],
+    // The production slice the stamper itself gates on, so this suffix cannot
+    // drift from the leg the rule measures.
+    suffix: branchLegAfterJunction(pts, fan.junction),
     junction: fan.junction,
     branchAnchor: fan.branchAnchor,
   };
