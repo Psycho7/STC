@@ -89,7 +89,6 @@ type RecipeNodeData = {
   expanded?: boolean;
   kind?: "recipe";
   inputOrder?: string[];
-  outputOrder?: string[];
   portTransportKinds?: PortTransportKinds;
 };
 type RecipeNodeType = RFNode<RecipeNodeData, "recipe">;
@@ -276,6 +275,35 @@ describe("RecipeNode", () => {
     ).map((el) => el.textContent);
     expect(inputLbls).toEqual(["赤铜矿", "赤铜块"]);
     expect(inputRates).toEqual(["120", "60"]);
+  });
+
+  it("renders output rows in the recipe's declared order, matching the .rn-products subtitle", () => {
+    // R4 (recipe-row-order-unstable): output rows read in the recipe's own
+    // declared order -- the layout stamps no output side order -- so two cards
+    // of one recipe list their outputs alike. The header subtitle
+    // (.rn-products) already reads declaration order; the side rows must agree
+    // with it item for item.
+    const twoOutRecipe: Recipe = {
+      ...multiRowRecipe,
+      out: [
+        { item: "copper_powder", qty: 1 },
+        { item: "liquid_sewage", qty: 1 },
+      ],
+    };
+    const { container } = renderRecipe({
+      recipe: twoOutRecipe,
+      kind: "recipe",
+      multiplier: 1,
+    });
+    const outLbls = Array.from(
+      container.querySelectorAll(".rn-side.out .rn-row.output .lbl"),
+    ).map((el) => el.textContent);
+    expect(outLbls).toEqual(["赤铜粉末", "污水"]);
+    // The subtitle is the declaration-order join of the same display names,
+    // so it reads in the same order as the rows.
+    expect(container.querySelector(".rn-products")?.textContent).toBe(
+      outLbls.join(" ·\u00A0"),
+    );
   });
 
   it("each row's .lbl shows the zh-CN item name and .rate shows the per-min formatted value", () => {

@@ -17,15 +17,16 @@
 //      derives recipe height from measureRecipe and loop height from
 //      loopBoxDimensions, and returns node.height ?? 0 otherwise.
 //   4. portOffsetY returns a NODE-LOCAL y (add absoluteTop for absolute). It
-//      resolves the row via orderByItem over the node's inputOrder /
-//      outputOrder and returns nodeHeight(node) / 2 when the port cannot be
-//      resolved (non-recipe node, absent item, missing order, item not in
-//      that side's rows, or no handle y at that index). On a recipe
-//      node that centre fallback is exactly distinguishable from any real row:
-//      rows sit at 97 + 22i and the centre at 59 + 11 * maxRows, which have no
-//      common solution. The chip-seating pass's driftedPortY helper depends
-//      on that discriminator, so the fallback value must not change and must
-//      not be pre-drifted.
+//      resolves the row via orderByItem over the node's inputOrder (input
+//      side only; output rows read in the recipe's declared order, ruling R4,
+//      so no output order exists) and returns nodeHeight(node) / 2 when the
+//      port cannot be resolved (non-recipe node, absent item, missing order,
+//      item not in that side's rows, or no handle y at that index). On a
+//      recipe node that centre fallback is exactly distinguishable from any
+//      real row: rows sit at 97 + 22i and the centre at 59 + 11 * maxRows,
+//      which have no common solution. The chip-seating pass's driftedPortY
+//      helper depends on that discriminator, so the fallback value must not
+//      change and must not be pre-drifted.
 //   5. Total and pure. No throws, no React, no mutation of inputs,
 //      deterministic for a given node map.
 
@@ -82,9 +83,10 @@ export function nodeHeight(node: RFAnyNode): number {
 
 // Node-local y of the port carrying `item` on the given side, or the node's
 // vertical center when the port cannot be resolved (product / loop node, or a
-// missing item / order). Mirrors RecipeNode's handle placement: handles sit in
-// the ELK-resolved row order, so the row index is the item's position in the
-// ordered rows.
+// missing item / order). Mirrors RecipeNode's handle placement: input handles
+// sit in the ELK-resolved row order (inputOrder), output handles in the
+// recipe's declared row order (ruling R4), so the row index is the item's
+// position in the ordered rows.
 export function portOffsetY(
   node: RFAnyNode,
   item: string | undefined,
@@ -93,7 +95,7 @@ export function portOffsetY(
   if (node.type === "recipe" && item !== undefined) {
     const recipe = node.data.recipe;
     const rows = side === "in" ? recipe.in : recipe.out;
-    const order = side === "in" ? node.data.inputOrder : node.data.outputOrder;
+    const order = side === "in" ? node.data.inputOrder : undefined;
     const idx = orderByItem(rows, order).findIndex((r) => r.item === item);
     if (idx >= 0) {
       const geom = measureRecipe(recipe);

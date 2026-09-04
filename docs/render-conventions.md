@@ -15,9 +15,10 @@ pixels.
 
 A recipe card has a header carrying the recipe name and the machine multiplier
 (xN), then input rows down its left side and output rows down its right, each
-row ending in a port handle with a small item glyph. Cyan product chips are
-boundary inputs and outputs rather than machines. Group slabs and loop boxes are
-containers, and the cards inside one are its members.
+row ending in a port handle with a small item glyph. Output rows read in the
+recipe's own declared order, so two cards of one recipe read alike. Cyan
+product chips are boundary inputs and outputs rather than machines. Group slabs
+and loop boxes are containers, and the cards inside one are its members.
 
 ## Edges
 

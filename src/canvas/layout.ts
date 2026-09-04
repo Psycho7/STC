@@ -211,10 +211,17 @@ const WRAP_LAYOUT_OPTIONS: Readonly<Record<string, string>> = {
 // FIXED_SIDE pins each port to its declared side (WEST inputs / EAST outputs)
 // but lets ELK choose the per-side vertical order to minimize edge crossings.
 // Recipe and loop nodes carry multiple ports per side, so this is where the
-// arrival-sorted port order comes from: ELK reorders the west/east ports so the
+// arrival-sorted INPUT port order comes from: ELK reorders the west ports so the
 // entering edges approach in parallel instead of braiding in front of the node.
-// The resolved order is read back after layout in resolvePortOrders and handed
-// to the node components as inputOrder / outputOrder.
+// The resolved order is read back after layout in resolveInputOrder and handed
+// to the node components as inputOrder. The OUTPUT side deliberately keeps no
+// stamped order (ruling R4): output rows read in the recipe's own declared
+// order, so two cards of one recipe read alike; ELK still crossing-minimises
+// the east ports internally, but nothing downstream reads that order back.
+//
+// Do NOT flip this to FIXED_ORDER to force the output order: elk.port.index is
+// a per-side index that ELK reads as a whole-node sequence, so FIXED_ORDER
+// would also freeze the west ports and break the crossing-free input order.
 //
 // Product units carry a single port per side, so FIXED_SIDE and FIXED_ORDER are
 // behaviorally identical there. They share this one constant (least churn: no
@@ -251,12 +258,14 @@ export type PortTransportKinds = ReadonlyMap<string, TransportKindId>;
 // the layout-stage type level, and the production paths always provide it
 // through `unitToRFNode`. Tests that want the "no glyphs" path should pass
 // `new Map()` themselves.
-// `inputOrder` / `outputOrder` carry the ELK-resolved per-side port order (the
-// item id of each west / east port, top to bottom). The node components render
-// their rows, Handles and glyphs in this order so the y-slot of each entering
-// edge lines up with its arrival, instead of the recipe's declaration order.
-// Optional: paths that build a node without a laid-out ELK graph (older fixtures
-// and tests) omit them, and the components fall back to declaration order.
+// `inputOrder` carries the ELK-resolved west port order (the item id of each
+// input port, top to bottom). The node components render their input rows,
+// Handles and glyphs in this order so the y-slot of each entering edge lines up
+// with its arrival, instead of the recipe's declaration order. There is no
+// output counterpart (ruling R4): output rows read in the recipe's own declared
+// order on every card. Optional: paths that build a node without a laid-out ELK
+// graph (older fixtures and tests) omit inputOrder, and the component falls
+// back to declaration order.
 export type RFRecipeNode = RFNode<
   {
     recipe: Recipe;
@@ -264,7 +273,6 @@ export type RFRecipeNode = RFNode<
     portTransportKinds: PortTransportKinds;
     multiplicity: RationalString;
     inputOrder?: ItemId[];
-    outputOrder?: ItemId[];
   },
   "recipe"
 >;
@@ -275,7 +283,6 @@ export type RFLoopNode = RFNode<
     interior: LoopInteriorSize;
     portTransportKinds: PortTransportKinds;
     inputOrder?: ItemId[];
-    outputOrder?: ItemId[];
   },
   "loop"
 >;
@@ -445,10 +452,11 @@ function makePort(
 // so declaration order is only the starting point. We never set port.y. On the
 // React side the Handle takes its visual top offset from
 // `measureRecipe(recipe).inHandleYs[i] / outHandleYs[i]`, indexed by the
-// resolved slot i, and the row at slot i shows whichever item resolvePortOrders
-// assigned to that slot. The lockstep guarantee between layout and rendering is
-// therefore about the outer box and the resolved per-side order, not the
-// absolute per-port y that ELK reports.
+// resolved slot i. An input slot comes from the ELK-resolved inputOrder; an
+// output slot is the declaration index (ruling R4: output rows read in the
+// recipe's declared order, so no ELK output order is read back). The lockstep
+// guarantee between layout and rendering is therefore about the outer box and
+// those per-side slot assignments, not the absolute per-port y ELK reports.
 function buildRecipePorts(
   unitId: string,
   recipe: Recipe,
@@ -722,23 +730,23 @@ function portKindsFromElkNode(node: ElkNode): PortTransportKinds {
   return out;
 }
 
-// Read the ELK-resolved per-side port order back off a laid-out node. Under
+// Read the ELK-resolved west port order back off a laid-out node. Under
 // FIXED_SIDE ELK assigns each port a y within the node (relative to the node
 // origin) that reflects the crossing-minimized order it chose; sorting the west
-// ports by that y gives the top-to-bottom input order, and likewise for the east
-// outputs. The item id is recovered from the port id ("<unitId>.in:<item>" ->
-// "<item>"); ports whose id is neither ".in:" nor ".out:" are ignored.
+// ports by that y gives the top-to-bottom input order. The item id is recovered
+// from the port id ("<unitId>.in:<item>" -> "<item>"); ports whose id is not
+// ".in:" are ignored -- the east ports are skipped on purpose (ruling R4:
+// output rows read in the recipe's own declared order, so no ELK output order
+// exists to read back).
 //
 // Ports without a numeric y (synthetic ELK graphs in unit tests never run the
 // real layout, so their ports keep no coordinates) fall back to y=0, which makes
 // the sort stable and preserves the emitted declaration order. That keeps the
 // resolved order equal to declaration order on those paths.
-function resolvePortOrders(node: ElkNode): {
+function resolveInputOrder(node: ElkNode): {
   inputOrder: ItemId[];
-  outputOrder: ItemId[];
 } {
   const ins: { item: ItemId; y: number }[] = [];
-  const outs: { item: ItemId; y: number }[] = [];
   for (const p of node.ports ?? []) {
     const id = p.id ?? "";
     const dot = id.indexOf(".");
@@ -746,15 +754,11 @@ function resolvePortOrders(node: ElkNode): {
     const y = typeof p.y === "number" ? p.y : 0;
     if (handleId.startsWith("in:")) {
       ins.push({ item: handleId.slice("in:".length), y });
-    } else if (handleId.startsWith("out:")) {
-      outs.push({ item: handleId.slice("out:".length), y });
     }
   }
   ins.sort((a, b) => a.y - b.y);
-  outs.sort((a, b) => a.y - b.y);
   return {
     inputOrder: ins.map((e) => e.item),
-    outputOrder: outs.map((e) => e.item),
   };
 }
 
@@ -788,7 +792,7 @@ function unitToRFNode(
   switch (unit.kind) {
     case "recipe": {
       const recipe = requireRecipe(recipeById, unit.recipeId);
-      const { inputOrder, outputOrder } = resolvePortOrders(laidChild);
+      const { inputOrder } = resolveInputOrder(laidChild);
       return {
         id: unit.id,
         type: "recipe",
@@ -799,14 +803,13 @@ function unitToRFNode(
           portTransportKinds,
           multiplicity: unit.multiplicity,
           inputOrder,
-          outputOrder,
         },
       } satisfies RFRecipeNode;
     }
     case "loop": {
       const interior =
         interiorByLoopId.get(unit.sccId) ?? DEFAULT_LOOP_INTERIOR;
-      const { inputOrder, outputOrder } = resolvePortOrders(laidChild);
+      const { inputOrder } = resolveInputOrder(laidChild);
       return {
         id: unit.id,
         type: "loop",
@@ -817,7 +820,6 @@ function unitToRFNode(
           interior,
           portTransportKinds,
           inputOrder,
-          outputOrder,
         },
       } satisfies RFLoopNode;
     }
