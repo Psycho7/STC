@@ -2383,7 +2383,6 @@ export function clampBackwardRails(
       }
     }
     const xrExempt = ownExempt([source]);
-    if (sharedContainerId !== undefined) xrExempt.delete(sharedContainerId);
     const xr = clearColumnKeepingLeg({
       desired: xrDesired,
       portX: sx,
@@ -2402,7 +2401,6 @@ export function clampBackwardRails(
     });
     if (xr !== xrDesired) railXRightByIndex.set(index, xr);
     const xlExempt = ownExempt([target]);
-    if (sharedContainerId !== undefined) xlExempt.delete(sharedContainerId);
     const xl = clearColumnKeepingLeg({
       desired: xlDesired,
       portX: tx,
