@@ -29,6 +29,13 @@
 //   1  harness failure (bad flags, degenerate geometry, browser error)
 //   2  --base-url is not serving
 //   3  the page never became examinable (no READY, no exam hook, empty graph)
+//   4  the served build cannot name itself: it predates the provenance stamp,
+//      or was built with no git history. Redeploy, do not drop the plan
+//
+// 3 and 4 are split because they call for opposite responses. A plan that never
+// became examinable is a finding about that plan, and dropping it is correct. A
+// build with no provenance says nothing about any plan: every plan in the run
+// would fail the same way, and the fix is to redeploy and capture again.
 //
 // A partial capture exits 0 on purpose. A plan that was only 90% covered is
 // still worth examining, provided the ledger says which 10% is missing; failing
@@ -58,6 +65,7 @@ import {
   type TileSpec,
   type Viewport,
 } from "./tiling";
+import { UNKNOWN_COMMIT } from "../build/commit-stamp";
 import {
   measurementsFor,
   worldRectKey,
@@ -69,13 +77,19 @@ import {
 
 // The exam camera handle the app installs under `?exam=1`. Declared locally
 // rather than imported: the app declares it on `Window` from a module this CLI
-// has no reason to load, and these three methods are the whole contract. The
-// type is erased before any of it reaches the browser, so referring to it from
-// inside a page.evaluate callback is safe.
+// has no reason to load, and the three camera methods plus the provenance pair
+// below are the whole contract. The type is erased before any of it reaches the
+// browser, so referring to it from inside a page.evaluate callback is safe.
+// The provenance pair is optional on this type even though the app always
+// installs it: the page under exam may be a deployment built before the hook
+// carried it, and that case has to be detectable at runtime rather than assumed
+// away by the type.
 type ExamHook = {
   setViewport(v: Viewport): void;
   fitView(): void;
   contentBounds(): Rect | null;
+  commit?: string;
+  pack?: { sourceCommit: string; gameVersion: string };
 };
 type ExamWindow = Window & { __stcExam?: ExamHook };
 
@@ -260,6 +274,56 @@ export function examUrl(baseUrl: string, hash: string): string {
   const base = baseUrl.replace(/\/+$/, "");
   const frag = hash.startsWith("#") ? hash.slice(1) : hash;
   return `${base}/?exam=1#${frag}`;
+}
+
+// What the page says it was built from. Both halves are required on a scene:
+// an unattributed capture cannot be checked against the tip under exam or
+// against the pack ledger afterwards, and by the time anyone notices the images
+// are already on disk with nothing to tie them to.
+export type Provenance = {
+  commit: string;
+  pack: { sourceCommit: string; gameVersion: string };
+};
+
+// Validate the pair read off the exam hook. Returns the provenance, or a
+// message naming the one field that fails - which field it is, is the whole
+// diagnosis, so a message that only said "pack" would send an operator looking
+// through both halves. Split out from the capture so these cases are pinned
+// without a browser.
+export function readProvenance(raw: {
+  commit?: string | undefined;
+  // Null as well as undefined: the hook builds this from the loaded pack, and a
+  // page with nothing to report hands back a null rather than omitting the key.
+  pack?: { sourceCommit: string; gameVersion: string } | null | undefined;
+}): Provenance | string {
+  const commit = raw.commit;
+  const pack = raw.pack;
+  if (typeof commit !== "string" || commit === "") {
+    return "window.__stcExam.commit is missing";
+  }
+  // The stamp helper emits this literal when git could not answer at build
+  // time. The field is present, so nothing downstream would complain, but it
+  // attributes the scene to no build at all - which is exactly the outcome
+  // reading provenance exists to prevent, so it is rejected like an absent one.
+  if (commit === UNKNOWN_COMMIT) {
+    return `window.__stcExam.commit is "${UNKNOWN_COMMIT}": the build could not name itself`;
+  }
+  // Null and undefined alike: an absent pack is one diagnosis, and letting the
+  // null through would report a missing sourceCommit instead, sending an
+  // operator to look inside an object that is not there.
+  if (pack === undefined || pack === null) {
+    return "window.__stcExam.pack is missing";
+  }
+  if (typeof pack.sourceCommit !== "string" || pack.sourceCommit === "") {
+    return "window.__stcExam.pack.sourceCommit is missing";
+  }
+  if (typeof pack.gameVersion !== "string" || pack.gameVersion === "") {
+    return "window.__stcExam.pack.gameVersion is missing";
+  }
+  return {
+    commit,
+    pack: { sourceCommit: pack.sourceCommit, gameVersion: pack.gameVersion },
+  };
 }
 
 // Open a page on the plan and wait until it is examinable. Mirrors the settled
@@ -574,6 +638,25 @@ async function capture(opts: Options): Promise<number> {
       return 3;
     }
 
+    // Read before a single shot is taken: a capture whose build cannot be named
+    // is unattributable evidence, and stopping here costs a page load where
+    // stopping later costs a whole plan's images.
+    const provenance = readProvenance(
+      await page.evaluate(() => {
+        const hook = (window as ExamWindow).__stcExam!;
+        return { commit: hook.commit, pack: hook.pack };
+      }),
+    );
+    // Its own exit code, not the examinability 3: nothing here is a fact about
+    // this plan, and an operator who read it as one would drop a plan that is
+    // perfectly fine over a deployment that is not.
+    if (typeof provenance === "string") {
+      console.error(
+        `error: ${opts.planId}: ${provenance}; redeploy a build that stamps its provenance, then capture again`,
+      );
+      return 4;
+    }
+
     const contentRect = await page.evaluate(
       () => (window as ExamWindow).__stcExam!.contentBounds(),
     );
@@ -754,6 +837,8 @@ async function capture(opts: Options): Promise<number> {
       hash: opts.hash,
       url: examUrl(opts.baseUrl, opts.hash),
       locale: opts.locale,
+      commit: provenance.commit,
+      pack: provenance.pack,
       imagesDir: IMAGES_SUBDIR,
       status: coverage.uncovered.length === 0 ? "complete" : "partial",
       viewport: {

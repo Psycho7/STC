@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { assertZoomAchieved, correctiveFileName, examUrl } from "./capture";
+import {
+  assertZoomAchieved,
+  correctiveFileName,
+  examUrl,
+  readProvenance,
+} from "./capture";
 
 describe("correctiveFileName", () => {
   // The regression: bus chip ids carry their family suffix at the END, so two
@@ -53,5 +58,75 @@ describe("examUrl", () => {
     expect(examUrl("http://localhost:4174/", "#p=1")).toBe(
       "http://localhost:4174/?exam=1#p=1",
     );
+  });
+});
+
+describe("readProvenance", () => {
+  const PACK = { sourceCommit: "6a006762", gameVersion: "1.4" };
+
+  test("passes a fully stamped build through", () => {
+    expect(readProvenance({ commit: "fea16ad", pack: PACK })).toEqual({
+      commit: "fea16ad",
+      pack: PACK,
+    });
+  });
+
+  test("keeps a dirty local stamp", () => {
+    const got = readProvenance({ commit: "fea16ad-dirty", pack: PACK });
+    expect(typeof got === "string" ? got : got.commit).toBe("fea16ad-dirty");
+  });
+
+  // A deployment built before the stamp existed still installs the hook, so the
+  // capture only learns of it here. It must name the gap rather than write a
+  // scene nothing can be attributed to.
+  test("reports a build with no commit", () => {
+    expect(readProvenance({ pack: PACK })).toBe(
+      "window.__stcExam.commit is missing",
+    );
+    expect(readProvenance({ commit: "", pack: PACK })).toBe(
+      "window.__stcExam.commit is missing",
+    );
+  });
+
+  // A build with no reachable git history stamps the literal "unknown", so
+  // every field is present and nothing downstream would object - but the scene
+  // it would write names no build, which is the one thing this check exists to
+  // stop.
+  test("rejects the unknown stamp", () => {
+    expect(readProvenance({ commit: "unknown", pack: PACK })).toBe(
+      'window.__stcExam.commit is "unknown": the build could not name itself',
+    );
+  });
+
+  // The hook reads its fingerprint out of the loaded pack, and a page that got
+  // that far with nothing to report hands back a null rather than leaving the
+  // key off. Both are the same absence, and only the undefined half used to be
+  // caught: the null fell through to the field reads below it and reported a
+  // missing sourceCommit, which sends an operator hunting inside a pack that is
+  // not there.
+  test("reports a build with no pack fingerprint", () => {
+    expect(readProvenance({ commit: "fea16ad" })).toBe(
+      "window.__stcExam.pack is missing",
+    );
+    expect(readProvenance({ commit: "fea16ad", pack: null })).toBe(
+      "window.__stcExam.pack is missing",
+    );
+  });
+
+  // An empty half is not an absent pack: reporting it as one sends the reader
+  // hunting through a field that is right there.
+  test("names the empty half of a half-filled pack", () => {
+    expect(
+      readProvenance({
+        commit: "fea16ad",
+        pack: { sourceCommit: "6a006762", gameVersion: "" },
+      }),
+    ).toBe("window.__stcExam.pack.gameVersion is missing");
+    expect(
+      readProvenance({
+        commit: "fea16ad",
+        pack: { sourceCommit: "", gameVersion: "1.4" },
+      }),
+    ).toBe("window.__stcExam.pack.sourceCommit is missing");
   });
 });

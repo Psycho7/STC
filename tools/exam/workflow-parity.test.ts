@@ -90,8 +90,23 @@ const POINT: Measurement = {
   detail: "chip:9 anchor coincides with a segment of e:0:A->B:iron",
 };
 
+// A measurement as the orchestrator hands it over: `{kind, footprint, detail}`
+// and nothing else. `elementIds` stays in scene.json and in the Measurement type
+// - a refuter resolves ids from the ledger - but neither the join nor the
+// verdict builder reads it, so the args drop it. A copy that started requiring
+// it would reject the real args while every fixture carrying it stayed green.
+const TRIMMED = {
+  kind: CHIP.kind,
+  footprint: CHIP.footprint,
+  detail: CHIP.detail,
+} as unknown as Measurement;
+
 const CASES: Case[] = [
   kase("rect over the projected footprint", finding()),
+
+  kase("measurement passed without elementIds, as the args trim it", finding(), {
+    measurements: [TRIMMED],
+  }),
 
   kase(
     "rect 500 px away on the same element",
@@ -355,9 +370,15 @@ const CASES: Case[] = [
       mechanismHypothesis: "the chip anchor is stamped before the route is chamfered",
     }),
   ),
+  kase("corroborated minor", finding({ severity: "minor" })),
+  kase("corroborated major", finding({ severity: "major" })),
   kase(
     "absence claim at nit severity",
     finding({ claimType: "absence", severity: "nit" }),
+  ),
+  kase(
+    "absence claim at major severity",
+    finding({ claimType: "absence", severity: "major" }),
   ),
   kase(
     "interaction claim at nit severity",
@@ -469,15 +490,55 @@ const AsyncFunction = Object.getPrototypeOf(async function () {
   /* type carrier only */
 }).constructor as FunctionConstructor;
 
+// A pipeline stage, as the runtime hands it its arguments: the previous stage's
+// result (the item itself for the first stage), the item, and its index.
+type Stage = (previous: unknown, item: unknown, index: number) => unknown;
+
 type WorkflowRunner = (
   args: unknown,
   agent: AgentStub,
   parallel: (tasks: Array<() => Promise<unknown>>) => Promise<unknown[]>,
+  pipeline: (items: unknown[], ...stages: Stage[]) => Promise<unknown[]>,
   phase: unknown,
   log: (message: string) => void,
   budget: unknown,
   workflow: unknown,
 ) => Promise<WorkflowResult>;
+
+// The two fan-out globals, as the runtime documents them. `parallel` is a
+// BARRIER over thunks, and a thunk that throws does not fail the barrier: that
+// slot resolves to null and the others complete. `pipeline` runs each item
+// through every stage on its own, with no barrier between stages, so one item
+// can be in stage 2 while another is still in stage 1 - which is the whole
+// reason the workflow uses it. An item whose stage throws drops to null and
+// skips the rest of its own chain only.
+//
+// One stub each, faithful to that. A stricter `parallel` that let a throw
+// escape would pass every test here while pinning behaviour the runtime does
+// not have, which is the failure mode a parity suite exists to avoid.
+const parallelStub = (tasks: Array<() => Promise<unknown>>): Promise<unknown[]> =>
+  Promise.all(
+    tasks.map((task) =>
+      Promise.resolve()
+        .then(task)
+        .catch(() => null),
+    ),
+  );
+
+const pipelineStub = (items: unknown[], ...stages: Stage[]): Promise<unknown[]> =>
+  Promise.all(
+    items.map(async (item, index) => {
+      let value: unknown = item;
+      for (const stage of stages) {
+        try {
+          value = await stage(value, item, index);
+        } catch {
+          return null;
+        }
+      }
+      return value;
+    }),
+  );
 
 function compileWorkflow(): WorkflowRunner {
   const raw = readFileSync(WORKFLOW_PATH, "utf8");
@@ -497,6 +558,7 @@ function compileWorkflow(): WorkflowRunner {
     "args",
     "agent",
     "parallel",
+    "pipeline",
     "phase",
     "log",
     "budget",
@@ -514,15 +576,29 @@ type PlanSpec = {
   tiles: TileFrame[];
 };
 
-async function runWorkflow(
-  specs: PlanSpec[],
-  // What a refuter answers, by the agent label the workflow gave it. The default
-  // answers nothing, which is what the routing table wants: it is about where a
-  // finding is SENT, and a stubbed verdict would only exercise the coercion.
-  refute: (label: string) => unknown = () => null,
-): Promise<{ result: WorkflowResult; logs: string[] }> {
-  const args = {
+// Stands in for docs/render-conventions.md, which the orchestrator reads off
+// disk and passes through. A distinctive body, so the assertion that the prompt
+// carries it verbatim cannot pass on some other paragraph.
+const CONVENTIONS = [
+  "## Cards",
+  "Stub conventions for the parity harness: cards, edges and chips.",
+  "",
+  "## Locale notes",
+  "Stub locale paragraph.",
+].join("\n");
+
+// The args the orchestrator builds, in one place, so a test can take it apart
+// to check what the workflow refuses.
+// Where the orchestrator says the checkout is. Distinctive, so an assertion that
+// the probe path is absolute cannot pass on a relative one that happens to
+// contain the same suffix.
+const REPO_ROOT = "/srv/checkouts/stc";
+
+function workflowArgs(specs: PlanSpec[], locale = "en"): Record<string, unknown> {
+  return {
     examDir: "/exam",
+    repoRoot: REPO_ROOT,
+    conventions: CONVENTIONS,
     plans: specs.map((spec) => ({
       id: spec.id,
       dir: `/exam/${spec.id}/images`,
@@ -537,9 +613,36 @@ async function runWorkflow(
         correctiveReserve: 0,
         capHit: false,
       },
+      locale,
     })),
     measurements: Object.fromEntries(specs.map((spec) => [spec.id, spec.measurements])),
   };
+}
+
+// The workflow over args a test has taken apart, with every global stubbed to
+// answer nothing: what is under test here is which args it refuses, so nothing
+// past the validation prologue has to produce anything.
+const runArgs = (args: unknown): Promise<WorkflowResult> =>
+  compileWorkflow()(
+    args,
+    () => Promise.resolve(null),
+    parallelStub,
+    pipelineStub,
+    undefined,
+    () => {},
+    undefined,
+    undefined,
+  );
+
+async function runWorkflow(
+  specs: PlanSpec[],
+  // What a refuter answers, by the agent label the workflow gave it. The default
+  // answers nothing, which is what the routing table wants: it is about where a
+  // finding is SENT, and a stubbed verdict would only exercise the coercion.
+  refute: (label: string) => unknown = () => null,
+  locale?: string,
+): Promise<{ result: WorkflowResult; logs: string[]; prompts: Map<string, string> }> {
+  const args = workflowArgs(specs, locale);
 
   const evaluations = new Map(
     specs.map((spec) => [
@@ -554,7 +657,9 @@ async function runWorkflow(
   );
 
   const logs: string[] = [];
-  const agent: AgentStub = (_prompt, options) => {
+  const prompts = new Map<string, string>();
+  const agent: AgentStub = (prompt, options) => {
+    prompts.set(options.label, prompt);
     if (!options.label.startsWith("evaluate:")) {
       return Promise.resolve(refute(options.label));
     }
@@ -564,13 +669,14 @@ async function runWorkflow(
   const result = await compileWorkflow()(
     args,
     agent,
-    (tasks) => Promise.all(tasks.map((task) => task())),
+    parallelStub,
+    pipelineStub,
     undefined,
     (message: string) => logs.push(message),
     undefined,
     undefined,
   );
-  return { result, logs };
+  return { result, logs, prompts };
 }
 
 // Started once at import and awaited by each test: the workflow evaluates the
@@ -676,6 +782,176 @@ function schemaClaimTypes(): string[] {
 describe("the workflow's evaluator schema offers the module's claim types", () => {
   test("its claimType enum is exactly CLAIM_TYPES", () => {
     expect([...schemaClaimTypes()].sort()).toEqual([...CLAIM_TYPES].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The conventions doc
+//
+// What the canvas is trying to draw used to be two paragraphs hardcoded in the
+// prompt, and they drifted from the renderer without anything noticing. They now
+// live in docs/render-conventions.md, which the orchestrator reads and passes as
+// `args.conventions`. Two ways that goes wrong silently: the doc reaches the
+// prompt truncated or not at all, and the old paragraphs survive alongside it
+// and contradict it.
+// ---------------------------------------------------------------------------
+
+describe("the evaluator prompt is briefed from the conventions doc", () => {
+  test("carries args.conventions verbatim and none of the old hardcoded domain text", async () => {
+    const { prompts } = await RAN;
+    const evaluatorPrompts = [...prompts.entries()]
+      .filter(([label]) => label.startsWith("evaluate:"))
+      .map(([, prompt]) => prompt);
+
+    expect(evaluatorPrompts.length).toBeGreaterThan(0);
+    for (const prompt of evaluatorPrompts) {
+      expect(prompt).toContain(CONVENTIONS);
+      expect(prompt).not.toContain("Domain, so you can judge correctness");
+    }
+  });
+
+  // A non-en capture is judged against the same doc plus its locale section; an
+  // en one must not be sent chasing CJK typography it cannot see. The refuter
+  // end of the same fact: it boots the plan itself, and booting it in another
+  // language would probe a different rendering than the one under exam.
+  test("points a non-en plan at the locale section, and an en plan at nothing extra", async () => {
+    const spec: PlanSpec = {
+      id: "loc",
+      findings: [finding({ id: "chip-adrift", evidence: AWAY })],
+      measurements: [CHIP],
+      tiles: TILES,
+    };
+    const zh = await runWorkflow([spec], () => null, "zh");
+    const en = await runWorkflow([spec], () => null, "en");
+
+    // Matched on the brief the workflow adds, not on the section name: the doc
+    // it splices in names that section itself, in every locale.
+    expect(zh.prompts.get("evaluate:loc")).toContain('captured in locale "zh"');
+    expect(zh.prompts.get("evaluate:loc")).toContain('"Locale notes" section');
+    expect(en.prompts.get("evaluate:loc")).not.toContain("captured in locale");
+
+    expect(zh.prompts.get("refute:loc:chip-adrift")).toContain("--locale zh");
+    expect(en.prompts.get("refute:loc:chip-adrift")).toContain("--locale en");
+  });
+
+  test("refuses a plan carrying no locale", async () => {
+    const spec: PlanSpec = {
+      id: "bare",
+      findings: [],
+      measurements: [CHIP],
+      tiles: TILES,
+    };
+    const bare = workflowArgs([spec]);
+    for (const plan of bare.plans as Array<Record<string, unknown>>) delete plan.locale;
+    await expect(runArgs(bare)).rejects.toThrow(/render-quality-exam: plan bare .*locale/);
+  });
+
+  test("refuses args carrying no conventions", async () => {
+    const spec: PlanSpec = {
+      id: "bare",
+      findings: [],
+      measurements: [CHIP],
+      tiles: TILES,
+    };
+    const bare = workflowArgs([spec]);
+    delete bare.conventions;
+    await expect(runArgs(bare)).rejects.toThrow(/render-quality-exam: .*conventions/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// One plan does not wait for another
+//
+// Evaluate, triage and refute used to be separated by barriers, so the fastest
+// plan's findings sat idle until the slowest evaluator returned - on a corpus
+// where one plan is much larger than the rest, that is most of the run. The
+// chain is per plan now, and nothing else in this file would notice a barrier
+// coming back: every other test either runs one plan or resolves every stub
+// immediately.
+// ---------------------------------------------------------------------------
+
+describe("a plan runs through the exam without waiting for the others", () => {
+  test("refutes one plan's finding while another plan's evaluator is still out", async () => {
+    const specs: PlanSpec[] = ["fast", "slow"].map((id) => ({
+      id,
+      findings: [finding({ id: "chip-adrift", evidence: AWAY })],
+      measurements: [CHIP],
+      tiles: TILES,
+    }));
+    const evaluationOf = (spec: PlanSpec) => ({
+      planId: spec.id,
+      overall: "stubbed evaluation",
+      blindSpotsAcknowledged: [],
+      findings: spec.findings,
+    });
+
+    let release = (): void => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const prompts: string[] = [];
+    const agent: AgentStub = (_prompt, options) => {
+      prompts.push(options.label);
+      if (options.label === "evaluate:slow") return held.then(() => evaluationOf(specs[1]!));
+      if (options.label === "evaluate:fast") return Promise.resolve(evaluationOf(specs[0]!));
+      return Promise.resolve(null);
+    };
+
+    const run = compileWorkflow()(
+      workflowArgs(specs),
+      agent,
+      parallelStub,
+      pipelineStub,
+      undefined,
+      () => {},
+      undefined,
+      undefined,
+    );
+
+    // Let every pending microtask and timer settle: "fast" has nothing left to
+    // await, and "slow" is still holding its evaluator open.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(prompts).toContain("refute:fast:chip-adrift");
+    expect(prompts).not.toContain("refute:slow:chip-adrift");
+
+    release();
+    const result = await run;
+    expect(result.verdicts.map((v) => v.findingId)).toEqual([
+      "fast:chip-adrift",
+      "slow:chip-adrift",
+    ]);
+    expect(result.findings.map((f) => f.id)).toEqual(["fast:chip-adrift", "slow:chip-adrift"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The probe command a refuter is handed
+//
+// A refuter runs Bash wherever its own agent starts, which is not necessarily
+// the checkout: a relative `tools/exam/probe.ts` then resolves to nothing, and
+// the harness failure that follows settles no claim in either direction. So the
+// path is built from `args.repoRoot` and the briefing says so.
+// ---------------------------------------------------------------------------
+
+describe("the refuter's probe command is absolute", () => {
+  test("names the probe under args.repoRoot and drops the repo-root instruction", async () => {
+    const { prompts } = await runWorkflow([solo({})]);
+    const prompt = prompts.get("refute:solo:chip-adrift");
+
+    expect(prompt).toContain(`bun run ${REPO_ROOT}/tools/exam/probe.ts`);
+    expect(prompt).not.toContain("from the repo root");
+  });
+
+  test("refuses args carrying no repoRoot, and a relative one", async () => {
+    const spec: PlanSpec = { id: "bare", findings: [], measurements: [CHIP], tiles: TILES };
+
+    const missing = workflowArgs([spec]);
+    delete missing.repoRoot;
+    await expect(runArgs(missing)).rejects.toThrow(/render-quality-exam: .*repoRoot/);
+
+    await expect(runArgs({ ...workflowArgs([spec]), repoRoot: "STC" })).rejects.toThrow(
+      /render-quality-exam: .*repoRoot/,
+    );
   });
 });
 
@@ -796,5 +1072,110 @@ describe("a refuter's answer is matched to the finding it answers", () => {
       correctedObservation: "the chip is 84 units off its line, but the anchor is stamped last",
       coercions: [],
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A plan that fell out of the run
+//
+// A chain comes back null only when one of its stages THREW, and that plan
+// loses the findings, triage rows and verdicts it had already produced. An
+// evaluator that returned nothing is a different failure - nothing was ever
+// produced - and the two used to be reported under one line, so a thrown stage
+// read as a silent agent and its lost rows went unmentioned.
+// ---------------------------------------------------------------------------
+
+// `pipeline` as the runtime resolves it, with stage two made to throw for ONE
+// named plan; every other item runs untouched.
+const throwingStageTwo =
+  (planId: string) =>
+  (items: unknown[], ...stages: Stage[]): Promise<unknown[]> =>
+    pipelineStub(
+      items,
+      ...stages.map(
+        (stage, stageIndex): Stage =>
+          (previous, item, index) => {
+            if (stageIndex === 1 && (item as { id: string }).id === planId) {
+              throw new Error(`stage two threw for ${planId}`);
+            }
+            return stage(previous, item, index);
+          },
+      ),
+    );
+
+describe("a plan that produced nothing is named for the reason it produced nothing", () => {
+  test("separates a thrown stage from an evaluator that returned nothing, and keeps the rest", async () => {
+    const specs: PlanSpec[] = ["boom", "silent", "ok"].map((id) => ({
+      id,
+      findings: [finding({ id: "chip-adrift", evidence: AWAY })],
+      measurements: [CHIP],
+      tiles: TILES,
+    }));
+    const agent: AgentStub = (_prompt, options) => {
+      if (options.label === "evaluate:silent") return Promise.resolve(null);
+      if (options.label.startsWith("evaluate:")) {
+        const id = options.label.slice("evaluate:".length);
+        return Promise.resolve({
+          planId: id,
+          overall: "stubbed evaluation",
+          blindSpotsAcknowledged: [],
+          findings: specs.find((s) => s.id === id)?.findings ?? [],
+        });
+      }
+      return Promise.resolve(null);
+    };
+
+    const logs: string[] = [];
+    const result = await compileWorkflow()(
+      workflowArgs(specs),
+      agent,
+      parallelStub,
+      throwingStageTwo("boom"),
+      undefined,
+      (message: string) => logs.push(message),
+      undefined,
+      undefined,
+    );
+
+    expect(logs).toContain("Not evaluated (agent returned nothing): silent");
+    expect(logs).toContain("Dropped (a stage threw): boom");
+
+    // The surviving plan keeps everything it produced.
+    expect(result.findings.map((f) => f.id)).toEqual(["ok:chip-adrift"]);
+    expect(result.triage.map((row) => row.id)).toEqual(["ok:chip-adrift"]);
+    expect(result.verdicts.map((v) => v.findingId)).toEqual(["ok:chip-adrift"]);
+  });
+
+  test("a refuter task that threw costs its findings a verdict, and says so", async () => {
+    const specs = [solo({})];
+    const agent: AgentStub = (_prompt, options) => {
+      if (options.label.startsWith("evaluate:")) {
+        return Promise.resolve({
+          planId: "solo",
+          overall: "stubbed evaluation",
+          blindSpotsAcknowledged: [],
+          findings: specs[0]!.findings,
+        });
+      }
+      throw new Error("the refuter blew up");
+    };
+
+    const logs: string[] = [];
+    // Before the fix the null slot survived `.flat()` and the disposition
+    // summary read `.disposition` off it, so this run threw a TypeError.
+    const result = await compileWorkflow()(
+      workflowArgs(specs),
+      agent,
+      parallelStub,
+      pipelineStub,
+      undefined,
+      (message: string) => logs.push(message),
+      undefined,
+      undefined,
+    );
+
+    expect(result.verdicts).toEqual([]);
+    expect(result.findings.map((f) => f.id)).toEqual(["solo:chip-adrift"]);
+    expect(logs).toContain("solo: 1 refuter task(s) threw, so their findings carry no verdict");
   });
 });

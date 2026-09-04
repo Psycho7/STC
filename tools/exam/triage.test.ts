@@ -320,11 +320,18 @@ describe("corroborationsFor", () => {
 });
 
 describe("routeFinding", () => {
-  test("sends a corroborated geometric finding to CORROBORATED", () => {
-    expect(routeFinding(finding(), [CHIP])).toBe("CORROBORATED");
+  test("sends a corroborated minor or nit to CORROBORATED", () => {
+    expect(routeFinding(finding({ severity: "minor" }), [CHIP])).toBe("CORROBORATED");
+    expect(routeFinding(finding({ severity: "nit" }), [CHIP])).toBe("CORROBORATED");
   });
 
-  test("sends an uncorroborated major to an individual refuter", () => {
+  // A footprint join says a compatible occurrence exists at the place marked,
+  // not that it is the occurrence complained about. A major is filed on its
+  // own, so a wrong one costs an issue; the pre-merge exam of 2026-09-03 kept
+  // a major on a chip-off-own-path occurrence that answered a different clause
+  // of the finding. One refuter per major is cheaper than that.
+  test("sends a major to an individual refuter even when corroborated", () => {
+    expect(routeFinding(finding(), [CHIP])).toBe("REFUTE_INDIVIDUAL");
     expect(routeFinding(finding(), [])).toBe("REFUTE_INDIVIDUAL");
   });
 
@@ -340,14 +347,27 @@ describe("routeFinding", () => {
     expect(routeFinding(subjective, [])).toBe("HUMAN_RULING");
   });
 
-  test.each(["absence", "interaction"] as const)(
-    "sends a %s claim to an individual refuter whatever its severity",
-    (claimType) => {
-      expect(routeFinding(finding({ claimType, severity: "nit" }), [])).toBe(
-        "REFUTE_INDIVIDUAL",
-      );
-    },
-  );
+  test("sends an interaction claim to an individual refuter whatever its severity", () => {
+    expect(routeFinding(finding({ claimType: "interaction", severity: "nit" }), [])).toBe(
+      "REFUTE_INDIVIDUAL",
+    );
+  });
+
+  // An absence claim is unwitnessable by a footprint, so it always reaches a
+  // refuter; but a minor or nit absence is one chip-binding run, and the
+  // 2026-09-03 exam spent a 29-turn agent on a single nit. Severity sorts it
+  // into the batch like any other uncorroborated claim.
+  test("sends an absence claim to a refuter sized by its severity", () => {
+    expect(routeFinding(finding({ claimType: "absence", severity: "major" }), [])).toBe(
+      "REFUTE_INDIVIDUAL",
+    );
+    expect(routeFinding(finding({ claimType: "absence", severity: "minor" }), [])).toBe(
+      "REFUTE_BATCH",
+    );
+    expect(routeFinding(finding({ claimType: "absence", severity: "nit" }), [])).toBe(
+      "REFUTE_BATCH",
+    );
+  });
 
   // A stated mechanism is a claim about the code, and no footprint can check it.
   // The two earlier exams that filed a wrong mechanism both had geometry that
@@ -366,8 +386,8 @@ describe("routeFinding", () => {
     expect(routeFinding(finding({ claimType: "interaction" }), [CHIP])).toBe(
       "REFUTE_INDIVIDUAL",
     );
-    expect(routeFinding(finding({ claimType: "absence" }), [CHIP])).toBe(
-      "REFUTE_INDIVIDUAL",
+    expect(routeFinding(finding({ claimType: "absence", severity: "nit" }), [CHIP])).toBe(
+      "REFUTE_BATCH",
     );
     const subjective = withoutFalsifier(finding({ claimType: "subjective" }));
     expect(routeFinding(subjective, [CHIP])).toBe("HUMAN_RULING");

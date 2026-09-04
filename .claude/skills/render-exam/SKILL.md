@@ -6,11 +6,12 @@ description: Use when asked to examine, audit, or regression-check the STC canva
 # Render-quality exam
 
 Whole-plan exam of the STC canvas. Capture is deterministic code (`tools/exam/capture.ts`), not
-an agent: it walks a fixed camera grid at a fixed zoom and writes images plus a `scene.json`
-ledger that states what it covered. Evaluation agents critique the images cold, refuters
-disprove claims through `tools/exam/probe.ts`, and the orchestrator files issues. The
-mechanical fan-out lives in the `render-quality-exam` named workflow; this skill is the
-judgment layer around it.
+an agent: it drives an already-running server, walks a fixed camera grid at a fixed zoom, and
+writes images plus a `scene.json` ledger that states what it covered and which build and recipe
+pack it shot. Evaluation agents critique the images cold against `docs/render-conventions.md`,
+refuters disprove claims through `tools/exam/probe.ts`, and the orchestrator files issues. The
+mechanical fan-out lives in the `render-quality-exam` named workflow; this skill is the judgment
+layer around it.
 
 Two rules hold the whole procedure up, because two earlier runs filed invalid findings for
 want of them: a screenshot cannot tell "the app does nothing" from "my capture never touched
@@ -18,202 +19,534 @@ it", and a raw geometry count is not a defect.
 
 ## Procedure
 
-1. **Prep server** (a production build avoids DEV render-hook hard-fails on residual-dirty
-   plans):
+### 1. Choose the server
 
-   ```bash
-   bun run build
-   bun run preview --port 4174 --strictPort   # background it
-   curl -s -o /dev/null -w "%{http_code}\n" http://localhost:4174/   # poll until 200
-   ```
+The exam reads a deployed preview; nothing is built locally unless the fallback below is
+needed. Every push deploys to the `stc-preview` Cloudflare project:
 
-   Port 4174 on purpose: Playwright's `webServer` owns 4173 for the e2e suite, so step 4 can
-   run without disturbing the exam server.
+| tip under exam | base URL |
+| --- | --- |
+| `develop` | `https://stc-preview.pages.dev` |
+| a pushed branch | `https://<branch-slug>.stc-preview.pages.dev` |
 
-2. **Generate plan hashes** from the scenario fixtures (`test/e2e/scenarios.ts`), which encode
-   with the app's own encoder:
+The slug is the branch lowercased, with every run of non-alphanumeric characters turned into
+`-` and the result cut to 28 characters.
 
-   ```bash
-   bun -e 'const {SCENARIOS, scenarioHash} = await import("./test/e2e/scenarios.ts"); for (const s of SCENARIOS) console.log(`${s.id}\t${await scenarioHash(s)}`)'
-   ```
+Put the URL you picked in `BASE` and type it nowhere else. Steps 3 and 6 both read it:
 
-   A hash from anywhere else works too; it is the plain `v1.` fragment, and the capture CLI
-   builds the URL around it.
+```bash
+BASE=https://stc-preview.pages.dev   # or the branch preview, or the local fallback below
+```
 
-3. **Capture each plan**, one at a time (each run launches its own Chromium):
+Prove the deployment is the commit you mean before capturing anything. Every build stamps its
+own commit into the page:
 
-   ```bash
-   bun run tools/exam/capture.ts --base-url http://localhost:4174 \
-     --hash <planHash> --plan-id <id> --out .artifacts/exam
-   ```
+```bash
+curl -s "$BASE" | rg -o 'name="stc-commit" content="[^"]+"'
+git rev-parse --short=7 origin/develop
+```
 
-   Optional: `--target-zoom` (default 0.75), `--locale` (default `en`), `--max-tiles`
-   (default 64), `--seam-margin` (default 64). Outputs land in `.artifacts/exam/<id>/` as
-   `scene.json` plus an `images/` subdirectory holding `00-fit.png`,
-   `10-tile-r<row>c<col>.png` and `20-corrective-<nnn>-<slug>.png` (the index is zero-padded
-   to three digits). The split is structural: an evaluator is handed `images/` and judges the
-   pixels cold, so the ledger it must not read is not in the directory it can list.
-   No smoke test: capture fails fast by itself. Exit 2 means the base URL is not serving,
-   exit 3 means the page never became examinable (drop the plan and report it), exit 1 is a
-   harness failure. Exit 0 with `status: "partial"` is a real capture with named blind spots -
-   keep it, and carry the blind spots forward.
+Compare the LEADING 7 characters of the meta content against the tip; a mismatch means CI has
+not deployed that commit yet or the deploy failed, so wait for it or fall back. No tag in the
+page at all means the served build predates the stamp: redeploy it, and do not examine it as
+it stands.
 
-4. **Run the geometry ratchets. These are the machine findings.**
+Local fallback, for work that is not pushed. It has to be a production build: the DEV render
+hooks hard-fail on residual-dirty plans, which the exam has to photograph, so do not substitute
+`bun run dev`.
 
-   ```bash
-   bun run test:e2e geometry-audit
-   ```
+```bash
+bun run build
+bun run preview --port 4174 --strictPort   # background it
+BASE=http://localhost:4174
+curl -s -o /dev/null -w "%{http_code}\n" "$BASE/"   # poll until 200
+curl -s "$BASE" | rg -o 'name="stc-commit" content="[^"]+"'
+```
 
-   A finding here is a failure of `test/e2e/geometry-audit.spec.ts`, and nothing else: either a
-   baseline EXCEEDANCE, or one of its hard zero-tolerance assertions (off-centre handles,
-   mult-chip/rate-block overlaps, chip-vs-chip overlaps, chips clipped outside the pane,
-   flow-chip-over-junction z-order, tier 1 segments entering a foreign raw card, the tundra
-   ore-feed presence check). That spec already encodes every ruling this repo has made about
-   acceptable geometry; the exam must not compute defects from its own numbers. Before calling a failure
-   a finding, check it against the branch point: this suite carries known pre-existing
-   failures, and a test that fails identically on the base commit is not something this exam
-   found.
+The local build stamps itself too, and that last line is what the report quotes for a fallback
+run. A worktree with untracked or modified files stamps a `-dirty` suffix; report that
+separately in the final report as "exam of uncommitted work" instead of pinning the findings to
+a commit nobody else can check out.
 
-5. **Build the workflow args from the ledgers.** One jq over every `scene.json` emits the whole
-   args object, so nothing is retyped and no field is invented. Run it from the repo root:
+Port 4174 on purpose: Playwright's `webServer` owns 4173 for the e2e suite, so step 4 can run
+without disturbing the exam server.
 
-   ```bash
-   jq -s --arg examDir "$PWD/.artifacts/exam" '{
-     examDir: $examDir,
-     plans: [.[] | . as $s | {
-       id: .planId,
-       dir: "\($examDir)/\(.planId)/\(.imagesDir)",
-       url: .url,
-       coverage: .coverage,
-       images: [.tiles[] | {file, what: (
-         if .kind == "fit" then "whole-graph fit overview, at the app fit zoom"
-         elif .kind == "tile" then "grid tile row \(.row) col \(.col), at zoom \($s.targetZoom)"
-         else "corrective shot, at zoom \($s.targetZoom)" end)}],
-       tiles: [.tiles[] | {file, kind, viewportTransform, safeRegion}]
-     }],
-     measurements: ([.[] | {key: .planId, value: .measurements}] | from_entries)
-   }' .artifacts/exam/*/scene.json
-   ```
+Step 4's geometry audit never touches this server: Playwright builds and serves the checkout
+itself.
 
-   What each part is for, because passing the wrong thing here fails silently rather than
-   loudly:
+### 2. Choose the corpus
 
-   - `dir` is `<examDir>/<planId>/<imagesDir>`, the IMAGES directory. An evaluator is handed
-     it and judges the pixels cold; the plan directory one level up holds `scene.json`, and
-     handing that out instead would let a cold evaluator read the measurements its findings
-     are about to be checked against. The workflow rejects a `dir` that is not strictly below
-     the plan directory, so a wrong value stops the run.
-   - `tiles` is what the corroboration join needs: `file` is the bare name an evaluator can
-     cite, `kind` says which camera shot it (only `tile` and `corrective` can carry a
-     measurement), and `viewportTransform`/`safeRegion` place a world-unit footprint inside
-     that image. Omit it and every join misses, which reads as "nothing was corroborated".
-   - `measurements` is keyed by plan id, and `[]` is a real answer: the measurement pass runs
-     on every capture, so an empty array means measured and clean.
-   - `url` must be `scene.json`'s verbatim, `<baseUrl>/?exam=1#<hash>`: refuters' probe
-     commands are built by splitting it.
+The fixed core is captured every time: `default`, `battery5-xiranite`, `multi6`, `gas-web`.
+Rotating plans are chosen fresh each exam to reach recipes the core never runs.
 
-   Surface these two now, and again in the final report:
+Start by comparing the pack fingerprint. The first line of `.artifacts/exam/hashes.tsv` is
+`# pack <sourceCommit> <gameVersion>`; if the last exam's ledger names a different pack, the
+recipes moved underneath the corpus and its ids are not comparable with this run's.
 
-   ```bash
-   jq -r 'select(.status == "partial") | "\(.planId): \(.coverage.uncovered | length) uncovered, capHit=\(.coverage.capHit)"' .artifacts/exam/*/scene.json
-   jq -r 'select(.consoleErrors | length > 0) | "\(.planId): \(.consoleErrors | join(" | "))"' .artifacts/exam/*/scene.json
-   ```
+Read that line first, then set the previous exam aside, then clear, in that order. Clearing
+matters because step 5 globs every `<id>/scene.json` under `.artifacts/exam`. The ledgers are
+rewritten each run, the plan directories are not, so a rotating plan the last exam picked would
+be evaluated as part of this one. The crops go too: `crop.ts` overwrites `index.json` but never
+removes a file, so two runs' PNGs interleave under one index, which is what the 2026-09-03 run
+left behind (253 files against an index of 135). The issue bodies stay, because they are the
+drafts that have not been filed yet.
 
-6. **Run the workflow** from the MAIN session (the Workflow tool is not available inside
-   subagents).
+The previous run is the record you compare against, so copy it out whole before anything is
+removed. A sibling directory named by the commit it examined is enough, and the pixel diff in
+step 3 reads from it. On a first exam there is no `.artifacts/exam` yet and every line fails
+harmlessly:
 
-   `Workflow({name: "render-quality-exam", args: <the object step 5 printed>})` - that is,
-   `{examDir, plans: [{id, dir, url, images, tiles, coverage}], measurements}`. Three phases:
+```bash
+head -1 .artifacts/exam/hashes.tsv   # the previous exam's pack; keep the value, the coverage run below rewrites the file
+prev=$(jq -r .commit .artifacts/exam/*/scene.json 2>/dev/null | head -1)
+[ -n "$prev" ] && cp -a .artifacts/exam ".artifacts/exam-prev-$prev"
+find .artifacts/exam -mindepth 1 -maxdepth 1 -type d ! -name issues -exec rm -rf {} +
+```
 
-   - **Evaluate**: one agent per plan, given the images and the coverage ledger and nothing
-     else. It returns typed findings, each with a pixel rect per evidence entry, a
-     `claimType`, and a `falsifier` naming the probe op that would disprove it.
-   - **Triage** (code, no agent): validates every finding, joins it to the measurements by
-     footprint, and routes it. A geometric finding with an independent measurement at the
-     place it marked is CORROBORATED and skips refutation; a stated mechanism, an absence
-     claim or an interaction claim always goes to its own refuter; a subjective claim goes to
-     you; anything malformed is reported, never routed. The routing histogram is logged.
-   - **Refute**: one agent per individually routed finding, one per plan for the batched
-     minors. Each must DISPROVE its finding through `tools/exam/probe.ts` and return the
-     command it ran and what it printed.
+Then rebuild the ledger:
 
-   It returns `{evaluations, findings, triage, verdicts, humanRuling, invalid}`. A verdict
-   judges the observation and the mechanism SEPARATELY, so "symptom real, cause wrong" comes
-   back as `observationVerdict: CONFIRMED` with `mechanismVerdict: REFUTED`, and its
-   `disposition` says what to do with it:
+```bash
+bun run tools/exam/coverage.ts                    # rewrites the ledger to the four core rows
+bun run tools/exam/coverage.ts --fill --max 4     # plus up to 4 rotating plans
+```
 
-   | disposition | what it means | what you do |
-   | --- | --- | --- |
-   | `FILE` | observation confirmed, mechanism (if any) confirmed | file it |
-   | `FILE_SYMPTOM_ONLY` | symptom real, stated cause disproved | file the symptom; the struck-out cause is in `mechanismStripped` |
-   | `HUMAN_REVIEW` | UNCERTAIN on some claim | you rule on it; never file it as-is |
-   | `DROP` | observation disproved at runtime | do not file |
+`--max 4` is the tool's own default, not a value this exam tuned.
 
-   Every verdict carries the same keys whatever produced it, so one filter reads them all:
+Both runs rewrite `.artifacts/exam/hashes.tsv` with the fingerprint line and one
+`<id>\t<hash>` row per plan; `--fill` appends the rotating rows after the core ones and writes
+the picked scenarios to `.artifacts/exam/rotating.json`, which step 4 feeds back to the audit.
 
-   | field | what it holds |
-   | --- | --- |
-   | `findingId`, `planId` | which finding this answers; the id is namespaced `<planId>:<slug>` |
-   | `observationVerdict` | `CONFIRMED` / `REFUTED` / `UNCERTAIN` on the symptom |
-   | `mechanismVerdict` | the same on the stated cause; `null` when the finding stated none |
-   | `mechanismStripped` | the cause struck out; `null` unless `FILE_SYMPTOM_ONLY` |
-   | `disposition` | the table above, derived from the two verdicts and nothing else |
-   | `corroboratedBy` | the measurement ids (`<planId>#<index>:<kind>`) that carried the finding past refutation; `[]` for anything a refuter answered |
-   | `probeCommand`, `probeOutput` | what was run and what it printed; `null` for a corroborated finding, which never reached an agent, and for a refuter that ran nothing |
-   | `reasoning` | how that settles the claim; `null` when none was given |
-   | `correctedObservation` | what is actually true, when the symptom is real but stated wrongly; `null` otherwise |
-   | `coercions` | why a claim was forced to `UNCERTAIN`; `[]` when nothing was forced |
+The report has five parts: per-plan and union coverage, the uncovered recipes, the uncovered
+machines, the `# rotating` table of picked plans with its `after fill` totals, and the residue
+grouped by the reason each recipe stayed out. The `# rotating` table is the only place the final
+report's "each rotating plan and the recipes it brought in" comes from. A large residue
+is expected and is not a corpus defect - most of it is alternate producers of an item the LP
+never prefers, so no single-target plan can make the solver run them. The only part a bigger
+`--max` would move is the count carried by the `reachable by an unpicked candidate; raise
+--max` note. Candidates whose solve threw are listed separately and were skipped, never fatal.
 
-   So `probeCommand: null` does not mean unsupported: check `corroboratedBy` before reading it
-   that way.
+The exam captures the core plus the rotating set, which is exactly what the ledger now holds.
 
-   `UNCERTAIN` is a legitimate answer and is preferred over a guess. A verdict that cites no
-   `probeCommand` and `probeOutput`, a refuter that returns nothing at all, and a refuter whose
-   answers carry finding ids nobody asked about are all coerced to `UNCERTAIN` by the workflow,
-   with the reason in `coercions`: nothing is ever auto-confirmed or auto-dropped.
-   `humanRuling` carries the subjective findings, `invalid` the malformed ones with their
-   violations.
+Diff the ledger against the previous run before capturing anything. On the same pack the
+greedy fill is deterministic, so `hashes.tsv`, `rotating.json` and the fill report should be
+identical, and a difference here is a change in the pack, the corpus or the fill, not in the
+render:
 
-   Refuters answer through `tools/exam/probe.ts`, which boots one plan, optionally commands a
-   camera (`--zoom` and `--center` together), and runs one named op:
+```bash
+prev=$(ls -d .artifacts/exam-prev-* 2>/dev/null | tail -1)
+[ -n "$prev" ] && for f in hashes.tsv rotating.json fill-report.txt; do
+  cmp -s "$prev/$f" ".artifacts/exam/$f" && echo "$f identical" || echo "$f DIFFERS"
+done
+```
 
-   ```bash
-   bun run tools/exam/probe.ts --base-url http://localhost:4174 --hash <planHash> \
-     --op hover-edge --arg id='<edgeId>'
-   ```
+### 3. Capture every plan in the ledger
 
-   Ops: `hover-edge`, `hover-node`, `contrast`, `delta-e`, `chip-binding`, `rect`,
-   `computed-style`, `text-overflow`; `--eval <file.js>` is the escape hatch and `--shot
-   <out.png>` writes evidence. A `--shot` after a hover op deliberately photographs the
-   pointer where the op left it, so the image shows the dimmed state the finding was about.
+One capture per ledger row, each launching its own Chromium, under the memory cap this 3.2 GiB
+box needs:
 
-7. **Verify, group, and file.** File `FILE` and `FILE_SYMPTOM_ONLY`, rule on `HUMAN_REVIEW`
-   and on `humanRuling` yourself, and file nothing that came back `DROP`. An entry in
-   `invalid` is a defect of the REPORT, not of the app: it was never routed and no verdict
-   exists for it, so read its `violations`, and either restate the finding yourself against
-   the evidence image (then treat it as your own claim, disproving it before filing) or drop
-   it. Do not file one as it stands. Read the evidence image for every major finding yourself
-   and drop or downgrade what the pixels do not show; the workflow's "nothing is auto-dropped"
-   rule binds the machine, not you, and this pass is where a finding the pixels do not support
-   dies.
+```bash
+while IFS=$'\t' read -r id hash; do
+  case "$id" in \#*) continue ;; esac
+  systemd-run --user --scope -q -p MemoryMax=2G -p MemorySwapMax=512M -- \
+    bun --smol run tools/exam/capture.ts \
+      --base-url "$BASE" \
+      --hash "$hash" --plan-id "$id" --locale en --out .artifacts/exam \
+      < /dev/null || echo "capture $id exit=$?"
+done < .artifacts/exam/hashes.tsv
+```
 
-   Group cross-plan into one issue per defect FAMILY (same mechanism, not same plan). File
-   with `gh issue create --body-file`, pushing PNGs to an orphan assets
-   branch via git plumbing (no checkout switch): `git hash-object -w` each PNG, `git mktree`,
-   `git commit-tree`, `git branch exam-assets-<date>`, push, then embed
-   `https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<file>` in the bodies. Include
-   per-plan share hashes in a `<details>` block for reproduction. Report to the human: every
-   partial plan with its uncovered ids, every console error, and every plan that failed to
-   capture.
+The `#` fingerprint line is skipped; every other row is a plan. The `|| echo` keeps the exit
+code, which the loop would otherwise swallow and the final report has to name for every capture
+that failed. `< /dev/null` stops a capture from eating the ledger the loop is reading. Other
+flags: `--target-zoom`
+(default 0.75), `--locale` (default `en`; a `zh` exam is its own run, never a mix),
+`--max-tiles` (default 64), `--seam-margin` (default 64). Outputs land in
+`.artifacts/exam/<id>/` as `scene.json` plus an `images/` subdirectory holding `00-fit.png`,
+`10-tile-r<row>c<col>.png` and `20-corrective-<nnn>-<slug>.png` (the index is zero-padded to
+three digits). The `N tiles` the CLI prints counts the grid and the corrective shots together,
+everything but `00-fit.png`, which is written in addition, so `scene.json`'s `tiles` array holds
+N+1 entries. The count in parentheses beside it says how many of the N were corrective. The split is structural: an
+evaluator is handed `images/` and judges the pixels cold, so the ledger it must not read is not
+in the directory it can list. There is no smoke test, because capture fails fast by itself:
+
+| exit | what happened | what you do |
+| --- | --- | --- |
+| 0 | captured, `status` is `complete` or a labelled `partial` | keep it; a partial is a real capture, carry its blind spots forward |
+| 1 | harness failure | fix the invocation and rerun |
+| 2 | the base URL is not serving | back to step 1 |
+| 3 | the page never became examinable | drop that plan and report it |
+| 4 | the served build cannot name itself | redeploy or fix the build; do NOT drop the plan |
+
+Exits 3 and 4 pull opposite ways on purpose. A plan that never became examinable is a fact
+about that plan. A build with no provenance says nothing about any plan - every plan in the run
+would fail the same way.
+
+Then diff the captures against the previous run. The capture is deterministic, so on unchanged
+render code every PNG is byte-identical and every `scene.json` differs only in `commit`; that
+was the case across eleven commits on 2026-09-03. This is the cheapest gate the exam has, and
+on a branch that touched no render code it is the whole answer (see "When NOT to use"):
+
+```bash
+prev=$(ls -d .artifacts/exam-prev-* 2>/dev/null | tail -1)
+[ -n "$prev" ] && for d in .artifacts/exam/*/; do p=$(basename "$d")
+  same=0; diff=0; new=0
+  for f in "$d"images/*.png; do b=$(basename "$f")
+    if [ -f "$prev/$p/images/$b" ]; then cmp -s "$f" "$prev/$p/images/$b" && same=$((same+1)) || diff=$((diff+1)); else new=$((new+1)); fi
+  done
+  sd=$(diff <(jq -S 'del(.commit)' "$prev/$p/scene.json" 2>/dev/null) <(jq -S 'del(.commit)' "$d/scene.json") | wc -l)
+  echo "$p: png same=$same diff=$diff new=$new scene.json diff lines (excl commit)=$sd"
+done
+```
+
+A plan with `diff>0` or a nonzero scene diff is where the render moved; a run with none is a
+render that did not change, whatever the agents go on to say about it.
+
+### 4. Run the geometry ratchets. These are the machine findings.
+
+```bash
+EXAM_EXTRA_SCENARIOS=.artifacts/exam/rotating.json bun run test:e2e geometry-audit
+```
+
+`EXAM_EXTRA_SCENARIOS` admits the rotating plans to the same hard assertions the fixed corpus
+gets; a relative path resolves against the repo root, whatever directory the run started in.
+
+A finding here is a failure of `test/e2e/geometry-audit.spec.ts`, and nothing else: either a
+baseline EXCEEDANCE, or one of its hard zero-tolerance assertions (off-centre handles,
+mult-chip/rate-block overlaps, chip-vs-chip overlaps, chips clipped outside the pane,
+flow-chip-over-junction z-order, tier 1 segments entering a foreign raw card, the tundra
+ore-feed presence check). That spec already encodes every ruling this repo has made about
+acceptable geometry; the exam must not compute defects from its own numbers.
+
+Read a SKIPPED rotating plan as "hard checks passed", not as "not examined". Twelve baseline
+tables pin the fixed corpus and a rotating id sits in none of them, so the test runs every
+zero-tolerance assertion first and only then ends as skipped, naming the id and the tables it
+could not read. A fixed-corpus id missing a baseline row throws instead, because that is a
+table that lost a row.
+
+Each rotating plan produces four results, not one: `DOM geometry audit` and `edge reload
+determinism` pass, `segment placement audit` and `chip seating census` skip. So the fixed corpus
+alone tallies `1 failed / 40 passed`, and with four rotating plans admitted the same run reads
+`1 failed / 8 skipped / 48 passed`. Those two tallies are what a correct run looks like.
+
+The list reporter prints a skip without its reason. To read the reason, rerun that one test with
+`--reporter=json` and pull `annotations[].description`, or open the HTML report.
+
+Attribute every failure to a commit before calling it a finding. The stable failset on the
+current tip is: geometry-audit segment placement audit > multi6 (RAW pierce). For anything
+else, rerun only that spec at the branch point in a throwaway worktree:
+
+```bash
+main="$(git rev-parse --path-format=absolute --git-common-dir)/.."
+base="$(git merge-base HEAD origin/develop)"
+git -C "$main" worktree add .claude/worktrees/exam-base "$base"
+(cd "$main/.claude/worktrees/exam-base" && bun install && \
+  bun run test:e2e geometry-audit --grep "segment placement audit multi6")
+git -C "$main" worktree remove .claude/worktrees/exam-base
+```
+
+`git worktree add` resolves a relative path against the CWD, not against the repository. Run
+from a branch worktree, a bare `.claude/worktrees/exam-base` would put the base checkout INSIDE
+the branch under exam. `--git-common-dir` is the shared `.git` from either place, so `$main` is
+the main checkout whether you started there or in a worktree, and the same three lines work from
+both. Both must be inside the `STC` code checkout: from `STC-workspace/`, `--git-common-dir`
+names the doc repo's `.git` and the recipe targets the wrong repository. Resolve `$base` before
+the `git -C`: revisions handed to `git -C "$main"` resolve in the
+main checkout, where `HEAD` is a different commit.
+
+The `--grep` pattern is the describe title and the test title joined by SPACES. The `>` in the
+failset above is what the reporter prints between them; a pattern carrying it matches no test
+and the run passes empty, so drop it when you turn a failset entry into a grep.
+
+A test that fails identically on the base commit is not something this exam found.
+
+A rotating plan is attributed the same way, once the base run is handed the same rotating set:
+
+```bash
+# same shell as the block above: $main is still set
+rot=$PWD/.artifacts/exam/rotating.json          # absolute, resolved before the cd
+(cd "$main/.claude/worktrees/exam-base" && bun install && \
+  EXAM_EXTRA_SCENARIOS="$rot" bun run test:e2e geometry-audit --grep "<describe> <test>")
+```
+
+The absolute path is the point: a relative value resolves against the root of whichever
+checkout is running, which in there is the base worktree, and the rotating set is not in it. A
+base commit older than the env hook cannot answer the question at all. Judge that failure on
+its own evidence, and never promote it to a finding because nothing could be compared.
+
+### 5. Build the workflow args from the ledgers
+
+One jq over every `scene.json` emits the whole args object, so nothing is retyped and no field
+is invented. Run it from the repo root and keep the output in a file: it runs to tens of
+kilobytes, of which `conventions` alone is 6 KB of prose, and an object that lives only in the
+transcript is one compaction away from being retyped by hand.
+
+```bash
+jq -s --arg examDir "$PWD/.artifacts/exam" --arg repoRoot "$PWD" \
+     --rawfile conv docs/render-conventions.md '{
+  examDir: $examDir,
+  repoRoot: $repoRoot,
+  conventions: $conv,
+  plans: [.[] | . as $s | {
+    id: .planId,
+    dir: "\($examDir)/\(.planId)/\(.imagesDir)",
+    url: .url,
+    locale: .locale,
+    coverage: .coverage,
+    images: [.tiles[] | {file, what: (
+      if .kind == "fit" then "whole-graph fit overview, at the app fit zoom"
+      elif .kind == "tile" then "grid tile row \(.row) col \(.col), at zoom \($s.targetZoom)"
+      else "corrective shot, at zoom \($s.targetZoom)" end)}],
+    tiles: [.tiles[] | {file, kind, viewportTransform, safeRegion}]
+  }],
+  measurements: ([.[] | {key: .planId, value: (.measurements | map({kind, footprint, detail}))}] | from_entries)
+}' .artifacts/exam/*/scene.json > .artifacts/exam/workflow-args.json
+```
+
+What each part is for, because passing the wrong thing here fails silently rather than loudly:
+
+- `repoRoot` is `$PWD` only because the jq is run from the repo root. A refuter's Bash starts
+  wherever its own agent did, so the probe command it is handed names the CLI absolutely
+  instead of telling it where to stand.
+- `conventions` is the text of `docs/render-conventions.md`, and it is the one thing an
+  evaluator is told about the design it is judging; without it, deliberate behaviour comes back
+  as a defect. A PR that changes a rendering rule must update `docs/render-conventions.md` in
+  the same PR.
+- `locale` is what the capture booted. Anything but `en` also sends the evaluator to the
+  conventions doc's locale section, and a refuter boots the plan itself, so a missing locale
+  probes a differently rendered app than the one under exam.
+- `dir` is `<examDir>/<planId>/<imagesDir>`, the IMAGES directory. An evaluator is handed it and
+  judges the pixels cold; the plan directory one level up holds `scene.json`, and handing that
+  out instead would let a cold evaluator read the measurements its findings are about to be
+  checked against. The workflow rejects a `dir` that is not strictly below the plan directory,
+  so a wrong value stops the run.
+- `tiles` is what the corroboration join needs: `file` is the bare name an evaluator can cite,
+  `kind` says which camera shot it (only `tile` and `corrective` can carry a measurement), and
+  `viewportTransform`/`safeRegion` place a world-unit footprint inside that image. Omit it and
+  every join misses, which reads as "nothing was corroborated".
+- `measurements` is keyed by plan id and trimmed to `kind`, `footprint` and `detail`. `[]` is a
+  real answer: the measurement pass runs on every capture, so an empty array means measured and
+  clean. `elementIds` is left out deliberately - nothing downstream reads it, and it stays in
+  the ledger a refuter can open.
+- `url` must be `scene.json`'s verbatim, `<baseUrl>/?exam=1#<hash>`: refuters' probe commands
+  are built by splitting it.
+
+Surface these four now, and again in the final report:
+
+```bash
+jq -r 'select(.status == "partial") | "\(.planId): \(.coverage.uncovered | length) uncovered, capHit=\(.coverage.capHit)"' .artifacts/exam/*/scene.json
+jq -r 'select(.consoleErrors | length > 0) | "\(.planId): \(.consoleErrors | join(" | "))"' .artifacts/exam/*/scene.json
+jq -r '"\(.planId): \([.elements[] | select(.kind == "band")] | length) band(s), \([.elements[] | select(.kind == "junction")] | length) junction(s)"' .artifacts/exam/*/scene.json
+ledgerPack=$(awk 'NR == 1 {print $3}' .artifacts/exam/hashes.tsv)
+jq -sr --arg ledgerPack "$ledgerPack" '
+  (map(.commit) | unique) as $commits
+  | (.[] | "\(.planId): pack \(.pack.sourceCommit) commit \(.commit)"
+      + (if .pack.sourceCommit != $ledgerPack then "  <- captures were of a different pack" else "" end)),
+    (if ($commits | length) > 1 then "commit disagreement across plans: \($commits | join(", "))" else "one build: \($commits[0])" end)
+' .artifacts/exam/*/scene.json
+```
+
+The first two print nothing on a clean run: empty output is the clean answer, no partial capture
+and no console error, rather than a command that misfired.
+
+The third line is the layout-feature census: bus bands and junction dots are the only features
+the ledger records by their own kind. Icon-only chips are not in it (the chip record carries no
+icon-only flag) and neither are fan-out columns (nothing records them), so read the census as
+two counts, not as an inventory of what the layout did.
+
+### 6. Run the workflow
+
+From the MAIN session (the Workflow tool is not available inside subagents).
+
+Pass the parsed contents of `.artifacts/exam/workflow-args.json` as `args`, whether you name the
+workflow or point at its `scriptPath`:
+`Workflow({name: "render-quality-exam", args: <parsed .artifacts/exam/workflow-args.json>})`.
+That object is `{examDir, repoRoot, conventions, plans: [{id, dir, url, locale, images, tiles,
+coverage}], measurements}`.
+
+Write the return to `.artifacts/exam/<date>-run.json` with the Write tool the moment it comes
+back, before reading a single verdict: step 7's crops are cut from that file, and a return that
+exists only in the transcript is one compaction away from gone. Resuming with `resumeFromRunId`
+re-runs agents that boot the app, so the preview server - remote or local - has to be reachable
+again first.
+
+Three phases:
+
+- **Evaluate**: one agent per plan, given the images, the coverage ledger and the conventions
+  doc, and nothing else. It returns typed findings, each with a pixel rect per evidence entry, a
+  `claimType`, and a `falsifier` naming the probe op that would disprove it.
+- **Triage** (code, no agent): validates every finding, joins it to the measurements by
+  footprint, and routes it. A geometric finding with an independent measurement at the
+  place it marked is CORROBORATED and skips refutation; a stated mechanism, an absence
+  claim or an interaction claim always goes to its own refuter; a subjective claim goes to
+  you; anything malformed is reported, never routed. The routing histogram is logged.
+- **Refute**: one agent per individually routed finding (every major, every interaction
+  claim, every stated mechanism), one per batch of at most four of a plan's minors and nits,
+  absence claims included. Each must DISPROVE its finding through `tools/exam/probe.ts` and return the
+  command it ran and what it printed.
+
+It returns `{evaluations, findings, triage, verdicts, humanRuling, invalid}`. A verdict
+judges the observation and the mechanism SEPARATELY, so "symptom real, cause wrong" comes
+back as `observationVerdict: CONFIRMED` with `mechanismVerdict: REFUTED`, and its
+`disposition` says what to do with it:
+
+| disposition | what it means | what you do |
+| --- | --- | --- |
+| `FILE` | observation confirmed, mechanism (if any) confirmed | file it |
+| `FILE_SYMPTOM_ONLY` | symptom real, stated cause disproved | file the symptom; the struck-out cause is in `mechanismStripped` |
+| `HUMAN_REVIEW` | UNCERTAIN on some claim | you rule on it; never file it as-is |
+| `DROP` | observation disproved at runtime | do not file |
+
+Every verdict carries the same keys whatever produced it, so one filter reads them all:
+
+| field | what it holds |
+| --- | --- |
+| `findingId`, `planId` | which finding this answers; the id is namespaced `<planId>:<slug>` |
+| `observationVerdict` | `CONFIRMED` / `REFUTED` / `UNCERTAIN` on the symptom |
+| `mechanismVerdict` | the same on the stated cause; `null` when the finding stated none |
+| `mechanismStripped` | the cause struck out; `null` unless `FILE_SYMPTOM_ONLY` |
+| `disposition` | the table above, derived from the two verdicts and nothing else |
+| `corroboratedBy` | the measurement ids (`<planId>#<index>:<kind>`) that carried the finding past refutation; `[]` for anything a refuter answered. Check that the measurement's KIND answers the claim: the join is by footprint, so a routing claim can be paired with a card-intrusion measurement at the same place, that is a place hit, not a corroboration, and the finding still needs a probe |
+| `probeCommand`, `probeOutput` | what was run and what it printed; `null` for a corroborated finding, which never reached an agent, and for a refuter that ran nothing |
+| `reasoning` | how that settles the claim; `null` when none was given |
+| `correctedObservation` | what is actually true, when the symptom is real but stated wrongly; `null` otherwise |
+| `coercions` | why a claim was forced to `UNCERTAIN`; `[]` when nothing was forced |
+
+So `probeCommand: null` does not mean unsupported: check `corroboratedBy` before reading it
+that way.
+
+`UNCERTAIN` is a legitimate answer and is preferred over a guess. A verdict that cites no
+`probeCommand` and `probeOutput`, a refuter that returns nothing at all, and a refuter whose
+answers carry finding ids nobody asked about are all coerced to `UNCERTAIN` by the workflow,
+with the reason in `coercions`: nothing is ever auto-confirmed or auto-dropped.
+`humanRuling` carries the subjective findings, `invalid` the malformed ones with their
+violations.
+
+Refuters answer through `tools/exam/probe.ts`, which boots one plan, optionally commands a
+camera (`--zoom` and `--center` together), and runs one named op:
+
+```bash
+bun run tools/exam/probe.ts --base-url "$BASE" --hash <planHash> \
+  --locale en --op hover-edge --arg id='<edgeId>'
+```
+
+That invocation is an illustration. A refuter never composes its own: the workflow builds each
+real command by splitting the plan's `url` out of `scene.json`.
+
+Ops: `hover-edge`, `hover-node`, `contrast`, `delta-e`, `chip-binding`, `rect`,
+`computed-style`, `text-overflow`; `--eval <file.js>` is the escape hatch and `--shot
+<out.png>` writes evidence. `--locale` must be the locale the plan was captured in. A `--shot`
+after a hover op deliberately photographs the pointer where the op left it, so the image shows
+the dimmed state the finding was about.
+
+### 7. Verify, group, and file
+
+File `FILE` and `FILE_SYMPTOM_ONLY`, rule on `HUMAN_REVIEW` and on `humanRuling` yourself, and
+file nothing that came back `DROP`. An entry in `invalid` is a defect of the REPORT, not of the
+app: it was never routed and no verdict exists for it, so read its `violations`, and either
+restate the finding yourself against the evidence image (then treat it as your own claim,
+disproving it before filing) or drop it. Do not file one as it stands. Read the evidence image
+for every major finding yourself and drop or downgrade what the pixels do not show; the
+workflow's "nothing is auto-dropped" rule binds the machine, not you, and this pass is where a
+finding the pixels do not support dies.
+
+Cut the crops FIRST, before any ruling, from the saved return:
+
+```bash
+mkdir -p .artifacts/exam/crops
+bun run tools/exam/crop.ts --verdicts .artifacts/exam/<date>-run.json \
+  > .artifacts/exam/crops/index.json
+```
+
+Redirect it for the reason step 5 gives: the return carries a record per crop and runs to tens of
+kilobytes, and the counts to report are `crops | length`, `skipped | length` and `failed | length`,
+read back out of that file. A nonzero `skipped` or `failed` also exits 1: the JSON is still
+written, and the exit says a requested crop has no picture, not that the run broke. One pass cuts
+every evidence entry of every `FILE`, `FILE_SYMPTOM_ONLY` and `HUMAN_REVIEW` verdict AND of every
+`humanRuling` finding, at the standing 400 px margin, into `.artifacts/exam/crops/`, named
+`<findingId>-<n>.png` with the id's colon flattened to `-`. 400 px is what a ruling needs: a
+24 px cut shows that a chip exists, not what it overlaps. `--margin <px>` changes it for the
+whole run, and `--margin 24` is the tight cut an issue body embeds. Nothing is recut by hand and
+no ruling is made from prose: the 2026-09-03 run ruled sixteen subjective findings blind because
+only the filed ones had crops, and the audit had to recut them.
+
+Three rules on reading them. A coincidence or shared-route claim cannot be ruled on from pixels
+at all: two edges within a stroke width of each other paint as one line at every zoom the exam
+shoots, so probe the edge paths (`--eval` over the `.react-flow__edge` `d` attributes) before
+keeping one, whatever its verdict says. A corroborated finding is carried by an occurrence of a
+compatible KIND at the place it marked, which is not the same as the occurrence it complains
+about: read `corroboratedBy` against the finding's clauses, and when the measurement answers a
+different clause (a `chip-off-own-path` under a claim about a chip covering a card), probe it
+before keeping it. Majors never take this route any more, the triage sends every major to its
+own refuter, but a minor can. And the tile an evaluator cites can be off by one - the one DROP
+this procedure has recorded was a chip in `10-tile-r3c0.png` cited as `r3c1` - so open the
+neighbouring tile before dropping a finding whose rect looks empty.
+
+Check what is already open before writing anything new:
+
+```bash
+gh issue list --state open --limit 100
+```
+
+Match each surviving finding to an open issue by defect FAMILY - same mechanism, not same plan.
+A finding that belongs to an open family is a reconfirmation comment on that issue, naming the
+plan and the evidence, not a second issue. Only a family nothing covers earns a new issue.
+
+That listing hides closed families, and the closed ones are where the families live: the
+2026-09-03 run drafted nine "new" families of which three had closed issues (#29, #43, #25) and
+one was a documented hide (#24/#39). So search closed issues by MECHANISM before writing any new
+body, with a few words from each family, not one query:
+
+```bash
+gh issue list --state closed --limit 200 --json number,title --jq '.[] | "#\(.number) \(.title)"' \
+  | rg -i '<word from the family>|<another>'
+```
+
+A finding that matches a closed issue is a reopen question for the user, not a new file. A
+finding that matches a bullet under "Intentional behaviours" in `docs/render-conventions.md` is
+a defect of the conventions doc, not of the app: fix the bullet, and do not draft it.
+
+Write each new issue body to `.artifacts/exam/issues/<slug>.md` and hand the user the
+`gh issue create --title "..." --body-file .artifacts/exam/issues/<slug>.md` commands rather
+than running them: creation was classifier-blocked in auto mode on 2026-08-15. Push the PNGs to
+an orphan assets branch via git plumbing (no checkout switch): `git hash-object -w` each PNG,
+`git mktree`, `git commit-tree`, `git branch exam-assets-<date>`, push, then embed
+`https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<file>` in the bodies. Include
+per-plan share hashes in a `<details>` block for reproduction.
+
+## What the final report says
+
+In this order:
+
+- the pack fingerprint from `hashes.tsv`, and any plan whose `scene.json` names a different one
+  ("captures were of a different pack")
+- the served commit against the tip under exam, with "exam of uncommitted work" when the stamp
+  carried `-dirty`
+- the fixed core: `default`, `battery5-xiranite`, `multi6`, `gas-web`
+- each rotating plan and the recipes it brought in
+- the uncovered residue by reason class, with how much of it a larger `--max` would have reached
+- the band and junction census, per plan
+- every partial plan with the ids in its `coverage.uncovered`
+- every console error
+- every capture that failed, with its exit code
+- the geometry-audit failset, and which of it fails identically at the base commit - "fails
+  identically" only when the base run in step 4 was actually made; a failset match without it
+  is "matches the standing failset", not a measurement
+- the diff against the previous run: ledger, PNGs, `scene.json`, audit tally
+- the workflow tallies against the previous run's, and for every kept finding the family it
+  joined, naming the open issue, the closed issue, or the conventions bullet that owns it
 
 ## What `scene.json` is
 
 A ledger of what was captured and measured, with no verdicts in it.
 
+- `pack`, `commit` and `locale` are the provenance: the recipe pack the app shipped, the build
+  the page named itself as, and the language the capture booted. They are what makes a capture
+  comparable with another one, or provably not.
 - `imagesDir` is the image subdirectory, relative to `scene.json` itself; `tiles[].file` is a
   bare file name, so an image resolves as `<plan dir>/<imagesDir>/<file>`. Keep it bare when
   citing one: the corroboration join matches an evaluator's cited name against `tiles[].file`.
-- `tiles[].elements` places elements in CSS pixels within that image, but only those
+- `elements` is a map from element id to `{kind, worldRect}` over the whole plan;
+  `tiles[].elements` places those elements in CSS pixels within one image, but only those
   intersecting the tile's `safeRegion`: an element that reaches the pane only under the minimap
   or the zoom controls is in the image and NOT in this map, deliberately.
 - Coordinate frames: `worldRect`, `contentRect` and `footprint` are React Flow world units;
@@ -234,6 +567,9 @@ A ledger of what was captured and measured, with no verdicts in it.
 | Trap | Rule |
 | --- | --- |
 | A plan captured at `status: "partial"` has blind spots | Report every id in `coverage.uncovered`; no evaluator finding and no issue may make an absence claim about one |
+| Capture exit 4 looks like a broken plan | It is a broken BUILD: the page could not name its commit. Redeploy or rebuild and capture again; dropping the plan hides a fault that affects all of them |
+| A rotating plan reported SKIPPED by the geometry audit | Read it as "hard checks passed". The zero-tolerance assertions all ran; the skip only says the ratchet tables pin no baseline for that id |
+| A `-dirty` commit stamp | The server is serving uncommitted work. Say so in the report; findings from it cannot be pinned to a commit anyone else can check out |
 | Raw geometry measurements are not defects | `geometry-audit.spec.ts` permits large nonzero per-scenario counts of every measurement kind behind written rulings; a machine finding is that spec failing, never a row of `scene.json` |
 | The exam's counts and the ratchet baselines are different numbers | Measurements are taken at `targetZoom`, baselines at the app's fit camera, and chips counter-scale; never compare the two, and never read a difference as a regression |
 | `hoverEngaged: false` is a capture miss, not a product defect | Read `engagedElsewhere` and `samples`, then re-probe `engagedElsewhere.id` through `--arg id=`, or reframe with `--zoom`/`--center`, or reach for `--eval`; the probe picks its own sample fractions and no flag names a point |
@@ -241,9 +577,17 @@ A ledger of what was captured and measured, with no verdicts in it.
 | `00-fit.png` is shot at the app's fit zoom, not `targetZoom` | Chips are LOD-hidden below `lodGates.labelMinZoom`; compare `fit.zoom` against `lodGates` before believing anything the fit overview does not show |
 | The exam runs `?exam=1`, query before fragment | Without it `window.__stcExam` is absent and both CLIs exit 3. The CLIs build the URL; a hand-written one is where this goes wrong |
 | Repo convention forbids committed binaries | Captures go to gitignored `.artifacts/`; issue images to the orphan assets branch only |
+| Every fenced block in this procedure is bash, and the interactive shell here is fish | `IFS=$'\t'`, `case`, `$(...)` assignment and `$'...'` are bash syntax; paste any of these blocks into bash rather than running them line by line in fish |
+| Step 4's `.claude/worktrees/exam-base` lands wherever you are standing | `git worktree add` takes a relative path against the CWD, so run from a branch worktree it nests the base checkout INSIDE the branch under exam. Address it through `$(git rev-parse --path-format=absolute --git-common-dir)/..`, which is the main checkout from either place, and resolve any `HEAD`-relative sha before the `git -C` |
 
 ## When NOT to use
 
 - Single-component or single-defect checks: drive the app directly with `tools/exam/probe.ts`
   instead of a multi-agent sweep.
 - Pixel-diff regression against pinned baselines: that is `test/e2e/placement-shots.spec.ts`.
+- A branch that touched no render code (exam tooling, docs, build plumbing): run steps 1 to 5
+  and stop at the pixel diff. Byte-identical captures and an unchanged audit tally are the
+  whole answer, and the agent fan-out can only re-derive the previous run's families from the
+  same pixels - on 2026-09-03 that cost 76 minutes and 1.6 M tokens to learn nothing. Run step
+  6 on such a branch only when the workflow script, the probe, or the conventions doc changed,
+  and then on the one or two plans that exercise the change.

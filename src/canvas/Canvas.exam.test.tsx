@@ -14,6 +14,7 @@ import type { Recipe } from "@aef/schema";
 import Canvas from "./Canvas";
 import { ItemPackProvider, type ItemPackContextValue } from "./itemPackContext";
 import { LocaleProvider } from "../data/i18n-context";
+import { pack } from "../data/load";
 
 const PACK = {
   itemById: new Map(),
@@ -106,6 +107,19 @@ describe("exam camera hook", () => {
     expect(typeof window.__stcExam?.fitView).toBe("function");
     expect(typeof window.__stcExam?.contentBounds).toBe("function");
     expect(typeof window.__stcExam?.chipReservations).toBe("function");
+  });
+
+  // The provenance pair a capture stamps into its scene document. The pack
+  // fingerprint comes from the bundled pack, so its value is pinned; the commit
+  // is baked in at build time and reads "unknown" under vitest, so only its
+  // presence is.
+  test("carries the build and pack fingerprints", () => {
+    window.history.replaceState(null, "", "/?exam=1");
+    renderCanvas(HOVER_NODES, []);
+    expect(typeof window.__stcExam?.commit).toBe("string");
+    expect(window.__stcExam?.commit).not.toBe("");
+    expect(window.__stcExam?.pack.sourceCommit).toBe(pack.source.sourceCommit);
+    expect(window.__stcExam?.pack.gameVersion).toBe(pack.source.gameVersion);
   });
 
   test("contentBounds returns null for an empty graph", () => {

@@ -5,15 +5,35 @@ export const meta = {
   phases: [
     { title: 'Evaluate', detail: 'One agent per plan: judge the captured images cold, bounded by the coverage ledger' },
     { title: 'Triage', detail: 'No agent: validate every finding, join it to the measurements by footprint, and route it' },
-    { title: 'Refute', detail: 'One agent per routed finding (or per plan for the batch): DISPROVE it against the running app through tools/exam/probe.ts' },
+    { title: 'Refute', detail: 'One agent per individually routed finding, one per batch of at most four per plan: DISPROVE it against the running app through tools/exam/probe.ts' },
   ],
 }
 
 // args: {
-//   plans: [{ id, dir, url, images: [{file, what}], tiles: [{file, kind, viewportTransform, safeRegion}], coverage }],
-//   measurements: { [planId]: Measurement[] },
+//   plans: [{ id, dir, url, locale, images: [{file, what}], tiles: [{file, kind, viewportTransform, safeRegion}], coverage }],
+//   measurements: { [planId]: [{kind, footprint, detail}] },
 //   examDir,
+//   repoRoot,
+//   conventions,
 // }
+//   repoRoot        absolute path of the checkout the probe CLI lives in. A
+//                   refuter runs Bash wherever its own agent was started, which
+//                   is not necessarily the checkout, so the command it is given
+//                   names the probe absolutely rather than telling it where to
+//                   stand. Required and absolute.
+//   conventions     the render-conventions doc, verbatim: what the canvas is
+//                   trying to draw, and which behaviours are deliberate. A
+//                   script cannot read a file, so the orchestrator reads it and
+//                   passes the text. It is the ONE thing an evaluator is told
+//                   about the design, and it is a tracked doc rather than a
+//                   paragraph here so a rendering change can be made to update
+//                   it. Required and non-empty.
+//   plans[].locale  the language the capture booted, as scene.json recorded it.
+//                   Required, because both ends of the exam turn on it:
+//                   anything but `en` sends the evaluator to the conventions
+//                   doc's locale section as well, and a refuter boots the plan
+//                   itself, so probing it in another language would measure a
+//                   different rendering than the one under exam.
 //   plans[].dir     absolute IMAGES directory the capture wrote, which is
 //                   `<examDir>/<planId>/<imagesDir>` and holds nothing but images
 //   plans[].images  every image the capture produced, with a one-line description
@@ -33,7 +53,12 @@ export const meta = {
 //                   withheld from evaluators (see COLD below) and consumed by the
 //                   footprint join that triages findings. Required per plan, and an
 //                   empty array is a real answer - the measurement pass runs on
-//                   every capture, so `[]` means measured and clean.
+//                   every capture, so `[]` means measured and clean. Reduced to the
+//                   three fields the join and the verdict actually use: the `kind`
+//                   that says which claim it can witness, the world `footprint` it
+//                   occupies, and the `detail` a corroborated verdict quotes.
+//                   scene.json's `elementIds` is deliberately NOT passed - nothing
+//                   here reads it, and it stays in the ledger a refuter can open.
 //
 // COLD. An evaluator receives images and the coverage ledger, and nothing else: no
 // measurements, no earlier findings, no open-issue list. That independence is what
@@ -55,13 +80,37 @@ const plans = input && input.plans
 
 if (!Array.isArray(plans) || plans.length === 0) {
   throw new Error(
-    'render-quality-exam requires args {plans: [{id, dir, url, images, tiles, coverage}], measurements, examDir}',
+    'render-quality-exam requires args {plans: [{id, dir, url, locale, images, tiles, coverage}], ' +
+      'measurements, examDir, repoRoot, conventions}',
   )
 }
 const examDir = input && typeof input.examDir === 'string' ? input.examDir.replace(/\/+$/, '') : ''
 if (examDir === '' || !examDir.startsWith('/')) {
   throw new Error(
     `render-quality-exam: examDir must be the absolute directory the capture wrote into, got ${JSON.stringify(input && input.examDir)}`,
+  )
+}
+// Where the probe CLI is, absolutely. A relative path in the refuter's command
+// resolves against whatever directory that agent's Bash starts in; when it
+// misses, the probe exits as a harness failure, and a harness failure settles
+// nothing in either direction - it is the one outcome that costs a refuter its
+// whole run without telling it the finding was wrong.
+const repoRoot = input && typeof input.repoRoot === 'string' ? input.repoRoot.replace(/\/+$/, '') : ''
+if (repoRoot === '' || !repoRoot.startsWith('/')) {
+  throw new Error(
+    `render-quality-exam: repoRoot must be the absolute path of the checkout holding tools/exam/probe.ts, got ${JSON.stringify(input && input.repoRoot)}`,
+  )
+}
+// The whole of what an evaluator is told about the design it is judging. It is a
+// tracked doc the orchestrator reads and passes the text of, not a paragraph in
+// this file: a rule written here drifts from the renderer with nothing to catch
+// it, which is exactly what the paragraph this replaced did. Required, because
+// an evaluator briefed on no design at all files the intended behaviour.
+const conventions = input && typeof input.conventions === 'string' ? input.conventions.trim() : ''
+if (conventions === '') {
+  throw new Error(
+    'render-quality-exam: conventions must be the text of the render-conventions doc, non-empty; ' +
+      'an evaluator given no design to judge against reports the design as the defect',
   )
 }
 const measurementsByPlan = new Map()
@@ -74,6 +123,15 @@ const TILE_KINDS = ['fit', 'tile', 'corrective']
 for (const p of plans) {
   if (!p || typeof p.id !== 'string' || typeof p.dir !== 'string') {
     throw new Error(`render-quality-exam: every plan needs a string id and dir, got ${JSON.stringify(p)}`)
+  }
+  // Required rather than defaulted to `en`: a zh capture whose locale went
+  // missing reads as an en one all the way through, and both the evaluator's
+  // brief and the refuter's probe command would then be about a rendering
+  // nobody shot.
+  if (typeof p.locale !== 'string' || p.locale.trim() === '') {
+    throw new Error(
+      `render-quality-exam: plan ${p.id} needs scene.json's locale, the language the capture booted (e.g. "en"), got ${JSON.stringify(p.locale)}`,
+    )
   }
   // `dir` is handed to a cold evaluator, so it decides what that evaluator can
   // reach by listing it. The capture writes the images one level BELOW the plan
@@ -264,6 +322,15 @@ const FINDINGS_SCHEMA = {
   required: ['planId', 'overall', 'blindSpotsAcknowledged', 'findings'],
 }
 
+// A capture in another language is judged against the same conventions plus their
+// locale section, which lists what goes wrong in text that is not English. An en
+// capture gets nothing extra: it must not be sent chasing CJK typography that is
+// not in its images.
+const localeBrief = (p) =>
+  typeof p.locale === 'string' && p.locale !== '' && p.locale !== 'en'
+    ? `\nThis plan was captured in locale "${p.locale}", not en, so the "Locale notes" section above applies to it as well.\n`
+    : ''
+
 const evalPrompt = (p) => {
   const list = p.images.map((im) => `- ${p.dir}/${im.file} :: ${im.what}`).join('\n')
   return `You are a rendering-quality examiner for the STC blueprint canvas (Arknights: Endfield factory planner; React Flow). You are given screenshots of ONE fully solved production plan, "${p.id}". Judge what a reader sees.
@@ -277,14 +344,10 @@ ${list}
 
 Prefer a zoom tile as evidence. The fit overview is a different, much lower camera; cite it only for a whole-graph claim that no tile can show.
 
-Domain, so you can judge correctness:
-- Recipe cards: header with recipe name + machine multiplier (xN), then input rows (left ports) and output rows (right ports); port handles carry small glyphs. Product chips (cyan) are boundary inputs/outputs. Group slabs/loop boxes contain member cards.
-- Edges: orthogonal chamfered polylines, colored by item; they leave a source's RIGHT side and enter a target's LEFT side (arrowheads must point right, into the target). Each item edge carries one rate chip (icon + N/min) that should sit ON its own line.
-- Bus lanes: long edges route through shared horizontal lanes in faint tinted bands (labeled BUS) above/below the node block. A multi-member trunk carries NO aggregate total: only the per-member rise chips spread along the lane, plus the junction dots. A lone-member trunk shows that member's own rate chip at its drop.
-- Fan-out trunks: same-source edges one layer over share a junction column marked with a dot; each member carries its own rate chip on its branch, and no aggregate rides the shared trunk. Fan-in merges are the mirror image: several same-item edges joining one target port share a run marked with a dot, and the member that draws the dot keeps its own rate chip on that run.
-- No chip anywhere shows a bare summed total. Every rate chip states ONE edge's rate, the one exception being a member chip on a multi-member bus trunk, which reads as that member's share of the trunk ("30/270"); totals otherwise live on the node cards' rows.
-- Intentional behaviours -- do NOT report these as defects: rate chips are hidden below zoom 0.35 (fit shots of a dense plan show few chips or none, and card details fade at low zoom by design); a chip on a leg too short for its box renders icon-only at ANY zoom, fan-out branch chips and item-edge chips alike, and keeps its rate on the hover title and aria label -- a digit-less square chip is intentional, not a missing rate; a fan-out branch chip, or a fan-in member chip that would land on the shared run, may be deliberately hidden (the rate remains on the target card's input row); a hover screenshot, if any, intentionally dims everything outside the hovered ego-network.
+RENDER CONVENTIONS, so you can judge correctness. What the canvas is trying to draw, including the behaviours that are deliberate and must not be reported as defects:
 
+${conventions}
+${localeBrief(p)}
 COVERAGE LEDGER for this plan, written by the capture itself:
 ${JSON.stringify(p.coverage, null, 2)}
 
@@ -346,23 +409,13 @@ const stampIds = (planId, result) => {
   return { ...result, planId, findings }
 }
 
-const evaluations = (
-  await parallel(
-    plans.map((p) => () =>
-      agent(evalPrompt(p), { label: `evaluate:${p.id}`, phase: 'Evaluate', schema: FINDINGS_SCHEMA }).then((r) =>
-        r === null ? null : stampIds(p.id, r),
-      ),
-    ),
+// Stage one of the per-plan chain: judge this plan's images, and stamp the ids
+// everything downstream is keyed by. `null` when the agent was skipped or died,
+// which the second stage reads as "this plan contributed nothing".
+const evaluatePlan = (p) =>
+  agent(evalPrompt(p), { label: `evaluate:${p.id}`, phase: 'Evaluate', schema: FINDINGS_SCHEMA }).then((r) =>
+    r === null ? null : stampIds(p.id, r),
   )
-).filter(Boolean)
-
-const skipped = plans.filter((p) => !evaluations.some((e) => e.planId === p.id))
-if (skipped.length > 0) log(`Not evaluated (agent returned nothing): ${skipped.map((p) => p.id).join(', ')}`)
-
-// Flattened for the steps that work finding by finding, same objects as above.
-const findings = evaluations.flatMap((e) => e.findings)
-
-log(`${evaluations.length}/${plans.length} plans evaluated, ${findings.length} findings`)
 
 // ---------------------------------------------------------------------------
 // TRIAGE - a copy of tools/exam/triage.ts, which is the tested original.
@@ -505,18 +558,21 @@ function corroborationsFor(finding, measurements, tiles) {
 
 // Where a finding goes next. The ORDER is the substance: a stated mechanism is a
 // claim about the code that no footprint can check, so it outranks corroboration
-// entirely; absence and interaction claims are unwitnessable by construction.
+// entirely, and so does a major - a footprint says a compatible occurrence is
+// there, not that it is the one complained about, and a major is filed alone.
+// An interaction claim is several runs of reframing and gets its own refuter; an
+// absence claim is one run and sorts by severity like any uncorroborated claim.
 function routeFinding(finding, corroborations) {
   if (finding.claimType === 'subjective') return 'HUMAN_RULING'
   if (
-    finding.claimType === 'absence' ||
     finding.claimType === 'interaction' ||
-    finding.mechanismHypothesis !== undefined
+    finding.mechanismHypothesis !== undefined ||
+    finding.severity === 'major'
   ) {
     return 'REFUTE_INDIVIDUAL'
   }
   if (GEOMETRIC_CLAIM_TYPES.includes(finding.claimType) && corroborations.length > 0) return 'CORROBORATED'
-  return finding.severity === 'major' ? 'REFUTE_INDIVIDUAL' : 'REFUTE_BATCH'
+  return 'REFUTE_BATCH'
 }
 
 // Schema violations, empty when the finding is well formed. Nothing here throws:
@@ -580,7 +636,7 @@ function validateFinding(finding) {
 
 const planById = new Map(plans.map((p) => [p.id, p]))
 
-const triaged = findings.map((f) => {
+const triageFinding = (f) => {
   const plan = planById.get(f.planId)
   const violations = plan === undefined ? [`planId "${String(f.planId)}" is not a plan under exam`] : validateFinding(f)
   if (violations.length > 0) return { finding: f, violations, route: null, corroborations: [] }
@@ -596,15 +652,11 @@ const triaged = findings.map((f) => {
     corroboratedBy: corroborations.map((m) => `${f.planId}#${measurements.indexOf(m)}:${m.kind}`),
     route: routeFinding(f, corroborations),
   }
-})
+}
 
-const invalid = triaged.filter((t) => t.route === null)
-const routed = (route) => triaged.filter((t) => t.route === route)
-const histogram = ['CORROBORATED', 'REFUTE_INDIVIDUAL', 'REFUTE_BATCH', 'HUMAN_RULING']
-  .map((r) => `${r}=${routed(r).length}`)
-  .join(' ')
-log(`Triage: ${histogram} INVALID=${invalid.length}`)
-for (const t of invalid) log(`  invalid ${t.finding.id}: ${t.violations.join('; ')}`)
+const ROUTES = ['CORROBORATED', 'REFUTE_INDIVIDUAL', 'REFUTE_BATCH', 'HUMAN_RULING']
+const routedIn = (rows, route) => rows.filter((t) => t.route === route)
+const histogramOf = (rows) => ROUTES.map((r) => `${r}=${routedIn(rows, r).length}`).join(' ')
 
 // ---------------------------------------------------------------------------
 // REFUTE
@@ -654,9 +706,9 @@ You are not a second opinion and not a reviewer. For each finding, look for the 
 
 THE ONLY EVIDENCE THAT COUNTS is the output of the probe CLI against the running app:
 
-    bun run tools/exam/probe.ts --base-url ${baseUrl} --hash '${hash}' --op <op> --arg k=v [--arg k=v]
+    bun run ${repoRoot}/tools/exam/probe.ts --base-url ${baseUrl} --hash '${hash}' --locale ${plan.locale} --op <op> --arg k=v [--arg k=v]
 
-Run it from the repo root with Bash. It boots the plan, runs at most one named op, and prints one JSON object to stdout. Ops and their arguments:
+Run it with Bash. The path above is absolute, so it works from whatever directory you are in; do not cd anywhere first. It boots the plan, runs at most one named op, and prints one JSON object to stdout. Keep \`--locale ${plan.locale}\` on every run: it is the language this capture was shot in, and dropping it probes a differently rendered app. Ops and their arguments:
 - \`hover-edge\` --arg id=<edgeId>, \`hover-node\` --arg id=<nodeId>: does hovering the thing engage, and what dims? It samples points ON the edge's own geometry, which is the whole reason it exists.
 - \`contrast\` --arg selector=<css>: contrast ratio of an element against what is painted behind it.
 - \`delta-e\` --arg a=<css> --arg b=<css>: perceptual colour distance between two elements.
@@ -665,7 +717,9 @@ Run it from the repo root with Bash. It boots the plan, runs at most one named o
 - \`computed-style\` --arg selector=<css> --arg props=<comma list>, \`text-overflow\` --arg selector=<css>.
 Optional: \`--zoom <z> --center <wx>,<wy>\` together to frame a camera first, \`--eval <file.js>\` to evaluate one expression in the page (write the file under /tmp, never into the exam directory), \`--shot <out.png>\` to save what the page looked like after the op.
 
-Resolving a target the finding describes in words: \`--eval\` is the way in. A one-line expression over the DOM lists what you need, for example every edge id (\`Array.from(document.querySelectorAll('.react-flow__edge')).map(e => e.getAttribute('data-id'))\`) or every chip and its owner. Then probe the id you found. Do not guess an id: a probe against an element that does not exist reports an error, and AN ERROR SETTLES NOTHING IN EITHER DIRECTION. It is not a refutation, and it is not a confirmation either - least of all of a finding that claims something is missing. "The probe could not find it" does not separate "it is not in the app" from "that is not its id", which is the screenshot confusion one step further down the pipeline. Resolve the target again with \`--eval\` and re-run; only a run that came back clean answers anything.
+Resolving a target the finding describes in words: START WITH THE LEDGER, not the DOM. \`${examDir}/${plan.id}/scene.json\` has an \`elements\` map from every element id to \`{kind, worldRect}\`, and edge ids spell out their endpoints and item (\`e:<n>:<source>-><target>:<item>\`), so one \`jq\` or \`rg\` over that file for the item and node names in the finding gives you the ids to probe - for example \`jq -r '.elements | keys[]' ${examDir}/${plan.id}/scene.json | rg -i 'xiragen'\`. The refuters of the last exam spent most of their turns rediscovering ids the ledger already held. Read \`elements\` and \`tiles[].elements\` only; the ledger's \`measurements\` are not yours to quote as evidence.
+
+When the ledger does not name what you need, \`--eval\` is the way in. The file holds ONE bare arrow function taking no arguments - \`() => Array.from(document.querySelectorAll('.react-flow__edge')).map(e => e.getAttribute('data-id'))\` - and nothing else: no IIFE, no statements around it, no \`return\` at top level. Every refuter so far has lost a turn to that. Then probe the id you found. Do not guess an id: a probe against an element that does not exist reports an error, and AN ERROR SETTLES NOTHING IN EITHER DIRECTION. It is not a refutation, and it is not a confirmation either - least of all of a finding that claims something is missing. "The probe could not find it" does not separate "it is not in the app" from "that is not its id", which is the screenshot confusion one step further down the pipeline. Resolve the target again with \`--eval\` and re-run; only a run that came back clean answers anything.
 
 Exit codes: 0 the run succeeded; 1 harness failure (bad flags, an id that resolved to nothing, a missing element); 2 the base URL is not serving; 3 the page never became examinable. ONLY exit 0 settles a claim. On 1, 2 or 3 nothing was measured, so the verdict is UNCERTAIN whichever way the finding reads - never REFUTED, and never CONFIRMED - and you paste what happened.
 
@@ -849,66 +903,150 @@ const answerFor = (finding, answers) => {
 // an object cannot be matched to a finding id, so it counts as no answer at all.
 const answerObjects = (list) => (Array.isArray(list) ? list.filter((v) => v !== null && typeof v === 'object') : [])
 
-const batches = new Map()
-for (const t of routed('REFUTE_BATCH')) {
-  if (!batches.has(t.finding.planId)) batches.set(t.finding.planId, [])
-  batches.get(t.finding.planId).push(t.finding)
+// How many findings one batch refuter is handed. Four is where the batches of
+// the 2026-09-03 exam still reasoned per finding; the six-finding ones did not.
+const BATCH_CAP = 4
+const chunk = (list, size) => {
+  const out = []
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size))
+  return out
 }
 
-const refuteTasks = [
-  // One finding was asked about, so one answer is expected - and it is still
-  // matched on `findingId` rather than assumed. An agent handed one finding can
-  // answer about another, and a verdict is keyed by id, so taking its word for
-  // it would relabel that probe output as this finding's and file it.
-  ...routed('REFUTE_INDIVIDUAL').map((t) => () => {
-    const plan = planById.get(t.finding.planId)
-    return agent(refutePrompt(plan, t.finding), {
-      label: `refute:${t.finding.id}`,
-      phase: 'Refute',
-      schema: REFUTE_SCHEMA,
-    }).then((r) => {
-      const { raw, missReason } = answerFor(t.finding, answerObjects([r]))
-      return [coerceVerdict(t.finding, raw, missReason)]
-    })
-  }),
-  ...[...batches.entries()].map(([planId, group]) => () => {
-    const plan = planById.get(planId)
-    return agent(refuteBatchPrompt(plan, group), {
-      label: `refute-batch:${planId}`,
-      phase: 'Refute',
-      schema: REFUTE_BATCH_SCHEMA,
-    }).then((r) => {
-      const answers = answerObjects(r === null ? null : r.verdicts)
-      const verdicts = group.map((f) => {
-        const { raw, missReason } = answerFor(f, answers)
-        return coerceVerdict(f, raw, missReason)
+// Stage two of the per-plan chain: everything that happens to ONE plan's
+// findings once its evaluator has answered - triage, the verdicts the join
+// already settled, and the refuters for the rest. Nothing in it reads another
+// plan, which is why it can run while other plans are still being evaluated.
+//
+// Every agent() call here passes `phase` explicitly. Stages race: the global
+// phase() cursor is one value for the whole script, and a plan entering Refute
+// while another is still in Evaluate would file both under whichever ran last.
+// An evaluator that answered nothing is an EMPTY chain, not a null one: it costs
+// this plan its findings and nothing else. Only a stage that THREW answers null,
+// and that one loses rows the plan had already produced, so the two have to be
+// distinguishable where they are reported.
+const triageAndRefute = async (evaluation, p) => {
+  if (evaluation === null || evaluation === undefined) return { evaluation: null, triaged: [], verdicts: [] }
+
+  const triaged = evaluation.findings.map(triageFinding)
+  log(`${p.id}: ${histogramOf(triaged)} INVALID=${routedIn(triaged, null).length}`)
+
+  const batch = routedIn(triaged, 'REFUTE_BATCH').map((t) => t.finding)
+  const refuteTasks = [
+    // One finding was asked about, so one answer is expected - and it is still
+    // matched on `findingId` rather than assumed. An agent handed one finding can
+    // answer about another, and a verdict is keyed by id, so taking its word for
+    // it would relabel that probe output as this finding's and file it.
+    ...routedIn(triaged, 'REFUTE_INDIVIDUAL').map((t) => () =>
+      agent(refutePrompt(p, t.finding), {
+        label: `refute:${t.finding.id}`,
+        phase: 'Refute',
+        schema: REFUTE_SCHEMA,
+      }).then((r) => {
+        const { raw, missReason } = answerFor(t.finding, answerObjects([r]))
+        return [coerceVerdict(t.finding, raw, missReason)]
+      }),
+    ),
+    // The batch for this plan, in chunks of at most BATCH_CAP. One agent per
+    // plan used to take the whole list, and the two six-finding batches of the
+    // 2026-09-03 exam were the run's heaviest agents with its thinnest
+    // reasoning: an agent that has to hold six targets resolves ids for all of
+    // them before it probes any. A plan whose batch fits in one chunk keeps the
+    // bare `refute-batch:<plan>` label; a plan that needs several numbers them.
+    ...chunk(batch, BATCH_CAP).map((group, i, groups) => () => {
+      const label = groups.length === 1 ? `refute-batch:${p.id}` : `refute-batch:${p.id}:${i + 1}`
+      return agent(refuteBatchPrompt(p, group), {
+        label,
+        phase: 'Refute',
+        schema: REFUTE_BATCH_SCHEMA,
+      }).then((r) => {
+        const answers = answerObjects(r === null ? null : r.verdicts)
+        const verdicts = group.map((f) => {
+          const { raw, missReason } = answerFor(f, answers)
+          return coerceVerdict(f, raw, missReason)
+        })
+        // Answers about ids nobody asked about are logged rather than dropped:
+        // they are the evidence that the batch ran and its ids were renamed, and
+        // without them the run looks exactly like an agent that said nothing.
+        const asked = new Set(group.map((f) => f.id))
+        const extra = answers.filter((v) => !asked.has(v.findingId))
+        if (extra.length > 0) {
+          log(
+            `${label} answered about ${extra.length} id(s) not in this batch, ignored: ${extra
+              .map((v) => JSON.stringify(v.findingId))
+              .join(', ')}`,
+          )
+        }
+        return verdicts
       })
-      // Answers about ids nobody asked about are logged rather than dropped:
-      // they are the evidence that the batch ran and its ids were renamed, and
-      // without them the run looks exactly like an agent that said nothing.
-      const asked = new Set(group.map((f) => f.id))
-      const extra = answers.filter((v) => !asked.has(v.findingId))
-      if (extra.length > 0) {
-        log(
-          `refute-batch:${planId} answered about ${extra.length} id(s) not in this batch, ignored: ${extra
-            .map((v) => JSON.stringify(v.findingId))
-            .join(', ')}`,
-        )
-      }
-      return verdicts
-    })
-  }),
-]
+    }),
+  ]
 
-const verdicts = [
-  ...routed('CORROBORATED').map(corroboratedVerdict),
-  ...(refuteTasks.length === 0 ? [] : (await parallel(refuteTasks)).flat()),
-]
+  // A thunk that threw resolves to null in its own slot rather than failing the
+  // barrier, so the flattened answers can hold nulls. Dropping them keeps the
+  // rest of the plan, and the count is logged because the findings that task was
+  // given now have NO verdict at all - they are absent from the dispositions
+  // rather than sitting in HUMAN_REVIEW, which nothing downstream can tell from
+  // a finding that was never routed to a refuter.
+  const answers = refuteTasks.length === 0 ? [] : (await parallel(refuteTasks)).flat()
+  const lost = answers.filter((v) => !v).length
+  if (lost > 0) {
+    log(`${p.id}: ${lost} refuter task(s) threw, so their findings carry no verdict`)
+  }
 
+  const verdicts = [...routedIn(triaged, 'CORROBORATED').map(corroboratedVerdict), ...answers.filter(Boolean)]
+  return { evaluation, triaged, verdicts }
+}
+
+// ---------------------------------------------------------------------------
+// RUN
+//
+// One chain per plan, with NO barrier between the phases: a plan whose evaluator
+// came back early is triaged and refuted while the slower plans are still being
+// judged. The exam used to wait for the last evaluator before triaging anything,
+// and on a corpus with one plan much larger than the rest that wait was most of
+// the run. Every reported number below is computed once the chains have all
+// resolved, so it says the same thing it said when the phases were separated.
+// ---------------------------------------------------------------------------
+
+const chains = await pipeline(plans, evaluatePlan, triageAndRefute)
+
+// A chain answers `null` only for a plan a STAGE THREW in; a plan its evaluator
+// never judged comes back as an empty chain. Both contributed nothing, and both
+// are named in the log, but under separate lines: a thrown stage also discarded
+// whatever triage rows, verdicts, rulings and invalid entries that plan had
+// already produced, which is a bug to chase rather than a silent agent to re-run.
+// Kept in index order alongside `plans`, since a null carries no plan id itself.
+const done = chains.map((c, i) => {
+  const chain = c === null || c === undefined ? { evaluation: null, triaged: [], verdicts: [] } : c
+  return { plan: plans[i], threw: c === null || c === undefined, ...chain }
+})
+
+const notEvaluated = done.filter((c) => !c.threw && c.evaluation === null)
+if (notEvaluated.length > 0) {
+  log(`Not evaluated (agent returned nothing): ${notEvaluated.map((c) => c.plan.id).join(', ')}`)
+}
+const threw = done.filter((c) => c.threw)
+if (threw.length > 0) log(`Dropped (a stage threw): ${threw.map((c) => c.plan.id).join(', ')}`)
+
+const evaluations = done.map((c) => c.evaluation).filter(Boolean)
+
+// Flattened for the steps that work finding by finding, same objects as above.
+const findings = evaluations.flatMap((e) => e.findings)
+
+log(`${evaluations.length}/${plans.length} plans evaluated, ${findings.length} findings`)
+
+const triaged = done.flatMap((c) => c.triaged)
+const invalid = routedIn(triaged, null)
+log(`Triage: ${histogramOf(triaged)} INVALID=${invalid.length}`)
+for (const t of invalid) log(`  invalid ${t.finding.id}: ${t.violations.join('; ')}`)
+
+const verdicts = done.flatMap((c) => c.verdicts)
 const dispositions = ['FILE', 'FILE_SYMPTOM_ONLY', 'HUMAN_REVIEW', 'DROP']
   .map((d) => `${d}=${verdicts.filter((v) => v.disposition === d).length}`)
   .join(' ')
-log(`Refute: ${verdicts.length} verdicts, ${dispositions}; ${routed('HUMAN_RULING').length} awaiting a human ruling`)
+log(
+  `Refute: ${verdicts.length} verdicts, ${dispositions}; ${routedIn(triaged, 'HUMAN_RULING').length} awaiting a human ruling`,
+)
 
 return {
   evaluations,
@@ -918,6 +1056,6 @@ return {
   // No verdict is synthesised for either of these. A subjective claim has no
   // probe that settles it, and an invalid one is a defect of the report; both
   // are handed back for a person to rule on rather than resolved here.
-  humanRuling: routed('HUMAN_RULING').map((t) => t.finding),
+  humanRuling: routedIn(triaged, 'HUMAN_RULING').map((t) => t.finding),
   invalid: invalid.map((t) => ({ id: t.finding.id, planId: t.finding.planId, violations: t.violations })),
 }
