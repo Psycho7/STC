@@ -376,6 +376,82 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
   });
 });
 
+describe("canvas/ItemEdge crossing cues", () => {
+  // A cue stamp is only drawable while it sits on the edge's own live polyline
+  // (the stale-stamp rule), so a fixture has to discover a live on-line point
+  // from a plain render first -- the same discovery the fan-in marker tests do.
+  async function liveMidpoint(): Promise<{ x: number; y: number }> {
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1);
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    const pts = parsePathPoints(
+      document
+        .querySelector<SVGPathElement>(".react-flow__edge-path")!
+        .getAttribute("d")!,
+    );
+    cleanup();
+    return { x: pts[0]![0] + 40, y: pts[0]![1] };
+  }
+
+  it("draws a cue circle before the coloured path when the edge carries crossings", async () => {
+    const on = await liveMidpoint();
+    renderEdge(
+      { item: "belt", rate: new Fraction(1, 1), crossingCues: [on] },
+      1,
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="edge-crossing-cue"]'),
+      ).not.toBeNull(),
+    );
+    const cue = document.querySelector<SVGCircleElement>(
+      '[data-testid="edge-crossing-cue"]',
+    )!;
+    // Centred on the stamped point, in the path's own (graph) coordinates.
+    expect(Number(cue.getAttribute("cx"))).toBeCloseTo(on.x, 6);
+    expect(Number(cue.getAttribute("cy"))).toBeCloseTo(on.y, 6);
+    // Zoom-clamped radius in graph units (a real radius, not the default 0).
+    expect(Number(cue.getAttribute("r"))).toBeGreaterThan(0);
+    // DOM order: the cue paints BEFORE the coloured path inside this edge's
+    // group, so the path repaints the cue's centre and only the OTHER (the
+    // z-beneath) edge's line is erased around the point.
+    const path = document.querySelector(".react-flow__edge-path")!;
+    expect(
+      cue.compareDocumentPosition(path) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("draws no cue when the edge carries no crossings", async () => {
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1);
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    expect(
+      document.querySelector('[data-testid="edge-crossing-cue"]'),
+    ).toBeNull();
+  });
+
+  it("drops a stale cue whose stamp no longer sits on the live polyline", async () => {
+    // The stamp below is well off the drawn line, the state a node drag
+    // leaves behind (the seating pass does not rerun on drag).
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        crossingCues: [{ x: -500, y: -500 }],
+      },
+      1,
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    expect(
+      document.querySelector('[data-testid="edge-crossing-cue"]'),
+    ).toBeNull();
+  });
+});
+
 describe("canvas/ItemEdge hover reveal", () => {
   it("reveals the rate chip of a focused edge below the label zoom gate", async () => {
     // Hovering singles out one edge to ask for its rate, so the lit edge's chip

@@ -91,11 +91,12 @@ const geometry = (): Geometry => ({
     },
   ],
   edges: [
-    // Second segment runs along y=250 through card C.
-    { id: E_IRON, d: "M 100,25 L 100,250 L 400,250" },
+    // Second segment runs along y=250 through card C. z 0: a top-level edge
+    // pair, the common case the paint tiebreak resolves by array order.
+    { id: E_IRON, d: "M 100,25 L 100,250 L 400,250", z: 0 },
     // First segment runs down inside its own source card D; the x=300 leg
     // crosses E_IRON's y=250 leg.
-    { id: E_WATER, d: "M 50,425 L 50,500 L 300,500 L 300,150 L 400,150" },
+    { id: E_WATER, d: "M 50,425 L 50,500 L 300,500 L 300,150 L 400,150", z: 0 },
   ],
   chips: [
     // Far from its own edge's polyline and clear of everything else.
@@ -134,6 +135,7 @@ const geometry = (): Geometry => ({
   ],
   dots: [],
   bands: [],
+  crossingCues: [],
   zoom: 1,
 });
 
@@ -302,8 +304,11 @@ describe("measurementsFor", () => {
       sceneCollection(),
     );
 
-    // The x=300 leg of E_WATER crosses the y=250 leg of E_IRON.
-    expect(crossingCensus).toEqual({ count: 1 });
+    // The x=300 leg of E_WATER crosses the y=250 leg of E_IRON. cued 0: the
+    // fixture's collected geometry carries no drawn cue disks (the census
+    // scorer counts them off geom.crossingCues), so the one counted crossing
+    // stands uncued in this hand-built scene.
+    expect(crossingCensus).toEqual({ count: 1, cued: 0 });
     // A crossing has no participating ids and no place, so it contributes no
     // measurement: the list is still exactly the five the rest of the geometry
     // produces, and none of them is explained by that crossing.
@@ -350,10 +355,11 @@ describe("measurementsFor", () => {
           outPorts: [],
         },
       ],
-      edges: [{ id: E_IRON, d: "M 100,25 L 100,250 L 4000,250" }],
+      edges: [{ id: E_IRON, d: "M 100,25 L 100,250 L 4000,250", z: 0 }],
       chips: [],
       dots: [],
       bands: [],
+      crossingCues: [],
       zoom: 1,
     };
     const scene: SceneCollection = {

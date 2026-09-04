@@ -1,6 +1,7 @@
 import { BaseEdge, useStore, type EdgeProps } from "@xyflow/react";
 import { useMemo } from "react";
 import {
+  CrossingCueDisks,
   FlowChip,
   JunctionDot,
   LABEL_MIN_ZOOM,
@@ -17,8 +18,10 @@ import {
 import {
   chamferBusPath,
   chamferFanoutPath,
+  parsePathPoints,
   routingHintsFromData,
 } from "./edgePath";
+import { liveCrossingCues } from "./crossings";
 import { HIDE_STALE_EPS } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
@@ -115,6 +118,15 @@ export default function BusEdge({
     : laneY + (laneData?.busDropDy ?? 0);
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
+  // Crossing-cue disks (Task 9), stamped on this member where ITS polyline
+  // properly crosses a different flow's and it paints above the other (the
+  // seating pass picks the owner by React Flow's z key). Filtered to stamps
+  // still on the live polyline (the stale-stamp rule) and rendered before the
+  // coloured path, exactly as ItemEdge draws them.
+  const liveCues = liveCrossingCues(
+    edgeData?.crossingCues,
+    parsePathPoints(path),
+  );
   // Zoom-compensated base width published as --edge-base-width, matching
   // ItemEdge. A caller-supplied style still wins over these defaults.
   const mergedStyle: React.CSSProperties = {
@@ -300,6 +312,10 @@ export default function BusEdge({
 
   return (
     <>
+      {/* Crossing cues FIRST, before the coloured path, for the same paint
+          reason as ItemEdge: the disk erases the z-beneath stroke and this
+          member's own path repaints the disk's centre. */}
+      <CrossingCueDisks cues={liveCues} zoom={zoom} />
       <BaseEdge
         id={id}
         path={path}

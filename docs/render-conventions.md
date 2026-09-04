@@ -34,6 +34,15 @@ container's side borders, and its rail escapes only the cards it actually spans
 -- one connected band of them -- rather than flying over every card that shares
 its x-range. A stroke and a slab or band border drawn as one line is a defect.
 
+Where two strokes of DIFFERENT flows properly cross, the stroke passing under
+shows a gap: the edge painting above draws a short canvas-coloured break across
+the other's line, so the crossing reads as two flows crossing, not as a join. A
+merge never looks like that -- it shows a dot or a shared run -- and a bare X
+of two continuous strokes is a defect: it is indistinguishable from a merge,
+which is exactly the confusion the dot exists to prevent. Crossings inside one
+flow (a trunk's overlapping lane runs, a fan-out's shared run) are one visual
+line and carry no gap.
+
 ## Bus lanes
 
 Long edges route through shared horizontal lanes, drawn as faint tinted bands
@@ -116,6 +125,11 @@ Do not report these as defects.
   on the edge's hover tooltip and on the target card's input row. Only a lone
   trunk is guaranteed a label, by the drop chip that returns when its rise is
   hidden.
+- The short break in a stroke at a crossing (see Edges) is not-a-break. No flow
+  is interrupted there: the passing-under edge is continuous in the model, and
+  the gap exists only to say "crossing, not a merge". Likewise the stroke that
+  stays continuous over the gap is the one passing over, not the one being
+  cut.
 - A hover screenshot, where the capture took one, dims everything outside the
   hovered ego-network on purpose.
 

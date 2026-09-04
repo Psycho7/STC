@@ -10,7 +10,12 @@ import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 import { HIDE_STALE_EPS, MAX_CHIP_SCALE } from "./dimensions";
-import { chamferStepPath, routingHintsFromData } from "./edgePath";
+import {
+  chamferStepPath,
+  parsePathPoints,
+  routingHintsFromData,
+} from "./edgePath";
+import { crossingCueRadius, liveCrossingCues } from "./crossings";
 import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
 
@@ -100,6 +105,27 @@ export type ItemEdgeData = {
   // split, and gets nothing; nor does one where no member ever leaves the row.
   fanoutJunctionX?: number;
   fanoutJunctionY?: number;
+  // Crossing cues (deconflictChipAnchors, exam-surfaced Task 9). Where this
+  // edge's polyline properly crosses a DIFFERENT flow's polyline (different
+  // item|source), the seating pass stamps the crossing points on the edge of
+  // the pair whose React Flow group paints ABOVE the other. That is NOT
+  // simply the later edge in array order: React Flow renders every edge in
+  // its own <svg style={{zIndex}}>, CSS z-index beats DOM order, and the
+  // array order is only the tiebreak -- an edge with a container-member
+  // endpoint sits at z 1 and paints above every top-level (z 0) edge no
+  // matter where either sits in the array. The renderer draws each point as
+  // a background-coloured disk BEFORE its own coloured path (see
+  // CrossingCueDisk): the disk erases the z-BENEATH edge's stroke around the
+  // point and this edge's own stroke repaints the disk's centre, so the
+  // beneath stroke shows a gap and reads as passing under while this edge's
+  // stays continuous over it. A bare X of two continuous strokes reads as a
+  // join; the gap is what says "crossing, not a merge". Strict-interior
+  // crossing semantics (crossings.ts) mean a collinear fan-in run, a bus
+  // lane's overlapping member runs, and a shared fan-out trunk can never
+  // produce a stamp. Cues render only while they still sit on this edge's
+  // own live polyline (the shared stale-stamp rule), so a node drag drops
+  // them instead of floating them.
+  crossingCues?: ReadonlyArray<{ x: number; y: number }>;
 };
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
@@ -300,6 +326,47 @@ export function junctionRadius(zoom: number): number {
   return screen / zoom;
 }
 
+// Crossing-cue disks (Task 9): the background-coloured circles an edge
+// renderer emits -- BEFORE its own coloured path -- at every point where its
+// polyline properly crosses a DIFFERENT flow's. Inside this edge's own svg
+// the disk erases the z-beneath edge's stroke around the point; this edge's
+// own path, drawn after, repaints the disk's centre, so the beneath stroke
+// shows a gap and this edge stays continuous over it. That is why the cue
+// rides the edge painting ABOVE (the seating pass picks the owner by React
+// Flow's z key, see chipSeating Phase 0c): a disk on the beneath edge would
+// erase nothing -- its own path repaints over it and the above edge paints
+// over both. An SVG <circle> in the edge group (NOT an EdgeLabelRenderer
+// portal): it must participate in this group's paint order, under this edge's
+// own path and above the beneath edge's. pointer-events none keeps the disk
+// from becoming a hover target between the two strokes. Shared by ItemEdge
+// and BusEdge; radius via crossingCueRadius so the gap holds a clamped
+// on-screen width across zoom like the junction dot.
+export function CrossingCueDisks({
+  cues,
+  zoom,
+}: {
+  cues: ReadonlyArray<{ x: number; y: number }> | undefined;
+  zoom: number;
+}) {
+  if (cues === undefined || cues.length === 0) return null;
+  const r = crossingCueRadius(zoom);
+  return (
+    <>
+      {cues.map((c, i) => (
+        <circle
+          key={`${c.x},${c.y}` + (i === 0 ? "" : `#${i}`)}
+          data-testid="edge-crossing-cue"
+          cx={c.x}
+          cy={c.y}
+          r={r}
+          fill="var(--ak-bg-canvas)"
+          pointerEvents="none"
+        />
+      ))}
+    </>
+  );
+}
+
 // The merge junction dot, portaled into the shared edgelabel-renderer layer (not
 // an SVG circle in the edge group) so it shares the chips' stacking context: it
 // sits BELOW the flow chips (.bus-junction z-index 1 vs .flow-chip z-index 2 in
@@ -444,6 +511,13 @@ export default function ItemEdge({
   );
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
+  // Crossing-cue disks, filtered to the stamps that still sit on THIS edge's
+  // live polyline (the stale-stamp rule, see liveCrossingCues): rendered
+  // before the coloured path below so the path repaints each disk's centre.
+  const liveCues = liveCrossingCues(
+    edgeData?.crossingCues,
+    parsePathPoints(edgePath),
+  );
   // Zoom-compensated base width, published as --edge-base-width so the hover
   // emphasis CSS can scale relative to it. A caller-supplied style wins over
   // these defaults, so later overrides for hover, tear edges, or cross-group
@@ -457,6 +531,10 @@ export default function ItemEdge({
 
   return (
     <>
+      {/* Crossing cues FIRST: each disk erases the z-beneath edge's stroke
+          around a proper crossing, and the coloured path that follows repaints
+          the disk's centre so this edge stays continuous over the gap. */}
+      <CrossingCueDisks cues={liveCues} zoom={zoom} />
       <BaseEdge
         id={id}
         path={edgePath}

@@ -4,7 +4,7 @@ import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import BusEdge, { junctionRadius } from "../../src/canvas/BusEdge";
 import type { BusEdgeData } from "../../src/canvas/busRouting";
-import { busRiseBase } from "../../src/canvas/edgePath";
+import { busRiseBase, parsePathPoints } from "../../src/canvas/edgePath";
 import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
@@ -139,6 +139,62 @@ describe("canvas/BusEdge", () => {
     );
     expect(dot).not.toBeNull();
     expect(dot!.classList.contains("dimmed")).toBe(true);
+  });
+});
+
+describe("canvas/BusEdge crossing cues", () => {
+  // The cue stamp must sit on the edge's own live polyline (the stale-stamp
+  // rule), so the fixture discovers an on-line point -- the lane path's
+  // middle vertex -- from a plain render first.
+  async function laneMidpoint(): Promise<{ x: number; y: number }> {
+    renderEdge({
+      item: "Iron Plate",
+      rate: new Fraction(2, 1),
+      laneY: 500,
+      trunkKey: "Iron Plate|src",
+    });
+    const path = await findEdgePath();
+    const pts = parsePathPoints(path.getAttribute("d") ?? "");
+    cleanup();
+    const mid = pts[Math.floor(pts.length / 2)]!;
+    return { x: mid[0], y: mid[1] };
+  }
+
+  it("draws a cue circle before the coloured path when the edge carries crossings", async () => {
+    const on = await laneMidpoint();
+    renderEdge({
+      item: "Iron Plate",
+      rate: new Fraction(2, 1),
+      laneY: 500,
+      trunkKey: "Iron Plate|src",
+      crossingCues: [on],
+    });
+    const path = await findEdgePath();
+    const cue = document.querySelector<SVGCircleElement>(
+      '[data-testid="edge-crossing-cue"]',
+    );
+    expect(cue).not.toBeNull();
+    expect(Number(cue!.getAttribute("cx"))).toBeCloseTo(on.x, 6);
+    expect(Number(cue!.getAttribute("cy"))).toBeCloseTo(on.y, 6);
+    // The cue paints BEFORE the coloured path inside this edge's group, so the
+    // bus stroke repaints the cue's centre and stays continuous over the gap
+    // it cuts in the other flow's line.
+    expect(
+      cue!.compareDocumentPosition(path) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("draws no cue when the edge carries no crossings", async () => {
+    renderEdge({
+      item: "Iron Plate",
+      rate: new Fraction(2, 1),
+      laneY: 500,
+      trunkKey: "Iron Plate|src",
+    });
+    await findEdgePath();
+    expect(
+      document.querySelector('[data-testid="edge-crossing-cue"]'),
+    ).toBeNull();
   });
 });
 

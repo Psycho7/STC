@@ -71,6 +71,7 @@ import {
   pathPointAtPts,
   routingHintsFromData,
 } from "./edgePath";
+import { pointToPolylineDistance, properCrossPoint } from "./crossings";
 import {
   BUS_LONG_RUN_THRESHOLD,
   ENTRY_SLOT_PITCH,
@@ -449,45 +450,11 @@ function segIntersectsChipBox(
   return clipSegToChipBox(x0, y0, x1, y1, box) !== null;
 }
 
-// Distance from a point to a segment, the usual clamped projection.
-function pointSegDistance(
-  px: number,
-  py: number,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-): number {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const l2 = dx * dx + dy * dy;
-  if (l2 === 0) return Math.hypot(px - x0, py - y0);
-  const t = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / l2));
-  return Math.hypot(px - (x0 + t * dx), py - (y0 + t * dy));
-}
-
-// Distance from a point to the nearest point of a polyline.
-function pointPolylineDistance(
-  px: number,
-  py: number,
-  pts: ReadonlyArray<readonly [number, number]>,
-): number {
-  if (pts.length === 0) return Infinity;
-  if (pts.length === 1) return Math.hypot(px - pts[0]![0], py - pts[0]![1]);
-  let best = Infinity;
-  for (let i = 1; i < pts.length; i++) {
-    const d = pointSegDistance(
-      px,
-      py,
-      pts[i - 1]![0],
-      pts[i - 1]![1],
-      pts[i]![0],
-      pts[i]![1],
-    );
-    if (d < best) best = d;
-  }
-  return best;
-}
+// Distance-from-a-point geometry (pointSegDistance,
+// pointToPolylineDistance) is shared from ./crossings.ts since the
+// exam-surfaced Task 9 crossing-cue work: the render layer's cue liveness
+// filter and the e2e audits read the same copy, so the seating pass and the
+// audit can never disagree about whether a point sits on a line.
 
 // A reconstructed edge polyline the chip pass treats as an obstacle: the
 // segments of every edge OUTSIDE the chip's own flow (its own edge plus
@@ -1360,8 +1327,8 @@ export function seatRateChip(
     )) {
       if (
         Math.hypot(x1 - x0, y1 - y0) >= BIND_RUN &&
-        pointPolylineDistance(x0, y0, pts) <= BIND_NEAR &&
-        pointPolylineDistance(x1, y1, pts) <= BIND_NEAR
+        pointToPolylineDistance([x0, y0], pts) <= BIND_NEAR &&
+        pointToPolylineDistance([x1, y1], pts) <= BIND_NEAR
       ) {
         bound++;
       }
@@ -1848,6 +1815,11 @@ export function deconflictChipAnchors(
   const flowKeyOf = (edge: Edge): string =>
     (edgeItem(edge) ?? "?") + "|" + edge.source;
   const edgeSegments: EdgeSegments[] = [];
+  // The edges-array index of each edgeSegments entry, parallel to it: the
+  // crossing-cue pass below reads it as the tiebreak half of React Flow's
+  // paint key, while the segment list skips edges with unresolvable
+  // endpoints.
+  const edgeIndexOfSegment: number[] = [];
   type ItemGeom = {
     pts: ReadonlyArray<readonly [number, number]>;
     lx: number;
@@ -1961,7 +1933,107 @@ export function deconflictChipAnchors(
       target: edge.target,
       segs,
     });
+    edgeIndexOfSegment.push(index);
   });
+
+  // Phase 0c -- crossing cues (exam-surfaced Task 9,
+  // unmarked-same-item-crossing). Where two reconstructed polylines of
+  // DIFFERENT flows (different item|source) properly cross, the pair reads as
+  // a bare X -- and a bare X of two strokes is indistinguishable from a join,
+  // which is exactly the confusion the merge dot exists to prevent on the
+  // other side. Stamp the crossing point on the edge of the pair that paints
+  // ABOVE the other: only its renderer can erase the other stroke around the
+  // point (a background-coloured disk emitted before its own coloured path,
+  // which then repaints the disk's centre). The z-beneath stroke shows the
+  // gap and reads as passing under; the above stroke stays continuous over
+  // it. A disk on the BENEATH edge would erase nothing at all -- its own path
+  // repaints over it and the above edge paints over both -- so the owner
+  // choice IS the mechanism.
+  //
+  // The paint key is the one React Flow computes, not array order: every edge
+  // renders in its own <svg style={{zIndex}}>, CSS z-index beats DOM order,
+  // and the edges-array (DOM) order is only the tiebreak. That zIndex is
+  // edgeZ + max(endpoint node z), where an endpoint's node z counts only when
+  // the endpoint has a parentId (a container member is elevated to z 1 so its
+  // edges paint above the container box; top-level nodes sit at z 0). This
+  // app never sets an explicit z anywhere (zIndexMode "basic" and
+  // elevateEdgesOnSelect false are the defaults; no node or edge carries a
+  // zIndex; containers never nest), so the key reduces exactly to
+  // (either endpoint is a container member ? 1 : 0, edges-array index): an
+  // edge into or out of a container paints above EVERY top-level edge
+  // regardless of array position, and among equal-z edges the later array
+  // index paints above.
+  //
+  // The pass is presentational only -- no edge is retyped, no chip moves, no
+  // routing changes -- and the CROSSING ratchet above the routing passes is
+  // untouched: this adds cues, not crossings.
+  //
+  // Why properCross semantics are the whole safety argument (the negative
+  // tests pin each clause): a strict-interior crossing can never fire on
+  //   - a collinear fan-in merge run (collinear overlap, not opposite
+  //     orientations),
+  //   - a bus lane's overlapping member runs (collinear) or a foreign
+  //     member's drop/rise column meeting the lane (the column ENDS at
+  //     laneY, an endpoint touch on the run's interior), or
+  //   - a shared fan-out trunk (the members leave the junction from one
+  //     shared vertex, so every intersection is an endpoint touch),
+  // so the cue cannot mark a real merge or a trunk as a crossing. Same-flow
+  // pairs are skipped outright: one flow is one visual line (the flowKey
+  // doctrine the chip clearance tiers already apply).
+  //
+  // O(S^2) over segment pairs of different flows, the same shape as the e2e
+  // crossing census. Points are rounded to the emitted paths' two decimals and
+  // deduped per edge: the members of one trunk share a lane exactly, so their
+  // crossings with one foreign edge land on the same point and one gap must
+  // draw there, not six stacked disks.
+  const crossingCuesByIndex = new Map<
+    number,
+    Array<{ x: number; y: number }>
+  >();
+  {
+    // The React Flow paint key per segment entry: (zTier, edges-array index),
+    // lexicographic -- the SMALLER pair paints beneath. zTier mirrors
+    // getElevatedEdgeZIndex under this app's settings (see the comment above).
+    const zTierOfSegment = edgeSegments.map((_, i) => {
+      const edge = edges[edgeIndexOfSegment[i]!]!;
+      const elev = (nodeId: string): number =>
+        byId.get(nodeId)?.parentId !== undefined ? 1 : 0;
+      return Math.max(elev(edge.source), elev(edge.target));
+    });
+    const seenCues = new Set<string>();
+    for (let i = 0; i < edgeSegments.length; i++) {
+      for (let j = i + 1; j < edgeSegments.length; j++) {
+        const si = edgeSegments[i]!;
+        const sj = edgeSegments[j]!;
+        if (si.flowKey === sj.flowKey) continue;
+        // The cue owner: the pair edge painting ABOVE -- the larger
+        // (zTier, edges-array index) key. edgeIndexOfSegment is strictly
+        // increasing (it is built in edges-array order), so j always carries
+        // the larger index and only the zTier can flip the ruling.
+        const above = zTierOfSegment[j]! >= zTierOfSegment[i]! ? j : i;
+        const stampIndex = edgeIndexOfSegment[above]!;
+        for (const sa of si.segs) {
+          for (const sb of sj.segs) {
+            const p = properCrossPoint(
+              [sa[0], sa[1]],
+              [sa[2], sa[3]],
+              [sb[0], sb[1]],
+              [sb[2], sb[3]],
+            );
+            if (p === null) continue;
+            const x = Math.round(p[0] * 100) / 100;
+            const y = Math.round(p[1] * 100) / 100;
+            const key = `${stampIndex}|${x}|${y}`;
+            if (seenCues.has(key)) continue;
+            seenCues.add(key);
+            const list = crossingCuesByIndex.get(stampIndex) ?? [];
+            list.push({ x, y });
+            crossingCuesByIndex.set(stampIndex, list);
+          }
+        }
+      }
+    }
+  }
 
   // The raw card rects a chip's box must stay clear of, in the drawn frame (see
   // cardRectsFor). The per-edge exemption below (own source, target, and their
@@ -2848,6 +2920,7 @@ export function deconflictChipAnchors(
     const faninJunction = faninJunctionByIndex.get(index);
     const fanoutJunction = fanoutJunctionByIndex.get(index);
     const faninChipHidden = faninChipHiddenByIndex.has(index);
+    const crossingCues = crossingCuesByIndex.get(index);
     const chipIconOnly = shortLegByIndex.has(index);
     const fanoutBranchIconOnly =
       shortBranchByIndex.has(index) ||
@@ -2869,7 +2942,8 @@ export function deconflictChipAnchors(
       !fanoutBranchHidden &&
       faninJunction === undefined &&
       fanoutJunction === undefined &&
-      !faninChipHidden
+      !faninChipHidden &&
+      crossingCues === undefined
     ) {
       return edge;
     }
@@ -2906,6 +2980,10 @@ export function deconflictChipAnchors(
               fanoutJunctionY: fanoutJunction.y,
             }
           : {}),
+        // Crossing cues read by ItemEdge AND BusEdge (the field lives on the
+        // shared ItemEdgeData payload both render). Absolute graph points; the
+        // renderers drop any whose own polyline has since moved off them.
+        ...(crossingCues !== undefined ? { crossingCues } : {}),
         // The hide is stamped with the port y it was decided at, so ItemEdge
         // can drop it once a node drag moves the live port away from the stamp
         // (the fanoutBranchHiddenAt staleness pattern).

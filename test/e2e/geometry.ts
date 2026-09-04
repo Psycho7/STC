@@ -23,6 +23,19 @@ import {
   cardGrowth,
   chipEntersOwnCardBody,
 } from "../../src/canvas/chipSeating";
+// properCross / properCrossPoint and the point-distance helpers live in
+// src/canvas/crossings.ts since the exam-surfaced Task 9 crossing-cue work:
+// the render layer's cue stamp pass, its liveness filter, and this audit's
+// crossing census share one definition instead of two copies that happen to
+// agree. Imported for the census / coverage below and re-exported so the
+// audits' existing imports are unchanged.
+import {
+  pointSegDistance,
+  pointToPolylineDistance,
+  properCross,
+  properCrossPoint,
+} from "../../src/canvas/crossings";
+export { properCross, properCrossPoint, pointToPolylineDistance };
 
 export type Pt = readonly [number, number];
 
@@ -153,19 +166,9 @@ export function clipSegmentToRect(
 // Proper crossing of two segments: they intersect at a point strictly interior
 // to BOTH (shared endpoints and collinear touches do not count). Used for the
 // crossing census, so a chain of connected segments in one edge and two edges
-// meeting at a shared port are not miscounted as crossings.
-export function properCross(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
-  const o = (p: Pt, q: Pt, r: Pt): number =>
-    (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
-  const d1 = o(c, d, a);
-  const d2 = o(c, d, b);
-  const d3 = o(a, b, c);
-  const d4 = o(a, b, d);
-  const EPS = 1e-9;
-  const strictlyOpposite = (u: number, v: number): boolean =>
-    (u > EPS && v < -EPS) || (u < -EPS && v > EPS);
-  return strictlyOpposite(d1, d2) && strictlyOpposite(d3, d4);
-}
+// meeting at a shared port are not miscounted as crossings. The definition
+// itself now lives in src/canvas/crossings.ts (see the import above); the
+// census calls it through this module's re-export unchanged.
 
 // Count crossings between segments belonging to DIFFERENT edges. O(S^2), fine at
 // this scale. Segments within one edge are never compared (adjacent ones share a
@@ -185,6 +188,102 @@ export function countCrossings(
     }
   }
   return count;
+}
+
+// One drawn crossing cue: the background-coloured disk an edge's renderer
+// emits where its polyline properly crosses a different flow's, keyed to the
+// owning edge id (the React Flow edge group the circle lives in) and carrying
+// its centre in graph coordinates (the SVG cx/cy attributes, already in the
+// same frame as the path `d` strings). This is the shape collectGeometry
+// hands back for every [data-testid="edge-crossing-cue"] element.
+export type CrossingCue = { edgeId: string; x: number; y: number };
+
+export type CrossingCoverage = {
+  // Counted crossings (properCross, different edges) whose two edges carry
+  // DIFFERENT flowKeys (item|source) -- the pairs the seating pass stamps a
+  // cue on, because two different flows crossing is what a bare X would
+  // misread as a merge.
+  crossFlow: number;
+  // Of those, the crossings whose point carries a cue on the pair edge that
+  // paints ABOVE -- the larger (group z-index, DOM order) key, the SAME key
+  // React Flow computes (each edge renders in its own <svg style={{zIndex}}>
+  // and CSS z beats DOM order) and the same owner rule the seating pass
+  // stamps by. That edge's renderer is the only one that can erase the
+  // z-beneath stroke around the point, so the cue must live on IT, not on
+  // the beneath edge and not blindly on the later array entry.
+  cued: number;
+  // Counted crossings between SAME-flowKey edges (a trunk's members, a
+  // fanout's slices): one visual line by the flowKey doctrine, deliberately
+  // never cued. Reported so a plan where this class suddenly appears is
+  // visible in the audit output rather than silently outside the assertion.
+  sameFlow: number;
+  // Inventory of uncued cross-flow crossings, for the failure message.
+  uncued: string[];
+};
+
+// Match a counted crossing to a drawn cue WITHOUT demanding the exact computed
+// intersection point: the stamps come from the seating pass's reconstructed
+// polylines while the census reads the drawn `d` strings, and the two frames
+// agree only to the endpoint-parity noise, which a shallow crossing angle
+// amplifies along the line. A cue matches when it sits within `eps` of BOTH
+// crossing segments -- a cue is always stamped ON both lines, so this stays
+// tight while tolerating the frame noise. The expected owner is decided per
+// pair by React Flow's paint key read off the DOM (`z`, the computed
+// z-index of the edge's own svg group, with the array position -- DOM order
+// -- as the tiebreak): the cue belongs on the edge painting ABOVE, whose
+// group is the only one whose disk can erase the beneath stroke.
+export function crossingCueCoverage(
+  edges: ReadonlyArray<{ id: string; d: string; z?: number }>,
+  cues: ReadonlyArray<CrossingCue>,
+  eps = 4,
+): CrossingCoverage {
+  const flowKeyOf = (id: string): string => {
+    const parsed = parseEdgeId(id);
+    return parsed === null ? id : `${parsed.item}|${parsed.source}`;
+  };
+  const perEdge = edges.map((e) => segmentsOf(parsePath(e.d)));
+  const out: CrossingCoverage = {
+    crossFlow: 0,
+    cued: 0,
+    sameFlow: 0,
+    uncued: [],
+  };
+  for (let i = 0; i < perEdge.length; i++) {
+    for (let j = i + 1; j < perEdge.length; j++) {
+      const idI = edges[i]!.id;
+      const idJ = edges[j]!.id;
+      const sameFlow = flowKeyOf(idI) === flowKeyOf(idJ);
+      // j > i always wins the index half of the key, so only z can flip the
+      // ruling -- exactly the container-member case the array-order rule
+      // gets wrong.
+      const aboveId = (edges[j]!.z ?? 0) >= (edges[i]!.z ?? 0) ? idJ : idI;
+      for (const [a, b] of perEdge[i]!) {
+        for (const [c, d] of perEdge[j]!) {
+          const p = properCrossPoint(a, b, c, d);
+          if (p === null) continue;
+          if (sameFlow) {
+            out.sameFlow++;
+            continue;
+          }
+          out.crossFlow++;
+          const matched = cues.some(
+            (cue) =>
+              cue.edgeId === aboveId &&
+              pointSegDistance([cue.x, cue.y], a, b) <= eps &&
+              pointSegDistance([cue.x, cue.y], c, d) <= eps,
+          );
+          if (matched) {
+            out.cued++;
+          } else {
+            out.uncued.push(
+              `no cue on ${aboveId} at (${p[0].toFixed(1)},${p[1].toFixed(1)})`,
+            );
+          }
+        }
+      }
+    }
+  }
+  return out;
 }
 
 // Container node ids (type "group") whose raw rect contains point p. An edge's
@@ -660,26 +759,13 @@ export type ChipOffPathViolation = {
   distance: number;
 };
 
-// Distance from point p to segment a->b.
-function pointSegDistance(p: Pt, a: Pt, b: Pt): number {
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  const len2 = dx * dx + dy * dy;
-  if (len2 === 0) return Math.hypot(p[0] - a[0], p[1] - a[1]);
-  let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
-  t = t < 0 ? 0 : t > 1 ? 1 : t;
-  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
-}
-
-// Shortest distance from p to a polyline (min over its segments).
-export function pointToPolylineDistance(p: Pt, pts: ReadonlyArray<Pt>): number {
-  let best = Infinity;
-  for (const [a, b] of segmentsOf(pts)) {
-    const d = pointSegDistance(p, a, b);
-    if (d < best) best = d;
-  }
-  return best;
-}
+// Point-to-segment / point-to-polyline distance now live in
+// src/canvas/crossings.ts (re-exported here so this module's existing export
+// surface is unchanged): the render layer's cue liveness filter, the seating
+// pass, and these audits share one copy. Note the ported length guards -- an
+// EMPTY polyline is infinitely far, a LONE point is its own distance -- where
+// this module's former private copy returned Infinity for both; real paths
+// always carry >= 2 vertices, so the audits' behaviour is unchanged.
 
 // Every LABEL chip whose centre lies farther than `tol` from its own edge's
 // polyline (the P3 on-own-line invariant). Entry chips are excluded: they are
