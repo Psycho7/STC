@@ -477,6 +477,124 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
   });
 });
 
+describe("deconflictChipAnchors: per-chip bus seat box", () => {
+  // Task 10: the lane bus seats (drop and rise) reserve the box their own
+  // text draws through chipSeatHalfW -- the same estimate the rate seats have
+  // carried since T6b -- instead of the flat 240-wide clamp. The fixtures pin
+  // the two observables of a narrower reserve: a lane seat the wide box had to
+  // leave is TAKEN, and a rise seated flush beside its own trunk's drop no
+  // longer stacks a pitch off it. MIN_CHIP_SEP and the capacity comparator
+  // stay on the wide separation, so only the reserved box changes.
+  const laneY = 300;
+  // A lone-member lane trunk (a|s) on a bottom band at y 300, drop column 132
+  // (source right edge 100), rise window [1128, 1360] for the t0-at-1400
+  // member, and a mid-window rise slot at 1248. The rate picks the reserved
+  // width: "1/min" (rate 1/60 per sec) reserves 79.5 a side (natural 38 + 7.5
+  // + 34, doubled by the counter-scale cap, halved), while "1234.56/min"
+  // (rate 123456/6000) clamps to the 120 wide half -- the same box every bus
+  // chip reserved before the per-chip change.
+  const mkLoneBus = (rate: Fraction): Edge => ({
+    id: "e0",
+    source: "s",
+    target: "t0",
+    type: "bus",
+    data: {
+      item: "a",
+      rate,
+      laneY,
+      trunkKey: "a|s",
+      busChipX: 1248,
+      busChipOwner: true,
+      busMemberCount: 1,
+      busBand: "bottom" as const,
+    },
+  });
+
+  it("takes the lane seat a narrower rise box clears where the wide one cannot", () => {
+    // A tall foreign vertical (bend column 1348, spanning y -562..682 past the
+    // one-pitch band either side of the lane) runs 100 units right of the
+    // rise slot at 1248. A rise whose text reserves 79.5 per side holds its
+    // lane seat with the stroke 20.5 clear of the box; the wide box reaches
+    // the stroke at every seat within a pitch, so before the per-chip box that
+    // same chip cascaded nine pitches down and was hidden by the off-band rule
+    // -- the lane slot here is the seat a 240-wide reserve could not clear but
+    // the narrower one can. A long body ("1234.56/min", the clamp) still
+    // reaches the stroke and stays hidden: the reserve follows the text, not
+    // the trunk. Red before: both trunks reserved 240, so the short member's
+    // rise hid with the long one's.
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60), // right edge 100 -> dropX 132
+      productNode("t0", 1400, 0, 100, 60), // left edge 1400 -> rise 1368
+      // Foreign bend column at x 1348: fs right edge 1200 (drawn port 1204),
+      // ft left edge 1500 (drawn port 1496), so the stamped bendX sits inside
+      // the corridor and the vertical spans both sides of the lane.
+      productNode("fs", 1100, -600, 100, 60),
+      productNode("ft", 1500, 660, 100, 60),
+    ];
+    const foreign: Edge = {
+      id: "f0",
+      source: "fs",
+      target: "ft",
+      type: "item",
+      data: { item: "f", rate: new Fraction(1), bendX: 1348 },
+    };
+    const short = deconflictChipAnchors(nodes, [
+      mkLoneBus(new Fraction(1, 60)),
+      foreign,
+    ]);
+    expect(busRiseHiddenOf(short, "e0")).toBe(false);
+    expect(busChipDyOf(short, "e0")).toBe(0);
+    expect(busDropDyOf(short, "e0")).toBe(0);
+    const long = deconflictChipAnchors(nodes, [
+      mkLoneBus(new Fraction(123456, 6000)),
+      foreign,
+    ]);
+    expect(busRiseHiddenOf(long, "e0")).toBe(true);
+  });
+
+  it("seats a short rise flush beside its own drop where a wide pair stacks", () => {
+    // The drop column 132 and a rise slot at 337 sit 205 apart: inside the
+    // 240 the two wide half-boxes sum to, 46 clear of the 159 the two "1/min"
+    // boxes reserve. Drops seat first, so the wide pair forces the rise one
+    // pitch off the lane while the narrow pair holds both seats flush -- a
+    // member's rise yields to its own trunk's aggregate only as far as the
+    // boxes they actually draw. Red before: both chips reserved 240, so the
+    // short member's rise stacked a pitch like the long one's still does.
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 100, 60), // right edge 100 -> dropX 132
+      productNode("t", 545, 0, 100, 60), // left edge 545 -> rise 513, window [273, 505]
+    ];
+    const mkLone = (rate: Fraction): Edge[] => [
+      {
+        id: "e0",
+        source: "s",
+        target: "t",
+        type: "bus",
+        data: {
+          item: "a",
+          rate,
+          laneY,
+          trunkKey: "a|s",
+          busChipX: 337,
+          busChipOwner: true,
+          busMemberCount: 1,
+          busBand: "bottom" as const,
+        },
+      },
+    ];
+    const short = deconflictChipAnchors(nodes, mkLone(new Fraction(1, 60)));
+    expect(busDropDyOf(short, "e0")).toBe(0);
+    expect(busRiseHiddenOf(short, "e0")).toBe(false);
+    expect(busChipDyOf(short, "e0")).toBe(0);
+    const long = deconflictChipAnchors(
+      nodes,
+      mkLone(new Fraction(123456, 6000)),
+    );
+    expect(busRiseHiddenOf(long, "e0")).toBe(false);
+    expect(busChipDyOf(long, "e0")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+  });
+});
+
 describe("deconflictChipAnchors: bus rise slot clamp", () => {
   // routeBusEdges spreads a trunk's rise slots across the WHOLE trunk extent in
   // edge-id order, so a member's slot index says nothing about where that

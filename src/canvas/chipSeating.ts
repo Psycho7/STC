@@ -287,8 +287,9 @@ export function aggregateChipText(edge: Edge): ChipText | undefined {
 // branch is a direct in-corridor leg drawn beside its unformed siblings' plain
 // item edges, so it keeps the plain rate + unit those siblings read. A lone
 // lane member is its own total and keeps the plain rate + unit reading too.
-// Consulted by the fan-out branch seat (lane rises reserve the worst-case box
-// regardless) and by the exam reservation rows for both member kinds.
+// Consulted by every seat that reserves a member chip's box -- the fan-out
+// branch seat and, since Task 10, the lane rise seat -- and by the exam
+// reservation rows for both member kinds.
 export function branchChipText(edge: Edge): ChipText | undefined {
   const plain = rateChipText(edge);
   if (plain === undefined || plain.body === "") return plain;
@@ -2387,6 +2388,17 @@ export function deconflictChipAnchors(
     trunkKey: string;
     // Target in-port y, the top-to-bottom key the rise seat loop stacks by.
     entryY: number;
+    // Per-chip reserved half-widths (Task 10): what each seat reserves is the
+    // box ITS chip draws -- the drop seat the aggregate text (the trunk total
+    // the drop chip prints), the rise seat the member text (the share
+    // "30/270" or the plain rate) -- through the same chipSeatHalfW estimate
+    // the rate seats have carried since T6b. Until now both bus seats charged
+    // the flat 240-wide clamp, so a "600/min" rise drawing about 162 units
+    // read as blocked to the seat while the corridor beside it was open.
+    // Falls back to the wide box inside the estimator itself (no usable
+    // rate); the capacity comparator and MIN_CHIP_SEP stay wide regardless.
+    dropHalfW: number;
+    riseHalfW: number;
   };
   const busSlots: BusSlot[] = [];
   const busEdges = edges
@@ -2461,6 +2473,8 @@ export function deconflictChipAnchors(
       target: edge.target,
       trunkKey: data.trunkKey,
       entryY: ty,
+      dropHalfW: chipSeatHalfW(aggregateChipText(edge), false),
+      riseHalfW: chipSeatHalfW(branchChipText(edge), false),
     });
   }
   // Card exemption for a lane trunk's AGGREGATE drop chip: the union over every
@@ -2494,7 +2508,7 @@ export function deconflictChipAnchors(
       field,
       slot.dropX,
       slot.laneY,
-      CHIP_HALF_W_WIDE,
+      slot.dropHalfW,
       CHIP_HALF_H,
       slot.step,
       slot.flowKey,
@@ -2590,7 +2604,7 @@ export function deconflictChipAnchors(
       field,
       slot.riseChipX,
       slot.laneY,
-      CHIP_HALF_W_WIDE,
+      slot.riseHalfW,
       CHIP_HALF_H,
       slot.step,
       slot.flowKey,
