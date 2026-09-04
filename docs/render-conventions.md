@@ -29,10 +29,14 @@ one rate chip (the item icon and a rate per minute), and that chip belongs on it
 own line.
 
 A container's frame is kept clear of strokes. A loop's return edge runs in the
-corridor, never along the box border: its two verticals hold a fixed gap off the
-container's side borders, and its rail escapes only the cards it actually spans
--- one connected band of them -- rather than flying over every card that shares
-its x-range. A stroke and a slab or band border drawn as one line is a defect.
+corridor, never along the box border: its two verticals hold a fixed gap off
+the side borders of whatever container each endpoint sits inside, and its rail
+escapes only the cards it actually spans -- one connected band of them --
+rather than flying over every card that shares its x-range. A return stroke
+and a slab or band border drawn as one line is a defect. One column may still
+share that line: a forward tap's jog descent, dropping into its consumer, may
+share an entry-gutter line with a container border. That column is a tap
+approach, not a return riding the frame.
 
 Where two strokes of DIFFERENT flows properly cross, the stroke passing under
 shows a gap: the edge painting above draws a short canvas-coloured break across
