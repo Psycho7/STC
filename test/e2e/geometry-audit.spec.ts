@@ -503,6 +503,9 @@ test.describe("DOM geometry audit", () => {
 // one of the two.
 // First recordings for the three campaign scenarios: script43 55,
 // coupon-web 14, gas-web 42.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 3, rot-bottled_food_4 22.
 const CROSSING_BASELINE: Record<string, number> = {
   default: 9,
   battery5: 8,
@@ -514,6 +517,8 @@ const CROSSING_BASELINE: Record<string, number> = {
   script43: 55,
   "coupon-web": 14,
   "gas-web": 42,
+  "rot-bottled_food_3": 3,
+  "rot-bottled_food_4": 22,
 };
 
 // Padding-graze baseline (tier 3): segments that clip only a foreign card's
@@ -549,6 +554,11 @@ const CROSSING_BASELINE: Record<string, number> = {
 // (e:36 into q:10, e:16 into q:0); gas-web 1 is the corner diagonal of e:29
 // into q:6. All three are tap stubs in packed gutters, the family the survivors
 // above belong to.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 2 (one plant_moss_3 drop column grazing
+// two cards' padding), rot-bottled_food_4 1 (an iron_ore tap approach into
+// loop:plant_grass_1).
 const PADDED_GRAZE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
@@ -560,6 +570,8 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   script43: 2,
   "coupon-web": 2,
   "gas-web": 1,
+  "rot-bottled_food_3": 2,
+  "rot-bottled_food_4": 1,
 };
 
 // P3 chip-tier ratchets. Chip seating follows the ratified priority order:
@@ -625,6 +637,10 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // chips seated on other edges' corridor legs. On gas-web a single tap column
 // accounts for several hits at once (e:24 crosses four chips), so the counts
 // track a handful of columns, not a spread of seats.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 2, rot-bottled_food_4 2 -- the same
+// full-height column passing under label chips family as above.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 3,
@@ -636,6 +652,8 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   script43: 13,
   "coupon-web": 3,
   "gas-web": 20,
+  "rot-bottled_food_3": 2,
+  "rot-bottled_food_4": 2,
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
 // candidates all overlap a card, so card-hardness pushes its seat off the line.
@@ -679,6 +697,9 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // this pin with it. battery5 measured 2 again, unchanged (ratified above).
 // The three campaign scenarios first recorded zero: no label chip on any of
 // them leaves its own polyline today.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): both zero, no label chip leaves its own polyline on either.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 2,
@@ -690,6 +711,8 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
 };
 
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
@@ -714,6 +737,9 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
 // corridor.
 // The three campaign scenarios first recorded zero too, so the gate now holds
 // across the ten-scenario corpus.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): both zero.
 const OWN_PIERCE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -725,6 +751,8 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
 };
 
 // Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
@@ -787,6 +815,10 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // same trade): seat validity is structural, the dot is the weakest preference in
 // the pass, and the depth is the crossings-over-depth precedence R11 declined to
 // reopen. It remains the campaign's only UP move on a pre-existing pin.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 1 and rot-bottled_food_4 1, both a bus
+// rise chip covering its own junction dot.
 const DOT_COVER_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
@@ -798,6 +830,8 @@ const DOT_COVER_BASELINE: Record<string, number> = {
   script43: 0,
   "coupon-web": 0,
   "gas-web": 1,
+  "rot-bottled_food_3": 1,
+  "rot-bottled_food_4": 1,
 };
 
 // Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
@@ -833,6 +867,10 @@ const DOT_COVER_BASELINE: Record<string, number> = {
 // The three campaign scenarios measured the same residue and take the same flat
 // 0.5 pin: script43 0.003 (76 endpoints), coupon-web 0.001 (38), gas-web 0.001
 // (62).
+// The two exam-surfaced scenarios (campaign-first measurement 2026-09-04,
+// exam-surfaced-families Task 0, re-measurable within the campaign) measured
+// the same residue and take the same flat 0.5 pin: rot-bottled_food_3 0.001
+// (38 endpoints), rot-bottled_food_4 0.003 (42).
 const ENDPOINT_PARITY_TOL: Record<string, number> = {
   default: 0.5,
   battery5: 0.5,
@@ -844,6 +882,8 @@ const ENDPOINT_PARITY_TOL: Record<string, number> = {
   script43: 0.5,
   "coupon-web": 0.5,
   "gas-web": 0.5,
+  "rot-bottled_food_3": 0.5,
+  "rot-bottled_food_4": 0.5,
 };
 
 async function loadScenario(page: Page, hash: string): Promise<void> {
@@ -1265,6 +1305,9 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // e:35 (Ferrium Powder 600/min) went the other way, displaced off its line by
 // the re-seating cascade as its neighbours took the corridor room the narrower
 // boxes freed. Both cells are campaign-own measurements, re-measured with cause.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): both zero; every chip holds its own line inside its box.
 const SEAT_VALIDITY_BASELINE: Record<string, number> = {
   default: 1,
   battery5: 1,
@@ -1276,6 +1319,8 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
   script43: 3,
   "coupon-web": 1,
   "gas-web": 2,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
 };
 
 // Card intrusion: chips whose box reaches more than CARD_INTRUSION_BUDGET deep
@@ -1363,6 +1408,11 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
 // The twelve survivors run 166 to 234 wide; the widest of them
 // (battery5-xiranite e:20, "238.36/min") is 3% off the CSS clamp and had nothing
 // to gain, exactly as the box model predicts.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 2 (shallow, 9.5 and 10.8 deep),
+// rot-bottled_food_4 5 (10.7 to 21.7), all label chips on their own endpoint
+// cards.
 const CARD_INTRUSION_BASELINE: Record<string, number> = {
   default: 5,
   battery5: 4,
@@ -1374,6 +1424,8 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   script43: 11,
   "coupon-web": 7,
   "gas-web": 8,
+  "rot-bottled_food_3": 2,
+  "rot-bottled_food_4": 5,
 };
 
 // Foreign strokes: chips with at least one foreign flow's stroke through the
@@ -1406,6 +1458,10 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
 // reserve at the full clamp width. A box reserved at its own text width both
 // straddles fewer columns and has more clear seats to choose from. Nine chips
 // left across seven scenarios; none arrived.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): both 2, each one full-height column passing under two label
+// chips.
 const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 2,
@@ -1417,6 +1473,8 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   script43: 6,
   "coupon-web": 1,
   "gas-web": 10,
+  "rot-bottled_food_3": 2,
+  "rot-bottled_food_4": 2,
 };
 
 // Outside band: bus chips whose box shares no vertical extent with the band its
@@ -1469,6 +1527,9 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
 // ~45 world units that chip overhangs today is a unit difference plus growth
 // already recorded at the clamp, not a new drift. Either way the counter tracks
 // the COUNT, so no magnitude moves it.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): both zero, and no x-overflows on either.
 const OUTSIDE_BAND_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -1480,6 +1541,8 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
 };
 
 // BAND-UNBOUND INVENTORY (#58). Bus chips the outside-band counter SKIPS
@@ -1492,6 +1555,11 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
 // Measured 2026-08-30 (post #81/#83: contested tap fan-outs spread, lone-trunk
 // drop chips gone): every entry is a fan-out formation chip or a short-run
 // rise, except the two zeros, whose bus chips all carry an in-band lane run.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 pins 4 (two Sandleaf Powder and two
+// Sandleaf Seed rise chips on band-less runs; that plan renders no band rects
+// at all), rot-bottled_food_4 pins 0.
 const SKIPPED_BAND_INVENTORY: Record<string, number> = {
   default: 4,
   battery5: 2,
@@ -1503,6 +1571,8 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
   script43: 2,
   "coupon-web": 0,
   "gas-web": 3,
+  "rot-bottled_food_3": 4,
+  "rot-bottled_food_4": 0,
 };
 
 // TIER-1 SLIDE DRIFT, re-measured after the per-chip reserved seat box
@@ -1575,8 +1645,8 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
 // over a run, so it holds even when the suite is run one scenario at a time.
 const CENSUS_TOTALS = {
   seatValidity: 18,
-  cardIntrusion: 70,
-  foreignStroke: 39,
+  cardIntrusion: 77,
+  foreignStroke: 43,
   outsideBand: 0,
 };
 
