@@ -19,6 +19,8 @@ import {
   fmtSeg,
   parsePath,
   polylineLength,
+  segmentEntersRect,
+  segmentsOf,
   toRawEdges,
   type BandRect,
   type ChipCensusHit,
@@ -26,6 +28,7 @@ import {
   type DotRect,
   type NodeRect,
   type RawEdge,
+  type RawRect,
 } from "./geometry";
 import { collectAudit, collectGeometry, type AuditChipRect } from "./collect";
 
@@ -931,6 +934,40 @@ function tundraOreFeed(edges: RawEdge[]): RawEdge | null {
   return ore[0]!;
 }
 
+// One DRAWN bus-band caption (the faint "BUS" tag BusBands paints inside each
+// band tint), in graph coordinates: the band it rides plus the tag's box. Read
+// by a spec-local self-contained collector (page.evaluate cannot close over
+// imports) that mirrors collectGeometry's viewport-inverse mapping, so a tag
+// box compares directly with edge paths. The caption is DECORATION, not an
+// obstacle the seating passes measure against (the exam-surfaced campaign's R5
+// moved it into the band's top pad rather than registering it), so the shared
+// collectors deliberately do not carry it and this check reads it itself.
+type BandTagRect = RawRect & { band: string };
+
+async function collectBandTags(page: Page): Promise<BandTagRect[]> {
+  return page.evaluate(() => {
+    const rf = document.querySelector<HTMLElement>(".react-flow");
+    const vp = document.querySelector<HTMLElement>(".react-flow__viewport");
+    if (rf === null || vp === null) return [];
+    const rfRect = rf.getBoundingClientRect();
+    const m = new DOMMatrixReadOnly(getComputedStyle(vp).transform);
+    const toGraphX = (x: number): number => (x - rfRect.left - m.e) / m.a;
+    const toGraphY = (y: number): number => (y - rfRect.top - m.f) / m.a;
+    return Array.from(
+      document.querySelectorAll<HTMLElement>(".bus-band-tag"),
+    ).map((el) => {
+      const r = el.getBoundingClientRect();
+      return {
+        band: el.closest<HTMLElement>(".bus-band")?.dataset.testid ?? "(band)",
+        left: toGraphX(r.left),
+        top: toGraphY(r.top),
+        right: toGraphX(r.right),
+        bottom: toGraphY(r.bottom),
+      };
+    });
+  });
+}
+
 test.describe("segment placement audit", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
@@ -1194,6 +1231,50 @@ test.describe("segment placement audit", () => {
           )
           .toBeLessThanOrEqual(1.5 * direct);
       }
+
+      // ZERO-TOLERANCE (exam-surfaced campaign, ruling R5): no edge path
+      // segment enters a bus-band caption's box. The caption is a decorative
+      // tag, never an obstacle -- nothing in the routing model avoids it --
+      // so the invariant is held by WHERE IT SITS: in the band's OUTER pad,
+      // the BAND_Y_PAD strip (one lane spacing 48 plus a max-scale chip half
+      // height 24 = 72 flow units) on the far side of the graph. Every bus
+      // drop / rise column ends at its own lane and lanes sit graph-side, so
+      // no path vertex enters an outer pad and the 20-unit tag pinned 4 off
+      // the pad edge clears the outermost vertex by 48 units. The top band
+      // anchors at its top pad and the bottom band at its bottom pad because
+      // the pads are NOT interchangeable: the bottom band's top pad is the
+      // corridor its members' columns descend through from the graph
+      // (multi6: five tap columns at x 192-208 cross its full height), so
+      // top-anchoring both bands drops the caption back under strokes. The
+      // caption moved from mid-band, where a stroke crossed the text at the
+      // leftmost column (the caption half of stroke-crosses-foreign-chip:
+      // multi6 bus-label-under-stroke, rot-bottled_food_4
+      // loop-label-crossed-by-back-edge). The check reads the DRAWN box, so a
+      // CSS regression that re-centres the caption on the lanes reddens it
+      // directly; the tag rides the viewport transform (no counter-scale), so
+      // its graph-space rect -- like the paths -- is the same at every zoom
+      // and one fit-zoom reading states the invariant at all of them.
+      // Rotating plans get this check through extraScenariosFromEnv like
+      // every zero-tolerance criterion here.
+      const bandTags = await collectBandTags(page);
+      const tagHits: string[] = [];
+      for (const tag of bandTags) {
+        for (const edge of rawEdges) {
+          for (const [seg0, seg1] of segmentsOf(parsePath(edge.d))) {
+            if (segmentEntersRect(seg0, seg1, tag, 0.5)) {
+              tagHits.push(
+                `  ${edge.id} seg ${fmtSeg([seg0, seg1])} enters the BUS caption of ${tag.band}`,
+              );
+            }
+          }
+        }
+      }
+      expect
+        .soft(
+          tagHits.length,
+          `${scenario.id}: ${tagHits.length} segment(s) strike the BUS caption(s) among ${bandTags.length} band tag(s):\n${tagHits.join("\n")}`,
+        )
+        .toBe(0);
 
       skipUnpinnedRatchets(unpinned);
     });
