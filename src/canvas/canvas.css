@@ -964,7 +964,8 @@
   font-size: 9px;
   color: var(--ak-text-decoration);
   letter-spacing: 0.18em;
-  text-transform: uppercase;
+  /* No text-transform: the localized unit ("/min") must read like the canvas
+     cards and chips beside it, not run uppercase against them. */
 }
 
 .ak-app-shell [data-testid="side-panel"] .b-row .b-remove {
@@ -1839,6 +1840,13 @@
   text-transform: uppercase;
   line-height: 1;
   margin-top: 2px;
+}
+
+/* The caption's trailing rate segment. .pn-kind uppercases the label words;
+   this span opts the segment out so the localized unit renders "/min" (not
+   "/MIN") like the .pn-rate .unit span one row down (unit-casing-mix). */
+.pn-kind__rate {
+  text-transform: none;
 }
 
 .pn-rate {

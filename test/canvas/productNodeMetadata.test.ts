@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Item } from "@aef/schema";
-import { buildPnKind } from "../../src/canvas/productNodeMetadata";
+import {
+  buildPnKind,
+  buildPnKindRate,
+} from "../../src/canvas/productNodeMetadata";
 import type { ProductNodeData } from "../../src/canvas/ProductNode";
 import type { ItemOverride } from "../../src/data/plan";
 import { loadI18n } from "../../src/data/i18n";
@@ -43,6 +46,8 @@ describe("buildPnKind", () => {
     expect(buildPnKind(data, rawItem("iron-ore"), [], en)).toBe(
       "In ·\u00A0raw",
     );
+    // Inputs carry no rate in the caption, so the rate builder returns null.
+    expect(buildPnKindRate(data, en)).toBeNull();
   });
 
   it("renders raw input caption identically when cap is set (cap moved out of caption)", () => {
@@ -85,7 +90,7 @@ describe("buildPnKind", () => {
     );
   });
 
-  it("renders target output at per-min rate", () => {
+  it("renders target output words and rate segment", () => {
     const data: ProductNodeData = {
       kind: "outputProduct",
       itemId: "iron-plate",
@@ -93,25 +98,12 @@ describe("buildPnKind", () => {
       flavor: "target",
     };
     expect(buildPnKind(data, nonRawItem("iron-plate"), [], en)).toBe(
-      "Out ·\u00A0target ·\u00A096/min",
+      "Out ·\u00A0target",
     );
+    expect(buildPnKindRate(data, en)).toBe("96/min");
   });
 
-  it("glues the interpunct to the following token", () => {
-    // A wrapped meta line must never strand the middle dot at line end
-    // (exam Z4a): the NBSP after the dot moves the break to before it.
-    const data: ProductNodeData = {
-      kind: "outputProduct",
-      itemId: "iron-plate",
-      rate: { num: "8", denom: "5" },
-      flavor: "target",
-    };
-    const caption = buildPnKind(data, nonRawItem("iron-plate"), [], en);
-    expect(caption).toContain(" ·\u00A0");
-    expect(caption).not.toContain("· ");
-  });
-
-  it("renders surplus output at per-min rate", () => {
+  it("renders surplus output words and rate segment", () => {
     const data: ProductNodeData = {
       kind: "outputProduct",
       itemId: "iron-plate",
@@ -119,7 +111,8 @@ describe("buildPnKind", () => {
       flavor: "surplus",
     };
     expect(buildPnKind(data, nonRawItem("iron-plate"), [], en)).toBe(
-      "Out ·\u00A0surplus ·\u00A012/min",
+      "Out ·\u00A0surplus",
     );
+    expect(buildPnKindRate(data, en)).toBe("12/min");
   });
 });

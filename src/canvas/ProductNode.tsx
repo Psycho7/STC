@@ -4,7 +4,7 @@ import { formatRationalPerMin } from "../data/rate-format";
 import type { RationalString } from "../pipeline/types";
 import { PortGlyph } from "./PortGlyph";
 import { useItemPack } from "./itemPackContext";
-import { buildPnKind } from "./productNodeMetadata";
+import { buildPnKind, buildPnKindRate } from "./productNodeMetadata";
 import type { PortTransportKinds } from "./layout";
 import { iconPosition } from "./iconSprite";
 
@@ -70,6 +70,12 @@ export default function ProductNode({
   // The pn-kind caption comes from the shared helper. If the item is missing
   // from the pack (corrupt data), fall back to nothing.
   const pnKindText = item ? buildPnKind(data, item, overrides, i18n) : null;
+  // Trailing rate segment of the caption, outputs only. Rendered in a child
+  // span joined by the same dot+NBSP glue so the caption's total text is
+  // unchanged; the span drops the caption's uppercase transform so the
+  // localized unit keeps its casing beside the uppercased label words
+  // (unit-casing-mix family).
+  const pnKindRate = item ? buildPnKindRate(data, i18n) : null;
 
   // Primary rate. For inputs this is realized demand; for outputs the target or
   // surplus rate.
@@ -150,7 +156,12 @@ export default function ProductNode({
             {displayName}
           </div>
           {pnKindText !== null ? (
-            <div className="pn-kind">{pnKindText}</div>
+            <div className="pn-kind">
+              {pnKindText}
+              {pnKindRate !== null ? (
+                <span className="pn-kind__rate">{` ·\u00A0${pnKindRate}`}</span>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>

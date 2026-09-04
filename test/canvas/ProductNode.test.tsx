@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import {
@@ -163,6 +165,67 @@ describe("ProductNode", () => {
     );
     const kind = container.querySelector(".pn-kind");
     expect(kind?.textContent).toBe("Out ·\u00A0target ·\u00A0120/min");
+  });
+
+  it("glues the interpunct to the following token in the composed caption", () => {
+    // A wrapped meta line must never strand the middle dot at line end
+    // (exam Z4a): the NBSP after the dot moves the break to before it. The
+    // glue between the caption words and the rate segment is composed here in
+    // the component, so the composed caption is what carries the assertion.
+    const { container } = renderProduct(
+      {
+        kind: "outputProduct",
+        itemId: "copper_nugget",
+        rate: { num: "2", denom: "1" },
+        flavor: "target",
+      },
+      [makeItem("copper_nugget", false)],
+    );
+    const caption = container.querySelector(".pn-kind")?.textContent ?? "";
+    expect(caption).toContain(" ·\u00A0");
+    expect(caption).not.toContain("· ");
+  });
+
+  it("keeps the caption's rate segment out of the uppercase run", () => {
+    // The caption's label words run uppercase; the rate segment's localized
+    // unit must not ride the transform (unit-casing-mix family). Inject the
+    // real .pn-kind rules from canvas.css into jsdom and read the computed
+    // cascade, mirroring the zoom-low probe in src/canvas/RecipeNode.test.tsx.
+    const css = readFileSync(
+      resolve(process.cwd(), "src/canvas/canvas.css"),
+      "utf8",
+    );
+    const kindRule = css.match(/^\.pn-kind\s*\{[^}]*\}/m);
+    const rateRule = css.match(/^\.pn-kind__rate\s*\{[^}]*\}/m);
+    expect(kindRule, ".pn-kind rule not found in canvas.css").not.toBeNull();
+    expect(
+      rateRule,
+      ".pn-kind__rate rule not found in canvas.css",
+    ).not.toBeNull();
+    document.head.insertAdjacentHTML(
+      "beforeend",
+      `<style id="pn-kind-casing-probe">${kindRule![0]}${rateRule![0]}</style>`,
+    );
+    try {
+      const { container } = renderProduct(
+        {
+          kind: "outputProduct",
+          itemId: "copper_nugget",
+          rate: { num: "2", denom: "1" },
+          flavor: "target",
+        },
+        [makeItem("copper_nugget", false)],
+      );
+      const caption = container.querySelector<HTMLElement>(".pn-kind");
+      expect(caption).not.toBeNull();
+      const rateSpan = caption!.querySelector<HTMLElement>(".pn-kind__rate");
+      expect(rateSpan).not.toBeNull();
+      expect(rateSpan!.textContent).toContain("120/min");
+      expect(getComputedStyle(caption!).textTransform).toBe("uppercase");
+      expect(getComputedStyle(rateSpan!).textTransform).toBe("none");
+    } finally {
+      document.getElementById("pn-kind-casing-probe")?.remove();
+    }
   });
 
   it("renders the realized rate primary row (no uncapped literal, no cap chip) when rateCap is absent", () => {
