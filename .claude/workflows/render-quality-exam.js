@@ -5,7 +5,7 @@ export const meta = {
   phases: [
     { title: 'Evaluate', detail: 'One agent per plan: judge the captured images cold, bounded by the coverage ledger' },
     { title: 'Triage', detail: 'No agent: validate every finding, join it to the measurements by footprint, and route it' },
-    { title: 'Refute', detail: 'One agent per routed finding (or per plan for the batch): DISPROVE it against the running app through tools/exam/probe.ts' },
+    { title: 'Refute', detail: 'One agent per individually routed finding, one per batch of at most four per plan: DISPROVE it against the running app through tools/exam/probe.ts' },
   ],
 }
 
@@ -558,18 +558,21 @@ function corroborationsFor(finding, measurements, tiles) {
 
 // Where a finding goes next. The ORDER is the substance: a stated mechanism is a
 // claim about the code that no footprint can check, so it outranks corroboration
-// entirely; absence and interaction claims are unwitnessable by construction.
+// entirely, and so does a major - a footprint says a compatible occurrence is
+// there, not that it is the one complained about, and a major is filed alone.
+// An interaction claim is several runs of reframing and gets its own refuter; an
+// absence claim is one run and sorts by severity like any uncorroborated claim.
 function routeFinding(finding, corroborations) {
   if (finding.claimType === 'subjective') return 'HUMAN_RULING'
   if (
-    finding.claimType === 'absence' ||
     finding.claimType === 'interaction' ||
-    finding.mechanismHypothesis !== undefined
+    finding.mechanismHypothesis !== undefined ||
+    finding.severity === 'major'
   ) {
     return 'REFUTE_INDIVIDUAL'
   }
   if (GEOMETRIC_CLAIM_TYPES.includes(finding.claimType) && corroborations.length > 0) return 'CORROBORATED'
-  return finding.severity === 'major' ? 'REFUTE_INDIVIDUAL' : 'REFUTE_BATCH'
+  return 'REFUTE_BATCH'
 }
 
 // Schema violations, empty when the finding is well formed. Nothing here throws:
@@ -714,7 +717,9 @@ Run it with Bash. The path above is absolute, so it works from whatever director
 - \`computed-style\` --arg selector=<css> --arg props=<comma list>, \`text-overflow\` --arg selector=<css>.
 Optional: \`--zoom <z> --center <wx>,<wy>\` together to frame a camera first, \`--eval <file.js>\` to evaluate one expression in the page (write the file under /tmp, never into the exam directory), \`--shot <out.png>\` to save what the page looked like after the op.
 
-Resolving a target the finding describes in words: \`--eval\` is the way in. A one-line expression over the DOM lists what you need, for example every edge id (\`Array.from(document.querySelectorAll('.react-flow__edge')).map(e => e.getAttribute('data-id'))\`) or every chip and its owner. Then probe the id you found. Do not guess an id: a probe against an element that does not exist reports an error, and AN ERROR SETTLES NOTHING IN EITHER DIRECTION. It is not a refutation, and it is not a confirmation either - least of all of a finding that claims something is missing. "The probe could not find it" does not separate "it is not in the app" from "that is not its id", which is the screenshot confusion one step further down the pipeline. Resolve the target again with \`--eval\` and re-run; only a run that came back clean answers anything.
+Resolving a target the finding describes in words: START WITH THE LEDGER, not the DOM. \`${examDir}/${plan.id}/scene.json\` has an \`elements\` map from every element id to \`{kind, worldRect}\`, and edge ids spell out their endpoints and item (\`e:<n>:<source>-><target>:<item>\`), so one \`jq\` or \`rg\` over that file for the item and node names in the finding gives you the ids to probe - for example \`jq -r '.elements | keys[]' ${examDir}/${plan.id}/scene.json | rg -i 'xiragen'\`. The refuters of the last exam spent most of their turns rediscovering ids the ledger already held. Read \`elements\` and \`tiles[].elements\` only; the ledger's \`measurements\` are not yours to quote as evidence.
+
+When the ledger does not name what you need, \`--eval\` is the way in. The file holds ONE bare arrow function taking no arguments - \`() => Array.from(document.querySelectorAll('.react-flow__edge')).map(e => e.getAttribute('data-id'))\` - and nothing else: no IIFE, no statements around it, no \`return\` at top level. Every refuter so far has lost a turn to that. Then probe the id you found. Do not guess an id: a probe against an element that does not exist reports an error, and AN ERROR SETTLES NOTHING IN EITHER DIRECTION. It is not a refutation, and it is not a confirmation either - least of all of a finding that claims something is missing. "The probe could not find it" does not separate "it is not in the app" from "that is not its id", which is the screenshot confusion one step further down the pipeline. Resolve the target again with \`--eval\` and re-run; only a run that came back clean answers anything.
 
 Exit codes: 0 the run succeeded; 1 harness failure (bad flags, an id that resolved to nothing, a missing element); 2 the base URL is not serving; 3 the page never became examinable. ONLY exit 0 settles a claim. On 1, 2 or 3 nothing was measured, so the verdict is UNCERTAIN whichever way the finding reads - never REFUTED, and never CONFIRMED - and you paste what happened.
 
@@ -898,6 +903,15 @@ const answerFor = (finding, answers) => {
 // an object cannot be matched to a finding id, so it counts as no answer at all.
 const answerObjects = (list) => (Array.isArray(list) ? list.filter((v) => v !== null && typeof v === 'object') : [])
 
+// How many findings one batch refuter is handed. Four is where the batches of
+// the 2026-09-03 exam still reasoned per finding; the six-finding ones did not.
+const BATCH_CAP = 4
+const chunk = (list, size) => {
+  const out = []
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size))
+  return out
+}
+
 // Stage two of the per-plan chain: everything that happens to ONE plan's
 // findings once its evaluator has answered - triage, the verdicts the join
 // already settled, and the refuters for the rest. Nothing in it reads another
@@ -932,37 +946,39 @@ const triageAndRefute = async (evaluation, p) => {
         return [coerceVerdict(t.finding, raw, missReason)]
       }),
     ),
-    // One batch per plan, and this is one plan: the grouping the batch used to
-    // need is what the chain is now keyed by.
-    ...(batch.length === 0
-      ? []
-      : [
-          () =>
-            agent(refuteBatchPrompt(p, batch), {
-              label: `refute-batch:${p.id}`,
-              phase: 'Refute',
-              schema: REFUTE_BATCH_SCHEMA,
-            }).then((r) => {
-              const answers = answerObjects(r === null ? null : r.verdicts)
-              const verdicts = batch.map((f) => {
-                const { raw, missReason } = answerFor(f, answers)
-                return coerceVerdict(f, raw, missReason)
-              })
-              // Answers about ids nobody asked about are logged rather than dropped:
-              // they are the evidence that the batch ran and its ids were renamed, and
-              // without them the run looks exactly like an agent that said nothing.
-              const asked = new Set(batch.map((f) => f.id))
-              const extra = answers.filter((v) => !asked.has(v.findingId))
-              if (extra.length > 0) {
-                log(
-                  `refute-batch:${p.id} answered about ${extra.length} id(s) not in this batch, ignored: ${extra
-                    .map((v) => JSON.stringify(v.findingId))
-                    .join(', ')}`,
-                )
-              }
-              return verdicts
-            }),
-        ]),
+    // The batch for this plan, in chunks of at most BATCH_CAP. One agent per
+    // plan used to take the whole list, and the two six-finding batches of the
+    // 2026-09-03 exam were the run's heaviest agents with its thinnest
+    // reasoning: an agent that has to hold six targets resolves ids for all of
+    // them before it probes any. A plan whose batch fits in one chunk keeps the
+    // bare `refute-batch:<plan>` label; a plan that needs several numbers them.
+    ...chunk(batch, BATCH_CAP).map((group, i, groups) => () => {
+      const label = groups.length === 1 ? `refute-batch:${p.id}` : `refute-batch:${p.id}:${i + 1}`
+      return agent(refuteBatchPrompt(p, group), {
+        label,
+        phase: 'Refute',
+        schema: REFUTE_BATCH_SCHEMA,
+      }).then((r) => {
+        const answers = answerObjects(r === null ? null : r.verdicts)
+        const verdicts = group.map((f) => {
+          const { raw, missReason } = answerFor(f, answers)
+          return coerceVerdict(f, raw, missReason)
+        })
+        // Answers about ids nobody asked about are logged rather than dropped:
+        // they are the evidence that the batch ran and its ids were renamed, and
+        // without them the run looks exactly like an agent that said nothing.
+        const asked = new Set(group.map((f) => f.id))
+        const extra = answers.filter((v) => !asked.has(v.findingId))
+        if (extra.length > 0) {
+          log(
+            `${label} answered about ${extra.length} id(s) not in this batch, ignored: ${extra
+              .map((v) => JSON.stringify(v.findingId))
+              .join(', ')}`,
+          )
+        }
+        return verdicts
+      })
+    }),
   ]
 
   // A thunk that threw resolves to null in its own slot rather than failing the

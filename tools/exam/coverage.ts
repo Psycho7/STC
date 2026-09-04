@@ -731,8 +731,10 @@ function formatReport(
 
 // The rotating picks and the residue. "new" is what a pick added on top of the
 // core plus the picks before it, so the column sums to the coverage the whole
-// rotating set bought.
-function fillSection(
+// rotating set bought. The ids behind each "new" count follow the table, one
+// line per pick, because the exam's report has to name the recipes the rotation
+// bought and a count is not a name. Exported for that line's test only.
+export function fillSection(
   pack: RecipePack,
   fill: FillResult,
   base: CoverageUnion,
@@ -741,10 +743,12 @@ function fillSection(
   const covered = new Set(base.recipeIds);
   const machines = new Set(base.machineIds);
 
+  const addedById: Array<[string, string[]]> = [];
   const rows = fill.plans.map((p) => {
     const added = p.recipeIds.filter((id) => !covered.has(id));
     for (const id of added) covered.add(id);
     for (const id of p.machineIds) machines.add(id);
+    addedById.push([p.id, added]);
     return [
       p.id,
       String(p.recipeIds.length),
@@ -754,6 +758,11 @@ function fillSection(
   });
   lines.push(`# rotating (${fill.picked.length})`);
   lines.push(...table(["id", "recipes", "machines", "new"], rows));
+  for (const [id, added] of addedById) {
+    lines.push(
+      `  ${id}: ${added.length === 0 ? "(nothing new)" : added.join(", ")}`,
+    );
+  }
   lines.push(
     `after fill: recipes ${covered.size}/${denominatorRecipes(pack).length}` +
       `  machines ${machines.size}/${denominatorMachines(pack).length}`,

@@ -370,9 +370,15 @@ const CASES: Case[] = [
       mechanismHypothesis: "the chip anchor is stamped before the route is chamfered",
     }),
   ),
+  kase("corroborated minor", finding({ severity: "minor" })),
+  kase("corroborated major", finding({ severity: "major" })),
   kase(
     "absence claim at nit severity",
     finding({ claimType: "absence", severity: "nit" }),
+  ),
+  kase(
+    "absence claim at major severity",
+    finding({ claimType: "absence", severity: "major" }),
   ),
   kase(
     "interaction claim at nit severity",

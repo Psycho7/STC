@@ -83,17 +83,24 @@ Start by comparing the pack fingerprint. The first line of `.artifacts/exam/hash
 `# pack <sourceCommit> <gameVersion>`; if the last exam's ledger names a different pack, the
 recipes moved underneath the corpus and its ids are not comparable with this run's.
 
-Read that line first, then clear the plan directories, in that order. Clearing matters because
-step 5 globs every `<id>/scene.json` under `.artifacts/exam`. The ledgers are rewritten each
-run, the plan directories are not, so a rotating plan the last exam picked would be evaluated
-as part of this one. Clear only the plan directories: the saved run files, the issue bodies and
-the crops from earlier exams live beside them and are the record you compare against. On a
-first exam there is no `.artifacts/exam` yet and both lines fail harmlessly, the `head -1` on
-the missing ledger and the `find` on the missing directory:
+Read that line first, then set the previous exam aside, then clear, in that order. Clearing
+matters because step 5 globs every `<id>/scene.json` under `.artifacts/exam`. The ledgers are
+rewritten each run, the plan directories are not, so a rotating plan the last exam picked would
+be evaluated as part of this one. The crops go too: `crop.ts` overwrites `index.json` but never
+removes a file, so two runs' PNGs interleave under one index, which is what the 2026-09-03 run
+left behind (253 files against an index of 135). The issue bodies stay, because they are the
+drafts that have not been filed yet.
+
+The previous run is the record you compare against, so copy it out whole before anything is
+removed. A sibling directory named by the commit it examined is enough, and the pixel diff in
+step 3 reads from it. On a first exam there is no `.artifacts/exam` yet and every line fails
+harmlessly:
 
 ```bash
 head -1 .artifacts/exam/hashes.tsv   # the previous exam's pack; keep the value, the coverage run below rewrites the file
-find .artifacts/exam -mindepth 1 -maxdepth 1 -type d ! -name issues ! -name crops -exec rm -rf {} +
+prev=$(jq -r .commit .artifacts/exam/*/scene.json 2>/dev/null | head -1)
+[ -n "$prev" ] && cp -a .artifacts/exam ".artifacts/exam-prev-$prev"
+find .artifacts/exam -mindepth 1 -maxdepth 1 -type d ! -name issues -exec rm -rf {} +
 ```
 
 Then rebuild the ledger:
@@ -119,6 +126,18 @@ never prefers, so no single-target plan can make the solver run them. The only p
 --max` note. Candidates whose solve threw are listed separately and were skipped, never fatal.
 
 The exam captures the core plus the rotating set, which is exactly what the ledger now holds.
+
+Diff the ledger against the previous run before capturing anything. On the same pack the
+greedy fill is deterministic, so `hashes.tsv`, `rotating.json` and the fill report should be
+identical, and a difference here is a change in the pack, the corpus or the fill, not in the
+render:
+
+```bash
+prev=$(ls -d .artifacts/exam-prev-* 2>/dev/null | tail -1)
+[ -n "$prev" ] && for f in hashes.tsv rotating.json fill-report.txt; do
+  cmp -s "$prev/$f" ".artifacts/exam/$f" && echo "$f identical" || echo "$f DIFFERS"
+done
+```
 
 ### 3. Capture every plan in the ledger
 
@@ -161,6 +180,26 @@ in the directory it can list. There is no smoke test, because capture fails fast
 Exits 3 and 4 pull opposite ways on purpose. A plan that never became examinable is a fact
 about that plan. A build with no provenance says nothing about any plan - every plan in the run
 would fail the same way.
+
+Then diff the captures against the previous run. The capture is deterministic, so on unchanged
+render code every PNG is byte-identical and every `scene.json` differs only in `commit`; that
+was the case across eleven commits on 2026-09-03. This is the cheapest gate the exam has, and
+on a branch that touched no render code it is the whole answer (see "When NOT to use"):
+
+```bash
+prev=$(ls -d .artifacts/exam-prev-* 2>/dev/null | tail -1)
+[ -n "$prev" ] && for d in .artifacts/exam/*/; do p=$(basename "$d")
+  same=0; diff=0; new=0
+  for f in "$d"images/*.png; do b=$(basename "$f")
+    if [ -f "$prev/$p/images/$b" ]; then cmp -s "$f" "$prev/$p/images/$b" && same=$((same+1)) || diff=$((diff+1)); else new=$((new+1)); fi
+  done
+  sd=$(diff <(jq -S 'del(.commit)' "$prev/$p/scene.json" 2>/dev/null) <(jq -S 'del(.commit)' "$d/scene.json") | wc -l)
+  echo "$p: png same=$same diff=$diff new=$new scene.json diff lines (excl commit)=$sd"
+done
+```
+
+A plan with `diff>0` or a nonzero scene diff is where the render moved; a run with none is a
+render that did not change, whatever the agents go on to say about it.
 
 ### 4. Run the geometry ratchets. These are the machine findings.
 
@@ -340,8 +379,9 @@ Three phases:
   place it marked is CORROBORATED and skips refutation; a stated mechanism, an absence
   claim or an interaction claim always goes to its own refuter; a subjective claim goes to
   you; anything malformed is reported, never routed. The routing histogram is logged.
-- **Refute**: one agent per individually routed finding, one per plan for the batched
-  minors. Each must DISPROVE its finding through `tools/exam/probe.ts` and return the
+- **Refute**: one agent per individually routed finding (every major, every interaction
+  claim, every stated mechanism), one per batch of at most four of a plan's minors and nits,
+  absence claims included. Each must DISPROVE its finding through `tools/exam/probe.ts` and return the
   command it ran and what it printed.
 
 It returns `{evaluations, findings, triage, verdicts, humanRuling, invalid}`. A verdict
@@ -407,24 +447,39 @@ restate the finding yourself against the evidence image (then treat it as your o
 disproving it before filing) or drop it. Do not file one as it stands. Read the evidence image
 for every major finding yourself and drop or downgrade what the pixels do not show; the
 workflow's "nothing is auto-dropped" rule binds the machine, not you, and this pass is where a
-finding the pixels do not support dies. The standing 24 px margin frames the claim, not its
-context, so recut the majors at 400-600 px before ruling: a 128x70 crop shows that a chip exists,
-not what it overlaps. `--margin` does it for a whole batch, in either mode, so nothing is recut
-by hand:
+finding the pixels do not support dies.
+
+Cut the crops FIRST, before any ruling, from the saved return:
 
 ```bash
+mkdir -p .artifacts/exam/crops
 bun run tools/exam/crop.ts --verdicts .artifacts/exam/<date>-run.json \
-  --out-dir .artifacts/exam/crops/wide --margin 500
+  > .artifacts/exam/crops/index.json
 ```
 
-Keep its output: the `skipped` list names the evidence that got no crop, and a nonzero exit
-means the batch is incomplete. A coincidence or shared-route claim
-cannot be ruled on from pixels at all: two edges within a stroke width of each other paint as one
-line at every zoom the exam shoots, so probe the edge paths (`--eval` over the
-`.react-flow__edge` `d` attributes) before keeping one, whatever its verdict says. The tile an
-evaluator cites can also be off by one - the one DROP this procedure has recorded was a chip in
-`10-tile-r3c0.png` cited as `r3c1` - so open the neighbouring tile before dropping a finding whose
-rect looks empty.
+Redirect it for the reason step 5 gives: the return carries a record per crop and runs to tens of
+kilobytes, and the counts to report are `crops | length`, `skipped | length` and `failed | length`,
+read back out of that file. A nonzero `skipped` or `failed` also exits 1: the JSON is still
+written, and the exit says a requested crop has no picture, not that the run broke. One pass cuts
+every evidence entry of every `FILE`, `FILE_SYMPTOM_ONLY` and `HUMAN_REVIEW` verdict AND of every
+`humanRuling` finding, at the standing 400 px margin, into `.artifacts/exam/crops/`, named
+`<findingId>-<n>.png` with the id's colon flattened to `-`. 400 px is what a ruling needs: a
+24 px cut shows that a chip exists, not what it overlaps. `--margin <px>` changes it for the
+whole run, and `--margin 24` is the tight cut an issue body embeds. Nothing is recut by hand and
+no ruling is made from prose: the 2026-09-03 run ruled sixteen subjective findings blind because
+only the filed ones had crops, and the audit had to recut them.
+
+Three rules on reading them. A coincidence or shared-route claim cannot be ruled on from pixels
+at all: two edges within a stroke width of each other paint as one line at every zoom the exam
+shoots, so probe the edge paths (`--eval` over the `.react-flow__edge` `d` attributes) before
+keeping one, whatever its verdict says. A corroborated finding is carried by an occurrence of a
+compatible KIND at the place it marked, which is not the same as the occurrence it complains
+about: read `corroboratedBy` against the finding's clauses, and when the measurement answers a
+different clause (a `chip-off-own-path` under a claim about a chip covering a card), probe it
+before keeping it. Majors never take this route any more, the triage sends every major to its
+own refuter, but a minor can. And the tile an evaluator cites can be off by one - the one DROP
+this procedure has recorded was a chip in `10-tile-r3c0.png` cited as `r3c1` - so open the
+neighbouring tile before dropping a finding whose rect looks empty.
 
 Check what is already open before writing anything new:
 
@@ -436,48 +491,19 @@ Match each surviving finding to an open issue by defect FAMILY - same mechanism,
 A finding that belongs to an open family is a reconfirmation comment on that issue, naming the
 plan and the evidence, not a second issue. Only a family nothing covers earns a new issue.
 
-That listing hides closed families. Before writing a new issue, search `--state all` for the same
-mechanism: a finding that matches a closed issue is a reopen question for the user, not a new
-file.
-
-Cut the evidence crops from the saved return:
-
-```bash
-mkdir -p .artifacts/exam/crops
-bun run tools/exam/crop.ts --verdicts .artifacts/exam/<date>-run.json \
-  > .artifacts/exam/crops/index.json
-```
-
-Redirect it for the reason step 5 gives: the return carries a record per crop and runs to tens of
-kilobytes, and the counts to report are `crops | length`, `skipped | length` and `failed | length`,
-read back out of that file. A nonzero `skipped` or `failed` also exits 1: the JSON is still
-written, and the exit says a requested crop has no picture, not that the run broke. That crops
-every evidence entry of every `FILE` and
-`FILE_SYMPTOM_ONLY` verdict with a 24 px margin into `.artifacts/exam/crops/`, named
-`<findingId>-<n>.png` with the id's colon flattened to `-`. `--margin <px>` changes that margin
-for the whole run, and `--margin 0` cuts to the rect exactly.
-
-A `HUMAN_REVIEW` or `humanRuling` finding you decide to file is not in that pass, so cut those
-one at a time, with the same `--margin` when the rect needs framing:
+That listing hides closed families, and the closed ones are where the families live: the
+2026-09-03 run drafted nine "new" families of which three had closed issues (#29, #43, #25) and
+one was a documented hide (#24/#39). So search closed issues by MECHANISM before writing any new
+body, with a few words from each family, not one query:
 
 ```bash
-bun run tools/exam/crop.ts --image .artifacts/exam/<plan>/images/<tile>.png \
-  --rect <x>,<y>,<w>,<h> --out .artifacts/exam/crops/<name>.png --margin 500
+gh issue list --state closed --limit 200 --json number,title --jq '.[] | "#\(.number) \(.title)"' \
+  | rg -i '<word from the family>|<another>'
 ```
 
-A `humanRuling` entry names its evidence differently from a verdict: the image is
-`evidence[].image`, a bare file name, not `file`, and the rect is `evidence[].rect` as
-`[x, y, w, h]`. Build the whole triple out of it rather than transcribing anything. The `--out`
-name is the one `--verdicts` would have written, so a crop cut here sits in the same series as
-the rest:
-
-```bash
-jq -r '.humanRuling[] | select(.id == "<id>") | . as $f | .evidence | to_entries[]
-       | "--image .artifacts/exam/\($f.planId)/images/\(.value.image)"
-         + " --rect \(.value.rect | join(","))"
-         + " --out .artifacts/exam/crops/\($f.id | gsub("[^A-Za-z0-9._-]"; "-"))-\(.key + 1).png"' \
-  .artifacts/exam/<date>-run.json
-```
+A finding that matches a closed issue is a reopen question for the user, not a new file. A
+finding that matches a bullet under "Intentional behaviours" in `docs/render-conventions.md` is
+a defect of the conventions doc, not of the app: fix the bullet, and do not draft it.
 
 Write each new issue body to `.artifacts/exam/issues/<slug>.md` and hand the user the
 `gh issue create --title "..." --body-file .artifacts/exam/issues/<slug>.md` commands rather
@@ -502,7 +528,12 @@ In this order:
 - every partial plan with the ids in its `coverage.uncovered`
 - every console error
 - every capture that failed, with its exit code
-- the geometry-audit failset, and which of it fails identically at the base commit
+- the geometry-audit failset, and which of it fails identically at the base commit - "fails
+  identically" only when the base run in step 4 was actually made; a failset match without it
+  is "matches the standing failset", not a measurement
+- the diff against the previous run: ledger, PNGs, `scene.json`, audit tally
+- the workflow tallies against the previous run's, and for every kept finding the family it
+  joined, naming the open issue, the closed issue, or the conventions bullet that owns it
 
 ## What `scene.json` is
 
@@ -554,3 +585,9 @@ A ledger of what was captured and measured, with no verdicts in it.
 - Single-component or single-defect checks: drive the app directly with `tools/exam/probe.ts`
   instead of a multi-agent sweep.
 - Pixel-diff regression against pinned baselines: that is `test/e2e/placement-shots.spec.ts`.
+- A branch that touched no render code (exam tooling, docs, build plumbing): run steps 1 to 5
+  and stop at the pixel diff. Byte-identical captures and an unchanged audit tally are the
+  whole answer, and the agent fan-out can only re-derive the previous run's families from the
+  same pixels - on 2026-09-03 that cost 76 minutes and 1.6 M tokens to learn nothing. Run step
+  6 on such a branch only when the workflow script, the probe, or the conventions doc changed,
+  and then on the one or two plans that exercise the change.

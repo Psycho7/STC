@@ -33,11 +33,14 @@
 // needs no conversion. The page here renders at deviceScaleFactor 1 for the same
 // reason: one image pixel in, one output pixel out.
 //
-// --verdicts reads the workflow's saved return and crops what the exam decided
-// to file: the FILE and FILE_SYMPTOM_ONLY dispositions, every evidence entry,
-// with a standing margin so the crop shows the defect in its surroundings rather
-// than a rect with no context. Nothing else is cropped - a DROP is not evidence,
-// and a HUMAN_REVIEW is not filed until someone rules on it.
+// --verdicts reads the workflow's saved return and crops everything a person
+// has to look at: the FILE and FILE_SYMPTOM_ONLY dispositions, the HUMAN_REVIEW
+// verdicts a refuter could not settle, and the `humanRuling` findings that never
+// reached a refuter, every evidence entry of each, with a standing margin so the
+// crop shows the thing in its surroundings rather than a rect with no context.
+// The rulings are cut BEFORE they are made: the 2026-09-03 exam ruled on sixteen
+// subjective findings from prose alone because only the filed ones had crops. A
+// DROP is not evidence and is not cut.
 //
 // Exit codes:
 //   0  every requested crop was written
@@ -57,9 +60,11 @@ import path from "node:path";
 import type { Rect } from "./tiling";
 
 // Context kept around every evidence rect in --verdicts mode when --margin says
-// nothing. Wide enough to show what the marked thing sits next to, narrow enough
-// that the mark is still the subject of the picture.
-export const MARGIN_PX = 24;
+// nothing. A 24 px cut shows that a chip exists, not what it overlaps: every
+// exam recut its majors at 400-600 px by hand before ruling, and nobody opened
+// the tight set. So the standing margin is the readable one, and an issue body
+// that wants the tight cut asks for `--margin 24`.
+export const MARGIN_PX = 400;
 export const DEFAULT_EXAM_DIR = ".artifacts/exam";
 export const DEFAULT_OUT_DIR = ".artifacts/exam/crops";
 
@@ -162,8 +167,9 @@ export function cropFileName(findingId: string, index: number): string {
 // The verdicts join
 // ---------------------------------------------------------------------------
 
-// The dispositions that get filed, and so the ones that need evidence.
-const FILED = new Set(["FILE", "FILE_SYMPTOM_ONLY"]);
+// The dispositions a person acts on, and so the ones that need a picture: the
+// two that get filed and the one that awaits a ruling.
+const CUT = new Set(["FILE", "FILE_SYMPTOM_ONLY", "HUMAN_REVIEW"]);
 
 type LooseEvidence = { image?: unknown; rect?: unknown; where?: unknown };
 
@@ -220,38 +226,22 @@ export function cropJobsFromRun(
 
   const jobs: CropJob[] = [];
   const skipped: string[] = [];
-  for (const verdict of verdicts as unknown[]) {
-    if (!isRecord(verdict)) {
-      skipped.push("a verdict entry is not an object");
-      continue;
-    }
-    const findingId = verdict.findingId;
-    if (typeof findingId !== "string" || findingId === "") {
-      skipped.push("a verdict entry names no findingId");
-      continue;
-    }
-    if (
-      typeof verdict.disposition !== "string" ||
-      !FILED.has(verdict.disposition)
-    ) {
-      continue;
-    }
-    const finding = byId.get(findingId);
-    if (finding === undefined) {
-      skipped.push(`${findingId}: no finding with that id is in the run file`);
-      continue;
-    }
+
+  // One job per evidence entry of one finding. Shared by the verdict pass and
+  // the humanRuling pass below, so a ruling's crop sits in the same series and
+  // is named the same way as a filed one.
+  const cutFinding = (findingId: string, finding: Record<string, unknown>) => {
     // The finding's own planId, not the verdict's: the evidence images belong to
     // the finding, and the two carry the same value in every workflow return.
     const planId = finding.planId;
     if (typeof planId !== "string" || planId === "") {
       skipped.push(`${findingId}: the finding names no planId`);
-      continue;
+      return;
     }
     const evidence: unknown = finding.evidence;
     if (!Array.isArray(evidence) || evidence.length === 0) {
       skipped.push(`${findingId}: the finding carries no evidence`);
-      continue;
+      return;
     }
     evidence.forEach((raw: unknown, i: number) => {
       // Numbered by POSITION, so a skipped entry burns its number instead of
@@ -283,6 +273,49 @@ export function cropJobsFromRun(
             : `${findingId}: ${where}`,
       });
     });
+  };
+
+  for (const verdict of verdicts as unknown[]) {
+    if (!isRecord(verdict)) {
+      skipped.push("a verdict entry is not an object");
+      continue;
+    }
+    const findingId = verdict.findingId;
+    if (typeof findingId !== "string" || findingId === "") {
+      skipped.push("a verdict entry names no findingId");
+      continue;
+    }
+    if (
+      typeof verdict.disposition !== "string" ||
+      !CUT.has(verdict.disposition)
+    ) {
+      continue;
+    }
+    const finding = byId.get(findingId);
+    if (finding === undefined) {
+      skipped.push(`${findingId}: no finding with that id is in the run file`);
+      continue;
+    }
+    cutFinding(findingId, finding);
+  }
+
+  // Subjective findings never reach a refuter, so they have no verdict row and
+  // live only in `humanRuling`, as whole findings. A run file without the array
+  // (an older return, or a hand-cut one) simply has none to cut.
+  const rulings: unknown = run.humanRuling;
+  if (Array.isArray(rulings)) {
+    for (const ruling of rulings as unknown[]) {
+      if (!isRecord(ruling)) {
+        skipped.push("a humanRuling entry is not an object");
+        continue;
+      }
+      const id = ruling.id;
+      if (typeof id !== "string" || id === "") {
+        skipped.push("a humanRuling entry names no id");
+        continue;
+      }
+      cutFinding(id, ruling);
+    }
   }
   return { jobs, skipped };
 }

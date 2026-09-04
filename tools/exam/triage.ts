@@ -387,27 +387,34 @@ function rectFromTuple(tuple: unknown): Rect | null {
 // entirely - the earlier exam's two wrong mechanisms both sat on geometry that
 // was real. Absence and interaction claims are unwitnessable by construction
 // (nothing in a still image separates "the app does nothing" from "the capture
-// never touched it"), so they always get their own refuter. Only then may a
-// geometric finding be waved through on the strength of a compatible geometry
-// occurrence at the place it marks, and only a finding with no such occurrence
-// is sorted by severity: majors are worth an individual refuter, the rest go to
-// the batch.
+// never touched it"), so a footprint never carries them. An interaction claim
+// always gets its own refuter: a hover probe is several runs of reframing. An
+// absence claim is one chip-binding or rect run, so severity sizes it like any
+// uncorroborated claim; the 2026-09-03 exam spent a 29-turn agent on a nit.
+//
+// A major is never waved through on a footprint. The join says a compatible
+// occurrence exists at the place marked, not that it is the one complained
+// about, and the same exam kept a major on a chip-off-own-path occurrence that
+// answered a different clause of the finding. A major is filed on its own, so
+// one refuter is the cheaper error. Only a minor or nit with a compatible
+// occurrence skips refutation; the rest sort by severity: majors alone, the
+// rest in the batch.
 export function routeFinding(
   finding: Finding,
   corroborations: readonly Measurement[],
 ): Route {
   if (finding.claimType === "subjective") return "HUMAN_RULING";
   if (
-    finding.claimType === "absence" ||
     finding.claimType === "interaction" ||
-    finding.mechanismHypothesis !== undefined
+    finding.mechanismHypothesis !== undefined ||
+    finding.severity === "major"
   ) {
     return "REFUTE_INDIVIDUAL";
   }
   if (isGeometricClaim(finding.claimType) && corroborations.length > 0) {
     return "CORROBORATED";
   }
-  return finding.severity === "major" ? "REFUTE_INDIVIDUAL" : "REFUTE_BATCH";
+  return "REFUTE_BATCH";
 }
 
 // Schema violations, empty when the finding is well formed.

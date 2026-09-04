@@ -100,6 +100,14 @@ Do not report these as defects.
 - A fan-out branch chip, or a fan-in member chip that would land on the shared
   run, may be deliberately hidden. The rate remains on the target card's input
   row.
+- A member of a multi-member bus trunk may draw no rise chip at all. The
+  seating pass hides a rise chip when the trunk's run has no room for it at one
+  chip's separation from its neighbours, and when its seat would have to leave
+  the lane by more than one pitch and float in empty canvas. A lane with three
+  members and one share chip is that hide, not a missing label; the rate stays
+  on the edge's hover tooltip and on the target card's input row. Only a lone
+  trunk is guaranteed a label, by the drop chip that returns when its rise is
+  hidden.
 - A hover screenshot, where the capture took one, dims everything outside the
   hovered ego-network on purpose.
 

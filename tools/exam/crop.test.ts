@@ -215,6 +215,19 @@ function run(): unknown {
         disposition: "HUMAN_REVIEW",
       },
     ],
+    humanRuling: [
+      {
+        id: "battery5:colours-alike",
+        planId: "battery5",
+        evidence: [
+          {
+            image: "10-tile-r0c0.png",
+            rect: [40, 50, 60, 70],
+            where: "two strokes",
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -227,13 +240,38 @@ function jobsOf(value: unknown) {
 }
 
 describe("cropJobsFromRun", () => {
-  test("crops only the filed dispositions", () => {
+  // Everything a person has to look at before it is filed gets a picture: the
+  // two filed dispositions, the HUMAN_REVIEW a verdict could not settle, and the
+  // subjective findings that never reached a refuter. A DROP is not evidence.
+  test("crops what is filed and what awaits a ruling, never a DROP", () => {
     const { jobs } = jobsOf(run());
     expect(jobs.map((j) => j.out)).toEqual([
       ".artifacts/exam/crops/multi6-chip-overlap-1.png",
       ".artifacts/exam/crops/multi6-chip-overlap-2.png",
       ".artifacts/exam/crops/battery5-tap-column-1.png",
+      ".artifacts/exam/crops/battery5-subjective-1.png",
+      ".artifacts/exam/crops/battery5-colours-alike-1.png",
     ]);
+  });
+
+  test("cuts a humanRuling entry from its own evidence, in the same series", () => {
+    const { jobs } = jobsOf(run());
+    const ruling = jobs.find((j) =>
+      j.out.endsWith("battery5-colours-alike-1.png"),
+    );
+    expect(ruling?.image).toBe(
+      ".artifacts/exam/battery5/images/10-tile-r0c0.png",
+    );
+    expect(ruling?.rect).toEqual({ x: 40, y: 50, width: 60, height: 70 });
+    expect(ruling?.label).toBe("battery5:colours-alike: two strokes");
+  });
+
+  test("reads a run with no humanRuling array as none to cut", () => {
+    const value = run() as { humanRuling?: unknown };
+    delete value.humanRuling;
+    const { jobs, skipped } = jobsOf(value);
+    expect(jobs).toHaveLength(4);
+    expect(skipped).toEqual([]);
   });
 
   test("resolves the image under the finding's plan directory", () => {
@@ -255,14 +293,14 @@ describe("cropJobsFromRun", () => {
   test("carries a caller's margin to every job", () => {
     const built = cropJobsFromRun(run(), { ...OPTS, margin: 400 });
     if (typeof built === "string") throw new Error(built);
-    expect(built.jobs.map((j) => j.margin)).toEqual([400, 400, 400]);
+    expect(built.jobs.map((j) => j.margin)).toEqual([400, 400, 400, 400, 400]);
   });
 
   test("skips a verdict whose finding is missing, and says so", () => {
     const value = run() as { verdicts: Array<{ findingId: string }> };
     value.verdicts[0]!.findingId = "multi6:not-a-finding";
     const { jobs, skipped } = jobsOf(value);
-    expect(jobs).toHaveLength(1);
+    expect(jobs).toHaveLength(3);
     expect(skipped.join(" ")).toContain("multi6:not-a-finding");
   });
 
@@ -277,6 +315,8 @@ describe("cropJobsFromRun", () => {
     expect(jobs.map((j) => j.out)).toEqual([
       ".artifacts/exam/crops/multi6-chip-overlap-2.png",
       ".artifacts/exam/crops/battery5-tap-column-1.png",
+      ".artifacts/exam/crops/battery5-subjective-1.png",
+      ".artifacts/exam/crops/battery5-colours-alike-1.png",
     ]);
     expect(skipped.join(" ")).toContain("evidence[0]");
   });
@@ -287,7 +327,7 @@ describe("cropJobsFromRun", () => {
     };
     value.findings[2]!.evidence[0]!.image = "";
     const { jobs, skipped } = jobsOf(value);
-    expect(jobs).toHaveLength(2);
+    expect(jobs).toHaveLength(4);
     expect(skipped.join(" ")).toContain("battery5:tap-column");
   });
 

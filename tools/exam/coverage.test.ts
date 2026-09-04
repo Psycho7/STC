@@ -13,6 +13,7 @@ import {
   writeHashesTsv,
   writeRotatingJson,
   type CoverageReport,
+  fillSection,
 } from "./coverage";
 
 // Synthetic pack: two recipes make the same item, one of them strictly
@@ -437,6 +438,23 @@ describe("fillGaps", () => {
       { id: "r_ghost", name: "r_ghost name", reason: "candidate solve failed" },
       { id: "r_sink", name: "r_sink name", reason: "no candidate scored" },
     ]);
+  });
+
+  // The report names what each pick brought in, not only how many: the exam's
+  // final report has to say which recipes the rotation bought, and two runs
+  // reported counts because the ids were nowhere to copy from.
+  it("names the recipes each pick added, under the rotating table", async () => {
+    const pack = fillPack();
+    const fill = await fillGaps(pack, emptyCoverage(pack));
+    const lines = fillSection(pack, fill, EMPTY_UNION());
+    const start = lines.indexOf("# rotating (3)");
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(lines.slice(start)).toContain(
+      "  rot-top: r_left, r_mid, r_right, r_top",
+    );
+    const alpha = lines.find((l) => l.startsWith("  rot-alpha: "));
+    expect(alpha).toBeDefined();
+    expect(alpha).not.toContain("r_top");
   });
 
   it("never turns a sink recipe into a candidate", async () => {
