@@ -158,6 +158,10 @@ function defineCheck(locale: LocaleId, scenario: Scenario): void {
   test(`${locale} ${scenario.id}`, async ({ page }) => {
     await page.addInitScript((l) => {
       window.localStorage.setItem("aef.locale", l);
+      // The audit corpus polices the bus machinery, so every spec opts the
+      // toggle on explicitly; the app default (off since the bus-lanes flip)
+      // is a product decision this suite does not re-test.
+      window.localStorage.setItem("aef.busLanes", "on");
     }, locale);
     const hash = await scenarioHash(scenario);
     await page.goto(`/?exam=1#${hash}`, { waitUntil: "load" });
