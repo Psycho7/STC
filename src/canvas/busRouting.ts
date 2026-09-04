@@ -2352,19 +2352,24 @@ export function clampBackwardRails(
     // right column runs from the source port down/up to the rail; the left column
     // from the rail to the target port. Each column's own node is exempt (the
     // default columns sit inside their own node's padded band), as is that
-    // endpoint's own container box (a grouped endpoint's column legitimately
-    // runs inside its container) -- EXCEPT the container BOTH endpoints share:
-    // a loop return between two members of one slab lands its default columns
-    // (one stub each side) a few units off the slab's side borders, because
+    // endpoint's own container BOX (a grouped endpoint's column legitimately
+    // runs inside its container) -- but each endpoint's own container FRAME is
+    // not: a loop return lands its default columns (one stub each side) a few
+    // units off the side borders of any container a member sits in, because
     // members sit one ELK inset (10-36) off them, and the return's verticals
-    // then braid the frame (#29 follow-on, loop-backedge family). The shared
-    // slab is therefore NOT exempt: it joins the column scan as two BORDER
-    // BANDS (zero-width frame lines at its raw edges, blocked and escaped with
-    // CONTAINER_COLUMN_GAP), so each resolved column sits at least that far
-    // off the frame -- inside, in the interior corridor, or just outside --
-    // while its connecting leg may still cross the frame to reach it. The rail
-    // y is taken as fixed (computed from the default columns above), so the
-    // columns only dodge along x.
+    // then braid the frame (#29 follow-on, loop-backedge family). That held
+    // the both-endpoint shared slab first; a return with only ONE endpoint
+    // inside a container braids that container just the same, so the band
+    // treatment is PER SIDE: each endpoint's own container joins that side's
+    // column scan as two BORDER BANDS (zero-width frame lines at its raw
+    // edges, blocked and escaped with CONTAINER_COLUMN_GAP), so each resolved
+    // column sits at least that far off its endpoint's container frame --
+    // inside, in the interior corridor, or just outside -- while its
+    // connecting leg may still cross the frame to reach it. An endpoint with
+    // no container contributes no bands, and the shared-container case feeds
+    // both sides the same slab it always did. The rail y is taken as fixed
+    // (computed from the default columns above), so the columns only dodge
+    // along x.
     // Side-keeping: a moved column is accepted only when the connecting
     // horizontal from its port also stays clear (raw-gap fallback where
     // paddings overlap); the segment audit quantifies any residual.
@@ -2372,16 +2377,16 @@ export function clampBackwardRails(
       source.parentId !== undefined && source.parentId === target.parentId
         ? source.parentId
         : undefined;
-    const sharedBands: PaddedObstacle[] = [];
-    if (sharedContainerId !== undefined) {
-      const slab = rawById.get(sharedContainerId);
-      if (slab !== undefined) {
-        sharedBands.push(
-          { ...slab, right: slab.left, container: true },
-          { ...slab, left: slab.right, container: true },
-        );
-      }
-    }
+    const bandsOf = (endpoint: RFAnyNode): PaddedObstacle[] => {
+      const containerId = sharedContainerId ?? endpoint.parentId;
+      if (containerId === undefined) return [];
+      const slab = rawById.get(containerId);
+      if (slab === undefined) return [];
+      return [
+        { ...slab, right: slab.left, container: true },
+        { ...slab, left: slab.right, container: true },
+      ];
+    };
     const xrExempt = ownExempt([source]);
     const xr = clearColumnKeepingLeg({
       desired: xrDesired,
@@ -2396,7 +2401,7 @@ export function clampBackwardRails(
       foreignRawCards: rawCards.filter(
         (o) => !xrExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
       ),
-      containerBands: sharedBands,
+      containerBands: bandsOf(source),
       containerGap: CONTAINER_COLUMN_GAP,
     });
     if (xr !== xrDesired) railXRightByIndex.set(index, xr);
@@ -2414,7 +2419,7 @@ export function clampBackwardRails(
       foreignRawCards: rawCards.filter(
         (o) => !xlExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
       ),
-      containerBands: sharedBands,
+      containerBands: bandsOf(target),
       containerGap: CONTAINER_COLUMN_GAP,
     });
     if (xl !== xlDesired) railXLeftByIndex.set(index, xl);

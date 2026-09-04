@@ -549,6 +549,38 @@ describe("clampBackwardRails loop returns", () => {
     expect((out[0]!.data as { railXLeft?: number }).railXLeft).toBeDefined();
   });
 
+  it("keeps a one-endpoint return's member-side column off the slab border", () => {
+    // Round-2 finding 2: only the SOURCE is a member of the container (the
+    // target sits outside it, to the left), so the shared-parent un-exemption
+    // never fires and the source's own container stays fully exempt: its
+    // default column -- one stub out of the port, 12 off the right border
+    // here -- rides the frame exactly like the both-endpoint case did. Each
+    // endpoint's OWN container joins ITS side's scan as border bands, so the
+    // member-side column must hold the same CONTAINER_COLUMN_GAP off the raw
+    // border, while the outside target's column keeps today's unstamped
+    // default (no container is its own geometry).
+    const gLeft = 200;
+    const gRight = 800;
+    const sx = 788; // src's absolute right edge (200 + 440 + 148)
+    const tx = -400; // tgt's absolute left edge, outside the slab
+    const nodes: RFAnyNode[] = [
+      containerNode("G", gLeft, 0, gRight - gLeft, 260),
+      { ...productNode("src", 440, 80, 148, 78), parentId: "G" },
+      productNode("tgt", tx, 80, 148, 78),
+    ];
+    const out = clampBackwardRails(nodes, [mkEdge("e0", "src", "tgt", "w")]);
+    const railXRight =
+      (out[0]!.data as { railXRight?: number }).railXRight ?? sx + PORT_STUB;
+    const offFrame = (x: number): number =>
+      Math.min(Math.abs(x - gLeft), Math.abs(x - gRight));
+    // Today the default rides 12 off the right border, inside the gap.
+    expect(offFrame(railXRight)).toBeGreaterThanOrEqual(CONTAINER_COLUMN_GAP);
+    // And the column actually moved (the default is stamped, not kept).
+    expect((out[0]!.data as { railXRight?: number }).railXRight).toBeDefined();
+    // Per-side: the outside target's column is no container's business.
+    expect((out[0]!.data as { railXLeft?: number }).railXLeft).toBeUndefined();
+  });
+
   it("clears the rail over only the connected band of obstacles around the preferred y", () => {
     // The y-window: a backward rail whose preferred y strikes a LOCAL card
     // must escape just off that card's band, not over every x-overlapping

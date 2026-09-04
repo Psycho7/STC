@@ -887,9 +887,17 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // loop-return family. Every loop-return column and rail the fix owns reads
 // 16+ off its frame (multi6 e:48 at 1340/580 vs borders 1356/564,
 // rot-bottled_rec_hp_1 e:3 at 1086/294 vs 1070/278, verified by probe).
+// Re-pinned DOWN at the round-2 per-side bands fix (same campaign): battery5
+// 1 -> 0. Each endpoint's OWN container now joins its side's column scan as
+// border bands, so e:9 -- whose only member endpoint is its source -- holds
+// the full gap off the loop's right border instead of riding it. The rot-
+// bottled_food_4 cell re-measured unchanged in the same pass: e:12 is a
+// forward jog descent, not a return column, and no fix in this family moves
+// it; it stays the sole recorded residue.
 const FRAME_RIDE_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 1, // first recording, Task 7 (e:9)
+  // 1 -> 0, round-2 per-side bands (e:9); first recording was Task 7.
+  battery5: 0,
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
@@ -899,7 +907,9 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 1, // first recording, Task 7 (e:12)
+  // First recording, Task 7 (e:12); held at the round-2 per-side bands
+  // re-measure (a jog descent, not a return column).
+  "rot-bottled_food_4": 1,
 
 };
 
