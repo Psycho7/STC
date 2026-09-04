@@ -476,6 +476,23 @@ test.describe("DOM geometry audit", () => {
 //      braid is untested by this corpus.
 //   3. The Z2 coincident-column braids are still on screen. They are the R12
 //      residual: ratified, not fixed.
+//
+// EXAM-SURFACED FAMILIES CAMPAIGN, 2026-09-04 -- the R4 declared-output-row
+// ruling. Recipe output rows now read the recipe's own declared order (in:
+// every card of one recipe reads alike) instead of ELK's per-side port order,
+// which flipped with consumer placement. Five pre-existing cells moved UP,
+// all on the copper_nugget (Refining Unit) recipe whose port rows flipped;
+// ratified the same day by controller ruling and re-pinned with cause:
+// default foreign-stroke 0 -> 1 (sewage surplus stroke e:3 crosses the
+// Cuprium chip box whose port moved to the top row), battery5 crossing
+// 8 -> 9, script43 dot-cover 0 -> 1 (junction dot of e:3 hidden under the
+// e:4 Cuprium share chip) and skipped-band 2 -> 3 (three copper_nugget rise
+// chips bind to no lane band), gas-web card-intrusion 8 -> 9 (e:12
+// copper_nugget-rise 40 units into card q:8). The dot-cover cell SUPERSEDES
+// R13's "only UP move" restriction for this campaign: R13 spent the F1+Z2
+// campaign's single sanctioned raise; this one is a separate, ratified trade
+// of the exam-surfaced campaign. DOWN moves recorded at the same re-measure
+// ride the per-table notes as usual.
 
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
@@ -508,7 +525,9 @@ test.describe("DOM geometry audit", () => {
 // the campaign): rot-bottled_food_3 3, rot-bottled_food_4 22.
 const CROSSING_BASELINE: Record<string, number> = {
   default: 9,
-  battery5: 8,
+  // 8 -> 9 at the exam-surfaced R4 re-measure (declared output rows flip the
+  // copper_nugget ports; ratified 2026-09-04).
+  battery5: 9,
   "battery5-xiranite": 55,
   crystal: 1,
   equip4: 1,
@@ -827,7 +846,10 @@ const DOT_COVER_BASELINE: Record<string, number> = {
   equip4: 0,
   multi6: 1,
   tundra: 0,
-  script43: 0,
+  // 0 -> 1 at the exam-surfaced R4 re-measure: the junction dot of e:3 hides
+  // under the e:4 Cuprium share chip whose port row flipped (ratified
+  // 2026-09-04; supersedes R13's single-raise restriction for this campaign).
+  script43: 1,
   "coupon-web": 0,
   "gas-web": 1,
   "rot-bottled_food_3": 1,
@@ -1423,7 +1445,9 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   tundra: 1,
   script43: 11,
   "coupon-web": 7,
-  "gas-web": 8,
+  // 8 -> 9 at the exam-surfaced R4 re-measure: the e:12 copper_nugget-rise
+  // chip lands 40 units into card q:8 (ratified 2026-09-04).
+  "gas-web": 9,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 5,
 };
@@ -1463,7 +1487,10 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
 // the campaign): both 2, each one full-height column passing under two label
 // chips.
 const FOREIGN_STROKE_BASELINE: Record<string, number> = {
-  default: 0,
+  // 0 -> 1 at the exam-surfaced R4 re-measure: the sewage surplus stroke e:3
+  // crosses the e:2 Cuprium chip box whose port moved to the top row
+  // (ratified 2026-09-04).
+  default: 1,
   battery5: 2,
   "battery5-xiranite": 5,
   crystal: 0,
@@ -1568,7 +1595,9 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
   equip4: 2,
   multi6: 13,
   tundra: 0,
-  script43: 2,
+  // 2 -> 3 at the exam-surfaced R4 re-measure: the copper_nugget rise chips
+  // e:3/e:4/e:5 (out of q:11) bind to no lane band (ratified 2026-09-04).
+  script43: 3,
   "coupon-web": 0,
   "gas-web": 3,
   "rot-bottled_food_3": 4,
@@ -1645,8 +1674,10 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
 // over a run, so it holds even when the suite is run one scenario at a time.
 const CENSUS_TOTALS = {
   seatValidity: 18,
-  cardIntrusion: 77,
-  foreignStroke: 43,
+  // 77 -> 78 and 43 -> 44 at the exam-surfaced R4 ratification (gas-web
+  // card intrusion, default foreign stroke; 2026-09-04).
+  cardIntrusion: 78,
+  foreignStroke: 44,
   outsideBand: 0,
 };
 
