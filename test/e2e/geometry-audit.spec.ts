@@ -1446,8 +1446,12 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   script43: 11,
   "coupon-web": 7,
   // 8 -> 9 at the exam-surfaced R4 re-measure: the e:12 copper_nugget-rise
-  // chip lands 40 units into card q:8 (ratified 2026-09-04).
-  "gas-web": 9,
+  // chip lands 40 units into card q:8 (ratified 2026-09-04). Back to 8 at the
+  // R3 share-form reservation (2026-09-04, Task 3): a fan-out branch chip now
+  // reserves the plain rate + unit, and e:12's wider reserve re-seats it off
+  // q:8's body -- trading that deep lap for one foreign stroke under its box
+  // (gas-web foreignStroke actual 8 -> 9, still under its pin).
+  "gas-web": 8,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 5,
 };
@@ -1675,8 +1679,10 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
 const CENSUS_TOTALS = {
   seatValidity: 18,
   // 77 -> 78 and 43 -> 44 at the exam-surfaced R4 ratification (gas-web
-  // card intrusion, default foreign stroke; 2026-09-04).
-  cardIntrusion: 78,
+  // card intrusion, default foreign stroke; 2026-09-04). 78 -> 77 at the R3
+  // share-form reservation (gas-web card intrusion back down with e:12's
+  // re-seat; 2026-09-04, Task 3).
+  cardIntrusion: 77,
   foreignStroke: 44,
   outsideBand: 0,
 };

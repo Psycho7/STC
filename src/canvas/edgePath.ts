@@ -685,7 +685,7 @@ export function chamferBusPath(
 // junction (never staggered), returning the geometry the render / seating layers
 // need: the junction point (trunk meets branches, where the dot draws), the
 // trunk-segment anchor (where the owner's aggregate chip seats), and the branch-
-// leg anchor (where this member's own share chip seats). Same degenerate guards
+// leg anchor (where this member's own branch chip seats). Same degenerate guards
 // as chamferStepPath's forward branch: a shared-y member draws a straight trunk
 // with no branch vertical, a small-dy member a single diagonal. Pure.
 //

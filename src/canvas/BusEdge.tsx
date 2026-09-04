@@ -40,9 +40,10 @@ export { junctionRadius };
 // rate/min), reusing ItemEdge's flow-chip markup and zoom gate so a bus member
 // reads the same as a plain item edge near what it feeds: on a long lane run
 // only the rise chip draws, on a short one the drop chip draws alongside it,
-// and the drop returns whenever the rise is hidden. A multi-member trunk draws
-// only the per-member rise chips, each reading as a share of the trunk total
-// ("30/270").
+// and the drop returns whenever the rise is hidden. A multi-member LANE trunk
+// draws only the per-member rise chips, each reading as a share of the trunk
+// total ("30/270"); a fan-out member's branch chip keeps the plain rate
+// reading (R3).
 export default function BusEdge({
   id,
   sourceX,
@@ -181,7 +182,7 @@ export default function BusEdge({
   // manually built edge). The chip sits on the lane at laneY. A fan-out member
   // flagged fanoutBranchHidden draws no branch chip at all: the seating pass
   // found no chip/card-clear point on its own polyline, and an off-line chip
-  // would float in empty canvas (the share stays on the target card's row and
+  // would float in empty canvas (the rate stays on the target card's row and
   // this edge's hover tooltip below). The hide only holds while the live
   // branch anchor still matches the one it was stamped at: nodes stay
   // mouse-draggable and the seating pass does not rerun on drag, so once the
@@ -206,17 +207,23 @@ export default function BusEdge({
   const laneRiseHidden = laneData?.busRiseHidden === true;
   const memberChipHidden = branchHidden || laneRiseHidden;
   const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
-  // On a multi-member trunk the member chip reads as a SHARE of the trunk it
-  // runs in ("30/270") rather than a bare rate, so a lane number is never
+  // On a multi-member LANE trunk the member chip reads as a SHARE of the trunk
+  // it runs in ("30/270") rather than a bare rate, so a lane number is never
   // mistaken for the whole trunk's throughput (issue #45). The chip carries
   // digits only: the unit would not fit the fixed chip box beside a decimal
   // pair, and it differs per locale, so the label and tooltip below spell out
   // the full localized wording instead. The denominator is the trunk's exact
   // total rounded once, matching the boundary cards, so the visible members may
   // sum a cent off it; the tooltip keeps the exact one. A lone member is its
-  // own total, so it keeps the plain rate + unit reading.
+  // own total, so it keeps the plain rate + unit reading -- and so does a
+  // formed FAN-OUT member (R3, exam 2026-09-04): its branch is a direct
+  // in-corridor leg drawn beside its unformed siblings' plain item edges, and
+  // the share form is reserved for bus-lane members. Mirrors branchChipText in
+  // chipSeating so the seat reserves the box this render draws.
   const shareTotalStr =
-    memberCount > 1 && totalRate ? formatRatePerMin(totalRate) : "";
+    !isFanout && memberCount > 1 && totalRate
+      ? formatRatePerMin(totalRate)
+      : "";
   const isShare = memberRateStr !== "" && shareTotalStr !== "";
   const plainRate = `${memberRateStr}${unit}`;
   const riseText =
@@ -265,7 +272,7 @@ export default function BusEdge({
   // `compact` collapses a chip to its item sprite at every zoom: the seating
   // pass stamps it on a fan-out branch whose leg is shorter than one chip box,
   // where the full box has no seat that keeps it off the trunk's split dot. The
-  // share wording stays on the chip's label and title.
+  // rate stays readable on the chip's label and title.
   const renderChip = (
     suffix: string,
     x: number,

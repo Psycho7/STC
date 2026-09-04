@@ -245,7 +245,7 @@ describe("deconflictChipAnchors: per-chip reserved box", () => {
 // leg that keeps the full box off the trunk's split dot -- the box is wider than
 // the leg, so wherever it slides it still swallows the dot. Collapsing it to the
 // icon-only variant makes the box narrow enough for the dot keep-off to seat it
-// clear; the share wording stays on the chip's title / aria-label.
+// clear; the rate stays readable on the chip's title / aria-label.
 
 const FAN_ITEM = "s";
 // chipSeating's PORT_DRIFT.recipe, mirrored here (the module does not export

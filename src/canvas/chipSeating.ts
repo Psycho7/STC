@@ -229,15 +229,24 @@ export function aggregateChipText(edge: Edge): ChipText | undefined {
     : { body: formatRatePerMin(total), unit: true };
 }
 
-// The chip text a fan-out member's BRANCH chip draws. On a multi-member trunk it
-// is the SHARE, "30/270" -- digits only, no unit, because the unit would not fit
-// the box beside a decimal pair and differs per locale, so the full localized
-// wording rides the label and title instead (BusEdge, issue #45). A lone member
-// is its own total and keeps the plain rate + unit reading.
+// The chip text a bus member's per-member chip (lane rise / fan-out branch)
+// draws. The SHARE -- "30/270", digits only, no unit, because the unit would
+// not fit the box beside a decimal pair and differs per locale, so the full
+// localized wording rides the label and title instead (BusEdge, issue #45) --
+// is a bus-LANE member's reading (R3, exam 2026-09-04): a lane rise names one
+// share of a trunk total the reader cannot otherwise split. A formed FAN-OUT
+// branch is a direct in-corridor leg drawn beside its unformed siblings' plain
+// item edges, so it keeps the plain rate + unit those siblings read. A lone
+// lane member is its own total and keeps the plain rate + unit reading too.
+// Consulted by the fan-out branch seat (lane rises reserve the worst-case box
+// regardless) and by the exam reservation rows for both member kinds.
 export function branchChipText(edge: Edge): ChipText | undefined {
   const plain = rateChipText(edge);
   if (plain === undefined || plain.body === "") return plain;
   const data = edge.data as BusEdgeData | undefined;
+  // Mirrors the share-text predicate in BusEdge (isShare): fan-out members
+  // never take the share form, so the seat and the render agree on the box.
+  if (data?.fanout === true) return plain;
   if ((data?.busMemberCount ?? 1) <= 1) return plain;
   const total = data?.busTotalRate ?? edgeRate(edge)!;
   const shareTotal = formatRatePerMin(total);
@@ -2603,7 +2612,7 @@ export function deconflictChipAnchors(
     // A branch chip that cannot seat ON its own polyline is hidden rather than
     // parked off-line: a narrow-corridor fan-out cannot host two max-scale chip
     // boxes side by side, so once the owner's aggregate covers the short path
-    // an off-line seat would float in empty canvas. The share it would have
+    // an off-line seat would float in empty canvas. The rate it would have
     // shown remains on the target card's input row and in the edge tooltip.
     // The hide is stamped with the branch anchor it was decided at, so BusEdge
     // can drop it once a node drag moves the live anchor away from the stamp.

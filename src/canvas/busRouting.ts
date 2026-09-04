@@ -192,7 +192,7 @@ export type FanoutBusEdgeData = BusAggregate & {
   // than one rendered chip: BusEdge collapses the branch chip to its icon-only
   // variant at every zoom, the same rule chipIconOnly applies to a short item
   // edge. The full box is wider than such a leg, so no seat on it can keep the
-  // chip off the trunk's split dot; the narrow box can. The share wording stays
+  // chip off the trunk's split dot; the narrow box can. The rate stays readable
   // on the chip's aria-label and hover title.
   fanoutBranchIconOnly?: true;
   // Set by routeFanoutEdges on every member of a trunk whose corridor is
@@ -200,8 +200,7 @@ export type FanoutBusEdgeData = BusAggregate & {
   // worst-case chip half-box, so a full-width branch chip anywhere on the
   // column would lap a sibling's vertical at some zoom. The seating pass takes
   // it as iconOnly (the same collapsed render fanoutBranchIconOnly gets); the
-  // share wording stays on the aria-label / hover title and the rate on the
-  // target card's row.
+  // rate stays on the aria-label / hover title and the target card's row.
   fanoutContested?: true;
 };
 

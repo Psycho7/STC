@@ -275,9 +275,11 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(rise!.getAttribute("aria-label")).toBe("Iron Plate x 60/min");
   });
 
-  it("shares the fan-out branch chips of a multi-member trunk too", async () => {
-    // Workstream B applies to every multi-member trunk member, lane rise and
-    // fan-out branch alike -- the branch chip reads the same share form.
+  it("keeps a fan-out branch chip on the plain rate reading", async () => {
+    // R3 (exam 2026-09-04): the design spec scopes share chips to bus-LANE
+    // members only. A formed fan-out branch is a direct in-corridor leg drawn
+    // beside its unformed siblings' plain item edges, so its chip reads the
+    // same "rate + unit" they do, never the share form.
     renderEdge(
       {
         item: "Iron Plate",
@@ -295,14 +297,14 @@ describe("canvas/BusEdge trunk labels", () => {
       '[data-testid="bus-edge-label-e1-rise"]',
     );
     expect(rise).not.toBeNull();
-    expect(rise!.textContent).toBe("60/120");
+    expect(rise!.textContent).toBe("60/min");
   });
 
   it("collapses a short-leg fan-out branch chip to icon-only at every zoom", async () => {
     // A branch leg shorter than one chip box has no seat that keeps the full
     // box off the trunk's split dot, so the seating pass stamps
     // fanoutBranchIconOnly and the chip renders as the bare sprite -- at zoom 1,
-    // where no zoom LOD gate applies. The share wording survives on the
+    // where no zoom LOD gate applies. The rate survives on the
     // aria-label and the hover title, so the number is one hover away.
     // "belt" carries a sprite, so the icon survives the collapse.
     renderEdge(
@@ -326,15 +328,13 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(rise!.classList.contains("icon-only")).toBe(true);
     expect(rise!.textContent).toBe("");
     expect(rise!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
-    expect(rise!.getAttribute("aria-label")).toBe(
-      "Transport Belt x 60 of 120/min",
-    );
-    expect(rise!.getAttribute("title")).toBe("Transport Belt x 60 of 120/min");
+    expect(rise!.getAttribute("aria-label")).toBe("Transport Belt x 60/min");
+    expect(rise!.getAttribute("title")).toBe("Transport Belt x 60/min");
   });
 
   it("keeps a long-leg fan-out branch chip's digits", async () => {
     // The control for the collapse above: without the flag the same trunk's
-    // branch chip keeps its share digits.
+    // branch chip keeps its rate digits (R3: plain rate, not the share form).
     renderEdge(
       {
         item: "belt",
@@ -353,7 +353,7 @@ describe("canvas/BusEdge trunk labels", () => {
     );
     expect(rise).not.toBeNull();
     expect(rise!.classList.contains("icon-only")).toBe(false);
-    expect(rise!.textContent).toBe("60/120");
+    expect(rise!.textContent).toBe("60/min");
   });
 
   it("skips the branch chip of a fan-out member flagged fanoutBranchHidden", async () => {
@@ -361,7 +361,7 @@ describe("canvas/BusEdge trunk labels", () => {
     // exists anywhere on the member's own polyline (a narrow-corridor fan-out
     // whose aggregate covers the whole short path). This trunk is multi-member,
     // so it draws no aggregate either: the member is left with no chip at all
-    // and its share rides the hover tooltip (next test).
+    // and its rate rides the hover tooltip (next test).
     renderEdge(
       {
         item: "Iron Plate",
@@ -442,9 +442,9 @@ describe("canvas/BusEdge trunk labels", () => {
     );
   });
 
-  it("keeps a hidden branch's share reachable as a native tooltip on its path", async () => {
+  it("keeps a hidden branch's rate reachable as a native tooltip on its path", async () => {
     // The hidden branch chip was the only carrier of the member's exact-rate
-    // title. A transparent hover path with an SVG <title> keeps the share
+    // title. A transparent hover path with an SVG <title> keeps the rate
     // reachable on the edge itself, so hiding the chip loses no information.
     renderEdge(
       {
@@ -462,7 +462,7 @@ describe("canvas/BusEdge trunk labels", () => {
     await findEdgePath();
     const title = document.querySelector(".react-flow__edge title");
     expect(title).not.toBeNull();
-    expect(title!.textContent).toBe("Iron Plate x 60 of 120/min");
+    expect(title!.textContent).toBe("Iron Plate x 60/min");
   });
 
   it("renders only the aggregate drop chip below the zoom threshold", async () => {
