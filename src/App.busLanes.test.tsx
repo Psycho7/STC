@@ -53,49 +53,49 @@ async function renderReady(): Promise<void> {
   });
 }
 
-test("defaults to enabled and passes busLanesEnabled: true to layout", async () => {
+test("defaults to disabled and passes busLanesEnabled: false to layout", async () => {
   await renderReady();
-  expect(lastLayoutArg().busLanesEnabled).toBe(true);
+  expect(lastLayoutArg().busLanesEnabled).toBe(false);
   expect(screen.getByTestId("bus-lanes-toggle")).toHaveAttribute(
     "aria-pressed",
-    "true",
+    "false",
   );
 });
 
-test("clicking the toggle re-lays-out with busLanesEnabled: false and persists", async () => {
+test("clicking the toggle re-lays-out with busLanesEnabled: true and persists", async () => {
   await renderReady();
   const hashBefore = window.location.hash;
 
   fireEvent.click(screen.getByTestId("bus-lanes-toggle"));
 
   await waitFor(() => {
-    expect(lastLayoutArg().busLanesEnabled).toBe(false);
+    expect(lastLayoutArg().busLanesEnabled).toBe(true);
   });
   expect(screen.getByTestId("bus-lanes-toggle")).toHaveAttribute(
     "aria-pressed",
-    "false",
+    "true",
   );
-  expect(window.localStorage.getItem("aef.busLanes")).toBe("off");
+  expect(window.localStorage.getItem("aef.busLanes")).toBe("on");
   // View preference only: the plan hash is untouched by the flip.
   await waitFor(() => {
     expect(screen.getByTestId("header-strip").textContent).toContain("READY");
   });
   expect(window.location.hash).toBe(hashBefore);
 
-  // And back on.
+  // And back off.
   fireEvent.click(screen.getByTestId("bus-lanes-toggle"));
   await waitFor(() => {
-    expect(lastLayoutArg().busLanesEnabled).toBe(true);
+    expect(lastLayoutArg().busLanesEnabled).toBe(false);
   });
-  expect(window.localStorage.getItem("aef.busLanes")).toBe("on");
+  expect(window.localStorage.getItem("aef.busLanes")).toBe("off");
 });
 
-test("a stored 'off' preference disables bus lanes from the first layout", async () => {
-  window.localStorage.setItem("aef.busLanes", "off");
+test("a stored 'on' preference enables bus lanes from the first layout", async () => {
+  window.localStorage.setItem("aef.busLanes", "on");
   await renderReady();
-  expect(lastLayoutArg().busLanesEnabled).toBe(false);
+  expect(lastLayoutArg().busLanesEnabled).toBe(true);
   expect(screen.getByTestId("bus-lanes-toggle")).toHaveAttribute(
     "aria-pressed",
-    "false",
+    "true",
   );
 });

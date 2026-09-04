@@ -129,11 +129,11 @@ const transportConfig: TransportConfig = loadTransportConfig(
 const BUS_LANES_STORAGE_KEY = "aef.busLanes";
 
 function readStoredBusLanesEnabled(): boolean {
-  if (typeof window === "undefined") return true;
+  if (typeof window === "undefined") return false;
   try {
-    return window.localStorage.getItem(BUS_LANES_STORAGE_KEY) !== "off";
+    return window.localStorage.getItem(BUS_LANES_STORAGE_KEY) === "on";
   } catch {
-    return true;
+    return false;
   }
 }
 
