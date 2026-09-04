@@ -53,6 +53,19 @@ test("clearRailY leaves a moat-preferred rail alone off a plain card", () => {
   expect(clearRailY(91, 120, 380, [card], 8, 48)).toBe(91);
 });
 
+test("clearRailY re-escapes when the nearer landing parks inside a foreign card's gap clearance", () => {
+  // The band escape pads its own members by the full gap (aboveY/belowY), but
+  // the landing used to be tested against the RAW rects of obstacles outside
+  // the band, so a rail could park 1..gap units off a spanned card the old
+  // whole-graph min/max always cleared. Here the band around A (top 100,
+  // bottom 200) escapes upward to A.top - gap = 92, only 1 past B's bottom 91:
+  // B's gap-padded interval [0 - 8, 91 + 8] must catch the landing, merge B
+  // into the band, and recompute to the below escape, A.bottom + gap = 208.
+  const a: ObstacleRect = { left: 100, right: 400, top: 100, bottom: 200 };
+  const b: ObstacleRect = { left: 120, right: 380, top: 0, bottom: 91 };
+  expect(clearRailY(150, 120, 380, [a, b], 8, 48)).toBe(208);
+});
+
 test("chamferStepPath honors a railY override in its backward branch", () => {
   const [path] = chamferStepPath({
     sourceX: 400,

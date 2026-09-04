@@ -213,15 +213,16 @@ export function routingHintsFromData(data: unknown): RoutingHints {
 // loop return clear across the graph (an unrelated enclosure card lifted the
 // multi6 Sandleaf return's rail from its preferred 393 to -4), and the upward
 // escape landed graphTop - 16, inside the top bus band whose bottom sits at
-// graphTop - 8. Should the nearer escape land inside an obstacle the band did
-// not cover, that obstacle's own band joins and the escapes recompute, so the
-// returned y never slices a spanned rect the old whole-graph rule would have
-// cleared. Plain obstacles use `gap` for both the strike test and the
-// clearance; container slabs (o.container) use the wider `containerGap` for
-// both, so a rail preferred anywhere inside the container's clearance band --
-// including the moat between the padded border and the band edge -- is pushed
-// out to the full band (#29). Obstacles outside the x-span are ignored because
-// the horizontal rail never reaches them. Pure.
+// graphTop - 8. Should the nearer escape land within gap clearance of an
+// obstacle the band did not cover, that obstacle's own band joins and the
+// escapes recompute, so the returned y clears every spanned rect by its own
+// gap, as the old whole-graph rule did. Plain obstacles use `gap` for both
+// the strike test and the clearance; container slabs (o.container) use the
+// wider `containerGap` for both, so a rail preferred anywhere inside the
+// container's clearance band -- including the moat between the padded border
+// and the band edge -- is pushed out to the full band (#29). Obstacles
+// outside the x-span are ignored because the horizontal rail never reaches
+// them. Pure.
 export function clearRailY(
   preferredY: number,
   xLo: number,
@@ -262,8 +263,10 @@ export function clearRailY(
 // The escape loop over the connected band around preferredY: grow the band
 // transitively (overlapping strike intervals merge, so a chain of cards and
 // slab moats moves as one block), take the nearer of just-above / just-below
-// the whole band, and -- should that escape land inside a spanned obstacle the
-// band did not cover -- merge that obstacle's band and recompute. Each round
+// the whole band, and -- should that escape land within gap clearance of a
+// spanned obstacle the band did not cover, the same padding the escapes
+// themselves apply, so a landing 1..gap off a card re-merges instead of
+// parking there -- merge that obstacle's band and recompute. Each round
 // the band strictly grows and the whole-graph limit is the old behaviour, so
 // the loop terminates. Pure.
 function clearRailYBand(
@@ -290,7 +293,8 @@ function clearRailYBand(
     const belowY = Math.max(...members.map((o) => o.bottom + gapOf(o)));
     const pick = preferredY - aboveY <= belowY - preferredY ? aboveY : belowY;
     const struckOutside = spanned.filter(
-      (o) => !band.has(o) && pick >= strikeLo(o) && pick <= strikeHi(o),
+      (o) =>
+        !band.has(o) && pick >= o.top - gapOf(o) && pick <= o.bottom + gapOf(o),
     );
     if (struckOutside.length === 0) return pick;
     for (const o of struckOutside) band.add(o);
