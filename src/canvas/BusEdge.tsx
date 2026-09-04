@@ -8,6 +8,7 @@ import {
   edgeStrokeWidth,
   junctionRadius,
   strokeForKind,
+  useLiveCrossingCues,
   type ItemEdgeData,
 } from "./ItemEdge";
 import {
@@ -21,7 +22,6 @@ import {
   parsePathPoints,
   routingHintsFromData,
 } from "./edgePath";
-import { liveCrossingCues } from "./crossings";
 import { HIDE_STALE_EPS } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
@@ -121,9 +121,11 @@ export default function BusEdge({
   // Crossing-cue disks (Task 9), stamped on this member where ITS polyline
   // properly crosses a different flow's and it paints above the other (the
   // seating pass picks the owner by React Flow's z key). Filtered to stamps
-  // still on the live polyline (the stale-stamp rule) and rendered before the
+  // whose crossing still stands on BOTH sides -- on this member's live
+  // polyline and against the stamped partner edge's anchors (the
+  // stale-stamp rule, see useLiveCrossingCues) -- and rendered before the
   // coloured path, exactly as ItemEdge draws them.
-  const liveCues = liveCrossingCues(
+  const liveCues = useLiveCrossingCues(
     edgeData?.crossingCues,
     parsePathPoints(path),
   );

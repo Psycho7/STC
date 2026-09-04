@@ -450,6 +450,104 @@ describe("canvas/ItemEdge crossing cues", () => {
       document.querySelector('[data-testid="edge-crossing-cue"]'),
     ).toBeNull();
   });
+
+  it("drops a cue whose stamped partner has since moved away, and keeps one whose partner stands still", async () => {
+    // The partner-side stale rule: the cue's stamp names the OTHER edge of
+    // the crossing pair and records that edge's endpoint node anchors as of
+    // the seating pass. Nodes stay mouse-draggable without a re-seat, so a
+    // dragged partner leaves the cue's own stamp intact -- its own polyline
+    // never moved -- while the crossing itself is gone from the partner's
+    // side. The renderer consults React Flow's store (by id, per partner)
+    // and drops the cue once the partner edge is missing or either endpoint
+    // has drifted past the shared stale eps.
+    const on = await liveMidpoint();
+    // A second, real edge in the same flow so the store's edge lookup can
+    // find the partner: P1 -> P2, both top-level, so their absolute anchor
+    // positions are exactly their fixture positions.
+    const P1 = {
+      id: "P1",
+      position: { x: 500, y: 100 },
+      data: { label: "P1" },
+    };
+    const P2 = {
+      id: "P2",
+      position: { x: 900, y: 100 },
+      data: { label: "P2" },
+    };
+    const partnerEdge: Edge = {
+      id: "eP",
+      type: "item",
+      source: "P1",
+      target: "P2",
+      data: { item: "belt", rate: new Fraction(1, 1) },
+    };
+    const renderPair = (partner: {
+      edgeId: string;
+      source: { x: number; y: number };
+      target: { x: number; y: number };
+    }): void => {
+      render(
+        <LocaleProvider locale="en">
+          <div style={{ width: 800, height: 600 }}>
+            <ReactFlow
+              nodes={[...NODES, P1, P2]}
+              edges={[
+                makeEdge({
+                  item: "belt",
+                  rate: new Fraction(1, 1),
+                  crossingCues: [{ x: on.x, y: on.y, partner }],
+                }),
+                partnerEdge,
+              ]}
+              edgeTypes={edgeTypes}
+              minZoom={0.05}
+              defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+            />
+          </div>
+        </LocaleProvider>,
+      );
+    };
+    const cueVisible = async (): Promise<boolean> => {
+      await waitFor(() =>
+        expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+      );
+      return (
+        document.querySelector('[data-testid="edge-crossing-cue"]') !== null
+      );
+    };
+
+    // Anchors agreeing with the live nodes: the crossing still stands on
+    // both sides, so the disk renders.
+    const agreeing = {
+      edgeId: "eP",
+      source: { x: 500, y: 100 },
+      target: { x: 900, y: 100 },
+    };
+    await renderPair(agreeing);
+    expect(await cueVisible()).toBe(true);
+    cleanup();
+
+    // The partner's source dragged well past the eps: its end of the
+    // crossing is gone, and the cue must vanish instead of cutting a gap in
+    // a stroke that no longer crosses there.
+    const moved = {
+      edgeId: "eP",
+      source: { x: 500 + HIDE_STALE_EPS * 2, y: 100 },
+      target: { x: 900, y: 100 },
+    };
+    await renderPair(moved);
+    expect(await cueVisible()).toBe(false);
+    cleanup();
+
+    // The partner edge deleted outright: same verdict, same rule.
+    const gone = {
+      edgeId: "eOther",
+      source: { x: 500, y: 100 },
+      target: { x: 900, y: 100 },
+    };
+    await renderPair(gone);
+    expect(await cueVisible()).toBe(false);
+  });
 });
 
 describe("canvas/ItemEdge hover reveal", () => {

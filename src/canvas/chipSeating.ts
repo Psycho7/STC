@@ -71,7 +71,12 @@ import {
   pathPointAtPts,
   routingHintsFromData,
 } from "./edgePath";
-import { pointToPolylineDistance, properCrossPoint } from "./crossings";
+import {
+  pointToPolylineDistance,
+  properCrossPoint,
+  type CrossingCue,
+  type CrossingCuePartner,
+} from "./crossings";
 import {
   BUS_LONG_RUN_THRESHOLD,
   ENTRY_SLOT_PITCH,
@@ -2007,12 +2012,32 @@ export function deconflictChipAnchors(
   // crossing census. Points are rounded to the emitted paths' two decimals and
   // deduped per edge: the members of one trunk share a lane exactly, so their
   // crossings with one foreign edge land on the same point and one gap must
-  // draw there, not six stacked disks.
-  const crossingCuesByIndex = new Map<
-    number,
-    Array<{ x: number; y: number }>
-  >();
+  // draw there, not six stacked disks. Each stamp also carries the partner
+  // edge's id and endpoint NODE anchors (see crossingPartnerBits): the
+  // render-side staleness rule needs the OTHER side's identity to drop the
+  // cue when a drag moves the partner off the crossing, which the point
+  // alone cannot express.
+  const crossingCuesByIndex = new Map<number, Array<CrossingCue>>();
   {
+    // The partner record for one segment entry: its edge id plus its two
+    // endpoint node ABSOLUTE origins (rounded to the stamp's two decimals).
+    // Every segment entry resolved its endpoints (edgeEndpoints returned
+    // non-null), so both nodes exist here.
+    const partnerStampOf = (segIdx: number): CrossingCuePartner => {
+      const edge = edges[edgeIndexOfSegment[segIdx]!]!;
+      const anchorOf = (nodeId: string): { x: number; y: number } => {
+        const node = byId.get(nodeId)!;
+        return {
+          x: Math.round(absoluteLeft(node, byId) * 100) / 100,
+          y: Math.round(absoluteTop(node, byId) * 100) / 100,
+        };
+      };
+      return {
+        edgeId: edgeSegments[segIdx]!.id,
+        source: anchorOf(edge.source),
+        target: anchorOf(edge.target),
+      };
+    };
     // The React Flow paint key per segment entry: (zTier, edges-array index),
     // lexicographic -- the SMALLER pair paints beneath. zTier mirrors
     // getElevatedEdgeZIndex under this app's settings (see the comment above).
@@ -2033,7 +2058,9 @@ export function deconflictChipAnchors(
         // increasing (it is built in edges-array order), so j always carries
         // the larger index and only the zTier can flip the ruling.
         const above = zTierOfSegment[j]! >= zTierOfSegment[i]! ? j : i;
+        const other = above === i ? j : i;
         const stampIndex = edgeIndexOfSegment[above]!;
+        const partner = partnerStampOf(other);
         for (const sa of si.segs) {
           for (const sb of sj.segs) {
             const p = properCrossPoint(
@@ -2049,7 +2076,7 @@ export function deconflictChipAnchors(
             if (seenCues.has(key)) continue;
             seenCues.add(key);
             const list = crossingCuesByIndex.get(stampIndex) ?? [];
-            list.push({ x, y });
+            list.push({ x, y, partner });
             crossingCuesByIndex.set(stampIndex, list);
           }
         }

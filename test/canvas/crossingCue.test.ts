@@ -16,13 +16,27 @@
 //       z-index 1) paints above every top-level (z 0) edge regardless of
 //       array position, and the erasing disk must ride the painter that is
 //       ABOVE -- a disk on the beneath edge would erase nothing (its own
-//       path repaints over it, then the above edge paints over both).
+//       path repaints over it, then the above edge paints over both);
+//   (e) each stamp is PARTNER-AWARE: it carries the other edge's id and the
+//       partner's two endpoint node anchors as of seating, and a cue is
+//       dropped at render time once the partner edge is gone or either of
+//       its endpoints has moved past the shared stale eps -- a crossing is
+//       only real while BOTH sides still stand where it was found, so a
+//       dragged partner invalidates the cue until the next re-seat, exactly
+//       as a dragged own polyline already does.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
+import {
+  crossingPartnerBits,
+  liveCrossingCues,
+  type CrossingCue,
+  type CrossingCuePartner,
+} from "../../src/canvas/crossings";
+import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import { chamferBusPath } from "../../src/canvas/edgePath";
 import { RECIPE_WIDTH } from "../../src/canvas/dimensions";
@@ -34,7 +48,7 @@ import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 // fixture only proves "a merge gets no cue" when the merge actually formed --
 // the owner carries the dot stamp).
 type CueData = {
-  crossingCues?: Array<{ x: number; y: number }>;
+  crossingCues?: Array<CrossingCue>;
   faninJunctionX?: number;
 };
 
@@ -95,9 +109,53 @@ describe("deconflictChipAnchors: crossing cues", () => {
     // The stamp lands on the edge painting ABOVE only -- here the LATER one,
     // because both edges are top-level (z 0) and array order is the tiebreak
     // -- at the exact intersection of the reconstructed polylines: bend
-    // column 651 x rail y 98.
-    expect(dataOf(out, e2).crossingCues).toEqual([{ x: 651, y: railY }]);
+    // column 651 x rail y 98. The record also names the partner edge and
+    // carries the partner's two endpoint node anchors as of seating, so the
+    // render layer can drop the cue when the partner moves (the (e) clause).
+    expect(dataOf(out, e2).crossingCues).toEqual([
+      {
+        x: 651,
+        y: railY,
+        partner: {
+          edgeId: e1,
+          source: { x: 0, y: 0 },
+          target: { x: 1000, y: 0 },
+        },
+      },
+    ]);
     expect(dataOf(out, e1).crossingCues).toBeUndefined();
+  });
+
+  it("stamps the partner's endpoint anchors with the crossing, so the render layer can see the other side move", () => {
+    // Same right-angle fixture as the stamp test above, read for the partner
+    // record alone: the cue on e2 must name e1 as its partner and record
+    // e1's SOURCE and TARGET node origins (absolute, one container level
+    // resolved like every seating coordinate) as of the seating pass. The
+    // own-polyline stale check cannot see the partner at all: a partner
+    // dragged away leaves a background-coloured disk cutting a gap where
+    // nothing crosses anymore, so the stamp is where the other side's
+    // identity has to survive.
+    const A1 = recipeNode("A1", 0, 0, mkRecipe("A1", [], ["s"]));
+    const A2 = orderedRecipeNode("A2", 1000, 0, ["s"]);
+    const B1 = recipeNode("B1", 100, -160, mkRecipe("B1", [], ["s"]));
+    const B2 = orderedRecipeNode("B2", 900, 200, ["s"]);
+    const e1 = "e:1:A1->A2:s";
+    const e2 = "e:2:B1->B2:s";
+    const out = deconflictChipAnchors(
+      [A1, A2, B1, B2],
+      [
+        rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
+        rateEdge(e2, "B1", "B2", "s", new Fraction(1)),
+      ],
+    );
+
+    const cue = dataOf(out, e2).crossingCues?.[0];
+    expect(cue).toBeDefined();
+    expect(cue!.partner).toEqual({
+      edgeId: e1,
+      source: { x: 0, y: 0 },
+      target: { x: 1000, y: 0 },
+    });
   });
 
   it("stamps the container-member edge painting above, even when it is EARLIER in the array", () => {
@@ -141,8 +199,19 @@ describe("deconflictChipAnchors: crossing cues", () => {
     ]);
 
     // The cue lands on the z-1 edge -- the EARLIER array entry -- at the same
-    // exact intersection, and the top-level edge carries nothing.
-    expect(dataOf(out, e1).crossingCues).toEqual([{ x: 651, y: railY }]);
+    // exact intersection, naming the top-level edge as its partner, and the
+    // top-level edge itself carries nothing.
+    expect(dataOf(out, e1).crossingCues).toEqual([
+      {
+        x: 651,
+        y: railY,
+        partner: {
+          edgeId: e2,
+          source: { x: 100, y: -160 },
+          target: { x: 900, y: 200 },
+        },
+      },
+    ]);
     expect(dataOf(out, e2).crossingCues).toBeUndefined();
   });
 
@@ -242,5 +311,84 @@ describe("deconflictChipAnchors: crossing cues", () => {
     // The load-bearing negative: no cue on either member.
     expect(dataOf(out, e1).crossingCues).toBeUndefined();
     expect(dataOf(out, e2).crossingCues).toBeUndefined();
+  });
+
+  it("drops a cue whose partner's endpoints moved beyond the eps; an unmoved partner keeps it", () => {
+    // The render-side half of the (e) clause, driven through the same pure
+    // pieces the edge components use: crossingPartnerBits reads the store
+    // lookups (one bit per cue: does the partner edge still exist with both
+    // endpoints within the stale eps of the stamped anchors), and
+    // liveCrossingCues folds those bits into the existing own-polyline
+    // filter. A cue whose own stamp sits on its edge's line survives ONLY
+    // while the partner still stands where the crossing was found.
+    const partner: CrossingCuePartner = {
+      edgeId: "e:1:A1->A2:s",
+      source: { x: 0, y: 0 },
+      target: { x: 1000, y: 0 },
+    };
+    const cue: CrossingCue = { x: 10, y: 10, partner };
+    const ownPts: Array<readonly [number, number]> = [
+      [0, 0],
+      [10, 10],
+      [20, 20],
+    ];
+    // The minimal store shape crossingPartnerBits reads: the edge lookup by
+    // id and the node lookup's absolute positions -- exactly the two maps
+    // React Flow's store exposes.
+    const stateOf = (
+      edges: Array<{ id: string; source: string; target: string }>,
+      nodes: Array<{ id: string; x: number; y: number }>,
+    ) => ({
+      edgeLookup: new Map(edges.map((e) => [e.id, e])),
+      nodeLookup: new Map(
+        nodes.map((n) => [
+          n.id,
+          { internals: { positionAbsolute: { x: n.x, y: n.y } } },
+        ]),
+      ),
+    });
+    const partnerEdge = { id: partner.edgeId, source: "A1", target: "A2" };
+    const stillNodes = [
+      { id: "A1", x: 0, y: 0 },
+      { id: "A2", x: 1000, y: 0 },
+    ];
+
+    // Unmoved partner: the bit is live and the cue survives both filters.
+    const still = crossingPartnerBits(
+      [cue],
+      stateOf([partnerEdge], stillNodes),
+    );
+    expect(still).toEqual([true]);
+    expect(
+      liveCrossingCues([cue], ownPts, (_, i) => still[i] === true),
+    ).toEqual([{ x: 10, y: 10 }]);
+
+    // Partner's SOURCE dragged past the eps: the crossing it formed is gone
+    // from that side, so the cue must drop even though its own stamp still
+    // sits on its own polyline.
+    const movedState = stateOf(
+      [partnerEdge],
+      [
+        { id: "A1", x: 0 + HIDE_STALE_EPS + 5, y: 0 },
+        { id: "A2", x: 1000, y: 0 },
+      ],
+    );
+    const moved = crossingPartnerBits([cue], movedState);
+    expect(moved).toEqual([false]);
+    expect(
+      liveCrossingCues([cue], ownPts, (_, i) => moved[i] === true),
+    ).toEqual([]);
+
+    // Partner edge deleted entirely: nothing crosses there anymore.
+    expect(crossingPartnerBits([cue], stateOf([], stillNodes))).toEqual([
+      false,
+    ]);
+
+    // A cue WITHOUT a partner record (a hand-built stamp) keeps the
+    // own-polyline rule alone: the bits treat absent partner info as live
+    // rather than dropping a cue they cannot judge.
+    expect(crossingPartnerBits([{ x: 10, y: 10 }], stateOf([], []))).toEqual([
+      true,
+    ]);
   });
 });

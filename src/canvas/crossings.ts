@@ -7,7 +7,9 @@
 //   - the e2e crossing census (test/e2e/geometry.ts countCrossings), which
 //     ratchets the per-scenario crossing count (CROSSING_BASELINE); and
 //   - the render-side cue liveness filter below, which drops a stamped cue
-//     once a node drag moves its own polyline off the stamped point.
+//     once a node drag moves its own polyline off the stamped point OR moves
+//     the stamped partner edge's endpoints off the anchors recorded at
+//     seating.
 // properCross moved here from test/e2e/geometry.ts (exam-surfaced Task 9,
 // 2026-09-04) so the app and the audit share one definition instead of two
 // copies that happen to agree.
@@ -84,23 +86,104 @@ export function pointToPolylineDistance(p: Pt, pts: ReadonlyArray<Pt>): number {
   return best;
 }
 
+// The partner record every stamped cue carries: the OTHER edge of the
+// crossing pair, by id, plus that edge's two endpoint NODE anchors (absolute
+// origins, the same one-container-level resolution every seating coordinate
+// uses) as of the seating pass. A card's ports are fixed offsets inside the
+// card, so an endpoint node's drift equals its port's drift: watching the two
+// node origins is watching both ends of the partner polyline. The render-side
+// check below compares them against React Flow's live absolute positions.
+export type CrossingCuePartner = {
+  edgeId: string;
+  source: { x: number; y: number };
+  target: { x: number; y: number };
+};
+
+// One stamped cue: the rounded crossing point plus the partner record.
+// `partner` is optional only so hand-built stamps (tests, fixtures) keep
+// typing: the seating pass always fills it, and a cue without partner info
+// is governed by the own-polyline rule alone rather than dropped unseen.
+export type CrossingCue = {
+  x: number;
+  y: number;
+  partner?: CrossingCuePartner;
+};
+
 // Drop cues whose stamped point no longer sits on the edge's own LIVE
-// polyline. The stamps are absolute points from the seating pass and nodes
-// stay mouse-draggable without a re-seat, so a dragged edge would otherwise
-// float its cues off the lines they mark -- the same stale-stamp rule the
-// fan-in marker and the fan-out branch hide follow (HIDE_STALE_EPS). At rest
+// polyline, or whose partner has since moved away (the optional predicate,
+// fed from crossingPartnerBits by the render layer). The stamps are absolute
+// points from the seating pass and nodes stay mouse-draggable without a
+// re-seat, so a dragged edge would otherwise float its cues off the lines
+// they mark -- the same stale-stamp rule the fan-in marker and the fan-out
+// branch hide follow (HIDE_STALE_EPS) -- and a dragged PARTNER would leave a
+// background-coloured disk cutting a gap where nothing crosses anymore: the
+// crossing is only real while BOTH sides stand where it was found. At rest
 // the stamp lies on the reconstructed polyline and the drawn polyline agrees
 // with it to sub-unit noise (the endpoint-parity audit's tolerance, far below
 // this eps), so nothing drops spuriously; only a real drag moves a port far
 // enough to matter.
 export function liveCrossingCues(
-  cues: ReadonlyArray<{ x: number; y: number }> | undefined,
+  cues: ReadonlyArray<CrossingCue> | undefined,
   pts: ReadonlyArray<Pt>,
+  partnerLive?: (cue: CrossingCue, index: number) => boolean,
 ): Array<{ x: number; y: number }> {
   if (cues === undefined || cues.length === 0) return [];
-  return cues.filter(
-    (c) => pointToPolylineDistance([c.x, c.y], pts) < HIDE_STALE_EPS,
-  );
+  // Points only: the render layer draws coordinates, and the partner record
+  // is this filter's input, not its output.
+  return cues
+    .filter(
+      (c, i) =>
+        pointToPolylineDistance([c.x, c.y], pts) < HIDE_STALE_EPS &&
+        (partnerLive === undefined || partnerLive(c, i)),
+    )
+    .map((c) => ({ x: c.x, y: c.y }));
+}
+
+// The minimal React Flow store shape the partner check reads: the edge
+// lookup (does the partner still exist?) and the node lookup's absolute
+// positions (has either endpoint moved?). Deliberately structural -- the
+// real store slices assign against it without this module naming React
+// Flow's internal types, and the unit tests build it from plain Maps.
+export type CrossingPartnerStore = {
+  edgeLookup: ReadonlyMap<string, { source: string; target: string }>;
+  nodeLookup: ReadonlyMap<
+    string,
+    { internals: { positionAbsolute: { x: number; y: number } } }
+  >;
+};
+
+// One bit per cue, in order: true while the cue's partner edge still exists
+// AND both of its endpoint nodes sit within HIDE_STALE_EPS of the anchors
+// stamped at seating. The eps is the shared HIDE_STALE_EPS, not the cue
+// disk's radius: the radius is a PAINT constant (sized to erase the
+// passing-under stroke across the passing-over stroke's width), while this
+// is a staleness threshold, and it is the SAME eps the own-polyline half of
+// the filter above already applies -- so the two sides of one crossing go
+// stale at the same drift distance instead of flipping at different drags.
+// A cue with no partner record (hand-built) reads as live: the bits judge
+// only what the stamp recorded.
+export function crossingPartnerBits(
+  cues: ReadonlyArray<CrossingCue> | undefined,
+  state: CrossingPartnerStore,
+): Array<boolean> {
+  if (cues === undefined || cues.length === 0) return [];
+  const anchored = (
+    nodeId: string,
+    stamped: { x: number; y: number },
+  ): boolean => {
+    const live = state.nodeLookup.get(nodeId)?.internals.positionAbsolute;
+    if (live === undefined) return false;
+    return Math.hypot(live.x - stamped.x, live.y - stamped.y) < HIDE_STALE_EPS;
+  };
+  return cues.map((c) => {
+    if (c.partner === undefined) return true;
+    const edge = state.edgeLookup.get(c.partner.edgeId);
+    if (edge === undefined) return false;
+    return (
+      anchored(edge.source, c.partner.source) &&
+      anchored(edge.target, c.partner.target)
+    );
+  });
 }
 
 // Crossing-cue disk radius, in graph units, holding an on-screen radius

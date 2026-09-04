@@ -3,8 +3,9 @@ import {
   EdgeLabelRenderer,
   useStore,
   type EdgeProps,
+  type ReactFlowState,
 } from "@xyflow/react";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
@@ -15,7 +16,12 @@ import {
   parsePathPoints,
   routingHintsFromData,
 } from "./edgePath";
-import { crossingCueRadius, liveCrossingCues } from "./crossings";
+import {
+  crossingCueRadius,
+  crossingPartnerBits,
+  liveCrossingCues,
+  type CrossingCue,
+} from "./crossings";
 import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
 
@@ -122,10 +128,13 @@ export type ItemEdgeData = {
   // join; the gap is what says "crossing, not a merge". Strict-interior
   // crossing semantics (crossings.ts) mean a collinear fan-in run, a bus
   // lane's overlapping member runs, and a shared fan-out trunk can never
-  // produce a stamp. Cues render only while they still sit on this edge's
-  // own live polyline (the shared stale-stamp rule), so a node drag drops
+  // produce a stamp. Cues render only while the crossing still stands on
+  // BOTH sides: the stamp must sit on this edge's own live polyline (the
+  // shared stale-stamp rule) AND its recorded partner edge must still exist
+  // with both endpoints within the stale eps of the stamped anchors (see
+  // useLiveCrossingCues), so a node drag on EITHER side of the pair drops
   // them instead of floating them.
-  crossingCues?: ReadonlyArray<{ x: number; y: number }>;
+  crossingCues?: ReadonlyArray<CrossingCue>;
 };
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
@@ -367,6 +376,38 @@ export function CrossingCueDisks({
   );
 }
 
+// Value equality for the partner-bits subscription below. The default
+// Object.is would see a fresh array on every store tick; comparing by
+// content means an edge re-renders only when one of its cues' partner bits
+// actually FLIPS -- once per partner drag, at the moment the drift crosses
+// the eps -- not on every position update of the drag.
+const partnerBitsEqual = (
+  a: ReadonlyArray<boolean>,
+  b: ReadonlyArray<boolean>,
+): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
+
+// The cue-liveness filter with its store-fed half: liveCrossingCues checks
+// each stamp against this edge's OWN polyline (pure geometry, no store), and
+// the partner bits come from a narrow React Flow store subscription -- one
+// Map.get per cue for the partner edge, then one per endpoint node, no
+// store-wide iteration -- so an edge re-renders exactly when a partner's
+// existence or anchor liveness changes. Without the partner half, a dragged
+// partner edge left this edge's disk cutting a gap where nothing crosses
+// anymore (the seating pass does not rerun on drag). Shared by ItemEdge and
+// BusEdge; see crossingPartnerBits (crossings.ts) for the eps and the
+// record shape.
+export function useLiveCrossingCues(
+  cues: ReadonlyArray<CrossingCue> | undefined,
+  ownPts: ReadonlyArray<readonly [number, number]>,
+): Array<{ x: number; y: number }> {
+  const selector = useCallback(
+    (state: ReactFlowState) => crossingPartnerBits(cues, state),
+    [cues],
+  );
+  const bits = useStore(selector, partnerBitsEqual);
+  return liveCrossingCues(cues, ownPts, (_, i) => bits[i] === true);
+}
+
 // The merge junction dot, portaled into the shared edgelabel-renderer layer (not
 // an SVG circle in the edge group) so it shares the chips' stacking context: it
 // sits BELOW the flow chips (.bus-junction z-index 1 vs .flow-chip z-index 2 in
@@ -511,10 +552,12 @@ export default function ItemEdge({
   );
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
-  // Crossing-cue disks, filtered to the stamps that still sit on THIS edge's
-  // live polyline (the stale-stamp rule, see liveCrossingCues): rendered
-  // before the coloured path below so the path repaints each disk's centre.
-  const liveCues = liveCrossingCues(
+  // Crossing-cue disks, filtered to the stamps whose crossing still stands
+  // on BOTH sides -- the stamp sits on THIS edge's live polyline (the
+  // stale-stamp rule) and the stamped partner edge has not moved or
+  // vanished (see useLiveCrossingCues): rendered before the coloured path
+  // below so the path repaints each disk's centre.
+  const liveCues = useLiveCrossingCues(
     edgeData?.crossingCues,
     parsePathPoints(edgePath),
   );
