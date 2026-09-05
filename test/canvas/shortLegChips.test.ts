@@ -392,14 +392,19 @@ const fanDataOf = (edges: Edge[], id: string): Record<string, unknown> =>
 // a long branch vertical, an ordinary leg). Both members share the corridor, so
 // only the leg length differs between them.
 const NARROW_GAP = 110;
-const fanoutFixture = (): {
+// The same two-member shape in a ROOMY corridor: every branch leg holds a full
+// chip, so nothing collapses. The negative control for the collapse rule.
+const ROOMY_GAP = 300;
+const fanoutFixture = (
+  gap: number = NARROW_GAP,
+): {
   nodes: RFAnyNode[];
   routed: Edge[];
   levelExtent: number;
   downExtent: number;
 } => {
   const src = fanProducer("src", 0, 0);
-  const tgtX = nodeWidth(src) + NARROW_GAP;
+  const tgtX = nodeWidth(src) + gap;
   // Place the level consumer so its drawn in-port y equals the drawn out-port
   // y: chamferFanoutPath then draws it as a straight trunk with no branch
   // vertical, the corpus survivors' shape.
@@ -550,6 +555,23 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     const seated = deconflictChipAnchors(nodes, routed);
     expect(fanDataOf(seated, "e:1").fanoutBranchIconOnly).toBe(true);
     expect(fanDataOf(seated, "e:2").fanoutBranchIconOnly).toBe(true);
+  });
+
+  it("keeps the full chip on a branch whose own leg holds it", () => {
+    // Negative control: the same two members in a corridor wide enough that
+    // each member's OWN leg clears this chip's reserved width, so the
+    // classifier must leave the flag off on both. Without this control a
+    // rule that collapsed every branch would pass the suite.
+    const { nodes, routed, levelExtent, downExtent } = fanoutFixture(ROOMY_GAP);
+    expect(routed.map((e) => e.type)).toEqual(["bus", "bus"]);
+    const reserved =
+      (2 * chipSeatHalfW({ body: "1", unit: true }, false)) / MAX_CHIP_SCALE;
+    expect(levelExtent).toBeGreaterThanOrEqual(reserved);
+    expect(downExtent).toBeGreaterThanOrEqual(reserved);
+
+    const seated = deconflictChipAnchors(nodes, routed);
+    expect(fanDataOf(seated, "e:1").fanoutBranchIconOnly).toBeUndefined();
+    expect(fanDataOf(seated, "e:2").fanoutBranchIconOnly).toBeUndefined();
   });
 
   it("seats the collapsed branch chip clear of the trunk's split dot", () => {
