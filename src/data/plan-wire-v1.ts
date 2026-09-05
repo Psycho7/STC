@@ -14,6 +14,10 @@ import { bytesToBase64url, base64urlToBytes } from "./encoding/base64url";
 // and itemOverrides into canonical sorted order. Preserving row order would
 // either break canonical hashing (stop sorting) or churn the wire format
 // (a permutation field) for a cosmetic property.
+//
+// The sorts below compare with < and > rather than localeCompare: the hash has
+// to come out identical on every machine, and localeCompare is locale- and
+// ICU-build-dependent. Code-point order is the only ordering that holds.
 export type PlanWireV1 = {
   pack: [id: string, schemaVersion: string, sha: string];
   title: string;

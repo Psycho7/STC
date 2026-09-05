@@ -18,6 +18,24 @@ export default tseslint.config(
     },
   },
   {
+    // Ordering under src has to be reproducible: the share-link hash, the
+    // bisimulation signatures and the render corpus all compare sorted strings
+    // across machines, and localeCompare varies with the runtime locale and the
+    // ICU build. Sort with < and > instead. Tests are exempt; they compare
+    // within one process.
+    files: ["src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "MemberExpression[property.name='localeCompare']",
+          message:
+            "localeCompare is locale-dependent; sort with < and > so the order is reproducible.",
+        },
+      ],
+    },
+  },
+  {
     // Workflow scripts are not modules: the Workflow runtime evaluates them with
     // `args`, `agent`, `pipeline`, `parallel`, `phase`, `log`, `budget` and
     // `workflow` already bound in scope, so there is nothing to import and
