@@ -6,12 +6,13 @@ not a git submodule and not the full fork.
 
 ## Provenance
 
-The exact origin is recorded in `SOURCE.json`:
+The exact origin is recorded in `SOURCE.json`, which is the single source of
+truth for the snapshot's `commit`, `gameVersion` and `snapshotDate`; the
+extractor reads it to stamp the recipe-pack `source` block, so it is never
+paraphrased here.
 
 - Repo: https://github.com/endfield-calc/factoriolab
 - Upstream lineage: https://github.com/factoriolab/factoriolab (FactorioLab, Doug Broad)
-- Commit: `4fc462948fe9f652db20258953dd8dc09b3dfc97`
-- Game version: `v1.2.4`
 
 ## Contents
 
