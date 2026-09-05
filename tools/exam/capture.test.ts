@@ -4,7 +4,7 @@ import {
   correctiveFileName,
   examUrl,
   readProvenance,
-} from "./capture";
+} from "./capture-helpers";
 
 describe("correctiveFileName", () => {
   // The regression: bus chip ids carry their family suffix at the END, so two

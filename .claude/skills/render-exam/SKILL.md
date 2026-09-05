@@ -107,8 +107,12 @@ Then rebuild the ledger:
 
 ```bash
 bun run tools/exam/coverage.ts                    # rewrites the ledger to the four core rows
-bun run tools/exam/coverage.ts --fill --max 4     # plus up to 4 rotating plans
+bun run tools/exam/coverage.ts --fill --max 4 \
+  | tee .artifacts/exam/fill-report.txt           # plus up to 4 rotating plans
 ```
+
+The `tee` is what makes the fill report a file: the diff below compares it against the
+previous exam's copy, and until it is written there is nothing on disk to compare.
 
 `--max 4` is the tool's own default, not a value this exam tuned.
 
@@ -489,7 +493,9 @@ gh issue list --state open --limit 100
 
 Match each surviving finding to an open issue by defect FAMILY - same mechanism, not same plan.
 A finding that belongs to an open family is a reconfirmation comment on that issue, naming the
-plan and the evidence, not a second issue. Only a family nothing covers earns a new issue.
+plan and the evidence, not a second issue. Draft that comment the same way as a new body and
+hand it over rather than posting it - the no-push rule below covers comments too. Only a family
+nothing covers earns a new issue.
 
 That listing hides closed families, and the closed ones are where the families live: the
 2026-09-03 run drafted nine "new" families of which three had closed issues (#29, #43, #25) and
@@ -505,13 +511,16 @@ A finding that matches a closed issue is a reopen question for the user, not a n
 finding that matches a bullet under "Intentional behaviours" in `docs/render-conventions.md` is
 a defect of the conventions doc, not of the app: fix the bullet, and do not draft it.
 
-Write each new issue body to `.artifacts/exam/issues/<slug>.md` and hand the user the
-`gh issue create --title "..." --body-file .artifacts/exam/issues/<slug>.md` commands rather
-than running them: creation was classifier-blocked in auto mode on 2026-08-15. Push the PNGs to
-an orphan assets branch via git plumbing (no checkout switch): `git hash-object -w` each PNG,
-`git mktree`, `git commit-tree`, `git branch exam-assets-<date>`, push, then embed
-`https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<file>` in the bodies. Include
-per-plan share hashes in a `<details>` block for reproduction.
+An exam's results stay local. Write each new issue body to
+`.artifacts/exam/issues/<slug>.md` and each reconfirmation to
+`.artifacts/exam/issues/<issue number>-reconfirm.md`, then hand the user the commands rather
+than running them - `gh issue create --title "..." --body-file <draft>` for a new family,
+`gh issue comment <number> --body-file <draft>` for a reconfirmation. Creation was
+classifier-blocked in auto mode on 2026-08-15, and the standing rule since 2026-09-03 is that
+an exam files no issue and posts no comment by itself. Nothing is pushed either - no assets
+branch, no images to a remote. Reference the crops by their paths under
+`.artifacts/exam/crops/` in the drafts, and let the user decide what goes to the remote and
+when. Include per-plan share hashes in a `<details>` block for reproduction.
 
 ## What the final report says
 
@@ -576,7 +585,7 @@ A ledger of what was captured and measured, with no verdicts in it.
 | Only `decision.noResponse` is a hover defect | The probe emits its own rule in `decision.rule`: an empty `observedDimmed` against a non-empty `expectedDimmed` is a real "hover produced no response". A set DIFFERENCE between the two is NOT a defect - the app lights whole bus trunk groups while `expectedDimmed` is the graph's ego-network - so `decision.differs` is reported precisely so nobody files it |
 | `00-fit.png` is shot at the app's fit zoom, not `targetZoom` | Chips are LOD-hidden below `lodGates.labelMinZoom`; compare `fit.zoom` against `lodGates` before believing anything the fit overview does not show |
 | The exam runs `?exam=1`, query before fragment | Without it `window.__stcExam` is absent and both CLIs exit 3. The CLIs build the URL; a hand-written one is where this goes wrong |
-| Repo convention forbids committed binaries | Captures go to gitignored `.artifacts/`; issue images to the orphan assets branch only |
+| Repo convention forbids committed binaries, and an exam pushes nothing | Captures, crops and issue drafts all stay under gitignored `.artifacts/`; the user decides what reaches the remote |
 | Every fenced block in this procedure is bash, and the interactive shell here is fish | `IFS=$'\t'`, `case`, `$(...)` assignment and `$'...'` are bash syntax; paste any of these blocks into bash rather than running them line by line in fish |
 | Step 4's `.claude/worktrees/exam-base` lands wherever you are standing | `git worktree add` takes a relative path against the CWD, so run from a branch worktree it nests the base checkout INSIDE the branch under exam. Address it through `$(git rev-parse --path-format=absolute --git-common-dir)/..`, which is the main checkout from either place, and resolve any `HEAD`-relative sha before the `git -C` |
 

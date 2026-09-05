@@ -1,5 +1,4 @@
 import { describe, expect, test } from "vitest";
-import { parseArgs } from "./probe";
 import {
   contrastRatio,
   deltaE76,
@@ -12,6 +11,7 @@ import {
   measureContrast,
   paintColor,
   paintSide,
+  parseArgs,
   parseCssColor,
   relativeLuminance,
   resolveEndpoints,

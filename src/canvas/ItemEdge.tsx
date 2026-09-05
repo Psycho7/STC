@@ -10,7 +10,12 @@ import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
-import { HIDE_STALE_EPS, MAX_CHIP_SCALE } from "./dimensions";
+import {
+  CHIP_ICON_ONLY_MAX_ZOOM,
+  HIDE_STALE_EPS,
+  LABEL_MIN_ZOOM,
+  MAX_CHIP_SCALE,
+} from "./dimensions";
 import {
   chamferStepPath,
   parsePathPoints,
@@ -147,27 +152,12 @@ export type ItemEdgeData = {
 const PIPE_DASH = "4 2";
 const GAS_DASH = "6 2 1 2";
 
-// Below this zoom the rate chips are dropped. Dense plans now fit at roughly
-// 0.35-0.55, so the gate sits just under that band: chips appear at the new
-// dense-plan fit zooms instead of only after zooming in. Below the gate the
-// overview reads as clean lines. Reading transform[2] (zoom only) re-renders the
-// edge on zoom changes but not on pan.
-export const LABEL_MIN_ZOOM = 0.35;
-
-// Second, lower zoom LOD gate. Below it the chips that are EXEMPT from
-// LABEL_MIN_ZOOM (the bus aggregate drop chip and a lone member's long-detour
-// rise chip) collapse to icon-only: the item icon alone, with the rate digits
-// dropped. This preserves the "something flows here" signal while un-blanketing
-// dense clusters at fit zoom; the exact rate stays reachable on the chip's hover
-// tooltip. Calibrated against the corpus fit zooms measured in-browser at
-// 1920x1080: the gate sits in the gap between the one plan that must collapse
-// (multi6, 0.21) and the densest plan that must stay full (battery5-xiranite,
-// 0.35 - just above LABEL_MIN_ZOOM, so nothing on it collapses either). The
-// remaining plans sit well clear: equip4 0.44, battery5 0.45, crystal 0.50,
-// tundra 0.66, default 0.90. Kept below LABEL_MIN_ZOOM so the LOD stays
-// monotonic: per-member chips drop first, then the surviving aggregates shed
-// their digits.
-export const CHIP_ICON_ONLY_MAX_ZOOM = 0.32;
+// The two zoom LOD gates are declared in ./dimensions, beside the rest of the
+// geometry contract, so a consumer that only needs a threshold does not have to
+// load this module and the React chain behind it. Re-exported here because
+// BusEdge, the canvas suites and the exam capture all name them through this
+// module; both comments live with the definitions.
+export { LABEL_MIN_ZOOM, CHIP_ICON_ONLY_MAX_ZOOM };
 
 // Physical stroke-width bounds. Edge strokes are drawn in graph units, so the
 // pane zoom scales them: at fit zoom a 1-unit stroke is a sub-pixel hairline. To

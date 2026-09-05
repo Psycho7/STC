@@ -484,7 +484,10 @@ function rectFromTuple(tuple) {
     return null
   }
   const rect = { x, y, width, height }
-  return isFiniteRect(rect) && width >= 0 && height >= 0 ? rect : null
+  // A POSITIVE extent, not a non-negative one: x and y may be 0, but a flat
+  // evidence rect marks no place, the schema below says so, and the crop CLI
+  // refuses to cut one.
+  return isFiniteRect(rect) && width > 0 && height > 0 ? rect : null
 }
 
 // world -> the image's own CSS-pixel frame.
@@ -600,7 +603,7 @@ function validateFinding(finding) {
         return
       }
       if (typeof raw.image !== 'string' || raw.image.trim() === '') violations.push(`evidence[${i}] names no image`)
-      if (rectFromTuple(raw.rect) === null) violations.push(`evidence[${i}] rect is not a finite [x, y, width, height]`)
+      if (rectFromTuple(raw.rect) === null) violations.push(`evidence[${i}] rect is not a finite [x, y, width, height] with a positive extent`)
     })
   }
 

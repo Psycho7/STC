@@ -1520,25 +1520,18 @@ test.describe("segment placement audit", () => {
 // failure shows the same region every run.
 const CENSUS_ZOOM = 0.6;
 
-// The exam camera handle the app installs under `?exam=1`, declared locally the
-// same way tools/exam does: the app puts it on Window from a module this spec
-// has no reason to load, and the type is erased before any of it reaches the
-// browser.
-type ExamHook = { setViewport(v: { x: number; y: number; zoom: number }): void };
-type ExamWindow = Window & { __stcExam?: ExamHook };
-
 async function loadCensusScenario(page: Page, hash: string): Promise<void> {
   await page.goto(`/?exam=1#${hash}`, { waitUntil: "load" });
   await waitForCanvasReady(page);
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await waitForStableViewport(page);
   await page.waitForFunction(
-    () => (window as ExamWindow).__stcExam !== undefined,
+    () => window.__stcExam !== undefined,
     undefined,
     { timeout: 10_000 },
   );
   await page.evaluate((zoom) => {
-    const hook = (window as ExamWindow).__stcExam!;
+    const hook = window.__stcExam!;
     const pane = document
       .querySelector<HTMLElement>(".react-flow")!
       .getBoundingClientRect();

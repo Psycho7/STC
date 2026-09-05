@@ -37,6 +37,18 @@ import {
 import type { Geometry, SceneCollection } from "../../test/e2e/collect";
 import type { Rect, Viewport } from "./tiling";
 
+// Subdirectory of the plan directory the images are written into, recorded on
+// the document below as `imagesDir` so a consumer resolves an image from the
+// document. Declared here rather than in the capture CLI because the crop CLI
+// resolves the same path from the other end, and a literal in each was a layout
+// contract nothing held together.
+//
+// The tile records keep BARE file names: the name an evaluator can cite is the
+// one it sees in the directory it was handed, and the corroboration join matches
+// a cited name against `tiles[].file`, so a prefix here would break every join
+// silently.
+export const IMAGES_SUBDIR = "images";
+
 export type OverlayMask = { name: string } & Rect;
 
 // One captured image plus everything needed to place what it shows. `row` and

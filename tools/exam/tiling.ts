@@ -118,7 +118,10 @@ function insetRect(rect: Rect, inset: number): Rect {
   };
 }
 
-function isFiniteRect(rect: Rect): boolean {
+// Exported for triage.ts, which validates evaluator-supplied rects against the
+// same definition. The two intersect() helpers in these files differ on purpose
+// (strict here, inclusive there); finiteness does not.
+export function isFiniteRect(rect: Rect): boolean {
   return (
     Number.isFinite(rect.x) &&
     Number.isFinite(rect.y) &&
