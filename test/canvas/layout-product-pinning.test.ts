@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
-import type { Recipe } from "@aef/schema";
 
 import {
   ELK_LAYER_CONSTRAINT_KEY,
@@ -11,6 +10,7 @@ import {
   renderPlanToElkGraph,
   type LayoutInput,
 } from "../../src/canvas/layout";
+import { mkRecipe } from "./busRouting.testkit";
 import type {
   RenderPlan,
   RenderUnitInputProduct,
@@ -18,17 +18,7 @@ import type {
   RenderUnitRecipe,
 } from "../../src/pipeline/types";
 
-const recipe: Recipe = {
-  id: "smelt",
-  name: "smelt",
-  category: "cat",
-  icon: "ico",
-  row: 0,
-  time: 1,
-  in: [{ item: "ore", qty: 1 }],
-  out: [{ item: "plate", qty: 1 }],
-  producers: [],
-};
+const recipe = mkRecipe("smelt", ["ore"], ["plate"]);
 
 const recipeUnit: RenderUnitRecipe = {
   id: "u:r:smelt",

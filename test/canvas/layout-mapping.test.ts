@@ -18,6 +18,7 @@ import {
 } from "../../src/canvas/dimensions";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import { orderByItem } from "../../src/canvas/orderByItem";
+import { mkRecipe } from "./busRouting.testkit";
 import type {
   BlueprintGroupContainer,
   LoopBoxContainer,
@@ -26,18 +27,6 @@ import type {
   RenderUnitLoop,
   RenderUnitRecipe,
 } from "../../src/pipeline/types";
-
-const mkRecipe = (id: string, ins: string[], outs: string[]): Recipe => ({
-  id,
-  name: id,
-  category: "cat",
-  icon: "ico",
-  row: 0,
-  time: 1,
-  in: ins.map((item) => ({ item, qty: 1 })),
-  out: outs.map((item) => ({ item, qty: 1 })),
-  producers: [],
-});
 
 const mkRecipeUnit = (
   id: string,
