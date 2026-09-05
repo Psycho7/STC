@@ -24,6 +24,7 @@ import {
   auditSegmentsVsChips,
   clipSegmentToRect,
   countCrossings,
+  crossingCueCoverage,
   fmtSeg,
   paddedCard,
   segmentEntersRect,
@@ -151,7 +152,11 @@ export type SceneDoc = {
   // here is a counted zero and can be read as one. Required rather than optional
   // so a capture that somehow skipped the pass fails to compile instead of
   // emitting a document whose silence is ambiguous.
-  crossingCensus: { count: number };
+  // `cued` (Task 9): of the counted crossings between DIFFERENT flows, how many
+  // carry a drawn crossing cue on either edge of the pair. Same-flow crossings
+  // (one flow's own trunk / fan-out runs) are one visual line and never cued,
+  // so `cued` counts a subset of `count` and the two are expected to differ.
+  crossingCensus: { count: number; cued: number };
   coverage: SceneCoverage;
   consoleErrors: string[];
 };
@@ -297,7 +302,10 @@ function idList(...values: Array<string | undefined>): string[] {
 export function measurementsFor(
   geom: Geometry,
   scene: SceneCollection,
-): { measurements: Measurement[]; crossingCensus: { count: number } } {
+): {
+  measurements: Measurement[];
+  crossingCensus: { count: number; cued: number };
+} {
   const edges = toRawEdges(geom.edges);
   const nodes: NodeRect[] = geom.nodes;
   const chips: ChipRect[] = geom.chips;
@@ -395,10 +403,16 @@ export function measurementsFor(
 
   // Kept out of `measurements` on purpose: countCrossings returns a bare number
   // with no participating ids and no place, so there is no footprint to give it
-  // and nothing it could ever corroborate.
+  // and nothing it could ever corroborate. `cued` comes from the same shared
+  // coverage scorer the geometry audit asserts with (crossingCueCoverage),
+  // so the exam's scene docs and the audit's ratchet can never disagree about
+  // what a cued crossing is.
   return {
     measurements,
-    crossingCensus: { count: countCrossings(geom.edges) },
+    crossingCensus: {
+      count: countCrossings(geom.edges),
+      cued: crossingCueCoverage(geom.edges, geom.crossingCues).cued,
+    },
   };
 }
 

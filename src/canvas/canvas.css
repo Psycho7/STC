@@ -964,7 +964,8 @@
   font-size: 9px;
   color: var(--ak-text-decoration);
   letter-spacing: 0.18em;
-  text-transform: uppercase;
+  /* No text-transform: the localized unit ("/min") must read like the canvas
+     cards and chips beside it, not run uppercase against them. */
 }
 
 .ak-app-shell [data-testid="side-panel"] .b-row .b-remove {
@@ -1604,17 +1605,37 @@
   pointer-events: none;
   box-sizing: border-box;
 }
+/* The BUS caption. DECORATIVE (exam-surfaced R5): background texture, never
+   a chip and never an obstacle -- nothing in the routing model avoids it, so
+   it must SIT where no stroke can enter: the band's OUTER pad, the BAND_Y_PAD
+   strip (one lane spacing 48 plus a max-scale chip half height 24 = 72 flow
+   units) on the far side of the graph. Every bus drop / rise column ends at
+   its own lane and lanes sit graph-side, so an outer pad carries no path
+   vertex; the 20-unit tag pinned 4 off the pad edge clears the outermost
+   vertex by 48 units, and that box is zoom-invariant because the tag rides
+   the viewport transform with no counter-scale. The two bands anchor at
+   OPPOSITE pads: the bottom band's TOP pad is the corridor its members'
+   columns descend through from the graph (multi6: five tap columns at
+   x 192-208 cross its full height), so top-anchoring both would drop the
+   caption back under strokes. It moved from mid-band, where a stroke crossed
+   the text at the leftmost column (the caption half of
+   stroke-crosses-foreign-chip: multi6 bus-label-under-stroke,
+   rot-bottled_food_4 loop-label-crossed-by-back-edge). */
 .ak-canvas-theme .bus-band-tag {
   position: absolute;
-  top: 50%;
   left: 6px;
-  transform: translateY(-50%);
   font-family: var(--font-mono);
   font-size: 20px;
   line-height: 1;
   color: var(--ak-text-decoration-faint);
   letter-spacing: 0.24em;
   text-transform: uppercase;
+}
+.ak-canvas-theme .bus-band[data-testid="bus-band-top"] .bus-band-tag {
+  top: 4px;
+}
+.ak-canvas-theme .bus-band[data-testid="bus-band-bottom"] .bus-band-tag {
+  bottom: 4px;
 }
 
 /* Icon sprite system. */
@@ -1839,6 +1860,13 @@
   text-transform: uppercase;
   line-height: 1;
   margin-top: 2px;
+}
+
+/* The caption's trailing rate segment. .pn-kind uppercases the label words;
+   this span opts the segment out so the localized unit renders "/min" (not
+   "/MIN") like the .pn-rate .unit span one row down (unit-casing-mix). */
+.pn-kind__rate {
+  text-transform: none;
 }
 
 .pn-rate {

@@ -23,38 +23,29 @@ export type LoopNodeData = {
   tearArc?: { fromY: number; toY: number };
   // Per-port transport kind, keyed by Handle id ("in:<item>" / "out:<item>").
   portTransportKinds?: PortTransportKinds;
-  // ELK-resolved per-side port order (item ids, top to bottom) attached by the
-  // layout pass. Net-port rows, Handles and glyphs render in this order so each
+  // ELK-resolved west port order (item ids, top to bottom) attached by the
+  // layout pass. In-port rows, Handles and glyphs render in this order so each
   // entering edge's y-slot matches its arrival order. Absent on older fixtures /
-  // tests, where we fall back to netIO declaration order.
+  // tests, where we fall back to netIO declaration order. There is no output
+  // counterpart (ruling R4): out-port rows read in netIO declaration order.
   inputOrder?: ItemId[];
-  outputOrder?: ItemId[];
 };
 
 export type LoopNodeType = Node<LoopNodeData, "loop">;
 
 export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
-  const {
-    sccId,
-    netIO,
-    interior,
-    tearArc,
-    portTransportKinds,
-    inputOrder,
-    outputOrder,
-  } = data;
+  const { sccId, netIO, interior, tearArc, portTransportKinds, inputOrder } =
+    data;
   const i18n = useI18n();
   const { width, height } = loopBoxDimensions(interior);
-  // Net-IO ports in ELK-resolved arrival order (falls back to declaration
-  // order). Row i, Handle i and glyph i then describe the same item.
+  // In-ports in ELK-resolved arrival order (falls back to declaration order);
+  // out-ports in netIO declaration order (ruling R4). Row i, Handle i and
+  // glyph i then describe the same item.
   const ins = orderByItem(
     netIO.filter((p) => p.direction === "in"),
     inputOrder,
   );
-  const outs = orderByItem(
-    netIO.filter((p) => p.direction === "out"),
-    outputOrder,
-  );
+  const outs = netIO.filter((p) => p.direction === "out");
 
   // Tear-arc path: one quadratic curve drawn just inside the right edge of the
   // interior, joining two y-coordinates. The exact geometry is rough for now;

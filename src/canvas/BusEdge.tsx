@@ -1,12 +1,16 @@
 import { BaseEdge, useStore, type EdgeProps } from "@xyflow/react";
 import { useMemo } from "react";
 import {
+  CrossingCueMask,
   FlowChip,
   JunctionDot,
   LABEL_MIN_ZOOM,
+  NO_CUE_PTS,
   edgeStrokeWidth,
   junctionRadius,
+  crossingCueMaskId,
   strokeForKind,
+  useLiveCrossingCues,
   type ItemEdgeData,
 } from "./ItemEdge";
 import {
@@ -17,8 +21,10 @@ import {
 import {
   chamferBusPath,
   chamferFanoutPath,
+  parsePathPoints,
   routingHintsFromData,
 } from "./edgePath";
+import { branchChipText } from "./chipSeating";
 import { HIDE_STALE_EPS } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
@@ -40,11 +46,14 @@ export { junctionRadius };
 // rate/min), reusing ItemEdge's flow-chip markup and zoom gate so a bus member
 // reads the same as a plain item edge near what it feeds: on a long lane run
 // only the rise chip draws, on a short one the drop chip draws alongside it,
-// and the drop returns whenever the rise is hidden. A multi-member trunk draws
-// only the per-member rise chips, each reading as a share of the trunk total
-// ("30/270").
+// and the drop returns whenever the rise is hidden. A multi-member LANE trunk
+// draws only the per-member rise chips, each reading as a share of the trunk
+// total ("30/270"); a fan-out member's branch chip keeps the plain rate
+// reading (R3).
 export default function BusEdge({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -114,6 +123,22 @@ export default function BusEdge({
     : laneY + (laneData?.busDropDy ?? 0);
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
+  // Cue-filter path parse, gated on the cue stamp and memoized for the same
+  // zoom-tick reason as ItemEdge (see the full note there): the parse used
+  // to run in argument position on every render of every member, including
+  // the cue-less ones the callee immediately filters out.
+  const cuePts = useMemo(
+    () => (edgeData?.crossingCues?.length ? parsePathPoints(path) : NO_CUE_PTS),
+    [path, edgeData?.crossingCues],
+  );
+  // Crossing-cue gaps, stamped on this member wherever its polyline properly
+  // crosses a different flow's and it was picked as the one passing under.
+  // The stamps are filtered to crossings that still stand on BOTH sides --
+  // on this member's live polyline and against a stamped partner edge's
+  // anchors (the stale-stamp rule, see useLiveCrossingCues) -- and masked
+  // out of the coloured path, exactly as ItemEdge draws them.
+  const liveCues = useLiveCrossingCues(edgeData?.crossingCues, cuePts);
+  const cueMaskId = crossingCueMaskId(id);
   // Zoom-compensated base width published as --edge-base-width, matching
   // ItemEdge. A caller-supplied style still wins over these defaults.
   const mergedStyle: React.CSSProperties = {
@@ -181,7 +206,7 @@ export default function BusEdge({
   // manually built edge). The chip sits on the lane at laneY. A fan-out member
   // flagged fanoutBranchHidden draws no branch chip at all: the seating pass
   // found no chip/card-clear point on its own polyline, and an off-line chip
-  // would float in empty canvas (the share stays on the target card's row and
+  // would float in empty canvas (the rate stays on the target card's row and
   // this edge's hover tooltip below). The hide only holds while the live
   // branch anchor still matches the one it was stamped at: nodes stay
   // mouse-draggable and the seating pass does not rerun on drag, so once the
@@ -206,18 +231,32 @@ export default function BusEdge({
   const laneRiseHidden = laneData?.busRiseHidden === true;
   const memberChipHidden = branchHidden || laneRiseHidden;
   const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
-  // On a multi-member trunk the member chip reads as a SHARE of the trunk it
-  // runs in ("30/270") rather than a bare rate, so a lane number is never
+  // On a multi-member LANE trunk the member chip reads as a SHARE of the trunk
+  // it runs in ("30/270") rather than a bare rate, so a lane number is never
   // mistaken for the whole trunk's throughput (issue #45). The chip carries
   // digits only: the unit would not fit the fixed chip box beside a decimal
   // pair, and it differs per locale, so the label and tooltip below spell out
   // the full localized wording instead. The denominator is the trunk's exact
   // total rounded once, matching the boundary cards, so the visible members may
   // sum a cent off it; the tooltip keeps the exact one. A lone member is its
-  // own total, so it keeps the plain rate + unit reading.
-  const shareTotalStr =
-    memberCount > 1 && totalRate ? formatRatePerMin(totalRate) : "";
-  const isShare = memberRateStr !== "" && shareTotalStr !== "";
+  // own total, so it keeps the plain rate + unit reading -- and so does a
+  // formed FAN-OUT member (R3, exam 2026-09-04): its branch is a direct
+  // in-corridor leg drawn beside its unformed siblings' plain item edges, and
+  // the share form is reserved for bus-lane members. WHICH of the two forms
+  // this render draws is branchChipText's call alone -- the same builder the
+  // seating pass reserved this chip's box through, so the seat and the render
+  // cannot drift apart. Its only unit-less return is the share form, and its
+  // exact formatters can fall back to a "/"-bearing fraction string, so the
+  // two display strings stay composed here rather than split back out of its
+  // body.
+  const branchText = branchChipText({
+    id,
+    source,
+    target,
+    ...(data !== undefined ? { data } : {}),
+  });
+  const isShare = branchText?.unit === false;
+  const shareTotalStr = isShare && totalRate ? formatRatePerMin(totalRate) : "";
   const plainRate = `${memberRateStr}${unit}`;
   const riseText =
     showMemberChip && memberRateStr && !memberChipHidden
@@ -265,7 +304,7 @@ export default function BusEdge({
   // `compact` collapses a chip to its item sprite at every zoom: the seating
   // pass stamps it on a fan-out branch whose leg is shorter than one chip box,
   // where the full box has no seat that keeps it off the trunk's split dot. The
-  // share wording stays on the chip's label and title.
+  // rate stays readable on the chip's label and title.
   const renderChip = (
     suffix: string,
     x: number,
@@ -293,13 +332,20 @@ export default function BusEdge({
 
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={path}
-        style={mergedStyle}
-        {...(riseLabel ? { "aria-label": riseLabel } : {})}
-        {...(markerEnd ? { markerEnd } : {})}
-      />
+      {/* Crossing cues: this member's stroke is masked out around each
+          proper crossing it passes under, for the same reason as ItemEdge
+          (a transparent gap over-paints nothing and reads the same in either
+          paint order). */}
+      <CrossingCueMask id={cueMaskId} cues={liveCues} zoom={zoom} />
+      <g mask={liveCues.length > 0 ? `url(#${cueMaskId})` : undefined}>
+        <BaseEdge
+          id={id}
+          path={path}
+          style={mergedStyle}
+          {...(riseLabel ? { "aria-label": riseLabel } : {})}
+          {...(markerEnd ? { markerEnd } : {})}
+        />
+      </g>
       {/* A hidden member chip (fan-out branch or short-run lane rise) was this
           member's only exact-rate tooltip carrier, so keep the share reachable
           on the edge itself: a transparent hover path over the same geometry

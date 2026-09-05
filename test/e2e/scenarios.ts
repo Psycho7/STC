@@ -132,6 +132,26 @@ export const SCENARIOS: Scenario[] = [
     ],
     maxDiffPixels: 0,
   },
+  // The two below reproduce the rotating exam plans that carry seven of the
+  // nine defect families the 2026-09-03 render exam surfaced. Registered as
+  // fixed corpus so every baseline table pins them (the other two rotating
+  // plans duplicate their sites and stay rotating).
+  {
+    id: "rot-bottled_food_3",
+    title: "rot-bottled_food_3",
+    targets: [
+      { itemId: "bottled_food_3", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+    ],
+    maxDiffPixels: 0,
+  },
+  {
+    id: "rot-bottled_food_4",
+    title: "rot-bottled_food_4",
+    targets: [
+      { itemId: "bottled_food_4", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+    ],
+    maxDiffPixels: 0,
+  },
 ];
 
 // Build a v1 share hash from a scenario with the app's own encoder. Encoding at

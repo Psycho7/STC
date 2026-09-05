@@ -8,6 +8,7 @@ import ItemEdge, {
   type ItemEdgeData,
 } from "../../src/canvas/ItemEdge";
 import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
+import { properCrossPoint } from "../../src/canvas/crossings";
 import { parsePathPoints } from "../../src/canvas/edgePath";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
@@ -373,6 +374,317 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
       SPLIT_ROW_NODES,
     );
     expect(await fanoutDot()).toBeNull();
+  });
+});
+
+describe("canvas/ItemEdge crossing cues", () => {
+  // A cue stamp is only drawable while it sits on the edge's own live polyline
+  // (the stale-stamp rule), so a fixture has to discover a live on-line point
+  // from a plain render first -- the same discovery the fan-in marker tests do.
+  async function liveMidpoint(): Promise<{ x: number; y: number }> {
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1);
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    const pts = parsePathPoints(
+      document
+        .querySelector<SVGPathElement>(".react-flow__edge-path")!
+        .getAttribute("d")!,
+    );
+    cleanup();
+    return { x: pts[0]![0] + 40, y: pts[0]![1] };
+  }
+
+  it("masks its own stroke around a stamped crossing", async () => {
+    const on = await liveMidpoint();
+    renderEdge(
+      { item: "belt", rate: new Fraction(1, 1), crossingCues: [on] },
+      1,
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="edge-crossing-cue"]'),
+      ).not.toBeNull(),
+    );
+    const cue = document.querySelector<SVGCircleElement>(
+      '[data-testid="edge-crossing-cue"]',
+    )!;
+    // Centred on the stamped point, in the path's own (graph) coordinates.
+    expect(Number(cue.getAttribute("cx"))).toBeCloseTo(on.x, 6);
+    expect(Number(cue.getAttribute("cy"))).toBeCloseTo(on.y, 6);
+    // Zoom-clamped radius in graph units (a real radius, not the default 0).
+    expect(Number(cue.getAttribute("r"))).toBeGreaterThan(0);
+    // The cue is a black disc inside an SVG mask -- a hole, not paint: the
+    // stroke is simply not drawn there, so whatever lies beneath the
+    // crossing (the other stroke, a slab tint) shows through untouched.
+    const mask = cue.closest("mask")!;
+    expect(mask).not.toBeNull();
+    expect(cue.getAttribute("fill")).toBe("black");
+    // ...and that mask is applied to THIS edge's coloured path.
+    const path = document.querySelector(".react-flow__edge-path")!;
+    const masked = path.closest("[mask]")!;
+    expect(masked).not.toBeNull();
+    expect(masked.getAttribute("mask")).toBe(`url(#${mask.id})`);
+  });
+
+  it("draws no cue and applies no mask when the edge carries no crossings", async () => {
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1);
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    expect(
+      document.querySelector('[data-testid="edge-crossing-cue"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector(".react-flow__edge-path")!.closest("[mask]"),
+    ).toBeNull();
+  });
+
+  it("drops a stale cue whose stamp no longer sits on the live polyline", async () => {
+    // The stamp below is well off the drawn line, the state a node drag
+    // leaves behind (the seating pass does not rerun on drag).
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        crossingCues: [{ x: -500, y: -500 }],
+      },
+      1,
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    expect(
+      document.querySelector('[data-testid="edge-crossing-cue"]'),
+    ).toBeNull();
+  });
+
+  it("drops a cue whose stamped partner has since moved away, and keeps one whose partner stands still", async () => {
+    // The partner-side stale rule: the cue's stamp names the OTHER edge of
+    // the crossing pair and records that edge's endpoint node anchors as of
+    // the seating pass. Nodes stay mouse-draggable without a re-seat, so a
+    // dragged partner leaves the cue's own stamp intact -- its own polyline
+    // never moved -- while the crossing itself is gone from the partner's
+    // side. The renderer consults React Flow's store (by id, per partner)
+    // and drops the cue once the partner edge is missing or either endpoint
+    // has drifted past the shared stale eps.
+    const on = await liveMidpoint();
+    // A second, real edge in the same flow so the store's edge lookup can
+    // find the partner: P1 -> P2, both top-level, so their absolute anchor
+    // positions are exactly their fixture positions.
+    const P1 = {
+      id: "P1",
+      position: { x: 500, y: 100 },
+      data: { label: "P1" },
+    };
+    const P2 = {
+      id: "P2",
+      position: { x: 900, y: 100 },
+      data: { label: "P2" },
+    };
+    const partnerEdge: Edge = {
+      id: "eP",
+      type: "item",
+      source: "P1",
+      target: "P2",
+      data: { item: "belt", rate: new Fraction(1, 1) },
+    };
+    const renderPair = (partner: {
+      edgeId: string;
+      source: { x: number; y: number };
+      target: { x: number; y: number };
+    }): void => {
+      render(
+        <LocaleProvider locale="en">
+          <div style={{ width: 800, height: 600 }}>
+            <ReactFlow
+              nodes={[...NODES, P1, P2]}
+              edges={[
+                makeEdge({
+                  item: "belt",
+                  rate: new Fraction(1, 1),
+                  crossingCues: [{ x: on.x, y: on.y, partners: [partner] }],
+                }),
+                partnerEdge,
+              ]}
+              edgeTypes={edgeTypes}
+              minZoom={0.05}
+              defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+            />
+          </div>
+        </LocaleProvider>,
+      );
+    };
+    const cueVisible = async (): Promise<boolean> => {
+      await waitFor(() =>
+        expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+      );
+      return (
+        document.querySelector('[data-testid="edge-crossing-cue"]') !== null
+      );
+    };
+
+    // Anchors agreeing with the live nodes: the crossing still stands on
+    // both sides, so the gap renders.
+    const agreeing = {
+      edgeId: "eP",
+      source: { x: 500, y: 100 },
+      target: { x: 900, y: 100 },
+    };
+    await renderPair(agreeing);
+    expect(await cueVisible()).toBe(true);
+    cleanup();
+
+    // The partner's source dragged well past the eps: its end of the
+    // crossing is gone, and the cue must vanish instead of cutting a gap in
+    // a stroke that no longer crosses there.
+    const moved = {
+      edgeId: "eP",
+      source: { x: 500 + HIDE_STALE_EPS * 2, y: 100 },
+      target: { x: 900, y: 100 },
+    };
+    await renderPair(moved);
+    expect(await cueVisible()).toBe(false);
+    cleanup();
+
+    // The partner edge deleted outright: same verdict, same rule.
+    const gone = {
+      edgeId: "eOther",
+      source: { x: 500, y: 100 },
+      target: { x: 900, y: 100 },
+    };
+    await renderPair(gone);
+    expect(await cueVisible()).toBe(false);
+  });
+
+  it("masks only the edge stamped as passing under; its partner stays whole", async () => {
+    // The one-edge render contract: the seating pass stamps the crossing
+    // point on ONE edge of the pair, and only that edge's renderer cuts its
+    // stroke -- the partner draws a continuous line through the gap. A
+    // transparent cut-out reads the same in either paint order, so the
+    // pair needs no second stamp and no z ruling (selection elevation can
+    // invert the order between member edges mid-drag without effect). This
+    // pins that the stamped group carries the mask at the crossing and the
+    // partner's group carries neither cue nor mask.
+    const CROSS_NODES: Node[] = [
+      { id: "A1", position: { x: 0, y: 0 }, data: { label: "A1" } },
+      { id: "A2", position: { x: 1000, y: 0 }, data: { label: "A2" } },
+      { id: "B1", position: { x: 600, y: -160 }, data: { label: "B1" } },
+      { id: "B2", position: { x: 1200, y: 200 }, data: { label: "B2" } },
+    ];
+    const mkItem = (id: string, source: string, target: string): Edge => ({
+      id,
+      type: "item",
+      source,
+      target,
+      data: { item: "belt", rate: new Fraction(1, 1) },
+    });
+    // First render both edges plain and read the crossing point off the
+    // DRAWN polylines, so the stamp below sits on both live lines whatever
+    // port offsets the jsdom harness measures.
+    render(
+      <LocaleProvider locale="en">
+        <div style={{ width: 800, height: 600 }}>
+          <ReactFlow
+            nodes={CROSS_NODES}
+            edges={[mkItem("eA", "A1", "A2"), mkItem("eB", "B1", "B2")]}
+            edgeTypes={edgeTypes}
+            minZoom={0.05}
+            defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+          />
+        </div>
+      </LocaleProvider>,
+    );
+    await waitFor(() =>
+      expect(document.querySelectorAll(".react-flow__edge-path").length).toBe(
+        2,
+      ),
+    );
+    const dOf = (id: string): ReadonlyArray<readonly [number, number]> =>
+      parsePathPoints(
+        document
+          .querySelector<SVGPathElement>(`.react-flow__edge-path#${id}`)!
+          .getAttribute("d")!,
+      );
+    const da = dOf("eA");
+    const db = dOf("eB");
+    let cross: readonly [number, number] | null = null;
+    for (let i = 1; i < da.length && cross === null; i++) {
+      for (let j = 1; j < db.length && cross === null; j++) {
+        cross = properCrossPoint(da[i - 1]!, da[i]!, db[j - 1]!, db[j]!);
+      }
+    }
+    // Premise: the two drawn polylines properly cross.
+    expect(cross).not.toBeNull();
+    cleanup();
+
+    // eA stamped at the crossing, naming eB as its partner with eB's
+    // endpoint anchors (top-level, so absolute positions are the fixture
+    // positions) -- the shape the seating pass emits for a pair.
+    const cue = {
+      x: Math.round(cross![0] * 100) / 100,
+      y: Math.round(cross![1] * 100) / 100,
+    };
+    const stamped: Edge[] = [
+      {
+        ...mkItem("eA", "A1", "A2"),
+        data: {
+          item: "belt",
+          rate: new Fraction(1, 1),
+          crossingCues: [
+            {
+              ...cue,
+              partners: [
+                {
+                  edgeId: "eB",
+                  source: { x: 600, y: -160 },
+                  target: { x: 1200, y: 200 },
+                },
+              ],
+            },
+          ],
+        },
+      },
+      mkItem("eB", "B1", "B2"),
+    ];
+    render(
+      <LocaleProvider locale="en">
+        <div style={{ width: 800, height: 600 }}>
+          <ReactFlow
+            nodes={CROSS_NODES}
+            edges={stamped}
+            edgeTypes={edgeTypes}
+            minZoom={0.05}
+            defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+          />
+        </div>
+      </LocaleProvider>,
+    );
+    await waitFor(() =>
+      expect(document.querySelectorAll(".react-flow__edge-path").length).toBe(
+        2,
+      ),
+    );
+    const groupOf = (id: string): Element =>
+      document
+        .querySelector<SVGPathElement>(`.react-flow__edge-path#${id}`)!
+        .closest(".react-flow__edge")!;
+    // The stamped edge: one cue disc in its mask, and its path masked by it.
+    const a = groupOf("eA");
+    const discs = a.querySelectorAll<SVGCircleElement>(
+      '[data-testid="edge-crossing-cue"]',
+    );
+    expect(discs.length).toBe(1);
+    expect(Number(discs[0]!.getAttribute("cx"))).toBeCloseTo(cue.x, 5);
+    expect(Number(discs[0]!.getAttribute("cy"))).toBeCloseTo(cue.y, 5);
+    const maskId = discs[0]!.closest("mask")!.id;
+    expect(
+      a.querySelector(".react-flow__edge-path")!.closest("[mask]")!.getAttribute("mask"),
+    ).toBe(`url(#${maskId})`);
+    // The partner edge: whole -- no cue, no mask.
+    const b = groupOf("eB");
+    expect(b.querySelector('[data-testid="edge-crossing-cue"]')).toBeNull();
+    expect(b.querySelector(".react-flow__edge-path")!.closest("[mask]")).toBeNull();
   });
 });
 

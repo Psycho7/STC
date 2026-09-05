@@ -26,10 +26,15 @@ function relativeToRepoRoot(absolute: string): string {
   return relative(resolve(import.meta.dirname, ".."), absolute);
 }
 
+// A real rotating-exam plan id that the fixed corpus does not pin. This was
+// rot-bottled_food_3 until that plan joined SCENARIOS as fixed corpus, which
+// made it collide with itself here.
 const ROT = {
-  id: "rot-bottled_food_3",
-  title: "rot-bottled_food_3",
-  targets: [{ itemId: "bottled_food_3", ratePerSec: { num: "1", denom: "2" } }],
+  id: "rot-bottled_rec_hp_1",
+  title: "rot-bottled_rec_hp_1",
+  targets: [
+    { itemId: "bottled_rec_hp_1", ratePerSec: { num: "1", denom: "2" } },
+  ],
   maxDiffPixels: 0,
 };
 

@@ -201,12 +201,22 @@ export type DotGeom = {
   right: number;
   bottom: number;
 };
+// One DRAWN crossing cue (exam-surfaced Task 9): the disc an edge renderer
+// masks out of its own stroke where its polyline passes under a different
+// flow's. The cue is an SVG circle inside the edge group's mask, so its cx/cy
+// attributes are ALREADY graph coordinates (the same user space the path `d`
+// strings live in) and are read as attributes rather than through
+// getBoundingClientRect - no camera round-trip, no sub-pixel loss. `edgeId`
+// is the React Flow edge group the circle lives in, recovered via that
+// group's .react-flow__edge-path id.
+export type CrossingCueGeom = { edgeId: string; x: number; y: number };
 export type Geometry = {
   edges: EdgeGeom[];
   nodes: NodeGeom[];
   chips: ChipGeom[];
   dots: DotGeom[];
   bands: BandGeom[];
+  crossingCues: CrossingCueGeom[];
   // The live camera zoom, needed to state a screen-pixel visibility tolerance
   // in the graph frame the rects above live in.
   zoom: number;
@@ -317,7 +327,24 @@ export function collectGeometry(): Geometry {
     };
   });
 
-  return { edges, nodes, chips, dots, bands, zoom: k };
+  // Crossing cues (Task 9): SVG circles inside the edge groups, so their cx/cy
+  // attributes are already graph coordinates. The owning edge is the group the
+  // circle lives in, named by that group's .react-flow__edge-path id - the same
+  // id `edges` above carries, so a cue and a path join directly.
+  const crossingCues = Array.from(
+    document.querySelectorAll<SVGCircleElement>(
+      '[data-testid="edge-crossing-cue"]',
+    ),
+  ).map((el) => ({
+    edgeId:
+      el
+        .closest(".react-flow__edge")
+        ?.querySelector<SVGPathElement>(".react-flow__edge-path")?.id ?? "",
+    x: Number(el.getAttribute("cx")),
+    y: Number(el.getAttribute("cy")),
+  }));
+
+  return { edges, nodes, chips, dots, bands, crossingCues, zoom: k };
 }
 
 // One rendered thing the exam has to be able to point a camera at. `clientRect`

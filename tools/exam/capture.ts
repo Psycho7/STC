@@ -351,9 +351,12 @@ export async function bootPage(
 
   // The locale is read from localStorage in the i18n provider's initial state,
   // so it has to be set before the app boots or label text and its metrics
-  // change under the camera.
+  // change under the camera. Bus lanes ride the same store and default OFF
+  // for a missing key; the exam corpus opts in exactly as the e2e specs do,
+  // so the capture shows the lanes, bands and captions the audits ratchet.
   await page.addInitScript((locale: string) => {
     window.localStorage.setItem("aef.locale", locale);
+    window.localStorage.setItem("aef.busLanes", "on");
   }, opts.locale);
 
   await page.goto(examUrl(opts.baseUrl, opts.hash), { waitUntil: "load" });

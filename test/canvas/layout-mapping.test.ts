@@ -17,6 +17,7 @@ import {
   loopBoxDimensions,
 } from "../../src/canvas/dimensions";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
+import { orderByItem } from "../../src/canvas/orderByItem";
 import type {
   BlueprintGroupContainer,
   LoopBoxContainer,
@@ -155,8 +156,9 @@ describe("renderPlanToElkGraph: unit dimensions", () => {
     });
     const node = findChild(graph, "u:a");
     // FIXED_SIDE pins each port to its side but lets ELK order the ports within
-    // a side to minimize crossings; the resolved order is read back after
-    // layout as inputOrder / outputOrder.
+    // a side to minimize crossings; the resolved INPUT order is read back after
+    // layout as inputOrder. No output order is read back (ruling R4): output
+    // rows read in the recipe's declared order.
     expect(node?.layoutOptions?.["org.eclipse.elk.portConstraints"]).toBe(
       "FIXED_SIDE",
     );
@@ -413,6 +415,73 @@ describe("layoutRenderPlan: end-to-end", () => {
     expect(producerYByItem[inputOrder![0]!]!).toBeLessThanOrEqual(
       producerYByItem[inputOrder![1]!]!,
     );
+  });
+
+  it("stamps no outputOrder: two cards of one recipe read their output rows alike", async () => {
+    // R4 (recipe-row-order-unstable): output rows read in the recipe's own
+    // declared order, so two cards of one recipe read alike. Two units of one
+    // two-output recipe sit here with their consumers in OPPOSITE vertical
+    // order -- u:a's cuprium consumer lands BELOW its sewage consumer, u:b's
+    // above -- which is the placement that made ELK's crossing-minimised east
+    // port order flip one card against the other and against recipe.out. The
+    // layout must stamp NO output side order: each card then resolves its rows
+    // through orderByItem(recipe.out, undefined), i.e. the declaration order.
+    const refiner = mkRecipe("r:ref", [], ["cup", "sew"]);
+    const cupConsumer = mkRecipe("r:cup", ["cup"], ["x"]);
+    const sewConsumer = mkRecipe("r:sew", ["sew"], ["x"]);
+    const sink = mkRecipe("r:sink", ["x"], []);
+    const plan: RenderPlan = {
+      units: [
+        mkRecipeUnit("u:a", "r:ref"),
+        mkRecipeUnit("u:b", "r:ref"),
+        mkRecipeUnit("c1", "r:cup"),
+        mkRecipeUnit("c2", "r:sew"),
+        mkRecipeUnit("c3", "r:cup"),
+        mkRecipeUnit("c4", "r:sew"),
+        mkRecipeUnit("s1", "r:sink"),
+        mkRecipeUnit("s2", "r:sink"),
+      ],
+      edges: [
+        mkEdge("u:a", "c1", "cup"),
+        mkEdge("u:a", "c2", "sew"),
+        mkEdge("u:b", "c3", "cup"),
+        mkEdge("u:b", "c4", "sew"),
+        // The sinks pull c1 (u:a's cuprium consumer) and c4 (u:b's sewage
+        // consumer) one layer deeper, which is what puts each pair of
+        // consumers in the opposite vertical order.
+        mkEdge("c1", "s1", "x"),
+        mkEdge("c4", "s2", "x"),
+      ],
+      containers: [],
+    };
+    const result = await layoutRenderPlan({
+      plan,
+      recipeById: new Map([
+        ["r:ref", refiner],
+        ["r:cup", cupConsumer],
+        ["r:sew", sewConsumer],
+        ["r:sink", sink],
+      ]),
+      itemById: new Map(),
+    });
+    const byId = new Map(result.nodes.map((n) => [n.id, n]));
+    const y = (id: string) => byId.get(id)!.position.y;
+    // The scenario's premise, guarded: the two cards' consumer pairs sit in
+    // opposite vertical order.
+    expect(y("c1")).toBeGreaterThan(y("c2"));
+    expect(y("c3")).toBeLessThan(y("c4"));
+    const outputOrderOf = (id: string) =>
+      (byId.get(id) as { data: { outputOrder?: string[] } }).data.outputOrder;
+    for (const id of ["u:a", "u:b"]) {
+      expect(outputOrderOf(id)).toBeUndefined();
+    }
+    // The row order each card draws. orderByItem(recipe.out, outputOrder) is
+    // exactly how RecipeNode and nodeGeometry.portOffsetY resolve output rows,
+    // so an undefined order means the declaration order on every card.
+    const rowOrder = (id: string) =>
+      orderByItem(refiner.out, outputOrderOf(id)).map((p) => p.item);
+    expect(rowOrder("u:a")).toEqual(["cup", "sew"]);
+    expect(rowOrder("u:b")).toEqual(["cup", "sew"]);
   });
 
   it("treats a loop-box container's loop unit as a single sized outer node", async () => {

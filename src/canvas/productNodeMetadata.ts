@@ -29,21 +29,20 @@ export function buildRealizedRateByItem(
   return map;
 }
 
-// Build the pn-kind caption shown on a ProductNode.
+// Build the pn-kind caption words shown on a ProductNode.
 //
-// Inputs read "<Direction> <Classification>" (the rate now lives in its own
-// pn-rate row rather than this caption); outputs read
-// "<Direction> <Classification> <Rate>". The parts are joined by a middle-dot
-// separator. The direction and classification words are localized through the
-// i18n table; the numeric rate is literal and the unit comes from the locale's
-// canvas.rate.unit string.
+// Every card reads "<Direction> <Classification>"; the parts are joined by a
+// middle-dot separator and localized through the i18n table. An output's rate
+// used to ride this string and now comes from buildPnKindRate below, because
+// .pn-kind runs the words through text-transform: uppercase and the rate's
+// localized unit ("/min", the Russian per-minute string) must keep its own
+// casing (unit-casing-mix family).
 //
 // Direction is "In" for an inputProduct and "Out" for an outputProduct.
 // For an inputProduct, the classification is "tap" when the node is a fanout
 // slice of an aggregate input card, otherwise "raw" when item.raw is true and
-// "import" when it is not. For an outputProduct, it is data.flavor ("target" or
-// "surplus"), and the rate is formatRationalPerMin(rate) followed by the
-// locale's canvas.rate.unit string.
+// "import" when it is not. For an outputProduct, it is data.flavor ("target"
+// or "surplus").
 //
 // The NBSP after each middle dot keeps a wrapped caption from stranding the
 // dot at line end; a break lands before the dot instead.
@@ -71,5 +70,22 @@ export function buildPnKind(
       ? "product.flavor.surplus"
       : "product.flavor.target",
   );
-  return `${i18n.t("product.dir.out")} ·\u00A0${flavor} ·\u00A0${formatRationalPerMin(data.rate)}${i18n.t("canvas.rate.unit")}`;
+  return `${i18n.t("product.dir.out")} ·\u00A0${flavor}`;
+}
+
+// Build the trailing rate segment of an output's pn-kind caption: the
+// formatted rate followed by the locale's canvas.rate.unit string
+// (formatRationalPerMin(rate) + "/min" under en). Inputs carry no rate in the
+// caption, mirroring buildPnKind's input branch, so the helper returns null
+// and the caller renders no span.
+//
+// The caller joins this to the caption words with the same "space, middle
+// dot, NBSP" glue and renders it inside a span the caption's uppercase
+// transform does not reach, so the composed caption's text is unchanged.
+export function buildPnKindRate(
+  data: ProductNodeData,
+  i18n: I18nIndex,
+): string | null {
+  if (data.kind === "inputProduct") return null;
+  return `${formatRationalPerMin(data.rate)}${i18n.t("canvas.rate.unit")}`;
 }

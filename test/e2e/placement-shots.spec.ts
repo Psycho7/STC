@@ -24,6 +24,10 @@ test.describe("placement screenshot harness", () => {
     // the provider's initial state) so labels and text metrics stay stable.
     await page.addInitScript(() => {
       window.localStorage.setItem("aef.locale", "en");
+      // The audit corpus polices the bus machinery, so every spec opts the
+      // toggle on explicitly; the app default (off since the bus-lanes flip)
+      // is a product decision this suite does not re-test.
+      window.localStorage.setItem("aef.busLanes", "on");
     });
   });
 

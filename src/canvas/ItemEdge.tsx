@@ -3,14 +3,25 @@ import {
   EdgeLabelRenderer,
   useStore,
   type EdgeProps,
+  type ReactFlowState,
 } from "@xyflow/react";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type Fraction from "fraction.js";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 import { HIDE_STALE_EPS, MAX_CHIP_SCALE } from "./dimensions";
-import { chamferStepPath, routingHintsFromData } from "./edgePath";
+import {
+  chamferStepPath,
+  parsePathPoints,
+  routingHintsFromData,
+} from "./edgePath";
+import {
+  crossingCueRadius,
+  crossingPartnerBits,
+  liveCrossingCues,
+  type CrossingCue,
+} from "./crossings";
 import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
 
@@ -100,6 +111,28 @@ export type ItemEdgeData = {
   // split, and gets nothing; nor does one where no member ever leaves the row.
   fanoutJunctionX?: number;
   fanoutJunctionY?: number;
+  // Crossing cues (deconflictChipAnchors). Where this edge's polyline
+  // properly crosses a DIFFERENT flow's polyline (different item|source),
+  // the seating pass stamps the crossing point on ONE edge of the pair --
+  // this one -- with every edge crossing it there as a partner. The
+  // renderer masks this edge's own stroke out around each point (see
+  // CrossingCueMask): the gap is transparent, so the other stroke shows
+  // through it and this flow reads as passing under, and nothing beneath
+  // the pair (a slab tint, a band tint, their hairlines) is painted over.
+  // A transparent gap reads the same whichever edge paints above, so no z
+  // ruling is taken at seating and none can be flipped by a selection
+  // lifting a node's edges (React Flow elevates a selected node to z 1000
+  // by default, and a drag auto-selects). A bare X of two continuous
+  // strokes reads as a join; the gap is what says "crossing, not a merge".
+  // Strict-interior crossing semantics (crossings.ts) mean a collinear
+  // fan-in run, a bus lane's overlapping member runs, and a shared fan-out
+  // trunk can never produce a stamp. Cues render only while the crossing
+  // still stands on BOTH sides: the stamp must sit on this edge's own live
+  // polyline (the shared stale-stamp rule) AND at least one recorded
+  // partner edge must still exist with both endpoints within the stale eps
+  // of the stamped anchors (see useLiveCrossingCues), so a node drag on
+  // EITHER side of the pair drops the gap instead of floating it.
+  crossingCues?: ReadonlyArray<CrossingCue>;
 };
 
 // Fallback stroke per transport kind, used only when an edge carries no item id
@@ -300,6 +333,122 @@ export function junctionRadius(zoom: number): number {
   return screen / zoom;
 }
 
+// Crossing-cue mask: the cut-outs an edge renderer applies to its OWN
+// stroke at every point where its polyline properly crosses a DIFFERENT
+// flow's and the seating pass stamped this edge as the one passing under
+// (see chipSeating Phase 0c). An SVG <mask> in the edge's own group -- a
+// white field with a black disc per cue -- applied to the path group, so
+// the stroke simply is not drawn inside the disc: the crossing stroke shows
+// through a transparent gap and everything painted beneath the pair (slab
+// and band tints, hairlines) stays intact, which a background-coloured
+// disc drawn over the crossing could not promise. Because the gap is a
+// hole in this stroke rather than paint over the other, the picture is the
+// same whichever edge's svg paints above. Radius via crossingCueRadius so
+// the gap holds a clamped on-screen width across zoom like the junction
+// dot. The disc keeps the edge-crossing-cue testid: it is the drawn cue's
+// location, read by the e2e cue coverage audit. Shared by ItemEdge and
+// BusEdge; the mask id is derived from the edge id so it is unique per
+// edge and stable across renders.
+const CUE_MASK_EXTENT = 1_000_000;
+
+export function crossingCueMaskId(edgeId: string): string {
+  return `cue-mask-${edgeId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+}
+
+export function CrossingCueMask({
+  id,
+  cues,
+  zoom,
+}: {
+  id: string;
+  cues: ReadonlyArray<{ x: number; y: number }>;
+  zoom: number;
+}) {
+  if (cues.length === 0) return null;
+  const r = crossingCueRadius(zoom);
+  const half = CUE_MASK_EXTENT / 2;
+  return (
+    <defs>
+      <mask
+        id={id}
+        maskUnits="userSpaceOnUse"
+        x={-half}
+        y={-half}
+        width={CUE_MASK_EXTENT}
+        height={CUE_MASK_EXTENT}
+      >
+        <rect
+          x={-half}
+          y={-half}
+          width={CUE_MASK_EXTENT}
+          height={CUE_MASK_EXTENT}
+          fill="white"
+        />
+        {cues.map((c, i) => (
+          <circle
+            key={`${c.x},${c.y}` + (i === 0 ? "" : `#${i}`)}
+            data-testid="edge-crossing-cue"
+            cx={c.x}
+            cy={c.y}
+            r={r}
+            fill="black"
+          />
+        ))}
+      </mask>
+    </defs>
+  );
+}
+
+// Value equality for the partner-bits subscription below. The default
+// Object.is would see a fresh array on every store tick; comparing by
+// content means an edge re-renders only when one of its cues' partner bits
+// actually FLIPS -- once per partner drag, at the moment the drift crosses
+// the eps -- not on every position update of the drag.
+const partnerBitsEqual = (
+  a: ReadonlyArray<boolean>,
+  b: ReadonlyArray<boolean>,
+): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
+
+// The cue-liveness filter with its store-fed half: liveCrossingCues checks
+// each stamp against this edge's OWN polyline (pure geometry, no store), and
+// the partner bits come from a narrow React Flow store subscription -- one
+// Map.get per partner for its edge, then one per endpoint node, no
+// store-wide iteration -- so an edge re-renders exactly when a partner's
+// existence or anchor liveness changes. Without the partner half, a dragged
+// partner edge left this edge's gap cut where nothing crosses anymore (the
+// seating pass does not rerun on drag). A cue-less edge -- almost every edge
+// -- pays nothing per store tick: its selector returns one shared empty
+// array, so the equality check short-circuits on identity, and the filter
+// result is memoized so the per-render geometry runs only when a stamp, the
+// polyline or a partner bit actually changed. Shared by ItemEdge and
+// BusEdge; see crossingPartnerBits (crossings.ts) for the eps and the
+// record shape.
+const NO_BITS: ReadonlyArray<boolean> = [];
+
+export function useLiveCrossingCues(
+  cues: ReadonlyArray<CrossingCue> | undefined,
+  ownPts: ReadonlyArray<readonly [number, number]>,
+): Array<{ x: number; y: number }> {
+  const selector = useCallback(
+    (state: ReactFlowState) =>
+      cues === undefined || cues.length === 0
+        ? NO_BITS
+        : crossingPartnerBits(cues, state),
+    [cues],
+  );
+  const bits = useStore(selector, partnerBitsEqual);
+  return useMemo(
+    () => liveCrossingCues(cues, ownPts, (_, i) => bits[i] === true),
+    [cues, ownPts, bits],
+  );
+}
+
+// Stable empty vertex list for the memoized cue-path parse below (and the
+// matching one in BusEdge): a cue-less edge returns it instead of allocating,
+// and liveCrossingCues never reads the points once its own cue early-out
+// fires, so the shared identity is all that matters.
+export const NO_CUE_PTS: ReadonlyArray<readonly [number, number]> = [];
+
 // The merge junction dot, portaled into the shared edgelabel-renderer layer (not
 // an SVG circle in the edge group) so it shares the chips' stacking context: it
 // sits BELOW the flow chips (.bus-junction z-index 1 vs .flow-chip z-index 2 in
@@ -444,6 +593,25 @@ export default function ItemEdge({
   );
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
+  // Parse the own polyline for the cue filter once per (path, cue stamp),
+  // never once per render: the zoom subscription above re-renders every edge
+  // on each zoom tick, and with the parse in argument position every tick
+  // re-ran it -- a regex matchAll plus a tuple per vertex -- on every mounted
+  // edge, cue-carrying or not, before the callee's cue early-out could skip
+  // it. The stamp gate now runs first (a cue-less edge never parses at all)
+  // and the memo holds the survivors' parse across the ticks; the same
+  // one-parse-per-edge hoist the seating pass documents on pathPointAtPts.
+  const cuePts = useMemo(
+    () =>
+      edgeData?.crossingCues?.length ? parsePathPoints(edgePath) : NO_CUE_PTS,
+    [edgePath, edgeData?.crossingCues],
+  );
+  // Crossing-cue gaps, filtered to the stamps whose crossing still stands
+  // on BOTH sides -- the stamp sits on THIS edge's live polyline (the
+  // stale-stamp rule) and a stamped partner edge has not moved or vanished
+  // (see useLiveCrossingCues): masked out of the coloured path below.
+  const liveCues = useLiveCrossingCues(edgeData?.crossingCues, cuePts);
+  const cueMaskId = crossingCueMaskId(id);
   // Zoom-compensated base width, published as --edge-base-width so the hover
   // emphasis CSS can scale relative to it. A caller-supplied style wins over
   // these defaults, so later overrides for hover, tear edges, or cross-group
@@ -457,16 +625,24 @@ export default function ItemEdge({
 
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        style={mergedStyle}
-        {...(fullLabel ? { "aria-label": fullLabel } : {})}
-        {...(edgeData?.transportKind !== undefined
-          ? { "data-transport-kind": edgeData.transportKind }
-          : {})}
-        {...(markerEnd ? { markerEnd } : {})}
-      />
+      {/* Crossing cues: this edge's stroke is masked out around each proper
+          crossing it was stamped as passing under, so the other flow's
+          stroke shows through a transparent gap and nothing beneath the
+          pair is painted over. The mask attribute is absent on the common
+          cue-less edge. */}
+      <CrossingCueMask id={cueMaskId} cues={liveCues} zoom={zoom} />
+      <g mask={liveCues.length > 0 ? `url(#${cueMaskId})` : undefined}>
+        <BaseEdge
+          id={id}
+          path={edgePath}
+          style={mergedStyle}
+          {...(fullLabel ? { "aria-label": fullLabel } : {})}
+          {...(edgeData?.transportKind !== undefined
+            ? { "data-transport-kind": edgeData.transportKind }
+            : {})}
+          {...(markerEnd ? { markerEnd } : {})}
+        />
+      </g>
       {chipText ? (
         <FlowChip
           testId={`item-edge-label-${id}`}

@@ -192,7 +192,7 @@ export type FanoutBusEdgeData = BusAggregate & {
   // than one rendered chip: BusEdge collapses the branch chip to its icon-only
   // variant at every zoom, the same rule chipIconOnly applies to a short item
   // edge. The full box is wider than such a leg, so no seat on it can keep the
-  // chip off the trunk's split dot; the narrow box can. The share wording stays
+  // chip off the trunk's split dot; the narrow box can. The rate stays readable
   // on the chip's aria-label and hover title.
   fanoutBranchIconOnly?: true;
   // Set by routeFanoutEdges on every member of a trunk whose corridor is
@@ -200,8 +200,7 @@ export type FanoutBusEdgeData = BusAggregate & {
   // worst-case chip half-box, so a full-width branch chip anywhere on the
   // column would lap a sibling's vertical at some zoom. The seating pass takes
   // it as iconOnly (the same collapsed render fanoutBranchIconOnly gets); the
-  // share wording stays on the aria-label / hover title and the rate on the
-  // target card's row.
+  // rate stays on the aria-label / hover title and the target card's row.
   fanoutContested?: true;
 };
 
@@ -481,10 +480,18 @@ export function routeBusEdges(
   // same layer would otherwise anchor near-coincident at their rise vertices, so
   // give every member a chip x-slot spaced across the lane extent from the drop
   // column (dropX, where the owner's aggregate drop chip sits) to the rightmost
-  // member's rise column. Members are ordered by edge id so the assignment is
-  // deterministic regardless of edge order. Slots sit at fraction (i+1)/(n+1) of
-  // the extent, which keeps every slot -- and the drop-side gap -- one even step
-  // apart and never places a rise chip on the aggregate drop chip at dropX.
+  // member's rise column. Members are ordered by RISE COLUMN (leftmost first,
+  // edge id breaking ties), not edge id: the spread walks the extent from the
+  // drop column outward, so ranking by rise column hands each member a slot in
+  // the stretch of lane its own run actually covers. Id order instead let a
+  // far-running member draw the drop-side slot -- legally inside its own long
+  // run, so the seating clamp had nothing to pull back -- parking its rate chip
+  // beside a short sibling's rise column while the sibling's own clamped slot
+  // crowded it off the lane and hid (battery5-xiranite e:29/e:31/e:32). The
+  // assignment stays deterministic regardless of edge order: riseX is geometry
+  // and the tiebreak is id. Slots sit at fraction (i+1)/(n+1) of the extent,
+  // which keeps every slot -- and the drop-side gap -- one even step apart and
+  // never places a rise chip on the aggregate drop chip at dropX.
   // When the extent is too short to spread them (members feeding one nearby
   // layer, so maxRiseX <= dropX) the step collapses to 0 and every rise chip
   // stacks at the drop column.
@@ -533,7 +540,21 @@ export function routeBusEdges(
     // the two stay in sync by construction. Backward lone members keep their
     // slot (their forward extent is 0, under the threshold).
     if (members.length === 1 && extent > BUS_LONG_RUN_THRESHOLD) continue;
-    members.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    // Rise-column rank (see the slot comment above): slot i+1 of n+1 walks the
+    // extent from the drop column outward, so the member whose run ENDS first
+    // (leftmost rise column) takes the drop-side slot and the rightmost
+    // member's slot lands nearest its own corner. Edge id breaks ties (members
+    // sharing one rise column, e.g. a layer stack) and keeps the whole
+    // assignment independent of input edge order.
+    members.sort((a, b) =>
+      a.riseX !== b.riseX
+        ? a.riseX - b.riseX
+        : a.id < b.id
+          ? -1
+          : a.id > b.id
+            ? 1
+            : 0,
+    );
     const n = members.length;
     const step = extent / (n + 1);
     members.forEach((m, i) => {
@@ -1468,6 +1489,17 @@ export const OBSTACLE_PAD_Y = CHAMFER;
 // visual check on the battery5-xiranite / crystal evidence plans.
 export const CONTAINER_RAIL_GAP = 48;
 
+// Horizontal clearance a loop return's two VERTICALS keep off a container
+// slab's side borders, the column analog of CONTAINER_RAIL_GAP. A loop member
+// sits 10-36 units off its container's border (the ELK child inset), so the
+// default rail columns (one stub out of the source / before the target) land
+// a few units off the border and the return's verticals braid the frame -- the
+// stroke and the border merge into one line, or wrap non-members when the rail
+// hoists (the loop-backedge-braids-container family, #29 follow-on). This
+// pushes each column at least this far off the RAW slab border, into the
+// interior corridor. Picked by visual check like CONTAINER_RAIL_GAP.
+export const CONTAINER_COLUMN_GAP = 16;
+
 // nodeId identifies the node an obstacle belongs to, so a consumer can exempt an
 // edge's OWN target card / gutter (the default rise and backward entry columns
 // sit inside their own target's padded left band by construction) while
@@ -1512,7 +1544,14 @@ export function paddedObstacles(
 // x-span). Each blocking obstacle is padded by `gap` so the returned column keeps
 // clear air off the card edge, and two obstacles closer than 2*gap merge into one
 // no-go band (a candidate that would land between them fails the clear test and
-// is skipped, pushing the column to the outer edge).
+// is skipped, pushing the column to the outer edge). Container slabs
+// (o.container) take the wider `containerGap` for BOTH the strike test and the
+// candidate edges, the column analog of clearRailY's container clearance; it
+// defaults to the plain gap, so a caller that passes none is byte-identical to
+// before. A zero-width obstacle (left === right) is the caller's BORDER BAND: it
+// blocks exactly (x - gap, x + gap) around that line and offers the two
+// candidates x - gap / x + gap, which is how a slab's frame is kept clear while
+// its interior stays routable.
 //
 // Nearest clear column to `desiredX`; ties break toward the target side
 // (towardTarget: +1 target to the right, -1 to the left). An `accept` predicate
@@ -1535,13 +1574,16 @@ export function clearColumnX(
     towardTarget?: number;
     radius?: number;
     gap?: number;
+    containerGap?: number | undefined;
     accept?: (x: number) => boolean;
   },
 ): number {
   const gap = opts?.gap ?? CHAMFER;
+  const containerGap = opts?.containerGap ?? gap;
   const radius = opts?.radius ?? CLEAR_COLUMN_RADIUS;
   const toward = opts?.towardTarget ?? 0;
   const accept = opts?.accept ?? (() => true);
+  const gapOf = (o: ObstacleRect): number => (o.container ? containerGap : gap);
   const ymin = Math.min(yLo, yHi);
   const ymax = Math.max(yLo, yHi);
   // Only obstacles whose vertical extent the run overlaps can block it.
@@ -1549,7 +1591,7 @@ export function clearColumnX(
     .filter((o) => o.bottom > ymin && o.top < ymax)
     .sort((a, b) => a.left - b.left || a.right - b.right);
   const blocked = (x: number): boolean =>
-    spanned.some((o) => x > o.left - gap && x < o.right + gap);
+    spanned.some((o) => x > o.left - gapOf(o) && x < o.right + gapOf(o));
   if (!blocked(desiredX) && accept(desiredX)) return desiredX;
 
   // The nearest clear column sits just outside some spanning obstacle's padded
@@ -1558,7 +1600,7 @@ export function clearColumnX(
   // accept, or beyond the search radius, and pick the nearest surviving
   // candidate, tie-breaking toward the target.
   const candidates = spanned
-    .flatMap((o) => [o.left - gap, o.right + gap])
+    .flatMap((o) => [o.left - gapOf(o), o.right + gapOf(o)])
     .sort((a, b) => a - b);
   let best: number | undefined;
   for (const x of candidates) {
@@ -1600,6 +1642,10 @@ function rawCardRects(nodes: ReadonlyArray<RFAnyNode>): PaddedObstacle[] {
       bottom: top + nodeHeight(node),
       kind: "card" as const,
       nodeId: node.id,
+      // Same container tag paddedObstacles stamps: the raw-fallback tiers read
+      // it to keep a raw column off a slab's FRAME (CONTAINER_COLUMN_GAP), not
+      // the RAW_GAP a plain card gets.
+      container: node.type === "group" || node.type === "loop",
     };
   });
 }
@@ -1662,6 +1708,16 @@ function clearColumnKeepingLeg(args: {
   toward: number;
   foreignPadded: ReadonlyArray<PaddedObstacle>;
   foreignRawCards: ReadonlyArray<PaddedObstacle>;
+  // The caller's container BORDER BANDS: zero-width frame lines (see
+  // clearColumnX) that gate the COLUMN only -- never the connecting legs, which
+  // legitimately cross a frame to reach a column on the other side of it.
+  // Today only clampBackwardRails passes them, for the return's own shared
+  // container; absent means no band treatment and byte-identical resolution.
+  containerBands?: ReadonlyArray<PaddedObstacle>;
+  // Wider column gap for container-slab obstacles (the CONTAINER_COLUMN_GAP
+  // analog of clearRailY's containerGap). Defaults to the tier's plain gap, so
+  // an omitting caller (clearBusColumns) resolves exactly as before.
+  containerGap?: number | undefined;
   // Own-side guard for the bus drop / rise. Both are optional and default to a
   // no-op, so the clampBackwardRails callers (which omit them) are unchanged.
   //   sideClamp -- reject any candidate on the wrong side of the port (rise:
@@ -1688,9 +1744,12 @@ function clearColumnKeepingLeg(args: {
     toward,
     foreignPadded,
     foreignRawCards,
+    containerBands,
+    containerGap,
     ownLegRect,
     sideClamp,
   } = args;
+  const bands = containerBands ?? [];
   const paddedCards = foreignPadded.filter((o) => o.kind === "card");
   const legExtra = ownLegRect ? [ownLegRect] : [];
   const paddedLegCards = [...paddedCards, ...legExtra];
@@ -1702,37 +1761,51 @@ function clearColumnKeepingLeg(args: {
     x: number,
     set: ReadonlyArray<PaddedObstacle>,
     gap: number,
+    cGap: number,
   ): boolean =>
     !set.some(
       (o) =>
         o.bottom > ymin &&
         o.top < ymax &&
-        x > o.left - gap &&
-        x < o.right + gap,
+        x > o.left - (o.container ? cGap : gap) &&
+        x < o.right + (o.container ? cGap : gap),
     );
 
-  // Tier 1: padded set, padded-card leg acceptance.
+  // Tier 1: padded set, padded-card leg acceptance. Bands join the column set;
+  // the container gap widens every container obstacle's blocked interval.
+  const tier1Set = [...foreignPadded, ...bands];
   const paddedAccept = (x: number): boolean =>
     onSide(x) && !connectingLegBlocked(portX, portY, x, paddedLegCards);
-  const padded = clearColumnX(desired, yLo, yHi, foreignPadded, {
+  const padded = clearColumnX(desired, yLo, yHi, tier1Set, {
     towardTarget: toward,
+    containerGap,
     accept: paddedAccept,
   });
-  if (columnClear(padded, foreignPadded, CHAMFER) && paddedAccept(padded)) {
+  if (
+    columnClear(padded, tier1Set, CHAMFER, containerGap ?? CHAMFER) &&
+    paddedAccept(padded)
+  ) {
     return padded;
   }
 
-  // Tier 2: raw fallback. The slim RAW_GAP keeps a hair of air off the raw box;
-  // the doubled radius lets a fully packed near corridor escape to the next gap.
+  // Tier 2: raw fallback. The slim RAW_GAP keeps a hair of air off the raw box
+  // (the container gap for slabs: a raw-fallback column parked RAW_GAP off a
+  // slab border braided the frame, the loop-return family's raw variant); the
+  // doubled radius lets a fully packed near corridor escape to the next gap.
+  const tier2Set = [...foreignRawCards, ...bands];
   const rawAccept = (x: number): boolean =>
     onSide(x) && !connectingLegBlocked(portX, portY, x, rawLegCards);
-  const raw = clearColumnX(desired, yLo, yHi, foreignRawCards, {
+  const raw = clearColumnX(desired, yLo, yHi, tier2Set, {
     towardTarget: toward,
     gap: RAW_GAP,
+    containerGap,
     radius: 2 * CLEAR_COLUMN_RADIUS,
     accept: rawAccept,
   });
-  if (columnClear(raw, foreignRawCards, RAW_GAP) && rawAccept(raw)) {
+  if (
+    columnClear(raw, tier2Set, RAW_GAP, containerGap ?? RAW_GAP) &&
+    rawAccept(raw)
+  ) {
     return raw;
   }
 
@@ -1758,26 +1831,33 @@ function clearColumnKeepingLeg(args: {
       // tunnelling the own body.
       const rescueAPaddedAccept = (x: number): boolean =>
         !connectingLegBlocked(portX, portY, x, paddedLegCards);
-      const rescueAPadded = clearColumnX(desired, yLo, yHi, foreignPadded, {
+      const rescueAPadded = clearColumnX(desired, yLo, yHi, tier1Set, {
         towardTarget: toward,
+        containerGap,
         accept: rescueAPaddedAccept,
       });
       if (
-        columnClear(rescueAPadded, foreignPadded, CHAMFER) &&
+        columnClear(
+          rescueAPadded,
+          tier1Set,
+          CHAMFER,
+          containerGap ?? CHAMFER,
+        ) &&
         rescueAPaddedAccept(rescueAPadded)
       ) {
         return rescueAPadded;
       }
       const rescueARawAccept = (x: number): boolean =>
         !connectingLegBlocked(portX, portY, x, rawLegCards);
-      const rescueARaw = clearColumnX(desired, yLo, yHi, foreignRawCards, {
+      const rescueARaw = clearColumnX(desired, yLo, yHi, tier2Set, {
         towardTarget: toward,
         gap: RAW_GAP,
+        containerGap,
         radius: 2 * CLEAR_COLUMN_RADIUS,
         accept: rescueARawAccept,
       });
       if (
-        columnClear(rescueARaw, foreignRawCards, RAW_GAP) &&
+        columnClear(rescueARaw, tier2Set, RAW_GAP, containerGap ?? RAW_GAP) &&
         rescueARawAccept(rescueARaw)
       ) {
         return rescueARaw;
@@ -1790,26 +1870,33 @@ function clearColumnKeepingLeg(args: {
       // segment audit exempts endpoint cards and cannot.
       const rescueBPaddedAccept = (x: number): boolean =>
         !connectingLegBlocked(portX, portY, x, paddedCards);
-      const rescueBPadded = clearColumnX(desired, yLo, yHi, foreignPadded, {
+      const rescueBPadded = clearColumnX(desired, yLo, yHi, tier1Set, {
         towardTarget: toward,
+        containerGap,
         accept: rescueBPaddedAccept,
       });
       if (
-        columnClear(rescueBPadded, foreignPadded, CHAMFER) &&
+        columnClear(
+          rescueBPadded,
+          tier1Set,
+          CHAMFER,
+          containerGap ?? CHAMFER,
+        ) &&
         rescueBPaddedAccept(rescueBPadded)
       ) {
         return rescueBPadded;
       }
       const rescueBRawAccept = (x: number): boolean =>
         !connectingLegBlocked(portX, portY, x, foreignRawCards);
-      const rescueBRaw = clearColumnX(desired, yLo, yHi, foreignRawCards, {
+      const rescueBRaw = clearColumnX(desired, yLo, yHi, tier2Set, {
         towardTarget: toward,
         gap: RAW_GAP,
+        containerGap,
         radius: 2 * CLEAR_COLUMN_RADIUS,
         accept: rescueBRawAccept,
       });
       if (
-        columnClear(rescueBRaw, foreignRawCards, RAW_GAP) &&
+        columnClear(rescueBRaw, tier2Set, RAW_GAP, containerGap ?? RAW_GAP) &&
         rescueBRawAccept(rescueBRaw)
       ) {
         return rescueBRaw;
@@ -2226,6 +2313,10 @@ export function clampBackwardRails(
 
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
+  // Raw rect lookup by node id, for building the shared container's border
+  // bands at its RAW edges (the frame the reader sees), not its padded band.
+  const rawById = new Map<string, PaddedObstacle>();
+  for (const o of rawCards) rawById.set(o.nodeId, o);
 
   const railYByIndex = new Map<number, number>();
   const railXRightByIndex = new Map<number, number>();
@@ -2261,12 +2352,41 @@ export function clampBackwardRails(
     // right column runs from the source port down/up to the rail; the left column
     // from the rail to the target port. Each column's own node is exempt (the
     // default columns sit inside their own node's padded band), as is that
-    // endpoint's own container box (a grouped endpoint's column legitimately
-    // runs inside its container). The rail y is taken as fixed (computed from
-    // the default columns above), so the columns only dodge along x.
+    // endpoint's own container BOX (a grouped endpoint's column legitimately
+    // runs inside its container) -- but each endpoint's own container FRAME is
+    // not: a loop return lands its default columns (one stub each side) a few
+    // units off the side borders of any container a member sits in, because
+    // members sit one ELK inset (10-36) off them, and the return's verticals
+    // then braid the frame (#29 follow-on, loop-backedge family). That held
+    // the both-endpoint shared slab first; a return with only ONE endpoint
+    // inside a container braids that container just the same, so the band
+    // treatment is PER SIDE: each endpoint's own container joins that side's
+    // column scan as two BORDER BANDS (zero-width frame lines at its raw
+    // edges, blocked and escaped with CONTAINER_COLUMN_GAP), so each resolved
+    // column sits at least that far off its endpoint's container frame --
+    // inside, in the interior corridor, or just outside -- while its
+    // connecting leg may still cross the frame to reach it. An endpoint with
+    // no container contributes no bands, and the shared-container case feeds
+    // both sides the same slab it always did. The rail y is taken as fixed
+    // (computed from the default columns above), so the columns only dodge
+    // along x.
     // Side-keeping: a moved column is accepted only when the connecting
     // horizontal from its port also stays clear (raw-gap fallback where
     // paddings overlap); the segment audit quantifies any residual.
+    const sharedContainerId =
+      source.parentId !== undefined && source.parentId === target.parentId
+        ? source.parentId
+        : undefined;
+    const bandsOf = (endpoint: RFAnyNode): PaddedObstacle[] => {
+      const containerId = sharedContainerId ?? endpoint.parentId;
+      if (containerId === undefined) return [];
+      const slab = rawById.get(containerId);
+      if (slab === undefined) return [];
+      return [
+        { ...slab, right: slab.left, container: true },
+        { ...slab, left: slab.right, container: true },
+      ];
+    };
     const xrExempt = ownExempt([source]);
     const xr = clearColumnKeepingLeg({
       desired: xrDesired,
@@ -2275,8 +2395,14 @@ export function clampBackwardRails(
       yLo: sy,
       yHi: railY,
       toward: -1,
-      foreignPadded: obstacles.filter((o) => !xrExempt.has(o.nodeId)),
-      foreignRawCards: rawCards.filter((o) => !xrExempt.has(o.nodeId)),
+      foreignPadded: obstacles.filter(
+        (o) => !xrExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
+      ),
+      foreignRawCards: rawCards.filter(
+        (o) => !xrExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
+      ),
+      containerBands: bandsOf(source),
+      containerGap: CONTAINER_COLUMN_GAP,
     });
     if (xr !== xrDesired) railXRightByIndex.set(index, xr);
     const xlExempt = ownExempt([target]);
@@ -2287,8 +2413,14 @@ export function clampBackwardRails(
       yLo: railY,
       yHi: ty,
       toward: -1,
-      foreignPadded: obstacles.filter((o) => !xlExempt.has(o.nodeId)),
-      foreignRawCards: rawCards.filter((o) => !xlExempt.has(o.nodeId)),
+      foreignPadded: obstacles.filter(
+        (o) => !xlExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
+      ),
+      foreignRawCards: rawCards.filter(
+        (o) => !xlExempt.has(o.nodeId) && o.nodeId !== sharedContainerId,
+      ),
+      containerBands: bandsOf(target),
+      containerGap: CONTAINER_COLUMN_GAP,
     });
     if (xl !== xlDesired) railXLeftByIndex.set(index, xl);
   });

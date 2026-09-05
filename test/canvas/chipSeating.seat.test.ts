@@ -1333,6 +1333,23 @@ describe("aggregateChipText / branchChipText", () => {
     expect(text).toEqual({ body: "30/270", unit: false });
   });
 
+  it("branch: a fan-out member keeps the plain rate + unit reading", () => {
+    // R3 (exam 2026-09-04): the share form is reserved for bus-LANE members.
+    // routeFanoutEdges retypes a formed fan-out branch to type "bus" with
+    // busMemberCount >= 2, so keying the share on the count alone printed
+    // "15/30" beside the "15/min" item edges of its unformed siblings. The
+    // fanout discriminant returns the plain body + unit instead.
+    const text = branchChipText(
+      member({
+        rate: new Fraction(1, 2), // 30/min
+        fanout: true,
+        busMemberCount: 2,
+        busTotalRate: new Fraction(9, 2), // 270/min
+      }),
+    );
+    expect(text).toEqual({ body: "30", unit: true });
+  });
+
   it("branch: a lone member keeps the plain rate + unit reading", () => {
     const text = branchChipText(
       member({ rate: new Fraction(1, 2), busMemberCount: 1 }),
@@ -1389,6 +1406,14 @@ describe("examChipReservations", () => {
         busMemberCount: 2,
         busTotalRate: new Fraction(9, 2), // 270/min
       }),
+      // R3: a fan-out member reserves the plain rate + unit, never the share
+      // form its lane-member sibling above reserves.
+      edge("f1", "bus", {
+        rate: new Fraction(1, 2), // 30/min
+        fanout: true,
+        busMemberCount: 2,
+        busTotalRate: new Fraction(9, 2), // 270/min
+      }),
     ]);
     expect(rows).toEqual([
       {
@@ -1411,6 +1436,20 @@ describe("examChipReservations", () => {
         unit: false,
         reservedPx:
           (2 * chipSeatHalfW({ body: "30/270", unit: false }, false)) /
+          MAX_CHIP_SCALE,
+      },
+      {
+        testId: "bus-edge-label-f1-drop",
+        body: "270",
+        unit: true,
+        reservedPx: (2 * chipSeatHalfW({ body: "270", unit: true }, false)) /
+          MAX_CHIP_SCALE,
+      },
+      {
+        testId: "bus-edge-label-f1-rise",
+        body: "30",
+        unit: true,
+        reservedPx: (2 * chipSeatHalfW({ body: "30", unit: true }, false)) /
           MAX_CHIP_SCALE,
       },
     ]);

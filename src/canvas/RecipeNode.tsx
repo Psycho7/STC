@@ -49,13 +49,13 @@ type RecipeNodeData = {
   // "in:copper_ore", "out:copper_powder"). Optional so older fixtures and tests
   // keep working without it.
   portTransportKinds?: PortTransportKinds;
-  // ELK-resolved per-side port order (item ids, top to bottom) attached by the
-  // layout pass. When present, rows / handles / glyphs render in this order so
-  // each entering edge's y-slot matches its arrival order; when absent (older
-  // fixtures, boot path) we fall back to recipe.in / recipe.out declaration
-  // order.
+  // ELK-resolved west port order (item ids, top to bottom) attached by the
+  // layout pass. When present, the input rows / handles / glyphs render in this
+  // order so each entering edge's y-slot matches its arrival order; when absent
+  // (older fixtures, boot path) we fall back to recipe.in declaration order.
+  // There is no output counterpart (ruling R4): output rows always read in
+  // recipe.out declaration order, so two cards of one recipe read alike.
   inputOrder?: ItemId[];
-  outputOrder?: ItemId[];
 };
 type RecipeNodeType = Node<RecipeNodeData, "recipe">;
 
@@ -94,17 +94,17 @@ export default function RecipeNode({
     expanded,
     portTransportKinds,
     inputOrder,
-    outputOrder,
   } = data;
   const i18n = useI18n();
   const { machineById } = useItemPack();
-  // Rows in ELK-resolved arrival order (falls back to declaration order). Each
-  // row carries its own stoich for the rate text. geom does not place the
-  // handles (they center on the real DOM row via CSS); it only feeds node
-  // sizing here and the offline routing model (busRouting / ELK), which the
-  // pinned CSS keeps in sync with these rows.
+  // Input rows in ELK-resolved arrival order (falls back to declaration
+  // order); output rows in the recipe's declared order (ruling R4), so every
+  // card of one recipe reads alike. Each row carries its own stoich for the
+  // rate text. geom does not place the handles (they center on the real DOM
+  // row via CSS); it only feeds node sizing here and the offline routing model
+  // (busRouting / ELK), which the pinned CSS keeps in sync with these rows.
   const ins = orderByItem(recipe.in, inputOrder);
-  const outs = orderByItem(recipe.out, outputOrder);
+  const outs = recipe.out;
   const geom = measureRecipe(recipe);
   // Aggregate scale across all machines. The render-pipeline path supplies a
   // rational `multiplicity`; the older boot path an integer `multiplier`; a

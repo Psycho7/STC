@@ -72,6 +72,12 @@ import {
   routingHintsFromData,
 } from "./edgePath";
 import {
+  pointToPolylineDistance,
+  properCrossPoint,
+  type CrossingCue,
+  type CrossingCuePartner,
+} from "./crossings";
+import {
   BUS_LONG_RUN_THRESHOLD,
   ENTRY_SLOT_PITCH,
   OBSTACLE_PAD_LEFT,
@@ -109,15 +115,20 @@ import type { RFAnyNode } from "./layout";
 const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
 const CHIP_HALF_W_WIDE = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
 
-// A leg shorter than this cannot hold the full rate chip anywhere on its own
-// line (rendered chips measure ~99-110 units; slideAlong clamps to the arc, so
-// on such a leg the anchor is the only candidate). Those chips collapse to the
-// icon-only variant instead of burying their endpoint cards; the exact rate
-// stays on the hover title. The same threshold governs a fan-out member's
-// BRANCH chip (#50): on a leg this short no seat keeps the full box off the
-// trunk's split dot either, and the collapsed box is narrow enough that one
-// exists.
-const SHORT_LEG_MAX = CHIP_HALF_W_WIDE;
+// The fan-out BRANCH short-leg rule shares the item rule's usable-width gate
+// (usableWidthCollapses above): a member whose OWN leg -- the sub-polyline
+// AFTER the junction, never the trunk-including whole polyline -- lacks the
+// horizontal run for its chip's reserved box has no seat on that leg that
+// keeps the box off the trunk's split dot either (#50; the keep-off square
+// alone reaches DOT_KEEPOFF past the box's half-width), and the collapsed
+// box is narrow enough that one exists. Measuring the leg rather than the
+// whole polyline, a long shared trunk can no longer vouch for a 13-unit
+// riser's full "300/min" box: the trunk prefix is the trunk's to draw on, not
+// the branch chip's. The rule USED to state this as a total-arc-length bound
+// against the widest box (SHORT_LEG_MAX = CHIP_HALF_W_WIDE), which both
+// counted vertical travel a horizontal chip cannot use and let the shared
+// trunk prefix puff the measure -- the two failures Task 6's item rule fixed
+// first.
 
 // Half-width of a COLLAPSED (icon-only) chip's box. Such a chip is a square:
 // the 16px item sprite plus the same 3px padding and 1px border the full chip
@@ -125,6 +136,16 @@ const SHORT_LEG_MAX = CHIP_HALF_W_WIDE;
 // axes, counter-scaled by the same cap. So its half-width IS the shared
 // half-height.
 const CHIP_HALF_W_ICON = CHIP_HALF_H;
+
+// Minimum centre x-separation two WIDE bus rise chips must keep when they
+// share one lane run -- the capacity floor the bus rise pass hides against
+// (see deconflictChipAnchors). Also, deliberately, the WIDTH of the rise-end
+// window clampChipXToOwnRun intersects a member's own run with, so a rise
+// chip is never seated more than one separation from the corner it labels:
+// the window is exactly as wide as the closest two chips may sit, so a chip
+// held at its window's far edge still clears a sibling parked at its own
+// corner beside it.
+const MIN_CHIP_SEP = 2 * CHIP_HALF_W_WIDE;
 
 // Chrome the .flow-chip box carries around its body text, in px at natural
 // scale, straight off the CSS rule (canvas.css .flow-chip / .ico-16): a 16px
@@ -207,6 +228,39 @@ export function chipSeatHalfW(
   return (MAX_CHIP_SCALE * Math.min(CHIP_BOX_WIDTH, natural)) / 2;
 }
 
+// Does this chip's polyline lack the usable width to hold its own full box
+// anywhere on its own line -- the short-leg collapse? The measure is the
+// polyline's X-EXTENT, the horizontal run a wide box can slide along, held
+// against the width THIS chip reserves at natural scale (the same
+// 2 * chipSeatHalfW / MAX_CHIP_SCALE quantity examChipReservations reports as
+// reservedPx). The old rule compared TOTAL ARC LENGTH against the widest chip
+// every chip draws (SHORT_LEG_MAX), which failed two ways at once: it counted
+// vertical travel a horizontal box cannot use, and it charged a narrow rate
+// text the CSS clamp's worst case. Across one 118-unit corridor the STRAIGHT
+// leg (arc 118) collapsed to its icon while its dogleg twins (arc 129 and 151,
+// each with a SHORTER horizontal run per segment) kept full chips, and a
+// "240/min" box ~96 wide collapsed on a leg that holds it. X-extent classifies
+// all three identically (118 each) while the threshold stays per chip: a
+// 28-unit leg still collapses, a wide rate text still collapses on a corridor
+// its own box outruns, and no chip without usable rate (the undefined-text
+// fallback above, CHIP_BOX_WIDTH wide) changes class -- for it the new bound
+// IS the old number. The fan-out BRANCH rule gates on the same measure over
+// the member's own leg (the suffix after the junction), where the old
+// arc-length bound additionally let the shared trunk prefix vouch for a leg
+// the chip's box outruns.
+export function usableWidthCollapses(
+  text: ChipText | undefined,
+  pts: ReadonlyArray<readonly [number, number]>,
+): boolean {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const [x] of pts) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+  }
+  return maxX - minX < (2 * chipSeatHalfW(text, false)) / MAX_CHIP_SCALE;
+}
+
 // The chip text a plain rate chip draws: the item edge's own rate through the
 // real display formatter, plus the unit (ItemEdge). The formatter returns "" for
 // a zero rate, which is exactly when ItemEdge draws no chip -- the estimator
@@ -229,15 +283,28 @@ export function aggregateChipText(edge: Edge): ChipText | undefined {
     : { body: formatRatePerMin(total), unit: true };
 }
 
-// The chip text a fan-out member's BRANCH chip draws. On a multi-member trunk it
-// is the SHARE, "30/270" -- digits only, no unit, because the unit would not fit
-// the box beside a decimal pair and differs per locale, so the full localized
-// wording rides the label and title instead (BusEdge, issue #45). A lone member
-// is its own total and keeps the plain rate + unit reading.
+// The chip text a bus member's per-member chip (lane rise / fan-out branch)
+// draws. The SHARE -- "30/270", digits only, no unit, because the unit would
+// not fit the box beside a decimal pair and differs per locale, so the full
+// localized wording rides the label and title instead (BusEdge, issue #45) --
+// is a bus-LANE member's reading (R3, exam 2026-09-04): a lane rise names one
+// share of a trunk total the reader cannot otherwise split. A formed FAN-OUT
+// branch is a direct in-corridor leg drawn beside its unformed siblings' plain
+// item edges, so it keeps the plain rate + unit those siblings read. A lone
+// lane member is its own total and keeps the plain rate + unit reading too.
+// The single source of the share-form predicate: BusEdge derives which of the
+// two readings its per-member chip draws from THIS builder (unit === false is
+// the share form), so the seat and the render agree on the box by
+// construction. Consulted by every seat that reserves a member chip's box --
+// the fan-out branch seat and, since Task 10, the lane rise seat -- and by the
+// exam reservation rows for both member kinds.
 export function branchChipText(edge: Edge): ChipText | undefined {
   const plain = rateChipText(edge);
   if (plain === undefined || plain.body === "") return plain;
   const data = edge.data as BusEdgeData | undefined;
+  // Fan-out members never take the share form (see the doc comment above);
+  // BusEdge reads the form from this return, never a predicate of its own.
+  if (data?.fanout === true) return plain;
   if ((data?.busMemberCount ?? 1) <= 1) return plain;
   const total = data?.busTotalRate ?? edgeRate(edge)!;
   const shareTotal = formatRatePerMin(total);
@@ -392,45 +459,11 @@ function segIntersectsChipBox(
   return clipSegToChipBox(x0, y0, x1, y1, box) !== null;
 }
 
-// Distance from a point to a segment, the usual clamped projection.
-function pointSegDistance(
-  px: number,
-  py: number,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-): number {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const l2 = dx * dx + dy * dy;
-  if (l2 === 0) return Math.hypot(px - x0, py - y0);
-  const t = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / l2));
-  return Math.hypot(px - (x0 + t * dx), py - (y0 + t * dy));
-}
-
-// Distance from a point to the nearest point of a polyline.
-function pointPolylineDistance(
-  px: number,
-  py: number,
-  pts: ReadonlyArray<readonly [number, number]>,
-): number {
-  if (pts.length === 0) return Infinity;
-  if (pts.length === 1) return Math.hypot(px - pts[0]![0], py - pts[0]![1]);
-  let best = Infinity;
-  for (let i = 1; i < pts.length; i++) {
-    const d = pointSegDistance(
-      px,
-      py,
-      pts[i - 1]![0],
-      pts[i - 1]![1],
-      pts[i]![0],
-      pts[i]![1],
-    );
-    if (d < best) best = d;
-  }
-  return best;
-}
+// Distance-from-a-point geometry (pointSegDistance,
+// pointToPolylineDistance) is shared from ./crossings.ts since the
+// exam-surfaced Task 9 crossing-cue work: the render layer's cue liveness
+// filter and the e2e audits read the same copy, so the seating pass and the
+// audit can never disagree about whether a point sits on a line.
 
 // A reconstructed edge polyline the chip pass treats as an obstacle: the
 // segments of every edge OUTSIDE the chip's own flow (its own edge plus
@@ -963,36 +996,104 @@ function seatChip(
   return { dy, box: field.seat({ x, y: y + dy, halfW, halfH }) };
 }
 
-// Clamp a lane member's trunk-wide rise slot into its OWN resolved lane run,
-// keeping one chamfer of slack at each end so the chip anchors on the straight
-// part of the run rather than on a corner bevel. A run with no interior left --
-// a hairpin (dropX === riseX), or a backward member whose two columns nearly
-// touch -- gets the run's midpoint instead. `undefined` in, `undefined` out:
-// that is the lone long-run member, whose slot routeBusEdges deliberately omits
-// so the chip falls back to the rise column at the consumer end (#32), and
-// whose zoom-gate exemption in BusEdge keys on the slot being ABSENT.
+// Clamp a lane member's trunk-wide rise slot into a WINDOW at the member's
+// OWN rise end: the resolved run intersected with [riseX - MIN_CHIP_SEP,
+// riseX] for a forward member, or [riseX, riseX + MIN_CHIP_SEP] for a
+// backward one (whose rise end is the run's LEFT end), keeping one chamfer of
+// slack at each cut so the chip anchors on the straight part of the run
+// rather than on a corner bevel. The window makes the clamp two-sided. The
+// old clamp only pulled out-of-run slots back IN, so a long-running member
+// whose slot already sat inside its own run kept it -- legally, but hundreds
+// of units from the rise corner it labels and plausibly right beside a short
+// sibling's column (battery5-xiranite: the "300/687.95" rise chip under the
+// 297.95 member's dogleg). With the window, no rise chip sits more than one
+// MIN_CHIP_SEP from its own corner whatever the spread pass does; members
+// whose windows crowd (two feeding one column) are decided by the capacity
+// check, untouched. A run with no interior left -- a hairpin (dropX ===
+// riseX), or a backward member whose two columns nearly touch -- gets the
+// run's midpoint instead. `undefined` in, `undefined` out: that is the lone
+// long-run member, whose slot routeBusEdges deliberately omits so the chip
+// falls back to the rise column at the consumer end (#32), and whose
+// zoom-gate exemption in BusEdge keys on the slot being ABSENT.
+//
+// The window has one carve-out, `riseColumnCoLocated`: a member whose rise
+// column stands within one MIN_CHIP_SEP of a SIBLING member's rise column
+// (same-layer targets, whose lane runs are therefore co-extensive). Two such
+// members' windows cut overlapping stretches out of the shared run, so the
+// two-sided clamp parks both on it -- a window one MIN_CHIP_SEP wide hosts at
+// most one chip -- and the capacity check hides one, defeating the trunk-wide
+// spread, which exists to separate exactly these members: same-layer members
+// anchor near-coincident at their rise vertices because assignEntryColumns
+// staggers the entry gutter per target, not per layer. For such a member the
+// slot keeps its spread position, clamped into the member's own run only (the
+// pull-in-only form the clamp had before the window): co-extensive runs cover
+// the whole spread extent, so the slot stays on the member's own stroke
+// wherever the spread put it, and the spread -- not the window -- separates
+// the chips. The flag is judged per MEMBER, not per trunk: one far member
+// (a longer run into the next layer) must not re-impose the window on the
+// co-located rest, whose windows would still collide. A member whose rise
+// column stands apart from every sibling's (mixed-length runs, the battery5
+// shape the window was built for) keeps the window.
 function clampChipXToOwnRun(
   busChipX: number | undefined,
   dropX: number,
   riseX: number,
+  riseColumnCoLocated: boolean,
 ): number | undefined {
   if (busChipX === undefined) return undefined;
   const lo = Math.min(dropX, riseX);
   const hi = Math.max(dropX, riseX);
   if (hi - lo <= 2 * CHAMFER) return (lo + hi) / 2;
-  return Math.min(Math.max(busChipX, lo + CHAMFER), hi - CHAMFER);
+  if (riseColumnCoLocated) {
+    return Math.min(Math.max(busChipX, lo + CHAMFER), hi - CHAMFER);
+  }
+  // Direction-aware rise-end window, one MIN_CHIP_SEP wide, ending at the
+  // member's own rise column and reaching back along the run toward the drop
+  // column.
+  const windowLo = riseX >= dropX ? riseX - MIN_CHIP_SEP : riseX;
+  const windowHi = riseX >= dropX ? riseX : riseX + MIN_CHIP_SEP;
+  // Intersect with the chamfer-slack run. Never empty on this branch: the
+  // run is longer than two chamfers, so [lo + CHAMFER, hi - CHAMFER] is
+  // non-empty, and its rise-side end sits one chamfer INSIDE the window
+  // while its drop-side end is cut only when the run outlengths the window.
+  const clampLo = Math.max(lo + CHAMFER, windowLo);
+  const clampHi = Math.min(hi - CHAMFER, windowHi);
+  return Math.min(Math.max(busChipX, clampLo), clampHi);
 }
 
-// Total arc-length of a parsed polyline, the measure the short-leg rules are
-// stated in (see SHORT_LEG_MAX).
-function polylineLength(
+// The sub-polyline a fan-out member's BRANCH chip draws on: the suffix from
+// the trunk's junction point onward (junction -> branch column -> target
+// port), the branch-side counterpart of the aggregate seat's trunk-prefix
+// truncation below. The full polyline includes the shared trunk prefix, and
+// the branch seat's slide walks BOTH directions from the anchor, so a branch
+// chip seated on the full polyline can walk back across the junction onto the
+// shared trunk -- the box then reads as a trunk label and buries the split
+// dot from the side the reader approaches it. Every fan-out path starts with
+// the horizontal run all members share, and the junction point sits ON that
+// run as an exact polyline vertex for branching and small-dy (diagonal)
+// members alike (chamferFanoutPath emits `jx - CHAMFER, sy` as the first
+// turn), so the slice is the member's own leg plus, for a shared-y member,
+// its post-junction run -- the junction vertex is prepended there because a
+// straight path has no vertex of its own at that x. The source-port vertex at
+// index 0 is always strictly left of the junction (the corridor clamps the
+// junction column a stub-plus-chamfer out), so the scan starts past it.
+export function branchLegAfterJunction(
   pts: ReadonlyArray<readonly [number, number]>,
-): number {
-  let len = 0;
-  for (let i = 1; i < pts.length; i++) {
-    len += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+  junction: { x: number; y: number },
+): ReadonlyArray<readonly [number, number]> {
+  let i = 1;
+  while (i < pts.length && pts[i]![0] < junction.x) i++;
+  const rest = pts.slice(i);
+  const head = rest[0];
+  if (
+    head !== undefined &&
+    rest.length >= 2 &&
+    Math.abs(head[0] - junction.x) <= 1 &&
+    Math.abs(head[1] - junction.y) <= 1
+  ) {
+    return rest;
   }
-  return len;
+  return [[junction.x, junction.y] as const, ...rest];
 }
 
 // Cumulative arc-length of point (x, y) along the parsed polyline. The point is
@@ -1258,8 +1359,8 @@ export function seatRateChip(
     )) {
       if (
         Math.hypot(x1 - x0, y1 - y0) >= BIND_RUN &&
-        pointPolylineDistance(x0, y0, pts) <= BIND_NEAR &&
-        pointPolylineDistance(x1, y1, pts) <= BIND_NEAR
+        pointToPolylineDistance([x0, y0], pts) <= BIND_NEAR &&
+        pointToPolylineDistance([x1, y1], pts) <= BIND_NEAR
       ) {
         bound++;
       }
@@ -1746,6 +1847,10 @@ export function deconflictChipAnchors(
   const flowKeyOf = (edge: Edge): string =>
     (edgeItem(edge) ?? "?") + "|" + edge.source;
   const edgeSegments: EdgeSegments[] = [];
+  // The edges-array index of each edgeSegments entry, parallel to it: the
+  // crossing-cue pass below reads it to key each edge's stamped-cue list,
+  // while the segment list skips edges with unresolvable endpoints.
+  const edgeIndexOfSegment: number[] = [];
   type ItemGeom = {
     pts: ReadonlyArray<readonly [number, number]>;
     lx: number;
@@ -1757,6 +1862,9 @@ export function deconflictChipAnchors(
   // re-parses the `d` -- the lockstep mirror of itemGeomByIndex for rate chips.
   type FanoutGeom = {
     pts: ReadonlyArray<readonly [number, number]>;
+    // The member's OWN leg (see branchLegAfterJunction): the polyline the
+    // branch chip's seat slides over and the branch short-leg rule measures.
+    branchPts: ReadonlyArray<readonly [number, number]>;
     junction: { x: number; y: number };
     trunkAnchor: { x: number; y: number };
     branchAnchor: { x: number; y: number };
@@ -1767,8 +1875,8 @@ export function deconflictChipAnchors(
   // Taken from the same chamferBusPath result the polyline comes from, so the
   // cached dot is the drawn dot rather than a second derivation of it.
   const laneJunctionByIndex = new Map<number, { x: number; y: number }>();
-  // Item edges whose whole polyline is shorter than one rendered chip: their
-  // rate chip renders icon-only (see SHORT_LEG_MAX).
+  // Item edges whose polyline lacks the usable width for their own rate chip
+  // (see usableWidthCollapses): their rate chip renders icon-only.
   const shortLegByIndex = new Set<number>();
   // The same set for FAN-OUT members: their branch chip renders icon-only, and
   // its seat below reserves the collapsed box so the narrower chip can slide
@@ -1790,8 +1898,10 @@ export function deconflictChipAnchors(
       });
       d = fan.path;
       const fanPts = parsePathPoints(d);
+      const branchPts = branchLegAfterJunction(fanPts, fan.junction);
       fanoutGeomByIndex.set(index, {
         pts: fanPts,
+        branchPts,
         junction: fan.junction,
         trunkAnchor: fan.trunkAnchor,
         branchAnchor: fan.branchAnchor,
@@ -1801,7 +1911,11 @@ export function deconflictChipAnchors(
         // render-visible and out of scope here.
         owner: (edge.data as BusEdgeData | undefined)?.busChipOwner === true,
       });
-      if (polylineLength(fanPts) < SHORT_LEG_MAX) shortBranchByIndex.add(index);
+      // The branch short-leg gate reads the member's OWN leg, never the
+      // trunk-including polyline: the whole-polyline arc length let a long
+      // shared trunk vouch for a 13-unit riser's full box (Task 8).
+      if (usableWidthCollapses(branchChipText(edge), branchPts))
+        shortBranchByIndex.add(index);
     } else if (edge.type === "bus") {
       // Narrow the union on `"laneY" in` (the same discriminant laneBands and the
       // census helpers use) rather than a bare LaneBusEdgeData cast: it does not
@@ -1836,7 +1950,8 @@ export function deconflictChipAnchors(
       d = path;
       const itemPts = parsePathPoints(d);
       itemGeomByIndex.set(index, { pts: itemPts, lx, ly });
-      if (polylineLength(itemPts) < SHORT_LEG_MAX) shortLegByIndex.add(index);
+      if (usableWidthCollapses(rateChipText(edge), itemPts))
+        shortLegByIndex.add(index);
     }
     const pts = itemGeomByIndex.get(index)?.pts ?? parsePathPoints(d);
     const segs: Array<readonly [number, number, number, number]> = [];
@@ -1849,7 +1964,121 @@ export function deconflictChipAnchors(
       target: edge.target,
       segs,
     });
+    edgeIndexOfSegment.push(index);
   });
+
+  // Phase 0c -- crossing cues (unmarked-same-item-crossing). Where two
+  // reconstructed polylines of DIFFERENT flows (different item|source)
+  // properly cross, the pair reads as a bare X -- and a bare X of two
+  // strokes is indistinguishable from a join, which is exactly the confusion
+  // the merge dot exists to prevent on the other side. Stamp the crossing
+  // point on ONE edge of the pair: that edge's renderer masks its own stroke
+  // out around the point (see CrossingCueMask), so the other edge's stroke
+  // shows through the gap and the pair reads as one flow passing under the
+  // other.
+  //
+  // WHY a mask on one edge rather than a background-coloured disk on the
+  // edge painting above: a gap cut out of a stroke is transparent, so it
+  // leaves the container slab tint, the bus band tint and their hairlines
+  // untouched, and it reads the same whichever edge paints above. React
+  // Flow renders every edge in its own <svg style={{zIndex}}> whose z folds
+  // in the endpoint NODES' z, and a SELECTED node is lifted to z 1000 (a
+  // default, and a drag auto-selects), so "which edge paints above" is not
+  // a rest-time constant; a masked gap needs no such ruling, because the
+  // continuous stroke is the only one drawn there in either order. The
+  // stamped edge is simply the earlier one in the edges array: any
+  // consistent choice draws the same picture, and where several members of
+  // one trunk cross a foreign edge at one shared point (overlapping lane
+  // runs), the mixture of stamps still reads right -- a member's gap is
+  // covered by its unstamped siblings' continuous runs, and the foreign
+  // edge's gap is the one that shows.
+  //
+  // The pass is presentational only -- no edge is retyped, no chip moves, no
+  // routing changes -- and the CROSSING ratchet above the routing passes is
+  // untouched: this adds cues, not crossings.
+  //
+  // Why properCross semantics are the whole safety argument (the negative
+  // tests pin each clause): a strict-interior crossing can never fire on
+  //   - a collinear fan-in merge run (collinear overlap, not opposite
+  //     orientations),
+  //   - a bus lane's overlapping member runs (collinear) or a foreign
+  //     member's drop/rise column meeting the lane (the column ENDS at
+  //     laneY, an endpoint touch on the run's interior), or
+  //   - a shared fan-out trunk (the members leave the junction from one
+  //     shared vertex, so every intersection is an endpoint touch),
+  // so the cue cannot mark a real merge or a trunk as a crossing. Same-flow
+  // pairs are skipped outright: one flow is one visual line (the flowKey
+  // doctrine the chip clearance tiers already apply).
+  //
+  // O(S^2) over segment pairs of different flows, the same shape as the e2e
+  // crossing census. Points are rounded to the emitted paths' two decimals and
+  // deduped per edge: the members of one trunk share a lane exactly, so their
+  // crossings with one foreign edge land on the same point and one gap must
+  // draw there, not six stacked cut-outs. Each stamp carries every partner
+  // edge crossing there -- its id and endpoint NODE anchors (see
+  // crossingPartnerBits): the render-side staleness rule needs the OTHER
+  // side's identity to drop the cue once a drag moves every partner off the
+  // crossing, which the point alone cannot express, and it must not drop
+  // the gap while a sibling partner still crosses there.
+  const crossingCuesByIndex = new Map<number, Array<CrossingCue>>();
+  {
+    // The partner record for one segment entry: its edge id plus its two
+    // endpoint node ABSOLUTE origins (rounded to the stamp's two decimals).
+    // Every segment entry resolved its endpoints (edgeEndpoints returned
+    // non-null), so both nodes exist here.
+    const partnerStampOf = (segIdx: number): CrossingCuePartner => {
+      const edge = edges[edgeIndexOfSegment[segIdx]!]!;
+      const anchorOf = (nodeId: string): { x: number; y: number } => {
+        const node = byId.get(nodeId)!;
+        return {
+          x: Math.round(absoluteLeft(node, byId) * 100) / 100,
+          y: Math.round(absoluteTop(node, byId) * 100) / 100,
+        };
+      };
+      return {
+        edgeId: edgeSegments[segIdx]!.id,
+        source: anchorOf(edge.source),
+        target: anchorOf(edge.target),
+      };
+    };
+    // Cue by (stamped edge, point), so a second partner crossing the same
+    // point joins the existing cue's partner list instead of stacking a
+    // second cut-out.
+    const cueByKey = new Map<string, { cue: CrossingCue; partners: Array<CrossingCuePartner> }>();
+    for (let i = 0; i < edgeSegments.length; i++) {
+      for (let j = i + 1; j < edgeSegments.length; j++) {
+        const si = edgeSegments[i]!;
+        const sj = edgeSegments[j]!;
+        if (si.flowKey === sj.flowKey) continue;
+        for (const sa of si.segs) {
+          for (const sb of sj.segs) {
+            const p = properCrossPoint(
+              [sa[0], sa[1]],
+              [sa[2], sa[3]],
+              [sb[0], sb[1]],
+              [sb[2], sb[3]],
+            );
+            if (p === null) continue;
+            const x = Math.round(p[0] * 100) / 100;
+            const y = Math.round(p[1] * 100) / 100;
+            // The earlier edge carries the gap; the later one is a partner.
+            const stampIndex = edgeIndexOfSegment[i]!;
+            const key = `${stampIndex}|${x}|${y}`;
+            let entry = cueByKey.get(key);
+            if (entry === undefined) {
+              const partners: Array<CrossingCuePartner> = [];
+              entry = { cue: { x, y, partners }, partners };
+              cueByKey.set(key, entry);
+              const list = crossingCuesByIndex.get(stampIndex) ?? [];
+              list.push(entry.cue);
+              crossingCuesByIndex.set(stampIndex, list);
+            }
+            entry.partners.push(partnerStampOf(j));
+          }
+        }
+      }
+    }
+  }
 
   // The raw card rects a chip's box must stay clear of, in the drawn frame (see
   // cardRectsFor). The per-edge exemption below (own source, target, and their
@@ -2070,6 +2299,14 @@ export function deconflictChipAnchors(
   // fan-out's shared prefix is too short to hold the box anyway. Presentational
   // only -- no edge is retyped and no chip moves.
   const fanoutJunctionByIndex = new Map<number, { x: number; y: number }>();
+  // Keep-off points for the DECLINED group's dot-less corners: every bending
+  // member's own peel-off column, whether or not the group renders a dot (the
+  // non-owner peel-offs never do, and a group whose first bend hugs the port
+  // renders none at all). A chip parked on one of those corners reads as the
+  // junction the reader never gets to see, so they carry the same keep-off
+  // rect geometry as the drawn dots -- but through the same dot set and the
+  // same weakest-preference rank, never as a hard term (R13).
+  const divergenceKeepoffs: Array<{ x: number; y: number }> = [];
   type DivergenceMember = {
     index: number;
     id: string;
@@ -2115,6 +2352,12 @@ export function deconflictChipAnchors(
     // no visible divergence at all, so it gets no dot.
     const bends = members.filter((m) => m.bendX !== undefined);
     if (bends.length === 0) continue;
+    // EVERY bending member's own peel-off column carries a keep-off, dotted or
+    // not: only the first peel-off can ever render the dot, and the port-hug
+    // guard below can suppress even that -- but each column is still where one
+    // line visibly becomes two, and a chip standing on it impersonates the
+    // junction (the #43 reopen).
+    for (const m of bends) divergenceKeepoffs.push({ x: m.bendX!, y: m.sy });
     const junctionX = Math.min(...bends.map((m) => m.bendX!));
     const owner = members.reduce((a, b) => (a.id <= b.id ? a : b));
     // A dot at the port itself would read as part of the source card's own
@@ -2136,7 +2379,12 @@ export function deconflictChipAnchors(
   for (const p of laneJunctionByIndex.values()) addDot(p, "lane");
   for (const g of fanoutGeomByIndex.values()) addDot(g.junction, "fanout");
   for (const p of faninJunctionByIndex.values()) addDot(p, "fanin");
-  for (const p of fanoutJunctionByIndex.values()) addDot(p, "divergence");
+  // The declined groups' peel-off corners ARE the divergence dot set: every
+  // bending member's column is stamped below, and the first peel-off's entry
+  // is the drawn dot's own point (the group's min bendX at the source-port y
+  // every group member shares), so stamping the map's entries here as well
+  // only added keys this loop already carries.
+  for (const p of divergenceKeepoffs) addDot(p, "divergence");
 
   // The shared clearance field: every phase seats into `field.placed`, so a
   // later phase yields to everything an earlier phase placed. It carries the
@@ -2170,6 +2418,12 @@ export function deconflictChipAnchors(
     id: string;
     laneY: number;
     dropX: number;
+    // The member's own resolved rise column, the clamp's window reference.
+    riseX: number;
+    // The trunk-wide spread slot as routeBusEdges stamped it, before the
+    // clamp: undefined for the lone long-run member, whose riseChipX falls
+    // back to the rise column and whom the clamp leaves slotless.
+    riseSlot: number | undefined;
     riseChipX: number;
     owner: boolean;
     // Lane members sharing this trunk. Only a lone member draws (and so seats)
@@ -2186,6 +2440,17 @@ export function deconflictChipAnchors(
     trunkKey: string;
     // Target in-port y, the top-to-bottom key the rise seat loop stacks by.
     entryY: number;
+    // Per-chip reserved half-widths (Task 10): what each seat reserves is the
+    // box ITS chip draws -- the drop seat the aggregate text (the trunk total
+    // the drop chip prints), the rise seat the member text (the share
+    // "30/270" or the plain rate) -- through the same chipSeatHalfW estimate
+    // the rate seats have carried since T6b. Until now both bus seats charged
+    // the flat 240-wide clamp, so a "600/min" rise drawing about 162 units
+    // read as blocked to the seat while the corridor beside it was open.
+    // Falls back to the wide box inside the estimator itself (no usable
+    // rate); the capacity comparator and MIN_CHIP_SEP stay wide regardless.
+    dropHalfW: number;
+    riseHalfW: number;
   };
   const busSlots: BusSlot[] = [];
   const busEdges = edges
@@ -2219,28 +2484,28 @@ export function deconflictChipAnchors(
     });
     // Pull the trunk-wide rise slot back into this member's own lane run.
     // routeBusEdges spreads a trunk's slots across the WHOLE trunk extent (the
-    // drop column out to the rightmost member's rise column) in edge-id order,
-    // but a member's own lane run ends at its OWN rise column -- so a member
-    // whose consumer sits near the source can be handed a slot hundreds of
-    // units past the point where its line leaves the lane, parking its rate
-    // chip on a sibling's stroke with nothing of its own beneath it.
+    // drop column out to the rightmost member's rise column), but a member's
+    // own lane run ends at its OWN rise column -- so a member whose consumer
+    // sits near the source can be handed a slot hundreds of units past the
+    // point where its line leaves the lane, parking its rate chip on a
+    // sibling's stroke with nothing of its own beneath it.
     // The clamp belongs HERE and not in routeBusEdges: these dropX / riseX come
     // out of chamferBusPath with the stamped routing hints, so they are the
     // columns actually drawn (assignEntryColumns staggers the rise afterwards
     // and clearBusColumns may dodge either column by far more than a chamfer).
-    // It is per member and order-independent, so routeBusEdges' shuffled-input
+    // The slots are collected raw here and clamped just below the loop: the
+    // clamp's co-location carve-out needs a trunk-level fact (see there). It
+    // stays per member and order-independent, so routeBusEdges' shuffled-input
     // determinism is untouched; slots the clamp pushes together are resolved by
     // the capacity check below, which hides the overflow.
-    const clampedChipX = clampChipXToOwnRun(data.busChipX, dropX, riseX);
-    if (clampedChipX !== undefined && clampedChipX !== data.busChipX) {
-      busChipXByIndex.set(index, clampedChipX);
-    }
     busSlots.push({
       index,
       id: edge.id,
       laneY: data.laneY,
       dropX,
-      riseChipX: clampedChipX ?? riseX,
+      riseX,
+      riseSlot: data.busChipX,
+      riseChipX: data.busChipX ?? riseX,
       // Deliberately STRICTER than isTrunkOwner, which reads absent as owner:
       // routeBusEdges always stamps the field in production, so the two rules
       // only diverge on hand-built fixtures. Unifying them is render-visible
@@ -2260,7 +2525,53 @@ export function deconflictChipAnchors(
       target: edge.target,
       trunkKey: data.trunkKey,
       entryY: ty,
+      dropHalfW: chipSeatHalfW(aggregateChipText(edge), false),
+      riseHalfW: chipSeatHalfW(branchChipText(edge), false),
     });
+  }
+  // Trunk grouping over the lane slots, shared by the rise-slot clamp below
+  // and the capacity check further down.
+  const slotsByTrunk = new Map<string, BusSlot[]>();
+  for (const slot of busSlots) {
+    const list = slotsByTrunk.get(slot.trunkKey) ?? [];
+    list.push(slot);
+    slotsByTrunk.set(slot.trunkKey, list);
+  }
+  // The one sibling fact the clamp cannot see per member: whether a slotted
+  // member's rise column is CO-LOCATED with another slotted member's of the
+  // same trunk, within one MIN_CHIP_SEP -- same-layer targets, whose lane
+  // runs are co-extensive. Judged per member against its siblings, not as a
+  // trunk-wide extent: a trunk with three same-layer members and one further
+  // out still has three colliding windows, and the far member alone keeps
+  // its window. A lone slot bears no sibling to separate from, so it keeps
+  // the window (a chip still belongs beside the corner it labels).
+  const coLocatedIndices = new Set<number>();
+  for (const [, slots] of slotsByTrunk) {
+    const slotted = slots.filter((s) => s.riseSlot !== undefined);
+    for (const a of slotted) {
+      for (const b of slotted) {
+        if (a === b) continue;
+        if (Math.abs(a.riseX - b.riseX) <= MIN_CHIP_SEP) {
+          coLocatedIndices.add(a.index);
+          break;
+        }
+      }
+    }
+  }
+  for (const slot of busSlots) {
+    // undefined in, undefined out: the lone long-run member keeps its absent
+    // slot and its riseChipX fallback to the rise column.
+    const clampedChipX = clampChipXToOwnRun(
+      slot.riseSlot,
+      slot.dropX,
+      slot.riseX,
+      coLocatedIndices.has(slot.index),
+    );
+    if (clampedChipX === undefined) continue;
+    if (clampedChipX !== slot.riseSlot) {
+      busChipXByIndex.set(slot.index, clampedChipX);
+    }
+    slot.riseChipX = clampedChipX;
   }
   // Card exemption for a lane trunk's AGGREGATE drop chip: the union over every
   // lane member of the trunk (member targets + shared source + containers),
@@ -2293,7 +2604,7 @@ export function deconflictChipAnchors(
       field,
       slot.dropX,
       slot.laneY,
-      CHIP_HALF_W_WIDE,
+      slot.dropHalfW,
       CHIP_HALF_H,
       slot.step,
       slot.flowKey,
@@ -2331,15 +2642,9 @@ export function deconflictChipAnchors(
   // sitting right beside that junction, which is crowded there anyway.
   // Single-member trunks are exempt: a lone rise merely restates its own
   // drop's rate, and the long-run lone member (Task 4) belongs at the consumer
-  // end, so never capacity-hide it.
-  const MIN_CHIP_SEP = 2 * CHIP_HALF_W_WIDE;
+  // end, so never capacity-hide it. (MIN_CHIP_SEP itself is module scope:
+  // clampChipXToOwnRun's rise-end window shares the constant.)
   const busRiseHiddenByIndex = new Set<number>();
-  const slotsByTrunk = new Map<string, BusSlot[]>();
-  for (const slot of busSlots) {
-    const list = slotsByTrunk.get(slot.trunkKey) ?? [];
-    list.push(slot);
-    slotsByTrunk.set(slot.trunkKey, list);
-  }
   for (const [, slots] of slotsByTrunk) {
     if (slots.length < 2) continue;
     // The drop column no longer reserves a slot, but it stays the ordering
@@ -2389,7 +2694,7 @@ export function deconflictChipAnchors(
       field,
       slot.riseChipX,
       slot.laneY,
-      CHIP_HALF_W_WIDE,
+      slot.riseHalfW,
       CHIP_HALF_H,
       slot.step,
       slot.flowKey,
@@ -2567,10 +2872,21 @@ export function deconflictChipAnchors(
   for (const { edge, index } of branchOrder) {
     const geom = fanoutGeomByIndex.get(index)!;
     const trunkKey = (edge.data as BusEdgeData).trunkKey;
+    // The branch chip slides over its OWN leg only (geom.branchPts, the
+    // suffix after the junction) -- the mirror of the aggregate seat's
+    // trunk-prefix truncation above. On the full polyline the slide could
+    // walk back across the junction onto the shared trunk, where the box
+    // reads as a trunk label and buries the split dot from the left; on the
+    // leg the same push goes down the member's own column instead. The
+    // branch anchor is on the leg by construction for branching and diagonal
+    // members (the column's midpoint, the diagonal's); a shared-y member's
+    // whole-corridor midpoint can sit left of the junction, where the arc
+    // resolver falls back to the leg's own midpoint -- its seat moves ONTO
+    // the leg, which is the point.
     const seat = seatRateChip(
       field,
       {
-        pts: geom.pts,
+        pts: geom.branchPts,
         anchorX: geom.branchAnchor.x,
         anchorY: geom.branchAnchor.y,
       },
@@ -2603,7 +2919,7 @@ export function deconflictChipAnchors(
     // A branch chip that cannot seat ON its own polyline is hidden rather than
     // parked off-line: a narrow-corridor fan-out cannot host two max-scale chip
     // boxes side by side, so once the owner's aggregate covers the short path
-    // an off-line seat would float in empty canvas. The share it would have
+    // an off-line seat would float in empty canvas. The rate it would have
     // shown remains on the target card's input row and in the edge tooltip.
     // The hide is stamped with the branch anchor it was decided at, so BusEdge
     // can drop it once a node drag moves the live anchor away from the stamp.
@@ -2708,6 +3024,7 @@ export function deconflictChipAnchors(
     const faninJunction = faninJunctionByIndex.get(index);
     const fanoutJunction = fanoutJunctionByIndex.get(index);
     const faninChipHidden = faninChipHiddenByIndex.has(index);
+    const crossingCues = crossingCuesByIndex.get(index);
     const chipIconOnly = shortLegByIndex.has(index);
     const fanoutBranchIconOnly =
       shortBranchByIndex.has(index) ||
@@ -2729,7 +3046,8 @@ export function deconflictChipAnchors(
       !fanoutBranchHidden &&
       faninJunction === undefined &&
       fanoutJunction === undefined &&
-      !faninChipHidden
+      !faninChipHidden &&
+      crossingCues === undefined
     ) {
       return edge;
     }
@@ -2766,6 +3084,10 @@ export function deconflictChipAnchors(
               fanoutJunctionY: fanoutJunction.y,
             }
           : {}),
+        // Crossing cues read by ItemEdge AND BusEdge (the field lives on the
+        // shared ItemEdgeData payload both render). Absolute graph points; the
+        // renderers drop any whose own polyline has since moved off them.
+        ...(crossingCues !== undefined ? { crossingCues } : {}),
         // The hide is stamped with the port y it was decided at, so ItemEdge
         // can drop it once a node drag moves the live port away from the stamp
         // (the fanoutBranchHiddenAt staleness pattern).

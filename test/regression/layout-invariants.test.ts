@@ -238,7 +238,9 @@ describe("layout-invariants: ports", () => {
   it("every unit uses FIXED_SIDE portConstraints", () => {
     // FIXED_SIDE keeps inputs on the WEST side and outputs on the EAST side
     // while letting ELK order the ports within each side to minimize crossings.
-    // The per-side order is read back after layout as inputOrder / outputOrder.
+    // The input-side order is read back after layout as inputOrder; output
+    // rows read in the recipe's declared order (ruling R4), so no output
+    // order is read back.
     const g = renderPlanToElkGraph(buildInput());
     for (const node of g.children) {
       expect(node.layoutOptions?.["org.eclipse.elk.portConstraints"]).toBe(

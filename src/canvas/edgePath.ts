@@ -200,18 +200,29 @@ export function routingHintsFromData(data: unknown): RoutingHints {
 }
 
 // Choose a backward-detour rail y clear of every obstacle the rail horizontally
-// spans. The rail runs at `preferredY` between xLo and xHi; an obstacle whose
-// x-range overlaps [xLo, xHi] and whose strike band contains preferredY would be
-// sliced (or, for a container slab, hugged). When that happens the rail moves to
-// just above every spanned obstacle (min top - its gap) or just below every
-// spanned obstacle (max bottom + its gap), whichever is the smaller move, so it
-// clears all of them at once -- the same idea as the bus lane band, which sits
-// clear of the nodes it would otherwise cross. Plain obstacles use `gap` for
-// both the strike test and the clearance; container slabs (o.container) use the
+// spans -- but only the CONNECTED BAND of them around preferredY. The rail runs
+// at `preferredY` between xLo and xHi; an obstacle whose x-range overlaps
+// [xLo, xHi] and whose strike band contains preferredY would be sliced (or, for
+// a container slab, hugged). The escaping rail then clears the band: the strike
+// intervals of the obstacles transitively touching the one that contains
+// preferredY (overlapping intervals merge, so a chain of cards and slab moats
+// moves as one block), taken as a unit -- just above the band (min top - its
+// gap) or just below it (max bottom + its gap), whichever is the smaller move.
+// Obstacles in OTHER bands -- an x-overlapping card rows away, above or below --
+// do not drag the rail: escaping over EVERY x-overlapping rect at once hoisted a
+// loop return clear across the graph (an unrelated enclosure card lifted the
+// multi6 Sandleaf return's rail from its preferred 393 to -4), and the upward
+// escape landed graphTop - 16, inside the top bus band whose bottom sits at
+// graphTop - 8. Should the nearer escape land within gap clearance of an
+// obstacle the band did not cover, that obstacle's own band joins and the
+// escapes recompute, so the returned y clears every spanned rect by its own
+// gap, as the old whole-graph rule did. Plain obstacles use `gap` for both
+// the strike test and the clearance; container slabs (o.container) use the
 // wider `containerGap` for both, so a rail preferred anywhere inside the
-// container's clearance band -- including the moat between the padded border and
-// the band edge -- is pushed out to the full band (#29). Obstacles outside the
-// x-span are ignored because the horizontal rail never reaches them. Pure.
+// container's clearance band -- including the moat between the padded border
+// and the band edge -- is pushed out to the full band (#29). Obstacles
+// outside the x-span are ignored because the horizontal rail never reaches
+// them. Pure.
 export function clearRailY(
   preferredY: number,
   xLo: number,
@@ -232,15 +243,62 @@ export function clearRailY(
   // out, instead of being left hugging the border.
   const reach = (o: ObstacleRect): number =>
     o.container ? containerGap - gap : 0;
+  const strikeLo = (o: ObstacleRect): number => o.top - reach(o);
+  const strikeHi = (o: ObstacleRect): number => o.bottom + reach(o);
   const hits = spanned.some(
-    (o) =>
-      preferredY >= o.top - reach(o) && preferredY <= o.bottom + reach(o),
+    (o) => preferredY >= strikeLo(o) && preferredY <= strikeHi(o),
   );
   if (!hits) return preferredY;
   const gapOf = (o: ObstacleRect): number => (o.container ? containerGap : gap);
-  const aboveY = Math.min(...spanned.map((o) => o.top - gapOf(o)));
-  const belowY = Math.max(...spanned.map((o) => o.bottom + gapOf(o)));
-  return preferredY - aboveY <= belowY - preferredY ? aboveY : belowY;
+  // Seed the band with every obstacle whose strike interval contains
+  // preferredY, then escape over it (growing transitively) in the loop helper.
+  const band = new Set(
+    spanned.filter(
+      (o) => preferredY >= strikeLo(o) && preferredY <= strikeHi(o),
+    ),
+  );
+  return clearRailYBand(preferredY, spanned, band, strikeLo, strikeHi, gapOf);
+}
+
+// The escape loop over the connected band around preferredY: grow the band
+// transitively (overlapping strike intervals merge, so a chain of cards and
+// slab moats moves as one block), take the nearer of just-above / just-below
+// the whole band, and -- should that escape land within gap clearance of a
+// spanned obstacle the band did not cover, the same padding the escapes
+// themselves apply, so a landing 1..gap off a card re-merges instead of
+// parking there -- merge that obstacle's band and recompute. Each round
+// the band strictly grows and the whole-graph limit is the old behaviour, so
+// the loop terminates. Pure.
+function clearRailYBand(
+  preferredY: number,
+  spanned: ReadonlyArray<ObstacleRect>,
+  band: Set<ObstacleRect>,
+  strikeLo: (o: ObstacleRect) => number,
+  strikeHi: (o: ObstacleRect) => number,
+  gapOf: (o: ObstacleRect) => number,
+): number {
+  for (;;) {
+    let bandLo = Infinity;
+    let bandHi = -Infinity;
+    for (const o of band) {
+      bandLo = Math.min(bandLo, strikeLo(o));
+      bandHi = Math.max(bandHi, strikeHi(o));
+    }
+    for (const o of spanned) {
+      if (band.has(o)) continue;
+      if (strikeLo(o) <= bandHi && strikeHi(o) >= bandLo) band.add(o);
+    }
+    const members = [...band];
+    const aboveY = Math.min(...members.map((o) => o.top - gapOf(o)));
+    const belowY = Math.max(...members.map((o) => o.bottom + gapOf(o)));
+    const pick = preferredY - aboveY <= belowY - preferredY ? aboveY : belowY;
+    const struckOutside = spanned.filter(
+      (o) =>
+        !band.has(o) && pick >= o.top - gapOf(o) && pick <= o.bottom + gapOf(o),
+    );
+    if (struckOutside.length === 0) return pick;
+    for (const o of struckOutside) band.add(o);
+  }
 }
 
 // One chamfered vertical column, entered at y0 and exited at y1: horizontal into
@@ -685,7 +743,7 @@ export function chamferBusPath(
 // junction (never staggered), returning the geometry the render / seating layers
 // need: the junction point (trunk meets branches, where the dot draws), the
 // trunk-segment anchor (where the owner's aggregate chip seats), and the branch-
-// leg anchor (where this member's own share chip seats). Same degenerate guards
+// leg anchor (where this member's own branch chip seats). Same degenerate guards
 // as chamferStepPath's forward branch: a shared-y member draws a straight trunk
 // with no branch vertical, a small-dy member a single diagonal. Pure.
 //

@@ -23,6 +23,19 @@ import {
   cardGrowth,
   chipEntersOwnCardBody,
 } from "../../src/canvas/chipSeating";
+// properCross / properCrossPoint and the point-distance helpers live in
+// src/canvas/crossings.ts since the exam-surfaced Task 9 crossing-cue work:
+// the render layer's cue stamp pass, its liveness filter, and this audit's
+// crossing census share one definition instead of two copies that happen to
+// agree. Imported for the census / coverage below and re-exported so the
+// audits' existing imports are unchanged.
+import {
+  pointSegDistance,
+  pointToPolylineDistance,
+  properCross,
+  properCrossPoint,
+} from "../../src/canvas/crossings";
+export { properCross, properCrossPoint, pointToPolylineDistance };
 
 export type Pt = readonly [number, number];
 
@@ -153,19 +166,9 @@ export function clipSegmentToRect(
 // Proper crossing of two segments: they intersect at a point strictly interior
 // to BOTH (shared endpoints and collinear touches do not count). Used for the
 // crossing census, so a chain of connected segments in one edge and two edges
-// meeting at a shared port are not miscounted as crossings.
-export function properCross(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
-  const o = (p: Pt, q: Pt, r: Pt): number =>
-    (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
-  const d1 = o(c, d, a);
-  const d2 = o(c, d, b);
-  const d3 = o(a, b, c);
-  const d4 = o(a, b, d);
-  const EPS = 1e-9;
-  const strictlyOpposite = (u: number, v: number): boolean =>
-    (u > EPS && v < -EPS) || (u < -EPS && v > EPS);
-  return strictlyOpposite(d1, d2) && strictlyOpposite(d3, d4);
-}
+// meeting at a shared port are not miscounted as crossings. The definition
+// itself now lives in src/canvas/crossings.ts (see the import above); the
+// census calls it through this module's re-export unchanged.
 
 // Count crossings between segments belonging to DIFFERENT edges. O(S^2), fine at
 // this scale. Segments within one edge are never compared (adjacent ones share a
@@ -185,6 +188,98 @@ export function countCrossings(
     }
   }
   return count;
+}
+
+// One drawn crossing cue: the background-coloured disk an edge's renderer
+// emits where its polyline properly crosses a different flow's, keyed to the
+// owning edge id (the React Flow edge group the circle lives in) and carrying
+// its centre in graph coordinates (the SVG cx/cy attributes, already in the
+// same frame as the path `d` strings). This is the shape collectGeometry
+// hands back for every [data-testid="edge-crossing-cue"] element.
+export type CrossingCue = { edgeId: string; x: number; y: number };
+
+export type CrossingCoverage = {
+  // Counted crossings (properCross, different edges) whose two edges carry
+  // DIFFERENT flowKeys (item|source) -- the pairs the seating pass stamps a
+  // cue on, because two different flows crossing is what a bare X would
+  // misread as a merge.
+  crossFlow: number;
+  // Of those, the crossings whose point carries a cue on the pair edge that
+  // paints ABOVE -- the larger (group z-index, DOM order) key, the SAME key
+  // React Flow computes (each edge renders in its own <svg style={{zIndex}}>
+  // and CSS z beats DOM order) and the same owner rule the seating pass
+  // stamps by. That edge's renderer is the only one that can erase the
+  // z-beneath stroke around the point, so the cue must live on IT, not on
+  // the beneath edge and not blindly on the later array entry.
+  cued: number;
+  // Counted crossings between SAME-flowKey edges (a trunk's members, a
+  // fanout's slices): one visual line by the flowKey doctrine, deliberately
+  // never cued. Reported so a plan where this class suddenly appears is
+  // visible in the audit output rather than silently outside the assertion.
+  sameFlow: number;
+  // Inventory of uncued cross-flow crossings, for the failure message.
+  uncued: string[];
+};
+
+// Match a counted crossing to a drawn cue WITHOUT demanding the exact computed
+// intersection point: the stamps come from the seating pass's reconstructed
+// polylines while the census reads the drawn `d` strings, and the two frames
+// agree only to the endpoint-parity noise, which a shallow crossing angle
+// amplifies along the line. A cue matches when it sits within `eps` of BOTH
+// crossing segments -- a cue is always stamped ON both lines, so this stays
+// tight while tolerating the frame noise -- and lives on EITHER edge of the
+// pair: the seating pass stamps one edge per crossing (the one whose stroke
+// is masked out, so the other shows through), and a transparent gap reads
+// the same whichever edge paints above, so paint order is not part of the
+// contract.
+export function crossingCueCoverage(
+  edges: ReadonlyArray<{ id: string; d: string }>,
+  cues: ReadonlyArray<CrossingCue>,
+  eps = 4,
+): CrossingCoverage {
+  const flowKeyOf = (id: string): string => {
+    const parsed = parseEdgeId(id);
+    return parsed === null ? id : `${parsed.item}|${parsed.source}`;
+  };
+  const perEdge = edges.map((e) => segmentsOf(parsePath(e.d)));
+  const out: CrossingCoverage = {
+    crossFlow: 0,
+    cued: 0,
+    sameFlow: 0,
+    uncued: [],
+  };
+  for (let i = 0; i < perEdge.length; i++) {
+    for (let j = i + 1; j < perEdge.length; j++) {
+      const idI = edges[i]!.id;
+      const idJ = edges[j]!.id;
+      const sameFlow = flowKeyOf(idI) === flowKeyOf(idJ);
+      for (const [a, b] of perEdge[i]!) {
+        for (const [c, d] of perEdge[j]!) {
+          const p = properCrossPoint(a, b, c, d);
+          if (p === null) continue;
+          if (sameFlow) {
+            out.sameFlow++;
+            continue;
+          }
+          out.crossFlow++;
+          const matched = cues.some(
+            (cue) =>
+              (cue.edgeId === idI || cue.edgeId === idJ) &&
+              pointSegDistance([cue.x, cue.y], a, b) <= eps &&
+              pointSegDistance([cue.x, cue.y], c, d) <= eps,
+          );
+          if (matched) {
+            out.cued++;
+          } else {
+            out.uncued.push(
+              `no cue on ${idI} or ${idJ} at (${p[0].toFixed(1)},${p[1].toFixed(1)})`,
+            );
+          }
+        }
+      }
+    }
+  }
+  return out;
 }
 
 // Container node ids (type "group") whose raw rect contains point p. An edge's
@@ -315,6 +410,118 @@ export function auditOwnCardPierces(
         if (segmentEntersRect(seg0, seg1, card, eps)) {
           out.push({ edgeId: edge.id, card: card.nodeId, role, seg: [seg0, seg1] });
         }
+      }
+    }
+  }
+  return out;
+}
+
+// Frame rides: segments of a BACKWARD item edge (target at or left of the
+// source, mirroring clampBackwardRails' nodeGap test) that run ALONG a
+// container slab's border or a bus band's border, close enough that the
+// stroke and the border read as one line (the loop-backedge-braids-container
+// family, #29 follow-on). Two kinds:
+//   frame -- a vertical segment within `tol` of a container's left/right border
+//     (overlapping the border's y-run by more than two port stubs, so a
+//     legitimate perpendicular crossing or a short corner never counts), or a
+//     horizontal segment within `tol` of a container's top/bottom border with
+//     the same overlap rule. Diagonal chamfers never ride a frame.
+//   band -- a horizontal run within `tol` of a bus band's top/bottom border,
+//     either side: the dashed return that read as one line with the band
+//     tint's edge ran 8 units inside the band bottom.
+// Forward edges are out of scope on both kinds: a forward tap's jog descent
+// may share an entry-gutter line with a container border (the convention
+// doc's stated exception), and the forward column passes take no container
+// clearance, so counting them would pin a shape the doctrine declares legal
+// with no routing lever behind it.
+// Deliberately NOT exempting the endpoints' own containers: a return between
+// two members of one slab is exactly the shape whose columns may hug the frame,
+// and the routing now keeps them CONTAINER_COLUMN_GAP off it (Task 7). The
+// tolerance matches that constant. Pure and deterministic.
+export type FrameRideHit = {
+  edgeId: string;
+  kind: "frame" | "band";
+  // The container node id (frame) or band testid (band) whose border is ridden.
+  target: string;
+  border: "left" | "right" | "top" | "bottom";
+  seg: [Pt, Pt];
+  distance: number;
+};
+
+export const FRAME_RIDE_TOL = 16;
+
+// Minimum parallel overlap before a near-border run counts as riding it: two
+// port stubs. Port stubs and corner chamfers legitimately touch a border zone
+// briefly while crossing or turning; a ride is a long parallel run.
+const FRAME_RIDE_MIN_OVERLAP = 2 * PORT_STUB;
+
+export function auditFrameRides(
+  edges: ReadonlyArray<RawEdge>,
+  nodes: ReadonlyArray<NodeRect>,
+  bands: ReadonlyArray<BandRect>,
+  tol = FRAME_RIDE_TOL,
+  eps = 0.5,
+): FrameRideHit[] {
+  const nodeById = new Map<string, NodeRect>();
+  for (const n of nodes) nodeById.set(n.nodeId, n);
+  const containers = nodes.filter(
+    (n) => n.type === "group" || n.type === "loop",
+  );
+  const limit = tol - eps;
+  const out: FrameRideHit[] = [];
+  const push = (
+    edgeId: string,
+    kind: "frame" | "band",
+    target: string,
+    border: FrameRideHit["border"],
+    p0: Pt,
+    p1: Pt,
+    distance: number,
+  ): void => {
+    out.push({ edgeId, kind, target, border, seg: [p0, p1], distance });
+  };
+  for (const edge of edges) {
+    const pts = parsePath(edge.d);
+    if (pts.length === 0) continue;
+    const s = nodeById.get(edge.source);
+    const t = nodeById.get(edge.target);
+    const backward = s !== undefined && t !== undefined && t.left <= s.right;
+    if (!backward) continue;
+    for (const [p0, p1] of segmentsOf(pts)) {
+      const vertical = p0[0] === p1[0];
+      const horizontal = p0[1] === p1[1];
+      if (!vertical && !horizontal) continue; // a chamfer diagonal
+      if (vertical) {
+        const yLo = Math.min(p0[1], p1[1]);
+        const yHi = Math.max(p0[1], p1[1]);
+        const overlapY = (r: { top: number; bottom: number }): number =>
+          Math.max(0, Math.min(yHi, r.bottom) - Math.max(yLo, r.top));
+        for (const c of containers) {
+          if (overlapY(c) <= FRAME_RIDE_MIN_OVERLAP) continue;
+          const dl = Math.abs(p0[0] - c.left);
+          const dr = Math.abs(p0[0] - c.right);
+          if (dl < limit) push(edge.id, "frame", c.nodeId, "left", p0, p1, dl);
+          if (dr < limit) push(edge.id, "frame", c.nodeId, "right", p0, p1, dr);
+        }
+        continue;
+      }
+      const xLo = Math.min(p0[0], p1[0]);
+      const xHi = Math.max(p0[0], p1[0]);
+      const overlapX = (r: { left: number; right: number }): number =>
+        Math.max(0, Math.min(xHi, r.right) - Math.max(xLo, r.left));
+      for (const c of containers) {
+        if (overlapX(c) <= FRAME_RIDE_MIN_OVERLAP) continue;
+        const dt = Math.abs(p0[1] - c.top);
+        const db = Math.abs(p0[1] - c.bottom);
+        if (dt < limit) push(edge.id, "frame", c.nodeId, "top", p0, p1, dt);
+        if (db < limit) push(edge.id, "frame", c.nodeId, "bottom", p0, p1, db);
+      }
+      for (const b of bands) {
+        if (overlapX(b) <= FRAME_RIDE_MIN_OVERLAP) continue;
+        const dt = Math.abs(p0[1] - b.top);
+        const db = Math.abs(p0[1] - b.bottom);
+        if (dt < limit) push(edge.id, "band", b.testId, "top", p0, p1, dt);
+        if (db < limit) push(edge.id, "band", b.testId, "bottom", p0, p1, db);
       }
     }
   }
@@ -554,26 +761,13 @@ export type ChipOffPathViolation = {
   distance: number;
 };
 
-// Distance from point p to segment a->b.
-function pointSegDistance(p: Pt, a: Pt, b: Pt): number {
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  const len2 = dx * dx + dy * dy;
-  if (len2 === 0) return Math.hypot(p[0] - a[0], p[1] - a[1]);
-  let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
-  t = t < 0 ? 0 : t > 1 ? 1 : t;
-  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
-}
-
-// Shortest distance from p to a polyline (min over its segments).
-export function pointToPolylineDistance(p: Pt, pts: ReadonlyArray<Pt>): number {
-  let best = Infinity;
-  for (const [a, b] of segmentsOf(pts)) {
-    const d = pointSegDistance(p, a, b);
-    if (d < best) best = d;
-  }
-  return best;
-}
+// Point-to-segment / point-to-polyline distance now live in
+// src/canvas/crossings.ts (re-exported here so this module's existing export
+// surface is unchanged): the render layer's cue liveness filter, the seating
+// pass, and these audits share one copy. Note the ported length guards -- an
+// EMPTY polyline is infinitely far, a LONE point is its own distance -- where
+// this module's former private copy returned Infinity for both; real paths
+// always carry >= 2 vertices, so the audits' behaviour is unchanged.
 
 // Every LABEL chip whose centre lies farther than `tol` from its own edge's
 // polyline (the P3 on-own-line invariant). Entry chips are excluded: they are

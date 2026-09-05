@@ -11,14 +11,18 @@ import {
   auditChipsVsCards,
   auditDotsUnderChips,
   auditEndpointParity,
+  auditFrameRides,
   auditOwnCardPierces,
   auditSegmentsVsCards,
   auditSegmentsVsChips,
   countCrossings,
+  crossingCueCoverage,
   endpointManhattan,
   fmtSeg,
   parsePath,
   polylineLength,
+  segmentEntersRect,
+  segmentsOf,
   toRawEdges,
   type BandRect,
   type ChipCensusHit,
@@ -26,6 +30,7 @@ import {
   type DotRect,
   type NodeRect,
   type RawEdge,
+  type RawRect,
 } from "./geometry";
 import { collectAudit, collectGeometry, type AuditChipRect } from "./collect";
 
@@ -144,6 +149,10 @@ test.describe("DOM geometry audit", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem("aef.locale", "en");
+      // The audit corpus polices the bus machinery, so every spec opts the
+      // toggle on explicitly; the app default (off since the bus-lanes flip)
+      // is a product decision this suite does not re-test.
+      window.localStorage.setItem("aef.busLanes", "on");
     });
   });
 
@@ -476,7 +485,92 @@ test.describe("DOM geometry audit", () => {
 //      braid is untested by this corpus.
 //   3. The Z2 coincident-column braids are still on screen. They are the R12
 //      residual: ratified, not fixed.
+//
+// EXAM-SURFACED FAMILIES CAMPAIGN, 2026-09-04 -- the R4 declared-output-row
+// ruling. Recipe output rows now read the recipe's own declared order (in:
+// every card of one recipe reads alike) instead of ELK's per-side port order,
+// which flipped with consumer placement. Five pre-existing cells moved UP,
+// all on the copper_nugget (Refining Unit) recipe whose port rows flipped;
+// ratified the same day by controller ruling and re-pinned with cause:
+// default foreign-stroke 0 -> 1 (sewage surplus stroke e:3 crosses the
+// Cuprium chip box whose port moved to the top row), battery5 crossing
+// 8 -> 9, script43 dot-cover 0 -> 1 (junction dot of e:3 hidden under the
+// e:4 Cuprium share chip) and skipped-band 2 -> 3 (three copper_nugget rise
+// chips bind to no lane band), gas-web card-intrusion 8 -> 9 (e:12
+// copper_nugget-rise 40 units into card q:8). The dot-cover cell SUPERSEDES
+// R13's "only UP move" restriction for this campaign: R13 spent the F1+Z2
+// campaign's single sanctioned raise; this one is a separate, ratified trade
+// of the exam-surfaced campaign. DOWN moves recorded at the same re-measure
+// ride the per-table notes as usual.
+//
+// R8, same campaign -- the per-chip usable-width short-leg gate. Wide label
+// chips that used to collapse to icon-only on straight legs (their arc length
+// fell under the global SHORT_LEG_MAX even though the leg's x-extent fit the
+// chip's own natural width) now stay full. The declared exposure,
+// card-intrusion on default, HELD; the actual cost landed on five other
+// scenarios as seven UP cells -- five card-intrusion arrivals (wide chips
+// riding their own straight legs into card bodies) and two foreign-stroke
+// arrivals -- detailed at the two tables. Pinned under the R7 precedent
+// (controller best-judgment call recorded the same day) and user-ratified
+// 2026-09-05; the family's follow-on tasks (fan-out branch window, per-chip
+// bus seat box) are expected to buy some of it back.
+//
+// R9, same campaign -- loop returns leave the frames. Task 7's corridor
+// routing moved 25 cells DOWN (multi6 crossing 415 -> 121 among them) and
+// five UP: battery5 crossing 9 -> 13 and rot-bottled_food_3 3 -> 5 (rails
+// now cross mid-graph corridors they used to overfly the whole graph; the
+// Task 9 crossing cue exists to mark exactly these), coupon-web chip-segment
+// 3 -> 4 and foreign-stroke 1 -> 2 (one event counted twice: e:15's corridor
+// run under the e:8 chip), gas-web card-intrusion 7 -> 8 (a re-seated chip
+// rode its rail's new anchor). Pinned under the R7 precedent (controller
+// best-judgment call, 2026-09-04) and user-ratified 2026-09-05.
+//
+// R10, same campaign -- out-of-band rail strikes padded by the full gap. A
+// review pass found the y-window's struck-outside predicate comparing the
+// candidate rail against raw card edges, so a backward rail could park one
+// unit off a spanned card that the pre-band whole-graph behaviour always
+// cleared by the full gap. Padding the predicate restores the documented
+// clearance; dense-graph rails settle further out, costing four cells
+// (multi6 crossing 121 -> 137 and foreign-stroke 10 -> 15, multi6
+// card-intrusion 22 -> 23, gas-web crossing 39 -> 40 -- every one green at
+// HEAD by differential rebuild). Pinned 2026-09-04 as a controller call;
+// user-ratified 2026-09-05 together with R8 and R9.
 
+// TASK 7 -- loop returns in the corridor, not on the frame (2026-09-04). Two
+// routing changes: clearRailY now escapes over only the CONNECTED BAND of
+// strike intervals around the preferred y (a rail no longer hoists over every
+// x-overlapping card at once), and a backward rail's two verticals keep
+// CONTAINER_COLUMN_GAP off a container slab's side borders when both endpoints
+// share that container (border-band obstacles; the raw fallback tier also
+// widened from RAW_GAP to the container gap for every slab). Wholesale
+// re-measure of every table on all twelve scenarios. DOWN moves are re-pinned
+// with cause at each cell. FIVE cells measured ABOVE their pins and are LEFT
+// AT THE HEAD PIN, red, pending a controller ruling (R7/R8 precedents noted;
+// a new UP still needs one): CROSSING battery5 9 -> 13 and rot-bottled_food_3
+// 3 -> 5 (rails now cross the mid-graph corridors they used to fly over),
+// CHIP_SEGMENT coupon-web 3 -> 4 and FOREIGN_STROKE coupon-web 1 -> 2 (the
+// e:15 gas_xiranite return's new corridor run at y 613 passes under the e:8
+// "Separator Core" chip box), CARD_INTRUSION gas-web 7 -> 8 (a re-seated label
+// chip laps a card past the budget). multi6's standing expected-failset RAW
+// pierce (e:97 into q:56) is unchanged. An EIGHTH table joined: FRAME_RIDE
+// (first recording, detailed at the table).
+//
+// TASK 8 -- fan-out branch chips confined to their own leg (2026-09-04).
+// Three seating changes, all in chipSeating's fan-out branch path: the branch
+// seat slides over the member's OWN leg (the suffix after the junction, the
+// mirror of the aggregate seat's trunk truncation) instead of the
+// trunk-including polyline; the branch short-leg rule gates on that leg's
+// usable width (the item rule's per-chip measure) instead of the whole
+// polyline's arc length, so a long shared trunk can no longer vouch for a
+// 13-unit riser's full box; and every bending member of a DECLINED fan-out
+// carries a junction-dot keep-off at its own peel-off column (dot-less
+// corners included) through the same weakest-preference dot term. Wholesale
+// re-measure of every table on all twelve scenarios: EIGHT cells moved, ALL
+// DOWN, re-pinned with cause at each cell. NO cell rose (DOT_COVER's two
+// departures are the family's own findings: rot-bottled_food_3's split dot
+// under the 300/min riser chip, script43's e:3 dot under the e:4 share chip).
+// The dot's rank in the seating preferences is untouched (R13).
+//
 // Pre-P2 crossing baseline, recorded from the P1-gate commit a17bec1 by running
 // the same countCrossings logic over the seven scenarios at fit zoom (a detached
 // worktree, since deleted). Current routing must never produce MORE crossings
@@ -503,17 +597,30 @@ test.describe("DOM geometry audit", () => {
 // one of the two.
 // First recordings for the three campaign scenarios: script43 55,
 // coupon-web 14, gas-web 42.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 3, rot-bottled_food_4 22.
 const CROSSING_BASELINE: Record<string, number> = {
-  default: 9,
-  battery5: 8,
-  "battery5-xiranite": 55,
+  default: 4, // 9 -> 4, Task 7 y-window re-measure
+  // 8 -> 9 at the exam-surfaced R4 re-measure (declared output rows flip the
+  // copper_nugget ports; ratified 2026-09-04). 9 -> 13 at R9 (2026-09-04):
+  // loop returns stay in the mid-graph instead of flying over it, so their
+  // rails cross corridors they used to overfly (Task 7; the crossing cue
+  // marks them). rot-bottled_food_3 3 -> 5, same cause.
+  battery5: 13,
+  "battery5-xiranite": 47, // 55 -> 47, Task 7
   crystal: 1,
   equip4: 1,
-  multi6: 415,
+  multi6: 137, // 415 -> 121, Task 7. 121 -> 137 at R10 (2026-09-04):
+  // out-of-band rail strikes padded by the full gap, so multi6's dense
+  // backward rails settle further out and cross more mid-graph corridors.
   tundra: 0,
-  script43: 55,
-  "coupon-web": 14,
-  "gas-web": 42,
+  script43: 26, // 55 -> 26, Task 7
+  "coupon-web": 13, // 14 -> 13, Task 7
+  "gas-web": 40, // 42 -> 39, Task 7. 39 -> 40 at R10, same cause as
+  // multi6.
+  "rot-bottled_food_3": 5, // 3 -> 5 at R9, same cause as battery5
+  "rot-bottled_food_4": 20, // 22 -> 20, Task 7
 };
 
 // Padding-graze baseline (tier 3): segments that clip only a foreign card's
@@ -549,17 +656,24 @@ const CROSSING_BASELINE: Record<string, number> = {
 // (e:36 into q:10, e:16 into q:0); gas-web 1 is the corner diagonal of e:29
 // into q:6. All three are tap stubs in packed gutters, the family the survivors
 // above belong to.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 2 (one plant_moss_3 drop column grazing
+// two cards' padding), rot-bottled_food_4 1 (an iron_ore tap approach into
+// loop:plant_grass_1).
 const PADDED_GRAZE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  multi6: 1,
+  multi6: 0, // 1 -> 0, Task 7
   tundra: 0,
   script43: 2,
   "coupon-web": 2,
   "gas-web": 1,
+  "rot-bottled_food_3": 0, // 2 -> 0, Task 7
+  "rot-bottled_food_4": 1,
 };
 
 // P3 chip-tier ratchets. Chip seating follows the ratified priority order:
@@ -625,17 +739,31 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // chips seated on other edges' corridor legs. On gas-web a single tap column
 // accounts for several hits at once (e:24 crosses four chips), so the counts
 // track a handful of columns, not a spread of seats.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 2, rot-bottled_food_4 2 -- the same
+// full-height column passing under label chips family as above.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 3,
-  "battery5-xiranite": 15,
+  "battery5-xiranite": 0, // 15 -> 0, Task 7
   crystal: 0,
   equip4: 1,
   multi6: 0,
   tundra: 0,
-  script43: 13,
-  "coupon-web": 3,
-  "gas-web": 20,
+  // 13 -> 7, Task 7. 7 -> 5, Task 8: two (segment, chip) pairs left with the
+  // fan-out branch chips the leg confinement re-seated (the surviving five
+  // are the same full-height tap/surplus columns under label chips).
+  script43: 5,
+  // 3 -> 4 at R9 (2026-09-04): e:15's new corridor run (Task 7 loop-return
+  // routing) passes under the e:8 "Separator Core" chip -- one event, also
+  // counted by the coupon-web foreign-stroke cell.
+  "coupon-web": 4,
+  // 20 -> 9, Task 7. 9 -> 8, Task 8: one tap-column-under-chip event left
+  // with the re-seated branch chips.
+  "gas-web": 8,
+  "rot-bottled_food_3": 0, // 2 -> 0, Task 7
+  "rot-bottled_food_4": 2,
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
 // candidates all overlap a card, so card-hardness pushes its seat off the line.
@@ -679,10 +807,13 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // this pin with it. battery5 measured 2 again, unchanged (ratified above).
 // The three campaign scenarios first recorded zero: no label chip on any of
 // them leaves its own polyline today.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): both zero, no label chip leaves its own polyline on either.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 2,
-  "battery5-xiranite": 2,
+  battery5: 0, // 2 -> 0, Task 7
+  "battery5-xiranite": 0, // 2 -> 0, Task 7
   crystal: 0,
   equip4: 0,
   multi6: 0,
@@ -690,6 +821,8 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
 };
 
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
@@ -714,6 +847,9 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
 // corridor.
 // The three campaign scenarios first recorded zero too, so the gate now holds
 // across the ten-scenario corpus.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): both zero.
 const OWN_PIERCE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -725,6 +861,59 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+
+};
+
+// Frame-ride ratchet (Task 7, loop-backedge-braids-container family): edge
+// segments running ALONG a container slab's border (within FRAME_RIDE_TOL = 16,
+// matching CONTAINER_COLUMN_GAP, for more than two port stubs of overlap) and
+// backward item edges running along a bus band's border, either side. The
+// stroke and the border then read as one line -- the #29 follow-on the rail-gap
+// fix left behind on the VERTICALS, plus the band-bottom variant. A FIRST
+// RECORDING at the Task 7 fix commit, so every cell states where the campaign
+// is after the y-window and container-column fixes, not a target; it ratchets
+// DOWN under the same convention as every table above. The two rot- cells are
+// campaign-first measurements (2026-09-04) like their rows in the tables above.
+// Note the counter's blind spots by design: a stroke within 16 of a frame for
+// LESS than two port stubs (a crossing or corner) never counts, and container
+// borders are read from the drawn DOM rects.
+// First-recording residue, two hits corpus-wide, both shapes the Task 7 fix
+// deliberately does not touch: battery5's e:9 (xiranite_poly) keeps its
+// default column 9 off loop:liquid_xiranite_poly's right border because only
+// its SOURCE is a member (the shared-parent un-exemption needs both), and
+// rot-bottled_food_4's e:12 is a FORWARD tap's jog-descent column 2 off
+// loop:plant_grass_1's left border -- a jogForwardLegs column, outside the
+// loop-return family. Every loop-return column and rail the fix owns reads
+// 16+ off its frame (multi6 e:48 at 1340/580 vs borders 1356/564,
+// rot-bottled_rec_hp_1 e:3 at 1086/294 vs 1070/278, verified by probe).
+// Re-pinned DOWN at the round-2 per-side bands fix (same campaign): battery5
+// 1 -> 0. Each endpoint's OWN container now joins its side's column scan as
+// border bands, so e:9 -- whose only member endpoint is its source -- holds
+// the full gap off the loop's right border instead of riding it. The rot-
+// bottled_food_4 cell re-measured unchanged in the same pass: e:12 is a
+// forward jog descent, not a return column, and no fix in this family moves
+// it; it stays the sole recorded residue.
+const FRAME_RIDE_BASELINE: Record<string, number> = {
+  default: 0,
+  // 1 -> 0, round-2 per-side bands (e:9); first recording was Task 7.
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  // First recording, Task 7 (e:12); held at the round-2 per-side bands
+  // re-measure (a jog descent, not a return column). 1 -> 0 once the audit
+  // scoped itself to backward edges: the e:12 descent is a forward tap's
+  // entry column, the shape the convention doc exempts.
+  "rot-bottled_food_4": 0,
+
 };
 
 // Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
@@ -787,17 +976,32 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // same trade): seat validity is structural, the dot is the weakest preference in
 // the pass, and the depth is the crossings-over-depth precedence R11 declined to
 // reopen. It remains the campaign's only UP move on a pre-existing pin.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 1 and rot-bottled_food_4 1, both a bus
+// rise chip covering its own junction dot.
 const DOT_COVER_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
-  "battery5-xiranite": 1,
+  "battery5-xiranite": 0, // 1 -> 0, Task 7
   crystal: 0,
   equip4: 0,
-  multi6: 1,
+  multi6: 0, // 1 -> 0, Task 7
   tundra: 0,
+  // 0 -> 1 at the exam-surfaced R4 re-measure: the junction dot of e:3 hides
+  // under the e:4 Cuprium share chip whose port row flipped (ratified
+  // 2026-09-04; supersedes R13's single-raise restriction for this campaign).
+  // 1 -> 0, Task 8: the branch chip seats on its own leg now and the riser
+  // legs collapse to the icon box, so the share chip no longer parks over
+  // the split.
   script43: 0,
   "coupon-web": 0,
-  "gas-web": 1,
+  "gas-web": 0, // 1 -> 0, Task 7
+  // 1 -> 0, Task 8: the Sandleaf 300/min riser chip (the family's own
+  // finding) collapses to the icon box and slides down its 13-unit leg clear
+  // of the split dot it used to bury from the trunk side.
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 1,
 };
 
 // Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
@@ -833,6 +1037,10 @@ const DOT_COVER_BASELINE: Record<string, number> = {
 // The three campaign scenarios measured the same residue and take the same flat
 // 0.5 pin: script43 0.003 (76 endpoints), coupon-web 0.001 (38), gas-web 0.001
 // (62).
+// The two exam-surfaced scenarios (campaign-first measurement 2026-09-04,
+// exam-surfaced-families Task 0, re-measurable within the campaign) measured
+// the same residue and take the same flat 0.5 pin: rot-bottled_food_3 0.001
+// (38 endpoints), rot-bottled_food_4 0.003 (42).
 const ENDPOINT_PARITY_TOL: Record<string, number> = {
   default: 0.5,
   battery5: 0.5,
@@ -844,6 +1052,8 @@ const ENDPOINT_PARITY_TOL: Record<string, number> = {
   script43: 0.5,
   "coupon-web": 0.5,
   "gas-web": 0.5,
+  "rot-bottled_food_3": 0.5,
+  "rot-bottled_food_4": 0.5,
 };
 
 async function loadScenario(page: Page, hash: string): Promise<void> {
@@ -869,10 +1079,45 @@ function tundraOreFeed(edges: RawEdge[]): RawEdge | null {
   return ore[0]!;
 }
 
+// One DRAWN bus-band caption (the faint "BUS" tag BusBands paints inside each
+// band tint), in graph coordinates: the band it rides plus the tag's box. Read
+// by a spec-local self-contained collector (page.evaluate cannot close over
+// imports) that mirrors collectGeometry's viewport-inverse mapping, so a tag
+// box compares directly with edge paths. The caption is DECORATION, not an
+// obstacle the seating passes measure against (the exam-surfaced campaign's R5
+// moved it into the band's top pad rather than registering it), so the shared
+// collectors deliberately do not carry it and this check reads it itself.
+type BandTagRect = RawRect & { band: string };
+
+async function collectBandTags(page: Page): Promise<BandTagRect[]> {
+  return page.evaluate(() => {
+    const rf = document.querySelector<HTMLElement>(".react-flow");
+    const vp = document.querySelector<HTMLElement>(".react-flow__viewport");
+    if (rf === null || vp === null) return [];
+    const rfRect = rf.getBoundingClientRect();
+    const m = new DOMMatrixReadOnly(getComputedStyle(vp).transform);
+    const toGraphX = (x: number): number => (x - rfRect.left - m.e) / m.a;
+    const toGraphY = (y: number): number => (y - rfRect.top - m.f) / m.a;
+    return Array.from(
+      document.querySelectorAll<HTMLElement>(".bus-band-tag"),
+    ).map((el) => {
+      const r = el.getBoundingClientRect();
+      return {
+        band: el.closest<HTMLElement>(".bus-band")?.dataset.testid ?? "(band)",
+        left: toGraphX(r.left),
+        top: toGraphY(r.top),
+        right: toGraphX(r.right),
+        bottom: toGraphY(r.bottom),
+      };
+    });
+  });
+}
+
 test.describe("segment placement audit", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem("aef.locale", "en");
+      window.localStorage.setItem("aef.busLanes", "on");
     });
   });
 
@@ -1021,6 +1266,35 @@ test.describe("segment placement audit", () => {
           .toBeLessThanOrEqual(ownPierceBaseline);
       }
 
+      // Frame-ride ratchet (Task 7): backward item edges' segments running
+      // along a container slab's border or a bus band's border (forward tap
+      // descents may share a border line by convention and are not counted). Stroke-on-frame braids are the loop-return family this counter
+      // exists to hold at zero; see FRAME_RIDE_BASELINE above.
+      const frameRides = auditFrameRides(
+        rawEdges,
+        nodes,
+        geom.bands as BandRect[],
+      );
+      const frameRideInventory = frameRides.map(
+        (v) =>
+          `  ${v.edgeId} rides the ${v.border} border of ${v.target} ` +
+          `${v.distance.toFixed(1)} off it (${v.kind}), seg ${fmtSeg(v.seg)}`,
+      );
+      const frameRideBaseline = baselineFor(
+        FRAME_RIDE_BASELINE,
+        "FRAME_RIDE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (frameRideBaseline !== null) {
+        expect
+          .soft(
+            frameRides.length,
+            `${scenario.id}: ${frameRides.length} frame/band ride(s) exceeds baseline ${frameRideBaseline} among ${geom.bands.length} band(s):\n${frameRideInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(frameRideBaseline);
+      }
+
       // Hidden-dot ratchet: junction dots swallowed by a chip box at fit zoom.
       // The dot rects come from the DOM, so they carry the zoom-clamped radius
       // the dot actually renders at; the camera zoom only converts the
@@ -1117,6 +1391,39 @@ test.describe("segment placement audit", () => {
           .toBeLessThanOrEqual(baseline);
       }
 
+      // Crossing-cue coverage (Task 9): every counted crossing between
+      // DIFFERENT flows (different item|source) must carry a DRAWN cue on
+      // one edge of the pair -- the stroke masked out around the crossing,
+      // whichever of the two the seating pass picked (a transparent gap
+      // reads the same in either paint order, so no z key is involved).
+      // ZERO-TOLERANCE by design, no baseline table: the seating pass stamps
+      // a cue for every cross-flow proper crossing by construction, and the
+      // renderers cut every stamped cue that still sits on their live
+      // polyline, so a miss means the stamp pass or the render broke --
+      // there is no legitimate residue class to pin. Same-flow crossings (between one flow's own
+      // edges: trunk members overlapping a lane, fan-out slices sharing a
+      // trajectory) are one visual line by the flowKey doctrine and
+      // deliberately NEVER cued; they are reported in the message so a plan
+      // where that class suddenly grows stays visible instead of silently
+      // living outside the assertion.
+      // First recordings (2026-09-04, informational, not a ratchet) --
+      // crossFlow / sameFlow per scenario, cued equalled crossFlow on every
+      // one: default 4/0, battery5 13/0, battery5-xiranite 46/1, crystal 1/0,
+      // equip4 1/0, multi6 130/7, tundra 0/0, script43 26/0, coupon-web 13/0,
+      // gas-web 39/1, rot-bottled_food_3 5/0, rot-bottled_food_4 20/0. The
+      // drawn-cue count can sit BELOW cued (multi6 120 gaps for 130 cued
+      // crossings): the stamp pass dedupes per edge and point, so trunk
+      // members sharing a lane that crosses one foreign edge together draw
+      // one gap where the census counts each member pair.
+      const coverage = crossingCueCoverage(geom.edges, geom.crossingCues);
+      expect
+        .soft(
+          coverage.uncued.length,
+          `${scenario.id}: ${coverage.uncued.length} of ${coverage.crossFlow} cross-flow crossing(s) carry no cue on either edge` +
+            ` (same-flow crossings, never cued: ${coverage.sameFlow}):\n${coverage.uncued.join("\n")}`,
+        )
+        .toBe(0);
+
       // Detour: the tundra ore feed stays within 1.5x its endpoints' Manhattan
       // distance. Only tundra carries the long ore feed the bound targets.
       if (scenario.id === "tundra") {
@@ -1132,6 +1439,50 @@ test.describe("segment placement audit", () => {
           )
           .toBeLessThanOrEqual(1.5 * direct);
       }
+
+      // ZERO-TOLERANCE (exam-surfaced campaign, ruling R5): no edge path
+      // segment enters a bus-band caption's box. The caption is a decorative
+      // tag, never an obstacle -- nothing in the routing model avoids it --
+      // so the invariant is held by WHERE IT SITS: in the band's OUTER pad,
+      // the BAND_Y_PAD strip (one lane spacing 48 plus a max-scale chip half
+      // height 24 = 72 flow units) on the far side of the graph. Every bus
+      // drop / rise column ends at its own lane and lanes sit graph-side, so
+      // no path vertex enters an outer pad and the 20-unit tag pinned 4 off
+      // the pad edge clears the outermost vertex by 48 units. The top band
+      // anchors at its top pad and the bottom band at its bottom pad because
+      // the pads are NOT interchangeable: the bottom band's top pad is the
+      // corridor its members' columns descend through from the graph
+      // (multi6: five tap columns at x 192-208 cross its full height), so
+      // top-anchoring both bands drops the caption back under strokes. The
+      // caption moved from mid-band, where a stroke crossed the text at the
+      // leftmost column (the caption half of stroke-crosses-foreign-chip:
+      // multi6 bus-label-under-stroke, rot-bottled_food_4
+      // loop-label-crossed-by-back-edge). The check reads the DRAWN box, so a
+      // CSS regression that re-centres the caption on the lanes reddens it
+      // directly; the tag rides the viewport transform (no counter-scale), so
+      // its graph-space rect -- like the paths -- is the same at every zoom
+      // and one fit-zoom reading states the invariant at all of them.
+      // Rotating plans get this check through extraScenariosFromEnv like
+      // every zero-tolerance criterion here.
+      const bandTags = await collectBandTags(page);
+      const tagHits: string[] = [];
+      for (const tag of bandTags) {
+        for (const edge of rawEdges) {
+          for (const [seg0, seg1] of segmentsOf(parsePath(edge.d))) {
+            if (segmentEntersRect(seg0, seg1, tag, 0.5)) {
+              tagHits.push(
+                `  ${edge.id} seg ${fmtSeg([seg0, seg1])} enters the BUS caption of ${tag.band}`,
+              );
+            }
+          }
+        }
+      }
+      expect
+        .soft(
+          tagHits.length,
+          `${scenario.id}: ${tagHits.length} segment(s) strike the BUS caption(s) among ${bandTags.length} band tag(s):\n${tagHits.join("\n")}`,
+        )
+        .toBe(0);
 
       skipUnpinnedRatchets(unpinned);
     });
@@ -1265,17 +1616,31 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // e:35 (Ferrium Powder 600/min) went the other way, displaced off its line by
 // the re-seating cascade as its neighbours took the corridor room the narrower
 // boxes freed. Both cells are campaign-own measurements, re-measured with cause.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): both zero; every chip holds its own line inside its box.
 const SEAT_VALIDITY_BASELINE: Record<string, number> = {
-  default: 1,
-  battery5: 1,
+  default: 0, // 1 -> 0, Task 7
+  battery5: 0, // 1 -> 0, Task 7
   "battery5-xiranite": 4,
   crystal: 0,
   equip4: 0,
-  multi6: 6,
+  // 6 -> 1, Task 7. 1 -> 0, Task 8: the fan-out branch chips seat on their
+  // own legs now, and the one chip whose box had left its line came home
+  // with the narrower collapsed reserve.
+  multi6: 0,
   tundra: 0,
-  script43: 3,
-  "coupon-web": 1,
-  "gas-web": 2,
+  script43: 1, // 3 -> 1, Task 7
+  "coupon-web": 0, // 1 -> 0, Task 7
+  // 2 -> 0 at the Task 5 rise-seat re-measure (2026-09-04): the plan's
+  // gas_xiranite lane-trunk rise chips moved off their trunk-wide spread slots
+  // into their own rise-end windows, and the one seat that sat a pitch off its
+  // own polyline now sits flush on its run. The gas-web cell had 1 of headroom
+  // against the pin even before this (measured 1 at Task 3); the re-pin takes
+  // the measured 0.
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
 };
 
 // Card intrusion: chips whose box reaches more than CARD_INTRUSION_BUDGET deep
@@ -1363,17 +1728,49 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
 // The twelve survivors run 166 to 234 wide; the widest of them
 // (battery5-xiranite e:20, "238.36/min") is 3% off the CSS clamp and had nothing
 // to gain, exactly as the box model predicts.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 2 (shallow, 9.5 and 10.8 deep),
+// rot-bottled_food_4 5 (10.7 to 21.7), all label chips on their own endpoint
+// cards.
 const CARD_INTRUSION_BASELINE: Record<string, number> = {
   default: 5,
-  battery5: 4,
-  "battery5-xiranite": 7,
+  battery5: 3, // 4 -> 3, Task 7
+  // R8 (2026-09-04), the per-chip usable-width short-leg gate: wide label
+  // chips that used to collapse now stay full on straight legs, and the
+  // un-collapsed arrivals lap their own endpoint cards -- battery5-xiranite
+  // 7 -> 8 (e:3 "238.36/min"), multi6 22 -> 23 (e:53 "Steel x 300/min",
+  // 15 deep), script43 11 -> 12 (e:2 + e:16 "150/min", 13.4 deep),
+  // coupon-web 7 -> 8 (e:0 "5.56/min", 9.1 vs budget 9), rot-bottled_food_3
+  // 2 -> 3 (e:9 "300/min", 17 deep). default HELD at 5 (the plan's declared
+  // exposure; e:1 lapped nothing). Ratified under the R7 precedent.
+  "battery5-xiranite": 7, // 8 -> 7, Task 7
   crystal: 2,
   equip4: 3,
-  multi6: 22,
+  multi6: 23, // 23 -> 22, Task 7. 22 -> 23 at R10 (2026-09-04): a chip
+  // rode its rail's further-out landing into a card band.
   tundra: 1,
-  script43: 11,
-  "coupon-web": 7,
-  "gas-web": 8,
+  // 12 -> 11, Task 7. 11 -> 10, Task 8: one of the R8 un-collapsed-arrival
+  // laps left with the branch-leg re-seating (the re-seated riser chips no
+  // longer ride their trunks into the card band).
+  script43: 10,
+  "coupon-web": 8,
+  // 8 -> 9 at the exam-surfaced R4 re-measure: the e:12 copper_nugget-rise
+  // chip lands 40 units into card q:8 (ratified 2026-09-04). Back to 8 at the
+  // R3 share-form reservation (2026-09-04, Task 3): a fan-out branch chip now
+  // reserves the plain rate + unit, and e:12's wider reserve re-seats it off
+  // q:8's body -- trading that deep lap for one foreign stroke under its box
+  // (gas-web foreignStroke actual 8 -> 9, still under its pin).
+  // 8 -> 7 at the Task 5 rise-seat re-measure (2026-09-04): the same
+  // rise-window re-seating that emptied the seat-validity cell moved the
+  // re-seated gas_xiranite rise chip off the card body it had been lapping.
+  // foreignStroke on this plan held at 9 (pin 10).
+  // 7 -> 8 at R9 (2026-09-04): a re-seated chip rode its rail's new anchor
+  // (Task 7). 8 -> 7, Task 8: that R9 arrival left with the branch-leg
+  // re-seating.
+  "gas-web": 7,
+  "rot-bottled_food_3": 3,
+  "rot-bottled_food_4": 5,
 };
 
 // Foreign strokes: chips with at least one foreign flow's stroke through the
@@ -1406,17 +1803,37 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
 // reserve at the full clamp width. A box reserved at its own text width both
 // straddles fewer columns and has more clear seats to choose from. Nine chips
 // left across seven scenarios; none arrived.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): both 2, each one full-height column passing under two label
+// chips.
 const FOREIGN_STROKE_BASELINE: Record<string, number> = {
-  default: 0,
+  // 0 -> 1 at the exam-surfaced R4 re-measure: the sewage surplus stroke e:3
+  // crosses the e:2 Cuprium chip box whose port moved to the top row
+  // (ratified 2026-09-04).
+  default: 1,
   battery5: 2,
   "battery5-xiranite": 5,
   crystal: 0,
   equip4: 1,
-  multi6: 14,
+  // R8 (2026-09-04): multi6 14 -> 15 (e:108 originium tap) and script43
+  // 6 -> 7 (the same e:2/e:16 arrivals the card-intrusion cell names) at the
+  // per-chip usable-width short-leg gate. Ratified under the R7 precedent.
+  multi6: 15, // 15 -> 10, Task 7. 10 -> 15 at R10 (2026-09-04): five
+  // chips' boxes take foreign strokes where their rails now run.
   tundra: 0,
-  script43: 6,
-  "coupon-web": 1,
-  "gas-web": 10,
+  // 7 -> 6, Task 7. 6 -> 5, Task 8: the same departure the script43
+  // chip-segment cell names (one stroke-under-chip event left with the
+  // re-seated branch chips).
+  script43: 5,
+  // 1 -> 2 at R9 (2026-09-04): the other half of the e:15-under-e:8 event
+  // the chip-segment cell names (Task 7 corridor run).
+  "coupon-web": 2,
+  // 10 -> 8, Task 7. 8 -> 7, Task 8: one tap-column-under-chip event left
+  // with the re-seated branch chips (the gas-web chip-segment cell's twin).
+  "gas-web": 7,
+  "rot-bottled_food_3": 0, // 2 -> 0, Task 7
+  "rot-bottled_food_4": 2,
 };
 
 // Outside band: bus chips whose box shares no vertical extent with the band its
@@ -1469,6 +1886,9 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
 // ~45 world units that chip overhangs today is a unit difference plus growth
 // already recorded at the clamp, not a new drift. Either way the counter tracks
 // the COUNT, so no magnitude moves it.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): both zero, and no x-overflows on either.
 const OUTSIDE_BAND_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -1480,6 +1900,9 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
   script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+
 };
 
 // BAND-UNBOUND INVENTORY (#58). Bus chips the outside-band counter SKIPS
@@ -1492,6 +1915,11 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
 // Measured 2026-08-30 (post #81/#83: contested tap fan-outs spread, lone-trunk
 // drop chips gone): every entry is a fan-out formation chip or a short-run
 // rise, except the two zeros, whose bus chips all carry an in-band lane run.
+// First recordings for the two exam-surfaced scenarios (campaign-first
+// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
+// the campaign): rot-bottled_food_3 pins 4 (two Sandleaf Powder and two
+// Sandleaf Seed rise chips on band-less runs; that plan renders no band rects
+// at all), rot-bottled_food_4 pins 0.
 const SKIPPED_BAND_INVENTORY: Record<string, number> = {
   default: 4,
   battery5: 2,
@@ -1500,9 +1928,13 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
   equip4: 2,
   multi6: 13,
   tundra: 0,
-  script43: 2,
+  // 2 -> 3 at the exam-surfaced R4 re-measure: the copper_nugget rise chips
+  // e:3/e:4/e:5 (out of q:11) bind to no lane band (ratified 2026-09-04).
+  script43: 3,
   "coupon-web": 0,
   "gas-web": 3,
+  "rot-bottled_food_3": 4,
+  "rot-bottled_food_4": 0,
 };
 
 // TIER-1 SLIDE DRIFT, re-measured after the per-chip reserved seat box
@@ -1573,10 +2005,33 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
 // per-scenario tables above are what a failure is diagnosed from. Asserted
 // arithmetically against the tables (see the totals test) rather than summed
 // over a run, so it holds even when the suite is run one scenario at a time.
+// R10 (2026-09-04) moves multi6 cardIntrusion +1 and foreignStroke +5
+// (cells detailed at the two tables); totals follow: 76 -> 77, 35 -> 40.
 const CENSUS_TOTALS = {
-  seatValidity: 18,
-  cardIntrusion: 70,
-  foreignStroke: 39,
+  // 16 -> 6 at the Task 7 loop-return re-measure (2026-09-04): backward chip
+  // anchors ride their rails' new local-band y, and five plans' stranded seats
+  // re-seated onto their own lines (default 1 -> 0, battery5 1 -> 0, multi6
+  // 6 -> 1, script43 3 -> 1, coupon-web 1 -> 0).
+  // 6 -> 5 at the Task 8 branch-leg re-measure (multi6 1 -> 0).
+  seatValidity: 5,
+  // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
+  // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
+  // measured 8 against its pin 7 and is LEFT AT 7 (STOP, see the Task 7 note
+  // above), so the pin sum is 77 while the measured sum is 78.
+  // R9 (2026-09-04) ratifies that held cell: 77 -> 78.
+  // 78 -> 76 at the Task 8 branch-leg re-measure (script43 11 -> 10,
+  // gas-web 8 -> 7).
+  cardIntrusion: 77,
+  // 46 -> 36 at the Task 7 loop-return re-measure (multi6 15 -> 10, script43
+  // 7 -> 6, gas-web 10 -> 8, rot-bottled_food_3 2 -> 0). coupon-web measured 2
+  // against its pin 1 and is LEFT AT 1 (STOP), so the pin sum is 36 while the
+  // measured sum is 37.
+  // R9 (2026-09-04) ratifies the two held STOP cells: 77 -> 78 (gas-web
+  // card intrusion, the re-seated chip on its rail's new anchor) and
+  // 36 -> 37 (coupon-web foreign stroke, the e:15-under-e:8 corridor run).
+  // 37 -> 35 at the Task 8 branch-leg re-measure (script43 6 -> 5,
+  // gas-web 8 -> 7).
+  foreignStroke: 40,
   outsideBand: 0,
 };
 
@@ -1594,6 +2049,7 @@ test.describe("chip seating census", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem("aef.locale", "en");
+      window.localStorage.setItem("aef.busLanes", "on");
     });
   });
 
@@ -1727,6 +2183,7 @@ test.describe("edge reload determinism", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem("aef.locale", "en");
+      window.localStorage.setItem("aef.busLanes", "on");
     });
   });
 

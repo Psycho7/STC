@@ -19,6 +19,7 @@ import {
   gutterWidth,
   ENTRY_SLOT_PITCH,
   BUS_SPAN_THRESHOLD,
+  CONTAINER_COLUMN_GAP,
   CONTAINER_RAIL_GAP,
   OBSTACLE_PAD_Y,
 } from "../../src/canvas/busRouting";
@@ -489,6 +490,120 @@ describe("clampBackwardRails overhang clearance", () => {
     expect(railY! <= cTop - plain || railY! >= cBottom + plain).toBe(true);
     // ...but NOT by the wide container clearance.
     expect(railY! > cTop - wide && railY! < cBottom + wide).toBe(true);
+  });
+});
+
+// -- clampBackwardRails loop returns -----------------------------------------
+
+describe("clampBackwardRails loop returns", () => {
+  // A container (loop / SCC slab) box wrapping its members. Only geometry
+  // matters to the rail clearance, so the data payload is minimal.
+  const containerNode = (
+    id: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): RFAnyNode =>
+    ({
+      id,
+      type: "group",
+      position: { x, y },
+      width,
+      height,
+      data: {
+        containerKind: "blueprint-group",
+        containerId: id,
+        memberCount: 1,
+      },
+    }) as unknown as RFAnyNode;
+
+  it("keeps both rail columns of a same-container return off the slab border", () => {
+    // Loop-backedge family: source and target are both members of one
+    // container, each sitting one ELK inset (12 here) off a side border, so
+    // the default columns -- one stub out of the source port, one stub before
+    // the target port -- land 12 units off the raw border and the return's
+    // verticals braid the frame. Both resolved columns must sit at least
+    // CONTAINER_COLUMN_GAP off the raw slab border (either side).
+    const gLeft = 200;
+    const gRight = 800;
+    const sx = 788; // src's absolute right edge (640 + 148)
+    const tx = 212; // tgt's absolute left edge
+    const nodes: RFAnyNode[] = [
+      containerNode("G", gLeft, 0, gRight - gLeft, 260),
+      { ...productNode("src", 440, 80, 148, 78), parentId: "G" },
+      { ...productNode("tgt", 12, 80, 148, 78), parentId: "G" },
+    ];
+    const out = clampBackwardRails(nodes, [mkEdge("e0", "src", "tgt", "w")]);
+    const railXRight =
+      (out[0]!.data as { railXRight?: number }).railXRight ?? sx + PORT_STUB;
+    const railXLeft =
+      (out[0]!.data as { railXLeft?: number }).railXLeft ?? tx - PORT_STUB;
+    const offFrame = (x: number): number =>
+      Math.min(Math.abs(x - gLeft), Math.abs(x - gRight));
+    // Today both defaults sit 12 off a border, inside the gap.
+    expect(offFrame(railXRight)).toBeGreaterThanOrEqual(CONTAINER_COLUMN_GAP);
+    expect(offFrame(railXLeft)).toBeGreaterThanOrEqual(CONTAINER_COLUMN_GAP);
+    // And the columns actually moved (the defaults are stamped, not kept).
+    expect((out[0]!.data as { railXRight?: number }).railXRight).toBeDefined();
+    expect((out[0]!.data as { railXLeft?: number }).railXLeft).toBeDefined();
+  });
+
+  it("keeps a one-endpoint return's member-side column off the slab border", () => {
+    // Round-2 finding 2: only the SOURCE is a member of the container (the
+    // target sits outside it, to the left), so the shared-parent un-exemption
+    // never fires and the source's own container stays fully exempt: its
+    // default column -- one stub out of the port, 12 off the right border
+    // here -- rides the frame exactly like the both-endpoint case did. Each
+    // endpoint's OWN container joins ITS side's scan as border bands, so the
+    // member-side column must hold the same CONTAINER_COLUMN_GAP off the raw
+    // border, while the outside target's column keeps today's unstamped
+    // default (no container is its own geometry).
+    const gLeft = 200;
+    const gRight = 800;
+    const sx = 788; // src's absolute right edge (200 + 440 + 148)
+    const tx = -400; // tgt's absolute left edge, outside the slab
+    const nodes: RFAnyNode[] = [
+      containerNode("G", gLeft, 0, gRight - gLeft, 260),
+      { ...productNode("src", 440, 80, 148, 78), parentId: "G" },
+      productNode("tgt", tx, 80, 148, 78),
+    ];
+    const out = clampBackwardRails(nodes, [mkEdge("e0", "src", "tgt", "w")]);
+    const railXRight =
+      (out[0]!.data as { railXRight?: number }).railXRight ?? sx + PORT_STUB;
+    const offFrame = (x: number): number =>
+      Math.min(Math.abs(x - gLeft), Math.abs(x - gRight));
+    // Today the default rides 12 off the right border, inside the gap.
+    expect(offFrame(railXRight)).toBeGreaterThanOrEqual(CONTAINER_COLUMN_GAP);
+    // And the column actually moved (the default is stamped, not kept).
+    expect((out[0]!.data as { railXRight?: number }).railXRight).toBeDefined();
+    // Per-side: the outside target's column is no container's business.
+    expect((out[0]!.data as { railXLeft?: number }).railXLeft).toBeUndefined();
+  });
+
+  it("clears the rail over only the connected band of obstacles around the preferred y", () => {
+    // The y-window: a backward rail whose preferred y strikes a LOCAL card
+    // must escape just off that card's band, not over every x-overlapping
+    // card in the graph. Two distant cards -- one far above, one far below --
+    // share the rail's x-span but sit in their own bands; today the escape
+    // flies over the far-above card's top (min over ALL spanned tops).
+    const nodes: RFAnyNode[] = [
+      productNode("src", 1000, 0, 148, 78), // right 1148, port y 39
+      productNode("tgt", 0, 0, 148, 78), // left 0, port y 39
+      productNode("mid", 400, 60, 148, 78), // padded y [52, 146]: local
+      productNode("far", 400, -800, 148, 78), // padded y [-808, -724]
+      productNode("deep", 400, 900, 148, 78), // padded y [892, 980]
+    ];
+    const out = clampBackwardRails(nodes, [mkEdge("e0", "src", "tgt", "w")]);
+    const railY = (out[0]!.data as { railY?: number }).railY;
+    expect(railY).toBeDefined();
+    // Stays between the two distant cards (today it lands at -816, over the
+    // far-above card's top).
+    expect(railY!).toBeGreaterThan(-800);
+    expect(railY!).toBeLessThan(900);
+    // And it clears the local band it actually struck (the mid card's padded
+    // extent [52, 146]).
+    expect(railY! < 52 || railY! > 146).toBe(true);
   });
 });
 

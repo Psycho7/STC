@@ -15,9 +15,10 @@ pixels.
 
 A recipe card has a header carrying the recipe name and the machine multiplier
 (xN), then input rows down its left side and output rows down its right, each
-row ending in a port handle with a small item glyph. Cyan product chips are
-boundary inputs and outputs rather than machines. Group slabs and loop boxes are
-containers, and the cards inside one are its members.
+row ending in a port handle with a small item glyph. Output rows read in the
+recipe's own declared order, so two cards of one recipe read alike. Cyan
+product chips are boundary inputs and outputs rather than machines. Group slabs
+and loop boxes are containers, and the cards inside one are its members.
 
 ## Edges
 
@@ -26,6 +27,27 @@ item it carries. It leaves the source's right side and enters the target's left
 side, so every arrowhead points right, into its target. Each item edge carries
 one rate chip (the item icon and a rate per minute), and that chip belongs on its
 own line.
+
+A container's frame is kept clear of strokes. A loop's return edge runs in the
+corridor, never along the box border: its two verticals hold a fixed gap off
+the side borders of whatever container each endpoint sits inside, and its rail
+escapes only the cards it actually spans -- one connected band of them --
+rather than flying over every card that shares its x-range. A return stroke
+and a slab or band border drawn as one line is a defect. One column may still
+share that line: a forward tap's jog descent, dropping into its consumer, may
+share an entry-gutter line with a container border. That column is a tap
+approach, not a return riding the frame.
+
+Where two strokes of DIFFERENT flows properly cross, the stroke passing under
+shows a gap: a short break is cut out of that stroke around the crossing, the
+other stroke runs through it unbroken, and whatever lies beneath the pair (a
+slab tint, a band tint) shows through the break untouched, so the crossing
+reads as two flows crossing, not as a join. A
+merge never looks like that -- it shows a dot or a shared run -- and a bare X
+of two continuous strokes is a defect: it is indistinguishable from a merge,
+which is exactly the confusion the dot exists to prevent. Crossings inside one
+flow (a trunk's overlapping lane runs, a fan-out's shared run) are one visual
+line and carry no gap.
 
 ## Bus lanes
 
@@ -50,9 +72,9 @@ unlabelled.
 
 Same-source edges heading one layer over share a junction column, marked with a
 dot. Each member carries its own rate chip on its own branch, and no aggregate
-rides the shared trunk.
+rides the shared run.
 
-Several such trunks can be forced into one corridor, and the columns are then
+Several such fan-outs can be forced into one corridor, and the columns are then
 spread across it to keep them apart. Where that spread still leaves them closer
 together than a chip is wide, the corridor is contested: no seat anywhere on such
 a column clears the sibling's stroke, so those branch chips seat and render
@@ -67,12 +89,13 @@ own member chip is the only rate on it.
 ## Rate chips
 
 No chip anywhere shows a bare summed total. Every rate chip states one edge's
-rate. The single exception is a member chip on a multi-member bus trunk, which
-reads as that member's share of the trunk ("30/270"); a lone member is its own
-total and keeps the plain rate and unit. Totals otherwise live on the node cards'
-rows. A trunk total on a chip and the same total on a card come from one
-formatter, so they should read alike; members rounded independently can still sum
-a cent off that number.
+rate. The single exception is a lane member's chip on a multi-member trunk,
+which reads as that member's share of the trunk ("30/270"); a lone member is
+its own total and keeps the plain rate and unit. A fan-out branch chip is not
+that exception: it keeps the plain rate and unit the item edges beside it
+carry. Totals otherwise live on the node cards' rows. A trunk total on a chip
+and the same total on a card come from one formatter, so they should read
+alike; members rounded independently can still sum a cent off that number.
 
 Chips, machine cards, boundary cards, product-chip captions and the totals lines
 all draw from one formatter, so a plan shows one rate unit throughout. A mix
@@ -100,7 +123,7 @@ Do not report these as defects.
 - A fan-out branch chip, or a fan-in member chip that would land on the shared
   run, may be deliberately hidden. The rate remains on the target card's input
   row.
-- A member of a multi-member bus trunk may draw no rise chip at all. The
+- A member of a multi-member lane trunk may draw no rise chip at all. The
   seating pass hides a rise chip when the trunk's run has no room for it at one
   chip's separation from its neighbours, and when its seat would have to leave
   the lane by more than one pitch and float in empty canvas. A lane with three
@@ -108,6 +131,11 @@ Do not report these as defects.
   on the edge's hover tooltip and on the target card's input row. Only a lone
   trunk is guaranteed a label, by the drop chip that returns when its rise is
   hidden.
+- The short break in a stroke at a crossing (see Edges) is not-a-break. No flow
+  is interrupted there: the passing-under edge is continuous in the model, and
+  the gap exists only to say "crossing, not a merge". Likewise the stroke that
+  stays continuous over the gap is the one passing over, not the one being
+  cut.
 - A hover screenshot, where the capture took one, dims everything outside the
   hovered ego-network on purpose.
 
