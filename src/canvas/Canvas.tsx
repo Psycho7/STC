@@ -123,16 +123,7 @@ interface CanvasProps {
 // Which graph element the pointer is over. Drives the ego-network highlight:
 // the hovered element plus its immediate neighbourhood stays lit, everything
 // else gets the `dimmed` class. `null` = idle (no dimming at all).
-type HoverTarget = { kind: "node"; id: string } | { kind: "edge"; id: string };
-
-// A hover plus the layout generation it was aimed at. A plan can land with the
-// pointer standing still (Enter in an already-focused rate field, the bus-lane
-// toggle, hash navigation), and the id it was aimed at is usually absent from
-// the new graph, which would leave the focus set empty and every element dimmed
-// until the next enter or pane click. Carrying the generation lets the focus
-// memo below retire such a hover on sight, which also covers a hover still
-// waiting out its intent delay when the plan lands.
-type Hovered = (HoverTarget & { gen: number }) | null;
+type Hovered = { kind: "node"; id: string } | { kind: "edge"; id: string } | null;
 
 // Adjacency indexes derived once per `edges` array. Everything the highlight
 // needs to expand a hovered element into its focus set: node -> incident edges,
@@ -374,23 +365,29 @@ function CanvasInner({
     }
   }, []);
   const scheduleHover = useCallback(
-    (next: HoverTarget) => {
+    (next: Hovered) => {
       cancelPendingHover();
-      // Stamped when the hover is aimed, not when it settles: a plan landing
-      // inside the intent window must retire it, not adopt it.
-      const gen = layoutGeneration;
       hoverTimer.current = setTimeout(() => {
         hoverTimer.current = null;
-        setHovered({ ...next, gen });
+        setHovered(next);
       }, HOVER_INTENT_MS);
     },
-    [cancelPendingHover, layoutGeneration],
+    [cancelPendingHover],
   );
   const clearHover = useCallback(() => {
     cancelPendingHover();
     setHovered(null);
   }, [cancelPendingHover]);
   useEffect(() => cancelPendingHover, [cancelPendingHover]);
+
+  // A plan can land with the pointer standing still (Enter in an already-focused
+  // rate field, the bus-lane toggle, hash navigation), and no leave event fires
+  // to cancel a hover still waiting out its intent delay. Drop it: it was aimed
+  // at the old graph, and the focus memo below decides what a hover that has
+  // already settled is still worth.
+  useEffect(() => {
+    cancelPendingHover();
+  }, [layoutGeneration, cancelPendingHover]);
 
   // Stable across renders so React Flow's memoized node and edge wrappers keep
   // their subtrees on a zoom tick or a drag frame: an inline lambda is a new
@@ -426,6 +423,16 @@ function CanvasInner({
     [i18n],
   );
 
+  // Node ids in the current plan, for retiring a hover whose element the plan
+  // swap took away. Memoized on the joined ids rather than on the node array so
+  // a drag -- which hands Canvas fresh node objects every frame but never a
+  // different id set -- does not churn the focus memo below.
+  const nodeIdKey = nodes.map((n) => n.id).join("\u0000");
+  const presentNodeIds = useMemo(
+    () => new Set(nodeIdKey === "" ? [] : nodeIdKey.split("\u0000")),
+    [nodeIdKey],
+  );
+
   const adjacency = useMemo<Adjacency>(() => {
     const edgesByNode = new Map<string, string[]>();
     const endpointsByEdge = new Map<string, [string, string]>();
@@ -456,7 +463,17 @@ function CanvasInner({
     nodeIds: Set<string>;
     edgeIds: Set<string>;
   } | null>(() => {
-    if (!hovered || hovered.gen !== layoutGeneration) return null;
+    if (!hovered) return null;
+    // A plan swap leaves the hover pointing at whatever the pointer was last
+    // over. Retire it only when that element is gone from the new graph, where
+    // the focus set would come back empty and dim everything; an element that
+    // survived keeps its highlight, because React Flow keeps the same wrapper
+    // mounted and no mouseenter would fire to light it again.
+    const present =
+      hovered.kind === "node"
+        ? presentNodeIds.has(hovered.id)
+        : adjacency.edgeById.has(hovered.id);
+    if (!present) return null;
     const nodeIds = new Set<string>();
     const edgeIds = new Set<string>();
     const lightEdge = (edgeId: string): void => {
@@ -509,7 +526,7 @@ function CanvasInner({
       }
     }
     return { nodeIds, edgeIds };
-  }, [hovered, adjacency, layoutGeneration]);
+  }, [hovered, adjacency, presentNodeIds]);
 
   // Container boxes (`type: "group"`) never dim while any of their child nodes
   // is in the focus set, so the frame around a lit cluster does not read as

@@ -137,6 +137,17 @@ function renderCanvas(nodes: Node[], edges: Edge[]) {
   );
 }
 
+// Canvas at a named layout generation, for the plan-swap hover tests.
+function hoverWrap(gen: number, nodes: Node[]) {
+  return (
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={nodes} edges={[]} layoutGeneration={gen} />
+      </ItemPackProvider>
+    </LocaleProvider>
+  );
+}
+
 function isDimmed(container: HTMLElement, id: string): boolean {
   const el = container.querySelector(`[data-id="${id}"]`);
   return el?.className.includes("dimmed") ?? false;
@@ -320,16 +331,9 @@ test("the camera fits once per layout generation", () => {
 // rate field, the bus-lane toggle, hash navigation). The hover it leaves behind
 // names an id the new graph does not have, which lights nothing and dims
 // everything until the next enter or pane click.
-test("a new layout generation retires a settled hover", () => {
+test("a plan swap retires a hover whose element is gone", () => {
   vi.useFakeTimers();
-  const wrap = (gen: number, nodes: Node[]) => (
-    <LocaleProvider locale="en">
-      <ItemPackProvider value={PACK}>
-        <Canvas nodes={nodes} edges={[]} layoutGeneration={gen} />
-      </ItemPackProvider>
-    </LocaleProvider>
-  );
-  const { container, rerender } = render(wrap(1, HOVER_NODES));
+  const { container, rerender } = render(hoverWrap(1, HOVER_NODES));
   fireEvent.mouseEnter(container.querySelector('[data-id="u1"]')!);
   act(() => vi.advanceTimersByTime(200));
   expect(isDimmed(container, "u2")).toBe(true);
@@ -349,7 +353,7 @@ test("a new layout generation retires a settled hover", () => {
       data: { recipe: RECIPE, kind: "recipe" },
     },
   ];
-  rerender(wrap(2, replaced));
+  rerender(hoverWrap(2, replaced));
   expect(isDimmed(container, "u3")).toBe(false);
   expect(isDimmed(container, "u4")).toBe(false);
   expect(container.querySelector(".ak-canvas-theme")!.className).not.toContain(
@@ -357,23 +361,34 @@ test("a new layout generation retires a settled hover", () => {
   );
 });
 
-// Same swap, but with the hover still waiting out its intent delay. The ids all
-// survive here, so a dim would come from the retired hover alone.
-test("a new layout generation retires a hover pending in the intent window", () => {
+// A hover still inside its intent window was aimed at the old graph, and no
+// leave event fires under a standing pointer to cancel it. The ids all survive
+// here, so a dim could only come from the pending hover settling.
+test("a plan landing inside the intent window cancels the pending hover", () => {
   vi.useFakeTimers();
-  const wrap = (gen: number) => (
-    <LocaleProvider locale="en">
-      <ItemPackProvider value={PACK}>
-        <Canvas nodes={HOVER_NODES} edges={[]} layoutGeneration={gen} />
-      </ItemPackProvider>
-    </LocaleProvider>
-  );
-  const { container, rerender } = render(wrap(1));
+  const { container, rerender } = render(hoverWrap(1, HOVER_NODES));
   fireEvent.mouseEnter(container.querySelector('[data-id="u1"]')!);
   act(() => vi.advanceTimersByTime(100));
-  rerender(wrap(2));
+  // A fresh array of fresh node objects, the way a new plan arrives.
+  const respun = HOVER_NODES.map((n) => ({ ...n }));
+  rerender(hoverWrap(2, respun));
   act(() => vi.advanceTimersByTime(200));
   expect(isDimmed(container, "u2")).toBe(false);
+});
+
+// The flip side of the retirement: a settled hover whose element the new plan
+// still carries keeps its highlight. React Flow keeps the same wrapper mounted
+// under a standing pointer, so nothing would fire a mouseenter to light it
+// again if this dropped it.
+test("a hover whose element survives the plan swap keeps its highlight", () => {
+  vi.useFakeTimers();
+  const { container, rerender } = render(hoverWrap(1, HOVER_NODES));
+  fireEvent.mouseEnter(container.querySelector('[data-id="u1"]')!);
+  act(() => vi.advanceTimersByTime(200));
+  expect(isDimmed(container, "u2")).toBe(true);
+  const respun = HOVER_NODES.map((n) => ({ ...n }));
+  rerender(hoverWrap(2, respun));
+  expect(isDimmed(container, "u2")).toBe(true);
 });
 
 // React Flow's node wrappers are memoized on prop identity, so a handler
@@ -388,7 +403,8 @@ test("the hover handlers keep their identity across re-renders", () => {
   );
   const { rerender } = render(wrap(NODES));
   // A fresh array of fresh node objects is what a drag frame hands Canvas.
-  rerender(wrap(NODES.map((n) => ({ ...n }))));
+  const respun = NODES.map((n) => ({ ...n }));
+  rerender(wrap(respun));
   const first = rfRenders[0]!;
   const last = rfRenders[rfRenders.length - 1]!;
   expect(rfRenders.length).toBeGreaterThan(1);
@@ -442,7 +458,8 @@ test("a node array change does not drop a pending debounced re-fit", () => {
     class {
       constructor(private cb: () => void) {}
       observe(el: Element) {
-        if (el.classList.contains("ak-canvas-theme")) themeCallbacks.push(this.cb);
+        if (!el.classList.contains("ak-canvas-theme")) return;
+        themeCallbacks.push(this.cb);
       }
       unobserve() {}
       disconnect() {}
