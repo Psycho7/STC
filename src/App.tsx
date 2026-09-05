@@ -1,10 +1,12 @@
 import {
+  Component,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import {
   useNodesState,
@@ -39,6 +41,7 @@ import {
 } from "./solver";
 import { planToSolverArgs } from "./solver/planToSolverArgs";
 import { renderPlanFromSolve } from "./pipeline/driver";
+import { targetOutputShortfalls } from "./pipeline/render/invariants";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { BusLanesToggle } from "./components/BusLanesToggle";
@@ -49,14 +52,22 @@ import { iconSheetUrl } from "./canvas/iconSprite";
 
 // Run the render pipeline over a SolvePlanFull and turn it into React Flow nodes
 // and edges via layoutRenderPlan.
+//
+// `underDelivered` lists the target items the rendered plan feeds below their
+// declared rate. The LP never reports these as infeasible - a capped raw input
+// with no alternative route just yields a partial plan - so this is the one
+// signal that the drawn graph does not meet the declared intent.
 async function renderFromFull(
   full: SolvePlanFull,
   itemOverrides: ReadonlyArray<import("./data/plan").ItemOverride>,
   targets: ReadonlyArray<import("./data/targets").Target>,
   busLanesEnabled: boolean,
-): Promise<{ nodes: Node[]; edges: Edge[] }> {
+): Promise<{ nodes: Node[]; edges: Edge[]; underDelivered: string[] }> {
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
+  const underDelivered = targetOutputShortfalls(plan, targets).map(
+    (s) => s.item,
+  );
   // Raw-pack recipes, NOT full.recipeById: the solver map is netted (see
   // netSelfConsumption), while node rows and geometry should show the in-game
   // stoichiometry - a self-consumed input renders as a row with no incoming
@@ -68,7 +79,7 @@ async function renderFromFull(
     itemById,
     busLanesEnabled,
   });
-  return { nodes: laid.nodes as Node[], edges: laid.edges };
+  return { nodes: laid.nodes as Node[], edges: laid.edges, underDelivered };
 }
 
 // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
@@ -115,6 +126,19 @@ const splashDetailStyle: CSSProperties = {
   wordBreak: "break-word",
 };
 
+// Warning strip under the header for a plan that solved but does not deliver
+// what it declares. Styled inline rather than in canvas.css because it is an
+// app-shell surface, not canvas chrome; the amber reads as "look at this",
+// distinct from the red error banner directly above it.
+const shortfallStripStyle: CSSProperties = {
+  padding: "6px 10px",
+  background: "rgba(232, 155, 26, 0.14)",
+  borderTop: "1px solid var(--ak-accent-amber)",
+  color: "var(--ak-accent-amber-bright)",
+  fontFamily: "var(--font-ui)",
+  fontSize: 13,
+};
+
 // Validated once at import: loadTransportConfig is a pure check over the two
 // module constants and hands back its first argument, so the outcome (including
 // an UnknownCarrierError throw on a pack the config cannot carry) is the same on
@@ -150,10 +174,12 @@ function writeStoredBusLanesEnabled(next: boolean): void {
 // (the pasted link, not the solver); "edit" wraps an in-app edit that
 // validatePlan rejected; "solver" wraps an exception thrown while solving a
 // valid plan, which the render layer maps to localized copy (naming the
-// implicated items for an LpInfeasibleError).
+// implicated items for an LpInfeasibleError); "busy" reports an edit refused
+// because a hash navigation was still landing.
 type BannerError =
   | { kind: "load"; message: string }
   | { kind: "edit"; message: string }
+  | { kind: "busy" }
   | { kind: "solver"; error: unknown };
 
 type SideSection = "targets" | "inputs";
@@ -187,10 +213,60 @@ export function pickActiveSection(
   return best;
 }
 
+// Recovery screen for a render-phase throw. Sits inside LocaleProvider so it
+// can be localized, and reuses the corrupt-link splash so a crash and a damaged
+// share link look like the same class of problem. Reset drops the hash and
+// reloads: once React has torn the tree down there is no state left to repair
+// in place, and the default plan is the one input known to render.
+function CrashSplash() {
+  const i18n = useI18n();
+  const onReset = () => {
+    history.replaceState(
+      null,
+      "",
+      window.location.pathname + window.location.search,
+    );
+    window.location.reload();
+  };
+  return (
+    <div className="ak-app-shell" style={splashStyle}>
+      <div role="alert" style={splashCardStyle}>
+        <p style={splashTitleStyle}>{i18n.t("app.error.crash")}</p>
+        <button type="button" onClick={onReset}>
+          {i18n.t("app.error.reset")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Without a boundary, a throw anywhere in the render phase unmounts the whole
+// tree and leaves a blank page. No reachable throw exists on validated input
+// today, so this is hardening: it turns a future one into a recoverable screen.
+// createRoot's onUncaughtError hook cannot do this job - it fires after the
+// unmount, with nothing left to render into.
+class AppErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  override render(): ReactNode {
+    if (this.state.failed) return <CrashSplash />;
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
     <LocaleProvider>
-      <AppInner />
+      <AppErrorBoundary>
+        <AppInner />
+      </AppErrorBoundary>
     </LocaleProvider>
   );
 }
@@ -257,14 +333,28 @@ function AppInner() {
   const [planEpoch, setPlanEpoch] = useState(0);
   const [initialError, setInitialError] = useState<Error | null>(null);
   const [mutationError, setMutationError] = useState<BannerError | null>(null);
+  // Target items the last successful render delivers below their declared rate.
+  // Kept apart from mutationError on purpose: this describes the plan on screen
+  // rather than a failed action, so it is not dismissible and it survives until
+  // a later solve replaces it. Every successful solve overwrites it, so an
+  // empty array is the "the canvas matches the declaration" state.
+  const [underDelivered, setUnderDelivered] = useState<ReadonlyArray<string>>(
+    [],
+  );
   // True while the rendered canvas is stale relative to the latest committed
   // intent: a mutation or navigation solve failed and the old graph is still on
   // screen. It stays true after the banner is dismissed, so the ERROR status
-  // (header chip + canvas annotation) and the disabled Copy-share button remain
-  // as the persistent "this is not what you asked for" cue until the next
-  // successful solve clears it.
+  // (header chip + canvas annotation) remains as the persistent "this is not
+  // what you asked for" cue until the next successful solve clears it.
   const [stale, setStale] = useState(false);
   const solveGen = useRef(0);
+  // True while a hash navigation is landing. A commit or a bus-lane toggle
+  // started in that window would win the last-write-wins race and silently
+  // rewrite the URL back to the plan the user just navigated away from, so
+  // both refuse and say so instead. The flag cannot stick: only the newest
+  // generation clears it, and the only two paths that bump solveGen past a
+  // live navigation are exactly the two that refuse while it is set.
+  const navigationInFlightRef = useRef(false);
   // The hash the app last handled: written by itself (history.replaceState on
   // solve success) or already picked up by loadFromHash. The hashchange
   // handler compares against it so app-initiated writes and spurious events
@@ -290,22 +380,27 @@ function AppInner() {
   // plan's #v1.* URL into the address bar). It joins the solveGen last-write-
   // wins flow: a navigation invalidates any in-flight commit solve and vice
   // versa, so the newest intent always owns the rendered state. Load errors go
-  // to initialError on mount (nothing is rendered yet) and to the dismissible
-  // mutationError banner on navigation (the old plan stays up).
+  // to initialError while no plan is committed (nothing is rendered yet) and to
+  // the dismissible mutationError banner once one is (the old plan stays up).
   const loadFromHash = useCallback(
     async (hash: string, source: "mount" | "navigation"): Promise<void> => {
       const myGen = ++solveGen.current;
+      navigationInFlightRef.current = true;
       setPending(true);
       // Mark the hash as handled up front: even if the load fails, re-running
       // it for the same hash would only fail again.
       lastHandledHashRef.current = hash;
       // A load/validation failure is the pasted link's fault; a solve exception
       // is a valid plan the solver could not satisfy. They route to different
-      // banner wrappers. On mount there is no canvas yet, so both land on the
-      // full-screen initial-error surface instead of the dismissible banner.
+      // banner wrappers. With no plan rendered there is no canvas to keep, so
+      // both land on the full-screen initial-error surface instead of the
+      // dismissible banner. That test is the committed plan, not the source of
+      // the load: a second bad hash pasted while the splash is up must refresh
+      // the splash, and a failed reset from the splash must not write a banner
+      // nothing displays.
       const failLoad = (message: string) => {
         if (myGen !== solveGen.current) return;
-        if (source === "mount") setInitialError(new Error(message));
+        if (planRef.current === null) setInitialError(new Error(message));
         else {
           setMutationError({ kind: "load", message });
           setStale(true);
@@ -313,7 +408,7 @@ function AppInner() {
       };
       const failSolve = (e: unknown) => {
         if (myGen !== solveGen.current) return;
-        if (source === "mount") {
+        if (planRef.current === null) {
           setInitialError(e instanceof Error ? e : new Error(String(e)));
         } else {
           setMutationError({ kind: "solver", error: e });
@@ -354,6 +449,7 @@ function AppInner() {
         setRecipeCount(countDistinctRecipes(full.logical));
         setNodes(laid.nodes);
         setEdges(laid.edges);
+        setUnderDelivered(laid.underDelivered);
         setLayoutGeneration((g) => g + 1);
         setPlanEpoch((e) => e + 1);
         // A fresh render is authoritative: the canvas now matches the plan.
@@ -367,7 +463,10 @@ function AppInner() {
       } catch (e) {
         failSolve(e);
       } finally {
-        if (myGen === solveGen.current) setPending(false);
+        if (myGen === solveGen.current) {
+          navigationInFlightRef.current = false;
+          setPending(false);
+        }
       }
     },
     [setNodes, setEdges],
@@ -401,6 +500,10 @@ function AppInner() {
   // plan stays put and the error banner is the signal; the canvas keeps the
   // last good render. The URL hash updates on solve success only.
   function commitPlan(nextPlan: Plan): void {
+    if (navigationInFlightRef.current) {
+      setMutationError({ kind: "busy" });
+      return;
+    }
     const error = validatePlan(nextPlan, pack);
     if (error) {
       // The edit itself is what validatePlan rejected, and the canvas keeps the
@@ -440,6 +543,7 @@ function AppInner() {
       setRecipeCount(countDistinctRecipes(full.logical));
       setNodes(laid.nodes);
       setEdges(laid.edges);
+      setUnderDelivered(laid.underDelivered);
       setLayoutGeneration((g) => g + 1);
       setMutationError(null);
       setStale(false);
@@ -461,6 +565,10 @@ function AppInner() {
   // scheduleSolve keeps one race-guarded pipeline instead of a second
   // layout-only path caching solver output.
   function handleToggleBusLanes(): void {
+    if (navigationInFlightRef.current) {
+      setMutationError({ kind: "busy" });
+      return;
+    }
     const next = !busLanesEnabledRef.current;
     busLanesEnabledRef.current = next;
     setBusLanesEnabled(next);
@@ -521,8 +629,7 @@ function AppInner() {
     }
     ids.sort();
     return ids;
-    // `pack` is a module-stable import, so it stays out of the dependency list
-    // (same as inSccRecipes above).
+    // `pack` is a module-stable import, so it stays out of the dependency list.
   }, [realizedRateByItem]);
 
   if (initialError) {
@@ -560,6 +667,7 @@ function AppInner() {
       return i18n.t("app.error.load", { message: err.message });
     if (err.kind === "edit")
       return i18n.t("app.error.edit", { message: err.message });
+    if (err.kind === "busy") return i18n.t("app.error.busy");
     const e = err.error;
     if (e instanceof LpInfeasibleError) {
       const ids =
@@ -642,6 +750,19 @@ function AppInner() {
             >
               {i18n.t("app.error.dismiss")}
             </button>
+          </div>
+        ) : null}
+        {underDelivered.length > 0 ? (
+          <div
+            role="status"
+            data-testid="shortfall-strip"
+            style={shortfallStripStyle}
+          >
+            {i18n.t("app.error.infeasible", {
+              items: underDelivered
+                .map((id) => i18n.displayName(id))
+                .join(", "),
+            })}
           </div>
         ) : null}
       </div>

@@ -197,3 +197,24 @@ test("app-initiated hash writes do not re-trigger a load", async () => {
   await new Promise((r) => setTimeout(r, 25));
   expect(layoutSpy.calls).toBe(1);
 });
+
+test("a second bad hash while the recovery screen is up refreshes the screen", async () => {
+  // First bad hash on mount: nothing is rendered, so the failure owns the
+  // whole viewport.
+  window.location.hash = "#v1.%%%not-base64%%%";
+  render(<App />);
+
+  const first = await screen.findByRole("alert");
+  expect(first.textContent).toMatch(/parse/i);
+
+  // A second bad hash pasted over the recovery screen must update it. Routing
+  // this to the dismissible banner instead would put the message on a surface
+  // the recovery screen never renders, leaving the first message frozen.
+  window.location.hash = "#v9.abcdef";
+
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toMatch(/v9/),
+  );
+  // Still the full-screen recovery surface, recovery action included.
+  expect(screen.getByRole("button", { name: /fresh plan/i })).not.toBeNull();
+});

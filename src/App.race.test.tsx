@@ -7,7 +7,10 @@
 // left in a field when the plan is navigated away is discarded, never applied
 // to the newly loaded plan. A third guard covers the other half of that
 // contract: committing one row must NOT remount the panel, so an uncommitted
-// edit sitting in another row survives.
+// edit sitting in another row survives. A fourth covers the reverse ordering:
+// an edit or a view-toggle started while a hash navigation is still landing is
+// refused outright rather than winning the race and rewriting the URL back to
+// the plan the user just navigated away from.
 //
 // The solve window is made deterministic by mocking layoutRenderPlan with a
 // manually resolved deferred, so no real-timing race window is involved.
@@ -212,4 +215,74 @@ test("an uncommitted edit survives a commit in another row", async () => {
   // ...and row 1's uncommitted text was not wiped by a panel remount ("30" here
   // means the panel remounted and dropped the in-flight edit).
   expect(after[1]!.value).toBe("777");
+});
+
+test("an edit made while a hash navigation is landing is refused", async () => {
+  render(<App />);
+
+  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
+  layoutGate.pending.shift()!();
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(window.location.hash).not.toBe(""));
+
+  // Navigate to plan B and hold its layout, so the navigation is in flight for
+  // the whole edit below.
+  window.location.hash = await encodePlanB();
+  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
+
+  const inputs = within(
+    screen.getByTestId("targets-section"),
+  ).getAllByLabelText(/rate/i) as HTMLInputElement[];
+  fireEvent.change(inputs[0]!, { target: { value: "600" } });
+  fireEvent.blur(inputs[0]!);
+
+  // Refused with a reason, and no second solve was started.
+  const banner = await screen.findByRole("alert");
+  expect(banner.textContent).toMatch(/loading/i);
+  expect(layoutGate.pending.length).toBe(1);
+
+  // The navigation lands as plan B and clears the banner; the refused edit
+  // reached neither the plan nor the URL.
+  layoutGate.pending.shift()!();
+  await waitFor(() =>
+    expect(
+      within(screen.getByTestId("targets-section")).getAllByTestId("target-row")
+        .length,
+    ).toBe(2),
+  );
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  const outcome = await loadPlan(window.location.hash, pack);
+  expect(outcome.kind).toBe("loaded");
+  if (outcome.kind !== "loaded") return;
+  expect(outcome.plan.targets.length).toBe(2);
+  const byId = new Map(
+    outcome.plan.targets.map((t) => [t.itemId, t.ratePerSec]),
+  );
+  expect(byId.get("copper_bottle")).toEqual({ num: "2", denom: "1" });
+});
+
+test("the bus-lanes toggle is refused while a hash navigation is landing", async () => {
+  render(<App />);
+
+  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
+  layoutGate.pending.shift()!();
+  await screen.findAllByTestId("target-row");
+  await waitFor(() => expect(window.location.hash).not.toBe(""));
+
+  window.location.hash = await encodePlanB();
+  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
+
+  const toggle = screen.getByTestId("bus-lanes-toggle");
+  expect(toggle).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(toggle);
+
+  const banner = await screen.findByRole("alert");
+  expect(banner.textContent).toMatch(/loading/i);
+  // The preference did not flip, so the switch does not lie about the render.
+  expect(screen.getByTestId("bus-lanes-toggle")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  expect(window.localStorage.getItem("aef.busLanes")).not.toBe("on");
+  expect(layoutGate.pending.length).toBe(1);
 });
