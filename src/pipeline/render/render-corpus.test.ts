@@ -1,7 +1,7 @@
 // End-to-end render corpus test.
 //
 // Known-good group: the four feasible closed-form micro-fixtures (chain,
-// multi-producer, byproduct, raw-draw) all pass the seven render invariants.
+// multi-producer, byproduct, raw-draw) all pass the nine render invariants.
 //
 // RF-1 regression: the real-pack plan in RF1_HASH has an internally balanced
 // intermediate iron_nugget whose render edge used to be dropped (surfaced as a
@@ -1004,7 +1004,7 @@ describe("render corpus: co-product fans across sibling replicas (P6)", () => {
     expect(shipped.equals(production)).toBe(true);
   });
 
-  // (iii) P6 is clean on all 7 checkRenderPlan checkers today and must stay so.
+  // (iii) P6 is clean on all nine checkRenderPlan checkers today and must stay so.
   it("all checkRenderPlan checkers report zero violations", () => {
     const { full, plan } = solveP6();
     const violations = checkRenderPlan({
