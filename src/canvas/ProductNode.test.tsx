@@ -1,19 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test } from "vitest";
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { cleanup, render } from "@testing-library/react";
 import ProductNode from "./ProductNode";
-import { ItemPackProvider, type ItemPackContextValue } from "./itemPackContext";
+import { ItemPackProvider } from "./itemPackContext";
+import { makeItem, makePackValue, makeProductNodeProps } from "./node.testkit";
 import { LocaleProvider } from "../data/i18n-context";
 
 afterEach(cleanup);
 
-const PACK = {
-  itemById: new Map([["ore", { id: "ore", icon: "ore", raw: true }]]),
-  overrides: [],
-  machineById: new Map(),
-} as unknown as ItemPackContextValue;
+const PACK = makePackValue({ items: [makeItem("ore", true)] });
 
 function wrap(ui: ReactNode, locale: "en" | "zh" = "en") {
   return render(
@@ -25,39 +22,35 @@ function wrap(ui: ReactNode, locale: "en" | "zh" = "en") {
   );
 }
 
-function inputProps(selected?: boolean) {
-  return {
-    data: {
+function inputProps(selected = false) {
+  return makeProductNodeProps(
+    {
       kind: "inputProduct",
       itemId: "ore",
       rate: { num: "1", denom: "1" },
     },
     selected,
-  } as unknown as ComponentProps<typeof ProductNode>;
+  );
 }
 
 function outputProps() {
-  return {
-    data: {
-      kind: "outputProduct",
-      itemId: "ore",
-      rate: { num: "2", denom: "1" },
-      flavor: "target",
-    },
-  } as unknown as ComponentProps<typeof ProductNode>;
+  return makeProductNodeProps({
+    kind: "outputProduct",
+    itemId: "ore",
+    rate: { num: "2", denom: "1" },
+    flavor: "target",
+  });
 }
 
 function fanoutInputProps() {
-  return {
-    data: {
-      kind: "inputProduct",
-      itemId: "ore",
-      rate: { num: "1", denom: "2" },
-      rateCap: { num: "1", denom: "1" },
-      isFanout: true,
-      parentRate: { num: "9", denom: "2" },
-    },
-  } as unknown as ComponentProps<typeof ProductNode>;
+  return makeProductNodeProps({
+    kind: "inputProduct",
+    itemId: "ore",
+    rate: { num: "1", denom: "2" },
+    rateCap: { num: "1", denom: "1" },
+    isFanout: true,
+    parentRate: { num: "9", denom: "2" },
+  });
 }
 
 // React Flow passes the wrapper's `selected` flag as a NodeProp; the inner

@@ -2,68 +2,26 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import {
-  ReactFlowProvider,
-  type NodeProps,
-  type Node as RFNode,
-} from "@xyflow/react";
+import { ReactFlowProvider } from "@xyflow/react";
 import type { Item } from "@aef/schema";
-import ProductNode, {
-  type ProductNodeData,
-} from "../../src/canvas/ProductNode";
+import ProductNode from "../../src/canvas/ProductNode";
 import { LocaleProvider } from "../../src/data/i18n-context";
+import { ItemPackProvider } from "../../src/canvas/itemPackContext";
 import {
-  ItemPackProvider,
-  type ItemPackContextValue,
-} from "../../src/canvas/itemPackContext";
+  makeItem,
+  makePackValue,
+  makeProductNodeProps,
+  type ProductNodeData,
+} from "../../src/canvas/node.testkit";
 
 afterEach(() => cleanup());
-
-type ProductNodeType = RFNode<ProductNodeData, "product">;
-
-function makeProps(data: ProductNodeData): NodeProps<ProductNodeType> {
-  return {
-    id: "product-test",
-    type: "product",
-    data,
-    selected: false,
-    isConnectable: true,
-    positionAbsoluteX: 0,
-    positionAbsoluteY: 0,
-    zIndex: 0,
-    dragging: false,
-    draggable: true,
-    deletable: true,
-    selectable: true,
-  } as unknown as NodeProps<ProductNodeType>;
-}
-
-function makeItem(id: string, raw: boolean): Item {
-  return {
-    id,
-    name: id,
-    category: "intermediate",
-    icon: id,
-    row: 0,
-    raw,
-    transportKind: "belt",
-  };
-}
-
-function makePackValue(items: Item[]): ItemPackContextValue {
-  return {
-    itemById: new Map(items.map((i) => [i.id, i])),
-    overrides: [],
-    machineById: new Map(),
-  };
-}
 
 function renderProduct(data: ProductNodeData, items: Item[] = []) {
   return render(
     <LocaleProvider locale="en">
-      <ItemPackProvider value={makePackValue(items)}>
+      <ItemPackProvider value={makePackValue({ items })}>
         <ReactFlowProvider>
-          <ProductNode {...makeProps(data)} />
+          <ProductNode {...makeProductNodeProps(data)} />
         </ReactFlowProvider>
       </ItemPackProvider>
     </LocaleProvider>,
