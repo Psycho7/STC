@@ -510,10 +510,10 @@ test.describe("DOM geometry audit", () => {
 // card-intrusion on default, HELD; the actual cost landed on five other
 // scenarios as seven UP cells -- five card-intrusion arrivals (wide chips
 // riding their own straight legs into card bodies) and two foreign-stroke
-// arrivals -- detailed at the two tables. Ratified under the R7 precedent
-// (controller best-judgment call recorded the same day); the family's
-// follow-on tasks (fan-out branch window, per-chip bus seat box) are expected
-// to buy some of it back.
+// arrivals -- detailed at the two tables. Pinned under the R7 precedent
+// (controller best-judgment call recorded the same day) and user-ratified
+// 2026-09-05; the family's follow-on tasks (fan-out branch window, per-chip
+// bus seat box) are expected to buy some of it back.
 //
 // R9, same campaign -- loop returns leave the frames. Task 7's corridor
 // routing moved 25 cells DOWN (multi6 crossing 415 -> 121 among them) and
@@ -522,8 +522,8 @@ test.describe("DOM geometry audit", () => {
 // Task 9 crossing cue exists to mark exactly these), coupon-web chip-segment
 // 3 -> 4 and foreign-stroke 1 -> 2 (one event counted twice: e:15's corridor
 // run under the e:8 chip), gas-web card-intrusion 7 -> 8 (a re-seated chip
-// rode its rail's new anchor). Ratified under the R7 precedent (controller
-// best-judgment call, ruling question unanswered, 2026-09-04).
+// rode its rail's new anchor). Pinned under the R7 precedent (controller
+// best-judgment call, 2026-09-04) and user-ratified 2026-09-05.
 //
 // R10, same campaign -- out-of-band rail strikes padded by the full gap. A
 // review pass found the y-window's struck-outside predicate comparing the
@@ -533,7 +533,8 @@ test.describe("DOM geometry audit", () => {
 // clearance; dense-graph rails settle further out, costing four cells
 // (multi6 crossing 121 -> 137 and foreign-stroke 10 -> 15, multi6
 // card-intrusion 22 -> 23, gas-web crossing 39 -> 40 -- every one green at
-// HEAD by differential rebuild). User-ratified 2026-09-04.
+// HEAD by differential rebuild). Pinned 2026-09-04 as a controller call;
+// user-ratified 2026-09-05 together with R8 and R9.
 
 // TASK 7 -- loop returns in the corridor, not on the frame (2026-09-04). Two
 // routing changes: clearRailY now escapes over only the CONNECTED BAND of
