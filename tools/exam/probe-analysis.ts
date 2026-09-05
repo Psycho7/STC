@@ -673,3 +673,152 @@ export function evalPayload(value: unknown, limit = EVAL_JSON_LIMIT): EvalPayloa
   if (json.length <= limit) return { truncated: false, value };
   return { truncated: true, json: json.slice(0, limit) };
 }
+
+// ---------------------------------------------------------------------------
+// The op table and the command line
+//
+// Both live here rather than beside main() so the argv suite reads them without
+// loading the CLI, which drags in Playwright and a browser driver for what is a
+// few milliseconds of string work.
+//
+// OP_ARGS is the op list's one definition on this side. The same names are
+// written again in the workflow's falsifier schema and twice in the skill doc,
+// and only a parity test holds those to this table - an op renamed here and
+// nowhere else leaves an evaluator naming a probe run that cannot be made.
+// ---------------------------------------------------------------------------
+
+export const OP_ARGS = {
+  "hover-edge": ["id"],
+  "hover-node": ["id"],
+  contrast: ["selector"],
+  "delta-e": ["a", "b"],
+  "chip-binding": ["id"],
+  rect: ["id"],
+  "computed-style": ["selector", "props"],
+  "text-overflow": ["selector"],
+} as const;
+export type OpName = keyof typeof OP_ARGS;
+
+function isOpName(name: string): name is OpName {
+  return Object.prototype.hasOwnProperty.call(OP_ARGS, name);
+}
+
+export type ProbeOptions = {
+  baseUrl: string;
+  hash: string;
+  locale: string;
+  zoom: number | null;
+  center: { x: number; y: number } | null;
+  op: OpName | null;
+  args: Record<string, string>;
+  evalFile: string | null;
+  shot: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// Arg parsing
+// ---------------------------------------------------------------------------
+
+export function parseArgs(argv: string[]): ProbeOptions | string {
+  let baseUrl: string | undefined;
+  let hash: string | undefined;
+  let locale = "en";
+  let zoom: number | null = null;
+  let center: { x: number; y: number } | null = null;
+  let op: OpName | null = null;
+  const args: Record<string, string> = {};
+  let evalFile: string | null = null;
+  let shot: string | null = null;
+
+  const value = (i: number): string | null => {
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith("--")) return null;
+    return next;
+  };
+
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const v = value(i);
+    switch (a) {
+      case "--base-url":
+        if (v === null) return "error: --base-url requires a value";
+        baseUrl = argv[++i];
+        break;
+      case "--hash":
+        if (v === null) return "error: --hash requires a value";
+        hash = argv[++i];
+        break;
+      case "--locale":
+        if (v === null) return "error: --locale requires a value";
+        locale = argv[++i]!;
+        break;
+      case "--zoom": {
+        if (v === null) return "error: --zoom requires a value";
+        const n = Number(argv[++i]);
+        if (!Number.isFinite(n) || n <= 0)
+          return `error: --zoom must be a positive number, got "${v}"`;
+        zoom = n;
+        break;
+      }
+      case "--center": {
+        if (v === null) return "error: --center requires a value";
+        const parts = argv[++i]!.split(",");
+        // Each half must be a number that was actually written. Number("") is 0
+        // and finite, so "10," would otherwise parse as the origin's y and
+        // silently frame a camera the caller never asked for.
+        const bad =
+          parts.length !== 2 ||
+          parts.some((p) => p.trim() === "" || !Number.isFinite(Number(p)));
+        if (bad) return `error: --center must be "<wx>,<wy>", got "${v}"`;
+        center = { x: Number(parts[0]), y: Number(parts[1]) };
+        break;
+      }
+      case "--op": {
+        if (v === null) return "error: --op requires a value";
+        const name = argv[++i]!;
+        if (!isOpName(name))
+          return `error: unknown op "${name}"; known ops: ${Object.keys(OP_ARGS).join(", ")}`;
+        op = name;
+        break;
+      }
+      case "--arg": {
+        if (v === null) return "error: --arg requires a k=v value";
+        const pair = argv[++i]!;
+        const eq = pair.indexOf("=");
+        // Split at the FIRST `=` only: a selector argument routinely carries
+        // more of them, and splitting on every one would drop half the selector.
+        if (eq <= 0) return `error: --arg must be "k=v", got "${pair}"`;
+        args[pair.slice(0, eq)] = pair.slice(eq + 1);
+        break;
+      }
+      case "--eval":
+        if (v === null) return "error: --eval requires a file path";
+        evalFile = argv[++i]!;
+        break;
+      case "--shot":
+        if (v === null) return "error: --shot requires a file path";
+        shot = argv[++i]!;
+        break;
+      default:
+        return `error: unknown argument "${a}"`;
+    }
+  }
+
+  if (baseUrl === undefined) return "error: --base-url is required";
+  if (hash === undefined) return "error: --hash is required";
+  // Either both or neither: a zoom with no centre has nothing to frame, and a
+  // centre with no zoom would silently keep whatever zoom the fit left, which
+  // reads in the output as a camera the caller commanded.
+  if ((zoom === null) !== (center === null))
+    return "error: --zoom and --center must be given together";
+  if (op === null && Object.keys(args).length > 0)
+    return "error: --arg is only meaningful with --op";
+  if (op !== null) {
+    for (const required of OP_ARGS[op]) {
+      if (args[required] === undefined)
+        return `error: op ${op} requires --arg ${required}=<value>`;
+    }
+  }
+
+  return { baseUrl, hash, locale, zoom, center, op, args, evalFile, shot };
+}

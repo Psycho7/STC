@@ -28,37 +28,13 @@ import { useI18n } from "../data/i18n-context";
 import { pack } from "../data/load";
 import type { CSSProperties } from "react";
 import { iconSheetUrl } from "./iconSprite";
+import { HOVER_INTENT_MS } from "./dimensions";
 
 // Camera handle the render-quality exam drives (see the gated effect in
-// CanvasInner). Declared globally because the driver reaches it through the page
-// window, not through a module import.
-declare global {
-  interface Window {
-    __stcExam?: {
-      setViewport(v: { x: number; y: number; zoom: number }): void;
-      fitView(): void;
-      contentBounds(): {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-      } | null;
-      chipReservations(): Array<{
-        testId: string;
-        body: string;
-        unit: boolean;
-        reservedPx: number;
-      }>;
-      // Provenance of the build being driven, so a capture is stamped with what
-      // it actually photographed. The exam defaults to a deployed preview, and
-      // deploy lag would otherwise make an older build indistinguishable from
-      // the tip once the images are on disk. Values, not getters: neither can
-      // change while the page is loaded.
-      commit: string;
-      pack: { sourceCommit: string; gameVersion: string };
-    };
-  }
-}
+// CanvasInner). The shape, and the `Window` augmentation that puts it on the
+// page, are declared in ./exam-hook so this component and the CLIs that drive it
+// share one contract.
+import type { ExamHook } from "./exam-hook";
 
 const canvasThemeStyle: CSSProperties = {
   width: "100%",
@@ -91,11 +67,6 @@ const FIT_VIEW_OPTIONS = { padding: 0.12 };
 // computes), where fitView would frame the node cards alone and clip a chip
 // cascaded below the deepest lane band or nudged past a border card.
 const FIT_BOUNDS_OPTIONS = { padding: 0.12 };
-
-// Delay before a hover registers, so sweeping the pointer across the canvas does
-// not strobe the dim state on every element crossed. A leave within the window
-// cancels the pending hover.
-const HOVER_INTENT_MS = 150;
 
 // Debounce for the ResizeObserver re-fit so dragging the window edge (a burst of
 // resize callbacks) coalesces into a single fitView instead of thrashing.
@@ -282,7 +253,7 @@ function CanvasInner({
         sourceCommit: pack.source.sourceCommit,
         gameVersion: pack.source.gameVersion,
       },
-    };
+    } satisfies ExamHook;
     return () => {
       delete window.__stcExam;
     };

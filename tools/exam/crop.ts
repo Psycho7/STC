@@ -58,6 +58,10 @@ import { chromium, type Browser } from "@playwright/test";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Rect } from "./tiling";
+// The subdirectory the capture writes images into. Imported from the document
+// module rather than restated: this CLI resolves an evidence image by rebuilding
+// the path the capture built, and two literals would drift apart in silence.
+import { IMAGES_SUBDIR } from "./scene";
 
 // Context kept around every evidence rect in --verdicts mode when --margin says
 // nothing. A 24 px cut shows that a chip exists, not what it overlaps: every
@@ -263,7 +267,7 @@ export function cropJobsFromRun(
       }
       const where = typeof entry.where === "string" ? entry.where : "";
       jobs.push({
-        image: path.join(opts.examDir, planId, "images", image),
+        image: path.join(opts.examDir, planId, IMAGES_SUBDIR, image),
         rect,
         margin,
         out: path.join(opts.outDir, cropFileName(findingId, n)),

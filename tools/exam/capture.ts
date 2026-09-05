@@ -54,7 +54,17 @@ import {
 import {
   LABEL_MIN_ZOOM,
   CHIP_ICON_ONLY_MAX_ZOOM,
-} from "../../src/canvas/ItemEdge";
+} from "../../src/canvas/dimensions";
+import {
+  BUS_LANES_STORAGE_KEY,
+  LOCALE_STORAGE_KEY,
+} from "../../src/data/storage-keys";
+import {
+  assertZoomAchieved,
+  correctiveFileName,
+  examUrl,
+  readProvenance,
+} from "./capture-helpers";
 import {
   computeCoverage,
   safeRegion,
@@ -65,8 +75,8 @@ import {
   type TileSpec,
   type Viewport,
 } from "./tiling";
-import { UNKNOWN_COMMIT } from "../build/commit-stamp";
 import {
+  IMAGES_SUBDIR,
   measurementsFor,
   worldRectKey,
   writeScene,
@@ -74,24 +84,12 @@ import {
   type SceneDoc,
   type TileRecord,
 } from "./scene";
-
-// The exam camera handle the app installs under `?exam=1`. Declared locally
-// rather than imported: the app declares it on `Window` from a module this CLI
-// has no reason to load, and the three camera methods plus the provenance pair
-// below are the whole contract. The type is erased before any of it reaches the
-// browser, so referring to it from inside a page.evaluate callback is safe.
-// The provenance pair is optional on this type even though the app always
-// installs it: the page under exam may be a deployment built before the hook
-// carried it, and that case has to be detectable at runtime rather than assumed
-// away by the type.
-type ExamHook = {
-  setViewport(v: Viewport): void;
-  fitView(): void;
-  contentBounds(): Rect | null;
-  commit?: string;
-  pack?: { sourceCommit: string; gameVersion: string };
-};
-type ExamWindow = Window & { __stcExam?: ExamHook };
+// Not for a value: importing the app's hook module pulls in the `Window`
+// augmentation that types `window.__stcExam` inside every page.evaluate callback
+// below, so the driver and the page it drives share one declaration instead of a
+// copy that can drift. The module declares types and nothing else, so no canvas
+// code follows it in.
+import "../../src/canvas/exam-hook";
 
 const VIEWPORT = { width: 1920, height: 1080 };
 const DEVICE_SCALE_FACTOR = 2;
@@ -126,23 +124,6 @@ const MAX_CORRECTIVE_ROUNDS = 3;
 // fixed world constants while a chip's true footprint at a zoom below 1 is
 // larger, so the planned band systematically under-covers periphery chips.
 const CORRECTIVE_RESERVE = 8;
-// Subdirectory of the plan directory the images are written into, recorded in
-// scene.json as `imagesDir` so a consumer resolves an image from the document.
-// The tile records keep BARE file names: the name an evaluator can cite is the
-// one it sees in the directory it was handed, and the corroboration join matches
-// a cited name against `tiles[].file`, so a prefix here would break every join
-// silently.
-const IMAGES_SUBDIR = "images";
-// How far the achieved zoom may sit from the commanded one before the capture is
-// called a failure, RELATIVE to the commanded zoom (floored at 1 so sub-1 zooms
-// keep the absolute slack). The transform is assigned verbatim by d3-zoom, so
-// this is not a tolerance for clamping - but the achieved value is read back out
-// of getComputedStyle, which Chromium serialises to 6 significant digits, and
-// that quantisation is the dominant term: at zoom 1.2345678 the read-back is
-// 1.23457, already 2.2e-6 off. A future reader must not tighten this on the
-// belief that the slack is float noise; scaling with the commanded value is what
-// keeps a zoom above 1 from failing a capture that was in fact exact.
-const ZOOM_EPS_RELATIVE = 1e-5;
 
 // Element families a reviewer must read whole in a single shot: half a chip in
 // one tile and half in another is two unreadable halves. Everything else (edge
@@ -268,64 +249,6 @@ function parseArgs(argv: string[]): Options | string {
 
 export type BootOptions = { baseUrl: string; hash: string; locale: string };
 
-// The query string must precede the fragment: the app reads `?exam=1` from
-// window.location.search, and anything after the `#` is fragment, not query.
-export function examUrl(baseUrl: string, hash: string): string {
-  const base = baseUrl.replace(/\/+$/, "");
-  const frag = hash.startsWith("#") ? hash.slice(1) : hash;
-  return `${base}/?exam=1#${frag}`;
-}
-
-// What the page says it was built from. Both halves are required on a scene:
-// an unattributed capture cannot be checked against the tip under exam or
-// against the pack ledger afterwards, and by the time anyone notices the images
-// are already on disk with nothing to tie them to.
-export type Provenance = {
-  commit: string;
-  pack: { sourceCommit: string; gameVersion: string };
-};
-
-// Validate the pair read off the exam hook. Returns the provenance, or a
-// message naming the one field that fails - which field it is, is the whole
-// diagnosis, so a message that only said "pack" would send an operator looking
-// through both halves. Split out from the capture so these cases are pinned
-// without a browser.
-export function readProvenance(raw: {
-  commit?: string | undefined;
-  // Null as well as undefined: the hook builds this from the loaded pack, and a
-  // page with nothing to report hands back a null rather than omitting the key.
-  pack?: { sourceCommit: string; gameVersion: string } | null | undefined;
-}): Provenance | string {
-  const commit = raw.commit;
-  const pack = raw.pack;
-  if (typeof commit !== "string" || commit === "") {
-    return "window.__stcExam.commit is missing";
-  }
-  // The stamp helper emits this literal when git could not answer at build
-  // time. The field is present, so nothing downstream would complain, but it
-  // attributes the scene to no build at all - which is exactly the outcome
-  // reading provenance exists to prevent, so it is rejected like an absent one.
-  if (commit === UNKNOWN_COMMIT) {
-    return `window.__stcExam.commit is "${UNKNOWN_COMMIT}": the build could not name itself`;
-  }
-  // Null and undefined alike: an absent pack is one diagnosis, and letting the
-  // null through would report a missing sourceCommit instead, sending an
-  // operator to look inside an object that is not there.
-  if (pack === undefined || pack === null) {
-    return "window.__stcExam.pack is missing";
-  }
-  if (typeof pack.sourceCommit !== "string" || pack.sourceCommit === "") {
-    return "window.__stcExam.pack.sourceCommit is missing";
-  }
-  if (typeof pack.gameVersion !== "string" || pack.gameVersion === "") {
-    return "window.__stcExam.pack.gameVersion is missing";
-  }
-  return {
-    commit,
-    pack: { sourceCommit: pack.sourceCommit, gameVersion: pack.gameVersion },
-  };
-}
-
 // Open a page on the plan and wait until it is examinable. Mirrors the settled
 // wait sequence of the placement screenshot spec, which is the recipe that made
 // those shots reproducible across machines. Throws if any stage times out; the
@@ -354,10 +277,21 @@ export async function bootPage(
   // change under the camera. Bus lanes ride the same store and default OFF
   // for a missing key; the exam corpus opts in exactly as the e2e specs do,
   // so the capture shows the lanes, bands and captions the audits ratchet.
-  await page.addInitScript((locale: string) => {
-    window.localStorage.setItem("aef.locale", locale);
-    window.localStorage.setItem("aef.busLanes", "on");
-  }, opts.locale);
+  // The keys travel as an ARGUMENT, not as module constants: page.addInitScript
+  // serialises the callback source and evaluates it in the page, so nothing from
+  // this module's scope reaches it and a captured import would be a fresh
+  // ReferenceError inside the browser rather than a compile error here.
+  await page.addInitScript(
+    (seed: { localeKey: string; locale: string; busLanesKey: string }) => {
+      window.localStorage.setItem(seed.localeKey, seed.locale);
+      window.localStorage.setItem(seed.busLanesKey, "on");
+    },
+    {
+      localeKey: LOCALE_STORAGE_KEY,
+      locale: opts.locale,
+      busLanesKey: BUS_LANES_STORAGE_KEY,
+    },
+  );
 
   await page.goto(examUrl(opts.baseUrl, opts.hash), { waitUntil: "load" });
 
@@ -436,49 +370,6 @@ function centreOf(rect: Rect): { x: number; y: number } {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
 }
 
-// Element ids come from the DOM and carry separators a path cannot; keep the
-// mapping total and stable so two runs name the same file.
-function slug(id: string): string {
-  const cleaned = id.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
-  return cleaned === "" ? "element" : cleaned.slice(0, 80);
-}
-
-// The file one corrective shot writes to. The slug alone is not enough: it is
-// truncated, and ids that differ only past the cut collide - bus chip ids are
-// "bus-edge-label-<edgeId>-drop" and "...-rise", so the two chips of one long
-// edge id slug identically. Two records would then name one image and one of
-// them would describe a picture that no longer exists. The index makes the name
-// unique whatever the ids are, because no two corrective shots share one; the
-// slug stays on for the reader.
-export function correctiveFileName(index: number, id: string): string {
-  return `20-corrective-${String(index).padStart(3, "0")}-${slug(id)}.png`;
-}
-
-// The commanded viewport is supposed to land verbatim: setViewport forwards to
-// d3-zoom's zoom.transform, and the scale extent binds gestures and fitView, not
-// that path. If it ever does not, nothing downstream notices on its own - tile
-// rects and element rects are both derived from the ACHIEVED transform, so the
-// coverage math stays self-consistent and still reports "complete" while the
-// document swears the images are at the commanded zoom and the evaluator reads
-// LOD tier off that number. There is no honest ledger to write for a clamped
-// shot, so the run fails instead.
-export function assertZoomAchieved(
-  file: string,
-  commanded: number,
-  achieved: number,
-): void {
-  if (
-    Math.abs(achieved - commanded) <=
-    ZOOM_EPS_RELATIVE * Math.max(1, commanded)
-  ) {
-    return;
-  }
-  throw new Error(
-    `${file}: commanded zoom ${commanded} but the viewport achieved ${achieved}; ` +
-      `the camera was clamped or ignored, so no image can be labelled with the commanded zoom`,
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Shooting
 // ---------------------------------------------------------------------------
@@ -502,7 +393,7 @@ async function shoot(
 ): Promise<Shot> {
   const commanded = viewportFor(req.center, targetZoom, cameraSafe);
   await page.evaluate((v: Viewport) => {
-    (window as ExamWindow).__stcExam!.setViewport(v);
+    window.__stcExam!.setViewport(v);
   }, commanded);
   await page.waitForTimeout(SETTLE_MS);
   // Park the pointer before the shot so no hover-dim state is captured: the
@@ -632,7 +523,7 @@ async function capture(opts: Options): Promise<number> {
     }
 
     const hookPresent = await page.evaluate(
-      () => (window as ExamWindow).__stcExam !== undefined,
+      () => window.__stcExam !== undefined,
     );
     if (!hookPresent) {
       console.error(
@@ -646,7 +537,7 @@ async function capture(opts: Options): Promise<number> {
     // stopping later costs a whole plan's images.
     const provenance = readProvenance(
       await page.evaluate(() => {
-        const hook = (window as ExamWindow).__stcExam!;
+        const hook = window.__stcExam!;
         return { commit: hook.commit, pack: hook.pack };
       }),
     );
@@ -661,7 +552,7 @@ async function capture(opts: Options): Promise<number> {
     }
 
     const contentRect = await page.evaluate(
-      () => (window as ExamWindow).__stcExam!.contentBounds(),
+      () => window.__stcExam!.contentBounds(),
     );
     if (contentRect === null) {
       console.error(`error: ${opts.planId} has an empty graph (no content bounds)`);
@@ -672,7 +563,7 @@ async function capture(opts: Options): Promise<number> {
     // the app frames. Its zoom is clamped where a commanded viewport is not,
     // which is why the achieved transform is read back rather than derived.
     await page.evaluate(() => {
-      (window as ExamWindow).__stcExam!.fitView();
+      window.__stcExam!.fitView();
     });
     await page.waitForTimeout(SETTLE_MS);
     await page.mouse.move(PARK_POINT.x, PARK_POINT.y);
