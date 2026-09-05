@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { runCli } from "./main";
 import { pack } from "../../src/data/load";
 import { defaultPlan, encodePlan } from "../../src/data/plan";
+import { RENDER_INVARIANT_CHECKERS } from "../../src/pipeline/render/invariants";
 
 // Smoke tests for the solver-cli. These call runCli() directly (no process
 // spawning) and assert on the returned string. The headline plan is a single
@@ -130,5 +131,12 @@ describe("solver-cli smoke", () => {
     expect(out).toContain("# edges");
     expect(out).toContain("# render-invariants");
     expect(out).toMatch(/edgeEndpointIntegrity ok=/);
+
+    // Every checker in the exported table gets a verdict, in table order. A
+    // checker added to checkRenderPlan but not to the table (or the reverse)
+    // trips the CLI's count guard; this pins the labelling itself.
+    const block = out.slice(out.indexOf("# render-invariants"));
+    const labelled = [...block.matchAll(/^(\w+) ok=/gm)].map((m) => m[1]);
+    expect(labelled).toEqual(RENDER_INVARIANT_CHECKERS.map((c) => c.name));
   });
 });

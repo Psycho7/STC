@@ -965,3 +965,24 @@ export function assertRenderInvariants(args: RenderInvariantArgs): void {
     throw new Error(`render invariants violated:\n${violations.join("\n")}`);
   }
 }
+
+/**
+ * The nine checkers paired with the names a debug surface prints them under,
+ * in the order checkRenderPlan returns its results. Consumers zip their labels
+ * against this table instead of hand-listing names in call order, so adding a
+ * checker cannot silently mislabel every verdict after it.
+ */
+export const RENDER_INVARIANT_CHECKERS: ReadonlyArray<{
+  readonly name: string;
+  readonly check: (args: RenderInvariantArgs) => InvariantResult;
+}> = [
+  { name: "edgeEndpointIntegrity", check: checkEdgeEndpointIntegrity },
+  { name: "boundaryProductsJustified", check: checkBoundaryProductsJustified },
+  { name: "internalFlowConservation", check: checkInternalFlowConservation },
+  { name: "consumerInputsSatisfied", check: checkConsumerInputsSatisfied },
+  { name: "consumerInputsNotOverfed", check: checkConsumerInputsNotOverfed },
+  { name: "targetOutputsSatisfied", check: checkTargetOutputsSatisfied },
+  { name: "noOrphanUnits", check: checkNoOrphanUnits },
+  { name: "unitOutflowVsProduction", check: checkUnitOutflowVsProduction },
+  { name: "productUnitRates", check: checkProductUnitRates },
+];
