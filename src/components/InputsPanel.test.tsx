@@ -2,27 +2,20 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { RecipePack } from "@aef/schema";
 import { InputsPanel, displayedInputCount } from "./InputsPanel";
+import { makePack } from "../solver/closed-form-fixtures";
 import { LocaleProvider } from "../data/i18n-context";
 import type { ItemOverride } from "../data/plan";
 
 afterEach(cleanup);
 afterEach(() => vi.useRealTimers());
 
-const PACK = {
-  items: [{ id: "widget", icon: "widget" }],
-  recipes: [],
-} as unknown as RecipePack;
+const PACK = makePack([], [{ id: "widget" }]);
 
-const PACK3 = {
-  items: [
-    { id: "widget", icon: "widget" },
-    { id: "gadget", icon: "gadget" },
-    { id: "sprocket", icon: "sprocket" },
-  ],
-  recipes: [],
-} as unknown as RecipePack;
+const PACK3 = makePack(
+  [],
+  [{ id: "widget" }, { id: "gadget" }, { id: "sprocket" }],
+);
 
 function rateInputs(): HTMLInputElement[] {
   return screen

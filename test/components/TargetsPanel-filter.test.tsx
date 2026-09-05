@@ -7,8 +7,12 @@ import {
   within,
 } from "@testing-library/react";
 import type { ReactElement } from "react";
-import type { Item, Recipe, RecipePack } from "@aef/schema";
+import type { RecipePack } from "@aef/schema";
 import { TargetsPanel } from "../../src/components/TargetsPanel";
+import {
+  makePack,
+  type MicroRecipe,
+} from "../../src/solver/closed-form-fixtures";
 import { LocaleProvider } from "../../src/data/i18n-context";
 
 function renderWithLocale(ui: ReactElement) {
@@ -17,52 +21,26 @@ function renderWithLocale(ui: ReactElement) {
 
 afterEach(() => cleanup());
 
-function mkRecipe(id: string, category: string): Recipe {
-  return {
-    id,
-    name: id,
-    category,
-    icon: "ico",
-    row: 0,
-    time: 1,
-    in: [],
-    out: [{ item: `${id}_out`, qty: 1 }],
-    producers: [],
-  };
+function mkRecipe(id: string, category: string): MicroRecipe {
+  return { id, category, time: 1, in: {}, out: { [`${id}_out`]: 1 } };
 }
 
-function mkItem(id: string): Item {
-  return { id, category: "cat", icon: id } as unknown as Item;
-}
-
-const mixedPack: RecipePack = {
-  schemaVersion: "0.2" as RecipePack["schemaVersion"],
-  source: {
-    name: "test",
-    sourceRepo: "",
-    sourceCommit: "0000",
-    gameVersion: "",
-    extractedAt: "",
-  },
-  categories: [],
-  locations: [],
-  // Every recipe's output item exists, so the only thing keeping an item out of
-  // the picker is its producer's category, not a missing item entry.
-  items: [
-    mkItem("smelt_one_out"),
-    mkItem("assemble_one_out"),
-    mkItem("__hidden_machinery_out"),
-    mkItem("transfer_tundra_a_out"),
-  ],
-  machines: [],
-  transports: [],
-  recipes: [
+// Every recipe's output item exists, so the only thing keeping an item out of
+// the picker is its producer's category, not a missing item entry.
+const mixedPack: RecipePack = makePack(
+  [
     mkRecipe("smelt_one", "smelting"),
     mkRecipe("assemble_one", "assembly"),
     mkRecipe("__hidden_machinery", "__internal"),
     mkRecipe("transfer_tundra_a", "__domain_transfer"),
   ],
-};
+  [
+    { id: "smelt_one_out" },
+    { id: "assemble_one_out" },
+    { id: "__hidden_machinery_out" },
+    { id: "transfer_tundra_a_out" },
+  ],
+);
 
 // The picker popup is portal-rendered; tiles carry data-item-id.
 function pickerHas(itemId: string): boolean {
@@ -110,14 +88,13 @@ describe("TargetsPanel / synthetic-category filter", () => {
     // Pack where the only recipes are a transfer recipe and a real one; the
     // draft picker must offer only the real one's output, and Add alone must not
     // commit anything.
-    const pack: RecipePack = {
-      ...mixedPack,
-      items: [mkItem("transfer_tundra_a_out"), mkItem("real_recipe_out")],
-      recipes: [
+    const pack: RecipePack = makePack(
+      [
         mkRecipe("transfer_tundra_a", "__domain_transfer"),
         mkRecipe("real_recipe", "smelting"),
       ],
-    };
+      [{ id: "transfer_tundra_a_out" }, { id: "real_recipe_out" }],
+    );
     renderWithLocale(
       <TargetsPanel targets={[]} onChange={onChange} pack={pack} />,
     );

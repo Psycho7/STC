@@ -9,9 +9,9 @@ import {
   screen,
   within,
 } from "@testing-library/react";
-import type { RecipePack } from "@aef/schema";
 import { pack as realPack } from "../data/load";
 import { TargetsPanel } from "./TargetsPanel";
+import { makePack } from "../solver/closed-form-fixtures";
 import { LocaleProvider } from "../data/i18n-context";
 import type { Target } from "../data/targets";
 
@@ -19,42 +19,35 @@ afterEach(cleanup);
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-const PACK = {
-  items: [
-    { id: "widget", icon: "widget" },
-    { id: "gadget", icon: "gadget" },
-    { id: "sprocket", icon: "sprocket" },
-  ],
-  recipes: [
+const PACK = makePack(
+  [
     {
       id: "r_widget",
       category: "craft",
-      in: [],
-      out: [{ item: "widget", qty: 1 }],
       time: 1,
-      producers: [],
+      in: {},
+      out: { widget: 1 },
       cost: 1,
     },
     {
       id: "r_gadget",
       category: "craft",
-      in: [],
-      out: [{ item: "gadget", qty: 1 }],
       time: 1,
-      producers: [],
+      in: {},
+      out: { gadget: 1 },
       cost: 1,
     },
     {
       id: "r_sprocket",
       category: "craft",
-      in: [],
-      out: [{ item: "sprocket", qty: 1 }],
       time: 1,
-      producers: [],
+      in: {},
+      out: { sprocket: 1 },
       cost: 1,
     },
   ],
-} as unknown as RecipePack;
+  [{ id: "widget" }, { id: "gadget" }, { id: "sprocket" }],
+);
 
 function targets3(): Target[] {
   return [
