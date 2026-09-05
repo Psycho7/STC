@@ -14,27 +14,39 @@ import { bytesToBase64url, base64urlToBytes } from "./encoding/base64url";
 // and itemOverrides into canonical sorted order. Preserving row order would
 // either break canonical hashing (stop sorting) or churn the wire format
 // (a permutation field) for a cosmetic property.
+//
+// title is optional and omitted when empty: nothing reads it yet, so every
+// hash the app writes today would otherwise carry a constant empty field. A
+// wire without it decodes to the empty title, so old and new hashes both load.
 export type PlanWireV1 = {
   pack: [id: string, schemaVersion: string, sha: string];
-  title: string;
+  title?: string;
   targets: Target[];
   itemOverrides?: ItemOverride[];
   recipeCosts?: Record<string, RationalString>;
 };
 
 export function toWire(plan: Plan): PlanWireV1 {
-  const targets = [...plan.targets].sort((a, b) =>
-    a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0,
-  );
+  // Encoding is the canonicalizing boundary: elements are rebuilt field by
+  // field rather than passed through, so junk keys a hand-crafted hash carried
+  // into fromWire cannot ride along into every re-encoded link, and key order
+  // stays fixed no matter how the panel built the object.
+  const targets = [...plan.targets]
+    .sort((a, b) => (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0))
+    .map((t) => ({ itemId: t.itemId, ratePerSec: t.ratePerSec }));
   const wire: PlanWireV1 = {
     pack: [plan.pack.id, plan.pack.schemaVersion, plan.pack.submoduleSha],
-    title: plan.title,
+    ...(plan.title !== "" ? { title: plan.title } : {}),
     targets,
   };
   if (plan.itemOverrides && plan.itemOverrides.length > 0) {
-    wire.itemOverrides = [...plan.itemOverrides].sort((a, b) =>
-      a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0,
-    );
+    wire.itemOverrides = [...plan.itemOverrides]
+      .sort((a, b) => (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0))
+      .map((o) => ({
+        itemId: o.itemId,
+        ...(o.plan !== undefined ? { plan: o.plan } : {}),
+        ...(o.ratePerSec !== undefined ? { ratePerSec: o.ratePerSec } : {}),
+      }));
   }
   if (plan.recipeCosts && plan.recipeCosts.size > 0) {
     // Every override goes on the wire, including 1/1. The default cost is not
@@ -63,7 +75,7 @@ export function isWireShaped(x: unknown): x is PlanWireV1 {
   ) {
     return false;
   }
-  if (typeof x.title !== "string") return false;
+  if (x.title !== undefined && typeof x.title !== "string") return false;
   if (!Array.isArray(x.targets) || !x.targets.every(isRecord)) return false;
   if (
     x.itemOverrides !== undefined &&
@@ -84,7 +96,7 @@ export function fromWire(wire: PlanWireV1): Plan {
   const plan: Plan = {
     version: 1,
     pack: { id, schemaVersion, submoduleSha },
-    title: wire.title,
+    title: wire.title ?? "",
     targets: wire.targets,
   };
   if (wire.itemOverrides !== undefined) {
