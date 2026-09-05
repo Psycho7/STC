@@ -21,8 +21,8 @@ function mkPack(items: Item[]): RecipePack {
     schemaVersion: "0.2",
     source: {
       name: "test",
-      submodulePath: "",
-      submoduleSha: "0",
+      sourceRepo: "",
+      sourceCommit: "0",
       gameVersion: "x",
       extractedAt: "",
     },
@@ -32,7 +32,7 @@ function mkPack(items: Item[]): RecipePack {
     machines: [],
     transports: [],
     recipes: [],
-  } as unknown as RecipePack;
+  };
 }
 
 const PACK = mkPack([mkItem("raw_item", true), mkItem("built_item", false)]);

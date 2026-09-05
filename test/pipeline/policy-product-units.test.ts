@@ -142,7 +142,7 @@ describe("render policy / boundary product units", () => {
           in: [],
           out: [{ item: "x", qty: 1 }],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
       [
         "r2",
@@ -156,7 +156,7 @@ describe("render policy / boundary product units", () => {
           in: [],
           out: [{ item: "x", qty: 1 }],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
     ]);
     const plan = NoFoldRender({
@@ -228,7 +228,7 @@ describe("render policy / boundary product units", () => {
           in: [{ item: "built", qty: 1 }],
           out: [{ item: "out", qty: 1 }],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
     ]);
     const consumer: MachineRecipeVertex = {
@@ -300,7 +300,7 @@ describe("render policy / boundary product units", () => {
           in: [{ item: "built", qty: 1 }],
           out: [{ item: "out", qty: 1 }],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
     ]);
     const consumer: MachineRecipeVertex = {
@@ -370,7 +370,7 @@ describe("render policy / boundary product units", () => {
           in: [{ item: "raw_in", qty: 1 }],
           out: [{ item: "out", qty: 1 }],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
     ]);
     const consumer: MachineRecipeVertex = {
@@ -463,7 +463,7 @@ describe("render policy / boundary product units", () => {
         in: [],
         out: [{ item: "shared", qty: 1 }],
         producers: ["m"],
-      } as unknown as Recipe,
+      },
     ],
     [
       "r_cons",
@@ -477,7 +477,7 @@ describe("render policy / boundary product units", () => {
         in: [{ item: "shared", qty: 1 }],
         out: [{ item: "out", qty: 1 }],
         producers: ["m"],
-      } as unknown as Recipe,
+      },
     ],
   ]);
   function dualEmissionFixture() {
@@ -681,7 +681,7 @@ describe("render policy / boundary product units", () => {
           in: [],
           out: [{ item: "shared", qty: 1 }],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
       [
         "r_cons",
@@ -695,7 +695,7 @@ describe("render policy / boundary product units", () => {
           in: [{ item: "shared", qty: 1 }],
           out: [{ item: "out", qty: 1 }],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
     ]);
     const prod0: MachineRecipeVertex = {
@@ -838,7 +838,7 @@ describe("render policy / boundary product units", () => {
           in: [],
           out: [{ item: "dual", qty: 1 }],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
     ]);
     // Add a consumer so `dual` is genuinely consumed in the plan and would
@@ -854,7 +854,7 @@ describe("render policy / boundary product units", () => {
       in: [{ item: "dual", qty: 1 }],
       out: [],
       producers: ["m"],
-    } as unknown as Recipe);
+    });
     const producer: MachineRecipeVertex = {
       kind: "machine",
       id: "v_make",
@@ -928,7 +928,7 @@ describe("render policy / boundary product units", () => {
           in: [],
           out: [{ item: "raw_target", qty: 1 }],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
       [
         "r_use",
@@ -942,7 +942,7 @@ describe("render policy / boundary product units", () => {
           in: [{ item: "raw_target", qty: 1 }],
           out: [],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
     ]);
     const producer: MachineRecipeVertex = {
@@ -1077,7 +1077,7 @@ describe("render policy / boundary product units", () => {
           in: [{ item: "raw_in", qty: 1 }],
           out: [{ item: "out", qty: 1 }],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
     ]);
     const cons0: MachineRecipeVertex = {
@@ -1172,7 +1172,7 @@ describe("render policy / boundary product units", () => {
           in: [{ item: "built", qty: 1 }],
           out: [{ item: "out", qty: 1 }],
           producers: ["m"],
-        } as unknown as Recipe,
+        },
       ],
     ]);
     const cons: MachineRecipeVertex = {
@@ -1274,7 +1274,7 @@ describe("render policy / input fan-out per container", () => {
         in: [{ item: "water", qty: 1 }],
         out: [{ item: "out_a", qty: 1 }],
         producers: ["m"],
-      } as unknown as Recipe,
+      },
     ],
     [
       "r_b",
@@ -1288,7 +1288,7 @@ describe("render policy / input fan-out per container", () => {
         in: [{ item: "water", qty: 1 }],
         out: [{ item: "out_b", qty: 1 }],
         producers: ["m"],
-      } as unknown as Recipe,
+      },
     ],
   ]);
 
