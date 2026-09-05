@@ -72,6 +72,7 @@ import {
   routingHintsFromData,
 } from "./edgePath";
 import {
+  clipSegmentToBox,
   pointToPolylineDistance,
   properCrossPoint,
   type CrossingCue,
@@ -404,11 +405,13 @@ function chipBoxesOverlap(a: ChipBox, b: ChipBox): boolean {
 type ClippedSeg = readonly [number, number, number, number];
 
 // The part of the segment (x0,y0)-(x1,y1) inside the chip box, or null when the
-// box does not contain a positive-length piece of it. Liang-Barsky parametric
-// clip against the box slabs; boundary-only contact does not count. The single
-// segment-vs-box geometry in this module: the boolean probe below and the
-// window probe on the ClearanceField are both this one clip, so "the box
-// contains this stroke" and "here is the piece it contains" can never disagree.
+// box does not contain a positive-length piece of it. The clip itself is
+// crossings.ts's clipSegmentToBox, shared with the placement audits; this wraps
+// it in the chip box's centre/half-extent shape and maps the parameter window
+// back onto the segment. The single segment-vs-box geometry in this module: the
+// boolean probe below and the window probe on the ClearanceField are both this
+// one clip, so "the box contains this stroke" and "here is the piece it
+// contains" can never disagree.
 function clipSegToChipBox(
   x0: number,
   y0: number,
@@ -416,36 +419,17 @@ function clipSegToChipBox(
   y1: number,
   box: ChipBox,
 ): ClippedSeg | null {
-  const left = box.x - box.halfW;
-  const right = box.x + box.halfW;
-  const top = box.y - box.halfH;
-  const bottom = box.y + box.halfH;
+  const window = clipSegmentToBox(x0, y0, x1, y1, {
+    left: box.x - box.halfW,
+    right: box.x + box.halfW,
+    top: box.y - box.halfH,
+    bottom: box.y + box.halfH,
+  });
+  if (window === null) return null;
+  const [t0, t1] = window;
   const dx = x1 - x0;
   const dy = y1 - y0;
-  let t0 = 0;
-  let t1 = 1;
-  const clip = (p: number, q: number): boolean => {
-    if (p === 0) return q >= 0;
-    const t = q / p;
-    if (p < 0) {
-      if (t > t1) return false;
-      if (t > t0) t0 = t;
-    } else {
-      if (t < t0) return false;
-      if (t < t1) t1 = t;
-    }
-    return true;
-  };
-  if (
-    clip(-dx, x0 - left) &&
-    clip(dx, right - x0) &&
-    clip(-dy, y0 - top) &&
-    clip(dy, bottom - y0) &&
-    t1 - t0 > 1e-6
-  ) {
-    return [x0 + t0 * dx, y0 + t0 * dy, x0 + t1 * dx, y0 + t1 * dy];
-  }
-  return null;
+  return [x0 + t0 * dx, y0 + t0 * dy, x0 + t1 * dx, y0 + t1 * dy];
 }
 
 // Does the segment (x0,y0)-(x1,y1) enter the chip box's interior?
@@ -840,9 +824,8 @@ function cascadeClearDy(
   halfH: number,
   step: number,
   flowKey: string,
-  target = "",
-  maxSteps: number = CHIP_SEAT_MAX_STEPS,
-  entryBand?: EntryBand,
+  target: string,
+  maxSteps: number,
   // When given, the cascade also clears every FOREIGN raw card (the drop
   // aggregate's hard chip-vs-card tier); absent leaves cards unchecked (rises).
   cardExempt?: CardExemption,
@@ -852,7 +835,7 @@ function cascadeClearDy(
     const box = { x, y: y + dy, halfW, halfH };
     if (
       !field.overlapsChip(box) &&
-      !field.onForeignLine(box, flowKey, target, entryBand) &&
+      !field.onForeignLine(box, flowKey, target) &&
       (cardExempt === undefined || !field.entersForeignCard(box, cardExempt))
     ) {
       return dy;
@@ -937,7 +920,6 @@ function seatChip(
       flowKey,
       target,
       capSteps,
-      undefined,
       cardExempt,
     );
     if (capped !== null) {
@@ -968,7 +950,6 @@ function seatChip(
     flowKey,
     target,
     CHIP_SEAT_MAX_STEPS,
-    undefined,
     cardExempt,
   );
   if (clear !== null) {
@@ -1687,13 +1668,23 @@ export function seatRateChip(
 // Re-derive these if the card borders or paddings change, if handle sizing or
 // nesting changes (RecipeNode/ProductNode markup, .react-flow__handle CSS), or
 // if React Flow changes its handle-anchoring rule.
-// This table is not exported, so five suites keep hand copies of it:
-// test/canvas/junctionDots.test.ts, test/canvas/shortLegChips.test.ts,
-// test/canvas/fanoutMarkers.test.ts, test/canvas/faninMarkers.test.ts (the dy
-// alone), and test/e2e/geometry.ts. Update all five when these numbers change
-// -- the unit mirrors run this module's own code
-// alongside their copy, but the e2e mirror has no cross-check against src at
-// all, so a stale copy there stays silent.
+// This table stays unexported on purpose: every copy below is a negative
+// control, rebuilding the drawn port from the model side so a suite can catch
+// this module quietly agreeing with itself. Eight copies live in seven suites,
+// so changing these numbers is an eight-site edit:
+//   test/canvas/junctionDots.test.ts     SRC_DX / TGT_DX / PORT_DY
+//   test/canvas/crossingCue.test.ts      PORT_SX / PORT_TX / PORT_DY
+//   test/canvas/fanoutMarkers.test.ts    SRC_DX / TGT_DX / PORT_DY
+//   test/canvas/faninMarkers.test.ts     PORT_DY alone
+//   test/canvas/shortLegChips.test.ts    PRODUCT_DX for the product row, and a
+//                                        second SRC_DX / TGT_DX / PORT_DY in
+//                                        the fan-out half of the same file
+//   test/canvas/busRouting.chips.test.ts the recipe row inline, in the
+//                                        branch-confinement reconstruction
+//   test/e2e/geometry.ts                 the whole table, all three rows
+// The unit mirrors run this module's own code beside their copy, so a stale one
+// fails loudly; the e2e mirror has no cross-check against src at all, so a
+// stale copy there stays silent.
 type PortDrift = { sourceDx: number; targetDx: number; dy: number };
 
 const PORT_DRIFT: Record<"recipe" | "product" | "other", PortDrift> = {
@@ -1878,10 +1869,13 @@ export function deconflictChipAnchors(
   // Item edges whose polyline lacks the usable width for their own rate chip
   // (see usableWidthCollapses): their rate chip renders icon-only.
   const shortLegByIndex = new Set<number>();
-  // The same set for FAN-OUT members: their branch chip renders icon-only, and
-  // its seat below reserves the collapsed box so the narrower chip can slide
-  // clear of the trunk's split dot.
-  const shortBranchByIndex = new Set<number>();
+  // FAN-OUT members whose branch chip renders icon-only, either because its own
+  // leg lacks the usable width or because the member sits in a contested
+  // corridor. Decided once, here: the seat below reserves the collapsed box so
+  // the narrower chip can slide clear of the trunk's split dot, and the emit
+  // loop stamps the same verdict, so the box that was reserved is the box that
+  // gets drawn.
+  const branchIconOnlyByIndex = new Set<number>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item" && edge.type !== "bus") return;
     const ends = edgeEndpoints(edge, byId);
@@ -1913,9 +1907,15 @@ export function deconflictChipAnchors(
       });
       // The branch short-leg gate reads the member's OWN leg, never the
       // trunk-including polyline: the whole-polyline arc length let a long
-      // shared trunk vouch for a 13-unit riser's full box (Task 8).
-      if (usableWidthCollapses(branchChipText(edge), branchPts))
-        shortBranchByIndex.add(index);
+      // shared trunk vouch for a 13-unit riser's full box (Task 8). A contested
+      // corridor collapses the chip too: the wide box reaches the sibling
+      // trunk's column from every seat there, which is why no full seat can
+      // clear the sibling stroke.
+      if (
+        usableWidthCollapses(branchChipText(edge), branchPts) ||
+        (edge.data as FanoutBusEdgeData).fanoutContested === true
+      )
+        branchIconOnlyByIndex.add(index);
     } else if (edge.type === "bus") {
       // Narrow the union on `"laneY" in` (the same discriminant laneBands and the
       // census helpers use) rather than a bare LaneBusEdgeData cast: it does not
@@ -2464,16 +2464,18 @@ export function deconflictChipAnchors(
       a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0,
     );
   for (const { edge, index } of busEdges) {
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    if (source === undefined || target === undefined) continue;
     const data = edge.data as BusEdgeData | undefined;
     if (data === undefined || !("laneY" in data)) continue;
-    const item = edgeItem(edge);
-    const sx = absoluteLeft(source, byId) + nodeWidth(source);
-    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
-    const tx = absoluteLeft(target, byId);
-    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    // The DRAWN frame, through the same edgeEndpoints the polyline
+    // reconstruction above uses. Rebuilding the model-frame ports here instead
+    // put an unmoved trunk's drop column PORT_DRIFT.sourceDx out from where
+    // BusEdge paints it (5 units on a recipe source, 4 on a product), so the
+    // drop chip reserved its clearance box beside its junction rather than on
+    // it -- and this was the last seat left in the model frame, with BusEdge,
+    // contentBounds and the placement audit all reading the drawn one.
+    const ends = edgeEndpoints(edge, byId);
+    if (ends === null) continue;
+    const { sx, sy, tx, ty } = ends;
     const { dropX, riseX } = chamferBusPath({
       sourceX: sx,
       sourceY: sy,
@@ -2896,14 +2898,10 @@ export function deconflictChipAnchors(
       entryBandOf(edge),
       {
         barrierYs: seatedBranchYByTrunk.get(trunkKey),
-        // A short-leg or contested-corridor branch chip renders collapsed
-        // (stamped below), so it reserves the square icon box here: the wide
-        // box is broader than the leg (short-leg) or reaches the sibling
-        // trunk's column from every seat (contested), which is exactly why no
-        // full seat could clear the split dot / sibling stroke.
-        iconOnly:
-          shortBranchByIndex.has(index) ||
-          (edge.data as FanoutBusEdgeData).fanoutContested === true,
+        // A branch chip that renders collapsed (stamped below) reserves the
+        // square icon box here rather than the wide one no full seat could
+        // have cleared.
+        iconOnly: branchIconOnlyByIndex.has(index),
         text: branchChipText(edge),
       },
     );
@@ -3008,97 +3006,95 @@ export function deconflictChipAnchors(
     if (seat.dy !== 0) labelDyByIndex.set(index, seat.dy);
   }
 
+  // The exact set of edge-data fields the seating phases stamp, Picked from the
+  // three types that declare them rather than restated here (the ChipAnchorData
+  // pattern): renaming a field at its declaration breaks this build instead of
+  // leaving the writer stamping a name no renderer reads any more.
+  type SeatPatch = Partial<
+    Pick<
+      ItemEdgeData,
+      | "labelDx"
+      | "labelDy"
+      | "chipIconOnly"
+      | "faninJunctionX"
+      | "faninJunctionY"
+      | "faninChipHidden"
+      | "faninChipHiddenAtY"
+      | "fanoutJunctionX"
+      | "fanoutJunctionY"
+      | "crossingCues"
+    > &
+      Pick<
+        LaneBusEdgeData,
+        "busChipX" | "busDropDy" | "busChipDy" | "busRiseHidden"
+      > &
+      Pick<
+        FanoutBusEdgeData,
+        | "fanoutAggDx"
+        | "fanoutAggDy"
+        | "fanoutBranchDx"
+        | "fanoutBranchDy"
+        | "fanoutBranchIconOnly"
+        | "fanoutBranchHidden"
+        | "fanoutBranchHiddenAt"
+      >
+  >;
+  // Stamp every phase's verdicts onto one patch object, then decide by the
+  // patch: an edge nothing seated is returned BY REFERENCE (the routing passes
+  // and their tests read that identity as "untouched"), and every other edge
+  // gets exactly the keys that were set. Each stamp is written once and read
+  // once. The shape this replaced listed all seventeen keys a second time in a
+  // hand-kept untouched-edge guard, so a stamp added to the writer and
+  // forgotten in the guard was dropped from the emitted edge without a sound.
   return edges.map((edge, index) => {
-    const labelDy = labelDyByIndex.get(index);
-    const labelDx = labelDxByIndex.get(index);
-    const busDropDy = busDropDyByIndex.get(index);
-    const busChipDy = busChipDyByIndex.get(index);
-    const busChipX = busChipXByIndex.get(index);
-    const busRiseHidden = busRiseHiddenByIndex.has(index);
-    const fanoutAggDx = fanoutAggDxByIndex.get(index);
-    const fanoutAggDy = fanoutAggDyByIndex.get(index);
-    const fanoutBranchDx = fanoutBranchDxByIndex.get(index);
-    const fanoutBranchDy = fanoutBranchDyByIndex.get(index);
-    const fanoutBranchHidden = fanoutBranchHiddenByIndex.has(index);
-    const fanoutBranchHiddenAt = fanoutBranchHiddenAtByIndex.get(index);
-    const faninJunction = faninJunctionByIndex.get(index);
-    const fanoutJunction = fanoutJunctionByIndex.get(index);
-    const faninChipHidden = faninChipHiddenByIndex.has(index);
-    const crossingCues = crossingCuesByIndex.get(index);
-    const chipIconOnly = shortLegByIndex.has(index);
-    const fanoutBranchIconOnly =
-      shortBranchByIndex.has(index) ||
-      (fanoutGeomByIndex.has(index) &&
-        (edge.data as FanoutBusEdgeData).fanoutContested === true);
-    if (
-      !chipIconOnly &&
-      !fanoutBranchIconOnly &&
-      labelDy === undefined &&
-      labelDx === undefined &&
-      busDropDy === undefined &&
-      busChipDy === undefined &&
-      busChipX === undefined &&
-      !busRiseHidden &&
-      fanoutAggDx === undefined &&
-      fanoutAggDy === undefined &&
-      fanoutBranchDx === undefined &&
-      fanoutBranchDy === undefined &&
-      !fanoutBranchHidden &&
-      faninJunction === undefined &&
-      fanoutJunction === undefined &&
-      !faninChipHidden &&
-      crossingCues === undefined
-    ) {
-      return edge;
-    }
-    return {
-      ...edge,
-      data: {
-        ...edge.data,
-        ...(labelDy !== undefined ? { labelDy } : {}),
-        ...(labelDx !== undefined ? { labelDx } : {}),
-        ...(chipIconOnly ? { chipIconOnly: true as const } : {}),
-        ...(busDropDy !== undefined ? { busDropDy } : {}),
-        ...(busChipDy !== undefined ? { busChipDy } : {}),
-        // The clamped rise slot REPLACES routeBusEdges' trunk-wide one, so
-        // BusEdge's anchor and contentBounds' frame use the x this pass
-        // reserved a box at. Absent when the slot needed no clamping (and on
-        // the lone long-run member, which has no slot to clamp).
-        ...(busChipX !== undefined ? { busChipX } : {}),
-        ...(busRiseHidden ? { busRiseHidden: true as const } : {}),
-        ...(fanoutAggDx !== undefined ? { fanoutAggDx } : {}),
-        ...(fanoutAggDy !== undefined ? { fanoutAggDy } : {}),
-        ...(fanoutBranchDx !== undefined ? { fanoutBranchDx } : {}),
-        ...(fanoutBranchDy !== undefined ? { fanoutBranchDy } : {}),
-        ...(fanoutBranchIconOnly
-          ? { fanoutBranchIconOnly: true as const }
-          : {}),
-        ...(fanoutBranchHidden ? { fanoutBranchHidden: true as const } : {}),
-        ...(fanoutBranchHiddenAt !== undefined ? { fanoutBranchHiddenAt } : {}),
-        ...(faninJunction !== undefined
-          ? { faninJunctionX: faninJunction.x, faninJunctionY: faninJunction.y }
-          : {}),
-        ...(fanoutJunction !== undefined
-          ? {
-              fanoutJunctionX: fanoutJunction.x,
-              fanoutJunctionY: fanoutJunction.y,
-            }
-          : {}),
-        // Crossing cues read by ItemEdge AND BusEdge (the field lives on the
-        // shared ItemEdgeData payload both render). Absolute graph points; the
-        // renderers drop any whose own polyline has since moved off them.
-        ...(crossingCues !== undefined ? { crossingCues } : {}),
-        // The hide is stamped with the port y it was decided at, so ItemEdge
-        // can drop it once a node drag moves the live port away from the stamp
-        // (the fanoutBranchHiddenAt staleness pattern).
-        ...(faninChipHidden
-          ? {
-              faninChipHidden: true as const,
-              faninChipHiddenAtY: faninMemberRunByIndex.get(index)!.ty,
-            }
-          : {}),
-      },
+    const patch: SeatPatch = {};
+    const stamp = <K extends keyof SeatPatch>(
+      key: K,
+      value: SeatPatch[K],
+    ): void => {
+      if (value !== undefined) patch[key] = value;
     };
+    stamp("labelDy", labelDyByIndex.get(index));
+    stamp("labelDx", labelDxByIndex.get(index));
+    if (shortLegByIndex.has(index)) patch.chipIconOnly = true;
+    stamp("busDropDy", busDropDyByIndex.get(index));
+    stamp("busChipDy", busChipDyByIndex.get(index));
+    // The clamped rise slot REPLACES routeBusEdges' trunk-wide one, so
+    // BusEdge's anchor and contentBounds' frame use the x this pass reserved a
+    // box at. Absent when the slot needed no clamping (and on the lone long-run
+    // member, which has no slot to clamp).
+    stamp("busChipX", busChipXByIndex.get(index));
+    if (busRiseHiddenByIndex.has(index)) patch.busRiseHidden = true;
+    stamp("fanoutAggDx", fanoutAggDxByIndex.get(index));
+    stamp("fanoutAggDy", fanoutAggDyByIndex.get(index));
+    stamp("fanoutBranchDx", fanoutBranchDxByIndex.get(index));
+    stamp("fanoutBranchDy", fanoutBranchDyByIndex.get(index));
+    if (branchIconOnlyByIndex.has(index)) patch.fanoutBranchIconOnly = true;
+    if (fanoutBranchHiddenByIndex.has(index)) patch.fanoutBranchHidden = true;
+    stamp("fanoutBranchHiddenAt", fanoutBranchHiddenAtByIndex.get(index));
+    const faninJunction = faninJunctionByIndex.get(index);
+    if (faninJunction !== undefined) {
+      patch.faninJunctionX = faninJunction.x;
+      patch.faninJunctionY = faninJunction.y;
+    }
+    const fanoutJunction = fanoutJunctionByIndex.get(index);
+    if (fanoutJunction !== undefined) {
+      patch.fanoutJunctionX = fanoutJunction.x;
+      patch.fanoutJunctionY = fanoutJunction.y;
+    }
+    // Crossing cues read by ItemEdge AND BusEdge (the field lives on the shared
+    // ItemEdgeData payload both render). Absolute graph points; the renderers
+    // drop any whose own polyline has since moved off them.
+    stamp("crossingCues", crossingCuesByIndex.get(index));
+    // The hide is stamped with the port y it was decided at, so ItemEdge can
+    // drop it once a node drag moves the live port away from the stamp (the
+    // fanoutBranchHiddenAt staleness pattern).
+    if (faninChipHiddenByIndex.has(index)) {
+      patch.faninChipHidden = true;
+      patch.faninChipHiddenAtY = faninMemberRunByIndex.get(index)!.ty;
+    }
+    if (Object.keys(patch).length === 0) return edge;
+    return { ...edge, data: { ...edge.data, ...patch } };
   });
 }
 

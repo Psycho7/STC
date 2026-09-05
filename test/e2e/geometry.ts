@@ -28,8 +28,11 @@ import {
 // the render layer's cue stamp pass, its liveness filter, and this audit's
 // crossing census share one definition instead of two copies that happen to
 // agree. Imported for the census / coverage below and re-exported so the
-// audits' existing imports are unchanged.
+// audits' existing imports are unchanged. clipSegmentToBox joins them for the
+// same reason: the rect clip below and chipSeating's chip-box clip are one
+// function, not two copies that happen to agree.
 import {
+  clipSegmentToBox,
   pointSegDistance,
   pointToPolylineDistance,
   properCross,
@@ -90,46 +93,25 @@ export function segmentsOf(pts: ReadonlyArray<Pt>): Array<[Pt, Pt]> {
   return segs;
 }
 
-// Liang-Barsky parametric clip of segment p0->p1 against the OPEN interior of
-// `rect` (shrunk by eps so a run grazing the padded boundary -- cleared runs sit
-// a chamfer outside it -- is not a hit). Returns the clipped parameter window
-// [t0, t1], or null when the segment misses or only touches.
+// Clip segment p0->p1 against the OPEN interior of `rect` shrunk by eps (so a
+// run grazing the padded boundary -- cleared runs sit a chamfer outside it --
+// is not a hit). Returns the clipped parameter window [t0, t1], or null when
+// the segment misses or only touches. The clip is crossings.ts's
+// clipSegmentToBox, the same one chipSeating's chip boxes are cleared with, so
+// the seat and the audit that scores it cannot disagree about what a box
+// contains; only the eps shrink is this audit's own.
 function clipWindow(
   p0: Pt,
   p1: Pt,
   rect: RawRect,
   eps: number,
 ): [number, number] | null {
-  const left = rect.left + eps;
-  const right = rect.right - eps;
-  const top = rect.top + eps;
-  const bottom = rect.bottom - eps;
-  if (right <= left || bottom <= top) return null;
-  const dx = p1[0] - p0[0];
-  const dy = p1[1] - p0[1];
-  let t0 = 0;
-  let t1 = 1;
-  const clip = (p: number, q: number): boolean => {
-    if (p === 0) return q >= 0; // parallel: inside iff on the correct side
-    const t = q / p;
-    if (p < 0) {
-      if (t > t1) return false;
-      if (t > t0) t0 = t;
-    } else {
-      if (t < t0) return false;
-      if (t < t1) t1 = t;
-    }
-    return true;
-  };
-  if (
-    clip(-dx, p0[0] - left) &&
-    clip(dx, right - p0[0]) &&
-    clip(-dy, p0[1] - top) &&
-    clip(dy, bottom - p0[1])
-  ) {
-    return t1 - t0 > 1e-6 ? [t0, t1] : null;
-  }
-  return null;
+  return clipSegmentToBox(p0[0], p0[1], p1[0], p1[1], {
+    left: rect.left + eps,
+    right: rect.right - eps,
+    top: rect.top + eps,
+    bottom: rect.bottom - eps,
+  });
 }
 
 // Does segment p0->p1 enter the OPEN interior of `rect` (shrunk by eps)?
