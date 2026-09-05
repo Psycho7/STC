@@ -8,20 +8,25 @@
 // file re-exports it under the census's own name. The derivation from layout
 // dimensions stays there, so it still tracks any spacing change.
 
-import { RECIPE_WIDTH } from "../../src/canvas/dimensions";
+import { RECIPE_WIDTH, loopBoxDimensions } from "../../src/canvas/dimensions";
 
 // A "long" edge reaches past two full layers (2 * (column gap + recipe width)).
 export { BUS_SPAN_THRESHOLD as SPAN_THRESHOLD } from "../../src/canvas/busRouting";
 
 // Minimal structural shape of a laid-out React Flow node. Container children
 // carry a parent-relative position plus a `parentId`; top-level nodes have
-// neither. Recipe / loop unit nodes omit `width` (they are a fixed RECIPE_WIDTH);
-// product and container nodes carry it directly.
+// neither. Recipe and loop unit nodes omit `width` (a recipe is a fixed
+// RECIPE_WIDTH, a loop is sized from its interior); product and container
+// nodes carry it directly.
 export type SpanNode = {
   id: string;
   position?: { x?: number; y?: number };
   parentId?: string;
   width?: number;
+  type?: string;
+  data?: Record<string, unknown> & {
+    interior?: { width: number; height: number };
+  };
 };
 
 export type SpanEdge = {
@@ -41,9 +46,13 @@ function absoluteLeft(
   return localX + (parent?.position?.x ?? 0);
 }
 
-// Only recipe / loop unit nodes omit an explicit width. Every recipe node is a
-// fixed RECIPE_WIDTH; product and container nodes carry width on the node.
+// Recipe and loop unit nodes omit an explicit width: a recipe node is a fixed
+// RECIPE_WIDTH, a loop node is sized from its interior by the same helper the
+// layout uses. Product and container nodes carry width on the node. Mirrors
+// src/canvas/nodeGeometry.ts.
 function nodeWidth(node: SpanNode): number {
+  const interior = node.type === "loop" ? node.data?.interior : undefined;
+  if (interior) return loopBoxDimensions(interior).width;
   return node.width ?? RECIPE_WIDTH;
 }
 

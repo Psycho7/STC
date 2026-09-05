@@ -1,5 +1,5 @@
 import Fraction from "fraction.js";
-import type { RationalString } from "./targets";
+import { rationalFromString, type RationalString } from "./targets";
 
 // Strip a trailing fractional zero run (and a bare trailing dot) from a decimal
 // string, leaving integers untouched. "0.0050" -> "0.005", "8.50" -> "8.5",
@@ -59,8 +59,8 @@ export function formatRateExactPerMin(itemsPerSec: Fraction): string {
 
 // Per-minute Fraction from a per-second rational. x60 stays exact, so both the
 // fraction and numeric formatters below build on this.
-function perMinFromRational(rps: { num: string; denom: string }): Fraction {
-  return new Fraction(rps.num).div(new Fraction(rps.denom)).mul(60);
+function perMinFromRational(rps: RationalString): Fraction {
+  return rationalFromString(rps).mul(60);
 }
 
 // RationalString version, for the ProductNode boundary cards, recipe port rows,

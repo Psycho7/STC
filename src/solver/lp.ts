@@ -1,7 +1,7 @@
 import Fraction from "fraction.js";
 import solver from "javascript-lp-solver";
 import type { Recipe, RecipePack } from "@aef/schema";
-import type { ItemTarget } from "../data/targets";
+import { rationalFromString, type ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipeId, ItemId } from "./types";
 import { effectiveSupply } from "./effectiveSupply";
@@ -430,7 +430,7 @@ function extractResult(args: ExtractArgs): LpResult {
   // nets against these.
   const demandExact = new Map<ItemId, Fraction>();
   for (const t of targets) {
-    const rate = new Fraction(`${t.ratePerSec.num}/${t.ratePerSec.denom}`);
+    const rate = rationalFromString(t.ratePerSec);
     demandExact.set(
       t.itemId,
       (demandExact.get(t.itemId) ?? FRAC_ZERO).add(rate),

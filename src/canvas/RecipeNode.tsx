@@ -7,7 +7,10 @@ import { PortGlyph } from "./PortGlyph";
 import { formatRationalPerMin } from "../data/rate-format";
 import type { PortTransportKinds } from "./layout";
 import type { ItemId } from "../pipeline/types";
-import type { RationalString } from "../data/targets";
+import {
+  rationalFromString,
+  type RationalString,
+} from "../data/targets";
 import { orderByItem } from "./orderByItem";
 import { formatMultiplicityBadge } from "./multiplicity-badge";
 import { useItemPack } from "./itemPackContext";
@@ -116,7 +119,7 @@ export default function RecipeNode({
   // this so the node's numbers match its incident edge chips.
   const perMachine = new Fraction(1);
   const scale: Fraction = multiplicity
-    ? new Fraction(`${multiplicity.num}/${multiplicity.denom}`)
+    ? rationalFromString(multiplicity)
     : typeof multiplier === "number"
       ? new Fraction(multiplier)
       : perMachine;

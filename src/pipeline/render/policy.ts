@@ -44,10 +44,10 @@ export function assignLabelSides(edges: RenderEdge[]): void {
  *    and forces internal build. rateCap is populated from
  *    itemOverrides[i].ratePerSec when present.
  *  - one RenderUnitOutputProduct (flavor "target") for every target item.
- *  - if a target item also surfaces as a boundary input, the input product
- *    for the same item is suppressed (target wins) - except free-supply
- *    target items, which keep their boundary feed for consumers; the
- *    declared export arrives via a dedicated passthrough import.
+ *  - a target item that also surfaces as a boundary input keeps both
+ *    surfaces: its consumers stay boundary-fed and the declared export
+ *    arrives via a dedicated passthrough import. Nothing suppresses an input
+ *    product for being a target; only zero supply keeps one from existing.
  *
  * RETAINED DELIBERATELY: this policy has no production caller. It is kept as
  * the differential parity oracle for `deriveBoundaryProducts`. 18 tests in
@@ -58,6 +58,13 @@ export function assignLabelSides(edges: RenderEdge[]): void {
  * would cost that coverage: AlwaysFoldRender folds stamps, so its unit ids
  * differ and the tests cannot be re-pointed unchanged. RenderPolicy in
  * src/pipeline/types.ts is a real seam only for as long as this stays.
+ *
+ * The one-unit-per-vertex reading holds only below the stamp cap in
+ * src/pipeline/expand/materialize.ts. Past it a class materializes into one
+ * aggregate stamp carrying the whole run's execution rate, which this policy
+ * would render as a single machine. The 18 tests that drive it hand-build
+ * small machine graphs and never call expandMultipliers, so the oracle stays
+ * valid where it is used.
  */
 export const NoFoldRender: RenderPolicy = (input): RenderPlan => {
   const {

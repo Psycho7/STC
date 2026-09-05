@@ -803,9 +803,9 @@ describe("render policy / boundary product units", () => {
   // ---- Dual-listed item (target + itemOverride) --------------------------
   //
   // The InputsPanel emits both products for items that are both a user-selected
-  // target AND have an explicit itemOverride. The "target trumps raw boundary"
-  // rule should only suppress the input product when there is no override --
-  // i.e. the user has not explicitly declared the item as a boundary supply.
+  // target AND have an explicit itemOverride. Being a target suppresses
+  // nothing: an item that is consumed in the plan and has nonzero supply gets
+  // its input product whether or not it is also exported.
 
   it("dual-listed: target item with finite itemOverride.ratePerSec emits BOTH inputProduct and outputProduct", () => {
     // Synthetic: a single producer recipe `r_make` whose only output is

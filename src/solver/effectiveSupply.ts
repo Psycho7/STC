@@ -1,6 +1,7 @@
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
 import type { ItemOverride } from "../data/plan";
+import { rationalFromString } from "../data/targets";
 
 /**
  * Resolves the external boundary supply for an item given the active overrides.
@@ -40,8 +41,7 @@ export function effectiveSupply(
     return isRaw ? Infinity : new Fraction(0);
   }
   if (override.ratePerSec !== undefined) {
-    const { num, denom } = override.ratePerSec;
-    return new Fraction(num).div(new Fraction(denom));
+    return rationalFromString(override.ratePerSec);
   }
   if (override.plan === true) {
     return isRaw ? new Fraction(0) : Infinity;

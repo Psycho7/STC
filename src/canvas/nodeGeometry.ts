@@ -12,8 +12,9 @@
 //   2. One level of nesting only. absoluteLeft / absoluteTop resolve a single
 //      parentId hop; a grandchild would be wrong. A parent missing from `byId`
 //      is treated as the origin (0), never an error.
-//   3. Fallbacks. nodeWidth falls back to RECIPE_WIDTH when node.width is
-//      absent (recipe and loop nodes carry no top-level width). nodeHeight
+//   3. Fallbacks. Recipe and loop nodes carry no top-level width or height.
+//      nodeWidth derives loop width from loopBoxDimensions and otherwise
+//      falls back to RECIPE_WIDTH when node.width is absent; nodeHeight
 //      derives recipe height from measureRecipe and loop height from
 //      loopBoxDimensions, and returns node.height ?? 0 otherwise.
 //   4. portOffsetY returns a NODE-LOCAL y (add absoluteTop for absolute). It
@@ -60,10 +61,12 @@ export function absoluteTop(
   return localY + (parent?.position?.y ?? 0);
 }
 
-// Only recipe / loop unit nodes omit an explicit width. Every recipe node is a
-// fixed RECIPE_WIDTH; product and container nodes carry width on the node.
-// Mirrors test/canvas/edgeSpans.ts.
+// Width of a node. Recipe and loop nodes omit an explicit width: a recipe node
+// is a fixed RECIPE_WIDTH, a loop node is sized from its interior by the same
+// helper the layout and LoopNode use. Product and container nodes carry width
+// on the node. Mirrors test/canvas/edgeSpans.ts.
 export function nodeWidth(node: RFAnyNode): number {
+  if (node.type === "loop") return loopBoxDimensions(node.data.interior).width;
   return node.width ?? RECIPE_WIDTH;
 }
 

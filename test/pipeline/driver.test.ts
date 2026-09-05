@@ -7,7 +7,7 @@ import {
   defaultTransportConfig,
   loadTransportConfig,
 } from "../../src/data/transport-config";
-import { defaultTargets } from "../../src/data/targets";
+import { defaultTargets, rationalFromString } from "../../src/data/targets";
 
 describe("pipeline driver: default AEF targets", () => {
   it("produces a render plan with at least one unit and one edge", () => {
@@ -171,5 +171,81 @@ describe("pipeline driver: default AEF targets", () => {
         pickerUnits.some((p) => p.id === e.toUnit),
     );
     expect(delivererToPickerEdges.length).toBe(0);
+  });
+});
+
+// D06 pin: stamping is capped per replica class, and the cap is invisible in
+// the folded plan. Scaling one target by 1000 pushes several classes past the
+// cap; the render plan that comes out must have the same units and the same
+// edges as the x1 plan, with every rate scaled by exactly 1000.
+describe("pipeline driver: stamp cap is invisible after folding", () => {
+  const solve = (ratePerSec: { num: string; denom: string }) => {
+    const targets = [{ itemId: "proc_battery_5", ratePerSec }];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      loadTransportConfig(defaultTransportConfig, pack),
+    );
+    return { full, ...renderPlanFromSolve(full, pack, targets, []) };
+  };
+
+  const SCALE = 1000;
+  const one = solve({ num: "1", denom: "2" }); // 30/min
+  const kilo = solve({ num: String(SCALE), denom: "2" }); // 30,000/min
+
+  const unitKeys = (p: (typeof one)["plan"]) =>
+    p.units.map((u) => `${u.kind} ${u.id}`);
+  const edgeKeys = (p: (typeof one)["plan"]) =>
+    p.edges.map((e) => `${e.fromUnit} -> ${e.toUnit} ${e.item}`);
+
+  const census = (r: typeof one) => {
+    const stampsByReplica = new Map<string, number>();
+    for (const v of r.machineGraph.vertices) {
+      if (v.kind !== "machine") continue;
+      stampsByReplica.set(
+        v.replicaId,
+        (stampsByReplica.get(v.replicaId) ?? 0) + 1,
+      );
+    }
+    const ideals = [...stampsByReplica.keys()].map((id) =>
+      Number(r.full.idealCount.get(id)?.valueOf() ?? 0),
+    );
+    return {
+      maxStamps: Math.max(...stampsByReplica.values()),
+      maxIdeal: Math.max(...ideals),
+    };
+  };
+
+  it("stamps x1 in full and collapses x1000 past the cap", () => {
+    // x1 is the uncapped side: every machine of the busiest class gets its own
+    // stamp. x1000 asks for orders of magnitude more machines and still hands
+    // out a bounded number of stamps, so the two sides below are a capped plan
+    // compared against an uncapped one.
+    const small = census(one);
+    expect(small.maxStamps).toBe(Math.ceil(small.maxIdeal));
+    const large = census(kilo);
+    expect(large.maxIdeal).toBeGreaterThan(1000);
+    expect(large.maxStamps).toBeLessThanOrEqual(65);
+  });
+
+  it("emits the same units and edges at x1 and x1000", () => {
+    expect(unitKeys(kilo.plan)).toEqual(unitKeys(one.plan));
+    expect(edgeKeys(kilo.plan)).toEqual(edgeKeys(one.plan));
+  });
+
+  it("scales every folded rate by exactly 1000", () => {
+    for (const [i, e] of one.plan.edges.entries()) {
+      const scaled = kilo.plan.edges[i]!;
+      expect(scaled.rate.equals(e.rate.mul(SCALE))).toBe(true);
+    }
+    for (const [i, u] of one.plan.units.entries()) {
+      const scaled = kilo.plan.units[i]!;
+      if (u.kind !== "recipe" || scaled.kind !== "recipe") continue;
+      expect(
+        rationalFromString(scaled.multiplicity).equals(
+          rationalFromString(u.multiplicity).mul(SCALE),
+        ),
+      ).toBe(true);
+    }
   });
 });
