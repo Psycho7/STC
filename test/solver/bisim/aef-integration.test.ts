@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest";
-import Fraction from "fraction.js";
 import { solvePlanWithIntermediates } from "../../../src/solver";
 import { pack } from "../../../src/data/load";
 import { defaultTransportConfig } from "../../../src/data/transport-config";
 import { defaultTargets } from "../../../src/data/targets";
-import { buildRecipeGraph } from "../../../src/solver/graph";
+import {
+  augmentGraphWithLpSupport,
+  buildRecipeGraphMulti,
+} from "../../../src/solver/graph";
+import { netSelfConsumption } from "../../../src/solver/net-self";
 import { bisimQuotient, deriveReplicaEdges } from "../../../src/solver/bisim";
 
 describe("AEF round-trip with bisim", () => {
@@ -24,13 +27,14 @@ describe("AEF round-trip with bisim", () => {
     );
     expect(full.replicas.length).toBeGreaterThan(0);
 
-    // Ceiling invariant: assignMultipliers ceils idealCount, so for every
-    // quotient replica the integer multiplier must be >= the rational ideal.
+    // Ceiling invariant: the solve path derives every integer machine count as
+    // the ceiling of the exact rational ideal, so the two agree exactly. Pinned
+    // as equality rather than an upper bound, which floor and round satisfy too.
     for (const r of full.replicas) {
       const mult = full.multipliers.get(r.id);
       const ideal = full.idealCount.get(r.id);
       if (mult === undefined || ideal === undefined) continue;
-      expect(new Fraction(mult).compare(ideal)).toBeGreaterThanOrEqual(0);
+      expect(mult).toBe(Number(ideal.ceil(0).valueOf()));
     }
 
     // Quotient cardinality: bisim never grows the replica set, so the
@@ -70,7 +74,25 @@ describe("AEF round-trip with bisim", () => {
     );
     expect(full.replicas.length).toBeGreaterThan(0);
 
-    const g = buildRecipeGraph(targets, pack, []);
+    // Same ceiling pin as above, on the larger seed plan. At least one ideal
+    // has to be fractional here, otherwise the equality would hold under any
+    // rounding rule and pin nothing.
+    let fractionalIdeals = 0;
+    for (const r of full.replicas) {
+      const mult = full.multipliers.get(r.id);
+      const ideal = full.idealCount.get(r.id);
+      if (mult === undefined || ideal === undefined) continue;
+      if (!ideal.equals(ideal.ceil(0))) fractionalIdeals++;
+      expect(mult).toBe(Number(ideal.ceil(0).valueOf()));
+    }
+    expect(fractionalIdeals).toBeGreaterThan(0);
+
+    // Rebuild the graph exactly as the solve path does: the netted pack, the
+    // multi-producer walk, then closure over the LP support. A graph built any
+    // other way would feed bisim a different edge set than the first pass saw.
+    const netted = netSelfConsumption(pack);
+    const g = buildRecipeGraphMulti(targets, netted, []);
+    augmentGraphWithLpSupport(g, full.rates, netted, []);
     const quotientEdges = deriveReplicaEdges(g, full.replicas);
     const pinned = new Set(
       full.replicas.filter((r) => r.sharedAtArticulation).map((r) => r.id),

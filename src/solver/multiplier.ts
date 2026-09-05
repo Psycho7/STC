@@ -3,36 +3,12 @@ import type { Machine, Recipe } from "@aef/schema";
 import type { Replica, ReplicaId } from "./types";
 import { MissingMachineError } from "./types";
 
-export function assignMultipliers(
-  replicas: Replica[],
-  machineById: Map<string, Machine>,
-  recipeById: Map<string, Recipe>,
-): Map<ReplicaId, number> {
-  const result = new Map<ReplicaId, number>();
-  for (const r of replicas) {
-    if (r.executionRate.equals(0)) continue;
-    const recipe = recipeById.get(r.recipeId);
-    if (!recipe) throw new MissingMachineError(r.recipeId, undefined);
-    const producerId = recipe.producers[0];
-    if (!producerId) throw new MissingMachineError(r.recipeId, undefined);
-    const machine = machineById.get(producerId);
-    if (!machine) throw new MissingMachineError(r.recipeId, producerId);
-    const speedFrac = new Fraction(machine.speed);
-    const timeFrac = new Fraction(recipe.time);
-    const ideal = r.executionRate.mul(timeFrac).div(speedFrac);
-    // ceil(0) rounds up to a whole number and valueOf() hands back a JS
-    // number. We already skipped zero-rate replicas, so executionRate is
-    // positive here and the ceiling is always at least 1.
-    result.set(r.id, Number(ideal.ceil(0).valueOf()));
-  }
-  return result;
-}
-
 /**
- * Same calculation as assignMultipliers, but returns the exact rational ideal
- * count without taking the ceiling. Downstream stages use the fractional
- * ideals to fold equivalent replicas during bisim hash-consing before any
- * rounding happens.
+ * Exact rational machine count per replica: executionRate * recipe time /
+ * machine speed, with zero-rate replicas dropped. Downstream stages use the
+ * fractional ideals to fold equivalent replicas during bisim hash-consing
+ * before any rounding happens; the solve path ceils them into the integer
+ * machine counts.
  */
 export function assignIdealMultipliers(
   replicas: Replica[],

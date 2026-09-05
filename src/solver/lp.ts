@@ -72,6 +72,10 @@ export const BIG_M_COST = 1e6;
 // only runs them when no alternative exists. Miners and pumps are the one
 // excluded class this does not decide: solveLp gives them no variable at all,
 // so their big-M weight is never priced and no cost can make one run.
+// Big-M is priced per execution, not per unit delivered. One __domain_transfer
+// execution covers hundreds of units at pack scale, so its per-unit cost lands
+// orders of magnitude under DEFICIT_WEIGHT: a transfer always pre-empts a
+// deficit on an item it can supply.
 export function recipeCostWeight(
   r: Recipe,
   overrides: Map<RecipeId, number> | undefined,
@@ -375,7 +379,9 @@ export function solveLp(input: LpInput): LpResult {
 //  - DEFICIT_MATERIAL_REL: materiality threshold for raw deficit variables,
 //    relative to the item's demand.
 const SNAP_REL = 1e-6;
-const RATE_ZERO = 1e-12;
+// Exported so the optimality screen filters active recipes on the same floor
+// solveLp used to build its rates map, instead of a hand-copied duplicate.
+export const RATE_ZERO = 1e-12;
 const NOISE_CEILING_REL = 1e-4;
 const DEFICIT_MATERIAL_REL = 1e-9;
 

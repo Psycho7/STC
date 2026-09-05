@@ -96,24 +96,10 @@ export type LogicalRecipeNode = {
   parentId?: GroupId;
 };
 
-// Mirrors the solver's PackedLane shape but keeps itemsPerSec as a plain string,
-// which lets the layout module avoid pulling in fraction.js.
-export type LaneMetadata = {
-  carrier: TransportKindId;
-  laneIndex: number;
-  overflow: boolean;
-  streams: ReadonlyArray<{
-    replicaId: string;
-    itemId: string;
-    itemsPerSec: string;
-  }>;
-};
-
 export type LogicalGroupNode = {
   kind: "group";
   id: GroupId;
   label: string;
-  lanes?: ReadonlyArray<LaneMetadata>;
 };
 
 export type LogicalNode = LogicalRecipeNode | LogicalGroupNode;

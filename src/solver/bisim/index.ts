@@ -10,10 +10,15 @@ export type BisimQuotientInput = {
   replicas: ReadonlyArray<Replica>;
   edges: ReadonlyArray<ReplicaEdge>;
   pinnedReplicaIds: ReadonlySet<ReplicaId>;
+  /** Aggregate the per-class edge summary. Defaults to true; the solve path
+   *  passes false because nothing downstream reads `quotientEdges`.
+   */
+  emitEdges?: boolean;
 };
 
 export type BisimQuotientOutput = {
   quotientReplicas: Replica[];
+  /** Empty when the caller passed `emitEdges: false`. */
   quotientEdges: QuotientEdge[];
   classByReplicaId: Map<ReplicaId, ClassId>;
   /** Maps a ClassId to its quotient replica id ("q:N"). Exposed so idempotence
@@ -28,12 +33,14 @@ export type BisimQuotientOutput = {
  * emit the resulting quotient graph.
  */
 export function bisimQuotient(input: BisimQuotientInput): BisimQuotientOutput {
-  const { replicas, edges, pinnedReplicaIds } = input;
+  const { replicas, edges, pinnedReplicaIds, emitEdges = true } = input;
   const classByReplicaId = refinePartition(replicas, edges, pinnedReplicaIds);
   const { quotientReplicas, classToQuotient } = emitQuotientReplicas(
     replicas,
     classByReplicaId,
   );
-  const quotientEdges = emitQuotientEdges(edges, classByReplicaId);
+  const quotientEdges = emitEdges
+    ? emitQuotientEdges(edges, classByReplicaId)
+    : [];
   return { quotientReplicas, quotientEdges, classByReplicaId, classToQuotient };
 }

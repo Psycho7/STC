@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Recipe, RecipePack } from "@aef/schema";
-import { buildRecipeGraph } from "../../src/solver/graph";
+import { buildRecipeGraphMulti } from "../../src/solver/graph";
 import type { ItemTarget } from "../../src/data/targets";
 
 function makeRecipe(
@@ -59,10 +59,10 @@ function tgt(itemId: string): ItemTarget {
 // Every leaf recipe here consumes a `feed` item no recipe produces, so the
 // walk terminates on it. A leaf with an empty `in` would be an extraction
 // recipe, which is excluded from the graph outright.
-describe("buildRecipeGraph", () => {
+describe("buildRecipeGraphMulti", () => {
   it("returns a single-node graph for a target with no upstream", () => {
     const p = pack([makeRecipe("root", ["feed"], ["root_out"])]);
-    const g = buildRecipeGraph([tgt("root_out")], p);
+    const g = buildRecipeGraphMulti([tgt("root_out")], p);
     expect([...g.nodes.keys()]).toEqual(["root"]);
     expect(g.outgoing.get("root")).toEqual([]);
   });
@@ -73,21 +73,10 @@ describe("buildRecipeGraph", () => {
       makeRecipe("b", ["x"], ["y"]),
       makeRecipe("c", ["y"], ["z"]),
     ]);
-    const g = buildRecipeGraph([tgt("z")], p);
+    const g = buildRecipeGraphMulti([tgt("z")], p);
     expect([...g.nodes.keys()].sort()).toEqual(["a", "b", "c"]);
     expect(g.outgoing.get("a")?.map((e) => e.target)).toEqual(["b"]);
     expect(g.outgoing.get("b")?.map((e) => e.target)).toEqual(["c"]);
-  });
-
-  it("selects multi-producer item by lex-min recipeId", () => {
-    const p = pack([
-      makeRecipe("alt_z", ["feed"], ["z"]),
-      makeRecipe("aaa_z", ["feed"], ["z"]),
-      makeRecipe("consumer", ["z"], ["out"]),
-    ]);
-    const g = buildRecipeGraph([tgt("out")], p);
-    expect(g.nodes.has("aaa_z")).toBe(true);
-    expect(g.nodes.has("alt_z")).toBe(false);
   });
 
   it("excludes cost === -1 producers of consumed items", () => {
@@ -96,7 +85,7 @@ describe("buildRecipeGraph", () => {
       makeRecipe("normal_z", ["feed"], ["z"]),
       makeRecipe("consumer", ["z"], ["out"]),
     ]);
-    const g = buildRecipeGraph([tgt("out")], p);
+    const g = buildRecipeGraphMulti([tgt("out")], p);
     expect(g.nodes.has("normal_z")).toBe(true);
     expect(g.nodes.has("clean_z")).toBe(false);
   });
@@ -106,7 +95,7 @@ describe("buildRecipeGraph", () => {
       makeRecipe("clean_z", ["feed"], ["z"], { cost: -1 } as Partial<Recipe>),
       makeRecipe("normal_z", ["feed"], ["z"]),
     ]);
-    const g = buildRecipeGraph([tgt("z")], p);
+    const g = buildRecipeGraphMulti([tgt("z")], p);
     expect(g.nodes.has("normal_z")).toBe(true);
     expect(g.nodes.has("clean_z")).toBe(false);
   });
@@ -115,7 +104,7 @@ describe("buildRecipeGraph", () => {
     // The demand surfaces as an LP deficit instead of a graph-layer throw;
     // plan validation rejects unknown targets before they reach the solver.
     const p = pack([makeRecipe("a", ["feed"], ["x"])]);
-    const g = buildRecipeGraph([tgt("nonexistent")], p);
+    const g = buildRecipeGraphMulti([tgt("nonexistent")], p);
     expect(g.nodes.size).toBe(0);
   });
 });

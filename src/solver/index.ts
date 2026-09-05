@@ -11,8 +11,7 @@ import { boundaryResidualShare } from "./boundary-share";
 import { articulationPoints } from "./bctree";
 import { pickTearEdges } from "./tear";
 import { replicatePerConsumer } from "./replicate";
-import { assignIdealMultipliers, assignMultipliers } from "./multiplier";
-import { ffdPack } from "./ffd";
+import { assignIdealMultipliers } from "./multiplier";
 import { assembleLogicalGraph } from "./assemble";
 import { bisimQuotient, deriveReplicaEdges, type ClassId } from "./bisim";
 import { assertInvariants } from "./invariants";
@@ -84,15 +83,16 @@ function runBisim(
   const pinnedReplicaIds = new Set(
     rawReplicas.filter((r) => r.sharedAtArticulation).map((r) => r.id),
   );
-  // bisimQuotient also produces `quotientEdges` aggregated over (sourceClass,
-  // targetClass, item). We don't thread that into SolvePlanFull: downstream
-  // stages rebuild per-pair flow rates from assembleLogicalGraph's edge list. It
-  // stays on the bisim public API for a future K-stamps count badge.
+  // bisimQuotient can also aggregate `quotientEdges` over (sourceClass,
+  // targetClass, item). Nothing downstream reads them - the later stages rebuild
+  // per-pair flow rates from assembleLogicalGraph's edge list - so the solve
+  // path opts out and only the bisim unit tests exercise that aggregation.
   const { quotientReplicas, classByReplicaId, classToQuotient } = bisimQuotient(
     {
       replicas: rawReplicas,
       edges: rawEdges,
       pinnedReplicaIds,
+      emitEdges: false,
     },
   );
   return { replicas: quotientReplicas, classByReplicaId, classToQuotient };
@@ -123,10 +123,12 @@ export type SolvePlanFull = {
    * can fold equivalent replicas on the pre-ceiling rate.
    */
   idealCount: Map<ReplicaId, Fraction>;
+  /** Raw replica id -> its bisim class. Test-only: nothing in the render
+   *  pipeline or the canvas reads it; the bisim round-trip suite does.
+   */
   classByReplicaId: Map<ReplicaId, ClassId>;
-  /** ClassId -> quotient replica id ("q:N"). Paired with classByReplicaId so
-   *  canvas highlighting can map a hovered quotient node back to the original
-   *  replica ids in its class.
+  /** ClassId -> quotient replica id ("q:N"). Test-only, paired with
+   *  classByReplicaId by the same bisim round-trip suite.
    */
   classToQuotient: Map<ClassId, ReplicaId>;
   /**
@@ -158,9 +160,9 @@ export type SolvePlanFull = {
 
 // Shared pipeline behind the public entry point. Runs the full solve (graph
 // build, SCC condensation, LP solve, replication, bisim, multiplier assignment,
-// FFD packing, tear-edge rebuild, logical-graph assembly) and returns the
-// assembled SolvePlanFull plus the raw LpResult. It does NOT run the dev-only
-// invariant assertions; those stay with solvePlanWithIntermediates.
+// tear-edge rebuild, logical-graph assembly) and returns the assembled
+// SolvePlanFull plus the raw LpResult. It does NOT run the dev-only invariant
+// assertions; those stay with solvePlanWithIntermediates.
 //
 // The TornEdge[] is rebuilt here because the LP solver returns no torn-edge
 // metadata; return-arc rendering needs the full TornEdge objects with their
@@ -169,7 +171,6 @@ export type SolvePlanFull = {
 function runSolvePipeline(
   targets: ReadonlyArray<ItemTarget>,
   rawPack: RecipePack,
-  tConfig: TransportConfig,
   itemOverrides: ItemOverride[] | undefined,
   recipeCosts: Map<RecipeId, number> | undefined,
 ): { full: SolvePlanFull; lpResult: LpResult } {
@@ -178,7 +179,6 @@ function runSolvePipeline(
   // only display layers go back to the raw pack.
   const pack = netSelfConsumption(rawPack);
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
-  const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
   const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
@@ -232,9 +232,15 @@ function runSolvePipeline(
     g,
     rawReplicas,
   );
-  const multipliers = assignMultipliers(replicas, machineById, recipeById);
   const idealCount = assignIdealMultipliers(replicas, machineById, recipeById);
-  const lanes = ffdPack(replicas, itemById, recipeById, tConfig);
+  // The integer machine count is the ceiling of the exact rational ideal.
+  // idealCount already skipped zero-rate replicas, so every ceiling is >= 1.
+  const multipliers = new Map(
+    [...idealCount].map(([id, f]): [ReplicaId, number] => [
+      id,
+      Number(f.ceil(0).valueOf()),
+    ]),
+  );
 
   const torn: TornEdge[] = [];
   for (const scc of sccs) {
@@ -246,7 +252,6 @@ function runSolvePipeline(
   const logical = assembleLogicalGraph({
     replicas,
     multipliers,
-    lanes,
     condensation: c,
     recipeById,
     g,
@@ -279,6 +284,13 @@ function runSolvePipeline(
  * Solve a plan and return the assembled LogicalGraph together with the
  * intermediate artifacts the render pipeline (cluster, expand, bisim, render)
  * needs. Runs the reference-free invariant assertions in dev/test builds.
+ *
+ * `tConfig` is accepted but unread: the transport config only ever fed the
+ * lane packer, and every caller still hands it over. It stays in the signature
+ * so callers keep a single solve entry point once transport is modelled again.
+ * Nothing here validates it any more, so a carrier kind missing from the config
+ * is caught only by loadTransportConfig, which the app runs at startup and the
+ * CLI tools do not.
  */
 export function solvePlanWithIntermediates(
   targets: ReadonlyArray<ItemTarget>,
@@ -290,7 +302,6 @@ export function solvePlanWithIntermediates(
   const { full, lpResult } = runSolvePipeline(
     targets,
     pack,
-    tConfig,
     itemOverrides,
     recipeCosts,
   );
