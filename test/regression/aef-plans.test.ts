@@ -62,11 +62,23 @@ const EXPECTATION_KEYS = [
 ];
 
 // A misspelled or retired expectation would otherwise sit in the JSON reading
-// like a live assertion while the runner ignores it, so fail loudly instead.
-function rejectUnknownKeys(file: string, fixture: RegressionFixture): void {
+// like a live assertion while the runner ignores it, and a missing required key
+// would surface as an opaque TypeError halfway through the pipeline. Name the
+// file and the key instead.
+function validateFixtureKeys(file: string, fixture: RegressionFixture): void {
+  for (const required of ["name", "targets", "expectations"] as const) {
+    if (fixture[required] === undefined) {
+      throw new Error(`${file}: missing required fixture key: ${required}`);
+    }
+  }
+  if (fixture.expectations.minUnits === undefined) {
+    throw new Error(
+      `${file}: missing required fixture key: expectations.minUnits`,
+    );
+  }
   const stray = [
     ...Object.keys(fixture).filter((k) => !FIXTURE_KEYS.includes(k)),
-    ...Object.keys(fixture.expectations ?? {})
+    ...Object.keys(fixture.expectations)
       .filter((k) => !EXPECTATION_KEYS.includes(k))
       .map((k) => `expectations.${k}`),
   ];
@@ -87,7 +99,7 @@ function loadFixtures(): ReadonlyArray<{
   return files.map((file) => {
     const raw = readFileSync(join(FIXTURE_DIR, file), "utf-8");
     const parsed = JSON.parse(raw) as RegressionFixture;
-    rejectUnknownKeys(file, parsed);
+    validateFixtureKeys(file, parsed);
     return { file, fixture: parsed };
   });
 }

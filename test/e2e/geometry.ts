@@ -586,9 +586,9 @@ function centreInRect(p: Pt, r: RawRect): boolean {
 //   - same flow (same item AND source): a trunk's members share one lane and a
 //     fanout's slices share their common trajectory, so a chip on that shared
 //     line is on its OWN line even when a sibling edge id owns the segment;
-//   - arrival cluster (same target), NARROWED (3a): entry-kind chips are always
-//     exempt (pinned at the port by design, row pitch below the max-scale chip
-//     box); a label chip is exempt only while its centre sits in the target's
+//   - arrival cluster (same target), NARROWED (3a): the bus kinds are always
+//     exempt (anchored on their lane or trunk by design, not on the member
+//     edge's path); a label chip is exempt only while its centre sits in the
 //     entry band -- the gutter just left of the consumer card where the final
 //     approaches converge. A rate chip out on the corridor is no longer masked
 //     by the shared target, so a chip lying across a sibling's line is flagged.
@@ -613,9 +613,9 @@ function chipForeignTo(
     return false; // same flow: one visual line
   }
   if (owner !== undefined && owner.target === edge.target) {
-    // Arrival cluster, narrowed: entry and bus chips always exempt (pinned
-    // at the port / anchored on the lane by design); a rate chip is exempt
-    // only when its centre lies in the target's entry band.
+    // Arrival cluster, narrowed: the bus kinds are always exempt (anchored on
+    // their lane or trunk by design); a rate chip is exempt only when its
+    // centre lies in the target's entry band.
     if (chip.kind !== "label") return false;
     const card = cardById.get(owner.target);
     if (card !== undefined && centreInRect(centreOf(chip), entryBandOf(card))) {

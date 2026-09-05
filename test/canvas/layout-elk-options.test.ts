@@ -1,35 +1,31 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import ELK from "elkjs/lib/elk.bundled.js";
-
-import {
-  ELK_LAYER_CONSTRAINT_KEY,
-  ROOT_LAYOUT_OPTIONS,
-} from "../../src/canvas/layout";
 
 // ELK silently ignores an option id it does not know, so a typo or an id
 // retired by an elkjs bump costs a declutter knob with no error anywhere: the
-// nine real-layout suites would fail on the shifted geometry without ever
-// naming the option that went missing. This test asks ELK itself which ids it
-// honours. Enum VALUES stay uncovered -- ELK reports a type, not the legal
-// values -- so a bad value still only shows up as a geometry change.
+// real-layout suites would fail on the shifted geometry without ever naming the
+// option that went missing. This test asks ELK itself which ids it honours.
+// Enum VALUES stay uncovered -- ELK reports a type, not the legal values -- so
+// a bad value still only shows up as a geometry change.
 
-// The option ids layout.ts sets outside ROOT_LAYOUT_OPTIONS. Container, recipe
-// and port options live in object literals inside the graph builders rather
-// than in an exported constant, so they are listed here by hand.
-const PER_NODE_OPTION_IDS = [
-  "org.eclipse.elk.padding",
-  "org.eclipse.elk.portConstraints",
-  "org.eclipse.elk.port.side",
-  "org.eclipse.elk.port.index",
-  // Wrapping options, applied only above WRAP_MIN_UNITS.
-  "elk.aspectRatio",
-  "elk.layered.wrapping.strategy",
-  ELK_LAYER_CONSTRAINT_KEY,
-];
+const LAYOUT_SRC = join("src", "canvas", "layout.ts");
 
-// ELK's registry keys everything under the fully qualified prefix while it
-// also accepts the "elk." shorthand layout.ts mostly writes, so normalize
-// before the lookup.
+// Scan the source rather than import the option objects: only the root set is
+// exported, and the container, recipe and port options live in object literals
+// inside the graph builders. A comment mentioning an id is scanned too, which
+// costs nothing -- a real id passes and a stale one is worth knowing about.
+function optionIdsInLayoutSource(): string[] {
+  const src = readFileSync(LAYOUT_SRC, "utf-8");
+  const found =
+    src.match(/"(?:org\.eclipse\.)?elk\.[A-Za-z][A-Za-z.]*"/g) ?? [];
+  return [...new Set(found.map((m) => m.slice(1, -1)))].sort();
+}
+
+// ELK's registry keys everything under the fully qualified prefix while it also
+// accepts the "elk." shorthand layout.ts mostly writes, so normalize before the
+// lookup.
 function canonical(id: string): string {
   return id.startsWith("org.eclipse.elk.")
     ? id
@@ -37,7 +33,7 @@ function canonical(id: string): string {
 }
 
 describe("layout ELK options", () => {
-  it("every option id layout.ts sets is one ELK knows", async () => {
+  it("every option id named in layout.ts is one ELK knows", async () => {
     const elk = new ELK();
     const known = new Set(
       (await elk.knownLayoutOptions()).map((o) => o.id).filter(Boolean),
@@ -45,7 +41,8 @@ describe("layout ELK options", () => {
     // Guard against a stubbed or empty registry making this vacuous.
     expect(known.size).toBeGreaterThan(100);
 
-    const used = [...Object.keys(ROOT_LAYOUT_OPTIONS), ...PER_NODE_OPTION_IDS];
+    const used = optionIdsInLayoutSource();
+    // Guard against the scan silently matching nothing.
     expect(used.length).toBeGreaterThan(15);
 
     const unknown = used.filter((id) => !known.has(canonical(id)));
