@@ -769,6 +769,45 @@ describe("deconflictChipAnchors: bus rise slot clamp", () => {
     expect(busDropDyRawOf(out, "e0")).toBeUndefined();
   });
 
+  it("keeps a co-located subset on its spread slots when one sibling rises further out", () => {
+    // The same three same-layer members as above plus a fourth consumer one
+    // layer further right (rise column 2368, 480 past the shared 1888). The
+    // trunk's rise columns no longer sit within one MIN_CHIP_SEP as a WHOLE,
+    // but the three same-layer windows still cut the same stretch of the
+    // shared run: judged trunk-wide, the far sibling re-imposed the window on
+    // all four and the capacity check hid two of the three same-layer chips.
+    // Judged per member, only the far sibling keeps its window; the three
+    // co-located members keep their spread slots and every rise chip stays.
+    const r = mkRecipe("r", ["w"], ["b"]);
+    const nodes: RFAnyNode[] = [
+      productNode("s", 200, 0, 100, 60),
+      recipeNode("t0", 1920, 0, r),
+      recipeNode("t1", 1920, 300, r),
+      recipeNode("t2", 1920, 600, r),
+      recipeNode("t3", 2400, 900, r),
+    ];
+    const edges = [
+      mkEdge("e0", "s", "t0", "w"),
+      mkEdge("e1", "s", "t1", "w"),
+      mkEdge("e2", "s", "t2", "w"),
+      mkEdge("e3", "s", "t3", "w"),
+    ];
+    const out = deconflictChipAnchors(nodes, routeBusEdges(nodes, edges));
+    for (const id of ["e0", "e1", "e2", "e3"] as const) {
+      expect(busRiseHiddenOf(out, id), `${id} rise hidden`).toBe(false);
+    }
+    const xs = (["e0", "e1", "e2"] as const).map((id) => busChipXOf(out, id)!);
+    const W = MAX_CHIP_SCALE * CHIP_BOX_WIDTH;
+    for (let i = 0; i < xs.length; i++) {
+      for (let j = i + 1; j < xs.length; j++) {
+        expect(
+          Math.abs(xs[i]! - xs[j]!),
+          `slots ${i}/${j} separated by the spread`,
+        ).toBeGreaterThanOrEqual(W);
+      }
+    }
+  });
+
   it("stamps a clamped slot even when the member carries no other stamp", () => {
     // The same trunk without the hairpin member: e2's backward run clamps its
     // slot to the rise end (-192, not the old drop-end 124), it seats on the
