@@ -55,6 +55,56 @@ export function properCross(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
   return properCrossPoint(a, b, c, d) !== null;
 }
 
+// Liang-Barsky parametric clip of the segment (x0,y0)-(x1,y1) against the OPEN
+// interior of an axis-aligned box, as the [t0, t1] parameter window of the
+// piece inside -- or null when the segment misses the box or only grazes its
+// boundary (a zero-length window does not count). Callers that need the
+// clipped points map the window back through the segment themselves; callers
+// that only need a yes/no compare against null.
+//
+// The single copy for the render layer and its audits: chipSeating's chip
+// seating (clipSegToChipBox, and the boolean and window probes built on it)
+// and geometry.ts's placement audits (clipWindow, segmentEntersRect,
+// clipSegmentToRect) used to carry two byte-identical Liang-Barsky loops, so
+// "the box contains this stroke" could drift between the seat and the audit
+// that scores it. A box with no positive extent contains nothing, which the
+// slab test alone would not say for a stroke running along a collapsed side.
+export function clipSegmentToBox(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  box: { left: number; top: number; right: number; bottom: number },
+): [number, number] | null {
+  if (box.right <= box.left || box.bottom <= box.top) return null;
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  let t0 = 0;
+  let t1 = 1;
+  const clip = (p: number, q: number): boolean => {
+    if (p === 0) return q >= 0; // parallel: inside iff on the correct side
+    const t = q / p;
+    if (p < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
+    return true;
+  };
+  if (
+    clip(-dx, x0 - box.left) &&
+    clip(dx, box.right - x0) &&
+    clip(-dy, y0 - box.top) &&
+    clip(dy, box.bottom - y0) &&
+    t1 - t0 > 1e-6
+  ) {
+    return [t0, t1];
+  }
+  return null;
+}
+
 // Distance from point p to segment a->b (the usual clamped projection). The
 // single shared copy for the render layer and its audits: chipSeating's chip
 // seating and geometry.ts's audits used to carry private duplicates.
