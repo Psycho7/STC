@@ -3,7 +3,11 @@ import {
   bytesToBase64url,
   base64urlToBytes,
 } from "../src/data/encoding/base64url";
-import { gzipBytes, gunzipBytes } from "../src/data/encoding/gzip";
+import {
+  MAX_DECOMPRESSED_BYTES,
+  gzipBytes,
+  gunzipBytes,
+} from "../src/data/encoding/gzip";
 import { pack } from "../src/data/load";
 import {
   MAX_HASH_PAYLOAD_LEN,
@@ -47,6 +51,19 @@ describe("gzip", () => {
   it("round-trips an empty buffer", async () => {
     const input = new Uint8Array(0);
     expect(await gunzipBytes(await gzipBytes(input))).toEqual(input);
+  });
+
+  it("rejects a payload that decompresses past the byte cap", async () => {
+    const bomb = await gzipBytes(new Uint8Array(MAX_DECOMPRESSED_BYTES + 1));
+    // The 16 KB fragment cap does not bound this: the bomb compresses to well
+    // under it and still expands past the decompressed cap.
+    expect(bytesToBase64url(bomb).length).toBeLessThan(MAX_HASH_PAYLOAD_LEN);
+    await expect(gunzipBytes(bomb)).rejects.toThrow(/exceeds/);
+  });
+
+  it("accepts a payload that decompresses to exactly the byte cap", async () => {
+    const atCap = await gzipBytes(new Uint8Array(MAX_DECOMPRESSED_BYTES));
+    expect((await gunzipBytes(atCap)).length).toBe(MAX_DECOMPRESSED_BYTES);
   });
 
   it("compresses a 4 KB repetitive buffer by at least 10x and emits gzip framing", async () => {
@@ -135,6 +152,19 @@ describe("loadPlan envelope handling", () => {
 
   it("wire-decode failure surfaces a malformed-hash error", async () => {
     const outcome = await loadPlan("#v1.A", pack);
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind === "error") {
+      expect(outcome.error.kind).toBe("malformed-hash");
+    }
+  });
+
+  // A fragment under the character cap can still expand past the byte cap;
+  // gunzipBytes throws and the decode step reports it like any other failure.
+  it("a decompression bomb inside the char cap surfaces a malformed-hash error", async () => {
+    const bomb = await gzipBytes(new Uint8Array(MAX_DECOMPRESSED_BYTES + 1));
+    const hash = "#v1." + bytesToBase64url(bomb);
+    expect(hash.length - "#v1.".length).toBeLessThan(MAX_HASH_PAYLOAD_LEN);
+    const outcome = await loadPlan(hash, pack);
     expect(outcome.kind).toBe("error");
     if (outcome.kind === "error") {
       expect(outcome.error.kind).toBe("malformed-hash");
