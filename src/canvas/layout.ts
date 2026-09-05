@@ -50,6 +50,7 @@ import {
   clampBackwardRails,
   clearBusColumns,
   jogForwardLegs,
+  parseElkEdgeIndex,
   routeBusEdges,
   routeFanoutEdges,
 } from "./busRouting";
@@ -764,16 +765,6 @@ function resolveInputOrder(node: ElkNode): {
   return {
     inputOrder: ins.map((e) => e.item),
   };
-}
-
-function parseElkEdgeIndex(id: string): number | null {
-  // renderEdgeToElk writes ids shaped like "e:<index>:<from>-><to>:<item>".
-  if (!id.startsWith("e:")) return null;
-  const rest = id.slice(2);
-  const colon = rest.indexOf(":");
-  if (colon === -1) return null;
-  const n = Number.parseInt(rest.slice(0, colon), 10);
-  return Number.isFinite(n) ? n : null;
 }
 
 function portToItem(port: string): string {

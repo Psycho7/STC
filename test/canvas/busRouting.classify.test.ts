@@ -683,6 +683,7 @@ describe("routeFanoutEdges (6C)", () => {
       busTotalRate?: Fraction;
       busMemberCount?: number;
       busChipOwner?: boolean;
+      fanoutContested?: boolean;
     };
 
   type Rect = { left: number; top: number; right: number; bottom: number };
@@ -1019,6 +1020,68 @@ describe("routeFanoutEdges (6C)", () => {
     const sibling = { e0: "e1", e2: "e3", e4: "e5" }[unformedOwner]!;
     expect(out.find((e) => e.id === unformedOwner)!.type).toBe("item");
     expect(out.find((e) => e.id === sibling)!.type).toBe("item");
+  });
+
+  it("groups three nested-span trunks into one contesting corridor", () => {
+    // Three trunks in one 186-unit corridor whose y-spans form a chain only a
+    // real interval union sees. Ports resolve to: b|s1 spans 70..97, c|s2
+    // 670..697, and d|s3 80..997 -- the last one's source port sits at the
+    // bottom while one of its branches climbs to the top, so it overlaps BOTH
+    // siblings while they do not touch each other. Walking the trunks in
+    // source-port order (b, c, d) breaks the chain at the first pair and leaves
+    // b spread on its own; ordering the chain by span start unions all three.
+    // With n = 3 the pitch is 93, under the worst-case chip half-box, so every
+    // member's branch chip collapses to the icon-only render.
+    const rb = mkRecipe("rb", ["a"], ["b"]);
+    const rc = mkRecipe("rc", ["a"], ["c"]);
+    const rd = mkRecipe("rd", ["a"], ["d"]);
+    const tgt = 550; // gap 250: corridor [332, 518], pitch (518 - 332) / 2 = 93
+    const nodes: RFAnyNode[] = [
+      recipeNode("s1", 0, 0, rb),
+      recipeNode("s2", 0, 600, rc),
+      recipeNode("s3", 0, 900, rd),
+      recipeNode("tA1", tgt, 0, rb),
+      recipeNode("tA2", tgt, 20, rb),
+      recipeNode("tB1", tgt, 600, rb),
+      recipeNode("tB2", tgt, 620, rb),
+      recipeNode("tC1", tgt, 10, rb), // d|s3's high branch, above b|s1's span
+      recipeNode("tC2", tgt, 900, rb),
+    ];
+    const edges = [
+      mkEdge("e0", "s1", "tA1", "b"),
+      mkEdge("e1", "s1", "tA2", "b"),
+      mkEdge("e2", "s2", "tB1", "c"),
+      mkEdge("e3", "s2", "tB2", "c"),
+      mkEdge("e4", "s3", "tC1", "d"),
+      mkEdge("e5", "s3", "tC2", "d"),
+    ];
+    const out = routeFanoutEdges(nodes, edges);
+    // All three trunks form, and all three are marked contested.
+    for (const id of ["e0", "e1", "e2", "e3", "e4", "e5"]) {
+      const d = fanData(out, id);
+      expect(out.find((e) => e.id === id)!.type).toBe("bus");
+      expect(d.fanout).toBe(true);
+      expect(d.fanoutContested).toBe(true);
+    }
+    // Slots are still handed out top-to-bottom by source-port y, so the topmost
+    // trunk takes the corridor's low end and the columns sit a pitch apart.
+    expect(fanData(out, "e0").junctionX).toBe(300 + PORT_STUB + CHAMFER);
+    const columns = ["e0", "e2", "e4"].map((id) => fanData(out, id).junctionX!);
+    expect(columns[1]! - columns[0]!).toBeGreaterThanOrEqual(PORT_STUB);
+    expect(columns[2]! - columns[1]!).toBeGreaterThanOrEqual(PORT_STUB);
+    // Order-independent: shuffling the input resolves the same columns.
+    const shuffled = routeFanoutEdges(nodes, [
+      edges[5]!,
+      edges[2]!,
+      edges[4]!,
+      edges[0]!,
+      edges[3]!,
+      edges[1]!,
+    ]);
+    for (const id of ["e0", "e2", "e4"]) {
+      expect(fanData(shuffled, id).junctionX).toBe(fanData(out, id).junctionX);
+      expect(fanData(shuffled, id).fanoutContested).toBe(true);
+    }
   });
 
   it("does NOT double-capture long-span bus members", () => {

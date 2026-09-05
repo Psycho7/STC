@@ -85,6 +85,7 @@ import {
   OBSTACLE_PAD_Y,
   edgeItem,
   edgeRate,
+  flowKeyOf as busFlowKey,
   isTrunkOwner,
   type BusEdgeData,
   type FanoutBusEdgeData,
@@ -1836,7 +1837,7 @@ export function deconflictChipAnchors(
   // cache their parsed points and clear-segment anchor here, so the rate-chip
   // phase below neither rebuilds the path nor re-parses the `d` string.
   const flowKeyOf = (edge: Edge): string =>
-    (edgeItem(edge) ?? "?") + "|" + edge.source;
+    busFlowKey(edgeItem(edge), edge.source);
   const edgeSegments: EdgeSegments[] = [];
   // The edges-array index of each edgeSegments entry, parallel to it: the
   // crossing-cue pass below reads it to key each edge's stamped-cue list,
