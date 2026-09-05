@@ -46,6 +46,7 @@ import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
 import { displayedInputCount } from "./components/InputsPanel";
 import { iconSheetUrl } from "./canvas/iconSprite";
+import { BUS_LANES_STORAGE_KEY } from "./data/storage-keys";
 
 // Run the render pipeline over a SolvePlanFull and turn it into React Flow nodes
 // and edges via layoutRenderPlan.
@@ -125,8 +126,9 @@ const transportConfig: TransportConfig = loadTransportConfig(
 );
 
 // Bus-lane preference persistence. A view-only setting, so it lives in
-// localStorage (like the locale), never in the plan wire / URL hash.
-const BUS_LANES_STORAGE_KEY = "aef.busLanes";
+// localStorage (like the locale), never in the plan wire / URL hash. The key
+// itself is declared beside the locale one, because the exam CLIs seed both
+// before the app boots.
 
 function readStoredBusLanesEnabled(): boolean {
   if (typeof window === "undefined") return false;

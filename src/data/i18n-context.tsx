@@ -7,8 +7,8 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import { loadI18n, type I18nIndex, type Locale } from "./i18n";
+import { LOCALE_STORAGE_KEY as STORAGE_KEY } from "./storage-keys";
 
-const STORAGE_KEY = "aef.locale";
 const SUPPORTED: ReadonlySet<Locale> = new Set(["en", "ja", "ru", "zh"]);
 
 type LocaleContextValue = {

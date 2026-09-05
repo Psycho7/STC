@@ -681,10 +681,11 @@ export function evalPayload(value: unknown, limit = EVAL_JSON_LIMIT): EvalPayloa
 // loading the CLI, which drags in Playwright and a browser driver for what is a
 // few milliseconds of string work.
 //
-// OP_ARGS is the op list's one definition on this side. The same names are
-// written again in the workflow's falsifier schema and twice in the skill doc,
-// and only a parity test holds those to this table - an op renamed here and
-// nowhere else leaves an evaluator naming a probe run that cannot be made.
+// OP_ARGS is the op list's one definition on this side. The names are written
+// again in the workflow's falsifier schema, which a parity test holds to this
+// table, and in prose in the workflow's refuter briefing and the skill doc,
+// which nothing pins. An op renamed here and nowhere else leaves an evaluator
+// naming a probe run that cannot be made.
 // ---------------------------------------------------------------------------
 
 export const OP_ARGS = {

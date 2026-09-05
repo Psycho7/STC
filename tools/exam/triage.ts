@@ -467,7 +467,7 @@ export function validateFinding(finding: Finding): string[] {
         violations.push(`evidence[${i}] names no image`);
       }
       if (rectFromTuple(entry.rect) === null) {
-        violations.push(`evidence[${i}] rect is not a finite [x, y, width, height]`);
+        violations.push(`evidence[${i}] rect is not a finite [x, y, width, height] with a positive extent`);
       }
     });
   }

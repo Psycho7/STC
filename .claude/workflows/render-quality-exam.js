@@ -603,7 +603,7 @@ function validateFinding(finding) {
         return
       }
       if (typeof raw.image !== 'string' || raw.image.trim() === '') violations.push(`evidence[${i}] names no image`)
-      if (rectFromTuple(raw.rect) === null) violations.push(`evidence[${i}] rect is not a finite [x, y, width, height]`)
+      if (rectFromTuple(raw.rect) === null) violations.push(`evidence[${i}] rect is not a finite [x, y, width, height] with a positive extent`)
     })
   }
 

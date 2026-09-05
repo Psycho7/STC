@@ -8,6 +8,9 @@
 // nothing visible: the page simply boots on its defaults, and every capture
 // taken after it is silently in the wrong locale or with the lanes off.
 //
-// A leaf with no imports, so a CLI can name a key without loading the app.
+// A leaf with no imports, so a CLI can name a key without loading the app. The
+// Playwright specs under test/e2e still write the strings out by hand, because
+// an addInitScript callback is serialised and cannot close over an import; a
+// rename has to sweep those too.
 export const LOCALE_STORAGE_KEY = "aef.locale";
 export const BUS_LANES_STORAGE_KEY = "aef.busLanes";

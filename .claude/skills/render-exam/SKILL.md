@@ -493,7 +493,9 @@ gh issue list --state open --limit 100
 
 Match each surviving finding to an open issue by defect FAMILY - same mechanism, not same plan.
 A finding that belongs to an open family is a reconfirmation comment on that issue, naming the
-plan and the evidence, not a second issue. Only a family nothing covers earns a new issue.
+plan and the evidence, not a second issue. Draft that comment the same way as a new body and
+hand it over rather than posting it - the no-push rule below covers comments too. Only a family
+nothing covers earns a new issue.
 
 That listing hides closed families, and the closed ones are where the families live: the
 2026-09-03 run drafted nine "new" families of which three had closed issues (#29, #43, #25) and
@@ -510,11 +512,13 @@ finding that matches a bullet under "Intentional behaviours" in `docs/render-con
 a defect of the conventions doc, not of the app: fix the bullet, and do not draft it.
 
 An exam's results stay local. Write each new issue body to
-`.artifacts/exam/issues/<slug>.md` and hand the user the
-`gh issue create --title "..." --body-file .artifacts/exam/issues/<slug>.md` commands rather
-than running them: creation was classifier-blocked in auto mode on 2026-08-15, and the standing
-rule since 2026-09-03 is that an exam files no issue and posts no comment by itself. Nothing is
-pushed either - no assets branch, no images to a remote. Reference the crops by their paths under
+`.artifacts/exam/issues/<slug>.md` and each reconfirmation to
+`.artifacts/exam/issues/<issue number>-reconfirm.md`, then hand the user the commands rather
+than running them - `gh issue create --title "..." --body-file <draft>` for a new family,
+`gh issue comment <number> --body-file <draft>` for a reconfirmation. Creation was
+classifier-blocked in auto mode on 2026-08-15, and the standing rule since 2026-09-03 is that
+an exam files no issue and posts no comment by itself. Nothing is pushed either - no assets
+branch, no images to a remote. Reference the crops by their paths under
 `.artifacts/exam/crops/` in the drafts, and let the user decide what goes to the remote and
 when. Include per-plan share hashes in a `<details>` block for reproduction.
 

@@ -778,10 +778,12 @@ describe("the workflow's inlined triage matches tools/exam/triage.ts", () => {
 // evaluates into anything reachable from here, so read it out of the source.
 // ---------------------------------------------------------------------------
 
-// Quote-agnostic on both the string type and the enum members. `.claude/` is
-// inside prettier's walk and the workflow file is not formatted today, so a
-// single `prettier --write` would rewrite every quote in it - and a pin that
-// broke on a reformat would be read as the reformat breaking the schema.
+// Robust to a reformat, not just to a quote style. `.claude/` is inside
+// prettier's walk and the workflow file is not formatted today, so one
+// `prettier --write` would rewrite the quotes, break the array across lines and
+// leave a trailing comma - and a pin that failed on that would be read as the
+// reformat breaking the schema. So the members are matched as quoted strings
+// rather than split on commas.
 const CLAIM_TYPE_ENUM =
   /claimType:\s*\{\s*type:\s*["']string["'],\s*enum:\s*\[([^\]]*)\]/;
 // The falsifier op enum, in the same schema. Nothing else pinned it, and the op
@@ -797,7 +799,7 @@ function schemaEnum(pattern: RegExp, name: string): string[] {
   if (list === undefined) {
     throw new Error(`${WORKFLOW_PATH} declares no ${name} enum`);
   }
-  return list.split(",").map((entry) => entry.trim().replace(/^["']|["']$/g, ""));
+  return [...list.matchAll(/["']([^"']*)["']/g)].map((m) => m[1] ?? "");
 }
 
 function schemaClaimTypes(): string[] {
