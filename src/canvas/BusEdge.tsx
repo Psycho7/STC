@@ -5,6 +5,7 @@ import {
   FlowChip,
   JunctionDot,
   LABEL_MIN_ZOOM,
+  NO_CUE_PTS,
   edgeStrokeWidth,
   junctionRadius,
   strokeForKind,
@@ -118,6 +119,14 @@ export default function BusEdge({
     : laneY + (laneData?.busDropDy ?? 0);
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
+  // Cue-filter path parse, gated on the cue stamp and memoized for the same
+  // zoom-tick reason as ItemEdge (see the full note there): the parse used
+  // to run in argument position on every render of every member, including
+  // the cue-less ones the callee immediately filters out.
+  const cuePts = useMemo(
+    () => (edgeData?.crossingCues?.length ? parsePathPoints(path) : NO_CUE_PTS),
+    [path, edgeData?.crossingCues],
+  );
   // Crossing-cue disks, stamped on this member wherever its polyline
   // properly crosses a different flow's. The seating pass stamps BOTH edges
   // of such a pair (selection elevation can flip their paint order, so each
@@ -126,10 +135,7 @@ export default function BusEdge({
   // on this member's live polyline and against the stamped partner edge's
   // anchors (the stale-stamp rule, see useLiveCrossingCues) -- and rendered
   // before the coloured path, exactly as ItemEdge draws them.
-  const liveCues = useLiveCrossingCues(
-    edgeData?.crossingCues,
-    parsePathPoints(path),
-  );
+  const liveCues = useLiveCrossingCues(edgeData?.crossingCues, cuePts);
   // Zoom-compensated base width published as --edge-base-width, matching
   // ItemEdge. A caller-supplied style still wins over these defaults.
   const mergedStyle: React.CSSProperties = {

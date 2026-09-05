@@ -412,6 +412,12 @@ export function useLiveCrossingCues(
   return liveCrossingCues(cues, ownPts, (_, i) => bits[i] === true);
 }
 
+// Stable empty vertex list for the memoized cue-path parse below (and the
+// matching one in BusEdge): a cue-less edge returns it instead of allocating,
+// and liveCrossingCues never reads the points once its own cue early-out
+// fires, so the shared identity is all that matters.
+export const NO_CUE_PTS: ReadonlyArray<readonly [number, number]> = [];
+
 // The merge junction dot, portaled into the shared edgelabel-renderer layer (not
 // an SVG circle in the edge group) so it shares the chips' stacking context: it
 // sits BELOW the flow chips (.bus-junction z-index 1 vs .flow-chip z-index 2 in
@@ -556,15 +562,25 @@ export default function ItemEdge({
   );
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
+  // Parse the own polyline for the cue filter once per (path, cue stamp),
+  // never once per render: the zoom subscription above re-renders every edge
+  // on each zoom tick, and with the parse in argument position every tick
+  // re-ran it -- a regex matchAll plus a tuple per vertex -- on every mounted
+  // edge, cue-carrying or not, before the callee's cue early-out could skip
+  // it. The stamp gate now runs first (a cue-less edge never parses at all)
+  // and the memo holds the survivors' parse across the ticks; the same
+  // one-parse-per-edge hoist the seating pass documents on pathPointAtPts.
+  const cuePts = useMemo(
+    () =>
+      edgeData?.crossingCues?.length ? parsePathPoints(edgePath) : NO_CUE_PTS,
+    [edgePath, edgeData?.crossingCues],
+  );
   // Crossing-cue disks, filtered to the stamps whose crossing still stands
   // on BOTH sides -- the stamp sits on THIS edge's live polyline (the
   // stale-stamp rule) and the stamped partner edge has not moved or
   // vanished (see useLiveCrossingCues): rendered before the coloured path
   // below so the path repaints each disk's centre.
-  const liveCues = useLiveCrossingCues(
-    edgeData?.crossingCues,
-    parsePathPoints(edgePath),
-  );
+  const liveCues = useLiveCrossingCues(edgeData?.crossingCues, cuePts);
   // Zoom-compensated base width, published as --edge-base-width so the hover
   // emphasis CSS can scale relative to it. A caller-supplied style wins over
   // these defaults, so later overrides for hover, tear edges, or cross-group
