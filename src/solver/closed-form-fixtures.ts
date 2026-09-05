@@ -66,6 +66,26 @@ export function makePack(recipes: MicroRecipe[], items: MicroItem[]): RecipePack
   } as RecipePack;
 }
 
+// game v1.4 added the gas-system machines. Suites whose witnesses were written
+// against the pre-gas routes solve against the pack this returns: the same pack
+// with every gas-machine recipe filtered out. Every other recipe is unchanged,
+// so the pre-v1.4 plans reproduce exactly.
+const GAS_MACHINES = new Set([
+  "gas_pump_1",
+  "gas_reactor_1",
+  "phase_trans_1",
+  "phase_trans_2",
+]);
+
+export function withoutGasMachines(p: RecipePack): RecipePack {
+  return {
+    ...p,
+    recipes: p.recipes.filter(
+      (r) => !r.producers.some((m) => GAS_MACHINES.has(m)),
+    ),
+  };
+}
+
 export interface ClosedFormFixture {
   name: string;
   targets: ItemTarget[];

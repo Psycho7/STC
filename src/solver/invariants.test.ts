@@ -10,6 +10,7 @@ import {
 } from "./invariants";
 import { solveLp, type LpResult } from "./lp";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./index";
+import { withoutGasMachines } from "./closed-form-fixtures";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
@@ -21,18 +22,7 @@ import type { RecipePack } from "@aef/schema";
 // full pack. The detection-power tests corrupt that recipe's rate; solving them
 // against a pack without the gas-machine recipes keeps the original headline
 // plan (every upstream recipe is unchanged) so the corruption has a rate to hit.
-const GAS_MACHINES = new Set([
-  "gas_pump_1",
-  "gas_reactor_1",
-  "phase_trans_1",
-  "phase_trans_2",
-]);
-const legacyPack: RecipePack = {
-  ...pack,
-  recipes: pack.recipes.filter(
-    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
-  ),
-};
+const legacyPack: RecipePack = withoutGasMachines(pack);
 
 const headlineTargets: ItemTarget[] = [
   {

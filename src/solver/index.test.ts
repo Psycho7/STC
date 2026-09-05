@@ -8,6 +8,7 @@ import {
 } from "./corpus";
 import { renderPlanFromSolve } from "../pipeline/driver";
 import { checkRenderPlan } from "../pipeline/render/invariants";
+import { withoutGasMachines } from "./closed-form-fixtures";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
@@ -18,18 +19,7 @@ import type { LpResult } from "./lp";
 // a gas chain, displacing the water-fed main+purifier producers. The
 // two-producer coexistence witness below solves against a pack without the
 // gas-machine recipes to keep that plan (upstream recipes are unchanged).
-const GAS_MACHINES = new Set([
-  "gas_pump_1",
-  "gas_reactor_1",
-  "phase_trans_1",
-  "phase_trans_2",
-]);
-const legacyPack: RecipePack = {
-  ...pack,
-  recipes: pack.recipes.filter(
-    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
-  ),
-};
+const legacyPack: RecipePack = withoutGasMachines(pack);
 
 // Force a specific LpResult.status for the infeasible/unbounded throw-arm tests.
 // The LP model puts deficit+surplus slack on every finite-supply item, so the

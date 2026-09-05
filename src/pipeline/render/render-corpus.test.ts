@@ -11,7 +11,10 @@
 
 import { describe, it, expect, vi } from "vitest";
 import Fraction from "fraction.js";
-import { CLOSED_FORM_FIXTURES } from "../../solver/closed-form-fixtures";
+import {
+  CLOSED_FORM_FIXTURES,
+  withoutGasMachines,
+} from "../../solver/closed-form-fixtures";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
 import type { Target } from "../../data/targets";
@@ -32,18 +35,7 @@ import { pack } from "../../data/load";
 // were written to exercise. Those suites solve against a pack without the
 // gas-machine recipes; every pre-v1.4 recipe is unchanged upstream, so this
 // reproduces the exact plans the regressions pinned.
-const GAS_MACHINES = new Set([
-  "gas_pump_1",
-  "gas_reactor_1",
-  "phase_trans_1",
-  "phase_trans_2",
-]);
-const legacyPack = {
-  ...pack,
-  recipes: pack.recipes.filter(
-    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
-  ),
-};
+const legacyPack = withoutGasMachines(pack);
 import { checkRepresentable, checkMassBalance } from "../../solver/invariants";
 import { solveLp } from "../../solver/lp";
 

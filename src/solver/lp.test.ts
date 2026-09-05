@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import { solveLp, type LpResult } from "./lp";
-import { makePack } from "./closed-form-fixtures";
+import { makePack, withoutGasMachines } from "./closed-form-fixtures";
 import { effectiveSupply } from "./effectiveSupply";
 import { pack } from "../data/load";
 import type { ItemTarget } from "../data/targets";
@@ -13,18 +13,7 @@ import type { RecipePack } from "@aef/schema";
 // main+purifier producers this file's headline regression pins. Solving
 // against a pack without the gas-machine recipes reproduces the exact
 // pre-v1.4 plan (every upstream recipe is unchanged).
-const GAS_MACHINES = new Set([
-  "gas_pump_1",
-  "gas_reactor_1",
-  "phase_trans_1",
-  "phase_trans_2",
-]);
-const legacyPack: RecipePack = {
-  ...pack,
-  recipes: pack.recipes.filter(
-    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
-  ),
-};
+const legacyPack: RecipePack = withoutGasMachines(pack);
 
 // Exact per-item mass-balance residual over the extracted result:
 // production - consumption + draw - surplus + deficit - demand, in Fraction
