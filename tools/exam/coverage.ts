@@ -39,6 +39,7 @@ import { dirname } from "node:path";
 import type { Machine, Recipe, RecipePack } from "@aef/schema";
 import { pack as shippedPack } from "../../src/data/load";
 import { defaultTransportConfig } from "../../src/data/transport-config";
+import { rationalFromString } from "../../src/data/targets";
 import { renderPlanFromSolve } from "../../src/pipeline/driver";
 import {
   isInputProductUnit,
@@ -206,9 +207,7 @@ function featuresOf(plan: RenderPlan, partialStamps: number): FeatureCounts {
     if (isRecipeUnit(u)) {
       if (u.containerId !== undefined && loopBoxIds.has(u.containerId))
         loopMembers += 1;
-      multiplicity = multiplicity.add(
-        new Fraction(`${u.multiplicity.num}/${u.multiplicity.denom}`),
-      );
+      multiplicity = multiplicity.add(rationalFromString(u.multiplicity));
     } else if (isInputProductUnit(u)) {
       if (u.isFanout) fanoutInputs += 1;
       if (u.isAggregate) aggregateInputs += 1;

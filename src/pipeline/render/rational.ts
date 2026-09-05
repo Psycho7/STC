@@ -1,9 +1,10 @@
-import Fraction from "fraction.js";
+import type Fraction from "fraction.js";
 import type { RationalString } from "../types";
 
-export function rationalFromString(r: RationalString): Fraction {
-  return new Fraction(`${r.num}/${r.denom}`);
-}
+// The parse lives beside the RationalString type in src/data/targets.ts so the
+// solver can reach it without importing the render layer. Re-exported here so
+// the render layer keeps its parse/emit pair in one module.
+export { rationalFromString } from "../../data/targets";
 
 export function rationalToString(f: Fraction): RationalString {
   // fraction.js v5 keeps the sign in .s with .n absolute. RationalString is

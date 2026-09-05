@@ -1,8 +1,11 @@
 import Fraction from "fraction.js";
-import type { RationalString } from "../data/targets";
+import {
+  rationalFromString,
+  type RationalString,
+} from "../data/targets";
 
 export function formatMultiplicityBadge(m: RationalString): string | null {
-  const f = new Fraction(`${m.num}/${m.denom}`);
+  const f = rationalFromString(m);
 
   if (f.equals(0)) {
     console.warn(

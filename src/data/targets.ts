@@ -1,4 +1,15 @@
+import Fraction from "fraction.js";
+
 export type RationalString = { num: string; denom: string };
+
+// The one num/denom -> Fraction parse. Every layer that needs exact arithmetic
+// over a wire rational goes through this instead of rebuilding the "num/denom"
+// string, so a change to the rational encoding has a single edit site.
+// Re-exported from src/pipeline/render/rational.ts for the render layer, which
+// pairs it with rationalToString.
+export function rationalFromString(r: RationalString): Fraction {
+  return new Fraction(`${r.num}/${r.denom}`);
+}
 
 // Item-keyed target: "net-export this item at ratePerSec". The whole app -
 // plan, UI, and solver - speaks this one shape.

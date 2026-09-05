@@ -8,7 +8,7 @@
 import Fraction from "fraction.js";
 import { pack } from "../../src/data/load";
 import { defaultTransportConfig } from "../../src/data/transport-config";
-import type { Target } from "../../src/data/targets";
+import { rationalFromString, type Target } from "../../src/data/targets";
 import { solveLp } from "../../src/solver/lp";
 import { solvePlanWithIntermediates } from "../../src/solver/index";
 import {
@@ -330,11 +330,11 @@ export async function runCli(argv: string[]): Promise<string> {
         unitLines.push(`loop ${u.id} sccId=${u.sccId}`);
       } else if (isInputProductUnit(u)) {
         unitLines.push(
-          `inputProduct ${u.id} item=${u.itemId} rate=${new Fraction(`${u.rate.num}/${u.rate.denom}`).toFraction()}`,
+          `inputProduct ${u.id} item=${u.itemId} rate=${rationalFromString(u.rate).toFraction()}`,
         );
       } else if (isOutputProductUnit(u)) {
         unitLines.push(
-          `outputProduct ${u.id} item=${u.itemId} rate=${new Fraction(`${u.rate.num}/${u.rate.denom}`).toFraction()}`,
+          `outputProduct ${u.id} item=${u.itemId} rate=${rationalFromString(u.rate).toFraction()}`,
         );
       }
     }

@@ -12,7 +12,7 @@ import type {
   SccId,
 } from "./types";
 import { outgoingEdgeKey } from "./types";
-import type { ItemTarget } from "../data/targets";
+import { rationalFromString, type ItemTarget } from "../data/targets";
 
 /**
  * Per-consumer micro-pipeline replication.
@@ -1309,9 +1309,7 @@ function walkFromTargets(state: ReplicateState): void {
   for (const t of state.targets) {
     const producers = state.producersByTargetItem.get(t.itemId) ?? [];
     if (producers.length === 0) continue;
-    const declared = new Fraction(
-      `${t.ratePerSec.num}/${t.ratePerSec.denom}`,
-    );
+    const declared = rationalFromString(t.ratePerSec);
     let totalFlow = new Fraction(0);
     const flows = new Map<RecipeId, Fraction>();
     for (const rid of producers) {
