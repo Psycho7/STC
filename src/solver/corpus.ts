@@ -1,6 +1,10 @@
 // Curated small synthetic recipe-pack fixtures, each exercising one solver
-// topology. Used by corpus.test.ts for golden regression: any change to solver
-// output on a known topology must trip a test.
+// topology. Test-only, and read by three suites: corpus.test.ts pins the
+// fixtures that ship a `*Golden` companion (objectiveValue + active recipe
+// set), index.test.ts drives a few of them through the whole solve-and-render
+// pipeline, and tools/oracle/corpus-run.test.ts replays the scenarios up to
+// feasible-empty against GLPK. A fixture without a golden is asserted inline by
+// whichever suite uses it, so adding one here pins nothing on its own.
 //
 // Per-fixture fields:
 //   pack         - minimal RecipePack (cast via `as unknown as RecipePack`)
@@ -8,8 +12,7 @@
 //   itemOverrides? - ItemOverride[] for supply caps / plan flags
 //   recipeCosts?   - Map<RecipeId, number> for cost overrides
 //
-// All goldens (objectiveValue + active recipe set) come from running the actual
-// solver and reading output, never invented.
+// Every golden was captured from actual solver output, never invented.
 
 import type { RecipePack } from "@aef/schema";
 import type { ItemTarget } from "../data/targets";
@@ -684,14 +687,9 @@ export const deficitUnmetDemandGolden = {
 //   - javascript-lp-solver only emits bounded:false when the objective is
 //     unbounded in the MAX direction. solveLp uses opType:"min".
 //
-// So unbounded is structurally unreachable. No fabricated scenario or fake
-// LpResult for it.
+// So unbounded is structurally unreachable. No fixture, fabricated scenario or
+// fake LpResult for it.
 // ---------------------------------------------------------------------------
-export const SCENARIO_9_UNBOUNDED_UNREACHABLE =
-  "Status 'unbounded' is unreachable via solveLp: all vars are non-negative " +
-  "and all objective coefficients are non-negative, so a minimization " +
-  "objective is bounded below by 0. javascript-lp-solver only emits " +
-  "bounded:false in the maximization direction.";
 
 // ---------------------------------------------------------------------------
 // Scenario 10: feasible-empty

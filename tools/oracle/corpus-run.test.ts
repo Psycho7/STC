@@ -1,10 +1,12 @@
-// T5 corpus run: drive the FULL scenario set through the gate-validated
+// T5 corpus run: drive the scenario set below through the gate-validated
 // three-tier comparison harness (compare.ts) and emit a tier-classified report
 // (corpus-results.md). HONEST: a real STC-vs-GLPK disagreement on a whitelisted
 // axis is the prototype payload; this file never fudges one away.
 //
 // Scenario set (PLAN-001 T5):
-//   1. The STC solver corpus (src/solver/corpus.ts) - every topology it defines.
+//   1. The STC solver corpus (src/solver/corpus.ts) - its scenarios up to
+//      feasible-empty. The corpus has grown past that point; the later
+//      scenarios have never been wired in here.
 //   2. The headline plan - the app default targets + the ADAPTER-NOTES 4:1 case.
 //   3. Risk axes not covered by 1-2 - reuse tools/oracle/fixtures.
 //
