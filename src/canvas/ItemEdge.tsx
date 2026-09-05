@@ -22,8 +22,9 @@ import {
   liveCrossingCues,
   type CrossingCue,
 } from "./crossings";
-import { iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
+import { Sprite } from "./RecipeNode";
+import { BELT_COLOR, GAS_COLOR, PIPE_COLOR } from "./transportPalette";
 
 export type ItemEdgeData = {
   item: ItemId;
@@ -135,19 +136,15 @@ export type ItemEdgeData = {
   crossingCues?: ReadonlyArray<CrossingCue>;
 };
 
-// Fallback stroke per transport kind, used only when an edge carries no item id
-// (older fixtures and tests). Belt is a solid gray stroke; pipe is a dashed cyan
-// stroke that reuses the input-product accent color; gas is a dash-dot stroke in
-// a lighter cyan, so the two fluid carriers read as related media of different
-// density. When an item id is present the stroke color instead comes from
-// itemColor so the same item reads the same on every edge kind; the dash pattern
-// is preserved either way. Unknown kinds fall through to the belt default on
-// purpose. The real guard against bad data happens at load time; this
-// render-time fallback just keeps the UI alive.
-const BELT_STROKE = "#666";
-const PIPE_STROKE = "#0891b2";
+// Dash pattern per transport kind. Belt is solid; pipe is dashed; gas is
+// dash-dot, so the two fluid carriers read as related media of different
+// density. The stroke COLOR comes from itemColor whenever the edge carries an
+// item id, so the same item reads the same on every edge kind, and falls back to
+// the shared transport palette only on the item-less edges older fixtures and
+// tests build. Unknown kinds fall through to the belt default on purpose. The
+// real guard against bad data happens at load time; this render-time fallback
+// just keeps the UI alive.
 const PIPE_DASH = "4 2";
-const GAS_STROKE = "#22d3ee";
 const GAS_DASH = "6 2 1 2";
 
 // Below this zoom the rate chips are dropped. Dense plans now fit at roughly
@@ -254,7 +251,6 @@ export function FlowChip({
   // natural size (scale 1).
   zoom?: number | undefined;
 }) {
-  const pos = item !== undefined ? iconPosition(item) : undefined;
   // Counter-scale about the chip centre. translate(-50%,-50%) translate(x,y)
   // already centres the box on (x, y); appending scale() with the default
   // (centre) transform-origin keeps that anchor and only grows the chip.
@@ -293,11 +289,7 @@ export function FlowChip({
       >
         {/* An icon-less item that collapses leaves the box EMPTY on purpose: it
             stays a tinted hover target carrying title/aria-label. */}
-        {pos !== undefined ? (
-          <span className="ico ico-16">
-            <span className="spr" style={{ backgroundPosition: pos }} />
-          </span>
-        ) : null}
+        <Sprite iconId={item} size={16} />
         {/* The text rides in its own span so the .flow-chip max-width clamp can
             ellipsize it (text-overflow does not reach a bare text node inside a
             flex container). The title attribute above keeps the full value. A
@@ -497,12 +489,130 @@ export function strokeForKind(
 ): StrokeStyle {
   const stroke = itemId !== undefined ? itemColor(itemId) : undefined;
   if (kind === "gas") {
-    return { stroke: stroke ?? GAS_STROKE, strokeDasharray: GAS_DASH };
+    return { stroke: stroke ?? GAS_COLOR, strokeDasharray: GAS_DASH };
   }
   if (kind === "pipe") {
-    return { stroke: stroke ?? PIPE_STROKE, strokeDasharray: PIPE_DASH };
+    return { stroke: stroke ?? PIPE_COLOR, strokeDasharray: PIPE_DASH };
   }
-  return { stroke: stroke ?? BELT_STROKE };
+  return { stroke: stroke ?? BELT_COLOR };
+}
+
+// The drawn stroke style both edge components hand to BaseEdge: the kind's
+// stroke and dash, plus the zoom-compensated base width published as
+// --edge-base-width so the hover emphasis CSS can scale relative to it. A
+// caller-supplied style wins over these defaults, so later overrides for hover,
+// tear edges or cross-group edges take effect without this file knowing about
+// them. The kind's stroke colour is returned alongside because both components
+// also paint their junction dots with it.
+export function edgeStrokeStyle(
+  kind: TransportKindId | undefined,
+  itemId: ItemId | undefined,
+  zoom: number,
+  style: React.CSSProperties | undefined,
+): { stroke: string; style: React.CSSProperties } {
+  const kindStyle = strokeForKind(kind, itemId);
+  return {
+    stroke: kindStyle.stroke,
+    style: {
+      ...kindStyle,
+      ["--edge-base-width" as string]: `${edgeStrokeWidth(zoom)}px`,
+      strokeWidth: "var(--edge-base-width)",
+      ...(style ?? {}),
+    },
+  };
+}
+
+// The painted edge line, shared by ItemEdge and BusEdge. It owns the whole
+// drawn-stroke contract: the crossing-cue mask (this edge's stroke is cut out
+// around every proper crossing it was stamped as passing under, so the other
+// flow's stroke shows through a transparent gap and nothing beneath the pair is
+// painted over), the aria-label, the markerEnd arrow, and the
+// data-transport-kind hook the per-phase dim and hover rules in canvas.css
+// select on. The cue stamps are filtered here rather than by the callers, so
+// both components pay the same one-parse-per-edge-per-path cost and neither can
+// drift from the stale-stamp rule. The attribute is omitted entirely when the
+// edge carries no kind, so a selector can still tell a real belt from an
+// unclassified legacy edge.
+export function MaskedEdge({
+  id,
+  path,
+  style,
+  cues,
+  zoom,
+  ariaLabel,
+  transportKind,
+  markerEnd,
+}: {
+  id: string;
+  path: string;
+  style: React.CSSProperties;
+  cues: ReadonlyArray<CrossingCue> | undefined;
+  zoom: number;
+  ariaLabel?: string | undefined;
+  transportKind?: TransportKindId | undefined;
+  markerEnd?: string | undefined;
+}) {
+  // Parse the own polyline for the cue filter once per (path, cue stamp),
+  // never once per render: the zoom subscription in the callers re-renders
+  // every edge on each zoom tick, and with the parse in argument position
+  // every tick re-ran it -- a regex matchAll plus a tuple per vertex -- on
+  // every mounted edge, cue-carrying or not, before the callee's cue early-out
+  // could skip it. The stamp gate runs first (a cue-less edge never parses at
+  // all) and the memo holds the survivors' parse across the ticks; the same
+  // one-parse-per-edge hoist the seating pass documents on pathPointAtPts.
+  const cuePts = useMemo(
+    () => (cues?.length ? parsePathPoints(path) : NO_CUE_PTS),
+    [path, cues],
+  );
+  // Filtered to the stamps whose crossing still stands on BOTH sides -- the
+  // stamp sits on THIS edge's live polyline (the stale-stamp rule) and a
+  // stamped partner edge has not moved or vanished (see useLiveCrossingCues).
+  const liveCues = useLiveCrossingCues(cues, cuePts);
+  const maskId = crossingCueMaskId(id);
+  return (
+    <>
+      <CrossingCueMask id={maskId} cues={liveCues} zoom={zoom} />
+      <g mask={liveCues.length > 0 ? `url(#${maskId})` : undefined}>
+        <BaseEdge
+          id={id}
+          path={path}
+          style={style}
+          {...(ariaLabel ? { "aria-label": ariaLabel } : {})}
+          {...(transportKind !== undefined
+            ? { "data-transport-kind": transportKind }
+            : {})}
+          {...(markerEnd ? { markerEnd } : {})}
+        />
+      </g>
+    </>
+  );
+}
+
+// A chip that draws nothing still owes the reader its exact rate, so the edge
+// carries it itself: a transparent hover path over the same geometry with the
+// native SVG tooltip on it. Both components fall back to this wherever a hide
+// rule (a fan-in member on the shared run, a hidden bus branch or lane rise)
+// takes their only chip away.
+export function HoverTitlePath({ d, title }: { d: string; title: string }) {
+  return (
+    <path
+      d={d}
+      fill="none"
+      stroke="transparent"
+      strokeWidth={12}
+      pointerEvents="stroke"
+    >
+      <title>{title}</title>
+    </path>
+  );
+}
+
+// The "Name x value" composition every chip label and tooltip is built from.
+// The value half differs per chip -- a rounded rate with its unit, the exact
+// rate, or a localized share phrase -- so it arrives already composed; only the
+// separator lives here, and it is byte-identical across all of them.
+export function rateLabel(name: string, value: string): string {
+  return `${name} x ${value}`;
 }
 
 export default function ItemEdge({
@@ -518,7 +628,10 @@ export default function ItemEdge({
   const edgeData = data as ItemEdgeData | undefined;
   const zoom = useStore((state) => state.transform[2]);
   const i18n = useI18n();
-  const rateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
+  const rateStr = useMemo(
+    () => (edgeData ? formatRatePerMin(edgeData.rate) : ""),
+    [edgeData],
+  );
   const unit = i18n.t("canvas.rate.unit");
   // The chip body shows the icon plus the rounded rate and unit, nothing more.
   // The full "Name x rate/min" string rides on aria-label so a screen reader can
@@ -562,14 +675,25 @@ export default function ItemEdge({
     !ownChipHidden
       ? `${rateStr}${unit}`
       : "";
-  const fullLabel =
-    edgeData && rateStr
-      ? `${i18n.displayName(edgeData.item)} x ${rateStr}${unit}`
-      : "";
-  const exactTitle =
-    edgeData && rateStr
-      ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(edgeData.rate)}${unit}`
-      : "";
+  // The label pair is BigInt Fraction work (the exact half re-formats the
+  // rational in full), and the zoom subscription above re-renders every edge on
+  // every zoom tick, so it is memoized on what it actually reads: this edge's
+  // item and rate, and the locale that names and formats them.
+  const item = edgeData?.item;
+  const rate = edgeData?.rate;
+  const { fullLabel, exactTitle } = useMemo(
+    () =>
+      item !== undefined && rate !== undefined && rateStr
+        ? {
+            fullLabel: rateLabel(i18n.displayName(item), `${rateStr}${unit}`),
+            exactTitle: rateLabel(
+              i18n.displayName(item),
+              `${formatRateExactPerMin(rate)}${unit}`,
+            ),
+          }
+        : { fullLabel: "", exactTitle: "" },
+    [item, rate, rateStr, unit, i18n],
+  );
 
   // chamferStepPath returns the label anchor on the polyline's PREFERRED CLEAR
   // SEGMENT (a corridor leg away from the card rows), not the geometric midpoint.
@@ -592,57 +716,25 @@ export default function ItemEdge({
     [sourceX, sourceY, targetX, targetY, edgeData],
   );
 
-  const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
-  // Parse the own polyline for the cue filter once per (path, cue stamp),
-  // never once per render: the zoom subscription above re-renders every edge
-  // on each zoom tick, and with the parse in argument position every tick
-  // re-ran it -- a regex matchAll plus a tuple per vertex -- on every mounted
-  // edge, cue-carrying or not, before the callee's cue early-out could skip
-  // it. The stamp gate now runs first (a cue-less edge never parses at all)
-  // and the memo holds the survivors' parse across the ticks; the same
-  // one-parse-per-edge hoist the seating pass documents on pathPointAtPts.
-  const cuePts = useMemo(
-    () =>
-      edgeData?.crossingCues?.length ? parsePathPoints(edgePath) : NO_CUE_PTS,
-    [edgePath, edgeData?.crossingCues],
+  const { stroke, style: mergedStyle } = edgeStrokeStyle(
+    edgeData?.transportKind,
+    edgeData?.item,
+    zoom,
+    style,
   );
-  // Crossing-cue gaps, filtered to the stamps whose crossing still stands
-  // on BOTH sides -- the stamp sits on THIS edge's live polyline (the
-  // stale-stamp rule) and a stamped partner edge has not moved or vanished
-  // (see useLiveCrossingCues): masked out of the coloured path below.
-  const liveCues = useLiveCrossingCues(edgeData?.crossingCues, cuePts);
-  const cueMaskId = crossingCueMaskId(id);
-  // Zoom-compensated base width, published as --edge-base-width so the hover
-  // emphasis CSS can scale relative to it. A caller-supplied style wins over
-  // these defaults, so later overrides for hover, tear edges, or cross-group
-  // edges take effect without this file having to know about them.
-  const mergedStyle: React.CSSProperties = {
-    ...kindStyle,
-    ["--edge-base-width" as string]: `${edgeStrokeWidth(zoom)}px`,
-    strokeWidth: "var(--edge-base-width)",
-    ...(style ?? {}),
-  };
 
   return (
     <>
-      {/* Crossing cues: this edge's stroke is masked out around each proper
-          crossing it was stamped as passing under, so the other flow's
-          stroke shows through a transparent gap and nothing beneath the
-          pair is painted over. The mask attribute is absent on the common
-          cue-less edge. */}
-      <CrossingCueMask id={cueMaskId} cues={liveCues} zoom={zoom} />
-      <g mask={liveCues.length > 0 ? `url(#${cueMaskId})` : undefined}>
-        <BaseEdge
-          id={id}
-          path={edgePath}
-          style={mergedStyle}
-          {...(fullLabel ? { "aria-label": fullLabel } : {})}
-          {...(edgeData?.transportKind !== undefined
-            ? { "data-transport-kind": edgeData.transportKind }
-            : {})}
-          {...(markerEnd ? { markerEnd } : {})}
-        />
-      </g>
+      <MaskedEdge
+        id={id}
+        path={edgePath}
+        style={mergedStyle}
+        cues={edgeData?.crossingCues}
+        zoom={zoom}
+        ariaLabel={fullLabel}
+        transportKind={edgeData?.transportKind}
+        markerEnd={markerEnd}
+      />
       {chipText ? (
         <FlowChip
           testId={`item-edge-label-${id}`}
@@ -663,15 +755,7 @@ export default function ItemEdge({
           reachable on the edge itself: a transparent hover path over the same
           geometry carries the native SVG tooltip (mirrors BusEdge). */}
       {ownChipHidden && exactTitle ? (
-        <path
-          d={edgePath}
-          fill="none"
-          stroke="transparent"
-          strokeWidth={12}
-          pointerEvents="stroke"
-        >
-          <title>{exactTitle}</title>
-        </path>
+        <HoverTitlePath d={edgePath} title={exactTitle} />
       ) : null}
       {/* Fan-in merge dot (owner only): where the last same-item member joins the
           shared run into the target port. Reuses BusEdge's junction dot markup.
@@ -681,7 +765,7 @@ export default function ItemEdge({
           testId={`fanin-junction-${id}`}
           x={edgeData.faninJunctionX}
           y={edgeData.faninJunctionY!}
-          color={kindStyle.stroke}
+          color={stroke}
           dimmed={edgeData.dimmed}
           zoom={zoom}
         />
@@ -695,7 +779,7 @@ export default function ItemEdge({
           testId={`fanout-junction-${id}`}
           x={edgeData.fanoutJunctionX}
           y={edgeData.fanoutJunctionY!}
-          color={kindStyle.stroke}
+          color={stroke}
           dimmed={edgeData.dimmed}
           zoom={zoom}
         />

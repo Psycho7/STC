@@ -1,16 +1,14 @@
-import { BaseEdge, useStore, type EdgeProps } from "@xyflow/react";
+import { useStore, type EdgeProps } from "@xyflow/react";
 import { useMemo } from "react";
 import {
-  CrossingCueMask,
   FlowChip,
+  HoverTitlePath,
   JunctionDot,
   LABEL_MIN_ZOOM,
-  NO_CUE_PTS,
-  edgeStrokeWidth,
+  MaskedEdge,
+  edgeStrokeStyle,
   junctionRadius,
-  crossingCueMaskId,
-  strokeForKind,
-  useLiveCrossingCues,
+  rateLabel,
   type ItemEdgeData,
 } from "./ItemEdge";
 import {
@@ -21,7 +19,6 @@ import {
 import {
   chamferBusPath,
   chamferFanoutPath,
-  parsePathPoints,
   routingHintsFromData,
 } from "./edgePath";
 import { branchChipText } from "./chipSeating";
@@ -122,31 +119,12 @@ export default function BusEdge({
     ? fan.trunkAnchor.y + (fanoutData?.fanoutAggDy ?? 0)
     : laneY + (laneData?.busDropDy ?? 0);
 
-  const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
-  // Cue-filter path parse, gated on the cue stamp and memoized for the same
-  // zoom-tick reason as ItemEdge (see the full note there): the parse used
-  // to run in argument position on every render of every member, including
-  // the cue-less ones the callee immediately filters out.
-  const cuePts = useMemo(
-    () => (edgeData?.crossingCues?.length ? parsePathPoints(path) : NO_CUE_PTS),
-    [path, edgeData?.crossingCues],
+  const { stroke, style: mergedStyle } = edgeStrokeStyle(
+    edgeData?.transportKind,
+    edgeData?.item,
+    zoom,
+    style,
   );
-  // Crossing-cue gaps, stamped on this member wherever its polyline properly
-  // crosses a different flow's and it was picked as the one passing under.
-  // The stamps are filtered to crossings that still stand on BOTH sides --
-  // on this member's live polyline and against a stamped partner edge's
-  // anchors (the stale-stamp rule, see useLiveCrossingCues) -- and masked
-  // out of the coloured path, exactly as ItemEdge draws them.
-  const liveCues = useLiveCrossingCues(edgeData?.crossingCues, cuePts);
-  const cueMaskId = crossingCueMaskId(id);
-  // Zoom-compensated base width published as --edge-base-width, matching
-  // ItemEdge. A caller-supplied style still wins over these defaults.
-  const mergedStyle: React.CSSProperties = {
-    ...kindStyle,
-    ["--edge-base-width" as string]: `${edgeStrokeWidth(zoom)}px`,
-    strokeWidth: "var(--edge-base-width)",
-    ...(style ?? {}),
-  };
 
   const unit = i18n.t("canvas.rate.unit");
   // The drop (trunk) chip is EXEMPT from the label zoom gate: it always renders
@@ -183,19 +161,32 @@ export default function BusEdge({
   const showMemberChip =
     edgeData !== undefined &&
     (zoom >= LABEL_MIN_ZOOM || longSingleRun || edgeData.focused === true);
-  // The chip formats the trunk's EXACT total, rounded once, the same way the
-  // boundary cards format it, so a chip total and a card total never disagree.
-  // Members rounded independently can still sum a cent off that number; the
-  // tooltip below keeps the exact rate either way.
-  const dropRateStr = totalRate ? formatRatePerMin(totalRate) : "";
+  // Every rate string this member can show, formatted once per (member rate,
+  // trunk total) instead of once per render: the chip formats the trunk's EXACT
+  // total, rounded once, the same way the boundary cards format it, so a chip
+  // total and a card total never disagree (members rounded independently can
+  // still sum a cent off that number, and the tooltips below keep the exact rate
+  // either way). The formatting is BigInt Fraction work and the zoom
+  // subscription above re-renders every member on every zoom tick, so the memo
+  // keeps the digits off the tick.
+  const { memberRateStr, memberExactStr, dropRateStr, totalExactStr } = useMemo(
+    () => ({
+      memberRateStr: edgeData ? formatRatePerMin(edgeData.rate) : "",
+      memberExactStr: edgeData ? formatRateExactPerMin(edgeData.rate) : "",
+      dropRateStr: totalRate ? formatRatePerMin(totalRate) : "",
+      totalExactStr: totalRate ? formatRateExactPerMin(totalRate) : "",
+    }),
+    [edgeData, totalRate],
+  );
+  // Item name for every label and tooltip below; empty on a data-less edge, the
+  // same case each string already guards.
+  const itemName = edgeData ? i18n.displayName(edgeData.item) : "";
   const dropText = showAggChip && dropRateStr ? `${dropRateStr}${unit}` : "";
   const dropLabel =
-    edgeData && dropRateStr
-      ? `${i18n.displayName(edgeData.item)} x ${dropRateStr}${unit}`
-      : "";
+    edgeData && dropRateStr ? rateLabel(itemName, `${dropRateStr}${unit}`) : "";
   const dropTitle =
     edgeData && dropRateStr && totalRate
-      ? `${i18n.displayName(edgeData.item)} x ${formatRateExactPerMin(totalRate)}${unit}`
+      ? rateLabel(itemName, `${totalExactStr}${unit}`)
       : "";
 
   // Rise chip: each member draws its own, showing that member's share. Its x is
@@ -230,7 +221,6 @@ export default function BusEdge({
   // tooltip below.
   const laneRiseHidden = laneData?.busRiseHidden === true;
   const memberChipHidden = branchHidden || laneRiseHidden;
-  const memberRateStr = edgeData ? formatRatePerMin(edgeData.rate) : "";
   // On a multi-member LANE trunk the member chip reads as a SHARE of the trunk
   // it runs in ("30/270") rather than a bare rate, so a lane number is never
   // mistaken for the whole trunk's throughput (issue #45). The chip carries
@@ -256,7 +246,9 @@ export default function BusEdge({
     ...(data !== undefined ? { data } : {}),
   });
   const isShare = branchText?.unit === false;
-  const shareTotalStr = isShare && totalRate ? formatRatePerMin(totalRate) : "";
+  // The share denominator is the trunk total the drop chip already rounded, so
+  // the two chips of one trunk can never print different totals.
+  const shareTotalStr = isShare ? dropRateStr : "";
   const plainRate = `${memberRateStr}${unit}`;
   const riseText =
     showMemberChip && memberRateStr && !memberChipHidden
@@ -266,25 +258,27 @@ export default function BusEdge({
       : "";
   const riseLabel =
     edgeData && memberRateStr
-      ? `${i18n.displayName(edgeData.item)} x ${
+      ? rateLabel(
+          itemName,
           isShare
             ? i18n.t("canvas.chip.share", {
                 rate: memberRateStr,
                 total: shareTotalStr,
               })
-            : plainRate
-        }`
+            : plainRate,
+        )
       : "";
   const riseTitle =
     edgeData && memberRateStr
-      ? `${i18n.displayName(edgeData.item)} x ${
+      ? rateLabel(
+          itemName,
           isShare
             ? i18n.t("canvas.chip.share", {
-                rate: formatRateExactPerMin(edgeData.rate),
-                total: totalRate ? formatRateExactPerMin(totalRate) : "",
+                rate: memberExactStr,
+                total: totalExactStr,
               })
-            : `${formatRateExactPerMin(edgeData.rate)}${unit}`
-        }`
+            : `${memberExactStr}${unit}`,
+        )
       : "";
   // Per-member chip anchor: fan-out branch-leg midpoint (plus its offset), or the
   // lane rise slot (busChipX, the trunk-wide lane x clamped by the seating pass
@@ -332,34 +326,22 @@ export default function BusEdge({
 
   return (
     <>
-      {/* Crossing cues: this member's stroke is masked out around each
-          proper crossing it passes under, for the same reason as ItemEdge
-          (a transparent gap over-paints nothing and reads the same in either
-          paint order). */}
-      <CrossingCueMask id={cueMaskId} cues={liveCues} zoom={zoom} />
-      <g mask={liveCues.length > 0 ? `url(#${cueMaskId})` : undefined}>
-        <BaseEdge
-          id={id}
-          path={path}
-          style={mergedStyle}
-          {...(riseLabel ? { "aria-label": riseLabel } : {})}
-          {...(markerEnd ? { markerEnd } : {})}
-        />
-      </g>
+      <MaskedEdge
+        id={id}
+        path={path}
+        style={mergedStyle}
+        cues={edgeData?.crossingCues}
+        zoom={zoom}
+        ariaLabel={riseLabel}
+        transportKind={edgeData?.transportKind}
+        markerEnd={markerEnd}
+      />
       {/* A hidden member chip (fan-out branch or short-run lane rise) was this
           member's only exact-rate tooltip carrier, so keep the share reachable
           on the edge itself: a transparent hover path over the same geometry
           carries the native SVG tooltip. */}
       {memberChipHidden && riseTitle ? (
-        <path
-          d={path}
-          fill="none"
-          stroke="transparent"
-          strokeWidth={12}
-          pointerEvents="stroke"
-        >
-          <title>{riseTitle}</title>
-        </path>
+        <HoverTitlePath d={path} title={riseTitle} />
       ) : null}
       {/* Junction dot at the lane branch point (bus member), reusing the shared
           JunctionDot markup. It sits BELOW the flow chips in the shared
@@ -372,7 +354,7 @@ export default function BusEdge({
           testId={`bus-junction-${id}`}
           x={junction.x}
           y={junction.y}
-          color={kindStyle.stroke}
+          color={stroke}
           dimmed={edgeData?.dimmed}
           zoom={zoom}
         />
