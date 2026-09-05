@@ -939,20 +939,12 @@ export function checkProductUnitRates(
 
 /**
  * Run all nine render invariant checkers in stable order. Mirrors the solver
- * debug surface that lists a verdict per checker.
+ * debug surface that lists a verdict per checker. The order comes from
+ * RENDER_INVARIANT_CHECKERS at the foot of this file, which is the one place
+ * a checker is registered, so a result and its label cannot disagree.
  */
 export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
-  return [
-    checkEdgeEndpointIntegrity(args),
-    checkBoundaryProductsJustified(args),
-    checkInternalFlowConservation(args),
-    checkConsumerInputsSatisfied(args),
-    checkConsumerInputsNotOverfed(args),
-    checkTargetOutputsSatisfied(args),
-    checkNoOrphanUnits(args),
-    checkUnitOutflowVsProduction(args),
-    checkProductUnitRates(args),
-  ];
+  return RENDER_INVARIANT_CHECKERS.map((c) => c.check(args));
 }
 
 /**
@@ -967,10 +959,10 @@ export function assertRenderInvariants(args: RenderInvariantArgs): void {
 }
 
 /**
- * The nine checkers paired with the names a debug surface prints them under,
- * in the order checkRenderPlan returns its results. Consumers zip their labels
- * against this table instead of hand-listing names in call order, so adding a
- * checker cannot silently mislabel every verdict after it.
+ * The nine checkers paired with the names a debug surface prints them under.
+ * This table IS the order checkRenderPlan runs and returns them in, so a
+ * checker registered here needs no second entry anywhere: a consumer zips its
+ * labels against the table and cannot mislabel a verdict.
  */
 export const RENDER_INVARIANT_CHECKERS: ReadonlyArray<{
   readonly name: string;
