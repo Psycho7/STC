@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toWire, fromWire } from "./plan-wire-v1";
 import type { ItemOverride, Plan } from "./plan";
+import type { RationalString } from "./targets";
 import { pack } from "./load";
 import { recipeCostWeight } from "../solver/lp";
 import { planToSolverArgs } from "../solver/planToSolverArgs";
@@ -105,6 +106,26 @@ describe("plan-wire-v1 canonical order", () => {
 // knows), so encoding must rebuild each element instead of passing it through,
 // otherwise the junk rides along into every link re-shared from that plan.
 describe("plan-wire-v1 canonicalization", () => {
+  it("drops an extra key nested inside a rational", () => {
+    const plan = basePlan();
+    plan.targets = [
+      {
+        itemId: "iron_powder",
+        ratePerSec: { num: "1", denom: "4", junk: "payload" },
+      } as unknown as Plan["targets"][number],
+    ];
+    plan.recipeCosts = new Map([
+      ["copper_bottle", { num: "5", denom: "2", junk: "payload" }],
+    ] as unknown as [string, RationalString][]);
+
+    const wire = toWire(plan);
+    expect(Object.keys(wire.targets[0]!.ratePerSec)).toEqual(["num", "denom"]);
+    expect(Object.keys(wire.recipeCosts!["copper_bottle"]!)).toEqual([
+      "num",
+      "denom",
+    ]);
+  });
+
   it("drops an extra key on a target and on an item override", () => {
     const plan = basePlan();
     plan.targets = [

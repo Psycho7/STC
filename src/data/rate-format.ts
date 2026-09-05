@@ -1,4 +1,5 @@
 import Fraction from "fraction.js";
+import { MAX_RATIONAL_DIGITS } from "./plan";
 import type { RationalString } from "./targets";
 
 // Strip a trailing fractional zero run (and a bare trailing dot) from a decimal
@@ -114,5 +115,11 @@ export function parsePerMinToRatePerSec(
   if (f.compare(0) < 0) return undefined;
   const s = f.toFraction(false);
   const [n, d] = s.includes("/") ? s.split("/") : [s, "1"];
+  // A pasted 400-digit decimal parses fine and would commit, write the hash,
+  // and then fail to load again, since the loader caps rational digits. Refuse
+  // it at the input instead of taking the plan down on the next reload.
+  if (n!.length > MAX_RATIONAL_DIGITS || d!.length > MAX_RATIONAL_DIGITS) {
+    return undefined;
+  }
   return { num: n!, denom: d! };
 }

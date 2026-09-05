@@ -11,6 +11,7 @@ import {
 import { gzipBytes } from "./encoding/gzip";
 import { bytesToBase64url } from "./encoding/base64url";
 import { makePack } from "../solver/closed-form-fixtures";
+import { parsePerMinToRatePerSec } from "./rate-format";
 
 // defaultPlan carries valid targets and a matching schemaVersion, the clean
 // baseline each malformed-rational case mutates one field of.
@@ -59,6 +60,19 @@ describe("loadPlan - malformed but well-encoded wire payloads", () => {
       expect(outcome.error.kind).toBe("malformed-hash");
       expect(typeof describePlanLoadError(outcome.error)).toBe("string");
     }
+  });
+});
+
+// The rate input and the loader share one digit cap. Without the parser half,
+// a pasted long decimal commits, writes the hash, and only fails on the next
+// load, taking the plan with it.
+describe("rate input honours the loader's digit cap", () => {
+  it("parses a rate whose denominator lands inside the cap", () => {
+    expect(parsePerMinToRatePerSec("0." + "1".repeat(200))).toBeDefined();
+  });
+
+  it("refuses a rate whose denominator would exceed the cap", () => {
+    expect(parsePerMinToRatePerSec("0." + "1".repeat(500))).toBeUndefined();
   });
 });
 

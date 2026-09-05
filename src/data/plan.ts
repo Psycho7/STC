@@ -42,8 +42,9 @@ export const MAX_HASH_PAYLOAD_LEN = 16384;
 // Cap on the digit count of a wire rational's numerator and denominator. Rates
 // the UI produces are a few digits wide; the ceiling is generous enough that no
 // real plan can reach it and low enough that BigInt work on a decoded value
-// stays instant.
-const MAX_RATIONAL_DIGITS = 400;
+// stays instant. Exported so the rate parser refuses what the loader would
+// reject, instead of committing a plan that cannot be reloaded.
+export const MAX_RATIONAL_DIGITS = 400;
 
 const CURRENT_VERSION = 1;
 
