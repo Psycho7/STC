@@ -382,9 +382,9 @@ function CanvasInner({
 
   // A plan can land with the pointer standing still (Enter in an already-focused
   // rate field, the bus-lane toggle, hash navigation), and no leave event fires
-  // to cancel a hover still waiting out its intent delay. Drop it: it was aimed
-  // at the old graph, and the focus memo below decides what a hover that has
-  // already settled is still worth.
+  // to cancel a hover still waiting out its intent delay. Cancel it here, since
+  // it was aimed at the old graph. A hover that has already settled is left to
+  // the focus memo below, which keeps it only while its element is still there.
   useEffect(() => {
     cancelPendingHover();
   }, [layoutGeneration, cancelPendingHover]);

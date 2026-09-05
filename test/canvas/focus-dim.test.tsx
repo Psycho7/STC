@@ -9,7 +9,13 @@
 // measurement never fires when ResizeObserver is stubbed out, so this suite
 // leaves the real (absent) ResizeObserver in place and waits for edge wrappers.
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, fireEvent, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  configure,
+  render,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import type { Node, Edge } from "@xyflow/react";
 import Fraction from "fraction.js";
 import Canvas, { focusEdges } from "../../src/canvas/Canvas";
@@ -24,6 +30,12 @@ const PACK = {
   overrides: [],
   machineById: new Map(),
 } as unknown as ItemPackContextValue;
+
+// Every hover wait below sits behind a 150 ms real-timer intent delay on top of
+// a full React Flow mount, and the one-second default runs out when the machine
+// is busy with other suites. Raise the budget once for the file rather than
+// annotating each waitFor; a real failure still fails, only later.
+configure({ asyncUtilTimeout: 5000 });
 
 afterEach(() => {
   cleanup();
