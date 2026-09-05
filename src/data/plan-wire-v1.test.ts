@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toWire, fromWire } from "./plan-wire-v1";
-import type { Plan } from "./plan";
+import type { ItemOverride, Plan } from "./plan";
+import type { RationalString } from "./targets";
 import { pack } from "./load";
 import { recipeCostWeight } from "../solver/lp";
 import { planToSolverArgs } from "../solver/planToSolverArgs";
@@ -97,5 +98,74 @@ describe("plan-wire-v1 canonical order", () => {
       "ammonia",
       "water",
     ]);
+  });
+});
+
+// The wire boundary is where a plan is canonicalized. Element-level junk from a
+// hand-crafted hash survives fromWire (validatePlan only checks the fields it
+// knows), so encoding must rebuild each element instead of passing it through,
+// otherwise the junk rides along into every link re-shared from that plan.
+describe("plan-wire-v1 canonicalization", () => {
+  it("drops an extra key nested inside a rational", () => {
+    const plan = basePlan();
+    plan.targets = [
+      {
+        itemId: "iron_powder",
+        ratePerSec: { num: "1", denom: "4", junk: "payload" },
+      } as unknown as Plan["targets"][number],
+    ];
+    plan.recipeCosts = new Map([
+      ["copper_bottle", { num: "5", denom: "2", junk: "payload" }],
+    ] as unknown as [string, RationalString][]);
+
+    const wire = toWire(plan);
+    expect(Object.keys(wire.targets[0]!.ratePerSec)).toEqual(["num", "denom"]);
+    expect(Object.keys(wire.recipeCosts!["copper_bottle"]!)).toEqual([
+      "num",
+      "denom",
+    ]);
+  });
+
+  it("drops an extra key on a target and on an item override", () => {
+    const plan = basePlan();
+    plan.targets = [
+      {
+        itemId: "iron_powder",
+        ratePerSec: { num: "1", denom: "4" },
+        junk: "payload",
+      } as unknown as Plan["targets"][number],
+    ];
+    plan.itemOverrides = [
+      {
+        itemId: "water",
+        plan: true,
+        junk: "payload",
+      } as unknown as ItemOverride,
+    ];
+
+    const wire = toWire(plan);
+    expect(Object.keys(wire.targets[0]!)).toEqual(["itemId", "ratePerSec"]);
+    expect(Object.keys(wire.itemOverrides![0]!)).toEqual(["itemId", "plan"]);
+
+    const back = fromWire(wire);
+    expect(back.targets[0]).toEqual({
+      itemId: "iron_powder",
+      ratePerSec: { num: "1", denom: "4" },
+    });
+    expect(back.itemOverrides![0]).toEqual({ itemId: "water", plan: true });
+  });
+
+  it("omits an empty title and restores it on decode", () => {
+    const plan = basePlan();
+    plan.title = "";
+    const wire = toWire(plan);
+    expect("title" in wire).toBe(false);
+    expect(fromWire(wire).title).toBe("");
+  });
+
+  it("keeps a non-empty title on the wire", () => {
+    const plan = basePlan();
+    plan.title = "my plan";
+    expect(fromWire(toWire(plan)).title).toBe("my plan");
   });
 });

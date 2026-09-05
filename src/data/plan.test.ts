@@ -11,6 +11,7 @@ import {
 import { gzipBytes } from "./encoding/gzip";
 import { bytesToBase64url } from "./encoding/base64url";
 import { makePack } from "../solver/closed-form-fixtures";
+import { parsePerMinToRatePerSec } from "./rate-format";
 
 // defaultPlan carries valid targets and a matching schemaVersion, the clean
 // baseline each malformed-rational case mutates one field of.
@@ -59,6 +60,19 @@ describe("loadPlan - malformed but well-encoded wire payloads", () => {
       expect(outcome.error.kind).toBe("malformed-hash");
       expect(typeof describePlanLoadError(outcome.error)).toBe("string");
     }
+  });
+});
+
+// The rate input and the loader share one digit cap. Without the parser half,
+// a pasted long decimal commits, writes the hash, and only fails on the next
+// load, taking the plan with it.
+describe("rate input honours the loader's digit cap", () => {
+  it("parses a rate whose denominator lands inside the cap", () => {
+    expect(parsePerMinToRatePerSec("0." + "1".repeat(200))).toBeDefined();
+  });
+
+  it("refuses a rate whose denominator would exceed the cap", () => {
+    expect(parsePerMinToRatePerSec("0." + "1".repeat(500))).toBeUndefined();
   });
 });
 
@@ -120,6 +134,20 @@ describe("validatePlan - rational wire fields", () => {
       name: "a recipeCost with a zero denominator",
       mutate: (plan: Plan) => {
         plan.recipeCosts = new Map([["copper_bottle", { num: "1", denom: "0" }]]);
+      },
+    },
+    // The quotient check alone accepts this: Number() of a 1e5-digit string is
+    // Infinity and 1/Infinity is a finite 0. The digit cap is what rejects it,
+    // before the solver and the label formatter parse it as BigInt.
+    {
+      name: "a target rate with a 100k-digit denominator",
+      mutate: (plan: Plan) => {
+        plan.targets = [
+          {
+            itemId: plan.targets[0]!.itemId,
+            ratePerSec: { num: "1", denom: "9".repeat(100_000) },
+          },
+        ];
       },
     },
   ])("rejects $name", ({ mutate }) => {
