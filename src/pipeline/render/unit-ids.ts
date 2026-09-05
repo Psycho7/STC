@@ -23,9 +23,19 @@ import type {
 //     in either of those files would cycle. Hence a third module, importing
 //     only ../types.
 //
-// The grammar is `u:`-prefixed and `:`-separated. Injectivity across the
-// families assumes item, container and vertex ids contain no `:` and that no
-// container is literally named "target". That assumption predates this file.
+// The grammar is `u:`-prefixed and `:`-separated, and the families below are
+// distinguished by the word after `u:` (`scc`, `class`, `in`, `out`,
+// `surplus`) or, for a recipe unit, by the absence of one. Injectivity across
+// the families rests on exactly three clauses about the ids fed in:
+//   1. An item id contains no `:`. Otherwise `u:in:a:b` is ambiguous between
+//      the aggregate for item "a:b" and the container "b" of item "a".
+//   2. A machine vertex id does not start with a family word followed by `:`.
+//      Otherwise a recipe unit collides with the family that word names.
+//   3. A container id does not start with `tap:` and is not literally
+//      "target", the two reserved container slots under `u:in:<item>:`.
+// The pack census in src/solver/pack-shape.test.ts pins clause 1 on the
+// shipped pack; clauses 2 and 3 hold because vertex and container ids are
+// minted inside the pipeline, not read off the pack.
 
 export const unitIdForRecipe = (vertexId: MachineVertexId): RenderUnitId =>
   `u:${vertexId}`;

@@ -282,3 +282,75 @@ describe("extraction-recipe pack census", () => {
     }
   });
 });
+
+// The id-derived strings on the replica/render path join on `#`, `~`, `|`, `:`
+// or NUL, and none of the five is escaped on the way in:
+//   - replicate.ts mints a replica id as `r:<recipeId>#<n>`, and
+//     logicalNodeIdForReplica swaps that `#` for `~`;
+//   - outgoingEdgeKey (solver/types.ts) is `<item>|<target>`, materialize's
+//     shared bucket key is `<source>|<item>`, and busRouting's flow key is
+//     `<item>|<source>`;
+//   - supplyShareKey and the edge-rate group key join on NUL;
+//   - the render unit-id grammar under pipeline/render is `:`-separated.
+// A separator character inside a recipe or item id would let two distinct
+// entities mint the same string. The pipeline maps ids through the same
+// constructors at every stage, so a collision does not silently drop edge
+// rates - it merges two entities, which is worse and quieter.
+//
+// Not exhaustive over the whole codebase: tear.ts joins on spaces, assemble
+// and graph on `->`, and the bisim passes on \x1F / \x1D. Those keys are
+// internal to one pass and are not pinned here; extend the class if one of
+// them ever leaks into an id the render layer reconstructs.
+//
+// Nothing validates the pack against this, so the census is the guard. The
+// netted pack is checked as well because netSelfConsumption is the pack the
+// solver actually runs on. If this fails, escape or reject the offending id at
+// the extractor rather than loosening the assertion.
+describe("id grammar pack census", () => {
+  const SEPARATORS = /[#~|:\0]/;
+
+  const offenders = (p: RecipePack): string[] =>
+    [
+      ...p.recipes.map((r) => r.id),
+      ...p.items.map((i) => i.id),
+    ]
+      .filter((id) => SEPARATORS.test(id))
+      .sort();
+
+  test("no recipe or item id carries an id-grammar separator", () => {
+    expect(offenders(pack)).toEqual([]);
+    expect(offenders(netSelfConsumption(pack))).toEqual([]);
+  });
+});
+
+// out[0] is the PRIMARY output (see the comment on Recipe.out in the extractor
+// schema): shared-vs-per-consumer replica dispatch, the recipe node's title and
+// the recipe-category predicates all read it, and it rests on nothing stronger
+// than upstream JSON key order. Pin the pair for every multi-output recipe so a
+// vendor refresh that reorders one shows up here instead of quietly moving a
+// plan's topology.
+//
+// The netted pack is pinned too: netSelfConsumption rewrites `in` and `out`, so
+// it is the second place an output could change position, and it is the pack
+// the solver runs on.
+describe("primary-output pack census", () => {
+  const PRIMARY_OUT: Array<[string, string]> = [
+    ["copper_enr", "copper_enr"],
+    ["copper_nugget", "copper_nugget"],
+    ["liquid_copper_enr", "liquid_copper_enr"],
+    ["liquid_xiranite_poly", "liquid_xiranite_poly"],
+    ["liquid_xiranite_poly-purifier", "liquid_xiranite_poly"],
+    ["xiranite_poly", "xiranite_poly"],
+  ];
+
+  const primaryOuts = (p: RecipePack): Array<[string, string]> =>
+    p.recipes
+      .filter((r) => r.out.length > 1)
+      .map((r): [string, string] => [r.id, r.out[0]!.item])
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+
+  test("multi-output recipes keep their primary output", () => {
+    expect(primaryOuts(pack)).toEqual(PRIMARY_OUT);
+    expect(primaryOuts(netSelfConsumption(pack))).toEqual(PRIMARY_OUT);
+  });
+});

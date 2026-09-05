@@ -243,10 +243,25 @@ export type CapEdge = {
   capacity: Fraction;
 };
 
-// Capacity tolerance, deliberately local rather than the shared plan-rate
-// REL_TOL in solver/lp: this path is exact-Fraction and needs the tolerance as
-// a Fraction, which it hoists below because the cap scans every producer on
-// every plan. A shared float constant would have to be re-lifted per call.
+// Capacity tolerance for the transport-cap pass, deliberately its own constant
+// rather than the shared plan-rate REL_TOL in solver/lp (which that file and
+// solver/optimality both mark as not-for-this-path).
+//
+// It is not independent of REL_TOL, though. The cap decides how much billed
+// outflow it is willing to leave standing; the render invariant checkers then
+// judge that same outflow at REL_TOL. So the rule is directional:
+//   - CAP_REL_TOL <= REL_TOL, and
+//   - the magnitude floor this tolerance is taken against must not exceed the
+//     floor the checkers use.
+// A looser cap tolerance (or a higher floor) admits a residual the checkers go
+// on to report; a tighter one only makes the cap work harder, which is safe.
+//
+// Both constants are 1e-6 today, so the first clause holds. The second does
+// not hold everywhere: this cap floors at an absolute 1 (CAP_ONE below) while
+// the checkers floor at toleranceScaleFloor, which drops below 1 on a sub-unit
+// plan, so the cap is the looser of the two down there. Aligning the floor
+// changes which residuals survive the cap - a behaviour change that needs its
+// own test, not a constant edit.
 const CAP_REL_TOL = 1e-6;
 // Hoisted constants: building a Fraction from the float tolerance is costly, and
 // the cap runs (and scans every producer) on every plan, so construct these once.
