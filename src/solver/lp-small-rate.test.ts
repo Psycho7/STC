@@ -6,6 +6,7 @@ import {
   checkRawOnlyBoundary,
   checkTargetsMet,
 } from "./invariants";
+import { withoutGasMachines } from "./closed-form-fixtures";
 import { pack } from "../data/load";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
@@ -16,18 +17,7 @@ import type { RecipePack } from "@aef/schema";
 // liquid_copper_enr route, observe iron_powder stays at 1 via the alternate) no
 // longer holds on the full pack. Solving D6 against a pack without the
 // gas-machine recipes keeps the pre-gas copper topology the witness needs.
-const GAS_MACHINES = new Set([
-  "gas_pump_1",
-  "gas_reactor_1",
-  "phase_trans_1",
-  "phase_trans_2",
-]);
-const legacyPack: RecipePack = {
-  ...pack,
-  recipes: pack.recipes.filter(
-    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
-  ),
-};
+const legacyPack: RecipePack = withoutGasMachines(pack);
 
 // Regression suite for the small-rate / override producer-drop defect class
 // (bug-hunt 2026-06-16, D1-D7). The shared failure: at small target magnitudes

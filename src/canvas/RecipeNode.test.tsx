@@ -1,22 +1,23 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test } from "vitest";
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { cleanup, render } from "@testing-library/react";
 import type { Recipe } from "@aef/schema";
 import RecipeNode from "./RecipeNode";
 import { ItemPackProvider, type ItemPackContextValue } from "./itemPackContext";
+import {
+  makeMachine,
+  makePackValue,
+  makeRecipeNodeProps,
+} from "./node.testkit";
 import { LocaleProvider } from "../data/i18n-context";
 import { cssBlock } from "../../test/canvas/cssContract";
 
 afterEach(cleanup);
 
-function packWithSpeed(speed: number) {
-  return {
-    itemById: new Map(),
-    overrides: [],
-    machineById: new Map([["mk1", { id: "mk1", icon: "mk1", speed }]]),
-  } as unknown as ItemPackContextValue;
+function packWithSpeed(speed: number): ItemPackContextValue {
+  return makePackValue({ machines: [makeMachine("mk1", { speed })] });
 }
 
 function wrap(ui: ReactNode, pack: ItemPackContextValue) {
@@ -31,19 +32,23 @@ function wrap(ui: ReactNode, pack: ItemPackContextValue) {
 
 // The verifier probe's fixture: 1 ore -> 1 plate every 6s. At speed 1 a single
 // machine runs 1/6 exec/s, so every port moves 10 items/min.
-const RECIPE = {
+const RECIPE: Recipe = {
   id: "smelt",
+  name: "smelt",
   category: "assemble",
+  icon: "smelt",
+  row: 0,
   time: 6,
   producers: ["mk1"],
   in: [{ item: "ore", qty: 1 }],
   out: [{ item: "plate", qty: 1 }],
-} as unknown as Recipe;
+};
 
 function renderedRates(speed: number, multiplier?: number) {
-  const props = {
-    data: { recipe: RECIPE, multiplier },
-  } as unknown as ComponentProps<typeof RecipeNode>;
+  const props = makeRecipeNodeProps({
+    recipe: RECIPE,
+    ...(multiplier !== undefined ? { multiplier } : {}),
+  });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(speed));
   const header = container.querySelector(".rate-val")?.textContent;
   const rows = [...container.querySelectorAll(".rn-row .rate")].map(
@@ -87,9 +92,7 @@ test("speed composes with the legacy multiplier path", () => {
 // overlay that collided with the rate block. It must be theme-styled (readable
 // contrast), not the dead light-theme inline color:#444 / fontSize:11.
 test("multiplier chip rides the title line with no inline color or font size", () => {
-  const props = {
-    data: { recipe: RECIPE, multiplier: 3 },
-  } as unknown as ComponentProps<typeof RecipeNode>;
+  const props = makeRecipeNodeProps({ recipe: RECIPE, multiplier: 3 });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
   // Exactly one multiplier element, inline in the machine title line.
   const chips = container.querySelectorAll(".rn-mult-chip");
@@ -121,9 +124,7 @@ test("multiplier chip survives zoom-low while the rate figures hide", () => {
        }
      </style>`,
   );
-  const props = {
-    data: { recipe: RECIPE, multiplier: 3 },
-  } as unknown as ComponentProps<typeof RecipeNode>;
+  const props = makeRecipeNodeProps({ recipe: RECIPE, multiplier: 3 });
   const { container } = render(
     <ReactFlowProvider>
       <LocaleProvider locale="en">
@@ -149,9 +150,7 @@ test("multiplier chip survives zoom-low while the rate figures hide", () => {
 // The header title identifies the machine; the produced items ride the
 // secondary .rn-products line instead of the old .product title line.
 test("header title is the machine name with the products on the secondary line", () => {
-  const props = {
-    data: { recipe: RECIPE, multiplier: 3 },
-  } as unknown as ComponentProps<typeof RecipeNode>;
+  const props = makeRecipeNodeProps({ recipe: RECIPE, multiplier: 3 });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
   const title = container.querySelector(".machine-title .cn");
   expect(title?.textContent).toBe("mk1");
@@ -162,16 +161,14 @@ test("header title is the machine name with the products on the secondary line",
 // A recipe with several outputs lists every product, in declaration order,
 // with the full list hoverable via the title attribute.
 test("multi-output recipe lists all products on the secondary line", () => {
-  const recipe = {
+  const recipe: Recipe = {
     ...RECIPE,
     out: [
       { item: "plate", qty: 1 },
       { item: "slag", qty: 2 },
     ],
-  } as unknown as Recipe;
-  const props = {
-    data: { recipe },
-  } as unknown as ComponentProps<typeof RecipeNode>;
+  };
+  const props = makeRecipeNodeProps({ recipe });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
   const products = container.querySelector(".rn-products");
   expect(products?.textContent).toBe("plate ·\u00A0slag");
@@ -196,9 +193,7 @@ test("the header products line clamps to two lines instead of one ellipsized lin
 // The raw machine id (e.g. "mk1") reads as debug output; the localized machine
 // name already identifies the producer, so the mono id line is dropped.
 test("recipe node does not render the raw machine id line", () => {
-  const props = {
-    data: { recipe: RECIPE, multiplier: 1 },
-  } as unknown as ComponentProps<typeof RecipeNode>;
+  const props = makeRecipeNodeProps({ recipe: RECIPE, multiplier: 1 });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
   expect(container.querySelector(".machine-mid")).toBeNull();
 });
@@ -209,9 +204,11 @@ function renderedWithMultiplicity(
   speed: number,
   multiplicity: { num: string; denom: string },
 ) {
-  const props = {
-    data: { recipe: RECIPE, kind: "recipe", multiplicity },
-  } as unknown as ComponentProps<typeof RecipeNode>;
+  const props = makeRecipeNodeProps({
+    recipe: RECIPE,
+    kind: "recipe",
+    multiplicity,
+  });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(speed));
   const header = container.querySelector(".rate-val")?.textContent;
   const rows = [...container.querySelectorAll(".rn-row .rate")].map(
@@ -280,10 +277,7 @@ test("fractional multiplicity shows the small aggregate, not the per-machine rat
 // NodeProp; the inner .recipe-node must forward it so the crafted
 // .recipe-node.selected lime treatment can fire (it was dead CSS before).
 test("selected prop forwards the selected class onto the card", () => {
-  const props = {
-    data: { recipe: RECIPE },
-    selected: true,
-  } as unknown as ComponentProps<typeof RecipeNode>;
+  const props = makeRecipeNodeProps({ recipe: RECIPE }, true);
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
   expect(container.querySelector(".recipe-node")?.className).toContain(
     "selected",
@@ -291,9 +285,7 @@ test("selected prop forwards the selected class onto the card", () => {
 });
 
 test("an unselected node carries no selected class", () => {
-  const props = {
-    data: { recipe: RECIPE },
-  } as unknown as ComponentProps<typeof RecipeNode>;
+  const props = makeRecipeNodeProps({ recipe: RECIPE });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
   expect(container.querySelector(".recipe-node")?.className).not.toContain(
     "selected",
@@ -303,9 +295,7 @@ test("an unselected node carries no selected class", () => {
 // UX-20: the UPM unit label is a load-bearing node internal and must localize.
 // In zh it renders the localized units-per-minute abbreviation, not "UPM".
 test("UPM label localizes under zh", () => {
-  const props = {
-    data: { recipe: RECIPE },
-  } as unknown as ComponentProps<typeof RecipeNode>;
+  const props = makeRecipeNodeProps({ recipe: RECIPE });
   const { container } = render(
     <ReactFlowProvider>
       <LocaleProvider locale="zh">
@@ -325,15 +315,13 @@ test("UPM label localizes under zh", () => {
 // computed constant offset. The handle carries no inline `top` (it centers via
 // CSS top:50%), and per-side handle ids/counts are unchanged.
 test("handle and port glyph render inside their recipe row", () => {
-  const props = {
-    data: {
-      recipe: RECIPE,
-      portTransportKinds: new Map([
-        ["in:ore", "belt"],
-        ["out:plate", "belt"],
-      ]),
-    },
-  } as unknown as ComponentProps<typeof RecipeNode>;
+  const props = makeRecipeNodeProps({
+    recipe: RECIPE,
+    portTransportKinds: new Map([
+      ["in:ore", "belt"],
+      ["out:plate", "belt"],
+    ]),
+  });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
 
   const inputRow = container.querySelector<HTMLElement>(
@@ -365,14 +353,8 @@ test("handle and port glyph render inside their recipe row", () => {
 // A corrupt fixture can reference a missing machine; the rate falls back to
 // speed 1 instead of crashing.
 test("missing machine record falls back to speed 1", () => {
-  const props = {
-    data: { recipe: RECIPE },
-  } as unknown as ComponentProps<typeof RecipeNode>;
-  const emptyPack = {
-    itemById: new Map(),
-    overrides: [],
-    machineById: new Map(),
-  } as unknown as ItemPackContextValue;
+  const props = makeRecipeNodeProps({ recipe: RECIPE });
+  const emptyPack = makePackValue();
   const { container } = wrap(<RecipeNode {...props} />, emptyPack);
   expect(container.querySelector(".rate-val")?.textContent).toBe("10");
 });

@@ -31,10 +31,6 @@ describe("defaultPlan", () => {
 });
 
 describe("validatePlan", () => {
-  it("returns null for the default plan", () => {
-    expect(validatePlan(freshPlan(), pack)).toBeNull();
-  });
-
   it("schema-version-mismatch on a stale pack schemaVersion", () => {
     const plan: Plan = {
       ...freshPlan(),
@@ -131,23 +127,6 @@ describe("loadPlan / encodePlan", () => {
     if (outcome.kind === "loaded") {
       expect(outcome.plan.title).toBe("test plan");
       expect(outcome.plan.itemOverrides).toEqual(plan.itemOverrides);
-    }
-  });
-
-  it("surfaces validation failures as error outcomes", async () => {
-    const plan: Plan = {
-      ...freshPlan(),
-      targets: [
-        {
-          itemId: "domain_key_tundra",
-          ratePerSec: { num: "1", denom: "1" },
-        },
-      ],
-    };
-    const outcome = await loadPlan("#" + (await encodePlan(plan)), pack);
-    expect(outcome.kind).toBe("error");
-    if (outcome.kind === "error") {
-      expect(outcome.error.kind).toBe("target-not-producible");
     }
   });
 

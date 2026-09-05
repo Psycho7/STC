@@ -1,11 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import {
-  ReactFlowProvider,
-  type NodeProps,
-  type Node as RFNode,
-} from "@xyflow/react";
-import type { Item, Machine, Recipe } from "@aef/schema";
+import { ReactFlowProvider } from "@xyflow/react";
+import type { PortTransportKinds } from "../../src/canvas/layout";
+import type { Recipe } from "@aef/schema";
 import RecipeNode from "../../src/canvas/RecipeNode";
 import { itemColor } from "../../src/canvas/itemColor";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
@@ -13,7 +10,13 @@ import {
   ItemPackProvider,
   type ItemPackContextValue,
 } from "../../src/canvas/itemPackContext";
-import type { PortTransportKinds } from "../../src/canvas/layout";
+import {
+  makeItem,
+  makeMachine,
+  makePackValue,
+  makeRecipeNodeProps,
+  type RecipeNodeData,
+} from "../../src/canvas/node.testkit";
 
 afterEach(() => {
   cleanup();
@@ -48,68 +51,6 @@ const multiRowRecipe: Recipe = {
   producers: ["smelter"],
 };
 
-function makeMachine(id: string, icon?: string): Machine {
-  return {
-    id,
-    name: id,
-    icon: icon ?? id,
-    speed: 1,
-    powerType: "electric",
-    powerKw: null,
-    hideRate: false,
-  };
-}
-
-function makeItem(id: string): Item {
-  return {
-    id,
-    name: id,
-    category: "intermediate",
-    icon: id,
-    row: 0,
-    raw: false,
-    transportKind: "belt",
-  };
-}
-
-function makePackValue(opts: {
-  machines?: Machine[];
-  items?: Item[];
-}): ItemPackContextValue {
-  return {
-    itemById: new Map((opts.items ?? []).map((i) => [i.id, i])),
-    overrides: [],
-    machineById: new Map((opts.machines ?? []).map((m) => [m.id, m])),
-  };
-}
-
-type RecipeNodeData = {
-  recipe: Recipe;
-  multiplier?: number;
-  expanded?: boolean;
-  kind?: "recipe";
-  inputOrder?: string[];
-  portTransportKinds?: PortTransportKinds;
-};
-type RecipeNodeType = RFNode<RecipeNodeData, "recipe">;
-
-function makeProps(data: RecipeNodeData): NodeProps<RecipeNodeType> {
-  return {
-    id: "recipe-test",
-    type: "recipe",
-    data,
-    selected: false,
-    isConnectable: true,
-    positionAbsoluteX: 0,
-    positionAbsoluteY: 0,
-    zIndex: 0,
-    dragging: false,
-    draggable: true,
-    deletable: true,
-    selectable: true,
-  } as unknown as NodeProps<RecipeNodeType>;
-}
-
 function renderRecipe(
   data: RecipeNodeData,
   pack: ItemPackContextValue = makePackValue({
@@ -120,7 +61,7 @@ function renderRecipe(
   return render(
     <ItemPackProvider value={pack}>
       <ReactFlowProvider>
-        <RecipeNode {...makeProps(data)} />
+        <RecipeNode {...makeRecipeNodeProps(data)} />
       </ReactFlowProvider>
     </ItemPackProvider>,
   );
@@ -449,7 +390,7 @@ describe("RecipeNode", () => {
     };
 
     it("titles the header with the machine name and renders the machine-icon data attribute", () => {
-      const machine = makeMachine("mixer", "asm-icon");
+      const machine = makeMachine("mixer", { icon: "asm-icon" });
       const { container } = renderRecipe(
         { recipe: plateRecipe, kind: "recipe", multiplier: 1 },
         makePackValue({

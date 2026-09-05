@@ -2,38 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import type { Item, Recipe, RecipePack } from "@aef/schema";
+import type { RecipePack } from "@aef/schema";
 import { InputsPanel } from "../../src/components/InputsPanel";
+import { makePack } from "../../src/solver/closed-form-fixtures";
 import type { ItemOverride } from "../../src/data/plan";
 
 afterEach(() => cleanup());
-
-function mkItem(id: string, raw: boolean): Item {
-  return {
-    id,
-    name: id,
-    category: "cat",
-    stack: 100,
-    icon: "ico",
-    row: 0,
-    raw,
-    transportKind: "belt" as Item["transportKind"],
-  };
-}
-
-function mkRecipe(id: string): Recipe {
-  return {
-    id,
-    name: id,
-    category: "assembly",
-    icon: "ico",
-    row: 0,
-    time: 1,
-    in: [],
-    out: [{ item: `${id}_out`, qty: 1 }],
-    producers: [],
-  };
-}
 
 // The zh (default-locale) label of the Add button, from src/data/i18n.ts.
 const TEXT_ADD = "添加输入";
@@ -66,27 +40,23 @@ function rowTrigger(n = 0): HTMLElement {
   return screen.getAllByLabelText(/^物品/)[n]!;
 }
 
-const fixturePack: RecipePack = {
-  schemaVersion: "0.2" as RecipePack["schemaVersion"],
-  source: {
-    name: "test",
-    sourceRepo: "",
-    sourceCommit: "0000",
-    gameVersion: "",
-    extractedAt: "",
-  },
-  categories: [],
-  locations: [],
-  items: [
-    mkItem("zinc", false),
-    mkItem("copper_ore", true),
-    mkItem("copper_plate", false),
-    mkItem("iron_ore", true),
+const fixturePack: RecipePack = makePack(
+  [
+    {
+      id: "assemble_one",
+      category: "assembly",
+      time: 1,
+      in: {},
+      out: { assemble_one_out: 1 },
+    },
   ],
-  machines: [],
-  transports: [],
-  recipes: [mkRecipe("assemble_one")],
-};
+  [
+    { id: "zinc", stack: 100 },
+    { id: "copper_ore", raw: true, stack: 100 },
+    { id: "copper_plate", stack: 100 },
+    { id: "iron_ore", raw: true, stack: 100 },
+  ],
+);
 
 describe("InputsPanel", () => {
   it("renders one row per override", () => {

@@ -13,7 +13,10 @@ import {
   checkRenderPlan,
   assertRenderInvariants,
 } from "./invariants";
-import { CLOSED_FORM_FIXTURES } from "../../solver/closed-form-fixtures";
+import {
+  CLOSED_FORM_FIXTURES,
+  withoutGasMachines,
+} from "../../solver/closed-form-fixtures";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
 import { renderPlanFromSolve } from "../driver";
@@ -1337,18 +1340,7 @@ describe("checkUnitOutflowVsProduction", () => {
 // 1/sec and clone the plan so mutations never leak between tests. Fixtures
 // whose shape only forms on the pre-gas-machine routes (game v1.4 rerouted the
 // xiranite chain) pass legacyPack to keep their premise.
-const GAS_MACHINES = new Set([
-  "gas_pump_1",
-  "gas_reactor_1",
-  "phase_trans_1",
-  "phase_trans_2",
-]);
-const legacyPack: RecipePack = {
-  ...fullPack,
-  recipes: fullPack.recipes.filter(
-    (r) => !r.producers.some((p) => GAS_MACHINES.has(p)),
-  ),
-};
+const legacyPack: RecipePack = withoutGasMachines(fullPack);
 
 function mutableArgs(
   recipeIds: string[],

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
-import type { Item, Recipe } from "@aef/schema";
+import type { Item } from "@aef/schema";
 
 import {
   fromElkRenderLayout,
@@ -8,23 +8,12 @@ import {
   type ElkGraph,
   type LayoutInput,
 } from "../../src/canvas/layout";
+import { mkRecipe } from "./busRouting.testkit";
 import type {
   RenderEdge,
   RenderPlan,
   RenderUnitRecipe,
 } from "../../src/pipeline/types";
-
-const mkRecipe = (id: string, ins: string[], outs: string[]): Recipe => ({
-  id,
-  name: id,
-  category: "cat",
-  icon: "ico",
-  row: 0,
-  time: 1,
-  in: ins.map((item) => ({ item, qty: 1 })),
-  out: outs.map((item) => ({ item, qty: 1 })),
-  producers: [],
-});
 
 const mkItem = (id: string, transportKind: string): Item => ({
   id,
