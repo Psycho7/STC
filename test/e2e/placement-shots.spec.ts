@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { waitForStableViewport } from "./viewport";
+import { waitForStableViewport, waitForWebfonts } from "./viewport";
 import { MAX_HASH_PAYLOAD_LEN } from "../../src/data/plan";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 
@@ -48,7 +48,7 @@ test.describe("placement screenshot harness", () => {
       // hold until the camera has stopped moving: the cold-load re-fit lands
       // about a debounce after the first fit, longer than the two matching
       // frames toHaveScreenshot waits for on its own.
-      await page.evaluate(() => document.fonts.ready.then(() => undefined));
+      await waitForWebfonts(page);
       await waitForStableViewport(page);
 
       const canvas = page.locator(".react-flow");

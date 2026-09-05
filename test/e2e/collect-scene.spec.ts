@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { waitForWebfonts } from "./viewport";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 import { collectScene } from "./collect";
 
@@ -31,7 +32,7 @@ test("collectScene inventories every element kind on a dense plan", async ({
   await expect(
     page.locator(".react-flow").locator(".react-flow__node-recipe").first(),
   ).toBeVisible({ timeout: 30_000 });
-  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await waitForWebfonts(page);
 
   const scene = await page.evaluate(collectScene);
   const countOf = (kind: string): number =>

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { waitForWebfonts } from "./viewport";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 
 // Issue #42: fixed row chrome left .rn-row .lbl 65-83px of a 150px half-card,
@@ -24,7 +25,7 @@ for (const id of ["default", "equip4"] as const) {
       .locator(".rn-row .lbl")
       .first()
       .waitFor({ state: "visible", timeout: 30_000 });
-    await page.evaluate(() => document.fonts.ready);
+    await waitForWebfonts(page);
     const collisions = await page.evaluate(() => {
       const out: string[] = [];
       for (const card of document.querySelectorAll(".recipe-node")) {

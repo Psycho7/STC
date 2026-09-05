@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { waitForStableViewport } from "./viewport";
+import { waitForStableViewport, waitForWebfonts } from "./viewport";
 import { SCENARIOS, extraScenariosFromEnv, scenarioHash } from "./scenarios";
 import {
   CARD_INTRUSION_BUDGET,
@@ -142,7 +142,7 @@ test.describe("DOM geometry audit", () => {
       const hash = await scenarioHash(scenario);
       await page.goto(`/#${hash}`, { waitUntil: "load" });
       await waitForCanvasReady(page);
-      await page.evaluate(() => document.fonts.ready.then(() => undefined));
+      await waitForWebfonts(page);
       await waitForStableViewport(page);
 
       const {
@@ -1040,7 +1040,7 @@ const ENDPOINT_PARITY_TOL: Record<string, number> = {
 async function loadScenario(page: Page, hash: string): Promise<void> {
   await page.goto(`/#${hash}`, { waitUntil: "load" });
   await waitForCanvasReady(page);
-  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await waitForWebfonts(page);
   await waitForStableViewport(page);
 }
 
@@ -1504,7 +1504,7 @@ const CENSUS_ZOOM = 0.6;
 async function loadCensusScenario(page: Page, hash: string): Promise<void> {
   await page.goto(`/?exam=1#${hash}`, { waitUntil: "load" });
   await waitForCanvasReady(page);
-  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await waitForWebfonts(page);
   await waitForStableViewport(page);
   await page.waitForFunction(
     () => window.__stcExam !== undefined,

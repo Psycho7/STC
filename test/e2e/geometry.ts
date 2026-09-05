@@ -1167,6 +1167,12 @@ export function auditChipSeatValidity(
 // card body past the budget).
 export const CARD_INTRUSION_BUDGET = CARD_BORDER + PORT_ZONE_DEPTH;
 
+// A chip seated on the port line sits EXACTLY the budget deep, so its depth
+// reads 9 give or take the float noise the screen-to-model conversion picks up
+// from the camera's subpixel translate (1e-5 either way). Without a tolerance
+// the same chip flips in and out of the census between loads.
+export const CARD_INTRUSION_EPS = 1e-3;
+
 // Every chip whose box reaches more than `budget` DEEP past a node card's
 // border, own endpoint cards included. Depth, not area: the legal state is a
 // wide box lying across the port strip, which is shallow but long (a 9-deep
@@ -1199,7 +1205,7 @@ export function auditChipCardIntrusion(
         worst = { card: card.nodeId, depth };
       }
     }
-    if (worst !== null && worst.depth > budget) {
+    if (worst !== null && worst.depth > budget + CARD_INTRUSION_EPS) {
       out.push(
         censusHit(
           chip,

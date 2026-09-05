@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { waitForStableViewport } from "./viewport";
+import { waitForStableViewport, waitForWebfonts } from "./viewport";
 import { SCENARIOS, scenarioHash, type Scenario } from "./scenarios";
 import { CHIP_BOX_HEIGHT } from "../../src/canvas/dimensions";
 
@@ -62,7 +62,7 @@ async function measureAtRest(
   page: Page,
 ): Promise<{ chips: MeasuredChip[]; reservations: Reservation[] }> {
   await waitForCanvasReady(page);
-  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await waitForWebfonts(page);
   await waitForStableViewport(page);
   // "At rest" is zoom 1: chips render at scale 1 with every zoom gate open
   // (LABEL_MIN_ZOOM, the icon-only band), so the member chips the fit zoom

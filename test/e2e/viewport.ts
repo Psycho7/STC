@@ -30,3 +30,33 @@ export async function waitForStableViewport(page: Page): Promise<void> {
     { timeout: 10_000, polling: "raf" },
   );
 }
+
+// document.fonts.ready resolves as soon as no face is loading, which on a cold
+// load is BEFORE the Google Fonts stylesheet has arrived and asked for any. A
+// chip measured then carries fallback-face metrics and can differ by a pixel
+// from the same chip under the webfont. So: wait for the stylesheet, then for
+// every face it started loading. A blocked CDN never gets there, so the wait is
+// bounded and the reading proceeds on the fallback faces the app designs for.
+const WEBFONT_WAIT_MS = 8_000;
+
+export async function waitForWebfonts(page: Page): Promise<void> {
+  await page
+    .waitForFunction(
+      () => {
+        const link = document.querySelector<HTMLLinkElement>(
+          'link[rel="stylesheet"][href*="fonts.googleapis"]',
+        );
+        if (link !== null && link.sheet === null) return false;
+        if (document.fonts.status !== "loaded") return false;
+        let anyLoaded = false;
+        for (const face of document.fonts) {
+          if (face.status === "loading") return false;
+          if (face.status === "loaded") anyLoaded = true;
+        }
+        return link === null || anyLoaded;
+      },
+      undefined,
+      { timeout: WEBFONT_WAIT_MS, polling: "raf" },
+    )
+    .catch(() => undefined);
+}
