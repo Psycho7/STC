@@ -2378,9 +2378,11 @@ export function deconflictChipAnchors(
   for (const p of laneJunctionByIndex.values()) addDot(p, "lane");
   for (const g of fanoutGeomByIndex.values()) addDot(g.junction, "fanout");
   for (const p of faninJunctionByIndex.values()) addDot(p, "fanin");
-  for (const p of fanoutJunctionByIndex.values()) addDot(p, "divergence");
-  // The declined groups' dot-less corners join the same set (deduped against
-  // the owner dot above when the first peel-off's column IS the dot's).
+  // The declined groups' peel-off corners ARE the divergence dot set: every
+  // bending member's column is stamped below, and the first peel-off's entry
+  // is the drawn dot's own point (the group's min bendX at the source-port y
+  // every group member shares), so stamping the map's entries here as well
+  // only added keys this loop already carries.
   for (const p of divergenceKeepoffs) addDot(p, "divergence");
 
   // The shared clearance field: every phase seats into `field.placed`, so a
