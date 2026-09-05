@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import App from "../../src/App";
 import { renderPlanFromSolve } from "../../src/pipeline/driver";
@@ -10,6 +10,11 @@ import {
 } from "../../src/data/transport-config";
 import { defaultTargets } from "../../src/data/targets";
 import { RENDER_UNIT_KINDS } from "../../src/pipeline/types";
+
+beforeEach(() => {
+  // Pin the locale; App's LocaleProvider defaults to zh otherwise.
+  window.localStorage.setItem("aef.locale", "zh");
+});
 
 afterEach(() => {
   cleanup();

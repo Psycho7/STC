@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("../src/data/plan", async (importOriginal) => {
@@ -12,6 +12,11 @@ vi.mock("../src/data/plan", async (importOriginal) => {
 import App from "../src/App";
 import { pack } from "../src/data/load";
 import { defaultPlan, encodePlan, loadPlan } from "../src/data/plan";
+
+beforeEach(() => {
+  // Pin the locale; App's LocaleProvider defaults to zh otherwise.
+  window.localStorage.setItem("aef.locale", "zh");
+});
 
 afterEach(() => {
   cleanup();

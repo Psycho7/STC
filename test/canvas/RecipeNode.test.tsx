@@ -7,6 +7,7 @@ import {
 } from "@xyflow/react";
 import type { Item, Machine, Recipe } from "@aef/schema";
 import RecipeNode from "../../src/canvas/RecipeNode";
+import { LocaleProvider } from "../../src/data/i18n-context";
 import { itemColor } from "../../src/canvas/itemColor";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import {
@@ -117,12 +118,16 @@ function renderRecipe(
     machines: [makeMachine("smelter")],
   }),
 ) {
+  // Several assertions read zh names and units, so pin the locale instead of
+  // leaning on whatever the no-provider fallback happens to be.
   return render(
-    <ItemPackProvider value={pack}>
-      <ReactFlowProvider>
-        <RecipeNode {...makeProps(data)} />
-      </ReactFlowProvider>
-    </ItemPackProvider>,
+    <LocaleProvider locale="zh">
+      <ItemPackProvider value={pack}>
+        <ReactFlowProvider>
+          <RecipeNode {...makeProps(data)} />
+        </ReactFlowProvider>
+      </ItemPackProvider>
+    </LocaleProvider>,
   );
 }
 
