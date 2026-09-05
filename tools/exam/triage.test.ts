@@ -456,9 +456,13 @@ describe("validateFinding", () => {
         { image: "", rect: [0, 0, 10, 10], where: "left" },
         { image: TILE_A.file, rect: [0, 0, -10, 10], where: "right" },
         { image: TILE_A.file, rect: [0, Infinity, 10, 10], where: "below" },
+        // A flat rect. The schema promises a positive extent and the crop CLI
+        // refuses to cut a zero-extent one, so an entry like this reaches the
+        // end of the exam as a filed finding with no picture.
+        { image: TILE_A.file, rect: [10, 20, 0, 40], where: "a line, not a box" },
       ],
     });
-    expect(validateFinding(broken)).toHaveLength(3);
+    expect(validateFinding(broken)).toHaveLength(4);
   });
 
   // The inputs this function exists for. A validator that throws on the exact

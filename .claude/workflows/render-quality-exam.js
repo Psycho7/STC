@@ -484,7 +484,10 @@ function rectFromTuple(tuple) {
     return null
   }
   const rect = { x, y, width, height }
-  return isFiniteRect(rect) && width >= 0 && height >= 0 ? rect : null
+  // A POSITIVE extent, not a non-negative one: x and y may be 0, but a flat
+  // evidence rect marks no place, the schema below says so, and the crop CLI
+  // refuses to cut one.
+  return isFiniteRect(rect) && width > 0 && height > 0 ? rect : null
 }
 
 // world -> the image's own CSS-pixel frame.

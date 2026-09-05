@@ -49,6 +49,7 @@ import {
   without,
   withoutFalsifier,
 } from "./triage-fixtures";
+import { OP_ARGS } from "./probe-analysis";
 import type { Measurement } from "./scene";
 
 // From the repo root, which is Vitest's own root here; `import.meta.url` is not
@@ -325,6 +326,17 @@ const CASES: Case[] = [
     "malformed evidence rect",
     finding({
       evidence: [{ image: TILE_A.file, rect: [NaN, 240, 60, 40], where: "somewhere" }],
+    }),
+  ),
+
+  // A flat rect, which both copies must refuse for the same reason: the schema
+  // promises a positive extent and the crop CLI cannot cut a zero-extent box, so
+  // one copy that accepted it would route a finding whose evidence has no
+  // picture. The whole-height case is enough - the two axes are one expression.
+  kase(
+    "zero-extent evidence rect",
+    finding({
+      evidence: [{ image: TILE_A.file, rect: [290, 240, 0, 40], where: "somewhere" }],
     }),
   ),
 
@@ -766,22 +778,49 @@ describe("the workflow's inlined triage matches tools/exam/triage.ts", () => {
 // evaluates into anything reachable from here, so read it out of the source.
 // ---------------------------------------------------------------------------
 
-// The single `claimType: { type: 'string', enum: [...] }` line of the schema.
-const CLAIM_TYPE_ENUM = /claimType:\s*\{\s*type:\s*'string',\s*enum:\s*\[([^\]]*)\]/;
+// Quote-agnostic on both the string type and the enum members. `.claude/` is
+// inside prettier's walk and the workflow file is not formatted today, so a
+// single `prettier --write` would rewrite every quote in it - and a pin that
+// broke on a reformat would be read as the reformat breaking the schema.
+const CLAIM_TYPE_ENUM =
+  /claimType:\s*\{\s*type:\s*["']string["'],\s*enum:\s*\[([^\]]*)\]/;
+// The falsifier op enum, in the same schema. Nothing else pinned it, and the op
+// list is written in five places: here, this schema, the refuter briefing, and
+// twice in the skill doc.
+const FALSIFIER_OP_ENUM =
+  /op:\s*\{\s*type:\s*["']string["'],\s*enum:\s*\[([^\]]*)\]/;
 
-function schemaClaimTypes(): string[] {
+function schemaEnum(pattern: RegExp, name: string): string[] {
   const source = readFileSync(WORKFLOW_PATH, "utf8");
-  const match = CLAIM_TYPE_ENUM.exec(source);
+  const match = pattern.exec(source);
   const list = match?.[1];
   if (list === undefined) {
-    throw new Error(`${WORKFLOW_PATH} declares no claimType enum`);
+    throw new Error(`${WORKFLOW_PATH} declares no ${name} enum`);
   }
-  return list.split(",").map((entry) => entry.trim().replace(/^'|'$/g, ""));
+  return list.split(",").map((entry) => entry.trim().replace(/^["']|["']$/g, ""));
+}
+
+function schemaClaimTypes(): string[] {
+  return schemaEnum(CLAIM_TYPE_ENUM, "claimType");
+}
+
+function schemaFalsifierOps(): string[] {
+  return schemaEnum(FALSIFIER_OP_ENUM, "falsifier op");
 }
 
 describe("the workflow's evaluator schema offers the module's claim types", () => {
   test("its claimType enum is exactly CLAIM_TYPES", () => {
     expect([...schemaClaimTypes()].sort()).toEqual([...CLAIM_TYPES].sort());
+  });
+
+  // An op the probe does not implement is worse than a stale claim type: the
+  // evaluator names it as the run that would disprove the finding, a refuter
+  // runs it, and the CLI answers "unknown op" - which reads in the transcript
+  // as the probe being broken rather than the schema being stale.
+  test("its falsifier op enum is exactly the probe's op table", () => {
+    expect([...schemaFalsifierOps()].sort()).toEqual(
+      [...Object.keys(OP_ARGS)].sort(),
+    );
   });
 });
 

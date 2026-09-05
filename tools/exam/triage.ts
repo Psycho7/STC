@@ -33,7 +33,7 @@
 // was corroborated" - the failure that looks like the system working.
 
 import type { Measurement, MeasurementKind } from "./scene";
-import type { Rect, Viewport } from "./tiling";
+import { isFiniteRect, type Rect, type Viewport } from "./tiling";
 
 // The geometric family is split by what the audits can actually witness: a
 // placement claim (where a chip or label sits) is settled by chip-tier
@@ -333,15 +333,6 @@ function intersect(a: Rect, b: Rect): Rect | null {
   return { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) };
 }
 
-function isFiniteRect(rect: Rect): boolean {
-  return (
-    Number.isFinite(rect.x) &&
-    Number.isFinite(rect.y) &&
-    Number.isFinite(rect.width) &&
-    Number.isFinite(rect.height)
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Reading agent-authored JSON
 //
@@ -377,7 +368,12 @@ function rectFromTuple(tuple: unknown): Rect | null {
     return null;
   }
   const rect = { x, y, width, height };
-  return isFiniteRect(rect) && width >= 0 && height >= 0 ? rect : null;
+  // A POSITIVE extent, not a non-negative one. x and y may be 0, but a flat
+  // evidence rect marks no place: the evaluator's schema says so, and crop.ts
+  // refuses to cut one, so accepting it here would route a finding on a
+  // footprint whose evidence can never be pictured - one unpicked crop and a
+  // failed crop run at the end of the exam.
+  return isFiniteRect(rect) && width > 0 && height > 0 ? rect : null;
 }
 
 // Where a finding goes next.
