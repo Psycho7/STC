@@ -150,9 +150,9 @@ export function deriveBoundaryProducts(
 
   // Input products: one per distinct item consumed in the plan whose
   // `effectiveSupply` is nonzero (Infinity or positive Fraction). Zero supply
-  // emits nothing (forces internal build); target items win over input products
-  // of the same item. Precedence lives in `effectiveSupply`; this code never
-  // inspects `raw` / `plan` directly.
+  // emits nothing (forces internal build); a target item that is also
+  // boundary-fed keeps both surfaces. Precedence lives in `effectiveSupply`;
+  // this code never inspects `raw` / `plan` directly.
   const overrideByItem = new Map<ItemId, (typeof itemOverrides)[number]>();
   for (const ov of itemOverrides) overrideByItem.set(ov.itemId, ov);
 
@@ -481,22 +481,16 @@ export function deriveBoundaryProducts(
   const aggregateIdByItem = new Map<ItemId, RenderUnitId>();
   const sortedItems = [...keysByItem.keys()].sort();
   for (const itemId of sortedItems) {
-    // Target trumps boundary, except when the item has an explicit
-    // itemOverride, a recapture deficit, or unlimited free supply. In all
-    // three cases the item renders BOTH as an input (pinned FIRST) and a
-    // target output (pinned LAST): the override path imports a capped
-    // portion, the recapture-deficit path draws the demand its target-claimed
-    // production cannot feed, and a free-supply target item's consumers stay
+    // No target gating here. A target item never suppresses its own input
+    // product: every item that reaches this loop was admitted by
+    // collectConsumed, which drops zero supply outright, so a target item with
+    // no override is raw with unlimited supply and its consumers stay
     // boundary-fed like any other free item (the declared export gets its own
-    // passthrough import below). Item-level, so it short-circuits all keys
-    // for the item.
-    if (
-      targetItemSet.has(itemId) &&
-      !overrideByItem.has(itemId) &&
-      !recaptureItems.has(itemId) &&
-      supplyFor(itemId) !== Infinity
-    )
-      continue;
+    // passthrough import below). An overridden or recapture-deficit target
+    // renders BOTH as an input (pinned FIRST) and a target output (pinned
+    // LAST): the override path imports a capped portion, the
+    // recapture-deficit path draws the demand its target-claimed production
+    // cannot feed.
     const ov = overrideByItem.get(itemId);
     const keys = keysByItem.get(itemId)!.slice().sort();
 
