@@ -10,21 +10,7 @@ import {
   supplyShareKey,
 } from "./replicate";
 import { outgoingEdgeKey } from "./types";
-import { buildGraph, condensationOf } from "./graph.testkit";
-
-function recipe(
-  id: string,
-  inItems: Array<{ item: string; qty: number }>,
-  outItems: Array<{ item: string; qty: number }>,
-): Recipe {
-  return {
-    id,
-    category: "material",
-    time: 1,
-    in: inItems,
-    out: outItems,
-  } as unknown as Recipe;
-}
+import { buildGraph, condensationOf, recipe } from "./graph.testkit";
 
 function edge(source: string, item: string): RecipeEdge {
   return { id: `${source}->${item}`, source, target: "consumer", item };

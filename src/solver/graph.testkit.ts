@@ -11,6 +11,26 @@ import type {
   SccId,
 } from "./types";
 
+// A minimal recipe node: only the id, category and stoichiometry matter to the
+// passes under test, so the remaining schema fields carry placeholders.
+export function recipe(
+  id: string,
+  inItems: Array<{ item: string; qty: number }>,
+  outItems: Array<{ item: string; qty: number }>,
+): Recipe {
+  return {
+    id,
+    name: id,
+    category: "material",
+    icon: id,
+    row: 0,
+    time: 1,
+    in: inItems,
+    out: outItems,
+    producers: [],
+  };
+}
+
 // Builds a RecipeGraph from a node list and (source -> item -> target) edges.
 export function buildGraph(
   nodes: Recipe[],

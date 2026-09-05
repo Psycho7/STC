@@ -1,23 +1,8 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
-import type { Recipe } from "@aef/schema";
 import type { Replica, TornEdge } from "./types";
 import { assembleLogicalGraph } from "./assemble";
-import { buildGraph, condensationOf } from "./graph.testkit";
-
-function recipe(
-  id: string,
-  inItems: Array<{ item: string; qty: number }>,
-  outItems: Array<{ item: string; qty: number }>,
-): Recipe {
-  return {
-    id,
-    category: "material",
-    time: 1,
-    in: inItems,
-    out: outItems,
-  } as unknown as Recipe;
-}
+import { buildGraph, condensationOf, recipe } from "./graph.testkit";
 
 function replica(
   id: string,
