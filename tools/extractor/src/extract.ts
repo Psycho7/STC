@@ -348,7 +348,7 @@ function classifyRawItems(items: Item[], recipes: Recipe[]): void {
   }
 }
 
-function validateReferentialIntegrity(pack: {
+export function validateReferentialIntegrity(pack: {
   items: Item[];
   machines: Machine[];
   transports: Transport[];
@@ -367,6 +367,15 @@ function validateReferentialIntegrity(pack: {
   for (const id of [...itemIds]) {
     if (machineIds.has(id) || transportIds.has(id)) {
       throw new Error(`id ${id} appears as both an item and a machine/transport`);
+    }
+  }
+
+  // Machines and transports share no id either. The item loop above leaves this
+  // pair unchecked, and a collision would make any id-keyed lookup that spans
+  // both kinds resolve to whichever map is consulted first.
+  for (const id of machineIds) {
+    if (transportIds.has(id)) {
+      throw new Error(`id ${id} appears as both a machine and a transport`);
     }
   }
 

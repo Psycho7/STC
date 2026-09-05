@@ -8,8 +8,13 @@ import {
   type Recipe,
   type RecipePack,
   type RecipePackI18n,
+  type Transport,
 } from "./schema.ts";
-import { collapseSyntheticChains, main as runExtractor } from "./extract.ts";
+import {
+  collapseSyntheticChains,
+  main as runExtractor,
+  validateReferentialIntegrity,
+} from "./extract.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const TRANSPORT_CONFIG_PATH = resolve(REPO_ROOT, "data/aef/transport-config.json");
@@ -498,6 +503,66 @@ describe("collapseSyntheticChains guards", () => {
 
     expect(() => collapseSyntheticChains({ items, machines, recipes }, subs)).toThrow(
       "recipe mixer in collision: substituting __miner_water -> liquid_water would duplicate liquid_water",
+    );
+  });
+});
+
+describe("validateReferentialIntegrity guards", () => {
+  // Smallest pack the validator accepts: one item on a belt, one machine that
+  // produces it, one belt transport. Each test perturbs one id from here.
+  const mkItem = (id: string): Item => ({
+    id,
+    name: id,
+    category: "material",
+    icon: id,
+    row: 0,
+    raw: true,
+    transportKind: "belt",
+  });
+  const mkMachine = (id: string): Machine => ({
+    id,
+    name: id,
+    icon: id,
+    speed: 1,
+    powerType: "electric",
+    powerKw: 0,
+    hideRate: false,
+  });
+  const mkTransport = (id: string): Transport => ({
+    id,
+    kind: "belt",
+    name: id,
+    icon: id,
+    speed: 1,
+  });
+  const mkPack = () => ({
+    items: [mkItem("widget")],
+    machines: [mkMachine("assembler")],
+    transports: [mkTransport("belt_1")],
+    recipes: [
+      {
+        id: "make_widget",
+        name: "make_widget",
+        category: "material",
+        icon: "make_widget",
+        row: 0,
+        time: 1,
+        in: [],
+        out: [{ item: "widget", qty: 1 }],
+        producers: ["assembler"],
+      } satisfies Recipe,
+    ],
+  });
+
+  test("accepts a pack whose item, machine, and transport ids are disjoint", () => {
+    expect(() => validateReferentialIntegrity(mkPack())).not.toThrow();
+  });
+
+  test("throws when a machine id is also a transport id", () => {
+    const pack = mkPack();
+    pack.transports = [mkTransport("assembler")];
+    expect(() => validateReferentialIntegrity(pack)).toThrow(
+      "id assembler appears as both a machine and a transport",
     );
   });
 });
