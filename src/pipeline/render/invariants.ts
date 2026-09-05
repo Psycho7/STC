@@ -960,20 +960,12 @@ export function checkProductUnitRates(
 
 /**
  * Run all nine render invariant checkers in stable order. Mirrors the solver
- * debug surface that lists a verdict per checker.
+ * debug surface that lists a verdict per checker. The order comes from
+ * RENDER_INVARIANT_CHECKERS at the foot of this file, which is the one place
+ * a checker is registered, so a result and its label cannot disagree.
  */
 export function checkRenderPlan(args: RenderInvariantArgs): InvariantResult[] {
-  return [
-    checkEdgeEndpointIntegrity(args),
-    checkBoundaryProductsJustified(args),
-    checkInternalFlowConservation(args),
-    checkConsumerInputsSatisfied(args),
-    checkConsumerInputsNotOverfed(args),
-    checkTargetOutputsSatisfied(args),
-    checkNoOrphanUnits(args),
-    checkUnitOutflowVsProduction(args),
-    checkProductUnitRates(args),
-  ];
+  return RENDER_INVARIANT_CHECKERS.map((c) => c.check(args));
 }
 
 /**
@@ -986,3 +978,24 @@ export function assertRenderInvariants(args: RenderInvariantArgs): void {
     throw new Error(`render invariants violated:\n${violations.join("\n")}`);
   }
 }
+
+/**
+ * The nine checkers paired with the names a debug surface prints them under.
+ * This table IS the order checkRenderPlan runs and returns them in, so a
+ * checker registered here needs no second entry anywhere: a consumer zips its
+ * labels against the table and cannot mislabel a verdict.
+ */
+export const RENDER_INVARIANT_CHECKERS: ReadonlyArray<{
+  readonly name: string;
+  readonly check: (args: RenderInvariantArgs) => InvariantResult;
+}> = [
+  { name: "edgeEndpointIntegrity", check: checkEdgeEndpointIntegrity },
+  { name: "boundaryProductsJustified", check: checkBoundaryProductsJustified },
+  { name: "internalFlowConservation", check: checkInternalFlowConservation },
+  { name: "consumerInputsSatisfied", check: checkConsumerInputsSatisfied },
+  { name: "consumerInputsNotOverfed", check: checkConsumerInputsNotOverfed },
+  { name: "targetOutputsSatisfied", check: checkTargetOutputsSatisfied },
+  { name: "noOrphanUnits", check: checkNoOrphanUnits },
+  { name: "unitOutflowVsProduction", check: checkUnitOutflowVsProduction },
+  { name: "productUnitRates", check: checkProductUnitRates },
+];

@@ -7,6 +7,7 @@
 
 import Fraction from "fraction.js";
 import { pack } from "../../src/data/load";
+import { netSelfConsumption } from "../../src/solver/net-self";
 import { defaultTransportConfig } from "../../src/data/transport-config";
 import { rationalFromString, type Target } from "../../src/data/targets";
 import { solveLp } from "../../src/solver/lp";
@@ -24,7 +25,10 @@ import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
 import type { ItemOverride } from "../../src/data/plan";
 import type { RecipeId } from "../../src/solver/types";
 import { renderPlanFromSolve } from "../../src/pipeline/driver";
-import { checkRenderPlan } from "../../src/pipeline/render/invariants";
+import {
+  checkRenderPlan,
+  RENDER_INVARIANT_CHECKERS,
+} from "../../src/pipeline/render/invariants";
 import {
   isRecipeUnit,
   isLoopUnit,
@@ -120,6 +124,13 @@ function fmtVerdict(name: string, ok: boolean, violations: string[]): string[] {
 // ---------------------------------------------------------------------------
 
 export async function runCli(argv: string[]): Promise<string> {
+  // The app solves the NETTED pack (solvePlanWithIntermediates nets before it
+  // builds the LP), so every solver-side call here takes `netted` or the CLI
+  // would report a different problem than the one the app runs. The render
+  // side keeps the RAW `pack`: the driver and the render checkers net for
+  // themselves and a pre-netted pack would give them wrong stoichiometry.
+  const netted = netSelfConsumption(pack);
+
   // --- Arg parse ---
   let hashArg: string | undefined;
   let planArg: string | undefined;
@@ -187,7 +198,7 @@ export async function runCli(argv: string[]): Promise<string> {
   // --- Run LP ---
   const lpResult = solveLp({
     targets,
-    pack,
+    pack: netted,
     itemOverrides,
     ...(recipeCosts !== undefined ? { recipeCosts } : {}),
   });
@@ -233,12 +244,16 @@ export async function runCli(argv: string[]): Promise<string> {
     // --- Invariants ---
     const massBalance = checkMassBalance(
       lpResult,
-      pack,
+      netted,
       targets,
       itemOverrides,
     );
     const targetsMet = checkTargetsMet(lpResult, targets);
-    const rawOnlyBoundary = checkRawOnlyBoundary(lpResult, pack, itemOverrides);
+    const rawOnlyBoundary = checkRawOnlyBoundary(
+      lpResult,
+      netted,
+      itemOverrides,
+    );
     const full = solvePlanWithIntermediates(
       targets,
       pack,
@@ -255,7 +270,7 @@ export async function runCli(argv: string[]): Promise<string> {
 
     const optimal = assertOptimal({
       targets,
-      pack,
+      pack: netted,
       itemOverrides,
       ...(recipeCosts !== undefined ? { recipeCosts } : {}),
     });
@@ -352,26 +367,16 @@ export async function runCli(argv: string[]): Promise<string> {
     for (const l of edgeLines.sort()) lines.push(l);
     lines.push("");
 
-    // # render-invariants block
-    const RENDER_INVARIANT_NAMES = [
-      "edgeEndpointIntegrity",
-      "boundaryProductsJustified",
-      "internalFlowConservation",
-      "consumerInputsSatisfied",
-      "consumerInputsNotOverfed",
-      "targetOutputsSatisfied",
-      "noOrphanUnits",
-      "unitOutflowVsProduction",
-      "productUnitRates",
-    ];
-    if (results.length !== RENDER_INVARIANT_NAMES.length)
+    // # render-invariants block. Labels come from the checker table exported
+    // beside the checkers themselves, so a new checker names itself here.
+    if (results.length !== RENDER_INVARIANT_CHECKERS.length)
       throw new Error(
-        `render invariant count drift: ${results.length} results vs ${RENDER_INVARIANT_NAMES.length} labels`,
+        `render invariant count drift: ${results.length} results vs ${RENDER_INVARIANT_CHECKERS.length} labels`,
       );
     lines.push("# render-invariants");
-    for (let i = 0; i < Math.min(results.length, RENDER_INVARIANT_NAMES.length); i++) {
+    for (const [i, checker] of RENDER_INVARIANT_CHECKERS.entries()) {
       for (const l of fmtVerdict(
-        RENDER_INVARIANT_NAMES[i]!,
+        checker.name,
         results[i]!.ok,
         results[i]!.violations,
       )) {

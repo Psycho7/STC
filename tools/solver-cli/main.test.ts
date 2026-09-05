@@ -130,5 +130,22 @@ describe("solver-cli smoke", () => {
     expect(out).toContain("# edges");
     expect(out).toContain("# render-invariants");
     expect(out).toMatch(/edgeEndpointIntegrity ok=/);
+
+    // Independent pin on the labels the CLI prints: spelled out here rather
+    // than mapped from the checker table, so renaming or reordering a checker
+    // has to be an explicit edit in two places.
+    const block = out.slice(out.indexOf("# render-invariants"));
+    const labelled = [...block.matchAll(/^(\w+) ok=/gm)].map((m) => m[1]);
+    expect(labelled).toEqual([
+      "edgeEndpointIntegrity",
+      "boundaryProductsJustified",
+      "internalFlowConservation",
+      "consumerInputsSatisfied",
+      "consumerInputsNotOverfed",
+      "targetOutputsSatisfied",
+      "noOrphanUnits",
+      "unitOutflowVsProduction",
+      "productUnitRates",
+    ]);
   });
 });
