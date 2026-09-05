@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Item, Recipe, RecipePack } from "@aef/schema";
-import { buildRecipeGraph } from "../../src/solver/graph";
+import { buildRecipeGraphMulti } from "../../src/solver/graph";
 import type { ItemOverride } from "../../src/data/plan";
 import type { ItemTarget } from "../../src/data/targets";
 
@@ -72,7 +72,7 @@ function tgt(itemId: string): ItemTarget {
   return { itemId, ratePerSec: { num: "1", denom: "1" } };
 }
 
-describe("buildRecipeGraph raw termination (B1)", () => {
+describe("buildRecipeGraphMulti raw termination (B1)", () => {
   it("terminates at a raw input even when a producer recipe exists for it", () => {
     // copper_nugget consumes copper_ore (raw). copper_ore-liquid_water can
     // produce copper_ore (consumes liquid_water, also raw), and a synthetic
@@ -87,7 +87,10 @@ describe("buildRecipeGraph raw termination (B1)", () => {
       mkRecipe("copper_ore-liquid_water", ["liquid_water"], ["copper_ore"]),
       mkRecipe("liquid_water", [], ["liquid_water"]),
     ];
-    const g = buildRecipeGraph([tgt("copper_nugget")], mkPack(items, recipes));
+    const g = buildRecipeGraphMulti(
+      [tgt("copper_nugget")],
+      mkPack(items, recipes),
+    );
     expect([...g.nodes.keys()].sort()).toEqual(["copper_nugget"]);
     expect(g.nodes.has("copper_ore-liquid_water")).toBe(false);
     expect(g.nodes.has("liquid_water")).toBe(false);
@@ -99,7 +102,10 @@ describe("buildRecipeGraph raw termination (B1)", () => {
     // the demand surfaces as an LP deficit instead of a mined graph.
     const items = [mkItem("liquid_water", true)];
     const recipes = [mkRecipe("liquid_water", [], ["liquid_water"])];
-    const g = buildRecipeGraph([tgt("liquid_water")], mkPack(items, recipes));
+    const g = buildRecipeGraphMulti(
+      [tgt("liquid_water")],
+      mkPack(items, recipes),
+    );
     expect(g.nodes.size).toBe(0);
   });
 
@@ -115,7 +121,10 @@ describe("buildRecipeGraph raw termination (B1)", () => {
       mkRecipe("copper_nugget", ["copper_ore"], ["copper_nugget"]),
       mkRecipe("copper_ore-mine", [], ["copper_ore"]),
     ];
-    const g = buildRecipeGraph([tgt("copper_bottle")], mkPack(items, recipes));
+    const g = buildRecipeGraphMulti(
+      [tgt("copper_bottle")],
+      mkPack(items, recipes),
+    );
     expect([...g.nodes.keys()].sort()).toEqual([
       "copper_bottle",
       "copper_nugget",
@@ -133,12 +142,12 @@ describe("buildRecipeGraph raw termination (B1)", () => {
       mkRecipe("b", ["x"], ["y"]),
       mkRecipe("c", ["y"], ["z"]),
     ];
-    const g = buildRecipeGraph([tgt("z")], mkPack(items, recipes));
+    const g = buildRecipeGraphMulti([tgt("z")], mkPack(items, recipes));
     expect([...g.nodes.keys()].sort()).toEqual(["a", "b", "c"]);
   });
 });
 
-describe("buildRecipeGraph itemOverrides (B5)", () => {
+describe("buildRecipeGraphMulti itemOverrides (B5)", () => {
   function fullPack() {
     const items = [
       mkItem("copper_ore", true),
@@ -155,7 +164,11 @@ describe("buildRecipeGraph itemOverrides (B5)", () => {
 
   it("plan: true on a raw item lets the walk continue through it; the next raw input becomes the boundary", () => {
     const overrides: ItemOverride[] = [{ itemId: "copper_ore", plan: true }];
-    const g = buildRecipeGraph([tgt("copper_nugget")], fullPack(), overrides);
+    const g = buildRecipeGraphMulti(
+      [tgt("copper_nugget")],
+      fullPack(),
+      overrides,
+    );
     expect([...g.nodes.keys()].sort()).toEqual([
       "copper_nugget",
       "copper_ore-liquid_water",
@@ -171,7 +184,11 @@ describe("buildRecipeGraph itemOverrides (B5)", () => {
     const overrides: ItemOverride[] = [
       { itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } },
     ];
-    const g = buildRecipeGraph([tgt("copper_nugget")], fullPack(), overrides);
+    const g = buildRecipeGraphMulti(
+      [tgt("copper_nugget")],
+      fullPack(),
+      overrides,
+    );
     expect([...g.nodes.keys()].sort()).toEqual([
       "copper_nugget",
       "copper_ore-liquid_water",
@@ -187,7 +204,11 @@ describe("buildRecipeGraph itemOverrides (B5)", () => {
 
   it("override with no fields beyond itemId is equivalent to no override", () => {
     const overrides: ItemOverride[] = [{ itemId: "copper_ore" }];
-    const g = buildRecipeGraph([tgt("copper_nugget")], fullPack(), overrides);
+    const g = buildRecipeGraphMulti(
+      [tgt("copper_nugget")],
+      fullPack(),
+      overrides,
+    );
     expect([...g.nodes.keys()].sort()).toEqual(["copper_nugget"]);
   });
 
@@ -199,7 +220,7 @@ describe("buildRecipeGraph itemOverrides (B5)", () => {
       mkRecipe("a-from-b", ["b"], ["a"]),
       mkRecipe("b-mine", [], ["b"]),
     ];
-    const g = buildRecipeGraph([tgt("c")], mkPack(items, recipes), [
+    const g = buildRecipeGraphMulti([tgt("c")], mkPack(items, recipes), [
       { itemId: "a", plan: true },
     ]);
     expect([...g.nodes.keys()].sort()).toEqual(["a-from-b", "c"]);
@@ -207,7 +228,7 @@ describe("buildRecipeGraph itemOverrides (B5)", () => {
   });
 });
 
-describe("buildRecipeGraph effectiveSupply termination matrix", () => {
+describe("buildRecipeGraphMulti effectiveSupply termination matrix", () => {
   // Pack with a non-raw intermediate `mid` that has an in-pack producer.
   //   sink <- mid <- mid-recipe <- feed (no producer, so the walk stops there).
   function nonRawPack() {
@@ -225,7 +246,7 @@ describe("buildRecipeGraph effectiveSupply termination matrix", () => {
     const overrides: ItemOverride[] = [
       { itemId: "mid", ratePerSec: { num: "1", denom: "4" } },
     ];
-    const g = buildRecipeGraph([tgt("sink")], nonRawPack(), overrides);
+    const g = buildRecipeGraphMulti([tgt("sink")], nonRawPack(), overrides);
     expect([...g.nodes.keys()].sort()).toEqual(["mid-recipe", "sink"]);
   });
 
@@ -234,7 +255,7 @@ describe("buildRecipeGraph effectiveSupply termination matrix", () => {
     // boundary marker: effectiveSupply returns Infinity, and producers are
     // pruned from the graph.
     const overrides: ItemOverride[] = [{ itemId: "mid" }];
-    const g = buildRecipeGraph([tgt("sink")], nonRawPack(), overrides);
+    const g = buildRecipeGraphMulti([tgt("sink")], nonRawPack(), overrides);
     expect([...g.nodes.keys()].sort()).toEqual(["sink"]);
     expect(g.nodes.has("mid-recipe")).toBe(false);
   });
@@ -260,7 +281,7 @@ describe("buildRecipeGraph effectiveSupply termination matrix", () => {
         ratePerSec: { num: "1", denom: "2" },
       },
     ];
-    const g = buildRecipeGraph(
+    const g = buildRecipeGraphMulti(
       [tgt("copper_nugget")],
       mkPack(items, recipes),
       overrides,

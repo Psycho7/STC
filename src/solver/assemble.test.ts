@@ -130,7 +130,6 @@ describe("assembleLogicalGraph: deferred re-route fans to every producer", () =>
     const logical = assembleLogicalGraph({
       replicas,
       multipliers,
-      lanes: [],
       condensation: condensationOf([
         { id: "scc:C", recipeIds: ["C"] },
         { id: "scc:P1", recipeIds: ["P1"] },
@@ -206,7 +205,6 @@ describe("assembleLogicalGraph: deferred re-route fans to every producer", () =>
     const logical = assembleLogicalGraph({
       replicas,
       multipliers,
-      lanes: [],
       condensation: condensationOf([
         { id: "scc:loop", recipeIds: ["C", "L"] },
         { id: "scc:P1", recipeIds: ["P1"] },

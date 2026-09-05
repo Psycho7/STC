@@ -1,7 +1,6 @@
 import Fraction from "fraction.js";
 import type { Recipe, RecipePack } from "@aef/schema";
 import type { RecipeGraph, RecipeEdge, RecipeId } from "./types";
-import { UnknownRecipeError } from "./types";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { effectiveSupply } from "./effectiveSupply";
@@ -9,8 +8,7 @@ import { isExcludedProducer } from "../data/recipe-category";
 import { computeRecipeDepths } from "../data/recipe-depth";
 
 // Index producers by output item and rank each item's candidate producers by
-// (depth, id). Shared by both graph builders so ranking is identical
-// regardless of how producers are selected.
+// (depth, id), so the walk attaches them in a stable, shallowest-first order.
 function rankProducers(
   pack: RecipePack,
   itemOverrides?: ItemOverride[],
@@ -53,16 +51,14 @@ function rankProducers(
   return { recipeById, overrides, producersByItem };
 }
 
-// Walk the target items' input cone, attaching producer edges. When multi is
-// false, attach only the shallowest viable producer per consumed item; when
-// true, attach every non-excluded producer. Excluded recipes never enter the
-// graph (plan validation rejects excluded-producer targets upstream). Dedup
-// keeps one edge per (producer, item, consumer).
-function buildGraph(
+// Walk the target items' input cone, attaching every non-excluded producer of
+// each consumed item so the LP can choose among them. Excluded recipes never
+// enter the graph (plan validation rejects excluded-producer targets upstream).
+// Dedup keeps one edge per (producer, item, consumer).
+export function buildRecipeGraphMulti(
   targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
-  itemOverrides: ItemOverride[] | undefined,
-  multi: boolean,
+  itemOverrides?: ItemOverride[],
 ): RecipeGraph {
   const { recipeById, overrides, producersByItem } = rankProducers(
     pack,
@@ -75,9 +71,8 @@ function buildGraph(
 
   function ensureNode(id: string): void {
     if (nodes.has(id)) return;
-    const recipe = recipeById.get(id);
-    if (!recipe) throw new UnknownRecipeError(id);
-    nodes.set(id, recipe);
+    // Every caller resolves the recipe before calling, so the lookup hits.
+    nodes.set(id, recipeById.get(id)!);
     outgoing.set(id, []);
     incoming.set(id, []);
   }
@@ -112,8 +107,8 @@ function buildGraph(
       // unlimited. A finite cap falls through so the producer stays in the graph
       // and any deficit can be accounted for.
       if (effectiveSupply(inp.item, pack, overrides) === Infinity) continue;
-      // producersByItem is pre-sorted by (depth, id). Single mode keeps the first
-      // viable producer; multi mode keeps them all.
+      // producersByItem is pre-sorted by (depth, id); every viable candidate
+      // is attached so the LP picks the producer.
       const candidates = producersByItem.get(inp.item) ?? [];
       for (const cid of candidates) {
         const r = recipeById.get(cid);
@@ -126,30 +121,11 @@ function buildGraph(
         );
         if (!already) addEdge(cid, consumerId, inp.item);
         if (wasNew) stack.push(cid);
-        if (!multi) break;
       }
     }
   }
 
   return { nodes, outgoing, incoming };
-}
-
-export function buildRecipeGraph(
-  targets: ReadonlyArray<ItemTarget>,
-  pack: RecipePack,
-  itemOverrides?: ItemOverride[],
-): RecipeGraph {
-  return buildGraph(targets, pack, itemOverrides, false);
-}
-
-// LP variant: enumerates all non-excluded producers for each consumed item
-// instead of picking one, so the LP can choose among them.
-export function buildRecipeGraphMulti(
-  targets: ReadonlyArray<ItemTarget>,
-  pack: RecipePack,
-  itemOverrides?: ItemOverride[],
-): RecipeGraph {
-  return buildGraph(targets, pack, itemOverrides, true);
 }
 
 // Close graph membership over the LP support. The walk above only reaches

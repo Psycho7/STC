@@ -1,6 +1,5 @@
 import type { Recipe } from "@aef/schema";
 import type {
-  LaneMetadata,
   LogicalEdge,
   LogicalGraph,
   LogicalGroupNode,
@@ -8,7 +7,6 @@ import type {
 } from "../canvas/layout";
 import type {
   Condensation,
-  PackedLane,
   RecipeGraph,
   Replica,
   ReplicaId,
@@ -26,60 +24,30 @@ import { logicalNodeIdForReplica } from "./replicate";
 export function assembleLogicalGraph(args: {
   replicas: Replica[];
   multipliers: Map<ReplicaId, number>;
-  lanes: PackedLane[];
   condensation: Condensation;
   recipeById: Map<string, Recipe>;
   g: RecipeGraph;
   torn: TornEdge[];
 }): LogicalGraph {
-  const { replicas, multipliers, lanes, condensation, recipeById, g, torn } =
-    args;
+  const { replicas, multipliers, condensation, recipeById, g, torn } = args;
 
   // Keep only replicas that survived the multiplier pass; zero-rate ones never
   // made it into the multipliers map and are dropped here.
   const surviving = replicas.filter((r) => multipliers.has(r.id));
   const survivingIds = new Set(surviving.map((r) => r.id));
 
-  // Bucket the packed lanes by group so each LogicalGroupNode carries its own
-  // lane metadata. A lane whose only stream was dropped with its replica still
-  // comes back from ffdPack, so filter to surviving streams.
-  const lanesByGroup = new Map<string, LaneMetadata[]>();
-  for (const lane of lanes) {
-    const liveStreams = lane.streams.filter((s) =>
-      survivingIds.has(s.replicaId),
-    );
-    if (liveStreams.length === 0) continue;
-    const meta: LaneMetadata = {
-      carrier: lane.carrier,
-      laneIndex: lane.laneIndex,
-      overflow: lane.overflow,
-      streams: liveStreams.map((s) => ({
-        replicaId: s.replicaId,
-        itemId: s.itemId,
-        itemsPerSec: s.itemsPerSec.toFraction(),
-      })),
-    };
-    const arr = lanesByGroup.get(lane.groupId) ?? [];
-    arr.push(meta);
-    lanesByGroup.set(lane.groupId, arr);
-  }
-
-  // One group node per unique blueprintGroupId, attaching lane metadata when
-  // the packer produced lanes for that group.
+  // One group node per unique blueprintGroupId.
   const groupIds = new Set<string>();
   for (const r of surviving) {
     if (r.blueprintGroupId) groupIds.add(r.blueprintGroupId);
   }
   const groupNodes: LogicalGroupNode[] = [];
   for (const gid of groupIds) {
-    const node: LogicalGroupNode = {
+    groupNodes.push({
       kind: "group",
       id: gid,
       label: labelForGroup(gid, recipeById),
-    };
-    const groupLanes = lanesByGroup.get(gid);
-    if (groupLanes && groupLanes.length > 0) node.lanes = groupLanes;
-    groupNodes.push(node);
+    });
   }
 
   // One recipe node per surviving replica.

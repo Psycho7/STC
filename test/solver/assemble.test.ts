@@ -3,7 +3,6 @@ import Fraction from "fraction.js";
 import { assembleLogicalGraph } from "../../src/solver/assemble";
 import type {
   Condensation,
-  PackedLane,
   RecipeEdge,
   RecipeGraph,
   Replica,
@@ -126,7 +125,6 @@ describe("assembleLogicalGraph", () => {
     const lg = assembleLogicalGraph({
       replicas,
       multipliers,
-      lanes: [] as PackedLane[],
       condensation,
       recipeById,
       g,
@@ -218,7 +216,6 @@ describe("assembleLogicalGraph", () => {
     const lg = assembleLogicalGraph({
       replicas,
       multipliers,
-      lanes: [] as PackedLane[],
       condensation,
       recipeById,
       g,

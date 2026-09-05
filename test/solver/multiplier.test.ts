@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
-import {
-  assignIdealMultipliers,
-  assignMultipliers,
-} from "../../src/solver/multiplier";
+import { assignIdealMultipliers } from "../../src/solver/multiplier";
 import { MissingMachineError, type Replica } from "../../src/solver/types";
 import type { Machine, Recipe } from "@aef/schema";
 
@@ -60,52 +57,6 @@ const recipeById = new Map<string, Recipe>([
   ["r3", recipeMissingMachine],
 ]);
 
-describe("assignMultipliers", () => {
-  it("rate 1 cycle/sec, time 2 s, speed 1 -> multiplier 2", () => {
-    const result = assignMultipliers(
-      [rep("a", "r1", new Fraction(1))],
-      machineById,
-      recipeById,
-    );
-    expect(result.get("a")).toBe(2);
-  });
-  it("rate 1/2 cycle/sec, time 2 s, speed 2 -> multiplier ceil(0.5) = 1", () => {
-    const fast = { ...recipeNormal, producers: ["m2"] } as unknown as Recipe;
-    const recipeMap = new Map<string, Recipe>([["r1", fast]]);
-    const result = assignMultipliers(
-      [rep("a", "r1", new Fraction(1, 2))],
-      machineById,
-      recipeMap,
-    );
-    expect(result.get("a")).toBe(1);
-  });
-  it("sink recipe works (no special branch)", () => {
-    const result = assignMultipliers(
-      [rep("s", "r2", new Fraction(3))],
-      machineById,
-      recipeById,
-    );
-    expect(result.get("s")).toBe(3);
-  });
-  it("missing machine throws MissingMachineError", () => {
-    expect(() =>
-      assignMultipliers(
-        [rep("x", "r3", new Fraction(1))],
-        machineById,
-        recipeById,
-      ),
-    ).toThrow(MissingMachineError);
-  });
-  it("zero rate filters the replica out", () => {
-    const result = assignMultipliers(
-      [rep("z", "r1", new Fraction(0))],
-      machineById,
-      recipeById,
-    );
-    expect(result.has("z")).toBe(false);
-  });
-});
-
 describe("assignIdealMultipliers", () => {
   it("returns exact Fraction without ceiling", () => {
     // rate 3/2, time 2, speed 1 -> ideal = 3/2 * 2 / 1 = 3
@@ -144,7 +95,7 @@ describe("assignIdealMultipliers", () => {
     expect(result.has("z")).toBe(false);
   });
 
-  it("missing machine throws same error as assignMultipliers", () => {
+  it("missing machine throws MissingMachineError", () => {
     expect(() =>
       assignIdealMultipliers(
         [rep("x", "r3", new Fraction(1))],

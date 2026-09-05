@@ -1,11 +1,5 @@
 import Fraction from "fraction.js";
-import type {
-  Item,
-  Machine,
-  Recipe,
-  RecipePack,
-  TransportKindId,
-} from "@aef/schema";
+import type { Recipe, TransportKindId } from "@aef/schema";
 
 export type RecipeId = string;
 export type ItemId = string;
@@ -72,43 +66,6 @@ export type Replica = {
 export const outgoingEdgeKey = (item: ItemId, target: RecipeId): string =>
   `${item}|${target}`;
 
-export type PackedLane = {
-  groupId: GroupId;
-  carrier: TransportKindId;
-  laneIndex: number;
-  overflow: boolean;
-  streams: ReadonlyArray<{
-    replicaId: ReplicaId;
-    itemId: ItemId;
-    itemsPerSec: Fraction;
-  }>;
-};
-
-export type SolverInputs = {
-  pack: RecipePack;
-  machineById: Map<string, Machine>;
-  itemById: Map<string, Item>;
-};
-
-export class UnknownRecipeError extends Error {
-  constructor(
-    public recipeId: RecipeId,
-    reason: string = `unknown recipe in target: ${recipeId}`,
-  ) {
-    super(reason);
-    this.name = "UnknownRecipeError";
-  }
-}
-
-export class InconsistentSccError extends Error {
-  constructor(public sccId: SccId) {
-    super(
-      `SCC ${sccId} mass-balance system is inconsistent (over-constrained)`,
-    );
-    this.name = "InconsistentSccError";
-  }
-}
-
 export class MissingMachineError extends Error {
   constructor(
     public recipeId: RecipeId,
@@ -118,34 +75,6 @@ export class MissingMachineError extends Error {
       `recipe ${recipeId} has no resolvable producer (${producerId ?? "<empty>"})`,
     );
     this.name = "MissingMachineError";
-  }
-}
-
-export class StreamExceedsLaneCapacityError extends Error {
-  constructor(
-    public replicaId: ReplicaId,
-    public itemId: ItemId,
-    public itemsPerSec: Fraction,
-  ) {
-    super(
-      `stream ${replicaId}/${itemId} at ${itemsPerSec.toFraction()} exceeds single-lane capacity`,
-    );
-    this.name = "StreamExceedsLaneCapacityError";
-  }
-}
-
-export class MultiProducerSccCapError extends Error {
-  constructor(
-    public sccId: SccId,
-    public itemId: ItemId,
-    public producerIds: ReadonlyArray<RecipeId>,
-  ) {
-    super(
-      `SCC ${sccId} has multiple internal producers of item ${itemId} ` +
-        `(${producerIds.join(", ")}) with at least one external consumer; ` +
-        `Layer 2 SCC pre-subtraction cap model is single-producer-per-item.`,
-    );
-    this.name = "MultiProducerSccCapError";
   }
 }
 

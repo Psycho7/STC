@@ -16,16 +16,14 @@ import { isExtractionRecipe } from "../data/recipe-category";
 import {
   solveLp,
   recipeCostWeight,
+  RATE_ZERO,
   SURPLUS_WEIGHT,
   DEFICIT_WEIGHT,
 } from "./lp";
 
-// Surplus/deficit objective weights are imported from lp.ts (not copied) so the
-// screen scores against the same weights solveLp's primary pass minimizes.
-
-// Active-rate threshold, matching the >1e-12 filter solveLp uses to build its
-// rates map. A recipe present in result.rates already passed that filter.
-const ACTIVE_EPS = 1e-12;
+// Surplus/deficit objective weights and the active-rate floor (RATE_ZERO) are
+// imported from lp.ts (not copied) so the screen scores against the same
+// weights and the same threshold solveLp's primary pass uses.
 
 // Relative tolerance for objective comparisons. Deliberately its own knob: it
 // works in the LP OBJECTIVE domain (costs, floored at an absolute 1 below),
@@ -65,13 +63,13 @@ export function recomputeObjective(
 
 /**
  * The set of recipe ids running at a positive rate. solveLp already filters its
- * rates map with the >1e-12 threshold, so every entry qualifies; ACTIVE_EPS is
+ * rates map with the >1e-12 threshold, so every entry qualifies; RATE_ZERO is
  * re-applied in case a caller hands in an unfiltered result.
  */
 export function activeRecipeSet(result: LpResult): Set<RecipeId> {
   const active = new Set<RecipeId>();
   for (const [id, rate] of result.rates) {
-    if (rate.valueOf() > ACTIVE_EPS) active.add(id);
+    if (rate.valueOf() > RATE_ZERO) active.add(id);
   }
   return active;
 }

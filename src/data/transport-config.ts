@@ -29,10 +29,10 @@ export function loadTransportConfig(
   const carrierKeys = new Set(Object.keys(config.carriers));
   // Validate both places a carrier kind can show up. `pack.transports[].kind`
   // catches a missing carrier in the catalogue, and `pack.items[].transportKind`
-  // catches one missing on the demand side that the FFD packer in
-  // solver/ffd.ts actually reads. The extractor keeps these two sets in sync
-  // today, but checking both means a future extractor regression won't slip
-  // past this load-time guard.
+  // catches one missing on the demand side, which is the field the canvas reads
+  // to pick an edge's transport styling. The extractor keeps these two sets in
+  // sync today, but checking both means a future extractor regression won't
+  // slip past this load-time guard.
   for (const t of pack.transports) {
     if (!carrierKeys.has(t.kind)) {
       throw new UnknownCarrierError(null, t.kind);
