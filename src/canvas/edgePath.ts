@@ -89,6 +89,32 @@ export function forwardStepGeometry(
   return { stub, chamfer, lo, hi, bx };
 }
 
+// Default column and rail geometry of a BACKWARD detour (the target sits at or
+// left of the source, so the edge routes right out of the source, along a rail,
+// then back into the target's Left port). chamferStepPath draws from these
+// unless a routing hint overrides one, and clampBackwardRails resolves its
+// clearances starting from the same three values -- so the clamp always begins
+// at the shape the drawer would otherwise produce.
+//   xr     one stub right of the source port
+//   xl     the staggered entry column when the gutter pass staked one out, else
+//          one stub before the target port
+//   railY  midway between the two port levels; endpoints sharing a y would put
+//          the rail on top of both stubs, so it drops below them instead
+export function backwardRailDefaults(args: {
+  sx: number;
+  sy: number;
+  tx: number;
+  ty: number;
+  entryX?: number | undefined;
+}): { xr: number; xl: number; railY: number } {
+  const { sx, sy, tx, ty, entryX } = args;
+  return {
+    xr: sx + PORT_STUB,
+    xl: entryX ?? tx - PORT_STUB,
+    railY: sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2,
+  };
+}
+
 // An axis-aligned card rectangle in absolute graph coordinates, for rail
 // obstacle avoidance.
 export type ObstacleRect = {
@@ -436,24 +462,21 @@ export function chamferStepPath(
   // source, down/up to a detour rail midway between the endpoints, left past the
   // target, then back to the target level and a final rightward stub in.
   if (gap <= 0) {
-    // Right vertical column, one stub out of the source. clampBackwardRails may
-    // move it clear of a foreign card / gutter (railXRight); absent that hint it
-    // falls back to the plain stub column, byte-identical for direct callers.
-    const xr = args.railXRight ?? sx + PORT_STUB;
-    // Left vertical column, the run that enters the target's Left port. The
-    // entry-gutter pass (assignEntryColumns in busRouting) stakes this out as a
-    // per-edge staggered column so two backward rails into one node never
-    // overlap, and clampBackwardRails may then move it clear of a foreign card /
-    // gutter (railXLeft, which overrides the stagger). Absent both hints it falls
-    // back to a single stub before the port, which keeps every direct (un-routed)
-    // caller and its pinned test byte for byte identical.
-    const xl = args.railXLeft ?? args.entryX ?? tx - PORT_STUB;
-    // Rail midway between the endpoints. When they share a y the midpoint would
-    // sit on top of both stubs, so drop the rail below to keep it visible. A
-    // threaded railY (from clampBackwardRails) overrides this to clear spanned
-    // cards.
-    const railY =
-      args.railY ?? (sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2);
+    // The drawn shape is the shared defaults with any routing hint substituted
+    // in. clampBackwardRails moves a column clear of a foreign card / gutter
+    // (railXRight / railXLeft, the latter also overriding the entry stagger) and
+    // moves the rail clear of the cards it spans (railY); absent every hint this
+    // is byte-identical for direct callers.
+    const base = backwardRailDefaults({
+      sx,
+      sy,
+      tx,
+      ty,
+      entryX: args.entryX,
+    });
+    const xr = args.railXRight ?? base.xr;
+    const xl = args.railXLeft ?? base.xl;
+    const railY = args.railY ?? base.railY;
     // Backward chip anchor: on the rail's HORIZONTAL run (at railY), one stub in
     // from the source-side corner but never past the run midpoint, so it rides
     // the clean source half clear of the target entry gutter at xl. The rail is

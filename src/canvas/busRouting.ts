@@ -27,6 +27,7 @@ import {
   CHAMFER,
   FORWARD_STEP_BUDGET,
   PORT_STUB,
+  backwardRailDefaults,
   busDropBase,
   busRiseBase,
   clamp,
@@ -76,9 +77,13 @@ export const FANOUT_SPAN_MIN = FORWARD_STEP_BUDGET;
 // LONE member on such a run gets no busChipX slot, so its rise chip falls to
 // the rise column at the consumer end, and BusEdge exempts that chip from the
 // label zoom gate -- otherwise the trunk's only fit-zoom chip is the source-side
-// aggregate and the consumer's input arrives unlabeled (#32). Long-span members
-// (gap > BUS_SPAN_THRESHOLD = 2x this) always exceed it, so the threshold's
-// real work is keeping short feeders and hairpin runs on the plain slot + gate.
+// aggregate and the consumer's input arrives unlabeled (#32).
+// It no longer discriminates in routeBusEdges: every lane member's span exceeds
+// BUS_SPAN_THRESHOLD, which is 2x this, so the classifier's own bound already
+// implies a long run. The live consumer is BusEdge, which measures the run as
+// DRAWN (|riseX - dropX| after the column passes have moved both, and 0 for a
+// fan-out member that rides no lane) rather than from the classifier's span, so
+// a run that shortens on the way to the render still falls back to the gate.
 export const BUS_LONG_RUN_THRESHOLD = BETWEEN_LAYERS_SPACING + RECIPE_WIDTH;
 
 // Gap between the lowest node bottom and the first lane, then the vertical
@@ -249,6 +254,48 @@ export function edgeItem(edge: Edge): string | undefined {
   return typeof item === "string" ? item : undefined;
 }
 
+// Key of one FLOW: the (item, source unit) pair leaving a single out-port. A
+// recipe out-port carries exactly one item, so item plus source id names the
+// port, and every edge sharing the key draws as one physical line. Both trunk
+// groupings (lane trunks in routeBusEdges, fan-out trunks in routeFanoutEdges)
+// key on it -- that is the `trunkKey` they stamp -- and chip seating reuses it
+// to decide which lines a chip may legitimately sit on. Built here so the three
+// callers cannot drift on the separator or on how a missing item is spelled.
+export function flowKeyOf(item: string | undefined, source: string): string {
+  return (item ?? "?") + "|" + source;
+}
+
+// Numeric index encoded in an ELK edge id, or null for a hand-built id. layout's
+// renderEdgeToElk writes ids shaped like "e:<index>:<from>-><to>:<item>", and
+// that index is the one stable per-edge rank the routing passes have: the passes
+// that hand out slots first-come (jog descent columns, bus column separation)
+// order on it so their output does not depend on where an edge happens to sit in
+// the input array. It has to be the NUMERIC index -- a lexicographic id sort
+// would put "e:10" before "e:2" and swap two slots that are pinned by geometry.
+export function parseElkEdgeIndex(id: string): number | null {
+  if (!id.startsWith("e:")) return null;
+  const rest = id.slice(2);
+  const colon = rest.indexOf(":");
+  if (colon === -1) return null;
+  const n = Number.parseInt(rest.slice(0, colon), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Total order for the slot-handing passes: ELK-indexed edges rank by their
+// index, unindexed ids (hand-built fixtures) sort after all of them, and array
+// position breaks every remaining tie. Ranking unindexed ids as +Infinity rather
+// than special-casing the mixed pair keeps the comparator transitive. Real
+// layouts are entirely ELK-indexed, so the pass output there is independent of
+// input order; a fixture with no indexed ids keeps its array order untouched.
+function byRoutingOrder(
+  a: { id: string; index: number },
+  b: { id: string; index: number },
+): number {
+  const ai = parseElkEdgeIndex(a.id) ?? Infinity;
+  const bi = parseElkEdgeIndex(b.id) ?? Infinity;
+  return ai !== bi ? ai - bi : a.index - b.index;
+}
+
 // Exemption set for an edge's own geometry: each given endpoint node plus one
 // parentId level (its container box -- a grouped endpoint's runs legitimately
 // start / end inside their own group). Every obstacle filter in this module's
@@ -320,7 +367,6 @@ export function routeBusEdges(
   // First pass: classify. An edge is a bus member iff its span exceeds the
   // threshold.
   const trunkKeyByEdgeIndex = new Map<number, string>();
-  const trunks = new Map<string, { item: string; source: string }>();
 
   edges.forEach((edge, index) => {
     const source = byId.get(edge.source);
@@ -332,10 +378,7 @@ export function routeBusEdges(
     const isBus = edgeSpan(source, target, byId) > BUS_SPAN_THRESHOLD;
     if (!isBus) return;
 
-    const trunkKey = item + "|" + edge.source;
-    trunkKeyByEdgeIndex.set(index, trunkKey);
-    if (!trunks.has(trunkKey))
-      trunks.set(trunkKey, { item, source: edge.source });
+    trunkKeyByEdgeIndex.set(index, flowKeyOf(item, edge.source));
   });
 
   // Demote clear-corridor single-member FORWARD trunks back to plain item edges.
@@ -362,7 +405,7 @@ export function routeBusEdges(
   const demotedBendXByIndex = new Map<number, number>();
   if (singleMemberTrunks.length > 0) {
     const obstacles = paddedObstacles(nodes, edges);
-    for (const [trunkKey, indices] of singleMemberTrunks) {
+    for (const [, indices] of singleMemberTrunks) {
       const index = indices[0]!;
       const edge = edges[index]!;
       const source = byId.get(edge.source)!;
@@ -387,7 +430,6 @@ export function routeBusEdges(
         continue; // no clear vertical bend column -> keep the lane
       }
       trunkKeyByEdgeIndex.delete(index);
-      trunks.delete(trunkKey);
       if (proof.bendX !== null) demotedBendXByIndex.set(index, proof.bendX);
     }
   }
@@ -399,6 +441,17 @@ export function routeBusEdges(
   };
 
   if (trunkKeyByEdgeIndex.size === 0) return edges.map(withDemotedBends);
+
+  // The surviving trunks, derived from the member map rather than maintained
+  // beside it: demotion only has to drop the member, and a trunk cannot outlive
+  // its last member (or go missing while one remains) through a forgotten
+  // parallel delete.
+  const trunks = new Map<string, { item: string; source: string }>();
+  trunkKeyByEdgeIndex.forEach((trunkKey, index) => {
+    if (trunks.has(trunkKey)) return;
+    const edge = edges[index]!;
+    trunks.set(trunkKey, { item: edgeItem(edge)!, source: edge.source });
+  });
 
   // Split trunks into a top and a bottom band. The bottom band sits below the
   // graph (today's single band, lanes stacking DOWN); the top band mirrors it
@@ -537,8 +590,10 @@ export function routeBusEdges(
     // the member chip far from both ends, and #32 wants the consumer end
     // labeled. With busChipX absent, BusEdge and deconflictChipAnchors both
     // fall back to the rise column, so the chip sits at the consumer end and
-    // the two stay in sync by construction. Backward lone members keep their
-    // slot (their forward extent is 0, under the threshold).
+    // the two stay in sync by construction. The test is kept rather than folded
+    // into the lone-member case: it is the same "long detour" question BusEdge
+    // asks of the drawn run, and a classifier that admitted a shorter member
+    // would want the slot back.
     if (members.length === 1 && extent > BUS_LONG_RUN_THRESHOLD) continue;
     // Rise-column rank (see the slot comment above): slot i+1 of n+1 walks the
     // extent from the drop column outward, so the member whose run ENDS first
@@ -749,7 +804,7 @@ export function routeFanoutEdges(
     if (item === undefined) return;
     const gap = nodeGap(source, target, byId);
     if (gap <= FANOUT_SPAN_MIN || gap > FANOUT_SPAN_MAX) return;
-    const trunkKey = item + "|" + edge.source;
+    const trunkKey = flowKeyOf(item, edge.source);
     trunkKeyByEdgeIndex.set(index, trunkKey);
     const list = memberIndicesByTrunk.get(trunkKey) ?? [];
     list.push(index);
@@ -811,8 +866,14 @@ export function routeFanoutEdges(
       endpoints.push(target);
       memberLegs.push({ tx, ty });
     }
-    const corLo = sx + PORT_STUB + CHAMFER;
-    const corHi = corridorRight - PORT_STUB - CHAMFER;
+    // Trunk-wide corridor: the drawer's own clamp bounds for a forward step
+    // across [sx, min(all tx)], so a shared junction column inside it is one
+    // chamferFanoutPath will not re-clamp away from a tighter member.
+    const { lo: corLo, hi: corHi } = forwardStepGeometry(
+      sx,
+      corridorRight,
+      undefined,
+    );
     return {
       trunkKey,
       indices,
@@ -849,37 +910,66 @@ export function routeFanoutEdges(
       a.sy - b.sy ||
       (a.trunkKey < b.trunkKey ? -1 : a.trunkKey > b.trunkKey ? 1 : 0),
   );
+  // Each trunk's rank in that sort, so a group re-sorted for the union chain can
+  // be put back into slot order.
+  const slotOrder = new Map<string, number>();
+  geoms.forEach((geom, i) => slotOrder.set(geom.trunkKey, i));
   const contestedTrunks = new Set<string>();
   for (let i = 0; i < geoms.length; ) {
-    // One corridor window: the run of trunks sharing (corLo, corHi) to the
-    // pixel, chained while their y-spans overlap the group's running extent.
+    // One corridor WINDOW: the run of trunks sharing (corLo, corHi) to the
+    // pixel. Each candidate is compared against the window's first entry, not
+    // its predecessor, so a rounding chain cannot widen the window past a pixel.
     let j = i + 1;
-    let hi = geoms[i]!.yHi;
     while (
       j < geoms.length &&
       Math.round(geoms[j]!.corLo) === Math.round(geoms[i]!.corLo) &&
-      Math.round(geoms[j]!.corHi) === Math.round(geoms[i]!.corHi) &&
-      geoms[j]!.yLo <= hi
+      Math.round(geoms[j]!.corHi) === Math.round(geoms[i]!.corHi)
     ) {
-      hi = Math.max(hi, geoms[j]!.yHi);
       j++;
     }
-    const n = j - i;
-    if (n >= 2) {
-      const { corLo, corHi } = geoms[i]!;
-      const pitch = (corHi - corLo) / (n - 1);
-      for (let k = 0; k < n; k++) {
-        geoms[i + k]!.desired = corLo + k * pitch;
+    // Contesting GROUPS inside the window: the union of overlapping y-spans.
+    // The chain runs over a yLo-sorted view, which is what makes it a real
+    // interval union -- chaining in the sort's own sy order can break a group in
+    // two when a trunk whose source port sits low has a branch climbing above an
+    // earlier trunk's span, leaving one of the three unspread on a column a
+    // sibling also wants. Slots are still handed out in sy order (the view is
+    // re-sorted back below), so the spread keeps following reading order.
+    const windowGeoms = geoms.slice(i, j);
+    const byYLo = [...windowGeoms].sort(
+      (a, b) =>
+        a.yLo - b.yLo ||
+        a.yHi - b.yHi ||
+        a.sy - b.sy ||
+        (a.trunkKey < b.trunkKey ? -1 : a.trunkKey > b.trunkKey ? 1 : 0),
+    );
+    for (let g = 0; g < byYLo.length; ) {
+      let h = g + 1;
+      let hi = byYLo[g]!.yHi;
+      while (h < byYLo.length && byYLo[h]!.yLo <= hi) {
+        hi = Math.max(hi, byYLo[h]!.yHi);
+        h++;
       }
+      const group = byYLo.slice(g, h);
+      g = h;
+      const n = group.length;
+      if (n < 2) continue;
+      // Back to the outer sort order, so slot k walks the group top-to-bottom by
+      // source-port y exactly as before.
+      group.sort(
+        (a, b) => slotOrder.get(a.trunkKey)! - slotOrder.get(b.trunkKey)!,
+      );
+      const { corLo, corHi } = group[0]!;
+      const pitch = (corHi - corLo) / (n - 1);
+      group.forEach((geom, k) => {
+        geom.desired = corLo + k * pitch;
+      });
       // The spread separates the COLUMNS, but a worst-case (max counter-scale)
       // chip box centred on one column can still reach a sibling's vertical
       // when the pitch is narrower than its half-width. No seat anywhere on
       // such a column sheds that stroke, so the members' branch chips collapse
       // to the icon-only render instead (fanoutContested, stamped below).
       if (pitch < (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2) {
-        for (let k = 0; k < n; k++) {
-          contestedTrunks.add(geoms[i + k]!.trunkKey);
-        }
+        for (const geom of group) contestedTrunks.add(geom.trunkKey);
       }
     }
     i = j;
@@ -895,14 +985,14 @@ export function routeFanoutEdges(
   const JUNCTION_KEEPOUT_HALF = PORT_STUB - CHAMFER;
   const claimedColumns: PaddedObstacle[] = [];
 
-  // Per-trunk aggregate + shared junction column.
-  const totalByTrunk = new Map<string, Fraction>();
-  const countByTrunk = new Map<string, number>();
-  const ownerByTrunk = new Map<string, string>();
-  const junctionXByTrunk = new Map<string, number>();
-  const memberTrunk = new Set<number>();
+  // The FORMED trunks, keyed by trunk key: one record per trunk carrying its
+  // whole geometry plus the resolved junction column, instead of a set of
+  // parallel maps that a future edit could populate unevenly. A trunk that finds
+  // no acceptable column is simply absent, which is also the membership test the
+  // emit pass below runs.
+  const formed = new Map<string, TrunkGeom & { junctionX: number }>();
   for (const geom of geoms) {
-    const { trunkKey, indices, total, owner, sx, sy } = geom;
+    const { trunkKey, sx, sy } = geom;
     const { yLo, yHi, corLo, corHi, memberLegs, exempt, desired } = geom;
 
     // Shared junction column, resolved with ACCEPTANCE so the whole formation
@@ -954,28 +1044,25 @@ export function routeFanoutEdges(
       top: spanLo,
       bottom: spanHi,
     });
-    for (const index of indices) memberTrunk.add(index);
-    totalByTrunk.set(trunkKey, total);
-    countByTrunk.set(trunkKey, indices.length);
-    ownerByTrunk.set(trunkKey, owner);
-    junctionXByTrunk.set(trunkKey, junctionX);
+    formed.set(trunkKey, { ...geom, junctionX });
   }
 
   return edges.map((edge, index) => {
-    if (!memberTrunk.has(index)) return edge;
-    const trunkKey = trunkKeyByEdgeIndex.get(index)!;
+    const trunkKey = trunkKeyByEdgeIndex.get(index);
+    const trunk = trunkKey === undefined ? undefined : formed.get(trunkKey);
+    if (trunk === undefined) return edge;
     return {
       ...edge,
       type: "bus",
       data: {
         ...edge.data,
         fanout: true,
-        trunkKey,
-        junctionX: junctionXByTrunk.get(trunkKey)!,
-        busTotalRate: totalByTrunk.get(trunkKey)!,
-        busMemberCount: countByTrunk.get(trunkKey)!,
-        busChipOwner: edge.id === ownerByTrunk.get(trunkKey),
-        ...(contestedTrunks.has(trunkKey)
+        trunkKey: trunk.trunkKey,
+        junctionX: trunk.junctionX,
+        busTotalRate: trunk.total,
+        busMemberCount: trunk.indices.length,
+        busChipOwner: edge.id === trunk.owner,
+        ...(contestedTrunks.has(trunk.trunkKey)
           ? { fanoutContested: true as const }
           : {}),
       },
@@ -1063,11 +1150,11 @@ function provenForwardBendColumn(
   const gap = CHAMFER;
   const blocked = (x: number): boolean =>
     spanned.some((o) => x > o.left - gap && x < o.right + gap);
-  // Candidate columns: the corridor midpoint, one stub+chamfer inside each port
-  // (the drawer's clamp bounds), and each spanned card's padded edges, all
-  // restricted to the clamp range so the stamped bendX draws as proven.
-  const lo = sx + PORT_STUB + CHAMFER;
-  const hi = tx - PORT_STUB - CHAMFER;
+  // Candidate columns: the corridor midpoint, the drawer's own clamp bounds
+  // (forwardStepGeometry, so the proven column is one chamferStepPath will keep),
+  // and each spanned card's padded edges, all restricted to the clamp range so
+  // the stamped bendX draws as proven.
+  const { lo, hi } = forwardStepGeometry(sx, tx, undefined);
   const candidates = [
     mid,
     lo,
@@ -1161,6 +1248,9 @@ function nodeGap(
 // collapses onto the corridor midpoint far from the gutter (chamferBusPath's
 // gap < budget branch) and so claims no column here. Returns true for the edges
 // that both consume a gutter slot and count toward the band's width.
+// routeBusEdges cannot classify a backward or narrow-forward edge as a lane
+// member any more (a member's span must exceed BUS_SPAN_THRESHOLD), so those two
+// arms answer only for hand-built bus edges, which still draw the hairpin.
 function occupiesGutterColumn(
   edge: Edge,
   source: RFAnyNode,
@@ -1757,6 +1847,9 @@ function clearColumnKeepingLeg(args: {
   const onSide = sideClamp ?? (() => true);
   const ymin = Math.min(yLo, yHi);
   const ymax = Math.max(yLo, yHi);
+  // Does a vertical run at x, spanning [ymin, ymax], stay out of every rect in
+  // `set`? The one predicate behind both the tier verification below and the
+  // pierce test that gates tier 3.
   const columnClear = (
     x: number,
     set: ReadonlyArray<PaddedObstacle>,
@@ -1771,22 +1864,36 @@ function clearColumnKeepingLeg(args: {
         x < o.right + (o.container ? cGap : gap),
     );
 
+  // One resolve-then-verify step, shared by every tier below. clearColumnX hands
+  // back the desired column unchanged when no candidate qualifies, so the result
+  // only counts once it is re-checked against the same obstacle set and the same
+  // acceptance -- otherwise a tier would "succeed" with the column it failed to
+  // move. Null means this tier found nothing and the next one runs.
+  const resolve = (
+    set: ReadonlyArray<PaddedObstacle>,
+    gap: number,
+    radius: number,
+    accept: (x: number) => boolean,
+  ): number | null => {
+    const x = clearColumnX(desired, yLo, yHi, set, {
+      towardTarget: toward,
+      gap,
+      containerGap,
+      radius,
+      accept,
+    });
+    return columnClear(x, set, gap, containerGap ?? gap) && accept(x)
+      ? x
+      : null;
+  };
+
   // Tier 1: padded set, padded-card leg acceptance. Bands join the column set;
   // the container gap widens every container obstacle's blocked interval.
   const tier1Set = [...foreignPadded, ...bands];
   const paddedAccept = (x: number): boolean =>
     onSide(x) && !connectingLegBlocked(portX, portY, x, paddedLegCards);
-  const padded = clearColumnX(desired, yLo, yHi, tier1Set, {
-    towardTarget: toward,
-    containerGap,
-    accept: paddedAccept,
-  });
-  if (
-    columnClear(padded, tier1Set, CHAMFER, containerGap ?? CHAMFER) &&
-    paddedAccept(padded)
-  ) {
-    return padded;
-  }
+  const padded = resolve(tier1Set, CHAMFER, CLEAR_COLUMN_RADIUS, paddedAccept);
+  if (padded !== null) return padded;
 
   // Tier 2: raw fallback. The slim RAW_GAP keeps a hair of air off the raw box
   // (the container gap for slabs: a raw-fallback column parked RAW_GAP off a
@@ -1795,19 +1902,8 @@ function clearColumnKeepingLeg(args: {
   const tier2Set = [...foreignRawCards, ...bands];
   const rawAccept = (x: number): boolean =>
     onSide(x) && !connectingLegBlocked(portX, portY, x, rawLegCards);
-  const raw = clearColumnX(desired, yLo, yHi, tier2Set, {
-    towardTarget: toward,
-    gap: RAW_GAP,
-    containerGap,
-    radius: 2 * CLEAR_COLUMN_RADIUS,
-    accept: rawAccept,
-  });
-  if (
-    columnClear(raw, tier2Set, RAW_GAP, containerGap ?? RAW_GAP) &&
-    rawAccept(raw)
-  ) {
-    return raw;
-  }
+  const raw = resolve(tier2Set, RAW_GAP, 2 * CLEAR_COLUMN_RADIUS, rawAccept);
+  if (raw !== null) return raw;
 
   // Tier 3: pierce rescue. Gated on the own-side guard being active, so the
   // clampBackwardRails callers (which pass neither guard arg) keep today's
@@ -1816,91 +1912,53 @@ function clearColumnKeepingLeg(args: {
   // an unrelated card outright (the audit's hard gate). Two ranked sub-tiers
   // re-resolve with the side clamp dropped, an own-card landing always last.
   if (sideClamp !== undefined || ownLegRect !== undefined) {
-    const desiredPierces = foreignRawCards.some(
-      (o) =>
-        o.bottom > ymin &&
-        o.top < ymax &&
-        desired > o.left &&
-        desired < o.right,
-    );
+    // Zero gap: the desired column pierces a foreign raw card BODY, not its
+    // clearance band.
+    const desiredPierces = !columnClear(desired, foreignRawCards, 0, 0);
     if (desiredPierces) {
       // Tier 3a: drop the side clamp but KEEP the own-card leg rect in the
       // acceptance. A column past the port whose approach leg still clears the
       // own endpoint body (a chamfer-band / gutter escape, or any far column
       // whose leg does not cross the own card) beats the foreign pierce without
       // tunnelling the own body.
-      const rescueAPaddedAccept = (x: number): boolean =>
-        !connectingLegBlocked(portX, portY, x, paddedLegCards);
-      const rescueAPadded = clearColumnX(desired, yLo, yHi, tier1Set, {
-        towardTarget: toward,
-        containerGap,
-        accept: rescueAPaddedAccept,
-      });
-      if (
-        columnClear(
-          rescueAPadded,
-          tier1Set,
-          CHAMFER,
-          containerGap ?? CHAMFER,
-        ) &&
-        rescueAPaddedAccept(rescueAPadded)
-      ) {
-        return rescueAPadded;
-      }
-      const rescueARawAccept = (x: number): boolean =>
-        !connectingLegBlocked(portX, portY, x, rawLegCards);
-      const rescueARaw = clearColumnX(desired, yLo, yHi, tier2Set, {
-        towardTarget: toward,
-        gap: RAW_GAP,
-        containerGap,
-        radius: 2 * CLEAR_COLUMN_RADIUS,
-        accept: rescueARawAccept,
-      });
-      if (
-        columnClear(rescueARaw, tier2Set, RAW_GAP, containerGap ?? RAW_GAP) &&
-        rescueARawAccept(rescueARaw)
-      ) {
-        return rescueARaw;
-      }
+      const legClearOf =
+        (cards: ReadonlyArray<PaddedObstacle>) =>
+        (x: number): boolean =>
+          !connectingLegBlocked(portX, portY, x, cards);
+      const rescueAPadded = resolve(
+        tier1Set,
+        CHAMFER,
+        CLEAR_COLUMN_RADIUS,
+        legClearOf(paddedLegCards),
+      );
+      if (rescueAPadded !== null) return rescueAPadded;
+      const rescueARaw = resolve(
+        tier2Set,
+        RAW_GAP,
+        2 * CLEAR_COLUMN_RADIUS,
+        legClearOf(rawLegCards),
+      );
+      if (rescueARaw !== null) return rescueARaw;
 
       // Tier 3b (last resort): drop the own-card leg rect too. Only reached when
       // no off-own column clears -- every leftward leg crosses a foreign body
       // and every rightward column is walled -- so the run traverses its own
       // endpoint card. auditOwnCardPierces tracks this residue; the foreign
       // segment audit exempts endpoint cards and cannot.
-      const rescueBPaddedAccept = (x: number): boolean =>
-        !connectingLegBlocked(portX, portY, x, paddedCards);
-      const rescueBPadded = clearColumnX(desired, yLo, yHi, tier1Set, {
-        towardTarget: toward,
-        containerGap,
-        accept: rescueBPaddedAccept,
-      });
-      if (
-        columnClear(
-          rescueBPadded,
-          tier1Set,
-          CHAMFER,
-          containerGap ?? CHAMFER,
-        ) &&
-        rescueBPaddedAccept(rescueBPadded)
-      ) {
-        return rescueBPadded;
-      }
-      const rescueBRawAccept = (x: number): boolean =>
-        !connectingLegBlocked(portX, portY, x, foreignRawCards);
-      const rescueBRaw = clearColumnX(desired, yLo, yHi, tier2Set, {
-        towardTarget: toward,
-        gap: RAW_GAP,
-        containerGap,
-        radius: 2 * CLEAR_COLUMN_RADIUS,
-        accept: rescueBRawAccept,
-      });
-      if (
-        columnClear(rescueBRaw, tier2Set, RAW_GAP, containerGap ?? RAW_GAP) &&
-        rescueBRawAccept(rescueBRaw)
-      ) {
-        return rescueBRaw;
-      }
+      const rescueBPadded = resolve(
+        tier1Set,
+        CHAMFER,
+        CLEAR_COLUMN_RADIUS,
+        legClearOf(paddedCards),
+      );
+      if (rescueBPadded !== null) return rescueBPadded;
+      const rescueBRaw = resolve(
+        tier2Set,
+        RAW_GAP,
+        2 * CLEAR_COLUMN_RADIUS,
+        legClearOf(foreignRawCards),
+      );
+      if (rescueBRaw !== null) return rescueBRaw;
     }
   }
   return desired;
@@ -1987,7 +2045,9 @@ function localRanks(
 // staggered entryX (clearance starts from the stagger and only moves it when it
 // pierces foreign geometry; riseX then overrides entryX in chamferBusPath). The
 // narrow-forward hairpin member has no distinct drop / rise column (both collapse
-// onto the corridor midpoint), so it is left untouched.
+// onto the corridor midpoint), so it is left untouched -- reachable only for a
+// hand-built bus edge, since routeBusEdges classifies nothing under
+// BUS_SPAN_THRESHOLD.
 //
 // After the dodge, a per-trunk separation pass (#25) fans DISTINCT trunks
 // (distinct `item|source` keys: different items, or the same item from
@@ -2011,6 +2071,7 @@ export function clearBusColumns(
   // so it has nothing distinct to clear and is excluded here and left untouched.
   type Member = {
     index: number;
+    id: string;
     trunkKey: string;
     band: "top" | "bottom";
     source: RFAnyNode;
@@ -2042,6 +2103,7 @@ export function clearBusColumns(
     if (gap > 0 && gap < FORWARD_STEP_BUDGET) return;
     members.push({
       index,
+      id: edge.id,
       trunkKey: data.trunkKey,
       band: (data as LaneBusEdgeData).busBand ?? "bottom",
       source,
@@ -2058,6 +2120,11 @@ export function clearBusColumns(
       riseBase: busRiseBase(tx, (edge.data as ItemEdgeData | undefined)?.entryX),
     });
   });
+
+  // Routing order, so every first-come decision below -- which member supplies
+  // a trunk's drop geometry, and which bucket claims a separation column first
+  // -- reads the same on any permutation of the input array.
+  members.sort(byRoutingOrder);
 
   const globalRank = busTrunkGlobalRank(members.map((m) => m.trunkKey));
 
@@ -2332,12 +2399,19 @@ export function clampBackwardRails(
     const tx = absoluteLeft(target, byId);
     const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
     const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-    // Rail x-span mirrors chamferStepPath's backward branch: one stub right of
-    // the source port to the entry column (or one stub before the target port).
-    const xrDesired = sx + PORT_STUB;
-    const xlDesired =
-      (edge.data as ItemEdgeData | undefined)?.entryX ?? tx - PORT_STUB;
-    const preferredY = sy === ty ? sy + PORT_STUB + 2 * CHAMFER : (sy + ty) / 2;
+    // Rail x-span and level come from chamferStepPath's own backward defaults,
+    // so the clamp starts at exactly the shape the drawer would produce.
+    const {
+      xr: xrDesired,
+      xl: xlDesired,
+      railY: preferredY,
+    } = backwardRailDefaults({
+      sx,
+      sy,
+      tx,
+      ty,
+      entryX: (edge.data as ItemEdgeData | undefined)?.entryX,
+    });
     const railY = clearRailY(
       preferredY,
       xlDesired,
@@ -2515,7 +2589,13 @@ export function jogForwardLegs(
   const legYByIndex = new Map<number, number>();
   const descentXByIndex = new Map<number, number>();
   const srcColXByIndex = new Map<number, number>();
-  edges.forEach((edge, index) => {
+  // Descent slots are handed out first-come, so the scan runs in routing order
+  // rather than array order: two jogs into one target then take the same two
+  // columns however the caller happened to arrange the edges.
+  const scanOrder = edges
+    .map((edge, index) => ({ edge, index, id: edge.id }))
+    .sort(byRoutingOrder);
+  scanOrder.forEach(({ edge, index }) => {
     if (edge.type !== "item") return; // only forward item edges take the step
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);

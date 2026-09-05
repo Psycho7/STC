@@ -170,9 +170,12 @@ export default function BusEdge({
   // exemption to routeBusEdges' own long-run decision (it skips the lane slot
   // for exactly these members, so the chip anchor below falls to the rise
   // column at the consumer end): the gate never exempts a chip that would
-  // render mid-lane. Long-span members always clear the threshold; its real
-  // work is keeping short feeders and hairpins (run 0) gated. Fan-out members
-  // carry no lane run (bus === null).
+  // render mid-lane. This is the threshold's remaining discriminating consumer:
+  // routeBusEdges classifies nothing under BUS_SPAN_THRESHOLD (2x the
+  // threshold), so its own members always clear it, while the run measured here
+  // is the DRAWN one -- the columns after the clearance and separation passes
+  // moved them, or 0 for a fan-out member that rides no lane (bus === null) and
+  // for a hand-built hairpin.
   const busRunLength = bus ? Math.abs(bus.riseX - bus.dropX) : 0;
   const longSingleRun =
     memberCount === 1 &&
