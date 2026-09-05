@@ -770,11 +770,12 @@ export type ChipOffPathViolation = {
 // always carry >= 2 vertices, so the audits' behaviour is unchanged.
 
 // Every LABEL chip whose centre lies farther than `tol` from its own edge's
-// polyline (the P3 on-own-line invariant). Entry chips are excluded: they are
-// pinned one inset off the target port, off the path end by design. A label
-// chip's clear-segment anchor is on the path by construction, and both the
-// along-line slide and a downward nudge along a vertical corridor leg keep it
-// there; a chip flagged here was cascaded off its line.
+// polyline (the P3 on-own-line invariant). The two bus kinds are excluded: a
+// lane rise or branch chip is anchored to its lane and a trunk drop chip to the
+// trunk, neither of which is the member edge's own path. A label chip's
+// clear-segment anchor is on the path by construction, and both the along-line
+// slide and a downward nudge along a vertical corridor leg keep it there; a
+// chip flagged here was cascaded off its line.
 export function auditChipsOnOwnPath(
   chips: ReadonlyArray<ChipRect>,
   edges: ReadonlyArray<RawEdge>,

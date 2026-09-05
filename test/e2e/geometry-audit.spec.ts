@@ -624,7 +624,7 @@ const CROSSING_BASELINE: Record<string, number> = {
 };
 
 // Padding-graze baseline (tier 3): segments that clip only a foreign card's
-// padding overhang (entry-chip reserve / port stub), never the raw box. All
+// padding overhang (entry-gutter reserve / port stub), never the raw box. All
 // remaining grazes live where sibling paddings overlap inside a packed column,
 // with no padded-clear column in the routing model (the raw fallback threads
 // the raw gap instead, trading a raw strike for a graze). Recorded post-fix at
