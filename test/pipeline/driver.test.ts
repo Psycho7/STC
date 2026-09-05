@@ -115,7 +115,7 @@ describe("pipeline driver: default AEF targets", () => {
     expect(splitSum.equals(full.rates.get(targetRecipeId)!)).toBe(true);
     expect(full.rates.get(targetRecipeId)!.equals(new Fraction(2))).toBe(true);
 
-    // Multiplier sum invariant: assignMultipliers ceil semantics applied per
+    // Multiplier sum invariant: the ceil over assignIdealMultipliers applied per
     // role still sum to the pre-split aggregate (symmetric Sandleaf hits an
     // integer multiplier on each role: 2 + 2 = 4 == ceil(2 * 2 / 1)).
     const splitMultSum = planterReplicas.reduce(

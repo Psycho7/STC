@@ -174,7 +174,8 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
     const stamps: MachineVertexId[] = [];
     if (idealOpt && machineSpeed) {
       // Exact-rational floor: Fraction.floor(0) returns the Fraction floored
-      // to an integer value (matches the ceil(0) idiom in assignMultipliers).
+      // to an integer value (matches the ceil(0) idiom the solver applies to
+      // assignIdealMultipliers when it derives the integer machine count).
       const nFullFrac = idealOpt.floor(0);
       const nFull = Number(nFullFrac.valueOf()); // integer-valued, fits in JS number for AEF-scale plans
       const partial = idealOpt.sub(nFullFrac);

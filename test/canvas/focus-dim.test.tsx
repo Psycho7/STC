@@ -202,7 +202,7 @@ describe("canvas/focus-dim", () => {
     expect(container.querySelectorAll(".dimmed")).toHaveLength(0);
   });
 
-  it("dims the rate and entry chips of an unrelated edge on node hover", async () => {
+  it("dims the rate chips of an unrelated edge on node hover", async () => {
     const { container } = renderCanvas();
     await waitForChips(container);
     // Hover node "a": e1/e2 (adjacent) light, e3 (into c from d) dims. e3's rate
