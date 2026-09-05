@@ -420,18 +420,24 @@ export function auditOwnCardPierces(
   return out;
 }
 
-// Frame rides: edge segments that run ALONG a container slab's border or a bus
-// band's border, close enough that the stroke and the border read as one line
-// (the loop-backedge-braids-container family, #29 follow-on). Two kinds:
+// Frame rides: segments of a BACKWARD item edge (target at or left of the
+// source, mirroring clampBackwardRails' nodeGap test) that run ALONG a
+// container slab's border or a bus band's border, close enough that the
+// stroke and the border read as one line (the loop-backedge-braids-container
+// family, #29 follow-on). Two kinds:
 //   frame -- a vertical segment within `tol` of a container's left/right border
 //     (overlapping the border's y-run by more than two port stubs, so a
 //     legitimate perpendicular crossing or a short corner never counts), or a
 //     horizontal segment within `tol` of a container's top/bottom border with
 //     the same overlap rule. Diagonal chamfers never ride a frame.
-//   band -- a horizontal run of a BACKWARD item edge (target at or left of the
-//     source, mirroring clampBackwardRails' nodeGap test) within `tol` of a bus
-//     band's top/bottom border, either side: the dashed return that read as one
-//     line with the band tint's edge ran 8 units inside the band bottom.
+//   band -- a horizontal run within `tol` of a bus band's top/bottom border,
+//     either side: the dashed return that read as one line with the band
+//     tint's edge ran 8 units inside the band bottom.
+// Forward edges are out of scope on both kinds: a forward tap's jog descent
+// may share an entry-gutter line with a container border (the convention
+// doc's stated exception), and the forward column passes take no container
+// clearance, so counting them would pin a shape the doctrine declares legal
+// with no routing lever behind it.
 // Deliberately NOT exempting the endpoints' own containers: a return between
 // two members of one slab is exactly the shape whose columns may hug the frame,
 // and the routing now keeps them CONTAINER_COLUMN_GAP off it (Task 7). The
@@ -484,6 +490,7 @@ export function auditFrameRides(
     const s = nodeById.get(edge.source);
     const t = nodeById.get(edge.target);
     const backward = s !== undefined && t !== undefined && t.left <= s.right;
+    if (!backward) continue;
     for (const [p0, p1] of segmentsOf(pts)) {
       const vertical = p0[0] === p1[0];
       const horizontal = p0[1] === p1[1];
@@ -513,7 +520,6 @@ export function auditFrameRides(
         if (dt < limit) push(edge.id, "frame", c.nodeId, "top", p0, p1, dt);
         if (db < limit) push(edge.id, "frame", c.nodeId, "bottom", p0, p1, db);
       }
-      if (!backward) continue;
       for (const b of bands) {
         if (overlapX(b) <= FRAME_RIDE_MIN_OVERLAP) continue;
         const dt = Math.abs(p0[1] - b.top);

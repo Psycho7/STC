@@ -908,8 +908,10 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   // First recording, Task 7 (e:12); held at the round-2 per-side bands
-  // re-measure (a jog descent, not a return column).
-  "rot-bottled_food_4": 1,
+  // re-measure (a jog descent, not a return column). 1 -> 0 once the audit
+  // scoped itself to backward edges: the e:12 descent is a forward tap's
+  // entry column, the shape the convention doc exempts.
+  "rot-bottled_food_4": 0,
 
 };
 
@@ -1263,9 +1265,9 @@ test.describe("segment placement audit", () => {
           .toBeLessThanOrEqual(ownPierceBaseline);
       }
 
-      // Frame-ride ratchet (Task 7): segments running along a container
-      // slab's border, and backward item rails running along a bus band's
-      // border. Stroke-on-frame braids are the loop-return family this counter
+      // Frame-ride ratchet (Task 7): backward item edges' segments running
+      // along a container slab's border or a bus band's border (forward tap
+      // descents may share a border line by convention and are not counted). Stroke-on-frame braids are the loop-return family this counter
       // exists to hold at zero; see FRAME_RIDE_BASELINE above.
       const frameRides = auditFrameRides(
         rawEdges,
