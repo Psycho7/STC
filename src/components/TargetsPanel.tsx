@@ -9,6 +9,7 @@ import {
 } from "../data/rate-format";
 import { computeItemDepths } from "../data/recipe-depth";
 import { iconPosition } from "../canvas/iconSprite";
+import { Sprite } from "../canvas/RecipeNode";
 import { ItemPickerPopup } from "./ItemPickerPopup";
 import { useRateEdit } from "./useRateEdit";
 
@@ -198,14 +199,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
         return (
           <div key={t.itemId} className="b-row" data-testid="target-row">
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              {iconPos !== undefined ? (
-                <span className="ico ico-40">
-                  <span
-                    className="spr"
-                    style={{ backgroundPosition: iconPos }}
-                  />
-                </span>
-              ) : null}
+              <Sprite iconId={t.itemId} size={40} />
             </span>
             <div className="info">
               <span className="b-pick">
@@ -282,14 +276,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
         return (
           <div key={draft.id} className="b-row" data-testid="target-draft-row">
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              {iconPos !== undefined ? (
-                <span className="ico ico-40">
-                  <span
-                    className="spr"
-                    style={{ backgroundPosition: iconPos }}
-                  />
-                </span>
-              ) : null}
+              <Sprite iconId={draft.itemId} size={40} />
             </span>
             <div className="info">
               <span className="b-pick">

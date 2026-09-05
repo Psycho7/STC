@@ -5,6 +5,7 @@ import type { RationalString } from "../data/targets";
 import { useI18n } from "../data/i18n-context";
 import { formatRationalPerMin, ratePerSecToPerMin } from "../data/rate-format";
 import { iconPosition } from "../canvas/iconSprite";
+import { Sprite } from "../canvas/RecipeNode";
 import { computeItemDepths } from "../data/recipe-depth";
 import { ItemPickerPopup } from "./ItemPickerPopup";
 import { useRateEdit } from "./useRateEdit";
@@ -287,14 +288,7 @@ export function InputsPanel({
             data-is-also-target={isAlsoTarget ? "true" : "false"}
           >
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              {iconPos !== undefined ? (
-                <span className="ico ico-40">
-                  <span
-                    className="spr"
-                    style={{ backgroundPosition: iconPos }}
-                  />
-                </span>
-              ) : null}
+              <Sprite iconId={item?.icon ?? itemId} size={40} />
             </span>
             <div className="info">
               <span
@@ -369,14 +363,7 @@ export function InputsPanel({
             data-is-also-target={isAlsoTarget ? "true" : "false"}
           >
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              {iconPos !== undefined ? (
-                <span className="ico ico-40">
-                  <span
-                    className="spr"
-                    style={{ backgroundPosition: iconPos }}
-                  />
-                </span>
-              ) : null}
+              <Sprite iconId={item?.icon ?? row.itemId} size={40} />
             </span>
             <div className="info">
               <span className="b-pick">
