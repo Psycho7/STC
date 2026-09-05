@@ -22,6 +22,49 @@ function intra(
   return { item, target, consumerRate: rate, consumerInQty: inQty };
 }
 
+// assignSplitRoles bills each producer its produced-flow share of the SCC-wide
+// intra demand, so it needs the two per-item maps ensureSccReplicas builds.
+// These fixtures describe a one-producer SCC, where the recipe under test is
+// the only intra producer: produced flow per item is recipeRate * outQty, and
+// intra demand per item is the sum over its intra edges (each edge is a
+// distinct consumer here, so the count-once-per-consumer rule is the same sum).
+function soloSccMaps(args: {
+  recipeRate: Fraction;
+  outQtys: Map<string, number>;
+  intraEdges: ResolvedIntraEdge[];
+}): {
+  intraDemandByItem: Map<string, Fraction>;
+  intraProdByItem: Map<string, Fraction>;
+} {
+  const intraProdByItem = new Map<string, Fraction>();
+  for (const [item, qty] of args.outQtys) {
+    intraProdByItem.set(item, args.recipeRate.mul(new Fraction(qty)));
+  }
+  const intraDemandByItem = new Map<string, Fraction>();
+  for (const ie of args.intraEdges) {
+    intraDemandByItem.set(
+      ie.item,
+      (intraDemandByItem.get(ie.item) ?? new Fraction(0)).add(
+        ie.consumerRate.mul(new Fraction(ie.consumerInQty)),
+      ),
+    );
+  }
+  return { intraDemandByItem, intraProdByItem };
+}
+
+// Fills in the two apportionment maps for a one-producer SCC so each test
+// states only the split inputs it is about.
+function splitRoles(args: {
+  recipeRate: Fraction;
+  primaryOutItem: string;
+  outQtys: Map<string, number>;
+  intraEdges: ResolvedIntraEdge[];
+  crossEdges: Array<{ item: string; target: string }>;
+  targetOutItems: ReadonlySet<string>;
+}) {
+  return assignSplitRoles({ ...args, ...soloSccMaps(args) });
+}
+
 describe("propagateGroups", () => {
   it("scc role formats as scc:<sccId>", () => {
     expect(propagateGroups({ kind: "scc", sccId: "S1" })).toBe("scc:S1");
@@ -49,7 +92,7 @@ describe("propagateGroups", () => {
 
 describe("assignSplitRoles", () => {
   it("returns single when there are no intra-SCC outgoing edges", () => {
-    const d = assignSplitRoles({
+    const d = splitRoles({
       recipeRate: new Fraction(2),
       primaryOutItem: "x",
       outQtys: new Map([["x", 1]]),
@@ -61,7 +104,7 @@ describe("assignSplitRoles", () => {
   });
 
   it("returns single when intra exists but no cross and no targeted output", () => {
-    const d = assignSplitRoles({
+    const d = splitRoles({
       recipeRate: new Fraction(2),
       primaryOutItem: "x",
       outQtys: new Map([["x", 1]]),
@@ -73,7 +116,7 @@ describe("assignSplitRoles", () => {
   });
 
   it("returns single when recipeRate is zero (no flow to split)", () => {
-    const d = assignSplitRoles({
+    const d = splitRoles({
       recipeRate: new Fraction(0),
       primaryOutItem: "x",
       outQtys: new Map([["x", 1]]),
@@ -87,7 +130,7 @@ describe("assignSplitRoles", () => {
   it("splits 50/50 in the symmetric Sandleaf case", () => {
     // PLANTER: 1 seed -> 1 plant @ rate 2; intra consumer PICKER @ rate 1
     // consumes 1 plant/sec; cross consumer DOWN consumes 1 plant/sec.
-    const d = assignSplitRoles({
+    const d = splitRoles({
       recipeRate: new Fraction(2),
       primaryOutItem: "plant",
       outQtys: new Map([["plant", 1]]),
@@ -109,7 +152,7 @@ describe("assignSplitRoles", () => {
     // SCC interior recipe that is ALSO a user target: the boundary-products
     // pass synthesizes the target edge later, so crossEdges is empty here
     // but the deliverer still owns the synthetic target output role.
-    const d = assignSplitRoles({
+    const d = splitRoles({
       recipeRate: new Fraction(2),
       primaryOutItem: "a",
       outQtys: new Map([["a", 1]]),
@@ -132,7 +175,7 @@ describe("assignSplitRoles", () => {
     // recipeRate 4, produces 1 plant per cycle (so total flow = 4 plant/s).
     // intra consumes 1 plant/s, cross consumes 3 plant/s.
     // Looper rate = 4 * 1/4 = 1; deliverer = 4 - 1 = 3.
-    const d = assignSplitRoles({
+    const d = splitRoles({
       recipeRate: new Fraction(4),
       primaryOutItem: "x",
       outQtys: new Map([["x", 1]]),
@@ -150,7 +193,7 @@ describe("assignSplitRoles", () => {
     // Two intra-SCC edges sharing the item but distinct targets verify
     // both that the filter is keyed on (item, target) and that the helper
     // distinguishes them correctly under parallel-edge-shaped fixtures.
-    const d = assignSplitRoles({
+    const d = splitRoles({
       recipeRate: new Fraction(2),
       primaryOutItem: "a",
       outQtys: new Map([["a", 1]]),
@@ -167,21 +210,21 @@ describe("assignSplitRoles", () => {
     expect([...d.delivererFilter]).toEqual(["a|D"]);
   });
 
-  it("throws in DEV when intra flow over-bills production (negative cross flow)", () => {
-    // Engineer intraFlow > producedFlow: recipeRate 1 * outQty 1 = produced 1,
-    // but the intra side claims 2/sec consumed, so crossFlow would be -1. The
-    // exact-rational solver makes this unreachable for a well-formed solve, so
-    // the contract treats it as an invariant violation and throws under DEV
-    // (the prod build clamps the cross flow to zero as a silent fallback).
-    expect(() =>
-      assignSplitRoles({
-        recipeRate: new Fraction(1),
-        primaryOutItem: "x",
-        outQtys: new Map([["x", 1]]),
-        intraEdges: [intra("x", "M", new Fraction(2), 1)],
-        crossEdges: [{ item: "x", target: "C" }],
-        targetOutItems: new Set<string>(),
-      }),
-    ).toThrow(/negative cross/);
+  it("caps the looped demand at intra production when demand over-bills it", () => {
+    // Intra demand 2/sec against a produced flow of 1: the loop cannot consume
+    // more than the SCC produces, so the looper takes everything and the
+    // deliverer is left at zero rather than the split going negative.
+    const d = splitRoles({
+      recipeRate: new Fraction(1),
+      primaryOutItem: "x",
+      outQtys: new Map([["x", 1]]),
+      intraEdges: [intra("x", "M", new Fraction(2), 1)],
+      crossEdges: [{ item: "x", target: "C" }],
+      targetOutItems: new Set<string>(),
+    });
+    expect(d.kind).toBe("split");
+    if (d.kind !== "split") return;
+    expect(d.looperRate.equals(new Fraction(1))).toBe(true);
+    expect(d.delivererRate.equals(new Fraction(0))).toBe(true);
   });
 });

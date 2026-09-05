@@ -14,8 +14,40 @@ import {
   replicatePerConsumer,
   splitConsumerDemand,
   supplyShareKey,
+  type ResolvedIntraEdge,
 } from "./replicate";
 import { outgoingEdgeKey } from "./types";
+
+// assignSplitRoles bills each producer its produced-flow share of the SCC-wide
+// intra demand, so it needs the two per-item maps ensureSccReplicas builds.
+// These cases describe a one-producer SCC, where the recipe under test is the
+// only intra producer: produced flow per item is recipeRate * outQty, and
+// intra demand per item is the sum over its intra edges (each edge is a
+// distinct consumer here, so the count-once-per-consumer rule is the same sum).
+// Kept in sync with the copy in test/solver/replicate-internals.test.ts.
+function splitRoles(args: {
+  recipeRate: Fraction;
+  primaryOutItem: string;
+  outQtys: Map<string, number>;
+  intraEdges: ResolvedIntraEdge[];
+  crossEdges: Array<{ item: string; target: string }>;
+  targetOutItems: ReadonlySet<string>;
+}) {
+  const intraProdByItem = new Map<string, Fraction>();
+  for (const [item, qty] of args.outQtys) {
+    intraProdByItem.set(item, args.recipeRate.mul(new Fraction(qty)));
+  }
+  const intraDemandByItem = new Map<string, Fraction>();
+  for (const ie of args.intraEdges) {
+    intraDemandByItem.set(
+      ie.item,
+      (intraDemandByItem.get(ie.item) ?? new Fraction(0)).add(
+        ie.consumerRate.mul(new Fraction(ie.consumerInQty)),
+      ),
+    );
+  }
+  return assignSplitRoles({ ...args, intraDemandByItem, intraProdByItem });
+}
 
 function recipe(
   id: string,
@@ -333,7 +365,7 @@ describe("assignSplitRoles", () => {
   // and zeroing the deliverer.
   it("keeps a positive deliverer for a co-product whose primary is split", () => {
     const recipeRate = new Fraction(4);
-    const decision = assignSplitRoles({
+    const decision = splitRoles({
       recipeRate,
       primaryOutItem: "poly",
       outQtys: new Map([
@@ -401,7 +433,7 @@ describe("assignSplitRoles", () => {
   // co-product edges to the LIVE role (the deliverer here).
   it("routes a non-driver co-product's edges to the live split role", () => {
     const recipeRate = new Fraction(1);
-    const decision = assignSplitRoles({
+    const decision = splitRoles({
       recipeRate,
       primaryOutItem: "xiranite_poly",
       outQtys: new Map([
@@ -444,7 +476,7 @@ describe("assignSplitRoles", () => {
 
   it("treats a targeted output item as a synthetic cross consumer", () => {
     const recipeRate = new Fraction(2);
-    const decision = assignSplitRoles({
+    const decision = splitRoles({
       recipeRate,
       primaryOutItem: "poly",
       outQtys: new Map([["poly", 1]]),
