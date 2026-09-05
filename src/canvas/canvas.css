@@ -1906,6 +1906,12 @@
   align-items: center;
   gap: 24px;
   padding: 12px 20px;
+  /* Fixed rather than content-sized: the label and value line boxes shrink
+     by 3px when the webfonts swap in, and a strip that changes height moves
+     the canvas below it, which re-fits the camera at a network-dependent
+     moment. 63px is the settled height with the webfonts loaded. */
+  box-sizing: border-box;
+  height: 63px;
   background: var(--ak-bg-primary);
   border-bottom: 1px solid var(--ak-divider);
 }
