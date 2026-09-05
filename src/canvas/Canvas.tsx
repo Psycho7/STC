@@ -10,6 +10,8 @@ import {
   type Edge,
   type OnNodesChange,
   type OnEdgesChange,
+  type NodeMouseHandler,
+  type EdgeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./canvas.css";
@@ -121,7 +123,16 @@ interface CanvasProps {
 // Which graph element the pointer is over. Drives the ego-network highlight:
 // the hovered element plus its immediate neighbourhood stays lit, everything
 // else gets the `dimmed` class. `null` = idle (no dimming at all).
-type Hovered = { kind: "node"; id: string } | { kind: "edge"; id: string } | null;
+type HoverTarget = { kind: "node"; id: string } | { kind: "edge"; id: string };
+
+// A hover plus the layout generation it was aimed at. A plan can land with the
+// pointer standing still (Enter in an already-focused rate field, the bus-lane
+// toggle, hash navigation), and the id it was aimed at is usually absent from
+// the new graph, which would leave the focus set empty and every element dimmed
+// until the next enter or pane click. Carrying the generation lets the focus
+// memo below retire such a hover on sight, which also covers a hover still
+// waiting out its intent delay when the plan lands.
+type Hovered = (HoverTarget & { gen: number }) | null;
 
 // Adjacency indexes derived once per `edges` array. Everything the highlight
 // needs to expand a hovered element into its focus set: node -> incident edges,
@@ -231,21 +242,39 @@ function CanvasInner({
   const nodesInitialized = useNodesInitialized();
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Latest node / edge props for the fit path, refreshed after every commit.
+  // Kept in refs rather than closed over so `fitContent` below is referentially
+  // stable: it is the sole dependency of the resize-observer effect, and
+  // dragging a node hands Canvas a fresh node array on every pointer frame,
+  // which would otherwise tear the observer down and re-subscribe it mid-drag
+  // and throw away a pending debounced re-fit. Declared before the fit effects
+  // so this runs first on the commit that carries a new plan.
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  useEffect(() => {
+    nodesRef.current = nodes;
+    edgesRef.current = edges;
+  });
+
   // Fit the viewport to the whole content -- node cards plus every seated chip
   // and lane band contentBounds covers -- via fitBounds, so a chip cascaded below
   // the deepest lane band is inside the frame instead of clipped at the rim.
-  // Falls back to fitView on an empty graph (no bounds to frame). Depends on the
-  // node/edge props; these change only on a new plan (hover mutates the local
-  // display arrays, not the props), so the fit effects below stay quiet during
-  // hover and re-fit only when the plan actually changes.
+  // Falls back to fitView on an empty graph (no bounds to frame). Which content
+  // gets framed is read from the refs at call time, so the callers below decide
+  // WHEN to fit and this decides only WHAT: a plan change re-fits through the
+  // layout-generation effect, a pane resize through the observer, and a hover or
+  // a node drag (both of which churn the arrays) fits not at all.
   const fitContent = useCallback(() => {
-    const bounds = contentBounds(nodes as unknown as RFAnyNode[], edges);
+    const bounds = contentBounds(
+      nodesRef.current as unknown as RFAnyNode[],
+      edgesRef.current,
+    );
     if (bounds === null) {
       void fitView(FIT_VIEW_OPTIONS);
       return;
     }
     void fitBounds(bounds, FIT_BOUNDS_OPTIONS);
-  }, [nodes, edges, fitView, fitBounds]);
+  }, [fitView, fitBounds]);
 
   // Exam hook: the render-quality exam needs exact camera placement to tile a
   // plan reproducibly, and wheel zoom cannot translate the view (it pins the
@@ -345,20 +374,42 @@ function CanvasInner({
     }
   }, []);
   const scheduleHover = useCallback(
-    (next: Hovered) => {
+    (next: HoverTarget) => {
       cancelPendingHover();
+      // Stamped when the hover is aimed, not when it settles: a plan landing
+      // inside the intent window must retire it, not adopt it.
+      const gen = layoutGeneration;
       hoverTimer.current = setTimeout(() => {
         hoverTimer.current = null;
-        setHovered(next);
+        setHovered({ ...next, gen });
       }, HOVER_INTENT_MS);
     },
-    [cancelPendingHover],
+    [cancelPendingHover, layoutGeneration],
   );
   const clearHover = useCallback(() => {
     cancelPendingHover();
     setHovered(null);
   }, [cancelPendingHover]);
   useEffect(() => cancelPendingHover, [cancelPendingHover]);
+
+  // Stable across renders so React Flow's memoized node and edge wrappers keep
+  // their subtrees on a zoom tick or a drag frame: an inline lambda is a new
+  // prop identity every render and re-reconciles the whole graph.
+  const handleNodeMouseEnter = useCallback<NodeMouseHandler<Node>>(
+    (_, node) => {
+      // Group boxes are hover-inert: they own no edges, so lighting one dims
+      // the whole graph for zero payoff. Skip them entirely.
+      if (node.type === "group") return;
+      scheduleHover({ kind: "node", id: node.id });
+    },
+    [scheduleHover],
+  );
+  const handleEdgeMouseEnter = useCallback<EdgeMouseHandler<Edge>>(
+    (_, edge) => {
+      scheduleHover({ kind: "edge", id: edge.id });
+    },
+    [scheduleHover],
+  );
 
   // The Controls buttons and MiniMap pull their aria-labels from React Flow's
   // ariaLabelConfig (the <Controls> component only exposes the container label
@@ -405,7 +456,7 @@ function CanvasInner({
     nodeIds: Set<string>;
     edgeIds: Set<string>;
   } | null>(() => {
-    if (!hovered) return null;
+    if (!hovered || hovered.gen !== layoutGeneration) return null;
     const nodeIds = new Set<string>();
     const edgeIds = new Set<string>();
     const lightEdge = (edgeId: string): void => {
@@ -458,7 +509,7 @@ function CanvasInner({
       }
     }
     return { nodeIds, edgeIds };
-  }, [hovered, adjacency]);
+  }, [hovered, adjacency, layoutGeneration]);
 
   // Container boxes (`type: "group"`) never dim while any of their child nodes
   // is in the focus set, so the frame around a lit cluster does not read as
@@ -513,14 +564,9 @@ function CanvasInner({
         {...(onEdgesChange ? { onEdgesChange } : {})}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        onNodeMouseEnter={(_, node) => {
-          // Group boxes are hover-inert: they own no edges, so lighting one dims
-          // the whole graph for zero payoff. Skip them entirely.
-          if (node.type === "group") return;
-          scheduleHover({ kind: "node", id: node.id });
-        }}
+        onNodeMouseEnter={handleNodeMouseEnter}
         onNodeMouseLeave={clearHover}
-        onEdgeMouseEnter={(_, edge) => scheduleHover({ kind: "edge", id: edge.id })}
+        onEdgeMouseEnter={handleEdgeMouseEnter}
         onEdgeMouseLeave={clearHover}
         onPaneClick={clearHover}
         minZoom={0.05}
