@@ -48,6 +48,16 @@ export type ExpandMultipliersInput = {
 
 const STAMP_SEP = "~~m";
 
+// Ceiling on the full stamps one replica materializes into. Stamp count is
+// unobservable in the shipped render: AlwaysFoldRender folds every stamp of a
+// replica back into one unit whose multiplicity comes from idealCount, and
+// every emitted edge rate is a share of the same logical total, so collapsing
+// the full stamps into one aggregate stamp leaves the folded plan unchanged.
+// Uncapped, a mistyped target rate walks the quadratic byproduct-recapture
+// pass over tens of thousands of vertices for that same plan. The corpus tops
+// out at 40 full stamps in a class, so 64 leaves every shipped plan alone.
+const STAMP_CAP = 64;
+
 function machineVertexId(
   logicalNodeId: string,
   stampIndex: number,
@@ -168,15 +178,20 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
       const nFullFrac = idealOpt.floor(0);
       const nFull = Number(nFullFrac.valueOf()); // integer-valued, fits in JS number for AEF-scale plans
       const partial = idealOpt.sub(nFullFrac);
-      // Emit N_full full stamps.
-      for (let i = 0; i < nFull; i++) {
+      // Emit N_full full stamps, or -- past the cap -- one aggregate stamp
+      // carrying all N_full machines' rate, so the vertex count stops tracking
+      // the target rate.
+      const fullStampCount = nFull > STAMP_CAP ? 1 : nFull;
+      const fullStampRate =
+        nFull > STAMP_CAP ? nFullFrac.mul(machineSpeed) : machineSpeed;
+      for (let i = 0; i < fullStampCount; i++) {
         const v: MachineRecipeVertex = {
           kind: "machine",
           id: machineVertexId(n.id, i),
           replicaId,
           recipeId: n.recipe.id,
           stampIndex: i,
-          executionRate: machineSpeed,
+          executionRate: fullStampRate,
         };
         vertices.push(v);
         stamps.push(v.id);
@@ -185,10 +200,10 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
       if (partial.compare(0) > 0) {
         const v: MachineRecipeVertex = {
           kind: "machine",
-          id: machineVertexId(n.id, nFull),
+          id: machineVertexId(n.id, fullStampCount),
           replicaId,
           recipeId: n.recipe.id,
-          stampIndex: nFull,
+          stampIndex: fullStampCount,
           executionRate: partial.mul(machineSpeed),
           partial: true,
         };
@@ -209,10 +224,16 @@ export function expandMultipliers(input: ExpandMultipliersInput): MachineGraph {
         stamps.push(v.id);
       }
     } else {
-      // Legacy path: integer multiplier, uniform per-stamp rate = replica.rate / multiplier.
+      // Legacy path: integer multiplier, uniform per-stamp rate = replica.rate
+      // / multiplier. Same cap as above: past it the stamps collapse into one
+      // carrying the replica's whole rate.
       const replicaExecutionRate = replica?.executionRate ?? new Fraction(0);
-      const perStampRate = replicaExecutionRate.div(fallbackMult);
-      for (let i = 0; i < fallbackMult; i++) {
+      const cappedMult = fallbackMult > STAMP_CAP;
+      const stampCount = cappedMult ? 1 : fallbackMult;
+      const perStampRate = cappedMult
+        ? replicaExecutionRate
+        : replicaExecutionRate.div(fallbackMult);
+      for (let i = 0; i < stampCount; i++) {
         const v: MachineRecipeVertex = {
           kind: "machine",
           id: machineVertexId(n.id, i),

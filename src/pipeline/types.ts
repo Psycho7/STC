@@ -44,26 +44,31 @@ export type ContainerSet = {
   containerByMember: ReadonlyMap<ReplicaId, ContainerId>;
 };
 
-// One machine vertex per replica. We hang on to `stampIndex` even though the
-// no-fold render currently emits a single unit per vertex (so there is really
-// only ever one stamp today); it carries the per-consumer expansion data that a
-// future folding pass will need to partition over.
+// One machine vertex per stamp. A replica materializes into its full stamps
+// plus at most one partial stamp, and `stampIndex` orders them within the
+// replica. The shipped AlwaysFoldRender policy folds every stamp of a replica
+// back into one unit, so the index only has to stay stable inside a class.
 export type MachineRecipeVertex = {
   kind: "machine";
   id: MachineVertexId;
   replicaId: ReplicaId;
   recipeId: RecipeId;
   stampIndex: number;
-  // Execution rate for this one stamp (replica.executionRate / multiplier). The
-  // render policy uses it to figure out boundary edge rates for raw inputs that
-  // end the solver walk. Those items never appear in the logical graph, so they
-  // have no MachineEdge, and the policy has to compute their rate itself as
-  // perVertexRate = executionRate * recipe.in[item].qty.
+  // Execution rate carried by this stamp. One full machine's rate normally,
+  // the leftover fraction on a partial stamp, and the whole run of full
+  // machines on the single aggregate stamp a replica past the stamp cap
+  // materializes into. The render policy uses it to figure out boundary edge
+  // rates for raw inputs that end the solver walk. Those items never appear in
+  // the logical graph, so they have no MachineEdge, and the policy has to
+  // compute their rate itself as perVertexRate = executionRate *
+  // recipe.in[item].qty.
   executionRate: Fraction;
   containerId?: ContainerId;
-  // True only when this stamp is the leftover fraction from splitting idealCount
-  // into N full machines plus a partial one. The render layer gives these
-  // partial stamps a distinct look.
+  // True only when this stamp is the leftover fraction from splitting
+  // idealCount into N full machines plus a partial one. Nothing in the shipped
+  // render reads it: AlwaysFoldRender folds every stamp of a class into one
+  // unit whose badge comes from idealCount. The exam coverage tool counts
+  // partial stamps straight off the machine graph.
   partial?: boolean;
 };
 
