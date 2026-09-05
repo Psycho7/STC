@@ -76,7 +76,7 @@ const rateEdge = (
 ): Edge => ({ id, type: "item", source, target, data: { item, rate } });
 
 describe("deconflictChipAnchors: crossing cues", () => {
-  it("stamps a right-angle crossing between two same-item edges at the exact intersection, on BOTH edges", () => {
+  it("stamps a right-angle crossing between two same-item edges at the exact intersection, on the earlier edge", () => {
     // Edge 1 (EARLIER in the array): a straight same-rail line at the drawn
     // port y. Source A1 at (0,0), target A2 at (1000,0): both first rows sit
     // at drawn y 98, so chamferStepPath takes the straight branch
@@ -110,46 +110,39 @@ describe("deconflictChipAnchors: crossing cues", () => {
     // rail at railY that edge 2's step crosses at a right angle.
     expect(measureRecipe(mkRecipe("x", ["s"], [])).inHandleYs[0]).toBe(row0);
 
-    // The stamp lands on BOTH edges of the pair at the exact intersection
-    // of the reconstructed polylines -- bend column 651 x rail y 98 -- each
-    // cue naming the OTHER edge as its partner and carrying that partner's
-    // two endpoint node anchors as of seating (the (e) clause). Neither the
-    // array order nor the z tier picks a single owner: whichever edge paints
-    // above, its own disk cuts the other's stroke, so the pair needs a cue
-    // on each side (the (d) clause).
-    expect(dataOf(out, e2).crossingCues).toEqual([
-      {
-        x: 651,
-        y: railY,
-        partner: {
-          edgeId: e1,
-          source: { x: 0, y: 0 },
-          target: { x: 1000, y: 0 },
-        },
-      },
-    ]);
+    // The stamp lands on ONE edge of the pair -- the earlier in the array --
+    // at the exact intersection of the reconstructed polylines (bend column
+    // 651 x rail y 98), naming the other edge as its partner and carrying
+    // that partner's two endpoint node anchors as of seating (the (e)
+    // clause). The stamped edge is the one whose stroke gets masked out;
+    // the partner stays continuous and carries nothing (the (d) clause: a
+    // transparent gap reads the same in either paint order, so one stamp is
+    // the whole cue).
     expect(dataOf(out, e1).crossingCues).toEqual([
       {
         x: 651,
         y: railY,
-        partner: {
-          edgeId: e2,
-          source: { x: 100, y: -160 },
-          target: { x: 900, y: 200 },
-        },
+        partners: [
+          {
+            edgeId: e2,
+            source: { x: 100, y: -160 },
+            target: { x: 900, y: 200 },
+          },
+        ],
       },
     ]);
+    expect(dataOf(out, e2).crossingCues).toBeUndefined();
   });
 
   it("stamps the partner's endpoint anchors with the crossing, so the render layer can see the other side move", () => {
     // Same right-angle fixture as the stamp test above, read for the partner
-    // record alone: the cue on e2 must name e1 as its partner and record
-    // e1's SOURCE and TARGET node origins (absolute, one container level
+    // record alone: the cue on e1 must name e2 as its partner and record
+    // e2's SOURCE and TARGET node origins (absolute, one container level
     // resolved like every seating coordinate) as of the seating pass. The
     // own-polyline stale check cannot see the partner at all: a partner
-    // dragged away leaves a background-coloured disk cutting a gap where
-    // nothing crosses anymore, so the stamp is where the other side's
-    // identity has to survive.
+    // dragged away leaves a gap cut into e1's stroke where nothing crosses
+    // anymore, so the stamp is where the other side's identity has to
+    // survive.
     const A1 = recipeNode("A1", 0, 0, mkRecipe("A1", [], ["s"]));
     const A2 = orderedRecipeNode("A2", 1000, 0, ["s"]);
     const B1 = recipeNode("B1", 100, -160, mkRecipe("B1", [], ["s"]));
@@ -164,30 +157,75 @@ describe("deconflictChipAnchors: crossing cues", () => {
       ],
     );
 
-    const cue = dataOf(out, e2).crossingCues?.[0];
+    const cue = dataOf(out, e1).crossingCues?.[0];
     expect(cue).toBeDefined();
-    expect(cue!.partner).toEqual({
-      edgeId: e1,
-      source: { x: 0, y: 0 },
-      target: { x: 1000, y: 0 },
-    });
+    expect(cue!.partners).toEqual([
+      {
+        edgeId: e2,
+        source: { x: 100, y: -160 },
+        target: { x: 900, y: 200 },
+      },
+    ]);
   });
 
-  it("stamps BOTH edges of a container-member pair, in either array order", () => {
+  it("folds several partners crossing one edge at the same point into one cue", () => {
+    // A1 feeds two consumers on the same row, A2 at x 1000 and A3 at x 1400:
+    // both plain item edges draw the straight rail at railY out of A1's one
+    // out-port, so their runs overlap collinearly (one flow, never cued
+    // against each other) and edge F's vertical at 651 crosses BOTH at the
+    // same point. F is the earliest edge, so it carries the stamp: ONE cue
+    // at (651, railY) listing both A-edges as partners -- not two stacked
+    // cut-outs, and not a cue bound to whichever partner the sweep met
+    // first. The gap must outlive either partner alone: dragging A2 away
+    // leaves A3 still crossing F there.
+    const A1 = recipeNode("A1", 0, 0, mkRecipe("A1", [], ["s"]));
+    const A2 = orderedRecipeNode("A2", 1000, 0, ["s"]);
+    const A3 = orderedRecipeNode("A3", 1400, 0, ["s"]);
+    const row0 = measureRecipe(mkRecipe("x", [], ["s"])).outHandleYs[0]!;
+    const railY = 0 + row0 + PORT_DY;
+    const B1 = recipeNode("B1", 100, -160, mkRecipe("B1", [], ["s"]));
+    const B2 = orderedRecipeNode("B2", 900, 200, ["s"]);
+    const f = "e:0:B1->B2:s";
+    const e1 = "e:1:A1->A2:s";
+    const e2 = "e:2:A1->A3:s";
+    const out = deconflictChipAnchors(
+      [A1, A2, A3, B1, B2],
+      [
+        rateEdge(f, "B1", "B2", "s", new Fraction(1)),
+        rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
+        rateEdge(e2, "A1", "A3", "s", new Fraction(4)),
+      ],
+    );
+    expect(dataOf(out, f).crossingCues).toEqual([
+      {
+        x: 651,
+        y: railY,
+        partners: [
+          { edgeId: e1, source: { x: 0, y: 0 }, target: { x: 1000, y: 0 } },
+          { edgeId: e2, source: { x: 0, y: 0 }, target: { x: 1400, y: 0 } },
+        ],
+      },
+    ]);
+    expect(dataOf(out, e1).crossingCues).toBeUndefined();
+    expect(dataOf(out, e2).crossingCues).toBeUndefined();
+  });
+
+  it("stamps the earlier edge of a container-member pair, whatever its z tier", () => {
     // React Flow gives every edge its own <svg style={{zIndex}}>: an edge
     // with a container-member endpoint sits at z 1 (elevated above the
     // container box) and a top-level edge at z 0, and CSS z-index beats DOM
-    // (array) order -- array order is only the tiebreak. That ordering is
-    // NOT a rest-time constant: selecting a node lifts it (a selected
-    // container member reaches z 1000, which flows into its edge's svg), so
-    // "which edge paints above" can flip during a drag. The stamp pass
-    // therefore leans on neither: the pair stamps BOTH edges, each cue
-    // naming the other as its partner, and whichever edge ends up painting
-    // above, its own disk erases the other's stroke around the crossing.
-    // Same geometry as the right-angle fixture above, except A2 (the
-    // straight rail's target) lives INSIDE a container G sitting at
-    // (950,-50): A2's relative position (50,50) resolves to the same
-    // absolute (1000,0), so the rail and the crossing point are unchanged.
+    // (array) order. That ordering is NOT a rest-time constant either:
+    // selecting a node lifts it (a selected container member reaches z
+    // 1000, which flows into its edge's svg), so "which edge paints above"
+    // can flip during a drag. The stamp pass leans on none of it: the gap
+    // is a transparent cut-out of the stamped stroke, which reads the same
+    // in either paint order, so the earlier edge in the array carries the
+    // stamp regardless of z tier. Same geometry as the right-angle fixture
+    // above, except A2 (the straight rail's target) lives INSIDE a
+    // container G sitting at (950,-50): A2's relative position (50,50)
+    // resolves to the same absolute (1000,0), so the rail and the crossing
+    // point are unchanged. The top-level edge goes FIRST here so the
+    // container-resolved anchor is read back through the partner record.
     const A1 = recipeNode("A1", 0, 0, mkRecipe("A1", [], ["s"]));
     const G = {
       id: "G",
@@ -206,44 +244,35 @@ describe("deconflictChipAnchors: crossing cues", () => {
     const B1 = recipeNode("B1", 100, -160, mkRecipe("B1", [], ["s"]));
     const B2 = orderedRecipeNode("B2", 900, 200, ["s"]);
 
-    const e1 = "e:1:A1->A2:s"; // EARLIER in the array, z 1 (container member)
-    const e2 = "e:2:B1->B2:s"; // later, z 0 (both endpoints top-level)
+    const e1 = "e:1:A1->A2:s"; // z 1 (container member), LATER in the array
+    const e2 = "e:2:B1->B2:s"; // z 0 (both endpoints top-level), earlier
     const out = deconflictChipAnchors(
       [A1, G, A2, B1, B2],
       [
-        rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
         rateEdge(e2, "B1", "B2", "s", new Fraction(1)),
+        rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
       ],
     );
 
-    // Both edges carry the cue at the same exact intersection, each naming
-    // the other as its partner -- the member edge regardless of being the
-    // EARLIER array entry, the top-level edge regardless of painting z 0.
-    expect(dataOf(out, e1).crossingCues).toEqual([
-      {
-        x: 651,
-        y: railY,
-        partner: {
-          edgeId: e2,
-          source: { x: 100, y: -160 },
-          target: { x: 900, y: 200 },
-        },
-      },
-    ]);
+    // The earlier (top-level, z 0) edge carries the cue although the member
+    // edge paints above it; the member edge carries nothing.
     expect(dataOf(out, e2).crossingCues).toEqual([
       {
         x: 651,
         y: railY,
-        partner: {
-          edgeId: e1,
-          source: { x: 0, y: 0 },
-          // A2 lives inside G at relative (50,50); its ABSOLUTE origin is
-          // (1000,0), the anchor the render side compares against React
-          // Flow's positionAbsolute.
-          target: { x: 1000, y: 0 },
-        },
+        partners: [
+          {
+            edgeId: e1,
+            source: { x: 0, y: 0 },
+            // A2 lives inside G at relative (50,50); its ABSOLUTE origin is
+            // (1000,0), the anchor the render side compares against React
+            // Flow's positionAbsolute.
+            target: { x: 1000, y: 0 },
+          },
+        ],
       },
     ]);
+    expect(dataOf(out, e1).crossingCues).toBeUndefined();
   });
 
   it("stamps nothing for a fan-in pair joining collinearly at the port y", () => {
@@ -357,7 +386,7 @@ describe("deconflictChipAnchors: crossing cues", () => {
       source: { x: 0, y: 0 },
       target: { x: 1000, y: 0 },
     };
-    const cue: CrossingCue = { x: 10, y: 10, partner };
+    const cue: CrossingCue = { x: 10, y: 10, partners: [partner] };
     const ownPts: Array<readonly [number, number]> = [
       [0, 0],
       [10, 10],
@@ -415,7 +444,40 @@ describe("deconflictChipAnchors: crossing cues", () => {
       false,
     ]);
 
-    // A cue WITHOUT a partner record (a hand-built stamp) keeps the
+    // Several partners at one point (a lane's members crossing this edge
+    // together): the bit stays live while ANY of them still stands, and
+    // drops only once every one has moved away.
+    const second: CrossingCuePartner = {
+      edgeId: "e:2:A1->A3:s",
+      source: { x: 0, y: 0 },
+      target: { x: 1400, y: 0 },
+    };
+    const twoPartners: CrossingCue = { x: 10, y: 10, partners: [partner, second] };
+    const secondEdge = { id: second.edgeId, source: "A1", target: "A3" };
+    const bothEdges = [partnerEdge, secondEdge];
+    const a3Still = { id: "A3", x: 1400, y: 0 };
+    expect(
+      crossingPartnerBits(
+        [twoPartners],
+        stateOf(bothEdges, [
+          { id: "A1", x: 0, y: 0 },
+          { id: "A2", x: 1000 + HIDE_STALE_EPS * 2, y: 0 },
+          a3Still,
+        ]),
+      ),
+    ).toEqual([true]);
+    expect(
+      crossingPartnerBits(
+        [twoPartners],
+        stateOf(bothEdges, [
+          { id: "A1", x: 0, y: 0 },
+          { id: "A2", x: 1000 + HIDE_STALE_EPS * 2, y: 0 },
+          { id: "A3", x: 1400 + HIDE_STALE_EPS * 2, y: 0 },
+        ]),
+      ),
+    ).toEqual([false]);
+
+    // A cue WITHOUT partner records (a hand-built stamp) keeps the
     // own-polyline rule alone: the bits treat absent partner info as live
     // rather than dropping a cue they cannot judge.
     expect(crossingPartnerBits([{ x: 10, y: 10 }], stateOf([], []))).toEqual([

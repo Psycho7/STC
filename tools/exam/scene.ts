@@ -153,7 +153,7 @@ export type SceneDoc = {
   // so a capture that somehow skipped the pass fails to compile instead of
   // emitting a document whose silence is ambiguous.
   // `cued` (Task 9): of the counted crossings between DIFFERENT flows, how many
-  // carry a drawn crossing cue on the edge painting above. Same-flow crossings
+  // carry a drawn crossing cue on either edge of the pair. Same-flow crossings
   // (one flow's own trunk / fan-out runs) are one visual line and never cued,
   // so `cued` counts a subset of `count` and the two are expected to differ.
   crossingCensus: { count: number; cued: number };

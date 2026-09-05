@@ -1391,16 +1391,15 @@ test.describe("segment placement audit", () => {
       }
 
       // Crossing-cue coverage (Task 9): every counted crossing between
-      // DIFFERENT flows (different item|source) must carry a DRAWN cue on the
-      // pair edge that paints above -- decided by React Flow's own key, the
-      // (group z-index, DOM order) pair, both read off the DOM
-      // (collectGeometry collects each edge group's computed z-index; the
-      // array here is document order). ZERO-TOLERANCE by design, no baseline
-      // table: the seating pass stamps a cue for every cross-flow proper
-      // crossing by construction, and the renderers draw every stamped cue
-      // that still sits on their live polyline, so a miss means the stamp
-      // pass, the owner key, or the render broke -- there is no legitimate
-      // residue class to pin. Same-flow crossings (between one flow's own
+      // DIFFERENT flows (different item|source) must carry a DRAWN cue on
+      // one edge of the pair -- the stroke masked out around the crossing,
+      // whichever of the two the seating pass picked (a transparent gap
+      // reads the same in either paint order, so no z key is involved).
+      // ZERO-TOLERANCE by design, no baseline table: the seating pass stamps
+      // a cue for every cross-flow proper crossing by construction, and the
+      // renderers cut every stamped cue that still sits on their live
+      // polyline, so a miss means the stamp pass or the render broke --
+      // there is no legitimate residue class to pin. Same-flow crossings (between one flow's own
       // edges: trunk members overlapping a lane, fan-out slices sharing a
       // trajectory) are one visual line by the flowKey doctrine and
       // deliberately NEVER cued; they are reported in the message so a plan
@@ -1411,15 +1410,15 @@ test.describe("segment placement audit", () => {
       // one: default 4/0, battery5 13/0, battery5-xiranite 46/1, crystal 1/0,
       // equip4 1/0, multi6 130/7, tundra 0/0, script43 26/0, coupon-web 13/0,
       // gas-web 39/1, rot-bottled_food_3 5/0, rot-bottled_food_4 20/0. The
-      // drawn-disk count can sit BELOW cued (multi6 120 disks for 130 cued
+      // drawn-cue count can sit BELOW cued (multi6 120 gaps for 130 cued
       // crossings): the stamp pass dedupes per edge and point, so trunk
       // members sharing a lane that crosses one foreign edge together draw
-      // one disk where the census counts each member pair.
+      // one gap where the census counts each member pair.
       const coverage = crossingCueCoverage(geom.edges, geom.crossingCues);
       expect
         .soft(
           coverage.uncued.length,
-          `${scenario.id}: ${coverage.uncued.length} of ${coverage.crossFlow} cross-flow crossing(s) carry no cue on the edge painting above` +
+          `${scenario.id}: ${coverage.uncued.length} of ${coverage.crossFlow} cross-flow crossing(s) carry no cue on either edge` +
             ` (same-flow crossings, never cued: ${coverage.sameFlow}):\n${coverage.uncued.join("\n")}`,
         )
         .toBe(0);

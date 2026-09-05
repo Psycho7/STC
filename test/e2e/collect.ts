@@ -145,12 +145,7 @@ export function collectAudit(): AuditData {
   };
 }
 
-// z is the COMPUTED z-index of the edge's own React Flow group svg (each edge
-// renders in its own <svg style={{zIndex}}>; "auto" maps to 0). Collected
-// because React Flow's paint order is (zIndex, DOM order), NOT DOM order
-// alone -- the crossing-cue coverage audit needs the same key the render
-// layer stamps cue owners by.
-export type EdgeGeom = { id: string; d: string; z: number };
+export type EdgeGeom = { id: string; d: string };
 export type NodeGeom = {
   nodeId: string;
   type: string;
@@ -206,14 +201,14 @@ export type DotGeom = {
   right: number;
   bottom: number;
 };
-// One DRAWN crossing cue (exam-surfaced Task 9): the background-coloured disk
-// an edge renderer emits where its polyline properly crosses a different
-// flow's. The cue is an SVG circle inside the edge's group, so its cx/cy
+// One DRAWN crossing cue (exam-surfaced Task 9): the disc an edge renderer
+// masks out of its own stroke where its polyline passes under a different
+// flow's. The cue is an SVG circle inside the edge group's mask, so its cx/cy
 // attributes are ALREADY graph coordinates (the same user space the path `d`
 // strings live in) and are read as attributes rather than through
 // getBoundingClientRect - no camera round-trip, no sub-pixel loss. `edgeId`
-// is the React Flow edge group the circle lives in, recovered via its
-// .react-flow__edge-path sibling's id.
+// is the React Flow edge group the circle lives in, recovered via that
+// group's .react-flow__edge-path id.
 export type CrossingCueGeom = { edgeId: string; x: number; y: number };
 export type Geometry = {
   edges: EdgeGeom[];
@@ -247,14 +242,7 @@ export function collectGeometry(): Geometry {
 
   const edges = Array.from(
     document.querySelectorAll<SVGPathElement>(".react-flow__edge-path"),
-  ).map((p) => {
-    // The z lives on the edge's OWN wrapper svg (EdgeWrapper renders
-    // <svg style={{zIndex}}>); the class name .react-flow__edge belongs to the
-    // g INSIDE it, whose z-index is always auto, so read the svg via
-    // ownerSVGElement and never via closest().
-    const zRaw = getComputedStyle(p.ownerSVGElement!).zIndex;
-    return { id: p.id, d: p.getAttribute("d") ?? "", z: Number(zRaw) || 0 };
-  });
+  ).map((p) => ({ id: p.id, d: p.getAttribute("d") ?? "" }));
 
   const nodes = Array.from(
     document.querySelectorAll<HTMLElement>(".react-flow__node"),

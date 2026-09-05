@@ -395,7 +395,7 @@ describe("canvas/ItemEdge crossing cues", () => {
     return { x: pts[0]![0] + 40, y: pts[0]![1] };
   }
 
-  it("draws a cue circle before the coloured path when the edge carries crossings", async () => {
+  it("masks its own stroke around a stamped crossing", async () => {
     const on = await liveMidpoint();
     renderEdge(
       { item: "belt", rate: new Fraction(1, 1), crossingCues: [on] },
@@ -414,22 +414,29 @@ describe("canvas/ItemEdge crossing cues", () => {
     expect(Number(cue.getAttribute("cy"))).toBeCloseTo(on.y, 6);
     // Zoom-clamped radius in graph units (a real radius, not the default 0).
     expect(Number(cue.getAttribute("r"))).toBeGreaterThan(0);
-    // DOM order: the cue paints BEFORE the coloured path inside this edge's
-    // group, so the path repaints the cue's centre and only the OTHER (the
-    // z-beneath) edge's line is erased around the point.
+    // The cue is a black disc inside an SVG mask -- a hole, not paint: the
+    // stroke is simply not drawn there, so whatever lies beneath the
+    // crossing (the other stroke, a slab tint) shows through untouched.
+    const mask = cue.closest("mask")!;
+    expect(mask).not.toBeNull();
+    expect(cue.getAttribute("fill")).toBe("black");
+    // ...and that mask is applied to THIS edge's coloured path.
     const path = document.querySelector(".react-flow__edge-path")!;
-    expect(
-      cue.compareDocumentPosition(path) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const masked = path.closest("[mask]")!;
+    expect(masked).not.toBeNull();
+    expect(masked.getAttribute("mask")).toBe(`url(#${mask.id})`);
   });
 
-  it("draws no cue when the edge carries no crossings", async () => {
+  it("draws no cue and applies no mask when the edge carries no crossings", async () => {
     renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1);
     await waitFor(() =>
       expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
     );
     expect(
       document.querySelector('[data-testid="edge-crossing-cue"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector(".react-flow__edge-path")!.closest("[mask]"),
     ).toBeNull();
   });
 
@@ -496,7 +503,7 @@ describe("canvas/ItemEdge crossing cues", () => {
                 makeEdge({
                   item: "belt",
                   rate: new Fraction(1, 1),
-                  crossingCues: [{ x: on.x, y: on.y, partner }],
+                  crossingCues: [{ x: on.x, y: on.y, partners: [partner] }],
                 }),
                 partnerEdge,
               ]}
@@ -518,7 +525,7 @@ describe("canvas/ItemEdge crossing cues", () => {
     };
 
     // Anchors agreeing with the live nodes: the crossing still stands on
-    // both sides, so the disk renders.
+    // both sides, so the gap renders.
     const agreeing = {
       edgeId: "eP",
       source: { x: 500, y: 100 },
@@ -550,17 +557,15 @@ describe("canvas/ItemEdge crossing cues", () => {
     expect(await cueVisible()).toBe(false);
   });
 
-  it("renders a pair's crossing cue on BOTH edges, each before its own path", async () => {
-    // The both-edges render contract: the seating pass stamps the crossing
-    // point on each edge of the pair (selection elevation can invert the
-    // paint order between member edges, so the cue must not depend on one
-    // edge winning a z ruling), and each edge's renderer draws the disk from
-    // its OWN stamp inside its own svg group. At rest exactly one of the two
-    // disks visibly cuts a stroke -- the one in the svg painting above --
-    // and the other reads as a background halo under nothing: it paints
-    // before its own path, so its own stroke repaints the disk's centre and
-    // stays continuous (no double gap). This pins that both groups carry
-    // the disk at the shared crossing, and that each precedes its own path.
+  it("masks only the edge stamped as passing under; its partner stays whole", async () => {
+    // The one-edge render contract: the seating pass stamps the crossing
+    // point on ONE edge of the pair, and only that edge's renderer cuts its
+    // stroke -- the partner draws a continuous line through the gap. A
+    // transparent cut-out reads the same in either paint order, so the
+    // pair needs no second stamp and no z ruling (selection elevation can
+    // invert the order between member edges mid-drag without effect). This
+    // pins that the stamped group carries the mask at the crossing and the
+    // partner's group carries neither cue nor mask.
     const CROSS_NODES: Node[] = [
       { id: "A1", position: { x: 0, y: 0 }, data: { label: "A1" } },
       { id: "A2", position: { x: 1000, y: 0 }, data: { label: "A2" } },
@@ -613,10 +618,9 @@ describe("canvas/ItemEdge crossing cues", () => {
     expect(cross).not.toBeNull();
     cleanup();
 
-    // Both edges stamped at the crossing, each naming the other as its
-    // partner with the other's endpoint anchors (top-level, so absolute
-    // positions are the fixture positions) -- the shape the seating pass
-    // now emits for a pair.
+    // eA stamped at the crossing, naming eB as its partner with eB's
+    // endpoint anchors (top-level, so absolute positions are the fixture
+    // positions) -- the shape the seating pass emits for a pair.
     const cue = {
       x: Math.round(cross![0] * 100) / 100,
       y: Math.round(cross![1] * 100) / 100,
@@ -630,32 +634,18 @@ describe("canvas/ItemEdge crossing cues", () => {
           crossingCues: [
             {
               ...cue,
-              partner: {
-                edgeId: "eB",
-                source: { x: 600, y: -160 },
-                target: { x: 1200, y: 200 },
-              },
+              partners: [
+                {
+                  edgeId: "eB",
+                  source: { x: 600, y: -160 },
+                  target: { x: 1200, y: 200 },
+                },
+              ],
             },
           ],
         },
       },
-      {
-        ...mkItem("eB", "B1", "B2"),
-        data: {
-          item: "belt",
-          rate: new Fraction(1, 1),
-          crossingCues: [
-            {
-              ...cue,
-              partner: {
-                edgeId: "eA",
-                source: { x: 0, y: 0 },
-                target: { x: 1000, y: 0 },
-              },
-            },
-          ],
-        },
-      },
+      mkItem("eB", "B1", "B2"),
     ];
     render(
       <LocaleProvider locale="en">
@@ -675,23 +665,26 @@ describe("canvas/ItemEdge crossing cues", () => {
         2,
       ),
     );
-    // Each edge's own group carries its own disk at the shared crossing,
-    // painted before its own coloured path.
-    for (const id of ["eA", "eB"]) {
-      const path = document.querySelector<SVGPathElement>(
-        `.react-flow__edge-path#${id}`,
-      )!;
-      const group = path.closest(".react-flow__edge")!;
-      const disk = group.querySelector<SVGCircleElement>(
-        '[data-testid="edge-crossing-cue"]',
-      );
-      expect(disk, `cue disk inside ${id}'s group`).not.toBeNull();
-      expect(Number(disk!.getAttribute("cx"))).toBeCloseTo(cue.x, 5);
-      expect(Number(disk!.getAttribute("cy"))).toBeCloseTo(cue.y, 5);
-      expect(
-        disk!.compareDocumentPosition(path) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    }
+    const groupOf = (id: string): Element =>
+      document
+        .querySelector<SVGPathElement>(`.react-flow__edge-path#${id}`)!
+        .closest(".react-flow__edge")!;
+    // The stamped edge: one cue disc in its mask, and its path masked by it.
+    const a = groupOf("eA");
+    const discs = a.querySelectorAll<SVGCircleElement>(
+      '[data-testid="edge-crossing-cue"]',
+    );
+    expect(discs.length).toBe(1);
+    expect(Number(discs[0]!.getAttribute("cx"))).toBeCloseTo(cue.x, 5);
+    expect(Number(discs[0]!.getAttribute("cy"))).toBeCloseTo(cue.y, 5);
+    const maskId = discs[0]!.closest("mask")!.id;
+    expect(
+      a.querySelector(".react-flow__edge-path")!.closest("[mask]")!.getAttribute("mask"),
+    ).toBe(`url(#${maskId})`);
+    // The partner edge: whole -- no cue, no mask.
+    const b = groupOf("eB");
+    expect(b.querySelector('[data-testid="edge-crossing-cue"]')).toBeNull();
+    expect(b.querySelector(".react-flow__edge-path")!.closest("[mask]")).toBeNull();
   });
 });
 

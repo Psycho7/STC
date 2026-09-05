@@ -160,7 +160,7 @@ describe("canvas/BusEdge crossing cues", () => {
     return { x: mid[0], y: mid[1] };
   }
 
-  it("draws a cue circle before the coloured path when the edge carries crossings", async () => {
+  it("masks its own stroke around a stamped crossing", async () => {
     const on = await laneMidpoint();
     renderEdge({
       item: "Iron Plate",
@@ -176,12 +176,13 @@ describe("canvas/BusEdge crossing cues", () => {
     expect(cue).not.toBeNull();
     expect(Number(cue!.getAttribute("cx"))).toBeCloseTo(on.x, 6);
     expect(Number(cue!.getAttribute("cy"))).toBeCloseTo(on.y, 6);
-    // The cue paints BEFORE the coloured path inside this edge's group, so the
-    // bus stroke repaints the cue's centre and stays continuous over the gap
-    // it cuts in the other flow's line.
-    expect(
-      cue!.compareDocumentPosition(path) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // The cue is a hole in this member's own stroke: a black disc inside an
+    // SVG mask that is applied to the coloured path, exactly as ItemEdge
+    // cuts it, so the crossing stroke shows through and the band tint under
+    // the crossing stays intact.
+    const mask = cue!.closest("mask")!;
+    expect(mask).not.toBeNull();
+    expect(path.closest("[mask]")!.getAttribute("mask")).toBe(`url(#${mask.id})`);
   });
 
   it("draws no cue when the edge carries no crossings", async () => {
@@ -191,10 +192,11 @@ describe("canvas/BusEdge crossing cues", () => {
       laneY: 500,
       trunkKey: "Iron Plate|src",
     });
-    await findEdgePath();
+    const path = await findEdgePath();
     expect(
       document.querySelector('[data-testid="edge-crossing-cue"]'),
     ).toBeNull();
+    expect(path.closest("[mask]")).toBeNull();
   });
 });
 

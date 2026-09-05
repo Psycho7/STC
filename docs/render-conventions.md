@@ -39,8 +39,10 @@ share an entry-gutter line with a container border. That column is a tap
 approach, not a return riding the frame.
 
 Where two strokes of DIFFERENT flows properly cross, the stroke passing under
-shows a gap: the edge painting above draws a short canvas-coloured break across
-the other's line, so the crossing reads as two flows crossing, not as a join. A
+shows a gap: a short break is cut out of that stroke around the crossing, the
+other stroke runs through it unbroken, and whatever lies beneath the pair (a
+slab tint, a band tint) shows through the break untouched, so the crossing
+reads as two flows crossing, not as a join. A
 merge never looks like that -- it shows a dot or a shared run -- and a bare X
 of two continuous strokes is a defect: it is indistinguishable from a merge,
 which is exactly the confusion the dot exists to prevent. Crossings inside one

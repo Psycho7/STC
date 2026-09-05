@@ -8,7 +8,7 @@
 //     ratchets the per-scenario crossing count (CROSSING_BASELINE); and
 //   - the render-side cue liveness filter below, which drops a stamped cue
 //     once a node drag moves its own polyline off the stamped point OR moves
-//     the stamped partner edge's endpoints off the anchors recorded at
+//     every stamped partner edge's endpoints off the anchors recorded at
 //     seating.
 // properCross moved here from test/e2e/geometry.ts (exam-surfaced Task 9,
 // 2026-09-04) so the app and the audit share one definition instead of two
@@ -86,8 +86,8 @@ export function pointToPolylineDistance(p: Pt, pts: ReadonlyArray<Pt>): number {
   return best;
 }
 
-// The partner record every stamped cue carries: the OTHER edge of the
-// crossing pair, by id, plus that edge's two endpoint NODE anchors (absolute
+// One partner record a stamped cue carries: an edge of the OTHER flow that
+// crosses here, by id, plus that edge's two endpoint NODE anchors (absolute
 // origins, the same one-container-level resolution every seating coordinate
 // uses) as of the seating pass. A card's ports are fixed offsets inside the
 // card, so an endpoint node's drift equals its port's drift: watching the two
@@ -99,24 +99,27 @@ export type CrossingCuePartner = {
   target: { x: number; y: number };
 };
 
-// One stamped cue: the rounded crossing point plus the partner record.
-// `partner` is optional only so hand-built stamps (tests, fixtures) keep
-// typing: the seating pass always fills it, and a cue without partner info
-// is governed by the own-polyline rule alone rather than dropped unseen.
+// One stamped cue: the rounded crossing point plus every partner crossing
+// this edge there. Several partners share one point when the members of a
+// bus trunk, overlapping on their lane, all cross this edge together; the
+// gap stays live while ANY of them still stands. `partners` is optional only
+// so hand-built stamps (tests, fixtures) keep typing: the seating pass always
+// fills it, and a cue without partner info is governed by the own-polyline
+// rule alone rather than dropped unseen.
 export type CrossingCue = {
   x: number;
   y: number;
-  partner?: CrossingCuePartner;
+  partners?: ReadonlyArray<CrossingCuePartner>;
 };
 
 // Drop cues whose stamped point no longer sits on the edge's own LIVE
-// polyline, or whose partner has since moved away (the optional predicate,
-// fed from crossingPartnerBits by the render layer). The stamps are absolute
-// points from the seating pass and nodes stay mouse-draggable without a
-// re-seat, so a dragged edge would otherwise float its cues off the lines
-// they mark -- the same stale-stamp rule the fan-in marker and the fan-out
-// branch hide follow (HIDE_STALE_EPS) -- and a dragged PARTNER would leave a
-// background-coloured disk cutting a gap where nothing crosses anymore: the
+// polyline, or whose partners have all since moved away (the optional
+// predicate, fed from crossingPartnerBits by the render layer). The stamps
+// are absolute points from the seating pass and nodes stay mouse-draggable
+// without a re-seat, so a dragged edge would otherwise float its cues off the
+// lines they mark -- the same stale-stamp rule the fan-in marker and the
+// fan-out branch hide follow (HIDE_STALE_EPS) -- and a dragged PARTNER would
+// leave a gap cut into this stroke where nothing crosses anymore: the
 // crossing is only real while BOTH sides stand where it was found. At rest
 // the stamp lies on the reconstructed polyline and the drawn polyline agrees
 // with it to sub-unit noise (the endpoint-parity audit's tolerance, far below
@@ -152,15 +155,16 @@ export type CrossingPartnerStore = {
   >;
 };
 
-// One bit per cue, in order: true while the cue's partner edge still exists
-// AND both of its endpoint nodes sit within HIDE_STALE_EPS of the anchors
-// stamped at seating. The eps is the shared HIDE_STALE_EPS, not the cue
-// disk's radius: the radius is a PAINT constant (sized to erase the
-// passing-under stroke across the passing-over stroke's width), while this
-// is a staleness threshold, and it is the SAME eps the own-polyline half of
+// One bit per cue, in order: true while at least one of the cue's partner
+// edges still exists AND both of its endpoint nodes sit within
+// HIDE_STALE_EPS of the anchors stamped at seating (a lane's members all
+// cross this edge at one point; the gap outlives any one of them). The eps
+// is the shared HIDE_STALE_EPS, not the cue gap's radius: the radius is a
+// PAINT constant (sized to clear the passing-over stroke's width), while
+// this is a staleness threshold, and it is the SAME eps the own-polyline half of
 // the filter above already applies -- so the two sides of one crossing go
 // stale at the same drift distance instead of flipping at different drags.
-// A cue with no partner record (hand-built) reads as live: the bits judge
+// A cue with no partner records (hand-built) reads as live: the bits judge
 // only what the stamp recorded.
 export function crossingPartnerBits(
   cues: ReadonlyArray<CrossingCue> | undefined,
@@ -176,23 +180,25 @@ export function crossingPartnerBits(
     return Math.hypot(live.x - stamped.x, live.y - stamped.y) < HIDE_STALE_EPS;
   };
   return cues.map((c) => {
-    if (c.partner === undefined) return true;
-    const edge = state.edgeLookup.get(c.partner.edgeId);
-    if (edge === undefined) return false;
-    return (
-      anchored(edge.source, c.partner.source) &&
-      anchored(edge.target, c.partner.target)
-    );
+    if (c.partners === undefined) return true;
+    return c.partners.some((partner) => {
+      const edge = state.edgeLookup.get(partner.edgeId);
+      if (edge === undefined) return false;
+      return (
+        anchored(edge.source, partner.source) &&
+        anchored(edge.target, partner.target)
+      );
+    });
   });
 }
 
-// Crossing-cue disk radius, in graph units, holding an on-screen radius
+// Crossing-cue gap radius, in graph units, holding an on-screen radius
 // clamped to [CROSSING_CUE_MIN_PX, CROSSING_CUE_MAX_PX] like the junction
-// dot's zoom clamp: the cue must stay wide enough to erase the passing-under
-// stroke right across the passing-over stroke's width at the widest stroke
-// pair the canvas draws (a 3px dimmed stroke under a 2.25px hover-lit one
-// needs ~2.7px of radius; the 4px floor covers it with margin), and narrow
-// enough that the gap it cuts stays a gap, not a hole.
+// dot's zoom clamp: the gap cut into the passing-under stroke must stay wide
+// enough to show clear of the passing-over stroke on both sides at the
+// widest stroke pair the canvas draws (a 3px dimmed stroke under a 2.25px
+// hover-lit one needs ~2.7px of radius; the 4px floor covers it with
+// margin), and narrow enough that the gap stays a gap, not a hole.
 const CROSSING_CUE_MIN_PX = 4;
 const CROSSING_CUE_MAX_PX = 7;
 const CROSSING_CUE_RADIUS = 4.5;

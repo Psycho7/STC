@@ -1,13 +1,14 @@
 import { BaseEdge, useStore, type EdgeProps } from "@xyflow/react";
 import { useMemo } from "react";
 import {
-  CrossingCueDisks,
+  CrossingCueMask,
   FlowChip,
   JunctionDot,
   LABEL_MIN_ZOOM,
   NO_CUE_PTS,
   edgeStrokeWidth,
   junctionRadius,
+  crossingCueMaskId,
   strokeForKind,
   useLiveCrossingCues,
   type ItemEdgeData,
@@ -130,15 +131,14 @@ export default function BusEdge({
     () => (edgeData?.crossingCues?.length ? parsePathPoints(path) : NO_CUE_PTS),
     [path, edgeData?.crossingCues],
   );
-  // Crossing-cue disks, stamped on this member wherever its polyline
-  // properly crosses a different flow's. The seating pass stamps BOTH edges
-  // of such a pair (selection elevation can flip their paint order, so each
-  // edge carries its own disk and the above painter's is the visible gap);
-  // the stamps are filtered to crossings that still stand on BOTH sides --
-  // on this member's live polyline and against the stamped partner edge's
-  // anchors (the stale-stamp rule, see useLiveCrossingCues) -- and rendered
-  // before the coloured path, exactly as ItemEdge draws them.
+  // Crossing-cue gaps, stamped on this member wherever its polyline properly
+  // crosses a different flow's and it was picked as the one passing under.
+  // The stamps are filtered to crossings that still stand on BOTH sides --
+  // on this member's live polyline and against a stamped partner edge's
+  // anchors (the stale-stamp rule, see useLiveCrossingCues) -- and masked
+  // out of the coloured path, exactly as ItemEdge draws them.
   const liveCues = useLiveCrossingCues(edgeData?.crossingCues, cuePts);
+  const cueMaskId = crossingCueMaskId(id);
   // Zoom-compensated base width published as --edge-base-width, matching
   // ItemEdge. A caller-supplied style still wins over these defaults.
   const mergedStyle: React.CSSProperties = {
@@ -332,19 +332,20 @@ export default function BusEdge({
 
   return (
     <>
-      {/* Crossing cues FIRST, before the coloured path, for the same paint
-          reason as ItemEdge: the disk erases whatever painted beneath this
-          svg and this member's own path repaints the disk's centre. The
-          pair's other edge carries its own disk (the both-edges cue), so
-          the gap survives any paint-order flip between the two. */}
-      <CrossingCueDisks cues={liveCues} zoom={zoom} />
-      <BaseEdge
-        id={id}
-        path={path}
-        style={mergedStyle}
-        {...(riseLabel ? { "aria-label": riseLabel } : {})}
-        {...(markerEnd ? { markerEnd } : {})}
-      />
+      {/* Crossing cues: this member's stroke is masked out around each
+          proper crossing it passes under, for the same reason as ItemEdge
+          (a transparent gap over-paints nothing and reads the same in either
+          paint order). */}
+      <CrossingCueMask id={cueMaskId} cues={liveCues} zoom={zoom} />
+      <g mask={liveCues.length > 0 ? `url(#${cueMaskId})` : undefined}>
+        <BaseEdge
+          id={id}
+          path={path}
+          style={mergedStyle}
+          {...(riseLabel ? { "aria-label": riseLabel } : {})}
+          {...(markerEnd ? { markerEnd } : {})}
+        />
+      </g>
       {/* A hidden member chip (fan-out branch or short-run lane rise) was this
           member's only exact-rate tooltip carrier, so keep the share reachable
           on the edge itself: a transparent hover path over the same geometry

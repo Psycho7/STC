@@ -227,13 +227,13 @@ export type CrossingCoverage = {
 // agree only to the endpoint-parity noise, which a shallow crossing angle
 // amplifies along the line. A cue matches when it sits within `eps` of BOTH
 // crossing segments -- a cue is always stamped ON both lines, so this stays
-// tight while tolerating the frame noise. The expected owner is decided per
-// pair by React Flow's paint key read off the DOM (`z`, the computed
-// z-index of the edge's own svg group, with the array position -- DOM order
-// -- as the tiebreak): the cue belongs on the edge painting ABOVE, whose
-// group is the only one whose disk can erase the beneath stroke.
+// tight while tolerating the frame noise -- and lives on EITHER edge of the
+// pair: the seating pass stamps one edge per crossing (the one whose stroke
+// is masked out, so the other shows through), and a transparent gap reads
+// the same whichever edge paints above, so paint order is not part of the
+// contract.
 export function crossingCueCoverage(
-  edges: ReadonlyArray<{ id: string; d: string; z?: number }>,
+  edges: ReadonlyArray<{ id: string; d: string }>,
   cues: ReadonlyArray<CrossingCue>,
   eps = 4,
 ): CrossingCoverage {
@@ -253,10 +253,6 @@ export function crossingCueCoverage(
       const idI = edges[i]!.id;
       const idJ = edges[j]!.id;
       const sameFlow = flowKeyOf(idI) === flowKeyOf(idJ);
-      // j > i always wins the index half of the key, so only z can flip the
-      // ruling -- exactly the container-member case the array-order rule
-      // gets wrong.
-      const aboveId = (edges[j]!.z ?? 0) >= (edges[i]!.z ?? 0) ? idJ : idI;
       for (const [a, b] of perEdge[i]!) {
         for (const [c, d] of perEdge[j]!) {
           const p = properCrossPoint(a, b, c, d);
@@ -268,7 +264,7 @@ export function crossingCueCoverage(
           out.crossFlow++;
           const matched = cues.some(
             (cue) =>
-              cue.edgeId === aboveId &&
+              (cue.edgeId === idI || cue.edgeId === idJ) &&
               pointSegDistance([cue.x, cue.y], a, b) <= eps &&
               pointSegDistance([cue.x, cue.y], c, d) <= eps,
           );
@@ -276,7 +272,7 @@ export function crossingCueCoverage(
             out.cued++;
           } else {
             out.uncued.push(
-              `no cue on ${aboveId} at (${p[0].toFixed(1)},${p[1].toFixed(1)})`,
+              `no cue on ${idI} or ${idJ} at (${p[0].toFixed(1)},${p[1].toFixed(1)})`,
             );
           }
         }

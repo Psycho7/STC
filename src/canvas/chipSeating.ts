@@ -1972,30 +1972,26 @@ export function deconflictChipAnchors(
   // properly cross, the pair reads as a bare X -- and a bare X of two
   // strokes is indistinguishable from a join, which is exactly the confusion
   // the merge dot exists to prevent on the other side. Stamp the crossing
-  // point on BOTH edges of the pair: each edge's renderer emits a
-  // background-coloured disk before its own coloured path (which repaints
-  // the disk's centre), and the disk living in whichever svg paints ABOVE
-  // erases the other stroke around the point -- the beneath stroke shows
-  // the gap and reads as passing under, the above stroke stays continuous
-  // over it.
+  // point on ONE edge of the pair: that edge's renderer masks its own stroke
+  // out around the point (see CrossingCueMask), so the other edge's stroke
+  // shows through the gap and the pair reads as one flow passing under the
+  // other.
   //
-  // WHY both edges rather than the one that paints above at rest: "which
-  // edge paints above" is not a rest-time constant. React Flow renders
-  // every edge in its own <svg style={{zIndex}}> (CSS z beats DOM order),
-  // and that z-index folds in the endpoint NODES' z: a container member
-  // sits above the container box (z 1) regardless of array position, and a
-  // SELECTED node is lifted far higher still (elevateNodesOnSelect, a
-  // default, puts it at z 1000), which flows into its edge's svg z-index.
-  // Dragging a node auto-selects it, so a member drag can INVERT the paint
-  // order between two container-member edges: the edge whose disk was the
-  // visible gap suddenly paints beneath its partner, its disk erases
-  // nothing, and the crossing degenerates back to a bare X for as long as
-  // the selection holds. A cue on each edge makes the pair
-  // order-independent: whichever edge ends up above, its own disk cuts the
-  // other's stroke. The beneath edge's own disk erases nothing at rest --
-  // it paints before its own path, whose stroke repaints the disk's centre,
-  // and the above svg paints over both anyway -- so the pair still shows
-  // exactly one gap, not two.
+  // WHY a mask on one edge rather than a background-coloured disk on the
+  // edge painting above: a gap cut out of a stroke is transparent, so it
+  // leaves the container slab tint, the bus band tint and their hairlines
+  // untouched, and it reads the same whichever edge paints above. React
+  // Flow renders every edge in its own <svg style={{zIndex}}> whose z folds
+  // in the endpoint NODES' z, and a SELECTED node is lifted to z 1000 (a
+  // default, and a drag auto-selects), so "which edge paints above" is not
+  // a rest-time constant; a masked gap needs no such ruling, because the
+  // continuous stroke is the only one drawn there in either order. The
+  // stamped edge is simply the earlier one in the edges array: any
+  // consistent choice draws the same picture, and where several members of
+  // one trunk cross a foreign edge at one shared point (overlapping lane
+  // runs), the mixture of stamps still reads right -- a member's gap is
+  // covered by its unstamped siblings' continuous runs, and the foreign
+  // edge's gap is the one that shows.
   //
   // The pass is presentational only -- no edge is retyped, no chip moves, no
   // routing changes -- and the CROSSING ratchet above the routing passes is
@@ -2018,11 +2014,12 @@ export function deconflictChipAnchors(
   // crossing census. Points are rounded to the emitted paths' two decimals and
   // deduped per edge: the members of one trunk share a lane exactly, so their
   // crossings with one foreign edge land on the same point and one gap must
-  // draw there, not six stacked disks. Each stamp also carries the partner
-  // edge's id and endpoint NODE anchors (see crossingPartnerBits): the
-  // render-side staleness rule needs the OTHER side's identity to drop the
-  // cue when a drag moves the partner off the crossing, which the point
-  // alone cannot express.
+  // draw there, not six stacked cut-outs. Each stamp carries every partner
+  // edge crossing there -- its id and endpoint NODE anchors (see
+  // crossingPartnerBits): the render-side staleness rule needs the OTHER
+  // side's identity to drop the cue once a drag moves every partner off the
+  // crossing, which the point alone cannot express, and it must not drop
+  // the gap while a sibling partner still crosses there.
   const crossingCuesByIndex = new Map<number, Array<CrossingCue>>();
   {
     // The partner record for one segment entry: its edge id plus its two
@@ -2044,7 +2041,10 @@ export function deconflictChipAnchors(
         target: anchorOf(edge.target),
       };
     };
-    const seenCues = new Set<string>();
+    // Cue by (stamped edge, point), so a second partner crossing the same
+    // point joins the existing cue's partner list instead of stacking a
+    // second cut-out.
+    const cueByKey = new Map<string, { cue: CrossingCue; partners: Array<CrossingCuePartner> }>();
     for (let i = 0; i < edgeSegments.length; i++) {
       for (let j = i + 1; j < edgeSegments.length; j++) {
         const si = edgeSegments[i]!;
@@ -2061,20 +2061,19 @@ export function deconflictChipAnchors(
             if (p === null) continue;
             const x = Math.round(p[0] * 100) / 100;
             const y = Math.round(p[1] * 100) / 100;
-            // Stamp BOTH edges, each cue naming the other edge as its
-            // partner: no z ruling is taken here (selection elevation can
-            // flip the pair's paint order mid-drag, and whichever edge ends
-            // up above, its own disk does the erasing).
-            for (const self of [i, j]) {
-              const other = self === i ? j : i;
-              const stampIndex = edgeIndexOfSegment[self]!;
-              const key = `${stampIndex}|${x}|${y}`;
-              if (seenCues.has(key)) continue;
-              seenCues.add(key);
+            // The earlier edge carries the gap; the later one is a partner.
+            const stampIndex = edgeIndexOfSegment[i]!;
+            const key = `${stampIndex}|${x}|${y}`;
+            let entry = cueByKey.get(key);
+            if (entry === undefined) {
+              const partners: Array<CrossingCuePartner> = [];
+              entry = { cue: { x, y, partners }, partners };
+              cueByKey.set(key, entry);
               const list = crossingCuesByIndex.get(stampIndex) ?? [];
-              list.push({ x, y, partner: partnerStampOf(other) });
+              list.push(entry.cue);
               crossingCuesByIndex.set(stampIndex, list);
             }
+            entry.partners.push(partnerStampOf(j));
           }
         }
       }
