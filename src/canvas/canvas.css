@@ -1682,8 +1682,8 @@
 
 /* Lift the chip layer above node cards. EdgeLabelRenderer portals every chip
    into .react-flow__edgelabel-renderer, which React Flow paints below the node
-   layer, so rate and entry chips vanished under any card they crossed. Raising
-   the whole label layer keeps chips readable where the graph is densest. */
+   layer, so edge chips vanished under any card they crossed. Raising the whole
+   label layer keeps chips readable where the graph is densest. */
 .ak-canvas-theme .react-flow__edgelabel-renderer {
   z-index: 6;
 }

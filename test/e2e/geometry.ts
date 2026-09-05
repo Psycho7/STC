@@ -568,9 +568,9 @@ function centreInRect(p: Pt, r: RawRect): boolean {
 //   - same flow (same item AND source): a trunk's members share one lane and a
 //     fanout's slices share their common trajectory, so a chip on that shared
 //     line is on its OWN line even when a sibling edge id owns the segment;
-//   - arrival cluster (same target), NARROWED (3a): entry-kind chips are always
-//     exempt (pinned at the port by design, row pitch below the max-scale chip
-//     box); a label chip is exempt only while its centre sits in the target's
+//   - arrival cluster (same target), NARROWED (3a): the bus kinds are always
+//     exempt (anchored on their lane or trunk by design, not on the member
+//     edge's path); a label chip is exempt only while its centre sits in the
 //     entry band -- the gutter just left of the consumer card where the final
 //     approaches converge. A rate chip out on the corridor is no longer masked
 //     by the shared target, so a chip lying across a sibling's line is flagged.
@@ -595,9 +595,9 @@ function chipForeignTo(
     return false; // same flow: one visual line
   }
   if (owner !== undefined && owner.target === edge.target) {
-    // Arrival cluster, narrowed: entry and bus chips always exempt (pinned
-    // at the port / anchored on the lane by design); a rate chip is exempt
-    // only when its centre lies in the target's entry band.
+    // Arrival cluster, narrowed: the bus kinds are always exempt (anchored on
+    // their lane or trunk by design); a rate chip is exempt only when its
+    // centre lies in the target's entry band.
     if (chip.kind !== "label") return false;
     const card = cardById.get(owner.target);
     if (card !== undefined && centreInRect(centreOf(chip), entryBandOf(card))) {
@@ -752,11 +752,12 @@ export type ChipOffPathViolation = {
 // always carry >= 2 vertices, so the audits' behaviour is unchanged.
 
 // Every LABEL chip whose centre lies farther than `tol` from its own edge's
-// polyline (the P3 on-own-line invariant). Entry chips are excluded: they are
-// pinned one inset off the target port, off the path end by design. A label
-// chip's clear-segment anchor is on the path by construction, and both the
-// along-line slide and a downward nudge along a vertical corridor leg keep it
-// there; a chip flagged here was cascaded off its line.
+// polyline (the P3 on-own-line invariant). The two bus kinds are excluded: a
+// lane rise or branch chip is anchored to its lane and a trunk drop chip to the
+// trunk, neither of which is the member edge's own path. A label chip's
+// clear-segment anchor is on the path by construction, and both the along-line
+// slide and a downward nudge along a vertical corridor leg keep it there; a
+// chip flagged here was cascaded off its line.
 export function auditChipsOnOwnPath(
   chips: ReadonlyArray<ChipRect>,
   edges: ReadonlyArray<RawEdge>,

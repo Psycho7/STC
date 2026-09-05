@@ -1,12 +1,10 @@
 // Edge-span census helper. Measures the horizontal reach of every rendered
-// edge so the declutter phases can be gated on a single number: how many edges
-// still span more than two layers. This is the acceptance instrument for the
-// edge-declutter work; the repro-plan census test records the phase-1a baseline
-// and Task 7 tightens the assertion to zero.
+// edge so a layout can be gated on a single number: how many edges still span
+// more than two layers.
 //
-// The long-edge threshold now lives in the bus-routing module (Task 5); this
-// file re-exports it under the census's own name. The derivation from layout
-// dimensions stays there, so it still tracks any spacing change.
+// The long-edge threshold lives in the bus-routing module; this file re-exports
+// it under the census's own name. The derivation from layout dimensions stays
+// there, so it still tracks any spacing change.
 
 import { RECIPE_WIDTH, loopBoxDimensions } from "../../src/canvas/dimensions";
 

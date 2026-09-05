@@ -5,7 +5,6 @@
   ],
   "expectations": {
     "minUnits": 4,
-    "expectAtLeastOneBadge": true,
     "expectAtLeastOneLoop": false,
     "expectNoIsolatedUnits": true
   }

@@ -16,6 +16,8 @@ import type { Plan } from "../../src/data/plan";
 
 beforeEach(() => {
   history.replaceState(null, "", window.location.pathname);
+  // Pin the locale; App's LocaleProvider defaults to zh otherwise.
+  window.localStorage.setItem("aef.locale", "zh");
 });
 
 afterEach(() => {

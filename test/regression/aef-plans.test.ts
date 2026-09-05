@@ -28,11 +28,9 @@ type RegressionFixture = {
   itemOverrides?: ItemOverride[];
   expectations: {
     minUnits: number;
-    // Legacy fold-era field retained on existing fixture JSON for
-    // backward-compat with previously authored fixtures; ignored after fold
-    // removal.
-    expectAtLeastOneBadge?: boolean;
-    expectAtLeastOneLoop: boolean;
+    // Optional (defaults to false): assert at least one loop render unit. No
+    // production path emits one today, so a fixture that sets it will fail.
+    expectAtLeastOneLoop?: boolean;
     // Optional: assert every render unit is incident to at least one render
     // edge. Loop units are exempt (their I/O lives inside the box). Useful
     // for pinning bugs where a producer/consumer machine ended up isolated
@@ -54,6 +52,41 @@ type RegressionFixture = {
 
 const FIXTURE_DIR = join("test", "regression", "aef-plans");
 
+const FIXTURE_KEYS = ["name", "targets", "itemOverrides", "expectations"];
+const EXPECTATION_KEYS = [
+  "minUnits",
+  "expectAtLeastOneLoop",
+  "expectNoIsolatedUnits",
+  "expectTargetOutputDelivered",
+  "expectInputProductFor",
+];
+
+// A misspelled or retired expectation would otherwise sit in the JSON reading
+// like a live assertion while the runner ignores it, and a missing required key
+// would surface as an opaque TypeError halfway through the pipeline. Name the
+// file and the key instead.
+function validateFixtureKeys(file: string, fixture: RegressionFixture): void {
+  for (const required of ["name", "targets", "expectations"] as const) {
+    if (fixture[required] === undefined) {
+      throw new Error(`${file}: missing required fixture key: ${required}`);
+    }
+  }
+  if (fixture.expectations.minUnits === undefined) {
+    throw new Error(
+      `${file}: missing required fixture key: expectations.minUnits`,
+    );
+  }
+  const stray = [
+    ...Object.keys(fixture).filter((k) => !FIXTURE_KEYS.includes(k)),
+    ...Object.keys(fixture.expectations)
+      .filter((k) => !EXPECTATION_KEYS.includes(k))
+      .map((k) => `expectations.${k}`),
+  ];
+  if (stray.length > 0) {
+    throw new Error(`${file}: unknown fixture key(s): ${stray.join(", ")}`);
+  }
+}
+
 function loadFixtures(): ReadonlyArray<{
   file: string;
   fixture: RegressionFixture;
@@ -66,6 +99,7 @@ function loadFixtures(): ReadonlyArray<{
   return files.map((file) => {
     const raw = readFileSync(join(FIXTURE_DIR, file), "utf-8");
     const parsed = JSON.parse(raw) as RegressionFixture;
+    validateFixtureKeys(file, parsed);
     return { file, fixture: parsed };
   });
 }

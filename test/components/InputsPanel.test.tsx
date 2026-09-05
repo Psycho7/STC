@@ -1,13 +1,31 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render as rtlRender,
+  screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
+import type { ReactElement, ReactNode } from "react";
 import type { RecipePack } from "@aef/schema";
 import { InputsPanel } from "../../src/components/InputsPanel";
 import { makePack } from "../../src/solver/closed-form-fixtures";
+import { LocaleProvider } from "../../src/data/i18n-context";
 import type { ItemOverride } from "../../src/data/plan";
 
 afterEach(() => cleanup());
+
+// The assertions below read zh labels, so pin the locale instead of leaning on
+// whatever the no-provider fallback happens to be. Passing it as a wrapper
+// keeps rerender() re-applying the provider.
+function ZhLocale({ children }: { children: ReactNode }) {
+  return <LocaleProvider locale="zh">{children}</LocaleProvider>;
+}
+
+function render(ui: ReactElement) {
+  return rtlRender(ui, { wrapper: ZhLocale });
+}
 
 // The zh (default-locale) label of the Add button, from src/data/i18n.ts.
 const TEXT_ADD = "添加输入";

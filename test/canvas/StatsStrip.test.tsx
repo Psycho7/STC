@@ -1,9 +1,20 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import StatsStrip from "../../src/canvas/StatsStrip";
+import { LocaleProvider } from "../../src/data/i18n-context";
 import type { Plan } from "../../src/data/plan";
 
 afterEach(() => cleanup());
+
+// The assertions below read zh labels, so pin the locale instead of leaning on
+// whatever the no-provider fallback happens to be.
+function renderStrip(plan: Plan) {
+  return render(
+    <LocaleProvider locale="zh">
+      <StatsStrip plan={plan} />
+    </LocaleProvider>,
+  );
+}
 
 function makePlan(targetCount: number, supplyCount: number): Plan {
   return {
@@ -23,7 +34,7 @@ function makePlan(targetCount: number, supplyCount: number): Plan {
 
 describe("StatsStrip", () => {
   it("renders the target slot before the supply slot with their counts", () => {
-    const { container } = render(<StatsStrip plan={makePlan(2, 4)} />);
+    const { container } = renderStrip(makePlan(2, 4));
 
     const slots = container.querySelectorAll(".strip-stat");
     expect(slots.length).toBeGreaterThanOrEqual(2);
@@ -46,7 +57,7 @@ describe("StatsStrip", () => {
       title: "",
       targets: [],
     };
-    const { container } = render(<StatsStrip plan={empty} />);
+    const { container } = renderStrip(empty);
     const slots = container.querySelectorAll(".strip-stat");
     expect(slots[0]?.querySelector(".val")?.textContent).toBe("0目标");
     expect(slots[1]?.querySelector(".val")?.textContent).toBe("0供给");

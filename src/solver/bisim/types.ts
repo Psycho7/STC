@@ -22,6 +22,10 @@ export type NeighborTag = {
   classId: ClassId;
 };
 
+// Sorts with < and > rather than localeCompare: two replicas must encode to the
+// same signature string for the refinement to merge them, and localeCompare is
+// locale- and ICU-build-dependent. Code-point order is the only ordering that
+// holds.
 export function canonicalEncodeNeighbors(
   tags: ReadonlyArray<NeighborTag>,
 ): string {

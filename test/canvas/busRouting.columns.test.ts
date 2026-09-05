@@ -369,7 +369,8 @@ describe("paddedObstacles", () => {
     expect(card!.right - nodeRight).toBe(PORT_STUB); // right: source stub only
     expect(nodeTop - card!.top).toBe(CHAMFER);
     expect(card!.bottom - nodeBottom).toBe(CHAMFER);
-    // The entry chip reaches past the bare stub, so the X pad exceeds PORT_STUB.
+    // The gutter overhang reaches past the bare stub, so the X pad exceeds
+    // PORT_STUB.
     expect(leftPad).toBeGreaterThan(PORT_STUB);
     // Each card carries the id of the node it was built from.
     expect(card!.nodeId).toBe("n");

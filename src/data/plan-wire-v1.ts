@@ -18,6 +18,10 @@ import { bytesToBase64url, base64urlToBytes } from "./encoding/base64url";
 // title is optional and omitted when empty: nothing reads it yet, so every
 // hash the app writes today would otherwise carry a constant empty field. A
 // wire without it decodes to the empty title, so old and new hashes both load.
+//
+// The sorts below compare with < and > rather than localeCompare: the hash has
+// to come out identical on every machine, and localeCompare is locale- and
+// ICU-build-dependent. Code-point order is the only ordering that holds.
 export type PlanWireV1 = {
   pack: [id: string, schemaVersion: string, sha: string];
   title?: string;

@@ -206,7 +206,7 @@ describe("canvas/focus-dim", () => {
     const { container } = renderCanvas();
     await waitForChips(container);
     // Hover node "a": e1/e2 (adjacent) light, e3 (into c from d) dims. e3's rate
-    // and entry chips must dim with it; e1/e2's bus chips stay lit.
+    // chip must dim with it; e1/e2's bus chips stay lit.
     fireEvent.mouseEnter(nodeEl(container, "a"));
     await waitFor(() => {
       for (const id of ITEM_CHIP_IDS) {
@@ -222,7 +222,7 @@ describe("canvas/focus-dim", () => {
     const { container } = renderCanvas();
     await waitForChips(container);
     // Hover node "d": only e3 (d -> c) lights; the "Iron|a" trunk (e1, e2) dims.
-    // Every bus chip must dim; e3's rate and entry chips stay lit.
+    // Every bus chip must dim; e3's rate chip stays lit.
     fireEvent.mouseEnter(nodeEl(container, "d"));
     await waitFor(() => {
       for (const id of BUS_CHIP_IDS) {
