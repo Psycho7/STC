@@ -15,6 +15,7 @@ import type { ItemTarget } from "../../src/data/targets";
 import type { ItemOverride } from "../../src/data/plan";
 import { effectiveSupply } from "../../src/solver/effectiveSupply";
 import { isExtractionRecipe } from "../../src/data/recipe-category";
+import { recipeCostWeight } from "../../src/solver/lp";
 
 import {
   AdjustedRecipe,
@@ -59,16 +60,16 @@ const noEffects: Record<ModuleEffect, Rational> = {
   speed: rational.one,
 };
 
-// Mirror of STC's recipeCostWeight (src/solver/lp.ts). We do NOT thread
-// per-recipe cost overrides here (the prototype's headline plan has none); the
-// uniform "normal = 1, big-M for the skip-by-default classes" profile is what
-// STC's default objective minimizes, and it makes the FactorioLab recipe-var
-// count (~ machine count) the dominant objective term (Tier-3 alignment).
+// STC's own weight function, called rather than mirrored, so the two solvers
+// cannot drift apart on cost. We pass no per-recipe cost overrides (the
+// prototype's headline plan has none); the uniform "normal = 1, big-M for the
+// skip-by-default classes" profile is what STC's default objective minimizes,
+// and it makes the FactorioLab recipe-var count (~ machine count) the dominant
+// objective term (Tier-3 alignment). recipeCostWeight also charges big-M for
+// extraction recipes, which is inert here: the adapter drops those from the
+// model before any cost is read.
 function recipeCost(r: StcRecipe): number {
-  if (r.flags?.includes("target-only")) return 1e6;
-  if (r.cost === -1) return 1e6;
-  if (r.category === "__domain_transfer") return 1e6;
-  return 1;
+  return recipeCostWeight(r, undefined);
 }
 
 // Build a FactorioLab AdjustedRecipe from an STC pack recipe. STC recipes carry
