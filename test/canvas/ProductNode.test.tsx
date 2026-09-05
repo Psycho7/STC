@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import {
@@ -16,6 +14,7 @@ import {
   ItemPackProvider,
   type ItemPackContextValue,
 } from "../../src/canvas/itemPackContext";
+import { cssBlock } from "./cssContract";
 
 afterEach(() => cleanup());
 
@@ -191,20 +190,11 @@ describe("ProductNode", () => {
     // unit must not ride the transform (unit-casing-mix family). Inject the
     // real .pn-kind rules from canvas.css into jsdom and read the computed
     // cascade, mirroring the zoom-low probe in src/canvas/RecipeNode.test.tsx.
-    const css = readFileSync(
-      resolve(process.cwd(), "src/canvas/canvas.css"),
-      "utf8",
-    );
-    const kindRule = css.match(/^\.pn-kind\s*\{[^}]*\}/m);
-    const rateRule = css.match(/^\.pn-kind__rate\s*\{[^}]*\}/m);
-    expect(kindRule, ".pn-kind rule not found in canvas.css").not.toBeNull();
-    expect(
-      rateRule,
-      ".pn-kind__rate rule not found in canvas.css",
-    ).not.toBeNull();
+    const kindRule = cssBlock(".pn-kind");
+    const rateRule = cssBlock(".pn-kind__rate");
     document.head.insertAdjacentHTML(
       "beforeend",
-      `<style id="pn-kind-casing-probe">${kindRule![0]}${rateRule![0]}</style>`,
+      `<style id="pn-kind-casing-probe">${kindRule}${rateRule}</style>`,
     );
     try {
       const { container } = renderProduct(

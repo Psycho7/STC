@@ -1,6 +1,4 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { cleanup, render } from "@testing-library/react";
 import {
   ReactFlowProvider,
@@ -25,6 +23,7 @@ import {
   type ItemPackContextValue,
 } from "../../src/canvas/itemPackContext";
 import type { PortTransportKinds } from "../../src/canvas/layout";
+import { cssBlock } from "./cssContract";
 
 const EMPTY_PACK_VALUE: ItemPackContextValue = {
   itemById: new Map(),
@@ -391,18 +390,11 @@ describe("port handle chrome", () => {
   // and the two 8px circles read as one figure-eight; at a belt port it covers
   // the row's item-tinted accent tab. canvas.css must neutralize its paint.
   it("neutralizes the stock React Flow handle ring", () => {
-    const css = readFileSync(
-      resolve(process.cwd(), "src/canvas/canvas.css"),
-      "utf8",
-    );
-    const block = css.match(
-      /\.ak-canvas-theme\s+\.react-flow__handle\s*\{[^}]*\}/,
-    );
-    expect(block).not.toBeNull();
-    expect(block![0]).toMatch(/background-color:\s*transparent/);
+    const block = cssBlock(".ak-canvas-theme .react-flow__handle");
+    expect(block).toMatch(/background-color:\s*transparent/);
     // border-color, not `border: 0`: the 8x8 measured box must survive so the
     // handle's rect (and every edge endpoint measured from it) does not move.
-    expect(block![0]).toMatch(/border-color:\s*transparent/);
-    expect(block![0]).not.toMatch(/border:\s*(0|none)/);
+    expect(block).toMatch(/border-color:\s*transparent/);
+    expect(block).not.toMatch(/border:\s*(0|none)/);
   });
 });

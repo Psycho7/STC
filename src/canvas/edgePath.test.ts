@@ -1,11 +1,10 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { expect, test } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 import { clearRailY, chamferStepPath, type ObstacleRect } from "./edgePath";
 import { clampBackwardRails } from "./busRouting";
 import type { RFAnyNode } from "./layout";
+import { cssBlock } from "../../test/canvas/cssContract";
 
 const CARD: ObstacleRect = { left: 100, right: 400, top: 90, bottom: 210 };
 
@@ -124,11 +123,7 @@ test("clampBackwardRails threads a clear railY onto a card-crossing recycle edge
 });
 
 test("the chip label layer is lifted above node cards via z-index", () => {
-  const css = readFileSync(
-    resolve(process.cwd(), "src/canvas/canvas.css"),
-    "utf8",
-  );
-  expect(css).toMatch(
-    /\.react-flow__edgelabel-renderer\s*\{[^}]*z-index:\s*\d+/,
+  expect(cssBlock(".ak-canvas-theme .react-flow__edgelabel-renderer")).toMatch(
+    /z-index:\s*\d+/,
   );
 });

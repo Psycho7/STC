@@ -1,6 +1,4 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import type { ComponentProps, ReactNode } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
@@ -9,6 +7,7 @@ import type { Recipe } from "@aef/schema";
 import RecipeNode from "./RecipeNode";
 import { ItemPackProvider, type ItemPackContextValue } from "./itemPackContext";
 import { LocaleProvider } from "../data/i18n-context";
+import { cssBlock } from "../../test/canvas/cssContract";
 
 afterEach(cleanup);
 
@@ -185,18 +184,13 @@ test("multi-output recipe lists all products on the secondary line", () => {
 // It clamps to two lines instead; the pinned 80px header has the headroom.
 // jsdom does no layout, so the rule text itself is the assertable contract.
 test("the header products line clamps to two lines instead of one ellipsized line", () => {
-  const css = readFileSync(
-    resolve(process.cwd(), "src/canvas/canvas.css"),
-    "utf8",
-  );
-  const block = css.match(/^\.rn-head \.rn-products\s*\{[^}]*\}/m);
-  expect(block).not.toBeNull();
-  expect(block![0]).toMatch(/-webkit-line-clamp:\s*2/);
-  expect(block![0]).not.toMatch(/white-space:\s*nowrap/);
+  const block = cssBlock(".rn-head .rn-products");
+  expect(block).toMatch(/-webkit-line-clamp:\s*2/);
+  expect(block).not.toMatch(/white-space:\s*nowrap/);
   // CJK text breaks between any two Han characters by default, which splits
   // a single item name mid-word across the clamp's two lines (zh exam Z4b).
   // keep-all restricts breaks to the separator spaces the join provides.
-  expect(block![0]).toMatch(/word-break:\s*keep-all/);
+  expect(block).toMatch(/word-break:\s*keep-all/);
 });
 
 // The raw machine id (e.g. "mk1") reads as debug output; the localized machine
