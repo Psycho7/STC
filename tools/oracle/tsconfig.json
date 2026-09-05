@@ -29,6 +29,8 @@
     "compare.test.ts",
     "gate.test.ts",
     "corpus-run.test.ts",
+    "real-pack-sweep.test.ts",
+    "small-rate-crosscheck.test.ts",
     "fixtures/pack.ts",
     "fixtures/index.ts"
   ]

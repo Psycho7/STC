@@ -1,7 +1,8 @@
 // T5 corpus run: drive the FULL scenario set through the gate-validated
 // three-tier comparison harness (compare.ts) and emit a tier-classified report
-// (corpus-results.md). HONEST: a real STC-vs-GLPK disagreement on a whitelisted
-// axis is the prototype payload; this file never fudges one away.
+// to .sweep/corpus-results.md, which is untracked so a run leaves the worktree
+// clean. HONEST: a real STC-vs-GLPK disagreement on a whitelisted axis is the
+// prototype payload; this file never fudges one away.
 //
 // Scenario set (PLAN-001 T5):
 //   1. The STC solver corpus (src/solver/corpus.ts) - every topology it defines.
@@ -19,7 +20,7 @@
 //     surplus/disposal are Tier-1-only.
 //   - unbounded is UNVERIFIED; any unbounded result is flagged as a trip-wire.
 
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { loadModule } from "glpk-ts";
@@ -647,7 +648,10 @@ describe("T5 corpus run (full scenario set through the gate-validated harness)",
   afterAll(() => {
     // Stable ordering for the report: corpus, headline, fixtures (insertion).
     const report = buildReport(rows);
-    const root = path.resolve(import.meta.dirname);
-    writeFileSync(path.join(root, "corpus-results.md"), report + "\n");
+    // Per-run timings make the report differ on every run, so it lands in the
+    // gitignored sweep directory rather than dirtying a tracked file.
+    const outDir = path.resolve(import.meta.dirname, "../../.sweep");
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(path.join(outDir, "corpus-results.md"), report + "\n");
   });
 });
