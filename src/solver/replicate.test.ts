@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import type { Recipe } from "@aef/schema";
-import type {
-  Condensation,
-  RecipeEdge,
-  RecipeGraph,
-  RecipeId,
-  SccId,
-} from "./types";
+import type { RecipeEdge, RecipeId } from "./types";
 import {
   assignSplitRoles,
   logicalNodeIdForReplica,
@@ -16,6 +10,7 @@ import {
   supplyShareKey,
 } from "./replicate";
 import { outgoingEdgeKey } from "./types";
+import { buildGraph, condensationOf } from "./graph.testkit";
 
 function recipe(
   id: string,
@@ -466,39 +461,6 @@ describe("assignSplitRoles", () => {
     expect(decision.delivererRate.equals(new Fraction(1))).toBe(true);
   });
 });
-
-// Builds a RecipeGraph from a node list and (source -> item -> target) edges.
-// buildGraph and condensationOf are kept in sync with the copies in assemble.test.ts.
-function buildGraph(
-  nodes: Recipe[],
-  links: Array<{ source: RecipeId; item: string; target: RecipeId }>,
-): RecipeGraph {
-  const nodeMap = new Map<RecipeId, Recipe>(nodes.map((n) => [n.id, n]));
-  const outgoing = new Map<RecipeId, RecipeEdge[]>();
-  const incoming = new Map<RecipeId, RecipeEdge[]>();
-  for (const l of links) {
-    const e: RecipeEdge = {
-      id: `${l.source}->${l.target}:${l.item}`,
-      source: l.source,
-      target: l.target,
-      item: l.item,
-    };
-    (outgoing.get(l.source) ?? outgoing.set(l.source, []).get(l.source)!).push(e);
-    (incoming.get(l.target) ?? incoming.set(l.target, []).get(l.target)!).push(e);
-  }
-  return { nodes: nodeMap, outgoing, incoming };
-}
-
-function condensationOf(sccs: Array<{ id: SccId; recipeIds: RecipeId[] }>): Condensation {
-  const sccOfRecipe = new Map<RecipeId, SccId>();
-  for (const s of sccs) for (const r of s.recipeIds) sccOfRecipe.set(r, s.id);
-  return {
-    sccs,
-    sccOfRecipe,
-    outgoing: new Map(),
-    incoming: new Map(),
-  };
-}
 
 describe("replicatePerConsumer: SCC-boundary byproduct supplier sharing", () => {
   // Miniature of the real liquid_sewage bug. A 2-member SCC (m, mloop) consumes
