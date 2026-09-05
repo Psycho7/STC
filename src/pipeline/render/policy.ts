@@ -58,6 +58,13 @@ export function assignLabelSides(edges: RenderEdge[]): void {
  * would cost that coverage: AlwaysFoldRender folds stamps, so its unit ids
  * differ and the tests cannot be re-pointed unchanged. RenderPolicy in
  * src/pipeline/types.ts is a real seam only for as long as this stays.
+ *
+ * The one-unit-per-vertex reading holds only below the stamp cap in
+ * src/pipeline/expand/materialize.ts. Past it a class materializes into one
+ * aggregate stamp carrying the whole run's execution rate, which this policy
+ * would render as a single machine. The 18 tests that drive it hand-build
+ * small machine graphs and never call expandMultipliers, so the oracle stays
+ * valid where it is used.
  */
 export const NoFoldRender: RenderPolicy = (input): RenderPlan => {
   const {

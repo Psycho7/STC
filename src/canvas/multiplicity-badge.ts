@@ -1,8 +1,5 @@
 import Fraction from "fraction.js";
-import {
-  rationalFromString,
-  type RationalString,
-} from "../data/targets";
+import { rationalFromString, type RationalString } from "../data/targets";
 
 export function formatMultiplicityBadge(m: RationalString): string | null {
   const f = rationalFromString(m);

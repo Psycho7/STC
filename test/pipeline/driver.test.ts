@@ -7,10 +7,7 @@ import {
   defaultTransportConfig,
   loadTransportConfig,
 } from "../../src/data/transport-config";
-import {
-  defaultTargets,
-  rationalFromString,
-} from "../../src/data/targets";
+import { defaultTargets, rationalFromString } from "../../src/data/targets";
 
 describe("pipeline driver: default AEF targets", () => {
   it("produces a render plan with at least one unit and one edge", () => {

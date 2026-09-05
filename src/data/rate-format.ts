@@ -1,8 +1,5 @@
 import Fraction from "fraction.js";
-import {
-  rationalFromString,
-  type RationalString,
-} from "./targets";
+import { rationalFromString, type RationalString } from "./targets";
 
 // Strip a trailing fractional zero run (and a bare trailing dot) from a decimal
 // string, leaving integers untouched. "0.0050" -> "0.005", "8.50" -> "8.5",
