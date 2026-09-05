@@ -106,6 +106,13 @@ export interface Recipe {
   row: number;
   time: number;
   in: Stoich[];
+  // Outputs in upstream key order, preserved verbatim. out[0] is load-bearing:
+  // the planner reads it as the recipe's PRIMARY output - the item the recipe
+  // exists to make - and keys shared-vs-per-consumer replica dispatch, the
+  // node title, and the recipe-category predicates on it. Every other entry is
+  // a co-product. Reordering an output here silently repoints all of that, so
+  // the pack census in src/solver/pack-shape.test.ts pins out[0] for every
+  // multi-output recipe.
   out: Stoich[];
   producers: string[];
   locations?: string[];
