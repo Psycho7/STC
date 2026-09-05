@@ -120,8 +120,10 @@ const SAT_CANDIDATES: readonly number[] = [35, 45, 55, 65, 75, 85, 95];
 const GRAY_CANDIDATES: readonly number[] = [8, 12, 16, 20, 24];
 
 // Canvas background the edge colors and chips sit on (--ak-bg-canvas). The floor
-// below keeps every color readable against this near-black.
-const CANVAS_BG_HEX = "#0f1114";
+// below keeps every color readable against this near-black. Exported so the CSS
+// contract test can pin it against the custom property the browser actually
+// paints: every contrast result here is wrong if the two drift apart.
+export const CANVAS_BG_HEX = "#0f1114";
 // WCAG AA text-contrast target. Edges and chip borders are thin strokes, so we
 // hold every item color to at least this ratio against the canvas background.
 const MIN_CONTRAST = 4.5;
