@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (strict, `exactOptionalPropertyTypes` on via `tsconfig.tools.json`), Vitest (`globals: false`, `describe`/`test` imported), Bun as script runner.
 
-**Branch / worktree:** `feat/exam-harness` at `/home/rins/workspace/STC-workspace/STC/.claude/worktrees/feat/exam-harness` (currently @ `3eb8877`, both exam suites green: 58/58). All paths below are relative to that worktree root. Run all commands from that directory.
+**Branch / worktree:** historical. `feat/exam-harness` merged to `develop` in 59fd0a3 (PR #46) and both the branch and its worktree are gone; the files this plan names -- `tools/exam/triage.ts`, `tools/exam/workflow-parity.test.ts`, `.claude/workflows/render-quality-exam.js` -- are on `develop` at those paths. Read paths below as relative to the repository root.
 
 ## Global Constraints
 

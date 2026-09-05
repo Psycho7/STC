@@ -8,10 +8,7 @@
 
 **Tech stack:** TypeScript, vitest (unit), Playwright e2e (local only, not in CI), bun scripts.
 
-**Background dossiers** (read before implementing; in this worktree, gitignored):
-- `.superpowers/sdd/explore-code.md` - pipeline map, root causes with file:line, feasibility notes, landmines.
-- `.superpowers/sdd/explore-evidence.md` - exact defect instances (edge ids, world coords, distances), corpus census, confirming PNGs under `../develop/.artifacts/exam-zh/`.
-- `.superpowers/sdd/plan-audit.md` - audit findings folded into this revision; its RISKS section is binding implementer context, referenced per task as A-R1..A-R20.
+**Background dossiers:** gone. The three `.superpowers/sdd/` files (`explore-code.md`, `explore-evidence.md`, `plan-audit.md`) and the `../develop/.artifacts/exam-zh/` PNGs lived in a gitignored worktree that was removed after the campaign merged to `develop` in 3e4d250 (PR #56). The A-R1..A-R20 risk references below have no surviving source; the Architecture paragraph above carries the root causes with file:line, and the landed code is on `develop`.
 
 ## Global Constraints
 
