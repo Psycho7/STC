@@ -133,10 +133,13 @@ const COST_REL_TOL = 1e-6;
 
 // Primary-pass objective recomputed from a raw solve's float primals, using the
 // same weights buildModel("primary") minimizes: sum_r cost(r)*x_r +
-// SURPLUS_WEIGHT*surplus + DEFICIT_WEIGHT*deficit. Infinite-supply items carry no
-// surplus/deficit variable in the model, so the `?? 0` contributes nothing for
-// them, matching the model. Draw variables cost 0 and are omitted. Used to verify
-// the lex pass stayed within the cost cap the engine may not have enforced.
+// SURPLUS_WEIGHT*surplus + DEFICIT_WEIGHT*deficit. The model gives EVERY item a
+// surplus and a deficit column, infinite-supply items included; what those items
+// lack is the mass-balance row, so their columns sit unconstrained at a positive
+// cost and the minimizer leaves them at 0. Summing over every item therefore
+// matches the model, and the `?? 0` only covers a primal the engine omitted.
+// Draw variables cost 0 and are omitted. Used to verify the lex pass stayed
+// within the cost cap the engine may not have enforced.
 function primaryObjective(
   raw: LpRaw,
   recipes: Recipe[],

@@ -91,8 +91,14 @@ function buildGraph(
 
   // Seed the walk from every non-excluded producer of each target item: the
   // LP chooses among them, so all of them (and their input cones) must be in
-  // the graph. An unknown or producer-less target item simply seeds nothing;
-  // its demand surfaces as an LP deficit.
+  // the graph. A target item that seeds nothing - unknown, or known with every
+  // producer excluded, which on the shipped pack means an extractor-only raw
+  // material - is not an error here: its demand is met by the item's boundary
+  // supply, or surfaces as an LP deficit when a cap denies that supply.
+  // validatePlan rejects unknown and non-producible target items, but only on
+  // the app path; the solver CLI and the exam scenario runner reach this
+  // builder with unvalidated targets, so do not treat validation as a
+  // precondition.
   const stack: string[] = [];
   for (const t of targets) {
     for (const cid of producersByItem.get(t.itemId) ?? []) {

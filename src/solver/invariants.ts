@@ -117,10 +117,17 @@ export function checkTargetsMet(
  * Raw-only boundary: the external supply a solution draws for each item must not
  * exceed what the item's effective supply permits.
  *
+ * The LP models a finite cap as a bounded draw column, so the cap is already
+ * enforced structurally in result.draws. This checker deliberately does not
+ * read that column: it re-derives the draw from the emitted rates instead, so
+ * the check stays independent of the number the solve reported (double entry).
+ *
  * For each item:
- *   external_supply(item) = consumption(item) - production(item) + surplus(item)
- * i.e. what the solution drew from outside the system (consumed beyond internal
- * production, plus any leftover surplus the boundary pushed in). Assert:
+ *   external_supply(item)
+ *     = consumption(item) - production(item) + surplus(item) - deficit(item)
+ * i.e. what the solution must have pulled from outside the system: consumed
+ * beyond internal production, plus any leftover surplus the boundary pushed in,
+ * less the demand the solve openly left unmet. Assert:
  *   external_supply(item) <= effectiveSupply(item) + tol
  *     - effectiveSupply === Infinity  -> always passes (raw/uncapped boundary).
  *     - finite override cap            -> external_supply <= cap + tol.
@@ -129,8 +136,10 @@ export function checkTargetsMet(
  * A plain non-raw item with positive surplus yields external_supply = surplus >
  * 0 + tol, so this single check also flags any "surplus off a boundary item".
  *
- * Production/consumption are summed in exact Fraction arithmetic over all recipes
- * (like checkMassBalance); only the final tolerance comparison drops to number.
+ * Production/consumption are summed in exact Fraction arithmetic over all
+ * recipes; only the final tolerance comparison drops to number. checkMassBalance
+ * sums the same quantities in float, so the two disagree by float noise on
+ * purpose rather than sharing a helper.
  */
 export function checkRawOnlyBoundary(
   result: LpResult,
