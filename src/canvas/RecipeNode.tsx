@@ -16,13 +16,17 @@ import { itemColor } from "./itemColor";
 
 // Looks up the sprite position by icon id and renders an <ico><spr> pair.
 // Returns null when no position is found, so the slot collapses instead of
-// showing a misaligned default.
-function Sprite({
+// showing a misaligned default. Every sprite in the app draws through this one
+// component -- node icons and rows, the edge chips, the side-panel rows and the
+// picker tiles -- so the markup the .ico / .spr rules select on has a single
+// owner. `size` picks the .ico-N size class; every caller styles the slot from
+// the wrapper it puts the sprite in, so the sprite span carries nothing else.
+export function Sprite({
   iconId,
   size,
 }: {
   iconId: string | undefined;
-  size: 16 | 20 | 28;
+  size: 16 | 20 | 28 | 40;
 }) {
   const pos = iconPosition(iconId);
   if (pos === undefined) return null;

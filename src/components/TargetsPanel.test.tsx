@@ -657,6 +657,25 @@ test("re-picking a row's own item closes without commit or duplicate alert", () 
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
+// The draft picker already dropped itself when its draft vanished; the row
+// picker did not, so a row removed by another commit while its popup was open
+// left the popup highlighting a tile for a row that no longer exists (and a
+// pick there armed a focus token for a commit that can never apply).
+test("the row picker closes when its row vanishes from the plan", () => {
+  const ui = (targets: Target[]) => (
+    <LocaleProvider locale="en">
+      <TargetsPanel targets={targets} onChange={vi.fn()} pack={PACK} />
+    </LocaleProvider>
+  );
+  const { rerender } = render(
+    ui([{ itemId: "widget", ratePerSec: { num: "1", denom: "1" } }]),
+  );
+  fireEvent.click(screen.getByLabelText(/item/i));
+  expect(screen.queryByRole("dialog")).not.toBeNull();
+  rerender(ui([{ itemId: "gadget", ratePerSec: { num: "1", denom: "1" } }]));
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
 // UX-20: the unit-convention subtitle is the only on-screen statement of the
 // items-per-minute unit, so it must localize. Under zh it renders the localized
 // line, not the English fallback.

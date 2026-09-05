@@ -7,6 +7,7 @@ import { useItemPack } from "./itemPackContext";
 import { buildPnKind, buildPnKindRate } from "./productNodeMetadata";
 import type { PortTransportKinds } from "./layout";
 import { iconPosition } from "./iconSprite";
+import { Sprite } from "./RecipeNode";
 
 // Data shape accepted by ProductNode. The component branches on `kind` (and on
 // `flavor` for outputs) to pick the look and handle direction:
@@ -66,6 +67,9 @@ export default function ProductNode({
   const item = itemById.get(data.itemId);
   const displayName = i18n.displayName(data.itemId);
   const isInput = data.kind === "inputProduct";
+  // Sprite key: the item's own icon id, falling back to the item id itself for
+  // pack entries that declare none.
+  const iconId = item?.icon ?? data.itemId;
 
   // The pn-kind caption comes from the shared helper. If the item is missing
   // from the pack (corrupt data), fall back to nothing.
@@ -141,16 +145,14 @@ export default function ProductNode({
         </>
       )}
       <div className="pn-head">
-        {(() => {
-          const pos = iconPosition(item?.icon ?? data.itemId);
-          return pos !== undefined ? (
-            <span className="ico ico-28 pn-icon">
-              <span className="spr" style={{ backgroundPosition: pos }} />
-            </span>
-          ) : (
-            <div className="pn-icon" />
-          );
-        })()}
+        {/* An item with no sprite still contributes an empty child, so the
+            head keeps its two flex items and the gap between them; dropping
+            the element would slide the name column left by that gap. */}
+        {iconPosition(iconId) !== undefined ? (
+          <Sprite iconId={iconId} size={28} />
+        ) : (
+          <div />
+        )}
         <div>
           <div className="pn-name" title={displayName}>
             {displayName}

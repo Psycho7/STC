@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { itemColor } from "./itemColor";
+import { BELT_COLOR, GAS_COLOR, PIPE_COLOR } from "./transportPalette";
 
 // An overlay glyph drawn next to each React Flow Handle. Its shape depends on
 // the port's transportKind:
@@ -18,11 +19,6 @@ const GLYPH_SIZE = 8;
 // GLYPH_SIZE would occupy sqrt(2) times the span of its siblings and crowd the
 // handle it annotates. 6px presents a ~8.49px diagonal, matching the 8px circle.
 const GAS_GLYPH_SIZE = 6;
-// Belt color matches the default edge stroke; pipe reuses the cyan accent from
-// the input-product flavor; gas takes the lighter cyan its edges fall back to.
-const BELT_FILL = "#666";
-const PIPE_STROKE = "#0891b2";
-const GAS_STROKE = "#22d3ee";
 
 export type PortGlyphSide = "left" | "right";
 
@@ -97,19 +93,19 @@ export function PortGlyph({
   if (g === "belt") {
     style = {
       ...baseStyle(side, top),
-      background: accent ?? BELT_FILL,
+      background: accent ?? BELT_COLOR,
     };
   } else if (g === "gas") {
     style = {
       ...withRotation(baseStyle(side, top, GAS_GLYPH_SIZE)),
       background: "transparent",
-      border: `1.5px solid ${accent ?? GAS_STROKE}`,
+      border: `1.5px solid ${accent ?? GAS_COLOR}`,
     };
   } else {
     style = {
       ...baseStyle(side, top),
       background: "transparent",
-      border: `1.5px solid ${accent ?? PIPE_STROKE}`,
+      border: `1.5px solid ${accent ?? PIPE_COLOR}`,
       borderRadius: "50%",
     };
   }

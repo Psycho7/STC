@@ -9,6 +9,7 @@ import {
 } from "../data/rate-format";
 import { computeItemDepths } from "../data/recipe-depth";
 import { iconPosition } from "../canvas/iconSprite";
+import { Sprite } from "../canvas/RecipeNode";
 import { ItemPickerPopup } from "./ItemPickerPopup";
 import { useRateEdit } from "./useRateEdit";
 
@@ -198,14 +199,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
         return (
           <div key={t.itemId} className="b-row" data-testid="target-row">
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              {iconPos !== undefined ? (
-                <span className="ico ico-40">
-                  <span
-                    className="spr"
-                    style={{ backgroundPosition: iconPos }}
-                  />
-                </span>
-              ) : null}
+              <Sprite iconId={t.itemId} size={40} />
             </span>
             <div className="info">
               <span className="b-pick">
@@ -282,14 +276,7 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
         return (
           <div key={draft.id} className="b-row" data-testid="target-draft-row">
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              {iconPos !== undefined ? (
-                <span className="ico ico-40">
-                  <span
-                    className="spr"
-                    style={{ backgroundPosition: iconPos }}
-                  />
-                </span>
-              ) : null}
+              <Sprite iconId={draft.itemId} size={40} />
             </span>
             <div className="info">
               <span className="b-pick">
@@ -386,6 +373,11 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     if (pickerFor === null) return null;
     if (pickerFor.kind === "row") {
       const rowId = pickerFor.itemId;
+      // The row may have gone (removed, or swapped by another commit) while the
+      // popup was open, the same guard the draft branch below carries: without
+      // it the popup highlights a tile for a row that no longer exists and a
+      // pick arms a focus token for a commit that can never apply.
+      if (!targets.some((t) => t.itemId === rowId)) return null;
       // Disable items other targets or any draft already claim; the row's own
       // item stays enabled and highlighted as selected.
       const disabledIds = new Set<string>([

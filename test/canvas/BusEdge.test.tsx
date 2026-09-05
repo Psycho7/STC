@@ -200,6 +200,40 @@ describe("canvas/BusEdge crossing cues", () => {
   });
 });
 
+describe("canvas/BusEdge transport kind", () => {
+  // A bus member draws the same phase hook a plain item edge does: the
+  // per-kind dim floor and hover-dash rules in canvas.css select on
+  // data-transport-kind, and a gas member that omitted it kept the belt
+  // treatment on a dash-dot stroke.
+  it("stamps data-transport-kind on a gas member", async () => {
+    renderEdge({
+      item: "gas_water",
+      rate: new Fraction(2, 1),
+      laneY: 500,
+      trunkKey: "gas_water|src",
+      transportKind: "gas",
+    } as BusData);
+    const path = await findEdgePath();
+    expect(path.getAttribute("data-transport-kind")).toBe("gas");
+    // The dash pattern comes from the same kind, so the attribute and the
+    // stroke can never disagree.
+    expect(path.style.strokeDasharray.replace(/,\s*/g, " ")).toBe("6 2 1 2");
+  });
+
+  it("omits the attribute on a member with no transport kind", async () => {
+    // Legacy / hand-built members carry no kind, and the selectors have to be
+    // able to tell that apart from a real belt.
+    renderEdge({
+      item: "Iron Plate",
+      rate: new Fraction(2, 1),
+      laneY: 500,
+      trunkKey: "Iron Plate|src",
+    });
+    const path = await findEdgePath();
+    expect(path.hasAttribute("data-transport-kind")).toBe(false);
+  });
+});
+
 describe("canvas/BusEdge junctionRadius clamp", () => {
   // The dot is drawn in graph units, so its on-screen radius is r * zoom. The
   // clamp keeps that screen radius inside [3, 5] px across zoom: below zoom 1 the

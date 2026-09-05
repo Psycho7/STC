@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import type { Item } from "@aef/schema";
 import { useI18n } from "../data/i18n-context";
 import { iconPosition, iconSheetUrl } from "../canvas/iconSprite";
+import { Sprite } from "../canvas/RecipeNode";
 
 type Props = {
   // The pickable catalogue. The caller decides what belongs here: targets pass
@@ -293,12 +294,7 @@ export function ItemPickerPopup({
                         onClick={() => onPick(it.id)}
                       >
                         {iconPos !== undefined ? (
-                          <span className="ico ico-40">
-                            <span
-                              className="spr"
-                              style={{ backgroundPosition: iconPos }}
-                            />
-                          </span>
+                          <Sprite iconId={it.id} size={40} />
                         ) : (
                           <span
                             className="recipe-picker-tile-empty"
