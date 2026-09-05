@@ -555,8 +555,31 @@ export function checkConsumerInputsNotOverfed(
 export function checkTargetOutputsSatisfied(
   args: RenderInvariantArgs,
 ): InvariantResult {
-  const { plan, targets } = args;
-  const violations: string[] = [];
+  const violations = targetOutputShortfalls(args.plan, args.targets).map(
+    (s) =>
+      `target output "${s.item}": expected delivery ${s.declared} but actual ${s.actual} (target output fed below declared rate)`,
+  );
+  return { ok: violations.length === 0, violations };
+}
+
+/** One target item the render plan delivers below its declared rate. */
+export type TargetOutputShortfall = {
+  item: ItemId;
+  declared: number;
+  actual: number;
+};
+
+/**
+ * The shortfall list behind checkTargetOutputsSatisfied, without the message
+ * formatting. Exported so the production UI can warn about an under-delivered
+ * target on the same predicate and the same slack the DEV checker uses; the
+ * checker is compiled out of production builds, and a soft-infeasible LP
+ * otherwise renders as a silently under-fed plan.
+ */
+export function targetOutputShortfalls(
+  plan: RenderPlan,
+  targets: ReadonlyArray<ItemTarget>,
+): TargetOutputShortfall[] {
   const scaleFloor = planScaleFloor(targets);
 
   // Declared target rate per target item.
@@ -581,19 +604,17 @@ export function checkTargetOutputsSatisfied(
     );
   }
 
+  const shortfalls: TargetOutputShortfall[] = [];
   for (const [item, declared] of declaredByItem) {
     const declaredVal = declared.valueOf();
     const actual = actualByItem.get(item) ?? FRAC_ZERO;
     const actualVal = actual.valueOf();
     const slack = Math.max(scaleFloor, declaredVal) * REL_TOL;
     if (actualVal < declaredVal - slack) {
-      violations.push(
-        `target output "${item}": expected delivery ${declaredVal} but actual ${actualVal} (target output fed below declared rate)`,
-      );
+      shortfalls.push({ item, declared: declaredVal, actual: actualVal });
     }
   }
-
-  return { ok: violations.length === 0, violations };
+  return shortfalls;
 }
 
 /**

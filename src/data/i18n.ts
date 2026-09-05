@@ -30,6 +30,8 @@ export type UiKey =
   | "app.error.infeasible"
   | "app.error.infeasible.generic"
   | "app.error.dismiss"
+  | "app.error.busy"
+  | "app.error.crash"
   | "app.locale.label"
   | "app.busLanes.label"
   | "inputs.title"
@@ -110,6 +112,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
       "无可行方案，涉及：{items}。请提高供给上限或降低目标产量。",
     "app.error.infeasible.generic": "当前目标与供给上限下无可行方案。",
     "app.error.dismiss": "关闭",
+    "app.error.busy": "方案正在加载，请等加载完成后再修改。",
+    "app.error.crash": "规划器遇到意外错误，无法绘制当前方案。",
     "app.locale.label": "语言",
     "app.busLanes.label": "总线通道",
     "inputs.title": "输入",
@@ -183,6 +187,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.generic":
       "No feasible plan for the current targets and supply caps.",
     "app.error.dismiss": "Dismiss",
+    "app.error.busy":
+      "A plan is still loading. Try that change again once it lands.",
+    "app.error.crash":
+      "The planner hit an unexpected error and could not draw this plan.",
     "app.locale.label": "Language",
     "app.busLanes.label": "Bus lanes",
     "inputs.title": "Inputs",
@@ -257,6 +265,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.generic":
       "現在のターゲットと供給上限では実行可能な計画がありません。",
     "app.error.dismiss": "閉じる",
+    "app.error.busy":
+      "プランを読み込んでいます。完了してからもう一度変更してください。",
+    "app.error.crash":
+      "予期しないエラーが発生したため、このプランを描画できませんでした。",
     "app.locale.label": "言語",
     "app.busLanes.label": "バスレーン",
     "inputs.title": "入力",
@@ -331,6 +343,10 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "app.error.infeasible.generic":
       "Нет допустимого плана для текущих целей и лимитов поставок.",
     "app.error.dismiss": "Закрыть",
+    "app.error.busy":
+      "План ещё загружается. Повторите изменение после загрузки.",
+    "app.error.crash":
+      "Планировщик столкнулся с непредвиденной ошибкой и не смог отрисовать этот план.",
     "app.locale.label": "Язык",
     "app.busLanes.label": "Шинные линии",
     "inputs.title": "Входы",
