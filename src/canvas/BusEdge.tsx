@@ -23,6 +23,7 @@ import {
   parsePathPoints,
   routingHintsFromData,
 } from "./edgePath";
+import { branchChipText } from "./chipSeating";
 import { HIDE_STALE_EPS } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
@@ -50,6 +51,8 @@ export { junctionRadius };
 // reading (R3).
 export default function BusEdge({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -239,13 +242,21 @@ export default function BusEdge({
   // own total, so it keeps the plain rate + unit reading -- and so does a
   // formed FAN-OUT member (R3, exam 2026-09-04): its branch is a direct
   // in-corridor leg drawn beside its unformed siblings' plain item edges, and
-  // the share form is reserved for bus-lane members. Mirrors branchChipText in
-  // chipSeating so the seat reserves the box this render draws.
-  const shareTotalStr =
-    !isFanout && memberCount > 1 && totalRate
-      ? formatRatePerMin(totalRate)
-      : "";
-  const isShare = memberRateStr !== "" && shareTotalStr !== "";
+  // the share form is reserved for bus-lane members. WHICH of the two forms
+  // this render draws is branchChipText's call alone -- the same builder the
+  // seating pass reserved this chip's box through, so the seat and the render
+  // cannot drift apart. Its only unit-less return is the share form, and its
+  // exact formatters can fall back to a "/"-bearing fraction string, so the
+  // two display strings stay composed here rather than split back out of its
+  // body.
+  const branchText = branchChipText({
+    id,
+    source,
+    target,
+    ...(data !== undefined ? { data } : {}),
+  });
+  const isShare = branchText?.unit === false;
+  const shareTotalStr = isShare && totalRate ? formatRatePerMin(totalRate) : "";
   const plainRate = `${memberRateStr}${unit}`;
   const riseText =
     showMemberChip && memberRateStr && !memberChipHidden

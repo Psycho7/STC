@@ -292,15 +292,18 @@ export function aggregateChipText(edge: Edge): ChipText | undefined {
 // branch is a direct in-corridor leg drawn beside its unformed siblings' plain
 // item edges, so it keeps the plain rate + unit those siblings read. A lone
 // lane member is its own total and keeps the plain rate + unit reading too.
-// Consulted by every seat that reserves a member chip's box -- the fan-out
-// branch seat and, since Task 10, the lane rise seat -- and by the exam
-// reservation rows for both member kinds.
+// The single source of the share-form predicate: BusEdge derives which of the
+// two readings its per-member chip draws from THIS builder (unit === false is
+// the share form), so the seat and the render agree on the box by
+// construction. Consulted by every seat that reserves a member chip's box --
+// the fan-out branch seat and, since Task 10, the lane rise seat -- and by the
+// exam reservation rows for both member kinds.
 export function branchChipText(edge: Edge): ChipText | undefined {
   const plain = rateChipText(edge);
   if (plain === undefined || plain.body === "") return plain;
   const data = edge.data as BusEdgeData | undefined;
-  // Mirrors the share-text predicate in BusEdge (isShare): fan-out members
-  // never take the share form, so the seat and the render agree on the box.
+  // Fan-out members never take the share form (see the doc comment above);
+  // BusEdge reads the form from this return, never a predicate of its own.
   if (data?.fanout === true) return plain;
   if ((data?.busMemberCount ?? 1) <= 1) return plain;
   const total = data?.busTotalRate ?? edgeRate(edge)!;
