@@ -1,22 +1,26 @@
 // Crossing cues (exam-surfaced Task 9, unmarked-same-item-crossing). Where
 // two polylines of DIFFERENT flows (item|source) properly cross, the seating
-// pass stamps the crossing point on the edge of the pair that paints ABOVE
-// and its renderer cuts a background-coloured gap in the z-beneath stroke
+// pass stamps the crossing point on BOTH edges of the pair and each edge's
+// renderer cuts a background-coloured gap in the stroke painting beneath it
 // there. The pinned behaviours:
-//   (a) a genuine right-angle crossing between two same-item edges stamps the
-//       exact intersection on the above edge only;
+//   (a) a genuine right-angle crossing between two same-item edges stamps
+//       the exact intersection on BOTH edges of the pair, each cue naming
+//       the other edge as its partner;
 //   (b) LOAD-BEARING NEGATIVE: a fan-in pair joining collinearly at the port y
 //       stamps NOTHING -- a merge is a merge, never a crossing cue;
 //   (c) LOAD-BEARING NEGATIVE: two bus members sharing a lane stamp NOTHING --
 //       their overlapping collinear runs and their drop/rise columns only ever
 //       TOUCH (endpoints on interiors), which strict-interior crossing
 //       semantics exclude by construction;
-//   (d) the cue owner is picked by React Flow's paint key, not array order:
-//       an edge with a container-member endpoint (its own svg sits at
-//       z-index 1) paints above every top-level (z 0) edge regardless of
-//       array position, and the erasing disk must ride the painter that is
-//       ABOVE -- a disk on the beneath edge would erase nothing (its own
-//       path repaints over it, then the above edge paints over both);
+//   (d) the pair stamps BOTH edges regardless of who paints above: which edge
+//       of a pair is "above" is not a rest-time constant -- selecting a node
+//       lifts it (React Flow's elevateNodesOnSelect puts a selected
+//       container-member node at z 1000, which flows into its edges' svg
+//       z-index), so a member drag can invert the paint order between two
+//       container-member edges and an owner-only cue would find its disk
+//       buried under the newly-above stroke, erasing nothing. A disk on each
+//       edge makes the cue order-independent: whichever edge paints above,
+//       its own disk cuts the other's stroke around the point;
 //   (e) each stamp is PARTNER-AWARE: it carries the other edge's id and the
 //       partner's two endpoint node anchors as of seating, and a cue is
 //       dropped at render time once the partner edge is gone or either of
@@ -72,7 +76,7 @@ const rateEdge = (
 ): Edge => ({ id, type: "item", source, target, data: { item, rate } });
 
 describe("deconflictChipAnchors: crossing cues", () => {
-  it("stamps a right-angle crossing between two same-item edges at the exact intersection, on the later edge only", () => {
+  it("stamps a right-angle crossing between two same-item edges at the exact intersection, on BOTH edges", () => {
     // Edge 1 (EARLIER in the array): a straight same-rail line at the drawn
     // port y. Source A1 at (0,0), target A2 at (1000,0): both first rows sit
     // at drawn y 98, so chamferStepPath takes the straight branch
@@ -106,12 +110,13 @@ describe("deconflictChipAnchors: crossing cues", () => {
     // rail at railY that edge 2's step crosses at a right angle.
     expect(measureRecipe(mkRecipe("x", ["s"], [])).inHandleYs[0]).toBe(row0);
 
-    // The stamp lands on the edge painting ABOVE only -- here the LATER one,
-    // because both edges are top-level (z 0) and array order is the tiebreak
-    // -- at the exact intersection of the reconstructed polylines: bend
-    // column 651 x rail y 98. The record also names the partner edge and
-    // carries the partner's two endpoint node anchors as of seating, so the
-    // render layer can drop the cue when the partner moves (the (e) clause).
+    // The stamp lands on BOTH edges of the pair at the exact intersection
+    // of the reconstructed polylines -- bend column 651 x rail y 98 -- each
+    // cue naming the OTHER edge as its partner and carrying that partner's
+    // two endpoint node anchors as of seating (the (e) clause). Neither the
+    // array order nor the z tier picks a single owner: whichever edge paints
+    // above, its own disk cuts the other's stroke, so the pair needs a cue
+    // on each side (the (d) clause).
     expect(dataOf(out, e2).crossingCues).toEqual([
       {
         x: 651,
@@ -123,7 +128,17 @@ describe("deconflictChipAnchors: crossing cues", () => {
         },
       },
     ]);
-    expect(dataOf(out, e1).crossingCues).toBeUndefined();
+    expect(dataOf(out, e1).crossingCues).toEqual([
+      {
+        x: 651,
+        y: railY,
+        partner: {
+          edgeId: e2,
+          source: { x: 100, y: -160 },
+          target: { x: 900, y: 200 },
+        },
+      },
+    ]);
   });
 
   it("stamps the partner's endpoint anchors with the crossing, so the render layer can see the other side move", () => {
@@ -158,17 +173,17 @@ describe("deconflictChipAnchors: crossing cues", () => {
     });
   });
 
-  it("stamps the container-member edge painting above, even when it is EARLIER in the array", () => {
+  it("stamps BOTH edges of a container-member pair, in either array order", () => {
     // React Flow gives every edge its own <svg style={{zIndex}}>: an edge
     // with a container-member endpoint sits at z 1 (elevated above the
     // container box) and a top-level edge at z 0, and CSS z-index beats DOM
-    // (array) order -- array order is only the tiebreak. So the container
-    // member paints ABOVE even when it comes FIRST in the edges array, and
-    // the cue -- the erasing disk -- must land on IT: only the above
-    // painter's group can erase the beneath stroke around the crossing (a
-    // disk on the beneath edge would sit under the above edge's continuous
-    // stroke and erase nothing). An array-order owner rule stamps the wrong
-    // edge here; that is exactly what this test pins.
+    // (array) order -- array order is only the tiebreak. That ordering is
+    // NOT a rest-time constant: selecting a node lifts it (a selected
+    // container member reaches z 1000, which flows into its edge's svg), so
+    // "which edge paints above" can flip during a drag. The stamp pass
+    // therefore leans on neither: the pair stamps BOTH edges, each cue
+    // naming the other as its partner, and whichever edge ends up painting
+    // above, its own disk erases the other's stroke around the crossing.
     // Same geometry as the right-angle fixture above, except A2 (the
     // straight rail's target) lives INSIDE a container G sitting at
     // (950,-50): A2's relative position (50,50) resolves to the same
@@ -193,14 +208,17 @@ describe("deconflictChipAnchors: crossing cues", () => {
 
     const e1 = "e:1:A1->A2:s"; // EARLIER in the array, z 1 (container member)
     const e2 = "e:2:B1->B2:s"; // later, z 0 (both endpoints top-level)
-    const out = deconflictChipAnchors([A1, G, A2, B1, B2], [
-      rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
-      rateEdge(e2, "B1", "B2", "s", new Fraction(1)),
-    ]);
+    const out = deconflictChipAnchors(
+      [A1, G, A2, B1, B2],
+      [
+        rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
+        rateEdge(e2, "B1", "B2", "s", new Fraction(1)),
+      ],
+    );
 
-    // The cue lands on the z-1 edge -- the EARLIER array entry -- at the same
-    // exact intersection, naming the top-level edge as its partner, and the
-    // top-level edge itself carries nothing.
+    // Both edges carry the cue at the same exact intersection, each naming
+    // the other as its partner -- the member edge regardless of being the
+    // EARLIER array entry, the top-level edge regardless of painting z 0.
     expect(dataOf(out, e1).crossingCues).toEqual([
       {
         x: 651,
@@ -212,7 +230,20 @@ describe("deconflictChipAnchors: crossing cues", () => {
         },
       },
     ]);
-    expect(dataOf(out, e2).crossingCues).toBeUndefined();
+    expect(dataOf(out, e2).crossingCues).toEqual([
+      {
+        x: 651,
+        y: railY,
+        partner: {
+          edgeId: e1,
+          source: { x: 0, y: 0 },
+          // A2 lives inside G at relative (50,50); its ABSOLUTE origin is
+          // (1000,0), the anchor the render side compares against React
+          // Flow's positionAbsolute.
+          target: { x: 1000, y: 0 },
+        },
+      },
+    ]);
   });
 
   it("stamps nothing for a fan-in pair joining collinearly at the port y", () => {

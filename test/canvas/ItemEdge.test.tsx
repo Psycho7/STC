@@ -8,6 +8,7 @@ import ItemEdge, {
   type ItemEdgeData,
 } from "../../src/canvas/ItemEdge";
 import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
+import { properCrossPoint } from "../../src/canvas/crossings";
 import { parsePathPoints } from "../../src/canvas/edgePath";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
@@ -547,6 +548,150 @@ describe("canvas/ItemEdge crossing cues", () => {
     };
     await renderPair(gone);
     expect(await cueVisible()).toBe(false);
+  });
+
+  it("renders a pair's crossing cue on BOTH edges, each before its own path", async () => {
+    // The both-edges render contract: the seating pass stamps the crossing
+    // point on each edge of the pair (selection elevation can invert the
+    // paint order between member edges, so the cue must not depend on one
+    // edge winning a z ruling), and each edge's renderer draws the disk from
+    // its OWN stamp inside its own svg group. At rest exactly one of the two
+    // disks visibly cuts a stroke -- the one in the svg painting above --
+    // and the other reads as a background halo under nothing: it paints
+    // before its own path, so its own stroke repaints the disk's centre and
+    // stays continuous (no double gap). This pins that both groups carry
+    // the disk at the shared crossing, and that each precedes its own path.
+    const CROSS_NODES: Node[] = [
+      { id: "A1", position: { x: 0, y: 0 }, data: { label: "A1" } },
+      { id: "A2", position: { x: 1000, y: 0 }, data: { label: "A2" } },
+      { id: "B1", position: { x: 600, y: -160 }, data: { label: "B1" } },
+      { id: "B2", position: { x: 1200, y: 200 }, data: { label: "B2" } },
+    ];
+    const mkItem = (id: string, source: string, target: string): Edge => ({
+      id,
+      type: "item",
+      source,
+      target,
+      data: { item: "belt", rate: new Fraction(1, 1) },
+    });
+    // First render both edges plain and read the crossing point off the
+    // DRAWN polylines, so the stamp below sits on both live lines whatever
+    // port offsets the jsdom harness measures.
+    render(
+      <LocaleProvider locale="en">
+        <div style={{ width: 800, height: 600 }}>
+          <ReactFlow
+            nodes={CROSS_NODES}
+            edges={[mkItem("eA", "A1", "A2"), mkItem("eB", "B1", "B2")]}
+            edgeTypes={edgeTypes}
+            minZoom={0.05}
+            defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+          />
+        </div>
+      </LocaleProvider>,
+    );
+    await waitFor(() =>
+      expect(document.querySelectorAll(".react-flow__edge-path").length).toBe(
+        2,
+      ),
+    );
+    const dOf = (id: string): ReadonlyArray<readonly [number, number]> =>
+      parsePathPoints(
+        document
+          .querySelector<SVGPathElement>(`.react-flow__edge-path#${id}`)!
+          .getAttribute("d")!,
+      );
+    const da = dOf("eA");
+    const db = dOf("eB");
+    let cross: readonly [number, number] | null = null;
+    for (let i = 1; i < da.length && cross === null; i++) {
+      for (let j = 1; j < db.length && cross === null; j++) {
+        cross = properCrossPoint(da[i - 1]!, da[i]!, db[j - 1]!, db[j]!);
+      }
+    }
+    // Premise: the two drawn polylines properly cross.
+    expect(cross).not.toBeNull();
+    cleanup();
+
+    // Both edges stamped at the crossing, each naming the other as its
+    // partner with the other's endpoint anchors (top-level, so absolute
+    // positions are the fixture positions) -- the shape the seating pass
+    // now emits for a pair.
+    const cue = {
+      x: Math.round(cross![0] * 100) / 100,
+      y: Math.round(cross![1] * 100) / 100,
+    };
+    const stamped: Edge[] = [
+      {
+        ...mkItem("eA", "A1", "A2"),
+        data: {
+          item: "belt",
+          rate: new Fraction(1, 1),
+          crossingCues: [
+            {
+              ...cue,
+              partner: {
+                edgeId: "eB",
+                source: { x: 600, y: -160 },
+                target: { x: 1200, y: 200 },
+              },
+            },
+          ],
+        },
+      },
+      {
+        ...mkItem("eB", "B1", "B2"),
+        data: {
+          item: "belt",
+          rate: new Fraction(1, 1),
+          crossingCues: [
+            {
+              ...cue,
+              partner: {
+                edgeId: "eA",
+                source: { x: 0, y: 0 },
+                target: { x: 1000, y: 0 },
+              },
+            },
+          ],
+        },
+      },
+    ];
+    render(
+      <LocaleProvider locale="en">
+        <div style={{ width: 800, height: 600 }}>
+          <ReactFlow
+            nodes={CROSS_NODES}
+            edges={stamped}
+            edgeTypes={edgeTypes}
+            minZoom={0.05}
+            defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+          />
+        </div>
+      </LocaleProvider>,
+    );
+    await waitFor(() =>
+      expect(document.querySelectorAll(".react-flow__edge-path").length).toBe(
+        2,
+      ),
+    );
+    // Each edge's own group carries its own disk at the shared crossing,
+    // painted before its own coloured path.
+    for (const id of ["eA", "eB"]) {
+      const path = document.querySelector<SVGPathElement>(
+        `.react-flow__edge-path#${id}`,
+      )!;
+      const group = path.closest(".react-flow__edge")!;
+      const disk = group.querySelector<SVGCircleElement>(
+        '[data-testid="edge-crossing-cue"]',
+      );
+      expect(disk, `cue disk inside ${id}'s group`).not.toBeNull();
+      expect(Number(disk!.getAttribute("cx"))).toBeCloseTo(cue.x, 5);
+      expect(Number(disk!.getAttribute("cy"))).toBeCloseTo(cue.y, 5);
+      expect(
+        disk!.compareDocumentPosition(path) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    }
   });
 });
 

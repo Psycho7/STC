@@ -118,13 +118,14 @@ export default function BusEdge({
     : laneY + (laneData?.busDropDy ?? 0);
 
   const kindStyle = strokeForKind(edgeData?.transportKind, edgeData?.item);
-  // Crossing-cue disks (Task 9), stamped on this member where ITS polyline
-  // properly crosses a different flow's and it paints above the other (the
-  // seating pass picks the owner by React Flow's z key). Filtered to stamps
-  // whose crossing still stands on BOTH sides -- on this member's live
-  // polyline and against the stamped partner edge's anchors (the
-  // stale-stamp rule, see useLiveCrossingCues) -- and rendered before the
-  // coloured path, exactly as ItemEdge draws them.
+  // Crossing-cue disks, stamped on this member wherever its polyline
+  // properly crosses a different flow's. The seating pass stamps BOTH edges
+  // of such a pair (selection elevation can flip their paint order, so each
+  // edge carries its own disk and the above painter's is the visible gap);
+  // the stamps are filtered to crossings that still stand on BOTH sides --
+  // on this member's live polyline and against the stamped partner edge's
+  // anchors (the stale-stamp rule, see useLiveCrossingCues) -- and rendered
+  // before the coloured path, exactly as ItemEdge draws them.
   const liveCues = useLiveCrossingCues(
     edgeData?.crossingCues,
     parsePathPoints(path),
@@ -315,8 +316,10 @@ export default function BusEdge({
   return (
     <>
       {/* Crossing cues FIRST, before the coloured path, for the same paint
-          reason as ItemEdge: the disk erases the z-beneath stroke and this
-          member's own path repaints the disk's centre. */}
+          reason as ItemEdge: the disk erases whatever painted beneath this
+          svg and this member's own path repaints the disk's centre. The
+          pair's other edge carries its own disk (the both-edges cue), so
+          the gap survives any paint-order flip between the two. */}
       <CrossingCueDisks cues={liveCues} zoom={zoom} />
       <BaseEdge
         id={id}

@@ -111,29 +111,32 @@ export type ItemEdgeData = {
   // split, and gets nothing; nor does one where no member ever leaves the row.
   fanoutJunctionX?: number;
   fanoutJunctionY?: number;
-  // Crossing cues (deconflictChipAnchors, exam-surfaced Task 9). Where this
-  // edge's polyline properly crosses a DIFFERENT flow's polyline (different
-  // item|source), the seating pass stamps the crossing points on the edge of
-  // the pair whose React Flow group paints ABOVE the other. That is NOT
-  // simply the later edge in array order: React Flow renders every edge in
-  // its own <svg style={{zIndex}}>, CSS z-index beats DOM order, and the
-  // array order is only the tiebreak -- an edge with a container-member
-  // endpoint sits at z 1 and paints above every top-level (z 0) edge no
-  // matter where either sits in the array. The renderer draws each point as
-  // a background-coloured disk BEFORE its own coloured path (see
-  // CrossingCueDisk): the disk erases the z-BENEATH edge's stroke around the
-  // point and this edge's own stroke repaints the disk's centre, so the
-  // beneath stroke shows a gap and reads as passing under while this edge's
-  // stays continuous over it. A bare X of two continuous strokes reads as a
-  // join; the gap is what says "crossing, not a merge". Strict-interior
-  // crossing semantics (crossings.ts) mean a collinear fan-in run, a bus
-  // lane's overlapping member runs, and a shared fan-out trunk can never
-  // produce a stamp. Cues render only while the crossing still stands on
-  // BOTH sides: the stamp must sit on this edge's own live polyline (the
-  // shared stale-stamp rule) AND its recorded partner edge must still exist
-  // with both endpoints within the stale eps of the stamped anchors (see
-  // useLiveCrossingCues), so a node drag on EITHER side of the pair drops
-  // them instead of floating them.
+  // Crossing cues (deconflictChipAnchors). Where this edge's polyline
+  // properly crosses a DIFFERENT flow's polyline (different item|source),
+  // the seating pass stamps the crossing point on BOTH edges of the pair,
+  // each cue naming the other edge as its partner. The renderer draws each
+  // point as a background-coloured disk BEFORE its own coloured path (see
+  // CrossingCueDisks): the disk erases whatever painted beneath it around
+  // the point and this edge's own stroke repaints the disk's centre. At rest
+  // exactly one of the pair's two disks visibly cuts a stroke -- the one in
+  // the svg painting above -- and the other reads as a background halo that
+  // erases nothing, because its own path repaints its centre and the above
+  // svg paints over both. The cue rides BOTH edges on purpose: "which edge
+  // paints above" is not a rest-time constant (React Flow lifts a SELECTED
+  // node to z 1000 by default, which flows into its edges' svg z-index, and
+  // a drag auto-selects), so a member drag can invert the paint order
+  // between two container-member edges -- with a disk on each side,
+  // whichever edge ends up above, its own disk keeps the gap and the cue
+  // survives order-independent. A bare X of two continuous strokes reads as
+  // a join; the gap is what says "crossing, not a merge".
+  // Strict-interior crossing semantics (crossings.ts) mean a collinear
+  // fan-in run, a bus lane's overlapping member runs, and a shared fan-out
+  // trunk can never produce a stamp. Cues render only while the crossing
+  // still stands on BOTH sides: the stamp must sit on this edge's own live
+  // polyline (the shared stale-stamp rule) AND its recorded partner edge
+  // must still exist with both endpoints within the stale eps of the
+  // stamped anchors (see useLiveCrossingCues), so a node drag on EITHER
+  // side of the pair drops them instead of floating them.
   crossingCues?: ReadonlyArray<CrossingCue>;
 };
 
@@ -335,21 +338,22 @@ export function junctionRadius(zoom: number): number {
   return screen / zoom;
 }
 
-// Crossing-cue disks (Task 9): the background-coloured circles an edge
-// renderer emits -- BEFORE its own coloured path -- at every point where its
-// polyline properly crosses a DIFFERENT flow's. Inside this edge's own svg
-// the disk erases the z-beneath edge's stroke around the point; this edge's
-// own path, drawn after, repaints the disk's centre, so the beneath stroke
-// shows a gap and this edge stays continuous over it. That is why the cue
-// rides the edge painting ABOVE (the seating pass picks the owner by React
-// Flow's z key, see chipSeating Phase 0c): a disk on the beneath edge would
-// erase nothing -- its own path repaints over it and the above edge paints
-// over both. An SVG <circle> in the edge group (NOT an EdgeLabelRenderer
-// portal): it must participate in this group's paint order, under this edge's
-// own path and above the beneath edge's. pointer-events none keeps the disk
-// from becoming a hover target between the two strokes. Shared by ItemEdge
-// and BusEdge; radius via crossingCueRadius so the gap holds a clamped
-// on-screen width across zoom like the junction dot.
+// Crossing-cue disks: the background-coloured circles an edge renderer
+// emits -- BEFORE its own coloured path -- at every point where its polyline
+// properly crosses a DIFFERENT flow's. The seating pass stamps the point on
+// BOTH edges of the pair (see chipSeating Phase 0c): selection elevation can
+// invert the paint order between two member edges mid-drag, so each edge
+// carries its own disk and whichever svg paints above, its disk erases the
+// other stroke around the point while its own path -- drawn after --
+// repaints the disk's centre. The beneath edge's own disk erases nothing at
+// rest (its own stroke repaints the centre, and the above svg covers both),
+// so the pair shows exactly one gap, never two. An SVG <circle> in the edge
+// group (NOT an EdgeLabelRenderer portal): it must participate in this
+// group's paint order, under this edge's own path and above the beneath
+// edge's. pointer-events none keeps the disk from becoming a hover target
+// between the two strokes. Shared by ItemEdge and BusEdge; radius via
+// crossingCueRadius so the gap holds a clamped on-screen width across zoom
+// like the junction dot.
 export function CrossingCueDisks({
   cues,
   zoom,
@@ -574,9 +578,11 @@ export default function ItemEdge({
 
   return (
     <>
-      {/* Crossing cues FIRST: each disk erases the z-beneath edge's stroke
-          around a proper crossing, and the coloured path that follows repaints
-          the disk's centre so this edge stays continuous over the gap. */}
+      {/* Crossing cues FIRST: a disk erases whatever painted beneath this
+          svg around a proper crossing, and the coloured path that follows
+          repaints the disk's centre so this edge stays continuous over the
+          gap. The pair's other edge draws its own disk in its own svg, so
+          whichever edge paints above, its disk is the visible gap. */}
       <CrossingCueDisks cues={liveCues} zoom={zoom} />
       <BaseEdge
         id={id}

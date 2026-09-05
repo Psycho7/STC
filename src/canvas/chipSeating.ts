@@ -1843,9 +1843,8 @@ export function deconflictChipAnchors(
     (edgeItem(edge) ?? "?") + "|" + edge.source;
   const edgeSegments: EdgeSegments[] = [];
   // The edges-array index of each edgeSegments entry, parallel to it: the
-  // crossing-cue pass below reads it as the tiebreak half of React Flow's
-  // paint key, while the segment list skips edges with unresolvable
-  // endpoints.
+  // crossing-cue pass below reads it to key each edge's stamped-cue list,
+  // while the segment list skips edges with unresolvable endpoints.
   const edgeIndexOfSegment: number[] = [];
   type ItemGeom = {
     pts: ReadonlyArray<readonly [number, number]>;
@@ -1963,33 +1962,35 @@ export function deconflictChipAnchors(
     edgeIndexOfSegment.push(index);
   });
 
-  // Phase 0c -- crossing cues (exam-surfaced Task 9,
-  // unmarked-same-item-crossing). Where two reconstructed polylines of
-  // DIFFERENT flows (different item|source) properly cross, the pair reads as
-  // a bare X -- and a bare X of two strokes is indistinguishable from a join,
-  // which is exactly the confusion the merge dot exists to prevent on the
-  // other side. Stamp the crossing point on the edge of the pair that paints
-  // ABOVE the other: only its renderer can erase the other stroke around the
-  // point (a background-coloured disk emitted before its own coloured path,
-  // which then repaints the disk's centre). The z-beneath stroke shows the
-  // gap and reads as passing under; the above stroke stays continuous over
-  // it. A disk on the BENEATH edge would erase nothing at all -- its own path
-  // repaints over it and the above edge paints over both -- so the owner
-  // choice IS the mechanism.
+  // Phase 0c -- crossing cues (unmarked-same-item-crossing). Where two
+  // reconstructed polylines of DIFFERENT flows (different item|source)
+  // properly cross, the pair reads as a bare X -- and a bare X of two
+  // strokes is indistinguishable from a join, which is exactly the confusion
+  // the merge dot exists to prevent on the other side. Stamp the crossing
+  // point on BOTH edges of the pair: each edge's renderer emits a
+  // background-coloured disk before its own coloured path (which repaints
+  // the disk's centre), and the disk living in whichever svg paints ABOVE
+  // erases the other stroke around the point -- the beneath stroke shows
+  // the gap and reads as passing under, the above stroke stays continuous
+  // over it.
   //
-  // The paint key is the one React Flow computes, not array order: every edge
-  // renders in its own <svg style={{zIndex}}>, CSS z-index beats DOM order,
-  // and the edges-array (DOM) order is only the tiebreak. That zIndex is
-  // edgeZ + max(endpoint node z), where an endpoint's node z counts only when
-  // the endpoint has a parentId (a container member is elevated to z 1 so its
-  // edges paint above the container box; top-level nodes sit at z 0). This
-  // app never sets an explicit z anywhere (zIndexMode "basic" and
-  // elevateEdgesOnSelect false are the defaults; no node or edge carries a
-  // zIndex; containers never nest), so the key reduces exactly to
-  // (either endpoint is a container member ? 1 : 0, edges-array index): an
-  // edge into or out of a container paints above EVERY top-level edge
-  // regardless of array position, and among equal-z edges the later array
-  // index paints above.
+  // WHY both edges rather than the one that paints above at rest: "which
+  // edge paints above" is not a rest-time constant. React Flow renders
+  // every edge in its own <svg style={{zIndex}}> (CSS z beats DOM order),
+  // and that z-index folds in the endpoint NODES' z: a container member
+  // sits above the container box (z 1) regardless of array position, and a
+  // SELECTED node is lifted far higher still (elevateNodesOnSelect, a
+  // default, puts it at z 1000), which flows into its edge's svg z-index.
+  // Dragging a node auto-selects it, so a member drag can INVERT the paint
+  // order between two container-member edges: the edge whose disk was the
+  // visible gap suddenly paints beneath its partner, its disk erases
+  // nothing, and the crossing degenerates back to a bare X for as long as
+  // the selection holds. A cue on each edge makes the pair
+  // order-independent: whichever edge ends up above, its own disk cuts the
+  // other's stroke. The beneath edge's own disk erases nothing at rest --
+  // it paints before its own path, whose stroke repaints the disk's centre,
+  // and the above svg paints over both anyway -- so the pair still shows
+  // exactly one gap, not two.
   //
   // The pass is presentational only -- no edge is retyped, no chip moves, no
   // routing changes -- and the CROSSING ratchet above the routing passes is
@@ -2038,29 +2039,12 @@ export function deconflictChipAnchors(
         target: anchorOf(edge.target),
       };
     };
-    // The React Flow paint key per segment entry: (zTier, edges-array index),
-    // lexicographic -- the SMALLER pair paints beneath. zTier mirrors
-    // getElevatedEdgeZIndex under this app's settings (see the comment above).
-    const zTierOfSegment = edgeSegments.map((_, i) => {
-      const edge = edges[edgeIndexOfSegment[i]!]!;
-      const elev = (nodeId: string): number =>
-        byId.get(nodeId)?.parentId !== undefined ? 1 : 0;
-      return Math.max(elev(edge.source), elev(edge.target));
-    });
     const seenCues = new Set<string>();
     for (let i = 0; i < edgeSegments.length; i++) {
       for (let j = i + 1; j < edgeSegments.length; j++) {
         const si = edgeSegments[i]!;
         const sj = edgeSegments[j]!;
         if (si.flowKey === sj.flowKey) continue;
-        // The cue owner: the pair edge painting ABOVE -- the larger
-        // (zTier, edges-array index) key. edgeIndexOfSegment is strictly
-        // increasing (it is built in edges-array order), so j always carries
-        // the larger index and only the zTier can flip the ruling.
-        const above = zTierOfSegment[j]! >= zTierOfSegment[i]! ? j : i;
-        const other = above === i ? j : i;
-        const stampIndex = edgeIndexOfSegment[above]!;
-        const partner = partnerStampOf(other);
         for (const sa of si.segs) {
           for (const sb of sj.segs) {
             const p = properCrossPoint(
@@ -2072,12 +2056,20 @@ export function deconflictChipAnchors(
             if (p === null) continue;
             const x = Math.round(p[0] * 100) / 100;
             const y = Math.round(p[1] * 100) / 100;
-            const key = `${stampIndex}|${x}|${y}`;
-            if (seenCues.has(key)) continue;
-            seenCues.add(key);
-            const list = crossingCuesByIndex.get(stampIndex) ?? [];
-            list.push({ x, y, partner });
-            crossingCuesByIndex.set(stampIndex, list);
+            // Stamp BOTH edges, each cue naming the other edge as its
+            // partner: no z ruling is taken here (selection elevation can
+            // flip the pair's paint order mid-drag, and whichever edge ends
+            // up above, its own disk does the erasing).
+            for (const self of [i, j]) {
+              const other = self === i ? j : i;
+              const stampIndex = edgeIndexOfSegment[self]!;
+              const key = `${stampIndex}|${x}|${y}`;
+              if (seenCues.has(key)) continue;
+              seenCues.add(key);
+              const list = crossingCuesByIndex.get(stampIndex) ?? [];
+              list.push({ x, y, partner: partnerStampOf(other) });
+              crossingCuesByIndex.set(stampIndex, list);
+            }
           }
         }
       }
