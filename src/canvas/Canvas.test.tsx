@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import type { FC } from "react";
 import type { Edge, Node } from "@xyflow/react";
 import type { Recipe } from "@aef/schema";
 import Canvas, { zoomBand } from "./Canvas";
@@ -23,10 +24,21 @@ const fitViewSpy = vi.hoisted(() => vi.fn());
 // any non-empty graph), and falls back to fitView only for an empty graph. Spy
 // both off the mocked instance.
 const fitBoundsSpy = vi.hoisted(() => vi.fn());
+// Every props object React Flow was handed, newest last. React Flow memoizes
+// its node and edge wrappers on prop identity, so the hover handlers arriving
+// with a stable identity across re-renders is the contract that keeps a zoom
+// tick or a drag frame from re-reconciling the whole graph.
+const rfRenders = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 vi.mock("@xyflow/react", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@xyflow/react")>();
+  const { createElement } = await import("react");
+  const OrigFlow = orig.ReactFlow as unknown as FC<Record<string, unknown>>;
   return {
     ...orig,
+    ReactFlow: (props: Record<string, unknown>) => {
+      rfRenders.push(props);
+      return createElement(OrigFlow, props);
+    },
     useReactFlow: () => ({ fitView: fitViewSpy, fitBounds: fitBoundsSpy }),
     useNodesInitialized: () => true,
   };
@@ -76,6 +88,7 @@ const NODES: Node[] = [
 beforeEach(() => {
   fitViewSpy.mockClear();
   fitBoundsSpy.mockClear();
+  rfRenders.length = 0;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -121,6 +134,17 @@ function renderCanvas(nodes: Node[], edges: Edge[]) {
         <Canvas nodes={nodes} edges={edges} />
       </ItemPackProvider>
     </LocaleProvider>,
+  );
+}
+
+// Canvas at a named layout generation, for the plan-swap hover tests.
+function hoverWrap(gen: number, nodes: Node[]) {
+  return (
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={nodes} edges={[]} layoutGeneration={gen} />
+      </ItemPackProvider>
+    </LocaleProvider>
   );
 }
 
@@ -303,6 +327,91 @@ test("the camera fits once per layout generation", () => {
   expect(fitBoundsSpy).toHaveBeenCalledTimes(2);
 });
 
+// A plan can land with the pointer standing still (Enter in an already-focused
+// rate field, the bus-lane toggle, hash navigation). The hover it leaves behind
+// names an id the new graph does not have, which lights nothing and dims
+// everything until the next enter or pane click.
+test("a plan swap retires a hover whose element is gone", () => {
+  vi.useFakeTimers();
+  const { container, rerender } = render(hoverWrap(1, HOVER_NODES));
+  fireEvent.mouseEnter(container.querySelector('[data-id="u1"]')!);
+  act(() => vi.advanceTimersByTime(200));
+  expect(isDimmed(container, "u2")).toBe(true);
+  // The next plan carries none of the hovered ids, the case the mouse path
+  // never reaches because travelling to the side panel clears the hover first.
+  const replaced: Node[] = [
+    {
+      id: "u3",
+      type: "recipe",
+      position: { x: 0, y: 0 },
+      data: { recipe: RECIPE, kind: "recipe" },
+    },
+    {
+      id: "u4",
+      type: "recipe",
+      position: { x: 0, y: 0 },
+      data: { recipe: RECIPE, kind: "recipe" },
+    },
+  ];
+  rerender(hoverWrap(2, replaced));
+  expect(isDimmed(container, "u3")).toBe(false);
+  expect(isDimmed(container, "u4")).toBe(false);
+  expect(container.querySelector(".ak-canvas-theme")!.className).not.toContain(
+    "hover-active",
+  );
+});
+
+// A hover still inside its intent window was aimed at the old graph, and no
+// leave event fires under a standing pointer to cancel it. The ids all survive
+// here, so a dim could only come from the pending hover settling.
+test("a plan landing inside the intent window cancels the pending hover", () => {
+  vi.useFakeTimers();
+  const { container, rerender } = render(hoverWrap(1, HOVER_NODES));
+  fireEvent.mouseEnter(container.querySelector('[data-id="u1"]')!);
+  act(() => vi.advanceTimersByTime(100));
+  // A fresh array of fresh node objects, the way a new plan arrives.
+  const respun = HOVER_NODES.map((n) => ({ ...n }));
+  rerender(hoverWrap(2, respun));
+  act(() => vi.advanceTimersByTime(200));
+  expect(isDimmed(container, "u2")).toBe(false);
+});
+
+// The flip side of the retirement: a settled hover whose element the new plan
+// still carries keeps its highlight. React Flow keeps the same wrapper mounted
+// under a standing pointer, so nothing would fire a mouseenter to light it
+// again if this dropped it.
+test("a hover whose element survives the plan swap keeps its highlight", () => {
+  vi.useFakeTimers();
+  const { container, rerender } = render(hoverWrap(1, HOVER_NODES));
+  fireEvent.mouseEnter(container.querySelector('[data-id="u1"]')!);
+  act(() => vi.advanceTimersByTime(200));
+  expect(isDimmed(container, "u2")).toBe(true);
+  const respun = HOVER_NODES.map((n) => ({ ...n }));
+  rerender(hoverWrap(2, respun));
+  expect(isDimmed(container, "u2")).toBe(true);
+});
+
+// React Flow's node wrappers are memoized on prop identity, so a handler
+// rebuilt on every render re-reconciles the whole tree on each zoom tick.
+test("the hover handlers keep their identity across re-renders", () => {
+  const wrap = (nodes: Node[]) => (
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={nodes} edges={[]} layoutGeneration={1} />
+      </ItemPackProvider>
+    </LocaleProvider>
+  );
+  const { rerender } = render(wrap(NODES));
+  // A fresh array of fresh node objects is what a drag frame hands Canvas.
+  const respun = NODES.map((n) => ({ ...n }));
+  rerender(wrap(respun));
+  const first = rfRenders[0]!;
+  const last = rfRenders[rfRenders.length - 1]!;
+  expect(rfRenders.length).toBeGreaterThan(1);
+  expect(last.onNodeMouseEnter).toBe(first.onNodeMouseEnter);
+  expect(last.onEdgeMouseEnter).toBe(first.onEdgeMouseEnter);
+});
+
 test("a container resize triggers a debounced re-fit", () => {
   vi.useFakeTimers();
   let observed: (() => void) | null = null;
@@ -333,6 +442,48 @@ test("a container resize triggers a debounced re-fit", () => {
     vi.advanceTimersByTime(100);
   });
   expect(fitBoundsSpy).toHaveBeenCalledTimes(1);
+});
+
+// The re-fit is debounced by 100 ms and a drag hands Canvas a new node array on
+// every pointer frame. While the fit closure depended on that array, each frame
+// tore the observer down and re-subscribed it, dropping the pending re-fit and
+// leaving the graph parked off-centre after a resize.
+test("a node array change does not drop a pending debounced re-fit", () => {
+  vi.useFakeTimers();
+  // React Flow observes elements of its own, so key on the theme container:
+  // that is the one Canvas subscribes to.
+  const themeCallbacks: Array<() => void> = [];
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private cb: () => void) {}
+      observe(el: Element) {
+        if (!el.classList.contains("ak-canvas-theme")) return;
+        themeCallbacks.push(this.cb);
+      }
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  const wrap = (nodes: Node[]) => (
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={nodes} edges={[]} layoutGeneration={1} />
+      </ItemPackProvider>
+    </LocaleProvider>
+  );
+  const { rerender } = render(wrap(NODES));
+  expect(themeCallbacks).toHaveLength(1);
+  const resized = themeCallbacks[0]!;
+  fitBoundsSpy.mockClear();
+  // First callback is the initial observe() and is skipped; the second starts
+  // the debounce window.
+  act(() => resized());
+  act(() => resized());
+  rerender(wrap(NODES.map((n) => ({ ...n }))));
+  act(() => vi.advanceTimersByTime(100));
+  expect(fitBoundsSpy).toHaveBeenCalledTimes(1);
+  expect(themeCallbacks).toHaveLength(1);
 });
 
 test("HUD chip shows UNITS counting only recipe-type nodes", () => {
