@@ -373,6 +373,11 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
     if (pickerFor === null) return null;
     if (pickerFor.kind === "row") {
       const rowId = pickerFor.itemId;
+      // The row may have gone (removed, or swapped by another commit) while the
+      // popup was open, the same guard the draft branch below carries: without
+      // it the popup highlights a tile for a row that no longer exists and a
+      // pick arms a focus token for a commit that can never apply.
+      if (!targets.some((t) => t.itemId === rowId)) return null;
       // Disable items other targets or any draft already claim; the row's own
       // item stays enabled and highlighted as selected.
       const disabledIds = new Set<string>([
