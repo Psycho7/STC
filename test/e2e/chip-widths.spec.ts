@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { waitForStableViewport } from "./viewport";
 import { SCENARIOS, scenarioHash, type Scenario } from "./scenarios";
 import { CHIP_BOX_HEIGHT } from "../../src/canvas/dimensions";
 
@@ -56,26 +57,6 @@ async function waitForCanvasReady(page: Page): Promise<void> {
   await expect(anyNode).toBeVisible({ timeout: 30_000 });
 }
 
-// Block until the viewport transform holds identical across two animation
-// frames (same idiom as geometry-audit.spec.ts): measuring mid-camera-move
-// would read stale rects.
-async function waitForStableViewport(page: Page): Promise<void> {
-  await page.waitForFunction(
-    () => {
-      const vp = document.querySelector<HTMLElement>(".react-flow__viewport");
-      if (vp === null) return false;
-      const now = vp.style.transform;
-      const prev = (vp as unknown as { __auditPrevTransform?: string })
-        .__auditPrevTransform;
-      (
-        vp as unknown as { __auditPrevTransform?: string }
-      ).__auditPrevTransform = now;
-      return prev !== undefined && prev === now && now !== "";
-    },
-    undefined,
-    { timeout: 10_000, polling: "raf" },
-  );
-}
 
 async function measureAtRest(
   page: Page,

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { waitForStableViewport } from "./viewport";
 import { MAX_HASH_PAYLOAD_LEN } from "../../src/data/plan";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 
@@ -43,10 +44,12 @@ test.describe("placement screenshot harness", () => {
       await page.goto(`/#${hash}`, { waitUntil: "load" });
       await waitForCanvasReady(page);
 
-      // Let webfonts finish so text-driven layout settles before the shot;
-      // toHaveScreenshot then retries until two consecutive frames match, which
-      // also absorbs the one-shot fit-view camera move (no animation duration).
+      // Let webfonts finish so text-driven layout settles before the shot, then
+      // hold until the camera has stopped moving: the cold-load re-fit lands
+      // about a debounce after the first fit, longer than the two matching
+      // frames toHaveScreenshot waits for on its own.
       await page.evaluate(() => document.fonts.ready.then(() => undefined));
+      await waitForStableViewport(page);
 
       const canvas = page.locator(".react-flow");
       // Per-scenario pixel budget from the fixture data: exact match for the
