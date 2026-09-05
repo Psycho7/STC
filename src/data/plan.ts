@@ -39,6 +39,12 @@ export type Plan = {
 // hostile hash cannot blow up memory.
 export const MAX_HASH_PAYLOAD_LEN = 16384;
 
+// Cap on the digit count of a wire rational's numerator and denominator. Rates
+// the UI produces are a few digits wide; the ceiling is generous enough that no
+// real plan can reach it and low enough that BigInt work on a decoded value
+// stays instant.
+const MAX_RATIONAL_DIGITS = 400;
+
 const CURRENT_VERSION = 1;
 
 export type PlanLoadError =
@@ -119,6 +125,17 @@ export function describePlanLoadError(error: PlanLoadError): string {
 // string injects NaN/Infinity into the objective and demand.
 function isValidRational(r: RationalString): boolean {
   if (typeof r?.num !== "string" || typeof r?.denom !== "string") return false;
+  // The quotient check below bounds the value, not the digit count: past 309
+  // digits Number() saturates to Infinity, and 1/Infinity is a finite 0 that
+  // passes. Downstream the string is re-parsed as BigInt on every solve and
+  // stringified for every label, so a crafted million-digit denominator stalls
+  // the main thread for tens of seconds. No UI path emits long digit strings.
+  if (
+    r.num.length > MAX_RATIONAL_DIGITS ||
+    r.denom.length > MAX_RATIONAL_DIGITS
+  ) {
+    return false;
+  }
   // Non-negative integer strings only. A negative numerator or denominator
   // passes the finite check yet injects negative demand or a negative supply
   // cap. The denominator must be non-zero, caught here as a non-finite quotient.

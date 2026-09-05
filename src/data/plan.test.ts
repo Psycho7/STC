@@ -122,6 +122,20 @@ describe("validatePlan - rational wire fields", () => {
         plan.recipeCosts = new Map([["copper_bottle", { num: "1", denom: "0" }]]);
       },
     },
+    // The quotient check alone accepts this: Number() of a 1e5-digit string is
+    // Infinity and 1/Infinity is a finite 0. The digit cap is what rejects it,
+    // before the solver and the label formatter parse it as BigInt.
+    {
+      name: "a target rate with a 100k-digit denominator",
+      mutate: (plan: Plan) => {
+        plan.targets = [
+          {
+            itemId: plan.targets[0]!.itemId,
+            ratePerSec: { num: "1", denom: "9".repeat(100_000) },
+          },
+        ];
+      },
+    },
   ])("rejects $name", ({ mutate }) => {
     const plan = basePlan();
     mutate(plan);
