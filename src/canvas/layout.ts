@@ -35,9 +35,12 @@ import Fraction from "fraction.js";
 
 import {
   BETWEEN_LAYERS_SPACING,
+  CONTAINER_CAPTION_BAND,
   NODE_NODE_SPACING,
   PORT_HEIGHT,
   PORT_WIDTH,
+  PRODUCT_HEIGHT,
+  PRODUCT_WIDTH,
   loopBoxDimensions,
 } from "./dimensions";
 import { measureRecipe } from "./recipeGeometry";
@@ -240,13 +243,6 @@ export const ELK_LAYER_FIRST = "FIRST";
 export const ELK_LAYER_FIRST_SEPARATE = "FIRST_SEPARATE";
 export const ELK_LAYER_LAST = "LAST";
 
-// Fixed sizes for product units in ELK. PRODUCT_HEIGHT is kept tight to the
-// actual ProductNode chrome (icon row + rate row + padding) so that React
-// Flow's default Handle position of top:50% falls inside the visible card
-// instead of below it.
-const PRODUCT_WIDTH = 148;
-const PRODUCT_HEIGHT = 78;
-
 // Per-port transport-kind lookup attached to every render-pipeline RF node.
 // Keys are the React Flow Handle ids (for example "in:copper_ore" or
 // "out:copper_powder"), and values are the item's transportKind resolved while
@@ -308,6 +304,14 @@ export type RFProductNode = RFNode<
     rate: RenderUnitOutputProduct["rate"];
     rateCap?: RenderUnitInputProduct["rateCap"];
     flavor?: RenderUnitOutputProduct["flavor"];
+    // Per-container fanout slices of an aggregate input card. `isFanout` draws
+    // the tap chrome and the extra left handle the aggregate's edge arrives on;
+    // `parentRate` is the aggregate total the slice's share chip points back at.
+    // Both are absent on every other product node, and unitToRFNode spreads them
+    // in conditionally, so they are optional here rather than part of the kind
+    // union.
+    isFanout?: RenderUnitInputProduct["isFanout"];
+    parentRate?: RenderUnitInputProduct["parentRate"];
     portTransportKinds: PortTransportKinds;
   },
   "product"
@@ -375,7 +379,7 @@ export function renderPlanToElkGraph(input: LayoutInput): ElkGraph {
         // Reserve a taller top band for the caption strip so a member card
         // flush against the corner cannot cover the "LOOP - N" label; keep the
         // other sides tight so members do not leave large empty quadrants.
-        "org.eclipse.elk.padding": "[top=28,left=10,bottom=10,right=10]",
+        "org.eclipse.elk.padding": `[top=${CONTAINER_CAPTION_BAND},left=10,bottom=10,right=10]`,
         // Slab interiors do not inherit the root spacing pair: without these
         // the members pack at ELK's default spacing (~36 measured) and the
         // corridor cannot hold a rate chip (chips are ~99-110 units wide), so

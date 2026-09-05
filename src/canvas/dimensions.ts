@@ -124,3 +124,19 @@ export const CHIP_ICON_ONLY_MAX_ZOOM = 0.32;
 // cancels the pending hover. Lives here rather than in Canvas so the exam CLIs
 // can wait past it without copying the number.
 export const HOVER_INTENT_MS = 150;
+
+// Fixed sizes for product units in ELK. The width is the DRAWN box: .product-node
+// is a 124px content column plus 10px of padding per side, a 1px border and the
+// 3px accent border the direction modifier swaps in on one edge, which is why the
+// card-growth table treats a product's model box as already including its border.
+// PRODUCT_HEIGHT is kept tight to the actual ProductNode chrome (icon row + rate
+// row + padding) so that React Flow's default Handle position of top:50% falls
+// inside the visible card instead of below it.
+export const PRODUCT_WIDTH = 148;
+export const PRODUCT_HEIGHT = 78;
+
+// Top padding ELK reserves inside a container so a member card flush against the
+// corner cannot cover the slab's caption strip. Must stay at or above the
+// .rf-group-caption height in canvas.css; the surplus is breathing room, so the
+// pin is an inequality rather than an equality.
+export const CONTAINER_CAPTION_BAND = 28;

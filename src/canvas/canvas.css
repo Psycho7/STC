@@ -62,17 +62,10 @@
   );
 }
 
-.ak-canvas-theme {
-  background: var(--ak-bg-canvas);
-  color: var(--ak-text-primary);
-  font-family: var(--font-ui);
-  font-size: 14px;
-  letter-spacing: -0.01em;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* App shell: the banner and side panels. */
+/* Base typography and ground for both roots: the canvas layer and the app shell
+   (banner and side panels). They carried identical declarations in two blocks;
+   one selector list keeps them from drifting apart. */
+.ak-canvas-theme,
 .ak-app-shell {
   background: var(--ak-bg-canvas);
   color: var(--ak-text-primary);
@@ -849,10 +842,8 @@
   font-style: italic;
 }
 /* The raw structural id below the name, e.g. `copper_bottle RECIPE`, with the
-   trailing "RECIPE"/"ITEM" caption in its own mono span. The .b-pick-mid alias
-   keeps any in-flight tests passing through the rename. */
-.ak-app-shell [data-testid="side-panel"] .b-row .item-id,
-.ak-app-shell [data-testid="side-panel"] .b-row .b-pick-mid {
+   trailing "RECIPE"/"ITEM" caption in its own mono span. */
+.ak-app-shell [data-testid="side-panel"] .b-row .item-id {
   font-family: var(--font-mono);
   font-size: 8.5px;
   color: var(--ak-text-decoration-faint);
@@ -1475,8 +1466,7 @@
 .ak-canvas-theme.zoom-low .rn-head .rn-products,
 .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-val,
 .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-lbl,
-.ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-sub,
-.ak-canvas-theme.zoom-low .item-id {
+.ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-sub {
   display: none;
 }
 .ak-canvas-theme.zoom-low .react-flow {
@@ -1541,9 +1531,6 @@
 .cb.br::before {
   border-right: 1.5px solid var(--ak-accent-lime);
   border-bottom: 1.5px solid var(--ak-accent-lime);
-}
-.cb.dim::before {
-  border-color: var(--ak-text-decoration);
 }
 
 .ak-canvas-theme .cb.tl {
@@ -1677,36 +1664,12 @@
   transform: scale(0.3125);
 }
 
-.ico-24 {
-  width: 24px;
-  height: 24px;
-}
-.ico-24 .spr {
-  transform: scale(0.375);
-}
-
 .ico-28 {
   width: 28px;
   height: 28px;
 }
 .ico-28 .spr {
   transform: scale(0.4375);
-}
-
-.ico-32 {
-  width: 32px;
-  height: 32px;
-}
-.ico-32 .spr {
-  transform: scale(0.5);
-}
-
-.ico-36 {
-  width: 36px;
-  height: 36px;
-}
-.ico-36 .spr {
-  transform: scale(0.5625);
 }
 
 .ico-40 {
@@ -1896,12 +1859,6 @@
   font-weight: 500;
   letter-spacing: 0.05em;
   margin-left: 3px;
-}
-
-.pn-rate.uncapped {
-  font-style: italic;
-  color: var(--ak-text-secondary);
-  font-weight: 500;
 }
 
 .pn-rate__cap {
