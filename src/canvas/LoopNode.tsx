@@ -72,7 +72,14 @@ export default function LoopNode({ data }: NodeProps<LoopNodeType>) {
         boxSizing: "border-box",
       }}
     >
-      <div className="header">
+      {/* canvas.css reads --stripe-warning for the header band but no
+          stylesheet defines it, so the band paints as nothing. Supply it here
+          from an existing accent, the same way the net-IO rows supply
+          --row-accent. */}
+      <div
+        className="header"
+        style={{ ["--stripe-warning" as string]: "var(--ak-accent-amber)" }}
+      >
         <span className="seq">{sccId}</span>
         <span className="label">{headerLabel}</span>
         {/* The `.tag` slot is left out: LoopNodeData has no interior recipe
