@@ -117,6 +117,8 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
 
   const recipes: Recipe[] = upstream.recipes.map(toRecipe);
 
+  stampWorldNodes(recipes, new Set(upstream.items.filter((u) => u.machine?.cost === -1).map((u) => u.id)));
+
   const dropped = collapseSyntheticChains({ items, machines, recipes });
 
   classifyRawItems(items, recipes);
@@ -207,6 +209,21 @@ function toRecipe(u: UpstreamRecipe): Recipe {
   if (u.usage != null) recipe.usage = u.usage;
   if (u.cost != null) recipe.cost = u.cost;
   return recipe;
+}
+
+// Upstream marks a few machines with the same cost === -1 skip sentinel its
+// recipes carry, but the pack Machine type has no cost field, so that signal
+// would be lost at extract time. Stamp it onto the recipes instead: a recipe
+// whose every producer is a skip machine is a world node - a fixture the player
+// routes into on the map, not a step a plan builds. On the shipped pack that is
+// the two purification-node recipes (sewage-treat, sewage-treat-export).
+function stampWorldNodes(recipes: Recipe[], skipMachines: ReadonlySet<string>): void {
+  if (skipMachines.size === 0) return;
+  for (const r of recipes) {
+    if (r.producers.length === 0) continue;
+    if (!r.producers.every((p) => skipMachines.has(p))) continue;
+    r.flags = [...(r.flags ?? []), "world-node"];
+  }
 }
 
 function toStoich(map: Record<string, number>): Stoich[] {
