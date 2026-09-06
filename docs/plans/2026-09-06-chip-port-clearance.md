@@ -19,9 +19,14 @@ Delivered, in landing order:
 
 - The geometry audit gained a lanes on/off mode dimension; all thirteen
   baseline tables plus CENSUS_TOTALS are two-level per mode, OFF arms measured
-  write-then-compare in two passes (pre-change, post-change). Every OFF cell
-  fell or held A->B except CROSSING default 2 -> 4, the ratified restoration's
-  own arithmetic (the count lands at exactly the on-mode figure).
+  write-then-compare in two passes (pre-change, post-change). Only Pass B is
+  pinned: the first commit seeds every OFF arm at zero, so the Pass A
+  measurements survive only in the Pass B commit's comments (CROSSING default
+  2 -> 4, CHIP_SEGMENT script43 4 -> 3 and gas-web 5 -> 4, the default
+  plan's one off-path seat). The session log read every other OFF cell as
+  fell-or-held; that reading is not re-derivable from the repo. CROSSING
+  default's rise is the ratified restoration's own arithmetic (the count
+  lands at exactly the on-mode figure).
 - `edge-span-census` pins the new contract: OFF yields zero `laneY` stamps but
   keeps `fanout`-stamped trunks (red if the filter is widened again).
 - render-conventions.md states the setting gates lanes only and names the exam
@@ -56,7 +61,9 @@ Result at the wholesale re-measure, both modes:
   its own junction dot).
 - The whole geometry audit is green at the pinned values except multi6's
   standing e:97 RAW pierce in both modes, the same documented failset the
-  corpus carried before the campaign.
+  corpus carried before the campaign. That pierce has no expected-fail
+  marker: the RAW gate is a plain `toBe(0)`, so a run shows the two multi6
+  placement tests red, on develop as at this tip.
 
 ### B5 is CUT: the layer-gap widening failed its own gate
 
@@ -88,22 +95,60 @@ and #82 closes on the seating rules alone, at a higher icon-only count.
 
 Every port-covering seat the band outlawed had to go somewhere. On the crowded
 plans it went to escapes and collapses, and four soft ratchets rose
-corpus-wide (on-mode): CHIP_OFFPATH 0 -> 27, SEAT_VALIDITY 5 -> 36,
-CHIP_SEGMENT 26 -> 46, FOREIGN_STROKE 40 -> 59. The mechanism is uniform --
+corpus-wide in BOTH modes (sums of the pinned cells; the per-cell moves are
+recorded above each table in the audit spec):
+
+| table          | on-mode  | off-mode |
+| -------------- | -------- | -------- |
+| CHIP_OFFPATH   | 0 -> 35  | 0 -> 38  |
+| SEAT_VALIDITY  | 5 -> 36  | 2 -> 35  |
+| CHIP_SEGMENT   | 23 -> 46 | 15 -> 42 |
+| FOREIGN_STROKE | 40 -> 59 | 32 -> 49 |
+
+Against them, in the same two arms: PORT_COVER 124 / 126 -> 0 and
+CARD_INTRUSION 77 / 79 -> 0. The mechanism is uniform --
 the F1 deep-class chips and backward-rail chips whose ONLY on-line seats were
 the port-covering ones now escape (their boxes cross more foreign lines from
-the new seats), and short corridors collapse honestly (CHIP_COLLAPSE
-coupon-web 0 -> 8, battery5-xiranite 2 -> 5, with B5 cut). Two seat
+the new seats), and short corridors collapse honestly (CHIP_COLLAPSE 35 -> 48
+in both modes: coupon-web 0 -> 8, battery5-xiranite 2 -> 5, rot-bottled_food_3
+4 -> 5, rot-bottled_food_4 0 -> 1, with B5 cut). Two seat
 robustness fixes landed with the re-measure: a half-unit frame margin on the
 foreign raw card (an eps-flush seat flipped the hard e2e gate on camera
 rounding), and the escape cascade now keeps off the own-port band too (its
 residue is what PORT_COVER: 0 rests on).
 
-PENDING USER RATIFICATION (R7 precedent -- pinned by the controller, ratified
-after): the four risen soft tables above, as one named trade ("the port-band
-eviction"), against PORT_COVER and CARD_INTRUSION at zero. If the trade is
-refused, the alternative is hiding the evicted item chips (overturns ruling
-R5) or re-widening corridors (blocked by the B5 gate on battery5-xiranite).
+RATIFIED 2026-09-06 as ruling R14 (R7 precedent -- pinned by the controller,
+ratified after): the four risen soft tables above in both modes, as one named
+trade ("the port-band eviction"), against PORT_COVER and CARD_INTRUSION at zero
+in both modes. The refused alternatives were hiding the evicted item chips
+(overturns ruling R5) and re-widening corridors (blocked by the B5 gate on
+battery5-xiranite).
+
+### Review fixes (2026-09-06, post-plan)
+
+Two seating defects found in review, both latent on the corpus (PORT_COVER
+reads zero, so no corpus chip sits in the regime), fixed with a failing unit
+test each:
+
+- The reserve could undercut the drawn box. The counter-scale cap floors at 1,
+  so a chip draws at least its natural box, but the reserve was `min(window,
+max box)` with no floor: a collapsed chip in an 18-unit window reserved 9,
+  passed the band keep-out at its anchor, and painted its 24-unit square over
+  the port glyph. The reserve now floors at the scale-1 box.
+- `largestClearSpan` fell back to the bare extent when the bands blanketed it,
+  so the tightest corridors read their pre-#82 width. It now returns null,
+  which the callers already take as "no window" (collapse, cap 1).
+
+The chain fixture in the short-leg suite moved from a 36-unit to a 60-unit
+gap: at 36 the legs' clipped windows are 16, narrower than the icon square,
+and under the honest reserve the chips escape 96 units off their lines to
+clear the bands. Ruling R15 (2026-09-06): a chip whose window cannot hold
+even the icon square escapes; covering the port and hiding the chip were
+both declined. The short-leg suite pins the 36-gap chain as that regime. The
+chain fixture's own purpose (the collapsed reserve, not the wide one) does
+not depend on it. render-conventions.md said a capped chip keeps its digits
+at every reading zoom; that was wrong, and the sentence now describes the
+raised icon-only gate.
 
 ### Deviations from the plan text
 

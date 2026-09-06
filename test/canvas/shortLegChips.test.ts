@@ -232,7 +232,28 @@ describe("deconflictChipAnchors: short-leg icon-only flag", () => {
 
     const out = deconflictChipAnchors(nodes, edges);
     const flags = edges.map((e) => iconOnlyOf(out, e.id));
-    expect(new Set(flags).size).toBe(1); // identical for all three siblings
+    // All three keep the full chip: the corridor's band-clipped window (126
+    // less the 20 the two product bands take) is 106, wider than the 94.5
+    // natural box, so the rule that once split them now unifies them FULL.
+    expect(flags).toEqual([undefined, undefined, undefined]);
+  });
+
+  it("escapes a chip whose window cannot hold even the icon square (R15)", () => {
+    // A 36-unit gap leaves each leg a 16-unit band-clipped window, narrower
+    // than the 24-unit icon square the seat reserves (the counter-scale cap
+    // floors at 1, so the square is the least a chip draws). No on-line seat
+    // clears both port bands, and the ruling is that the chip escapes off its
+    // line rather than covering a port or hiding.
+    const { nodes, edges } = chainFixture(36);
+    const out = deconflictChipAnchors(nodes, edges);
+    for (const e of edges) {
+      expect(iconOnlyOf(out, e.id)).toBe(true);
+      const data = out.find((o) => o.id === e.id)?.data as
+        | { labelDx?: number; labelDy?: number }
+        | undefined;
+      expect(data?.labelDy).not.toBeUndefined();
+      expect(Math.abs(data!.labelDy!)).toBeGreaterThan(0);
+    }
   });
 
   it("leaves a full-corridor edge unflagged", () => {
@@ -248,11 +269,14 @@ describe("deconflictChipAnchors: short-leg icon-only flag", () => {
     // The stamp used to be render-only for ITEM chips: the seat still reserved
     // the 240-wide worst case for a chip that draws 48, which is the largest
     // single conservatism the pass carried (Task 6b). Two short legs in a chain
-    // put their chips 136 apart -- inside the 240 of centre separation two wide
+    // put their chips 160 apart -- inside the 240 of centre separation two wide
     // boxes need, outside the 48 two collapsed ones need. Under the wide
     // reserve the second chip is shoved off its anchor; under the collapsed one
-    // both sit where they belong.
-    const { nodes, edges } = chainFixture(36);
+    // both sit where they belong. The 60-unit gap leaves each leg a 40-unit
+    // band-clipped window: wide enough for the 24-unit icon square the seat
+    // reserves (a narrower window cannot hold the drawn square and evicts the
+    // chip for a different reason, the port band), too narrow for the text.
+    const { nodes, edges } = chainFixture(60);
     const anchors = edges.map((e) => chipAnchorOf(nodes, e));
     // Premise: the two anchors are in exactly that window.
     const apart = Math.abs(anchors[1]! - anchors[0]!);

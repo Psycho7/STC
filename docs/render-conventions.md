@@ -134,8 +134,11 @@ Do not report these as defects.
   branch chips and item-edge chips alike, and so does a fan-out branch chip on a
   contested corridor. A chip whose corridor holds its natural text but not the
   full counter-scaled box instead draws at a capped size, smaller than the
-  usual counter-scale maximum; its digits stay on it at every reading zoom. Low
-  zoom is a third cause: below zoom 0.32 the two chips
+  usual counter-scale maximum. The cap also moves its icon-only gate up: the
+  digits go when the capped box would draw them below the size the 0.32 gate
+  guarantees, so a chip capped at its natural size goes icon-only under zoom
+  0.48 rather than 0.32, so dense plans whose fit zoom sits between the two
+  show more squares. Low zoom is a third cause: below zoom 0.32 the two chips
   exempt from the 0.35 gate (the bus drop chip and a lone member's long-run rise
   chip) render icon-only as well. All of them keep the rate on the hover title
   and the aria label. A digit-less square chip is intentional, not a missing

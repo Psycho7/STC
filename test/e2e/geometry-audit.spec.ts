@@ -800,6 +800,11 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): rot-bottled_food_3 2, rot-bottled_food_4 2 -- the same
 // full-height column passing under label chips family as above.
+// PORT-BAND EVICTION (#82, ruling R14): 23 -> 46. The evicted
+// chips' escape boxes cross more foreign lines than their old on-line seats
+// did. default 0 -> 1, battery5 3 -> 5, battery5-xiranite 0 -> 10, crystal
+// 0 -> 1, script43 5 -> 11, coupon-web 4 -> 5, rot-bottled_food_4 2 -> 6;
+// equip4 1 -> 0 and gas-web 8 -> 7 fell.
 const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
   default: 1,
   battery5: 5,
@@ -821,6 +826,10 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   // gas-web 5 -> 4, the rest unchanged); the surviving pairs are the same
   // full-height tap/surplus columns passing under label chips the on arm
   // records on these plans.
+  // PORT-BAND EVICTION (#82, ruling R14): 15 -> 42. default 0 -> 1,
+  // battery5 2 -> 4, battery5-xiranite 0 -> 8, crystal 0 -> 1, script43
+  // 3 -> 11, coupon-web 4 -> 5, gas-web 4 -> 9, rot-bottled_food_4 1 -> 3;
+  // equip4 1 -> 0 fell.
   off: {
     default: 1,
     battery5: 4,
@@ -876,11 +885,16 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
 // still NOT retired. This cell and the battery5-xiranite chip-segment rise are
 // the SAME chip moving -- reverting the depth edit puts both back, so revert
 // this pin with it. battery5 measured 2 again, unchanged (ratified above).
-// The three campaign scenarios first recorded zero: no label chip on any of
-// them leaves its own polyline today.
-// First recordings for the two exam-surfaced scenarios (campaign-first
-// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
-// the campaign): both zero, no label chip leaves its own polyline on either.
+// The three campaign scenarios and the two exam-surfaced scenarios all first
+// recorded zero: no label chip left its own polyline before #82.
+// PORT-BAND EVICTION (#82, RATIFIED 2026-09-06 as ruling R14, one trade
+// with the CHIP_SEGMENT / SEAT_VALIDITY / FOREIGN_STROKE rises below): the port band
+// became a hard keep-out, so the chips whose ONLY on-line seats covered their
+// own port furniture now escape. 0 -> 35 corpus-wide: default 0 -> 2,
+// battery5 0 -> 4, battery5-xiranite 0 -> 7, crystal 0 -> 1, equip4 0 -> 1,
+// tundra 0 -> 1, script43 0 -> 6, coupon-web 0 -> 4, gas-web 0 -> 4,
+// rot-bottled_food_4 0 -> 5. Bought: PORT_COVER 124 -> 0 and CARD_INTRUSION
+// 77 -> 0 on this arm.
 const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
   default: 2,
   battery5: 4,
@@ -897,9 +911,15 @@ const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
 };
 const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_OFFPATH_BASELINE_ON,
-  // Pass B: zero everywhere. The OFF-mode defect this campaign opened on --
-  // the default plan's 30/min chip nudged 48 units off its line (Pass A read
-  // exactly that one seat) -- left with the fan-out restoration.
+  // Pass B read zero everywhere: the OFF-mode defect this campaign opened on
+  // (the default plan's 30/min chip nudged 48 units off its line, Pass A read
+  // exactly that one seat) left with the fan-out restoration.
+  // PORT-BAND EVICTION (#82, ruling R14, same trade as the on arm):
+  // 0 -> 38, one more than on-mode because un-laned corridors hold more of
+  // the evicted chips. default 0 -> 2, battery5 0 -> 6, battery5-xiranite
+  // 0 -> 8, crystal 0 -> 1, equip4 0 -> 1, tundra 0 -> 1, script43 0 -> 6,
+  // coupon-web 0 -> 4, gas-web 0 -> 5, rot-bottled_food_4 0 -> 4. Bought:
+  // PORT_COVER 126 -> 0 and CARD_INTRUSION 79 -> 0 on this arm.
   off: {
     default: 2,
     battery5: 6,
@@ -1785,6 +1805,11 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // First recordings for the two exam-surfaced scenarios (campaign-first
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero; every chip holds its own line inside its box.
+// PORT-BAND EVICTION (#82, ruling R14): 5 -> 36, the same chips
+// CHIP_OFFPATH counts, read by the seat-validity predicate. default 0 -> 2,
+// battery5 0 -> 4, battery5-xiranite 4 -> 7, crystal 0 -> 1, equip4 0 -> 1,
+// multi6 0 -> 4, tundra 0 -> 1, script43 1 -> 5, coupon-web 0 -> 3, gas-web
+// 0 -> 4, rot-bottled_food_4 0 -> 4.
 const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
   default: 2,
   battery5: 4,
@@ -1804,6 +1829,10 @@ const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
   // Pass B: the OFF defect seat (default's nudged 30/min chip) left with the
   // fan-out restoration; the residue is battery5-xiranite's two off-line
   // seats, the same plan that dominates the on arm.
+  // PORT-BAND EVICTION (#82, ruling R14): 2 -> 35. default 0 -> 2,
+  // battery5 0 -> 4, battery5-xiranite 2 -> 5, crystal 0 -> 1, equip4 0 -> 1,
+  // multi6 0 -> 6, tundra 0 -> 1, script43 0 -> 4, coupon-web 0 -> 3, gas-web
+  // 0 -> 4, rot-bottled_food_4 0 -> 4.
   off: {
     default: 2,
     battery5: 4,
@@ -1976,6 +2005,10 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both 2, each one full-height column passing under two label
 // chips.
+// PORT-BAND EVICTION (#82, ruling R14): 40 -> 59, the escape boxes
+// straddling columns their on-line seats cleared. battery5 2 -> 4,
+// battery5-xiranite 5 -> 7, crystal 0 -> 1, multi6 15 -> 19, script43 5 -> 9,
+// coupon-web 2 -> 3, gas-web 7 -> 10, rot-bottled_food_4 2 -> 4.
 const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
   default: 1,
   battery5: 4,
@@ -1992,6 +2025,10 @@ const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
 };
 const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FOREIGN_STROKE_BASELINE_ON,
+  // PORT-BAND EVICTION (#82, ruling R14): 32 -> 49. battery5
+  // 2 -> 3, battery5-xiranite 3 -> 5, crystal 0 -> 1, multi6 16 -> 19,
+  // script43 3 -> 7, coupon-web 2 -> 3, gas-web 3 -> 6, rot-bottled_food_4
+  // 1 -> 3.
   off: {
     default: 1,
     battery5: 3,
@@ -2198,7 +2235,11 @@ const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
 // but the campaign's TRADE dial: every port-band keep-out or counter-scale
 // cap that cannot find a full-box seat buys its clearance with one of these,
 // so the count is pinned to make each move of it a stated trade rather than a
-// silent one. First recorded at the campaign's untouched tip, both modes.
+// silent one. First recorded at the campaign's untouched tip, both modes:
+// 35 corpus-wide, identical cells in the two modes. Re-pinned 35 -> 48 at the
+// port-clear render (both modes, same cells): battery5-xiranite 2 -> 5,
+// coupon-web 0 -> 8, rot-bottled_food_3 4 -> 5, rot-bottled_food_4 0 -> 1 --
+// the band-subtracted window collapses what the bare extent let through.
 const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: {
     default: 4,
@@ -2315,6 +2356,9 @@ const CENSUS_TOTALS: Record<
     // re-seated onto their own lines (default 1 -> 0, battery5 1 -> 0, multi6
     // 6 -> 1, script43 3 -> 1, coupon-web 1 -> 0).
     // 6 -> 5 at the Task 8 branch-leg re-measure (multi6 1 -> 0).
+    // Port-band eviction (#82, B5 cut): seatValidity 5 -> 36, cardIntrusion
+    // 77 -> 0, foreignStroke 40 -> 59; the per-table notes above carry the
+    // cells.
     seatValidity: 36,
     // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
     // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
@@ -2337,8 +2381,9 @@ const CENSUS_TOTALS: Record<
     outsideBand: 0,
   },
   off: {
-    // B re-measure sums (port-band eviction, B5 cut): seatValidity 23,
-    // cardIntrusion 0, foreignStroke 45.
+    // Port-band eviction (#82, B5 cut): seatValidity 2 -> 35, cardIntrusion
+    // 79 -> 0, foreignStroke 32 -> 49; the per-table notes above carry the
+    // cells.
     seatValidity: 35,
     cardIntrusion: 0,
     foreignStroke: 49,

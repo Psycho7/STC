@@ -267,7 +267,10 @@ export function usableWidthCollapses(
 
 // The widest sub-interval of the polyline's x-extent no given band reaches
 // into: the LONGEST CLEAR RUN a chip's box can slide along, as an interval.
-// Null when the points are empty. This is the placement goal's own measure
+// Null when the points are empty and when the bands blanket the extent (a
+// corridor with no clear stretch has no window, not the bare extent: falling
+// back to it re-opened the pre-#82 width exactly where the bands bite
+// hardest). This is the placement goal's own measure
 // ("the middle of the longest straight run") and the collapse rule's: a chip
 // fits on its own line iff its natural box fits THIS span, not the extent
 // minus loose clip sums -- two disjoint gaps cannot host one box.
@@ -303,7 +306,7 @@ export function largestClearSpan(
     if (best === null || maxX - sweep > best.hi - best.lo)
       best = { lo: sweep, hi: maxX };
   }
-  return best ?? { lo: minX, hi: maxX };
+  return best;
 }
 
 // The clear window a chip's full box can slide along: the widest clear span's
@@ -1452,9 +1455,17 @@ export function seatRateChip(
   const { pts, anchorX, anchorY } = path;
   const ownIds = opts?.ownIds;
   const barrierYs = opts?.barrierYs;
-  const halfW = Math.min(
-    chipSeatHalfW(opts?.text, opts?.iconOnly === true),
-    opts?.usableWidth !== undefined ? opts.usableWidth / 2 : Infinity,
+  // The window caps the reserve, but never below the scale-1 box: the render's
+  // counter-scale cap floors at 1, so a chip whose window is narrower than its
+  // natural box still DRAWS that box, and a reserve smaller than it would pass
+  // the band keep-out at a seat the painted box then covers.
+  const maxHalfW = chipSeatHalfW(opts?.text, opts?.iconOnly === true);
+  const halfW = Math.max(
+    maxHalfW / MAX_CHIP_SCALE,
+    Math.min(
+      maxHalfW,
+      opts?.usableWidth !== undefined ? opts.usableWidth / 2 : Infinity,
+    ),
   );
   // A slide candidate crosses a barrier when it and the anchor sit on OPPOSITE
   // sides of a seated sibling (their signed offsets from it differ), i.e. the

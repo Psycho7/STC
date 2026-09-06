@@ -16,6 +16,7 @@ import {
   chipOwnCardIntrusion,
   chipSeatHalfW,
   examChipReservations,
+  largestClearSpan,
   makeClearanceField,
   seatRateChip,
   type CardExemption,
@@ -1805,6 +1806,43 @@ describe("port-band keep-out (#82)", () => {
     anchorX: 980,
     anchorY: 0,
   };
+
+  it("reserves at least the scale-1 box when the clear window is narrower", () => {
+    // A collapsed chip draws a 24-wide icon square at scale 1 no matter how
+    // narrow its window is (the counter-scale cap floors at 1), so a window
+    // of 18 must not shrink the reserve below 12: a 9-wide reserve passes the
+    // band keep-out at cx 980 and then paints [968, 992] over the target
+    // band's outer edge at 991.
+    const field = makeClearanceField([], [SOURCE_CARD, TARGET_CARD]);
+    const seat = seatRateChip(
+      field,
+      CORRIDOR,
+      "own",
+      "T",
+      BOTH_EXEMPT,
+      NO_BAND,
+      { iconOnly: true, usableWidth: 18 },
+    );
+    expect(seat.box.halfW).toBeGreaterThanOrEqual(12);
+    expect(seat.box.x + 12).toBeLessThanOrEqual(991);
+  });
+
+  it("largestClearSpan reports no window when the bands cover the extent", () => {
+    // Two bands meeting at 109 blanket the 18-unit extent [100, 118]; there
+    // is no clear sub-interval, so the answer is null, not the bare extent.
+    expect(
+      largestClearSpan(
+        [
+          [100, 0],
+          [118, 0],
+        ],
+        [
+          { lo: 91, hi: 109 },
+          { lo: 109, hi: 127 },
+        ],
+      ),
+    ).toBeNull();
+  });
 
   it("slides off a target band along its own line", () => {
     const field = makeClearanceField([], [SOURCE_CARD, TARGET_CARD]);
