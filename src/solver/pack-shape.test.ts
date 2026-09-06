@@ -5,6 +5,7 @@ import { buildRecipeGraphMulti } from "./graph";
 import { tarjanScc } from "./scc";
 import { makePack } from "./closed-form-fixtures";
 import { netSelfConsumption } from "./net-self";
+import { isExcludedProducer, isExtractionRecipe } from "../data/recipe-category";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 
@@ -52,6 +53,12 @@ function unprotectedCoProductFanouts(p: RecipePack): string[] {
   const rawItems = new Set(p.items.filter((i) => i.raw).map((i) => i.id));
   const consumersByItem = new Map<string, Recipe[]>();
   for (const r of p.recipes) {
+    // An excluded producer is never ranked or walked, so it is never a node in
+    // any plan graph and its inputs are never drawn from anyone. Counting one
+    // as a consumer would invent a reach no plan can have - the same reason the
+    // residual rule below drops out-empty sinks. Today this drops the two
+    // purification nodes and the cost === -1 waste sinks.
+    if (isExcludedProducer(r)) continue;
     for (const inp of r.in) {
       const list = consumersByItem.get(inp.item);
       if (list) list.push(r);
@@ -241,18 +248,19 @@ describe("co-product fan-out pack census", () => {
   });
 });
 
-// The extraction ban keys on an empty `in`, and the solver applies it to the
-// NETTED pack: netSelfConsumption drops an item from `in` entirely when the
-// recipe's output of it exceeds its input, so a catalyst whose only input is
-// its own output would net to zero inputs and be banned silently. Nothing in
-// the shipped pack does that today. This census is what makes a future one
-// loud: if it fails, the new id is either a real extractor (add it here) or a
-// recipe the ban would wrongly swallow (key the predicate on something other
-// than the netted input count).
+// The extraction ban keys on an empty `in` OR a mining / world-node flag, and
+// the solver applies it to the NETTED pack. Both censuses below spell their
+// clause out by hand instead of calling isExtractionRecipe: they have to keep
+// asking the concrete question even if the predicate is later re-keyed, which
+// is the drift they exist to catch.
 //
-// Deliberately spells out `in.length === 0` instead of calling
-// isExtractionRecipe: the census has to keep asking the concrete question even
-// if the predicate is later re-keyed, which is the drift it exists to catch.
+// The input-less census guards the clause that has no flag behind it.
+// netSelfConsumption drops an item from `in` entirely when the recipe's output
+// of it exceeds its input, so a catalyst whose only input is its own output
+// would net to zero inputs and be banned silently. Nothing in the shipped pack
+// does that today. If this census fails, the new id is either a real extractor
+// (add it here) or a recipe the ban would wrongly swallow (key the predicate on
+// something other than the netted input count).
 describe("extraction-recipe pack census", () => {
   const KNOWN_EXTRACTORS = [
     "gas_inert",
@@ -280,6 +288,58 @@ describe("extraction-recipe pack census", () => {
       const r = pack.recipes.find((x) => x.id === id)!;
       expect(r.out.every((o) => rawIds.has(o.item))).toBe(true);
     }
+  });
+});
+
+// The full banned set, flags included. The two flags come from the pack, not
+// from code: "mining" is upstream's own marker and "world-node" is stamped by
+// the extractor onto every recipe whose producers are all cost === -1 machines.
+// A pack update that adds or drops either flag changes what plans may build, so
+// the whole set is pinned by id here rather than left to a count.
+describe("banned-recipe pack census", () => {
+  const BANNED = [
+    "copper_ore-liquid_water",
+    "gas_inert",
+    "gas_xiranite",
+    "iron_ore",
+    "liquid_acid",
+    "liquid_water",
+    "originium_ore",
+    "quartz_sand",
+    "sewage-treat",
+    "sewage-treat-export",
+  ];
+
+  const banned = (p: RecipePack): string[] =>
+    p.recipes
+      .filter(
+        (r) =>
+          r.in.length === 0 ||
+          (r.flags ?? []).some((f) => f === "mining" || f === "world-node"),
+      )
+      .map((r) => r.id)
+      .sort();
+
+  test("the banned set is the same 10 recipes raw and netted", () => {
+    expect(banned(pack)).toEqual(BANNED);
+    expect(banned(netSelfConsumption(pack))).toEqual(BANNED);
+  });
+
+  test("the flagged extractors are exactly the ones an input count misses", () => {
+    const flagged = BANNED.filter(
+      (id) => pack.recipes.find((r) => r.id === id)!.in.length > 0,
+    );
+    expect(flagged).toEqual([
+      "copper_ore-liquid_water",
+      "sewage-treat",
+      "sewage-treat-export",
+    ]);
+  });
+
+  test("isExtractionRecipe agrees with the hand-spelled rule", () => {
+    expect(pack.recipes.filter(isExtractionRecipe).map((r) => r.id).sort()).toEqual(
+      BANNED,
+    );
   });
 });
 

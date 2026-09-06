@@ -932,4 +932,50 @@ describe("solveLp - extraction recipes", () => {
     // short: banning the pump is not the same as breaking a plan.
     expect(result.softFeasible).toBe(true);
   });
+
+  // The hydro miner drinks water to mine copper ore, so it is the one extractor
+  // with a real input and the input count alone never saw it. Capping the ore
+  // used to grow a mine for the rest.
+  it("runs no hydro miner of the real pack, and goes short instead", () => {
+    const result = solveLp({
+      targets: [
+        { itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } },
+      ],
+      pack,
+      itemOverrides: [
+        { itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } },
+      ],
+    });
+    expect(result.status).toBe("feasible");
+    expect(result.rates.has("copper_ore-liquid_water")).toBe(false);
+    // The cap is drawn in full and nothing tops it up.
+    expect(result.draws.get("copper_ore")!.equals(new Fraction(1, 2))).toBe(true);
+    expect(result.softFeasible).toBe(false);
+    // The gap lands on gas_copper, not on the target: the plan covers the rest
+    // of the nuggets through the phase-transition loop, which then runs short
+    // of the gas it recycles.
+    expect([...result.deficit.keys()]).toEqual(["gas_copper"]);
+  });
+
+  // The purification nodes are world fixtures, not machines a plan builds: the
+  // extractor marks them from the upstream cost === -1 machine sentinel. The LP
+  // used to fund the exporting one to turn sewage into xiranite polymer.
+  it("runs no purification node of the real pack, and reroutes", () => {
+    const worldNodes = pack.recipes
+      .filter((r) => r.flags?.includes("world-node"))
+      .map((r) => r.id);
+    expect(worldNodes).toEqual(["sewage-treat", "sewage-treat-export"]);
+    const result = solveLp({
+      targets: [
+        { itemId: "gas_xiranite_enr", ratePerSec: { num: "1", denom: "1" } },
+      ],
+      pack,
+      itemOverrides: [
+        { itemId: "gas_xiranite", ratePerSec: { num: "1", denom: "2" } },
+      ],
+    });
+    expect(result.status).toBe("feasible");
+    expect([...result.rates.keys()].filter((id) => worldNodes.includes(id))).toEqual([]);
+    expect(result.softFeasible).toBe(true);
+  });
 });
