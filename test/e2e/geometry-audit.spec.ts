@@ -7,6 +7,7 @@ import {
   auditCardFrames,
   auditChipCardIntrusion,
   auditChipForeignStrokes,
+  auditChipPortCover,
   auditChipSeatValidity,
   auditChipsOnOwnPath,
   auditChipsVsCards,
@@ -30,6 +31,7 @@ import {
   type ChipRect,
   type DotRect,
   type NodeRect,
+  type PortFurnitureRect,
   type RawEdge,
   type RawRect,
 } from "./geometry";
@@ -2212,6 +2214,87 @@ const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
   },
 };
 
+// PORT-COVER, the direct #82 counter (issue #82): chips whose drawn box
+// covers a handle, a PortGlyph span, or a row strip of their OWN endpoint
+// card -- the placement ruling says a chip never does that. Measured at the
+// census camera like the four counters above; the target state is ZERO in
+// both modes, and the B campaign drives it there. First recorded by the
+// chip-port-clearance campaign at its untouched tip (write-then-compare
+// against zero seeds, both modes); it ratchets DOWN under the same
+// convention as every table above, and an up-move needs a recorded ruling.
+// The first recording is the defect's size: on most plans a MAJORITY of the
+// chips cover own-port furniture (default 12 of 17, tundra 5 of 7), the
+// mechanical cause being the unmodelled 10-unit furniture band outside the
+// card edge plus a centre-only own-card rule.
+const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: {
+    default: 12,
+    battery5: 6,
+    "battery5-xiranite": 8,
+    crystal: 7,
+    equip4: 7,
+    multi6: 31,
+    tundra: 5,
+    script43: 17,
+    "coupon-web": 6,
+    "gas-web": 10,
+    "rot-bottled_food_3": 7,
+    "rot-bottled_food_4": 8,
+  },
+  off: {
+    default: 12,
+    battery5: 8,
+    "battery5-xiranite": 10,
+    crystal: 7,
+    equip4: 7,
+    multi6: 31,
+    tundra: 5,
+    script43: 16,
+    "coupon-web": 6,
+    "gas-web": 10,
+    "rot-bottled_food_3": 7,
+    "rot-bottled_food_4": 7,
+  },
+};
+
+// CHIP-COLLAPSE: how many of the scenario's chips draw their collapsed
+// icon-only variant at the census camera. Not a defect counter -- collapsing
+// is the sanctioned answer to a corridor too narrow for a chip's full box --
+// but the campaign's TRADE dial: every port-band keep-out or counter-scale
+// cap that cannot find a full-box seat buys its clearance with one of these,
+// so the count is pinned to make each move of it a stated trade rather than a
+// silent one. First recorded at the campaign's untouched tip, both modes.
+const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: {
+    default: 4,
+    battery5: 2,
+    "battery5-xiranite": 2,
+    crystal: 2,
+    equip4: 2,
+    multi6: 13,
+    tundra: 0,
+    script43: 3,
+    "coupon-web": 0,
+    "gas-web": 3,
+    "rot-bottled_food_3": 4,
+    "rot-bottled_food_4": 0,
+  },
+  off: {
+    default: 4,
+    battery5: 2,
+    "battery5-xiranite": 2,
+    crystal: 2,
+    equip4: 2,
+    multi6: 13,
+    tundra: 0,
+    script43: 3,
+    "coupon-web": 0,
+    "gas-web": 3,
+    "rot-bottled_food_3": 4,
+    "rot-bottled_food_4": 0,
+  },
+};
+
 // TIER-1 SLIDE DRIFT, re-measured after the per-chip reserved seat box
 // (Task 6b, ruling R11). Not a counter and not ratcheted -- a measurement
 // recorded next to the counters it belongs with, because the audit surface
@@ -2490,6 +2573,48 @@ test.describe("chip seating census", () => {
                 `${scenario.id}: ${skipped.length} band-unbound bus chip(s) != inventory pin ${skippedPin}:\n${censusInventory(skipped)}`,
               )
               .toBe(skippedPin);
+          }
+
+          // Port-cover (#82): a chip never covers its own endpoint card's port
+          // handle, glyph or row text. The campaign's headline counter; target
+          // state zero, ratchets down.
+          const portCover = auditChipPortCover(
+            chips,
+            rawEdges,
+            geom.portFurniture as PortFurnitureRect[],
+          );
+          const portCoverPin = baselineFor(
+            PORT_COVER_BASELINE,
+            "PORT_COVER_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (portCoverPin !== null) {
+            expect
+              .soft(
+                portCover.length,
+                `${scenario.id}: ${portCover.length} chip(s) covering their own endpoint's port furniture exceeds baseline ${portCoverPin} among ${chips.length} chips:\n${censusInventory(portCover)}`,
+              )
+              .toBeLessThanOrEqual(portCoverPin);
+          }
+
+          // Collapse trade dial: how many chips render icon-only at this camera.
+          const collapsed = chips.filter((c) => c.iconOnly).length;
+          const collapsePin = baselineFor(
+            CHIP_COLLAPSE_BASELINE,
+            "CHIP_COLLAPSE_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (collapsePin !== null) {
+            expect
+              .soft(
+                collapsed,
+                `${scenario.id}: ${collapsed} icon-only chip(s) exceeds baseline ${collapsePin} among ${chips.length} chips`,
+              )
+              .toBeLessThanOrEqual(collapsePin);
           }
 
           skipUnpinnedRatchets(unpinned);
