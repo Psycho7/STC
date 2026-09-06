@@ -310,6 +310,7 @@ export default function BusEdge({
     label: string,
     title: string,
     compact = false,
+    scaleCap?: number,
   ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
@@ -323,6 +324,7 @@ export default function BusEdge({
       dimmed={edgeData?.dimmed}
       focused={edgeData?.focused}
       compact={compact}
+      scaleCap={scaleCap}
       zoom={zoom}
     />
   );
@@ -381,6 +383,7 @@ export default function BusEdge({
             riseLabel,
             riseTitle,
             fanoutData?.fanoutBranchIconOnly === true,
+            fanoutData?.fanoutBranchScaleCap,
           )
         : null}
     </>

@@ -1916,3 +1916,61 @@ describe("port-band keep-out (#82)", () => {
     expect(b.dy).toBe(a.dy);
   });
 });
+
+// The B4 capped reserve: a chip whose corridor window is narrower than its
+// max-scale box still seats FULL on its own line, reserving exactly the
+// window -- the widest box the chip can ever draw, because the render
+// counter-scale reads the matching cap.
+describe("seatRateChip: capped reserve (B4, #82)", () => {
+  it("reserves the corridor width when 2x natural does not fit", () => {
+    // A "30/min" chip (natural 87) on a corridor whose band-subtracted window
+    // is 100: full (100 >= 87), capped (100 < 174). The reserved half-width
+    // is 50, not the max-scale 87.
+    const field = makeClearanceField([], []);
+    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND, {
+      text: { body: "30", unit: true },
+      usableWidth: 100,
+    });
+    expect(seat.tier).toBe("anchor");
+    expect(seat.box.halfW).toBeCloseTo(50, 6);
+    expect(seat.box.halfW).toBeLessThan(
+      chipSeatHalfW({ body: "30", unit: true }, false),
+    );
+  });
+
+  it("keeps the uncapped reserve when the window holds the max-scale box", () => {
+    const field = makeClearanceField([], []);
+    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND, {
+      text: { body: "30", unit: true },
+      usableWidth: 400,
+    });
+    expect(seat.box.halfW).toBe(
+      chipSeatHalfW({ body: "30", unit: true }, false),
+    );
+  });
+
+  it("pins the tier-1 slide step: a realistic clash slides exactly one 24", () => {
+    // Moved from the shortLegChips chain fixture, whose clash shape is
+    // structurally gone under band-subtracted reserves (two adjacent-corridor
+    // chips can no longer reach each other). Here the clash is a pre-seated
+    // box on the same line: a "30/min" chip (reserve half 87) whose anchor
+    // sits 164 from it -- 10 short of the 174 two reserves need -- slides
+    // exactly one 24-unit step away and stays on its line.
+    const LINE2 = {
+      pts: [
+        [0, 0],
+        [1000, 0],
+      ] as const,
+      anchorX: 500,
+      anchorY: 0,
+    };
+    const field = makeClearanceField([], []);
+    field.seat({ x: 664, y: 0, halfW: 87, halfH: 24 });
+    const seat = seatRateChip(field, LINE2, "own", "t", NO_EXEMPT, NO_BAND, {
+      text: { body: "30", unit: true },
+    });
+    expect(seat.tier).toBe("slide");
+    expect(seat.dy).toBe(0);
+    expect(Math.abs(seat.dx)).toBe(24);
+  });
+});

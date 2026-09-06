@@ -77,6 +77,11 @@ export type ItemEdgeData = {
   // than one rendered chip: the chip renders icon-only (rate on hover) because
   // no seat on the line can hold the full box.
   chipIconOnly?: boolean;
+  // Per-chip counter-scale cap (#82, B4), stamped when the band-subtracted
+  // clear window on this edge is narrower than the chip's max-scale box: the
+  // render counter-scales by min(1/zoom, chipScaleCap) so the widest box the
+  // chip can ever draw fits the window the seat reserved. Absent = uncapped.
+  chipScaleCap?: number;
   // Set by Canvas's hover focus on every non-focused edge. The chips read it
   // because EdgeLabelRenderer portals them outside the edge wrapper that carries
   // the `dimmed` class, so the wrapper's fade never reaches them; the chip's own
@@ -214,6 +219,7 @@ export function FlowChip({
   dimmed,
   focused,
   compact,
+  scaleCap,
   zoom,
 }: {
   testId: string;
@@ -236,6 +242,14 @@ export function FlowChip({
   // shorter than one chip): it collapses to icon-only regardless of zoom. A
   // hover-lit chip still wins, so the rate stays one hover away.
   compact?: boolean | undefined;
+  // Per-chip counter-scale cap (B4): clamps the chip's on-screen growth the
+  // same way MAX_CHIP_SCALE clamps it globally, so a chip seated in a corridor
+  // narrower than its max-scale box never draws wider than the window it
+  // reserved. Absent = the global cap. The icon-only zoom gate reads it too:
+  // the chip sheds its digits once its EFFECTIVE text scale (zoom * cap)
+  // drops below the floor CHIP_ICON_ONLY_MAX_ZOOM set with the full cap --
+  // a capped chip has less text to spend, so it collapses at a higher zoom.
+  scaleCap?: number | undefined;
   // Live pane zoom, used to counter-scale the chip so it stays legible at the
   // dense-plan fit zoom. Optional: callers without a zoom leave the chip at its
   // natural size (scale 1).
@@ -244,7 +258,8 @@ export function FlowChip({
   // Counter-scale about the chip centre. translate(-50%,-50%) translate(x,y)
   // already centres the box on (x, y); appending scale() with the default
   // (centre) transform-origin keeps that anchor and only grows the chip.
-  const scale = zoom !== undefined ? chipCounterScale(zoom) : 1;
+  const cap = scaleCap ?? MAX_CHIP_SCALE;
+  const scale = zoom !== undefined ? Math.min(cap, chipCounterScale(zoom)) : 1;
   const scalePart = scale !== 1 ? ` scale(${scale})` : "";
   // Below the icon-only zoom the surviving (LABEL_MIN_ZOOM-exempt) chips shed
   // their rate digits and render as the bare item icon, so a dense fit view
@@ -252,10 +267,13 @@ export function FlowChip({
   // Zoom-gated member chips never reach here: they are already hidden by the
   // higher LABEL_MIN_ZOOM gate at their call sites. `compact` collapses a chip
   // at every zoom (its line is too short for the full box at any scale); the
-  // hover reveal overrides both, so no chip is permanently rate-less.
+  // hover reveal overrides both, so no chip is permanently rate-less. The zoom
+  // arm is stated per chip through the cap (see scaleCap above): the old
+  // global zoom gate is its cap = MAX_CHIP_SCALE special case.
   const iconOnly =
     (compact === true ||
-      (zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM)) &&
+      (zoom !== undefined &&
+        zoom * cap < CHIP_ICON_ONLY_MAX_ZOOM * MAX_CHIP_SCALE)) &&
     !focused;
   const bodyText = iconOnly ? "" : text;
   return (
@@ -738,6 +756,7 @@ export default function ItemEdge({
           dimmed={edgeData?.dimmed}
           focused={edgeData?.focused}
           compact={edgeData?.chipIconOnly === true}
+          scaleCap={edgeData?.chipScaleCap}
           zoom={zoom}
         />
       ) : null}

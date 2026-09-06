@@ -200,6 +200,11 @@ export type FanoutBusEdgeData = BusAggregate & {
   // chip off the trunk's split dot; the narrow box can. The rate stays readable
   // on the chip's aria-label and hover title.
   fanoutBranchIconOnly?: true;
+  // Per-chip counter-scale cap (#82, B4), stamped when the member's
+  // band-subtracted clear window is narrower than its chip's max-scale box:
+  // the branch chip render counter-scales by min(1/zoom, this) so the widest
+  // box it can draw fits the window the seat reserved. Absent = uncapped.
+  fanoutBranchScaleCap?: number;
   // Set by routeFanoutEdges on every member of a trunk whose corridor is
   // CONTESTED: sibling trunks spread across one layer gap closer than a
   // worst-case chip half-box, so a full-width branch chip anywhere on the

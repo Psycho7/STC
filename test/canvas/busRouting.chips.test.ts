@@ -123,9 +123,7 @@ const shortRunBus = (
     busChipX: 180, // the drop column: 148 (agg right edge) + PORT_STUB + CHAMFER
     busChipOwner: opts.owner,
     busMemberCount: opts.memberCount,
-    ...(opts.owner
-      ? { busTotalRate: new Fraction(opts.memberCount) }
-      : {}),
+    ...(opts.owner ? { busTotalRate: new Fraction(opts.memberCount) } : {}),
     busBand: opts.band ?? ("bottom" as const),
   },
 });
@@ -1217,6 +1215,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
         fanoutBranchDx?: number;
         fanoutBranchDy?: number;
         fanoutBranchIconOnly?: true;
+        fanoutBranchScaleCap?: number;
       };
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
@@ -1253,10 +1252,17 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     expect(cx).toBeGreaterThanOrEqual(fan.junction.x);
     expect(cx).toBeLessThanOrEqual(t1.position.x - 3);
     // Clear of the split dot's keep-off square on at least one axis (half the
-    // collapsed box plus DOT_KEEPOFF), so the dot stays visible under nothing.
+    // box the chip RESERVES plus DOT_KEEPOFF -- the capped half once the
+    // corridor window is narrower than the max-scale box, #82 B4 -- so the
+    // dot stays visible under nothing the chip can draw).
+    const reservedHalf =
+      (((branchOf(out, "e0").fanoutBranchScaleCap as number | undefined) ??
+        MAX_CHIP_SCALE) *
+        ((MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2)) /
+      MAX_CHIP_SCALE;
     expect(
-      Math.abs(cx - fan.junction.x) >= 24 + 16 ||
-        Math.abs(cy - fan.junction.y) >= 24 + 16,
+      Math.abs(cx - fan.junction.x) >= reservedHalf + 16 ||
+        Math.abs(cy - fan.junction.y) >= reservedHalf + 16,
     ).toBe(true);
   });
 

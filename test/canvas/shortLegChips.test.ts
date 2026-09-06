@@ -153,9 +153,7 @@ const polylineXExtent = (
 // Three product cards in a row, each `gap` apart, and the two item edges
 // between them: a chain of two short legs whose chips sit close enough to
 // contest each other under the WIDE reserve and not under the collapsed one.
-const chainFixture = (
-  gap: number,
-): { nodes: RFAnyNode[]; edges: Edge[] } => {
+const chainFixture = (gap: number): { nodes: RFAnyNode[]; edges: Edge[] } => {
   const xs = [0, CARD_W + gap, 2 * (CARD_W + gap)];
   const nodes: RFAnyNode[] = xs.map((x, i) =>
     productNode(`n${i}`, x, CARD_Y, CARD_W, CARD_H),
@@ -306,34 +304,26 @@ describe("deconflictChipAnchors: per-chip reserved box", () => {
     }
   });
 
-  it("pins the tier-1 slide drift: a realistic-box clash slides exactly one step", () => {
-    // Same chain, but a 7-glyph body ("1234.57") widens the estimated box to
-    // 124.5px natural: two of those need 249 of centre separation against the
-    // 239 the chain provides, so the later chip must move. One 24-unit slide
-    // step buys back the 10 missing, so the stamped drift is EXACTLY one step
-    // on one chip - the fixture-level numeric pin the corpus drift
-    // re-measurements lacked.
-    const { nodes, edges } = chainFixture(130);
-    const wide = edges.map((e) => ({
-      ...e,
-      data: { ...(e.data as object), rate: new Fraction(123457, 6000) },
-    }));
-    const anchors = wide.map((e) => chipAnchorOf(nodes, e));
-    const apart = Math.abs(anchors[1]! - anchors[0]!);
-    const half = chipSeatHalfW({ body: "1234.57", unit: true }, false);
-    expect(2 * half - apart).toBeCloseTo(10, 5); // premise: 10-unit clash
-
-    const out = deconflictChipAnchors(nodes, wide);
-    const dataOf = (id: string) =>
-      out.find((e) => e.id === id)?.data as
-        | { labelDx?: number; labelDy?: number }
-        | undefined;
-    const drifts = wide.map((e) => dataOf(e.id)?.labelDx);
-    // One chip keeps its anchor, the other slides exactly one 24-unit step;
-    // nothing leaves the horizontal leg.
-    expect(drifts.filter((d) => d === undefined)).toHaveLength(1);
-    expect(drifts.filter((d) => d !== undefined && Math.abs(d) === 24)).toHaveLength(1);
-    for (const e of wide) expect(dataOf(e.id)?.labelDy).toBeUndefined();
+  it("caps a full chip's box at the corridor window narrower than 2x natural (#82)", () => {
+    // RE-PINNED from the chain-clash drift fixture: with band-subtracted
+    // reserves (B3/B4) two adjacent-corridor chips can no longer clash at all
+    // -- each reserves at most its own corridor's window, and the anchors sit
+    // a full corridor plus a card apart -- so the old "realistic boxes clash
+    // by ~10, the later chip slides one 24-unit step" shape is structurally
+    // gone (the slide's step size is pinned in chipSeating.seat.test.ts now).
+    // What this corridor shape pins instead is the B4 cap itself: the window
+    // (gap 160 - the 20 the two product bands clip out of it) holds the
+    // natural box but not the max-scale one, so the chip stays FULL and its
+    // reserved box is exactly the window.
+    const { nodes, edges } = rowFixture(160);
+    const out = deconflictChipAnchors(nodes, edges);
+    const data = out.find((e) => e.id === "e:1:src->tgt:w")!.data as
+      | { chipIconOnly?: boolean; chipScaleCap?: number }
+      | undefined;
+    expect(data?.chipIconOnly).toBeUndefined(); // full chip: window >= natural
+    const natural =
+      (2 * chipSeatHalfW({ body: "180", unit: true }, false)) / MAX_CHIP_SCALE;
+    expect(data?.chipScaleCap).toBeCloseTo(140 / natural, 5);
   });
 });
 
@@ -383,8 +373,9 @@ const drawnFanEnds = (
 });
 
 const fanDataOf = (edges: Edge[], id: string): Record<string, unknown> =>
-  (edges.find((e) => e.id === id)?.data as Record<string, unknown> | undefined) ??
-  {};
+  (edges.find((e) => e.id === id)?.data as
+    | Record<string, unknown>
+    | undefined) ?? {};
 
 // A two-member fan-out trunk in a narrow corridor: one member LEVEL with the
 // source port (its whole polyline is the straight 102-unit corridor run, the
@@ -591,9 +582,18 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     });
     const cx = fan.branchAnchor.x + ((data.fanoutBranchDx as number) ?? 0);
     const cy = fan.branchAnchor.y + ((data.fanoutBranchDy as number) ?? 0);
+    // RE-PINNED for the capped icon box (#82, B4): on this narrow leg the
+    // reserved half-width is the cap-fraction of the uncapped one, and the
+    // keep-off that matters is against the box the chip actually reserves
+    // (and draws, at any zoom, since the render counter-scale shares the cap).
+    const cappedHalf =
+      (((data.fanoutBranchScaleCap as number | undefined) ?? MAX_CHIP_SCALE) *
+        CHIP_HALF_W_ICON) /
+      MAX_CHIP_SCALE;
     expect(Math.abs(cx - fan.junction.x)).toBeGreaterThanOrEqual(
-      CHIP_HALF_W_ICON + DOT_KEEPOFF,
+      cappedHalf + DOT_KEEPOFF,
     );
+    expect(data.fanoutBranchScaleCap).toBeCloseTo(38 / 24, 5);
     // ...and it did not leave its leg to get there: the seat is on the straight
     // run between the two ports, at the port y.
     expect(cy).toBe(fan.branchAnchor.y);

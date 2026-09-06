@@ -232,35 +232,95 @@ export function chipSeatHalfW(
 
 // Does this chip's polyline lack the usable width to hold its own full box
 // anywhere on its own line -- the short-leg collapse? The measure is the
-// polyline's X-EXTENT, the horizontal run a wide box can slide along, held
+// polyline's X-EXTENT less whatever the chip's own two endpoint port bands
+// clip out of it (#82): the clear WINDOW a wide box can slide along, held
 // against the width THIS chip reserves at natural scale (the same
 // 2 * chipSeatHalfW / MAX_CHIP_SCALE quantity examChipReservations reports as
-// reservedPx). The old rule compared TOTAL ARC LENGTH against the widest chip
-// every chip draws (SHORT_LEG_MAX), which failed two ways at once: it counted
-// vertical travel a horizontal box cannot use, and it charged a narrow rate
-// text the CSS clamp's worst case. Across one 118-unit corridor the STRAIGHT
-// leg (arc 118) collapsed to its icon while its dogleg twins (arc 129 and 151,
-// each with a SHORTER horizontal run per segment) kept full chips, and a
-// "240/min" box ~96 wide collapsed on a leg that holds it. X-extent classifies
-// all three identically (118 each) while the threshold stays per chip: a
-// 28-unit leg still collapses, a wide rate text still collapses on a corridor
-// its own box outruns, and no chip without usable rate (the undefined-text
-// fallback above, CHIP_BOX_WIDTH wide) changes class -- for it the new bound
-// IS the old number. The fan-out BRANCH rule gates on the same measure over
-// the member's own leg (the suffix after the junction), where the old
-// arc-length bound additionally let the shared trunk prefix vouch for a leg
-// the chip's box outruns.
+// reservedPx). A band clips the extent only where it overlaps it, so a band
+// wholly inside the card subtracts nothing and the window is exactly the
+// gap between the two bands' outer edges -- the stretch in which a box
+// clears both ports. The old rule compared TOTAL ARC LENGTH against the
+// widest chip every chip draws (SHORT_LEG_MAX), which failed two ways at
+// once: it counted vertical travel a horizontal box cannot use, and it
+// charged a narrow rate text the CSS clamp's worst case. Across one
+// 118-unit corridor the STRAIGHT leg (arc 118) collapsed to its icon while
+// its dogleg twins (arc 129 and 151, each with a SHORTER horizontal run per
+// segment) kept full chips, and a "240/min" box ~96 wide collapsed on a leg
+// that holds it. X-extent classifies all three identically (118 each) while
+// the threshold stays per chip: a 28-unit leg still collapses, a wide rate
+// text still collapses on a corridor its own box outruns, and no chip
+// without usable rate (the undefined-text fallback above, CHIP_BOX_WIDTH
+// wide) changes class -- for it the new bound IS the old number. The fan-out
+// BRANCH rule gates on the same measure over the member's own leg (the
+// suffix after the junction), where the old arc-length bound additionally
+// let the shared trunk prefix vouch for a leg the chip's box outruns.
 export function usableWidthCollapses(
   text: ChipText | undefined,
   pts: ReadonlyArray<readonly [number, number]>,
+  ownBands: ReadonlyArray<{ lo: number; hi: number }> = [],
 ): boolean {
+  return (
+    usableWidthOf(pts, ownBands) <
+    (2 * chipSeatHalfW(text, false)) / MAX_CHIP_SCALE
+  );
+}
+
+// The widest sub-interval of the polyline's x-extent no given band reaches
+// into: the LONGEST CLEAR RUN a chip's box can slide along, as an interval.
+// Null when the points are empty. This is the placement goal's own measure
+// ("the middle of the longest straight run") and the collapse rule's: a chip
+// fits on its own line iff its natural box fits THIS span, not the extent
+// minus loose clip sums -- two disjoint gaps cannot host one box.
+export function largestClearSpan(
+  pts: ReadonlyArray<readonly [number, number]>,
+  ownBands: ReadonlyArray<{ lo: number; hi: number }>,
+): { lo: number; hi: number } | null {
   let minX = Infinity;
   let maxX = -Infinity;
   for (const [x] of pts) {
     if (x < minX) minX = x;
     if (x > maxX) maxX = x;
   }
-  return maxX - minX < (2 * chipSeatHalfW(text, false)) / MAX_CHIP_SCALE;
+  if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return null;
+  // Merge the bands' overlaps with the extent, then sweep for the widest gap.
+  const clips: Array<{ lo: number; hi: number }> = [];
+  for (const b of ownBands) {
+    const lo = Math.max(b.lo, minX);
+    const hi = Math.min(b.hi, maxX);
+    if (hi > lo) clips.push({ lo, hi });
+  }
+  clips.sort((a, b) => a.lo - b.lo);
+  let best: { lo: number; hi: number } | null = null;
+  let sweep = minX;
+  for (const c of clips) {
+    if (c.lo > sweep) {
+      if (best === null || c.lo - sweep > best.hi - best.lo)
+        best = { lo: sweep, hi: c.lo };
+    }
+    sweep = Math.max(sweep, c.hi);
+  }
+  if (maxX > sweep) {
+    if (best === null || maxX - sweep > best.hi - best.lo)
+      best = { lo: sweep, hi: maxX };
+  }
+  return best ?? { lo: minX, hi: maxX };
+}
+
+// The clear window a chip's full box can slide along: the widest clear span's
+// width (see largestClearSpan; the collapse rule and the cap both read it).
+export function usableWidthOf(
+  pts: ReadonlyArray<readonly [number, number]>,
+  ownBands: ReadonlyArray<{ lo: number; hi: number }>,
+): number {
+  const span = largestClearSpan(pts, ownBands);
+  return span === null ? 0 : span.hi - span.lo;
+}
+
+// The natural-scale width one chip's full box draws (the collapse rule's
+// threshold and the counter-scale cap's denominator). Collapsed chips have
+// no text width: their square is CHIP_BOX_HEIGHT on both axes.
+export function chipNaturalWidth(text: ChipText | undefined): number {
+  return (2 * chipSeatHalfW(text, false)) / MAX_CHIP_SCALE;
 }
 
 // The chip text a plain rate chip draws: the item edge's own rate through the
@@ -1345,17 +1405,34 @@ export function seatRateChip(
   //              unit follows it, from which the reserved half-width is
   //              estimated (chipSeatHalfW). Omitted, the seat falls back to the
   //              full CHIP_BOX_WIDTH worst case.
+  //   usableWidth: the band-subtracted clear window this chip's full box has
+  //              on its own line (B3/B4). Given, the reserve is capped at the
+  //              window -- the widest box the chip will ever DRAW at any zoom,
+  //              because the render counter-scales by the matching chipScaleCap
+  //              stamp -- so a corridor narrower than the max-scale box still
+  //              seats a capped full chip rather than collapsing or escaping.
+  //   spanCentreX: the x of the LONGEST CLEAR RUN's midpoint (phase 0's
+  //              largestClearSpan). Added to the on-line candidate list right
+  //              after the anchor and ahead of the 24-unit slide grid: on a
+  //              narrow corridor the grid steps over the one stretch the box
+  //              fits in, and this is the placement goal's own preferred point
+  //              (the middle of the longest straight run).
   opts?: {
     ownIds?: ReadonlySet<string> | undefined;
     barrierYs?: ReadonlyArray<number> | undefined;
     iconOnly?: boolean | undefined;
     text?: ChipText | undefined;
+    usableWidth?: number | undefined;
+    spanCentreX?: number | undefined;
   },
 ): RateSeat {
   const { pts, anchorX, anchorY } = path;
   const ownIds = opts?.ownIds;
   const barrierYs = opts?.barrierYs;
-  const halfW = chipSeatHalfW(opts?.text, opts?.iconOnly === true);
+  const halfW = Math.min(
+    chipSeatHalfW(opts?.text, opts?.iconOnly === true),
+    opts?.usableWidth !== undefined ? opts.usableWidth / 2 : Infinity,
+  );
   // A slide candidate crosses a barrier when it and the anchor sit on OPPOSITE
   // sides of a seated sibling (their signed offsets from it differ), i.e. the
   // slide would jump past the sibling and invert the stack. Same-side and
@@ -1494,11 +1571,26 @@ export function seatRateChip(
     return best === null || better(cand, best) ? cand : null;
   };
   // Every seat the on-line tiers may take, in the order they prefer them:
-  // along the own polyline, nearest arc-length offset first, forward before
-  // backward, with the barrier-crossing points and the off-the-arc offsets
-  // already dropped. Tier 1 and the graze tier both walk THIS list, scoring
-  // each candidate on their own terms, so the two can never drift apart in
-  // order or in reach.
+  // the anchor first (an uncrowded chip still seats there, unchanged), then
+  // the longest-clear-run centre (the analytic midpoint of the stretch the
+  // box fits in, which the coarse slide grid can step over on a narrow
+  // corridor), then the arc-length grid -- nearest offset first, forward
+  // before backward, with the barrier-crossing points and the off-the-arc
+  // offsets already dropped. Tier 1 and the graze tier both walk THIS list,
+  // scoring each candidate on their own terms, so the two can never drift
+  // apart in order or in reach.
+  const arcAtX = (wantX: number): number | null => {
+    let acc = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const [x0] = pts[i - 1]!;
+      const [x1] = pts[i]!;
+      if ((x0 <= wantX && wantX <= x1) || (x1 <= wantX && wantX <= x0)) {
+        return acc + Math.abs(wantX - x0);
+      }
+      acc += Math.hypot(x1 - x0, pts[i]![1] - pts[i - 1]![1]);
+    }
+    return null;
+  };
   const onLine: Array<readonly [number, number]> = [];
   for (let k = 0; k <= SLIDE_MAX_STEPS; k++) {
     const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
@@ -1508,6 +1600,15 @@ export function seatRateChip(
       const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
       if (crossesBarrier(py)) continue;
       onLine.push([px, py]);
+      if (k === 0 && opts?.spanCentreX !== undefined) {
+        // Inserted once, right after the anchor: the span centre shares the
+        // anchor's tier preference and outranks every grid step.
+        const arc = arcAtX(opts.spanCentreX);
+        if (arc !== null && Math.abs(arc - anchorLen) > 1e-9) {
+          const [sx, sy] = pathPointAtPts(pts, total === 0 ? 0 : arc / total);
+          if (!crossesBarrier(sy)) onLine.push([sx, sy]);
+        }
+      }
     }
   }
   // Tier 1: the slide over the FULLY clear points of the own line. Tier 1b
@@ -1978,6 +2079,37 @@ export function deconflictChipAnchors(
   // loop stamps the same verdict, so the box that was reserved is the box that
   // gets drawn.
   const branchIconOnlyByIndex = new Set<number>();
+  // The clear window each chip's full box has on its own line, band-subtracted
+  // (B3): drives both the collapse verdicts above and, below, the per-chip
+  // counter-scale cap and the seat's capped reserve (B4). Keyed for item edges
+  // and fan-out branch legs; lane seats measure nothing (a lane run is the
+  // lane's, not a corridor).
+  const usableWidthByIndex = new Map<number, number>();
+  // The centre of each chip's LONGEST CLEAR RUN (largestClearSpan), handed to
+  // the seat as a preferred candidate (#82's placement goal: the middle of the
+  // longest straight run). Keyed beside usableWidthByIndex, same membership.
+  const spanCentreByIndex = new Map<number, number>();
+  // The drawn card rects a chip's box must stay clear of, in the drawn frame
+  // (see cardRectsFor). HOISTED above the reconstruction loop: the per-edge
+  // usable-width verdicts read the own endpoint bands here, so the cards exist
+  // before the first chip seats; the field below consumes the same array.
+  const cards: CardRect[] = cardRectsFor(nodes, byId);
+  const cardsById = new Map(cards.map((c) => [c.id, c] as const));
+  // The x-ranges of an edge's two own endpoint port bands, the B3 subtraction
+  // term. Resolved off the hoisted card map; an endpoint missing from the node
+  // map contributes nothing (the reconstruction skips such edges anyway).
+  const ownPortBandXs = (edge: Edge): Array<{ lo: number; hi: number }> => {
+    const out: Array<{ lo: number; hi: number }> = [];
+    const push = (nodeId: string, side: PortZoneSide): void => {
+      const card = cardsById.get(nodeId);
+      if (card === undefined) return;
+      const band = portKeepOutRect(card, side);
+      out.push({ lo: band.left, hi: band.right });
+    };
+    push(edge.source, "source");
+    push(edge.target, "target");
+    return out;
+  };
   edges.forEach((edge, index) => {
     if (edge.type !== "item" && edge.type !== "bus") return;
     const ends = edgeEndpoints(edge, byId);
@@ -2009,15 +2141,26 @@ export function deconflictChipAnchors(
       });
       // The branch short-leg gate reads the member's OWN leg, never the
       // trunk-including polyline: the whole-polyline arc length let a long
-      // shared trunk vouch for a 13-unit riser's full box (Task 8). A contested
+      // shared trunk vouch for a 13-unit riser's full box (Task 8). The window
+      // subtracts the leg's own port bands AND the split dot's keep-off (#82):
+      // the branch chip must fit BETWEEN the split and the target's furniture,
+      // and the dot belongs to the trunk side of the junction. A contested
       // corridor collapses the chip too: the wide box reaches the sibling
       // trunk's column from every seat there, which is why no full seat can
       // clear the sibling stroke.
+      const bands = ownPortBandXs(edge);
+      bands.push({ lo: -Infinity, hi: fan.junction.x + DOT_KEEPOFF });
+      const branchSpan = largestClearSpan(branchPts, bands);
+      const usableBranch =
+        branchSpan === null ? 0 : branchSpan.hi - branchSpan.lo;
       if (
-        usableWidthCollapses(branchChipText(edge), branchPts) ||
+        usableBranch < chipNaturalWidth(branchChipText(edge)) ||
         (edge.data as FanoutBusEdgeData).fanoutContested === true
       )
         branchIconOnlyByIndex.add(index);
+      usableWidthByIndex.set(index, usableBranch);
+      if (branchSpan !== null)
+        spanCentreByIndex.set(index, (branchSpan.lo + branchSpan.hi) / 2);
     } else if (edge.type === "bus") {
       // Narrow the union on `"laneY" in` (the same discriminant laneBands and the
       // census helpers use) rather than a bare LaneBusEdgeData cast: it does not
@@ -2052,8 +2195,17 @@ export function deconflictChipAnchors(
       d = path;
       const itemPts = parsePathPoints(d);
       itemGeomByIndex.set(index, { pts: itemPts, lx, ly });
-      if (usableWidthCollapses(rateChipText(edge), itemPts))
+      // The item short-leg gate on the same band-subtracted window (#82):
+      // what counts is the stretch in which the box clears BOTH ports'
+      // furniture, not the bare port-to-port extent.
+      const bands = ownPortBandXs(edge);
+      const itemSpan = largestClearSpan(itemPts, bands);
+      const usableItem = itemSpan === null ? 0 : itemSpan.hi - itemSpan.lo;
+      if (usableItem < chipNaturalWidth(rateChipText(edge)))
         shortLegByIndex.add(index);
+      usableWidthByIndex.set(index, usableItem);
+      if (itemSpan !== null)
+        spanCentreByIndex.set(index, (itemSpan.lo + itemSpan.hi) / 2);
     }
     const pts = itemGeomByIndex.get(index)?.pts ?? parsePathPoints(d);
     const segs: Array<readonly [number, number, number, number]> = [];
@@ -2185,10 +2337,11 @@ export function deconflictChipAnchors(
     }
   }
 
-  // The raw card rects a chip's box must stay clear of, in the drawn frame (see
-  // cardRectsFor). The per-edge exemption below (own source, target, and their
-  // containers) is the same one the chip/card audit applies.
-  const cards: CardRect[] = cardRectsFor(nodes, byId);
+  // The raw card rects a chip's box must stay clear of: hoisted above the
+  // reconstruction loop (usableWidthByIndex reads the endpoint bands there);
+  // this is where the exemption the seats consult them through is built. The
+  // per-edge exemption below (own source, target, and their containers) is the
+  // same one the chip/card audit applies.
   // The card exemption for an edge's chips: its own source / target cards get a
   // port-adjacent zone (issue #10, exempt while the chip centre stays in the port
   // strip), their containing groups (one parentId level, same as the audit's
@@ -3011,6 +3164,8 @@ export function deconflictChipAnchors(
         // have cleared.
         iconOnly: branchIconOnlyByIndex.has(index),
         text: branchChipText(edge),
+        usableWidth: usableWidthByIndex.get(index),
+        spanCentreX: spanCentreByIndex.get(index),
       },
     );
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
@@ -3082,6 +3237,8 @@ export function deconflictChipAnchors(
         // rather than the wide worst case it never draws.
         iconOnly: shortLegByIndex.has(index),
         text: rateChipText(edge),
+        usableWidth: usableWidthByIndex.get(index),
+        spanCentreX: spanCentreByIndex.get(index),
       },
     );
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
@@ -3128,6 +3285,7 @@ export function deconflictChipAnchors(
       | "labelDx"
       | "labelDy"
       | "chipIconOnly"
+      | "chipScaleCap"
       | "faninJunctionX"
       | "faninJunctionY"
       | "faninChipHidden"
@@ -3147,6 +3305,7 @@ export function deconflictChipAnchors(
         | "fanoutBranchDx"
         | "fanoutBranchDy"
         | "fanoutBranchIconOnly"
+        | "fanoutBranchScaleCap"
         | "fanoutBranchHidden"
         | "fanoutBranchHiddenAt"
       >
@@ -3169,6 +3328,27 @@ export function deconflictChipAnchors(
     stamp("labelDy", labelDyByIndex.get(index));
     stamp("labelDx", labelDxByIndex.get(index));
     if (shortLegByIndex.has(index)) patch.chipIconOnly = true;
+    // The per-chip counter-scale cap (B4): clamp(window / natural, 1, MAX) for
+    // whichever box THIS chip draws -- the full text box, or the icon square
+    // once collapsed. Stamped only when it binds (below MAX), so an uncapped
+    // chip reads absent and the render's default cap applies.
+    {
+      const usable = usableWidthByIndex.get(index);
+      if (usable !== undefined) {
+        const collapsed =
+          shortLegByIndex.has(index) || branchIconOnlyByIndex.has(index);
+        const natural = collapsed
+          ? CHIP_BOX_HEIGHT
+          : chipNaturalWidth(
+              edge.type === "item" ? rateChipText(edge) : branchChipText(edge),
+            );
+        const cap = Math.min(MAX_CHIP_SCALE, Math.max(1, usable / natural));
+        if (cap < MAX_CHIP_SCALE) {
+          if (fanoutGeomByIndex.has(index)) patch.fanoutBranchScaleCap = cap;
+          else patch.chipScaleCap = cap;
+        }
+      }
+    }
     stamp("busDropDy", busDropDyByIndex.get(index));
     stamp("busChipDy", busChipDyByIndex.get(index));
     // The clamped rise slot REPLACES routeBusEdges' trunk-wide one, so
