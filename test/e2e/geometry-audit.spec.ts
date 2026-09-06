@@ -66,7 +66,6 @@ async function waitForCanvasReady(page: Page): Promise<void> {
   await expect(anyNode).toBeVisible({ timeout: 30_000 });
 }
 
-
 // Strict interpenetration on both axes, beyond the abutment epsilon.
 function overlapPx(
   a: AuditChipRect,
@@ -92,25 +91,52 @@ const AUDIT_SCENARIOS = [...SCENARIOS, ...extraScenariosFromEnv()];
 // The fixed corpus, which every table below is required to pin in full.
 const FIXED_IDS = new Set(SCENARIOS.map((s) => s.id));
 
+// The two bus-lanes render modes every describe below runs in. "off" is the
+// fresh-browser default (no stored aef.busLanes key reads as off); "on" is what
+// the audit corpus had pinned exclusively until the mode dimension landed.
+type LaneMode = "on" | "off";
+const LANE_MODES: readonly LaneMode[] = ["on", "off"];
+
+// NOTE on the two mode sub-tables every baseline below now carries: they are
+// INDEPENDENT measurements of two different renders, not one measurement and a
+// derived variant. The off render routes a different edge set (no lane stamps,
+// and before the off-fan-out fix no fan-out stamps either), seats its chips
+// against a different obstacle field, and lands at a different fit zoom, so an
+// off cell is never justified by its on sibling -- neither inherited from it
+// nor ratcheted against it. Each off cell states its own measured actual, and
+// the standing convention (down freely, up only on a recorded ruling) applies
+// within a mode, never across the two.
+// The off arm is seeded at zero while the first measurement is pending: a zero
+// seed FAILS against any nonzero actual rather than silently passing, so the
+// write-then-compare measurement pass can read the actuals straight out of the
+// failure messages. Derived from the on arm's KEY SET, not its values, so every
+// fixed-corpus scenario stays keyed in both arms by construction.
+function zeroedOffArm(on: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(Object.keys(on).map((k) => [k, 0]));
+}
+
 // A baseline read that tolerates a scenario the table does not pin. Returns null
 // and records why, so the caller can leave that one ratchet unasserted while the
 // rest of the test runs. Only a rotating id earns that tolerance: a fixed-corpus
 // id with no entry means the table lost a row, so it throws instead of quietly
 // downgrading its own membership guard to a skip.
 function baselineFor(
-  table: Record<string, number>,
+  table: Record<LaneMode, Record<string, number>>,
   tableName: string,
   scenarioId: string,
+  mode: LaneMode,
   unpinned: string[],
 ): number | null {
-  const pinned = table[scenarioId];
+  const pinned = table[mode][scenarioId];
   if (pinned === undefined) {
     if (FIXED_IDS.has(scenarioId))
       throw new Error(
-        `${tableName} has no entry for fixed-corpus scenario "${scenarioId}": ` +
-          `every SCENARIOS id must stay pinned in every baseline table`,
+        `${tableName}[${mode}] has no entry for fixed-corpus scenario "${scenarioId}": ` +
+          `every SCENARIOS id must stay pinned in every baseline table, in both modes`,
       );
-    unpinned.push(`${scenarioId} has no ${tableName} entry (rotating plan)`);
+    unpinned.push(
+      `${scenarioId} has no ${tableName}[${mode}] entry (rotating plan)`,
+    );
     return null;
   }
   return pinned;
@@ -127,145 +153,149 @@ function skipUnpinnedRatchets(unpinned: string[]): void {
 }
 
 test.describe("DOM geometry audit", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      window.localStorage.setItem("aef.locale", "en");
-      // The audit corpus polices the bus machinery, so every spec opts the
-      // toggle on explicitly; the app default (off since the bus-lanes flip)
-      // is a product decision this suite does not re-test.
-      window.localStorage.setItem("aef.busLanes", "on");
-    });
-  });
+  for (const mode of LANE_MODES) {
+    test.describe(`lanes ${mode}`, () => {
+      test.beforeEach(async ({ page }) => {
+        // The mode travels as an ARGUMENT, not a captured constant:
+        // page.addInitScript serialises the callback source and evaluates it in
+        // the page, so nothing from this module's scope reaches it.
+        await page.addInitScript((busLanes: string) => {
+          window.localStorage.setItem("aef.locale", "en");
+          window.localStorage.setItem("aef.busLanes", busLanes);
+        }, mode);
+      });
 
-  for (const scenario of AUDIT_SCENARIOS) {
-    test(scenario.id, async ({ page }) => {
-      const hash = await scenarioHash(scenario);
-      await page.goto(`/#${hash}`, { waitUntil: "load" });
-      await waitForCanvasReady(page);
-      await waitForWebfonts(page);
-      await waitForStableViewport(page);
+      for (const scenario of AUDIT_SCENARIOS) {
+        test(scenario.id, async ({ page }) => {
+          const hash = await scenarioHash(scenario);
+          await page.goto(`/#${hash}`, { waitUntil: "load" });
+          await waitForCanvasReady(page);
+          await waitForWebfonts(page);
+          await waitForStableViewport(page);
 
-      const {
-        chips,
-        rows,
-        multPairs,
-        recipeNodeCount,
-        containerRect,
-        flowChipZ,
-        busJunctionZ,
-      } = await page.evaluate(collectAudit);
+          const {
+            chips,
+            rows,
+            multPairs,
+            recipeNodeCount,
+            containerRect,
+            flowChipZ,
+            busJunctionZ,
+          } = await page.evaluate(collectAudit);
 
-      // (a) Zero pairwise chip overlaps. Collect the full inventory so one run
-      // reports every offending pair, not just the first.
-      const overlaps: string[] = [];
-      for (let i = 0; i < chips.length; i++) {
-        for (let j = i + 1; j < chips.length; j++) {
-          const hit = overlapPx(chips[i]!, chips[j]!);
-          if (hit !== null) {
-            overlaps.push(
-              `"${chips[i]!.label}" ${fmtRect(chips[i]!)} vs ` +
-                `"${chips[j]!.label}" ${fmtRect(chips[j]!)} ` +
-                `overlap ${hit.dx.toFixed(1)}x${hit.dy.toFixed(1)}px`,
-            );
+          // (a) Zero pairwise chip overlaps. Collect the full inventory so one run
+          // reports every offending pair, not just the first.
+          const overlaps: string[] = [];
+          for (let i = 0; i < chips.length; i++) {
+            for (let j = i + 1; j < chips.length; j++) {
+              const hit = overlapPx(chips[i]!, chips[j]!);
+              if (hit !== null) {
+                overlaps.push(
+                  `"${chips[i]!.label}" ${fmtRect(chips[i]!)} vs ` +
+                    `"${chips[j]!.label}" ${fmtRect(chips[j]!)} ` +
+                    `overlap ${hit.dx.toFixed(1)}x${hit.dy.toFixed(1)}px`,
+                );
+              }
+            }
           }
-        }
-      }
 
-      // (a2) Every chip sits inside the visible pane at fit zoom. fitBounds
-      // frames the node cards PLUS the seated chip extents (contentBounds), so a
-      // chip cascaded below the deepest lane band or nudged past a card edge is
-      // inside the viewport instead of clipped at the rim. A chip whose box pokes
-      // past any container edge by more than the epsilon is clipped.
-      const clipped: string[] = [];
-      for (const c of chips) {
-        const dxOut = Math.max(
-          containerRect.x - c.x,
-          c.right - containerRect.right,
-        );
-        const dyOut = Math.max(
-          containerRect.y - c.y,
-          c.bottom - containerRect.bottom,
-        );
-        if (dxOut > OVERLAP_EPS_PX || dyOut > OVERLAP_EPS_PX) {
-          clipped.push(
-            `"${c.label}" ${fmtRect(c)} pokes past the pane ` +
-              `[${containerRect.x.toFixed(1)},${containerRect.y.toFixed(1)} ` +
-              `${containerRect.right.toFixed(1)}x${containerRect.bottom.toFixed(1)}] ` +
-              `by ${Math.max(0, dxOut).toFixed(1)}x${Math.max(0, dyOut).toFixed(1)}px`,
-          );
-        }
-      }
+          // (a2) Every chip sits inside the visible pane at fit zoom. fitBounds
+          // frames the node cards PLUS the seated chip extents (contentBounds), so a
+          // chip cascaded below the deepest lane band or nudged past a card edge is
+          // inside the viewport instead of clipped at the rim. A chip whose box pokes
+          // past any container edge by more than the epsilon is clipped.
+          const clipped: string[] = [];
+          for (const c of chips) {
+            const dxOut = Math.max(
+              containerRect.x - c.x,
+              c.right - containerRect.right,
+            );
+            const dyOut = Math.max(
+              containerRect.y - c.y,
+              c.bottom - containerRect.bottom,
+            );
+            if (dxOut > OVERLAP_EPS_PX || dyOut > OVERLAP_EPS_PX) {
+              clipped.push(
+                `"${c.label}" ${fmtRect(c)} pokes past the pane ` +
+                  `[${containerRect.x.toFixed(1)},${containerRect.y.toFixed(1)} ` +
+                  `${containerRect.right.toFixed(1)}x${containerRect.bottom.toFixed(1)}] ` +
+                  `by ${Math.max(0, dxOut).toFixed(1)}x${Math.max(0, dyOut).toFixed(1)}px`,
+              );
+            }
+          }
 
-      // (b) Every row handle centred on its row (vertical axis).
-      const offCenter: string[] = [];
-      for (const row of rows) {
-        if (row.handleCenterY === null) {
-          offCenter.push(
-            `${row.nodeId} row "${row.item}" (${row.rowClass}) has no handle`,
-          );
-          continue;
-        }
-        const delta = Math.abs(row.handleCenterY - row.rowCenterY);
-        if (delta > HANDLE_CENTER_TOL_PX) {
-          offCenter.push(
-            `${row.nodeId} row "${row.item}" (${row.rowClass}) ` +
-              `handle centre off by ${delta.toFixed(2)}px ` +
-              `(row ${row.rowCenterY.toFixed(1)}, handle ${row.handleCenterY.toFixed(1)})`,
-          );
-        }
-      }
+          // (b) Every row handle centred on its row (vertical axis).
+          const offCenter: string[] = [];
+          for (const row of rows) {
+            if (row.handleCenterY === null) {
+              offCenter.push(
+                `${row.nodeId} row "${row.item}" (${row.rowClass}) has no handle`,
+              );
+              continue;
+            }
+            const delta = Math.abs(row.handleCenterY - row.rowCenterY);
+            if (delta > HANDLE_CENTER_TOL_PX) {
+              offCenter.push(
+                `${row.nodeId} row "${row.item}" (${row.rowClass}) ` +
+                  `handle centre off by ${delta.toFixed(2)}px ` +
+                  `(row ${row.rowCenterY.toFixed(1)}, handle ${row.handleCenterY.toFixed(1)})`,
+              );
+            }
+          }
 
-      // (c) The machine-multiplier chip and the rate block never overlap. The
-      // promoted header cell replaced the old absolute .rn-mult-badge overlay
-      // (audit issue 5); the two boxes must stay disjoint on every node that
-      // shows a chip.
-      const chipCollisions: string[] = [];
-      for (const pair of multPairs) {
-        const hit = overlapPx(pair.chip, pair.rate);
-        if (hit !== null) {
-          chipCollisions.push(
-            `${pair.nodeId}: mult-chip ${fmtRect(pair.chip)} overlaps ` +
-              `rate-block ${fmtRect(pair.rate)} by ` +
-              `${hit.dx.toFixed(1)}x${hit.dy.toFixed(1)}px`,
-          );
-        }
-      }
+          // (c) The machine-multiplier chip and the rate block never overlap. The
+          // promoted header cell replaced the old absolute .rn-mult-badge overlay
+          // (audit issue 5); the two boxes must stay disjoint on every node that
+          // shows a chip.
+          const chipCollisions: string[] = [];
+          for (const pair of multPairs) {
+            const hit = overlapPx(pair.chip, pair.rate);
+            if (hit !== null) {
+              chipCollisions.push(
+                `${pair.nodeId}: mult-chip ${fmtRect(pair.chip)} overlaps ` +
+                  `rate-block ${fmtRect(pair.rate)} by ` +
+                  `${hit.dx.toFixed(1)}x${hit.dy.toFixed(1)}px`,
+              );
+            }
+          }
 
-      // Handle centring is a per-node CSS invariant independent of chip layout;
-      // assert it first so that if a scenario also has chip overlaps, reaching
-      // the overlap assertion still confirms the handles were centred.
-      expect(
-        offCenter,
-        `${scenario.id}: ${offCenter.length} off-centre handle(s) among ${rows.length} rows in ${recipeNodeCount} recipe node(s):\n${offCenter.join("\n")}`,
-      ).toEqual([]);
-      expect(
-        chipCollisions,
-        `${scenario.id}: ${chipCollisions.length} mult-chip/rate-block overlap(s) among ${multPairs.length} chipped node(s):\n${chipCollisions.join("\n")}`,
-      ).toEqual([]);
-      expect(
-        overlaps,
-        `${scenario.id}: ${overlaps.length} chip overlap(s) among ${chips.length} chips:\n${overlaps.join("\n")}`,
-      ).toEqual([]);
-      expect(
-        clipped,
-        `${scenario.id}: ${clipped.length} chip(s) clipped outside the pane among ${chips.length} chips:\n${clipped.join("\n")}`,
-      ).toEqual([]);
+          // Handle centring is a per-node CSS invariant independent of chip layout;
+          // assert it first so that if a scenario also has chip overlaps, reaching
+          // the overlap assertion still confirms the handles were centred.
+          expect(
+            offCenter,
+            `${scenario.id}: ${offCenter.length} off-centre handle(s) among ${rows.length} rows in ${recipeNodeCount} recipe node(s):\n${offCenter.join("\n")}`,
+          ).toEqual([]);
+          expect(
+            chipCollisions,
+            `${scenario.id}: ${chipCollisions.length} mult-chip/rate-block overlap(s) among ${multPairs.length} chipped node(s):\n${chipCollisions.join("\n")}`,
+          ).toEqual([]);
+          expect(
+            overlaps,
+            `${scenario.id}: ${overlaps.length} chip overlap(s) among ${chips.length} chips:\n${overlaps.join("\n")}`,
+          ).toEqual([]);
+          expect(
+            clipped,
+            `${scenario.id}: ${clipped.length} chip(s) clipped outside the pane among ${chips.length} chips:\n${clipped.join("\n")}`,
+          ).toEqual([]);
 
-      // (d2) Flow chips paint ABOVE bus junction dots. Both are portaled into
-      // the shared .react-flow__edgelabel-renderer stacking context, and a chip
-      // counter-scales up to 2x about its centre, so an enlarged aggregate chip
-      // envelops the world-fixed dot. The dot is decorative (aria-hidden); the
-      // chip carries the digits, so it must win. A strict order is required: the
-      // lowest chip z-index must exceed the highest dot z-index, or a sibling
-      // member edge's dot could still paint over the owner's chip on DOM order.
-      // Only asserted where a scenario renders both.
-      if (flowChipZ.length > 0 && busJunctionZ.length > 0) {
-        const minChipZ = Math.min(...flowChipZ);
-        const maxDotZ = Math.max(...busJunctionZ);
-        expect(
-          minChipZ,
-          `${scenario.id}: flow-chip z-index (min ${minChipZ}) must be strictly above bus-junction z-index (max ${maxDotZ}) among ${flowChipZ.length} chips and ${busJunctionZ.length} junction dots`,
-        ).toBeGreaterThan(maxDotZ);
+          // (d2) Flow chips paint ABOVE bus junction dots. Both are portaled into
+          // the shared .react-flow__edgelabel-renderer stacking context, and a chip
+          // counter-scales up to 2x about its centre, so an enlarged aggregate chip
+          // envelops the world-fixed dot. The dot is decorative (aria-hidden); the
+          // chip carries the digits, so it must win. A strict order is required: the
+          // lowest chip z-index must exceed the highest dot z-index, or a sibling
+          // member edge's dot could still paint over the owner's chip on DOM order.
+          // Only asserted where a scenario renders both.
+          if (flowChipZ.length > 0 && busJunctionZ.length > 0) {
+            const minChipZ = Math.min(...flowChipZ);
+            const maxDotZ = Math.max(...busJunctionZ);
+            expect(
+              minChipZ,
+              `${scenario.id}: flow-chip z-index (min ${minChipZ}) must be strictly above bus-junction z-index (max ${maxDotZ}) among ${flowChipZ.length} chips and ${busJunctionZ.length} junction dots`,
+            ).toBeGreaterThan(maxDotZ);
+          }
+        });
       }
     });
   }
@@ -581,7 +611,7 @@ test.describe("DOM geometry audit", () => {
 // First recordings for the two exam-surfaced scenarios (campaign-first
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): rot-bottled_food_3 3, rot-bottled_food_4 22.
-const CROSSING_BASELINE: Record<string, number> = {
+const CROSSING_BASELINE_ON: Record<string, number> = {
   default: 4, // 9 -> 4, Task 7 y-window re-measure
   // 8 -> 9 at the exam-surfaced R4 re-measure (declared output rows flip the
   // copper_nugget ports; ratified 2026-09-04). 9 -> 13 at R9 (2026-09-04):
@@ -602,6 +632,10 @@ const CROSSING_BASELINE: Record<string, number> = {
   // multi6.
   "rot-bottled_food_3": 5, // 3 -> 5 at R9, same cause as battery5
   "rot-bottled_food_4": 20, // 22 -> 20, Task 7
+};
+const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: CROSSING_BASELINE_ON,
+  off: zeroedOffArm(CROSSING_BASELINE_ON),
 };
 
 // Padding-graze baseline (tier 3): segments that clip only a foreign card's
@@ -642,7 +676,7 @@ const CROSSING_BASELINE: Record<string, number> = {
 // the campaign): rot-bottled_food_3 2 (one plant_moss_3 drop column grazing
 // two cards' padding), rot-bottled_food_4 1 (an iron_ore tap approach into
 // loop:plant_grass_1).
-const PADDED_GRAZE_BASELINE: Record<string, number> = {
+const PADDED_GRAZE_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 1,
   "battery5-xiranite": 0,
@@ -655,6 +689,10 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
   "gas-web": 1,
   "rot-bottled_food_3": 0, // 2 -> 0, Task 7
   "rot-bottled_food_4": 1,
+};
+const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: PADDED_GRAZE_BASELINE_ON,
+  off: zeroedOffArm(PADDED_GRAZE_BASELINE_ON),
 };
 
 // P3 chip-tier ratchets. Chip seating follows the ratified priority order:
@@ -724,7 +762,7 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): rot-bottled_food_3 2, rot-bottled_food_4 2 -- the same
 // full-height column passing under label chips family as above.
-const CHIP_SEGMENT_BASELINE: Record<string, number> = {
+const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 3,
   "battery5-xiranite": 0, // 15 -> 0, Task 7
@@ -745,6 +783,10 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   "gas-web": 8,
   "rot-bottled_food_3": 0, // 2 -> 0, Task 7
   "rot-bottled_food_4": 2,
+};
+const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: CHIP_SEGMENT_BASELINE_ON,
+  off: zeroedOffArm(CHIP_SEGMENT_BASELINE_ON),
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
 // candidates all overlap a card, so card-hardness pushes its seat off the line.
@@ -791,7 +833,7 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // First recordings for the two exam-surfaced scenarios (campaign-first
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero, no label chip leaves its own polyline on either.
-const CHIP_OFFPATH_BASELINE: Record<string, number> = {
+const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 0, // 2 -> 0, Task 7
   "battery5-xiranite": 0, // 2 -> 0, Task 7
@@ -804,6 +846,10 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+};
+const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: CHIP_OFFPATH_BASELINE_ON,
+  off: zeroedOffArm(CHIP_OFFPATH_BASELINE_ON),
 };
 
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
@@ -831,7 +877,7 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
 // First recordings for the two exam-surfaced scenarios (campaign-first
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero.
-const OWN_PIERCE_BASELINE: Record<string, number> = {
+const OWN_PIERCE_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
@@ -844,7 +890,10 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
-
+};
+const OWN_PIERCE_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: OWN_PIERCE_BASELINE_ON,
+  off: zeroedOffArm(OWN_PIERCE_BASELINE_ON),
 };
 
 // Frame-ride ratchet (Task 7, loop-backedge-braids-container family): edge
@@ -876,7 +925,7 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // bottled_food_4 cell re-measured unchanged in the same pass: e:12 is a
 // forward jog descent, not a return column, and no fix in this family moves
 // it; it stays the sole recorded residue.
-const FRAME_RIDE_BASELINE: Record<string, number> = {
+const FRAME_RIDE_BASELINE_ON: Record<string, number> = {
   default: 0,
   // 1 -> 0, round-2 per-side bands (e:9); first recording was Task 7.
   battery5: 0,
@@ -894,7 +943,10 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
   // scoped itself to backward edges: the e:12 descent is a forward tap's
   // entry column, the shape the convention doc exempts.
   "rot-bottled_food_4": 0,
-
+};
+const FRAME_RIDE_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: FRAME_RIDE_BASELINE_ON,
+  off: zeroedOffArm(FRAME_RIDE_BASELINE_ON),
 };
 
 // Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
@@ -961,7 +1013,7 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): rot-bottled_food_3 1 and rot-bottled_food_4 1, both a bus
 // rise chip covering its own junction dot.
-const DOT_COVER_BASELINE: Record<string, number> = {
+const DOT_COVER_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 1,
   "battery5-xiranite": 0, // 1 -> 0, Task 7
@@ -983,6 +1035,10 @@ const DOT_COVER_BASELINE: Record<string, number> = {
   // of the split dot it used to bury from the trunk side.
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 1,
+};
+const DOT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: DOT_COVER_BASELINE_ON,
+  off: zeroedOffArm(DOT_COVER_BASELINE_ON),
 };
 
 // Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
@@ -1022,7 +1078,7 @@ const DOT_COVER_BASELINE: Record<string, number> = {
 // exam-surfaced-families Task 0, re-measurable within the campaign) measured
 // the same residue and take the same flat 0.5 pin: rot-bottled_food_3 0.001
 // (38 endpoints), rot-bottled_food_4 0.003 (42).
-const ENDPOINT_PARITY_TOL: Record<string, number> = {
+const ENDPOINT_PARITY_TOL_ON: Record<string, number> = {
   default: 0.5,
   battery5: 0.5,
   "battery5-xiranite": 0.5,
@@ -1035,6 +1091,12 @@ const ENDPOINT_PARITY_TOL: Record<string, number> = {
   "gas-web": 0.5,
   "rot-bottled_food_3": 0.5,
   "rot-bottled_food_4": 0.5,
+};
+// The off arm is a TOLERANCE table, so the zero seed is a placeholder that
+// will fail on first measurement until it takes the same measured flat pin.
+const ENDPOINT_PARITY_TOL: Record<LaneMode, Record<string, number>> = {
+  on: ENDPOINT_PARITY_TOL_ON,
+  off: zeroedOffArm(ENDPOINT_PARITY_TOL_ON),
 };
 
 async function loadScenario(page: Page, hash: string): Promise<void> {
@@ -1095,377 +1157,394 @@ async function collectBandTags(page: Page): Promise<BandTagRect[]> {
 }
 
 test.describe("segment placement audit", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      window.localStorage.setItem("aef.locale", "en");
-      window.localStorage.setItem("aef.busLanes", "on");
-    });
-  });
+  for (const mode of LANE_MODES) {
+    test.describe(`lanes ${mode}`, () => {
+      test.beforeEach(async ({ page }) => {
+        await page.addInitScript((busLanes: string) => {
+          window.localStorage.setItem("aef.locale", "en");
+          window.localStorage.setItem("aef.busLanes", busLanes);
+        }, mode);
+      });
 
-  for (const scenario of AUDIT_SCENARIOS) {
-    test(scenario.id, async ({ page }) => {
-      const unpinned: string[] = [];
-      const hash = await scenarioHash(scenario);
-      await loadScenario(page, hash);
+      for (const scenario of AUDIT_SCENARIOS) {
+        test(scenario.id, async ({ page }) => {
+          const unpinned: string[] = [];
+          const hash = await scenarioHash(scenario);
+          await loadScenario(page, hash);
 
-      const geom = await page.evaluate(collectGeometry);
-      const rawEdges = toRawEdges(geom.edges);
-      const nodes: NodeRect[] = geom.nodes.map((n) => ({
-        nodeId: n.nodeId,
-        type: n.type,
-        left: n.left,
-        top: n.top,
-        right: n.right,
-        bottom: n.bottom,
-      }));
+          const geom = await page.evaluate(collectGeometry);
+          const rawEdges = toRawEdges(geom.edges);
+          const nodes: NodeRect[] = geom.nodes.map((n) => ({
+            nodeId: n.nodeId,
+            type: n.type,
+            left: n.left,
+            top: n.top,
+            right: n.right,
+            bottom: n.bottom,
+          }));
 
-      // Every criterion below asserts SOFT so a failing tier never hides the
-      // others: the census and detour bound are still evaluated (and reported)
-      // even when a card tier is red.
+          // Every criterion below asserts SOFT so a failing tier never hides the
+          // others: the census and detour bound are still evaluated (and reported)
+          // even when a card tier is red.
 
-      const violations = auditSegmentsVsCards(rawEdges, nodes);
+          const violations = auditSegmentsVsCards(rawEdges, nodes);
 
-      // Tier 1 (HARD gate): zero segments entering a foreign RAW card box.
-      const rawHits = violations.filter((v) => v.raw);
-      const rawInventory = rawHits.map(
-        (v) => `  ${v.edgeId} seg ${fmtSeg(v.seg)} pierces RAW card ${v.card}`,
-      );
-      expect
-        .soft(
-          rawHits.length,
-          `${scenario.id}: ${rawHits.length} RAW segment/card intersection(s):\n${rawInventory.join("\n")}`,
-        )
-        .toBe(0);
-
-      // Tier 2 (SOFT ratchet): segments entering a foreign edge's chip box stay
-      // at or below the per-scenario baseline. Zero on the sparse plans; the 2B
-      // anchor trades a bounded set of line-occlusions on the packed plans (see
-      // CHIP_SEGMENT_BASELINE) for the chip/card clearance the next tier checks.
-      const chips = geom.chips as ChipRect[];
-      const chipHits = auditSegmentsVsChips(rawEdges, chips, nodes);
-      const chipInventory = chipHits.map(
-        (v) =>
-          `  ${v.edgeId} seg ${fmtSeg(v.seg)} pierces chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
-      );
-      const chipSegBaseline = baselineFor(
-        CHIP_SEGMENT_BASELINE,
-        "CHIP_SEGMENT_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (chipSegBaseline !== null) {
-        expect
-          .soft(
-            chipHits.length,
-            `${scenario.id}: ${chipHits.length} segment/chip intersection(s) exceeds baseline ${chipSegBaseline} among ${geom.chips.length} chips:\n${chipInventory.join("\n")}`,
-          )
-          .toBeLessThanOrEqual(chipSegBaseline);
-      }
-
-      // Tier 4 (P3). Chip-vs-card is the RATIFIED HARD gate: zero chip boxes
-      // entering a FOREIGN raw card, on every scenario. The seating pass
-      // upholds it by priority order -- when the on-line slide cannot clear,
-      // the escape cascade treats cards (like chips) as hard obstacles and
-      // yields the softer preferences instead (on-own-line, foreign-line
-      // clearance), which are the ratcheted residues asserted after it.
-      const chipCardHits = auditChipsVsCards(chips, rawEdges, nodes);
-      const chipCardInventory = chipCardHits.map(
-        (v) =>
-          `  ${v.chipKind} chip of ${v.chipEdgeId} ("${v.chipLabel}") enters RAW card ${v.card}`,
-      );
-      expect
-        .soft(
-          chipCardHits.length,
-          `${scenario.id}: ${chipCardHits.length} chip/card intersection(s) among ${chips.length} chips:\n${chipCardInventory.join("\n")}`,
-        )
-        .toBe(0);
-
-      const offPath = auditChipsOnOwnPath(chips, rawEdges);
-      const offPathInventory = offPath.map(
-        (v) =>
-          `  chip of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its polyline`,
-      );
-      const offPathBaseline = baselineFor(
-        CHIP_OFFPATH_BASELINE,
-        "CHIP_OFFPATH_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (offPathBaseline !== null) {
-        expect
-          .soft(
-            offPath.length,
-            `${scenario.id}: ${offPath.length} label chip(s) off their own polyline exceeds baseline ${offPathBaseline}:\n${offPathInventory.join("\n")}`,
-          )
-          .toBeLessThanOrEqual(offPathBaseline);
-      }
-
-      // Tier 3 (SOFT ratchet): padding-only grazes stay at or below the
-      // recorded baseline. These clip a foreign card's padding overhang (entry
-      // chip reserve / port stub) where sibling paddings overlap in a packed
-      // column; they never touch the raw box.
-      const grazes = violations.filter((v) => !v.raw);
-      const grazeInventory = grazes.map(
-        (v) => `  ${v.edgeId} seg ${fmtSeg(v.seg)} grazes padding of ${v.card}`,
-      );
-      const grazeBaseline = baselineFor(
-        PADDED_GRAZE_BASELINE,
-        "PADDED_GRAZE_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (grazeBaseline !== null) {
-        expect
-          .soft(
-            grazes.length,
-            `${scenario.id}: ${grazes.length} padding graze(s) exceeds baseline ${grazeBaseline}:\n${grazeInventory.join("\n")}`,
-          )
-          .toBeLessThanOrEqual(grazeBaseline);
-      }
-
-      // Own-endpoint-pierce ratchet: segments running inside their OWN source /
-      // target card's raw body. Tier 1 exempts endpoint cards and cannot see
-      // these; the pierce rescue's last-resort own-card traversal lands here.
-      // Ratchets down only.
-      const ownPierces = auditOwnCardPierces(rawEdges, nodes);
-      const ownPierceInventory = ownPierces.map(
-        (v) =>
-          `  ${v.edgeId} seg ${fmtSeg(v.seg)} runs inside own ${v.role} card ${v.card}`,
-      );
-      const ownPierceBaseline = baselineFor(
-        OWN_PIERCE_BASELINE,
-        "OWN_PIERCE_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (ownPierceBaseline !== null) {
-        expect
-          .soft(
-            ownPierces.length,
-            `${scenario.id}: ${ownPierces.length} own-card pierce(s) exceeds baseline ${ownPierceBaseline}:\n${ownPierceInventory.join("\n")}`,
-          )
-          .toBeLessThanOrEqual(ownPierceBaseline);
-      }
-
-      // Frame-ride ratchet (Task 7): backward item edges' segments running
-      // along a container slab's border or a bus band's border (forward tap
-      // descents may share a border line by convention and are not counted). Stroke-on-frame braids are the loop-return family this counter
-      // exists to hold at zero; see FRAME_RIDE_BASELINE above.
-      const frameRides = auditFrameRides(
-        rawEdges,
-        nodes,
-        geom.bands as BandRect[],
-      );
-      const frameRideInventory = frameRides.map(
-        (v) =>
-          `  ${v.edgeId} rides the ${v.border} border of ${v.target} ` +
-          `${v.distance.toFixed(1)} off it (${v.kind}), seg ${fmtSeg(v.seg)}`,
-      );
-      const frameRideBaseline = baselineFor(
-        FRAME_RIDE_BASELINE,
-        "FRAME_RIDE_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (frameRideBaseline !== null) {
-        expect
-          .soft(
-            frameRides.length,
-            `${scenario.id}: ${frameRides.length} frame/band ride(s) exceeds baseline ${frameRideBaseline} among ${geom.bands.length} band(s):\n${frameRideInventory.join("\n")}`,
-          )
-          .toBeLessThanOrEqual(frameRideBaseline);
-      }
-
-      // Hidden-dot ratchet: junction dots swallowed by a chip box at fit zoom.
-      // The dot rects come from the DOM, so they carry the zoom-clamped radius
-      // the dot actually renders at; the camera zoom only converts the
-      // one-screen-pixel visibility tolerance into graph units.
-      const hiddenDots = auditDotsUnderChips(
-        chips,
-        geom.dots as DotRect[],
-        geom.zoom,
-      );
-      const hiddenDotInventory = hiddenDots.map(
-        (v) =>
-          `  ${v.dotId} at (${v.at[0].toFixed(1)},${v.at[1].toFixed(1)}) hidden under the chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
-      );
-      const dotBaseline = baselineFor(
-        DOT_COVER_BASELINE,
-        "DOT_COVER_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (dotBaseline !== null) {
-        expect
-          .soft(
-            hiddenDots.length,
-            `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotBaseline} among ${geom.dots.length} dots:\n${hiddenDotInventory.join("\n")}`,
-          )
-          .toBeLessThanOrEqual(dotBaseline);
-      }
-
-      // Card frames: the box the seating pass measures a recipe card by is the
-      // box the browser paints. Unlike the parity check below, which anchors on
-      // the drawn origin and so cannot see the seating pass's own frame, this
-      // one compares a DRAWN size against a rebuilt one, so a seating frame two
-      // units off the border box reddens it. Hard zero, no baseline.
-      const frameMismatches = auditCardFrames(geom.nodes);
-      const frameInventory = frameMismatches.map(
-        (m) =>
-          `  ${m.nodeId}: drawn ${m.drawnWidth.toFixed(2)}x${m.drawnHeight.toFixed(2)} ` +
-          `vs seating ${m.seatingWidth.toFixed(2)}x${m.seatingHeight.toFixed(2)}`,
-      );
-      expect
-        .soft(
-          frameMismatches.length,
-          `${scenario.id}: ${frameMismatches.length} recipe card(s) drawn in a different frame than the seating pass measures:\n${frameInventory.join("\n")}`,
-        )
-        .toBe(0);
-
-      // Endpoint parity: each drawn path starts and ends where a model +
-      // PORT_DRIFT reconstruction of the same port says it should. The two
-      // descriptions are independent -- the drawn vertex comes from React Flow's
-      // handle anchoring, the rebuilt one from the card origin plus the row
-      // geometry the routing model computes -- so a port resolving to the wrong
-      // row shows here as a full row-pitch gap. Reported as the worst endpoint,
-      // with every endpoint past the tolerance named.
-      const parities = auditEndpointParity(rawEdges, geom.nodes);
-      const worstParity = parities.reduce((m, p) => Math.max(m, p.delta), 0);
-      const parityTol = baselineFor(
-        ENDPOINT_PARITY_TOL,
-        "ENDPOINT_PARITY_TOL",
-        scenario.id,
-        unpinned,
-      );
-      if (parityTol !== null) {
-        const parityInventory = parities
-          .filter((p) => p.delta > parityTol)
-          .map(
-            (p) =>
-              `  ${p.edgeId} ${p.end} on ${p.nodeType} ${p.nodeId}: ` +
-              `drawn (${p.drawn[0].toFixed(2)},${p.drawn[1].toFixed(2)}) vs ` +
-              `rebuilt (${p.rebuilt[0].toFixed(2)},${p.rebuilt[1].toFixed(2)}), ` +
-              `d=(${p.dx.toFixed(2)},${p.dy.toFixed(2)})`,
+          // Tier 1 (HARD gate): zero segments entering a foreign RAW card box.
+          const rawHits = violations.filter((v) => v.raw);
+          const rawInventory = rawHits.map(
+            (v) =>
+              `  ${v.edgeId} seg ${fmtSeg(v.seg)} pierces RAW card ${v.card}`,
           );
-        expect
-          .soft(
-            worstParity,
-            `${scenario.id}: worst endpoint parity ${worstParity.toFixed(3)} exceeds tolerance ${parityTol} among ${parities.length} endpoints (${parityInventory.length} past tolerance):\n${parityInventory.join("\n")}`,
-          )
-          .toBeLessThanOrEqual(parityTol);
-      }
+          expect
+            .soft(
+              rawHits.length,
+              `${scenario.id}: ${rawHits.length} RAW segment/card intersection(s):\n${rawInventory.join("\n")}`,
+            )
+            .toBe(0);
 
-      // Census: pairwise crossings never regress past the pre-P2 baseline.
-      const crossings = countCrossings(geom.edges);
-      const baseline = baselineFor(
-        CROSSING_BASELINE,
-        "CROSSING_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (baseline !== null) {
-        expect
-          .soft(
-            crossings,
-            `${scenario.id}: ${crossings} crossings exceeds pre-P2 baseline ${baseline}`,
-          )
-          .toBeLessThanOrEqual(baseline);
-      }
+          // Tier 2 (SOFT ratchet): segments entering a foreign edge's chip box stay
+          // at or below the per-scenario baseline. Zero on the sparse plans; the 2B
+          // anchor trades a bounded set of line-occlusions on the packed plans (see
+          // CHIP_SEGMENT_BASELINE) for the chip/card clearance the next tier checks.
+          const chips = geom.chips as ChipRect[];
+          const chipHits = auditSegmentsVsChips(rawEdges, chips, nodes);
+          const chipInventory = chipHits.map(
+            (v) =>
+              `  ${v.edgeId} seg ${fmtSeg(v.seg)} pierces chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
+          );
+          const chipSegBaseline = baselineFor(
+            CHIP_SEGMENT_BASELINE,
+            "CHIP_SEGMENT_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (chipSegBaseline !== null) {
+            expect
+              .soft(
+                chipHits.length,
+                `${scenario.id}: ${chipHits.length} segment/chip intersection(s) exceeds baseline ${chipSegBaseline} among ${geom.chips.length} chips:\n${chipInventory.join("\n")}`,
+              )
+              .toBeLessThanOrEqual(chipSegBaseline);
+          }
 
-      // Crossing-cue coverage (Task 9): every counted crossing between
-      // DIFFERENT flows (different item|source) must carry a DRAWN cue on
-      // one edge of the pair -- the stroke masked out around the crossing,
-      // whichever of the two the seating pass picked (a transparent gap
-      // reads the same in either paint order, so no z key is involved).
-      // ZERO-TOLERANCE by design, no baseline table: the seating pass stamps
-      // a cue for every cross-flow proper crossing by construction, and the
-      // renderers cut every stamped cue that still sits on their live
-      // polyline, so a miss means the stamp pass or the render broke --
-      // there is no legitimate residue class to pin. Same-flow crossings (between one flow's own
-      // edges: trunk members overlapping a lane, fan-out slices sharing a
-      // trajectory) are one visual line by the flowKey doctrine and
-      // deliberately NEVER cued; they are reported in the message so a plan
-      // where that class suddenly grows stays visible instead of silently
-      // living outside the assertion.
-      // First recordings (2026-09-04, informational, not a ratchet) --
-      // crossFlow / sameFlow per scenario, cued equalled crossFlow on every
-      // one: default 4/0, battery5 13/0, battery5-xiranite 46/1, crystal 1/0,
-      // equip4 1/0, multi6 130/7, tundra 0/0, script43 26/0, coupon-web 13/0,
-      // gas-web 39/1, rot-bottled_food_3 5/0, rot-bottled_food_4 20/0. The
-      // drawn-cue count can sit BELOW cued (multi6 120 gaps for 130 cued
-      // crossings): the stamp pass dedupes per edge and point, so trunk
-      // members sharing a lane that crosses one foreign edge together draw
-      // one gap where the census counts each member pair.
-      const coverage = crossingCueCoverage(geom.edges, geom.crossingCues);
-      expect
-        .soft(
-          coverage.uncued.length,
-          `${scenario.id}: ${coverage.uncued.length} of ${coverage.crossFlow} cross-flow crossing(s) carry no cue on either edge` +
-            ` (same-flow crossings, never cued: ${coverage.sameFlow}):\n${coverage.uncued.join("\n")}`,
-        )
-        .toBe(0);
+          // Tier 4 (P3). Chip-vs-card is the RATIFIED HARD gate: zero chip boxes
+          // entering a FOREIGN raw card, on every scenario. The seating pass
+          // upholds it by priority order -- when the on-line slide cannot clear,
+          // the escape cascade treats cards (like chips) as hard obstacles and
+          // yields the softer preferences instead (on-own-line, foreign-line
+          // clearance), which are the ratcheted residues asserted after it.
+          const chipCardHits = auditChipsVsCards(chips, rawEdges, nodes);
+          const chipCardInventory = chipCardHits.map(
+            (v) =>
+              `  ${v.chipKind} chip of ${v.chipEdgeId} ("${v.chipLabel}") enters RAW card ${v.card}`,
+          );
+          expect
+            .soft(
+              chipCardHits.length,
+              `${scenario.id}: ${chipCardHits.length} chip/card intersection(s) among ${chips.length} chips:\n${chipCardInventory.join("\n")}`,
+            )
+            .toBe(0);
 
-      // Detour: the tundra ore feed stays within 1.5x its endpoints' Manhattan
-      // distance. Only tundra carries the long ore feed the bound targets.
-      if (scenario.id === "tundra") {
-        const feed = tundraOreFeed(rawEdges);
-        expect(feed, "tundra ore-feed edge present").not.toBeNull();
-        const pts = parsePath(feed!.d);
-        const len = polylineLength(pts);
-        const direct = endpointManhattan(pts);
-        expect
-          .soft(
-            len,
-            `tundra ore feed ${feed!.id}: path ${len.toFixed(1)} exceeds 1.5x Manhattan ${direct.toFixed(1)}`,
-          )
-          .toBeLessThanOrEqual(1.5 * direct);
-      }
+          const offPath = auditChipsOnOwnPath(chips, rawEdges);
+          const offPathInventory = offPath.map(
+            (v) =>
+              `  chip of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its polyline`,
+          );
+          const offPathBaseline = baselineFor(
+            CHIP_OFFPATH_BASELINE,
+            "CHIP_OFFPATH_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (offPathBaseline !== null) {
+            expect
+              .soft(
+                offPath.length,
+                `${scenario.id}: ${offPath.length} label chip(s) off their own polyline exceeds baseline ${offPathBaseline}:\n${offPathInventory.join("\n")}`,
+              )
+              .toBeLessThanOrEqual(offPathBaseline);
+          }
 
-      // ZERO-TOLERANCE (exam-surfaced campaign, ruling R5): no edge path
-      // segment enters a bus-band caption's box. The caption is a decorative
-      // tag, never an obstacle -- nothing in the routing model avoids it --
-      // so the invariant is held by WHERE IT SITS: in the band's OUTER pad,
-      // the BAND_Y_PAD strip (one lane spacing 48 plus a max-scale chip half
-      // height 24 = 72 flow units) on the far side of the graph. Every bus
-      // drop / rise column ends at its own lane and lanes sit graph-side, so
-      // no path vertex enters an outer pad and the 20-unit tag pinned 4 off
-      // the pad edge clears the outermost vertex by 48 units. The top band
-      // anchors at its top pad and the bottom band at its bottom pad because
-      // the pads are NOT interchangeable: the bottom band's top pad is the
-      // corridor its members' columns descend through from the graph
-      // (multi6: five tap columns at x 192-208 cross its full height), so
-      // top-anchoring both bands drops the caption back under strokes. The
-      // caption moved from mid-band, where a stroke crossed the text at the
-      // leftmost column (the caption half of stroke-crosses-foreign-chip:
-      // multi6 bus-label-under-stroke, rot-bottled_food_4
-      // loop-label-crossed-by-back-edge). The check reads the DRAWN box, so a
-      // CSS regression that re-centres the caption on the lanes reddens it
-      // directly; the tag rides the viewport transform (no counter-scale), so
-      // its graph-space rect -- like the paths -- is the same at every zoom
-      // and one fit-zoom reading states the invariant at all of them.
-      // Rotating plans get this check through extraScenariosFromEnv like
-      // every zero-tolerance criterion here.
-      const bandTags = await collectBandTags(page);
-      const tagHits: string[] = [];
-      for (const tag of bandTags) {
-        for (const edge of rawEdges) {
-          for (const [seg0, seg1] of segmentsOf(parsePath(edge.d))) {
-            if (segmentEntersRect(seg0, seg1, tag, 0.5)) {
-              tagHits.push(
-                `  ${edge.id} seg ${fmtSeg([seg0, seg1])} enters the BUS caption of ${tag.band}`,
+          // Tier 3 (SOFT ratchet): padding-only grazes stay at or below the
+          // recorded baseline. These clip a foreign card's padding overhang (entry
+          // chip reserve / port stub) where sibling paddings overlap in a packed
+          // column; they never touch the raw box.
+          const grazes = violations.filter((v) => !v.raw);
+          const grazeInventory = grazes.map(
+            (v) =>
+              `  ${v.edgeId} seg ${fmtSeg(v.seg)} grazes padding of ${v.card}`,
+          );
+          const grazeBaseline = baselineFor(
+            PADDED_GRAZE_BASELINE,
+            "PADDED_GRAZE_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (grazeBaseline !== null) {
+            expect
+              .soft(
+                grazes.length,
+                `${scenario.id}: ${grazes.length} padding graze(s) exceeds baseline ${grazeBaseline}:\n${grazeInventory.join("\n")}`,
+              )
+              .toBeLessThanOrEqual(grazeBaseline);
+          }
+
+          // Own-endpoint-pierce ratchet: segments running inside their OWN source /
+          // target card's raw body. Tier 1 exempts endpoint cards and cannot see
+          // these; the pierce rescue's last-resort own-card traversal lands here.
+          // Ratchets down only.
+          const ownPierces = auditOwnCardPierces(rawEdges, nodes);
+          const ownPierceInventory = ownPierces.map(
+            (v) =>
+              `  ${v.edgeId} seg ${fmtSeg(v.seg)} runs inside own ${v.role} card ${v.card}`,
+          );
+          const ownPierceBaseline = baselineFor(
+            OWN_PIERCE_BASELINE,
+            "OWN_PIERCE_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (ownPierceBaseline !== null) {
+            expect
+              .soft(
+                ownPierces.length,
+                `${scenario.id}: ${ownPierces.length} own-card pierce(s) exceeds baseline ${ownPierceBaseline}:\n${ownPierceInventory.join("\n")}`,
+              )
+              .toBeLessThanOrEqual(ownPierceBaseline);
+          }
+
+          // Frame-ride ratchet (Task 7): backward item edges' segments running
+          // along a container slab's border or a bus band's border (forward tap
+          // descents may share a border line by convention and are not counted). Stroke-on-frame braids are the loop-return family this counter
+          // exists to hold at zero; see FRAME_RIDE_BASELINE above.
+          const frameRides = auditFrameRides(
+            rawEdges,
+            nodes,
+            geom.bands as BandRect[],
+          );
+          const frameRideInventory = frameRides.map(
+            (v) =>
+              `  ${v.edgeId} rides the ${v.border} border of ${v.target} ` +
+              `${v.distance.toFixed(1)} off it (${v.kind}), seg ${fmtSeg(v.seg)}`,
+          );
+          const frameRideBaseline = baselineFor(
+            FRAME_RIDE_BASELINE,
+            "FRAME_RIDE_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (frameRideBaseline !== null) {
+            expect
+              .soft(
+                frameRides.length,
+                `${scenario.id}: ${frameRides.length} frame/band ride(s) exceeds baseline ${frameRideBaseline} among ${geom.bands.length} band(s):\n${frameRideInventory.join("\n")}`,
+              )
+              .toBeLessThanOrEqual(frameRideBaseline);
+          }
+
+          // Hidden-dot ratchet: junction dots swallowed by a chip box at fit zoom.
+          // The dot rects come from the DOM, so they carry the zoom-clamped radius
+          // the dot actually renders at; the camera zoom only converts the
+          // one-screen-pixel visibility tolerance into graph units.
+          const hiddenDots = auditDotsUnderChips(
+            chips,
+            geom.dots as DotRect[],
+            geom.zoom,
+          );
+          const hiddenDotInventory = hiddenDots.map(
+            (v) =>
+              `  ${v.dotId} at (${v.at[0].toFixed(1)},${v.at[1].toFixed(1)}) hidden under the chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
+          );
+          const dotBaseline = baselineFor(
+            DOT_COVER_BASELINE,
+            "DOT_COVER_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (dotBaseline !== null) {
+            expect
+              .soft(
+                hiddenDots.length,
+                `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotBaseline} among ${geom.dots.length} dots:\n${hiddenDotInventory.join("\n")}`,
+              )
+              .toBeLessThanOrEqual(dotBaseline);
+          }
+
+          // Card frames: the box the seating pass measures a recipe card by is the
+          // box the browser paints. Unlike the parity check below, which anchors on
+          // the drawn origin and so cannot see the seating pass's own frame, this
+          // one compares a DRAWN size against a rebuilt one, so a seating frame two
+          // units off the border box reddens it. Hard zero, no baseline.
+          const frameMismatches = auditCardFrames(geom.nodes);
+          const frameInventory = frameMismatches.map(
+            (m) =>
+              `  ${m.nodeId}: drawn ${m.drawnWidth.toFixed(2)}x${m.drawnHeight.toFixed(2)} ` +
+              `vs seating ${m.seatingWidth.toFixed(2)}x${m.seatingHeight.toFixed(2)}`,
+          );
+          expect
+            .soft(
+              frameMismatches.length,
+              `${scenario.id}: ${frameMismatches.length} recipe card(s) drawn in a different frame than the seating pass measures:\n${frameInventory.join("\n")}`,
+            )
+            .toBe(0);
+
+          // Endpoint parity: each drawn path starts and ends where a model +
+          // PORT_DRIFT reconstruction of the same port says it should. The two
+          // descriptions are independent -- the drawn vertex comes from React Flow's
+          // handle anchoring, the rebuilt one from the card origin plus the row
+          // geometry the routing model computes -- so a port resolving to the wrong
+          // row shows here as a full row-pitch gap. Reported as the worst endpoint,
+          // with every endpoint past the tolerance named.
+          const parities = auditEndpointParity(rawEdges, geom.nodes);
+          const worstParity = parities.reduce(
+            (m, p) => Math.max(m, p.delta),
+            0,
+          );
+          const parityTol = baselineFor(
+            ENDPOINT_PARITY_TOL,
+            "ENDPOINT_PARITY_TOL",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (parityTol !== null) {
+            const parityInventory = parities
+              .filter((p) => p.delta > parityTol)
+              .map(
+                (p) =>
+                  `  ${p.edgeId} ${p.end} on ${p.nodeType} ${p.nodeId}: ` +
+                  `drawn (${p.drawn[0].toFixed(2)},${p.drawn[1].toFixed(2)}) vs ` +
+                  `rebuilt (${p.rebuilt[0].toFixed(2)},${p.rebuilt[1].toFixed(2)}), ` +
+                  `d=(${p.dx.toFixed(2)},${p.dy.toFixed(2)})`,
               );
+            expect
+              .soft(
+                worstParity,
+                `${scenario.id}: worst endpoint parity ${worstParity.toFixed(3)} exceeds tolerance ${parityTol} among ${parities.length} endpoints (${parityInventory.length} past tolerance):\n${parityInventory.join("\n")}`,
+              )
+              .toBeLessThanOrEqual(parityTol);
+          }
+
+          // Census: pairwise crossings never regress past the pre-P2 baseline.
+          const crossings = countCrossings(geom.edges);
+          const baseline = baselineFor(
+            CROSSING_BASELINE,
+            "CROSSING_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (baseline !== null) {
+            expect
+              .soft(
+                crossings,
+                `${scenario.id}: ${crossings} crossings exceeds pre-P2 baseline ${baseline}`,
+              )
+              .toBeLessThanOrEqual(baseline);
+          }
+
+          // Crossing-cue coverage (Task 9): every counted crossing between
+          // DIFFERENT flows (different item|source) must carry a DRAWN cue on
+          // one edge of the pair -- the stroke masked out around the crossing,
+          // whichever of the two the seating pass picked (a transparent gap
+          // reads the same in either paint order, so no z key is involved).
+          // ZERO-TOLERANCE by design, no baseline table: the seating pass stamps
+          // a cue for every cross-flow proper crossing by construction, and the
+          // renderers cut every stamped cue that still sits on their live
+          // polyline, so a miss means the stamp pass or the render broke --
+          // there is no legitimate residue class to pin. Same-flow crossings (between one flow's own
+          // edges: trunk members overlapping a lane, fan-out slices sharing a
+          // trajectory) are one visual line by the flowKey doctrine and
+          // deliberately NEVER cued; they are reported in the message so a plan
+          // where that class suddenly grows stays visible instead of silently
+          // living outside the assertion.
+          // First recordings (2026-09-04, informational, not a ratchet) --
+          // crossFlow / sameFlow per scenario, cued equalled crossFlow on every
+          // one: default 4/0, battery5 13/0, battery5-xiranite 46/1, crystal 1/0,
+          // equip4 1/0, multi6 130/7, tundra 0/0, script43 26/0, coupon-web 13/0,
+          // gas-web 39/1, rot-bottled_food_3 5/0, rot-bottled_food_4 20/0. The
+          // drawn-cue count can sit BELOW cued (multi6 120 gaps for 130 cued
+          // crossings): the stamp pass dedupes per edge and point, so trunk
+          // members sharing a lane that crosses one foreign edge together draw
+          // one gap where the census counts each member pair.
+          const coverage = crossingCueCoverage(geom.edges, geom.crossingCues);
+          expect
+            .soft(
+              coverage.uncued.length,
+              `${scenario.id}: ${coverage.uncued.length} of ${coverage.crossFlow} cross-flow crossing(s) carry no cue on either edge` +
+                ` (same-flow crossings, never cued: ${coverage.sameFlow}):\n${coverage.uncued.join("\n")}`,
+            )
+            .toBe(0);
+
+          // Detour: the tundra ore feed stays within 1.5x its endpoints' Manhattan
+          // distance. Only tundra carries the long ore feed the bound targets.
+          if (scenario.id === "tundra") {
+            const feed = tundraOreFeed(rawEdges);
+            expect(feed, "tundra ore-feed edge present").not.toBeNull();
+            const pts = parsePath(feed!.d);
+            const len = polylineLength(pts);
+            const direct = endpointManhattan(pts);
+            expect
+              .soft(
+                len,
+                `tundra ore feed ${feed!.id}: path ${len.toFixed(1)} exceeds 1.5x Manhattan ${direct.toFixed(1)}`,
+              )
+              .toBeLessThanOrEqual(1.5 * direct);
+          }
+
+          // ZERO-TOLERANCE (exam-surfaced campaign, ruling R5): no edge path
+          // segment enters a bus-band caption's box. The caption is a decorative
+          // tag, never an obstacle -- nothing in the routing model avoids it --
+          // so the invariant is held by WHERE IT SITS: in the band's OUTER pad,
+          // the BAND_Y_PAD strip (one lane spacing 48 plus a max-scale chip half
+          // height 24 = 72 flow units) on the far side of the graph. Every bus
+          // drop / rise column ends at its own lane and lanes sit graph-side, so
+          // no path vertex enters an outer pad and the 20-unit tag pinned 4 off
+          // the pad edge clears the outermost vertex by 48 units. The top band
+          // anchors at its top pad and the bottom band at its bottom pad because
+          // the pads are NOT interchangeable: the bottom band's top pad is the
+          // corridor its members' columns descend through from the graph
+          // (multi6: five tap columns at x 192-208 cross its full height), so
+          // top-anchoring both bands drops the caption back under strokes. The
+          // caption moved from mid-band, where a stroke crossed the text at the
+          // leftmost column (the caption half of stroke-crosses-foreign-chip:
+          // multi6 bus-label-under-stroke, rot-bottled_food_4
+          // loop-label-crossed-by-back-edge). The check reads the DRAWN box, so a
+          // CSS regression that re-centres the caption on the lanes reddens it
+          // directly; the tag rides the viewport transform (no counter-scale), so
+          // its graph-space rect -- like the paths -- is the same at every zoom
+          // and one fit-zoom reading states the invariant at all of them.
+          // Rotating plans get this check through extraScenariosFromEnv like
+          // every zero-tolerance criterion here.
+          const bandTags = await collectBandTags(page);
+          const tagHits: string[] = [];
+          for (const tag of bandTags) {
+            for (const edge of rawEdges) {
+              for (const [seg0, seg1] of segmentsOf(parsePath(edge.d))) {
+                if (segmentEntersRect(seg0, seg1, tag, 0.5)) {
+                  tagHits.push(
+                    `  ${edge.id} seg ${fmtSeg([seg0, seg1])} enters the BUS caption of ${tag.band}`,
+                  );
+                }
+              }
             }
           }
-        }
-      }
-      expect
-        .soft(
-          tagHits.length,
-          `${scenario.id}: ${tagHits.length} segment(s) strike the BUS caption(s) among ${bandTags.length} band tag(s):\n${tagHits.join("\n")}`,
-        )
-        .toBe(0);
+          expect
+            .soft(
+              tagHits.length,
+              `${scenario.id}: ${tagHits.length} segment(s) strike the BUS caption(s) among ${bandTags.length} band tag(s):\n${tagHits.join("\n")}`,
+            )
+            .toBe(0);
 
-      skipUnpinnedRatchets(unpinned);
+          skipUnpinnedRatchets(unpinned);
+        });
+      }
     });
   }
 });
@@ -1506,11 +1585,9 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
   await waitForCanvasReady(page);
   await waitForWebfonts(page);
   await waitForStableViewport(page);
-  await page.waitForFunction(
-    () => window.__stcExam !== undefined,
-    undefined,
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => window.__stcExam !== undefined, undefined, {
+    timeout: 10_000,
+  });
   await page.evaluate((zoom) => {
     const hook = window.__stcExam!;
     const pane = document
@@ -1593,7 +1670,7 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // First recordings for the two exam-surfaced scenarios (campaign-first
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero; every chip holds its own line inside its box.
-const SEAT_VALIDITY_BASELINE: Record<string, number> = {
+const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
   default: 0, // 1 -> 0, Task 7
   battery5: 0, // 1 -> 0, Task 7
   "battery5-xiranite": 4,
@@ -1615,6 +1692,10 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+};
+const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: SEAT_VALIDITY_BASELINE_ON,
+  off: zeroedOffArm(SEAT_VALIDITY_BASELINE_ON),
 };
 
 // Card intrusion: chips whose box reaches more than CARD_INTRUSION_BUDGET deep
@@ -1707,7 +1788,7 @@ const SEAT_VALIDITY_BASELINE: Record<string, number> = {
 // the campaign): rot-bottled_food_3 2 (shallow, 9.5 and 10.8 deep),
 // rot-bottled_food_4 5 (10.7 to 21.7), all label chips on their own endpoint
 // cards.
-const CARD_INTRUSION_BASELINE: Record<string, number> = {
+const CARD_INTRUSION_BASELINE_ON: Record<string, number> = {
   default: 5,
   battery5: 3, // 4 -> 3, Task 7
   // R8 (2026-09-04), the per-chip usable-width short-leg gate: wide label
@@ -1746,6 +1827,10 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   "rot-bottled_food_3": 3,
   "rot-bottled_food_4": 5,
 };
+const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: CARD_INTRUSION_BASELINE_ON,
+  off: zeroedOffArm(CARD_INTRUSION_BASELINE_ON),
+};
 
 // Foreign strokes: chips with at least one foreign flow's stroke through the
 // box. Same waiver set as CHIP_SEGMENT_BASELINE above (shared code, not a
@@ -1781,7 +1866,7 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both 2, each one full-height column passing under two label
 // chips.
-const FOREIGN_STROKE_BASELINE: Record<string, number> = {
+const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
   // 0 -> 1 at the exam-surfaced R4 re-measure: the sewage surplus stroke e:3
   // crosses the e:2 Cuprium chip box whose port moved to the top row
   // (ratified 2026-09-04).
@@ -1808,6 +1893,10 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   "gas-web": 7,
   "rot-bottled_food_3": 0, // 2 -> 0, Task 7
   "rot-bottled_food_4": 2,
+};
+const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: FOREIGN_STROKE_BASELINE_ON,
+  off: zeroedOffArm(FOREIGN_STROKE_BASELINE_ON),
 };
 
 // Outside band: bus chips whose box shares no vertical extent with the band its
@@ -1863,7 +1952,7 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
 // First recordings for the two exam-surfaced scenarios (campaign-first
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero, and no x-overflows on either.
-const OUTSIDE_BAND_BASELINE: Record<string, number> = {
+const OUTSIDE_BAND_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
@@ -1876,7 +1965,10 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
-
+};
+const OUTSIDE_BAND_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: OUTSIDE_BAND_BASELINE_ON,
+  off: zeroedOffArm(OUTSIDE_BAND_BASELINE_ON),
 };
 
 // BAND-UNBOUND INVENTORY (#58). Bus chips the outside-band counter SKIPS
@@ -1894,7 +1986,7 @@ const OUTSIDE_BAND_BASELINE: Record<string, number> = {
 // the campaign): rot-bottled_food_3 pins 4 (two Sandleaf Powder and two
 // Sandleaf Seed rise chips on band-less runs; that plan renders no band rects
 // at all), rot-bottled_food_4 pins 0.
-const SKIPPED_BAND_INVENTORY: Record<string, number> = {
+const SKIPPED_BAND_INVENTORY_ON: Record<string, number> = {
   default: 4,
   battery5: 2,
   "battery5-xiranite": 2,
@@ -1909,6 +2001,10 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
   "gas-web": 3,
   "rot-bottled_food_3": 4,
   "rot-bottled_food_4": 0,
+};
+const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
+  on: SKIPPED_BAND_INVENTORY_ON,
+  off: zeroedOffArm(SKIPPED_BAND_INVENTORY_ON),
 };
 
 // TIER-1 SLIDE DRIFT, re-measured after the per-chip reserved seat box
@@ -1981,32 +2077,43 @@ const SKIPPED_BAND_INVENTORY: Record<string, number> = {
 // over a run, so it holds even when the suite is run one scenario at a time.
 // R10 (2026-09-04) moves multi6 cardIntrusion +1 and foreignStroke +5
 // (cells detailed at the two tables); totals follow: 76 -> 77, 35 -> 40.
-const CENSUS_TOTALS = {
-  // 16 -> 6 at the Task 7 loop-return re-measure (2026-09-04): backward chip
-  // anchors ride their rails' new local-band y, and five plans' stranded seats
-  // re-seated onto their own lines (default 1 -> 0, battery5 1 -> 0, multi6
-  // 6 -> 1, script43 3 -> 1, coupon-web 1 -> 0).
-  // 6 -> 5 at the Task 8 branch-leg re-measure (multi6 1 -> 0).
-  seatValidity: 5,
-  // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
-  // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
-  // measured 8 against its pin 7 and is LEFT AT 7 (STOP, see the Task 7 note
-  // above), so the pin sum is 77 while the measured sum is 78.
-  // R9 (2026-09-04) ratifies that held cell: 77 -> 78.
-  // 78 -> 76 at the Task 8 branch-leg re-measure (script43 11 -> 10,
-  // gas-web 8 -> 7).
-  cardIntrusion: 77,
-  // 46 -> 36 at the Task 7 loop-return re-measure (multi6 15 -> 10, script43
-  // 7 -> 6, gas-web 10 -> 8, rot-bottled_food_3 2 -> 0). coupon-web measured 2
-  // against its pin 1 and is LEFT AT 1 (STOP), so the pin sum is 36 while the
-  // measured sum is 37.
-  // R9 (2026-09-04) ratifies the two held STOP cells: 77 -> 78 (gas-web
-  // card intrusion, the re-seated chip on its rail's new anchor) and
-  // 36 -> 37 (coupon-web foreign stroke, the e:15-under-e:8 corridor run).
-  // 37 -> 35 at the Task 8 branch-leg re-measure (script43 6 -> 5,
-  // gas-web 8 -> 7).
-  foreignStroke: 40,
-  outsideBand: 0,
+const CENSUS_TOTALS: Record<
+  LaneMode,
+  {
+    seatValidity: number;
+    cardIntrusion: number;
+    foreignStroke: number;
+    outsideBand: number;
+  }
+> = {
+  on: {
+    // 16 -> 6 at the Task 7 loop-return re-measure (2026-09-04): backward chip
+    // anchors ride their rails' new local-band y, and five plans' stranded seats
+    // re-seated onto their own lines (default 1 -> 0, battery5 1 -> 0, multi6
+    // 6 -> 1, script43 3 -> 1, coupon-web 1 -> 0).
+    // 6 -> 5 at the Task 8 branch-leg re-measure (multi6 1 -> 0).
+    seatValidity: 5,
+    // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
+    // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
+    // measured 8 against its pin 7 and is LEFT AT 7 (STOP, see the Task 7 note
+    // above), so the pin sum is 77 while the measured sum is 78.
+    // R9 (2026-09-04) ratifies that held cell: 77 -> 78.
+    // 78 -> 76 at the Task 8 branch-leg re-measure (script43 11 -> 10,
+    // gas-web 8 -> 7).
+    cardIntrusion: 77,
+    // 46 -> 36 at the Task 7 loop-return re-measure (multi6 15 -> 10, script43
+    // 7 -> 6, gas-web 10 -> 8, rot-bottled_food_3 2 -> 0). coupon-web measured 2
+    // against its pin 1 and is LEFT AT 1 (STOP), so the pin sum is 36 while the
+    // measured sum is 37.
+    // R9 (2026-09-04) ratifies the two held STOP cells: 77 -> 78 (gas-web
+    // card intrusion, the re-seated chip on its rail's new anchor) and
+    // 36 -> 37 (coupon-web foreign stroke, the e:15-under-e:8 corridor run).
+    // 37 -> 35 at the Task 8 branch-leg re-measure (script43 6 -> 5,
+    // gas-web 8 -> 7).
+    foreignStroke: 40,
+    outsideBand: 0,
+  },
+  off: { seatValidity: 0, cardIntrusion: 0, foreignStroke: 0, outsideBand: 0 },
 };
 
 function censusInventory(hits: ReadonlyArray<ChipCensusHit>): string {
@@ -2020,194 +2127,224 @@ function sumOf(table: Record<string, number>): number {
 }
 
 test.describe("chip seating census", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      window.localStorage.setItem("aef.locale", "en");
-      window.localStorage.setItem("aef.busLanes", "on");
-    });
-  });
+  for (const mode of LANE_MODES) {
+    test.describe(`lanes ${mode}`, () => {
+      test.beforeEach(async ({ page }) => {
+        await page.addInitScript((busLanes: string) => {
+          window.localStorage.setItem("aef.locale", "en");
+          window.localStorage.setItem("aef.busLanes", busLanes);
+        }, mode);
+      });
 
-  test("corpus totals match the per-scenario tables", () => {
-    expect(sumOf(SEAT_VALIDITY_BASELINE)).toBe(CENSUS_TOTALS.seatValidity);
-    expect(sumOf(CARD_INTRUSION_BASELINE)).toBe(CENSUS_TOTALS.cardIntrusion);
-    expect(sumOf(FOREIGN_STROKE_BASELINE)).toBe(CENSUS_TOTALS.foreignStroke);
-    expect(sumOf(OUTSIDE_BAND_BASELINE)).toBe(CENSUS_TOTALS.outsideBand);
-  });
+      test("corpus totals match the per-scenario tables", () => {
+        // Loops over BOTH modes itself: the arithmetic holds per mode, so one
+        // run of this test states it for the whole corpus whatever mode group
+        // scheduled it.
+        for (const totalsMode of LANE_MODES) {
+          expect(
+            sumOf(SEAT_VALIDITY_BASELINE[totalsMode]),
+            `seatValidity totals (${totalsMode})`,
+          ).toBe(CENSUS_TOTALS[totalsMode].seatValidity);
+          expect(
+            sumOf(CARD_INTRUSION_BASELINE[totalsMode]),
+            `cardIntrusion totals (${totalsMode})`,
+          ).toBe(CENSUS_TOTALS[totalsMode].cardIntrusion);
+          expect(
+            sumOf(FOREIGN_STROKE_BASELINE[totalsMode]),
+            `foreignStroke totals (${totalsMode})`,
+          ).toBe(CENSUS_TOTALS[totalsMode].foreignStroke);
+          expect(
+            sumOf(OUTSIDE_BAND_BASELINE[totalsMode]),
+            `outsideBand totals (${totalsMode})`,
+          ).toBe(CENSUS_TOTALS[totalsMode].outsideBand);
+        }
+      });
 
-  for (const scenario of AUDIT_SCENARIOS) {
-    test(scenario.id, async ({ page }) => {
-      const unpinned: string[] = [];
-      const hash = await scenarioHash(scenario);
-      await loadCensusScenario(page, hash);
+      for (const scenario of AUDIT_SCENARIOS) {
+        test(scenario.id, async ({ page }) => {
+          const unpinned: string[] = [];
+          const hash = await scenarioHash(scenario);
+          await loadCensusScenario(page, hash);
 
-      const geom = await page.evaluate(collectGeometry);
+          const geom = await page.evaluate(collectGeometry);
 
-      // The commanded camera has to be the camera that was measured: setViewport
-      // assigns the transform verbatim, but a driver that assumes its own zoom
-      // landed is exactly the mistake Canvas.tsx's hook comment warns about, and
-      // every count below is a reading at ONE zoom.
-      expect(
-        geom.zoom,
-        `${scenario.id}: census camera did not land at ${CENSUS_ZOOM}`,
-      ).toBeCloseTo(CENSUS_ZOOM, 5);
+          // The commanded camera has to be the camera that was measured: setViewport
+          // assigns the transform verbatim, but a driver that assumes its own zoom
+          // landed is exactly the mistake Canvas.tsx's hook comment warns about, and
+          // every count below is a reading at ONE zoom.
+          expect(
+            geom.zoom,
+            `${scenario.id}: census camera did not land at ${CENSUS_ZOOM}`,
+          ).toBeCloseTo(CENSUS_ZOOM, 5);
 
-      const chips = geom.chips as ChipRect[];
-      const rawEdges = toRawEdges(geom.edges);
-      const nodes: NodeRect[] = geom.nodes.map((n) => ({
-        nodeId: n.nodeId,
-        type: n.type,
-        left: n.left,
-        top: n.top,
-        right: n.right,
-        bottom: n.bottom,
-      }));
+          const chips = geom.chips as ChipRect[];
+          const rawEdges = toRawEdges(geom.edges);
+          const nodes: NodeRect[] = geom.nodes.map((n) => ({
+            nodeId: n.nodeId,
+            type: n.type,
+            left: n.left,
+            top: n.top,
+            right: n.right,
+            bottom: n.bottom,
+          }));
 
-      // Soft throughout, like the P2 describe: one red counter must not hide the
-      // other three, since the campaign moves them one fix at a time.
+          // Soft throughout, like the P2 describe: one red counter must not hide the
+          // other three, since the campaign moves them one fix at a time.
 
-      const invalid = auditChipSeatValidity(chips, geom.edges);
-      const seatBaseline = baselineFor(
-        SEAT_VALIDITY_BASELINE,
-        "SEAT_VALIDITY_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (seatBaseline !== null) {
-        expect
-          .soft(
-            invalid.length,
-            `${scenario.id}: ${invalid.length} chip(s) whose own line misses their box exceeds baseline ${seatBaseline} among ${chips.length} chips:\n${censusInventory(invalid)}`,
-          )
-          .toBeLessThanOrEqual(seatBaseline);
+          const invalid = auditChipSeatValidity(chips, geom.edges);
+          const seatBaseline = baselineFor(
+            SEAT_VALIDITY_BASELINE,
+            "SEAT_VALIDITY_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (seatBaseline !== null) {
+            expect
+              .soft(
+                invalid.length,
+                `${scenario.id}: ${invalid.length} chip(s) whose own line misses their box exceeds baseline ${seatBaseline} among ${chips.length} chips:\n${censusInventory(invalid)}`,
+              )
+              .toBeLessThanOrEqual(seatBaseline);
+          }
+
+          const intruding = auditChipCardIntrusion(chips, nodes);
+          const intrusionBaseline = baselineFor(
+            CARD_INTRUSION_BASELINE,
+            "CARD_INTRUSION_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (intrusionBaseline !== null) {
+            expect
+              .soft(
+                intruding.length,
+                `${scenario.id}: ${intruding.length} chip(s) more than ${CARD_INTRUSION_BUDGET} deep inside a card exceeds baseline ${intrusionBaseline} among ${chips.length} chips:\n${censusInventory(intruding)}`,
+              )
+              .toBeLessThanOrEqual(intrusionBaseline);
+          }
+
+          const braided = auditChipForeignStrokes(chips, rawEdges, nodes);
+          const strokeBaseline = baselineFor(
+            FOREIGN_STROKE_BASELINE,
+            "FOREIGN_STROKE_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (strokeBaseline !== null) {
+            expect
+              .soft(
+                braided.length,
+                `${scenario.id}: ${braided.length} chip(s) with a foreign stroke through the box exceeds baseline ${strokeBaseline} among ${chips.length} chips:\n${censusInventory(braided)}`,
+              )
+              .toBeLessThanOrEqual(strokeBaseline);
+          }
+
+          const { escapes, xOverflows, skipped } = auditBusChipsOutsideBand(
+            chips,
+            geom.edges,
+            geom.bands as BandRect[],
+          );
+          const bandBaseline = baselineFor(
+            OUTSIDE_BAND_BASELINE,
+            "OUTSIDE_BAND_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (bandBaseline !== null) {
+            expect
+              .soft(
+                escapes.length,
+                `${scenario.id}: ${escapes.length} bus chip(s) outside their band exceeds baseline ${bandBaseline} among ${geom.bands.length} band(s); ${xOverflows.length} x-overflow(s) reported, not counted:\n${censusInventory(escapes)}\n${censusInventory(xOverflows)}`,
+              )
+              .toBeLessThanOrEqual(bandBaseline);
+          }
+
+          const skippedPin = baselineFor(
+            SKIPPED_BAND_INVENTORY,
+            "SKIPPED_BAND_INVENTORY",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (skippedPin !== null) {
+            expect
+              .soft(
+                skipped.length,
+                `${scenario.id}: ${skipped.length} band-unbound bus chip(s) != inventory pin ${skippedPin}:\n${censusInventory(skipped)}`,
+              )
+              .toBe(skippedPin);
+          }
+
+          skipUnpinnedRatchets(unpinned);
+        });
       }
-
-      const intruding = auditChipCardIntrusion(chips, nodes);
-      const intrusionBaseline = baselineFor(
-        CARD_INTRUSION_BASELINE,
-        "CARD_INTRUSION_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (intrusionBaseline !== null) {
-        expect
-          .soft(
-            intruding.length,
-            `${scenario.id}: ${intruding.length} chip(s) more than ${CARD_INTRUSION_BUDGET} deep inside a card exceeds baseline ${intrusionBaseline} among ${chips.length} chips:\n${censusInventory(intruding)}`,
-          )
-          .toBeLessThanOrEqual(intrusionBaseline);
-      }
-
-      const braided = auditChipForeignStrokes(chips, rawEdges, nodes);
-      const strokeBaseline = baselineFor(
-        FOREIGN_STROKE_BASELINE,
-        "FOREIGN_STROKE_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (strokeBaseline !== null) {
-        expect
-          .soft(
-            braided.length,
-            `${scenario.id}: ${braided.length} chip(s) with a foreign stroke through the box exceeds baseline ${strokeBaseline} among ${chips.length} chips:\n${censusInventory(braided)}`,
-          )
-          .toBeLessThanOrEqual(strokeBaseline);
-      }
-
-      const { escapes, xOverflows, skipped } = auditBusChipsOutsideBand(
-        chips,
-        geom.edges,
-        geom.bands as BandRect[],
-      );
-      const bandBaseline = baselineFor(
-        OUTSIDE_BAND_BASELINE,
-        "OUTSIDE_BAND_BASELINE",
-        scenario.id,
-        unpinned,
-      );
-      if (bandBaseline !== null) {
-        expect
-          .soft(
-            escapes.length,
-            `${scenario.id}: ${escapes.length} bus chip(s) outside their band exceeds baseline ${bandBaseline} among ${geom.bands.length} band(s); ${xOverflows.length} x-overflow(s) reported, not counted:\n${censusInventory(escapes)}\n${censusInventory(xOverflows)}`,
-          )
-          .toBeLessThanOrEqual(bandBaseline);
-      }
-
-      const skippedPin = baselineFor(
-        SKIPPED_BAND_INVENTORY,
-        "SKIPPED_BAND_INVENTORY",
-        scenario.id,
-        unpinned,
-      );
-      if (skippedPin !== null) {
-        expect
-          .soft(
-            skipped.length,
-            `${scenario.id}: ${skipped.length} band-unbound bus chip(s) != inventory pin ${skippedPin}:\n${censusInventory(skipped)}`,
-          )
-          .toBe(skippedPin);
-      }
-
-      skipUnpinnedRatchets(unpinned);
     });
   }
 });
 
 test.describe("edge reload determinism", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      window.localStorage.setItem("aef.locale", "en");
-      window.localStorage.setItem("aef.busLanes", "on");
-    });
-  });
+  for (const mode of LANE_MODES) {
+    test.describe(`lanes ${mode}`, () => {
+      test.beforeEach(async ({ page }) => {
+        await page.addInitScript((busLanes: string) => {
+          window.localStorage.setItem("aef.locale", "en");
+          window.localStorage.setItem("aef.busLanes", busLanes);
+        }, mode);
+      });
 
-  for (const scenario of AUDIT_SCENARIOS) {
-    test(scenario.id, async ({ page }) => {
-      const hash = await scenarioHash(scenario);
+      for (const scenario of AUDIT_SCENARIOS) {
+        test(scenario.id, async ({ page }) => {
+          const hash = await scenarioHash(scenario);
 
-      const readLoad = async (): Promise<{
-        edges: Record<string, string>;
-        transform: string;
-      }> => {
-        await loadScenario(page, hash);
-        const { edges } = await page.evaluate(collectGeometry);
-        const transform = await page.evaluate(
-          () =>
-            document.querySelector<HTMLElement>(".react-flow__viewport")?.style
-              .transform ?? "",
-        );
-        const map: Record<string, string> = {};
-        for (const e of edges) map[e.id] = e.d;
-        return { edges: map, transform };
-      };
+          const readLoad = async (): Promise<{
+            edges: Record<string, string>;
+            transform: string;
+          }> => {
+            await loadScenario(page, hash);
+            const { edges } = await page.evaluate(collectGeometry);
+            const transform = await page.evaluate(
+              () =>
+                document.querySelector<HTMLElement>(".react-flow__viewport")
+                  ?.style.transform ?? "",
+            );
+            const map: Record<string, string> = {};
+            for (const e of edges) map[e.id] = e.d;
+            return { edges: map, transform };
+          };
 
-      const first = await readLoad();
-      const second = await readLoad();
+          const first = await readLoad();
+          const second = await readLoad();
 
-      const ids = new Set([
-        ...Object.keys(first.edges),
-        ...Object.keys(second.edges),
-      ]);
-      const diffs: string[] = [];
-      for (const id of ids) {
-        if (first.edges[id] !== second.edges[id]) {
-          diffs.push(
-            `  ${id}:\n    load1 ${first.edges[id]}\n    load2 ${second.edges[id]}`,
-          );
-        }
+          const ids = new Set([
+            ...Object.keys(first.edges),
+            ...Object.keys(second.edges),
+          ]);
+          const diffs: string[] = [];
+          for (const id of ids) {
+            if (first.edges[id] !== second.edges[id]) {
+              diffs.push(
+                `  ${id}:\n    load1 ${first.edges[id]}\n    load2 ${second.edges[id]}`,
+              );
+            }
+          }
+          expect(
+            diffs.length,
+            `${scenario.id}: ${diffs.length} edge path(s) differ across reloads:\n${diffs.join("\n")}`,
+          ).toBe(0);
+
+          // Camera-drift tripwire: the fit-view transform must be byte-identical
+          // across reloads (a deterministic content-bounds fit produces the same pan
+          // and zoom every load).
+          expect(
+            second.transform,
+            `${scenario.id}: viewport transform drifted across reloads:\n    load1 ${first.transform}\n    load2 ${second.transform}`,
+          ).toBe(first.transform);
+        });
       }
-      expect(
-        diffs.length,
-        `${scenario.id}: ${diffs.length} edge path(s) differ across reloads:\n${diffs.join("\n")}`,
-      ).toBe(0);
-
-      // Camera-drift tripwire: the fit-view transform must be byte-identical
-      // across reloads (a deterministic content-bounds fit produces the same pan
-      // and zoom every load).
-      expect(
-        second.transform,
-        `${scenario.id}: viewport transform drifted across reloads:\n    load1 ${first.transform}\n    load2 ${second.transform}`,
-      ).toBe(first.transform);
     });
   }
 });
