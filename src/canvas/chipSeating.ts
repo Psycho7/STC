@@ -650,6 +650,12 @@ type PortZoneRect = {
 // BOTH callers pass DRAWN card rects -- the audit reads them off the DOM, the
 // seating pass grows the model box by CARD_GROWTH -- so the strip starts one
 // CARD_BORDER inside the rect, where the row the depth is derived from begins.
+//
+// #82 SUPERSESSION: for a chip's OWN endpoint cards the portKeepOutRect band
+// above now outlaws the box's presence at the port altogether, which subsumes
+// this centre rule everywhere the band is consulted (isClear, hardClearAt, the
+// escape cascade). The rule stays: it is still the gate the e2e chip/card audit
+// mirrors, and bus chips (seatChip) are not band-checked.
 export function chipEntersOwnCardBody(
   chip: PortZoneRect,
   card: PortZoneRect,
@@ -687,6 +693,13 @@ export function chipEntersOwnCardBody(
 // exempts (9): a chip lying across its own port strip is the normal on-line
 // state however wide it is. Taken as a default argument, not a module const,
 // because CARD_BORDER is declared further down the file.
+//
+// #82 SUPERSESSION (R8's fate): the band's INNER edge sits exactly at this
+// budget, so any box the band admits never laps the card at all -- a
+// band-clear seat reads intrusion 0 by geometry, and at the #82 re-measure the
+// census counters went to zero corpus-wide. The preference stays in code for
+// the seats that still reach it (band-unchecked bus chips), and the rulings
+// ledger keeps R8's history.
 export function chipOwnCardIntrusion(
   chip: PortZoneRect,
   card: PortZoneRect,

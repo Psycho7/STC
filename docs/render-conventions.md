@@ -113,7 +113,13 @@ all draw from one formatter, so a plan shows one rate unit throughout. A mix
 inside a single plan, `/min` beside `/MIN`, is a defect and not a style.
 
 A seating pass places each chip on the line it labels, sliding it along that line
-past cards, dots and other chips. A chip that had to move is still bound to its
+past cards, dots and other chips. A chip never covers its own endpoint card's
+port glyph, port handle or row text: the furniture band straddling the port is
+a keep-out, so an on-line chip sits in the corridor stretch between its two
+ports' furniture. On a corridor too narrow for the chip's full box the chip
+holds a capped size -- counter-scaled by less than the usual maximum so the
+widest box it can draw fits that stretch -- or renders icon-only when even the
+natural text does not fit. A chip that had to move is still bound to its
 own polyline; one that reads as belonging to a neighbouring line is a defect. A
 lane chip seated one lane pitch beside its lane is clearing a junction dot, not
 changing lines.
@@ -126,7 +132,10 @@ Do not report these as defects.
   shows few chips or none, and card detail fades at low zoom by design.
 - A chip on a leg too short for its box renders icon-only at any zoom, fan-out
   branch chips and item-edge chips alike, and so does a fan-out branch chip on a
-  contested corridor. Low zoom is a third cause: below zoom 0.32 the two chips
+  contested corridor. A chip whose corridor holds its natural text but not the
+  full counter-scaled box instead draws at a capped size, smaller than the
+  usual counter-scale maximum; its digits stay on it at every reading zoom. Low
+  zoom is a third cause: below zoom 0.32 the two chips
   exempt from the 0.35 gate (the bus drop chip and a lone member's long-run rise
   chip) render icon-only as well. All of them keep the rate on the hover title
   and the aria label. A digit-less square chip is intentional, not a missing
