@@ -414,7 +414,7 @@ const partnerBitsEqual = (
 // store-wide iteration -- so an edge re-renders exactly when a partner's
 // existence or anchor liveness changes. Without the partner half, a dragged
 // partner edge left this edge's gap cut where nothing crosses anymore (the
-// seating pass does not rerun on drag). A cue-less edge -- almost every edge
+// seating pass reruns only when a drag ends). A cue-less edge -- almost every edge
 // -- pays nothing per store tick: its selector returns one shared empty
 // array, so the equality check short-circuits on identity, and the filter
 // result is memoized so the per-render geometry runs only when a stamp, the
@@ -646,7 +646,7 @@ export default function ItemEdge({
   // Drag-staleness guard for the fan-in marker, mirroring BusEdge's
   // fanoutBranchHiddenAt pattern (the ratified issue-9 stale-hide rule): the
   // marker fields are stamped absolute coordinates from the seating pass, and
-  // nodes stay mouse-draggable without a re-seat. Once the stamped port y
+  // nodes stay mouse-draggable with a re-seat only at the drop. Once the stamped port y
   // diverges from the LIVE target port y (the targetY prop) past the eps, the
   // dot and the member hide drop together -- a floating marker or a wrongly
   // hidden chip is worse than a temporarily unmarked merge. The threshold is

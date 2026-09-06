@@ -189,8 +189,8 @@ export type FanoutBusEdgeData = BusAggregate & {
   // off-line seat would float in empty canvas, and the member's rate is
   // already on its target card's input row. The companion anchor records the
   // branch anchor the hide was decided at: nodes stay mouse-draggable and the
-  // seating pass does not rerun on drag, so BusEdge drops a hide whose live
-  // recomputed anchor no longer matches the stamp.
+  // seating pass reruns only when a drag ends, so mid-drag BusEdge drops a
+  // hide whose live recomputed anchor no longer matches the stamp.
   fanoutBranchHidden?: true;
   fanoutBranchHiddenAt?: { x: number; y: number };
   // Set by deconflictChipAnchors when this member's whole polyline is shorter

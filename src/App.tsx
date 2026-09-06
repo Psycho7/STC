@@ -17,7 +17,8 @@ import {
 import Canvas, { type CanvasStatus } from "./canvas/Canvas";
 import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
-import { layoutRenderPlan } from "./canvas/layout";
+import { layoutRenderPlan, type RFAnyNode } from "./canvas/layout";
+import { reseatChips } from "./canvas/chipSeating";
 import { buildRealizedRateByItem } from "./canvas/productNodeMetadata";
 import {
   describePlanLoadError,
@@ -320,6 +321,14 @@ function AppInner() {
   }, [plan]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  // A node drag ends: re-seat every chip on the dropped geometry (the seating
+  // pass is layout-time; see reseatChips). Edges keep their routing hints.
+  const handleNodeDragStop = useCallback(
+    (liveNodes: Node[]) => {
+      setEdges((prev) => reseatChips(liveNodes as RFAnyNode[], prev));
+    },
+    [setEdges],
+  );
   // `pending` is true while a solve + layout generation is in flight. It drives
   // the header status chip and the canvas status annotation (SOLVING), so both
   // load and mutation paths must set and clear it.
@@ -890,6 +899,7 @@ function AppInner() {
               layoutGeneration={layoutGeneration}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
+              onNodeDragStop={handleNodeDragStop}
             />
           </div>
         </div>

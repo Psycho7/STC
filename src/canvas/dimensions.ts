@@ -45,8 +45,9 @@ export const MAX_CHIP_SCALE = 2;
 
 // How far a stamped hide anchor may drift from the live one before the hide is
 // treated as stale and the chip comes back. The seating pass stamps the anchor
-// a hide was decided at, and nodes stay mouse-draggable without a re-seat, so a
-// drag can move the geometry out from under a decision nothing recomputes: past
+// a hide was decided at, and nodes stay mouse-draggable with a re-seat only at
+// the drop, so a drag in flight moves the geometry out from under a decision
+// nothing recomputes yet: past
 // this threshold a floating marker or a wrongly hidden chip is worse than an
 // unmarked merge, and the renderers drop the hide. The threshold sits well
 // above the ~1-unit port-model disagreement between the seating pass's

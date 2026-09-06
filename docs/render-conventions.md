@@ -122,7 +122,9 @@ widest box it can draw fits that stretch -- or renders icon-only when even the
 natural text does not fit. A corridor shared with another chip works the same
 way: when the full box has no seat left on the line, the chip shrinks to its
 natural size before it takes any seat off the line. A chip that had to move is
-still bound to its own polyline; one that reads as belonging to a neighbouring line is a defect. A
+still bound to its own polyline; dragging a card re-seats every chip when the
+drag ends, so a dropped plan obeys the same rules (mid-drag, chips ride the
+live line with their last seat offsets); one that reads as belonging to a neighbouring line is a defect. A
 lane chip seated one lane pitch beside its lane is clearing a junction dot, not
 changing lines.
 

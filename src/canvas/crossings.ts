@@ -166,7 +166,7 @@ export type CrossingCue = {
 // polyline, or whose partners have all since moved away (the optional
 // predicate, fed from crossingPartnerBits by the render layer). The stamps
 // are absolute points from the seating pass and nodes stay mouse-draggable
-// without a re-seat, so a dragged edge would otherwise float its cues off the
+// with a re-seat only at the drop, so a dragged edge would otherwise float its cues off the
 // lines they mark -- the same stale-stamp rule the fan-in marker and the
 // fan-out branch hide follow (HIDE_STALE_EPS) -- and a dragged PARTNER would
 // leave a gap cut into this stroke where nothing crosses anymore: the

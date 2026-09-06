@@ -2159,6 +2159,99 @@ function edgeEndpoints(
 type JunctionDotKind = "lane" | "fanout" | "fanin" | "divergence";
 export type JunctionDot = { x: number; y: number; kind: JunctionDotKind };
 
+// The exact set of edge-data fields the seating phases stamp, Picked from the
+// three types that declare them rather than restated here (the ChipAnchorData
+// pattern): renaming a field at its declaration breaks this build instead of
+// leaving the writer stamping a name no renderer reads any more.
+type SeatPatch = Partial<
+  Pick<
+    ItemEdgeData,
+    | "labelDx"
+    | "labelDy"
+    | "chipIconOnly"
+    | "chipScaleCap"
+    | "faninJunctionX"
+    | "faninJunctionY"
+    | "faninChipHidden"
+    | "faninChipHiddenAtY"
+    | "fanoutJunctionX"
+    | "fanoutJunctionY"
+    | "crossingCues"
+  > &
+    Pick<
+      LaneBusEdgeData,
+      "busChipX" | "busDropDy" | "busChipDy" | "busRiseHidden"
+    > &
+    Pick<
+      FanoutBusEdgeData,
+      | "fanoutAggDx"
+      | "fanoutAggDy"
+      | "fanoutBranchDx"
+      | "fanoutBranchDy"
+      | "fanoutBranchIconOnly"
+      | "fanoutBranchScaleCap"
+      | "fanoutBranchHidden"
+      | "fanoutBranchHiddenAt"
+    >
+>;
+
+// Every SeatPatch key, as a value: the record type forces the list to name
+// each key exactly once, so a stamp added to SeatPatch and forgotten here is a
+// type error rather than a stamp reseatChips leaves behind.
+const SEAT_PATCH_KEYS = Object.keys({
+  labelDx: true,
+  labelDy: true,
+  chipIconOnly: true,
+  chipScaleCap: true,
+  faninJunctionX: true,
+  faninJunctionY: true,
+  faninChipHidden: true,
+  faninChipHiddenAtY: true,
+  fanoutJunctionX: true,
+  fanoutJunctionY: true,
+  crossingCues: true,
+  busChipX: true,
+  busDropDy: true,
+  busChipDy: true,
+  busRiseHidden: true,
+  fanoutAggDx: true,
+  fanoutAggDy: true,
+  fanoutBranchDx: true,
+  fanoutBranchDy: true,
+  fanoutBranchIconOnly: true,
+  fanoutBranchScaleCap: true,
+  fanoutBranchHidden: true,
+  fanoutBranchHiddenAt: true,
+} satisfies Record<keyof SeatPatch, true>) as ReadonlyArray<keyof SeatPatch>;
+
+// The drag-end re-seat. A node drag moves the live path anchor every chip is
+// drawn from (the edge components re-path from the live endpoints) but not
+// the offsets and stamps this pass wrote for the layout-time geometry, so a
+// dragged plan draws its chips at "live anchor plus a stale offset". Strip
+// every stamp the pass owns and run it again on the moved nodes: the routing
+// hints the earlier passes wrote (bend columns, lanes, fan-out stamps) stay,
+// exactly as the live edge paths keep reading them, so the re-seat sees the
+// same polylines the canvas draws. The result equals a fresh pass over clean
+// edges; an untouched edge comes back by reference as the pass itself does.
+export function reseatChips(
+  nodes: ReadonlyArray<RFAnyNode>,
+  edges: ReadonlyArray<Edge>,
+): Edge[] {
+  const clean = edges.map((edge) => {
+    if (edge.data === undefined) return edge;
+    const data: Record<string, unknown> = { ...edge.data };
+    let stripped = false;
+    for (const key of SEAT_PATCH_KEYS) {
+      if (key in data) {
+        delete data[key];
+        stripped = true;
+      }
+    }
+    return stripped ? { ...edge, data } : edge;
+  });
+  return deconflictChipAnchors(nodes, clean);
+}
+
 export function deconflictChipAnchors(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
@@ -3417,41 +3510,6 @@ export function deconflictChipAnchors(
     if (seat.dy !== 0) labelDyByIndex.set(index, seat.dy);
   }
 
-  // The exact set of edge-data fields the seating phases stamp, Picked from the
-  // three types that declare them rather than restated here (the ChipAnchorData
-  // pattern): renaming a field at its declaration breaks this build instead of
-  // leaving the writer stamping a name no renderer reads any more.
-  type SeatPatch = Partial<
-    Pick<
-      ItemEdgeData,
-      | "labelDx"
-      | "labelDy"
-      | "chipIconOnly"
-      | "chipScaleCap"
-      | "faninJunctionX"
-      | "faninJunctionY"
-      | "faninChipHidden"
-      | "faninChipHiddenAtY"
-      | "fanoutJunctionX"
-      | "fanoutJunctionY"
-      | "crossingCues"
-    > &
-      Pick<
-        LaneBusEdgeData,
-        "busChipX" | "busDropDy" | "busChipDy" | "busRiseHidden"
-      > &
-      Pick<
-        FanoutBusEdgeData,
-        | "fanoutAggDx"
-        | "fanoutAggDy"
-        | "fanoutBranchDx"
-        | "fanoutBranchDy"
-        | "fanoutBranchIconOnly"
-        | "fanoutBranchScaleCap"
-        | "fanoutBranchHidden"
-        | "fanoutBranchHiddenAt"
-      >
-  >;
   // Stamp every phase's verdicts onto one patch object, then decide by the
   // patch: an edge nothing seated is returned BY REFERENCE (the routing passes
   // and their tests read that identity as "untouched"), and every other edge

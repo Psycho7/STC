@@ -192,6 +192,24 @@ over foreign strokes their escape seats had left. PENDING RATIFICATION as
 ruling R16, one trade: those rises against the off-path and seat-validity
 falls. The alternative, hiding the returned chips, overturns R5.
 
+### Drag re-seat (2026-09-06)
+
+The seating pass was layout-time only: a drag kept the live edge paths but not
+the stamped offsets, so a dragged plan drew its chips at "live anchor plus a
+stale offset". `reseatChips` strips every stamp the pass owns and runs it
+again on the moved nodes (the routing hints stay, as the live paths keep
+reading them); App calls it from the canvas's drag-stop with the store's live
+nodes. A unit test pins that the result equals a fresh pass over clean edges
+and that a stale cap does not survive; an e2e drags the default plan's ore
+tap level with its row (the stale slide offset would park the chip 34.5 units
+under the line) and asserts the port-cover and seat-validity audits still
+read zero after the drop. The e2e parks the pointer off the graph first: a
+pointer resting on the dropped card hover-focuses its edges, and a focused
+collapsed chip shows its full text, which the audit would read as a port
+cover. React Flow itself offers only the path midpoint for a label, with no
+collision avoidance, so it cannot replace the pass; the live half of the
+placement already comes from it.
+
 ### Deviations from the plan text
 
 - The Task-6 corridor fixture's three siblings stay FULL under the implemented
