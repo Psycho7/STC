@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import Fraction from "fraction.js";
 import { renderPlanFromSolve } from "../../src/pipeline/driver";
 import { solvePlanWithIntermediates } from "../../src/solver";
 import { pack } from "../../src/data/load";
+import { makePack } from "../../src/solver/closed-form-fixtures";
 import {
   defaultTransportConfig,
   loadTransportConfig,
@@ -28,23 +29,24 @@ import type { Item, Recipe } from "@aef/schema";
 function emitProducts(
   targets: Target[],
   itemOverrides: ItemOverride[],
+  fixturePack = pack,
 ): {
   inputs: RenderUnitInputProduct[];
   outputs: RenderUnitOutputProduct[];
   plan: ReturnType<typeof renderPlanFromSolve>["plan"];
   recipeById: ReadonlyMap<string, Recipe>;
 } {
-  const tConfig = loadTransportConfig(defaultTransportConfig, pack);
+  const tConfig = loadTransportConfig(defaultTransportConfig, fixturePack);
   const solverTargets = targets;
   const full = solvePlanWithIntermediates(
     solverTargets,
-    pack,
+    fixturePack,
     tConfig,
     itemOverrides,
   );
   const { plan } = renderPlanFromSolve(
     full,
-    pack,
+    fixturePack,
     solverTargets,
     itemOverrides,
   );
@@ -98,16 +100,35 @@ describe("render policy / boundary product units", () => {
     expect(passthrough!.rate).toEqual({ num: "1", denom: "1" });
   });
 
-  it("target = copper_nugget, override copper_ore: plan=true: drops copper_ore boundary; liquid_water surfaces as new input boundary", () => {
-    const { inputs } = emitProducts(
-      [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
-      [{ itemId: "copper_ore", plan: true }],
-    );
+  it("target = copper_nugget, override copper_ore: plan=true seeds nothing and copper_ore stays the boundary input", () => {
+    // Rendered with DEV off: no producer can cover copper_ore, so the plan goes
+    // short and a short plan trips the DEV invariants (a target delivered below
+    // its declared rate) whatever the cause. Production renders it anyway, and
+    // what it draws is what this case is about.
+    vi.stubEnv("DEV", false);
+    let result;
+    try {
+      result = emitProducts(
+        [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
+        [{ itemId: "copper_ore", plan: true }],
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const { inputs, plan } = result;
+    // Asking for copper_ore to be built cannot pull a producer in: the hydro
+    // miner is the only one and no plan may run it. Nor is the ore imported -
+    // plan:true is a request to build it - so the ore leaves the plan entirely
+    // and the furnace route with it. What is left is the gas route, drawing
+    // gas_xiranite over the boundary and going short on the rest.
     const inputItems = new Set(inputs.map((u) => u.itemId));
     expect(inputItems.has("copper_ore")).toBe(false);
-    // The recipe `copper_ore-liquid_water` is now in the plan, surfacing
-    // liquid_water as the new raw-input boundary.
-    expect(inputItems).toContain("liquid_water");
+    expect(inputItems).toContain("gas_xiranite");
+    expect(
+      plan.units.some(
+        (u) => u.kind === "recipe" && u.recipeId === "copper_ore-liquid_water",
+      ),
+    ).toBe(false);
   });
 
   it("two targets sharing the same output item: rates are summed on the output product", () => {
@@ -400,21 +421,35 @@ describe("render policy / boundary product units", () => {
     expect(rawIn!.rateCap).toBeUndefined();
   });
 
-  it("target = copper_nugget, override copper_ore: ratePerSec=1/2: walk continues through copper_ore so liquid_water surfaces as a new boundary input AND copper_ore re-surfaces as a capped input", () => {
+  // Every producer of a raw item in the shipped pack is an extractor no plan
+  // may run, so the walk-continues cases run on a synthetic pack: mkM makes the
+  // capped raw item m out of the free raw z, and useM turns m into the target.
+  const cappedWalkPack = makePack(
+    [
+      { id: "mkM", time: 3, in: { z: 1 }, out: { m: 1 } },
+      { id: "useM", time: 1, in: { m: 1 }, out: { f: 1 } },
+    ],
+    [{ id: "z", raw: true }, { id: "m", raw: true }, { id: "f" }],
+  );
+  const cappedWalkTargets: Target[] = [
+    { itemId: "f", ratePerSec: { num: "1", denom: "1" } },
+  ];
+
+  it("override m: ratePerSec=1/2: walk continues through m so z surfaces as a new boundary input AND m re-surfaces as a capped input", () => {
     // With a finite rate cap the walk no longer terminates at the raw input;
-    // producers for copper_ore enter the graph (the `copper_ore-liquid_water`
-    // recipe) and liquid_water becomes the next boundary. The capped raw
-    // boundary product also re-surfaces alongside the internal producer
-    // (dual-emission); both assertions hold simultaneously.
+    // producers for m enter the graph (the `mkM` recipe) and z becomes the next
+    // boundary. The capped raw boundary product also re-surfaces alongside the
+    // internal producer (dual-emission); both assertions hold simultaneously.
     const { inputs } = emitProducts(
-      [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
-      [{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }],
+      cappedWalkTargets,
+      [{ itemId: "m", ratePerSec: { num: "1", denom: "2" } }],
+      cappedWalkPack,
     );
     const inputItems = new Set(inputs.map((u) => u.itemId));
-    expect(inputItems).toContain("liquid_water");
-    const copperOre = inputs.find((u) => u.itemId === "copper_ore");
-    expect(copperOre).toBeDefined();
-    expect(copperOre!.rateCap).toEqual({ num: "1", denom: "2" });
+    expect(inputItems).toContain("z");
+    const capped = inputs.find((u) => u.itemId === "m");
+    expect(capped).toBeDefined();
+    expect(capped!.rateCap).toEqual({ num: "1", denom: "2" });
   });
 
   // ---- Task 8: dual-emission for partial-cap items ------------------------
@@ -580,25 +615,25 @@ describe("render policy / boundary product units", () => {
   });
 
   it("raw item with finite ratePerSec AND producer in graph (end-to-end) emits BOTH inputProduct with rateCap and producer's outgoing edge", () => {
-    // End-to-end regression for the raw + ratePerSec case Task 3 widened.
-    // copper_ore's `copper_ore-liquid_water` producer should appear in the
-    // machine graph; the rateCap=1/2 boundary input must surface in parallel.
+    // End-to-end regression for the raw + ratePerSec case Task 3 widened, on
+    // the synthetic pack: m's `mkM` producer should appear in the machine
+    // graph; the rateCap=1/2 boundary input must surface in parallel.
     const {
       inputs,
       plan,
       recipeById: rById,
     } = emitProducts(
-      [{ itemId: "copper_nugget", ratePerSec: { num: "1", denom: "1" } }],
-      [{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }],
+      cappedWalkTargets,
+      [{ itemId: "m", ratePerSec: { num: "1", denom: "2" } }],
+      cappedWalkPack,
     );
     // (d.1) The capped boundary input is present.
-    const copperOre = inputs.find((u) => u.itemId === "copper_ore");
-    expect(copperOre).toBeDefined();
-    expect(copperOre!.rateCap).toEqual({ num: "1", denom: "2" });
-    // (d.2) A machine edge carrying copper_ore from the
-    // `copper_ore-liquid_water` producer to the `copper_nugget` consumer is
-    // present in the render plan. Lookup is by recipeId-on-unit since
-    // `u:<vertexId>` ids contain the replica id, not the recipe id.
+    const capped = inputs.find((u) => u.itemId === "m");
+    expect(capped).toBeDefined();
+    expect(capped!.rateCap).toEqual({ num: "1", denom: "2" });
+    // (d.2) A machine edge carrying m from the `mkM` producer to the `useM`
+    // consumer is present in the render plan. Lookup is by recipeId-on-unit
+    // since `u:<vertexId>` ids contain the replica id, not the recipe id.
     const recipeProduces = (recipeId: string, item: string): boolean => {
       const r = rById.get(recipeId);
       return !!r?.out.find((s) => s.item === item);
@@ -616,11 +651,11 @@ describe("render policy / boundary product units", () => {
       const fromR = recipeByUnit.get(e.fromUnit);
       const toR = recipeByUnit.get(e.toUnit);
       return (
-        e.item === "copper_ore" &&
+        e.item === "m" &&
         fromR !== undefined &&
         toR !== undefined &&
-        recipeProduces(fromR, "copper_ore") &&
-        recipeConsumes(toR, "copper_ore")
+        recipeProduces(fromR, "m") &&
+        recipeConsumes(toR, "m")
       );
     });
     expect(producerEdge).toBeDefined();

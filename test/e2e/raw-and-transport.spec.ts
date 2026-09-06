@@ -102,7 +102,7 @@ test.describe("raw-product boundaries and transport-kind styling", () => {
     ).toEqual([]);
   });
 
-  test("override copper_ore plan:true: miner_4 recipe and liquid_water surface", async ({
+  test("override copper_ore plan:true: no miner_4 recipe, the plan takes the gas route", async ({
     page,
   }, testInfo) => {
     const log = attachConsoleListener(page);
@@ -113,30 +113,30 @@ test.describe("raw-product boundaries and transport-kind styling", () => {
 
     await waitForCanvasReady(page);
 
-    // The mining recipe (producer: miner_4) should be in the graph. After
-    // the bisim hash-cons stage replica ids are rewritten to synthetic
-    // quotient ids (`q:N`), so the React Flow `data-id` no longer carries
-    // the recipe id. Match on the recipe-node's `data-recipe-id` attribute
-    // (stamped by RecipeNode.tsx) which is stable across the quotient
-    // transformation.
+    // Asking for copper_ore to be built pulls in no producer: the only recipe
+    // that makes it runs on miner_4, a machine placed on a map deposit rather
+    // than on the factory floor, and no plan may build one. After the bisim
+    // hash-cons stage replica ids are rewritten to synthetic quotient ids
+    // (`q:N`), so match on the recipe-node's `data-recipe-id` attribute
+    // (stamped by RecipeNode.tsx), which survives that rewrite.
     const minerRecipeNode = page.locator(
       '[data-testid="recipe-node"][data-recipe-id="copper_ore-liquid_water"]',
     );
-    await expect(minerRecipeNode.first()).toBeAttached();
+    await expect(minerRecipeNode).toHaveCount(0);
 
-    // liquid_water becomes the new raw boundary, surfaced as an input
-    // product after copper_ore is walked through.
-    const liquidWaterInput = page.locator(
-      '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="liquid_water"]',
-    );
-    await expect(liquidWaterInput).toBeAttached();
-
-    // copper_ore is no longer a boundary input product: the walk passed
-    // through it, so no input product for copper_ore should render.
+    // The ore is neither built nor imported - plan:true asked for it to be
+    // built - so it leaves the plan with the furnace route, and what is left is
+    // the phase-transition route drawing gas_xiranite at the boundary. The
+    // rest of the demand goes unmet, which the stats strip reports.
     const copperOreInput = page.locator(
       '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_ore"]',
     );
     await expect(copperOreInput).toHaveCount(0);
+
+    const gasXiraniteInput = page.locator(
+      '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="gas_xiranite"]',
+    );
+    await expect(gasXiraniteInput).toBeAttached();
 
     const png = await page.screenshot({
       path: "test-results/raw-and-transport-override.png",
