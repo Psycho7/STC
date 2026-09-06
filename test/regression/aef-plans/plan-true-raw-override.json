@@ -1,9 +1,9 @@
 {
-  "name": "copper_nugget target with plan:true override on raw copper_ore (Layer 1 continues through raw)",
+  "name": "copper_nugget target with plan:true override on raw liquid_water (Layer 1 continues through raw)",
   "targets": [
     { "itemId": "copper_nugget", "ratePerSec": { "num": "1", "denom": "1" } }
   ],
-  "itemOverrides": [{ "itemId": "copper_ore", "plan": true }],
+  "itemOverrides": [{ "itemId": "liquid_water", "plan": true }],
   "expectations": {
     "minUnits": 2,
     "expectAtLeastOneLoop": false,

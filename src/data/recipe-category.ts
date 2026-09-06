@@ -8,12 +8,22 @@ export function isInputSupplyRecipe(recipe: Recipe): boolean {
   return recipe.category === "__domain_transfer";
 }
 
-// An extraction recipe consumes nothing and pulls a raw material out of the
-// ground: the 7 miner and pump recipes. A plan never builds one. Raw materials
-// arrive over the boundary as external supply, so an extractor is supply
-// metadata the same way a cross-domain transfer is, not a production step.
+// Recipe flags the pack uses to name a machine the player places on a map
+// deposit rather than on the factory floor: "mining" on the 8 miner and pump
+// recipes, "world-node" on the 2 purification nodes (derived by the extractor
+// from the upstream machine's cost === -1 skip sentinel).
+const EXTRACTION_FLAGS = ["mining", "world-node"];
+
+// An extraction recipe draws a material out of the world instead of making it:
+// the 10 miner, pump, and world-node recipes. A plan never builds one. What it
+// yields arrives over the boundary as external supply, so an extractor is
+// supply metadata the same way a cross-domain transfer is, not a production
+// step. Most extractors consume nothing, and the zero-input test alone caught
+// them until the hydro miner (copper ore for water) and the purification nodes
+// showed up with real inputs, so the flags carry the rest.
 export function isExtractionRecipe(recipe: Recipe): boolean {
-  return recipe.in.length === 0;
+  if (recipe.in.length === 0) return true;
+  return (recipe.flags ?? []).some((f) => EXTRACTION_FLAGS.includes(f));
 }
 
 // Producers the LP may still fund - at big-M cost, when nothing else covers a

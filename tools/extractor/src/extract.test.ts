@@ -293,6 +293,49 @@ describe("raw classification", () => {
   });
 });
 
+describe("recipe flags", () => {
+  test("the mining flag stays exactly the 8 upstream extractor recipes", () => {
+    const mining = pack.recipes.filter((r) => r.flags?.includes("mining")).map((r) => r.id);
+    expect(mining.sort()).toEqual(
+      [
+        "copper_ore-liquid_water",
+        "gas_inert",
+        "gas_xiranite",
+        "iron_ore",
+        "liquid_acid",
+        "liquid_water",
+        "originium_ore",
+        "quartz_sand",
+      ].sort(),
+    );
+  });
+
+  test("world-node is stamped on exactly the two purification-node recipes", () => {
+    const worldNode = pack.recipes.filter((r) => r.flags?.includes("world-node")).map((r) => r.id);
+    expect(worldNode.sort()).toEqual(["sewage-treat", "sewage-treat-export"]);
+  });
+
+  test("world-node recipes keep their other fields and gain no cost hint", () => {
+    const treat = pack.recipes.find((r) => r.id === "sewage-treat");
+    expect(treat).toBeDefined();
+    expect(treat!.flags).toEqual(["world-node"]);
+    expect(treat!.producers).toEqual(["liquid_clean_gate"]);
+    expect(treat!.cost).toBeUndefined();
+
+    const exp = pack.recipes.find((r) => r.id === "sewage-treat-export");
+    expect(exp).toBeDefined();
+    expect(exp!.flags).toEqual(["world-node"]);
+    expect(exp!.producers).toEqual(["liquid_recycle_gate"]);
+    expect(exp!.cost).toBeUndefined();
+  });
+
+  test("a machine without the -1 sentinel leaves its recipes unflagged", () => {
+    const r = pack.recipes.find((x) => x.id === "liquid_plant_grass_1");
+    expect(r).toBeDefined();
+    expect(r!.flags).toBeUndefined();
+  });
+});
+
 describe("transport-kind classification", () => {
   test("every Transport.kind has a carrier entry in transport-config.json", async () => {
     const transportConfig = (await Bun.file(TRANSPORT_CONFIG_PATH).json()) as {

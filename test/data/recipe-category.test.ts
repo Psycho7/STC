@@ -55,8 +55,46 @@ describe("data/recipe-category", () => {
       ).toBe(true);
     });
 
+    it("returns true for a flagged miner that consumes an input", () => {
+      // The hydro miner drinks water to mine copper, so the input count alone
+      // cannot see it; the pack's mining flag can.
+      expect(
+        isExtractionRecipe(
+          makeRecipe({
+            in: [{ item: "liquid_water", qty: 1 }],
+            out: [{ item: "copper_ore", qty: 1 }],
+            flags: ["mining"],
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it("returns true for a world node", () => {
+      expect(
+        isExtractionRecipe(
+          makeRecipe({
+            in: [{ item: "liquid_sewage", qty: 1 }],
+            out: [],
+            flags: ["world-node"],
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it("returns true when a banned flag sits beside an unrelated one", () => {
+      expect(
+        isExtractionRecipe(makeRecipe({ flags: ["hideProducer", "mining"] })),
+      ).toBe(true);
+    });
+
     it("returns false as soon as one input is listed", () => {
       expect(isExtractionRecipe(makeRecipe())).toBe(false);
+    });
+
+    it("returns false for an unrelated flag", () => {
+      expect(isExtractionRecipe(makeRecipe({ flags: ["hideProducer"] }))).toBe(
+        false,
+      );
     });
   });
 
@@ -67,6 +105,13 @@ describe("data/recipe-category", () => {
           makeRecipe({ in: [], out: [{ item: "iron_ore", qty: 1 }] }),
         ),
       ).toBe(true);
+    });
+
+    it("returns true for each banned flag", () => {
+      expect(isExcludedProducer(makeRecipe({ flags: ["mining"] }))).toBe(true);
+      expect(isExcludedProducer(makeRecipe({ flags: ["world-node"] }))).toBe(
+        true,
+      );
     });
 
     it("returns true when isInputSupplyRecipe is true", () => {

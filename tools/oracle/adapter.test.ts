@@ -45,10 +45,12 @@ describe("STC -> FactorioLab adapter", () => {
   //
   // PREMISE UPDATED: the old fixture asserted a 4:1 liquid_xiranite_poly :
   // -purifier machine ratio. That poly/purifier route is NOT the v1.4 cost-min
-  // optimum -- v1.4 added a sewage loop and the sewage-treat-export producer,
-  // and the LP now takes the gas / phase-transition route
+  // optimum -- v1.4 added the gas machines, and the LP now takes the gas /
+  // phase-transition route
   // (gas_xiranite -> gas_xiranite_enr -> phase_trans_2 -> xiranite_enr_powder),
-  // so neither poly recipe runs. Rather than hardcode a new happens-to-be ratio,
+  // so neither poly recipe runs. (v1.4 also added a sewage loop feeding poly
+  // through sewage-treat-export, but that runs on a purification node no plan
+  // may build, so it was never part of the choice.) Rather than hardcode a new happens-to-be ratio,
   // this asserts the fidelity the adapter exists to provide, on values derived
   // from the actual solve:
   //   1. the sole active producer of the target runs at its FORCED closed-form

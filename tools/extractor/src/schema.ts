@@ -116,6 +116,11 @@ export interface Recipe {
   out: Stoich[];
   producers: string[];
   locations?: string[];
+  // Recipe markers the planner reads. Two values ship today: "mining", copied
+  // verbatim from upstream, marks the 8 miner and pump recipes; "world-node",
+  // derived here, marks the recipes whose every producer is an upstream machine
+  // carrying the cost === -1 skip sentinel (the purification nodes). Both name
+  // recipes a plan never builds. Upstream may carry further values (hideProducer).
   flags?: string[];
   // Per-recipe power override in kW. Negative => the recipe generates power
   // (e.g. power-gen recipes). When absent, the machine's powerKw applies.

@@ -22,7 +22,11 @@ function solveAndRender(
   targets: ItemTarget[],
   overrides: ItemOverride[],
   fixturePack = pack,
-): { plan: RenderPlan; rates: ReadonlyMap<string, Fraction> } {
+): {
+  plan: RenderPlan;
+  rates: ReadonlyMap<string, Fraction>;
+  softFeasible: boolean;
+} {
   const full = solvePlanWithIntermediates(
     targets,
     fixturePack,
@@ -38,7 +42,7 @@ function solveAndRender(
     itemOverrides: overrides,
   }).flatMap((r) => r.violations);
   expect(violations).toEqual([]);
-  return { plan, rates: full.rates };
+  return { plan, rates: full.rates, softFeasible: full.feasibility.softFeasible };
 }
 
 function inflow(plan: RenderPlan, toUnit: string, item: string): Fraction {
@@ -49,10 +53,12 @@ function inflow(plan: RenderPlan, toUnit: string, item: string): Fraction {
   return sum;
 }
 
-// The cap fixture used to be iron_ore, whose only producer is the miner. With
-// no solution allowed to run one, capping iron_ore short leaves the target
-// under-fed rather than splitting the demand, so the residual-split cases below
-// all run on copper_ore, which copper_ore-liquid_water really does produce.
+// Every producer of copper_ore is an extractor, so a plan can only import it
+// over the boundary: capping it short leaves the target under-fed instead of
+// splitting the demand. The matrix keeps copper_ore for the rows the boundary
+// covers on its own and asserts a deficit on the rows it cannot; the
+// residual-split cases that need a raw item with a real producer run on a
+// synthetic pack below.
 describe("itemOverride matrix on copper_nugget@1/s (copper_ore)", () => {
   const targets: ItemTarget[] = [
     {
@@ -60,16 +66,13 @@ describe("itemOverride matrix on copper_nugget@1/s (copper_ore)", () => {
       ratePerSec: { num: "1", denom: "1" },
     },
   ];
-  const cases: Array<[string, ItemOverride[]]> = [
+  const covered: Array<[string, ItemOverride[]]> = [
     ["none", []],
-    ["plan:true", [{ itemId: "copper_ore", plan: true }]],
     ["cap 5 above demand", [{ itemId: "copper_ore", ratePerSec: { num: "5", denom: "1" } }]],
     ["cap 1 exact", [{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "1" } }]],
-    ["cap 1/2 below demand", [{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }]],
-    ["cap 0", [{ itemId: "copper_ore", ratePerSec: { num: "0", denom: "1" } }]],
   ];
 
-  it.each(cases)("%s solves and renders clean under DEV", (_name, overrides) => {
+  it.each(covered)("%s solves and renders clean under DEV", (_name, overrides) => {
     const { plan } = solveAndRender(targets, overrides);
     const consumerUnit = plan.units.find(
       (u) => isRecipeUnit(u) && u.recipeId === "copper_nugget",
@@ -77,47 +80,27 @@ describe("itemOverride matrix on copper_nugget@1/s (copper_ore)", () => {
     expect(inflow(plan, consumerUnit.id, "copper_ore").equals(1)).toBe(true);
   });
 
-  it("cap 1/2 below demand: boundary covers 1/2, internal producer the rest", () => {
-    const { plan, rates } = solveAndRender(targets, [
-      { itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } },
-    ]);
-    expect(rates.get("copper_ore-liquid_water")?.equals(new Fraction(1, 2))).toBe(
-      true,
-    );
-    const consumerUnit = plan.units.find(
-      (u) => isRecipeUnit(u) && u.recipeId === "copper_nugget",
-    )!;
-    const producerUnit = plan.units.find(
-      (u) => isRecipeUnit(u) && u.recipeId === "copper_ore-liquid_water",
-    )!;
-    const boundary = plan.edges.find(
-      (e) => e.fromUnit === "u:in:copper_ore" && e.toUnit === consumerUnit.id,
-    );
-    expect(boundary?.rate.equals(new Fraction(1, 2))).toBe(true);
-    // Internal producer edge carries the residual half; together with the draw
-    // the consumer sees exactly its demand of 1.
-    const internal = plan.edges.find(
-      (e) =>
-        e.fromUnit === producerUnit.id &&
-        e.toUnit === consumerUnit.id &&
-        e.item === "copper_ore",
-    );
-    expect(internal?.rate.equals(new Fraction(1, 2))).toBe(true);
-    expect(inflow(plan, consumerUnit.id, "copper_ore").equals(1)).toBe(true);
+  // plan:true asks for copper_ore to be built rather than imported, and the
+  // only recipe that makes it is the hydro miner, so the request seeds nothing.
+  const short: Array<[string, ItemOverride[]]> = [
+    ["plan:true", [{ itemId: "copper_ore", plan: true }]],
+    ["cap 1/2 below demand", [{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }]],
+    ["cap 0", [{ itemId: "copper_ore", ratePerSec: { num: "0", denom: "1" } }]],
+  ];
 
-    // The producer's machine count derives from the reconciled residual rate
-    // (time 3, 1 ore per run -> 1/3 per machine-sec, so LP rate 1/2 is 3/2
-    // machines), not from the pre-cap full demand.
-    if (!isRecipeUnit(producerUnit)) throw new Error("expected recipe unit");
-    expect(producerUnit.multiplicity).toEqual({ num: "3", denom: "2" });
-
-    // Input product chip shows the realized draw next to the cap.
-    const input = plan.units.find(
-      (u) => isInputProductUnit(u) && u.itemId === "copper_ore",
+  // Solver-level only. A plan that goes short still violates the DEV render
+  // invariants (a target delivered below its declared rate, a consumer fed
+  // from nothing), which is true of every shortfall plan and not of this ban -
+  // capping iron_ore short has always thrown the same way.
+  it.each(short)("%s reports the shortfall and mines nothing", (_name, overrides) => {
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      overrides,
     );
-    if (!input || !isInputProductUnit(input)) throw new Error("missing input");
-    expect(input.rate).toEqual({ num: "1", denom: "2" });
-    expect(input.rateCap).toEqual({ num: "1", denom: "2" });
+    expect(full.rates.has("copper_ore-liquid_water")).toBe(false);
+    expect(full.feasibility.softFeasible).toBe(false);
   });
 
   it("cap 5 above demand: the draw feeds everything, no phantom surplus unit", () => {
@@ -136,6 +119,97 @@ describe("itemOverride matrix on copper_nugget@1/s (copper_ore)", () => {
     );
     if (!input || !isInputProductUnit(input)) throw new Error("missing input");
     expect(input.rate).toEqual({ num: "1", denom: "1" });
+  });
+});
+
+// A capped raw item whose demand a real producer can top up. The shipped pack
+// has no such item left - every raw one is extractor-only - so the split runs
+// on a synthetic pack: mkM makes the capped item m from the free raw z, taking
+// 3s per unit so the reconciled machine count is a fraction worth reading.
+describe("residual split on a capped raw item with a real producer", () => {
+  const fixturePack = makePack(
+    [
+      { id: "mkM", time: 3, in: { z: 1 }, out: { m: 1 } },
+      { id: "useM", time: 1, in: { m: 1 }, out: { f: 1 } },
+    ],
+    [{ id: "z", raw: true }, { id: "m", raw: true }, { id: "f" }],
+  );
+  const targets: ItemTarget[] = [
+    { itemId: "f", ratePerSec: { num: "1", denom: "1" } },
+  ];
+
+  it("cap 1/2 below demand: boundary covers 1/2, internal producer the rest", () => {
+    const { plan, rates } = solveAndRender(
+      targets,
+      [{ itemId: "m", ratePerSec: { num: "1", denom: "2" } }],
+      fixturePack,
+    );
+    expect(rates.get("mkM")?.equals(new Fraction(1, 2))).toBe(true);
+    const consumerUnit = plan.units.find(
+      (u) => isRecipeUnit(u) && u.recipeId === "useM",
+    )!;
+    const producerUnit = plan.units.find(
+      (u) => isRecipeUnit(u) && u.recipeId === "mkM",
+    )!;
+    const boundary = plan.edges.find(
+      (e) => e.fromUnit === "u:in:m" && e.toUnit === consumerUnit.id,
+    );
+    expect(boundary?.rate.equals(new Fraction(1, 2))).toBe(true);
+    // Internal producer edge carries the residual half; together with the draw
+    // the consumer sees exactly its demand of 1.
+    const internal = plan.edges.find(
+      (e) =>
+        e.fromUnit === producerUnit.id &&
+        e.toUnit === consumerUnit.id &&
+        e.item === "m",
+    );
+    expect(internal?.rate.equals(new Fraction(1, 2))).toBe(true);
+    expect(inflow(plan, consumerUnit.id, "m").equals(1)).toBe(true);
+
+    // The producer's machine count derives from the reconciled residual rate
+    // (time 3, 1 m per run -> 1/3 per machine-sec, so LP rate 1/2 is 3/2
+    // machines), not from the pre-cap full demand.
+    if (!isRecipeUnit(producerUnit)) throw new Error("expected recipe unit");
+    expect(producerUnit.multiplicity).toEqual({ num: "3", denom: "2" });
+
+    // Input product chip shows the realized draw next to the cap.
+    const input = plan.units.find(
+      (u) => isInputProductUnit(u) && u.itemId === "m",
+    );
+    if (!input || !isInputProductUnit(input)) throw new Error("missing input");
+    expect(input.rate).toEqual({ num: "1", denom: "2" });
+    expect(input.rateCap).toEqual({ num: "1", denom: "2" });
+  });
+
+  // The same split on the shipped pack, where the capped item is a gas the
+  // phase-transition recipe can make: gas_xiranite capped at 1/10 is drawn in
+  // full and phase_trans_2-gas_xiranite covers the rest.
+  it("splits a shipped-pack cap between the boundary and a real producer", () => {
+    const { plan, rates, softFeasible } = solveAndRender(
+      [{ itemId: "gas_copper", ratePerSec: { num: "1", denom: "1" } }],
+      [{ itemId: "gas_xiranite", ratePerSec: { num: "1", denom: "10" } }],
+    );
+    expect(softFeasible).toBe(true);
+    expect(rates.get("phase_trans_2-gas_xiranite")?.gt(0)).toBe(true);
+    const input = plan.units.find(
+      (u) => isInputProductUnit(u) && u.itemId === "gas_xiranite",
+    );
+    if (!input || !isInputProductUnit(input)) throw new Error("missing input");
+    expect(input.rate).toEqual({ num: "1", denom: "10" });
+    const producerUnit = plan.units.find(
+      (u) => isRecipeUnit(u) && u.recipeId === "phase_trans_2-gas_xiranite",
+    );
+    expect(producerUnit).toBeDefined();
+    // Both reaches into the gas_xiranite consumers exist: the boundary draw and
+    // the internal producer.
+    expect(
+      plan.edges.some((e) => e.fromUnit === input.id && e.item === "gas_xiranite"),
+    ).toBe(true);
+    expect(
+      plan.edges.some(
+        (e) => e.fromUnit === producerUnit!.id && e.item === "gas_xiranite",
+      ),
+    ).toBe(true);
   });
 });
 

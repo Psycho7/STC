@@ -177,12 +177,12 @@ export function solveLp(input: LpInput): LpResult {
   }
 
   // Sort recipes and items by id for deterministic iteration / lex-rank.
-  // Miners and pumps are dropped outright rather than priced at big-M: the
-  // model gets no x_ variable for them, so no solution can run one. A big-M
-  // cost would still let the LP recruit a miner whenever nothing else covers
-  // the demand, which is exactly the case that matters - a raw item capped
-  // below what the plan consumes must report the shortfall as a deficit, not
-  // grow its own mine.
+  // Miners, pumps and world nodes are dropped outright rather than priced at
+  // big-M: the model gets no x_ variable for them, so no solution can run one.
+  // A big-M cost would still let the LP recruit one whenever nothing else
+  // covers the demand, which is exactly the case that matters - a raw item
+  // capped below what the plan consumes must report the shortfall as a
+  // deficit, not grow its own mine.
   const sortedRecipes = [...pack.recipes].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );

@@ -43,6 +43,10 @@ export interface UpstreamMachine {
   size?: [number, number] | null;
   locations?: string[] | null;
   totalRecipe?: boolean | null;
+  // Upstream solver hint on the machine, mirroring UpstreamRecipe.cost.
+  // cost === -1 marks a machine the default solver should skip; the extractor
+  // reads it only to derive the world-node recipe flag and never emits it.
+  cost?: number | null;
 }
 
 export interface UpstreamTransport {
