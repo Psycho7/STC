@@ -867,9 +867,19 @@ export function makeClearanceField(
         };
         const zone = exempt.zones.get(c.id);
         if (zone === undefined) {
+          // The foreign raw box is tested with a half-unit frame margin on
+          // each side: a seat parked flush against the 0.5 strict-
+          // interpenetration eps clears HERE by thousandths, and the camera
+          // rounding between the seat's model frame and the audit's drawn
+          // frame then flips the e2e hard gate on a coin (gas-web e:22 at
+          // the port-band re-measure). One unit of true clearance cannot.
           return (
-            Math.min(chip.right, c.right) - Math.max(chip.left, c.left) > 0.5 &&
-            Math.min(chip.bottom, c.bottom) - Math.max(chip.top, c.top) > 0.5
+            Math.min(chip.right, c.right + 0.5) -
+              Math.max(chip.left, c.left - 0.5) >
+              0.5 &&
+            Math.min(chip.bottom, c.bottom + 0.5) -
+              Math.max(chip.top, c.top - 0.5) >
+              0.5
           );
         }
         return chipEntersOwnCardBody(chip, c, zone, 0.5);
@@ -1827,10 +1837,19 @@ export function seatRateChip(
   // only bounds the search. This upholds the two HARD invariants -- no two
   // chips overlap, no chip on a foreign card -- at the cost of the chip
   // grazing a foreign line (ratcheted) and sitting off its own polyline
-  // (ratcheted).
+  // (ratcheted). The own-port band rides along (#82): the plan's B3 was to
+  // have made escapes unreachable for a band conflict, but a crowded plan
+  // (multi6's e:30 / e:99) still reaches this tier with the band the only
+  // clear obstacle -- an escape that parks on its own port is exactly the
+  // defect this campaign closes, the band is a finite rect so the walk still
+  // terminates, and the census holds the residue at zero.
   const hardClear = (py: number): boolean => {
     const box = boxAt(anchorX, py);
-    return !field.entersForeignCard(box, exempt) && !field.overlapsChip(box);
+    return (
+      !field.entersForeignCard(box, exempt) &&
+      !field.entersOwnPortBand(box, exempt) &&
+      !field.overlapsChip(box)
+    );
   };
   for (let k = 0; k <= LAST_RESORT_CAP_STEPS; k++) {
     const deltas = k === 0 ? [0] : [k * CHIP_NUDGE_STEP, -k * CHIP_NUDGE_STEP];

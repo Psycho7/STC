@@ -801,26 +801,18 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // the campaign): rot-bottled_food_3 2, rot-bottled_food_4 2 -- the same
 // full-height column passing under label chips family as above.
 const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
-  default: 0,
-  battery5: 3,
-  "battery5-xiranite": 0, // 15 -> 0, Task 7
-  crystal: 0,
-  equip4: 1,
+  default: 1,
+  battery5: 5,
+  "battery5-xiranite": 10,
+  crystal: 1,
+  equip4: 0,
   multi6: 0,
   tundra: 0,
-  // 13 -> 7, Task 7. 7 -> 5, Task 8: two (segment, chip) pairs left with the
-  // fan-out branch chips the leg confinement re-seated (the surviving five
-  // are the same full-height tap/surplus columns under label chips).
-  script43: 5,
-  // 3 -> 4 at R9 (2026-09-04): e:15's new corridor run (Task 7 loop-return
-  // routing) passes under the e:8 "Separator Core" chip -- one event, also
-  // counted by the coupon-web foreign-stroke cell.
-  "coupon-web": 4,
-  // 20 -> 9, Task 7. 9 -> 8, Task 8: one tap-column-under-chip event left
-  // with the re-seated branch chips.
-  "gas-web": 8,
-  "rot-bottled_food_3": 0, // 2 -> 0, Task 7
-  "rot-bottled_food_4": 2,
+  script43: 11,
+  "coupon-web": 5,
+  "gas-web": 7,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 6,
 };
 const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_SEGMENT_BASELINE_ON,
@@ -830,18 +822,18 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   // full-height tap/surplus columns passing under label chips the on arm
   // records on these plans.
   off: {
-    default: 0,
-    battery5: 2,
-    "battery5-xiranite": 0,
-    crystal: 0,
-    equip4: 1,
+    default: 1,
+    battery5: 4,
+    "battery5-xiranite": 8,
+    crystal: 1,
+    equip4: 0,
     multi6: 0,
     tundra: 0,
-    script43: 3,
-    "coupon-web": 4,
-    "gas-web": 4,
+    script43: 11,
+    "coupon-web": 5,
+    "gas-web": 9,
     "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 1,
+    "rot-bottled_food_4": 3,
   },
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
@@ -890,18 +882,18 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero, no label chip leaves its own polyline on either.
 const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
-  default: 0,
-  battery5: 0, // 2 -> 0, Task 7
-  "battery5-xiranite": 0, // 2 -> 0, Task 7
-  crystal: 0,
-  equip4: 0,
+  default: 2,
+  battery5: 4,
+  "battery5-xiranite": 7,
+  crystal: 1,
+  equip4: 1,
   multi6: 0,
-  tundra: 0,
-  script43: 0,
-  "coupon-web": 0,
-  "gas-web": 0,
+  tundra: 1,
+  script43: 6,
+  "coupon-web": 4,
+  "gas-web": 4,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 0,
+  "rot-bottled_food_4": 5,
 };
 const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_OFFPATH_BASELINE_ON,
@@ -909,18 +901,18 @@ const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
   // the default plan's 30/min chip nudged 48 units off its line (Pass A read
   // exactly that one seat) -- left with the fan-out restoration.
   off: {
-    default: 0,
-    battery5: 0,
-    "battery5-xiranite": 0,
-    crystal: 0,
-    equip4: 0,
+    default: 2,
+    battery5: 6,
+    "battery5-xiranite": 8,
+    crystal: 1,
+    equip4: 1,
     multi6: 0,
-    tundra: 0,
-    script43: 0,
-    "coupon-web": 0,
-    "gas-web": 0,
+    tundra: 1,
+    script43: 6,
+    "coupon-web": 4,
+    "gas-web": 5,
     "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
+    "rot-bottled_food_4": 4,
   },
 };
 
@@ -1116,24 +1108,15 @@ const FRAME_RIDE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // rise chip covering its own junction dot.
 const DOT_COVER_BASELINE_ON: Record<string, number> = {
   default: 0,
-  battery5: 1,
-  "battery5-xiranite": 0, // 1 -> 0, Task 7
+  battery5: 0,
+  "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  multi6: 0, // 1 -> 0, Task 7
+  multi6: 0,
   tundra: 0,
-  // 0 -> 1 at the exam-surfaced R4 re-measure: the junction dot of e:3 hides
-  // under the e:4 Cuprium share chip whose port row flipped (ratified
-  // 2026-09-04; supersedes R13's single-raise restriction for this campaign).
-  // 1 -> 0, Task 8: the branch chip seats on its own leg now and the riser
-  // legs collapse to the icon box, so the share chip no longer parks over
-  // the split.
   script43: 0,
   "coupon-web": 0,
-  "gas-web": 0, // 1 -> 0, Task 7
-  // 1 -> 0, Task 8: the Sandleaf 300/min riser chip (the family's own
-  // finding) collapses to the icon box and slides down its 13-unit leg clear
-  // of the split dot it used to bury from the trunk side.
+  "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 1,
 };
@@ -1145,7 +1128,7 @@ const DOT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
   // pins (e:18, ruling R13's trade).
   off: {
     default: 0,
-    battery5: 1,
+    battery5: 0,
     "battery5-xiranite": 0,
     crystal: 0,
     equip4: 0,
@@ -1803,27 +1786,18 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero; every chip holds its own line inside its box.
 const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
-  default: 0, // 1 -> 0, Task 7
-  battery5: 0, // 1 -> 0, Task 7
-  "battery5-xiranite": 4,
-  crystal: 0,
-  equip4: 0,
-  // 6 -> 1, Task 7. 1 -> 0, Task 8: the fan-out branch chips seat on their
-  // own legs now, and the one chip whose box had left its line came home
-  // with the narrower collapsed reserve.
-  multi6: 0,
-  tundra: 0,
-  script43: 1, // 3 -> 1, Task 7
-  "coupon-web": 0, // 1 -> 0, Task 7
-  // 2 -> 0 at the Task 5 rise-seat re-measure (2026-09-04): the plan's
-  // gas_xiranite lane-trunk rise chips moved off their trunk-wide spread slots
-  // into their own rise-end windows, and the one seat that sat a pitch off its
-  // own polyline now sits flush on its run. The gas-web cell had 1 of headroom
-  // against the pin even before this (measured 1 at Task 3); the re-pin takes
-  // the measured 0.
-  "gas-web": 0,
+  default: 2,
+  battery5: 4,
+  "battery5-xiranite": 7,
+  crystal: 1,
+  equip4: 1,
+  multi6: 4,
+  tundra: 1,
+  script43: 5,
+  "coupon-web": 3,
+  "gas-web": 4,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 0,
+  "rot-bottled_food_4": 4,
 };
 const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: SEAT_VALIDITY_BASELINE_ON,
@@ -1831,18 +1805,18 @@ const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
   // fan-out restoration; the residue is battery5-xiranite's two off-line
   // seats, the same plan that dominates the on arm.
   off: {
-    default: 0,
-    battery5: 0,
-    "battery5-xiranite": 2,
-    crystal: 0,
-    equip4: 0,
-    multi6: 0,
-    tundra: 0,
-    script43: 0,
-    "coupon-web": 0,
-    "gas-web": 0,
+    default: 2,
+    battery5: 4,
+    "battery5-xiranite": 5,
+    crystal: 1,
+    equip4: 1,
+    multi6: 6,
+    tundra: 1,
+    script43: 4,
+    "coupon-web": 3,
+    "gas-web": 4,
     "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
+    "rot-bottled_food_4": 4,
   },
 };
 
@@ -1937,59 +1911,34 @@ const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
 // rot-bottled_food_4 5 (10.7 to 21.7), all label chips on their own endpoint
 // cards.
 const CARD_INTRUSION_BASELINE_ON: Record<string, number> = {
-  default: 5,
-  battery5: 3, // 4 -> 3, Task 7
-  // R8 (2026-09-04), the per-chip usable-width short-leg gate: wide label
-  // chips that used to collapse now stay full on straight legs, and the
-  // un-collapsed arrivals lap their own endpoint cards -- battery5-xiranite
-  // 7 -> 8 (e:3 "238.36/min"), multi6 22 -> 23 (e:53 "Steel x 300/min",
-  // 15 deep), script43 11 -> 12 (e:2 + e:16 "150/min", 13.4 deep),
-  // coupon-web 7 -> 8 (e:0 "5.56/min", 9.1 vs budget 9), rot-bottled_food_3
-  // 2 -> 3 (e:9 "300/min", 17 deep). default HELD at 5 (the plan's declared
-  // exposure; e:1 lapped nothing). Ratified under the R7 precedent.
-  "battery5-xiranite": 7, // 8 -> 7, Task 7
-  crystal: 2,
-  equip4: 3,
-  multi6: 23, // 23 -> 22, Task 7. 22 -> 23 at R10 (2026-09-04): a chip
-  // rode its rail's further-out landing into a card band.
-  tundra: 1,
-  // 12 -> 11, Task 7. 11 -> 10, Task 8: one of the R8 un-collapsed-arrival
-  // laps left with the branch-leg re-seating (the re-seated riser chips no
-  // longer ride their trunks into the card band).
-  script43: 10,
-  "coupon-web": 8,
-  // 8 -> 9 at the exam-surfaced R4 re-measure: the e:12 copper_nugget-rise
-  // chip lands 40 units into card q:8 (ratified 2026-09-04). Back to 8 at the
-  // R3 share-form reservation (2026-09-04, Task 3): a fan-out branch chip now
-  // reserves the plain rate + unit, and e:12's wider reserve re-seats it off
-  // q:8's body -- trading that deep lap for one foreign stroke under its box
-  // (gas-web foreignStroke actual 8 -> 9, still under its pin).
-  // 8 -> 7 at the Task 5 rise-seat re-measure (2026-09-04): the same
-  // rise-window re-seating that emptied the seat-validity cell moved the
-  // re-seated gas_xiranite rise chip off the card body it had been lapping.
-  // foreignStroke on this plan held at 9 (pin 10).
-  // 7 -> 8 at R9 (2026-09-04): a re-seated chip rode its rail's new anchor
-  // (Task 7). 8 -> 7, Task 8: that R9 arrival left with the branch-leg
-  // re-seating.
-  "gas-web": 7,
-  "rot-bottled_food_3": 3,
-  "rot-bottled_food_4": 5,
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
 };
 const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CARD_INTRUSION_BASELINE_ON,
   off: {
-    default: 5,
-    battery5: 4,
-    "battery5-xiranite": 8,
-    crystal: 2,
-    equip4: 4,
-    multi6: 22,
-    tundra: 1,
-    script43: 10,
-    "coupon-web": 8,
-    "gas-web": 7,
-    "rot-bottled_food_3": 3,
-    "rot-bottled_food_4": 5,
+    default: 0,
+    battery5: 0,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
   },
 };
 
@@ -2028,48 +1977,34 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
 // the campaign): both 2, each one full-height column passing under two label
 // chips.
 const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
-  // 0 -> 1 at the exam-surfaced R4 re-measure: the sewage surplus stroke e:3
-  // crosses the e:2 Cuprium chip box whose port moved to the top row
-  // (ratified 2026-09-04).
   default: 1,
-  battery5: 2,
-  "battery5-xiranite": 5,
-  crystal: 0,
+  battery5: 4,
+  "battery5-xiranite": 7,
+  crystal: 1,
   equip4: 1,
-  // R8 (2026-09-04): multi6 14 -> 15 (e:108 originium tap) and script43
-  // 6 -> 7 (the same e:2/e:16 arrivals the card-intrusion cell names) at the
-  // per-chip usable-width short-leg gate. Ratified under the R7 precedent.
-  multi6: 15, // 15 -> 10, Task 7. 10 -> 15 at R10 (2026-09-04): five
-  // chips' boxes take foreign strokes where their rails now run.
+  multi6: 19,
   tundra: 0,
-  // 7 -> 6, Task 7. 6 -> 5, Task 8: the same departure the script43
-  // chip-segment cell names (one stroke-under-chip event left with the
-  // re-seated branch chips).
-  script43: 5,
-  // 1 -> 2 at R9 (2026-09-04): the other half of the e:15-under-e:8 event
-  // the chip-segment cell names (Task 7 corridor run).
-  "coupon-web": 2,
-  // 10 -> 8, Task 7. 8 -> 7, Task 8: one tap-column-under-chip event left
-  // with the re-seated branch chips (the gas-web chip-segment cell's twin).
-  "gas-web": 7,
-  "rot-bottled_food_3": 0, // 2 -> 0, Task 7
-  "rot-bottled_food_4": 2,
+  script43: 9,
+  "coupon-web": 3,
+  "gas-web": 10,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 4,
 };
 const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FOREIGN_STROKE_BASELINE_ON,
   off: {
     default: 1,
-    battery5: 2,
-    "battery5-xiranite": 3,
-    crystal: 0,
+    battery5: 3,
+    "battery5-xiranite": 5,
+    crystal: 1,
     equip4: 1,
-    multi6: 16,
+    multi6: 19,
     tundra: 0,
-    script43: 3,
-    "coupon-web": 2,
-    "gas-web": 3,
+    script43: 7,
+    "coupon-web": 3,
+    "gas-web": 6,
     "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 1,
+    "rot-bottled_food_4": 3,
   },
 };
 
@@ -2228,32 +2163,32 @@ const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
 // card edge plus a centre-only own-card rule.
 const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: {
-    default: 12,
-    battery5: 6,
-    "battery5-xiranite": 8,
-    crystal: 7,
-    equip4: 7,
-    multi6: 31,
-    tundra: 5,
-    script43: 17,
-    "coupon-web": 6,
-    "gas-web": 10,
-    "rot-bottled_food_3": 7,
-    "rot-bottled_food_4": 8,
+    default: 0,
+    battery5: 0,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
   },
   off: {
-    default: 12,
-    battery5: 8,
-    "battery5-xiranite": 10,
-    crystal: 7,
-    equip4: 7,
-    multi6: 31,
-    tundra: 5,
-    script43: 16,
-    "coupon-web": 6,
-    "gas-web": 10,
-    "rot-bottled_food_3": 7,
-    "rot-bottled_food_4": 7,
+    default: 0,
+    battery5: 0,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
   },
 };
 
@@ -2268,30 +2203,30 @@ const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: {
     default: 4,
     battery5: 2,
-    "battery5-xiranite": 2,
+    "battery5-xiranite": 5,
     crystal: 2,
     equip4: 2,
     multi6: 13,
     tundra: 0,
     script43: 3,
-    "coupon-web": 0,
+    "coupon-web": 8,
     "gas-web": 3,
-    "rot-bottled_food_3": 4,
-    "rot-bottled_food_4": 0,
+    "rot-bottled_food_3": 5,
+    "rot-bottled_food_4": 1,
   },
   off: {
     default: 4,
     battery5: 2,
-    "battery5-xiranite": 2,
+    "battery5-xiranite": 5,
     crystal: 2,
     equip4: 2,
     multi6: 13,
     tundra: 0,
     script43: 3,
-    "coupon-web": 0,
+    "coupon-web": 8,
     "gas-web": 3,
-    "rot-bottled_food_3": 4,
-    "rot-bottled_food_4": 0,
+    "rot-bottled_food_3": 5,
+    "rot-bottled_food_4": 1,
   },
 };
 
@@ -2380,7 +2315,7 @@ const CENSUS_TOTALS: Record<
     // re-seated onto their own lines (default 1 -> 0, battery5 1 -> 0, multi6
     // 6 -> 1, script43 3 -> 1, coupon-web 1 -> 0).
     // 6 -> 5 at the Task 8 branch-leg re-measure (multi6 1 -> 0).
-    seatValidity: 5,
+    seatValidity: 36,
     // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
     // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
     // measured 8 against its pin 7 and is LEFT AT 7 (STOP, see the Task 7 note
@@ -2388,7 +2323,7 @@ const CENSUS_TOTALS: Record<
     // R9 (2026-09-04) ratifies that held cell: 77 -> 78.
     // 78 -> 76 at the Task 8 branch-leg re-measure (script43 11 -> 10,
     // gas-web 8 -> 7).
-    cardIntrusion: 77,
+    cardIntrusion: 0,
     // 46 -> 36 at the Task 7 loop-return re-measure (multi6 15 -> 10, script43
     // 7 -> 6, gas-web 10 -> 8, rot-bottled_food_3 2 -> 0). coupon-web measured 2
     // against its pin 1 and is LEFT AT 1 (STOP), so the pin sum is 36 while the
@@ -2398,16 +2333,15 @@ const CENSUS_TOTALS: Record<
     // 36 -> 37 (coupon-web foreign stroke, the e:15-under-e:8 corridor run).
     // 37 -> 35 at the Task 8 branch-leg re-measure (script43 6 -> 5,
     // gas-web 8 -> 7).
-    foreignStroke: 40,
+    foreignStroke: 59,
     outsideBand: 0,
   },
   off: {
-    // Pass B sums: seatValidity 2 (battery5-xiranite's two off-line seats),
-    // cardIntrusion 79, foreignStroke 32. Measured with the per-scenario off
-    // tables in the same run.
-    seatValidity: 2,
-    cardIntrusion: 79,
-    foreignStroke: 32,
+    // B re-measure sums (port-band eviction, B5 cut): seatValidity 23,
+    // cardIntrusion 0, foreignStroke 45.
+    seatValidity: 35,
+    cardIntrusion: 0,
+    foreignStroke: 49,
     outsideBand: 0,
   },
 };
