@@ -117,7 +117,10 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
 
   const recipes: Recipe[] = upstream.recipes.map(toRecipe);
 
-  stampWorldNodes(recipes, new Set(upstream.items.filter((u) => u.machine?.cost === -1).map((u) => u.id)));
+  const skipMachines = new Set(
+    upstream.items.filter((u) => u.machine?.cost === -1).map((u) => u.id),
+  );
+  stampWorldNodes(recipes, skipMachines);
 
   const dropped = collapseSyntheticChains({ items, machines, recipes });
 

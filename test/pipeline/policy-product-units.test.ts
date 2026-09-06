@@ -100,7 +100,7 @@ describe("render policy / boundary product units", () => {
     expect(passthrough!.rate).toEqual({ num: "1", denom: "1" });
   });
 
-  it("target = copper_nugget, override copper_ore: plan=true seeds nothing and copper_ore stays the boundary input", () => {
+  it("target = copper_nugget, override copper_ore: plan=true seeds nothing and drops the ore from the plan", () => {
     // Rendered with DEV off: no producer can cover copper_ore, so the plan goes
     // short and a short plan trips the DEV invariants (a target delivered below
     // its declared rate) whatever the cause. Production renders it anyway, and

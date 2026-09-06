@@ -25,8 +25,9 @@ the text below, all because the STC solver changed since the prototype:
    and a no-op on the synthetic micro-packs; it only reshapes the real v1.4 pack.
 3. **Section 2's 4:1 headline is stale.** Under v1.4 the `xiranite_enr_powder`
    plan no longer routes through `liquid_xiranite_poly`/`-purifier` (v1.4 added
-   a sewage loop + `sewage-treat-export`); the cost-min optimum takes the gas /
-   phase-transition route. `adapter.test.ts` now asserts the fidelity claim
+   the gas machines); the cost-min optimum takes the gas / phase-transition
+   route. The v1.4 sewage loop that also feeds poly runs on a purification node
+   no plan may build, so it never competed. `adapter.test.ts` now asserts the fidelity claim
    directly instead of the 4:1 ratio: STC and GLPK agree recipe-by-recipe on the
    headline with EXACT rate equality (units fix), and the sole target producer
    `phase_trans_2-xiranite_enr_powder` runs at its forced closed-form rate

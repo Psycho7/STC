@@ -202,7 +202,9 @@ describe("residual split on a capped raw item with a real producer", () => {
     expect(producerUnit).toBeDefined();
     // Both reaches into the gas_xiranite consumers exist: the boundary draw and
     // the internal producer.
-    expect(plan.edges.some((e) => e.fromUnit === input.id && e.item === "gas_xiranite")).toBe(true);
+    expect(
+      plan.edges.some((e) => e.fromUnit === input.id && e.item === "gas_xiranite"),
+    ).toBe(true);
     expect(
       plan.edges.some(
         (e) => e.fromUnit === producerUnit!.id && e.item === "gas_xiranite",
