@@ -805,7 +805,7 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // did. default 0 -> 1, battery5 3 -> 5, battery5-xiranite 0 -> 10, crystal
 // 0 -> 1, script43 5 -> 11, coupon-web 4 -> 5, rot-bottled_food_4 2 -> 6;
 // equip4 1 -> 0 and gas-web 8 -> 7 fell.
-// Shrink pass (R16, PENDING RATIFICATION): 46 -> 58, an UP move. The chips
+// Shrink pass (R16, RATIFIED 2026-09-06): 46 -> 58, an UP move. The chips
 // the pass returns to their lines seat there by the graze tier, and their
 // text boxes (kept at the fixed 0.32 gate) now lie over the foreign strokes
 // their escape seats had left: battery5-xiranite 10 -> 18, equip4 0 -> 1,
@@ -836,7 +836,7 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   // battery5 2 -> 4, battery5-xiranite 0 -> 8, crystal 0 -> 1, script43
   // 3 -> 11, coupon-web 4 -> 5, gas-web 4 -> 9, rot-bottled_food_4 1 -> 3;
   // equip4 1 -> 0 fell.
-  // Shrink pass (R16, PENDING RATIFICATION): 42 -> 43. battery5-xiranite
+  // Shrink pass (R16, RATIFIED 2026-09-06): 42 -> 43. battery5-xiranite
   // 8 -> 14, equip4 0 -> 1; script43 11 -> 10, gas-web 9 -> 5,
   // rot-bottled_food_4 3 -> 2 fell.
   off: {
@@ -904,7 +904,7 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
 // tundra 0 -> 1, script43 0 -> 6, coupon-web 0 -> 4, gas-web 0 -> 4,
 // rot-bottled_food_4 0 -> 5. Bought: PORT_COVER 124 -> 0 and CARD_INTRUSION
 // 77 -> 0 on this arm.
-// SHRINK PASS (R16, 2026-09-06, PENDING RATIFICATION as one trade with the CHIP_SEGMENT and multi6 FOREIGN_STROKE rises): a chip whose full box has no on-line seat retries
+// SHRINK PASS (R16, RATIFIED 2026-09-06 as one trade with the CHIP_SEGMENT and multi6 FOREIGN_STROKE rises): a chip whose full box has no on-line seat retries
 // its line at the scale-1 box before any off-line tier, and the fixed 0.32
 // icon-only gate keeps its digits. 35 -> 5: default 2 -> 0, battery5 4 -> 0,
 // battery5-xiranite 7 -> 2, crystal 1 -> 0, equip4 1 -> 0, tundra 1 -> 0,
@@ -2037,7 +2037,7 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
 // straddling columns their on-line seats cleared. battery5 2 -> 4,
 // battery5-xiranite 5 -> 7, crystal 0 -> 1, multi6 15 -> 19, script43 5 -> 9,
 // coupon-web 2 -> 3, gas-web 7 -> 10, rot-bottled_food_4 2 -> 4.
-// Shrink pass (R16, PENDING RATIFICATION for the one UP cell): 59 -> 54.
+// Shrink pass (R16, RATIFIED 2026-09-06 for the one UP cell): 59 -> 54.
 // multi6 19 -> 20 is a chip that now grazes a foreign line on its own row
 // instead of escaping; battery5 4 -> 3, battery5-xiranite 7 -> 6, script43
 // 9 -> 7, rot-bottled_food_4 4 -> 2 fell.

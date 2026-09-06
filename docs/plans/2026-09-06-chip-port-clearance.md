@@ -188,9 +188,10 @@ PORT_COVER and CARD_INTRUSION stay at zero; DOT_COVER is unchanged. The UP
 moves are CHIP_SEGMENT (battery5-xiranite 10 -> 18 and 8 -> 14, gas-web
 7 -> 12, equip4 0 -> 1, script43 11 -> 12) and one FOREIGN_STROKE cell (multi6
 19 -> 20): the returned chips seat by the graze tier, and their text boxes lie
-over foreign strokes their escape seats had left. PENDING RATIFICATION as
+over foreign strokes their escape seats had left. RATIFIED 2026-09-06 as
 ruling R16, one trade: those rises against the off-path and seat-validity
-falls. The alternative, hiding the returned chips, overturns R5.
+falls. The declined alternatives were hiding the returned chips (overturns
+R5) and reverting the shrink pass.
 
 ### Drag re-seat (2026-09-06)
 
