@@ -486,19 +486,25 @@ function isForeignEdge(
   clusterExempt: boolean,
   ownIds?: ReadonlySet<string>,
 ): boolean {
-  const own = ownIds !== undefined ? ownIds.has(edge.id) : edge.flowKey === flowKey;
+  const own =
+    ownIds !== undefined ? ownIds.has(edge.id) : edge.flowKey === flowKey;
   return !own && (!clusterExempt || edge.target !== target);
 }
 
 // A raw card rect a chip's box must stay clear of (the P3 hard invariant), in
 // the DRAWN frame: the rendered border box, which is what the browser paints and
-// what the e2e audit measures (see CARD_GROWTH).
+// what the e2e audit measures (see CARD_GROWTH). `border` is the card's own
+// frame width (CARD_BORDER on a recipe, 0 on every other kind): the port
+// furniture anchors on the ROW edge, which sits one border inside the drawn
+// edge on a recipe and at it elsewhere, so the band geometry below reads the
+// per-kind border off the rect.
 export type CardRect = {
   id: string;
   left: number;
   top: number;
   right: number;
   bottom: number;
+  border: number;
 };
 
 // Port-adjacent exemption depth (issue #10). An edge-label chip is ~2x wider
@@ -521,9 +527,56 @@ export type CardRect = {
 // line -- the issue-#9 orphaned-chip regression this narrowing must avoid.
 export const PORT_ZONE_DEPTH = 8;
 
+// How far the drawn PORT FURNITURE reaches OUTSIDE the row edge, in graph
+// units: PortGlyph hangs its box at -GLYPH_SIZE - 2 (8 + 2) off the row it
+// annotates (PortGlyph.tsx baseStyle), so the glyph's outer edge is 10 units
+// into the corridor. The React Flow handle box is centred ON the row edge (8
+// wide, 4 out), inside the glyph's reach. Measured from the ROW edge: on a
+// recipe the row starts CARD_BORDER inside the drawn card edge, on every
+// other kind it starts at the edge -- portKeepOutRect below does that
+// arithmetic per rect. Re-derive together with PORT_DRIFT / CARD_GROWTH /
+// CARD_BORDER whenever PortGlyph's side offset or a card's border changes.
+export const PORT_FURNITURE_OUT = 10;
+
+// The port keep-out band (#82): the full-height x-strip straddling one OWN
+// endpoint card's port edge, from PORT_FURNITURE_OUT outside the row edge to
+// CARD_BORDER + PORT_ZONE_DEPTH inside the drawn edge. Full card height on
+// purpose: a step edge anchors at mid(sy,ty), so a row-band rule would let a
+// wide box land on a neighbouring row's text while technically missing its
+// own row; and a box that cannot cross this band cannot reach the card body
+// either, so the one rect gives both halves of the placement ruling (never
+// cover the port handle or glyph, never cover the row text).
+export function portKeepOutRect(
+  card: CardRect,
+  side: PortZoneSide,
+): PortZoneRect {
+  // The glyph's outer edge: PORT_FURNITURE_OUT past the ROW edge, which is
+  // one card border inside the drawn edge on a recipe.
+  const out = PORT_FURNITURE_OUT - card.border;
+  const depth = card.border + PORT_ZONE_DEPTH;
+  return side === "target"
+    ? {
+        left: card.left - out,
+        right: card.left + depth,
+        top: card.top,
+        bottom: card.bottom,
+      }
+    : {
+        left: card.right - depth,
+        right: card.right + out,
+        top: card.top,
+        bottom: card.bottom,
+      };
+}
+
 export type PortZoneSide = "source" | "target";
 
-type PortZoneRect = { left: number; top: number; right: number; bottom: number };
+type PortZoneRect = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
 
 // Does `chip`'s CENTRE sit ON the OWN endpoint `card`'s body, past its
 // port-adjacent strip? True = the chip is seated on the card body (a #10
@@ -623,6 +676,15 @@ export type ClearanceField = {
   // MINUS their port-adjacent zone (issue #10): a chip entering such a card's
   // body outside the shallow port strip is a violation just like a foreign card.
   entersForeignCard(box: ChipBox, exempt: CardExemption): boolean;
+  // Would this box cover one of the edge's OWN endpoint cards' port furniture
+  // (#82)? The portKeepOutRect band straddling the port edge -- handle, glyph,
+  // and the row strip -- is a HARD keep-out for the on-line and graze tiers
+  // (isClear and hardClearAt both consult it), so a chip can no longer buy an
+  // on-line seat by parking its wide box over the very port it labels. Unlike
+  // entersForeignCard this consults only the `zones` map: a foreign card has
+  // no band (its whole box already blocks), and a wholly-exempt container has
+  // none either.
+  entersOwnPortBand(box: ChipBox, exempt: CardExemption): boolean;
   // Foreign-line test with the arrival-cluster exemption: a same-target
   // sibling's line is skipped unconditionally when no entry band is given
   // (bus / entry seats), and only while the box centre sits inside the band
@@ -752,6 +814,24 @@ export function makeClearanceField(
         }
         return chipEntersOwnCardBody(chip, c, zone, 0.5);
       }),
+    entersOwnPortBand: (box, exempt) =>
+      cards.some((c) => {
+        const zone = exempt.zones.get(c.id);
+        if (zone === undefined) return false;
+        const band = portKeepOutRect(c, zone);
+        const chip = {
+          left: box.x - box.halfW,
+          top: box.y - box.halfH,
+          right: box.x + box.halfW,
+          bottom: box.y + box.halfH,
+        };
+        return (
+          Math.min(chip.right, band.right) - Math.max(chip.left, band.left) >
+            0.5 &&
+          Math.min(chip.bottom, band.bottom) - Math.max(chip.top, band.top) >
+            0.5
+        );
+      }),
     onForeignLine: (box, flowKey, target, entryBand, ownIds) => {
       const clusterExempt = clusterExemptOf(box, entryBand);
       return segments.some(
@@ -786,7 +866,8 @@ export function makeClearanceField(
       return out;
     },
     coversDot: (box) => dots.some((d) => swallows(box, d)),
-    dotsCovered: (box) => dots.reduce((n, d) => n + (swallows(box, d) ? 1 : 0), 0),
+    dotsCovered: (box) =>
+      dots.reduce((n, d) => n + (swallows(box, d) ? 1 : 0), 0),
     ownCardIntrusion: (box, exempt) => {
       const chip = {
         left: box.x - box.halfW,
@@ -1090,7 +1171,10 @@ function lengthAtPoint(
   let acc = 0;
   let total = 0;
   for (let i = 1; i < pts.length; i++) {
-    total += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+    total += Math.hypot(
+      pts[i]![0] - pts[i - 1]![0],
+      pts[i]![1] - pts[i - 1]![1],
+    );
   }
   for (let i = 1; i < pts.length; i++) {
     const [x0, y0] = pts[i - 1]!;
@@ -1300,12 +1384,15 @@ export function seatRateChip(
     halfH: CHIP_HALF_H,
   });
   // A candidate is clear when it clears every placed chip box, every foreign
-  // flow line (arrival cluster narrowed to the entry band), AND every foreign
-  // card box.
+  // flow line (arrival cluster narrowed to the entry band), every foreign
+  // card box, AND its own endpoint cards' port furniture (#82: the band is
+  // hard, so no on-line or nudge seat may park the box over the port it
+  // labels).
   const isClear = (px: number, py: number): boolean => {
     const box = boxAt(px, py);
     return (
       !field.entersForeignCard(box, exempt) &&
+      !field.entersOwnPortBand(box, exempt) &&
       !field.overlapsChip(box) &&
       !field.onForeignLine(box, flowKey, target, entryBand, ownIds)
     );
@@ -1316,7 +1403,11 @@ export function seatRateChip(
   };
   const hardClearAt = (px: number, py: number): boolean => {
     const box = boxAt(px, py);
-    return !field.entersForeignCard(box, exempt) && !field.overlapsChip(box);
+    return (
+      !field.entersForeignCard(box, exempt) &&
+      !field.entersOwnPortBand(box, exempt) &&
+      !field.overlapsChip(box)
+    );
   };
   // How many foreign strokes inside this box RUN ALONGSIDE the chip's own
   // stroke instead of crossing it -- the braid term (Z2). A foreign window
@@ -1456,7 +1547,11 @@ export function seatRateChip(
     intrusion: number;
   } | null = null;
   for (const [px, py] of onLine) {
-    if (bestOnLine !== null && bestOnLine.dots === 0 && bestOnLine.intrusion === 0) {
+    if (
+      bestOnLine !== null &&
+      bestOnLine.dots === 0 &&
+      bestOnLine.intrusion === 0
+    ) {
       break;
     }
     if (!isClear(px, py)) continue;
@@ -1762,12 +1857,18 @@ export function cardRectsFor(
     const left = absoluteLeft(n, byId);
     const top = absoluteTop(n, byId);
     const growth = cardGrowth(n.type);
+    // The per-kind frame width the port-band geometry reads (see CardRect):
+    // CARD_BORDER on a recipe, 0 on every other kind. cardGrowth is twice it,
+    // but stating the border directly keeps the band derivation honest if a
+    // kind ever grows without a frame.
+    const border = n.type === "recipe" ? CARD_BORDER : 0;
     return {
       id: n.id,
       left,
       top,
       right: left + nodeWidth(n) + growth,
       bottom: top + nodeHeight(n) + growth,
+      border,
     };
   });
 }
@@ -2045,7 +2146,10 @@ export function deconflictChipAnchors(
     // Cue by (stamped edge, point), so a second partner crossing the same
     // point joins the existing cue's partner list instead of stacking a
     // second cut-out.
-    const cueByKey = new Map<string, { cue: CrossingCue; partners: Array<CrossingCuePartner> }>();
+    const cueByKey = new Map<
+      string,
+      { cue: CrossingCue; partners: Array<CrossingCuePartner> }
+    >();
     for (let i = 0; i < edgeSegments.length; i++) {
       for (let j = i + 1; j < edgeSegments.length; j++) {
         const si = edgeSegments[i]!;
@@ -2821,7 +2925,8 @@ export function deconflictChipAnchors(
       },
       flowKeyOf(edge),
       edge.target,
-      trunkExempt.get((edge.data as BusEdgeData).trunkKey) ?? cardExemptFor(edge),
+      trunkExempt.get((edge.data as BusEdgeData).trunkKey) ??
+        cardExemptFor(edge),
       NEVER_BAND,
       {
         ownIds: trunkMemberIds.get((edge.data as BusEdgeData).trunkKey),
@@ -2848,7 +2953,9 @@ export function deconflictChipAnchors(
   // stacks by when several members share one junction column.
   const branchEntryY = (edge: Edge): number => {
     const target = byId.get(edge.target)!;
-    return absoluteTop(target, byId) + portOffsetY(target, edgeItem(edge), "in");
+    return (
+      absoluteTop(target, byId) + portOffsetY(target, edgeItem(edge), "in")
+    );
   };
   // Seat the branch chips within each trunk TOP-TO-BOTTOM by their target's
   // in-port y, not edge-id order which can invert the visible stack when members
@@ -2924,7 +3031,11 @@ export function deconflictChipAnchors(
     // can drop it once a node drag moves the live anchor away from the stamp.
     // Release the seat the off-line tiers reserved so the phantom box never
     // blocks a later chip.
-    if (seat.tier === "nudge" || seat.tier === "escape" || seat.tier === "exhausted") {
+    if (
+      seat.tier === "nudge" ||
+      seat.tier === "escape" ||
+      seat.tier === "exhausted"
+    ) {
       field.unseat(seat.box);
       fanoutBranchHiddenByIndex.add(index);
       fanoutBranchHiddenAtByIndex.set(index, geom.branchAnchor);
@@ -3100,7 +3211,12 @@ export function deconflictChipAnchors(
 }
 
 // A flow-coordinate rectangle, the shape React Flow's fitBounds consumes.
-export type ContentRect = { x: number; y: number; width: number; height: number };
+export type ContentRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
 // The edge-data fields contentBounds needs to place a chip: which families the
 // edge draws, their anchors' inputs, their seated nudges, and their hides. Flat
@@ -3239,7 +3355,10 @@ export function contentBounds(
         unionChip(bus.dropX, data.laneY + (data.busDropDy ?? 0));
       }
       if (data.busRiseHidden !== true) {
-        unionChip(data.busChipX ?? bus.riseX, data.laneY + (data.busChipDy ?? 0));
+        unionChip(
+          data.busChipX ?? bus.riseX,
+          data.laneY + (data.busChipDy ?? 0),
+        );
       }
     }
   }

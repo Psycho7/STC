@@ -43,7 +43,14 @@ const LINE: {
   pts: ReadonlyArray<readonly [number, number]>;
   anchorX: number;
   anchorY: number;
-} = { pts: [[0, 0], [1000, 0]], anchorX: 500, anchorY: 0 };
+} = {
+  pts: [
+    [0, 0],
+    [1000, 0],
+  ],
+  anchorX: 500,
+  anchorY: 0,
+};
 
 // A foreign flow line running parallel 10 units above the own line. Any chip
 // box centred ON the own line (half-height MAX_CHIP_SCALE * 24 / 2 = 24)
@@ -100,7 +107,14 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
     const field = makeClearanceField([], []);
     const seat = seatRateChip(
       field,
-      { pts: [[0, 0], [100, 0]], anchorX: 100.0075, anchorY: 0 },
+      {
+        pts: [
+          [0, 0],
+          [100, 0],
+        ],
+        anchorX: 100.0075,
+        anchorY: 0,
+      },
       "own",
       "t",
       NO_EXEMPT,
@@ -120,6 +134,7 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
       top: -30,
       right: 1100,
       bottom: 30,
+      border: 0,
     };
     const field = makeClearanceField([], [card]);
     const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
@@ -142,13 +157,25 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
       [
         { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
         { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
-        { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+        {
+          id: "f3",
+          flowKey: "c",
+          target: "other",
+          segs: [[0, 110, 1200, 110]],
+        },
       ],
       [],
     );
     const seat = seatRateChip(
       field,
-      { pts: [[0, 100], [1200, 100]], anchorX: 48, anchorY: 100 },
+      {
+        pts: [
+          [0, 100],
+          [1200, 100],
+        ],
+        anchorX: 48,
+        anchorY: 100,
+      },
       "own",
       "T",
       NO_EXEMPT,
@@ -177,7 +204,12 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
     const field = makeClearanceField(
       [
         { id: "h1", flowKey: "a", target: "other", segs: [[0, 90, 1200, 90]] },
-        { id: "h2", flowKey: "b", target: "other", segs: [[0, 110, 1200, 110]] },
+        {
+          id: "h2",
+          flowKey: "b",
+          target: "other",
+          segs: [[0, 110, 1200, 110]],
+        },
         { id: "v1", flowKey: "c", target: "other", segs: [[540, 0, 540, 200]] },
         { id: "v2", flowKey: "d", target: "other", segs: [[660, 0, 660, 200]] },
       ],
@@ -185,7 +217,14 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
     );
     const seat = seatRateChip(
       field,
-      { pts: [[408, 100], [792, 100]], anchorX: 600, anchorY: 100 },
+      {
+        pts: [
+          [408, 100],
+          [792, 100],
+        ],
+        anchorX: 600,
+        anchorY: 100,
+      },
       "own",
       "T",
       NO_EXEMPT,
@@ -215,7 +254,12 @@ describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine
       [
         { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
         { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
-        { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+        {
+          id: "f3",
+          flowKey: "c",
+          target: "other",
+          segs: [[0, 110, 1200, 110]],
+        },
       ],
       [],
     );
@@ -241,7 +285,12 @@ describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine
             [56, 0, 56, 200],
           ],
         },
-        { id: "single", flowKey: "b", target: "other", segs: [[300, 0, 300, 200]] },
+        {
+          id: "single",
+          flowKey: "b",
+          target: "other",
+          segs: [[300, 0, 300, 200]],
+        },
       ],
       [],
     );
@@ -312,7 +361,12 @@ describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine
       [
         { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
         { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
-        { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+        {
+          id: "f3",
+          flowKey: "c",
+          target: "other",
+          segs: [[0, 110, 1200, 110]],
+        },
         // A same-target sibling, so the OVER_BOX_BAND case below actually runs
         // the arrival-cluster exemption: without one, every band is equivalent
         // here and a windows walk that skipped the exemption would still agree
@@ -350,12 +404,20 @@ describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine
       [
         { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
         { id: "sib", flowKey: "b", target: "T", segs: [[56, 0, 56, 200]] },
-        { id: "own1", flowKey: "own", target: "other", segs: [[20, 0, 20, 200]] },
+        {
+          id: "own1",
+          flowKey: "own",
+          target: "other",
+          segs: [[20, 0, 20, 200]],
+        },
       ],
       [],
     );
     const cases: ReadonlyArray<
-      [{ x: number; y: number; halfW: number; halfH: number }, EntryBand | undefined]
+      [
+        { x: number; y: number; halfW: number; halfH: number },
+        EntryBand | undefined,
+      ]
     > = [
       [BOX, AWAY_BAND],
       [BOX, OVER_BOX_BAND],
@@ -381,12 +443,44 @@ describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine
   it("agrees with onForeignLine and decomposes per edge across a swept weave", () => {
     const weave: ReadonlyArray<EdgeSegments> = [
       { id: "e0", flowKey: "own", target: "T", segs: [[20, 0, 20, 200]] },
-      { id: "e1", flowKey: "own", target: "U", segs: [[60, 0, 60, 200], [60, 40, 260, 40]] },
+      {
+        id: "e1",
+        flowKey: "own",
+        target: "U",
+        segs: [
+          [60, 0, 60, 200],
+          [60, 40, 260, 40],
+        ],
+      },
       { id: "e2", flowKey: "a", target: "T", segs: [[100, 0, 100, 200]] },
-      { id: "e3", flowKey: "a", target: "U", segs: [[140, 0, 140, 200], [0, 90, 400, 90]] },
+      {
+        id: "e3",
+        flowKey: "a",
+        target: "U",
+        segs: [
+          [140, 0, 140, 200],
+          [0, 90, 400, 90],
+        ],
+      },
       { id: "e4", flowKey: "b", target: "T", segs: [[180, 0, 180, 200]] },
-      { id: "e5", flowKey: "b", target: "V", segs: [[220, 60, 380, 60], [220, 60, 220, 200]] },
-      { id: "e6", flowKey: "c", target: "U", segs: [[260, 0, 260, 200], [300, 0, 300, 200]] },
+      {
+        id: "e5",
+        flowKey: "b",
+        target: "V",
+        segs: [
+          [220, 60, 380, 60],
+          [220, 60, 220, 200],
+        ],
+      },
+      {
+        id: "e6",
+        flowKey: "c",
+        target: "U",
+        segs: [
+          [260, 0, 260, 200],
+          [300, 0, 300, 200],
+        ],
+      },
       { id: "e7", flowKey: "c", target: "V", segs: [[0, 130, 400, 130]] },
     ];
     const field = makeClearanceField(weave, []);
@@ -397,7 +491,8 @@ describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine
       state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
       return state / 0x100000000;
     };
-    const pick = <T,>(xs: ReadonlyArray<T>): T => xs[Math.floor(rnd() * xs.length)]!;
+    const pick = <T>(xs: ReadonlyArray<T>): T =>
+      xs[Math.floor(rnd() * xs.length)]!;
     const targets = ["T", "U", "V"] as const;
     const ownSets: ReadonlyArray<ReadonlySet<string> | undefined> = [
       undefined,
@@ -429,7 +524,13 @@ describe("ClearanceField.foreignLineCrossings (counting sibling of onForeignLine
       const target = pick(targets);
       const ownIds = pick(ownSets);
       const blockedHere = field.onForeignLine(box, "own", target, band, ownIds);
-      const count = field.foreignLineCrossings(box, "own", target, band, ownIds);
+      const count = field.foreignLineCrossings(
+        box,
+        "own",
+        target,
+        band,
+        ownIds,
+      );
       expect(count > 0).toBe(blockedHere);
       const perEdge = single.map((f) =>
         f.foreignLineCrossings(box, "own", target, band, ownIds),
@@ -459,7 +560,12 @@ function seatedBox(
 ): { left: number; top: number; right: number; bottom: number } {
   const cx = anchorX + seat.dx;
   const cy = anchorY + seat.dy;
-  return { left: cx - HALF_W, top: cy - HALF_H, right: cx + HALF_W, bottom: cy + HALF_H };
+  return {
+    left: cx - HALF_W,
+    top: cy - HALF_H,
+    right: cx + HALF_W,
+    bottom: cy + HALF_H,
+  };
 }
 
 // Own-card exemption limited to a single card's port zone (no wholly exempt
@@ -474,20 +580,37 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
     // card (anchor 720 vs card left 500 = 220 in). The whole-card exemption used
     // to seat it there on its line; the port-zone rule makes the body past the
     // strip an obstacle, so the seat slides back out of the card.
-    const card: CardRect = { id: "T", left: 500, top: -30, right: 900, bottom: 30 };
+    const card: CardRect = {
+      id: "T",
+      left: 500,
+      top: -30,
+      right: 900,
+      bottom: 30,
+      border: 1,
+    };
     const field = makeClearanceField([], [card]);
     const line = {
-      pts: [[0, 0], [900, 0]] as ReadonlyArray<readonly [number, number]>,
+      pts: [
+        [0, 0],
+        [900, 0],
+      ] as ReadonlyArray<readonly [number, number]>,
       anchorX: 720,
       anchorY: 0,
     };
-    const seat = seatRateChip(field, line, "own", "t", portZone("T", "target"), NO_BAND);
+    const seat = seatRateChip(
+      field,
+      line,
+      "own",
+      "t",
+      portZone("T", "target"),
+      NO_BAND,
+    );
     // Moved off the buried anchor...
     expect(seat.dx !== 0 || seat.dy !== 0).toBe(true);
     // ...to a seat whose centre no longer sits on the card body.
-    expect(
-      chipEntersOwnCardBody(seatedBox(720, 0, seat), card, "target"),
-    ).toBe(false);
+    expect(chipEntersOwnCardBody(seatedBox(720, 0, seat), card, "target")).toBe(
+      false,
+    );
   });
 
   it("(b) keeps a normal on-line chip on its own line, sliding it off the card body it laps", () => {
@@ -499,19 +622,36 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
     // back along a 500-unit line. The regression guard that neither rule
     // reintroduced issue #9's orphaned chips: the seat is still tier 1, still on
     // the own line, still at the port y.
-    const card: CardRect = { id: "T", left: 500, top: -30, right: 900, bottom: 30 };
+    const card: CardRect = {
+      id: "T",
+      left: 500,
+      top: -30,
+      right: 900,
+      bottom: 30,
+      border: 1,
+    };
     const field = makeClearanceField([], [card]);
     const line = {
-      pts: [[0, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+      pts: [
+        [0, 0],
+        [500, 0],
+      ] as ReadonlyArray<readonly [number, number]>,
       anchorX: 490,
       anchorY: 0,
     };
-    const seat = seatRateChip(field, line, "own", "t", portZone("T", "target"), NO_BAND);
+    const seat = seatRateChip(
+      field,
+      line,
+      "own",
+      "t",
+      portZone("T", "target"),
+      NO_BAND,
+    );
     expect(seat).toMatchObject({ dx: -120, dy: 0, tier: "slide" });
     expect(seatedBox(490, 0, seat).right).toBeLessThanOrEqual(card.left);
-    expect(
-      chipEntersOwnCardBody(seatedBox(490, 0, seat), card, "target"),
-    ).toBe(false);
+    expect(chipEntersOwnCardBody(seatedBox(490, 0, seat), card, "target")).toBe(
+      false,
+    );
   });
 
   it("(c) seats a chip whose whole line is buried in a card via the escape cascade", () => {
@@ -519,20 +659,30 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
     // everywhere): no on-line point clears the body, so the seat must escape off
     // the line, land near the anchor, and clear the body -- not hide or float far
     // (issue #9).
-    const card: CardRect = { id: "T", left: 300, top: -30, right: 900, bottom: 30 };
+    const card: CardRect = {
+      id: "T",
+      left: 300,
+      top: -30,
+      right: 900,
+      bottom: 30,
+      border: 1,
+    };
     const field = makeClearanceField([], [card]);
     const exempt = portZone("T", "target");
     const line = {
-      pts: [[400, 0], [600, 0]] as ReadonlyArray<readonly [number, number]>,
+      pts: [
+        [400, 0],
+        [600, 0],
+      ] as ReadonlyArray<readonly [number, number]>,
       anchorX: 500,
       anchorY: 0,
     };
     const seat = seatRateChip(field, line, "own", "t", exempt, NO_BAND);
     expect(["nudge", "escape"]).toContain(seat.tier);
     expect(Math.abs(seat.dy)).toBeLessThanOrEqual(300);
-    expect(
-      chipEntersOwnCardBody(seatedBox(500, 0, seat), card, "target"),
-    ).toBe(false);
+    expect(chipEntersOwnCardBody(seatedBox(500, 0, seat), card, "target")).toBe(
+      false,
+    );
   });
 
   it("(d) slides a fan-out aggregate leftward along the trunk off a member-target body", () => {
@@ -540,8 +690,22 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
     // member left 380 = 80 in, past the 12 strip). Zone-narrowing re-adds that
     // body as an obstacle (issue #10), and the seat slides LEFT along the trunk
     // (tier 1) until its centre leaves the body rather than leaving the line.
-    const source: CardRect = { id: "S", left: 0, top: -30, right: 100, bottom: 30 };
-    const member: CardRect = { id: "A", left: 380, top: -30, right: 900, bottom: 30 };
+    const source: CardRect = {
+      id: "S",
+      left: 0,
+      top: -30,
+      right: 100,
+      bottom: 30,
+      border: 0,
+    };
+    const member: CardRect = {
+      id: "A",
+      left: 380,
+      top: -30,
+      right: 900,
+      bottom: 30,
+      border: 0,
+    };
     const field = makeClearanceField([], [source, member]);
     const exempt: CardExemption = {
       whole: new Set(),
@@ -551,7 +715,10 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
       ]),
     };
     const trunk = {
-      pts: [[100, 0], [600, 0]] as ReadonlyArray<readonly [number, number]>,
+      pts: [
+        [100, 0],
+        [600, 0],
+      ] as ReadonlyArray<readonly [number, number]>,
       anchorX: 460,
       anchorY: 0,
     };
@@ -569,6 +736,7 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
 // chip box, its in-port edge at x=500.
 const INTRUSION_CARD: CardRect = {
   id: "T",
+  border: 1,
   left: 500,
   top: -30,
   right: 900,
@@ -576,7 +744,9 @@ const INTRUSION_CARD: CardRect = {
 };
 
 describe("chipOwnCardIntrusion: box depth past the port strip", () => {
-  const boxAt = (cx: number): { left: number; top: number; right: number; bottom: number } => ({
+  const boxAt = (
+    cx: number,
+  ): { left: number; top: number; right: number; bottom: number } => ({
     left: cx - HALF_W,
     top: -HALF_H,
     right: cx + HALF_W,
@@ -614,14 +784,19 @@ describe("chipOwnCardIntrusion: box depth past the port strip", () => {
 });
 
 describe("seatRateChip: own-card intrusion preference (F1)", () => {
-  it("keeps a seat whose box laps exactly the port strip", () => {
-    // Boundary, from the legal side: box right 509, i.e. 9 past the card border,
-    // so the anchor is within budget and the slide does not move.
+  it("slides off a box that laps the port band at the strip boundary (#82)", () => {
+    // RE-PINNED when the port band went hard: a box lapping the own card's
+    // port furniture -- even exactly the 9-unit strip the old centre rule
+    // exempted -- is no longer a legal anchor. The seat stays on its line and
+    // walks one slide step back, box right at the band's outer edge.
     const field = makeClearanceField([], [INTRUSION_CARD]);
     const seat = seatRateChip(
       field,
       {
-        pts: [[0, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+        pts: [
+          [0, 0],
+          [500, 0],
+        ] as ReadonlyArray<readonly [number, number]>,
         anchorX: 389,
         anchorY: 0,
       },
@@ -630,7 +805,8 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
       portZone("T", "target"),
       NO_BAND,
     );
-    expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
+    expect(seat).toMatchObject({ dx: -24, dy: 0, tier: "slide" });
+    expect(seat.box.x + seat.box.halfW).toBeLessThanOrEqual(491);
   });
 
   it("walks one slide step past a seat that laps one unit deeper", () => {
@@ -643,7 +819,10 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
     const seat = seatRateChip(
       field,
       {
-        pts: [[0, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+        pts: [
+          [0, 0],
+          [500, 0],
+        ] as ReadonlyArray<readonly [number, number]>,
         anchorX: 390,
         anchorY: 0,
       },
@@ -665,7 +844,10 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
     const seat = seatRateChip(
       field,
       {
-        pts: [[0, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+        pts: [
+          [0, 0],
+          [500, 0],
+        ] as ReadonlyArray<readonly [number, number]>,
         anchorX: 490,
         anchorY: 0,
       },
@@ -680,15 +862,14 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
     );
   });
 
-  it("keeps the junction-dot keep-off above the intrusion term", () => {
-    // The two soft terms in conflict, on a 200-unit leg that runs into the
-    // card: every dot-free candidate (>= 136 from the dot, one half-box plus
-    // the keep-off) laps the card past the budget, and every within-budget
-    // candidate (<= 389) swallows the dot. Dots win -- a buried split dot reads
-    // as an ordinary corner, while a lapped box is still legible -- so the seat
-    // is the nearest dot-free point and it pays the lap. Ranking the intrusion
-    // first instead parks it back on the anchor with the dot underneath, which
-    // is what four corpus plans measured when it was tried.
+  it("the hard port band outranks the junction-dot keep-off (#82)", () => {
+    // RE-PINNED when the port band went hard. The old conflict this fixture
+    // staged -- dot keep-off versus the intrusion a lapped box pays -- no
+    // longer exists: every candidate that laps the own card's port furniture
+    // is now HARD-blocked (isClear / hardClearAt), so the dot preference
+    // yields to the band exactly as it always yielded to chip-vs-card. The
+    // seat walks one slide step back off the band and the dot stays covered:
+    // a buried split dot is still the softer evil than a buried port.
     const field = makeClearanceField(
       [],
       [INTRUSION_CARD],
@@ -697,7 +878,10 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
     const seat = seatRateChip(
       field,
       {
-        pts: [[300, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+        pts: [
+          [300, 0],
+          [500, 0],
+        ] as ReadonlyArray<readonly [number, number]>,
         anchorX: 380,
         anchorY: 0,
       },
@@ -706,11 +890,14 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
       portZone("T", "target"),
       NO_BAND,
     );
-    expect(seat).toMatchObject({ dx: 72, dy: 0, tier: "slide" });
-    expect(380 + seat.dx - 300).toBeGreaterThanOrEqual(HALF_W + 16);
-    expect(
-      chipOwnCardIntrusion(seatedBox(380, 0, seat), INTRUSION_CARD),
-    ).toBeGreaterThan(0);
+    expect(seat).toMatchObject({ dx: -24, dy: 0, tier: "slide" });
+    expect(seat.box.x + seat.box.halfW).toBeLessThanOrEqual(491);
+    // The dot at 300 stays swallowed: every band-clear candidate on this
+    // short leg (<= 371) sits within one half-box-plus-keep-off of it.
+    expect(Math.abs(seat.box.x - 300)).toBeLessThan(HALF_W + 16);
+    expect(chipOwnCardIntrusion(seatedBox(380, 0, seat), INTRUSION_CARD)).toBe(
+      0,
+    );
   });
 });
 
@@ -731,7 +918,10 @@ describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (iss
     // exactly that. At g = 80 the shed costs 40, inside the bound, so the tier
     // still does the work this fixture was written for.
     const ownVertical = {
-      pts: [[0, 0], [0, 1000]] as ReadonlyArray<readonly [number, number]>,
+      pts: [
+        [0, 0],
+        [0, 1000],
+      ] as ReadonlyArray<readonly [number, number]>,
       anchorX: 0,
       anchorY: 500,
     };
@@ -742,7 +932,14 @@ describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (iss
       segs: [[80, -1000, 80, 2000]],
     };
     const field = makeClearanceField([foreignVertical], []);
-    const seat = seatRateChip(field, ownVertical, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip(
+      field,
+      ownVertical,
+      "own",
+      "t",
+      NO_EXEMPT,
+      NO_BAND,
+    );
     const cx = ownVertical.anchorX + seat.dx;
     // The seated box no longer overlaps the foreign leg at x=80: a wide box needs
     // a full half-width of centre separation to clear a vertical line.
@@ -765,7 +962,10 @@ describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (iss
     // so no step is fully clear and the chip stays ON its own line in the graze
     // tier rather than floating a full half-width off it at reading zoom.
     const ownVertical = {
-      pts: [[0, 0], [0, 1000]] as ReadonlyArray<readonly [number, number]>,
+      pts: [
+        [0, 0],
+        [0, 1000],
+      ] as ReadonlyArray<readonly [number, number]>,
       anchorX: 0,
       anchorY: 500,
     };
@@ -776,7 +976,14 @@ describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (iss
       segs: [[16, -1000, 16, 2000]],
     };
     const field = makeClearanceField([foreignVertical], []);
-    const seat = seatRateChip(field, ownVertical, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip(
+      field,
+      ownVertical,
+      "own",
+      "t",
+      NO_EXEMPT,
+      NO_BAND,
+    );
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
@@ -800,7 +1007,12 @@ describe("seatRateChip: trunk-aware foreignness for the aggregate (issue #28)", 
     // at its anchor; the trunk-aware own-set (member edge ids) flags it foreign,
     // so the sidestep steps the box clear of its vertical. This is the v14-gas
     // Sigma-60-vs-12/min defect in miniature (finding 1).
-    const member: EdgeSegments = { id: "m", flowKey: "trunk", target: "tm", segs: [] };
+    const member: EdgeSegments = {
+      id: "m",
+      flowKey: "trunk",
+      target: "tm",
+      segs: [],
+    };
     const direct: EdgeSegments = {
       id: "d",
       flowKey: "trunk", // same item|source as the trunk, yet a separate edge
@@ -816,7 +1028,10 @@ describe("seatRateChip: trunk-aware foreignness for the aggregate (issue #28)", 
     };
     const field = makeClearanceField([member, direct], []);
     const trunk = {
-      pts: [[110, 0], [210, 0]] as ReadonlyArray<readonly [number, number]>,
+      pts: [
+        [110, 0],
+        [210, 0],
+      ] as ReadonlyArray<readonly [number, number]>,
       anchorX: 160,
       anchorY: 0,
     };
@@ -857,7 +1072,14 @@ describe("seatRateChip: junction-dot keep-off (#50)", () => {
     const field = makeClearanceField([], [], [{ x: 500, y: 0, kind: "fanin" }]);
     const seat = seatRateChip(
       field,
-      { pts: [[440, 0], [560, 0]], anchorX: 500, anchorY: 0 },
+      {
+        pts: [
+          [440, 0],
+          [560, 0],
+        ],
+        anchorX: 500,
+        anchorY: 0,
+      },
       "own",
       "t",
       NO_EXEMPT,
@@ -877,7 +1099,10 @@ describe("seatRateChip: slide barrier keeps branch chips in stack order (issue #
     // slide at the sibling, so the branch instead slides DOWN past the foreign
     // chip, staying below its sibling -- the stack reads top-to-bottom in order.
     const leg = {
-      pts: [[0, 0], [0, 1000]] as ReadonlyArray<readonly [number, number]>,
+      pts: [
+        [0, 0],
+        [0, 1000],
+      ] as ReadonlyArray<readonly [number, number]>,
       anchorX: 0,
       anchorY: 480,
     };
@@ -900,7 +1125,10 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
   // anchor at its middle. Every seat on it holds x = 0, which is what makes a
   // parallel neighbour unshakeable by any on-line motion.
   const OWN_LEG = {
-    pts: [[0, 0], [0, 1000]] as ReadonlyArray<readonly [number, number]>,
+    pts: [
+      [0, 0],
+      [0, 1000],
+    ] as ReadonlyArray<readonly [number, number]>,
     anchorX: 0,
     anchorY: 500,
   };
@@ -922,9 +1150,19 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     const field = makeClearanceField(
       [
         // Braided: coincident with the own line out to x = 600.
-        { id: "braid", flowKey: "a", target: "other", segs: [[-2000, 4, 600, 4]] },
+        {
+          id: "braid",
+          flowKey: "a",
+          target: "other",
+          segs: [[-2000, 4, 600, 4]],
+        },
         // Crossing: inside the box (half-height 24) but clear of the own line.
-        { id: "over", flowKey: "b", target: "other", segs: [[600, 20, 2000, 20]] },
+        {
+          id: "over",
+          flowKey: "b",
+          target: "other",
+          segs: [[600, 20, 2000, 20]],
+        },
       ],
       [],
     );
@@ -934,7 +1172,14 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     // short own line would score that as the win instead of the real one.
     const seat = seatRateChip(
       field,
-      { pts: [[-1200, 0], [1800, 0]], anchorX: 300, anchorY: 0 },
+      {
+        pts: [
+          [-1200, 0],
+          [1800, 0],
+        ],
+        anchorX: 300,
+        anchorY: 0,
+      },
       "own",
       "T",
       NO_EXEMPT,
@@ -951,7 +1196,10 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     // the second, scored pass over the horizontal steps. The step that sheds the
     // distant stroke is the THIRD one out, not the first: the nearer two change
     // nothing, and a first-hit walk would never reach it.
-    const field = makeClearanceField([vertical("braid", 5), vertical("wide", -75)], []);
+    const field = makeClearanceField(
+      [vertical("braid", 5), vertical("wide", -75)],
+      [],
+    );
     const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
     expect(seat).toMatchObject({ dx: 48, dy: 0, tier: "sidestep" });
   });
@@ -961,7 +1209,10 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     // off the own line to 40, so no stroke in the box is braided with it and the
     // scored pass is never run. Same two crossings, same reachable steps, same
     // arithmetic -- the seat stays on its own line at the anchor.
-    const field = makeClearanceField([vertical("apart", 40), vertical("wide", -75)], []);
+    const field = makeClearanceField(
+      [vertical("apart", 40), vertical("wide", -75)],
+      [],
+    );
     const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
@@ -973,7 +1224,10 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     // that far holds the own line inside the reserve and outside the paint: the
     // chip would read as an orphan beside its line. The scored pass declines it
     // and the seat stays on the line, grazing both.
-    const field = makeClearanceField([vertical("braid", 5), vertical("mid", -40)], []);
+    const field = makeClearanceField(
+      [vertical("braid", 5), vertical("mid", -40)],
+      [],
+    );
     const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
@@ -987,14 +1241,31 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     // the length test steps it 48 units off to shed the far one.
     const field = makeClearanceField(
       [
-        { id: "nick", flowKey: "a", target: "other", segs: [[260, -3, 260, 3]] },
-        { id: "far", flowKey: "b", target: "other", segs: [[185, -500, 185, 500]] },
+        {
+          id: "nick",
+          flowKey: "a",
+          target: "other",
+          segs: [[260, -3, 260, 3]],
+        },
+        {
+          id: "far",
+          flowKey: "b",
+          target: "other",
+          segs: [[185, -500, 185, 500]],
+        },
       ],
       [],
     );
     const seat = seatRateChip(
       field,
-      { pts: [[240, 0], [280, 0]], anchorX: 260, anchorY: 0 },
+      {
+        pts: [
+          [240, 0],
+          [280, 0],
+        ],
+        anchorX: 260,
+        anchorY: 0,
+      },
       "own",
       "t",
       NO_EXEMPT,
@@ -1033,13 +1304,25 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
           ],
         },
         // The crossing a step of 48 would shed, if the gate ever opened.
-        { id: "wide", flowKey: "b", target: "other", segs: [[-75, -100, -75, 1100]] },
+        {
+          id: "wide",
+          flowKey: "b",
+          target: "other",
+          segs: [[-75, -100, -75, 1100]],
+        },
       ],
       [],
     );
     const seat = seatRateChip(
       field,
-      { pts: [[0, 480], [0, 520]], anchorX: 0, anchorY: 500 },
+      {
+        pts: [
+          [0, 480],
+          [0, 520],
+        ],
+        anchorX: 0,
+        anchorY: 500,
+      },
       "own",
       "t",
       NO_EXEMPT,
@@ -1068,22 +1351,22 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     expect(seat).toMatchObject({ dx: 48, dy: 0, tier: "sidestep" });
   });
 
-  it("scores the fully clear step by own-card depth, not by nearness", () => {
-    // The hole the sidestep used to have: it took the first step that cleared
-    // everything, so it could park a box on the chip's OWN card that the slide
-    // above it walks its whole line to avoid. Here a short leg leaves exactly
-    // one on-line candidate and a foreign stroke poisons it; three steps out are
-    // clear, and the nearer ones lap the source card past the port strip while
-    // the third clears it.
-    //
-    // RE-PINNED from the 112 step to the 48 one when this tier took the
-    // counter-scale-1 containment bound (Task 6b, ruling R12), which caps the
-    // reach at 60. The card and the cutting stroke moved left with it so the
-    // fixture keeps its shape: the first clear step still laps the card (25
-    // deep), the second still laps it (9 deep, the budget), and the third is off
-    // it -- so a first-hit walk would still seat at 16 and this test still kills
-    // that mutation.
-    const card: CardRect = { id: "S", left: -400, right: -70, top: 470, bottom: 530 };
+  it("steps fully clear of the own source's port band at the flush step (#82)", () => {
+    // RE-PINNED when the port band went hard. The near steps (16 / 32 / 48)
+    // each lap the own source card's port furniture, so NONE of them is fully
+    // clear any more; the flush step at the containment bound (60) is the
+    // first whose box leaves the band, and the seat takes it. The old
+    // depth-scoring purpose of this fixture -- ranking two lapping steps by
+    // depth -- is dominated for own cards now: the band blocks the lap
+    // outright, so there is nothing left to score.
+    const card: CardRect = {
+      id: "S",
+      left: -400,
+      right: -70,
+      top: 470,
+      bottom: 530,
+      border: 0,
+    };
     const field = makeClearanceField(
       [
         {
@@ -1097,16 +1380,22 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     );
     const seat = seatRateChip(
       field,
-      { pts: [[0, 480], [0, 520]], anchorX: 0, anchorY: 500 },
+      {
+        pts: [
+          [0, 480],
+          [0, 520],
+        ],
+        anchorX: 0,
+        anchorY: 500,
+      },
       "own",
       "t",
       portZone("S", "source"),
       NO_BAND,
     );
-    expect(seat).toMatchObject({ dx: 48, dy: 0, tier: "sidestep" });
-    expect(
-      chipOwnCardIntrusion(seatedBox(0, 500, seat), card),
-    ).toBe(0);
+    expect(seat).toMatchObject({ dx: 60, dy: 0, tier: "sidestep" });
+    // The seated box no longer touches the source's port band [-78, -60].
+    expect(seat.box.x - seat.box.halfW).toBeGreaterThanOrEqual(-60);
   });
 
   it("seats the same chip identically whatever order the obstacles arrive in", () => {
@@ -1127,7 +1416,10 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     // ...and twice through the same field state, which is the plain
     // reproducibility half of the same property.
     const again = seatRateChip(
-      makeClearanceField([vertical("braid", 5), vertical("wide", -75), vertical("far", 300)], []),
+      makeClearanceField(
+        [vertical("braid", 5), vertical("wide", -75), vertical("far", 300)],
+        [],
+      ),
       OWN_LEG,
       "own",
       "t",
@@ -1206,7 +1498,10 @@ describe("chipSeatHalfW: the per-chip reserved box", () => {
     });
     const walls = [wall(395), wall(605)];
     const line = {
-      pts: [[400, 0], [600, 0]] as ReadonlyArray<readonly [number, number]>,
+      pts: [
+        [400, 0],
+        [600, 0],
+      ] as ReadonlyArray<readonly [number, number]>,
       anchorX: 500,
       anchorY: 0,
     };
@@ -1290,7 +1585,10 @@ describe("ClearanceField: the seat / unseat contract", () => {
     // offsets can disagree here if they are ever derived apart.
     const field = makeClearanceField([], [INTRUSION_CARD]);
     const line = {
-      pts: [[0, 0], [500, 0]] as ReadonlyArray<readonly [number, number]>,
+      pts: [
+        [0, 0],
+        [500, 0],
+      ] as ReadonlyArray<readonly [number, number]>,
       anchorX: 390,
       anchorY: 0,
     };
@@ -1420,14 +1718,16 @@ describe("examChipReservations", () => {
         testId: "item-edge-label-i1",
         body: "30",
         unit: true,
-        reservedPx: (2 * chipSeatHalfW({ body: "30", unit: true }, false)) /
+        reservedPx:
+          (2 * chipSeatHalfW({ body: "30", unit: true }, false)) /
           MAX_CHIP_SCALE,
       },
       {
         testId: "bus-edge-label-b1-drop",
         body: "270",
         unit: true,
-        reservedPx: (2 * chipSeatHalfW({ body: "270", unit: true }, false)) /
+        reservedPx:
+          (2 * chipSeatHalfW({ body: "270", unit: true }, false)) /
           MAX_CHIP_SCALE,
       },
       {
@@ -1442,14 +1742,16 @@ describe("examChipReservations", () => {
         testId: "bus-edge-label-f1-drop",
         body: "270",
         unit: true,
-        reservedPx: (2 * chipSeatHalfW({ body: "270", unit: true }, false)) /
+        reservedPx:
+          (2 * chipSeatHalfW({ body: "270", unit: true }, false)) /
           MAX_CHIP_SCALE,
       },
       {
         testId: "bus-edge-label-f1-rise",
         body: "30",
         unit: true,
-        reservedPx: (2 * chipSeatHalfW({ body: "30", unit: true }, false)) /
+        reservedPx:
+          (2 * chipSeatHalfW({ body: "30", unit: true }, false)) /
           MAX_CHIP_SCALE,
       },
     ]);
@@ -1459,5 +1761,158 @@ describe("examChipReservations", () => {
     expect(
       examChipReservations([edge("x", "item", {}), edge("y", "bus", {})]),
     ).toEqual([]);
+  });
+});
+
+// Port-band keep-out (#82): a chip never covers its own endpoint card's port
+// furniture. The band (portKeepOutRect) is a HARD term in isClear and
+// hardClearAt, so the on-line slide walks the box off the band instead of
+// parking over the port, and the graze tier cannot yield it either. Fixtures
+// mirror the corridor shape: a horizontal own line running between a source
+// card's right edge and a target card's left edge, both cards level with the
+// line, one border wide (recipe-like).
+describe("port-band keep-out (#82)", () => {
+  const SOURCE_CARD: CardRect = {
+    id: "S",
+    left: -280,
+    top: -30,
+    right: 20,
+    bottom: 30,
+    border: 1,
+  };
+  const TARGET_CARD: CardRect = {
+    id: "T",
+    left: 1000,
+    top: -30,
+    right: 1300,
+    bottom: 30,
+    border: 1,
+  };
+  const BOTH_EXEMPT: CardExemption = {
+    whole: new Set(),
+    zones: new Map([
+      ["S", "source"],
+      ["T", "target"],
+    ]),
+  };
+  // Own line between the two port edges: source band [11,29], target band
+  // [991,1009], full card height both.
+  const CORRIDOR = {
+    pts: [
+      [20, 0],
+      [1000, 0],
+    ] as const,
+    anchorX: 980,
+    anchorY: 0,
+  };
+
+  it("slides off a target band along its own line", () => {
+    const field = makeClearanceField([], [SOURCE_CARD, TARGET_CARD]);
+    const seat = seatRateChip(
+      field,
+      CORRIDOR,
+      "own",
+      "T",
+      BOTH_EXEMPT,
+      NO_BAND,
+    );
+    // The wide default box overhangs the target band at the anchor, so the
+    // seat stays on the line but walks left of the band's outer edge.
+    expect(seat.tier).not.toBe("nudge");
+    expect(seat.tier).not.toBe("escape");
+    expect(seat.dy).toBe(0);
+    expect(seat.box.x + seat.box.halfW).toBeLessThanOrEqual(991);
+  });
+
+  it("slides off a source band (the copper_bottle shape: anchor near the out-port)", () => {
+    const field = makeClearanceField([], [SOURCE_CARD, TARGET_CARD]);
+    const seat = seatRateChip(
+      field,
+      { ...CORRIDOR, anchorX: 60 },
+      "own",
+      "T",
+      BOTH_EXEMPT,
+      NO_BAND,
+    );
+    expect(seat.tier).not.toBe("nudge");
+    expect(seat.tier).not.toBe("escape");
+    expect(seat.dy).toBe(0);
+    expect(seat.box.x - seat.box.halfW).toBeGreaterThanOrEqual(29);
+  });
+
+  it("a band-only conflict never leaves the line when the collapse is stamped", () => {
+    // The collapsed icon box (half-width 24) fits the corridor well clear of
+    // both bands, so with the collapse stamped the seat must be an on-line
+    // tier (anchor/slide/graze/sidestep) even though the anchor itself sits
+    // ON the target band -- never the nudge or escape that an unstamped wide
+    // box would be pushed into.
+    const field = makeClearanceField([], [SOURCE_CARD, TARGET_CARD]);
+    const seat = seatRateChip(
+      field,
+      CORRIDOR,
+      "own",
+      "T",
+      BOTH_EXEMPT,
+      NO_BAND,
+      {
+        iconOnly: true,
+      },
+    );
+    expect(["anchor", "slide", "sidestep", "graze"]).toContain(seat.tier);
+    expect(seat.dy).toBe(0);
+    expect(seat.box.x + seat.box.halfW).toBeLessThanOrEqual(991);
+  });
+
+  it("the graze tier cannot yield the band either (hardClearAt consults it)", () => {
+    // A parallel foreign line 10 above the corridor poisons every fully-clear
+    // candidate, forcing the graze tier; its hard-clear scan must still keep
+    // the box off the target band while choosing the least-crossed seat.
+    const field = makeClearanceField(
+      [PARALLEL_FOREIGN],
+      [SOURCE_CARD, TARGET_CARD],
+    );
+    const seat = seatRateChip(
+      field,
+      CORRIDOR,
+      "own",
+      "T",
+      BOTH_EXEMPT,
+      NO_BAND,
+    );
+    expect(seat.tier).toBe("graze");
+    expect(seat.dy).toBe(0);
+    expect(seat.box.x + seat.box.halfW).toBeLessThanOrEqual(991);
+  });
+
+  it("a foreign card carries no band: the foreign gate alone still applies", () => {
+    // Same geometry, but the right-hand card is FOREIGN (no zone): covering
+    // its port edge is ordinary card overlap, judged by entersForeignCard --
+    // entersOwnPortBand stays false for it by construction.
+    const field = makeClearanceField([], [SOURCE_CARD, TARGET_CARD]);
+    const box = { x: 1000, y: 0, halfW: 60, halfH: 24 };
+    expect(
+      field.entersOwnPortBand(box, {
+        whole: new Set(),
+        zones: new Map([["S", "source"]]),
+      }),
+    ).toBe(false);
+    expect(
+      field.entersForeignCard(box, {
+        whole: new Set(),
+        zones: new Map([["S", "source"]]),
+      }),
+    ).toBe(true);
+  });
+
+  it("is deterministic under obstacle order", () => {
+    const seatOf = (cards: CardRect[]) => {
+      const field = makeClearanceField([PARALLEL_FOREIGN], cards);
+      return seatRateChip(field, CORRIDOR, "own", "T", BOTH_EXEMPT, NO_BAND);
+    };
+    const a = seatOf([SOURCE_CARD, TARGET_CARD]);
+    const b = seatOf([TARGET_CARD, SOURCE_CARD]);
+    expect(b.tier).toBe(a.tier);
+    expect(b.dx).toBe(a.dx);
+    expect(b.dy).toBe(a.dy);
   });
 });
