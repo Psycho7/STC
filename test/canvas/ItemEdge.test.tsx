@@ -186,11 +186,27 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(label).toBeNull();
   });
 
+  it("keeps a capped chip's digits between the icon-only zoom and the cap's text floor", async () => {
+    // The icon-only gate is one fixed zoom for every chip: a cap-1 chip keeps
+    // its digits at 0.5 and draws them smaller.
+    renderEdge(
+      { item: "belt", rate: new Fraction(2, 1), chipScaleCap: 1 },
+      0.5,
+    );
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.classList.contains("icon-only")).toBe(false);
+    expect(label!.textContent).toContain("120");
+  });
+
   it("collapses a chipIconOnly rate chip above the icon-only zoom", async () => {
     // The seating pass stamps chipIconOnly on a leg too short for the full box,
     // so the collapse must come from the edge data, not from the zoom gate:
     // zoom 1 is well ABOVE CHIP_ICON_ONLY_MAX_ZOOM and would keep the digits.
-    renderEdge({ item: "belt", rate: new Fraction(2, 1), chipIconOnly: true }, 1);
+    renderEdge(
+      { item: "belt", rate: new Fraction(2, 1), chipIconOnly: true },
+      1,
+    );
     const label = await findLabel();
     expect(label).not.toBeNull();
     expect(label!.classList.contains("icon-only")).toBe(true);
@@ -217,7 +233,6 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(label!.classList.contains("icon-only")).toBe(false);
     expect(label!.textContent).toBe("120/min");
   });
-
 });
 
 describe("canvas/ItemEdge fan-in marker", () => {
@@ -679,12 +694,17 @@ describe("canvas/ItemEdge crossing cues", () => {
     expect(Number(discs[0]!.getAttribute("cy"))).toBeCloseTo(cue.y, 5);
     const maskId = discs[0]!.closest("mask")!.id;
     expect(
-      a.querySelector(".react-flow__edge-path")!.closest("[mask]")!.getAttribute("mask"),
+      a
+        .querySelector(".react-flow__edge-path")!
+        .closest("[mask]")!
+        .getAttribute("mask"),
     ).toBe(`url(#${maskId})`);
     // The partner edge: whole -- no cue, no mask.
     const b = groupOf("eB");
     expect(b.querySelector('[data-testid="edge-crossing-cue"]')).toBeNull();
-    expect(b.querySelector(".react-flow__edge-path")!.closest("[mask]")).toBeNull();
+    expect(
+      b.querySelector(".react-flow__edge-path")!.closest("[mask]"),
+    ).toBeNull();
   });
 });
 
@@ -733,9 +753,7 @@ describe("canvas/ItemEdge label placement", () => {
         <div style={{ width: 800, height: 600 }}>
           <ReactFlow
             nodes={nodes}
-            edges={[
-              makeEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }),
-            ]}
+            edges={[makeEdge({ item: "Iron Plate", rate: new Fraction(2, 1) })]}
             edgeTypes={edgeTypes}
           />
         </div>
@@ -760,14 +778,16 @@ describe("canvas/ItemEdge label placement", () => {
       a: readonly [number, number],
       b: readonly [number, number],
     ): boolean => {
-      const cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+      const cross =
+        (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
       if (Math.abs(cross) > 1) return false;
       const within = (lo: number, hi: number, v: number) =>
         v >= Math.min(lo, hi) - 1 && v <= Math.max(lo, hi) + 1;
       return within(a[0], b[0], p[0]) && within(a[1], b[1], p[1]);
     };
-    let host: readonly [readonly [number, number], readonly [number, number]] | null =
-      null;
+    let host:
+      | readonly [readonly [number, number], readonly [number, number]]
+      | null = null;
     for (let i = 1; i < pts.length; i++) {
       if (onSegment([ax, ay], pts[i - 1]!, pts[i]!)) {
         host = [pts[i - 1]!, pts[i]!];

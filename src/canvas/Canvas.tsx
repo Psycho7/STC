@@ -89,12 +89,18 @@ interface CanvasProps {
   layoutGeneration?: number;
   onNodesChange?: OnNodesChange<Node>;
   onEdgesChange?: OnEdgesChange<Edge>;
+  // Fired when a node drag ends, with the live node list from the React Flow
+  // store; App re-seats the chips from it.
+  onNodeDragStop?: (liveNodes: Node[]) => void;
 }
 
 // Which graph element the pointer is over. Drives the ego-network highlight:
 // the hovered element plus its immediate neighbourhood stays lit, everything
 // else gets the `dimmed` class. `null` = idle (no dimming at all).
-type Hovered = { kind: "node"; id: string } | { kind: "edge"; id: string } | null;
+type Hovered =
+  | { kind: "node"; id: string }
+  | { kind: "edge"; id: string }
+  | null;
 
 // Adjacency indexes derived once per `edges` array. Everything the highlight
 // needs to expand a hovered element into its focus set: node -> incident edges,
@@ -106,7 +112,11 @@ interface Adjacency {
   edgeById: Map<string, Edge>;
 }
 
-function pushInto(map: Map<string, string[]>, key: string, value: string): void {
+function pushInto(
+  map: Map<string, string[]>,
+  key: string,
+  value: string,
+): void {
   const list = map.get(key);
   if (list) list.push(value);
   else map.set(key, [value]);
@@ -197,10 +207,15 @@ function CanvasInner({
   layoutGeneration = 0,
   onNodesChange,
   onEdgesChange,
+  onNodeDragStop,
 }: CanvasProps) {
   const i18n = useI18n();
   const [hovered, setHovered] = useState<Hovered>(null);
-  const { fitView, fitBounds, setViewport } = useReactFlow();
+  const { fitView, fitBounds, setViewport, getNodes } = useReactFlow();
+  // The store holds the dropped positions before the `nodes` prop does.
+  const handleNodeDragStop = useCallback(() => {
+    onNodeDragStop?.(getNodes());
+  }, [onNodeDragStop, getNodes]);
   const nodesInitialized = useNodesInitialized();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -264,7 +279,8 @@ function CanvasInner({
       fitView: () => {
         fitContent();
       },
-      contentBounds: () => contentBounds(nodes as unknown as RFAnyNode[], edges),
+      contentBounds: () =>
+        contentBounds(nodes as unknown as RFAnyNode[], edges),
       // Per-chip seat-width reservations for the four-locale width-bound spec;
       // plain edge-data reads, as inert as contentBounds.
       chipReservations: () => examChipReservations(edges),
@@ -540,7 +556,11 @@ function CanvasInner({
   return (
     <div
       ref={containerRef}
-      className={["ak-canvas-theme", zoomBand(zoom), focus ? "hover-active" : ""]
+      className={[
+        "ak-canvas-theme",
+        zoomBand(zoom),
+        focus ? "hover-active" : "",
+      ]
         .filter(Boolean)
         .join(" ")}
       style={canvasThemeStyle}
@@ -550,6 +570,7 @@ function CanvasInner({
         edges={displayEdges}
         {...(onNodesChange ? { onNodesChange } : {})}
         {...(onEdgesChange ? { onEdgesChange } : {})}
+        onNodeDragStop={handleNodeDragStop}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeMouseEnter={handleNodeMouseEnter}

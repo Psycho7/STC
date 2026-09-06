@@ -172,6 +172,8 @@ export type ChipGeom = {
   testId: string;
   label: string;
   kind: "label" | "bus" | "bus-drop";
+  // The chip draws its collapsed variant (the .flow-chip.icon-only class).
+  iconOnly: boolean;
   left: number;
   top: number;
   right: number;
@@ -210,6 +212,17 @@ export type DotGeom = {
 // is the React Flow edge group the circle lives in, recovered via that
 // group's .react-flow__edge-path id.
 export type CrossingCueGeom = { edgeId: string; x: number; y: number };
+// One piece of a card's port furniture: a handle box, the PortGlyph span
+// beside it, or an .rn-row strip (the row-text proxy), keyed to the owning
+// card. Graph coordinates.
+export type PortFurnitureGeom = {
+  nodeId: string;
+  kind: "handle" | "glyph" | "row";
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
 export type Geometry = {
   edges: EdgeGeom[];
   nodes: NodeGeom[];
@@ -217,6 +230,7 @@ export type Geometry = {
   dots: DotGeom[];
   bands: BandGeom[];
   crossingCues: CrossingCueGeom[];
+  portFurniture: PortFurnitureGeom[];
   // The live camera zoom, needed to state a screen-pixel visibility tolerance
   // in the graph frame the rects above live in.
   zoom: number;
@@ -244,12 +258,14 @@ export function collectGeometry(): Geometry {
     document.querySelectorAll<SVGPathElement>(".react-flow__edge-path"),
   ).map((p) => ({ id: p.id, d: p.getAttribute("d") ?? "" }));
 
+  const portFurniture: PortFurnitureGeom[] = [];
   const nodes = Array.from(
     document.querySelectorAll<HTMLElement>(".react-flow__node"),
   ).map((el) => {
     const r = el.getBoundingClientRect();
     const cls = el.className;
     const match = /react-flow__node-(\w+)/.exec(cls);
+    const nodeId = el.getAttribute("data-id") ?? "(node)";
     const inPorts: string[] = [];
     const outPorts: string[] = [];
     for (const h of Array.from(
@@ -259,8 +275,26 @@ export function collectGeometry(): Geometry {
       if (hid.startsWith("in:")) inPorts.push(hid.slice(3));
       else if (hid.startsWith("out:")) outPorts.push(hid.slice(4));
     }
+    const furniture: Array<[string, PortFurnitureGeom["kind"]]> = [
+      [".react-flow__handle", "handle"],
+      ["[data-glyph]", "glyph"],
+      [".rn-row", "row"],
+    ];
+    for (const [selector, kind] of furniture) {
+      for (const f of Array.from(el.querySelectorAll<HTMLElement>(selector))) {
+        const fr = f.getBoundingClientRect();
+        portFurniture.push({
+          nodeId,
+          kind,
+          left: toGraphX(fr.left),
+          top: toGraphY(fr.top),
+          right: toGraphX(fr.right),
+          bottom: toGraphY(fr.bottom),
+        });
+      }
+    }
     return {
-      nodeId: el.getAttribute("data-id") ?? "(node)",
+      nodeId,
       type: match?.[1] ?? "(type)",
       left: toGraphX(r.left),
       top: toGraphY(r.top),
@@ -290,6 +324,7 @@ export function collectGeometry(): Geometry {
           ? "bus-drop"
           : "bus"
         : "label") as "label" | "bus" | "bus-drop",
+      iconOnly: el.classList.contains("icon-only"),
       left: toGraphX(r.left),
       top: toGraphY(r.top),
       right: toGraphX(r.right),
@@ -344,7 +379,16 @@ export function collectGeometry(): Geometry {
     y: Number(el.getAttribute("cy")),
   }));
 
-  return { edges, nodes, chips, dots, bands, crossingCues, zoom: k };
+  return {
+    edges,
+    nodes,
+    chips,
+    dots,
+    bands,
+    crossingCues,
+    portFurniture,
+    zoom: k,
+  };
 }
 
 // One rendered thing the exam has to be able to point a camera at. `clientRect`

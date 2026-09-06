@@ -105,6 +105,7 @@ const geometry = (): Geometry => ({
       testId: CHIP_RATE_ID,
       label: "12/min",
       kind: "label",
+      iconOnly: false,
       left: 700,
       top: 600,
       right: 760,
@@ -116,6 +117,7 @@ const geometry = (): Geometry => ({
       testId: CHIP_DROP_ID,
       label: "water",
       kind: "bus-drop",
+      iconOnly: false,
       left: 210,
       top: 205,
       right: 250,
@@ -127,6 +129,7 @@ const geometry = (): Geometry => ({
       testId: CHIP_RISE_ID,
       label: "water rise",
       kind: "bus",
+      iconOnly: false,
       left: 90,
       top: 100,
       right: 130,
@@ -136,6 +139,7 @@ const geometry = (): Geometry => ({
   dots: [],
   bands: [],
   crossingCues: [],
+  portFurniture: [],
   zoom: 1,
 });
 
@@ -360,6 +364,7 @@ describe("measurementsFor", () => {
       dots: [],
       bands: [],
       crossingCues: [],
+      portFurniture: [],
       zoom: 1,
     };
     const scene: SceneCollection = {
@@ -385,6 +390,7 @@ describe("measurementsFor", () => {
       testId: CHIP_PARTIAL_ID,
       label: "water partial",
       kind: "bus-drop",
+      iconOnly: false,
       left: 240,
       top: 250,
       right: 280,
@@ -419,6 +425,7 @@ describe("measurementsFor", () => {
       testId: CHIP_PAST_ID,
       label: "water past strip",
       kind: "label",
+      iconOnly: false,
       left: 520,
       top: 410,
       right: 560,

@@ -51,13 +51,16 @@ line and carry no gap.
 
 ## Bus lanes
 
-Bus lanes and the fan-out junction columns below sit behind the `aef.busLanes`
-setting, which is off by default. A plan opened in a browser that has never
-touched the topbar toggle draws neither: long edges stay individual strokes and
-same-source edges get no shared column. Six e2e specs and the render-exam
-capture switch the setting on before loading, so they measure the lanes-on
-layout. Everything else, a manual look at the deployed page included, is the
-lanes-off one. Both are correct renders of the same plan.
+Bus lanes sit behind the `aef.busLanes` setting, which is off by default. A
+plan opened in a browser that has never touched the topbar toggle draws no
+lanes and no BUS bands: long edges stay individual strokes. The fan-out
+junction columns described under "Fan-out and fan-in" are not part of the
+toggle: a junction column is not a lane (it carries no lane y and draws no
+band), so same-source edges one layer over still share their junction column
+in both modes. Six e2e specs and the geometry audit cover the setting
+explicitly; the render-exam capture still switches it on before loading, so
+the exam never sees the lanes-off render -- a known coverage gap. Both modes
+are correct renders of the same plan.
 
 Long edges route through shared horizontal lanes, drawn as faint tinted bands
 labelled BUS above and below the block of nodes. A member drops into its lane,
@@ -110,8 +113,18 @@ all draw from one formatter, so a plan shows one rate unit throughout. A mix
 inside a single plan, `/min` beside `/MIN`, is a defect and not a style.
 
 A seating pass places each chip on the line it labels, sliding it along that line
-past cards, dots and other chips. A chip that had to move is still bound to its
-own polyline; one that reads as belonging to a neighbouring line is a defect. A
+past cards, dots and other chips. A chip never covers its own endpoint card's
+port glyph, port handle or row text: the furniture band straddling the port is
+a keep-out, so an on-line chip sits in the corridor stretch between its two
+ports' furniture. On a corridor too narrow for the chip's full box the chip
+holds a capped size -- counter-scaled by less than the usual maximum so the
+widest box it can draw fits that stretch -- or renders icon-only when even the
+natural text does not fit. A corridor shared with another chip works the same
+way: when the full box has no seat left on the line, the chip shrinks to its
+natural size before it takes any seat off the line. A chip that had to move is
+still bound to its own polyline; dragging a card re-seats every chip when the
+drag ends, so a dropped plan obeys the same rules (mid-drag, chips ride the
+live line with their last seat offsets); one that reads as belonging to a neighbouring line is a defect. A
 lane chip seated one lane pitch beside its lane is clearing a junction dot, not
 changing lines.
 
@@ -123,7 +136,14 @@ Do not report these as defects.
   shows few chips or none, and card detail fades at low zoom by design.
 - A chip on a leg too short for its box renders icon-only at any zoom, fan-out
   branch chips and item-edge chips alike, and so does a fan-out branch chip on a
-  contested corridor. Low zoom is a third cause: below zoom 0.32 the two chips
+  contested corridor. A chip whose corridor holds its natural text but not the
+  full counter-scaled box instead draws at a capped size, smaller than the
+  usual counter-scale maximum, and so does a chip whose full box has no seat
+  left on its line beside a neighbouring chip (the second of two chips into
+  adjacent rows of one card, a member chip on a merged fan-in run): it draws
+  at its natural size and stays on its line rather than leaving it. A capped
+  chip keeps its digits down to the same zoom as every other chip; they are
+  simply drawn smaller. Low zoom is a third cause: below zoom 0.32 the two chips
   exempt from the 0.35 gate (the bus drop chip and a lone member's long-run rise
   chip) render icon-only as well. All of them keep the rate on the hover title
   and the aria label. A digit-less square chip is intentional, not a missing

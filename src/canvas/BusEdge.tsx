@@ -203,8 +203,9 @@ export default function BusEdge({
   // would float in empty canvas (the rate stays on the target card's row and
   // this edge's hover tooltip below). The hide only holds while the live
   // branch anchor still matches the one it was stamped at: nodes stay
-  // mouse-draggable and the seating pass does not rerun on drag, so once the
-  // anchors diverge the hide is stale and the chip returns. The divergence
+  // mouse-draggable and the seating pass reruns only when a drag ENDS
+  // (reseatChips), so mid-drag the anchors diverge, the hide is stale and the
+  // chip returns until the drop re-seats it. The divergence
   // threshold is the shared HIDE_STALE_EPS, sized in dimensions.ts.
   const hiddenAt = fanoutData?.fanoutBranchHiddenAt;
   const branchHidden =
@@ -310,6 +311,7 @@ export default function BusEdge({
     label: string,
     title: string,
     compact = false,
+    scaleCap?: number,
   ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
@@ -323,6 +325,7 @@ export default function BusEdge({
       dimmed={edgeData?.dimmed}
       focused={edgeData?.focused}
       compact={compact}
+      scaleCap={scaleCap}
       zoom={zoom}
     />
   );
@@ -381,6 +384,7 @@ export default function BusEdge({
             riseLabel,
             riseTitle,
             fanoutData?.fanoutBranchIconOnly === true,
+            fanoutData?.fanoutBranchScaleCap,
           )
         : null}
     </>

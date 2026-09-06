@@ -61,9 +61,13 @@ const REPRO_FRAGMENT =
 async function solvedReproPlan() {
   const outcome = await loadPlan(REPRO_FRAGMENT, pack);
   if (outcome.kind === "error") {
-    throw new Error(`repro fragment failed to load: ${JSON.stringify(outcome.error)}`);
+    throw new Error(
+      `repro fragment failed to load: ${JSON.stringify(outcome.error)}`,
+    );
   }
-  const { targets, itemOverrides, recipeCosts } = planToSolverArgs(outcome.plan);
+  const { targets, itemOverrides, recipeCosts } = planToSolverArgs(
+    outcome.plan,
+  );
   const tConfig = loadTransportConfig(defaultTransportConfig, pack);
   const full = solvePlanWithIntermediates(
     targets,
@@ -125,7 +129,7 @@ describe("edge-span census: repro plan", () => {
     expect(blocked.map((e) => e.id)).toEqual([]);
   });
 
-  it("busLanesEnabled: false yields zero bus-typed edges on a plan that otherwise has them", async () => {
+  it("busLanesEnabled: false yields zero LANE edges but keeps fan-out trunks", async () => {
     const { plan, recipeById, itemById } = await solvedReproPlan();
 
     const on = await layoutRenderPlan({ plan, recipeById, itemById });
@@ -138,12 +142,15 @@ describe("edge-span census: repro plan", () => {
 
     // The default arm proves the fixture exercises the toggle at all.
     expect(on.edges.some((e) => e.type === "bus")).toBe(true);
-    expect(off.edges.every((e) => e.type === "item")).toBe(true);
-    // No bus stamp survives either: fan-out trunks mark `fanout` on data.
+    // The OFF arm drops only the lane pass.
+    expect(
+      off.edges.some((e) => e.data !== undefined && "laneY" in e.data),
+    ).toBe(false);
+    // Fan-out trunks still form with lanes off.
     expect(
       off.edges.some(
         (e) => (e.data as { fanout?: boolean } | undefined)?.fanout === true,
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 });

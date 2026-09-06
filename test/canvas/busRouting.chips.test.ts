@@ -123,9 +123,7 @@ const shortRunBus = (
     busChipX: 180, // the drop column: 148 (agg right edge) + PORT_STUB + CHAMFER
     busChipOwner: opts.owner,
     busMemberCount: opts.memberCount,
-    ...(opts.owner
-      ? { busTotalRate: new Fraction(opts.memberCount) }
-      : {}),
+    ...(opts.owner ? { busTotalRate: new Fraction(opts.memberCount) } : {}),
     busBand: opts.band ?? ("bottom" as const),
   },
 });
@@ -1217,6 +1215,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
         fanoutBranchDx?: number;
         fanoutBranchDy?: number;
         fanoutBranchIconOnly?: true;
+        fanoutBranchScaleCap?: number;
       };
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
@@ -1253,10 +1252,17 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     expect(cx).toBeGreaterThanOrEqual(fan.junction.x);
     expect(cx).toBeLessThanOrEqual(t1.position.x - 3);
     // Clear of the split dot's keep-off square on at least one axis (half the
-    // collapsed box plus DOT_KEEPOFF), so the dot stays visible under nothing.
+    // box the chip RESERVES plus DOT_KEEPOFF -- the capped half once the
+    // corridor window is narrower than the max-scale box -- so the
+    // dot stays visible under nothing the chip can draw).
+    const reservedHalf =
+      (((branchOf(out, "e0").fanoutBranchScaleCap as number | undefined) ??
+        MAX_CHIP_SCALE) *
+        ((MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2)) /
+      MAX_CHIP_SCALE;
     expect(
-      Math.abs(cx - fan.junction.x) >= 24 + 16 ||
-        Math.abs(cy - fan.junction.y) >= 24 + 16,
+      Math.abs(cx - fan.junction.x) >= reservedHalf + 16 ||
+        Math.abs(cy - fan.junction.y) >= reservedHalf + 16,
     ).toBe(true);
   });
 
@@ -1267,8 +1273,8 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     // re-derivation: the branch seat now slides only over the member's OWN leg
     // (the suffix after the junction), and the short-leg rule collapses that
     // leg's chip to the icon-only box -- so the walls must sit where even a
-    // 48-unit collapsed box cannot clear them (x 330..430 spans every on-line
-    // candidate and both sidestep directions), and the members must be LEVEL
+    // 24-unit scale-1 collapsed box cannot clear them (x 330..430 spans every
+    // on-line candidate and both sidestep directions), and the members must be LEVEL
     // with the source row so the walls do not also eat the trunk's y-span and
     // defeat the columnClear formation test. The half-gap between the walls is
     // derived to stay 4 units under the box's half-height, so a change to the
@@ -1290,9 +1296,10 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     const probe = orderedRecipeNode("probe", 0, 0, ["b"]);
     const levelY = portOffsetY(s, "b", "out") - portOffsetY(probe, "b", "in");
     const sy = portOffsetY(s, "b", "out");
-    // Chip half-height is (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2 = 24; the wall
-    // half-gap must stay under it for the line to count as blocked.
-    const wallHalfGap = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2 - 4;
+    // The smallest box the ladder tries on the line is the scale-1 box of the
+    // shrink pass, half-height CHIP_BOX_HEIGHT / 2 = 12; the wall half-gap
+    // must stay under THAT for the line to count as blocked at every reserve.
+    const wallHalfGap = CHIP_BOX_HEIGHT / 2 - 4;
     const nodes: RFAnyNode[] = [
       s,
       orderedRecipeNode("t1", oneGap, levelY, ["b"]), // level member

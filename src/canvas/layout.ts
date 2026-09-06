@@ -140,8 +140,8 @@ export type LayoutInput = {
   // interior gets laid out by the SCC renderer in a later pass.
   // TODO: swap the placeholder for the real size once SCC interior layout exists.
   interiorByLoopId?: ReadonlyMap<SccId, LoopInteriorSize>;
-  // When explicitly false, routeBusEdges and routeFanoutEdges are skipped so
-  // every edge renders as a plain item edge. Absent or true runs both passes.
+  // When explicitly false, routeBusEdges is skipped: no edge takes a lane.
+  // Fan-outs still form (a junction column is not a lane).
   busLanesEnabled?: boolean;
 };
 
@@ -872,7 +872,7 @@ export const ROUTING_PASSES: ReadonlyArray<{
   readonly run: RoutingPass;
 }> = [
   // Classify long-span edges into bus trunks, each on a lane in a top or
-  // bottom band.
+  // bottom band. The one pass busLanesEnabled: false drops.
   { name: "routeBusEdges", run: routeBusEdges },
   // Consolidate N >= 2 same-source-port edges in one layer gap onto a shared
   // junction column (a fan-out trunk, retyped bus but off-lane).
@@ -906,21 +906,21 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   const elkGraph = renderPlanToElkGraph(input);
   const laid = (await elk.layout(elkGraph)) as ElkGraph;
   const { nodes, edges } = fromElkRenderLayout(laid, input);
-  // With bus lanes off, drop the two passes that stamp bus formations; the
-  // remaining passes are no-ops on unstamped edges, so no other change is
-  // needed. Matched by function identity so a pass rename cannot silently
-  // defeat the filter.
+  // With bus lanes off, drop only the lane pass; the remaining passes are
+  // no-ops on unstamped edges. Matched by function identity so a pass rename
+  // cannot silently defeat the filter.
   const passes =
     input.busLanesEnabled === false
-      ? ROUTING_PASSES.filter(
-          (p) => p.run !== routeBusEdges && p.run !== routeFanoutEdges,
-        )
+      ? ROUTING_PASSES.filter((p) => p.run !== routeBusEdges)
       : ROUTING_PASSES;
   // Left fold over the passes: every pass sees the SAME nodes array
   // fromElkRenderLayout returned (final absolute positions), never a re-derived
   // one, plus the previous pass's output edges.
   return {
     nodes,
-    edges: passes.reduce<RFEdge[]>((routed, pass) => pass.run(nodes, routed), edges),
+    edges: passes.reduce<RFEdge[]>(
+      (routed, pass) => pass.run(nodes, routed),
+      edges,
+    ),
   };
 }

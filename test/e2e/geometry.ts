@@ -384,13 +384,20 @@ export function auditOwnCardPierces(
     const own: Array<{ card: NodeRect; role: "source" | "target" }> = [];
     const s = nodeById.get(edge.source);
     const t = nodeById.get(edge.target);
-    if (s !== undefined && s.type !== "group") own.push({ card: s, role: "source" });
-    if (t !== undefined && t.type !== "group") own.push({ card: t, role: "target" });
+    if (s !== undefined && s.type !== "group")
+      own.push({ card: s, role: "source" });
+    if (t !== undefined && t.type !== "group")
+      own.push({ card: t, role: "target" });
     if (own.length === 0) continue;
     for (const [seg0, seg1] of segmentsOf(pts)) {
       for (const { card, role } of own) {
         if (segmentEntersRect(seg0, seg1, card, eps)) {
-          out.push({ edgeId: edge.id, card: card.nodeId, role, seg: [seg0, seg1] });
+          out.push({
+            edgeId: edge.id,
+            card: card.nodeId,
+            role,
+            seg: [seg0, seg1],
+          });
         }
       }
     }
@@ -522,6 +529,8 @@ export type ChipRect = RawRect & {
   // invariants), "bus-drop" = the trunk-seated aggregate chip (audited against
   // foreign cards with a trunk-member exemption), "label" = item rate chip.
   kind: "label" | "bus" | "bus-drop";
+  // The chip draws its collapsed (icon-only) variant.
+  iconOnly: boolean;
 };
 
 export type ChipViolation = {
@@ -774,7 +783,11 @@ export function auditChipsOnOwnPath(
     if (pts.length === 0) continue;
     const dist = pointToPolylineDistance(centreOf(chip), pts);
     if (dist > tol) {
-      out.push({ chipEdgeId: chip.edgeId, chipLabel: chip.label, distance: dist });
+      out.push({
+        chipEdgeId: chip.edgeId,
+        chipLabel: chip.label,
+        distance: dist,
+      });
     }
   }
   return out;
@@ -1197,8 +1210,10 @@ export function auditChipCardIntrusion(
   for (const chip of chips) {
     let worst: { card: string; depth: number } | null = null;
     for (const card of cards) {
-      const dx = Math.min(chip.right, card.right) - Math.max(chip.left, card.left);
-      const dy = Math.min(chip.bottom, card.bottom) - Math.max(chip.top, card.top);
+      const dx =
+        Math.min(chip.right, card.right) - Math.max(chip.left, card.left);
+      const dy =
+        Math.min(chip.bottom, card.bottom) - Math.max(chip.top, card.top);
       if (dx <= 0 || dy <= 0) continue;
       const depth = Math.min(dx, dy);
       if (worst === null || depth > worst.depth) {
@@ -1240,7 +1255,9 @@ export function auditChipForeignStrokes(
       if (!chipForeignTo(chip, edge, edgeById, cardById)) continue;
       const pts = parsePath(edge.d);
       if (pts.length === 0) continue;
-      if (segmentsOf(pts).some(([a, b]) => segmentEntersRect(a, b, chip, eps))) {
+      if (
+        segmentsOf(pts).some(([a, b]) => segmentEntersRect(a, b, chip, eps))
+      ) {
         through.push(edge.id);
       }
     }
@@ -1349,4 +1366,40 @@ export function auditBusChipsOutsideBand(
     }
   }
   return { escapes, xOverflows, skipped };
+}
+
+// One piece of drawn port furniture (a handle, a PortGlyph span, or an .rn-row
+// strip), keyed to its owning card.
+export type PortFurnitureRect = RawRect & {
+  nodeId: string;
+  kind: "handle" | "glyph" | "row";
+};
+
+// Chips whose drawn box covers a piece of their own endpoint card's port
+// furniture. Every chip kind counts, once however many pieces it covers; a
+// chip whose edge id does not parse is skipped. Target state: zero.
+export function auditChipPortCover(
+  chips: ReadonlyArray<ChipRect>,
+  edges: ReadonlyArray<RawEdge>,
+  furniture: ReadonlyArray<PortFurnitureRect>,
+  eps = 0.5,
+): ChipCensusHit[] {
+  const edgeById = new Map(edges.map((e) => [e.id, e] as const));
+  const out: ChipCensusHit[] = [];
+  for (const chip of chips) {
+    const own = edgeById.get(chip.edgeId);
+    if (own === undefined) continue;
+    const covered: string[] = [];
+    for (const f of furniture) {
+      if (f.nodeId !== own.source && f.nodeId !== own.target) continue;
+      if (rectsOverlap(chip, f, eps)) {
+        covered.push(
+          `${f.kind} of its own ${f.nodeId === own.source ? "source" : "target"} card ${f.nodeId}`,
+        );
+      }
+    }
+    if (covered.length > 0)
+      out.push(censusHit(chip, `covers the ${covered.join(", ")}`));
+  }
+  return out;
 }

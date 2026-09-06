@@ -189,8 +189,8 @@ export type FanoutBusEdgeData = BusAggregate & {
   // off-line seat would float in empty canvas, and the member's rate is
   // already on its target card's input row. The companion anchor records the
   // branch anchor the hide was decided at: nodes stay mouse-draggable and the
-  // seating pass does not rerun on drag, so BusEdge drops a hide whose live
-  // recomputed anchor no longer matches the stamp.
+  // seating pass reruns only when a drag ends, so mid-drag BusEdge drops a
+  // hide whose live recomputed anchor no longer matches the stamp.
   fanoutBranchHidden?: true;
   fanoutBranchHiddenAt?: { x: number; y: number };
   // Set by deconflictChipAnchors when this member's whole polyline is shorter
@@ -200,6 +200,9 @@ export type FanoutBusEdgeData = BusAggregate & {
   // chip off the trunk's split dot; the narrow box can. The rate stays readable
   // on the chip's aria-label and hover title.
   fanoutBranchIconOnly?: true;
+  // Counter-scale cap stamped when the branch chip's clear window is narrower
+  // than its max-scale box (see ItemEdgeData.chipScaleCap).
+  fanoutBranchScaleCap?: number;
   // Set by routeFanoutEdges on every member of a trunk whose corridor is
   // CONTESTED: sibling trunks spread across one layer gap closer than a
   // worst-case chip half-box, so a full-width branch chip anywhere on the
@@ -769,7 +772,10 @@ export function busBandRegions(
 // leave the SAME source port (same item, same source unit) into targets one
 // layer over. Runs AFTER routeBusEdges, on the still-"item" remainder (bus
 // members and demoted trunks are already retyped / bound, and none overlap a
-// fan-out by span). Each qualifying member is retyped `type: "bus"` and stamped
+// fan-out by span). The order is scheduling, not a dependency: the two passes
+// classify disjoint span ranges, so this pass sees the same members with
+// routeBusEdges skipped (busLanesEnabled: false). Each qualifying member is
+// retyped `type: "bus"` and stamped
 // { fanout, junctionX, trunkKey, busTotalRate, busMemberCount, busChipOwner } --
 // reusing the trunk aggregation scaffolding -- but carries NO laneY, so the lane
 // passes (clearBusColumns, the bus drop/rise chip phases) skip it and BusEdge
@@ -1275,7 +1281,10 @@ function occupiesGutterColumn(
 // Resolved input-port index of an edge at its target, or -1 when unknown. Only
 // recipe/loop nodes carry the ELK-resolved `inputOrder`; product targets have a
 // single port. Used to order a target's staggered entry columns top to bottom.
-export function inputPortIndex(target: RFAnyNode, item: string | undefined): number {
+export function inputPortIndex(
+  target: RFAnyNode,
+  item: string | undefined,
+): number {
   if (item === undefined) return -1;
   if (target.type !== "recipe" && target.type !== "loop") return -1;
   const order = target.data.inputOrder;
@@ -2117,7 +2126,10 @@ export function clearBusColumns(
       // Drop / rise column defaults: the shared bases (busDropBase /
       // busRiseBase, the latter keeping the staggered entryX when present).
       dropBase: busDropBase(sx),
-      riseBase: busRiseBase(tx, (edge.data as ItemEdgeData | undefined)?.entryX),
+      riseBase: busRiseBase(
+        tx,
+        (edge.data as ItemEdgeData | undefined)?.entryX,
+      ),
     });
   });
 
@@ -2292,9 +2304,7 @@ export function clearBusColumns(
   {
     const occupied = new Set<string>();
     for (const m of members)
-      occupied.add(
-        `${Math.round(riseNaturalByIndex.get(m.index)!)}|${m.band}`,
-      );
+      occupied.add(`${Math.round(riseNaturalByIndex.get(m.index)!)}|${m.band}`);
     for (const list of bucketBy(
       members,
       // band in the bucket key on purpose: same cross-band scope cut as drops.
@@ -2334,7 +2344,8 @@ export function clearBusColumns(
   const riseXByIndex = new Map<number, number>();
   for (const m of members) {
     const dropX =
-      dropNaturalByTrunk.get(m.trunkKey)! + (dropOffsetByTrunk.get(m.trunkKey) ?? 0);
+      dropNaturalByTrunk.get(m.trunkKey)! +
+      (dropOffsetByTrunk.get(m.trunkKey) ?? 0);
     if (dropX !== m.dropBase || dropCollidingTrunks.has(m.trunkKey))
       dropXByIndex.set(m.index, dropX);
     const riseX =
@@ -2789,4 +2800,3 @@ export function jogForwardLegs(
     };
   });
 }
-

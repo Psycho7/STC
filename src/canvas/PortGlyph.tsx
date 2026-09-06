@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import type { ItemId, TransportKindId } from "../pipeline/types";
 import { itemColor } from "./itemColor";
 import { BELT_COLOR, GAS_COLOR, PIPE_COLOR } from "./transportPalette";
+import { GLYPH_SIDE_OFFSET, GLYPH_SIZE } from "./dimensions";
 
 // An overlay glyph drawn next to each React Flow Handle. Its shape depends on
 // the port's transportKind:
@@ -14,7 +15,6 @@ import { BELT_COLOR, GAS_COLOR, PIPE_COLOR } from "./transportPalette";
 // sets the (top, left or right) offset relative to its handle. Pointer events
 // are off so the glyph never steals clicks meant for the Handle underneath.
 
-const GLYPH_SIZE = 8;
 // A square rotated 45 degrees presents its diagonal, so a gas glyph drawn at
 // GLYPH_SIZE would occupy sqrt(2) times the span of its siblings and crowd the
 // handle it annotates. 6px presents a ~8.49px diagonal, matching the 8px circle.
@@ -50,7 +50,7 @@ function baseStyle(
     ...vertical,
     // The side offset stays on GLYPH_SIZE for every kind so a smaller box does
     // not drift toward the handle; the gas diamond's corners still clear it.
-    [side === "left" ? "left" : "right"]: -GLYPH_SIZE - 2,
+    [side === "left" ? "left" : "right"]: -GLYPH_SIDE_OFFSET,
     width: size,
     height: size,
     pointerEvents: "none",
