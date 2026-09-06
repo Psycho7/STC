@@ -200,10 +200,8 @@ export type FanoutBusEdgeData = BusAggregate & {
   // chip off the trunk's split dot; the narrow box can. The rate stays readable
   // on the chip's aria-label and hover title.
   fanoutBranchIconOnly?: true;
-  // Per-chip counter-scale cap (#82, B4), stamped when the member's
-  // band-subtracted clear window is narrower than its chip's max-scale box:
-  // the branch chip render counter-scales by min(1/zoom, this) so the widest
-  // box it can draw fits the window the seat reserved. Absent = uncapped.
+  // Counter-scale cap stamped when the branch chip's clear window is narrower
+  // than its max-scale box (see ItemEdgeData.chipScaleCap).
   fanoutBranchScaleCap?: number;
   // Set by routeFanoutEdges on every member of a trunk whose corridor is
   // CONTESTED: sibling trunks spread across one layer gap closer than a
@@ -774,13 +772,9 @@ export function busBandRegions(
 // leave the SAME source port (same item, same source unit) into targets one
 // layer over. Runs AFTER routeBusEdges, on the still-"item" remainder (bus
 // members and demoted trunks are already retyped / bound, and none overlap a
-// fan-out by span). That pass order is SCHEDULING, not a correctness
-// dependency: routeBusEdges claims spans above BUS_SPAN_THRESHOLD (which is
-// 2x FANOUT_SPAN_MAX) and this pass claims the (FANOUT_SPAN_MIN,
-// FANOUT_SPAN_MAX] band, so the two classify DISJOINT span ranges -- running
-// without routeBusEdges (the busLanesEnabled: false mode) feeds this pass
-// exactly the members it would have seen anyway, which is why that mode keeps
-// fan-out formations while dropping only the lanes. Each qualifying member is
+// fan-out by span). The order is scheduling, not a dependency: the two passes
+// classify disjoint span ranges, so this pass sees the same members with
+// routeBusEdges skipped (busLanesEnabled: false). Each qualifying member is
 // retyped `type: "bus"` and stamped
 // { fanout, junctionX, trunkKey, busTotalRate, busMemberCount, busChipOwner } --
 // reusing the trunk aggregation scaffolding -- but carries NO laneY, so the lane

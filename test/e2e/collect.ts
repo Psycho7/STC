@@ -172,10 +172,7 @@ export type ChipGeom = {
   testId: string;
   label: string;
   kind: "label" | "bus" | "bus-drop";
-  // The chip draws its COLLAPSED variant (item sprite only, no digits): the
-  // .flow-chip.icon-only class ItemEdge / BusEdge toggle for short legs,
-  // contested corridors and the low-zoom LOD. The census's collapse counter
-  // reads it straight off the drawn element.
+  // The chip draws its collapsed variant (the .flow-chip.icon-only class).
   iconOnly: boolean;
   left: number;
   top: number;
@@ -215,17 +212,12 @@ export type DotGeom = {
 // is the React Flow edge group the circle lives in, recovered via that
 // group's .react-flow__edge-path id.
 export type CrossingCueGeom = { edgeId: string; x: number; y: number };
-// One piece of a card's PORT FURNITURY (#82): the handle box React Flow
-// centres on a row edge, the PortGlyph span drawn beside it, or the .rn-row
-// strip itself (the row-text proxy -- a row lives inside the card, so a chip
-// still out in the corridor cannot intersect one). `nodeId` names the OWNING
-// card so the audit can ask the furniture/own-endpoint question; `item` is
-// the handle's item id where the element carries one. Boxes are graph
-// coordinates like every other rect here.
+// One piece of a card's port furniture: a handle box, the PortGlyph span
+// beside it, or an .rn-row strip (the row-text proxy), keyed to the owning
+// card. Graph coordinates.
 export type PortFurnitureGeom = {
   nodeId: string;
   kind: "handle" | "glyph" | "row";
-  item: string;
   left: number;
   top: number;
   right: number;
@@ -266,12 +258,14 @@ export function collectGeometry(): Geometry {
     document.querySelectorAll<SVGPathElement>(".react-flow__edge-path"),
   ).map((p) => ({ id: p.id, d: p.getAttribute("d") ?? "" }));
 
+  const portFurniture: PortFurnitureGeom[] = [];
   const nodes = Array.from(
     document.querySelectorAll<HTMLElement>(".react-flow__node"),
   ).map((el) => {
     const r = el.getBoundingClientRect();
     const cls = el.className;
     const match = /react-flow__node-(\w+)/.exec(cls);
+    const nodeId = el.getAttribute("data-id") ?? "(node)";
     const inPorts: string[] = [];
     const outPorts: string[] = [];
     for (const h of Array.from(
@@ -281,8 +275,26 @@ export function collectGeometry(): Geometry {
       if (hid.startsWith("in:")) inPorts.push(hid.slice(3));
       else if (hid.startsWith("out:")) outPorts.push(hid.slice(4));
     }
+    const furniture: Array<[string, PortFurnitureGeom["kind"]]> = [
+      [".react-flow__handle", "handle"],
+      ["[data-glyph]", "glyph"],
+      [".rn-row", "row"],
+    ];
+    for (const [selector, kind] of furniture) {
+      for (const f of Array.from(el.querySelectorAll<HTMLElement>(selector))) {
+        const fr = f.getBoundingClientRect();
+        portFurniture.push({
+          nodeId,
+          kind,
+          left: toGraphX(fr.left),
+          top: toGraphY(fr.top),
+          right: toGraphX(fr.right),
+          bottom: toGraphY(fr.bottom),
+        });
+      }
+    }
     return {
-      nodeId: el.getAttribute("data-id") ?? "(node)",
+      nodeId,
       type: match?.[1] ?? "(type)",
       left: toGraphX(r.left),
       top: toGraphY(r.top),
@@ -366,55 +378,6 @@ export function collectGeometry(): Geometry {
     x: Number(el.getAttribute("cx")),
     y: Number(el.getAttribute("cy")),
   }));
-
-  // Port furniture (#82): every handle box, PortGlyph span and .rn-row strip,
-  // keyed to the OWNING node so the census can ask whether a chip covers its
-  // own endpoint's furniture. Read with the same toGraphX/toGraphY as the
-  // rects above. Handles carry their item id in data-handleid ("in:<item>" /
-  // "out:<item>"); glyphs and rows have none and keep "".
-  const portFurniture: PortFurnitureGeom[] = [];
-  {
-    const pushFurniture = (
-      el: Element,
-      kind: PortFurnitureGeom["kind"],
-      item: string,
-    ): void => {
-      const node = el.closest(".react-flow__node");
-      if (node === null) return;
-      const r = el.getBoundingClientRect();
-      portFurniture.push({
-        nodeId: node.getAttribute("data-id") ?? "(node)",
-        kind,
-        item,
-        left: toGraphX(r.left),
-        top: toGraphY(r.top),
-        right: toGraphX(r.right),
-        bottom: toGraphY(r.bottom),
-      });
-    };
-    for (const h of Array.from(
-      document.querySelectorAll<HTMLElement>(".react-flow__handle"),
-    )) {
-      const hid = h.getAttribute("data-handleid") ?? "";
-      pushFurniture(
-        h,
-        "handle",
-        hid.startsWith("in:")
-          ? hid.slice(3)
-          : hid.startsWith("out:")
-            ? hid.slice(4)
-            : "",
-      );
-    }
-    for (const g of Array.from(
-      document.querySelectorAll<HTMLElement>("[data-glyph]"),
-    ))
-      pushFurniture(g, "glyph", "");
-    for (const row of Array.from(
-      document.querySelectorAll<HTMLElement>(".rn-row"),
-    ))
-      pushFurniture(row, "row", "");
-  }
 
   return {
     edges,

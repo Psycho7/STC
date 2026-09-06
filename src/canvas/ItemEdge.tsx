@@ -77,10 +77,8 @@ export type ItemEdgeData = {
   // than one rendered chip: the chip renders icon-only (rate on hover) because
   // no seat on the line can hold the full box.
   chipIconOnly?: boolean;
-  // Per-chip counter-scale cap (#82, B4), stamped when the band-subtracted
-  // clear window on this edge is narrower than the chip's max-scale box: the
-  // render counter-scales by min(1/zoom, chipScaleCap) so the widest box the
-  // chip can ever draw fits the window the seat reserved. Absent = uncapped.
+  // Counter-scale cap stamped when the chip's clear window is narrower than
+  // its max-scale box, so the widest box it draws fits the seat's reserve.
   chipScaleCap?: number;
   // Set by Canvas's hover focus on every non-focused edge. The chips read it
   // because EdgeLabelRenderer portals them outside the edge wrapper that carries
@@ -242,13 +240,9 @@ export function FlowChip({
   // shorter than one chip): it collapses to icon-only regardless of zoom. A
   // hover-lit chip still wins, so the rate stays one hover away.
   compact?: boolean | undefined;
-  // Per-chip counter-scale cap (B4): clamps the chip's on-screen growth the
-  // same way MAX_CHIP_SCALE clamps it globally, so a chip seated in a corridor
-  // narrower than its max-scale box never draws wider than the window it
-  // reserved. Absent = the global cap. The icon-only zoom gate does NOT read
-  // it (ruling, 2026-09-06): a capped chip keeps its digits down to the same
-  // zoom as every other chip and simply draws them smaller, so neighbouring
-  // chips collapse together rather than at cap-dependent zooms.
+  // Per-chip counter-scale cap below the global MAX_CHIP_SCALE. The icon-only
+  // zoom gate ignores it: a capped chip keeps its digits to the same zoom as
+  // every other chip and draws them smaller.
   scaleCap?: number | undefined;
   // Live pane zoom, used to counter-scale the chip so it stays legible at the
   // dense-plan fit zoom. Optional: callers without a zoom leave the chip at its
@@ -258,8 +252,10 @@ export function FlowChip({
   // Counter-scale about the chip centre. translate(-50%,-50%) translate(x,y)
   // already centres the box on (x, y); appending scale() with the default
   // (centre) transform-origin keeps that anchor and only grows the chip.
-  const cap = scaleCap ?? MAX_CHIP_SCALE;
-  const scale = zoom !== undefined ? Math.min(cap, chipCounterScale(zoom)) : 1;
+  const scale =
+    zoom !== undefined
+      ? Math.min(scaleCap ?? Infinity, chipCounterScale(zoom))
+      : 1;
   const scalePart = scale !== 1 ? ` scale(${scale})` : "";
   // Below the icon-only zoom the surviving (LABEL_MIN_ZOOM-exempt) chips shed
   // their rate digits and render as the bare item icon, so a dense fit view
@@ -267,8 +263,7 @@ export function FlowChip({
   // Zoom-gated member chips never reach here: they are already hidden by the
   // higher LABEL_MIN_ZOOM gate at their call sites. `compact` collapses a chip
   // at every zoom (its line is too short for the full box at any scale); the
-  // hover reveal overrides both, so no chip is permanently rate-less. The gate
-  // is one fixed zoom for every chip, capped or not (see scaleCap above).
+  // hover reveal overrides both, so no chip is permanently rate-less.
   const iconOnly =
     (compact === true ||
       (zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM)) &&
@@ -414,7 +409,7 @@ const partnerBitsEqual = (
 // store-wide iteration -- so an edge re-renders exactly when a partner's
 // existence or anchor liveness changes. Without the partner half, a dragged
 // partner edge left this edge's gap cut where nothing crosses anymore (the
-// seating pass reruns only when a drag ends). A cue-less edge -- almost every edge
+// seating pass reruns only at the drop). A cue-less edge -- almost every edge
 // -- pays nothing per store tick: its selector returns one shared empty
 // array, so the equality check short-circuits on identity, and the filter
 // result is memoized so the per-render geometry runs only when a stamp, the
@@ -646,7 +641,7 @@ export default function ItemEdge({
   // Drag-staleness guard for the fan-in marker, mirroring BusEdge's
   // fanoutBranchHiddenAt pattern (the ratified issue-9 stale-hide rule): the
   // marker fields are stamped absolute coordinates from the seating pass, and
-  // nodes stay mouse-draggable with a re-seat only at the drop. Once the stamped port y
+  // nodes stay mouse-draggable until the drop re-seats. Once the stamped port y
   // diverges from the LIVE target port y (the targetY prop) past the eps, the
   // dot and the member hide drop together -- a floating marker or a wrongly
   // hidden chip is worse than a temporarily unmarked merge. The threshold is

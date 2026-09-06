@@ -40,7 +40,7 @@ import {
 // chipSeating's own CHIP_HALF_W_WIDE (MAX_CHIP_SCALE * CHIP_BOX_WIDTH / 2),
 // which the fan-out BRANCH short-leg rule USED to gate on as SHORT_LEG_MAX
 // (both the item and the branch rule now gate on the per-chip natural width;
-// see usableWidthCollapses). Mirrored here (the module does not export it).
+// see chipNaturalWidth). Mirrored here (the module does not export it).
 const CHIP_HALF_W_WIDE = 120;
 
 // Product handle drift, from chipSeating's PORT_DRIFT.product: the drawn source
@@ -128,8 +128,7 @@ const corridorFixture = (): {
 
 // Arc length of a reconstructed polyline, the measure the BRANCH short-leg
 // rule is stated in (chipSeating sums the same segments), and the x-extent the
-// ITEM rule gates on (chipSeating's usableWidthCollapses spans the same
-// points).
+// ITEM rule gates on (chipSeating's largestClearSpan spans the same points).
 const polylineLength = (
   pts: ReadonlyArray<readonly [number, number]>,
 ): number => {
@@ -331,15 +330,8 @@ describe("deconflictChipAnchors: per-chip reserved box", () => {
   });
 
   it("caps a full chip's box at the corridor window narrower than 2x natural (#82)", () => {
-    // RE-PINNED from the chain-clash drift fixture: with band-subtracted
-    // reserves (B3/B4) two adjacent-corridor chips can no longer clash at all
-    // -- each reserves at most its own corridor's window, and the anchors sit
-    // a full corridor plus a card apart -- so the old "realistic boxes clash
-    // by ~10, the later chip slides one 24-unit step" shape is structurally
-    // gone (the slide's step size is pinned in chipSeating.seat.test.ts now).
-    // What this corridor shape pins instead is the B4 cap itself: the window
-    // (gap 160 - the 20 the two product bands clip out of it) holds the
-    // natural box but not the max-scale one, so the chip stays FULL and its
+    // The window (gap 160 less the 20 the two product bands clip) holds the
+    // natural box but not the max-scale one: the chip stays full and its
     // reserved box is exactly the window.
     const { nodes, edges } = rowFixture(160);
     const out = deconflictChipAnchors(nodes, edges);
@@ -608,10 +600,7 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     });
     const cx = fan.branchAnchor.x + ((data.fanoutBranchDx as number) ?? 0);
     const cy = fan.branchAnchor.y + ((data.fanoutBranchDy as number) ?? 0);
-    // RE-PINNED for the capped icon box (#82, B4): on this narrow leg the
-    // reserved half-width is the cap-fraction of the uncapped one, and the
-    // keep-off that matters is against the box the chip actually reserves
-    // (and draws, at any zoom, since the render counter-scale shares the cap).
+    // The keep-off is against the capped box the chip reserves and draws.
     const cappedHalf =
       (((data.fanoutBranchScaleCap as number | undefined) ?? MAX_CHIP_SCALE) *
         CHIP_HALF_W_ICON) /
@@ -700,11 +689,8 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
 });
 
 // Two taps feeding adjacent input rows of one recipe across a 119-unit
-// corridor (the default plan's ore + water pair into the refinery). The first
-// chip takes the corridor's one band-clear seat at max scale; the second has
-// no max-scale seat left on its line (its box laps the first from every
-// band-clear point) but its scale-1 box clears, so it seats on its line at a
-// cap of 1 rather than escaping past the card.
+// corridor: the first chip takes the one band-clear seat at max scale, the
+// second only fits at scale 1 and seats on its line at cap 1.
 describe("deconflictChipAnchors: adjacent-row pair shrinks onto its line", () => {
   it("caps the second chip at 1 and keeps it on its own line", () => {
     const recipe = mkRecipe("r", ["ore", "water"], ["out"]);

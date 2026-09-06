@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
 // The camera settles in two steps on a cold load: the fit that runs once the
 // nodes are measured, then a debounced re-fit from the canvas resize observer
@@ -59,4 +59,47 @@ export async function waitForWebfonts(page: Page): Promise<void> {
       { timeout: WEBFONT_WAIT_MS, polling: "raf" },
     )
     .catch(() => undefined);
+}
+
+export async function waitForCanvasReady(page: Page): Promise<void> {
+  const anyNode = page
+    .locator(".react-flow")
+    .locator(
+      ".react-flow__node-recipe, .react-flow__node-loop, .react-flow__node-product",
+    )
+    .first();
+  await expect(anyNode).toBeVisible({ timeout: 30_000 });
+}
+
+// The camera every seating census reads at; re-measure the tables if it moves.
+export const CENSUS_ZOOM = 0.6;
+
+// Load a scenario and park the camera at CENSUS_ZOOM about the pane centre.
+export async function loadCensusScenario(
+  page: Page,
+  hash: string,
+): Promise<void> {
+  await page.goto(`/?exam=1#${hash}`, { waitUntil: "load" });
+  await waitForCanvasReady(page);
+  await waitForWebfonts(page);
+  await waitForStableViewport(page);
+  await page.waitForFunction(() => window.__stcExam !== undefined, undefined, {
+    timeout: 10_000,
+  });
+  await page.evaluate((zoom) => {
+    const hook = window.__stcExam!;
+    const pane = document
+      .querySelector<HTMLElement>(".react-flow")!
+      .getBoundingClientRect();
+    const vp = document.querySelector<HTMLElement>(".react-flow__viewport")!;
+    const m = new DOMMatrixReadOnly(getComputedStyle(vp).transform);
+    const worldCx = (pane.width / 2 - m.e) / m.a;
+    const worldCy = (pane.height / 2 - m.f) / m.a;
+    hook.setViewport({
+      x: pane.width / 2 - worldCx * zoom,
+      y: pane.height / 2 - worldCy * zoom,
+      zoom,
+    });
+  }, CENSUS_ZOOM);
+  await waitForStableViewport(page);
 }

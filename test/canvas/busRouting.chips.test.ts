@@ -1253,7 +1253,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     expect(cx).toBeLessThanOrEqual(t1.position.x - 3);
     // Clear of the split dot's keep-off square on at least one axis (half the
     // box the chip RESERVES plus DOT_KEEPOFF -- the capped half once the
-    // corridor window is narrower than the max-scale box, #82 B4 -- so the
+    // corridor window is narrower than the max-scale box -- so the
     // dot stays visible under nothing the chip can draw).
     const reservedHalf =
       (((branchOf(out, "e0").fanoutBranchScaleCap as number | undefined) ??

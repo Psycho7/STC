@@ -321,8 +321,7 @@ function AppInner() {
   }, [plan]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  // A node drag ends: re-seat every chip on the dropped geometry (the seating
-  // pass is layout-time; see reseatChips). Edges keep their routing hints.
+  // The seating pass is layout-time, so a drop re-seats every chip.
   const handleNodeDragStop = useCallback(
     (liveNodes: Node[]) => {
       setEdges((prev) => reseatChips(liveNodes as RFAnyNode[], prev));

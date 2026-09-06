@@ -1,9 +1,4 @@
-// reseatChips: the drag-end re-seat. A node drag keeps the live path anchor
-// (ItemEdge re-paths from the live endpoints) but leaves the seating offsets
-// stamped for the layout-time geometry, so the chip lands at "live anchor plus
-// a stale offset". Re-seating strips every stamp the seating pass wrote and
-// runs it again on the moved nodes, so the result is exactly what a fresh pass
-// over clean edges would give.
+// reseatChips equals a fresh seating pass over stamp-free edges.
 import { describe, it, expect } from "vitest";
 import type { Edge } from "@xyflow/react";
 import {

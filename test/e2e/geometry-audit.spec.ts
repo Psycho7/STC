@@ -1,5 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
-import { waitForStableViewport, waitForWebfonts } from "./viewport";
+import {
+  CENSUS_ZOOM,
+  loadCensusScenario,
+  waitForCanvasReady,
+  waitForStableViewport,
+  waitForWebfonts,
+} from "./viewport";
 import { SCENARIOS, extraScenariosFromEnv, scenarioHash } from "./scenarios";
 import {
   CARD_INTRUSION_BUDGET,
@@ -58,16 +64,6 @@ const OVERLAP_EPS_PX = 0.5;
 // rounding of two independently laid-out client rects.
 const HANDLE_CENTER_TOL_PX = 1;
 
-async function waitForCanvasReady(page: Page): Promise<void> {
-  const anyNode = page
-    .locator(".react-flow")
-    .locator(
-      ".react-flow__node-recipe, .react-flow__node-loop, .react-flow__node-product",
-    )
-    .first();
-  await expect(anyNode).toBeVisible({ timeout: 30_000 });
-}
-
 // Strict interpenetration on both axes, beyond the abutment epsilon.
 function overlapPx(
   a: AuditChipRect,
@@ -99,30 +95,11 @@ const FIXED_IDS = new Set(SCENARIOS.map((s) => s.id));
 type LaneMode = "on" | "off";
 const LANE_MODES: readonly LaneMode[] = ["on", "off"];
 
-// NOTE on the two mode sub-tables every baseline below carries: they are
-// INDEPENDENT measurements of two different renders, not one measurement and a
-// derived variant. The off render routes a different edge set (no lane stamps),
-// seats its chips against a different obstacle field, and lands at a different
-// fit zoom, so an off cell is never justified by its on sibling -- neither
-// inherited from it nor ratcheted against it. Each off cell states its own
-// measured actual, and the standing convention (down freely, up only on a
-// recorded ruling) applies within a mode, never across the two.
-// The off arms were measured by the two-pass campaign that added them: Pass A
-// read the pre-change OFF render (fan-out pass still dropped) against zero
-// seeds, Pass B re-read the OFF render with the fan-out pass restored
-// ("Keep fan-out trunks formed with bus lanes off"), and the Pass B actuals
-// are the pins below. A->B every cell fell or held except CROSSING default
-// 2 -> 4, which ROSE with the ratified fan-out restoration itself (that
-// campaign's controller ruling 1): the copper and water junction columns
-// replace the plain step columns, and the count lands at exactly the on-mode
-// figure (4, every crossing between the two fan-out families). The rise is
-// recorded here as the ruling's arithmetic, not an independent regression.
-// Structural off facts the pins encode: no bands are drawn, so OUTSIDE_BAND
-// is a hard zero and SKIPPED_BAND_INVENTORY equals the fan-out (bus-typed)
-// chip count, which matches the on arm cell for cell because fan-out
-// membership is mode-independent (the lane and fan-out classifiers read
-// disjoint span bands). multi6's standing RAW pierce (e:97 into q:56) is the
-// off render's only hard-gate red -- the same failset the on render carries.
+// The on and off sub-tables of every baseline below are independent
+// measurements of two renders: an off cell is never derived from its on
+// sibling, and the ratchet convention (down freely, up only on a recorded
+// ruling) applies within a mode. With no bands drawn OUTSIDE_BAND is a
+// structural zero and SKIPPED_BAND_INVENTORY equals the fan-out chip count.
 
 // A baseline read that tolerates a scenario the table does not pin. Returns null
 // and records why, so the caller can leave that one ratchet unasserted while the
@@ -644,9 +621,7 @@ const CROSSING_BASELINE_ON: Record<string, number> = {
 };
 const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CROSSING_BASELINE_ON,
-  // Pass B measurement (fan-out restored). The ONE cell that rose over its
-  // Pass A reading: default 2 -> 4, the ratified fan-out restoration's own
-  // arithmetic -- see the mode NOTE above.
+  // default 2 -> 4 rose with the ratified fan-out restoration (lanes off).
   off: {
     default: 4,
     battery5: 10,
@@ -800,17 +775,8 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): rot-bottled_food_3 2, rot-bottled_food_4 2 -- the same
 // full-height column passing under label chips family as above.
-// PORT-BAND EVICTION (#82, ruling R14): 23 -> 46. The evicted
-// chips' escape boxes cross more foreign lines than their old on-line seats
-// did. default 0 -> 1, battery5 3 -> 5, battery5-xiranite 0 -> 10, crystal
-// 0 -> 1, script43 5 -> 11, coupon-web 4 -> 5, rot-bottled_food_4 2 -> 6;
-// equip4 1 -> 0 and gas-web 8 -> 7 fell.
-// Shrink pass (R16, RATIFIED 2026-09-06): 46 -> 58, an UP move. The chips
-// the pass returns to their lines seat there by the graze tier, and their
-// text boxes (kept at the fixed 0.32 gate) now lie over the foreign strokes
-// their escape seats had left: battery5-xiranite 10 -> 18, equip4 0 -> 1,
-// script43 11 -> 12, gas-web 7 -> 12; battery5 5 -> 4 and rot-bottled_food_4
-// 6 -> 4 fell. Bought: CHIP_OFFPATH 35 -> 5 and SEAT_VALIDITY 36 -> 3.
+// R14 (port-band eviction): 23 -> 46. R16 (shrink pass): 46 -> 58, an up
+// move bought against CHIP_OFFPATH 35 -> 5 and SEAT_VALIDITY 36 -> 3.
 const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
   default: 1,
   battery5: 4,
@@ -827,18 +793,7 @@ const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
 };
 const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_SEGMENT_BASELINE_ON,
-  // Pass B: fan-out branch chips seat on their own legs, so the OFF counts
-  // read at or under their Pass A actuals everywhere (script43 4 -> 3,
-  // gas-web 5 -> 4, the rest unchanged); the surviving pairs are the same
-  // full-height tap/surplus columns passing under label chips the on arm
-  // records on these plans.
-  // PORT-BAND EVICTION (#82, ruling R14): 15 -> 42. default 0 -> 1,
-  // battery5 2 -> 4, battery5-xiranite 0 -> 8, crystal 0 -> 1, script43
-  // 3 -> 11, coupon-web 4 -> 5, gas-web 4 -> 9, rot-bottled_food_4 1 -> 3;
-  // equip4 1 -> 0 fell.
-  // Shrink pass (R16, RATIFIED 2026-09-06): 42 -> 43. battery5-xiranite
-  // 8 -> 14, equip4 0 -> 1; script43 11 -> 10, gas-web 9 -> 5,
-  // rot-bottled_food_4 3 -> 2 fell.
+  // R14: 15 -> 42. R16: 42 -> 43 (up move, same trade as the on arm).
   off: {
     default: 1,
     battery5: 4,
@@ -894,23 +849,9 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
 // still NOT retired. This cell and the battery5-xiranite chip-segment rise are
 // the SAME chip moving -- reverting the depth edit puts both back, so revert
 // this pin with it. battery5 measured 2 again, unchanged (ratified above).
-// The three campaign scenarios and the two exam-surfaced scenarios all first
-// recorded zero: no label chip left its own polyline before #82.
-// PORT-BAND EVICTION (#82, RATIFIED 2026-09-06 as ruling R14, one trade
-// with the CHIP_SEGMENT / SEAT_VALIDITY / FOREIGN_STROKE rises below): the port band
-// became a hard keep-out, so the chips whose ONLY on-line seats covered their
-// own port furniture now escape. 0 -> 35 corpus-wide: default 0 -> 2,
-// battery5 0 -> 4, battery5-xiranite 0 -> 7, crystal 0 -> 1, equip4 0 -> 1,
-// tundra 0 -> 1, script43 0 -> 6, coupon-web 0 -> 4, gas-web 0 -> 4,
-// rot-bottled_food_4 0 -> 5. Bought: PORT_COVER 124 -> 0 and CARD_INTRUSION
-// 77 -> 0 on this arm.
-// SHRINK PASS (R16, RATIFIED 2026-09-06 as one trade with the CHIP_SEGMENT and multi6 FOREIGN_STROKE rises): a chip whose full box has no on-line seat retries
-// its line at the scale-1 box before any off-line tier, and the fixed 0.32
-// icon-only gate keeps its digits. 35 -> 5: default 2 -> 0, battery5 4 -> 0,
-// battery5-xiranite 7 -> 2, crystal 1 -> 0, equip4 1 -> 0, tundra 1 -> 0,
-// script43 6 -> 1, coupon-web 4 -> 0, gas-web 4 -> 0, rot-bottled_food_4
-// 5 -> 2. The default plan's two escapes (the 30/min water and sewage chips,
-// 192 and 240 units above their lines) are the case this pass was built on.
+// R14 (port band hard, one trade with the CHIP_SEGMENT / SEAT_VALIDITY /
+// FOREIGN_STROKE rises): 0 -> 35, buying PORT_COVER 124 -> 0 and
+// CARD_INTRUSION 77 -> 0. R16 (shrink pass): 35 -> 5.
 const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -927,19 +868,8 @@ const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
 };
 const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_OFFPATH_BASELINE_ON,
-  // Pass B read zero everywhere: the OFF-mode defect this campaign opened on
-  // (the default plan's 30/min chip nudged 48 units off its line, Pass A read
-  // exactly that one seat) left with the fan-out restoration.
-  // PORT-BAND EVICTION (#82, ruling R14, same trade as the on arm):
-  // 0 -> 38, one more than on-mode because un-laned corridors hold more of
-  // the evicted chips. default 0 -> 2, battery5 0 -> 6, battery5-xiranite
-  // 0 -> 8, crystal 0 -> 1, equip4 0 -> 1, tundra 0 -> 1, script43 0 -> 6,
-  // coupon-web 0 -> 4, gas-web 0 -> 5, rot-bottled_food_4 0 -> 4. Bought:
-  // PORT_COVER 126 -> 0 and CARD_INTRUSION 79 -> 0 on this arm.
-  // Shrink pass (R16): 38 -> 8. default 2 -> 0, battery5 6 -> 2,
-  // battery5-xiranite 8 -> 4, crystal 1 -> 0, equip4 1 -> 0, tundra 1 -> 0,
-  // script43 6 -> 1, coupon-web 4 -> 0, gas-web 5 -> 1, rot-bottled_food_4
-  // 4 -> 0.
+  // R14: 0 -> 38, buying PORT_COVER 126 -> 0 and CARD_INTRUSION 79 -> 0.
+  // R16: 38 -> 8.
   off: {
     default: 0,
     battery5: 2,
@@ -1063,9 +993,7 @@ const FRAME_RIDE_BASELINE_ON: Record<string, number> = {
 };
 const FRAME_RIDE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FRAME_RIDE_BASELINE_ON,
-  // Structural zero OFF: bus bands never draw, so the band-border half of the
-  // counter has nothing to ride, and the OFF render holds the slab-border half
-  // at zero (as Pass A already read).
+  // Structural zero with no bands drawn.
   off: {
     default: 0,
     battery5: 0,
@@ -1162,10 +1090,7 @@ const DOT_COVER_BASELINE_ON: Record<string, number> = {
 };
 const DOT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: DOT_COVER_BASELINE_ON,
-  // Pass B: fan-out split dots return to the OFF render (Pass A's dots were
-  // fan-in/divergence only) and every branch chip seats clear of them; the
-  // one survivor is battery5's fan-in owner chip, the same seat the on arm
-  // pins (e:18, ruling R13's trade).
+  // The one survivor is battery5's fan-in owner chip (e:18, ruling R13).
   off: {
     default: 0,
     battery5: 0,
@@ -1233,9 +1158,7 @@ const ENDPOINT_PARITY_TOL_ON: Record<string, number> = {
   "rot-bottled_food_3": 0.5,
   "rot-bottled_food_4": 0.5,
 };
-// The off arm takes the same measured flat 0.5 pin: Pass B's worst OFF parity
-// read 0.007 (multi6, 224 endpoints), the same double-precision residue class
-// the on arm's comment records.
+// The off arm's worst parity read 0.007 (multi6): the same flat 0.5 pin.
 const ENDPOINT_PARITY_TOL: Record<LaneMode, Record<string, number>> = {
   on: ENDPOINT_PARITY_TOL_ON,
   off: {
@@ -1733,33 +1656,6 @@ test.describe("segment placement audit", () => {
 // arbitrary for the measurement (all rects are mapped back to graph coordinates
 // and nothing is culled) and is fixed only so a debugging screenshot of a census
 // failure shows the same region every run.
-const CENSUS_ZOOM = 0.6;
-
-async function loadCensusScenario(page: Page, hash: string): Promise<void> {
-  await page.goto(`/?exam=1#${hash}`, { waitUntil: "load" });
-  await waitForCanvasReady(page);
-  await waitForWebfonts(page);
-  await waitForStableViewport(page);
-  await page.waitForFunction(() => window.__stcExam !== undefined, undefined, {
-    timeout: 10_000,
-  });
-  await page.evaluate((zoom) => {
-    const hook = window.__stcExam!;
-    const pane = document
-      .querySelector<HTMLElement>(".react-flow")!
-      .getBoundingClientRect();
-    const vp = document.querySelector<HTMLElement>(".react-flow__viewport")!;
-    const m = new DOMMatrixReadOnly(getComputedStyle(vp).transform);
-    const worldCx = (pane.width / 2 - m.e) / m.a;
-    const worldCy = (pane.height / 2 - m.f) / m.a;
-    hook.setViewport({
-      x: pane.width / 2 - worldCx * zoom,
-      y: pane.height / 2 - worldCy * zoom,
-      zoom,
-    });
-  }, CENSUS_ZOOM);
-  await waitForStableViewport(page);
-}
 
 // FIRST RECORDINGS, all four tables. They were measured on the campaign's
 // pre-fix branch tip with every cell pinned at zero and the reported actual
@@ -1825,15 +1721,7 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // First recordings for the two exam-surfaced scenarios (campaign-first
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero; every chip holds its own line inside its box.
-// PORT-BAND EVICTION (#82, ruling R14): 5 -> 36, the same chips
-// CHIP_OFFPATH counts, read by the seat-validity predicate. default 0 -> 2,
-// battery5 0 -> 4, battery5-xiranite 4 -> 7, crystal 0 -> 1, equip4 0 -> 1,
-// multi6 0 -> 4, tundra 0 -> 1, script43 1 -> 5, coupon-web 0 -> 3, gas-web
-// 0 -> 4, rot-bottled_food_4 0 -> 4.
-// Shrink pass (R16): 36 -> 3. default 2 -> 0, battery5 4 -> 0,
-// battery5-xiranite 7 -> 2, crystal 1 -> 0, equip4 1 -> 0, multi6 4 -> 0,
-// tundra 1 -> 0, script43 5 -> 1, coupon-web 3 -> 0, gas-web 4 -> 0,
-// rot-bottled_food_4 4 -> 0.
+// R14: 5 -> 36 (the chips CHIP_OFFPATH counts). R16: 36 -> 3.
 const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -1850,17 +1738,7 @@ const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
 };
 const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: SEAT_VALIDITY_BASELINE_ON,
-  // Pass B: the OFF defect seat (default's nudged 30/min chip) left with the
-  // fan-out restoration; the residue is battery5-xiranite's two off-line
-  // seats, the same plan that dominates the on arm.
-  // PORT-BAND EVICTION (#82, ruling R14): 2 -> 35. default 0 -> 2,
-  // battery5 0 -> 4, battery5-xiranite 2 -> 5, crystal 0 -> 1, equip4 0 -> 1,
-  // multi6 0 -> 6, tundra 0 -> 1, script43 0 -> 4, coupon-web 0 -> 3, gas-web
-  // 0 -> 4, rot-bottled_food_4 0 -> 4.
-  // Shrink pass (R16): 35 -> 1. default 2 -> 0, battery5 4 -> 0,
-  // battery5-xiranite 5 -> 1, crystal 1 -> 0, equip4 1 -> 0, multi6 6 -> 0,
-  // tundra 1 -> 0, script43 4 -> 0, coupon-web 3 -> 0, gas-web 4 -> 0,
-  // rot-bottled_food_4 4 -> 0.
+  // R14: 2 -> 35. R16: 35 -> 1.
   off: {
     default: 0,
     battery5: 0,
@@ -2033,14 +1911,8 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both 2, each one full-height column passing under two label
 // chips.
-// PORT-BAND EVICTION (#82, ruling R14): 40 -> 59, the escape boxes
-// straddling columns their on-line seats cleared. battery5 2 -> 4,
-// battery5-xiranite 5 -> 7, crystal 0 -> 1, multi6 15 -> 19, script43 5 -> 9,
-// coupon-web 2 -> 3, gas-web 7 -> 10, rot-bottled_food_4 2 -> 4.
-// Shrink pass (R16, RATIFIED 2026-09-06 for the one UP cell): 59 -> 54.
-// multi6 19 -> 20 is a chip that now grazes a foreign line on its own row
-// instead of escaping; battery5 4 -> 3, battery5-xiranite 7 -> 6, script43
-// 9 -> 7, rot-bottled_food_4 4 -> 2 fell.
+// R14: 40 -> 59. R16: 59 -> 54, with multi6 19 -> 20 the one ratified up
+// cell (a chip grazing a foreign line on its own row instead of escaping).
 const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
   default: 1,
   battery5: 3,
@@ -2057,12 +1929,7 @@ const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
 };
 const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FOREIGN_STROKE_BASELINE_ON,
-  // PORT-BAND EVICTION (#82, ruling R14): 32 -> 49. battery5
-  // 2 -> 3, battery5-xiranite 3 -> 5, crystal 0 -> 1, multi6 16 -> 19,
-  // script43 3 -> 7, coupon-web 2 -> 3, gas-web 3 -> 6, rot-bottled_food_4
-  // 1 -> 3.
-  // Shrink pass (R16): 49 -> 45. script43 7 -> 5, gas-web 6 -> 5,
-  // rot-bottled_food_4 3 -> 2.
+  // R14: 32 -> 49. R16: 49 -> 45.
   off: {
     default: 1,
     battery5: 3,
@@ -2148,8 +2015,7 @@ const OUTSIDE_BAND_BASELINE_ON: Record<string, number> = {
 };
 const OUTSIDE_BAND_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: OUTSIDE_BAND_BASELINE_ON,
-  // Structural zero OFF: no bands are drawn, so every bus chip is band-unbound
-  // and lands in SKIPPED_BAND_INVENTORY instead -- there is no band to escape.
+  // Structural zero with no bands drawn.
   off: {
     default: 0,
     battery5: 0,
@@ -2199,11 +2065,7 @@ const SKIPPED_BAND_INVENTORY_ON: Record<string, number> = {
 };
 const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
   on: SKIPPED_BAND_INVENTORY_ON,
-  // Pass B: OFF's bus chips are exactly the fan-out branch/aggregate chips
-  // (no lanes exist to bind a band), and the counts match the on arm cell for
-  // cell because fan-out membership is mode-independent -- the classifiers
-  // read disjoint span bands, so dropping the lane pass changes neither which
-  // edges form fan-outs nor how many chips they draw.
+  // Every bus chip is a fan-out chip here, so the cells match the on arm.
   off: {
     default: 4,
     battery5: 2,
@@ -2220,18 +2082,8 @@ const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
   },
 };
 
-// PORT-COVER, the direct #82 counter (issue #82): chips whose drawn box
-// covers a handle, a PortGlyph span, or a row strip of their OWN endpoint
-// card -- the placement ruling says a chip never does that. Measured at the
-// census camera like the four counters above; the target state is ZERO in
-// both modes, and the B campaign drives it there. First recorded by the
-// chip-port-clearance campaign at its untouched tip (write-then-compare
-// against zero seeds, both modes); it ratchets DOWN under the same
-// convention as every table above, and an up-move needs a recorded ruling.
-// The first recording is the defect's size: on most plans a MAJORITY of the
-// chips cover own-port furniture (default 12 of 17, tundra 5 of 7), the
-// mechanical cause being the unmodelled 10-unit furniture band outside the
-// card edge plus a centre-only own-card rule.
+// PORT-COVER: chips whose drawn box covers a handle, glyph or row strip of
+// their own endpoint card. Target state zero in both modes; ratchets down.
 const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: {
     default: 0,
@@ -2263,21 +2115,10 @@ const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
   },
 };
 
-// CHIP-COLLAPSE: how many of the scenario's chips draw their collapsed
-// icon-only variant at the census camera. Not a defect counter -- collapsing
-// is the sanctioned answer to a corridor too narrow for a chip's full box --
-// but the campaign's TRADE dial: every port-band keep-out or counter-scale
-// cap that cannot find a full-box seat buys its clearance with one of these,
-// so the count is pinned to make each move of it a stated trade rather than a
-// silent one. First recorded at the campaign's untouched tip, both modes:
-// 35 corpus-wide, identical cells in the two modes. Re-pinned 35 -> 48 at the
-// port-clear render (both modes, same cells): battery5-xiranite 2 -> 5,
-// coupon-web 0 -> 8, rot-bottled_food_3 4 -> 5, rot-bottled_food_4 0 -> 1 --
-// the band-subtracted window collapses what the bare extent let through.
-// 48 -> 43 at the shrink pass (both modes, same cells): battery5-xiranite
-// 5 -> 4, coupon-web 8 -> 6, rot-bottled_food_3 5 -> 4, rot-bottled_food_4
-// 1 -> 0 -- chips the pass seats at scale 1 whose legs the collapse rule had
-// classed short read full at the census camera under the fixed 0.32 gate.
+// CHIP-COLLAPSE: chips drawing their icon-only variant at the census camera.
+// Not a defect counter but the trade dial every keep-out or cap pays into.
+// Both modes share the cells: 35 -> 48 at the port-clear render (R14),
+// 48 -> 43 at the shrink pass (R16).
 const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: {
     default: 4,
@@ -2394,10 +2235,8 @@ const CENSUS_TOTALS: Record<
     // re-seated onto their own lines (default 1 -> 0, battery5 1 -> 0, multi6
     // 6 -> 1, script43 3 -> 1, coupon-web 1 -> 0).
     // 6 -> 5 at the Task 8 branch-leg re-measure (multi6 1 -> 0).
-    // Port-band eviction (#82, B5 cut): seatValidity 5 -> 36, cardIntrusion
-    // 77 -> 0, foreignStroke 40 -> 59; the per-table notes above carry the
-    // cells.
-    // Shrink pass (R16): seatValidity 36 -> 3, foreignStroke 59 -> 54.
+    // R14: seatValidity 5 -> 36, cardIntrusion 77 -> 0, foreignStroke
+    // 40 -> 59. R16: seatValidity 36 -> 3, foreignStroke 59 -> 54.
     seatValidity: 3,
     // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
     // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
@@ -2420,10 +2259,8 @@ const CENSUS_TOTALS: Record<
     outsideBand: 0,
   },
   off: {
-    // Port-band eviction (#82, B5 cut): seatValidity 2 -> 35, cardIntrusion
-    // 79 -> 0, foreignStroke 32 -> 49; the per-table notes above carry the
-    // cells.
-    // Shrink pass (R16): seatValidity 35 -> 1, foreignStroke 49 -> 45.
+    // R14: seatValidity 2 -> 35, cardIntrusion 79 -> 0, foreignStroke
+    // 32 -> 49. R16: seatValidity 35 -> 1, foreignStroke 49 -> 45.
     seatValidity: 1,
     cardIntrusion: 0,
     foreignStroke: 45,
@@ -2594,9 +2431,8 @@ test.describe("chip seating census", () => {
               .toBe(skippedPin);
           }
 
-          // Port-cover (#82): a chip never covers its own endpoint card's port
-          // handle, glyph or row text. The campaign's headline counter; target
-          // state zero, ratchets down.
+          // Port-cover: a chip never covers its own endpoint card's port
+          // furniture. Target state zero, ratchets down.
           const portCover = auditChipPortCover(
             chips,
             rawEdges,

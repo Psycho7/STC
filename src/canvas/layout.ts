@@ -140,10 +140,8 @@ export type LayoutInput = {
   // interior gets laid out by the SCC renderer in a later pass.
   // TODO: swap the placeholder for the real size once SCC interior layout exists.
   interiorByLoopId?: ReadonlyMap<SccId, LoopInteriorSize>;
-  // When explicitly false, only routeBusEdges is skipped: no edge takes a
-  // lane, but same-source fan-outs still consolidate onto their shared
-  // junction columns (a junction column is not a lane: no laneY, no band).
-  // Absent or true runs every pass.
+  // When explicitly false, routeBusEdges is skipped: no edge takes a lane.
+  // Fan-outs still form (a junction column is not a lane).
   busLanesEnabled?: boolean;
 };
 
@@ -874,13 +872,10 @@ export const ROUTING_PASSES: ReadonlyArray<{
   readonly run: RoutingPass;
 }> = [
   // Classify long-span edges into bus trunks, each on a lane in a top or
-  // bottom band. The one pass the busLanesEnabled: false filter drops --
-  // lanes are exactly what that setting names.
+  // bottom band. The one pass busLanesEnabled: false drops.
   { name: "routeBusEdges", run: routeBusEdges },
   // Consolidate N >= 2 same-source-port edges in one layer gap onto a shared
-  // junction column (a fan-out trunk, retyped bus but off-lane). Runs in BOTH
-  // lane modes; see the header comment on routeFanoutEdges itself for why its
-  // position after routeBusEdges is scheduling, not a correctness dependency.
+  // junction column (a fan-out trunk, retyped bus but off-lane).
   { name: "routeFanoutEdges", run: routeFanoutEdges },
   // Stake out per-target entry-gutter columns so backward rails and bus rises
   // into one node stay parallel.
@@ -911,14 +906,9 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   const elkGraph = renderPlanToElkGraph(input);
   const laid = (await elk.layout(elkGraph)) as ElkGraph;
   const { nodes, edges } = fromElkRenderLayout(laid, input);
-  // With bus lanes off, drop ONLY the lane pass. Everything the toggle names
-  // is that pass: no edge takes a laneY, no band forms, long edges stay
-  // individual strokes. A fan-out's shared junction column is not a lane -- it
-  // stamps no laneY, draws no band, and clearBusColumns skips fan-out members
-  // -- so routeFanoutEdges runs in both modes and same-source groups keep
-  // their junction column in the landing render. The remaining passes are
-  // no-ops on unstamped edges, so no other change is needed. Matched by
-  // function identity so a pass rename cannot silently defeat the filter.
+  // With bus lanes off, drop only the lane pass; the remaining passes are
+  // no-ops on unstamped edges. Matched by function identity so a pass rename
+  // cannot silently defeat the filter.
   const passes =
     input.busLanesEnabled === false
       ? ROUTING_PASSES.filter((p) => p.run !== routeBusEdges)

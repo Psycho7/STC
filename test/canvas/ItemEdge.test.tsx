@@ -187,11 +187,8 @@ describe("canvas/ItemEdge icon-only collapse", () => {
   });
 
   it("keeps a capped chip's digits between the icon-only zoom and the cap's text floor", async () => {
-    // The icon-only gate is a fixed zoom for every chip (ruling, 2026-09-06):
-    // a chip capped at 1 draws its text smaller than an uncapped chip does at
-    // the same zoom, and keeps the digits anyway until zoom 0.32 like its
-    // neighbours. Zoom 0.5 is above the gate and below 0.64, the zoom at which
-    // a cap-1 chip's effective text scale would cross the floor.
+    // The icon-only gate is one fixed zoom for every chip: a cap-1 chip keeps
+    // its digits at 0.5 and draws them smaller.
     renderEdge(
       { item: "belt", rate: new Fraction(2, 1), chipScaleCap: 1 },
       0.5,

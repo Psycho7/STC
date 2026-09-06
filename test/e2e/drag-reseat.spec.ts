@@ -1,14 +1,12 @@
-// A node drag keeps the live edge paths but not the layout-time seating
-// stamps, so a dragged plan used to draw its chips at "live anchor plus a stale
-// offset" (off their lines, over ports). App re-seats every chip when a drag
-// ends. This spec drags the default plan's ore tap for the single refinery
-// down until its port is level with the ore row: the leg turns from a dogleg
-// into one straight run, the live anchor moves onto that run, and the stale
-// slide offset the dogleg seat carried (34.5 units down the vertical run)
-// would park the chip well below the line. With the re-seat the audits read
-// as they do on the laid-out plan.
+// App re-seats every chip when a node drag ends. Drag the default plan's ore
+// tap down until its leg is one straight run: without the re-seat the stale
+// dogleg offset would park the chip well below the line.
 import { test, expect, type Page } from "@playwright/test";
-import { waitForStableViewport, waitForWebfonts } from "./viewport";
+import {
+  CENSUS_ZOOM,
+  loadCensusScenario,
+  waitForStableViewport,
+} from "./viewport";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 import {
   auditChipPortCover,
@@ -22,36 +20,6 @@ import { collectGeometry } from "./collect";
 const DRAGGED_NODE = "u:in:copper_ore:tap:u:class:q:3";
 // The ore tap sits 69 graph units above the refinery row it feeds.
 const DRAG_DY_GRAPH = 69;
-const CENSUS_ZOOM = 0.6;
-
-async function loadAtCensusZoom(page: Page, hash: string): Promise<void> {
-  await page.goto(`/?exam=1#${hash}`, { waitUntil: "load" });
-  await expect(
-    page.locator(".react-flow .react-flow__node-recipe").first(),
-  ).toBeVisible({ timeout: 30_000 });
-  await waitForWebfonts(page);
-  await waitForStableViewport(page);
-  await page.waitForFunction(() => window.__stcExam !== undefined, undefined, {
-    timeout: 10_000,
-  });
-  await page.evaluate((zoom) => {
-    const hook = window.__stcExam!;
-    const pane = document
-      .querySelector<HTMLElement>(".react-flow")!
-      .getBoundingClientRect();
-    const vp = document.querySelector<HTMLElement>(".react-flow__viewport")!;
-    const m = new DOMMatrixReadOnly(getComputedStyle(vp).transform);
-    const worldCx = (pane.width / 2 - m.e) / m.a;
-    const worldCy = (pane.height / 2 - m.f) / m.a;
-    hook.setViewport({
-      x: pane.width / 2 - worldCx * zoom,
-      y: pane.height / 2 - worldCy * zoom,
-      zoom,
-    });
-  }, CENSUS_ZOOM);
-  await waitForStableViewport(page);
-}
-
 async function seatAudits(page: Page) {
   const geom = await page.evaluate(collectGeometry);
   const chips = geom.chips as ChipRect[];
@@ -74,7 +42,7 @@ for (const mode of ["on", "off"] as const) {
       window.localStorage.setItem("aef.busLanes", busLanes);
     }, mode);
     const scenario = SCENARIOS.find((s) => s.id === "default")!;
-    await loadAtCensusZoom(page, await scenarioHash(scenario));
+    await loadCensusScenario(page, await scenarioHash(scenario));
 
     const before = await seatAudits(page);
     expect(before.portCover, "laid-out plan covers no port").toEqual([]);

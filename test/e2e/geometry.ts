@@ -529,8 +529,7 @@ export type ChipRect = RawRect & {
   // invariants), "bus-drop" = the trunk-seated aggregate chip (audited against
   // foreign cards with a trunk-member exemption), "label" = item rate chip.
   kind: "label" | "bus" | "bus-drop";
-  // The chip draws its COLLAPSED (icon-only) variant. Read off the drawn
-  // element by the collector; the census's collapse counter ratchets it.
+  // The chip draws its collapsed (icon-only) variant.
   iconOnly: boolean;
 };
 
@@ -1370,45 +1369,30 @@ export function auditBusChipsOutsideBand(
 }
 
 // One piece of drawn port furniture (a handle, a PortGlyph span, or an .rn-row
-// strip), keyed to its owning card. The #82 census shape; boxes in graph
-// coordinates, collected by test/e2e/collect.ts.
+// strip), keyed to its owning card.
 export type PortFurnitureRect = RawRect & {
   nodeId: string;
   kind: "handle" | "glyph" | "row";
 };
 
-// The direct #82 counter: chips whose drawn box covers a piece of their OWN
-// endpoint card's port furniture -- a handle box, the glyph beside it, or a
-// row strip (the row-text proxy; a row lives inside the card, so only a chip
-// lapping into the card can hit one). Own endpoints resolve from the chip's
-// edge id; a chip whose id does not parse is skipped (the other audits name
-// those). Every kind of chip counts: label, bus rise/branch and drop chips
-// all own endpoint cards whose ports they must not bury. One chip counts
-// ONCE however many pieces it covers (the detail names them all); the target
-// state is ZERO at every reading zoom -- this is the campaign's headline
-// ratchet.
+// Chips whose drawn box covers a piece of their own endpoint card's port
+// furniture. Every chip kind counts, once however many pieces it covers; a
+// chip whose edge id does not parse is skipped. Target state: zero.
 export function auditChipPortCover(
   chips: ReadonlyArray<ChipRect>,
-  edges: ReadonlyArray<{ id: string; d: string }>,
+  edges: ReadonlyArray<RawEdge>,
   furniture: ReadonlyArray<PortFurnitureRect>,
   eps = 0.5,
 ): ChipCensusHit[] {
-  const ownById = new Map<string, { source: string; target: string }>();
-  for (const e of edges) {
-    const parsed = parseEdgeId(e.id);
-    if (parsed !== null)
-      ownById.set(e.id, { source: parsed.source, target: parsed.target });
-  }
+  const edgeById = new Map(edges.map((e) => [e.id, e] as const));
   const out: ChipCensusHit[] = [];
   for (const chip of chips) {
-    const own = ownById.get(chip.edgeId);
+    const own = edgeById.get(chip.edgeId);
     if (own === undefined) continue;
     const covered: string[] = [];
     for (const f of furniture) {
       if (f.nodeId !== own.source && f.nodeId !== own.target) continue;
-      const dx = Math.min(chip.right, f.right) - Math.max(chip.left, f.left);
-      const dy = Math.min(chip.bottom, f.bottom) - Math.max(chip.top, f.top);
-      if (dx > eps && dy > eps) {
+      if (rectsOverlap(chip, f, eps)) {
         covered.push(
           `${f.kind} of its own ${f.nodeId === own.source ? "source" : "target"} card ${f.nodeId}`,
         );

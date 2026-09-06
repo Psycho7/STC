@@ -790,10 +790,8 @@ describe("chipOwnCardIntrusion: box depth past the port strip", () => {
 
 describe("seatRateChip: own-card intrusion preference (F1)", () => {
   it("slides off a box that laps the port band at the strip boundary (#82)", () => {
-    // RE-PINNED when the port band went hard: a box lapping the own card's
-    // port furniture -- even exactly the 9-unit strip the old centre rule
-    // exempted -- is no longer a legal anchor. The seat stays on its line and
-    // walks one slide step back, box right at the band's outer edge.
+    // A box lapping the own card's port band is not a legal anchor: the seat
+    // walks one slide step back, box at the band's outer edge.
     const field = makeClearanceField([], [INTRUSION_CARD]);
     const seat = seatRateChip(
       field,
@@ -868,13 +866,8 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
   });
 
   it("the hard port band outranks the junction-dot keep-off (#82)", () => {
-    // RE-PINNED when the port band went hard. The old conflict this fixture
-    // staged -- dot keep-off versus the intrusion a lapped box pays -- no
-    // longer exists: every candidate that laps the own card's port furniture
-    // is now HARD-blocked (isClear / hardClearAt), so the dot preference
-    // yields to the band exactly as it always yielded to chip-vs-card. The
-    // seat walks one slide step back off the band and the dot stays covered:
-    // a buried split dot is still the softer evil than a buried port.
+    // The band is hard and the dot keep-off soft: the seat walks one slide
+    // step off the band and the dot stays covered.
     const field = makeClearanceField(
       [],
       [INTRUSION_CARD],
@@ -1357,13 +1350,8 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
   });
 
   it("steps fully clear of the own source's port band at the flush step (#82)", () => {
-    // RE-PINNED when the port band went hard. The near steps (16 / 32 / 48)
-    // each lap the own source card's port furniture, so NONE of them is fully
-    // clear any more; the flush step at the containment bound (60) is the
-    // first whose box leaves the band, and the seat takes it. The old
-    // depth-scoring purpose of this fixture -- ranking two lapping steps by
-    // depth -- is dominated for own cards now: the band blocks the lap
-    // outright, so there is nothing left to score.
+    // The near steps (16 / 32 / 48) each lap the own source card's port band;
+    // the flush step at the containment bound (60) is the first clear one.
     const card: CardRect = {
       id: "S",
       left: -400,
@@ -1769,13 +1757,9 @@ describe("examChipReservations", () => {
   });
 });
 
-// Port-band keep-out (#82): a chip never covers its own endpoint card's port
-// furniture. The band (portKeepOutRect) is a HARD term in isClear and
-// hardClearAt, so the on-line slide walks the box off the band instead of
-// parking over the port, and the graze tier cannot yield it either. Fixtures
-// mirror the corridor shape: a horizontal own line running between a source
-// card's right edge and a target card's left edge, both cards level with the
-// line, one border wide (recipe-like).
+// Port-band keep-out: a chip never covers its own endpoint card's port band.
+// Fixtures: a horizontal own line between a source card's right edge and a
+// target card's left edge, both level with the line, one border wide.
 describe("port-band keep-out (#82)", () => {
   const SOURCE_CARD: CardRect = {
     id: "S",
@@ -1825,7 +1809,10 @@ describe("port-band keep-out (#82)", () => {
       "T",
       BOTH_EXEMPT,
       NO_BAND,
-      { iconOnly: true, usableWidth: 18 },
+      {
+        iconOnly: true,
+        clearSpan: { lo: CORRIDOR.anchorX - 9, hi: CORRIDOR.anchorX + 9 },
+      },
     );
     expect(seat.box.halfW).toBeGreaterThanOrEqual(12);
     expect(seat.box.x + 12).toBeLessThanOrEqual(991);
@@ -1959,10 +1946,8 @@ describe("port-band keep-out (#82)", () => {
   });
 });
 
-// The B4 capped reserve: a chip whose corridor window is narrower than its
-// max-scale box still seats FULL on its own line, reserving exactly the
-// window -- the widest box the chip can ever draw, because the render
-// counter-scale reads the matching cap.
+// A chip whose clear window is narrower than its max-scale box still seats
+// full on its line, reserving exactly the window.
 describe("seatRateChip: capped reserve (B4, #82)", () => {
   it("reserves the corridor width when 2x natural does not fit", () => {
     // A "30/min" chip (natural 87) on a corridor whose band-subtracted window
@@ -1971,7 +1956,7 @@ describe("seatRateChip: capped reserve (B4, #82)", () => {
     const field = makeClearanceField([], []);
     const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND, {
       text: { body: "30", unit: true },
-      usableWidth: 100,
+      clearSpan: { lo: 450, hi: 550 },
     });
     expect(seat.tier).toBe("anchor");
     expect(seat.box.halfW).toBeCloseTo(50, 6);
@@ -1984,7 +1969,7 @@ describe("seatRateChip: capped reserve (B4, #82)", () => {
     const field = makeClearanceField([], []);
     const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND, {
       text: { body: "30", unit: true },
-      usableWidth: 400,
+      clearSpan: { lo: 300, hi: 700 },
     });
     expect(seat.box.halfW).toBe(
       chipSeatHalfW({ body: "30", unit: true }, false),
@@ -2031,7 +2016,7 @@ describe("seatRateChip: shrink before leaving the line", () => {
     });
     expect(seat.dy).toBe(0);
     expect(seat.tier).toBe("anchor");
-    expect(seat.shrunk).toBe(true);
+    expect(seat.scaleCap).toBe(1);
     expect(seat.box.halfH).toBe(CHIP_BOX_HEIGHT / 2);
     expect(seat.box.halfW).toBe(chipSeatHalfW(text, false) / MAX_CHIP_SCALE);
   });
@@ -2042,7 +2027,7 @@ describe("seatRateChip: shrink before leaving the line", () => {
     const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND, {
       text,
     });
-    expect(seat.shrunk).toBe(false);
+    expect(seat.scaleCap).toBe(MAX_CHIP_SCALE);
     expect(seat.box.halfW).toBe(chipSeatHalfW(text, false));
   });
 });

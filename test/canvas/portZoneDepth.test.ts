@@ -124,12 +124,10 @@ describe("cardRectsFor grows the model box into the drawn frame", () => {
   });
 });
 
-// The #82 keep-out band: portKeepOutRect straddles the own card's port edge,
-// far enough out to cover the drawn PortGlyph and deep enough in to cover the
-// row strip. Its OUTER edge is pinned to the GLYPH's drawn edge per kind: the
-// glyph hangs at -GLYPH_SIZE - 2 off the ROW edge, which is one CARD_BORDER
-// inside the drawn edge on a recipe and at it on a product.
-describe("portKeepOutRect covers the drawn port furniture (#82)", () => {
+// portKeepOutRect's outer edge is the drawn glyph's edge per kind: the glyph
+// hangs GLYPH_SIDE_OFFSET off the row edge, one CARD_BORDER inside the drawn
+// edge on a recipe and at it on a product.
+describe("portKeepOutRect covers the drawn port furniture", () => {
   const recipeCard: Parameters<typeof portKeepOutRect>[0] = {
     id: "r",
     left: 1000,

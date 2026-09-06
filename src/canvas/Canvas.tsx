@@ -89,10 +89,8 @@ interface CanvasProps {
   layoutGeneration?: number;
   onNodesChange?: OnNodesChange<Node>;
   onEdgesChange?: OnEdgesChange<Edge>;
-  // Fired when a node drag ends, with the LIVE node list from the React Flow
-  // store (final positions, measured sizes). App re-seats the chips from it:
-  // the seating pass does not run during a drag, so the dropped geometry
-  // needs one pass to put every chip back on the rules the layout obeys.
+  // Fired when a node drag ends, with the live node list from the React Flow
+  // store; App re-seats the chips from it.
   onNodeDragStop?: (liveNodes: Node[]) => void;
 }
 
@@ -214,8 +212,7 @@ function CanvasInner({
   const i18n = useI18n();
   const [hovered, setHovered] = useState<Hovered>(null);
   const { fitView, fitBounds, setViewport, getNodes } = useReactFlow();
-  // The store holds the positions the drag ended at before App's node state
-  // has re-rendered with them, so read it here rather than the `nodes` prop.
+  // The store holds the dropped positions before the `nodes` prop does.
   const handleNodeDragStop = useCallback(() => {
     onNodeDragStop?.(getNodes());
   }, [onNodeDragStop, getNodes]);
@@ -573,7 +570,7 @@ function CanvasInner({
         edges={displayEdges}
         {...(onNodesChange ? { onNodesChange } : {})}
         {...(onEdgesChange ? { onEdgesChange } : {})}
-        {...(onNodeDragStop ? { onNodeDragStop: handleNodeDragStop } : {})}
+        onNodeDragStop={handleNodeDragStop}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeMouseEnter={handleNodeMouseEnter}

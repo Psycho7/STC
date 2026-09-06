@@ -142,15 +142,11 @@ describe("edge-span census: repro plan", () => {
 
     // The default arm proves the fixture exercises the toggle at all.
     expect(on.edges.some((e) => e.type === "bus")).toBe(true);
-    // The OFF arm drops only the LANE pass: no edge carries a laneY stamp, so
-    // nothing rides a band and no band can form.
+    // The OFF arm drops only the lane pass.
     expect(
       off.edges.some((e) => e.data !== undefined && "laneY" in e.data),
     ).toBe(false);
-    // Fan-out trunks still form OFF-mode (retyped bus, off-lane): the two
-    // classify disjoint span bands, so dropping routeBusEdges feeds
-    // routeFanoutEdges exactly the members it would have seen anyway, and the
-    // landing render keeps the shared junction columns.
+    // Fan-out trunks still form with lanes off.
     expect(
       off.edges.some(
         (e) => (e.data as { fanout?: boolean } | undefined)?.fanout === true,
