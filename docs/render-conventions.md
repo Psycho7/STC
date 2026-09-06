@@ -51,13 +51,16 @@ line and carry no gap.
 
 ## Bus lanes
 
-Bus lanes and the fan-out junction columns below sit behind the `aef.busLanes`
-setting, which is off by default. A plan opened in a browser that has never
-touched the topbar toggle draws neither: long edges stay individual strokes and
-same-source edges get no shared column. Six e2e specs and the render-exam
-capture switch the setting on before loading, so they measure the lanes-on
-layout. Everything else, a manual look at the deployed page included, is the
-lanes-off one. Both are correct renders of the same plan.
+Bus lanes sit behind the `aef.busLanes` setting, which is off by default. A
+plan opened in a browser that has never touched the topbar toggle draws no
+lanes and no BUS bands: long edges stay individual strokes. The fan-out
+junction columns described under "Fan-out and fan-in" are not part of the
+toggle: a junction column is not a lane (it carries no lane y and draws no
+band), so same-source edges one layer over still share their junction column
+in both modes. Six e2e specs and the geometry audit cover the setting
+explicitly; the render-exam capture still switches it on before loading, so
+the exam never sees the lanes-off render -- a known coverage gap. Both modes
+are correct renders of the same plan.
 
 Long edges route through shared horizontal lanes, drawn as faint tinted bands
 labelled BUS above and below the block of nodes. A member drops into its lane,

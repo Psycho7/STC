@@ -769,7 +769,14 @@ export function busBandRegions(
 // leave the SAME source port (same item, same source unit) into targets one
 // layer over. Runs AFTER routeBusEdges, on the still-"item" remainder (bus
 // members and demoted trunks are already retyped / bound, and none overlap a
-// fan-out by span). Each qualifying member is retyped `type: "bus"` and stamped
+// fan-out by span). That pass order is SCHEDULING, not a correctness
+// dependency: routeBusEdges claims spans above BUS_SPAN_THRESHOLD (which is
+// 2x FANOUT_SPAN_MAX) and this pass claims the (FANOUT_SPAN_MIN,
+// FANOUT_SPAN_MAX] band, so the two classify DISJOINT span ranges -- running
+// without routeBusEdges (the busLanesEnabled: false mode) feeds this pass
+// exactly the members it would have seen anyway, which is why that mode keeps
+// fan-out formations while dropping only the lanes. Each qualifying member is
+// retyped `type: "bus"` and stamped
 // { fanout, junctionX, trunkKey, busTotalRate, busMemberCount, busChipOwner } --
 // reusing the trunk aggregation scaffolding -- but carries NO laneY, so the lane
 // passes (clearBusColumns, the bus drop/rise chip phases) skip it and BusEdge
@@ -1275,7 +1282,10 @@ function occupiesGutterColumn(
 // Resolved input-port index of an edge at its target, or -1 when unknown. Only
 // recipe/loop nodes carry the ELK-resolved `inputOrder`; product targets have a
 // single port. Used to order a target's staggered entry columns top to bottom.
-export function inputPortIndex(target: RFAnyNode, item: string | undefined): number {
+export function inputPortIndex(
+  target: RFAnyNode,
+  item: string | undefined,
+): number {
   if (item === undefined) return -1;
   if (target.type !== "recipe" && target.type !== "loop") return -1;
   const order = target.data.inputOrder;
@@ -2117,7 +2127,10 @@ export function clearBusColumns(
       // Drop / rise column defaults: the shared bases (busDropBase /
       // busRiseBase, the latter keeping the staggered entryX when present).
       dropBase: busDropBase(sx),
-      riseBase: busRiseBase(tx, (edge.data as ItemEdgeData | undefined)?.entryX),
+      riseBase: busRiseBase(
+        tx,
+        (edge.data as ItemEdgeData | undefined)?.entryX,
+      ),
     });
   });
 
@@ -2292,9 +2305,7 @@ export function clearBusColumns(
   {
     const occupied = new Set<string>();
     for (const m of members)
-      occupied.add(
-        `${Math.round(riseNaturalByIndex.get(m.index)!)}|${m.band}`,
-      );
+      occupied.add(`${Math.round(riseNaturalByIndex.get(m.index)!)}|${m.band}`);
     for (const list of bucketBy(
       members,
       // band in the bucket key on purpose: same cross-band scope cut as drops.
@@ -2334,7 +2345,8 @@ export function clearBusColumns(
   const riseXByIndex = new Map<number, number>();
   for (const m of members) {
     const dropX =
-      dropNaturalByTrunk.get(m.trunkKey)! + (dropOffsetByTrunk.get(m.trunkKey) ?? 0);
+      dropNaturalByTrunk.get(m.trunkKey)! +
+      (dropOffsetByTrunk.get(m.trunkKey) ?? 0);
     if (dropX !== m.dropBase || dropCollidingTrunks.has(m.trunkKey))
       dropXByIndex.set(m.index, dropX);
     const riseX =
@@ -2789,4 +2801,3 @@ export function jogForwardLegs(
     };
   });
 }
-
