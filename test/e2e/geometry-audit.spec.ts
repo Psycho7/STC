@@ -97,23 +97,30 @@ const FIXED_IDS = new Set(SCENARIOS.map((s) => s.id));
 type LaneMode = "on" | "off";
 const LANE_MODES: readonly LaneMode[] = ["on", "off"];
 
-// NOTE on the two mode sub-tables every baseline below now carries: they are
+// NOTE on the two mode sub-tables every baseline below carries: they are
 // INDEPENDENT measurements of two different renders, not one measurement and a
-// derived variant. The off render routes a different edge set (no lane stamps,
-// and before the off-fan-out fix no fan-out stamps either), seats its chips
-// against a different obstacle field, and lands at a different fit zoom, so an
-// off cell is never justified by its on sibling -- neither inherited from it
-// nor ratcheted against it. Each off cell states its own measured actual, and
-// the standing convention (down freely, up only on a recorded ruling) applies
-// within a mode, never across the two.
-// The off arm is seeded at zero while the first measurement is pending: a zero
-// seed FAILS against any nonzero actual rather than silently passing, so the
-// write-then-compare measurement pass can read the actuals straight out of the
-// failure messages. Derived from the on arm's KEY SET, not its values, so every
-// fixed-corpus scenario stays keyed in both arms by construction.
-function zeroedOffArm(on: Record<string, number>): Record<string, number> {
-  return Object.fromEntries(Object.keys(on).map((k) => [k, 0]));
-}
+// derived variant. The off render routes a different edge set (no lane stamps),
+// seats its chips against a different obstacle field, and lands at a different
+// fit zoom, so an off cell is never justified by its on sibling -- neither
+// inherited from it nor ratcheted against it. Each off cell states its own
+// measured actual, and the standing convention (down freely, up only on a
+// recorded ruling) applies within a mode, never across the two.
+// The off arms were measured by the two-pass campaign that added them: Pass A
+// read the pre-change OFF render (fan-out pass still dropped) against zero
+// seeds, Pass B re-read the OFF render with the fan-out pass restored
+// ("Keep fan-out trunks formed with bus lanes off"), and the Pass B actuals
+// are the pins below. A->B every cell fell or held except CROSSING default
+// 2 -> 4, which ROSE with the ratified fan-out restoration itself (that
+// campaign's controller ruling 1): the copper and water junction columns
+// replace the plain step columns, and the count lands at exactly the on-mode
+// figure (4, every crossing between the two fan-out families). The rise is
+// recorded here as the ruling's arithmetic, not an independent regression.
+// Structural off facts the pins encode: no bands are drawn, so OUTSIDE_BAND
+// is a hard zero and SKIPPED_BAND_INVENTORY equals the fan-out (bus-typed)
+// chip count, which matches the on arm cell for cell because fan-out
+// membership is mode-independent (the lane and fan-out classifiers read
+// disjoint span bands). multi6's standing RAW pierce (e:97 into q:56) is the
+// off render's only hard-gate red -- the same failset the on render carries.
 
 // A baseline read that tolerates a scenario the table does not pin. Returns null
 // and records why, so the caller can leave that one ratchet unasserted while the
@@ -635,7 +642,23 @@ const CROSSING_BASELINE_ON: Record<string, number> = {
 };
 const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CROSSING_BASELINE_ON,
-  off: zeroedOffArm(CROSSING_BASELINE_ON),
+  // Pass B measurement (fan-out restored). The ONE cell that rose over its
+  // Pass A reading: default 2 -> 4, the ratified fan-out restoration's own
+  // arithmetic -- see the mode NOTE above.
+  off: {
+    default: 4,
+    battery5: 10,
+    "battery5-xiranite": 24,
+    crystal: 1,
+    equip4: 1,
+    multi6: 139,
+    tundra: 0,
+    script43: 34,
+    "coupon-web": 14,
+    "gas-web": 38,
+    "rot-bottled_food_3": 5,
+    "rot-bottled_food_4": 6,
+  },
 };
 
 // Padding-graze baseline (tier 3): segments that clip only a foreign card's
@@ -692,7 +715,20 @@ const PADDED_GRAZE_BASELINE_ON: Record<string, number> = {
 };
 const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: PADDED_GRAZE_BASELINE_ON,
-  off: zeroedOffArm(PADDED_GRAZE_BASELINE_ON),
+  off: {
+    default: 0,
+    battery5: 1,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 2,
+    "coupon-web": 2,
+    "gas-web": 1,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
+  },
 };
 
 // P3 chip-tier ratchets. Chip seating follows the ratified priority order:
@@ -786,7 +822,25 @@ const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
 };
 const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_SEGMENT_BASELINE_ON,
-  off: zeroedOffArm(CHIP_SEGMENT_BASELINE_ON),
+  // Pass B: fan-out branch chips seat on their own legs, so the OFF counts
+  // read at or under their Pass A actuals everywhere (script43 4 -> 3,
+  // gas-web 5 -> 4, the rest unchanged); the surviving pairs are the same
+  // full-height tap/surplus columns passing under label chips the on arm
+  // records on these plans.
+  off: {
+    default: 0,
+    battery5: 2,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 1,
+    multi6: 0,
+    tundra: 0,
+    script43: 3,
+    "coupon-web": 4,
+    "gas-web": 4,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 1,
+  },
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
 // candidates all overlap a card, so card-hardness pushes its seat off the line.
@@ -849,7 +903,23 @@ const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
 };
 const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_OFFPATH_BASELINE_ON,
-  off: zeroedOffArm(CHIP_OFFPATH_BASELINE_ON),
+  // Pass B: zero everywhere. The OFF-mode defect this campaign opened on --
+  // the default plan's 30/min chip nudged 48 units off its line (Pass A read
+  // exactly that one seat) -- left with the fan-out restoration.
+  off: {
+    default: 0,
+    battery5: 0,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
+  },
 };
 
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
@@ -893,7 +963,20 @@ const OWN_PIERCE_BASELINE_ON: Record<string, number> = {
 };
 const OWN_PIERCE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: OWN_PIERCE_BASELINE_ON,
-  off: zeroedOffArm(OWN_PIERCE_BASELINE_ON),
+  off: {
+    default: 0,
+    battery5: 0,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
+  },
 };
 
 // Frame-ride ratchet (Task 7, loop-backedge-braids-container family): edge
@@ -946,7 +1029,23 @@ const FRAME_RIDE_BASELINE_ON: Record<string, number> = {
 };
 const FRAME_RIDE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FRAME_RIDE_BASELINE_ON,
-  off: zeroedOffArm(FRAME_RIDE_BASELINE_ON),
+  // Structural zero OFF: bus bands never draw, so the band-border half of the
+  // counter has nothing to ride, and the OFF render holds the slab-border half
+  // at zero (as Pass A already read).
+  off: {
+    default: 0,
+    battery5: 0,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
+  },
 };
 
 // Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
@@ -1038,7 +1137,24 @@ const DOT_COVER_BASELINE_ON: Record<string, number> = {
 };
 const DOT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: DOT_COVER_BASELINE_ON,
-  off: zeroedOffArm(DOT_COVER_BASELINE_ON),
+  // Pass B: fan-out split dots return to the OFF render (Pass A's dots were
+  // fan-in/divergence only) and every branch chip seats clear of them; the
+  // one survivor is battery5's fan-in owner chip, the same seat the on arm
+  // pins (e:18, ruling R13's trade).
+  off: {
+    default: 0,
+    battery5: 1,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
+  },
 };
 
 // Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
@@ -1092,11 +1208,25 @@ const ENDPOINT_PARITY_TOL_ON: Record<string, number> = {
   "rot-bottled_food_3": 0.5,
   "rot-bottled_food_4": 0.5,
 };
-// The off arm is a TOLERANCE table, so the zero seed is a placeholder that
-// will fail on first measurement until it takes the same measured flat pin.
+// The off arm takes the same measured flat 0.5 pin: Pass B's worst OFF parity
+// read 0.007 (multi6, 224 endpoints), the same double-precision residue class
+// the on arm's comment records.
 const ENDPOINT_PARITY_TOL: Record<LaneMode, Record<string, number>> = {
   on: ENDPOINT_PARITY_TOL_ON,
-  off: zeroedOffArm(ENDPOINT_PARITY_TOL_ON),
+  off: {
+    default: 0.5,
+    battery5: 0.5,
+    "battery5-xiranite": 0.5,
+    crystal: 0.5,
+    equip4: 0.5,
+    multi6: 0.5,
+    tundra: 0.5,
+    script43: 0.5,
+    "coupon-web": 0.5,
+    "gas-web": 0.5,
+    "rot-bottled_food_3": 0.5,
+    "rot-bottled_food_4": 0.5,
+  },
 };
 
 async function loadScenario(page: Page, hash: string): Promise<void> {
@@ -1695,7 +1825,23 @@ const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
 };
 const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: SEAT_VALIDITY_BASELINE_ON,
-  off: zeroedOffArm(SEAT_VALIDITY_BASELINE_ON),
+  // Pass B: the OFF defect seat (default's nudged 30/min chip) left with the
+  // fan-out restoration; the residue is battery5-xiranite's two off-line
+  // seats, the same plan that dominates the on arm.
+  off: {
+    default: 0,
+    battery5: 0,
+    "battery5-xiranite": 2,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
+  },
 };
 
 // Card intrusion: chips whose box reaches more than CARD_INTRUSION_BUDGET deep
@@ -1829,7 +1975,20 @@ const CARD_INTRUSION_BASELINE_ON: Record<string, number> = {
 };
 const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CARD_INTRUSION_BASELINE_ON,
-  off: zeroedOffArm(CARD_INTRUSION_BASELINE_ON),
+  off: {
+    default: 5,
+    battery5: 4,
+    "battery5-xiranite": 8,
+    crystal: 2,
+    equip4: 4,
+    multi6: 22,
+    tundra: 1,
+    script43: 10,
+    "coupon-web": 8,
+    "gas-web": 7,
+    "rot-bottled_food_3": 3,
+    "rot-bottled_food_4": 5,
+  },
 };
 
 // Foreign strokes: chips with at least one foreign flow's stroke through the
@@ -1896,7 +2055,20 @@ const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
 };
 const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FOREIGN_STROKE_BASELINE_ON,
-  off: zeroedOffArm(FOREIGN_STROKE_BASELINE_ON),
+  off: {
+    default: 1,
+    battery5: 2,
+    "battery5-xiranite": 3,
+    crystal: 0,
+    equip4: 1,
+    multi6: 16,
+    tundra: 0,
+    script43: 3,
+    "coupon-web": 2,
+    "gas-web": 3,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 1,
+  },
 };
 
 // Outside band: bus chips whose box shares no vertical extent with the band its
@@ -1968,7 +2140,22 @@ const OUTSIDE_BAND_BASELINE_ON: Record<string, number> = {
 };
 const OUTSIDE_BAND_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: OUTSIDE_BAND_BASELINE_ON,
-  off: zeroedOffArm(OUTSIDE_BAND_BASELINE_ON),
+  // Structural zero OFF: no bands are drawn, so every bus chip is band-unbound
+  // and lands in SKIPPED_BAND_INVENTORY instead -- there is no band to escape.
+  off: {
+    default: 0,
+    battery5: 0,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
+  },
 };
 
 // BAND-UNBOUND INVENTORY (#58). Bus chips the outside-band counter SKIPS
@@ -2004,7 +2191,25 @@ const SKIPPED_BAND_INVENTORY_ON: Record<string, number> = {
 };
 const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
   on: SKIPPED_BAND_INVENTORY_ON,
-  off: zeroedOffArm(SKIPPED_BAND_INVENTORY_ON),
+  // Pass B: OFF's bus chips are exactly the fan-out branch/aggregate chips
+  // (no lanes exist to bind a band), and the counts match the on arm cell for
+  // cell because fan-out membership is mode-independent -- the classifiers
+  // read disjoint span bands, so dropping the lane pass changes neither which
+  // edges form fan-outs nor how many chips they draw.
+  off: {
+    default: 4,
+    battery5: 2,
+    "battery5-xiranite": 2,
+    crystal: 2,
+    equip4: 2,
+    multi6: 13,
+    tundra: 0,
+    script43: 3,
+    "coupon-web": 0,
+    "gas-web": 3,
+    "rot-bottled_food_3": 4,
+    "rot-bottled_food_4": 0,
+  },
 };
 
 // TIER-1 SLIDE DRIFT, re-measured after the per-chip reserved seat box
@@ -2113,7 +2318,15 @@ const CENSUS_TOTALS: Record<
     foreignStroke: 40,
     outsideBand: 0,
   },
-  off: { seatValidity: 0, cardIntrusion: 0, foreignStroke: 0, outsideBand: 0 },
+  off: {
+    // Pass B sums: seatValidity 2 (battery5-xiranite's two off-line seats),
+    // cardIntrusion 79, foreignStroke 32. Measured with the per-scenario off
+    // tables in the same run.
+    seatValidity: 2,
+    cardIntrusion: 79,
+    foreignStroke: 32,
+    outsideBand: 0,
+  },
 };
 
 function censusInventory(hits: ReadonlyArray<ChipCensusHit>): string {
