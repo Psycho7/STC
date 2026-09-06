@@ -29,6 +29,8 @@ import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import {
+  inputProductNode,
+  mkEdge,
   productNode,
   recipeNode,
   orderedRecipeNode,
@@ -694,5 +696,90 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     const cx =
       (geom.branchAnchor.x as number) + ((data.fanoutBranchDx as number) ?? 0);
     expect(cx).toBeGreaterThanOrEqual(geom.junction.x);
+  });
+});
+
+// Two taps feeding adjacent input rows of one recipe across a 119-unit
+// corridor (the default plan's ore + water pair into the refinery). The first
+// chip takes the corridor's one band-clear seat at max scale; the second has
+// no max-scale seat left on its line (its box laps the first from every
+// band-clear point) but its scale-1 box clears, so it seats on its line at a
+// cap of 1 rather than escaping past the card.
+describe("deconflictChipAnchors: adjacent-row pair shrinks onto its line", () => {
+  it("caps the second chip at 1 and keeps it on its own line", () => {
+    const recipe = mkRecipe("r", ["ore", "water"], ["out"]);
+    const nodes: RFAnyNode[] = [
+      recipeNode("r", 560, 29, recipe),
+      inputProductNode("tapOre", "ore", 286, 19),
+      inputProductNode("tapWater", "water", 286, 127),
+    ];
+    const edges: Edge[] = [
+      mkEdge("e:1:tapOre->r:ore", "tapOre", "r", "ore"),
+      mkEdge("e:2:tapWater->r:water", "tapWater", "r", "water"),
+    ];
+    // The bend columns the bus router assigns the pair on the default plan:
+    // the ore chip lands on its upper run at the corridor's one band-clear x,
+    // and the water leg bends past it, so the water anchor sits on a vertical
+    // run inside the target band's x-range.
+    Object.assign(edges[0]!.data!, { bendX: 486.67, chamferBudget: 5.17 });
+    Object.assign(edges[1]!.data!, { bendX: 517.67, chamferBudget: 5.17 });
+    const out = deconflictChipAnchors(nodes, edges);
+    // Distance from a point to the nearest point of a polyline.
+    const distToPolyline = (
+      px: number,
+      py: number,
+      pts: ReadonlyArray<readonly [number, number]>,
+    ): number => {
+      let best = Infinity;
+      for (let i = 1; i < pts.length; i++) {
+        const [ax, ay] = pts[i - 1]!;
+        const [bx, by] = pts[i]!;
+        const dx = bx - ax;
+        const dy = by - ay;
+        const len2 = dx * dx + dy * dy;
+        const t =
+          len2 === 0
+            ? 0
+            : Math.max(
+                0,
+                Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2),
+              );
+        best = Math.min(
+          best,
+          Math.hypot(px - (ax + t * dx), py - (ay + t * dy)),
+        );
+      }
+      return best;
+    };
+    for (const e of edges) {
+      const data = out.find((o) => o.id === e.id)?.data as {
+        labelDx?: number;
+        labelDy?: number;
+        chipScaleCap?: number;
+      };
+      const tap = nodes.find((n) => n.id === e.source)!;
+      const [d, lx, ly] = chamferStepPath({
+        sourceX: tap.position.x + 148 + PRODUCT_DX,
+        sourceY: tap.position.y + 39,
+        targetX: 560 - 3,
+        targetY:
+          29 +
+          portOffsetY(nodes[0]!, (e.data as { item: string }).item, "in") +
+          1,
+        ...routingHintsFromData(e.data),
+      });
+      // Both chips sit ON their own polylines: no nudge, no escape.
+      expect(
+        distToPolyline(
+          lx + (data.labelDx ?? 0),
+          ly + (data.labelDy ?? 0),
+          parsePathPoints(d),
+        ),
+      ).toBeLessThan(0.01);
+    }
+    const water = out.find((o) => o.id === edges[1]!.id)?.data as {
+      chipScaleCap?: number;
+    };
+    expect(water.chipScaleCap).toBe(1);
   });
 });

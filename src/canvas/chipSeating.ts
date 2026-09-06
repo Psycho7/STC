@@ -1363,6 +1363,21 @@ export type RateSeat = {
   dy: number;
   tier: RateSeatTier;
   box: ChipBox;
+  // The seat was found on the second on-line pass, with the reserve shrunk
+  // to the scale-1 box; the caller stamps a scale cap of 1 so the render
+  // draws exactly what was reserved.
+  shrunk: boolean;
+};
+
+// One pass of the tier ladder at a fixed reserve. "online" runs the on-line
+// tiers (anchor / slide / sidestep / graze) and returns null when none seats;
+// "offline" skips them and runs the nudge and escape cascades, which always
+// return a seat.
+type SeatPass = {
+  halfW: number;
+  halfH: number;
+  shrunk: boolean;
+  phase: "online" | "offline";
 };
 
 // Seat an item rate chip: the tiered seat the item phase (and 3b's fan-out
@@ -1389,7 +1404,90 @@ export type RateSeat = {
 // bidirectionally against CHIPS AND CARDS only, nearest escape first (ties
 // prefer down). The seat is pushed into the field; the returned offsets are
 // relative to the anchor.
+//
+// The ladder runs the on-line tiers TWICE before it leaves the line: first at
+// the full reserve (the widest box the chip may draw at MAX_CHIP_SCALE, capped
+// at its clear window), then, when nothing on the line takes that box, at the
+// scale-1 box -- the natural text width and CHIP_BOX_HEIGHT tall. A seat found
+// on the second pass is stamped with a scale cap of 1 so the render draws the
+// box that was reserved. The case this serves is two chips sharing a corridor
+// whose full boxes cannot coexist (adjacent input rows of one card, a merged
+// fan-in run already carrying a chip): at full scale the second chip has no
+// on-line seat and the off-line cascade walks it past its own card, because
+// the port band is card-height and the anchor's x lies inside it; at scale 1
+// both fit on their lines. The placement ruling names the capped size as the
+// answer to a corridor too tight for the full box, so the shrink comes before
+// any off-line seat. The off-line tiers keep the full reserve.
 export function seatRateChip(
+  field: ClearanceField,
+  path: {
+    pts: ReadonlyArray<readonly [number, number]>;
+    anchorX: number;
+    anchorY: number;
+  },
+  flowKey: string,
+  target: string,
+  exempt: CardExemption,
+  entryBand: EntryBand,
+  opts?: {
+    ownIds?: ReadonlySet<string> | undefined;
+    barrierYs?: ReadonlyArray<number> | undefined;
+    iconOnly?: boolean | undefined;
+    text?: ChipText | undefined;
+    usableWidth?: number | undefined;
+    spanCentreX?: number | undefined;
+  },
+): RateSeat {
+  // The window caps the reserve, but never below the scale-1 box: the render's
+  // counter-scale cap floors at 1, so a chip whose window is narrower than its
+  // natural box still DRAWS that box, and a reserve smaller than it would pass
+  // the band keep-out at a seat the painted box then covers.
+  const maxHalfW = chipSeatHalfW(opts?.text, opts?.iconOnly === true);
+  const naturalHalfW = maxHalfW / MAX_CHIP_SCALE;
+  const naturalHalfH = CHIP_BOX_HEIGHT / 2;
+  const fullHalfW = Math.max(
+    naturalHalfW,
+    Math.min(
+      maxHalfW,
+      opts?.usableWidth !== undefined ? opts.usableWidth / 2 : Infinity,
+    ),
+  );
+  const run = (pass: SeatPass): RateSeat | null =>
+    seatRateChipPass(
+      field,
+      path,
+      flowKey,
+      target,
+      exempt,
+      entryBand,
+      opts,
+      pass,
+    );
+  const full = run({
+    halfW: fullHalfW,
+    halfH: CHIP_HALF_H,
+    shrunk: false,
+    phase: "online",
+  });
+  if (full !== null) return full;
+  if (naturalHalfW < fullHalfW || naturalHalfH < CHIP_HALF_H) {
+    const shrunk = run({
+      halfW: naturalHalfW,
+      halfH: naturalHalfH,
+      shrunk: true,
+      phase: "online",
+    });
+    if (shrunk !== null) return shrunk;
+  }
+  return run({
+    halfW: fullHalfW,
+    halfH: CHIP_HALF_H,
+    shrunk: false,
+    phase: "offline",
+  })!;
+}
+
+function seatRateChipPass(
   field: ClearanceField,
   path: {
     pts: ReadonlyArray<readonly [number, number]>;
@@ -1443,30 +1541,23 @@ export function seatRateChip(
   //              narrow corridor the grid steps over the one stretch the box
   //              fits in, and this is the placement goal's own preferred point
   //              (the middle of the longest straight run).
-  opts?: {
-    ownIds?: ReadonlySet<string> | undefined;
-    barrierYs?: ReadonlyArray<number> | undefined;
-    iconOnly?: boolean | undefined;
-    text?: ChipText | undefined;
-    usableWidth?: number | undefined;
-    spanCentreX?: number | undefined;
-  },
-): RateSeat {
+  opts:
+    | {
+        ownIds?: ReadonlySet<string> | undefined;
+        barrierYs?: ReadonlyArray<number> | undefined;
+        iconOnly?: boolean | undefined;
+        text?: ChipText | undefined;
+        usableWidth?: number | undefined;
+        spanCentreX?: number | undefined;
+      }
+    | undefined,
+  pass: SeatPass,
+): RateSeat | null {
   const { pts, anchorX, anchorY } = path;
   const ownIds = opts?.ownIds;
   const barrierYs = opts?.barrierYs;
-  // The window caps the reserve, but never below the scale-1 box: the render's
-  // counter-scale cap floors at 1, so a chip whose window is narrower than its
-  // natural box still DRAWS that box, and a reserve smaller than it would pass
-  // the band keep-out at a seat the painted box then covers.
-  const maxHalfW = chipSeatHalfW(opts?.text, opts?.iconOnly === true);
-  const halfW = Math.max(
-    maxHalfW / MAX_CHIP_SCALE,
-    Math.min(
-      maxHalfW,
-      opts?.usableWidth !== undefined ? opts.usableWidth / 2 : Infinity,
-    ),
-  );
+  const { halfW, halfH, shrunk } = pass;
+  const online = pass.phase === "online";
   // A slide candidate crosses a barrier when it and the anchor sit on OPPOSITE
   // sides of a seated sibling (their signed offsets from it differ), i.e. the
   // slide would jump past the sibling and invert the stack. Same-side and
@@ -1492,7 +1583,7 @@ export function seatRateChip(
     x: px,
     y: py,
     halfW,
-    halfH: CHIP_HALF_H,
+    halfH,
   });
   // A candidate is clear when it clears every placed chip box, every foreign
   // flow line (arrival cluster narrowed to the entry band), every foreign
@@ -1510,7 +1601,7 @@ export function seatRateChip(
   };
   const seat = (px: number, py: number, tier: RateSeatTier): RateSeat => {
     const box = field.seat(boxAt(px, py));
-    return { dx: px - anchorX, dy: py - anchorY, tier, box };
+    return { dx: px - anchorX, dy: py - anchorY, tier, box, shrunk };
   };
   const hardClearAt = (px: number, py: number): boolean => {
     const box = boxAt(px, py);
@@ -1626,7 +1717,7 @@ export function seatRateChip(
     return null;
   };
   const onLine: Array<readonly [number, number]> = [];
-  for (let k = 0; k <= SLIDE_MAX_STEPS; k++) {
+  for (let k = 0; online && k <= SLIDE_MAX_STEPS; k++) {
     const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
     for (const delta of deltas) {
       const len = anchorLen + delta;
@@ -1732,7 +1823,7 @@ export function seatRateChip(
   // it today.
   const sidestepMax = Math.min(SIDESTEP_MAX, halfW) / 2;
   const sidestepXs: number[] = [];
-  for (let step = 1; ; step++) {
+  for (let step = 1; online; step++) {
     const off = Math.min(step * SIDESTEP_PITCH, sidestepMax);
     sidestepXs.push(anchorX + off, anchorX - off);
     if (off >= sidestepMax) break;
@@ -1842,6 +1933,9 @@ export function seatRateChip(
     if (stepped !== null) return seat(stepped.px, anchorY, "sidestep");
   }
   if (bestGraze !== null) return seat(bestGraze.px, bestGraze.py, "graze");
+  // The on-line pass ends here; the driver decides whether to retry the line
+  // at the scale-1 box before any seat leaves it.
+  if (online) return null;
   // The whole own line is chip- or card-blocked. Escapes off the line follow
   // the ratified priority order: chip/chip and chip/card clearance are HARD,
   // staying on the line and clearing foreign lines are preferences that yield.
@@ -2128,6 +2222,9 @@ export function deconflictChipAnchors(
   // and fan-out branch legs; lane seats measure nothing (a lane run is the
   // lane's, not a corridor).
   const usableWidthByIndex = new Map<number, number>();
+  // Chips seated on the shrink pass (seatRateChip's second on-line pass, at
+  // the scale-1 box): their scale cap is 1 whatever their window measured.
+  const shrunkByIndex = new Set<number>();
   // The centre of each chip's LONGEST CLEAR RUN (largestClearSpan), handed to
   // the seat as a preferred candidate (#82's placement goal: the middle of the
   // longest straight run). Keyed beside usableWidthByIndex, same membership.
@@ -3244,6 +3341,7 @@ export function deconflictChipAnchors(
     const seatedYs = seatedBranchYByTrunk.get(trunkKey) ?? [];
     seatedYs.push(seat.box.y);
     seatedBranchYByTrunk.set(trunkKey, seatedYs);
+    if (seat.shrunk) shrunkByIndex.add(index);
     if (seat.dx !== 0) fanoutBranchDxByIndex.set(index, seat.dx);
     if (seat.dy !== 0) fanoutBranchDyByIndex.set(index, seat.dy);
   }
@@ -3314,6 +3412,7 @@ export function deconflictChipAnchors(
         continue;
       }
     }
+    if (seat.shrunk) shrunkByIndex.add(index);
     if (seat.dx !== 0) labelDxByIndex.set(index, seat.dx);
     if (seat.dy !== 0) labelDyByIndex.set(index, seat.dy);
   }
@@ -3377,7 +3476,8 @@ export function deconflictChipAnchors(
     // chip reads absent and the render's default cap applies.
     {
       const usable = usableWidthByIndex.get(index);
-      if (usable !== undefined) {
+      const shrunk = shrunkByIndex.has(index);
+      if (usable !== undefined || shrunk) {
         const collapsed =
           shortLegByIndex.has(index) || branchIconOnlyByIndex.has(index);
         const natural = collapsed
@@ -3385,7 +3485,11 @@ export function deconflictChipAnchors(
           : chipNaturalWidth(
               edge.type === "item" ? rateChipText(edge) : branchChipText(edge),
             );
-        const cap = Math.min(MAX_CHIP_SCALE, Math.max(1, usable / natural));
+        // A shrink-pass seat reserved exactly the scale-1 box, so it draws at
+        // 1; otherwise the window sets the cap.
+        const cap = shrunk
+          ? 1
+          : Math.min(MAX_CHIP_SCALE, Math.max(1, (usable ?? 0) / natural));
         if (cap < MAX_CHIP_SCALE) {
           if (fanoutGeomByIndex.has(index)) patch.fanoutBranchScaleCap = cap;
           else patch.chipScaleCap = cap;

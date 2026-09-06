@@ -147,8 +147,50 @@ even the icon square escapes; covering the port and hiding the chip were
 both declined. The short-leg suite pins the 36-gap chain as that regime. The
 chain fixture's own purpose (the collapsed reserve, not the wide one) does
 not depend on it. render-conventions.md said a capped chip keeps its digits
-at every reading zoom; that was wrong, and the sentence now describes the
-raised icon-only gate.
+at every reading zoom; at the time the render gated capped chips at a higher
+zoom, and the sentence was corrected. The gate ruling below then made the
+sentence true again.
+
+### Shrink pass and the gate ruling (2026-09-06, post-merge-review)
+
+The port-clear render still floated two default-plan chips far off their
+lines: the 30/min water chip 192 units above its leg and the 30/min sewage
+chip 240 units above its own. Traced headlessly, both had the same cause. Each
+chip's full-scale box had no seat on its line beside a neighbouring chip (the
+ore chip one row up in a 107-unit window; the 240/min chip on the merged
+fan-in run), and the off-line tiers then walked vertically at the anchor's x,
+which sits inside the own-port band. The band is card-height, so the walk only
+cleared above the card top.
+
+The fix is a second on-line pass: when the full reserve finds no seat on the
+line, the ladder retries the on-line tiers with the scale-1 box (natural text
+width, CHIP_BOX_HEIGHT tall) before any off-line tier, and a seat found there
+is stamped with a scale cap of 1. Both chips seat on their lines. The
+short-leg suite pins the pair, the seat suite pins the retry, and the DEV
+tripwire fixture's walls now close under the scale-1 half-height.
+
+Ruling on the icon-only gate: a capped chip keeps its digits down to the same
+zoom as every other chip (fixed 0.32), drawing them smaller; the gate no
+longer reads the cap. The render test pins a cap-1 chip at zoom 0.5 with its
+digits on.
+
+Re-measured wholesale, zero-seeded, both modes:
+
+| table          | on-mode  | off-mode |
+| -------------- | -------- | -------- |
+| CHIP_OFFPATH   | 35 -> 5  | 38 -> 8  |
+| SEAT_VALIDITY  | 36 -> 3  | 35 -> 1  |
+| CHIP_SEGMENT   | 46 -> 58 | 42 -> 43 |
+| FOREIGN_STROKE | 59 -> 54 | 49 -> 45 |
+| CHIP_COLLAPSE  | 48 -> 43 | 48 -> 43 |
+
+PORT_COVER and CARD_INTRUSION stay at zero; DOT_COVER is unchanged. The UP
+moves are CHIP_SEGMENT (battery5-xiranite 10 -> 18 and 8 -> 14, gas-web
+7 -> 12, equip4 0 -> 1, script43 11 -> 12) and one FOREIGN_STROKE cell (multi6
+19 -> 20): the returned chips seat by the graze tier, and their text boxes lie
+over foreign strokes their escape seats had left. PENDING RATIFICATION as
+ruling R16, one trade: those rises against the off-path and seat-validity
+falls. The alternative, hiding the returned chips, overturns R5.
 
 ### Deviations from the plan text
 

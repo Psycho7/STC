@@ -805,19 +805,25 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // did. default 0 -> 1, battery5 3 -> 5, battery5-xiranite 0 -> 10, crystal
 // 0 -> 1, script43 5 -> 11, coupon-web 4 -> 5, rot-bottled_food_4 2 -> 6;
 // equip4 1 -> 0 and gas-web 8 -> 7 fell.
+// Shrink pass (R16, PENDING RATIFICATION): 46 -> 58, an UP move. The chips
+// the pass returns to their lines seat there by the graze tier, and their
+// text boxes (kept at the fixed 0.32 gate) now lie over the foreign strokes
+// their escape seats had left: battery5-xiranite 10 -> 18, equip4 0 -> 1,
+// script43 11 -> 12, gas-web 7 -> 12; battery5 5 -> 4 and rot-bottled_food_4
+// 6 -> 4 fell. Bought: CHIP_OFFPATH 35 -> 5 and SEAT_VALIDITY 36 -> 3.
 const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
   default: 1,
-  battery5: 5,
-  "battery5-xiranite": 10,
+  battery5: 4,
+  "battery5-xiranite": 18,
   crystal: 1,
-  equip4: 0,
+  equip4: 1,
   multi6: 0,
   tundra: 0,
-  script43: 11,
+  script43: 12,
   "coupon-web": 5,
-  "gas-web": 7,
+  "gas-web": 12,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 6,
+  "rot-bottled_food_4": 4,
 };
 const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_SEGMENT_BASELINE_ON,
@@ -830,19 +836,22 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   // battery5 2 -> 4, battery5-xiranite 0 -> 8, crystal 0 -> 1, script43
   // 3 -> 11, coupon-web 4 -> 5, gas-web 4 -> 9, rot-bottled_food_4 1 -> 3;
   // equip4 1 -> 0 fell.
+  // Shrink pass (R16, PENDING RATIFICATION): 42 -> 43. battery5-xiranite
+  // 8 -> 14, equip4 0 -> 1; script43 11 -> 10, gas-web 9 -> 5,
+  // rot-bottled_food_4 3 -> 2 fell.
   off: {
     default: 1,
     battery5: 4,
-    "battery5-xiranite": 8,
+    "battery5-xiranite": 14,
     crystal: 1,
-    equip4: 0,
+    equip4: 1,
     multi6: 0,
     tundra: 0,
-    script43: 11,
+    script43: 10,
     "coupon-web": 5,
-    "gas-web": 9,
+    "gas-web": 5,
     "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 3,
+    "rot-bottled_food_4": 2,
   },
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
@@ -895,19 +904,26 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
 // tundra 0 -> 1, script43 0 -> 6, coupon-web 0 -> 4, gas-web 0 -> 4,
 // rot-bottled_food_4 0 -> 5. Bought: PORT_COVER 124 -> 0 and CARD_INTRUSION
 // 77 -> 0 on this arm.
+// SHRINK PASS (R16, 2026-09-06, PENDING RATIFICATION as one trade with the CHIP_SEGMENT and multi6 FOREIGN_STROKE rises): a chip whose full box has no on-line seat retries
+// its line at the scale-1 box before any off-line tier, and the fixed 0.32
+// icon-only gate keeps its digits. 35 -> 5: default 2 -> 0, battery5 4 -> 0,
+// battery5-xiranite 7 -> 2, crystal 1 -> 0, equip4 1 -> 0, tundra 1 -> 0,
+// script43 6 -> 1, coupon-web 4 -> 0, gas-web 4 -> 0, rot-bottled_food_4
+// 5 -> 2. The default plan's two escapes (the 30/min water and sewage chips,
+// 192 and 240 units above their lines) are the case this pass was built on.
 const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
-  default: 2,
-  battery5: 4,
-  "battery5-xiranite": 7,
-  crystal: 1,
-  equip4: 1,
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 2,
+  crystal: 0,
+  equip4: 0,
   multi6: 0,
-  tundra: 1,
-  script43: 6,
-  "coupon-web": 4,
-  "gas-web": 4,
+  tundra: 0,
+  script43: 1,
+  "coupon-web": 0,
+  "gas-web": 0,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 5,
+  "rot-bottled_food_4": 2,
 };
 const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_OFFPATH_BASELINE_ON,
@@ -920,19 +936,23 @@ const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
   // 0 -> 8, crystal 0 -> 1, equip4 0 -> 1, tundra 0 -> 1, script43 0 -> 6,
   // coupon-web 0 -> 4, gas-web 0 -> 5, rot-bottled_food_4 0 -> 4. Bought:
   // PORT_COVER 126 -> 0 and CARD_INTRUSION 79 -> 0 on this arm.
+  // Shrink pass (R16): 38 -> 8. default 2 -> 0, battery5 6 -> 2,
+  // battery5-xiranite 8 -> 4, crystal 1 -> 0, equip4 1 -> 0, tundra 1 -> 0,
+  // script43 6 -> 1, coupon-web 4 -> 0, gas-web 5 -> 1, rot-bottled_food_4
+  // 4 -> 0.
   off: {
-    default: 2,
-    battery5: 6,
-    "battery5-xiranite": 8,
-    crystal: 1,
-    equip4: 1,
+    default: 0,
+    battery5: 2,
+    "battery5-xiranite": 4,
+    crystal: 0,
+    equip4: 0,
     multi6: 0,
-    tundra: 1,
-    script43: 6,
-    "coupon-web": 4,
-    "gas-web": 5,
+    tundra: 0,
+    script43: 1,
+    "coupon-web": 0,
+    "gas-web": 1,
     "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 4,
+    "rot-bottled_food_4": 0,
   },
 };
 
@@ -1810,19 +1830,23 @@ async function loadCensusScenario(page: Page, hash: string): Promise<void> {
 // battery5 0 -> 4, battery5-xiranite 4 -> 7, crystal 0 -> 1, equip4 0 -> 1,
 // multi6 0 -> 4, tundra 0 -> 1, script43 1 -> 5, coupon-web 0 -> 3, gas-web
 // 0 -> 4, rot-bottled_food_4 0 -> 4.
+// Shrink pass (R16): 36 -> 3. default 2 -> 0, battery5 4 -> 0,
+// battery5-xiranite 7 -> 2, crystal 1 -> 0, equip4 1 -> 0, multi6 4 -> 0,
+// tundra 1 -> 0, script43 5 -> 1, coupon-web 3 -> 0, gas-web 4 -> 0,
+// rot-bottled_food_4 4 -> 0.
 const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
-  default: 2,
-  battery5: 4,
-  "battery5-xiranite": 7,
-  crystal: 1,
-  equip4: 1,
-  multi6: 4,
-  tundra: 1,
-  script43: 5,
-  "coupon-web": 3,
-  "gas-web": 4,
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 2,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 1,
+  "coupon-web": 0,
+  "gas-web": 0,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 4,
+  "rot-bottled_food_4": 0,
 };
 const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: SEAT_VALIDITY_BASELINE_ON,
@@ -1833,19 +1857,23 @@ const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
   // battery5 0 -> 4, battery5-xiranite 2 -> 5, crystal 0 -> 1, equip4 0 -> 1,
   // multi6 0 -> 6, tundra 0 -> 1, script43 0 -> 4, coupon-web 0 -> 3, gas-web
   // 0 -> 4, rot-bottled_food_4 0 -> 4.
+  // Shrink pass (R16): 35 -> 1. default 2 -> 0, battery5 4 -> 0,
+  // battery5-xiranite 5 -> 1, crystal 1 -> 0, equip4 1 -> 0, multi6 6 -> 0,
+  // tundra 1 -> 0, script43 4 -> 0, coupon-web 3 -> 0, gas-web 4 -> 0,
+  // rot-bottled_food_4 4 -> 0.
   off: {
-    default: 2,
-    battery5: 4,
-    "battery5-xiranite": 5,
-    crystal: 1,
-    equip4: 1,
-    multi6: 6,
-    tundra: 1,
-    script43: 4,
-    "coupon-web": 3,
-    "gas-web": 4,
+    default: 0,
+    battery5: 0,
+    "battery5-xiranite": 1,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
     "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 4,
+    "rot-bottled_food_4": 0,
   },
 };
 
@@ -2009,19 +2037,23 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
 // straddling columns their on-line seats cleared. battery5 2 -> 4,
 // battery5-xiranite 5 -> 7, crystal 0 -> 1, multi6 15 -> 19, script43 5 -> 9,
 // coupon-web 2 -> 3, gas-web 7 -> 10, rot-bottled_food_4 2 -> 4.
+// Shrink pass (R16, PENDING RATIFICATION for the one UP cell): 59 -> 54.
+// multi6 19 -> 20 is a chip that now grazes a foreign line on its own row
+// instead of escaping; battery5 4 -> 3, battery5-xiranite 7 -> 6, script43
+// 9 -> 7, rot-bottled_food_4 4 -> 2 fell.
 const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
   default: 1,
-  battery5: 4,
-  "battery5-xiranite": 7,
+  battery5: 3,
+  "battery5-xiranite": 6,
   crystal: 1,
   equip4: 1,
-  multi6: 19,
+  multi6: 20,
   tundra: 0,
-  script43: 9,
+  script43: 7,
   "coupon-web": 3,
   "gas-web": 10,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 4,
+  "rot-bottled_food_4": 2,
 };
 const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FOREIGN_STROKE_BASELINE_ON,
@@ -2029,6 +2061,8 @@ const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   // 2 -> 3, battery5-xiranite 3 -> 5, crystal 0 -> 1, multi6 16 -> 19,
   // script43 3 -> 7, coupon-web 2 -> 3, gas-web 3 -> 6, rot-bottled_food_4
   // 1 -> 3.
+  // Shrink pass (R16): 49 -> 45. script43 7 -> 5, gas-web 6 -> 5,
+  // rot-bottled_food_4 3 -> 2.
   off: {
     default: 1,
     battery5: 3,
@@ -2037,11 +2071,11 @@ const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
     equip4: 1,
     multi6: 19,
     tundra: 0,
-    script43: 7,
+    script43: 5,
     "coupon-web": 3,
-    "gas-web": 6,
+    "gas-web": 5,
     "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 3,
+    "rot-bottled_food_4": 2,
   },
 };
 
@@ -2240,34 +2274,38 @@ const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
 // port-clear render (both modes, same cells): battery5-xiranite 2 -> 5,
 // coupon-web 0 -> 8, rot-bottled_food_3 4 -> 5, rot-bottled_food_4 0 -> 1 --
 // the band-subtracted window collapses what the bare extent let through.
+// 48 -> 43 at the shrink pass (both modes, same cells): battery5-xiranite
+// 5 -> 4, coupon-web 8 -> 6, rot-bottled_food_3 5 -> 4, rot-bottled_food_4
+// 1 -> 0 -- chips the pass seats at scale 1 whose legs the collapse rule had
+// classed short read full at the census camera under the fixed 0.32 gate.
 const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: {
     default: 4,
     battery5: 2,
-    "battery5-xiranite": 5,
+    "battery5-xiranite": 4,
     crystal: 2,
     equip4: 2,
     multi6: 13,
     tundra: 0,
     script43: 3,
-    "coupon-web": 8,
+    "coupon-web": 6,
     "gas-web": 3,
-    "rot-bottled_food_3": 5,
-    "rot-bottled_food_4": 1,
+    "rot-bottled_food_3": 4,
+    "rot-bottled_food_4": 0,
   },
   off: {
     default: 4,
     battery5: 2,
-    "battery5-xiranite": 5,
+    "battery5-xiranite": 4,
     crystal: 2,
     equip4: 2,
     multi6: 13,
     tundra: 0,
     script43: 3,
-    "coupon-web": 8,
+    "coupon-web": 6,
     "gas-web": 3,
-    "rot-bottled_food_3": 5,
-    "rot-bottled_food_4": 1,
+    "rot-bottled_food_3": 4,
+    "rot-bottled_food_4": 0,
   },
 };
 
@@ -2359,7 +2397,8 @@ const CENSUS_TOTALS: Record<
     // Port-band eviction (#82, B5 cut): seatValidity 5 -> 36, cardIntrusion
     // 77 -> 0, foreignStroke 40 -> 59; the per-table notes above carry the
     // cells.
-    seatValidity: 36,
+    // Shrink pass (R16): seatValidity 36 -> 3, foreignStroke 59 -> 54.
+    seatValidity: 3,
     // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
     // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
     // measured 8 against its pin 7 and is LEFT AT 7 (STOP, see the Task 7 note
@@ -2377,16 +2416,17 @@ const CENSUS_TOTALS: Record<
     // 36 -> 37 (coupon-web foreign stroke, the e:15-under-e:8 corridor run).
     // 37 -> 35 at the Task 8 branch-leg re-measure (script43 6 -> 5,
     // gas-web 8 -> 7).
-    foreignStroke: 59,
+    foreignStroke: 54,
     outsideBand: 0,
   },
   off: {
     // Port-band eviction (#82, B5 cut): seatValidity 2 -> 35, cardIntrusion
     // 79 -> 0, foreignStroke 32 -> 49; the per-table notes above carry the
     // cells.
-    seatValidity: 35,
+    // Shrink pass (R16): seatValidity 35 -> 1, foreignStroke 49 -> 45.
+    seatValidity: 1,
     cardIntrusion: 0,
-    foreignStroke: 49,
+    foreignStroke: 45,
     outsideBand: 0,
   },
 };

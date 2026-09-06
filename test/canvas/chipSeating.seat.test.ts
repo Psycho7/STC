@@ -24,7 +24,11 @@ import {
   type CardRect,
   type EntryBand,
 } from "../../src/canvas/chipSeating";
-import { CHIP_BOX_WIDTH, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
+import {
+  CHIP_BOX_HEIGHT,
+  CHIP_BOX_WIDTH,
+  MAX_CHIP_SCALE,
+} from "../../src/canvas/dimensions";
 
 // No entry band: left > right can never contain a point, so the arrival-cluster
 // exemption never applies (mirrors chipSeating's NEVER_BAND idiom).
@@ -2010,5 +2014,35 @@ describe("seatRateChip: capped reserve (B4, #82)", () => {
     expect(seat.tier).toBe("slide");
     expect(seat.dy).toBe(0);
     expect(Math.abs(seat.dx)).toBe(24);
+  });
+});
+
+describe("seatRateChip: shrink before leaving the line", () => {
+  it("retries the on-line tiers at the scale-1 box when only the max-scale box is blocked", () => {
+    const field = makeClearanceField([], []);
+    // A seated neighbour one row up, 39 units above the line and spanning all
+    // of it: the max-scale box (half-height 24) laps it from every on-line
+    // point, the scale-1 box (half-height 12) clears it from every one. The
+    // chip belongs on its line at the smaller size, not one nudge step off it.
+    field.seat({ x: 500, y: -39, halfW: 600, halfH: 24 });
+    const text = { body: "30", unit: true };
+    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND, {
+      text,
+    });
+    expect(seat.dy).toBe(0);
+    expect(seat.tier).toBe("anchor");
+    expect(seat.shrunk).toBe(true);
+    expect(seat.box.halfH).toBe(CHIP_BOX_HEIGHT / 2);
+    expect(seat.box.halfW).toBe(chipSeatHalfW(text, false) / MAX_CHIP_SCALE);
+  });
+
+  it("keeps the max-scale reserve when it seats on the line", () => {
+    const field = makeClearanceField([], []);
+    const text = { body: "30", unit: true };
+    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND, {
+      text,
+    });
+    expect(seat.shrunk).toBe(false);
+    expect(seat.box.halfW).toBe(chipSeatHalfW(text, false));
   });
 });

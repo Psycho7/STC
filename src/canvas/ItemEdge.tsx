@@ -245,10 +245,10 @@ export function FlowChip({
   // Per-chip counter-scale cap (B4): clamps the chip's on-screen growth the
   // same way MAX_CHIP_SCALE clamps it globally, so a chip seated in a corridor
   // narrower than its max-scale box never draws wider than the window it
-  // reserved. Absent = the global cap. The icon-only zoom gate reads it too:
-  // the chip sheds its digits once its EFFECTIVE text scale (zoom * cap)
-  // drops below the floor CHIP_ICON_ONLY_MAX_ZOOM set with the full cap --
-  // a capped chip has less text to spend, so it collapses at a higher zoom.
+  // reserved. Absent = the global cap. The icon-only zoom gate does NOT read
+  // it (ruling, 2026-09-06): a capped chip keeps its digits down to the same
+  // zoom as every other chip and simply draws them smaller, so neighbouring
+  // chips collapse together rather than at cap-dependent zooms.
   scaleCap?: number | undefined;
   // Live pane zoom, used to counter-scale the chip so it stays legible at the
   // dense-plan fit zoom. Optional: callers without a zoom leave the chip at its
@@ -267,13 +267,11 @@ export function FlowChip({
   // Zoom-gated member chips never reach here: they are already hidden by the
   // higher LABEL_MIN_ZOOM gate at their call sites. `compact` collapses a chip
   // at every zoom (its line is too short for the full box at any scale); the
-  // hover reveal overrides both, so no chip is permanently rate-less. The zoom
-  // arm is stated per chip through the cap (see scaleCap above): the old
-  // global zoom gate is its cap = MAX_CHIP_SCALE special case.
+  // hover reveal overrides both, so no chip is permanently rate-less. The gate
+  // is one fixed zoom for every chip, capped or not (see scaleCap above).
   const iconOnly =
     (compact === true ||
-      (zoom !== undefined &&
-        zoom * cap < CHIP_ICON_ONLY_MAX_ZOOM * MAX_CHIP_SCALE)) &&
+      (zoom !== undefined && zoom < CHIP_ICON_ONLY_MAX_ZOOM)) &&
     !focused;
   const bodyText = iconOnly ? "" : text;
   return (
