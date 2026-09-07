@@ -11,6 +11,8 @@ import {
   type Transport,
 } from "./schema.ts";
 import {
+  SKIP_SINK_RECIPES,
+  WORLD_NODE_MACHINES,
   collapseSyntheticChains,
   main as runExtractor,
   validateReferentialIntegrity,
@@ -43,14 +45,14 @@ describe("schema and source provenance", () => {
 });
 
 describe("counts", () => {
-  test("expected counts for AEF v1.4 after synthetic-chain collapse", () => {
+  test("expected counts for AEF v1.5.3 after synthetic-chain collapse", () => {
     // Synthetic collapse drops __miner_water (item), __miner_pump_1 (machine),
     // and the __miner_water identity recipe.
-    expect(pack.items).toHaveLength(113);
+    expect(pack.items).toHaveLength(124);
     expect(pack.machines).toHaveLength(33);
     // Two upstream transports (belt, pipe) plus the synthetic gas carrier.
     expect(pack.transports).toHaveLength(3);
-    expect(pack.recipes).toHaveLength(242);
+    expect(pack.recipes).toHaveLength(256);
     expect(pack.categories).toHaveLength(5);
     expect(pack.locations).toHaveLength(2);
   });
@@ -199,8 +201,8 @@ describe("optional-field counts", () => {
     expect(pack.recipes.filter((r) => r.usage !== undefined)).toHaveLength(9);
   });
 
-  test("29 recipes carry a cost hint", () => {
-    expect(pack.recipes.filter((r) => r.cost !== undefined)).toHaveLength(29);
+  test("36 recipes carry a cost hint", () => {
+    expect(pack.recipes.filter((r) => r.cost !== undefined)).toHaveLength(36);
   });
 
   test("4 items carry a buildIcon", () => {
@@ -329,10 +331,51 @@ describe("recipe flags", () => {
     expect(exp!.cost).toBeUndefined();
   });
 
-  test("a machine without the -1 sentinel leaves its recipes unflagged", () => {
+  test("a machine outside the world-node table leaves its recipes unflagged", () => {
     const r = pack.recipes.find((x) => x.id === "liquid_plant_grass_1");
     expect(r).toBeDefined();
     expect(r!.flags).toBeUndefined();
+  });
+});
+
+describe("hand-pinned skip sentinels", () => {
+  test("every WORLD_NODE_MACHINES id is a machine in the pack", () => {
+    const machineIds = new Set(pack.machines.map((m) => m.id));
+    for (const id of WORLD_NODE_MACHINES) {
+      expect(machineIds.has(id)).toBe(true);
+    }
+  });
+
+  test("every SKIP_SINK_RECIPES id is a recipe in the pack", () => {
+    const recipeIds = new Set(pack.recipes.map((r) => r.id));
+    for (const id of SKIP_SINK_RECIPES) {
+      expect(recipeIds.has(id)).toBe(true);
+    }
+  });
+
+  test("cost === -1 marks exactly the three liquid_cleaner_1 waste sinks", () => {
+    const skipped = pack.recipes.filter((r) => r.cost === -1).map((r) => r.id);
+    expect(skipped.sort()).toEqual(
+      [
+        "liquid_cleaner_1-sewage",
+        "liquid_cleaner_1-xiranite_lowpoly",
+        "liquid_cleaner_1-xiranite_poly",
+      ].sort(),
+    );
+  });
+
+  test("the pinned sinks keep the rest of their upstream shape", () => {
+    for (const id of [
+      "liquid_cleaner_1-sewage",
+      "liquid_cleaner_1-xiranite_lowpoly",
+      "liquid_cleaner_1-xiranite_poly",
+    ]) {
+      const r = pack.recipes.find((x) => x.id === id);
+      expect(r).toBeDefined();
+      expect(r!.out).toEqual([]);
+      expect(r!.usage).toBe(50);
+      expect(r!.producers).toEqual(["liquid_cleaner_1"]);
+    }
   });
 });
 

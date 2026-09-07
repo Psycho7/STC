@@ -48,6 +48,22 @@ const SYNTHETIC_GAS_TRANSPORT_NAMES: Record<Locale, string> = {
   zh: "气体管道",
 };
 
+// The purification nodes the player routes into on the map. Upstream used to
+// mark them with a machine-side cost === -1 skip sentinel, but dropped that
+// field in v1.5.3, so the set is pinned by hand here. Every recipe whose
+// producers are all in this set gets the world-node flag.
+export const WORLD_NODE_MACHINES: readonly string[] = ["liquid_clean_gate", "liquid_recycle_gate"];
+
+// The waste sinks a plan must never fund on its own. Upstream used to put
+// cost === -1 on all three and now leaves that sentinel on only one of them,
+// so the extractor writes it on every id listed here whatever upstream says.
+// Every other upstream cost passes through verbatim.
+export const SKIP_SINK_RECIPES: readonly string[] = [
+  "liquid_cleaner_1-sewage",
+  "liquid_cleaner_1-xiranite_lowpoly",
+  "liquid_cleaner_1-xiranite_poly",
+];
+
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const VENDOR_PATH = "vendor/endfield-calc";
 const INPUT_PATH = resolve(REPO_ROOT, VENDOR_PATH, "data.json");
@@ -115,11 +131,25 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
 
   transports.push({ ...SYNTHETIC_GAS_TRANSPORT });
 
+  const upstreamRecipeIds = new Set(upstream.recipes.map((r) => r.id));
+  for (const id of SKIP_SINK_RECIPES) {
+    if (!upstreamRecipeIds.has(id)) {
+      throw new Error(`skip-sink recipe "${id}" is missing from upstream`);
+    }
+  }
+
   const recipes: Recipe[] = upstream.recipes.map(toRecipe);
 
-  const skipMachines = new Set(
-    upstream.items.filter((u) => u.machine?.cost === -1).map((u) => u.id),
-  );
+  const machineIds = new Set(machines.map((m) => m.id));
+  for (const id of WORLD_NODE_MACHINES) {
+    if (!machineIds.has(id)) {
+      throw new Error(`world-node machine "${id}" is missing from upstream`);
+    }
+  }
+  const skipMachines = new Set([
+    ...WORLD_NODE_MACHINES,
+    ...upstream.items.filter((u) => u.machine?.cost === -1).map((u) => u.id),
+  ]);
   stampWorldNodes(recipes, skipMachines);
 
   const dropped = collapseSyntheticChains({ items, machines, recipes });
@@ -211,21 +241,25 @@ function toRecipe(u: UpstreamRecipe): Recipe {
   if (u.flags && u.flags.length > 0) recipe.flags = [...u.flags];
   if (u.usage != null) recipe.usage = u.usage;
   if (u.cost != null) recipe.cost = u.cost;
+  // The hand-pinned skip sentinel wins over whatever upstream carries.
+  if (SKIP_SINK_RECIPES.includes(u.id)) recipe.cost = -1;
   return recipe;
 }
 
-// Upstream marks a few machines with the same cost === -1 skip sentinel its
-// recipes carry, but the pack Machine type has no cost field, so that signal
-// would be lost at extract time. Stamp it onto the recipes instead: a recipe
-// whose every producer is a skip machine is a world node - a fixture the player
-// routes into on the map, not a step a plan builds. On the shipped pack that is
-// the two purification-node recipes (sewage-treat, sewage-treat-export).
+// A recipe whose every producer is a skip machine is a world node - a fixture
+// the player routes into on the map, not a step a plan builds. The pack Machine
+// type has no cost field, so the signal has to live on the recipes: stamp the
+// flag and drop the upstream cost hint, which on these recipes is a bonus the
+// upstream solver awards itself for consuming waste and which STC never reads.
+// On the shipped pack that is the two purification-node recipes (sewage-treat,
+// sewage-treat-export).
 function stampWorldNodes(recipes: Recipe[], skipMachines: ReadonlySet<string>): void {
   if (skipMachines.size === 0) return;
   for (const r of recipes) {
     if (r.producers.length === 0) continue;
     if (!r.producers.every((p) => skipMachines.has(p))) continue;
     r.flags = [...(r.flags ?? []), "world-node"];
+    delete r.cost;
   }
 }
 

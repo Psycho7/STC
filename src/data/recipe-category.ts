@@ -57,9 +57,9 @@ export function isPlanterRecipe(recipe: Recipe): boolean {
 
 // A sink recipe consumes items and produces nothing back. A target rate is
 // undefined for such a recipe, so it can never be a target. The empty output
-// list covers both the cost === -1 liquid_cleaner_1 waste sinks and the
-// cost-less pure consumers (sewage-treat, power_originium_ore,
-// power_proc_battery_1..5), which carry no sentinel at all.
+// list covers both the cost === -1 liquid_cleaner_1 waste sinks and the pure
+// consumers that carry no sentinel (sewage-treat, power_originium_ore,
+// power_proc_battery_1..5).
 export function isSinkRecipe(recipe: Recipe): boolean {
   return recipe.out.length === 0;
 }
