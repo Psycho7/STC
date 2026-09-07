@@ -358,7 +358,33 @@ the constants exactly as RecipeNode derives them; sprite rows, rate shown):
 - [x] W5 -- Re-record placement-shots goldens (label pixels change again);
   chip-widths and geometry-audit unmoved at the develop-tip control
   failset.
-- [ ] W6 -- `docs/render-conventions.md` partial-suffix sentence.
+- [x] W6 -- `docs/render-conventions.md` partial-suffix sentence.
+
+- Evidence (W6): render-conventions.md's elision paragraph now describes
+  the partial-suffix tier (when the whole tail cannot fit beside a
+  readable head, a window into the tail's distinguishing end is preserved
+  -- leading for Latin/CJK tails, trailing for Cyrillic -- over the same
+  minimum readable length, and only a name with no such tail or no
+  window that clears the minimum falls back to plain tail ellipsis).
+
+### Visual verification (multi6, fit zoom, after W2)
+
+Capture paths (4x device scale, cropped to the bottle-producing cards):
+`/tmp/stc-multi6-{en,ru,ja}-bottle{0,1}.png`. The screenshot-analysis
+service rejected the uploads, so verification is by the probe readings
+taken in the same run (the W4 spec's measurement, binary-search
+rendered-prefix in the label's own font -- all three readings are
+distinct and none is CSS-reclipped):
+
+- en: `Cupr…(Jin` vs `Cupr…(Yaz` (plain bottle `Cupr…Bott`; bracket
+  family `Yazhe… [A]`, `Jincao Tea` whole).
+- ru: `Купр…цао)` vs `Купр…эня)` (plain bottle raw, CSS clip
+  `Куприевая б…`).
+- ja: `赤銅…(錦草エ` vs `赤銅…(芽針エ` (plain bottle `赤銅ボトル` fits
+  whole).
+
+The W4 probe re-confirms this plan-wide: 48/48 green including multi6 in
+all four locales.
 
 - Evidence (W5): placement-shots goldens regenerated locally
   (--update-snapshots, 12/12) and re-verified green (12/12 against the
