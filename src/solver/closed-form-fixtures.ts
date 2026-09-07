@@ -16,6 +16,7 @@ export interface MicroRecipe {
   cost?: number;
   category?: string;
   flags?: string[];
+  catalyst?: Stoich[];
 }
 
 export interface MicroItem {
@@ -41,6 +42,7 @@ export function makePack(recipes: MicroRecipe[], items: MicroItem[]): RecipePack
     producers: ["machine"],
     ...(r.flags !== undefined ? { flags: r.flags } : {}),
     ...(r.cost !== undefined ? { cost: r.cost } : {}),
+    ...(r.catalyst !== undefined ? { catalyst: r.catalyst } : {}),
   }));
 
   const its: Item[] = items.map((i) => ({
@@ -65,6 +67,7 @@ export function makePack(recipes: MicroRecipe[], items: MicroItem[]): RecipePack
     ],
     transports: [],
     recipes: recs,
+    environmentBadges: { stable: "badge_stable", acidic: "badge_acidic" },
   } as RecipePack;
 }
 

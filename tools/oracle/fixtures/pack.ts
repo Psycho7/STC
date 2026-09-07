@@ -87,5 +87,6 @@ export function makePack(
     ],
     transports: [],
     recipes: recs,
+    environmentBadges: { stable: "badge_stable", acidic: "badge_acidic" },
   } as RecipePack;
 }
