@@ -115,8 +115,13 @@ function hashItemId(itemId: string): number {
 }
 
 // Legibility floor and ceiling for assigned lightness: below the floor the
-// color sinks into the canvas, above the ceiling it washes out against light UI
-// surfaces (chip fills, hover cards). Matches the range test.
+// color sinks into the canvas. The ceiling is not a contrast limit - nothing
+// paints these colors on a light surface (the chip fill is a fixed dark
+// gradient and no consumer sets dark text on them), and contrast against the
+// near-black canvas only rises with lightness - it is where the hue itself
+// starts washing to white as the chroma factor collapses. The placement cap
+// stays at 90 so the shipped placement stays byte-identical; the repair grid
+// reaches REPAIR_LIGHT_CAP near that ceiling. Matches the range test.
 const LIGHT_FLOOR = 46;
 const LIGHT_CAP = 90;
 // Lightness granularity of the placement search. Step 2 halves the candidate

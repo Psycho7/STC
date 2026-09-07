@@ -98,8 +98,10 @@ Gate evidence 2026-09-07: ledger shows saturated-band min 15.02, gray-band min 9
 
 ### Task 5: Contracts and docs
 
-- [ ] Update the stale `LIGHT_CAP` comment to say why the cap can sit near the contrast-safe maximum.
-- [ ] `docs/render-conventions.md`: one sentence that an item's hue may sit up to 15 degrees off its icon hue when the family would otherwise collide, and that gray families keep a saturation ceiling of 34.
+- [x] Update the stale `LIGHT_CAP` comment to say why the cap can sit near the contrast-safe maximum.
+- [x] `docs/render-conventions.md`: one sentence that an item's hue may sit up to 15 degrees off its icon hue when the family would otherwise collide, and that gray families keep a saturation ceiling of 34.
+
+Gate evidence 2026-09-07: LIGHT_CAP comment rewritten (no light-surface consumers; ceiling is hue legibility, not contrast; placement cap 90 keeps the shipped placement byte-identical while the repair grid reaches REPAIR_LIGHT_CAP 96). render-conventions.md gained one sentence in the Edges section; no other doc changes. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10/10 all green (139/180/152/298+1skip/132/111/154/185/128/221).
 
 **Acceptance:** typecheck, lint, sharded tests green; no other doc changes.
 

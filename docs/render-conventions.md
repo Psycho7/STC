@@ -32,7 +32,9 @@ An item edge is an orthogonal polyline with chamfered corners, coloured by the
 item it carries. It leaves the source's right side and enters the target's left
 side, so every arrowhead points right, into its target. Each item edge carries
 one rate chip (the item icon and a rate per minute), and that chip belongs on its
-own line.
+own line. The colour keeps the item's icon hue except where a family would
+otherwise read as one colour: such an item may sit up to 15 degrees off its icon
+hue, and near-gray families keep a saturation ceiling of 34.
 
 A container's frame is kept clear of strokes. A loop's return edge runs in the
 corridor, never along the box border: its two verticals hold a fixed gap off
