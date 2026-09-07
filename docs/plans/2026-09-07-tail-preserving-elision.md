@@ -72,12 +72,14 @@ graph LR
 
 ### Task 2: Elision helper
 
-- [ ] Suffix detection order: trailing balanced ASCII `(...)` or `[...]` group, else a trailing single token (last whitespace-separated word, or a trailing run of Roman numerals or Latin letters), else none.
-- [ ] With a suffix: keep it whole, head-truncate the base, place the ellipsis between base and suffix. Enforce a minimum head (four graphemes for Latin and Cyrillic, two for CJK); below that, return the raw string and let CSS tail ellipsis apply.
-- [ ] Without a suffix: return the raw string (CSS tail ellipsis stays the fallback).
-- [ ] Memoise by (string, budget bucket, font key); rows re-render on hover-dim and edges re-render per zoom tick, so the helper runs hot.
+- [x] Suffix detection order: trailing balanced ASCII `(...)` or `[...]` group, else a trailing single token (last whitespace-separated word, or a trailing run of Roman numerals or Latin letters), else none.
+- [x] With a suffix: keep it whole, head-truncate the base, place the ellipsis between base and suffix. Enforce a minimum head (four graphemes for Latin and Cyrillic, two for CJK); below that, return the raw string and let CSS tail ellipsis apply.
+- [x] Without a suffix: return the raw string (CSS tail ellipsis stays the fallback).
+- [x] Memoise by (string, budget bucket, font key); rows re-render on hover-dim and edges re-render per zoom tick, so the helper runs hot.
 
 **Acceptance:** Task 0's family table passes across all four locales; the helper has no DOM dependency.
+
+- Evidence (T2): `src/canvas/elide.ts`; elide.test 8/8 green (family table en/ru/ja/zh, raw fallbacks, pairwise-distinct families, memo bucket/font-key guards). Gates for the T1+T2 tree: typecheck OK, typecheck:tools OK, lint OK, vitest shards 1-10 all EXIT=0 (1703 passed, 1 skipped).
 
 ### Task 3: Pin header columns (R3)
 

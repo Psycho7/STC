@@ -43,10 +43,10 @@ const CASES: ReadonlyArray<readonly [string, number, string]> = [
   ["Cuprium Bottle(Yazhen Solution)", 208, `Cuprium${ELLIPSIS}(Yazhen Solution)`],
   ["Ferrium Bottle(Jincao Solution)", 208, `Ferrium${ELLIPSIS}(Jincao Solution)`],
   // Bracket family, en: the leading space rides with the "[X]" suffix.
-  ["Canned Citrome [C]", 104, `Canned${ELLIPSIS} [C]`],
-  ["Canned Citrome [B]", 104, `Canned${ELLIPSIS} [B]`],
+  ["Canned Citrome [C]", 104, `Canned C${ELLIPSIS} [C]`],
+  ["Canned Citrome [B]", 104, `Canned C${ELLIPSIS} [B]`],
   ["Buck Capsule [C]", 96, `Buck Ca${ELLIPSIS} [C]`],
-  ["Yazhen Syringe [C]", 104, `Yazhen${ELLIPSIS} [C]`],
+  ["Yazhen Syringe [C]", 104, `Yazhen S${ELLIPSIS} [C]`],
   // Parenthesis family, ru: Cyrillic base, ASCII parens, same rule.
   [
     "\u041a\u0443\u043f\u0440\u0438\u0435\u0432\u0430\u044f \u0431\u0443\u0442\u044b\u043b\u043a\u0430(\u0420\u0430\u0441\u0442\u0432\u043e\u0440 \u0446\u0437\u0438\u043d\u044c\u0446\u0430\u043e)",
@@ -68,12 +68,12 @@ const CASES: ReadonlyArray<readonly [string, number, string]> = [
   [
     "\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2160",
     64,
-    `\u30b7\u30c8${ELLIPSIS}\u2160`,
+    `\u30b7\u30c8\u30ed${ELLIPSIS}\u2160`,
   ],
   [
     "\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2161",
     64,
-    `\u30b7\u30c8${ELLIPSIS}\u2161`,
+    `\u30b7\u30c8\u30ed${ELLIPSIS}\u2161`,
   ],
   // ja parenthesis family: CJK base with a two-CJK-char minimum head.
   [
@@ -90,7 +90,7 @@ const CASES: ReadonlyArray<readonly [string, number, string]> = [
   [
     "\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)",
     96,
-    `\u8d64\u94dc${ELLIPSIS}(\u9526\u8349\u6eb2\u6db2)`,
+    `\u8d64\u94dc${ELLIPSIS}(\u9526\u8349\u6eb6\u6db2)`,
   ],
   // A plain two-word name still keeps its last word (the rule fires
   // whenever a name has a distinguishing tail, not only on brackets).
@@ -101,10 +101,10 @@ const CASES: ReadonlyArray<readonly [string, number, string]> = [
 // there is no distinguishing tail, or the tail plus the minimum head cannot
 // fit -- CSS tail ellipsis stays the fallback in every one of those cases.
 const RAW_CASES: ReadonlyArray<readonly [string, number]> = [
-  ["Cuprium Bottle(Jincao Solution)", 240], // fits whole
+  ["Cuprium Bottle(Jincao Solution)", 248], // fits whole (31 chars x 8px)
   ["Cuprium Bottle(Jincao Solution)", 168], // suffix + min head + ellipsis too wide
   ["Canned Citrome [C]", 144], // fits whole
-  ["\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2160", 108], // fits whole
+  ["\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2160", 112], // fits whole (9 wide x 12px)
   ["\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2160", 40], // roman tail + 2-CJK head too wide
   // zh tier prefixes are a leading affix a tail rule cannot protect (R2):
   // no distinguishing tail, raw string at every budget. Recorded gap.
@@ -163,7 +163,7 @@ describe("canvas/elide", () => {
       ],
       [
         96,
-        ["\u8d64\u94dc\u74f6(\u9526\u8349\u6eb2\u6db2)", "\u8d64\u94dc\u74f6(\u82bd\u9488\u6eb2\u6db2)"],
+        ["\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)", "\u8d64\u94dc\u74f6(\u82bd\u9488\u6eb6\u6db2)"],
       ],
     ];
     for (const [budget, names] of families) {
@@ -194,11 +194,13 @@ describe("canvas/elide", () => {
           (isWideCodePoint(ch.codePointAt(0)!) ? 100 : NARROW_PX),
         0,
       );
-    expect(elideName("Canned Citrome [C]", 104, monoStub, "mono")).toBe(
-      `Canned${ELLIPSIS} [C]`,
+    // A tail of wide code points busts the budget under the wide-heavy
+    // estimator, so a font-key-blind cache would wrongly replay the elided
+    // mono entry computed one line earlier at the same budget.
+    const zhParen = "\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)";
+    expect(elideName(zhParen, 96, monoStub, "mono")).toBe(
+      `\u8d64\u94dc${ELLIPSIS}(\u9526\u8349\u6eb6\u6db2)`,
     );
-    expect(
-      elideName("Canned Citrome [C]", 104, wideHeavy, "mono-wide"),
-    ).toBe("Canned Citrome [C]");
+    expect(elideName(zhParen, 96, wideHeavy, "mono-wide")).toBe(zhParen);
   });
 });
