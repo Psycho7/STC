@@ -166,6 +166,10 @@ Do not report these as defects.
   cut.
 - A hover screenshot, where the capture took one, dims everything outside the
   hovered ego-network on purpose.
+- A rate chip is a hover source for the edge it labels: the chip is drawn
+  through a portal but stays inside its edge's React tree, so pointing at the
+  chip box lights that edge exactly as pointing at its stroke does, and the
+  focus-dim tests pin it.
 
 ## Locale notes
 
