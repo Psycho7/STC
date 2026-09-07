@@ -572,8 +572,24 @@ generated from the same dump, names resolved from the pack at run time).
 - [x] W7 -- this record: finding, measurements, chosen rule, guards.
 - [x] W8 -- Leading-window rule in `src/canvas/elide.ts` (+ the
   render-conventions sentence it changes); replay green.
-- [ ] W9 -- Title probe in `test/e2e/row-collisions.spec.ts`; subtitle
+- [x] W9 -- Title probe in `test/e2e/row-collisions.spec.ts`; subtitle
   vitest replay fixture.
+
+- Evidence (W9): row-collisions.spec.ts gains the per-page
+  `visible machine-title collisions` block -- the same hidden-span
+  binary-search rendered-prefix probe on `.machine-title .cn`, keyed by
+  the raw title string, 48 tests (12 scenarios x 4 locales), nothing
+  allow-listed (the byte-identical settlement machine names never
+  co-render and are invisible to a raw-name-keyed guard by construction).
+  Against the W8 tree, fresh build: 96/96 GREEN (48 row + 48 title). The
+  subtitle surface is guarded by
+  `test/canvas/subtitle-replay.test.ts` over the pinned ASCII fixture
+  `test/canvas/subtitle-replay.fixture.json` (48 pages, 620 deduped
+  subtitle item ids generated from the dump; names resolved from the pack
+  at run time; conservative single-line estimator clip for raws, a
+  prefix of the real two-line clamp rendering): 620 items replay, 0
+  collisions beyond the recorded identical-name pair, selector-drift
+  floor > 500 replayed.
 - [ ] W10 -- Test notes (a)/(b)/(c) above.
 - [ ] W11 -- Controls: row-collisions (48/48 + titles), chip-widths
   18/18, geometry-audit at the adjudicated failset, placement-shots
