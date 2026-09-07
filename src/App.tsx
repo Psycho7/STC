@@ -21,6 +21,10 @@ import { layoutRenderPlan, type RFAnyNode } from "./canvas/layout";
 import { reseatChips } from "./canvas/chipSeating";
 import { buildRealizedRateByItem } from "./canvas/productNodeMetadata";
 import {
+  rationalFromString,
+  rationalToString,
+} from "./pipeline/render/rational";
+import {
   describePlanLoadError,
   encodePlan,
   loadPlan,
@@ -289,6 +293,15 @@ function AppInner() {
   );
   const busLanesEnabledRef = useRef(busLanesEnabled);
   const [recipeCount, setRecipeCount] = useState<number | null>(null);
+  // Per-item catalyst draw from the latest solve, items per second. It is the
+  // one piece of solver output the panel needs that no render node carries:
+  // the solver expands no producer for a catalyst and the pipeline draws no
+  // edge for it. Empty until the first solve lands, and written only behind
+  // the same generation guard as the nodes it is folded with, so a superseded
+  // solve can never leave its draw on screen.
+  const [catalystDraw, setCatalystDraw] = useState<
+    ReadonlyMap<string, import("fraction.js").default>
+  >(() => new Map());
   // Which section anchor is in view inside the side rail. Drives the skewed-tab
   // highlight so it reads as a "you-are-here" pill, not a toggle. Computed by an
   // IntersectionObserver watching the two section anchors.
@@ -457,6 +470,7 @@ function AppInner() {
         planRef.current = nextPlan;
         setPlan(nextPlan);
         setRecipeCount(countDistinctRecipes(full.logical));
+        setCatalystDraw(full.catalystDraw);
         setNodes(laid.nodes);
         setEdges(laid.edges);
         setUnderDelivered(laid.underDelivered);
@@ -551,6 +565,7 @@ function AppInner() {
       );
       if (myGen !== solveGen.current) return;
       setRecipeCount(countDistinctRecipes(full.logical));
+      setCatalystDraw(full.catalystDraw);
       setNodes(laid.nodes);
       setEdges(laid.edges);
       setUnderDelivered(laid.underDelivered);
@@ -618,29 +633,51 @@ function AppInner() {
     return new Set(plan.targets.map((t) => t.itemId));
   }, [plan]);
 
-  // Realized demand per input item from the latest render pass, read off the
-  // input ProductNode data the layout layer wrote. InputsPanel mirrors this so
-  // the side row shows the same number as the canvas. Recomputes when the React
-  // Flow nodes change.
-  const realizedRateByItem = useMemo<
+  // Boundary supply per input item: the realized demand of the latest render
+  // pass, read off the input ProductNode data the layout layer wrote, plus the
+  // catalyst draw the solve reported. A catalyst is external supply the same
+  // way a raw draw is, but no producer is expanded for it and no edge carries
+  // it, so it exists nowhere in the nodes. The two ADD: a raw item can have a
+  // balanced product node and a catalyst draw at once, and showing only one of
+  // them would understate what the plan imports. InputsPanel mirrors this so
+  // the side row shows the same number as the canvas.
+  const supplyRateByItem = useMemo<
     ReadonlyMap<string, import("./pipeline/types").RationalString>
-  >(() => buildRealizedRateByItem(nodes), [nodes]);
+  >(() => {
+    const map = new Map(buildRealizedRateByItem(nodes));
+    for (const [itemId, draw] of catalystDraw) {
+      const balanced = map.get(itemId);
+      map.set(
+        itemId,
+        rationalToString(
+          balanced === undefined
+            ? draw
+            : rationalFromString(balanced).add(draw),
+        ),
+      );
+    }
+    return map;
+  }, [nodes, catalystDraw]);
 
-  // Raw items the current plan pulls across the boundary as assumed-infinite
-  // supply. InputsPanel surfaces these as auto-rows when the user has declared
-  // no explicit overrides, so the "raw is unlimited by default" assumption is
-  // visible. Sorted by id for stable row order across re-renders.
+  // Items the current plan pulls across the boundary as assumed-infinite
+  // supply: raw items with a realized draw, plus every item the plan cycles as
+  // a catalyst. A catalyst item earns its row from the draw, not from the raw
+  // flag, so the non-raw liquid_xiranite gets one too. InputsPanel surfaces
+  // these as auto-rows when the user has declared no explicit overrides, so
+  // the "unlimited by default" assumption is visible. Sorted by id for stable
+  // row order across re-renders.
   const assumedRawItemIds = useMemo<ReadonlyArray<string>>(() => {
     const ids: string[] = [];
     for (const item of pack.items) {
-      if (!item.raw) continue;
-      if (!realizedRateByItem.has(item.id)) continue;
+      const isCatalyst = catalystDraw.has(item.id);
+      if (!isCatalyst && !item.raw) continue;
+      if (!supplyRateByItem.has(item.id)) continue;
       ids.push(item.id);
     }
     ids.sort();
     return ids;
     // `pack` is a module-stable import, so it stays out of the dependency list.
-  }, [realizedRateByItem]);
+  }, [supplyRateByItem, catalystDraw]);
 
   if (initialError) {
     return (
@@ -872,7 +909,7 @@ function AppInner() {
                   onChange={handleItemOverridesChange}
                   pack={pack}
                   targetItemIds={targetItemIds}
-                  realizedRateByItem={realizedRateByItem}
+                  supplyRateByItem={supplyRateByItem}
                   assumedRawItemIds={assumedRawItemIds}
                 />
               </div>

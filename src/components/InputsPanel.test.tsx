@@ -17,6 +17,14 @@ const PACK3 = makePack(
   [{ id: "widget" }, { id: "gadget" }, { id: "sprocket" }],
 );
 
+// The two transmuter catalysts: liquid_xiranite is not a raw item and only
+// ever reaches the panel through the catalyst draw, gas_xiranite is raw and
+// can carry a balanced draw as well.
+const CATALYST_PACK = makePack(
+  [],
+  [{ id: "liquid_xiranite" }, { id: "gas_xiranite", raw: true }],
+);
+
 function rateInputs(): HTMLInputElement[] {
   return screen
     .getAllByRole("textbox")
@@ -33,7 +41,7 @@ test("supply head count includes assumed-raw auto rows, not just overrides", () 
         onChange={() => {}}
         pack={PACK3}
         assumedRawItemIds={["widget", "gadget"]}
-        realizedRateByItem={new Map()}
+        supplyRateByItem={new Map()}
       />
     </LocaleProvider>,
   );
@@ -61,7 +69,7 @@ test("assumed-raw items without an override stay visible alongside an override",
         onChange={() => {}}
         pack={PACK3}
         assumedRawItemIds={["widget", "gadget", "sprocket"]}
-        realizedRateByItem={
+        supplyRateByItem={
           new Map([
             ["gadget", { num: "1", denom: "1" }],
             ["sprocket", { num: "2", denom: "1" }],
@@ -85,7 +93,7 @@ test("assumed-raw items without an override stay visible alongside an override",
         onChange={() => {}}
         pack={PACK3}
         assumedRawItemIds={["widget", "gadget", "sprocket"]}
-        realizedRateByItem={new Map()}
+        supplyRateByItem={new Map()}
       />
     </LocaleProvider>,
   );
@@ -105,7 +113,7 @@ test("realized input demand renders as the shared decimal, not a fraction", () =
         onChange={() => {}}
         pack={PACK}
         assumedRawItemIds={["widget"]}
-        realizedRateByItem={new Map([["widget", { num: "40", denom: "27" }]])}
+        supplyRateByItem={new Map([["widget", { num: "40", denom: "27" }]])}
       />
     </LocaleProvider>,
   );
@@ -124,7 +132,7 @@ test("realized demand on an uncapped override row renders as the shared decimal"
         itemOverrides={[{ itemId: "widget" }]}
         onChange={() => {}}
         pack={PACK}
-        realizedRateByItem={new Map([["widget", { num: "40", denom: "27" }]])}
+        supplyRateByItem={new Map([["widget", { num: "40", denom: "27" }]])}
       />
     </LocaleProvider>,
   );
@@ -167,10 +175,12 @@ test("typing a cap does not commit; blur commits it", () => {
   ]);
 });
 
-// Blur with an empty cap uncaps the override (empty means Unlimited here).
-test("blurring an emptied cap uncaps the override", () => {
+// Blur with an empty cap uncaps a RAW override (empty means Unlimited here).
+// A raw item with no cap is unlimited boundary supply either way, so the
+// field-less override survives; the non-raw case below is the one that differs.
+test("blurring an emptied cap on a raw row keeps the field-less override", () => {
   let latest: ItemOverride[] = [
-    { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
+    { itemId: "gas_xiranite", ratePerSec: { num: "2", denom: "1" } },
   ];
   function Parent() {
     const [o, setO] = useState(latest);
@@ -182,7 +192,7 @@ test("blurring an emptied cap uncaps the override", () => {
             latest = update(latest);
             setO(latest);
           }}
-          pack={PACK}
+          pack={CATALYST_PACK}
         />
       </LocaleProvider>
     );
@@ -191,7 +201,7 @@ test("blurring an emptied cap uncaps the override", () => {
   const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "" } });
   fireEvent.blur(input);
-  expect(latest).toEqual([{ itemId: "widget" }]);
+  expect(latest).toEqual([{ itemId: "gas_xiranite" }]);
 });
 
 // Removing a row with an uncommitted cap edit must never commit that edit.
@@ -241,7 +251,7 @@ test("orphaned auto-row text does not resurrect after override removal", () => {
         onChange={(u) => updaters.push(u)}
         pack={PACK}
         assumedRawItemIds={["widget"]}
-        realizedRateByItem={new Map()}
+        supplyRateByItem={new Map()}
       />
     </LocaleProvider>
   );
@@ -274,7 +284,7 @@ test("Enter on invalid auto-row text shows the cue and keeps the text", () => {
         onChange={onChange}
         pack={PACK}
         assumedRawItemIds={["widget"]}
-        realizedRateByItem={new Map()}
+        supplyRateByItem={new Map()}
       />
     </LocaleProvider>,
   );
@@ -318,7 +328,7 @@ test("an empty auto-row stays Unlimited with no invalid cue", () => {
         onChange={onChange}
         pack={PACK}
         assumedRawItemIds={["widget"]}
-        realizedRateByItem={new Map()}
+        supplyRateByItem={new Map()}
       />
     </LocaleProvider>,
   );
@@ -374,7 +384,7 @@ test("realized demand on a capped override row renders as the shared decimal", (
         ]}
         onChange={() => {}}
         pack={PACK}
-        realizedRateByItem={new Map([["widget", { num: "40", denom: "27" }]])}
+        supplyRateByItem={new Map([["widget", { num: "40", denom: "27" }]])}
       />
     </LocaleProvider>,
   );
@@ -382,4 +392,115 @@ test("realized demand on a capped override row renders as the shared decimal", (
   const readout = screen.getByTestId("input-realized-rate");
   expect(readout.textContent).toContain("88.89");
   expect(readout.textContent).not.toMatch(/\d\.\d{3,}/);
+});
+
+// A catalyst draw folds into the item's ordinary supply row, so the panel must
+// take the auto-row set as given instead of re-deriving it from item.raw: the
+// non-raw liquid_xiranite only ever reaches the panel through a catalyst draw.
+// The row is an ordinary auto-row; only data-is-raw follows the item.
+test("a non-raw catalyst item renders as a plain auto-row with its draw", () => {
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={() => {}}
+        pack={CATALYST_PACK}
+        assumedRawItemIds={["gas_xiranite", "liquid_xiranite"]}
+        supplyRateByItem={
+          new Map([
+            ["liquid_xiranite", { num: "1", denom: "10" }],
+            ["gas_xiranite", { num: "3", denom: "5" }],
+          ])
+        }
+      />
+    </LocaleProvider>,
+  );
+  const rows = screen.getAllByTestId("input-auto-row");
+  expect(rows.map((r) => r.getAttribute("data-item-id"))).toEqual([
+    "gas_xiranite",
+    "liquid_xiranite",
+  ]);
+  const readouts = rows.map(
+    (r) => r.querySelector('[data-testid="input-realized-rate"]')?.textContent,
+  );
+  expect(readouts).toEqual(["needed 36/min", "needed 6/min"]);
+  expect(rows[0]!.getAttribute("data-is-raw")).toBe("true");
+  expect(rows[1]!.getAttribute("data-is-raw")).toBe("false");
+});
+
+// Capping a catalyst row is the shared-cap gesture: the auto-row promotes to a
+// real override exactly as a raw row does.
+test("typing a cap on a non-raw catalyst auto-row promotes it to an override", () => {
+  const updaters: Array<(cur: ItemOverride[]) => ItemOverride[]> = [];
+  render(
+    <LocaleProvider locale="en">
+      <InputsPanel
+        itemOverrides={[]}
+        onChange={(u) => updaters.push(u)}
+        pack={CATALYST_PACK}
+        assumedRawItemIds={["liquid_xiranite"]}
+        supplyRateByItem={
+          new Map([["liquid_xiranite", { num: "1", denom: "10" }]])
+        }
+      />
+    </LocaleProvider>,
+  );
+  const input = screen.getByTestId("input-auto-row").querySelector("input")!;
+  fireEvent.change(input, { target: { value: "30" } });
+  fireEvent.blur(input);
+  expect(updaters.length).toBe(1);
+  // 30/min = 1/2 per sec.
+  expect(updaters[0]!([])).toEqual([
+    { itemId: "liquid_xiranite", ratePerSec: { num: "1", denom: "2" } },
+  ]);
+});
+
+// Clearing the cap on a NON-RAW row drops the override entirely instead of
+// leaving a field-less one: for a non-raw item that override reads as free
+// boundary import, which would make its balanced uses free as well. The row
+// falls back to the catalyst auto-row.
+test("clearing the cap on a non-raw row removes the override", () => {
+  let latest: ItemOverride[] = [
+    { itemId: "liquid_xiranite", ratePerSec: { num: "1", denom: "2" } },
+  ];
+  function Parent() {
+    const [o, setO] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={o}
+          onChange={(update) => {
+            latest = update(latest);
+            setO(latest);
+          }}
+          pack={CATALYST_PACK}
+          assumedRawItemIds={["liquid_xiranite"]}
+          supplyRateByItem={
+            new Map([["liquid_xiranite", { num: "1", denom: "10" }]])
+          }
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "" } });
+  fireEvent.blur(input);
+  expect(latest).toEqual([]);
+  // The item is back to an auto-row, not gone from the panel.
+  expect(
+    screen.getByTestId("input-auto-row").getAttribute("data-item-id"),
+  ).toBe("liquid_xiranite");
+});
+
+// A catalyst item that also carries an explicit override is one row, not two:
+// the override replaces its auto-row, exactly as for a raw item.
+test("a catalyst row counts once whether it is auto or overridden", () => {
+  expect(displayedInputCount([], ["gas_xiranite", "liquid_xiranite"])).toBe(2);
+  expect(
+    displayedInputCount(
+      [{ itemId: "liquid_xiranite" }],
+      ["gas_xiranite", "liquid_xiranite"],
+    ),
+  ).toBe(2);
 });

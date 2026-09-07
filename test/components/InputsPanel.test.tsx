@@ -472,7 +472,7 @@ describe("InputsPanel", () => {
         itemOverrides={overrides}
         onChange={onChange}
         pack={fixturePack}
-        realizedRateByItem={realized}
+        supplyRateByItem={realized}
       />,
     );
     const realizedChip = screen.getByTestId("input-realized-rate");
@@ -489,7 +489,7 @@ describe("InputsPanel", () => {
         itemOverrides={overrides}
         onChange={onChange}
         pack={fixturePack}
-        realizedRateByItem={new Map()}
+        supplyRateByItem={new Map()}
       />,
     );
     expect(screen.queryByTestId("input-realized-rate")).toBeNull();
@@ -566,7 +566,7 @@ describe("InputsPanel", () => {
         onChange={onChange}
         pack={fixturePack}
         assumedRawItemIds={["copper_ore"]}
-        realizedRateByItem={realized}
+        supplyRateByItem={realized}
       />,
     );
     const neededLine = screen.getByTestId("input-realized-rate");
@@ -634,7 +634,7 @@ describe("InputsPanel", () => {
         itemOverrides={[{ itemId: "copper_ore" }]}
         onChange={onChange}
         pack={fixturePack}
-        realizedRateByItem={realized}
+        supplyRateByItem={realized}
       />,
     );
     expect(screen.queryByTestId("input-unlimited")).toBeNull();
@@ -663,7 +663,7 @@ describe("InputsPanel", () => {
         ]}
         onChange={onChange}
         pack={fixturePack}
-        realizedRateByItem={realized}
+        supplyRateByItem={realized}
       />,
     );
     expect(screen.queryByTestId("input-unlimited")).toBeNull();
