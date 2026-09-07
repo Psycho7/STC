@@ -79,7 +79,10 @@ test.describe("visible machine-title collisions", () => {
             const full = cn.getAttribute("title") ?? "";
             if (full === "") continue;
             titles++;
-            let visible = full;
+            // Baseline is the RENDERED string (the helper owns it and it
+            // fits by construction), mirroring the row guard; only the
+            // raw+CSS-clipped titles overflow and take the probe below.
+            let visible = cn.textContent ?? "";
             if (cn.scrollWidth > cn.clientWidth + 1) {
               const probe = document.createElement("span");
               const cs = getComputedStyle(cn);
