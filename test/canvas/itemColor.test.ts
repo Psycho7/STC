@@ -205,8 +205,9 @@ describe("canvas/itemColor", () => {
     // 0d710d7f is the placement after the gray cap rose from 24 to 34 (the
     // one accepted full reshuffle: 57 of 113 entries moved through the
     // placement pass's accumulated priors); ff166069 was the pre-widening
-    // placement.
-    expect(placementFingerprint()).toBe("0d710d7f");
+    // placement. 0720cd3b is 0d710d7f plus the repair pass's first stage,
+    // which moved exactly seven offender entries on the finer icon-hue grid.
+    expect(placementFingerprint()).toBe("0720cd3b");
   });
 
   it("keeps every pair of pack item colors perceptually distinct", () => {
@@ -312,7 +313,9 @@ describe("canvas/itemColor", () => {
     // saturation and assert nothing. Band membership comes from the icon, the
     // input the placement policy keys on, not from the placed saturation.
     // The lightness bounds are computed per color by the contrast floor rather
-    // than picked from a list, so they are what proves no raw icon color leaks.
+    // than picked from a list, so they are what proves no raw icon color
+    // leaks; the repair pass searches lightness up to 96, near the
+    // contrast-safe maximum, so the upper bound mirrors that ceiling.
     for (const item of pack.items) {
       const { s, l } = parseHsl(itemColor(item.id));
       if (grayBanded(item.id)) {
@@ -326,7 +329,7 @@ describe("canvas/itemColor", () => {
         ).toBeGreaterThanOrEqual(35);
       }
       expect(l, `${item.id} lightness ${l}`).toBeGreaterThanOrEqual(46);
-      expect(l, `${item.id} lightness ${l}`).toBeLessThanOrEqual(90);
+      expect(l, `${item.id} lightness ${l}`).toBeLessThanOrEqual(96);
     }
   });
 });

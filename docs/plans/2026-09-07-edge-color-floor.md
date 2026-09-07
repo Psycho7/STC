@@ -78,8 +78,10 @@ Gate evidence 2026-09-07: ladder now [8,12,16,20,24,28,32,34]. Ledger: gray-band
 
 ### Task 3: Repair pass, widened grid
 
-- [ ] After the existing placement, iterate pairs below their floor in placement order. For the later-placed member, search a finer grid at its icon hue (saturation step 5, lightness step 1, lightness cap raised toward the contrast-safe maximum since no consumer is a light surface) for a point that clears the floor against all other items. Among the candidates that clear it, take the one with the largest minimum distance.
-- [ ] Repeat until no pair improves or a bounded number of sweeps completes; the pass must terminate and be deterministic.
+- [x] After the existing placement, iterate pairs below their floor in placement order. For the later-placed member, search a finer grid at its icon hue (saturation step 5, lightness step 1, lightness cap raised toward the contrast-safe maximum since no consumer is a light surface) for a point that clears the floor against all other items. Among the candidates that clear it, take the one with the largest minimum distance.
+- [x] Repeat until no pair improves or a bounded number of sweeps completes; the pass must terminate and be deterministic.
+
+Gate evidence 2026-09-07: repairOffendingPairs in src/canvas/itemColor.ts walks offender pairs in placement order (earliest later-member first), re-placing only the later member on the finer grid (saturations step 5 within the band, integer lightness 46..96, contrast floor respected via floorLightness). Map diff t2 -> t3: exactly 7 entries changed, every one the later-placed member of a t2 offender pair (verified by reconstructing placement order); non-offenders byte-identical. Ledger: saturated offenders 36 -> 26, gray/cross still 0, hue moves 0, fingerprint 0d710d7f -> 0720cd3b (re-pinned with cause; repeat run reproduces it). The lightness guard in the test now mirrors the repair ceiling 96 (one mover, plant_moss_1, sits at l=96). Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10/10 green except the one intended red in shard 7 (26 saturated offenders needing the hue move).
 
 **Acceptance:** snapshot hash changes only in offender entries (diff the map, not just the hash); the Task 0 script shows the remaining saturated offenders needing a hue move.
 
