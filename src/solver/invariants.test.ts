@@ -347,6 +347,82 @@ describe("checkRawOnlyBoundary - detection power", () => {
     expect(r.violations).toEqual([]);
   });
 
+  // A catalyst is cycled rather than consumed, so it never shows up in
+  // production or consumption - but the boundary still has to hold it, and it
+  // is charged against the same cap. Consumption alone fits under the cap here;
+  // consumption plus the cycled draw does not.
+  it("flags a capped item whose catalyst use pushes it over the cap", () => {
+    const p = {
+      recipes: [
+        {
+          id: "sink",
+          category: "material",
+          time: 1,
+          in: [{ item: "prod", qty: 1 }],
+          catalyst: [{ item: "prod", qty: 1 }],
+          out: [{ item: "final", qty: 1 }],
+        },
+      ],
+      items: [
+        { id: "prod", raw: false },
+        { id: "final", raw: false },
+      ],
+    } as unknown as typeof pack;
+    // Cap prod at 3/sec. sink runs at 2/sec: 2 consumed plus 2 cycled = 4.
+    const overrides: ItemOverride[] = [
+      { itemId: "prod", ratePerSec: { num: "3", denom: "1" } },
+    ];
+    const corrupted: LpResult = {
+      rates: new Map([["sink", new Fraction(2)]]),
+      surplus: new Map(),
+      deficit: new Map(),
+      draws: new Map(),
+      objectiveValue: 0,
+      solverWallClockMs: 0,
+      status: "feasible",
+      softFeasible: true,
+    };
+    const r = checkRawOnlyBoundary(corrupted, p, overrides);
+    expect(r.ok).toBe(false);
+    expect(r.violations.some((v) => v.includes("prod"))).toBe(true);
+  });
+
+  // Only a finite POSITIVE cap charges a catalyst. A plain non-raw item has
+  // effectiveSupply 0 and gets no cap row in the model, so the LP never
+  // throttles a catalyst on it and this checker must not flag one either -
+  // liquid_xiranite on the real pack is exactly that item.
+  it("does NOT flag a catalyst cycled on a zero-supply item", () => {
+    const p = {
+      recipes: [
+        {
+          id: "sink",
+          category: "material",
+          time: 1,
+          in: [],
+          catalyst: [{ item: "cycled", qty: 1 }],
+          out: [{ item: "final", qty: 1 }],
+        },
+      ],
+      items: [
+        { id: "cycled", raw: false },
+        { id: "final", raw: false },
+      ],
+    } as unknown as typeof pack;
+    const corrupted: LpResult = {
+      rates: new Map([["sink", new Fraction(2)]]),
+      surplus: new Map(),
+      deficit: new Map(),
+      draws: new Map(),
+      objectiveValue: 0,
+      solverWallClockMs: 0,
+      status: "feasible",
+      softFeasible: true,
+    };
+    const r = checkRawOnlyBoundary(corrupted, p, noOverrides);
+    expect(r.ok, r.violations.join("\n")).toBe(true);
+    expect(r.violations).toEqual([]);
+  });
+
   // Tolerance scales with cap magnitude. A 1e6 cap drawn at 1e6 + 0.5 is over by
   // 0.5, above a flat 1e-6 absolute slack but within the scaled slack
   // (1e6 * 1e-6 = 1.0). It must NOT be flagged; the old flat REL_TOL would have
