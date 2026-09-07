@@ -83,10 +83,12 @@ graph LR
 
 ### Task 3: Pin header columns (R3)
 
-- [ ] Replace the header's `auto` columns with fixed widths for the icon block and the rate figures; give the title a known width so `.rn-mult-chip` no longer competes. Record the constants next to `RECIPE_WIDTH` in `dimensions.ts`.
-- [ ] Check the four locales on the default plan and the longest machine names for header regressions before moving on (captures per the visual verification protocol).
+- [x] Replace the header's `auto` columns with fixed widths for the icon block and the rate figures; give the title a known width so `.rn-mult-chip` no longer competes. Record the constants next to `RECIPE_WIDTH` in `dimensions.ts`.
+- [x] Check the four locales on the default plan and the longest machine names for header regressions before moving on (captures per the visual verification protocol).
 
 **Acceptance:** the title width is a constant derivable from `dimensions.ts`; `test/e2e/title-truncation.spec.ts` still passes at this point (it is deleted in Task 5).
+
+- Evidence (T3): `dimensions.ts` RECIPE_HEAD_ICON_COL 41 / RECIPE_HEAD_RATE_COL 58 / RECIPE_HEAD_TITLE_COL 201 (= 300-41-58) / RECIPE_HEAD_BLOCK_PAD_X 8; `canvas.css` grid pinned to 41px 1fr 58px and `.rate-lbl` tracking 0.18em -> 0.1em so every locale's unit label fits the pinned rate column. A first attempt at 41/189/70 regressed the en default plan ("Shredding Unit" + x0.50 chip = 126+8+46px > 169px content), caught by title-truncation.spec, and was re-sized before committing. Four-locale probe on default/tundra/multi6: no clipped titles on default in any locale, rateWorst 57 <= 58 with zero rate clipping everywhere; the remaining long-title clips (tundra, multi6, ru) all pre-exist on develop's auto columns. title-truncation.spec PASSED. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10 EXIT=0.
 
 ### Task 4: Wire rows
 
