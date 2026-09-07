@@ -63,10 +63,12 @@ graph LR
 
 ### Task 1: Width estimator
 
-- [ ] Add a char-class width table (latin, Cyrillic, CJK/fullwidth, digits, punctuation, ellipsis) parameterised by font size and weight, in a new module under `src/canvas/`. It is an upper bound by design and documented as such in a source comment.
-- [ ] Do not touch `chipSeating.ts`; chips keep their own bound.
+- [x] Add a char-class width table (latin, Cyrillic, CJK/fullwidth, digits, punctuation, ellipsis) parameterised by font size and weight, in a new module under `src/canvas/`. It is an upper bound by design and documented as such in a source comment.
+- [x] Do not touch `chipSeating.ts`; chips keep their own bound.
 
 **Acceptance:** Task 0's estimator test passes.
+
+- Evidence (T1): `src/canvas/textWidth.ts`; textWidth.test green (every digit at 11px/700 >= 6.89px, the number recorded next to CHIP_GLYPH_PX; CJK/fullwidth exactly one em at any size and weight). `chipSeating.ts` byte-identical to develop.
 
 ### Task 2: Elision helper
 
