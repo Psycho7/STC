@@ -477,12 +477,19 @@ are replayed with the conservative estimator clip at the 185px products
 budget.
 
 Before any change: 1780 rows / 688 titles / 764 subtitle items replay to
-rows 0, titles 8, subtitles 0 collisions. All 8 are the finding's class:
-"Моду…овки" for shaper_1 ("Модуль формовки") vs tools_asm_mc_1 ("Модуль
-упаковки") on battery5-xiranite/multi6/script43/gas-web (x2.50/x0.50),
-tundra (x0.17, where cmpt_mc_1 "Модуль штамповки" joins the pair) and
-coupon-web (x0.34). Rows replay to zero, matching the 48/48 live probe:
-the collision class is title-only.
+rows 0, titles 8, subtitles 0 collisions. CORRECTED 2026-09-07
+(correction round): that "8" came from scratch replay tooling that was
+never committed and is not reproducible. The corrected before-count is
+the validator's reconstruction from the live-measured cards and chips:
+6 colliding groups / 12 cross-pairs, all the finding's class -- the
+identical stem-collapsed window (transliterated "Modu...ovki") for
+shaper_1 ("Modul formovki", Moulding) vs tools_asm_mc_1 ("Modul
+upakovki", Packaging) on 6 pages (battery5-xiranite, multi6, script43,
+gas-web, tundra, coupon-web), with cmpt_mc_1 ("Modul shtampovki",
+Stamping) joining on tundra. The direction simulations further below
+come from the same uncommitted tooling; their figures are historical
+records, not reproducible counts. Rows replay to zero, matching the
+48/48 live probe: the collision class is title-only.
 
 Directions measured before choosing:
 
@@ -522,7 +529,7 @@ The ru module family at the real title budgets: at the 121.6px
 x0.17/x0.34/x0.50/x2.50 budgets "Моду…упак" (window) vs raw "Модуль
 формовки" (its leading window "фор" falls below the 4-grapheme floor --
 wide ф/м charge more -- so the whole name goes back and CSS keeps
-"Модуль ф…", the develop look) vs raw "Модуль штамповки" -- distinct at
+"Modul for...", the develop look) vs raw "Модуль штамповки" -- distinct at
 every chip budget; at x5 all three window lead ("Моду…упаков",
 "Моду…формо", "Моду…штамп"); at 185 "Модуль упаковки" fits whole. The
 four-locale bottle goal pairs at the 86px row budget are untouched
@@ -636,7 +643,7 @@ generated from the same dump, names resolved from the pack at run time).
   both read the IDENTICAL "Моду…овки", the finding. AFTER (HEAD) they
   read their stems, "Моду…упаков" and "Моду…формо" (x5 cards; the x2.50
   cards read "Моду…упак" vs the raw "Модуль формовки" whose CSS clip is
-  "Модуль ф…", verified by the live title probe). Bottle rows
+  "Modul for...", verified by the live title probe). Bottle rows
   re-captured in all three locales, strings unchanged from the
   refinement round: en "Cupr…(Jin"/"Cupr…(Yaz", ru "Купр…цао)"/
   "Купр…эня)", ja "赤銅…(錦草エ"/"赤銅…(芽針エ" -- no row regression.
@@ -655,10 +662,73 @@ generated from the same dump, names resolved from the pack at run time).
   helper header and tier-(b) comments and the render-conventions
   sentence describe the new direction rule. Offline replay of the real
   patched module over the extended corpus dump: 1780 rows / 688 titles /
-  764 subtitle items -> rows 0, titles 0, subtitles 0 (was 0/8/0). The
+  764 subtitle items -> rows 0, titles 0, subtitles 0 (before-count
+  corrected above: the recorded "8" was the uncommitted scratch replay's
+  figure; the live reconstruction gives 6 groups / 12 cross-pairs). The
   one battery family the change flips (the heavy-xira residue pair,
   identical "Тяже…ксир" at the rate-30 budget) moved from the
   pairwise-distinct list to an exact residue pin in the same commit so
   every commit stays green; W10 documents it with the other test notes.
   elide/textWidth/RecipeNode/tooltip vitest files green before the full
   gates.
+
+---
+
+## Correction round (controller, 2026-09-07)
+
+A validator found the round-2 title guard comparing the wrong baseline
+string. This round fixes the guard, proves the fix with a positive
+control, and corrects the round-2 records (the before-count provenance
+and the two CSS-clip slips, corrected in place above).
+
+### Title guard baseline fix (commit ed17f5b)
+
+- WRONG: the W9 title check initialized `visible` from the `title`
+  attribute (the raw machine name) and refined it only when the element
+  overflowed. Helper-elided titles fit by construction, so for exactly
+  the rows the helper owns the guard compared RAW names and could not
+  detect the round-1 collision class: two different raw names eliding
+  to one identical FITTING string. (The row guard in the same file was
+  already correct: it baselines on textContent.)
+- FIX (one line in test/e2e/row-collisions.spec.ts, mirroring the row
+  guard): `let visible = full;` becomes `let visible = cn.textContent
+  ?? "";` -- the rendered string is the baseline, and the hidden-span
+  binary-search refinement stays for overflowing (raw+CSS-clipped)
+  titles, where textContent carries the raw name anyway. The seen-map
+  still records the raw title per visible string, so several cards of
+  one machine remain legal.
+- POSITIVE CONTROL (fresh build each run, locked): with the stem-first
+  condition in src/canvas/elide.ts temporarily disabled in the working
+  tree only (its budget comparison flipped to an always-false constant;
+  restored with git checkout afterwards, leaving no residue), the fixed
+  title guard goes RED on exactly the six affected ru pages, 90 passed
+  / 6 failed, each listing the identical stem-collapsed window
+  (transliterated "Modu...ovki") for the moulding (shaper_1) vs
+  packaging (tools_asm_mc_1) module titles -- battery5-xiranite,
+  multi6, coupon-web once each, script43 and gas-web twice each, and
+  tundra listing stamping (cmpt_mc_1) vs packaging, the third module
+  joining there. Restored, the same spec is 96/96 GREEN (48 row + 48
+  title, 2.0m).
+- Gates on the committed tree: typecheck OK, typecheck:tools OK, lint
+  OK, vitest shards 1-10 EXIT=0 (1720 passed, 1 skipped).
+
+### Record notes
+
+- Before-count provenance (round 2): the committed "8 title
+  collisions" figure came from scratch replay tooling that was not
+  committed and is not reproducible; the corrected count is the
+  validator's reconstruction from live-measured cards/chips -- 6
+  colliding groups / 12 cross-pairs of the identical "Modu...ovki"
+  class (transliterated) on the identical pages: shaper_1 vs
+  tools_asm_mc_1 on 6 pages, cmpt_mc_1 joining on tundra. Corrected in
+  the Measurement section above.
+- CSS-clip slips (round 2): the two narrative claims that the develop
+  CSS clip reads "Modul f..." (transliterated; one tail letter visible)
+  are corrected in place to the measured clip "Modul for...". The
+  occurrence inside the verbatim validator quote is left as quoted.
+- ACKNOWLEDGED ASCII-RULE VIOLATION: commit 1836204's message body
+  contains Cyrillic (the quoted collision strings), against this
+  plan's ASCII-only rule for commit messages. It is NOT being
+  rewritten: rewording it would rehash every descendant commit and
+  break the hash references in this plan's evidence lines. Recorded
+  here as an accepted residue.
