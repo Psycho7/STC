@@ -159,6 +159,29 @@ function primaryObjective(
   return total;
 }
 
+/**
+ * Catalyst draw per item over a solved rate map: sum of rate * per-cycle
+ * catalyst quantity. Rate variables are cycles per second, so the per-cycle
+ * quantity converts with no time factor. Zero entries are omitted.
+ */
+export function catalystDrawFromRates(
+  recipes: ReadonlyArray<Recipe>,
+  rates: ReadonlyMap<RecipeId, Fraction>,
+): Map<ItemId, Fraction> {
+  const draw = new Map<ItemId, Fraction>();
+  for (const r of recipes) {
+    if (r.catalyst === undefined) continue;
+    const rate = rates.get(r.id);
+    if (rate === undefined || rate.compare(0) <= 0) continue;
+    for (const c of r.catalyst) {
+      if (c.qty === 0) continue;
+      const add = rate.mul(new Fraction(c.qty));
+      draw.set(c.item, (draw.get(c.item) ?? new Fraction(0)).add(add));
+    }
+  }
+  return draw;
+}
+
 export function solveLp(input: LpInput): LpResult {
   const t0 = performance.now();
   const { targets, pack, itemOverrides = [] } = input;
@@ -264,12 +287,24 @@ export function solveLp(input: LpInput): LpResult {
       variables[`deficit_${it.id}`]![cn] = 1;
       const cap = (supply as Fraction).valueOf();
       if (cap > 0) {
+        const capName = `drawcap_${it.id}`;
         variables[`draw_${it.id}`] = {
           objective: 0,
           [cn]: 1,
-          [`drawcap_${it.id}`]: 1,
+          [capName]: 1,
         };
-        constraints[`drawcap_${it.id}`] = { max: cap };
+        constraints[capName] = { max: cap };
+        // Catalysts share the item's cap. A catalyst is cycled, not consumed,
+        // so it stays out of the mass-balance row above; it is still external
+        // supply, so it is charged here: balanced draw plus catalyst use at
+        // most the cap. Rate variables are cycles per second and the cap is
+        // items per second, so the per-cycle quantity is the coefficient with
+        // no conversion. Only a finite POSITIVE cap constrains a catalyst -
+        // an uncapped item has no row here, so nothing throttles it.
+        for (const r of recipes) {
+          const catQty = r.catalyst?.find((c) => c.item === it.id)?.qty ?? 0;
+          if (catQty !== 0) variables[`x_${r.id}`]![capName] = catQty;
+        }
       }
     }
 
@@ -464,12 +499,21 @@ function extractResult(args: ExtractArgs): LpResult {
     rates.set(r.id, plainSnap(v));
   }
 
+  // Catalyst use over the snapped rates, exact. The cap row the LP solved is
+  // draw + catalyst <= cap over these same rates, so this is what the draw
+  // saturates against below. Computed pre-noise-sweep on purpose: the sweep
+  // only removes rates at or below the noise ceiling, so a swept catalyst
+  // moves the window by less than the snap radius, and the window must mirror
+  // the row the solver actually enforced.
+  const catalystUse = catalystDrawFromRates(recipes, rates);
+
   // Bounded boundary draws for finite positive caps. A raw primal within snap
-  // radius of the cap snaps onto the exact cap Fraction (the draw commonly
-  // saturates its bound, and the float must not round to a nearby rational);
-  // anything else gets the plain relative snap. Zero draws are omitted. The
-  // extracted draws join the exact slack recompute below, so the reported
-  // rows close exactly against the reported draws.
+  // radius of the cap MINUS the catalyst use snaps onto that exact Fraction
+  // (the draw commonly saturates its bound, and the float must not round to a
+  // nearby rational); anything else gets the plain relative snap. An item with
+  // no catalyst subtracts nothing, so the window is the plain cap as before.
+  // Zero draws are omitted. The extracted draws join the exact slack recompute
+  // below, so the reported rows close exactly against the reported draws.
   const draws = new Map<ItemId, Fraction>();
   for (const it of items) {
     const supply = supplyById.get(it.id)!;
@@ -479,8 +523,13 @@ function extractResult(args: ExtractArgs): LpResult {
     if (!(capValue > 0)) continue;
     const v = lpResult[`draw_${it.id}`] ?? 0;
     if (v <= RATE_ZERO) continue;
-    if (Math.abs(v - capValue) <= Math.max(SNAP_REL, SNAP_REL * capValue)) {
-      draws.set(it.id, cap);
+    const headroom = cap.sub(catalystUse.get(it.id) ?? FRAC_ZERO);
+    const headroomValue = headroom.valueOf();
+    if (
+      headroomValue > 0 &&
+      Math.abs(v - headroomValue) <= Math.max(SNAP_REL, SNAP_REL * capValue)
+    ) {
+      draws.set(it.id, headroom);
     } else {
       draws.set(it.id, plainSnap(v));
     }
