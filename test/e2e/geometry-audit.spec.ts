@@ -1772,6 +1772,9 @@ test.describe("segment placement audit", () => {
 // R14: 5 -> 36 (the chips CHIP_OFFPATH counts). R16: 36 -> 3.
 // Catalyst-split re-pin (2026-09-07): multi6 0 -> 2 (lanes on), script43 0 -> 1
 // (lanes off). UP moves, listed as ruling items; same re-pack cause as above.
+// The seats: multi6 e:88 and e:89, the two liquid_water tap rise chips into q:8
+// and q:9, each sitting 48.0px off its own line; script43 e:9, the gas_copper
+// label chip on q:23 -> q:6, 93.3px off.
 const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -2124,6 +2127,8 @@ const SKIPPED_BAND_INVENTORY_ON: Record<string, number> = {
   tundra: 0,
   // 2 -> 3 at the exam-surfaced R4 re-measure: the copper_nugget rise chips
   // e:3/e:4/e:5 (out of q:11) bind to no lane band (ratified 2026-09-04).
+  // 3 -> 2 at the catalyst split: one band-unbound rise chip fewer, leaving the
+  // e:3/e:4 pair out of q:11.
   script43: 2,
   "coupon-web": 0,
   "gas-web": 2,
