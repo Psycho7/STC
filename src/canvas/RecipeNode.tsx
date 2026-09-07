@@ -305,7 +305,7 @@ export default function RecipeNode({
               // moves; recipeGeometry counts it toward the card height.
               <div key={`catalyst-row:${p.item}`} className="rn-row catalyst">
                 <CatalystGlyph item={p.item} />
-                <Sprite iconId={p.item} size={20} />
+                <Sprite iconId={iconIdForItem(p.item)} size={20} />
                 <span className="lbl" title={label}>
                   {label}
                 </span>
