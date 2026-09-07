@@ -923,7 +923,7 @@ describe("validateReferentialIntegrity guards", () => {
         in: [],
         out: [{ item: "widget", qty: 1 }],
         producers: ["assembler"],
-      } satisfies Recipe,
+      } as Recipe,
     ],
   });
 
