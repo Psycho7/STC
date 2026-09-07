@@ -536,12 +536,12 @@ describe("environment pack census", () => {
 // machine, not a resource the LP funds - so stripping the field from every
 // recipe has to leave every solve bit-identical.
 //
-// The census proves that over the whole corpus rather than a sample: every
-// recipe in the pack is driven as a single item target at rate 1 (the same
-// enumeration the render corpus sweeps), solved twice, and the two results are
-// compared on status, soft-feasibility and the EXACT rational rate of every
-// active recipe. Recipes with no output are skipped because they cannot be a
-// target at all.
+// The census covers solveLp specifically - the LP build and solve, not the
+// wrappers above it - over the whole corpus rather than a sample: every recipe
+// in the pack is driven as a single item target at rate 1 (the same enumeration
+// the render corpus sweeps), solved twice, and the two results are compared on
+// status, soft-feasibility and the EXACT rational rate of every active recipe.
+// Recipes with no output are skipped because they cannot be a target at all.
 //
 // If this ever fails, some layer under solveLp started branching on the field.
 // Do not relax it: move the branch out of the solver.

@@ -504,3 +504,36 @@ test("a catalyst row counts once whether it is auto or overridden", () => {
     ),
   ).toBe(2);
 });
+
+// The clear-cap drop is scoped to auto-rows. A non-raw item that is NOT in the
+// boundary-supply set has no auto-row to fall back to, so dropping its override
+// would flip it to a forced internal build instead of the free import the
+// picker added. Its cleared cap leaves a field-less override, as a raw row's
+// does.
+test("clearing the cap on a non-raw row outside the auto-row set keeps the override", () => {
+  let latest: ItemOverride[] = [
+    { itemId: "liquid_xiranite", ratePerSec: { num: "1", denom: "2" } },
+  ];
+  function Parent() {
+    const [o, setO] = useState(latest);
+    return (
+      <LocaleProvider locale="en">
+        <InputsPanel
+          itemOverrides={o}
+          onChange={(update) => {
+            latest = update(latest);
+            setO(latest);
+          }}
+          pack={CATALYST_PACK}
+          assumedRawItemIds={[]}
+          supplyRateByItem={new Map()}
+        />
+      </LocaleProvider>
+    );
+  }
+  render(<Parent />);
+  const input = rateInputs()[0]!;
+  fireEvent.change(input, { target: { value: "" } });
+  fireEvent.blur(input);
+  expect(latest).toEqual([{ itemId: "liquid_xiranite" }]);
+});

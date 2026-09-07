@@ -12,13 +12,7 @@ import {
   makeRecipeNodeProps,
 } from "./node.testkit";
 import { LocaleProvider } from "../data/i18n-context";
-import { pack } from "../data/load";
-import {
-  ENV_BAND_HEIGHT,
-  ENV_BAND_TOP,
-  ENV_BAND_WIDTH,
-  iconPosition,
-} from "./iconSprite";
+import { ENV_BAND_HEIGHT, ENV_BAND_WIDTH } from "./iconSprite";
 import { RECIPE_HEADER_HEIGHT } from "./dimensions";
 import { cssBlock, cssPx } from "../../test/canvas/cssContract";
 
@@ -413,15 +407,11 @@ test("missing machine record falls back to speed 1", () => {
 // the 64px tile. The badge is that strip, cut from the shared sheet at native
 // scale, so the card shows the same mark the game does.
 
-// The band offset, derived independently of the component: a CSS
-// background-position of "-Xpx -Ypx" puts sheet pixel (X, Y) at the element's
-// top-left, so showing the tile from row ENV_BAND_TOP down means shifting y
-// that many pixels further negative.
-function expectedBandPosition(iconId: string): string {
-  const raw = iconPosition(iconId)!;
-  const parts = raw.match(/^(-?[\d.]+)px (-?[\d.]+)px$/)!;
-  return `${parts[1]}px ${Number(parts[2]) - ENV_BAND_TOP}px`;
-}
+// The band offsets, pinned rather than recomputed so the expectation cannot
+// drift with the component: each is the badge icon's own sheet position with y
+// moved 5 px further negative, skipping the tile rows above the banner.
+const STABLE_BAND = "-576px -709px";
+const ACIDIC_BAND = "-768px -709px";
 
 function renderedBadge(
   environment: "stable" | "acidic",
@@ -449,7 +439,7 @@ test("a stable recipe shows the stable banner band beside the title", () => {
   // Drawn from the pack's stable reference icon, not the recipe's own icon, so
   // every stable card carries an identical banner.
   expect(badge.style.backgroundPosition).toBe(
-    expectedBandPosition(pack.environmentBadges.stable),
+    STABLE_BAND,
   );
   expect(badge.getAttribute("title")).toBe("Stable environment");
   // Rides the title row next to the multiplier chip, not the rate block.
@@ -461,12 +451,12 @@ test("an acidic recipe shows the acidic banner with its own tooltip", () => {
   const container = renderedBadge("acidic");
   const badge = container.querySelector<HTMLElement>(".env-badge")!;
   expect(badge.style.backgroundPosition).toBe(
-    expectedBandPosition(pack.environmentBadges.acidic),
+    ACIDIC_BAND,
   );
   expect(badge.getAttribute("title")).toBe("Acidic environment");
   // The two environments must not collapse onto one band.
   expect(badge.style.backgroundPosition).not.toBe(
-    expectedBandPosition(pack.environmentBadges.stable),
+    STABLE_BAND,
   );
 });
 
