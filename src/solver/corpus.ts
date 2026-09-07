@@ -34,6 +34,7 @@ function mkPack(
     out: { item: string; qty: number }[];
     flags?: string[];
     cost?: number;
+    catalyst?: { item: string; qty: number }[];
   }[],
   items: { id: string; raw: boolean }[],
 ): RecipePack {
@@ -56,6 +57,7 @@ function mkFullPack(
     out: { item: string; qty: number }[];
     flags?: string[];
     cost?: number;
+    catalyst?: { item: string; qty: number }[];
   }[],
   items: { id: string; raw: boolean }[],
 ): RecipePack {
@@ -104,6 +106,7 @@ function mkFullPack(
       producers: ["machine"],
       ...(r.flags !== undefined ? { flags: r.flags } : {}),
       ...(r.cost !== undefined ? { cost: r.cost } : {}),
+      ...(r.catalyst !== undefined ? { catalyst: r.catalyst } : {}),
     })),
   } as unknown as RecipePack;
 }

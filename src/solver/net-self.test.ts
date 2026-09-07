@@ -93,9 +93,11 @@ describe("netSelfConsumption", () => {
     expect(netted.recipes[1]).not.toBe(dirty);
   });
 
-  it("shipped pack: netting leaves no recipe with an item on both sides", () => {
-    const netted = netSelfConsumption(pack);
-    const offenders = netted.recipes
+  // The transmuter catalysts used to be the shipped pack's only overlaps. They
+  // now live in `catalyst`, which this pass never reads, so the raw pack
+  // already satisfies what netting exists to produce.
+  it("shipped pack: no recipe carries an item on both sides", () => {
+    const offenders = pack.recipes
       .filter((r) => {
         const outs = new Set(r.out.map((o) => o.item));
         return r.in.some((i) => outs.has(i.item));
@@ -104,16 +106,11 @@ describe("netSelfConsumption", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("shipped pack: the two phase-transition catalysts net to exact fractions", () => {
-    const netted = netSelfConsumption(pack);
-    const byId = new Map(netted.recipes.map((r) => [r.id, r]));
-
-    const liquid = byId.get("phase_trans_1-liquid_xiranite")!;
-    expect(liquid.in).toEqual([{ item: "gas_xiranite", qty: 1 }]);
-    expect(liquid.out).toEqual([{ item: "liquid_xiranite", qty: 0.8 }]);
-
-    const gas = byId.get("phase_trans_2-gas_xiranite")!;
-    expect(gas.in).toEqual([{ item: "xiranite_powder", qty: 1 }]);
-    expect(gas.out).toEqual([{ item: "gas_xiranite", qty: 0.8 }]);
+  // Identity by REFERENCE, not by value: it is the cheap proof that nothing was
+  // rewritten, and it fails the moment a data refresh reintroduces an overlap -
+  // which is the review this suite exists to force. Do not soften it to a deep
+  // comparison; the whole netting path stays here for exactly that refresh.
+  it("shipped pack: netting is the identity", () => {
+    expect(netSelfConsumption(pack)).toBe(pack);
   });
 });
