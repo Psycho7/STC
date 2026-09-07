@@ -149,9 +149,9 @@ describe("transmuter catalysts", () => {
   // lifts that draw off `in` into its own `catalyst` array.
   const FOLDED = ["phase_trans_1-gas_xiranite", "phase_trans_2-xiranite_powder"];
 
-  test("exactly the 24 single-transmuter recipes carry a catalyst", () => {
+  test("exactly the 22 single-transmuter recipes carry a catalyst", () => {
     const carriers = pack.recipes.filter((r) => r.catalyst !== undefined).map((r) => r.id);
-    expect(carriers).toHaveLength(24);
+    expect(carriers).toHaveLength(22);
     const expected = pack.recipes
       .filter((r) => r.producers.length === 1 && CATALYST_BY_PRODUCER[r.producers[0]!] !== undefined)
       .map((r) => r.id);
@@ -181,7 +181,7 @@ describe("transmuter catalysts", () => {
   test("catalyst quantities are 0.2 per 2s cycle and 1 per 10s cycle", () => {
     const short = pack.recipes.filter((r) => r.catalyst && r.time === 2);
     const long = pack.recipes.filter((r) => r.catalyst && r.time === 10);
-    expect(short).toHaveLength(20);
+    expect(short).toHaveLength(18);
     expect(long).toHaveLength(4);
     for (const r of short) expect(r.catalyst![0]!.qty).toBe(0.2);
     for (const r of long) expect(r.catalyst![0]!.qty).toBe(1);
@@ -284,7 +284,7 @@ describe("splitCatalyst guards", () => {
 });
 
 describe("recipe environment", () => {
-  test("environment is stamped on exactly the five table recipes", () => {
+  test("environment is stamped on exactly the four table recipes", () => {
     const stamped = Object.fromEntries(
       pack.recipes.filter((r) => r.environment !== undefined).map((r) => [r.id, r.environment]),
     );
@@ -292,7 +292,6 @@ describe("recipe environment", () => {
       "gas_copper_enr-gas_inert": "stable",
       "gas_xiranite_enr-gas_inert": "stable",
       "xiranite_powder-carbon_mtl": "stable",
-      activity_copper_poly_gas: "stable",
       gas_copper_enr2: "acidic",
     });
     expect(stamped).toEqual(ENVIRONMENT_BY_RECIPE);

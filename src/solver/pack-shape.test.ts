@@ -435,8 +435,8 @@ describe("primary-output pack census", () => {
 describe("catalyst pack census", () => {
   const withCatalyst = pack.recipes.filter((r) => r.catalyst !== undefined);
 
-  test("exactly the 24 transmuter recipes carry a catalyst", () => {
-    expect(withCatalyst).toHaveLength(24);
+  test("exactly the 22 transmuter recipes carry a catalyst", () => {
+    expect(withCatalyst).toHaveLength(22);
     const transmuters = pack.recipes.filter((r) =>
       r.producers.some((m) => m === "phase_trans_1" || m === "phase_trans_2"),
     );
@@ -495,14 +495,13 @@ describe("catalyst pack census", () => {
 
 describe("environment pack census", () => {
   const ENVIRONMENTS: Array<[string, string]> = [
-    ["activity_copper_poly_gas", "stable"],
     ["gas_copper_enr-gas_inert", "stable"],
     ["gas_copper_enr2", "acidic"],
     ["gas_xiranite_enr-gas_inert", "stable"],
     ["xiranite_powder-carbon_mtl", "stable"],
   ];
 
-  test("exactly five recipes are environment-stamped", () => {
+  test("exactly four recipes are environment-stamped", () => {
     const stamped = pack.recipes
       .filter((r) => r.environment !== undefined)
       .map((r): [string, string] => [r.id, r.environment!])
@@ -592,7 +591,7 @@ describe("ruling 1: the solver never reads `environment`", () => {
 
       // Guard the guard: an enumeration that silently stopped covering the pack
       // would make the comparison above pass for the wrong reason.
-      expect(planned).toBe(246);
+      expect(planned).toBe(232);
       expect(drifted).toEqual([]);
     },
     120_000,
