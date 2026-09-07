@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
-import { solveLp, type LpResult } from "./lp";
+import { catalystDrawFromRates, solveLp, type LpResult } from "./lp";
 import { makePack, withoutGasMachines } from "./closed-form-fixtures";
 import { effectiveSupply } from "./effectiveSupply";
 import { pack } from "../data/load";
@@ -977,5 +977,19 @@ describe("solveLp - extraction recipes", () => {
     expect(result.status).toBe("feasible");
     expect([...result.rates.keys()].filter((id) => worldNodes.includes(id))).toEqual([]);
     expect(result.softFeasible).toBe(true);
+    // gas_xiranite is both the phase feed and the transmuter's catalyst, so
+    // the 1/2 cap covers both draws. The gas reactor eats 2 gas_xiranite per
+    // execution at rate 1, and phase_trans_2-gas_xiranite is its only in-plan
+    // producer, so x + draw = 2 while the saturated cap row reads
+    // draw + x/5 = 1/2: x = 15/8, draw = 1/8, catalyst = 15/8 * 1/5 = 3/8.
+    // The balanced draw is the cap less the catalyst (1/2 - 3/8 = 1/8), and
+    // the chain above scales up to make the 3/8 the boundary no longer covers.
+    expect(result.rates.get("phase_trans_2-gas_xiranite")!.equals(new Fraction(15, 8))).toBe(true);
+    expect(result.draws.get("gas_xiranite")!.equals(new Fraction(1, 8))).toBe(true);
+    const cycled = catalystDrawFromRates(pack.recipes, result.rates);
+    expect(cycled.get("gas_xiranite")!.equals(new Fraction(3, 8))).toBe(true);
+    expect(
+      result.draws.get("gas_xiranite")!.add(cycled.get("gas_xiranite")!).equals(new Fraction(1, 2)),
+    ).toBe(true);
   });
 });
