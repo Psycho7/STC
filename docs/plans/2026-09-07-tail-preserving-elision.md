@@ -355,10 +355,28 @@ the constants exactly as RecipeNode derives them; sprite rows, rate shown):
   cases).
 - [x] W4 -- Restore the rendered-prefix pixel probe in
   `test/e2e/row-collisions.spec.ts`; green plan-wide.
-- [ ] W5 -- Re-record placement-shots goldens (label pixels change again);
+- [x] W5 -- Re-record placement-shots goldens (label pixels change again);
   chip-widths and geometry-audit unmoved at the develop-tip control
   failset.
 - [ ] W6 -- `docs/render-conventions.md` partial-suffix sentence.
+
+- Evidence (W5): placement-shots goldens regenerated locally
+  (--update-snapshots, 12/12) and re-verified green (12/12 against the
+  fresh baselines). CAUSE OF THIS RE-BASELINE: the 2026-09-07
+  refinement round (R5 partial-tail windows + Cyrillic estimator
+  recalibration) changes row-label pixels again; goldens are gitignored,
+  so this NOTE and the W5 commit message are the record. chip-widths
+  18/18 green. geometry-audit fails with EXACTLY the adjudicated
+  develop-tip control failset, byte-for-byte the same standing findings:
+  (1) lanes on/battery5-xiranite PADDED_GRAZE 2 vs 0; (2) lanes on/multi6
+  RAW 1 (standing e:97 u:in:liquid_water loop:plant_grass_2 ->
+  u:class:q:53 piercing u:class:q:56); (3) lanes off/battery5-xiranite
+  RAW 1 + PADDED_GRAZE 3 vs 0 + crossings 28 vs 24; (4) lanes off/multi6
+  RAW 1. Frozen surfaces verified byte-identical to develop:
+  src/canvas/chipSeating.ts, test/e2e/geometry-audit.spec.ts,
+  test/e2e/geometry.ts, test/e2e/chip-widths.spec.ts (git diff develop
+  empty on each). Gates: typecheck OK, typecheck:tools OK, lint OK,
+  shards 1-10 EXIT=0.
 
 - Evidence (W4): the spec keeps the plan-wide scope (12 scenarios x 4
   locales, per-page seen-map keyed by handle item id, readout = visible
