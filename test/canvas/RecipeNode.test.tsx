@@ -9,6 +9,7 @@ import { itemColor } from "../../src/canvas/itemColor";
 import { iconPosition } from "../../src/canvas/iconSprite";
 import { pack } from "../../src/data/load";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
+import { cssBlock } from "./cssContract";
 import {
   ItemPackProvider,
   type ItemPackContextValue,
@@ -396,6 +397,101 @@ describe("RecipeNode", () => {
     // No stray handles or glyphs outside the rows.
     expect(container.querySelectorAll("[data-handleid]").length).toBe(3);
     expect(container.querySelectorAll("[data-glyph]").length).toBe(3);
+  });
+
+  // A catalyst is an input the machine cycles rather than consumes: it is drawn
+  // and returned every cycle, so it has no supplier, no edge and no port. The
+  // card still has to declare the draw, so it renders as an extra input-column
+  // row below every port row.
+  describe("catalyst rows", () => {
+    // qty 1 over a 10s cycle at speed 1 is the pack's 6/min catalyst draw.
+    const catalystRecipe: Recipe = {
+      ...multiRowRecipe,
+      time: 10,
+      catalyst: [{ item: "gas_xiranite", qty: 1 }],
+    };
+
+    function renderCatalyst(multiplier = 1) {
+      return renderRecipe({
+        recipe: catalystRecipe,
+        kind: "recipe",
+        multiplier,
+      });
+    }
+
+    it("appends one .rn-row.catalyst below every port row in the input column", () => {
+      const { container } = renderCatalyst();
+      const inSide = container.querySelector(".rn-body > .rn-side.in")!;
+      const rows = Array.from(inSide.querySelectorAll(".rn-row"));
+      expect(rows).toHaveLength(3);
+      expect(rows.slice(0, 2).map((r) => r.className)).toEqual([
+        "rn-row input",
+        "rn-row input",
+      ]);
+      // Last, and not an input row: the .input class draws the accent tab that
+      // promises an entering edge.
+      expect(rows[2]!.className).toBe("rn-row catalyst");
+      expect(container.querySelectorAll(".rn-row.catalyst")).toHaveLength(1);
+    });
+
+    it("gives the catalyst row an icon, a label, a rate and the catalyst glyph", () => {
+      const { container } = renderCatalyst();
+      const row = container.querySelector(".rn-row.catalyst")!;
+      expect(row.querySelector(".ico")).not.toBeNull();
+      expect(row.querySelector(".lbl")?.textContent).not.toBe("");
+      expect(row.querySelector(".rate")).not.toBeNull();
+      const glyph = row.querySelector("[data-glyph]");
+      expect(glyph).not.toBeNull();
+      expect(glyph!.getAttribute("data-glyph")).toBe("catalyst");
+    });
+
+    it("hangs no handle on the catalyst row and leaves the per-side handle counts on the ports", () => {
+      const { container } = renderCatalyst();
+      const row = container.querySelector(".rn-row.catalyst")!;
+      expect(row.querySelectorAll("[data-handleid]")).toHaveLength(0);
+      expect(
+        container.querySelectorAll('[data-handlepos="left"]'),
+      ).toHaveLength(2);
+      expect(
+        container.querySelectorAll('[data-handlepos="right"]'),
+      ).toHaveLength(1);
+      expect(container.querySelectorAll("[data-handleid]")).toHaveLength(3);
+    });
+
+    it("spells the per-machine draw out with the locale rate unit", () => {
+      const { container } = renderCatalyst();
+      expect(
+        container.querySelector(".rn-row.catalyst .rate")?.textContent,
+      ).toBe("6/分");
+    });
+
+    // The port rows carry the AGGREGATE flow across every machine; a catalyst
+    // is charged per machine, so its row stays on the one-machine figure and
+    // says so by carrying the unit the port rows leave to the header.
+    it("keeps the catalyst rate per machine while the port rows scale", () => {
+      const { container } = renderCatalyst(3);
+      const inputRates = Array.from(
+        container.querySelectorAll(".rn-side.in .rn-row.input .rate"),
+      ).map((el) => el.textContent);
+      expect(inputRates).toEqual(["18", "36"]);
+      expect(
+        container.querySelector(".rn-row.catalyst .rate")?.textContent,
+      ).toBe("6/分");
+    });
+
+    it("sizes the card for the catalyst row", () => {
+      const { container } = renderCatalyst();
+      const wrapper = container.firstElementChild as HTMLElement;
+      expect(wrapper.style.minHeight).toBe(
+        `${measureRecipe(catalystRecipe).height}px`,
+      );
+      // 2 port rows + 1 catalyst row against 1 output row.
+      expect(measureRecipe(catalystRecipe).height).toBe(184);
+    });
+
+    it("styles the catalyst row in canvas.css", () => {
+      expect(cssBlock(".rn-row.catalyst")).toContain("padding-left");
+    });
   });
 
   describe("footer", () => {

@@ -4,6 +4,7 @@ import type { Recipe, Stoich } from "@aef/schema";
 import { measureRecipe } from "./recipeGeometry";
 import { useI18n } from "../data/i18n-context";
 import { PortGlyph } from "./PortGlyph";
+import { CatalystGlyph } from "./CatalystGlyph";
 import { formatRationalPerMin } from "../data/rate-format";
 import type { PortTransportKinds } from "./layout";
 import type { ItemId } from "../pipeline/types";
@@ -199,6 +200,10 @@ export default function RecipeNode({
   // (busRouting / ELK), which the pinned CSS keeps in sync with these rows.
   const ins = orderByItem(recipe.in, inputOrder);
   const outs = recipe.out;
+  // Port-less rows appended below the input ports (see the row markup). They
+  // keep the recipe's declared order: no layout pass orders them, because no
+  // edge arrives at one.
+  const catalysts = recipe.catalyst ?? [];
   const geom = measureRecipe(recipe);
   // Aggregate scale across all machines. The render-pipeline path supplies a
   // rational `multiplicity`; the older boot path an integer `multiplier`; a
@@ -288,6 +293,9 @@ export default function RecipeNode({
     primaryOut !== undefined
       ? rowRateText(primaryOut, recipe.time, speed, perMachine)
       : "";
+  // The "/min" suffix the catalyst rows carry, the same locale string the
+  // product cards and rate chips use.
+  const rateUnit = i18n.t("canvas.rate.unit");
 
   return (
     <div
@@ -384,6 +392,34 @@ export default function RecipeNode({
                   {visible}
                 </span>
                 <span className="rate">{rateText}</span>
+              </div>
+            );
+          })}
+          {catalysts.map((p) => {
+            const label = i18n.displayName(p.item);
+            return (
+              // A catalyst row: an input the machine cycles rather than
+              // consumes. It is drawn from the plan boundary and returned every
+              // cycle, so it has no supplier, no edge, and therefore no Handle
+              // -- a handle here would offer a connection nothing can make and
+              // would move every port below it. It carries no `input` class
+              // either, since that class paints the accent tab that promises an
+              // entering edge. Appended after the port rows so no port's y
+              // moves; recipeGeometry counts it toward the card height.
+              <div key={`catalyst-row:${p.item}`} className="rn-row catalyst">
+                <CatalystGlyph item={p.item} />
+                <Sprite iconId={p.item} size={20} />
+                <span className="lbl" title={label}>
+                  {label}
+                </span>
+                {/* Per MACHINE, not the aggregate the port rows show, and the
+                    only row that spells its unit out -- the suffix is what
+                    marks the figure as reading on a different scale from the
+                    numbers directly above it. */}
+                <span className="rate">
+                  {rowRateText(p, recipe.time, speed, perMachine)}
+                  {rateUnit}
+                </span>
               </div>
             );
           })}

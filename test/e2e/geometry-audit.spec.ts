@@ -195,6 +195,19 @@ test.describe("DOM geometry audit", () => {
           // (b) Every row handle centred on its row (vertical axis).
           const offCenter: string[] = [];
           for (const row of rows) {
+            // A catalyst row is an input the machine cycles rather than
+            // consumes, so it carries no handle by design. The invariant on it
+            // is the mirror of the others: a handle here would offer an edge
+            // endpoint for a flow that never arrives, and would have moved
+            // every port row below it.
+            if (row.rowClass.split(" ").includes("catalyst")) {
+              if (row.handleCenterY !== null) {
+                offCenter.push(
+                  `${row.nodeId} catalyst row "${row.item}" carries a handle`,
+                );
+              }
+              continue;
+            }
             if (row.handleCenterY === null) {
               offCenter.push(
                 `${row.nodeId} row "${row.item}" (${row.rowClass}) has no handle`,

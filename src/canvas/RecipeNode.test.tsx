@@ -350,6 +350,44 @@ test("handle and port glyph render inside their recipe row", () => {
   expect(container.querySelectorAll('[data-handlepos="right"]').length).toBe(1);
 });
 
+// A catalyst is cycled, not consumed, so its row carries no Handle: an edge
+// endpoint that landed on it would claim a supplier the plan never builds. The
+// row still declares the draw, in full units, at the per-machine figure.
+test("a catalyst renders a port-less row carrying the per-machine draw", () => {
+  // qty 1 over a 10s cycle at speed 1 is the pack's 6/min catalyst draw.
+  const recipe: Recipe = {
+    ...RECIPE,
+    time: 10,
+    catalyst: [{ item: "gas_xiranite", qty: 1 }],
+  };
+  const props = makeRecipeNodeProps({
+    recipe,
+    kind: "recipe",
+    multiplicity: { num: "3", denom: "1" },
+  });
+  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
+
+  const row = container.querySelector<HTMLElement>(".rn-row.catalyst");
+  expect(row).not.toBeNull();
+  expect(row!.querySelectorAll("[data-handleid]").length).toBe(0);
+  expect(row!.querySelector("[data-glyph]")?.getAttribute("data-glyph")).toBe(
+    "catalyst",
+  );
+  // Per machine even at multiplicity 3, and carrying the unit the aggregate
+  // port rows leave to the header.
+  expect(row!.querySelector(".rate")?.textContent).toBe("6/min");
+  // The ports are untouched: one target, one source, neither on this row.
+  expect(container.querySelectorAll('[data-handlepos="left"]').length).toBe(1);
+  expect(container.querySelectorAll('[data-handlepos="right"]').length).toBe(1);
+});
+
+// A recipe with no catalyst renders exactly what it did before.
+test("a catalyst-free recipe renders no catalyst row", () => {
+  const props = makeRecipeNodeProps({ recipe: RECIPE });
+  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
+  expect(container.querySelector(".rn-row.catalyst")).toBeNull();
+});
+
 // A corrupt fixture can reference a missing machine; the rate falls back to
 // speed 1 instead of crashing.
 test("missing machine record falls back to speed 1", () => {
