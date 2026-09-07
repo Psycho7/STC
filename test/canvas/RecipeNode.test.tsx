@@ -46,7 +46,7 @@ const multiRowRecipe: Recipe = {
   time: 1,
   in: [
     { item: "copper_nugget", qty: 1 },
-    { item: "copper_ore-liquid_water", qty: 2 },
+    { item: "liquid_water", qty: 2 },
   ],
   out: [{ item: "copper_powder", qty: 1 }],
   producers: ["smelter"],
@@ -178,7 +178,7 @@ describe("RecipeNode", () => {
     const outputRows = container.querySelectorAll<HTMLElement>(
       ".rn-side.out .rn-row.output",
     );
-    const expectedInIds = ["in:copper_nugget", "in:copper_ore-liquid_water"];
+    const expectedInIds = ["in:copper_nugget", "in:liquid_water"];
     inputHandles.forEach((handle, i) => {
       expect(handle.getAttribute("data-handleid")).toBe(expectedInIds[i]);
       expect(handle.style.top).toBe("");
@@ -193,19 +193,19 @@ describe("RecipeNode", () => {
 
   it("reordered path (inputOrder present): handles nest in their rows following the resolved order, rates track each item", () => {
     // The resolved order reverses the declaration order [copper_nugget,
-    // copper_ore-liquid_water]. The handle at slot i and the row at slot i must
-    // both describe the item at inputOrder[i], and each row keeps its own qty
-    // (copper_nugget qty=1 -> 60/min, copper_ore-liquid_water qty=2 -> 120/min).
+    // liquid_water]. The handle at slot i and the row at slot i must both
+    // describe the item at inputOrder[i], and each row keeps its own qty
+    // (copper_nugget qty=1 -> 60/min, liquid_water qty=2 -> 120/min).
     const { container } = renderRecipe({
       recipe: multiRowRecipe,
       kind: "recipe",
       multiplier: 1,
-      inputOrder: ["copper_ore-liquid_water", "copper_nugget"],
+      inputOrder: ["liquid_water", "copper_nugget"],
     });
     const inputRows =
       container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input");
     expect(inputRows.length).toBe(2);
-    const expectedInIds = ["in:copper_ore-liquid_water", "in:copper_nugget"];
+    const expectedInIds = ["in:liquid_water", "in:copper_nugget"];
     // The handle inside each row (slot i) matches the resolved item at slot i.
     inputRows.forEach((row, i) => {
       const handle = row.querySelector<HTMLElement>("[data-handleid]");
@@ -219,7 +219,7 @@ describe("RecipeNode", () => {
     const inputRates = Array.from(
       container.querySelectorAll(".rn-side.in .rn-row.input .rate"),
     ).map((el) => el.textContent);
-    expect(inputLbls).toEqual(["赤铜矿", "赤铜块"]);
+    expect(inputLbls).toEqual(["清水", "赤铜块"]);
     expect(inputRates).toEqual(["120", "60"]);
   });
 
@@ -265,7 +265,7 @@ describe("RecipeNode", () => {
     const outputLbls = Array.from(
       container.querySelectorAll(".rn-side.out .rn-row.output .lbl"),
     ).map((el) => el.textContent);
-    expect(inputLbls).toEqual(["赤铜块", "赤铜矿"]);
+    expect(inputLbls).toEqual(["赤铜块", "清水"]);
     expect(outputLbls).toEqual(["赤铜粉末"]);
 
     const inputRates = Array.from(
@@ -293,7 +293,7 @@ describe("RecipeNode", () => {
     ).map((r) => r.style.getPropertyValue("--row-accent"));
     expect(inputAccents).toEqual([
       itemColor("copper_nugget"),
-      itemColor("copper_ore-liquid_water"),
+      itemColor("liquid_water"),
     ]);
     const outputAccents = Array.from(
       container.querySelectorAll<HTMLElement>(".rn-side.out .rn-row.output"),
@@ -304,7 +304,7 @@ describe("RecipeNode", () => {
   it("nests both the Handle and the PortGlyph inside the .rn-row for each port", () => {
     const portTransportKinds: PortTransportKinds = new Map([
       ["in:copper_nugget", "belt"],
-      ["in:copper_ore-liquid_water", "pipe"],
+      ["in:liquid_water", "pipe"],
       ["out:copper_powder", "belt"],
     ]);
     const { container } = renderRecipe({
@@ -325,7 +325,7 @@ describe("RecipeNode", () => {
     // pairs row slot i with expectedInIds[i].
     const inputRows =
       container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input");
-    const expectedInIds = ["in:copper_nugget", "in:copper_ore-liquid_water"];
+    const expectedInIds = ["in:copper_nugget", "in:liquid_water"];
     inputRows.forEach((row, i) => {
       const handles = row.querySelectorAll<HTMLElement>("[data-handleid]");
       expect(handles.length).toBe(1);

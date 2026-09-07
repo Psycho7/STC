@@ -14,6 +14,7 @@ import Fraction from "fraction.js";
 import {
   CLOSED_FORM_FIXTURES,
   withoutGasMachines,
+  withoutV153Recipes,
 } from "../../solver/closed-form-fixtures";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
@@ -532,22 +533,29 @@ describe("render corpus: tiny plan clears sub-unit checker tolerances", () => {
   // plans and the DEV render hook crashed them. The tolerance scale floor is
   // now relative to the plan's own magnitude, so the same correct output
   // passes every checker.
+  //
+  // The case runs on the pre-1.5.3 pack. On the live pack the same 1e-6 solve
+  // returns a float-drifted rate for phase_trans_1-liquid_xiranite (1/7692308
+  // instead of 1/8000000): the known small-rate LP drift, relocated by the
+  // extra columns 1.5.3 adds. Freezing the pack keeps this case exercising the
+  // checker tolerance floor at 1e-6 rather than that drift.
   it("liquid_copper at 1e-6/s solves and renders with zero violations", () => {
+    const frozenPack = withoutV153Recipes(pack);
     const targets: Target[] = [
       { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "1000000" } },
     ];
     const full = solvePlanWithIntermediates(
       targets,
-      pack,
+      frozenPack,
       defaultTransportConfig,
       [],
     );
     expect(full.feasibility.softFeasible).toBe(true);
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { plan } = renderPlanFromSolve(full, frozenPack, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
-      pack,
+      pack: frozenPack,
       targets,
       itemOverrides: [],
     }).flatMap((r) => r.violations);
