@@ -97,7 +97,6 @@ export const ENVIRONMENT_BY_RECIPE: Record<string, EnvironmentId> = {
   "gas_copper_enr-gas_inert": "stable",
   "gas_xiranite_enr-gas_inert": "stable",
   "xiranite_powder-carbon_mtl": "stable",
-  activity_copper_poly_gas: "stable",
   gas_copper_enr2: "acidic",
 };
 
