@@ -37,6 +37,7 @@ function mkPack(items: Item[]): RecipePack {
     machines: [],
     transports: [],
     recipes: [],
+    environmentBadges: { stable: "badge_stable", acidic: "badge_acidic" },
   };
 }
 
