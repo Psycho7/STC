@@ -595,6 +595,8 @@ test.describe("DOM geometry audit", () => {
 // SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
 // left-to-right band): battery5 13 -> 14 (off 10 -> 12) and multi6 137 -> 205,
 // re-measured on the wider band, where longer edges cross more corridors.
+// First recording for the transmuter scenario (2026-09-07): 25 in both
+// modes, the tap columns of the two shared raws crossing the gas chain.
 const CROSSING_BASELINE_ON: Record<string, number> = {
   default: 4, // 9 -> 4, Task 7 y-window re-measure
   // 8 -> 9 at the exam-surfaced R4 re-measure (declared output rows flip the
@@ -616,6 +618,7 @@ const CROSSING_BASELINE_ON: Record<string, number> = {
   // multi6.
   "rot-bottled_food_3": 5, // 3 -> 5 at R9, same cause as battery5
   "rot-bottled_food_4": 20, // 22 -> 20, Task 7
+  transmuters: 25,
 };
 const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CROSSING_BASELINE_ON,
@@ -633,6 +636,7 @@ const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 38,
     "rot-bottled_food_3": 5,
     "rot-bottled_food_4": 6,
+    transmuters: 25,
   },
 };
 
@@ -674,19 +678,27 @@ const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
 // the campaign): rot-bottled_food_3 2 (one plant_moss_3 drop column grazing
 // two cards' padding), rot-bottled_food_4 1 (an iron_ore tap approach into
 // loop:plant_grass_1).
+// Catalyst-split re-pin (2026-09-07, both modes): multi6 0 -> 1 and script43
+// 2 -> 3. Moving the transmuter xiranite catalyst out of Recipe.in drops the
+// 0.2 gas_xiranite / liquid_xiranite feed edges those plans carried and adds a
+// portless catalyst row to every transmuter card, so the cards are one row
+// taller and the columns beside them re-pack; the new grazes are a liquid_water
+// tap column (multi6 e:100) and a gas_xiranite tap column (script43 e:30)
+// clipping a neighbour's padding. UP moves, listed as ruling items.
 const PADDED_GRAZE_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 1,
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  multi6: 0, // 1 -> 0, Task 7
+  multi6: 1, // 1 -> 0, Task 7. 0 -> 1 at the catalyst split.
   tundra: 0,
-  script43: 2,
+  script43: 3,
   "coupon-web": 2,
   "gas-web": 1,
   "rot-bottled_food_3": 0, // 2 -> 0, Task 7
   "rot-bottled_food_4": 1,
+  transmuters: 0,
 };
 const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: PADDED_GRAZE_BASELINE_ON,
@@ -696,13 +708,14 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
     "battery5-xiranite": 0,
     crystal: 0,
     equip4: 0,
-    multi6: 0,
+    multi6: 1,
     tundra: 0,
-    script43: 2,
+    script43: 3,
     "coupon-web": 2,
     "gas-web": 1,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
+    transmuters: 0,
   },
 };
 
@@ -793,6 +806,9 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // One chip, one segment, in the softest tier, and the same chip is the whole of
 // this plan's FOREIGN_STROKE move below. Bought for every branch chip on the
 // corpus reaching a seat on the leg it labels (FANOUT_LEG_BASELINE stays 0).
+// Catalyst-split re-pin (2026-09-07): gas-web 5 -> 9, lanes off only. The
+// dropped catalyst feed edges shorten the gas chain's corridors, so more of the
+// tap bundle runs under the chips seated on it. UP move, a ruling item.
 const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
   default: 3,
   battery5: 8,
@@ -806,6 +822,7 @@ const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
   "gas-web": 12,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 4,
+  transmuters: 0,
 };
 const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_SEGMENT_BASELINE_ON,
@@ -822,9 +839,10 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
     tundra: 0,
     script43: 10,
     "coupon-web": 5,
-    "gas-web": 5,
+    "gas-web": 9,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 2,
+    transmuters: 0,
   },
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
@@ -870,6 +888,13 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
 // R14 (port band hard, one trade with the CHIP_SEGMENT / SEAT_VALIDITY /
 // FOREIGN_STROKE rises): 0 -> 35, buying PORT_COVER 124 -> 0 and
 // CARD_INTRUSION 77 -> 0. R16 (shrink pass): 35 -> 5.
+// First recording for the transmuter scenario (2026-09-07): 1 in both modes,
+// the e:15 copper_ore tap chip seated 32.00px off its own column.
+// Catalyst-split re-pin (2026-09-07): script43 1 -> 2 in both modes, gas-web
+// 0 -> 2 (on) and 1 -> 2 (off). Same cause as the padded-graze re-pin: the
+// taller transmuter cards and the dropped catalyst feed edges move the chips'
+// on-line candidates, and the least-bad seat for two of them is now an escape.
+// UP moves, listed as ruling items.
 const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
   default: 0,
   // 0 -> 1 (RULING): e:14 "Sewage x 90/min" seats 16.00px off its polyline, and
@@ -891,11 +916,12 @@ const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
   equip4: 0,
   multi6: 0,
   tundra: 0,
-  script43: 1,
+  script43: 2,
   "coupon-web": 0,
-  "gas-web": 0,
+  "gas-web": 2,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 2,
+  transmuters: 1,
 };
 const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_OFFPATH_BASELINE_ON,
@@ -909,11 +935,12 @@ const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
     equip4: 0,
     multi6: 0,
     tundra: 0,
-    script43: 1,
+    script43: 2,
     "coupon-web": 0,
-    "gas-web": 1,
+    "gas-web": 2,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
+    transmuters: 1,
   },
 };
 
@@ -995,6 +1022,7 @@ const OWN_PIERCE_BASELINE_ON: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 const OWN_PIERCE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: OWN_PIERCE_BASELINE_ON,
@@ -1011,6 +1039,7 @@ const OWN_PIERCE_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 0,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
+    transmuters: 0,
   },
 };
 
@@ -1063,6 +1092,7 @@ const FRAME_RIDE_BASELINE_ON: Record<string, number> = {
   // scoped itself to backward edges: the e:12 descent is a forward tap's
   // entry column, the shape the convention doc exempts.
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 const FRAME_RIDE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FRAME_RIDE_BASELINE_ON,
@@ -1080,6 +1110,7 @@ const FRAME_RIDE_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 0,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
+    transmuters: 0,
   },
 };
 
@@ -1169,6 +1200,7 @@ const DOT_COVER_BASELINE_ON: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 1,
+  transmuters: 0,
 };
 const DOT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: DOT_COVER_BASELINE_ON,
@@ -1186,6 +1218,7 @@ const DOT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 0,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 2,
+    transmuters: 0,
   },
 };
 
@@ -1239,6 +1272,7 @@ const ENDPOINT_PARITY_TOL_ON: Record<string, number> = {
   "gas-web": 0.5,
   "rot-bottled_food_3": 0.5,
   "rot-bottled_food_4": 0.5,
+  transmuters: 0.5,
 };
 // The off arm's worst parity read 0.007 (multi6): the same flat 0.5 pin.
 const ENDPOINT_PARITY_TOL: Record<LaneMode, Record<string, number>> = {
@@ -1256,6 +1290,7 @@ const ENDPOINT_PARITY_TOL: Record<LaneMode, Record<string, number>> = {
     "gas-web": 0.5,
     "rot-bottled_food_3": 0.5,
     "rot-bottled_food_4": 0.5,
+    transmuters: 0.5,
   },
 };
 
@@ -1832,19 +1867,22 @@ test.describe("segment placement audit", () => {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero; every chip holds its own line inside its box.
 // R14: 5 -> 36 (the chips CHIP_OFFPATH counts). R16: 36 -> 3.
+// Catalyst-split re-pin (2026-09-07): multi6 0 -> 2 (lanes on), script43 0 -> 1
+// (lanes off). UP moves, listed as ruling items; same re-pack cause as above.
 const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 0,
   "battery5-xiranite": 2,
   crystal: 0,
   equip4: 0,
-  multi6: 0,
+  multi6: 2,
   tundra: 0,
   script43: 1,
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: SEAT_VALIDITY_BASELINE_ON,
@@ -1857,11 +1895,12 @@ const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
     equip4: 0,
     multi6: 0,
     tundra: 0,
-    script43: 0,
+    script43: 1,
     "coupon-web": 0,
     "gas-web": 0,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
+    transmuters: 0,
   },
 };
 
@@ -1968,6 +2007,7 @@ const CARD_INTRUSION_BASELINE_ON: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CARD_INTRUSION_BASELINE_ON,
@@ -1984,6 +2024,7 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 0,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
+    transmuters: 0,
   },
 };
 
@@ -2029,10 +2070,13 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
 // FAN-OUT LEG SEAT: default 2 -> 3 in BOTH arms, the chip-side reading of the
 // single pair CHIP_SEGMENT_BASELINE records above -- e:12's rise chip, seated on
 // its own leg row, now has e:8's stroke through its box.
+// Catalyst-split re-pin (2026-09-07): battery5-xiranite 6 -> 7 (on) and 5 -> 8
+// (off), script43 5 -> 7 (off), gas-web 5 -> 6 (off). UP moves, listed as ruling
+// items; the softest tier, and the same re-pack cause as above.
 const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
   default: 3,
   battery5: 3,
-  "battery5-xiranite": 6,
+  "battery5-xiranite": 7,
   crystal: 1,
   equip4: 1,
   multi6: 20,
@@ -2042,6 +2086,7 @@ const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
   "gas-web": 10,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 2,
+  transmuters: 0,
 };
 const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FOREIGN_STROKE_BASELINE_ON,
@@ -2050,16 +2095,17 @@ const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   off: {
     default: 3,
     battery5: 3,
-    "battery5-xiranite": 5,
+    "battery5-xiranite": 8,
     crystal: 1,
     equip4: 1,
     multi6: 19,
     tundra: 0,
-    script43: 5,
+    script43: 7,
     "coupon-web": 3,
-    "gas-web": 5,
+    "gas-web": 6,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 2,
+    transmuters: 0,
   },
 };
 
@@ -2129,6 +2175,7 @@ const OUTSIDE_BAND_BASELINE_ON: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 const OUTSIDE_BAND_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: OUTSIDE_BAND_BASELINE_ON,
@@ -2146,6 +2193,7 @@ const OUTSIDE_BAND_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 0,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
+    transmuters: 0,
   },
 };
 
@@ -2167,6 +2215,12 @@ const OUTSIDE_BAND_BASELINE: Record<LaneMode, Record<string, number>> = {
 // SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
 // left-to-right band): multi6 13 -> 15 in both arms. An INVENTORY, not a
 // ratchet: the plan simply draws two more fan-out rise chips than it did.
+// First recording for the transmuter scenario (2026-09-07): 6 in both modes,
+// three rise-chip pairs (copper_nugget, copper_ore, liquid_water) on tap
+// formations that bind to no lane band.
+// Catalyst-split re-pin (2026-09-07): script43 3 -> 2 and gas-web 3 -> 2 in both
+// modes. An exact pin moving DOWN - one xiranite rise chip per plan is gone with
+// the catalyst feed edge that carried it.
 const SKIPPED_BAND_INVENTORY_ON: Record<string, number> = {
   default: 4,
   battery5: 2,
@@ -2177,11 +2231,12 @@ const SKIPPED_BAND_INVENTORY_ON: Record<string, number> = {
   tundra: 0,
   // 2 -> 3 at the exam-surfaced R4 re-measure: the copper_nugget rise chips
   // e:3/e:4/e:5 (out of q:11) bind to no lane band (ratified 2026-09-04).
-  script43: 3,
+  script43: 2,
   "coupon-web": 0,
-  "gas-web": 3,
+  "gas-web": 2,
   "rot-bottled_food_3": 4,
   "rot-bottled_food_4": 0,
+  transmuters: 6,
 };
 const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
   on: SKIPPED_BAND_INVENTORY_ON,
@@ -2194,11 +2249,12 @@ const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
     equip4: 2,
     multi6: 15,
     tundra: 0,
-    script43: 3,
+    script43: 2,
     "coupon-web": 0,
-    "gas-web": 3,
+    "gas-web": 2,
     "rot-bottled_food_3": 4,
     "rot-bottled_food_4": 0,
+    transmuters: 6,
   },
 };
 
@@ -2218,6 +2274,7 @@ const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 0,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
+    transmuters: 0,
   },
   off: {
     default: 0,
@@ -2232,6 +2289,7 @@ const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 0,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
+    transmuters: 0,
   },
 };
 
@@ -2239,6 +2297,8 @@ const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
 // Not a defect counter but the trade dial every keep-out or cap pays into.
 // Both modes share the cells: 35 -> 48 at the port-clear render (R14),
 // 48 -> 43 at the shrink pass (R16).
+// First recording for the transmuter scenario (2026-09-07): 4 in both modes,
+// out of 26 chips at the census camera.
 const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: {
     default: 4,
@@ -2253,6 +2313,7 @@ const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 3,
     "rot-bottled_food_3": 4,
     "rot-bottled_food_4": 0,
+    transmuters: 4,
   },
   off: {
     default: 4,
@@ -2267,6 +2328,7 @@ const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 3,
     "rot-bottled_food_3": 4,
     "rot-bottled_food_4": 0,
+    transmuters: 4,
   },
 };
 
@@ -2357,7 +2419,9 @@ const CENSUS_TOTALS: Record<
     // 6 -> 5 at the Task 8 branch-leg re-measure (multi6 1 -> 0).
     // R14: seatValidity 5 -> 36, cardIntrusion 77 -> 0, foreignStroke
     // 40 -> 59. R16: seatValidity 36 -> 3, foreignStroke 59 -> 54.
-    seatValidity: 3,
+    // Catalyst split (2026-09-07): multi6 seatValidity 0 -> 2, battery5-xiranite
+    // foreignStroke 6 -> 7. Totals follow: 3 -> 5, 54 -> 55.
+    seatValidity: 5,
     // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
     // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
     // measured 8 against its pin 7 and is LEFT AT 7 (STOP, see the Task 7 note
@@ -2378,17 +2442,23 @@ const CENSUS_TOTALS: Record<
     // SINGLE-BAND RE-MEASURE (eeda816): 54 -> 57, tracking the per-cell raises
     // in FOREIGN_STROKE_BASELINE (default 1 -> 2, rot-bottled_food_3 0 -> 2).
     // FAN-OUT LEG SEAT: 57 -> 58, tracking default 2 -> 3 in that table.
-    foreignStroke: 58,
+    // Catalyst split (2026-09-07) on top: battery5-xiranite 6 -> 7, 58 -> 59.
+    foreignStroke: 59,
     outsideBand: 0,
   },
   off: {
     // R14: seatValidity 2 -> 35, cardIntrusion 79 -> 0, foreignStroke
     // 32 -> 49. R16: seatValidity 35 -> 1, foreignStroke 49 -> 45.
-    seatValidity: 1,
+    // Catalyst split (2026-09-07): script43 seatValidity 0 -> 1;
+    // battery5-xiranite foreignStroke 5 -> 8, script43 5 -> 7, gas-web 5 -> 6.
+    // Totals follow: 1 -> 2, 45 -> 51.
+    seatValidity: 2,
     cardIntrusion: 0,
     // SINGLE-BAND RE-MEASURE (eeda816): 45 -> 46 (default 1 -> 2).
     // FAN-OUT LEG SEAT: 46 -> 47 (default 2 -> 3).
-    foreignStroke: 47,
+    // Catalyst split (2026-09-07) on top: battery5-xiranite 5 -> 8,
+    // script43 5 -> 7, gas-web 5 -> 6, so 47 -> 53.
+    foreignStroke: 53,
     outsideBand: 0,
   },
 };
