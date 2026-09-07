@@ -203,11 +203,13 @@ describe("canvas/itemColor", () => {
     // sub-floor pairs; any other change is a reshuffle the commit that ships
     // it must explain. tools/color/ledger.ts --map names the moved entries.
     // 0d710d7f is the placement after the gray cap rose from 24 to 34 (the
-    // one accepted full reshuffle: 57 of 113 entries moved through the
-    // placement pass's accumulated priors); ff166069 was the pre-widening
-    // placement. 0720cd3b is 0d710d7f plus the repair pass's first stage,
-    // which moved exactly seven offender entries on the finer icon-hue grid.
-    expect(placementFingerprint()).toBe("0720cd3b");
+    // one accepted full reshuffle: 103 of 113 entries moved, 58 gray-band
+    // and 45 saturated-band through the placement pass's accumulated
+    // priors, 10 unchanged); ff166069 was the pre-widening
+    // placement. b577d038 is 0d710d7f plus the completed repair pass: 18
+    // offender entries re-placed on the finer grid, 10 of them with a hue
+    // nudge, until every pair cleared its tier floor.
+    expect(placementFingerprint()).toBe("b577d038");
   });
 
   it("keeps every pair of pack item colors perceptually distinct", () => {
