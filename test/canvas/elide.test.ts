@@ -102,11 +102,14 @@ const CASES: ReadonlyArray<readonly [string, number, string]> = [
 ];
 
 // Names returned UNCHANGED at the given budget: either the whole name fits,
-// there is no distinguishing tail, or the tail plus the minimum head cannot
-// fit -- CSS tail ellipsis stays the fallback in every one of those cases.
+// there is no distinguishing tail, or no window respecting the minimum
+// grapheme floors can fit -- CSS tail ellipsis stays the fallback in every
+// one of those cases. (R5: a budget that fits a partial window no longer
+// returns the raw string; @168 below became "Cupr...(Jincao Solution" and
+// moved into the windowed regime.)
 const RAW_CASES: ReadonlyArray<readonly [string, number]> = [
   ["Cuprium Bottle(Jincao Solution)", 248], // fits whole (31 chars x 8px)
-  ["Cuprium Bottle(Jincao Solution)", 168], // suffix + min head + ellipsis too wide
+  ["Cuprium Bottle(Jincao Solution)", 64], // window below the 4-grapheme floor
   ["Canned Citrome [C]", 144], // fits whole
   ["\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2160", 112], // fits whole (9 wide x 12px)
   ["\u30b7\u30c8\u30ed\u30fc\u30e0\u306e\u7f36\u8a70\u2160", 40], // roman tail + 2-CJK head too wide

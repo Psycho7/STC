@@ -432,11 +432,10 @@ describe("RecipeNode", () => {
   // Tail-preserving row-label elision (issue #84): the four solution-bottle
   // recipes and the bracket-family syringes render under the en locale, where
   // their long shared prefixes are exactly the collision the helper exists to
-  // break. The bottles' parenthesis tails cannot fit the row budget even
-  // under-estimated, so those rows keep the raw string (CSS tail ellipsis is
-  // the sanctioned fallback) and must still read distinctly; the syringes'
-  // "[A]"/"[C]" tails fit, so those rows elide head-first and end in their
-  // distinguishing tail.
+  // break. The bottles' parenthesis tails cannot fit the row budget whole,
+  // so those rows keep a PARTIAL tail window (ruling R5) and must read
+  // distinctly; the syringes' "[A]"/"[C]" tails fit whole, so those rows
+  // elide head-first and end in their distinguishing tail.
   describe("row label elision", () => {
     function renderEn(data: RecipeNodeData) {
       return render(

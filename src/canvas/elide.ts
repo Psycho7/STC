@@ -4,9 +4,12 @@
 // "Cuprium Bottle(Yazhen Solution)" may never both render as
 // "Cuprium Bott...". The helper OWNS the visible string: it keeps a
 // distinguishing tail whole, head-truncates the base, and puts the
-// ellipsis in front of the preserved tail. When there is no tail, or the
-// tail plus a minimum readable head cannot fit, it returns the raw string
-// and CSS tail ellipsis stays the fallback.
+// ellipsis in front of the preserved tail. When the whole tail plus a
+// minimum readable head cannot fit, a PARTIAL tail is preserved instead
+// (ruling R5): a window into the tail's distinguishing end, sized to the
+// budget, with the same minimum-grapheme floors as the head. When there
+// is no tail, or no floor-respecting window fits, the raw string goes
+// back and CSS tail ellipsis stays the fallback.
 //
 // The helper is pure and layout-free: string in, string out, with width
 // supplied by an injectable estimator so unit tests can use a monospace
@@ -27,8 +30,13 @@ export const MIN_HEAD_LATIN = 4;
 export const MIN_HEAD_CJK = 2;
 
 // Budgets are quantised DOWN to this bucket before memoising, so a cached
-// entry is never reused for a wider bucket than it was computed for.
-const BUCKET_PX = 8;
+// entry is never reused for a wider bucket than it was computed for. The
+// quantum is 1px, not a coarser step: the partial-tail window floors are
+// decided at pixel granularity, and the measured corpus cases sit within
+// 2px of their budgets -- a coarser bucket would forfeit budget the real
+// label box still has. A 1px floor keeps the quantise-down guarantee with
+// at most sub-pixel reuse slop.
+const BUCKET_PX = 1;
 
 // Cache guard rail: the corpus is a few hundred names times a handful of
 // budgets and fonts, well under this; a pathological caller just clears
@@ -54,6 +62,18 @@ function minHeadFor(base: string): number {
     : MIN_HEAD_LATIN;
 }
 
+// Which detection rule produced a tail; the partial-window tier (below)
+// decides eligibility from it.
+export type TailKind = "bracket" | "token" | "run" | "cjk";
+
+function isHanCodePoint(cp: number): boolean {
+  return cp >= 0x4e00 && cp <= 0x9fff;
+}
+
+function isKanaCodePoint(cp: number): boolean {
+  return cp >= 0x3040 && cp <= 0x30ff; // hiragana + katakana incl. prolonged mark
+}
+
 // The distinguishing tail of a name, if it has one, split into base and
 // tail. Detection order (final for this feature):
 //  1. a trailing balanced ASCII "(...)" or "[...]" group (the solution
@@ -63,9 +83,16 @@ function minHeadFor(base: string): number {
 //     "Carbon"), or, when there is no whitespace at all, a trailing run
 //     of Roman-numeral or Latin-letter code points (the ja canned family
 //     ends in a Roman-numeral code point with no bracket),
-//  3. else nothing: the name has no tail a truncation could preserve.
+//  3. else, when every code point of the name is a CJK ideograph or kana,
+//     the LAST kana/ideograph script boundary splits base from tail (the
+//     ja sandleaf family writes a kana stem plus an ideograph suffix; an
+//     all-ideograph name has no boundary and no tail -- its distinguishing
+//     content sits in the middle, where only the raw CSS clip reaches),
+//  4. else nothing: the name has no tail a truncation could preserve.
 // The tail must leave a non-empty base behind, or there is no elision.
-export function splitTail(name: string): { base: string; tail: string } | null {
+export function splitTail(
+  name: string,
+): { base: string; tail: string; kind: TailKind } | null {
   const close = name.codePointAt(name.length - 1);
   if (close === 0x29 /* ) */ || close === 0x5d /* ] */) {
     const open = close === 0x29 ? 0x28 /* ( */ : 0x5b; /* [ */
@@ -90,7 +117,11 @@ export function splitTail(name: string): { base: string; tail: string } | null {
           ? openIdx - 1
           : openIdx;
       if (baseEnd > 0) {
-        return { base: name.slice(0, baseEnd), tail: name.slice(baseEnd) };
+        return {
+          base: name.slice(0, baseEnd),
+          tail: name.slice(baseEnd),
+          kind: "bracket",
+        };
       }
       return null;
     }
@@ -99,16 +130,57 @@ export function splitTail(name: string): { base: string; tail: string } | null {
   // Trailing single token.
   const lastSpace = name.lastIndexOf(" ");
   if (lastSpace > 0) {
-    return { base: name.slice(0, lastSpace), tail: name.slice(lastSpace + 1) };
+    return {
+      base: name.slice(0, lastSpace),
+      tail: name.slice(lastSpace + 1),
+      kind: "token",
+    };
   }
   if (lastSpace === 0 || /\s/.test(name)) return null;
   // No whitespace: a trailing run of Roman-numeral or Latin-letter code
   // points is the tail (ja canned family, single-letter item marks).
   const run = /[A-Za-z\u2160-\u2183]+$/.exec(name);
   if (run !== null && run.index > 0) {
-    return { base: name.slice(0, run.index), tail: run[0] };
+    return { base: name.slice(0, run.index), tail: run[0], kind: "run" };
+  }
+  // Pure CJK-block name: split at the last kana/ideograph boundary.
+  const pts = codePoints(name);
+  if (
+    pts.length >= 4 &&
+    pts.every((p) => {
+      const cp = p.codePointAt(0)!;
+      return isWideCodePoint(cp) && (isHanCodePoint(cp) || isKanaCodePoint(cp));
+    })
+  ) {
+    for (let i = pts.length - 1; i > 0; i--) {
+      const a = pts[i - 1]!.codePointAt(0)!;
+      const b = pts[i]!.codePointAt(0)!;
+      if (isHanCodePoint(a) !== isHanCodePoint(b)) {
+        const tail = pts.slice(i).join("");
+        if (codePoints(tail).length >= 2) {
+          return { base: pts.slice(0, i).join(""), tail, kind: "cjk" };
+        }
+        return null;
+      }
+    }
   }
   return null;
+}
+
+// Which tails may open a partial window: bracket groups and CJK-boundary
+// tails always; a bare word/run tail only when its base is a SINGLE word.
+// Measured against the corpus: a multi-word base whose last word is the
+// shared generic noun ("Dense Originium Powder" vs "Dense Crystal Powder")
+// is distinguished by its middle, which only the raw CSS clip reaches --
+// windowing the generic word would collapse such a pair onto one
+// head-plus-window string. A single-word base ("Kuprievaya detal" keeps
+// "detal") has the distinguishing word AS the tail, so it windows.
+function canWindowTail(
+  split: { tail: string; kind: TailKind },
+  trimmedBase: string,
+): boolean {
+  if (split.kind === "bracket" || split.kind === "cjk") return true;
+  return !/\s/.test(trimmedBase);
 }
 
 // Elide `name` to fit `budgetPx`, measured by the injected `estimate`.
@@ -132,16 +204,18 @@ export function elideName(
     const split = splitTail(name);
     if (split !== null) {
       const ellW = estimate(ELLIPSIS);
-      const tailW = estimate(split.tail);
       const minHead = minHeadFor(split.base);
       const trimmedBase = split.base.replace(/\s+$/, "");
       const minPts = codePoints(trimmedBase);
       if (minPts.length >= minHead) {
-        const minHeadW = estimate(minPts.slice(0, minHead).join(""));
+        const headStr = minPts.slice(0, minHead).join("");
+        const minHeadW = estimate(headStr);
+        const tailW = estimate(split.tail);
         if (tailW + ellW + minHeadW <= bucket) {
+          // Tier (a): the whole tail fits. Greedy longest base prefix,
+          // then drop any trailing whitespace the cut left behind (it only
+          // wastes budget).
           const headBudget = bucket - tailW - ellW;
-          // Greedy longest base prefix that fits, then drop any trailing
-          // whitespace the cut left behind (it only wastes budget).
           const keep: string[] = [];
           let used = 0;
           for (const p of codePoints(split.base)) {
@@ -153,6 +227,40 @@ export function elideName(
           const head = keep.join("").replace(/\s+$/, "");
           if (codePoints(head).length >= minHead) {
             out = head + ELLIPSIS + split.tail;
+          }
+        } else if (canWindowTail(split, trimmedBase)) {
+          // Tier (b) (ruling R5): the whole tail cannot fit, so a PARTIAL
+          // tail is preserved: the minimum head, the ellipsis, and the
+          // longest window into the tail that the budget still allows.
+          // The window direction is by tail script, measured against the
+          // corpus families: Latin and CJK bracket groups put the
+          // distinguishing species token at the tail's START ("(Jincao
+          // ..." vs "(Yazhen ...", "(kinso ..." vs "(gashin ..."), while
+          // the Cyrillic transliterations invert the word order ("(Rastvor
+          // dzintsao)": species last) and Russian morphology distinguishes
+          // word endings ("oridzheoda" vs "oridzhinij" differ only from
+          // the sixth code point) -- so a Cyrillic tail keeps its
+          // TRAILING window and every other tail its LEADING one. The
+          // window must clear the same minimum-grapheme floor as the head
+          // (four Latin/Cyrillic, two CJK), else the raw string goes back.
+          const winBudget = bucket - ellW - minHeadW;
+          if (winBudget > 0) {
+            const fromEnd = /[\u0400-\u04ff]/.test(split.tail);
+            const minWin = minHeadFor(split.tail);
+            const tailPts = codePoints(split.tail);
+            const seq = fromEnd ? [...tailPts].reverse() : tailPts;
+            const win: string[] = [];
+            let used = 0;
+            for (const p of seq) {
+              const w = estimate(p);
+              if (used + w > winBudget) break;
+              used += w;
+              win.push(p);
+            }
+            if (win.length >= minWin) {
+              const windowStr = (fromEnd ? win.reverse() : win).join("");
+              out = headStr + ELLIPSIS + windowStr;
+            }
           }
         }
       }

@@ -15,18 +15,22 @@
 // ground truth for the digit ratio is the in-browser measurement recorded
 // next to CHIP_GLYPH_PX in chipSeating.ts: the widest ASCII digit at
 // 11px / weight 700 measures 6.89px live and 6.50px under substitution,
-// i.e. 0.626em. CJK, kana, Hangul, fullwidth forms, CJK punctuation and
-// the Roman-numeral code points are exactly one em in every Han font, so
-// they are charged one em; the bold factor does NOT apply to them (Han
-// faces keep the same advance across weights, and the elision unit test
-// pins one em exactly). Anything unclassified also charges one em: the
-// safest wrong answer for an unknown glyph is a full square.
+// i.e. 0.626em. The Cyrillic classes are calibrated the same way, against
+// per-char advances measured in the live label font and its substitution
+// faces (see the Cyrillic ratios below for the measured maxima). CJK,
+// kana, Hangul, fullwidth forms, CJK punctuation and the Roman-numeral
+// code points are exactly one em in every Han font, so they are charged
+// one em; the bold factor does NOT apply to them (Han faces keep the same
+// advance across weights, and the elision unit test pins one em exactly).
+// Anything unclassified also charges one em: the safest wrong answer for
+// an unknown glyph is a full square.
 //
 // A per-class upper bound inflates a long run of mixed-width letters
-// (~20-25% over its true width), so tail preservation conservatively
-// declines on the longest latin tails; that is the safe direction. This
-// module is deliberately independent of chipSeating.ts: chips keep their
-// own digit-only bound (frozen surface), while this table answers to the
+// (~20-25% over its true width for Latin, less for the calibrated
+// Cyrillic classes), so tail preservation conservatively declines on the
+// longest latin tails; that is the safe direction. This module is
+// deliberately independent of chipSeating.ts: chips keep their own
+// digit-only bound (frozen surface), while this table answers to the
 // label elision budgets only.
 
 export type TextWidthFont = {
@@ -42,11 +46,20 @@ const RATIO_LATIN_UPPER = 0.8;
 // m/w and their uppercase forms are the widest Latin letters in every
 // stack that matters (up to ~0.99em in the sans fallbacks).
 const RATIO_LATIN_WIDE = 1;
-const RATIO_CYRILLIC_LOWER = 0.7;
-const RATIO_CYRILLIC_UPPER = 0.84;
-// The wide Cyrillic letters (zh, sh, shch, yu, y and their uppercase
-// forms) reach a full em in the fallbacks.
-const RATIO_CYRILLIC_WIDE = 1;
+// Cyrillic: measured per-char advances at 12px/400 across the label stack
+// and its substitution faces (Noto Sans SC live, Liberation Sans = Arial
+// metrics, Liberation Mono, generic sans and serif) put the widest
+// non-wide lowercase at 0.625em (U+044A), the widest non-wide uppercase
+// at 0.792em (U+042A), the widest wide-class lowercase at 0.823em (U+0449,
+// U+0444) and the widest wide-class uppercase at 0.924em (U+0416) -- with
+// U+0428/U+0429/U+042E reaching 1.009-1.029em in the serif fallback, one
+// tier higher (none of those three occurs in the pack corpus). Each ratio
+// below charges its measured maximum with headroom.
+const RATIO_CYRILLIC_LOWER = 0.68;
+const RATIO_CYRILLIC_UPPER = 0.82;
+const RATIO_CYRILLIC_WIDE = 0.86;
+const RATIO_CYRILLIC_WIDE_UPPER = 0.95;
+const RATIO_CYRILLIC_EXTRA_WIDE_UPPER = 1.04;
 const RATIO_SPACE = 0.42;
 // Punctuation must cover the monospace fallbacks (0.6em advance for every
 // glyph, including "." in rate estimates).
@@ -61,9 +74,13 @@ const BOLD_FACTOR = 1.06;
 const BOLD_MIN_WEIGHT = 600;
 
 const LATIN_WIDE_CHARS = new Set("mMwW");
+// Wide Cyrillic by case: the lowercase set (zhe, em, sha, shcha, yu, yeru,
+// ef) plus the uppercase forms that share the wide class (U+0416, U+041C,
+// U+042B). U+0428/U+0429/U+042E sit in their own set one tier up.
 const CYRILLIC_WIDE_CHARS = new Set(
-  "\u0436\u043c\u0448\u0449\u044e\u044b\u0416\u041c\u0428\u0429\u042e\u042b",
+  "\u0436\u043c\u0448\u0449\u044e\u044b\u0444\u0416\u041c\u042b",
 );
+const CYRILLIC_EXTRA_WIDE_UPPER_CHARS = new Set("\u0428\u0429\u042e");
 const PUNCT_WIDE_CHARS = new Set("@&%");
 
 // One-em code points: CJK, kana, Hangul, fullwidth forms, Roman numerals.
@@ -103,9 +120,15 @@ export function estimateCharWidth(ch: string, font: TextWidthFont): number {
     ratio = LATIN_WIDE_CHARS.has(ch) ? RATIO_LATIN_WIDE : RATIO_LATIN_UPPER;
     boldable = true;
   } else if (first >= 0x400 && first <= 0x4ff) {
-    if (CYRILLIC_WIDE_CHARS.has(ch)) ratio = RATIO_CYRILLIC_WIDE;
-    else if (first >= 0x41d) ratio = RATIO_CYRILLIC_UPPER;
-    else ratio = RATIO_CYRILLIC_LOWER;
+    // Uppercase is 0x410-0x42F, lowercase 0x430-0x44F.
+    const upper = first <= 0x42f;
+    if (CYRILLIC_EXTRA_WIDE_UPPER_CHARS.has(ch)) {
+      ratio = RATIO_CYRILLIC_EXTRA_WIDE_UPPER;
+    } else if (CYRILLIC_WIDE_CHARS.has(ch)) {
+      ratio = upper ? RATIO_CYRILLIC_WIDE_UPPER : RATIO_CYRILLIC_WIDE;
+    } else {
+      ratio = upper ? RATIO_CYRILLIC_UPPER : RATIO_CYRILLIC_LOWER;
+    }
     boldable = true;
   } else if (first >= 0x20 && first <= 0x7e) {
     // Remaining printable ASCII: punctuation and symbols.

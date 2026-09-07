@@ -24,6 +24,29 @@ describe("canvas/textWidth", () => {
     }
   });
 
+  it("charges every Cyrillic class at or above the measured in-browser bound", () => {
+    const font = { fontSize: 12, weight: 400 };
+    // Per-char advances measured in the live label font and its
+    // substitution faces (Liberation Sans = Arial metrics, Liberation
+    // Mono, generic sans/serif; recorded in the textWidth.ts header):
+    // widest non-wide lowercase 7.5px (U+044A), plain lowercase 7.2px in
+    // the mono substitution, non-wide uppercase 9.5px (U+042A), wide
+    // lowercase 9.88px (U+0449/U+0444), wide uppercase 11.09px (U+0416),
+    // extra-wide uppercase 12.34px (U+042E in the serif fallback).
+    const cases: ReadonlyArray<readonly [string, number]> = [
+      ["\u044a", 7.5],
+      ["\u043e", 7.2],
+      ["\u042a", 9.5],
+      ["\u0449", 9.88],
+      ["\u0444", 9.88],
+      ["\u0416", 11.09],
+      ["\u042e", 12.34],
+    ];
+    for (const [ch, bound] of cases) {
+      expect(estimateCharWidth(ch, font), ch).toBeGreaterThanOrEqual(bound);
+    }
+  });
+
   it("counts CJK and fullwidth characters as exactly one em", () => {
     const font = { fontSize: 12, weight: 400 };
     // Han, kana, fullwidth Latin, fullwidth punctuation.
