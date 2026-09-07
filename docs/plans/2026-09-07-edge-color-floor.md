@@ -60,9 +60,11 @@ Gate evidence 2026-09-07: ledger on unchanged develop code prints min 7.51, pair
 
 ### Task 1: Determinism snapshot and red floor tests
 
-- [ ] Add a test that hashes the full sorted id-to-hsl map and pins it, with a comment saying a changed hash means a reshuffle and must be explained in the commit.
-- [ ] Split `MIN_DELTA_E` into a saturated-band floor of 15 and a gray/cross-band floor of 8, and have the all-pairs test classify each pair by band. Replace the exact-hue test with a bounded-distance test (15 degrees) plus a pinned count of nudged items.
-- [ ] Extend the legible-range guard to admit gray saturation up to 34.
+- [x] Add a test that hashes the full sorted id-to-hsl map and pins it, with a comment saying a changed hash means a reshuffle and must be explained in the commit.
+- [x] Split `MIN_DELTA_E` into a saturated-band floor of 15 and a gray/cross-band floor of 8, and have the all-pairs test classify each pair by band. Replace the exact-hue test with a bounded-distance test (15 degrees) plus a pinned count of nudged items.
+- [x] Extend the legible-range guard to admit gray saturation up to 34.
+
+Gate evidence 2026-09-07: snapshot pins fnv1a-32 ff166069 (same hash the ledger prints) and passes on unchanged code; the all-pairs floor test is red listing 47 violations, diffed pair-by-pair against the ledger's 47 (identical pairs, distances, floors; 28 saturated under 15, 19 gray under 8, 0 cross); family pins, hue-distance, nudged-pin (0), and legible-range tests green. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10/10 green except the one intended red in shard 7 ("keeps every pair of pack item colors perceptually distinct").
 
 **Acceptance:** the floor tests fail listing exactly the pairs the Task 0 script lists; the snapshot test passes on unchanged code.
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import iconsMeta from "@aef/icons/data.json";
 import {
   deltaE,
   hslToLab,
@@ -6,12 +7,24 @@ import {
   itemHue,
 } from "../../src/canvas/itemColor";
 import { pack } from "../../src/data/load";
-import iconsMeta from "@aef/icons/data.json";
 
-// Perceptual floor two pack colors must clear to read as different lines. The
-// metric comes from the implementation (deltaE/hslToLab are exported) so a
+// Perceptual floors two pack colors must clear to read as different lines,
+// split by band (measured 2026-09-07): two saturated-band items clear 15, and
+// any pair involving the gray band - gray-gray or cross-band - clears 8. A
+// uniform 15 is unreachable on this pack even with the gray band deleted
+// (ceiling 13.65), so the gray-involved tier sits at the measured reachable 8.
+// The metric comes from the implementation (deltaE/hslToLab are exported) so a
 // scoring drift cannot let a failing pair slip past.
-const MIN_DELTA_E = 6;
+const SATURATED_FLOOR = 15;
+const GRAY_FLOOR = 8;
+
+// Largest hue offset the separation may apply to an item whose icon hue could
+// not clear its floor on the widened saturation/lightness grid alone.
+const HUE_NUDGE_CAP = 15;
+
+// Icon-saturation threshold that splits the colored and gray bands; mirrors
+// COLOR_SATURATION_MIN in the implementation.
+const COLOR_SATURATION_MIN = 25;
 
 type Hsl = { h: number; s: number; l: number };
 
@@ -46,6 +59,72 @@ function iconHue(iconId: string): number {
 function labOf(itemId: string): [number, number, number] {
   const { h, s, l } = parseHsl(itemColor(itemId));
   return hslToLab(h, s, l);
+}
+
+// Icon dominant hex -> rounded saturation percent, mirroring the
+// module-private conversion in itemColor.ts. The tests classify a band by the
+// item's icon (the band policy's input), not by the placed saturation (an
+// output the widened gray cap can push past the icon threshold).
+function iconSaturation(hex: string): number {
+  const clean = hex.startsWith("#") ? hex.slice(1) : hex;
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const lightness = (max + min) / 2;
+  const saturation =
+    delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+  return Math.round(saturation * 100);
+}
+
+const grayBandIds: ReadonlySet<string> = new Set(
+  (iconsMeta as { icons: { id: string; color: string }[] }).icons
+    .filter((icon) => iconSaturation(icon.color) < COLOR_SATURATION_MIN)
+    .map((icon) => icon.id),
+);
+
+// Icon an item draws its color from. Upstream renamed some item icons, so
+// item.id === item.icon no longer holds pack-wide; the band lookup has to go
+// through the icon the color path itself reads or a renamed item silently
+// falls back to its own id and lands in the wrong band.
+const iconIdByItemId: ReadonlyMap<string, string> = new Map(
+  pack.items.map((item) => [item.id, item.icon]),
+);
+
+function grayBanded(itemId: string): boolean {
+  return grayBandIds.has(iconIdByItemId.get(itemId) ?? itemId);
+}
+
+// Floor for a pair: saturated-saturated clears 15; any pair involving a
+// gray-band item clears 8.
+function floorForPair(aId: string, bId: string): number {
+  return grayBanded(aId) || grayBanded(bId) ? GRAY_FLOOR : SATURATED_FLOOR;
+}
+
+// Circular hue distance 0-180.
+function hueDistance(a: number, b: number): number {
+  const raw = Math.abs(a - b) % 360;
+  return Math.min(raw, 360 - raw);
+}
+
+// FNV-1a over the canonical placement string: "<id>|<h> <s> <l>" lines, ids in
+// plain < order, joined with newlines. tools/color/ledger.ts prints the same
+// fingerprint so a working tree can be cross-checked outside the suite, and its
+// --map output names exactly which entries a changed hash involves.
+function placementFingerprint(): string {
+  const canonical = pack.items
+    .map((item) => ({ id: item.id, color: parseHsl(itemColor(item.id)) }))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((row) => `${row.id}|${row.color.h} ${row.color.s} ${row.color.l}`)
+    .join("\n");
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < canonical.length; i++) {
+    hash ^= canonical.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
 
 describe("canvas/itemColor", () => {
@@ -100,7 +179,10 @@ describe("canvas/itemColor", () => {
       labOf("iron_bottle-liquid_plant_grass_2"),
     );
     expect(d, `iron bottle pair deltaE ${d.toFixed(2)}`).toBeGreaterThanOrEqual(
-      MIN_DELTA_E,
+      floorForPair(
+        "iron_bottle-liquid_plant_grass_1",
+        "iron_bottle-liquid_plant_grass_2",
+      ),
     );
   });
 
@@ -114,28 +196,45 @@ describe("canvas/itemColor", () => {
     }
   });
 
+  it("pins the whole placement map so a reshuffle cannot land silently", () => {
+    // A changed fingerprint means some item's hsl moved. The accepted causes
+    // are the gray-band saturation cap widening and the repair pass for
+    // sub-floor pairs; any other change is a reshuffle the commit that ships
+    // it must explain. tools/color/ledger.ts --map names the moved entries.
+    expect(placementFingerprint()).toBe("ff166069");
+  });
+
   it("keeps every pair of pack item colors perceptually distinct", () => {
     // Channel deltas are not a perceptual metric: hsl(233 12% 70%) and
-    // hsl(258 12% 70%) differ by 25 degrees of hue and read as one gray.
+    // hsl(258 12% 70%) differ by 25 degrees of hue and read as one gray. Each
+    // pair clears the floor for its band pair: 15 for two saturated-band
+    // items, 8 once the gray band is involved. Every violation is collected
+    // into one assertion so a red run lists the full offender set, matching
+    // the ledger's pairs-below-floor list.
     const labs = pack.items.map((item) => {
       const { h, s, l } = parseHsl(itemColor(item.id));
       return { id: item.id, lab: hslToLab(h, s, l) };
     });
+    const violations: string[] = [];
     for (const [i, a] of labs.entries()) {
       for (const b of labs.slice(i + 1)) {
+        const floor = floorForPair(a.id, b.id);
         const d = deltaE(a.lab, b.lab);
-        expect(
-          d,
-          `${a.id} vs ${b.id} deltaE ${d.toFixed(2)}`,
-        ).toBeGreaterThanOrEqual(MIN_DELTA_E);
+        if (d < floor) {
+          violations.push(
+            `${a.id} vs ${b.id} deltaE ${d.toFixed(2)} under floor ${floor}`,
+          );
+        }
       }
     }
+    expect(violations.join("\n")).toBe("");
   });
 
   it("separates the item families the render exam could not trace", () => {
     // Regression pins for the corridors the 2026-07-18 render exam could not
     // follow by color; a future pack or candidate-set change must not put any
-    // of these back on top of each other.
+    // of these back on top of each other. Each pair clears its band tier's
+    // floor, same rule as the all-pairs test above.
     const pairs: readonly (readonly [string, string])[] = [
       ["copper_nugget", "copper_cmpt"],
       ["liquid_plant_grass_1", "xiranite_enr_powder"],
@@ -148,17 +247,38 @@ describe("canvas/itemColor", () => {
       const b = parseHsl(itemColor(bId));
       const d = deltaE(hslToLab(a.h, a.s, a.l), hslToLab(b.h, b.s, b.l));
       expect(d, `${aId} vs ${bId} deltaE ${d.toFixed(2)}`).toBeGreaterThanOrEqual(
-        MIN_DELTA_E,
+        floorForPair(aId, bId),
       );
     }
   });
 
-  it("keeps every pack item's hue pinned to its icon hue", () => {
-    // Separation only moves saturation/lightness; the hue stays the item's
-    // icon-derived family hue so edges remain recognizable by product family.
+  it("keeps every pack item's hue within 15 degrees of its icon hue", () => {
+    // Separation moves saturation and lightness freely; hue may only nudge -
+    // by at most 15 degrees, and only for an item whose floor could not be
+    // cleared on the widened grid at its icon hue - so an edge still reads as
+    // its product family.
     for (const item of pack.items) {
-      expect(parseHsl(itemColor(item.id)).h).toBe(itemHue(item.id));
+      const h = parseHsl(itemColor(item.id)).h;
+      const offset = hueDistance(itemHue(item.id), h);
+      expect(
+        offset,
+        `${item.id} icon hue ${itemHue(item.id)} placed ${h}`,
+      ).toBeLessThanOrEqual(HUE_NUDGE_CAP);
     }
+  });
+
+  it("pins the items whose hue sits off their icon hue", () => {
+    // The nudge is a last resort, so the moved set is pinned outright: a pack
+    // update cannot start nudging items silently. Each entry names the item
+    // and its offset from the icon hue.
+    const nudged = pack.items
+      .map((item) => ({
+        id: item.id,
+        offset: hueDistance(itemHue(item.id), parseHsl(itemColor(item.id)).h),
+      }))
+      .filter((row) => row.offset !== 0)
+      .map((row) => `${row.id} +${row.offset}`);
+    expect(nudged.join(", ")).toBe("");
   });
 
   it("keeps the hue within 0-359", () => {
@@ -178,19 +298,28 @@ describe("canvas/itemColor", () => {
   });
 
   it("keeps every pack item color inside the legible range", () => {
-    // Saturated icons stay clearly colored (s >= 35) and near-gray icons stay
-    // gray-ish (s <= 24), while every lightness lands where it reads against
-    // the dark canvas. The saturation half no longer guards anything on its
-    // own: every pack color is drawn from SAT_CANDIDATES (min 35) or
-    // GRAY_CANDIDATES (max 24), so the two bounds are exactly the candidate
-    // lists restated and the assertion cannot fail while those lists stand. It
-    // stays as a tripwire on the lists themselves. The lightness bounds are the
-    // live part -- they are computed per color by the contrast floor, not
-    // picked from a list, so they are what actually proves no raw icon color
-    // leaks through.
+    // Every placed color stays inside its own band's legible window: a
+    // saturated-band item keeps a clearly colored saturation (>= 35, the floor
+    // of SAT_CANDIDATES), and a gray-band item stays a tint that still reads
+    // gray on the dark canvas (<= 34, the band's widened cap). Checking each
+    // item against its own band keeps this a real guard: the two windows now
+    // abut, so a single combined `s >= 35 || s <= 34` bound would admit every
+    // saturation and assert nothing. Band membership comes from the icon, the
+    // input the placement policy keys on, not from the placed saturation.
+    // The lightness bounds are computed per color by the contrast floor rather
+    // than picked from a list, so they are what proves no raw icon color leaks.
     for (const item of pack.items) {
       const { s, l } = parseHsl(itemColor(item.id));
-      expect(s >= 35 || s <= 24, `${item.id} saturation ${s}`).toBe(true);
+      if (grayBanded(item.id)) {
+        expect(s, `${item.id} gray-band saturation ${s}`).toBeLessThanOrEqual(
+          34,
+        );
+      } else {
+        expect(
+          s,
+          `${item.id} saturated-band saturation ${s}`,
+        ).toBeGreaterThanOrEqual(35);
+      }
       expect(l, `${item.id} lightness ${l}`).toBeGreaterThanOrEqual(46);
       expect(l, `${item.id} lightness ${l}`).toBeLessThanOrEqual(90);
     }
