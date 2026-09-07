@@ -5,7 +5,7 @@
     "sourceRepo": "https://github.com/endfield-calc/factoriolab",
     "sourceCommit": "0a3bb78eea8339177f1b3ba1d16f60ccef78902c",
     "gameVersion": "v1.5.3",
-    "extractedAt": "2026-09-07T06:16:30.213Z"
+    "extractedAt": "2026-09-07T03:21:40.494Z"
   },
   "categories": [
     {
@@ -1163,6 +1163,116 @@
       "raw": false,
       "transportKind": "belt",
       "stack": 50000000
+    },
+    {
+      "id": "activity_xiranite_lung",
+      "name": "息壤龙泡泡",
+      "category": "activity",
+      "icon": "activity_xiranite_lung",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "activity_xiranite_enr_lung",
+      "name": "重息壤龙泡泡",
+      "category": "activity",
+      "icon": "activity_xiranite_enr_lung",
+      "row": 0,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "activity_xiranite_nugget",
+      "name": "实验息壤块",
+      "category": "activity",
+      "icon": "activity_xiranite_nugget",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "activity_xiranite_box",
+      "name": "实验龙泡泡外壳",
+      "category": "activity",
+      "icon": "activity_xiranite_box",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "activity_copper_xiranite_tool",
+      "name": "实验铜骨骼",
+      "category": "activity",
+      "icon": "activity_copper_xiranite_tool",
+      "row": 1,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "activity_copper_poly_gas",
+      "name": "实验息壤铜气",
+      "category": "activity",
+      "icon": "activity_copper_poly_gas",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "activity_copper_poly",
+      "name": "实验息壤铜锭",
+      "category": "activity",
+      "icon": "activity_copper_poly",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "activity_copper_poly_cmpt",
+      "name": "实验息壤铜零件",
+      "category": "activity",
+      "icon": "activity_copper_poly_cmpt",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "activity_xiranite_enr_nugget",
+      "name": "实验重息壤块",
+      "category": "activity",
+      "icon": "activity_xiranite_enr_nugget",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "activity_copper_poly_tool",
+      "name": "实验息壤铜骨骼",
+      "category": "activity",
+      "icon": "activity_copper_poly_tool",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
+    },
+    {
+      "id": "activity_xiranite_enr_box",
+      "name": "实验龙泡泡重壳",
+      "category": "activity",
+      "icon": "activity_xiranite_enr_box",
+      "row": 2,
+      "raw": false,
+      "transportKind": "belt",
+      "stack": 50
     },
     {
       "id": "domain_key_tundra",
@@ -3390,10 +3500,6 @@
         {
           "item": "gas_copper",
           "qty": 1
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3404,6 +3510,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3449,10 +3561,6 @@
         {
           "item": "gas_copper_enr",
           "qty": 2
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3463,6 +3571,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3476,10 +3590,6 @@
         {
           "item": "gas_copper_enr2",
           "qty": 1
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3490,6 +3600,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3763,10 +3879,6 @@
         {
           "item": "gas_copper",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3777,6 +3889,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3817,10 +3935,6 @@
         {
           "item": "gas_copper_enr",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3831,6 +3945,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3844,10 +3964,6 @@
         {
           "item": "liquid_copper",
           "qty": 2
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3858,6 +3974,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3871,10 +3993,6 @@
         {
           "item": "copper_nugget",
           "qty": 2
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3885,6 +4003,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3898,10 +4022,6 @@
         {
           "item": "liquid_copper_enr",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3912,6 +4032,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3939,7 +4065,8 @@
       ],
       "producers": [
         "liquid_purifier_1"
-      ]
+      ],
+      "environment": "stable"
     },
     {
       "id": "gas_copper_enr",
@@ -3979,10 +4106,6 @@
         {
           "item": "copper_enr",
           "qty": 1
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3993,6 +4116,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4020,7 +4149,8 @@
       ],
       "producers": [
         "gas_reactor_1"
-      ]
+      ],
+      "environment": "acidic"
     },
     {
       "id": "phase_trans_2-gas_copper_enr2",
@@ -4033,10 +4163,6 @@
         {
           "item": "copper_enr2",
           "qty": 1
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4047,6 +4173,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4074,7 +4206,8 @@
       ],
       "producers": [
         "xiranite_oven_1"
-      ]
+      ],
+      "environment": "stable"
     },
     {
       "id": "xiranite_powder-carbon_enr",
@@ -4113,7 +4246,7 @@
       "in": [
         {
           "item": "gas_xiranite",
-          "qty": 1.2
+          "qty": 1
         }
       ],
       "out": [
@@ -4124,6 +4257,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4196,10 +4335,6 @@
         {
           "item": "gas_xiranite_enr",
           "qty": 5
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 1
         }
       ],
       "out": [
@@ -4210,6 +4345,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        }
       ]
     },
     {
@@ -4251,10 +4392,6 @@
         {
           "item": "gas_xiranite",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4265,6 +4402,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4306,10 +4449,6 @@
         {
           "item": "gas_xiranite_enr",
           "qty": 5
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 1
         }
       ],
       "out": [
@@ -4320,6 +4459,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 1
+        }
       ]
     },
     {
@@ -4413,10 +4558,6 @@
         {
           "item": "gas_water",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4427,6 +4568,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4461,10 +4608,6 @@
         {
           "item": "gas_acid",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4475,6 +4618,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4488,10 +4637,6 @@
         {
           "item": "liquid_water",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4502,6 +4647,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4514,7 +4665,7 @@
       "in": [
         {
           "item": "liquid_xiranite",
-          "qty": 1.2
+          "qty": 1
         }
       ],
       "out": [
@@ -4525,6 +4676,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4538,10 +4695,6 @@
         {
           "item": "xiranite_powder",
           "qty": 1
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4552,6 +4705,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4606,7 +4765,8 @@
       ],
       "producers": [
         "liquid_purifier_1"
-      ]
+      ],
+      "environment": "stable"
     },
     {
       "id": "phase_trans_1-gas_xiranite_enr",
@@ -4619,10 +4779,6 @@
         {
           "item": "liquid_xiranite_enr",
           "qty": 2
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 1
         }
       ],
       "out": [
@@ -4633,6 +4789,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 1
+        }
       ]
     },
     {
@@ -4646,10 +4808,6 @@
         {
           "item": "xiranite_enr_powder",
           "qty": 2
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 1
         }
       ],
       "out": [
@@ -4660,6 +4818,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        }
       ]
     },
     {
@@ -4673,10 +4837,6 @@
         {
           "item": "liquid_acid",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4687,6 +4847,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -6276,6 +6442,376 @@
       "cost": 30
     },
     {
+      "id": "jinlong_coupon-activity_xiranite_lung",
+      "name": "武陵调度券(息壤龙泡泡)",
+      "category": "settlement",
+      "icon": "DxQbkoaDm",
+      "row": 4,
+      "time": 10,
+      "in": [
+        {
+          "item": "activity_xiranite_lung",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 100
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "jinlong_coupon-activity_xiranite_enr_lung",
+      "name": "武陵调度券(重息壤龙泡泡)",
+      "category": "settlement",
+      "icon": "nvQgypPJO",
+      "row": 4,
+      "time": 10,
+      "in": [
+        {
+          "item": "activity_xiranite_enr_lung",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "jinlong_coupon",
+          "qty": 200
+        }
+      ],
+      "producers": [
+        "settlement-jinlong_coupon"
+      ],
+      "flags": [
+        "hideProducer"
+      ],
+      "cost": 30
+    },
+    {
+      "id": "activity_xiranite_lung",
+      "name": "息壤龙泡泡",
+      "category": "activity",
+      "icon": "activity_xiranite_lung",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "activity_xiranite_box",
+          "qty": 5
+        },
+        {
+          "item": "activity_copper_xiranite_tool",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_xiranite_lung",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "activity_xiranite_enr_lung",
+      "name": "重息壤龙泡泡",
+      "category": "activity",
+      "icon": "activity_xiranite_enr_lung",
+      "row": 0,
+      "time": 10,
+      "in": [
+        {
+          "item": "activity_xiranite_enr_box",
+          "qty": 1
+        },
+        {
+          "item": "activity_copper_poly_tool",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_xiranite_enr_lung",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "activity_xiranite_nugget",
+      "name": "实验息壤块",
+      "category": "activity",
+      "icon": "activity_xiranite_nugget",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "xiranite_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_xiranite_nugget",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "activity_xiranite_box",
+      "name": "实验龙泡泡外壳",
+      "category": "activity",
+      "icon": "activity_xiranite_box",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "activity_xiranite_nugget",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_xiranite_box",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "shaper_1"
+      ]
+    },
+    {
+      "id": "activity_copper_xiranite_tool",
+      "name": "实验铜骨骼",
+      "category": "activity",
+      "icon": "activity_copper_xiranite_tool",
+      "row": 1,
+      "time": 2,
+      "in": [
+        {
+          "item": "copper_cmpt",
+          "qty": 4
+        },
+        {
+          "item": "xiranite_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_copper_xiranite_tool",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "activity_copper_poly_gas",
+      "name": "实验息壤铜气",
+      "category": "activity",
+      "icon": "InN_zV0Bo",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "gas_copper",
+          "qty": 2
+        },
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_copper_poly_gas",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "gas_reactor_1"
+      ],
+      "environment": "stable"
+    },
+    {
+      "id": "phase_trans_2-activity_copper_poly_gas",
+      "name": "实验息壤铜气(固气转化机)",
+      "category": "activity",
+      "icon": "mokYxBo_D",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "activity_copper_poly",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_copper_poly_gas",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
+      ]
+    },
+    {
+      "id": "phase_trans_2-activity_copper_poly",
+      "name": "实验息壤铜锭(固气转化机)",
+      "category": "activity",
+      "icon": "hOwR0Jem2",
+      "row": 2,
+      "time": 2,
+      "in": [
+        {
+          "item": "activity_copper_poly_gas",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_copper_poly",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
+      ]
+    },
+    {
+      "id": "activity_copper_poly_cmpt",
+      "name": "实验息壤铜零件",
+      "category": "activity",
+      "icon": "activity_copper_poly_cmpt",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "activity_copper_poly",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_copper_poly_cmpt",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "cmpt_mc_1"
+      ]
+    },
+    {
+      "id": "activity_xiranite_enr_nugget",
+      "name": "实验重息壤块",
+      "category": "activity",
+      "icon": "activity_xiranite_enr_nugget",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "xiranite_enr_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_xiranite_enr_nugget",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "furnance_1"
+      ]
+    },
+    {
+      "id": "activity_copper_poly_tool",
+      "name": "实验息壤铜骨骼",
+      "category": "activity",
+      "icon": "activity_copper_poly_tool",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "activity_copper_poly_cmpt",
+          "qty": 1
+        },
+        {
+          "item": "xiranite_enr_powder",
+          "qty": 1
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_copper_poly_tool",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "tools_asm_mc_1"
+      ]
+    },
+    {
+      "id": "activity_xiranite_enr_box",
+      "name": "实验龙泡泡重壳",
+      "category": "activity",
+      "icon": "activity_xiranite_enr_box",
+      "row": 2,
+      "time": 10,
+      "in": [
+        {
+          "item": "activity_xiranite_enr_nugget",
+          "qty": 1
+        },
+        {
+          "item": "gas_inert",
+          "qty": 5
+        }
+      ],
+      "out": [
+        {
+          "item": "activity_xiranite_enr_box",
+          "qty": 1
+        }
+      ],
+      "producers": [
+        "shaper_1"
+      ],
+      "locations": [
+        "jinlong"
+      ]
+    },
+    {
       "id": "transfer_tundra_bottled_food_1",
       "name": "柑实罐头",
       "category": "__domain_transfer",
@@ -7632,5 +8168,9 @@
         "__domain_transfer"
       ]
     }
-  ]
+  ],
+  "environmentBadges": {
+    "stable": "LESvbc0cp",
+    "acidic": "ynGeJZzIH"
+  }
 }
