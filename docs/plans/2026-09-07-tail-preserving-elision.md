@@ -605,10 +605,47 @@ generated from the same dump, names resolved from the pack at run time).
   exactly as RecipeNode computes it): "Моду…упак" vs raw "Модуль
   формовки", asserted distinct with exact strings. elide + textWidth +
   subtitle-replay files: 18/18 green.
-- [ ] W11 -- Controls: row-collisions (48/48 + titles), chip-widths
+- [x] W11 -- Controls: row-collisions (48/48 + titles), chip-widths
   18/18, geometry-audit at the adjudicated failset, placement-shots
   re-recorded only if pixels moved (en-only suite: the rule only changes
   Cyrillic strings, so no re-record is expected).
+
+- Evidence (W11, controls on the final tree): row-collisions 96/96 GREEN
+  (48 row + 48 title, fresh build). chip-widths 18/18 GREEN.
+  geometry-audit fails with EXACTLY the adjudicated develop-tip control
+  failset, byte-for-byte the same standing findings: (1) lanes
+  on/battery5-xiranite "2 padding graze(s) exceeds baseline 0" (e:32
+  gas_xiranite tap segments); (2) lanes on/multi6 RAW 1 (standing e:97
+  u:in:liquid_water loop:plant_grass_2 -> u:class:q:53 piercing
+  u:class:q:56); (3) lanes off/battery5-xiranite RAW 1 (e:37
+  originium_ore pierces loop:plant_moss_3) + "3 padding graze(s)
+  exceeds baseline 0" + "28 crossings exceeds pre-P2 baseline 24"; (4)
+  lanes off/multi6 RAW 1. placement-shots 12/12 GREEN against the
+  existing refinement-round goldens -- NO re-record: the stem-first rule
+  only changes Cyrillic strings and the placement suite captures en
+  only, exactly as predicted. Frozen surfaces verified byte-identical to
+  develop (git diff develop empty on each): src/canvas/chipSeating.ts,
+  test/e2e/geometry-audit.spec.ts, test/e2e/geometry.ts,
+  test/e2e/chip-widths.spec.ts. Gates: typecheck OK, typecheck:tools OK,
+  lint OK, shards 1-10 EXIT=0.
+
+- Evidence (visual, multi6 fit zoom, 4x device scale, cropped to the
+  card): BEFORE (rule temporarily disabled, same tree) the two module
+  cards read the rhyming trailing windows "Моду…аковки" (upakovki,
+  x5 chip) and "Моду…мовки" (formovki, x5) -- and at the x2.50 chips
+  both read the IDENTICAL "Моду…овки", the finding. AFTER (HEAD) they
+  read their stems, "Моду…упаков" and "Моду…формо" (x5 cards; the x2.50
+  cards read "Моду…упак" vs the raw "Модуль формовки" whose CSS clip is
+  "Модуль ф…", verified by the live title probe). Bottle rows
+  re-captured in all three locales, strings unchanged from the
+  refinement round: en "Cupr…(Jin"/"Cupr…(Yaz", ru "Купр…цао)"/
+  "Купр…эня)", ja "赤銅…(錦草エ"/"赤銅…(芽針エ" -- no row regression.
+  Capture paths: /tmp/before-stc-r2-modu-{0,1}-0.png,
+  /tmp/after-stc-r2-modu-{0,1}-0.png,
+  /tmp/after-stc-r2-{en,ru,ja}-copper_bottle-liquid_plant_grass_{1,2}.png
+  (before-captured by temporarily disabling the stem-first condition in
+  a scratch build, then restoring the committed source; git diff HEAD
+  empty after restore).
 
 - Evidence (W8, commit follows W7): `src/canvas/elide.ts` tier (b) gains
   the stem-first condition -- a bare token/run tail whose whole base
