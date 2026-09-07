@@ -36,8 +36,9 @@ import { iconIdForItem } from "./iconSprite";
 // placement and its determinism/stability tradeoff, and
 // repairOffendingPairs for the floor-enforcing pass that follows it: pairs the
 // max-min placement left under the two-tier separation floor get their
-// later-placed member re-placed on a finer grid at the same icon hue, so only
-// offenders ever move.
+// later-placed member re-placed on a finer grid, at the item's icon hue or, if
+// that fails, at the smallest nudge off it (bounded by HUE_NUDGE_CAP), so only
+// offenders ever move and their family hue still reads.
 //
 // Item ids with no icon entry (synthetic test ids and the like) fall back to a
 // djb2 hash folded to 0-359, so itemHue never throws on an unknown id. Every
@@ -155,6 +156,13 @@ const REPAIR_SAT_STEP = 5;
 const REPAIR_GRAY_SAT_MIN = 5;
 const REPAIR_LIGHT_CAP = 96;
 const REPAIR_MAX_SWEEPS = 8;
+
+// How far the repair search may push an item's hue off its icon hue. The
+// nudge is the last resort: the search tries the icon hue itself first, then
+// offsets in ascending magnitude, and an item only leaves its icon hue when
+// no point at the icon hue cleared the floor. Fifteen degrees is small
+// enough that an edge still reads as its product family.
+const HUE_NUDGE_CAP = 15;
 
 // Canvas background the edge colors and chips sit on (--ak-bg-canvas). The floor
 // below keeps every color readable against this near-black. Exported so the CSS
@@ -403,13 +411,24 @@ function repairSaturationRungs(gray: boolean): number[] {
 }
 
 type RepairCandidate = {
+  hue: number;
   s: number;
   l: number;
   lab: [number, number, number];
   minDistanceSq: number;
 };
 
-// Best eligible repair point for one item at its own icon hue, against every
+// Hue offsets the repair search tries, smallest magnitude first: the icon hue
+// itself, then a nudge ladder out to HUE_NUDGE_CAP in both directions.
+function repairHueOffsets(): readonly number[] {
+  const offsets: number[] = [0];
+  for (let off = 1; off <= HUE_NUDGE_CAP; off++) {
+    offsets.push(off, -off);
+  }
+  return offsets;
+}
+
+// Best eligible repair point for one item at one hue offset, against every
 // other placed item. A candidate is eligible only if it clears the pair floor
 // against all of them (and lightness never starts below the contrast floor),
 // so accepting a candidate cannot break a pair that already cleared; among
@@ -419,12 +438,14 @@ type RepairCandidate = {
 function searchRepairGrid(
   mover: PlacedItem,
   others: readonly PlacedItem[],
+  hueOffset: number,
 ): RepairCandidate | undefined {
+  const hue = (mover.h + hueOffset + 360) % 360;
   let best: RepairCandidate | undefined;
   for (const s of repairSaturationRungs(mover.gray)) {
-    const lo = floorLightness(mover.h, s, LIGHT_FLOOR);
+    const lo = floorLightness(hue, s, LIGHT_FLOOR);
     for (let l = lo; l <= REPAIR_LIGHT_CAP; l++) {
-      const lab = hslToLab(mover.h, s, l);
+      const lab = hslToLab(hue, s, l);
       let minSq = Infinity;
       let eligible = true;
       for (const other of others) {
@@ -438,7 +459,7 @@ function searchRepairGrid(
         }
       }
       if (eligible && (best === undefined || minSq > best.minDistanceSq)) {
-        best = { s, l, lab, minDistanceSq: minSq };
+        best = { hue, s, l, lab, minDistanceSq: minSq };
       }
     }
   }
@@ -446,17 +467,43 @@ function searchRepairGrid(
 }
 
 // Repair pass over the finished placement: walk the pairs still under their
-// floor in placement order and re-place only the later-placed member. The
-// placement maximizes the worst distance but guarantees no floor; this pass
-// supplies one, moving as few items as the grid allows. Every move is an
-// offender - the later member of an offending pair - so items already at or
-// above their floor keep their exact hsl. Sweeps repeat because one move can
+// floor in placement order and re-place the later-placed member. The placement
+// maximizes the worst distance but guarantees no floor; this pass supplies
+// one, moving as few items as the grid allows. Every move is an offender - a
+// member of an offending pair - so items already at or above their floor keep
+// their exact hsl. Each mover searches its icon hue first and only then the
+// bounded nudge ladder, so hue moves are a last resort and as small as the
+// grid allows. When the later member has no eligible point anywhere in the
+// allowed hue range - boxed in by its own family, as the dense copper-hue
+// cluster on this pack - the earlier member gets the same ladder, which is
+// what lets every pair reach its floor. Sweeps repeat because one move can
 // expose a better fix for the next; they stop when a sweep moves nothing, and
 // the sweep bound backs the loop with a hard cap.
 function repairOffendingPairs(
   placed: PlacedItem[],
   out: Map<string, string>,
 ): void {
+  const hueOffsets = repairHueOffsets();
+  const tryRepair = (index: number): boolean => {
+    for (const offset of hueOffsets) {
+      const mover = placed[index]!;
+      const others = placed.filter((_, k) => k !== index);
+      const best = searchRepairGrid(mover, others, offset);
+      if (best === undefined) {
+        continue;
+      }
+      placed[index] = {
+        ...mover,
+        h: best.hue,
+        s: best.s,
+        l: best.l,
+        lab: best.lab,
+      };
+      out.set(mover.id, `hsl(${best.hue} ${best.s}% ${best.l}%)`);
+      return true;
+    }
+    return false;
+  };
   for (let sweep = 0; sweep < REPAIR_MAX_SWEEPS; sweep++) {
     const offenders: { earlier: number; later: number }[] = [];
     for (let i = 0; i < placed.length; i++) {
@@ -476,18 +523,13 @@ function repairOffendingPairs(
     for (const { earlier, later } of offenders) {
       // A move earlier in this sweep may already have cleared this pair.
       const a = placed[earlier]!;
-      const mover = placed[later]!;
-      if (deltaE(a.lab, mover.lab) >= pairFloor(a, mover)) {
+      const b = placed[later]!;
+      if (deltaE(a.lab, b.lab) >= pairFloor(a, b)) {
         continue;
       }
-      const others = placed.filter((_, index) => index !== later);
-      const best = searchRepairGrid(mover, others);
-      if (best === undefined) {
-        continue;
+      if (tryRepair(later) || tryRepair(earlier)) {
+        moved = true;
       }
-      placed[later] = { ...mover, s: best.s, l: best.l, lab: best.lab };
-      out.set(mover.id, `hsl(${mover.h} ${best.s}% ${best.l}%)`);
-      moved = true;
     }
     if (!moved) {
       return;

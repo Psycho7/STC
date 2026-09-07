@@ -87,8 +87,12 @@ Gate evidence 2026-09-07: repairOffendingPairs in src/canvas/itemColor.ts walks 
 
 ### Task 4: Repair pass, bounded hue nudge
 
-- [ ] For offenders the widened grid could not clear, extend the search to hue offsets up to 15 degrees in both directions, smallest offset first, same objective.
-- [ ] Record the final nudged-item list and pin its count in the Task 1 test.
+- [x] For offenders the widened grid could not clear, extend the search to hue offsets up to 15 degrees in both directions, smallest offset first, same objective.
+- [x] Record the final nudged-item list and pin its count in the Task 1 test.
+
+Deviation recorded 2026-09-07: with the later-placed member as the only re-placement target, the pass stalls at 11 saturated pairs - every surviving mover is boxed in (no point within 15 degrees of its icon hue clears against the placement earlier movers took). The search therefore falls back to the pair's earlier member, same ladder (icon hue first), only when the later member has no eligible point at any allowed offset. Both members of a processed pair are offenders, so R3 (only offenders move) and R4 (icon hue first, bounded 15, nudged count pinned) hold; the plan's T3 wording said "only the later-placed member", and the fallback is the minimal completion that reaches the ruled floors.
+
+Gate evidence 2026-09-07: ledger shows saturated-band min 15.02, gray-band min 9.35, cross-band min 8.02, zero pairs below their tier floor; hue moves 10 items, offsets 1-14 degrees (copper_cmpt -8, copper_enr -14, copper_enr2_cmpt -14, copper_nugget -5, copper_powder -12, equip_script_4_2 -7, gas_copper_enr -3, liquid_copper_enr +12, plant_bbflower_powder_1 +1, plant_moss_powder_1 +6), pinned with signed offsets in the test. Issue pairs: gas_copper/gas_copper_enr 16.95, copper_ore/copper_cmpt 69.39, copper_nugget/gas_copper 18.23, originium_ore/originium_powder 17.25. Map diff t2 -> final: 18 changed entries, every one a member of a t2 offender pair; non-offenders byte-identical. Fingerprint b577d038 (repeat run reproduces it). The legible-range guard became band-aware (colored band s >= 35, gray band s <= 34) because the repair grid places three saturated offenders at s 35-40. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10/10 all green (139/180/152/298+1skip/132/111/154/185/128/221).
 
 **Acceptance:** all four issue pairs at or above 15; all-pairs floor tests green; nudged count pinned; every non-offender hsl identical to Task 2's map.
 
