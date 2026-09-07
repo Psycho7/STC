@@ -118,9 +118,10 @@ test.describe("raw-product boundaries and transport-kind styling", () => {
     await expect(minerRecipeNode).toHaveCount(0);
 
     // The ore is neither built nor imported - plan:true asked for it to be
-    // built - so it leaves the plan with the furnace route, and what is left is
-    // the phase-transition route drawing gas_xiranite at the boundary. The
-    // rest of the demand goes unmet, which the stats strip reports.
+    // built - so it leaves the plan together with the furnace route it fed, and
+    // draws no boundary node of its own. What is left is the phase-transition
+    // route, whose xiranite draw is covered by the next assertion. The rest of
+    // the demand goes unmet, which the stats strip reports.
     const copperOreInput = page.locator(
       '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_ore"]',
     );
