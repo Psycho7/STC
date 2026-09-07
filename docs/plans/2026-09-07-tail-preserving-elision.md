@@ -440,3 +440,142 @@ all four locales.
   title/products surfaces through their tiers. The monospace-stub cases
   stay. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10
   EXIT=0 (9/9 in file).
+
+---
+
+## Refinement round 2 (controller, 2026-09-07)
+
+A validator re-measured the refined branch (4b10d2e) and found the
+partial-tail tier (b) creating a TITLE-surface collision the row guard
+cannot see. Work items W7-W11 below (the controller's five items for this
+round) close it. The finding, verbatim:
+
+> The partial-tail tier (b) creates a TITLE-surface collision on
+> ru/multi6: "Модуль упаковки" (Packaging) and "Модуль формовки"
+> (Moulding), both carrying x2.50 multiplier chips, elide to the IDENTICAL
+> string "Моду…овки" (trailing window "овки" -- the tails rhyme in -овки,
+> and the distinguishing char is the base's next letter у/ф which tier (b)
+> discards). At x5 budgets they read "Моду…аковки" vs "Моду…мовки"
+> (distinct). Develop's CSS clip kept them distinct ("Модуль у…" vs
+> "Модуль ф…"). Nothing currently guards titles. Constraint: whatever
+> rule you choose must be PURE and CONTEXT-FREE (no sibling knowledge --
+> R1 stands).
+
+### Measurement (offline replay, full corpus x 4 locales)
+
+The refinement-round replay was rebuilt and extended: the corpus dump now
+records, per page (12 scenarios x 4 locales), every row (item id, rate,
+sprite), every card (recipe id, multiplier-chip text actually present) and
+-- new -- the MEASURED in-browser rendered prefix (the row-collisions
+binary-search probe at the real DOM box) for every raw row and raw title,
+so CSS-clipped raws are compared by what the reader actually sees. The
+replay resolves raw names from the pack, derives budgets exactly as
+RecipeNode does (title budget includes each chip variant's estimated box),
+runs the real helper, and counts per-page rendered-string collisions per
+surface. Subtitles (two-line clamp, not faithfully measurable -- see W8)
+are replayed with the conservative estimator clip at the 185px products
+budget.
+
+Before any change: 1780 rows / 688 titles / 764 subtitle items replay to
+rows 0, titles 8, subtitles 0 collisions. All 8 are the finding's class:
+"Моду…овки" for shaper_1 ("Модуль формовки") vs tools_asm_mc_1 ("Модуль
+упаковки") on battery5-xiranite/multi6/script43/gas-web (x2.50/x0.50),
+tundra (x0.17, where cmpt_mc_1 "Модуль штамповки" joins the pair) and
+coupon-web (x0.34). Rows replay to zero, matching the 48/48 live probe:
+the collision class is title-only.
+
+Directions measured before choosing:
+
+- Direction (iii) alone -- defer to raw+CSS when the window would be weak
+  -- was simulated as "return raw whenever the whole base fits beside the
+  ellipsis": titles stay at 8 collisions (a DIFFERENT set: the raw clips
+  read "Модуль п…" for planter_1 "Модуль посадки" vs grinder_1 "Модуль
+  перемалывания") and rows REGRESS to 11 (multi6/ru "Молотый …" and
+  "Раствор …", multi6/en "Amethyst …"). REJECTED: the CSS clip reaches a
+  distinguishing char only by luck of the budget; it cannot be the rule.
+- A window floor relative to tail length cannot separate the classes: the
+  ru powders keep a 4-of-9-grapheme window at the 81.2px row budget
+  ("Мелк…еода" vs "Мелк…иний", the headline row goal) while the module
+  pair's colliding window is 4 of 8 -- adjacent integers, no principled
+  threshold exists. NOT CHOSEN.
+
+### Chosen rule (measured): leading window when the whole base survives
+
+For a bare word/run tail (tail kinds "token"/"run"), the tier-(b) window
+now opens from the tail's START whenever est(base + ellipsis) <= budget;
+otherwise the script-direction window stands (trailing for Cyrillic,
+leading for everything else). Bracket and CJK-boundary tails are
+unchanged. Rationale, measured: a bare token tail is a single word, and
+the corpus languages carry the lexeme in the word's stem while inflect
+at its end -- sibling names diverge at the tail's head (упаковка/
+формовка/штамповка differ from their first letters and share the -овки
+ending a trailing window collapses onto). When the base does NOT fit
+whole, the raw CSS clip would eat the base itself onto the
+sibling-shared prefix, and every measured row family of that shape puts
+the distinction in the tail's END (ориджеода/ориджиний, деталь/руда,
+деталь/компонент) -- so the trailing window stays there, as it does for
+Cyrillic bracket tails (species-last transliterations). The rule remains
+pure and context-free (R1 stands).
+
+After the change the same replay reads rows 0, titles 0, subtitles 0.
+The ru module family at the real title budgets: at the 121.6px
+x0.17/x0.34/x0.50/x2.50 budgets "Моду…упак" (window) vs raw "Модуль
+формовки" (its leading window "фор" falls below the 4-grapheme floor --
+wide ф/м charge more -- so the whole name goes back and CSS keeps
+"Модуль ф…", the develop look) vs raw "Модуль штамповки" -- distinct at
+every chip budget; at x5 all three window lead ("Моду…упаков",
+"Моду…формо", "Моду…штамп"); at 185 "Модуль упаковки" fits whole. The
+four-locale bottle goal pairs at the 86px row budget are untouched
+(bracket tails and raw paths do not change) and replay distinct
+("Cupr…(Jinc"/"(Yazh", "Купр…цао)"/"эня)", "赤銅…(錦草エ"/"(芽針エ",
+"赤铜…(锦草溶"/"(芽针溶"). Measured residue: the Тяжелый pair
+("Тяжелый ксираген"/"Тяжелый ксиранит"; base fits at the 89.5px
+rate-30/60 row budgets) windows leading "Тяже…ксир" for BOTH -- their
+tails share the stem ксир- and differ only in the ending the leading
+window now discards. They never co-render at equal rates in the corpus
+(zero probe collisions before and after), recorded here and pinned in
+the battery as exact identical outputs (W9).
+
+### Title guard and subtitle assessment (W9)
+
+row-collisions.spec.ts gains a per-page TITLE check using the same
+rendered-prefix probe (titles are single-line: measure each
+`.machine-title .cn`, compare per page across all scenarios x 4 locales,
+keyed by the raw title string, so multiple cards of one machine are
+legal). Nothing is allow-listed: the only byte-identical machine names
+(the settlement pair) never co-render and are invisible to a
+raw-name-keyed guard by construction -- the same data-defect class as
+the row pair. Subtitles cannot be measured faithfully: `.rn-products` is
+a two-line -webkit-line-clamp box that wraps, so the single-line
+binary-search probe does not model what the reader sees; recorded here,
+and the subtitle surface is guarded instead by an offline vitest replay
+over a pinned, ASCII-safe corpus fixture (page -> subtitle item ids,
+generated from the same dump, names resolved from the pack at run time).
+
+### Test notes from validation (W10)
+
+- (a) textWidth.test.ts pins the exact non-wide uppercase ratio for the
+  Cyrillic letters of А-М (U+0410-0413 class) -- the exact class the old
+  0x41d threshold mischarged as lowercase -- so a reintroduced threshold
+  cannot slip past.
+- (b) the real-budget battery's Тяжелый family changes (the measured
+  residue above): moved from the pairwise-distinct list to an exact pin
+  of the two identical "Тяже…ксир" outputs at the rate-30 budget with
+  the never-co-renders note. Every other battery pin is unchanged
+  (measured before/after).
+- (c) the battery gains the ru module pair at the real x2.50 title
+  budget (121.64px, derived exactly as RecipeNode derives it), asserted
+  distinct with exact strings.
+
+### Refinement round 2 tasks
+
+- [x] W7 -- this record: finding, measurements, chosen rule, guards.
+- [ ] W8 -- Leading-window rule in `src/canvas/elide.ts` (+ the
+  render-conventions sentence it changes); replay green.
+- [ ] W9 -- Title probe in `test/e2e/row-collisions.spec.ts`; subtitle
+  vitest replay fixture.
+- [ ] W10 -- Test notes (a)/(b)/(c) above.
+- [ ] W11 -- Controls: row-collisions (48/48 + titles), chip-widths
+  18/18, geometry-audit at the adjudicated failset, placement-shots
+  re-recorded only if pixels moved (en-only suite: the rule only changes
+  Cyrillic strings, so no re-record is expected).
