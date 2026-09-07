@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import { catalystDrawFromRates, solveLp } from "./lp";
+import { solvePlanWithIntermediates } from "./index";
+import { defaultTransportConfig } from "../data/transport-config";
 import {
   CATALYST_FIXTURES,
   CLOSED_FORM_FIXTURES,
@@ -19,6 +21,18 @@ function checkFixture(fx: ClosedFormFixture): void {
 
   for (const item of fx.expected.deficitItems ?? []) {
     expect(r.deficit.has(item), `expected deficit on ${item}`).toBe(true);
+  }
+  // Shortfall magnitudes are pinned exhaustively when declared.
+  const shortfalls = fx.expected.deficits;
+  if (shortfalls !== undefined) {
+    expect([...r.deficit.keys()].sort()).toEqual(
+      shortfalls.map((d) => d.itemId).sort(),
+    );
+    for (const d of shortfalls) {
+      expect(r.deficit.get(d.itemId)!.equals(new Fraction(d.num, d.den))).toBe(
+        true,
+      );
+    }
   }
   if (fx.expected.softFeasible) {
     expect(r.deficit.size, "no deficits when softFeasible").toBe(0);
@@ -74,6 +88,31 @@ describe("closed-form fixtures - catalysts", () => {
   for (const fx of CATALYST_FIXTURES) {
     it(`${fx.name}: matches closed-form expected`, () => {
       checkFixture(fx);
+    });
+  }
+
+  // solveLp alone never runs the reference-free checkers. Take the same four
+  // through the pipeline entry that does (assertInvariants fires under DEV),
+  // so "no invariant assertion fires on a cycled catalyst" is asserted rather
+  // than assumed, and read catalystDraw off the assembled plan instead of
+  // recomputing it.
+  for (const fx of CATALYST_FIXTURES) {
+    it(`${fx.name}: passes the solve-pipeline invariants`, () => {
+      const full = solvePlanWithIntermediates(
+        fx.targets,
+        fx.pack,
+        defaultTransportConfig,
+        fx.itemOverrides ?? [],
+      );
+      const cat = fx.expected.catalystDraw!;
+      expect([...full.catalystDraw.keys()].sort()).toEqual(
+        cat.map((c) => c.itemId).sort(),
+      );
+      for (const c of cat) {
+        expect(
+          full.catalystDraw.get(c.itemId)!.equals(new Fraction(c.num, c.den)),
+        ).toBe(true);
+      }
     });
   }
 });
