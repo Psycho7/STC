@@ -14,6 +14,7 @@
 - **R2 - Tail rule only; no zh leading-prefix protection (2026-09-07).** zh marks tiers by a leading prefix (`优质`, `精选`) that tail preservation cannot protect. Those names are 4-6 characters and do not clip at card width today. Record the gap; do not build middle elision.
 - **R3 - Pin the header grid columns (2026-09-07).** The card header's `auto 1fr auto` columns become constants so the title and subtitle budgets are deterministic. This also closes the #38 residual where the non-shrinking multiplier chip squeezed the title.
 - **R4 - Test housekeeping (controller calls, 2026-09-07).** `test/e2e/title-truncation.spec.ts` becomes vacuous once the helper owns the string; delete it and move its issue references to the new unit test. `test/e2e/placement-shots.spec.ts` goldens change because label pixels change; re-record them in the final task as a deliberate, annotated re-baseline.
+- **R5 - Partial-tail preservation allowed (2026-09-07, controller review).** When the whole suffix plus the minimum head cannot fit the budget, the helper may preserve a PARTIAL suffix instead of returning the raw string. The row budget cannot widen and re-scoping is rejected (it concedes the live collisions). The pixel probe returns to the row-collisions guard regardless, and real-budget tests are mandatory.
 
 ## Evidence (develop@6706c7e)
 
@@ -95,7 +96,7 @@ graph LR
 - [x] Compute the row budget in `RecipeNode` from the constants: half body width minus row padding and gap, minus the icon column when a sprite renders, minus the estimated rate string width. Over-estimating the rate string is the safe direction.
 - [x] Pass the helper's output as the visible label; keep `title=` on the full string.
 
-**Acceptance:** a jsdom unit test renders the four bottle recipes and asserts the visible row strings differ; `test/canvas/node-name-tooltip.test.tsx` still passes.
+**Acceptance:** a jsdom unit test renders the four bottle recipes and asserts the visible row strings differ; `src/canvas/node-name-tooltip.test.tsx` still passes.
 
 - Evidence (T4): RecipeNode computes half of geom.width minus row chrome (pad 14, sprite 20 + gap when a sprite renders, one gap to the rate) minus the upper-bound rate estimate, and renders `elideName`'s output as `.lbl` text with `title` on the full name. New jsdom cases: the four solution-bottle output rows keep the raw string with the full name on title (their parenthesis tails exceed even the estimate-free row budget -- the sanctioned CSS fallback), and the bracket-family syringe rows elide head-first and end in "[A]"/"[C]". CORRECTED 2026-09-07 per the controller's post-implementation measurement: the earlier wording claimed the four solution-bottle rows "are pairwise distinct". That distinctness holds only at the textContent level, where the jsdom assertion compares the raw fallback strings; for raw-fallback rows the assertion is vacuous, because textContent is the unelided name whatever the pixels do. At pixel level on multi6 the two copper-bottle rows render the identical clipped prefix in en, ru and ja (CSS tail ellipsis over one shared long head); zh differs only by clip geometry. The bracket-family half of the assertion stands unchanged. node-name-tooltip 2/2 green. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10 EXIT=0.
 
@@ -209,3 +210,152 @@ head; unchanged by this branch; ru names transliterated here):
 
 Plus the two already recorded above: the zh tier-prefix gap (R2) and the
 byte-identical transfer_tundra_glass_bottle / glass_bottle pair.
+
+---
+
+## Refinement round (controller review, 2026-09-07)
+
+A human review adjudicated the validation-round defects and ruled R5
+(partial-suffix preservation allowed; pixel-probe guard mandatory;
+real-budget tests mandatory). Work items W1-W6 below refine the branch under
+that ruling. Findings, recorded verbatim from the review:
+
+1. **Row-label collisions: 25 on develop AND 25 on the branch -- identical
+   per scenario. The branch removed ZERO collisions.** The helper's
+   raw-string fallback tier hands misfit rows back to CSS tail ellipsis,
+   which clips prefix-sharing siblings to the same visible prefix (row
+   budget ~86px, parenthesis tail ~133px; e.g. multi6's copper bottles both
+   render "Cuprium Bot..." in en, "Куприевая б..." in ru, "赤銅ボトル(..."
+   in ja).
+2. **Guard regression.** The widened row-collisions spec compares raw
+   textContent, while develop's version measured the RENDERED visible
+   prefix (hidden-span binary-search probe); the branch deleted the only
+   guard that could see the defect.
+3. **Test-budget fiction.** Every helper test uses budgets of 96-208px; the
+   real row budget is ~86px (measured: real label box 78-92px depending on
+   the rate string; the helper's estimate-derived budget is 81.2px on
+   rate-"150" sprite rows and 89.5px on rate-"60" rows). The production
+   regime was untested.
+4. **Citation fix.** The T4 evidence cited the tooltip test at
+   `test/canvas/node-name-tooltip.test.tsx`; the file lives at
+   `src/canvas/node-name-tooltip.test.tsx`. Fixed above.
+
+### Before/after collision ledger (rendered-prefix probe, full corpus x 4 locales)
+
+The restored pixel probe (W4) ran on the pre-W2 tree (2c52767): 25
+collisions, matching the review exactly. Per scenario/locale (deduped
+readout, item a vs item b):
+
+| page | n | collisions |
+| --- | --- | --- |
+| crystal/ru | 2 | 'Мелкомолот…\|60' crystal_enr_powder vs originium_enr_powder |
+| equip4/ru | 2 | 'Мелкомолот…\|120' crystal_enr_powder vs originium_enr_powder |
+| multi6/en | 2 | 'Cuprium Bot…\|150' copper_bottle-liquid_plant_grass_1 vs _2 |
+| multi6/ja | 2 | '赤銅ボトル(…\|150' copper_bottle-liquid_plant_grass_1 vs _2 |
+| multi6/ru | 10 | 'Куприевая б…\|150' solutions 1 vs 2 and vs copper_bottle; 'Куприевая …\|300' copper_cmpt vs copper_ore |
+| rot-bottled_food_3/ja | 2 | 'サンドリーフ…\|300' and '\|600' plant_moss_seed_3 vs plant_moss_powder_3 |
+| rot-bottled_food_4/ru | 4 | 'Ферриевая …\|150' iron_bottle-liquid_plant_grass_1 vs iron_bottle; 'Ферриевая …\|300' iron_cmpt vs iron_ore |
+| script43/ru | 1 | 'Пирролитов…\|30' copper_enr2_cmpt vs equip_script_4_3 |
+
+After W2 the same probe is GREEN plan-wide (the byte-identical
+transfer_tundra_glass_bottle / glass_bottle pair excepted); see the W4
+evidence below. An offline replay of all 1780 dumped corpus rows through the
+refined helper predicted 0 collisions before implementation.
+
+### Chosen partial-tail policy (measured)
+
+Measured in-browser (Noto Sans SC live, Liberation Sans = Arial-metric
+substitution, Liberation Mono, generic sans/serif; 12px/400 per-char
+advances, recorded in the textWidth.ts header) and replayed against the
+dumped corpus before implementation. The policy keeps the helper pure,
+deterministic and context-free (R1 stands); the tier order becomes
+(a) whole suffix + head-truncated base, (b) PARTIAL suffix, (c) raw.
+
+- **Window direction, by tail script.** The parenthesis bottles'
+  distinguishing tokens sit at the START of the bracket group in Latin and
+  CJK ("(Jincao ..." vs "(Yazhen ...", "(錦草 ..." vs "(芽針 ..."), but the
+  Cyrillic transliterations invert the word order ("(Раствор цзиньцао)":
+  the species is the LAST word) and Russian morphology carries the
+  distinction in word endings ("ориджеода" vs "ориджиний" differ only from
+  char 6). A trailing-end window therefore reproduces the en/ja bottle
+  collision (both end "tion)") and a leading window reproduces the ru one
+  (both start "(Рас"). VERIFIED with the estimator: tails containing
+  Cyrillic keep a TRAILING window, all others a LEADING window.
+- **Window allocation and floor.** Exact minimum head (4 graphemes
+  Latin/Cyrillic, 2 CJK -- the min-head ruling mirrored) + ellipsis +
+  longest window that fits; the window must keep >= 4 graphemes
+  Latin/Cyrillic or >= 2 CJK, else raw fallback stays.
+- **Which tails may window.** Bracket tails always; a new CJK-boundary
+  tail always (see below); bare word/run tails only when the base is a
+  SINGLE word. Measured counterexample for the last clause: en
+  "Dense Originium Powder" vs "Dense Crystal Powder" (bases share
+  "Dense ", tails are the same generic "Powder") is distinct under the raw
+  CSS clip (the species sits at chars 6-13, visible in the clip) but
+  COLLIDES under any head+window elision at 89.5px -- windowing a
+  multi-word base's generic last word destroys head content the clip
+  needs. Single-word bases (ru "Мелкомолотая ориджеода", "Куприевая
+  деталь") have the species AS the tail, so they window.
+- **CJK tail detection (new splitTail rule).** A pure-CJK name with no
+  bracket/whitespace/Latin run splits at the LAST kana-han script
+  boundary: "サンドリーフ粉末" -> "サンドリーフ"+"粉末",
+  "サンドリーフの種" -> "サンドリーフ"+"の種" (whole-tail tier:
+  "サンド…粉末" vs "サンド…の種", distinct at 81.2px). All-kanji names
+  ("高密度源石粉末" vs "高密度結晶粉末") have no boundary and stay raw --
+  their species (源石/結晶) is at chars 4-5, visible in the raw clip; a
+  mechanical last-2-CJK rule was measured to COLLIDE that pair
+  ("高密度…粉末" both) and is rejected.
+- **Estimator recalibration (same measurement).** The Cyrillic ratios were
+  recalibrated to the measured per-char maxima and the Cyrillic CASE TEST
+  FIXED (the branch's table charged uppercase А-М as lowercase via a
+  0x41d threshold): lowercase 0.7 -> 0.68em (measured max 0.625em, ъ),
+  uppercase 0.84 -> 0.82em (measured max 0.792em, Ъ), wide-Cyrillic
+  lowercase 1.0 -> 0.86em (measured max 0.823em, щ/ф; ф added to the wide
+  set), wide uppercase split into {Ж М Ы} at 0.95em (max 0.924em, Ж) and
+  {Ш Щ Ю} at 1.04em (Ю measures 1.029em in the serif fallback; all three
+  absent from the corpus). Latin ratios, digits (0.65em, pinned by the
+  chip ground truth), punctuation and the 1em ellipsis (measured exactly
+  full-width in Noto Sans SC) are unchanged. The slimmer ratios only ever
+  make elision fire LESS; the direction of safety is unchanged.
+- **Budget bucket 8px -> 1px.** The 8px bucket forfeited up to 7px the
+  real budget still has; the measured goal cases sat 0.4-1.6px over the
+  bucketed budget but under the raw caller budget (e.g. "Мелк…еода" needs
+  80.5px against a raw budget of 81.2px). A 1px floor bucket keeps the
+  quantise-down guarantee with sub-pixel reuse slop; memo keys keep the
+  same (font, budget, name) shape.
+
+Goal-pair outputs at their real co-rendering budgets (helper budget, from
+the constants exactly as RecipeNode derives them; sprite rows, rate shown):
+
+- multi6/en rate 150 (81.2px): `Cupr…(Jin` vs `Cupr…(Yaz` -- distinct.
+- multi6/ru rate 150 (81.2px): `Купр…цао)` vs `Купр…эня)` vs raw
+  `Куприевая бутылка` (CSS clip "Куприевая б...") -- distinct.
+- multi6/ja rate 150 (81.2px): `赤銅…(錦草エ` vs `赤銅…(芽針エ` -- distinct.
+- multi6/zh rate 150 (81.2px): `赤铜…(锦草溶` vs `赤铜…(芽针溶` -- distinct.
+- crystal+equip4/ru rates 60/120 (89.5/81.2px): `Мелк…еода` vs
+  `Мелк…иний` -- distinct at both budgets.
+- multi6/ru + rot-bottled_food_4/ru rate 300 (81.2px): `Купр…руда` (whole
+  tail) vs `Купр…таль`; `Ферр…руда` vs `Ферр…таль`; solutions
+  `Ферр…цао)` vs raw `Ферриевая бутылка` -- distinct.
+- script43/ru rate 30 (89.5px): `Пирр…еталь` vs `Пирр…онент` -- distinct.
+- rot-bottled_food_3/ja rates 300/600 (81.2px): `サンド…粉末` vs raw
+  `サンドリーフの種` (CSS clip "サンドリーフ...") -- distinct.
+- Тяжелый pair (never co-renders at equal rates in the corpus; zero probe
+  collisions before and after): at 89.5px `Тяже…аген` vs `Тяже…анит` --
+  distinct; at 81.2px the window floor misses by 0.12px and both stay raw
+  (measured residue, recorded here).
+
+### Refinement tasks
+
+- [x] W1 -- this record: R5 ruling, refinement-round section, citation fix.
+- [ ] W2 -- Partial-tail tier in `src/canvas/elide.ts` + estimator
+  recalibration in `src/canvas/textWidth.ts` per the measured policy above.
+- [ ] W3 -- Real-budget battery in `test/canvas/elide.test.ts` (86px-class
+  row budgets derived from the constants, title and products budgets,
+  goal-pair distinctness at the real budget; keep the monospace-stub
+  cases).
+- [ ] W4 -- Restore the rendered-prefix pixel probe in
+  `test/e2e/row-collisions.spec.ts`; green plan-wide.
+- [ ] W5 -- Re-record placement-shots goldens (label pixels change again);
+  chip-widths and geometry-audit unmoved at the develop-tip control
+  failset.
+- [ ] W6 -- `docs/render-conventions.md` partial-suffix sentence.
