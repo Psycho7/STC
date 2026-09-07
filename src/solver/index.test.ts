@@ -619,3 +619,28 @@ describe("free-boundary target items through render", () => {
     }
   });
 });
+
+// SolvePlanFull.catalystDraw is the only place the assembled plan reports what
+// the running recipes cycle. Pinned on the live pack so a deleted assignment
+// fails here rather than passing on a recomputed value.
+describe("SolvePlanFull.catalystDraw", () => {
+  it("reports the transmuter catalyst of a solved gas_copper plan", () => {
+    // gas_copper has two phase_trans producers; the LP picks the solid-phase
+    // one (phase_trans_2-gas_copper), whose catalyst is gas_xiranite at 0.2
+    // per cycle. Rate variables are cycles/sec and the recipe yields 1
+    // gas_copper per cycle, so a 1/s target runs it at rate 1 and cycles
+    // 1 * 1/5 = 1/5 gas_xiranite per second. Nothing else in the plan lists a
+    // catalyst, so the map holds exactly that one key.
+    const full = solvePlanWithIntermediates(
+      [{ itemId: "gas_copper", ratePerSec: { num: "1", denom: "1" } }],
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    expect(full.rates.get("phase_trans_2-gas_copper")!.equals(1)).toBe(true);
+    expect([...full.catalystDraw.keys()]).toEqual(["gas_xiranite"]);
+    expect(
+      full.catalystDraw.get("gas_xiranite")!.equals(new Fraction(1, 5)),
+    ).toBe(true);
+  });
+});
