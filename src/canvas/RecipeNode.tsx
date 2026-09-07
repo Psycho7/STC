@@ -15,7 +15,7 @@ import {
 import { orderByItem } from "./orderByItem";
 import { formatMultiplicityBadge } from "./multiplicity-badge";
 import { useItemPack } from "./itemPackContext";
-import { iconIdForItem, iconPosition } from "./iconSprite";
+import { envBandPosition, iconIdForItem, iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
 import { elideName } from "./elide";
 import {
@@ -28,6 +28,7 @@ import {
   RECIPE_HEAD_TITLE_COL,
   RECIPE_HEAD_BLOCK_PAD_X,
 } from "./dimensions";
+import { pack } from "../data/load";
 
 // Row-label elision budget, from the constants that shape the row (see
 // .rn-row in canvas.css): half of the card body, minus the row's horizontal
@@ -297,6 +298,20 @@ export default function RecipeNode({
   // product cards and rate chips use.
   const rateUnit = i18n.t("canvas.rate.unit");
 
+  // Environment badge: the in-game banner, cut from the shared icon sheet at
+  // the pack's one reference icon per environment so every card requiring the
+  // same environment carries an identical mark. Absent field means no
+  // requirement and no badge; an unresolvable reference icon collapses the slot
+  // rather than drawing an arbitrary slice of the sheet.
+  const environment = recipe.environment;
+  const envBadge =
+    environment === undefined
+      ? undefined
+      : {
+          position: envBandPosition(pack.environmentBadges[environment]),
+          label: i18n.t(environment === "stable" ? "env.stable" : "env.acidic"),
+        };
+
   return (
     <div
       data-testid="recipe-node"
@@ -325,6 +340,15 @@ export default function RecipeNode({
             </span>
             {badgeText !== null ? (
               <span className="rn-mult-chip">{badgeText}</span>
+            ) : null}
+            {/* Drawn at native scale, so it never shrinks: the name above
+                ellipsizes into whatever the row has left. */}
+            {envBadge?.position !== undefined ? (
+              <span
+                className="env-badge"
+                title={envBadge.label}
+                style={{ backgroundPosition: envBadge.position }}
+              />
             ) : null}
           </div>
           {productNames !== "" ? (
