@@ -315,3 +315,28 @@ test("the roving stop never lands on a disabled tile", () => {
   renderPopup({ selectedId: "alpha", disabledIds: new Set(["alpha"]) });
   expect(tabStopIds()).toEqual(["bravo"]);
 });
+
+// Upstream renames some item icons to opaque hashes; a tile that looked the
+// icon up by item id would fall through to the "?" placeholder.
+test("a tile whose icon id is not its item id draws its sprite, not the placeholder", () => {
+  const itemId = "iron_bottle-liquid_plant_grass_1";
+  const item = realPack.items.find((i) => i.id === itemId);
+  // Premise guard: only meaningful while the pack keeps the two ids apart.
+  expect(item?.icon).toBeDefined();
+  expect(item!.icon).not.toBe(itemId);
+  render(
+    <LocaleProvider locale="en">
+      <ItemPickerPopup
+        items={realPack.items}
+        disabledIds={new Set<string>()}
+        tierByItemId={computeItemDepths(realPack)}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+      />
+    </LocaleProvider>,
+  );
+  const t = tile(itemId);
+  expect(t).not.toBeNull();
+  expect(t!.querySelector(".ico")).not.toBeNull();
+  expect(t!.querySelector(".recipe-picker-tile-empty")).toBeNull();
+});

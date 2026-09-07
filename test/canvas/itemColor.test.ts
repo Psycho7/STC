@@ -178,13 +178,16 @@ describe("canvas/itemColor", () => {
   });
 
   it("keeps every pack item color inside the legible range", () => {
-    // Saturated icons stay clearly colored (s >= 35), near-gray icons stay
-    // gray-ish (s <= 24, under the COLOR_SATURATION_MIN threshold), and every
-    // lightness lands where it reads against the dark canvas. No raw icon color
-    // leaks through. The bound is pinned at the saturation actually in use: the
-    // shipped pack now crowds enough items onto shared hues that the placement
-    // reaches the opening 35 lane of the saturated candidate set, so a tighter
-    // bound would fail rather than guard.
+    // Saturated icons stay clearly colored (s >= 35) and near-gray icons stay
+    // gray-ish (s <= 24), while every lightness lands where it reads against
+    // the dark canvas. The saturation half no longer guards anything on its
+    // own: every pack color is drawn from SAT_CANDIDATES (min 35) or
+    // GRAY_CANDIDATES (max 24), so the two bounds are exactly the candidate
+    // lists restated and the assertion cannot fail while those lists stand. It
+    // stays as a tripwire on the lists themselves. The lightness bounds are the
+    // live part -- they are computed per color by the contrast floor, not
+    // picked from a list, so they are what actually proves no raw icon color
+    // leaks through.
     for (const item of pack.items) {
       const { s, l } = parseHsl(itemColor(item.id));
       expect(s >= 35 || s <= 24, `${item.id} saturation ${s}`).toBe(true);

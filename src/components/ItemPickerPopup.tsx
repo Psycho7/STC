@@ -276,7 +276,7 @@ export function ItemPickerPopup({
                 <div className="recipe-picker-grid">
                   {g.items.map((it) => {
                     const name = i18n.displayName(it.id);
-                    const iconPos = iconPosition(it.id);
+                    const iconPos = iconPosition(it.icon);
                     return (
                       <button
                         type="button"
@@ -294,7 +294,7 @@ export function ItemPickerPopup({
                         onClick={() => onPick(it.id)}
                       >
                         {iconPos !== undefined ? (
-                          <Sprite iconId={it.id} size={40} />
+                          <Sprite iconId={it.icon} size={40} />
                         ) : (
                           <span
                             className="recipe-picker-tile-empty"

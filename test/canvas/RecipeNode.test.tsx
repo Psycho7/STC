@@ -6,6 +6,8 @@ import type { Recipe } from "@aef/schema";
 import RecipeNode from "../../src/canvas/RecipeNode";
 import { LocaleProvider } from "../../src/data/i18n-context";
 import { itemColor } from "../../src/canvas/itemColor";
+import { iconPosition } from "../../src/canvas/iconSprite";
+import { pack } from "../../src/data/load";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import {
   ItemPackProvider,
@@ -49,6 +51,24 @@ const multiRowRecipe: Recipe = {
     { item: "liquid_water", qty: 2 },
   ],
   out: [{ item: "copper_powder", qty: 1 }],
+  producers: ["smelter"],
+};
+
+// Upstream does not guarantee that a pack item's icon id equals its item id:
+// the 1.5.3 snapshot renamed the bottled-plant-grass icons to opaque hashes.
+// A recipe built from those items exercises the row sprite lookup.
+const HASHED_IN_ITEM = "iron_bottle-liquid_plant_grass_1";
+const HASHED_OUT_ITEM = "copper_bottle-liquid_plant_grass_1";
+
+const hashedIconRecipe: Recipe = {
+  id: "hashed_icon",
+  name: "Hashed Icon",
+  category: "craft",
+  icon: "copper_powder",
+  row: 0,
+  time: 1,
+  in: [{ item: HASHED_IN_ITEM, qty: 1 }],
+  out: [{ item: HASHED_OUT_ITEM, qty: 1 }],
   producers: ["smelter"],
 };
 
@@ -153,6 +173,34 @@ describe("RecipeNode", () => {
       expect(row.querySelector(".lbl")).not.toBeNull();
       expect(row.querySelector(".rate")).not.toBeNull();
     }
+  });
+
+  it("draws row sprites for items whose icon id is not their item id", () => {
+    const iconOf = (id: string) => pack.items.find((i) => i.id === id)?.icon;
+    const inIcon = iconOf(HASHED_IN_ITEM);
+    const outIcon = iconOf(HASHED_OUT_ITEM);
+    // Premise guard: the fixture only exercises the lookup while the shipped
+    // pack still keeps these icon ids apart from their item ids.
+    expect(inIcon).toBeDefined();
+    expect(inIcon).not.toBe(HASHED_IN_ITEM);
+    expect(outIcon).not.toBe(HASHED_OUT_ITEM);
+    expect(iconPosition(HASHED_IN_ITEM)).toBeUndefined();
+
+    const { container } = renderRecipe({
+      recipe: hashedIconRecipe,
+      kind: "recipe",
+      multiplier: 1,
+    });
+    const inSpr = container.querySelector<HTMLElement>(
+      ".rn-side.in .rn-row.input .ico .spr",
+    );
+    const outSpr = container.querySelector<HTMLElement>(
+      ".rn-side.out .rn-row.output .ico .spr",
+    );
+    expect(inSpr).not.toBeNull();
+    expect(outSpr).not.toBeNull();
+    expect(inSpr!.style.backgroundPosition).toBe(iconPosition(inIcon));
+    expect(outSpr!.style.backgroundPosition).toBe(iconPosition(outIcon));
   });
 
   it("fallback path (no inputOrder): each handle nests in its own row in declaration order with no computed inline top", () => {
