@@ -347,9 +347,9 @@ the constants exactly as RecipeNode derives them; sprite rows, rate shown):
 ### Refinement tasks
 
 - [x] W1 -- this record: R5 ruling, refinement-round section, citation fix.
-- [ ] W2 -- Partial-tail tier in `src/canvas/elide.ts` + estimator
+- [x] W2 -- Partial-tail tier in `src/canvas/elide.ts` + estimator
   recalibration in `src/canvas/textWidth.ts` per the measured policy above.
-- [ ] W3 -- Real-budget battery in `test/canvas/elide.test.ts` (86px-class
+- [x] W3 -- Real-budget battery in `test/canvas/elide.test.ts` (86px-class
   row budgets derived from the constants, title and products budgets,
   goal-pair distinctness at the real budget; keep the monospace-stub
   cases).
@@ -359,3 +359,29 @@ the constants exactly as RecipeNode derives them; sprite rows, rate shown):
   chip-widths and geometry-audit unmoved at the develop-tip control
   failset.
 - [ ] W6 -- `docs/render-conventions.md` partial-suffix sentence.
+
+- Evidence (W2, commit 2973b02): elide.ts gains tier (b) -- partial window
+  with script-dependent direction, grapheme floors, and the
+  bracket/CJK/single-word-base eligibility guards -- plus the CJK
+  kana-boundary tail rule and the 1px budget bucket; textWidth.ts
+  recalibrates the Cyrillic classes to the measured per-char maxima and
+  FIXES the Cyrillic uppercase case test (the old table charged A-M as
+  lowercase through a 0x41d threshold). An offline replay of all 1780
+  dumped corpus rows through the real modules: 0 collisions beyond the
+  byte-identical pair, no overflow of any real label box. The pre-R5 raw
+  fixture at 168px (now a windowed budget) was replaced with 64px (below
+  the window floor); textWidth.test gains the measured Cyrillic bounds
+  pin. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10
+  EXIT=0.
+- Evidence (W3): elide.test.ts grows a real-budget battery -- the
+  production estimator with budgets derived exactly as RecipeNode derives
+  them (rowBudget(rate) = 150-14-25-5-est(rate): 81.196px at rate
+  150/300/600, 89.464px at rate 60/30; headerContentWidth = 185px for the
+  title and products surfaces from dimensions.ts): the bottle goal pairs
+  at an explicit 86px with exact expected strings in all four locales,
+  the four-bottle families and every residue goal family at their real
+  co-rendering rates, the measured raw guards (no-suffix names, the
+  multi-word-generic en powders, the all-ideograph ja powders), and the
+  title/products surfaces through their tiers. The monospace-stub cases
+  stay. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10
+  EXIT=0 (9/9 in file).
