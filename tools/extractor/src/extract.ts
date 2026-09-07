@@ -64,6 +64,12 @@ export const SKIP_SINK_RECIPES: readonly string[] = [
   "liquid_cleaner_1-xiranite_poly",
 ];
 
+// Limited-time event items. The event they belonged to has ended and the items
+// are no longer obtainable in game, so the extractor removes them along with
+// every recipe that produces or consumes one; that way no plan can route
+// through a chain the player cannot build.
+const RETIRED_EVENT_PREFIX = "activity_";
+
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const VENDOR_PATH = "vendor/endfield-calc";
 const INPUT_PATH = resolve(REPO_ROOT, VENDOR_PATH, "data.json");
@@ -75,6 +81,9 @@ const GAME_VERSION_KEY = "arknights-endfield";
 export interface ExtractResult {
   pack: RecipePack;
   i18n: RecipePackI18n;
+  // Sorted ids the retired-event drop removed, exposed so tests can pin them.
+  droppedEventItems: string[];
+  droppedEventRecipes: string[];
 }
 
 // Build the recipe-pack and i18n sidecar from the vendored upstream snapshot.
@@ -140,6 +149,8 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
 
   const recipes: Recipe[] = upstream.recipes.map(toRecipe);
 
+  const droppedEvents = dropRetiredEventRows({ items, recipes });
+
   const machineIds = new Set(machines.map((m) => m.id));
   for (const id of WORLD_NODE_MACHINES) {
     if (!machineIds.has(id)) {
@@ -152,7 +163,12 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
   ]);
   stampWorldNodes(recipes, skipMachines);
 
-  const dropped = collapseSyntheticChains({ items, machines, recipes });
+  const collapsed = collapseSyntheticChains({ items, machines, recipes });
+  const dropped = {
+    droppedMachines: collapsed.droppedMachines,
+    droppedItems: new Set([...collapsed.droppedItems, ...droppedEvents.items]),
+    droppedRecipes: new Set([...collapsed.droppedRecipes, ...droppedEvents.recipes]),
+  };
 
   classifyRawItems(items, recipes);
 
@@ -186,14 +202,40 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
     console.log(`wrote ${OUTPUT_PATH}`);
     console.log(
       `  items=${items.length} machines=${machines.length} transports=${transports.length}` +
-        ` recipes=${recipes.length} categories=${pack.categories.length} locations=${pack.locations.length}`,
+        ` recipes=${recipes.length} categories=${pack.categories.length} locations=${pack.locations.length}` +
+        ` droppedEventItems=${droppedEvents.items.size} droppedEventRecipes=${droppedEvents.recipes.size}`,
     );
     console.log(`wrote ${I18N_OUTPUT_PATH}`);
     console.log(`  locales=${i18n.locales.join(",")}`);
     console.log(`  source: ${pack.source.name}@${sourceMeta.commit.slice(0, 12)} game=${gameVersion}`);
   }
 
-  return { pack, i18n };
+  return {
+    pack,
+    i18n,
+    droppedEventItems: [...droppedEvents.items].sort(),
+    droppedEventRecipes: [...droppedEvents.recipes].sort(),
+  };
+}
+
+// Remove the retired event items and every recipe that touches one, in place.
+// Runs before the world-node stamp and the synthetic collapse so the later
+// passes and the referential-integrity check only ever see surviving rows.
+function dropRetiredEventRows(pack: { items: Item[]; recipes: Recipe[] }): {
+  items: Set<string>;
+  recipes: Set<string>;
+} {
+  const items = new Set(
+    pack.items.filter((i) => i.id.startsWith(RETIRED_EVENT_PREFIX)).map((i) => i.id),
+  );
+  const recipes = new Set(
+    pack.recipes
+      .filter((r) => [...r.in, ...r.out].some((s) => items.has(s.item)))
+      .map((r) => r.id),
+  );
+  pack.items.splice(0, pack.items.length, ...pack.items.filter((i) => !items.has(i.id)));
+  pack.recipes.splice(0, pack.recipes.length, ...pack.recipes.filter((r) => !recipes.has(r.id)));
+  return { items, recipes };
 }
 
 // Transport phase for one upstream item. Upstream carries no phase field, so the
@@ -500,11 +542,12 @@ async function buildI18nSidecar(
     // the coverage assertion below demands one.
     split.transports[SYNTHETIC_GAS_TRANSPORT.id] = SYNTHETIC_GAS_TRANSPORT_NAMES[locale];
 
-    // The upstream recipe i18n includes identity-recipe entries for the
-    // synthetic recipes we dropped; strip them so the coverage check matches
-    // the collapsed pack. Key on droppedRecipes (recipe ids) rather than
-    // droppedItems (item ids) so a future substitution whose identity recipe
-    // id differs from the item id still produces a clean i18n sidecar.
+    // The upstream recipe i18n includes entries for the identity recipes the
+    // collapse dropped and for the retired event recipes; strip them so the
+    // coverage check matches the emitted pack. Key on droppedRecipes (recipe
+    // ids) rather than droppedItems (item ids) so a future substitution whose
+    // identity recipe id differs from the item id still produces a clean i18n
+    // sidecar.
     const recipeNames: Record<string, string> = {};
     for (const [id, name] of Object.entries(raw.recipes)) {
       if (dropped.droppedRecipes.has(id)) continue;
@@ -557,9 +600,9 @@ function splitLocale(
     else if (sets.transportIds.has(id)) transports[id] = name;
     else if (sets.itemIds.has(id)) items[id] = name;
     else if (sets.dropped.droppedItems.has(id) || sets.dropped.droppedMachines.has(id)) {
-      // Upstream i18n carries a translation for the synthetic id we just
-      // collapsed; the substituted-to item (or dropped machine) no longer
-      // appears in the pack, so drop the orphan key silently.
+      // Upstream i18n carries a translation for an id the extractor dropped -
+      // a collapsed synthetic item, its machine, or a retired event item. None
+      // of them appear in the pack, so drop the orphan key silently.
       continue;
     } else throw new Error(`i18n key items.${id} does not match any recipe-pack id`);
   }
