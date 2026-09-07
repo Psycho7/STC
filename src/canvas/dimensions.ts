@@ -35,11 +35,14 @@ export const RECIPE_HEAD_TITLE_COL =
   RECIPE_WIDTH - RECIPE_HEAD_ICON_COL - RECIPE_HEAD_RATE_COL;
 export const RECIPE_HEAD_BLOCK_PAD_X = 8;
 
-export function recipeHeight(inPorts: number, outPorts: number): number {
+// Card height from the two side columns' row counts. The left count is ROWS,
+// not ports: a catalyst row is drawn without a handle and still takes a row's
+// worth of height. The right side has only port rows, so its count is both.
+export function recipeHeight(inRows: number, outPorts: number): number {
   return (
     RECIPE_HEADER_HEIGHT +
     RECIPE_ROWS_TOP_PAD * 2 +
-    Math.max(inPorts, outPorts) * RECIPE_ROW_HEIGHT +
+    Math.max(inRows, outPorts) * RECIPE_ROW_HEIGHT +
     RECIPE_FOOTER_HEIGHT
   );
 }
