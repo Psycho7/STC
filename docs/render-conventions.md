@@ -29,11 +29,13 @@ containers, not several consumers.
 A name too long for its row, its title or the products line elides
 tail-first: a distinguishing trailing bracket group or word is kept whole with
 the ellipsis in front of it. When the whole tail cannot fit beside a readable
-head, a partial tail is preserved instead -- a window into the tail's
+head, a partial tail is preserved instead -- a window into the tail over the
+same minimum readable length, opening from the tail's stem for a bare word
+whose whole base survives beside the ellipsis, and otherwise from the tail's
 distinguishing end (leading for Latin and CJK tails, trailing for Cyrillic,
-where the species word comes last) over the same minimum readable length --
-and only a name with no such tail, or no window that clears the minimum,
-falls back to plain tail ellipsis. Chinese tier prefixes (a leading 优质/精选-style
+where the species word comes last) -- and only a name with no such tail, or no
+window that clears the minimum, falls back to plain tail ellipsis. Chinese
+tier prefixes (a leading 优质/精选-style
 affix) are the one naming shape a tail rule cannot protect; those names are
 short enough not to clip at card width.
 

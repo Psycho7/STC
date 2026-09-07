@@ -354,13 +354,6 @@ describe("canvas/elide real-budget battery", () => {
           "\u041f\u0438\u0440\u0440\u043e\u043b\u0438\u0442\u043e\u0432\u044b\u0439 \u043a\u043e\u043c\u043f\u043e\u043d\u0435\u043d\u0442",
         ],
       ],
-      [
-        "30",
-        [
-          "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u0433\u0435\u043d",
-          "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u043d\u0438\u0442",
-        ],
-      ],
       // ja sandleaf at rate 600: the powder windows, the seed stays raw
       // (whole tail does not fit, window below the CJK floor) -- distinct.
       [
@@ -379,6 +372,26 @@ describe("canvas/elide real-budget battery", () => {
         `@rate ${rate}: ${visible.join(" | ")}`,
       ).toBe(names.length);
     }
+  });
+
+  it("pins the heavy-xira residue pair at the rate-30 row budget", () => {
+    // Measured residue of the refinement-round-2 leading-window rule: the
+    // base "Tyazhelyy" survives whole at the 89.464px rate-30/60 budgets,
+    // so both tails window from the stem "ksir-" and the two outputs are
+    // IDENTICAL -- the pair's distinction lives in the endings (-agen /
+    // -anit) the leading window discards. They never co-render at equal
+    // rates anywhere in the corpus (zero probe collisions before and
+    // after; recorded in the plan), and at the 81.196px budgets both stay
+    // raw, so the raw strings differ. Pinned exactly so a direction
+    // change cannot pass silently.
+    const gen = "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u0433\u0435\u043d";
+    const nit = "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u043d\u0438\u0442";
+    expect(elideRow(gen, "30")).toBe(`\u0422\u044f\u0436\u0435${ELLIPSIS}\u043a\u0441\u0438\u0440`);
+    expect(elideRow(nit, "30")).toBe(`\u0422\u044f\u0436\u0435${ELLIPSIS}\u043a\u0441\u0438\u0440`);
+    // At the rate-150 budget both fall back raw (the window misses the
+    // floor) and the full names differ.
+    expect(elideRow(gen, "150")).toBe(gen);
+    expect(elideRow(nit, "150")).toBe(nit);
   });
 
   it("returns no-suffix and guarded names raw at the row budget", () => {

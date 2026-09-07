@@ -6,10 +6,12 @@
 // distinguishing tail whole, head-truncates the base, and puts the
 // ellipsis in front of the preserved tail. When the whole tail plus a
 // minimum readable head cannot fit, a PARTIAL tail is preserved instead
-// (ruling R5): a window into the tail's distinguishing end, sized to the
-// budget, with the same minimum-grapheme floors as the head. When there
-// is no tail, or no floor-respecting window fits, the raw string goes
-// back and CSS tail ellipsis stays the fallback.
+// (ruling R5): a window into the tail, sized to the budget, with the same
+// minimum-grapheme floors as the head. The window opens from the tail's
+// distinguishing side, measured per tail kind and script (see the tier
+// (b) comment). When there is no tail, or no floor-respecting window
+// fits, the raw string goes back and CSS tail ellipsis stays the
+// fallback.
 //
 // The helper is pure and layout-free: string in, string out, with width
 // supplied by an injectable estimator so unit tests can use a monospace
@@ -232,20 +234,37 @@ export function elideName(
           // Tier (b) (ruling R5): the whole tail cannot fit, so a PARTIAL
           // tail is preserved: the minimum head, the ellipsis, and the
           // longest window into the tail that the budget still allows.
-          // The window direction is by tail script, measured against the
-          // corpus families: Latin and CJK bracket groups put the
+          // The window direction is measured against the corpus families
+          // (refinement round 2): Latin and CJK bracket groups put the
           // distinguishing species token at the tail's START ("(Jincao
           // ..." vs "(Yazhen ...", "(kinso ..." vs "(gashin ..."), while
           // the Cyrillic transliterations invert the word order ("(Rastvor
           // dzintsao)": species last) and Russian morphology distinguishes
           // word endings ("oridzheoda" vs "oridzhinij" differ only from
           // the sixth code point) -- so a Cyrillic tail keeps its
-          // TRAILING window and every other tail its LEADING one. The
-          // window must clear the same minimum-grapheme floor as the head
-          // (four Latin/Cyrillic, two CJK), else the raw string goes back.
+          // TRAILING window and every other tail its LEADING one, with
+          // one measured exception directly below. The window must clear
+          // the same minimum-grapheme floor as the head (four
+          // Latin/Cyrillic, two CJK), else the raw string goes back.
           const winBudget = bucket - ellW - minHeadW;
           if (winBudget > 0) {
-            const fromEnd = /[\u0400-\u04ff]/.test(split.tail);
+            // The exception: a BARE word/run tail whose whole base
+            // survives beside the ellipsis at this budget windows from
+            // the tail's START whatever the script. A single-word tail
+            // carries its lexeme in the stem and inflects at the end, so
+            // sibling names diverge at the tail's head -- the ru module
+            // titles (Modul upakovki / formovki / shtampovki) collapse
+            // onto the shared "-ovki" ending under a trailing window
+            // while the stems upak-/form-/shtamp- differ from their first
+            // letters. When the base does NOT fit whole, the raw CSS clip
+            // would eat the base onto the sibling-shared prefix and every
+            // measured family of that shape puts the distinction in the
+            // tail's ending (oridzheoda/oridzhinij, detal/ruda,
+            // detal/komponent), so the script rule stands there.
+            const stemFirst =
+              (split.kind === "token" || split.kind === "run") &&
+              estimate(trimmedBase + ELLIPSIS) <= bucket;
+            const fromEnd = !stemFirst && /[\u0400-\u04ff]/.test(split.tail);
             const minWin = minHeadFor(split.tail);
             const tailPts = codePoints(split.tail);
             const seq = fromEnd ? [...tailPts].reverse() : tailPts;

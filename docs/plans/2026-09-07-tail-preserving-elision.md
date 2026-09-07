@@ -570,7 +570,7 @@ generated from the same dump, names resolved from the pack at run time).
 ### Refinement round 2 tasks
 
 - [x] W7 -- this record: finding, measurements, chosen rule, guards.
-- [ ] W8 -- Leading-window rule in `src/canvas/elide.ts` (+ the
+- [x] W8 -- Leading-window rule in `src/canvas/elide.ts` (+ the
   render-conventions sentence it changes); replay green.
 - [ ] W9 -- Title probe in `test/e2e/row-collisions.spec.ts`; subtitle
   vitest replay fixture.
@@ -579,3 +579,19 @@ generated from the same dump, names resolved from the pack at run time).
   18/18, geometry-audit at the adjudicated failset, placement-shots
   re-recorded only if pixels moved (en-only suite: the rule only changes
   Cyrillic strings, so no re-record is expected).
+
+- Evidence (W8, commit follows W7): `src/canvas/elide.ts` tier (b) gains
+  the stem-first condition -- a bare token/run tail whose whole base
+  survives beside the ellipsis (`estimate(base + ellipsis) <= bucket`)
+  windows LEADING whatever the script; bracket and CJK-boundary tails,
+  and bases that cannot fit whole, keep the measured R5 directions. The
+  helper header and tier-(b) comments and the render-conventions
+  sentence describe the new direction rule. Offline replay of the real
+  patched module over the extended corpus dump: 1780 rows / 688 titles /
+  764 subtitle items -> rows 0, titles 0, subtitles 0 (was 0/8/0). The
+  one battery family the change flips (the heavy-xira residue pair,
+  identical "Тяже…ксир" at the rate-30 budget) moved from the
+  pairwise-distinct list to an exact residue pin in the same commit so
+  every commit stays green; W10 documents it with the other test notes.
+  elide/textWidth/RecipeNode/tooltip vitest files green before the full
+  gates.
