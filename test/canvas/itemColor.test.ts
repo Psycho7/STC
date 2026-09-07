@@ -154,9 +154,10 @@ describe("canvas/itemColor", () => {
   });
 
   it("pins the near-gray icon branch", () => {
-    // carbon_powder icon #4e4d4c -> h 30, s 1 (< 25) -> light gray band.
+    // carbon_powder icon #4e4d4c -> h 30, s 1 (< 25) -> light gray band,
+    // which now tops out at saturation 34 (still a tint that reads gray).
     expect(parseHsl(itemColor("carbon_powder")).h).toBe(30);
-    expect(parseHsl(itemColor("carbon_powder")).s).toBeLessThan(25);
+    expect(parseHsl(itemColor("carbon_powder")).s).toBeLessThanOrEqual(34);
   });
 
   it("colors items whose icon id differs from their own id through that icon", () => {
@@ -201,7 +202,11 @@ describe("canvas/itemColor", () => {
     // are the gray-band saturation cap widening and the repair pass for
     // sub-floor pairs; any other change is a reshuffle the commit that ships
     // it must explain. tools/color/ledger.ts --map names the moved entries.
-    expect(placementFingerprint()).toBe("ff166069");
+    // 0d710d7f is the placement after the gray cap rose from 24 to 34 (the
+    // one accepted full reshuffle: 57 of 113 entries moved through the
+    // placement pass's accumulated priors); ff166069 was the pre-widening
+    // placement.
+    expect(placementFingerprint()).toBe("0d710d7f");
   });
 
   it("keeps every pair of pack item colors perceptually distinct", () => {

@@ -119,10 +119,12 @@ const LIGHT_CAP = 90;
 const LIGHT_STEP = 2;
 
 // Saturation candidates per band, ordered so ties fall to the first entry. The
-// gray band stays below COLOR_SATURATION_MIN so near-gray icon families keep
-// reading gray.
+// gray band's ladder keeps its step-4 rhythm and clamps its top rung to the 34
+// gray ceiling - past the icon-saturation threshold, but a saturation that
+// still reads as a gray tint on the dark canvas - so the crowded band has room
+// to clear its floor of 8 against its own members.
 const SAT_CANDIDATES: readonly number[] = [35, 45, 55, 65, 75, 85, 95];
-const GRAY_CANDIDATES: readonly number[] = [8, 12, 16, 20, 24];
+const GRAY_CANDIDATES: readonly number[] = [8, 12, 16, 20, 24, 28, 32, 34];
 
 // Canvas background the edge colors and chips sit on (--ak-bg-canvas). The floor
 // below keeps every color readable against this near-black. Exported so the CSS

@@ -70,7 +70,9 @@ Gate evidence 2026-09-07: snapshot pins fnv1a-32 ff166069 (same hash the ledger 
 
 ### Task 2: Gray band cap 24 to 34
 
-- [ ] Widen `GRAY_CANDIDATES` up to 34. This alone reshuffles the gray band, and through accumulated priors the saturated band placed after it, so record the new snapshot hash with the cause. It is the one accepted reshuffle in the plan.
+- [x] Widen `GRAY_CANDIDATES` up to 34. This alone reshuffles the gray band, and through accumulated priors the saturated band placed after it, so record the new snapshot hash with the cause. It is the one accepted reshuffle in the plan.
+
+Gate evidence 2026-09-07: ladder now [8,12,16,20,24,28,32,34]. Ledger: gray-band min 9.35, cross-band min 11.37, zero gray and zero cross offenders (floor 8 reached); 36 saturated pairs remain below 15 for Task 3; pack-wide min 9.35, hue moves still 0. Reshuffle recorded: fingerprint ff166069 -> 0d710d7f, 57 of 113 entries moved (comment in the snapshot test states the cause). Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10/10 green except the one intended red in shard 7 (36 saturated offenders).
 
 **Acceptance:** the Task 0 script shows the gray-band and cross-band floor of 8 reachable with zero unreachable items; the saturated pairs below 15 are listed for Task 3.
 
