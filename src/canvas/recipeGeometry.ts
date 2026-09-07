@@ -19,6 +19,13 @@ import {
 // start at row 0 on the left, output rows at row 0 on the right), not by some
 // shared row index. When iterating recipe.in or recipe.out, callers can read
 // inHandleYs[i] or outHandleYs[i] directly without a bounds check.
+//
+// Catalyst rows are the one place row count and handle count part ways. A
+// catalyst is cycled rather than consumed, so RecipeNode draws it as an extra
+// row at the BOTTOM of the input column with no handle and no edge. Those rows
+// count toward `height` (the card has to be tall enough to hold them) but never
+// toward the handle arrays, and because they come last, every port's y is the
+// same as it would be on the same recipe without a catalyst.
 export type RecipeGeometry = {
   width: number;
   height: number;
@@ -39,9 +46,10 @@ export function measureRecipe(recipe: Recipe): RecipeGeometry {
   if (cached !== undefined) return cached;
   const inCount = recipe.in.length;
   const outCount = recipe.out.length;
+  const catalystCount = recipe.catalyst?.length ?? 0;
   const geometry: RecipeGeometry = {
     width: RECIPE_WIDTH,
-    height: recipeHeight(inCount, outCount),
+    height: recipeHeight(inCount + catalystCount, outCount),
     inHandleYs: Array.from({ length: inCount }, (_, i) => rowHandleY(i)),
     outHandleYs: Array.from({ length: outCount }, (_, i) => rowHandleY(i)),
   };

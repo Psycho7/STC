@@ -2017,6 +2017,20 @@
   flex-direction: row-reverse;
 }
 
+/* A catalyst row: an input the machine cycles rather than consumes, so it has
+   no handle and no entering edge. It takes the input rows' left padding so the
+   column reads as one stack, but not their accent tab (.rn-row.input::before),
+   which is the mark of an arriving edge. The muted label and rate are what set
+   it apart from the supplied rows above it. */
+.rn-row.catalyst {
+  padding-left: 8px;
+}
+
+.rn-row.catalyst .lbl,
+.rn-row.catalyst .rate {
+  color: var(--ak-text-secondary);
+}
+
 .rn-row.output .rate,
 .rn-row.output .lbl {
   text-align: right;

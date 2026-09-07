@@ -20,6 +20,14 @@ recipe's own declared order, so two cards of one recipe read alike. Cyan
 product chips are boundary inputs and outputs rather than machines. Group slabs
 and loop boxes are containers, and the cards inside one are its members.
 
+Below the input rows a card may carry catalyst rows: inputs the machine cycles
+rather than consumes, drawn from the plan boundary and handed straight back
+every cycle. A catalyst has no supplier and no edge, so its row has no port
+handle and no accent tab, and shows a small filled disc where a port row shows
+its transport glyph. Its label and rate are muted, and the rate is the draw for
+one machine with its unit spelled out ("6/min") rather than the flow across
+every machine that the port rows above it carry.
+
 ## Edges
 
 An item edge is an orthogonal polyline with chamfered corners, coloured by the

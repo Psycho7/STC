@@ -162,6 +162,11 @@ export type NodeGeom = {
   // that carries no per-item handles.
   inPorts: string[];
   outPorts: string[];
+  // Catalyst rows on the card: input-column rows that carry no handle, so they
+  // appear in neither port list while still taking a row of card height. Read
+  // off the DOM because nothing in the handle ids names them. Zero for every
+  // node kind that has no such row.
+  catalystRows: number;
 };
 export type ChipGeom = {
   edgeId: string;
@@ -302,6 +307,7 @@ export function collectGeometry(): Geometry {
       bottom: toGraphY(r.bottom),
       inPorts,
       outPorts,
+      catalystRows: el.querySelectorAll(".rn-row.catalyst").length,
     };
   });
 

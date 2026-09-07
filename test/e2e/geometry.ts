@@ -864,6 +864,11 @@ export function auditDotsUnderChips(
 export type PortedNode = NodeRect & {
   inPorts: ReadonlyArray<string>;
   outPorts: ReadonlyArray<string>;
+  // Handle-less input rows (catalysts). They add card height without adding a
+  // port, so every height rebuilt here counts them alongside inPorts while the
+  // row INDEX of a port stays its index in inPorts -- catalyst rows sit below
+  // every port row, so no port's y depends on them.
+  catalystRows: number;
 };
 
 type PortDrift = { sourceDx: number; targetDx: number; dy: number };
@@ -980,7 +985,10 @@ export function auditEndpointParity(
       const ports = end === "source" ? node.outPorts : node.inPorts;
       const rowIndex = isRecipe ? ports.indexOf(edge.item) : -1;
       const modelHeight = isRecipe
-        ? recipeHeight(node.inPorts.length, node.outPorts.length)
+        ? recipeHeight(
+            node.inPorts.length + node.catalystRows,
+            node.outPorts.length,
+          )
         : node.bottom - node.top;
       // portOffsetY falls back to the card's vertical centre for an unresolved
       // item / node kind, and driftedPortY leaves that fallback undrifted.
@@ -1045,7 +1053,8 @@ export function auditCardFrames(
     if (n.type !== "recipe") continue;
     const seatingWidth = RECIPE_WIDTH + growth;
     const seatingHeight =
-      recipeHeight(n.inPorts.length, n.outPorts.length) + growth;
+      recipeHeight(n.inPorts.length + n.catalystRows, n.outPorts.length) +
+      growth;
     const drawnWidth = n.right - n.left;
     const drawnHeight = n.bottom - n.top;
     if (
