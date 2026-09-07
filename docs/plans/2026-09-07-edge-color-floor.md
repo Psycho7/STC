@@ -1,0 +1,113 @@
+# Edge Color Separation Floor Plan (#85)
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax. Read the Rulings section before starting; the floor policy was ruled on 2026-09-07 after measurement and is final for this plan.
+
+**Goal:** No two items in the same family read as one color on the canvas. The four pairs the issue names (`gas_copper` / `gas_copper_enr`, `copper_ore` / `copper_cmpt`, `copper_nugget` / `gas_copper`, `originium_ore` / `originium_powder`) separate by a CIE76 delta-E of at least 15, the pack-wide map enforces a floor the tests can assert, and every item already clear of the floor keeps its exact current color.
+
+**Architecture:** Keep the single pack-wide, plan-independent color map and its existing max-min placement pass. After it, add a repair pass: it walks pairs below the floor in placement order and re-places only the later-placed member, searching a widened saturation/lightness grid first and a bounded hue nudge second. The floor has two tiers, 15 inside the saturated band and 8 inside the near-gray band and for any cross-band pair. The gray band's saturation cap rises from 24 to 34 so its 61 items have room. On hue, the test contract drops exact equality for a bounded distance from the icon hue.
+
+**Tech stack:** TypeScript, vitest, small `bun --smol` measurement scripts, the visual verification protocol.
+
+## Rulings
+
+- **R1 - Global floor, not per-plan, not a non-color channel (2026-09-07).** Colors stay stable across plans. Dash and glyph shape keep encoding transport kind only.
+- **R2 - Two-tier floor: saturated 15, gray 8 (2026-09-07).** Measurement showed a uniform 15 is unreachable (ceiling 13.65 even with the gray band deleted). The saturated band reaches 15 with a widened grid plus a hue nudge of at most 15 degrees; the gray band reaches 8 with its saturation cap raised to 34. Cross-band pairs take the gray floor.
+- **R3 - Repair pass, not a re-run (controller call, 2026-09-07).** Any change to the grid or the objective reshuffles all 113 items because priors accumulate globally. The repair pass keeps every already-compliant item byte-identical and moves only offenders.
+- **R4 - Hue nudge bound is 15 degrees, offenders only.** The hue contract becomes circular distance from the icon hue at most 15, with a pinned count of nudged items so a pack update cannot silently nudge everything.
+
+## Evidence (develop@6706c7e)
+
+- Icon hue is a precomputed per-icon hex converted at module load: `src/canvas/itemColor.ts:55-83` (`hexToHS`, integer hue, lightness discarded), `:88-93` (`iconHSById`).
+- Placement: `packColorById` `:329-347` splits by `COLOR_SATURATION_MIN = 25` (`:46`), places the gray band first (`:340-343`), sorts by hue then id (`:286-288`, deterministic and plan-independent). Grid: `SAT_CANDIDATES` `:119`, `GRAY_CANDIDATES` `:120`, lightness 46..90 step 2 `:110-114`, `LIGHT_CAP` rationale `:107-109` (stale: no consumer is a light surface). Objective is max-min squared Lab distance to all priors `:289-321,339`. There is no floor in the implementation; the floor lives only in the test.
+- Contrast: `floorLightness` `:255-261` lifts lightness until contrast >= 4.5 (`:129`) against `CANVAS_BG_HEX = #0f1114` (`:126`, single theme; `canvas.css:4`, no dark/light switch anywhere in `src`).
+- Consumers all paint the color on near-black, none put dark text on it: stroke `src/canvas/ItemEdge.tsx:195,491`; chip border only `canvas.css:1715` (fill is a fixed dark gradient `:1714`); port glyph `src/canvas/PortGlyph.tsx:91`; row accent tab `RecipeNode.tsx:241,276` with `canvas.css:2071,2076`; loop ports `LoopNode.tsx:127,143` with `canvas.css:1246,1251`.
+- Tests: `test/canvas/itemColor.test.ts:13` `MIN_DELTA_E = 6`; `:65-81` all-pairs floor; `:83-102` family pins; `:104-110` exact hue equality (the contract R4 loosens); `:138` legible-range guard `s >= 45 || s <= 24` (must admit the new gray cap); `:140` `l <= 90`. `itemColor.contrast.test.ts` and `portZoneDepth.test.ts:33,267` stay as they are. Fallback-path hsl pins at `:40-46` are not pack items and do not move.
+- No color baselines elsewhere: component tests call `itemColor()` rather than literals; geometry-audit, placement-shots, chip-widths and `raw-and-transport.spec.ts:180` assert geometry or dasharray, not color. `docs/render-conventions.md:25` needs one sentence.
+- Measurement (2026-09-07, scripts kept with the session): pack-wide min today 7.51; pairs under 10 / 12 / 15 / 20 = 68 / 142 / 290 / 598. Gray band: floor 8 unreachable for 8 items on the current grid, 0 with cap 34. Saturated band: floor 15 unreachable for 7 items on the current grid, 0 with the wide grid plus a 15-degree nudge. Achievable pack-wide minimum by policy: baseline 7.21, wide grid 7.60, gray cap 34 plus nudge 9.32, gray cap 45 plus nudge 10.70, bands merged 13.65.
+
+## Global Constraints
+
+- Branch `fix/edge-color-floor` off `develop`, worktree `STC/.claude/worktrees/fix/edge-color-floor/`. Never switch the main checkout.
+- Nothing reaches GitHub except the PR. Read-only `gh` is fine.
+- The contrast floor against the canvas background is inviolable; the repair search skips any candidate below it.
+- Items already at or above their floor after the existing pass keep their exact hsl. The determinism snapshot (Task 1) is the proof.
+- Hue moves only for offenders, at most 15 degrees, and only after the widened grid failed at the icon hue.
+- No per-plan logic anywhere in the color path.
+- ASCII-only comments. No external-doc references in comments or commit messages.
+- 3.2 GiB box: wrap bun/vitest/playwright in `systemd-run --user --scope -q -p MemoryMax=2G -p MemorySwapMax=512M -- bun --smol ...`; vitest as ten sequential shards; one playwright spec per invocation for captures.
+- Gates before "done" on any task: `bun run typecheck`, `bun run typecheck:tools`, `bun run lint`, sharded `bun run test`.
+
+## Task order and dependencies
+
+```mermaid
+graph LR
+  T0[T0 worktree + measurement harness] --> T1[T1 determinism snapshot + red floor tests]
+  T1 --> T2[T2 gray cap 24 to 34]
+  T2 --> T3[T3 repair pass: wide grid]
+  T3 --> T4[T4 repair pass: bounded hue nudge]
+  T4 --> T5[T5 contracts + docs]
+  T5 --> T6[T6 visual verification + PR]
+```
+
+### Task 0: Worktree and measurement harness
+
+- [x] Create the worktree and branch.
+- [x] Add a small script under `tools/` that prints the pack-wide delta-E distribution, the per-band and cross-band minima, the list of pairs below each tier's floor, and the list of items whose hue differs from their icon hue with the distance. This is the ledger every later task reports against.
+
+Gate evidence 2026-09-07: ledger on unchanged develop code prints min 7.51, pairs under 10/12/15/20 = 68/142/290/598, saturated min 11.31, gray min 7.51, cross min 11.74, 47 pairs below tier floors, 0 hue offsets, fingerprint ff166069. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10/10 green (139/152/298+1skip/132/111/152/185/128/221 passed).
+
+**Acceptance:** the script reproduces today's numbers (min 7.51; 68 pairs under 10) on develop.
+
+### Task 1: Determinism snapshot and red floor tests
+
+- [ ] Add a test that hashes the full sorted id-to-hsl map and pins it, with a comment saying a changed hash means a reshuffle and must be explained in the commit.
+- [ ] Split `MIN_DELTA_E` into a saturated-band floor of 15 and a gray/cross-band floor of 8, and have the all-pairs test classify each pair by band. Replace the exact-hue test with a bounded-distance test (15 degrees) plus a pinned count of nudged items.
+- [ ] Extend the legible-range guard to admit gray saturation up to 34.
+
+**Acceptance:** the floor tests fail listing exactly the pairs the Task 0 script lists; the snapshot test passes on unchanged code.
+
+### Task 2: Gray band cap 24 to 34
+
+- [ ] Widen `GRAY_CANDIDATES` up to 34. This alone reshuffles the gray band, and through accumulated priors the saturated band placed after it, so record the new snapshot hash with the cause. It is the one accepted reshuffle in the plan.
+
+**Acceptance:** the Task 0 script shows the gray-band and cross-band floor of 8 reachable with zero unreachable items; the saturated pairs below 15 are listed for Task 3.
+
+### Task 3: Repair pass, widened grid
+
+- [ ] After the existing placement, iterate pairs below their floor in placement order. For the later-placed member, search a finer grid at its icon hue (saturation step 5, lightness step 1, lightness cap raised toward the contrast-safe maximum since no consumer is a light surface) for a point that clears the floor against all other items. Among the candidates that clear it, take the one with the largest minimum distance.
+- [ ] Repeat until no pair improves or a bounded number of sweeps completes; the pass must terminate and be deterministic.
+
+**Acceptance:** snapshot hash changes only in offender entries (diff the map, not just the hash); the Task 0 script shows the remaining saturated offenders needing a hue move.
+
+### Task 4: Repair pass, bounded hue nudge
+
+- [ ] For offenders the widened grid could not clear, extend the search to hue offsets up to 15 degrees in both directions, smallest offset first, same objective.
+- [ ] Record the final nudged-item list and pin its count in the Task 1 test.
+
+**Acceptance:** all four issue pairs at or above 15; all-pairs floor tests green; nudged count pinned; every non-offender hsl identical to Task 2's map.
+
+### Task 5: Contracts and docs
+
+- [ ] Update the stale `LIGHT_CAP` comment to say why the cap can sit near the contrast-safe maximum.
+- [ ] `docs/render-conventions.md`: one sentence that an item's hue may sit up to 15 degrees off its icon hue when the family would otherwise collide, and that gray families keep a saturation ceiling of 34.
+
+**Acceptance:** typecheck, lint, sharded tests green; no other doc changes.
+
+### Task 6: Visual verification and PR
+
+- [ ] Visual verification protocol: default-plan captures, then zoomed before/after crops of gas-web (copper gases), multi6 (copper ore vs component), tundra (originium), battery5-xiranite; inspect for a nudged hue reading as the wrong family, not merely for presence.
+- [ ] Confirm geometry-audit, placement-shots, chip-widths and raw-and-transport are unmoved (colors are not part of their assertions).
+- [ ] Open the PR to `develop` per `docs/pr-guideline.md`, body through the humanizer skill, carrying the Task 0 before/after ledger. Do not merge.
+
+**Acceptance:** all gates green; ledger shows saturated min >= 15, gray and cross-band min >= 8, nudged items listed with offsets.
+
+## Non-goals
+
+- Per-plan color re-spread, non-color family channels (rejected 2026-09-07).
+- A uniform floor of 10 or 13 (rejected 2026-09-07 in favour of the two-tier floor).
+- The "faint dark dotted sewage strokes at 0.75" bullet on #85: stroke weight and opacity, not color distance. Report as residue when closing.
+- Any change to the contrast floor or to how transport kind is drawn.
+
+## Closing #85
+
+Close when Task 6 is merged, citing the ledger and the four pair distances, and recording the two residues: the gray band's floor is 8 by measurement, and the sewage-stroke weight item is separate.
