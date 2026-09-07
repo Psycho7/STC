@@ -26,6 +26,14 @@ marked as a tap and fed by the item's chip, because an edge entering a
 container has to enter it once. So several tap chips of one item mean several
 containers, not several consumers.
 
+A name too long for its row, its title or the products line elides
+tail-first: a distinguishing trailing bracket group or word is kept whole with
+the ellipsis in front of it, and only a name with no such tail -- or a tail
+that cannot fit beside a readable head -- falls back to plain tail ellipsis.
+Chinese tier prefixes (a leading 优质/精选-style affix) are the one naming
+shape a tail rule cannot protect; those names are short enough not to clip at
+card width.
+
 ## Edges
 
 An item edge is an orthogonal polyline with chamfered corners, coloured by the

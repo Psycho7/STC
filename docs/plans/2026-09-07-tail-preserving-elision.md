@@ -110,13 +110,15 @@ graph LR
 
 ### Task 6: e2e widen, re-baseline, PR
 
-- [ ] `test/e2e/row-collisions.spec.ts`: iterate the full scenario corpus and all four locales; lift the seen-map from per-card to per-page; remove the binary-search probe because `textContent` is now the visible string. Compare visible label plus rate per item id across the whole plan.
-- [ ] Re-record `test/e2e/placement-shots.spec.ts` goldens (R4) with a NOTE naming this plan as the cause; confirm `test/e2e/chip-widths.spec.ts` and `test/e2e/geometry-audit.spec.ts` are unmoved.
-- [ ] Visual verification protocol: default-plan captures plus zoomed crops of multi6 (the cross-card Packaging Unit pair), the bottled-food rotation plans, and one zh capture of the parenthesis family.
-- [ ] `docs/render-conventions.md`: one sentence on the elision rule (tail preserved, ellipsis before it, plain tail ellipsis otherwise) and the zh prefix gap.
-- [ ] Open the PR to `develop` per `docs/pr-guideline.md`, body through the humanizer skill. Do not merge.
+- [x] `test/e2e/row-collisions.spec.ts`: iterate the full scenario corpus and all four locales; lift the seen-map from per-card to per-page; remove the binary-search probe because `textContent` is now the visible string. Compare visible label plus rate per item id across the whole plan.
+- [x] Re-record `test/e2e/placement-shots.spec.ts` goldens (R4) with a NOTE naming this plan as the cause; confirm `test/e2e/chip-widths.spec.ts` and `test/e2e/geometry-audit.spec.ts` are unmoved.
+- [x] Visual verification protocol: default-plan captures plus zoomed crops of multi6 (the cross-card Packaging Unit pair), the bottled-food rotation plans, and one zh capture of the parenthesis family.
+- [x] `docs/render-conventions.md`: one sentence on the elision rule (tail preserved, ellipsis before it, plain tail ellipsis otherwise) and the zh prefix gap.
+- [ ] Open the PR to `develop` per `docs/pr-guideline.md`, body through the humanizer skill. Do not merge. (SKIPPED by controller order for this run: no push, no PR creation, no remote writes; everything else in this task is done locally.)
 
 **Acceptance:** all gates green; the widened collisions spec passes in four locales; geometry-audit and chip-widths unchanged; placement-shots re-baselined with annotation.
+
+- Evidence (T6): widened collisions spec 48/48 (12 scenarios x 4 locales, per-page seen-map on visible label+rate keyed by the row's handle item id; the recorded identical-name pair transfer_tundra_glass_bottle/glass_bottle is allow-listed as the known data defect). placement-shots goldens re-recorded fresh in this worktree (goldens are gitignored; the label-pixel change caused by this plan is the re-baseline NOTE recorded here and in the commit message). geometry-audit fails with EXACTLY the four pre-existing develop-drift tests (lanes on/off battery5-xiranite and multi6), matching the controller's develop-tip control; chip-widths 18/18. Captures + DOM dump: multi6 en shows the three Packaging Unit cards eliding to "Packag...Unit" with their distinct products subtitles ("Jincao Tea", "Yazhen Syringe [A]", "HC Valley Battery") and the Filling Unit subtitle reading "Cupriu...(Jincao Solution)"; rot-bottled_food_3 shows the "Canne... [A]" output row and "Citr...Seed" input rows; zh multi6 renders the parenthesis family raw (names fit the card whole, per R2) and the tier-prefix names un-clipped. render-conventions.md gains the elision sentence.
 
 ## Non-goals
 
