@@ -47,6 +47,33 @@ describe("canvas/textWidth", () => {
     }
   });
 
+  it("charges the non-wide Cyrillic uppercase of A-M at the exact upper ratio", () => {
+    const font = { fontSize: 12, weight: 400 };
+    // Uppercase is 0x410-0x42F and the wide-uppercase set is only
+    // U+0416/U+041C/U+042B (plus the extra-wide trio), so every other
+    // letter of A-M (U+0410-U+041C) must charge the plain UPPER ratio
+    // (0.82em = 9.84px at 12px), not the lowercase one. Exact pins: the
+    // refinement round found the first table deciding case through a
+    // 0x41d threshold that mischarged A-M (this exact class) as lowercase
+    // at 0.68em, and a bound-style assertion would not notice that
+    // coming back.
+    const upper = [
+      "\u0410", // A
+      "\u0411", // Be
+      "\u0412", // Ve
+      "\u0413", // Ghe
+      "\u0414", // De
+      "\u0415", // Ie
+      "\u0417", // Ze
+      "\u0418", // I
+      "\u041a", // Ka
+      "\u041b", // El
+    ];
+    for (const ch of upper) {
+      expect(estimateCharWidth(ch, font), ch).toBe(9.84);
+    }
+  });
+
   it("counts CJK and fullwidth characters as exactly one em", () => {
     const font = { fontSize: 12, weight: 400 };
     // Han, kana, fullwidth Latin, fullwidth punctuation.

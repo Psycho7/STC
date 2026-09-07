@@ -590,7 +590,21 @@ generated from the same dump, names resolved from the pack at run time).
   prefix of the real two-line clamp rendering): 620 items replay, 0
   collisions beyond the recorded identical-name pair, selector-drift
   floor > 500 replayed.
-- [ ] W10 -- Test notes (a)/(b)/(c) above.
+- [x] W10 -- Test notes (a)/(b)/(c) above.
+
+- Evidence (W10): (a) textWidth.test.ts pins the exact non-wide upper
+  ratio (9.84px at 12px) for ten letters of A-M (U+0410-U+041B minus the
+  wide Zhe/Em), the exact class the retired 0x41d threshold mischarged
+  as lowercase -- exact values, because a >= bound would not notice the
+  lowercase ratio coming back. (b) the only battery output the W8 rule
+  changes is the heavy-xira residue pair (see the residue paragraph;
+  pinned exactly in the W8 commit, identical "Тяже…ксир" outputs at
+  rate 30, raw and distinct at rate 150); every other pin was replayed
+  unchanged before and after. (c) the battery gains the ru module pair
+  at the real x2.50 title budget (121.6416px, chip deduction derived
+  exactly as RecipeNode computes it): "Моду…упак" vs raw "Модуль
+  формовки", asserted distinct with exact strings. elide + textWidth +
+  subtitle-replay files: 18/18 green.
 - [ ] W11 -- Controls: row-collisions (48/48 + titles), chip-widths
   18/18, geometry-audit at the adjudicated failset, placement-shots
   re-recorded only if pixels moved (en-only suite: the rule only changes

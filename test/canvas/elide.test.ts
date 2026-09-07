@@ -434,6 +434,34 @@ describe("canvas/elide real-budget battery", () => {
     ).toBe("\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)");
   });
 
+  it("keeps the ru module titles distinct at the real x2.50 chip budget", () => {
+    // The round-2 finding: at the chip-bearing title budget both module
+    // names read the same trailing-window string. The stem-first rule
+    // windows the tail whose base survives whole from its START, and the
+    // other name (wide stem letters push its window below the floor) goes
+    // back raw, where CSS keeps the develop look. Budget derived exactly
+    // as RecipeNode derives it for the "x2.50" chip.
+    const CHIP_FONT: TextWidthFont = { fontSize: 12, weight: 700 };
+    const badge = "x2.50";
+    const budget =
+      headerContentWidth -
+      (est(badge, CHIP_FONT) +
+        badge.length * 0.04 * CHIP_FONT.fontSize +
+        12 + // chip box chrome (2x5px padding + 2x1px border)
+        8); // title-to-chip gap
+    const upak =
+      "\u041c\u043e\u0434\u0443\u043b\u044c \u0443\u043f\u0430\u043a\u043e\u0432\u043a\u0438"; // Packaging Module
+    const form =
+      "\u041c\u043e\u0434\u0443\u043b\u044c \u0444\u043e\u0440\u043c\u043e\u0432\u043a\u0438"; // Moulding Module
+    const visible = [upak, form].map((n) =>
+      elideName(n, budget, (t) => est(t, TITLE_FONT), "title-17"),
+    );
+    expect(budget).toBeCloseTo(121.6416, 3);
+    expect(visible[0]).toBe(`\u041c\u043e\u0434\u0443${ELLIPSIS}\u0443\u043f\u0430\u043a`);
+    expect(visible[1]).toBe(form);
+    expect(new Set(visible).size).toBe(2);
+  });
+
   it("elides the products surface whole-tail at the pinned header budget", () => {
     const budget = headerContentWidth;
     const visible = [
