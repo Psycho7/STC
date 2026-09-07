@@ -1,8 +1,11 @@
 import { resolve } from "node:path";
+import Fraction from "fraction.js";
 import {
   LOCALES,
   SCHEMA_VERSION,
   TRANSPORT_KIND,
+  type EnvironmentBadges,
+  type EnvironmentId,
   type Item,
   type Locale,
   type LocaleNames,
@@ -69,6 +72,41 @@ export const SKIP_SINK_RECIPES: readonly string[] = [
 // every recipe that produces or consumes one; that way no plan can route
 // through a chain the player cannot build.
 const RETIRED_EVENT_PREFIX = "activity_";
+
+// The phase transmuters cycle xiranite instead of consuming it: the machine
+// holds a charge while it runs and hands it back, so the draw belongs on
+// Recipe.catalyst rather than Recipe.in. Which phase of xiranite it is depends
+// only on the machine, so the table is keyed by producer and applies to every
+// recipe that machine is the sole producer of. Upstream has no field for this.
+export const CATALYST_BY_PRODUCER: Record<string, string> = {
+  phase_trans_1: "liquid_xiranite",
+  phase_trans_2: "gas_xiranite",
+};
+
+// The catalyst charge every transmuter draws, per minute at machine speed 1.
+// Upstream folds the charge into the ordinary input entry, and on two recipes
+// it folds it into a feed draw of the same item, so the per-cycle charge
+// (time * 6 / 60) has to be subtracted back out.
+const CATALYST_PER_MINUTE = 6;
+
+// Recipes the game restricts to an atmosphere. Upstream ships no environment
+// field - the stable recipes are recognisable only by their inert-gas variant
+// naming and the acidic one only by its in-game banner - so the set is pinned
+// by hand.
+export const ENVIRONMENT_BY_RECIPE: Record<string, EnvironmentId> = {
+  "gas_copper_enr-gas_inert": "stable",
+  "gas_xiranite_enr-gas_inert": "stable",
+  "xiranite_powder-carbon_mtl": "stable",
+  activity_copper_poly_gas: "stable",
+  gas_copper_enr2: "acidic",
+};
+
+// Nothing in the data names the environments, so each badge borrows the icon of
+// a recipe that already reads as that environment.
+const ENVIRONMENT_BADGE_RECIPES: Record<keyof EnvironmentBadges, string> = {
+  stable: "gas_copper_enr-gas_inert",
+  acidic: "gas_copper_enr2",
+};
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const VENDOR_PATH = "vendor/endfield-calc";
@@ -146,6 +184,11 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
       throw new Error(`skip-sink recipe "${id}" is missing from upstream`);
     }
   }
+  for (const id of Object.keys(ENVIRONMENT_BY_RECIPE)) {
+    if (!upstreamRecipeIds.has(id)) {
+      throw new Error(`environment recipe "${id}" is missing from upstream`);
+    }
+  }
 
   const recipes: Recipe[] = upstream.recipes.map(toRecipe);
 
@@ -191,6 +234,7 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
     machines,
     transports,
     recipes,
+    environmentBadges: buildEnvironmentBadges(upstream),
   };
 
   const i18n = await buildI18nSidecar(pack, source, dropped);
@@ -268,6 +312,8 @@ function toItem(u: UpstreamItem): Item {
 }
 
 function toRecipe(u: UpstreamRecipe): Recipe {
+  const inputs = toStoich(u.in);
+  const catalyst = splitCatalyst(u, inputs);
   const recipe: Recipe = {
     id: u.id,
     name: u.name,
@@ -275,17 +321,80 @@ function toRecipe(u: UpstreamRecipe): Recipe {
     icon: u.icon,
     row: u.row,
     time: u.time,
-    in: toStoich(u.in),
+    in: inputs,
     out: toStoich(u.out),
     producers: [...u.producers],
   };
+  if (catalyst) recipe.catalyst = catalyst;
   if (u.locations && u.locations.length > 0) recipe.locations = [...u.locations];
   if (u.flags && u.flags.length > 0) recipe.flags = [...u.flags];
   if (u.usage != null) recipe.usage = u.usage;
   if (u.cost != null) recipe.cost = u.cost;
   // The hand-pinned skip sentinel wins over whatever upstream carries.
   if (SKIP_SINK_RECIPES.includes(u.id)) recipe.cost = -1;
+  const environment = ENVIRONMENT_BY_RECIPE[u.id];
+  if (environment) recipe.environment = environment;
   return recipe;
+}
+
+// Lift the catalyst charge off a transmuter recipe's inputs. Mutates `inputs`:
+// the charge is subtracted from the matching entry, and the entry is dropped
+// when nothing is left of it. Returns undefined for every recipe the catalyst
+// table does not cover. Arithmetic runs on exact rationals because the upstream
+// quantities are decimals a double cannot hold (0.2, 1.2) and the charge has to
+// come back out of a folded entry without drift.
+function splitCatalyst(u: UpstreamRecipe, inputs: Stoich[]): Stoich[] | undefined {
+  if (u.producers.length !== 1) return undefined;
+  const producer = u.producers[0]!;
+  const item = CATALYST_BY_PRODUCER[producer];
+  if (item === undefined) return undefined;
+
+  const index = inputs.findIndex((s) => s.item === item);
+  const entry = inputs[index];
+  if (!entry) {
+    throw new Error(`recipe ${u.id} runs on ${producer} but draws no ${item} to cycle as catalyst`);
+  }
+
+  const charge = new Fraction(u.time).mul(CATALYST_PER_MINUTE).div(60);
+  const drawn = new Fraction(entry.qty);
+  if (drawn.compare(charge) < 0) {
+    throw new Error(
+      `recipe ${u.id} draws ${entry.qty} ${item} per cycle, below the ${charge.valueOf()} catalyst charge`,
+    );
+  }
+
+  const feed = drawn.sub(charge);
+  if (feed.compare(0) === 0) inputs.splice(index, 1);
+  else entry.qty = feed.valueOf();
+
+  const qty = charge.valueOf();
+  // The charge is emitted as a double, so re-read it as a rational and confirm
+  // the round trip still rates at exactly the catalyst draw.
+  if (!new Fraction(qty).mul(60).div(u.time).equals(CATALYST_PER_MINUTE)) {
+    throw new Error(`recipe ${u.id} catalyst charge ${qty} does not rate at ${CATALYST_PER_MINUTE}/min`);
+  }
+  return [{ item, qty }];
+}
+
+// Icon id per environment, checked against the upstream sprite sheet so a
+// vendor refresh that renames or drops a sprite fails the extract instead of
+// shipping a badge that renders as a hole.
+function buildEnvironmentBadges(upstream: UpstreamData): EnvironmentBadges {
+  const iconIds = new Set(upstream.icons.map((i) => i.id));
+  const byRecipeId = new Map(upstream.recipes.map((r) => [r.id, r]));
+  const badges = {} as EnvironmentBadges;
+  for (const [environment, recipeId] of Object.entries(ENVIRONMENT_BADGE_RECIPES) as [
+    keyof EnvironmentBadges,
+    string,
+  ][]) {
+    const recipe = byRecipeId.get(recipeId);
+    if (!recipe) throw new Error(`environment badge recipe "${recipeId}" is missing from upstream`);
+    if (!iconIds.has(recipe.icon)) {
+      throw new Error(`environment badge icon "${recipe.icon}" is missing from upstream icons`);
+    }
+    badges[environment] = recipe.icon;
+  }
+  return badges;
 }
 
 // A recipe whose every producer is a skip machine is a world node - a fixture
