@@ -1,4 +1,4 @@
-// Fixture data for the ten placement-regression scenarios. Each scenario is a
+// Fixture data for the thirteen placement-regression scenarios. Each scenario is a
 // named set of solver targets the app loads from a share hash. The spec encodes
 // these into v1 hashes at runtime with the app's own encoder, so the fixtures
 // stay regenerable from the target data rather than pinned to copied blobs.
