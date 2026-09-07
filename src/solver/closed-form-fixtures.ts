@@ -99,6 +99,9 @@ export interface ClosedFormFixture {
     softFeasible: boolean;
     // Items expected to carry a deficit (only when softFeasible is false).
     deficitItems?: string[];
+    // Closed-form shortfall per deficit item. When present the deficit map
+    // must hold exactly these items at exactly these magnitudes.
+    deficits?: { itemId: string; num: number; den: number }[];
     // Items expected to carry surplus (free disposal), closed-form value.
     surplus?: { itemId: string; num: number; den: number }[];
     // Per-recipe closed-form exec/sec, only when the solution is uniquely
@@ -321,6 +324,9 @@ const catalystCapShort: ClosedFormFixture = {
   expected: {
     softFeasible: false,
     deficitItems: ["F"],
+    // 1 F/sec asked, 1/2 produced: the shortfall is exactly the half the
+    // throttled catalyst could not fund.
+    deficits: [{ itemId: "F", num: 1, den: 2 }],
     rates: [{ recipeId: "a", num: 1, den: 2 }],
     draws: [],
     catalystDraw: [{ itemId: "C", num: 1, den: 2 }],

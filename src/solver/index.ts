@@ -283,6 +283,9 @@ function runSolvePipeline(
     },
     supplyShares,
     boundaryShare,
+    // The whole pack, where lp.ts sums over its extraction-filtered list. The
+    // sums agree: a filtered recipe never enters the model, so it is never a
+    // key of `rates` and contributes nothing either way.
     catalystDraw: catalystDrawFromRates(pack.recipes, rates),
   };
 

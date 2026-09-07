@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
-import { catalystDrawFromRates, solveLp, type LpResult } from "./lp";
+import { catalystDrawFromRates, snapDraw, solveLp, type LpResult } from "./lp";
 import { makePack, withoutGasMachines } from "./closed-form-fixtures";
 import { effectiveSupply } from "./effectiveSupply";
 import { pack } from "../data/load";
@@ -991,5 +991,52 @@ describe("solveLp - extraction recipes", () => {
     expect(
       result.draws.get("gas_xiranite")!.add(cycled.get("gas_xiranite")!).equals(new Fraction(1, 2)),
     ).toBe(true);
+  });
+});
+
+// The draw snap saturates against the cap MINUS the catalyst use. No live plan
+// separates that window from the plain cap (plainSnap happens to recover the
+// same rational in every one of them), so it is pinned directly here: the
+// primal sits just inside the shifted window and well outside the unshifted
+// one, and the plain snap cannot reach the answer on its own.
+describe("snapDraw", () => {
+  // Fixture (b)'s numbers: cap 3, catalyst 1/2, headroom 5/2. The offset is
+  // half the relative snap radius of the headroom, so the primal is inside the
+  // window (tolerance 3e-6, distance 1.25e-6) but 1.25e-6 away from 5/2 -
+  // further than plainSnap's own 1e-6 radius, which therefore cannot land on
+  // it. Snapping against the unshifted cap would miss by 1/2 and fall through.
+  const SNAP_REL = 1e-6;
+
+  it("snaps a saturated draw onto the cap less the catalyst use", () => {
+    const cap = new Fraction(3);
+    const catalystUse = new Fraction(1, 2);
+    const headroom = cap.sub(catalystUse);
+    const primal = headroom.valueOf() * (1 + SNAP_REL / 2);
+
+    expect(snapDraw(primal, cap, catalystUse).equals(headroom)).toBe(true);
+
+    // The window really is the discriminator: the unshifted window rejects
+    // this primal, and the fallback it would take cannot produce 5/2.
+    expect(
+      Math.abs(primal - cap.valueOf()) <= Math.max(SNAP_REL, SNAP_REL * cap.valueOf()),
+    ).toBe(false);
+    expect(snapDraw(primal, headroom, new Fraction(0)).equals(headroom)).toBe(true);
+    expect(
+      new Fraction(primal)
+        .simplify(Math.min(SNAP_REL, Math.abs(primal) * SNAP_REL))
+        .equals(headroom),
+    ).toBe(false);
+  });
+
+  it("leaves a non-catalyst item on the plain cap", () => {
+    const cap = new Fraction(3);
+    const primal = cap.valueOf() * (1 + SNAP_REL / 2);
+    expect(snapDraw(primal, cap, new Fraction(0)).equals(cap)).toBe(true);
+  });
+
+  it("falls back to the relative snap away from the bound", () => {
+    const cap = new Fraction(3);
+    expect(snapDraw(1.5, cap, new Fraction(1, 2)).equals(new Fraction(3, 2))).toBe(true);
+    expect(snapDraw(1.5, cap, new Fraction(0)).equals(new Fraction(3, 2))).toBe(true);
   });
 });

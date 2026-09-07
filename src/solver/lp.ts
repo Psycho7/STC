@@ -302,7 +302,12 @@ export function solveLp(input: LpInput): LpResult {
         // no conversion. Only a finite POSITIVE cap constrains a catalyst -
         // an uncapped item has no row here, so nothing throttles it.
         for (const r of recipes) {
-          const catQty = r.catalyst?.find((c) => c.item === it.id)?.qty ?? 0;
+          // Summed, not first-match, so this row agrees with
+          // catalystDrawFromRates on a recipe that lists an item twice.
+          let catQty = 0;
+          for (const c of r.catalyst ?? []) {
+            if (c.item === it.id) catQty += c.qty;
+          }
           if (catQty !== 0) variables[`x_${r.id}`]![capName] = catQty;
         }
       }
@@ -423,6 +428,45 @@ export const RATE_ZERO = 1e-12;
 const NOISE_CEILING_REL = 1e-4;
 const DEFICIT_MATERIAL_REL = 1e-9;
 
+// Relative rational snap: the extraction's default reading of a float primal.
+const plainSnap = (v: number): Fraction =>
+  new Fraction(v).simplify(Math.min(SNAP_REL, Math.abs(v) * SNAP_REL));
+
+/**
+ * Read one boundary-draw primal exactly, against a finite positive cap.
+ *
+ * The draw commonly saturates its bound, and a float must not be allowed to
+ * round onto some nearby rational instead, so a primal inside the snap window
+ * of the bound is snapped onto the bound as an exact Fraction. The bound is
+ * the cap MINUS the catalyst use, because the cap row the LP solved reads
+ * `draw + catalyst <= cap`: a catalyst leaves the balanced draw only the
+ * headroom. An item with no catalyst subtracts zero, so its window is the
+ * plain cap and its behaviour is unchanged.
+ *
+ * The tolerance is deliberately sized off `cap`, not off the headroom: it is
+ * the historical radius of this snap (absolute 1e-6 at unit scale, relative
+ * above it) and the cap is the magnitude the primal was solved at. It is then
+ * compared against the distance to the headroom, which is the value the primal
+ * is expected to land on. A headroom at or below zero means the catalyst
+ * already took the whole cap; no draw saturates there, so it falls through.
+ */
+export function snapDraw(
+  primal: number,
+  cap: Fraction,
+  catalystUse: Fraction,
+): Fraction {
+  const headroom = cap.sub(catalystUse);
+  const headroomValue = headroom.valueOf();
+  const capValue = cap.valueOf();
+  if (
+    headroomValue > 0 &&
+    Math.abs(primal - headroomValue) <= Math.max(SNAP_REL, SNAP_REL * capValue)
+  ) {
+    return headroom;
+  }
+  return plainSnap(primal);
+}
+
 const FRAC_ZERO = new Fraction(0);
 
 type ExtractArgs = {
@@ -476,9 +520,6 @@ function extractResult(args: ExtractArgs): LpResult {
   let planScale = 1;
   for (const d of demand.values()) planScale = Math.max(planScale, Math.abs(d));
 
-  const plainSnap = (v: number): Fraction =>
-    new Fraction(v).simplify(Math.min(SNAP_REL, Math.abs(v) * SNAP_REL));
-
   // Rate extraction. On pass-2 results, big-M recipes that pass 1 kept at zero
   // are dropped: the lex cost_cap row magnitude grows with target scale and
   // the solver's internal relative tolerance can buy them a tiny positive
@@ -507,11 +548,7 @@ function extractResult(args: ExtractArgs): LpResult {
   // the row the solver actually enforced.
   const catalystUse = catalystDrawFromRates(recipes, rates);
 
-  // Bounded boundary draws for finite positive caps. A raw primal within snap
-  // radius of the cap MINUS the catalyst use snaps onto that exact Fraction
-  // (the draw commonly saturates its bound, and the float must not round to a
-  // nearby rational); anything else gets the plain relative snap. An item with
-  // no catalyst subtracts nothing, so the window is the plain cap as before.
+  // Bounded boundary draws for finite positive caps, read through snapDraw.
   // Zero draws are omitted. The extracted draws join the exact slack recompute
   // below, so the reported rows close exactly against the reported draws.
   const draws = new Map<ItemId, Fraction>();
@@ -519,20 +556,10 @@ function extractResult(args: ExtractArgs): LpResult {
     const supply = supplyById.get(it.id)!;
     if (supply === Infinity) continue;
     const cap = supply as Fraction;
-    const capValue = cap.valueOf();
-    if (!(capValue > 0)) continue;
+    if (!(cap.valueOf() > 0)) continue;
     const v = lpResult[`draw_${it.id}`] ?? 0;
     if (v <= RATE_ZERO) continue;
-    const headroom = cap.sub(catalystUse.get(it.id) ?? FRAC_ZERO);
-    const headroomValue = headroom.valueOf();
-    if (
-      headroomValue > 0 &&
-      Math.abs(v - headroomValue) <= Math.max(SNAP_REL, SNAP_REL * capValue)
-    ) {
-      draws.set(it.id, headroom);
-    } else {
-      draws.set(it.id, plainSnap(v));
-    }
+    draws.set(it.id, snapDraw(v, cap, catalystUse.get(it.id) ?? FRAC_ZERO));
   }
 
   // Noise-sweep candidates: every positive rate at or below the ceiling,
