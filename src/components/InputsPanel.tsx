@@ -144,6 +144,12 @@ export function InputsPanel({
   // The split also means an invalid flag does NOT follow an item across a
   // family change (auto row promoted to override, or override reverting to
   // auto): the stale cue the shared set used to carry over is dropped now.
+  // The auto-row membership test the clear-cap rule below reads. Kept as a set
+  // because the commit path is a lookup, not a walk.
+  const autoRowIds = useMemo(
+    () => new Set(assumedRawItemIds ?? []),
+    [assumedRawItemIds],
+  );
   const rowEdit = useRateEdit({
     emptyMeans: "uncap",
     keepTextAfterCommit: true,
@@ -152,12 +158,19 @@ export function InputsPanel({
         const idx = current.findIndex((o) => o.itemId === itemId);
         // Row removed since the edit: no-op (same reference).
         if (idx < 0) return current;
-        // Clearing the cap on a NON-RAW row drops the whole override. A
+        // Clearing the cap on a NON-RAW AUTO-ROW drops the whole override. A
         // field-less override means "import this item freely across the
         // boundary", which for a raw item is what it already was, but for a
         // non-raw one would silently make its balanced uses free too. Dropping
-        // it returns the item to an auto-row when the plan still draws it.
-        if (parsed === undefined && itemById.get(itemId)?.raw !== true) {
+        // it returns the item to the auto-row the plan's draw already earns it.
+        // Scoped to the auto-row set on purpose: a non-raw item outside it has
+        // no row to fall back to, so dropping the override would turn a free
+        // import into a forced internal build.
+        if (
+          parsed === undefined &&
+          itemById.get(itemId)?.raw !== true &&
+          autoRowIds.has(itemId)
+        ) {
           return current.filter((o) => o.itemId !== itemId);
         }
         const next = current.slice();

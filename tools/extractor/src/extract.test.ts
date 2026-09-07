@@ -18,9 +18,10 @@ import {
   WORLD_NODE_MACHINES,
   collapseSyntheticChains,
   main as runExtractor,
+  splitCatalyst,
   validateReferentialIntegrity,
 } from "./extract.ts";
-import type { UpstreamData } from "./upstream.ts";
+import type { UpstreamData, UpstreamRecipe } from "./upstream.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const TRANSPORT_CONFIG_PATH = resolve(REPO_ROOT, "data/aef/transport-config.json");
@@ -231,6 +232,54 @@ describe("transmuter catalysts", () => {
       if (!r.catalyst) continue;
       expect(r.in.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("splitCatalyst guards", () => {
+  // Smallest upstream recipe the split reads: producers pick the catalyst
+  // phase, time sets the charge, and `in` carries the folded draw.
+  const makeUpstream = (
+    over: Partial<UpstreamRecipe> & Pick<UpstreamRecipe, "id">,
+  ): UpstreamRecipe => ({
+    name: over.id,
+    category: "material",
+    row: 0,
+    icon: over.id,
+    time: 2,
+    in: { liquid_xiranite: 1.2 },
+    out: { gas_xiranite: 1 },
+    producers: ["phase_trans_1"],
+    ...over,
+  });
+
+  test("splits a folded transmuter draw into feed plus catalyst", () => {
+    const inputs = [{ item: "liquid_xiranite", qty: 1.2 }];
+    expect(splitCatalyst(makeUpstream({ id: "ok" }), inputs)).toEqual([
+      { item: "liquid_xiranite", qty: 0.2 },
+    ]);
+    expect(inputs).toEqual([{ item: "liquid_xiranite", qty: 1 }]);
+  });
+
+  test("throws when a transmuter recipe gains a second producer", () => {
+    // A silent `undefined` here would ship the charge as an ordinary input and
+    // double-count the cycled xiranite, so a widened producer list has to fail
+    // the extract instead.
+    const u = makeUpstream({
+      id: "two_producers",
+      producers: ["phase_trans_1", "phase_trans_2"],
+    });
+    expect(() => splitCatalyst(u, [{ item: "liquid_xiranite", qty: 1.2 }])).toThrow(
+      "recipe two_producers lists 2 producers but phase_trans_1 cycles a catalyst",
+    );
+  });
+
+  test("throws when the split would empty a recipe's `in`", () => {
+    // An input-less recipe reads as a map deposit downstream and gets banned
+    // from every solution, so an all-catalyst draw must fail loudly here.
+    const u = makeUpstream({ id: "charge_only", in: { liquid_xiranite: 0.2 } });
+    expect(() => splitCatalyst(u, [{ item: "liquid_xiranite", qty: 0.2 }])).toThrow(
+      "recipe charge_only draws nothing but its catalyst charge",
+    );
   });
 });
 
@@ -800,6 +849,36 @@ describe("collapseSyntheticChains guards", () => {
       "recipe mixer in collision: substituting __miner_water -> liquid_water would duplicate liquid_water",
     );
   });
+
+  test("throws when a __-prefix reference survives on a catalyst entry", () => {
+    // The substitution pass rewrites `in` / `out` only, so a synthetic id that
+    // reached a catalyst array has to trip the post-pass guard rather than ship.
+    const items = [makeItem("__miner_water"), makeItem("liquid_water"), makeItem("cat_out")];
+    const machines = [makeMachine("__miner_pump_1"), makeMachine("cat_machine")];
+    const recipes = [
+      makeRecipe(
+        "__miner_water",
+        [],
+        [{ item: "__miner_water", qty: 1 }],
+        ["__miner_pump_1"],
+      ),
+      {
+        ...makeRecipe(
+          "cat_user",
+          [{ item: "liquid_water", qty: 1 }],
+          [{ item: "cat_out", qty: 1 }],
+          ["cat_machine"],
+        ),
+        catalyst: [{ item: "__miner_acid", qty: 1 }],
+      },
+    ];
+
+    const subs = { __miner_water: "liquid_water" };
+
+    expect(() => collapseSyntheticChains({ items, machines, recipes }, subs)).toThrow(
+      "recipe cat_user still references synthetic item __miner_acid after collapse",
+    );
+  });
 });
 
 describe("validateReferentialIntegrity guards", () => {
@@ -858,6 +937,14 @@ describe("validateReferentialIntegrity guards", () => {
     pack.transports = [mkTransport("assembler")];
     expect(() => validateReferentialIntegrity(pack)).toThrow(
       "id assembler appears as both a machine and a transport",
+    );
+  });
+
+  test("throws when a catalyst entry names an unknown item", () => {
+    const pack = mkPack();
+    pack.recipes[0]!.catalyst = [{ item: "ghost", qty: 1 }];
+    expect(() => validateReferentialIntegrity(pack)).toThrow(
+      "recipe make_widget references unknown item ghost",
     );
   });
 });

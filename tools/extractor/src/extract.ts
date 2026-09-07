@@ -343,8 +343,19 @@ function toRecipe(u: UpstreamRecipe): Recipe {
 // table does not cover. Arithmetic runs on exact rationals because the upstream
 // quantities are decimals a double cannot hold (0.2, 1.2) and the charge has to
 // come back out of a folded entry without drift.
-function splitCatalyst(u: UpstreamRecipe, inputs: Stoich[]): Stoich[] | undefined {
-  if (u.producers.length !== 1) return undefined;
+export function splitCatalyst(u: UpstreamRecipe, inputs: Stoich[]): Stoich[] | undefined {
+  if (u.producers.length !== 1) {
+    // A transmuter that gains a second producer must not fall through as an
+    // ordinary recipe: its charge would stay folded into `in` and the plan
+    // would consume the cycled xiranite instead of holding it.
+    const cycler = u.producers.find((p) => CATALYST_BY_PRODUCER[p] !== undefined);
+    if (cycler !== undefined) {
+      throw new Error(
+        `recipe ${u.id} lists ${u.producers.length} producers but ${cycler} cycles a catalyst`,
+      );
+    }
+    return undefined;
+  }
   const producer = u.producers[0]!;
   const item = CATALYST_BY_PRODUCER[producer];
   if (item === undefined) return undefined;
@@ -366,6 +377,13 @@ function splitCatalyst(u: UpstreamRecipe, inputs: Stoich[]): Stoich[] | undefine
   const feed = drawn.sub(charge);
   if (feed.compare(0) === 0) inputs.splice(index, 1);
   else entry.qty = feed.valueOf();
+
+  // An input-less recipe reads as a map deposit downstream and is banned from
+  // every solution, so a recipe left with nothing but its catalyst charge has
+  // to fail the extract rather than disappear from the solver silently.
+  if (inputs.length === 0) {
+    throw new Error(`recipe ${u.id} draws nothing but its catalyst charge`);
+  }
 
   const qty = charge.valueOf();
   // The charge is emitted as a double, so re-read it as a rational and confirm
@@ -480,12 +498,14 @@ export function collapseSyntheticChains(
   );
 
   // Referential-integrity guard: no __-prefix references may survive on any
-  // recipe's stoichiometric `in` / `out` item ids. Note this checks ITEM ids
-  // on stoichiometry only; recipe ids, category strings, and producer machine
-  // ids are not in scope and may still carry a __-prefix legitimately (e.g.,
-  // recipes whose category is __domain_transfer or __internal).
+  // recipe's `in` / `out` / `catalyst` item ids. The substitution pass rewrites
+  // the two stoichiometric sides only, so a synthetic catalyst id fails here
+  // rather than shipping. Note this checks ITEM ids only; recipe ids, category
+  // strings, and producer machine ids are not in scope and may still carry a
+  // __-prefix legitimately (e.g., recipes whose category is __domain_transfer
+  // or __internal).
   for (const r of pack.recipes) {
-    for (const s of [...r.in, ...r.out]) {
+    for (const s of [...r.in, ...r.out, ...(r.catalyst ?? [])]) {
       if (s.item.startsWith("__")) {
         throw new Error(
           `recipe ${r.id} still references synthetic item ${s.item} after collapse`,
@@ -598,7 +618,7 @@ export function validateReferentialIntegrity(pack: {
   }
 
   for (const r of pack.recipes) {
-    for (const s of [...r.in, ...r.out]) {
+    for (const s of [...r.in, ...r.out, ...(r.catalyst ?? [])]) {
       if (!itemIds.has(s.item)) {
         throw new Error(`recipe ${r.id} references unknown item ${s.item}`);
       }
