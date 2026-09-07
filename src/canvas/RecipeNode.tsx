@@ -18,6 +18,10 @@ import { iconIdForItem, iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
 import { elideName } from "./elide";
 import { estimateTextWidth } from "./textWidth";
+import {
+  RECIPE_HEAD_TITLE_COL,
+  RECIPE_HEAD_BLOCK_PAD_X,
+} from "./dimensions";
 
 // Row-label elision budget, from the constants that shape the row (see
 // .rn-row in canvas.css): half of the card body, minus the row's horizontal
@@ -33,6 +37,23 @@ const ROW_GAP = 5;
 const ROW_SPRITE = 20;
 const ROW_LABEL_FONT = { fontSize: 12, weight: 400 };
 const ROW_RATE_FONT = { fontSize: 12, weight: 700 };
+
+// Header budgets from the pinned columns (dimensions.ts, ruling R3): the
+// recipe block's content width, minus the multiplier chip and its gap when
+// one rides the title line. The chip estimate adds the box chrome (2x5px
+// padding + 2x1px border) and the 0.04em tracking on top of the number-face
+// bound, so the title errs narrow on chip-bearing cards -- the safe
+// direction for the same reason as the row rate.
+const TITLE_FONT = { fontSize: 17, weight: 600 };
+const PRODUCTS_FONT = { fontSize: 11, weight: 500 };
+const CHIP_FONT = { fontSize: 12, weight: 700 };
+const CHIP_CHROME_X = 12;
+const CHIP_TRACKING_EM = 0.04;
+const TITLE_CHIP_GAP = 8;
+
+function headerContentWidth(): number {
+  return RECIPE_HEAD_TITLE_COL - 2 * RECIPE_HEAD_BLOCK_PAD_X;
+}
 
 function elideRowLabel(
   name: string,
@@ -196,6 +217,33 @@ export default function RecipeNode({
     badgeText = `x${multiplier}`;
   }
 
+  // Visible header strings: the elision helper owns them against the pinned
+  // header budgets (title minus the chip and its gap when one rides the
+  // line; products at the recipe block's full content width), and the title
+  // attributes keep the full names for hover.
+  const visibleMachineName = elideName(
+    machineName,
+    headerContentWidth() -
+      (badgeText !== null
+        ? estimateTextWidth(badgeText, CHIP_FONT) +
+          badgeText.length * CHIP_TRACKING_EM * CHIP_FONT.fontSize +
+          CHIP_CHROME_X +
+          TITLE_CHIP_GAP
+        : 0),
+    (text) => estimateTextWidth(text, TITLE_FONT),
+    "title-17",
+  );
+  const visibleProductNames = recipe.out
+    .map((p) =>
+      elideName(
+        i18n.displayName(p.item),
+        headerContentWidth(),
+        (text) => estimateTextWidth(text, PRODUCTS_FONT),
+        "products-11",
+      ),
+    )
+    .join(" \u00b7\u00a0");
+
   // Header rate column. The primary value is the aggregate (per-machine x
   // scale); the secondary line keeps the per-machine figure so the aggregate
   // stays reconcilable to one machine's throughput. Empty string hides the
@@ -236,7 +284,7 @@ export default function RecipeNode({
               rate figures drop at zoom-low; this line does not). */}
           <div className="machine-title">
             <span className="cn" title={machineName}>
-              {machineName}
+              {visibleMachineName}
             </span>
             {badgeText !== null ? (
               <span className="rn-mult-chip">{badgeText}</span>
@@ -244,7 +292,7 @@ export default function RecipeNode({
           </div>
           {productNames !== "" ? (
             <div className="rn-products" title={productNames}>
-              {productNames}
+              {visibleProductNames}
             </div>
           ) : null}
         </div>

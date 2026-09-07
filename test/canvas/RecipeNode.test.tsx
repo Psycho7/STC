@@ -520,6 +520,61 @@ describe("RecipeNode", () => {
       expect(visC.endsWith("[A]")).toBe(true);
       expect(visA).not.toBe(visC);
     });
+
+    it("shows both bottle tails in the products subtitle", () => {
+      const twoBottles = {
+        ...bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
+        out: [
+          { item: "copper_bottle-liquid_plant_grass_1", qty: 1 },
+          { item: "copper_bottle-liquid_plant_grass_2", qty: 1 },
+        ],
+      } as unknown as Recipe;
+      const { container } = renderEn({
+        recipe: twoBottles,
+        kind: "recipe",
+      });
+      const subtitle = container.querySelector(".rn-products");
+      expect(subtitle).not.toBeNull();
+      const text = subtitle!.textContent ?? "";
+      expect(text).toContain("(Jincao Solution)");
+      expect(text).toContain("(Yazhen Solution)");
+      expect(text).toContain("\u2026");
+      // The full join stays on the title attribute.
+      expect(subtitle!.getAttribute("title")).toBe(
+        "Cuprium Bottle(Jincao Solution) \u00b7\u00a0Cuprium Bottle(Yazhen Solution)",
+      );
+    });
+
+    it("keeps a colliding machine-title pair distinct with tails intact (zh gates)", () => {
+      // The two Purification Node machines differ only in their parenthesis
+      // tail; under the pinned title budget the visible titles elide
+      // head-first and keep it.
+      const gate = (id: string): RecipeNodeData => ({
+        recipe: {
+          ...bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
+          id,
+          producers: [id],
+        } as unknown as Recipe,
+        kind: "recipe",
+      });
+      const first = renderRecipe(gate("liquid_clean_gate"), makePackValue({
+        machines: [makeMachine("liquid_clean_gate"), makeMachine("liquid_recycle_gate")],
+      }));
+      const second = renderRecipe(gate("liquid_recycle_gate"), makePackValue({
+        machines: [makeMachine("liquid_clean_gate"), makeMachine("liquid_recycle_gate")],
+      }));
+      const t = (c: HTMLElement) =>
+        c.querySelector(".machine-title .cn")?.textContent ?? "";
+      const a = t(first.container as HTMLElement);
+      const b = t(second.container as HTMLElement);
+      expect(a).not.toBe(b);
+      expect(a.endsWith("(\u6c61\u6c34\u63a5\u5165\u53e3)")).toBe(true);
+      expect(b.endsWith("(\u4ea7\u7269\u6392\u51fa\u53e3)")).toBe(true);
+      // The full machine names stay on the title attributes.
+      expect(
+        first.container.querySelector(".machine-title .cn")?.getAttribute("title"),
+      ).toBe("\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)");
+    });
   });
 
   describe("header title structure", () => {

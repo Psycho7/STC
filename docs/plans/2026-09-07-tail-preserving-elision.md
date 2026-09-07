@@ -101,10 +101,12 @@ graph LR
 
 ### Task 5: Wire title and subtitle
 
-- [ ] Title uses the pinned width from Task 3. Subtitle keeps its two-line clamp but each joined item name goes through the helper with the block's content width as budget, so a clamped second line still ends in a distinguishing tail.
-- [ ] Delete `test/e2e/title-truncation.spec.ts` (R4); move its issue references into the Task 0 unit test description.
+- [x] Title uses the pinned width from Task 3. Subtitle keeps its two-line clamp but each joined item name goes through the helper with the block's content width as budget, so a clamped second line still ends in a distinguishing tail.
+- [x] Delete `test/e2e/title-truncation.spec.ts` (R4); move its issue references into the Task 0 unit test description.
 
 **Acceptance:** unit test asserting distinct visible titles for a colliding pair; the subtitle for a two-product recipe with both bottles shows both tails.
+
+- Evidence (T5): RecipeNode elides the machine title at RECIPE_HEAD_TITLE_COL minus pad and (when present) the estimated chip box plus gap, and each products name at the block content width before the interpunct join; title attributes keep the full strings. New jsdom cases: the zh Purification-gate pair renders distinct visible titles ending in their own parenthesis tails, and a two-bottle recipe's subtitle shows both "(...)" tails with the full join on title. title-truncation.spec.ts deleted; its #38 reference moved into the elide.test.ts header. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10 EXIT=0.
 
 ### Task 6: e2e widen, re-baseline, PR
 

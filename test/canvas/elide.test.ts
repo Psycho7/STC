@@ -5,6 +5,10 @@
 // canned-food bracket families, the syringe bracket family) and their ru,
 // ja and zh forms are exercised with a monospace stub estimator so the
 // assertions are pure string math, not font metrics.
+//
+// Supersedes the e2e title-truncation spec (issue #38): with the helper
+// owning the title string against the pinned header budget, a DOM
+// overflow check is vacuous -- the string is built to fit by construction.
 import { describe, it, expect } from "vitest";
 import { elideName } from "../../src/canvas/elide";
 
