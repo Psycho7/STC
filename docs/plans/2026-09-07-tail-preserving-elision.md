@@ -88,7 +88,7 @@ graph LR
 
 **Acceptance:** the title width is a constant derivable from `dimensions.ts`; `test/e2e/title-truncation.spec.ts` still passes at this point (it is deleted in Task 5).
 
-- Evidence (T3): `dimensions.ts` RECIPE_HEAD_ICON_COL 41 / RECIPE_HEAD_RATE_COL 58 / RECIPE_HEAD_TITLE_COL 201 (= 300-41-58) / RECIPE_HEAD_BLOCK_PAD_X 8; `canvas.css` grid pinned to 41px 1fr 58px and `.rate-lbl` tracking 0.18em -> 0.1em so every locale's unit label fits the pinned rate column. A first attempt at 41/189/70 regressed the en default plan ("Shredding Unit" + x0.50 chip = 126+8+46px > 169px content), caught by title-truncation.spec, and was re-sized before committing. Four-locale probe on default/tundra/multi6: no clipped titles on default in any locale, rateWorst 57 <= 58 with zero rate clipping everywhere; the remaining long-title clips (tundra, multi6, ru) all pre-exist on develop's auto columns. title-truncation.spec PASSED. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10 EXIT=0.
+- Evidence (T3): `dimensions.ts` RECIPE_HEAD_ICON_COL 41 / RECIPE_HEAD_RATE_COL 58 / RECIPE_HEAD_TITLE_COL 201 (= 300-41-58) / RECIPE_HEAD_BLOCK_PAD_X 8; `canvas.css` grid pinned to 41px 1fr 58px and `.rate-lbl` tracking 0.18em -> 0.1em so every locale's unit label fits the pinned rate column. A first attempt at 41/189/70 regressed the en default plan ("Shredding Unit" + x0.50 chip = 126+8+46px > 169px content), caught by title-truncation.spec, and was re-sized before committing. Four-locale probe on default/tundra/multi6: rateWorst 57 <= 58 with zero rate clipping everywhere; the long-title clips on tundra and multi6 pre-exist on develop's auto columns. CORRECTED 2026-09-07 per the controller's post-implementation measurement: the earlier claim of no clipped titles on default in any locale was wrong. Four ru machine titles clip on the pinned 201px title column (shaper_1 Moulding Unit x1, furnance_1 Refining Unit x1, grinder_1 Shredding Unit x2; e.g. scrollWidth 210 vs clientWidth 185). Provenance probe on develop@6706c7e (default plan, ru locale, same `.machine-title .cn` selector) measured the same titles clipping under the auto columns too -- Refining Unit x2, Moulding Unit x1, Shredding Unit x2, five clipped rows in all, scrollWidth 140/140/157/210/210 against clientWidth 115/136/135/171/115 -- so all four branch-side clips pre-exist on develop, and the pinned column actually un-clips one of the two Refining Unit rows that clipped there (the third sat at exactly 140 = 140 and never clipped). Pre-existing, not introduced; see the validation round below. title-truncation.spec PASSED. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10 EXIT=0.
 
 ### Task 4: Wire rows
 
@@ -97,7 +97,7 @@ graph LR
 
 **Acceptance:** a jsdom unit test renders the four bottle recipes and asserts the visible row strings differ; `test/canvas/node-name-tooltip.test.tsx` still passes.
 
-- Evidence (T4): RecipeNode computes half of geom.width minus row chrome (pad 14, sprite 20 + gap when a sprite renders, one gap to the rate) minus the upper-bound rate estimate, and renders `elideName`'s output as `.lbl` text with `title` on the full name. New jsdom cases: the four solution-bottle output rows are pairwise distinct with full names on title (their parenthesis tails exceed even the estimate-free row budget, so they keep the raw string -- the sanctioned CSS fallback), and the bracket-family syringe rows elide head-first and end in "[A]"/"[C]". node-name-tooltip 2/2 green. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10 EXIT=0.
+- Evidence (T4): RecipeNode computes half of geom.width minus row chrome (pad 14, sprite 20 + gap when a sprite renders, one gap to the rate) minus the upper-bound rate estimate, and renders `elideName`'s output as `.lbl` text with `title` on the full name. New jsdom cases: the four solution-bottle output rows keep the raw string with the full name on title (their parenthesis tails exceed even the estimate-free row budget -- the sanctioned CSS fallback), and the bracket-family syringe rows elide head-first and end in "[A]"/"[C]". CORRECTED 2026-09-07 per the controller's post-implementation measurement: the earlier wording claimed the four solution-bottle rows "are pairwise distinct". That distinctness holds only at the textContent level, where the jsdom assertion compares the raw fallback strings; for raw-fallback rows the assertion is vacuous, because textContent is the unelided name whatever the pixels do. At pixel level on multi6 the two copper-bottle rows render the identical clipped prefix in en, ru and ja (CSS tail ellipsis over one shared long head); zh differs only by clip geometry. The bracket-family half of the assertion stands unchanged. node-name-tooltip 2/2 green. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10 EXIT=0.
 
 ### Task 5: Wire title and subtitle
 
@@ -129,4 +129,83 @@ graph LR
 
 ## Closing #84
 
-Close when Task 6 is merged, citing the widened plan-wide spec and the unit family table, and noting the zh tier-prefix gap and the identical-name pair as recorded residues.
+Close when Task 6 is merged, citing the widened plan-wide spec and the unit family table, and noting the zh tier-prefix gap and the identical-name pair as recorded residues. The validation round below supersedes this: do not close until its open design decision is made and re-verified.
+
+---
+
+## Post-implementation validation round (2026-09-07, controller)
+
+A dedicated validator measured the finished branch (bf9a400) surface by
+surface, family by family, locale by locale. Verdict: FAIL at the goal
+level. Workmanship is confirmed: gates green, geometry and chip baselines
+untouched, and every task's recorded evidence traceable. But the plan's
+stated goal -- distinct names stay distinct after truncation, so the two
+solution bottles never both read `Cuprium Bott...` -- is not met on the
+row surface in three of the four locales.
+
+### Result matrix (surface x family x locale)
+
+- Row labels: parenthesis family GOAL-MISSED in en, ru and ja (the two
+  copper-bottle rows render the identical clipped prefix); GOAL-MET in zh
+  (the raw names fit the card whole). Bracket family GOAL-MET in all four
+  locales.
+- Card titles: parenthesis family LATENT-MISS -- the tail is lost wherever
+  a title clips, but no two different machines co-render a colliding title
+  in the corpus, so nothing observable fails today.
+- Products subtitles: GOAL-MET in all four locales.
+
+### Structural cause
+
+The parenthesis tail on a solution-bottle row measures about 133px at the
+row-label metrics, against a row budget of about 86px (150px half-body
+minus padding, icon, gaps and the rate column). The tail alone exceeds the
+entire budget, so the helper's minimum-head rule can never fit base plus
+tail and returns the raw string -- and the plan's own raw-fallback ruling
+(Task 2: below the minimum head, return the raw string and let CSS tail
+ellipsis apply) hands such rows back to CSS tail ellipsis, reproducing
+exactly the defect the plan targeted.
+
+### Guard blindness
+
+- The widened T6 e2e guard compares `textContent`, and on raw-fallback
+  rows `textContent` is the raw name, pairwise distinct before CSS clips
+  it. The guard measures the DOM string, not the pixels the reader sees.
+- The T4 jsdom assertion on the four bottle rows passes vacuously for the
+  same reason (corrected T4 evidence above).
+- The T3 evidence note also recorded a wrong default-plan title result,
+  corrected above with the develop provenance probe.
+
+### Open design decision required before merge
+
+Not fixable inside the plan's current rulings; the controller requires a
+user decision among:
+
+1. Allow partial-tail preservation: elide inside the suffix when the whole
+   suffix cannot fit. Breaks the keep-suffix-whole ruling (R1, Task 2) and
+   reopens how much tail is enough to distinguish.
+2. Widen the row budget: a wider label column or smaller row metrics so a
+   ~133px tail fits. Touches the frozen card geometry the placement
+   baselines pin.
+3. Re-scope the goal to the title and subtitle surfaces, where tails are
+   preserved today, and record the row surface as out of reach at current
+   geometry.
+
+### Out-of-scope residues surfaced by the validator
+
+Prefix-sharing families beyond the plan's five en families collide
+identically pre-existing on develop (CSS tail ellipsis over a shared long
+head; unchanged by this branch; ru names transliterated here):
+
+- ru fine-ground powders: iron_enr_powder, carbon_enr_powder,
+  crystal_enr_powder, originium_enr_powder share "Melkomolot...".
+- ru heavy-xira pair: gas_xiranite_enr and xiranite_enr_powder share
+  "Tyazhelyy ks...".
+- ru pyrolith family: copper_enr2_cmpt, gas_copper_enr2, equip_script_4_3
+  share "Pirrolitov...".
+- ru ferric family: iron_bottle, iron_cmpt, iron_ore share
+  "Ferrievaya ...".
+- ja sand-leaf family: plant_moss_3, plant_moss_powder_3,
+  plant_moss_seed_3 share "Sando-ri-fu...".
+
+Plus the two already recorded above: the zh tier-prefix gap (R2) and the
+byte-identical transfer_tundra_glass_bottle / glass_bottle pair.
