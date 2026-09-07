@@ -293,7 +293,9 @@ describe("extraction-recipe pack census", () => {
 
 // The full banned set, flags included. The two flags come from the pack, not
 // from code: "mining" is upstream's own marker and "world-node" is stamped by
-// the extractor onto every recipe whose producers are all cost === -1 machines.
+// the extractor onto every recipe whose producers all sit in its
+// WORLD_NODE_MACHINES hand table, unioned with any upstream machine still
+// carrying cost === -1 (upstream 1.5.3 dropped that sentinel).
 // A pack update that adds or drops either flag changes what plans may build, so
 // the whole set is pinned by id here rather than left to a count.
 describe("banned-recipe pack census", () => {

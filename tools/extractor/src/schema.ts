@@ -118,9 +118,12 @@ export interface Recipe {
   locations?: string[];
   // Recipe markers the planner reads. Two values ship today: "mining", copied
   // verbatim from upstream, marks the 8 miner and pump recipes; "world-node",
-  // derived here, marks the recipes whose every producer is an upstream machine
-  // carrying the cost === -1 skip sentinel (the purification nodes). Both name
-  // recipes a plan never builds. Upstream may carry further values (hideProducer).
+  // derived here, marks the recipes whose every producer sits in the
+  // extractor's WORLD_NODE_MACHINES hand table, unioned with any upstream
+  // machine still carrying the cost === -1 skip sentinel (the purification
+  // nodes; upstream dropped that sentinel in 1.5.3, so the hand table is what
+  // names them). Both name recipes a plan never builds. Upstream may carry
+  // further values (hideProducer).
   flags?: string[];
   // Per-recipe power override in kW. Negative => the recipe generates power
   // (e.g. power-gen recipes). When absent, the machine's powerKw applies.

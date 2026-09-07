@@ -534,11 +534,21 @@ describe("render corpus: tiny plan clears sub-unit checker tolerances", () => {
   // now relative to the plan's own magnitude, so the same correct output
   // passes every checker.
   //
-  // The case runs on the pre-1.5.3 pack. On the live pack the same 1e-6 solve
-  // returns a float-drifted rate for phase_trans_1-liquid_xiranite (1/7692308
-  // instead of 1/8000000): the known small-rate LP drift, relocated by the
-  // extra columns 1.5.3 adds. Freezing the pack keeps this case exercising the
-  // checker tolerance floor at 1e-6 rather than that drift.
+  // The case runs on a frozen pre-1.5.3 pack because both packs answer this
+  // rate badly, in different ways. On the live pack the gas route survives but
+  // drifts: the render gives phase_trans_1-liquid_xiranite a rate of 1.25e-7
+  // against an LP rate of 1.299999948e-7, which trips two checkers -
+  // consumerInputsSatisfied on that recipe's gas_xiranite input (expected
+  // inflow 1.299999948e-7, actual 1.25e-7) and the multiplicity checker on the
+  // rate itself - so assertRenderInvariants throws for that plan under DEV.
+  // The companion test below pins that known-bad answer. The two packs pick
+  // the same gas route at every other magnitude tested (1/1, 1/10, 1/1000,
+  // 1/100000); at 1e-6 it is the FROZEN pack that drops to the copper_powder
+  // route, which reproduces develop's own answer there (develop's objective
+  // value reports the gas route while its rates are the copper route). All of
+  // this is the known small-rate float-drift family, under a standing no-fix
+  // ruling. Freezing the pack keeps this case exercising the checker tolerance
+  // floor at 1e-6 rather than that drift.
   it("liquid_copper at 1e-6/s solves and renders with zero violations", () => {
     const frozenPack = withoutV153Recipes(pack);
     const targets: Target[] = [
@@ -560,6 +570,41 @@ describe("render corpus: tiny plan clears sub-unit checker tolerances", () => {
       itemOverrides: [],
     }).flatMap((r) => r.violations);
     expect(violations).toEqual([]);
+  });
+
+  // Companion pin for the live-pack drift described above. It records the
+  // known-bad answer so the drift cannot silently change shape; when the
+  // small-rate float drift is fixed, flip the expectation to an empty list.
+  // DEV is stubbed off around the render because renderPlanFromSolve asserts
+  // the invariants itself and would throw before they can be inspected.
+  it("liquid_copper at 1e-6/s on the live pack renders the drifted xiranite rate", () => {
+    const targets: Target[] = [
+      { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "1000000" } },
+    ];
+    const full = solvePlanWithIntermediates(
+      targets,
+      pack,
+      defaultTransportConfig,
+      [],
+    );
+    vi.stubEnv("DEV", false);
+    let plan;
+    try {
+      plan = renderPlanFromSolve(full, pack, targets, []).plan;
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const violations = checkRenderPlan({
+      plan,
+      rates: full.rates,
+      pack,
+      targets,
+      itemOverrides: [],
+    }).flatMap((r) => r.violations);
+    const joined = violations.join("\n");
+    expect(joined).toContain("phase_trans_1-liquid_xiranite");
+    expect(joined).toContain("consumer fed from nothing");
+    expect(joined).toContain("unit multiplicities incoherent with the solve");
   });
 });
 

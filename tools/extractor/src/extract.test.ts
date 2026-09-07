@@ -48,6 +48,13 @@ describe("counts", () => {
   test("expected counts for AEF v1.5.3 after synthetic-chain collapse", () => {
     // Synthetic collapse drops __miner_water (item), __miner_pump_1 (machine),
     // and the __miner_water identity recipe.
+    //
+    // These counts also guard the two hand tables. Dropping an id upstream
+    // fails loudly: the extractor throws on a WORLD_NODE_MACHINES machine or a
+    // SKIP_SINK_RECIPES recipe that is missing. Adding one does not - a new
+    // purification gate or cleaner sink upstream shows up only as a machine or
+    // recipe count that moved here. When a count moves, check those tables
+    // before re-pinning the number.
     expect(pack.items).toHaveLength(124);
     expect(pack.machines).toHaveLength(33);
     // Two upstream transports (belt, pipe) plus the synthetic gas carrier.
