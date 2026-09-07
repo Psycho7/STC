@@ -50,6 +50,8 @@ export type UiKey =
   | "inputs.unlimited"
   | "inputs.needed"
   | "inputs.empty"
+  | "env.stable"
+  | "env.acidic"
   | "node.upm"
   | "node.each"
   | "node.cycle"
@@ -132,6 +134,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.unlimited": "无限",
     "inputs.needed": "需求 {rate}/分",
     "inputs.empty": "未配置任何输入 — 全部按 raw 自动求解",
+    "env.stable": "稳定环境",
+    "env.acidic": "酸性环境",
     "node.upm": "件/分",
     "node.each": "单台",
     "node.cycle": "{time}秒 · 周期",
@@ -210,6 +214,8 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.unlimited": "Unlimited",
     "inputs.needed": "needed {rate}/min",
     "inputs.empty": "No declared inputs — defaults to raw-source feed",
+    "env.stable": "Stable environment",
+    "env.acidic": "Acidic environment",
     "node.upm": "UPM",
     "node.each": "ea",
     "node.cycle": "{time}s · cycle",

@@ -2020,8 +2020,10 @@
 /* A catalyst row: an input the machine cycles rather than consumes, so it has
    no handle and no entering edge. It takes the input rows' left padding so the
    column reads as one stack, but not their accent tab (.rn-row.input::before),
-   which is the mark of an arriving edge. The muted label and rate are what set
-   it apart from the supplied rows above it. */
+   which is the mark of an arriving edge. The muted label is what sets it apart
+   from the supplied rows above it; the rate is muted only to land on the same
+   colour the input rows' rates already use, since a catalyst row carries no
+   `input` class to inherit it from. */
 .rn-row.catalyst {
   padding-left: 8px;
 }
@@ -2153,6 +2155,23 @@
   white-space: nowrap;
 }
 
+/* Environment badge: the in-game banner rather than a home-drawn chip. Upstream
+   bakes a colored strip across the full width of every icon whose recipe needs
+   a gas environment, so this is the shared sprite sheet drawn at native scale
+   through a band-sized window -- no transform, and the band offset rides an
+   inline background-position (iconSprite.ts owns the numbers). It rides the
+   title line beside the multiplier chip, survives every zoom band for the same
+   reason that chip does, and never shrinks, so the machine name's ellipsis
+   budget is the title row less the badge and its gap. */
+.rn-head .env-badge {
+  flex-shrink: 0;
+  width: 64px;
+  height: 10px;
+  background-image: var(--icons-url);
+  background-repeat: no-repeat;
+  image-rendering: -webkit-optimize-contrast;
+}
+
 .rn-head .rn-rate-block {
   padding: 0 8px;
   display: flex;
@@ -2208,8 +2227,10 @@
   color: var(--ak-text-decoration);
 }
 
-/* Header title: the machine name with the multiplier chip riding inline. The
-   name span ellipsizes; the chip never shrinks. */
+/* Header title: the machine name with the multiplier chip and the environment
+   badge riding inline. The name span ellipsizes; neither the chip nor the badge
+   shrinks, so each one it carries takes its own width plus one gap out of the
+   name's budget. */
 .rn-head .machine-title {
   display: flex;
   align-items: center;

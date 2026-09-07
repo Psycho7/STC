@@ -24,9 +24,18 @@ Below the input rows a card may carry catalyst rows: inputs the machine cycles
 rather than consumes, drawn from the plan boundary and handed straight back
 every cycle. A catalyst has no supplier and no edge, so its row has no port
 handle and no accent tab, and shows a small filled disc where a port row shows
-its transport glyph. Its label and rate are muted, and the rate is the draw for
-one machine with its unit spelled out ("6/min") rather than the flow across
-every machine that the port rows above it carry.
+its transport glyph. Its label is muted a step below the supplied rows, and its
+rate is the draw for one machine with its unit spelled out ("6/min") rather than
+the flow across every machine that the port rows above it carry.
+
+Some recipes only run inside a gas environment, which the player builds a
+disperser for. Such a card carries an environment badge on its title line, right
+of the machine name and the multiplier chip: the in-game banner itself, a
+64 by 10 strip cut from the icon sheet at native scale, blue for a stable
+environment and yellow for an acidic one. Hovering it names the environment. It
+is a build requirement rather than a detail figure, so it survives the low-zoom
+band on the same footing as the multiplier chip, and because it never shrinks
+the machine name ellipsizes into what is left of the row.
 
 ## Edges
 
