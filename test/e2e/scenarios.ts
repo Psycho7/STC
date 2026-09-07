@@ -152,6 +152,20 @@ export const SCENARIOS: Scenario[] = [
     ],
     maxDiffPixels: 0,
   },
+  // The transmuter plan. gas_copper_enr2 alone reaches phase_trans_2, the gas
+  // reactor and the liquid purifier but never phase_trans_1, so liquid_copper
+  // joins it as a second target: that route runs on phase_trans_1 and puts both
+  // transmuter kinds, both xiranite catalyst draws and both environment badges
+  // (acidic on gas_copper_enr2, stable on gas_copper_enr-gas_inert) in one plan.
+  {
+    id: "transmuters",
+    title: "transmuters",
+    targets: [
+      { itemId: "gas_copper_enr2", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+    ],
+    maxDiffPixels: 0,
+  },
 ];
 
 // Build a v1 share hash from a scenario with the app's own encoder. Encoding at
