@@ -1,6 +1,6 @@
 // Shape of vendor/endfield-calc/data.json. Only the fields the
-// extractor reads are typed; unused fields (icons sprite metadata, limitations,
-// defaults, modHash) are intentionally omitted.
+// extractor reads are typed; unused fields (limitations, defaults, modHash) are
+// intentionally omitted, as is everything on an icon but its id.
 
 export interface UpstreamData {
   version: Record<string, string>;
@@ -8,6 +8,13 @@ export interface UpstreamData {
   locations: UpstreamLocation[];
   items: UpstreamItem[];
   recipes: UpstreamRecipe[];
+  icons: UpstreamIcon[];
+}
+
+// One sprite-sheet entry. Only the id is read, to check that an icon a hand
+// table points at is really on the sheet.
+export interface UpstreamIcon {
+  id: string;
 }
 
 export interface UpstreamCategory {
