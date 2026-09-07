@@ -612,6 +612,11 @@ test.describe("DOM geometry audit", () => {
 // the campaign): rot-bottled_food_3 3, rot-bottled_food_4 22.
 // First recording for the transmuter scenario (2026-09-07): 25 in both
 // modes, the tap columns of the two shared raws crossing the gas chain.
+// Catalyst-row re-pin (2026-09-07): coupon-web 13 -> 17 (lanes on) and 14 -> 17
+// (lanes off). The plan's two phase_trans_2 cards each gained a catalyst row,
+// 22px taller apiece, and the column re-packed around them, so corridors that
+// used to clear the chain now cut across it. Same furniture cause as the
+// CHIP_OFFPATH move below. UP moves, listed as ruling items.
 const CROSSING_BASELINE_ON: Record<string, number> = {
   default: 4, // 9 -> 4, Task 7 y-window re-measure
   // 8 -> 9 at the exam-surfaced R4 re-measure (declared output rows flip the
@@ -628,7 +633,7 @@ const CROSSING_BASELINE_ON: Record<string, number> = {
   // backward rails settle further out and cross more mid-graph corridors.
   tundra: 0,
   script43: 26, // 55 -> 26, Task 7
-  "coupon-web": 13, // 14 -> 13, Task 7
+  "coupon-web": 17, // 14 -> 13, Task 7. 13 -> 17 at the catalyst rows.
   "gas-web": 40, // 42 -> 39, Task 7. 39 -> 40 at R10, same cause as
   // multi6.
   "rot-bottled_food_3": 5, // 3 -> 5 at R9, same cause as battery5
@@ -647,7 +652,7 @@ const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
     multi6: 139,
     tundra: 0,
     script43: 34,
-    "coupon-web": 14,
+    "coupon-web": 17, // 14 -> 17 at the catalyst rows.
     "gas-web": 38,
     "rot-bottled_food_3": 5,
     "rot-bottled_food_4": 6,
@@ -890,6 +895,12 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
 // taller transmuter cards and the dropped catalyst feed edges move the chips'
 // on-line candidates, and the least-bad seat for two of them is now an escape.
 // UP moves, listed as ruling items.
+// Catalyst-row re-pin (2026-09-07): coupon-web 0 -> 3 in both modes. The plan's
+// two phase_trans_2 cards each gained a catalyst row, 22px taller apiece, and
+// the column re-packed around them. The seats: e:3 (q:2 -> q:5,
+// xiranite_powder) 9.31px off its own polyline, e:6 (q:4 -> q:3,
+// copper_nugget) 12.00px, and e:9 (q:5 -> out:filter_core, filter_core)
+// 14.01px. UP move, listed as a ruling item.
 const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -899,7 +910,7 @@ const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
   multi6: 0,
   tundra: 0,
   script43: 2,
-  "coupon-web": 0,
+  "coupon-web": 3, // 0 -> 3 at the catalyst rows.
   "gas-web": 2,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 2,
@@ -918,7 +929,7 @@ const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
     multi6: 0,
     tundra: 0,
     script43: 2,
-    "coupon-web": 0,
+    "coupon-web": 3, // 0 -> 3 at the catalyst rows.
     "gas-web": 2,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
