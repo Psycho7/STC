@@ -60,6 +60,7 @@ const multiRowRecipe: Recipe = {
 // A recipe built from those items exercises the row sprite lookup.
 const HASHED_IN_ITEM = "iron_bottle-liquid_plant_grass_1";
 const HASHED_OUT_ITEM = "copper_bottle-liquid_plant_grass_1";
+const HASHED_CATALYST_ITEM = "iron_bottle-liquid_plant_grass_2";
 
 const hashedIconRecipe: Recipe = {
   id: "hashed_icon",
@@ -70,6 +71,7 @@ const hashedIconRecipe: Recipe = {
   time: 1,
   in: [{ item: HASHED_IN_ITEM, qty: 1 }],
   out: [{ item: HASHED_OUT_ITEM, qty: 1 }],
+  catalyst: [{ item: HASHED_CATALYST_ITEM, qty: 1 }],
   producers: ["smelter"],
 };
 
@@ -180,11 +182,13 @@ describe("RecipeNode", () => {
     const iconOf = (id: string) => pack.items.find((i) => i.id === id)?.icon;
     const inIcon = iconOf(HASHED_IN_ITEM);
     const outIcon = iconOf(HASHED_OUT_ITEM);
+    const catalystIcon = iconOf(HASHED_CATALYST_ITEM);
     // Premise guard: the fixture only exercises the lookup while the shipped
     // pack still keeps these icon ids apart from their item ids.
     expect(inIcon).toBeDefined();
     expect(inIcon).not.toBe(HASHED_IN_ITEM);
     expect(outIcon).not.toBe(HASHED_OUT_ITEM);
+    expect(catalystIcon).not.toBe(HASHED_CATALYST_ITEM);
     expect(iconPosition(HASHED_IN_ITEM)).toBeUndefined();
 
     const { container } = renderRecipe({
@@ -198,10 +202,19 @@ describe("RecipeNode", () => {
     const outSpr = container.querySelector<HTMLElement>(
       ".rn-side.out .rn-row.output .ico .spr",
     );
+    // The catalyst row holds only an item id too, so it resolves the same way
+    // the port rows do -- it just has no port to hang the lookup off.
+    const catalystSpr = container.querySelector<HTMLElement>(
+      ".rn-side.in .rn-row.catalyst .ico .spr",
+    );
     expect(inSpr).not.toBeNull();
     expect(outSpr).not.toBeNull();
+    expect(catalystSpr).not.toBeNull();
     expect(inSpr!.style.backgroundPosition).toBe(iconPosition(inIcon));
     expect(outSpr!.style.backgroundPosition).toBe(iconPosition(outIcon));
+    expect(catalystSpr!.style.backgroundPosition).toBe(
+      iconPosition(catalystIcon),
+    );
   });
 
   it("fallback path (no inputOrder): each handle nests in its own row in declaration order with no computed inline top", () => {
