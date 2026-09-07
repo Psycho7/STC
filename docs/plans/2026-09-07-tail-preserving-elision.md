@@ -92,10 +92,12 @@ graph LR
 
 ### Task 4: Wire rows
 
-- [ ] Compute the row budget in `RecipeNode` from the constants: half body width minus row padding and gap, minus the icon column when a sprite renders, minus the estimated rate string width. Over-estimating the rate string is the safe direction.
-- [ ] Pass the helper's output as the visible label; keep `title=` on the full string.
+- [x] Compute the row budget in `RecipeNode` from the constants: half body width minus row padding and gap, minus the icon column when a sprite renders, minus the estimated rate string width. Over-estimating the rate string is the safe direction.
+- [x] Pass the helper's output as the visible label; keep `title=` on the full string.
 
 **Acceptance:** a jsdom unit test renders the four bottle recipes and asserts the visible row strings differ; `test/canvas/node-name-tooltip.test.tsx` still passes.
+
+- Evidence (T4): RecipeNode computes half of geom.width minus row chrome (pad 14, sprite 20 + gap when a sprite renders, one gap to the rate) minus the upper-bound rate estimate, and renders `elideName`'s output as `.lbl` text with `title` on the full name. New jsdom cases: the four solution-bottle output rows are pairwise distinct with full names on title (their parenthesis tails exceed even the estimate-free row budget, so they keep the raw string -- the sanctioned CSS fallback), and the bracket-family syringe rows elide head-first and end in "[A]"/"[C]". node-name-tooltip 2/2 green. Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10 EXIT=0.
 
 ### Task 5: Wire title and subtitle
 
