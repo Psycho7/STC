@@ -4,10 +4,7 @@ import { solveLp } from "./lp";
 import {
   CLOSED_FORM_FIXTURES,
   CYCLIC_TARGET_FIXTURE,
-  V153_RECIPE_IDS,
-  withoutV153Recipes,
 } from "./closed-form-fixtures";
-import { pack } from "../data/load";
 
 describe("closed-form fixtures - solveLp matches hand-derived truth", () => {
   for (const fx of CLOSED_FORM_FIXTURES) {
@@ -49,24 +46,5 @@ describe("cyclic-target contract (STC-0005)", () => {
     const r = solveLp({ targets: fx.targets, pack: fx.pack, itemOverrides: [] });
     expect(r.softFeasible).toBe(false);
     expect(r.deficit.has("F")).toBe(true);
-  });
-});
-
-// The 1.5.3 filter is a pinned id list, so it can silently stop matching the
-// shipped pack. Hold it to the exact set it claims to drop.
-describe("withoutV153Recipes", () => {
-  it("drops exactly the fourteen recipes 1.5.3 added", () => {
-    const before = pack.recipes.map((r) => r.id);
-    const after = withoutV153Recipes(pack).recipes.map((r) => r.id);
-    expect(before.length - after.length).toBe(14);
-    const kept = new Set(after);
-    const removed = before.filter((id) => !kept.has(id));
-    expect(removed.length).toBe(14);
-    for (const id of removed) {
-      expect(V153_RECIPE_IDS.has(id), `${id} is not a 1.5.3 addition`).toBe(
-        true,
-      );
-    }
-    expect(V153_RECIPE_IDS.size).toBe(14);
   });
 });

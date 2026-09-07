@@ -86,39 +86,6 @@ export function withoutGasMachines(p: RecipePack): RecipePack {
   };
 }
 
-// game v1.5.3 added fourteen recipes, all of them producing the new activity
-// items plus two extra jinlong_coupon routes. They add LP columns at three
-// sort positions, which shifts every downstream recipe's rank non-uniformly.
-// Suites whose witnesses pin a topology chosen under the pre-1.5.3 ranks solve
-// against the pack this returns: the same pack minus exactly those fourteen.
-// Every other recipe is unchanged upstream, so the pre-1.5.3 plans reproduce
-// exactly.
-const V153_RECIPES = new Set([
-  "activity_copper_poly_cmpt",
-  "activity_copper_poly_gas",
-  "activity_copper_poly_tool",
-  "activity_copper_xiranite_tool",
-  "activity_xiranite_box",
-  "activity_xiranite_enr_box",
-  "activity_xiranite_enr_lung",
-  "activity_xiranite_enr_nugget",
-  "activity_xiranite_lung",
-  "activity_xiranite_nugget",
-  "jinlong_coupon-activity_xiranite_enr_lung",
-  "jinlong_coupon-activity_xiranite_lung",
-  "phase_trans_2-activity_copper_poly",
-  "phase_trans_2-activity_copper_poly_gas",
-]);
-
-export const V153_RECIPE_IDS: ReadonlySet<string> = V153_RECIPES;
-
-export function withoutV153Recipes(p: RecipePack): RecipePack {
-  return {
-    ...p,
-    recipes: p.recipes.filter((r) => !V153_RECIPES.has(r.id)),
-  };
-}
-
 export interface ClosedFormFixture {
   name: string;
   targets: ItemTarget[];
