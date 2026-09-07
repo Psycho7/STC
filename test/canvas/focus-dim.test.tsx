@@ -8,8 +8,9 @@
 // Edges only mount once React Flow has measured the endpoint nodes; that
 // measurement never fires when ResizeObserver is stubbed out, so this suite
 // leaves the real (absent) ResizeObserver in place and waits for edge wrappers.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   configure,
   render,
@@ -19,6 +20,7 @@ import {
 import type { Node, Edge } from "@xyflow/react";
 import Fraction from "fraction.js";
 import Canvas, { focusEdges } from "../../src/canvas/Canvas";
+import { HOVER_INTENT_MS } from "../../src/canvas/dimensions";
 import {
   ItemPackProvider,
   type ItemPackContextValue,
@@ -395,5 +397,245 @@ describe("canvas/focus-dim focusEdges", () => {
 
   it("returns the input array untouched when idle", () => {
     expect(focusEdges(EDGES, null)).toBe(EDGES);
+  });
+});
+
+// Chip hover binding. A rate chip is drawn through EdgeLabelRenderer, which is
+// a DOM portal: the chip's DOM box lives outside its edge's <g>, so nothing in
+// the DOM tree connects the two. React Flow attaches the edge hover handlers as
+// JSX props on that <g>, and React synthesizes mouseenter / mouseleave by
+// walking the FIBER tree, whose parent chain crosses a portal. A chip therefore
+// fires its own edge's onMouseEnter with that edge's id, for free, and no chip
+// side handler exists to do it. The binding is incidental to the render shape,
+// so the tests below pin it: hoisting chips into a top-level layer would sever
+// the fiber chain and silently drop the behaviour.
+
+// Two item edges between the same pair of cards. Their strokes are collinear,
+// so in a browser each chip box sits on top of the other edge's line -- the
+// coincident column case. Hit-testing cannot tell the two apart; fiber-tree
+// ancestry can.
+const BRAID_NODES: Node[] = [
+  { id: "xa", position: { x: 0, y: 0 }, data: { label: "xa" } },
+  { id: "xb", position: { x: 400, y: 0 }, data: { label: "xb" } },
+];
+
+function braidData(item: string): Record<string, unknown> {
+  return {
+    item,
+    rate: new Fraction(1, 1),
+  } as unknown as Record<string, unknown>;
+}
+
+const BRAID_EDGES: Edge[] = [
+  { id: "x1", type: "item", source: "xa", target: "xb", data: braidData("Iron") },
+  { id: "x2", type: "item", source: "xa", target: "xb", data: braidData("Copper") },
+];
+
+const BRAID_CHIP_IDS = ["item-edge-label-x1", "item-edge-label-x2"];
+
+function renderBraid() {
+  return render(
+    <LocaleProvider locale="en">
+      <ItemPackProvider value={PACK}>
+        <Canvas nodes={BRAID_NODES} edges={BRAID_EDGES} />
+      </ItemPackProvider>
+    </LocaleProvider>,
+  );
+}
+
+function chipEl(container: HTMLElement, testId: string): HTMLElement {
+  const el = container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+  expect(el).not.toBeNull();
+  return el!;
+}
+
+// Synchronous twin of `edgeDimmed`, for the fake-timer test where a waitFor
+// would never resolve.
+function edgeDimmedNow(container: HTMLElement, id: string): boolean {
+  const el = container.querySelector<HTMLElement>(
+    `.react-flow__edge[data-id="${id}"]`,
+  );
+  expect(el).not.toBeNull();
+  return el!.classList.contains("dimmed");
+}
+
+function hoverActive(container: HTMLElement): boolean {
+  return container.querySelector(".ak-canvas-theme.hover-active") !== null;
+}
+
+async function waitForChipIds(
+  container: HTMLElement,
+  ids: string[],
+): Promise<void> {
+  await waitFor(() => {
+    for (const id of ids) {
+      expect(container.querySelector(`[data-testid="${id}"]`)).not.toBeNull();
+    }
+  });
+}
+
+// The whole lit / dimmed picture of a fixture: every node, edge and chip with
+// its `dimmed` state, sorted so two different hovers can be compared for
+// equality rather than spot-checked.
+function focusSnapshot(container: HTMLElement): string[] {
+  const out: string[] = [];
+  container
+    .querySelectorAll<HTMLElement>(".react-flow__node[data-id]")
+    .forEach((el) => {
+      out.push(`node:${el.dataset.id}:${el.classList.contains("dimmed")}`);
+    });
+  container
+    .querySelectorAll<HTMLElement>(".react-flow__edge[data-id]")
+    .forEach((el) => {
+      out.push(`edge:${el.dataset.id}:${el.classList.contains("dimmed")}`);
+    });
+  container
+    .querySelectorAll<HTMLElement>(
+      '[data-testid^="item-edge-label-"], [data-testid^="bus-edge-label-"]',
+    )
+    .forEach((el) => {
+      out.push(`chip:${el.dataset.testid}:${el.classList.contains("dimmed")}`);
+    });
+  return out.sort();
+}
+
+// Mount a fixture, settle one hover, and return its focus snapshot. Unmounts
+// before returning so two snapshots can be taken back to back without two
+// canvases fighting over the document.
+async function snapshotAfterHover(opts: {
+  mount: () => HTMLElement;
+  chips: string[];
+  target: (container: HTMLElement) => Promise<HTMLElement> | HTMLElement;
+  dimWitness: string;
+}): Promise<string[]> {
+  const container = opts.mount();
+  await waitForChipIds(container, opts.chips);
+  fireEvent.mouseEnter(await opts.target(container));
+  await waitFor(() => {
+    expect(edgeDimmedNow(container, opts.dimWitness)).toBe(true);
+  });
+  const snap = focusSnapshot(container);
+  cleanup();
+  return snap;
+}
+
+describe("canvas/focus-dim chip hover binding", () => {
+  it("chip hover gives the same sets as hovering the same edge's stroke", async () => {
+    // Mechanism: the chip's fiber parent chain crosses the EdgeLabelRenderer
+    // portal back into the edge wrapper, so React's synthesized mouseenter
+    // reaches the edge's own handler with its own id.
+    const strokeSnap = await snapshotAfterHover({
+      mount: () => renderCanvas().container,
+      chips: ALL_CHIP_IDS,
+      target: (c) => edgeEl(c, "e3"),
+      dimWitness: "e1",
+    });
+    const chipSnap = await snapshotAfterHover({
+      mount: () => renderCanvas().container,
+      chips: ALL_CHIP_IDS,
+      target: (c) => chipEl(c, "item-edge-label-e3"),
+      dimWitness: "e1",
+    });
+    expect(chipSnap).toEqual(strokeSnap);
+    // Not a vacuous pass: the hover really lit e3 and dimmed the Iron trunk.
+    expect(chipSnap).toContain("edge:e3:false");
+    expect(chipSnap).toContain("edge:e1:true");
+    expect(chipSnap).toContain("edge:e2:true");
+  });
+
+  it("lights only its own edge when a foreign stroke crosses the chip box", async () => {
+    // Mechanism: the enter is resolved by fiber ancestry, not by which pixels
+    // sit under the pointer, so a collinear neighbour through the chip box
+    // cannot claim the hover.
+    const { container } = renderBraid();
+    await waitForChipIds(container, BRAID_CHIP_IDS);
+    fireEvent.mouseEnter(chipEl(container, "item-edge-label-x1"));
+    await waitFor(() => {
+      expect(edgeDimmedNow(container, "x2")).toBe(true);
+    });
+    expect(edgeDimmedNow(container, "x1")).toBe(false);
+    expect(chipDimmed(container, "item-edge-label-x1")).toBe(false);
+  });
+
+  it("bus drop chip hover lights the whole trunk, like its stroke", async () => {
+    // Mechanism: BusEdge renders its chips from inside its own edge component,
+    // so a drop chip's portal fiber chain lands on the member edge it belongs
+    // to and the existing two-mode trunk focus does the rest.
+    const strokeSnap = await snapshotAfterHover({
+      mount: () => renderCanvas().container,
+      chips: ALL_CHIP_IDS,
+      target: (c) => edgeEl(c, "e1"),
+      dimWitness: "e3",
+    });
+    const chipSnap = await snapshotAfterHover({
+      mount: () => renderCanvas().container,
+      chips: ALL_CHIP_IDS,
+      target: (c) => chipEl(c, "bus-edge-label-e1-drop"),
+      dimWitness: "e3",
+    });
+    expect(chipSnap).toEqual(strokeSnap);
+    // Whole trunk lit, unrelated item edge dimmed.
+    expect(chipSnap).toContain("edge:e1:false");
+    expect(chipSnap).toContain("edge:e2:false");
+    expect(chipSnap).toContain("edge:e3:true");
+  });
+
+  it("member rise chip hover lights branch plus owner, like its stroke", async () => {
+    // Mechanism: same portal fiber chain, on the member edge that owns the rise
+    // chip, so branch mode of the trunk focus applies unchanged.
+    const strokeSnap = await snapshotAfterHover({
+      mount: () => renderTwoMode().container,
+      chips: ["bus-edge-label-own-rise", "bus-edge-label-br1-rise"],
+      target: (c) => edgeEl(c, "br1"),
+      dimWitness: "br2",
+    });
+    const chipSnap = await snapshotAfterHover({
+      mount: () => renderTwoMode().container,
+      chips: ["bus-edge-label-own-rise", "bus-edge-label-br1-rise"],
+      target: (c) => chipEl(c, "bus-edge-label-br1-rise"),
+      dimWitness: "br2",
+    });
+    expect(chipSnap).toEqual(strokeSnap);
+    expect(chipSnap).toContain("edge:br1:false");
+    expect(chipSnap).toContain("edge:own:false");
+    expect(chipSnap).toContain("edge:br2:true");
+  });
+
+  it("stroke to own chip fires no edge leave and never empties the focus", async () => {
+    // Mechanism: stroke and chip share a fiber ancestor at or below the edge
+    // <g>, so React's enter/leave walks stop before the edge's handlers. No
+    // leave fires, and since clearHover is synchronous a leave would show up as
+    // an empty focus set on the very next line.
+    const { container } = renderCanvas();
+    await waitForChipIds(container, ITEM_CHIP_IDS);
+    const e3 = await edgeEl(container, "e3");
+    const path = e3.querySelector("path")!;
+    const chip = chipEl(container, "item-edge-label-e3");
+    vi.useFakeTimers();
+    try {
+      fireEvent.mouseEnter(path);
+      act(() => {
+        vi.advanceTimersByTime(HOVER_INTENT_MS - 1);
+      });
+      expect(hoverActive(container)).toBe(false);
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(hoverActive(container)).toBe(true);
+      expect(edgeDimmedNow(container, "e3")).toBe(false);
+
+      // The mouseout a real browser fires moving stroke -> own chip. React
+      // derives both halves of the transition from it.
+      fireEvent.mouseOut(path, { relatedTarget: chip });
+      expect(hoverActive(container)).toBe(true);
+      expect(edgeDimmedNow(container, "e3")).toBe(false);
+      act(() => {
+        vi.advanceTimersByTime(HOVER_INTENT_MS * 2);
+      });
+      expect(hoverActive(container)).toBe(true);
+      expect(edgeDimmedNow(container, "e3")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
