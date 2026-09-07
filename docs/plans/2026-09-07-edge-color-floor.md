@@ -107,9 +107,13 @@ Gate evidence 2026-09-07: LIGHT_CAP comment rewritten (no light-surface consumer
 
 ### Task 6: Visual verification and PR
 
-- [ ] Visual verification protocol: default-plan captures, then zoomed before/after crops of gas-web (copper gases), multi6 (copper ore vs component), tundra (originium), battery5-xiranite; inspect for a nudged hue reading as the wrong family, not merely for presence.
-- [ ] Confirm geometry-audit, placement-shots, chip-widths and raw-and-transport are unmoved (colors are not part of their assertions).
-- [ ] Open the PR to `develop` per `docs/pr-guideline.md`, body through the humanizer skill, carrying the Task 0 before/after ledger. Do not merge.
+- [x] Visual verification protocol: default-plan captures, then zoomed before/after crops of gas-web (copper gases), multi6 (copper ore vs component), tundra (originium), battery5-xiranite; inspect for a nudged hue reading as the wrong family, not merely for presence.
+- [x] Confirm geometry-audit, placement-shots, chip-widths and raw-and-transport are unmoved (colors are not part of their assertions).
+- [ ] Open the PR to `develop` per `docs/pr-guideline.md`, body through the humanizer skill, carrying the Task 0 before/after ledger. Do not merge. -- SKIPPED by controller order (no push, no PR, no remote writes); every other T6 step ran.
+
+Gate evidence 2026-09-07: captures under .artifacts/color-verify/{before,after}/ (gitignored) - default plan plus zoomed crops for all four named sites, before phase built with the develop itemColor, after phase with the branch's. Inspection (PNG pixel decode of every crop): copper strokes before cluster at hue 5-9 and after at 358-1 for nudged items while copper_ore stays at hue 6; originium holds 28/32; the xiranite crops are pixel-count identical before/after; whole-canvas hue distributions move only inside the copper/plant bands. No nudged hue reads outside its family band (max offset 14 degrees, warm-red span). e2e confirmations: geometry-audit 94 passed / 4 failed with exactly the adjudicated pre-existing develop failset (battery5-xiranite and multi6, both lane modes, same standing e:97 pierce) - recorded, not fixed; raw-and-transport 4/4; chip-widths 18/18; placement-shots baselines regenerated locally then verified 12/12 (determinism check, baselines are gitignored). Gates: typecheck OK, typecheck:tools OK, lint OK, shards 1-10/10 all green (139/180/152/298+1skip/132/111/154/185/128/221).
+
+Final ledger (before -> after): pack-wide min 7.51 -> 8.02; saturated-band min 11.31 -> 15.02; gray-band min 7.51 -> 9.35; cross-band min 11.74 -> 8.02; pairs below their tier floor 47 -> 0; pairs under 10 68 -> 20; hue offsets 0 -> 10 items (copper_cmpt -8, copper_enr -14, copper_enr2_cmpt -14, copper_nugget -5, copper_powder -12, equip_script_4_2 -7, gas_copper_enr -3, liquid_copper_enr +12, plant_bbflower_powder_1 +1, plant_moss_powder_1 +6); fingerprint ff166069 -> b577d038. Issue pairs: gas_copper/gas_copper_enr 16.95, copper_ore/copper_cmpt 69.39, copper_nugget/gas_copper 18.23, originium_ore/originium_powder 17.25.
 
 **Acceptance:** all gates green; ledger shows saturated min >= 15, gray and cross-band min >= 8, nudged items listed with offsets.
 
