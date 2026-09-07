@@ -11,6 +11,8 @@ import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
 import { properCrossPoint } from "../../src/canvas/crossings";
 import { parsePathPoints } from "../../src/canvas/edgePath";
 import { itemColor } from "../../src/canvas/itemColor";
+import { iconPosition } from "../../src/canvas/iconSprite";
+import { pack } from "../../src/data/load";
 import { LocaleProvider } from "../../src/data/i18n-context";
 
 afterEach(() => {
@@ -232,6 +234,27 @@ describe("canvas/ItemEdge icon-only collapse", () => {
     expect(label).not.toBeNull();
     expect(label!.classList.contains("icon-only")).toBe(false);
     expect(label!.textContent).toBe("120/min");
+  });
+
+  it("draws the sprite of an item whose icon id is not its item id", async () => {
+    // Upstream does not guarantee that a pack item's icon id equals its item
+    // id: the 1.5.3 snapshot renamed the bottled-plant-grass icons to opaque
+    // hashes. A collapsed chip is nothing but its icon, so an unresolved lookup
+    // leaves an empty tinted box.
+    const item = "iron_bottle-liquid_plant_grass_1";
+    const icon = pack.items.find((i) => i.id === item)?.icon;
+    // Premise guard: the fixture only exercises the lookup while the shipped
+    // pack still keeps this icon id apart from its item id.
+    expect(icon).toBeDefined();
+    expect(icon).not.toBe(item);
+    expect(iconPosition(item)).toBeUndefined();
+
+    renderEdge({ item, rate: new Fraction(2, 1), chipIconOnly: true }, 1);
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    const spr = label!.querySelector<HTMLElement>(".ico.ico-16 .spr");
+    expect(spr).not.toBeNull();
+    expect(spr!.style.backgroundPosition).toBe(iconPosition(icon));
   });
 });
 

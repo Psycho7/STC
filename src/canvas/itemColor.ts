@@ -1,5 +1,6 @@
 import iconsMeta from "@aef/icons/data.json";
 import { pack } from "../data/load";
+import { iconIdForItem } from "./iconSprite";
 
 // Stable per-item edge color. The same item id always maps to the same hue, so
 // one item stays visually traceable across local edges, trunks, and branches.
@@ -92,16 +93,8 @@ const iconHSById: ReadonlyMap<string, IconHS> = new Map(
   ]),
 );
 
-// A pack item's icon id is not always its own id: upstream renames some icons
-// to opaque ids. Resolve an item id to its icon id before hitting the icon
-// table, and fall back to the id itself so icon-only ids (machines, transports)
-// and synthetic ids still resolve the way they always did.
-const iconIdByItemId: ReadonlyMap<string, string> = new Map(
-  pack.items.map((item) => [item.id, item.icon]),
-);
-
 function iconHSFor(itemId: string): IconHS | undefined {
-  return iconHSById.get(iconIdByItemId.get(itemId) ?? itemId);
+  return iconHSById.get(iconIdForItem(itemId) ?? itemId);
 }
 
 // djb2: hash * 33 + c, folded to an unsigned 32-bit int each step so the result
