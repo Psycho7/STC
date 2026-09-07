@@ -3,13 +3,19 @@ import { bootExamPage } from "./viewport";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 
 // Issue #42 guarded no two different item names inside ONE card rendering
-// the same visible string, on two scenarios, in en. Issue #84 widens it:
-// the tail-preserving elision helper owns the visible row label, so
-// textContent IS what the reader sees (no binary-search probe anymore), and
-// the seen-map is per PAGE across the whole plan, over the full scenario
-// corpus and both supported locales. The compared unit is the visible label plus
-// the rate beside it, keyed by the item id the row's handle carries: no two
-// DIFFERENT item ids may render the same label+rate readout in one plan.
+// the same visible string. Issue #84 widens it to the whole plan, both
+// supported locales, with a seen-map per PAGE keyed by the row's handle item id: no
+// two DIFFERENT item ids may render the same visible label + rate readout
+// in one plan.
+//
+// The guard measures what the READER sees, not textContent: the refinement
+// round found that comparing textContent is blind to raw-fallback rows,
+// where CSS tail ellipsis clips the string the DOM still carries in full
+// (that blindness hid 25 collisions, identical on develop and on the first
+// implementation). So the probe is the #42 measurement, lifted from one
+// card to one page: when a .lbl overflows its box, a hidden span in the
+// label's own font binary-searches the longest prefix that fits with an
+// ellipsis, and that prefix is the visible string.
 
 // Known data defect, recorded in the plan for #84 as a residue: this pair
 // carries byte-identical display names in every locale, so no elision
@@ -60,7 +66,28 @@ test.describe("visible row-label collisions", () => {
             const id = handle.getAttribute("data-handleid") ?? "";
             const item = id.replace(/^(?:in|out):/, "");
             if (item === "" || item === id) continue;
-            const readout = `${lbl.textContent ?? ""}|${rate.textContent ?? ""}`;
+            const full = lbl.textContent ?? "";
+            let visible = full;
+            if (lbl.scrollWidth > lbl.clientWidth + 1) {
+              // Binary-search the longest prefix that fits with the
+              // ellipsis, measured in the label's own font.
+              const probe = document.createElement("span");
+              const cs = getComputedStyle(lbl);
+              probe.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${cs.font};letter-spacing:${cs.letterSpacing};`;
+              document.body.appendChild(probe);
+              let lo = 0;
+              let hi = full.length;
+              while (lo < hi) {
+                const mid = (lo + hi + 1) >> 1;
+                probe.textContent = full.slice(0, mid) + "\u2026";
+                if (probe.getBoundingClientRect().width <= lbl.clientWidth)
+                  lo = mid;
+                else hi = mid - 1;
+              }
+              visible = full.slice(0, lo) + "\u2026";
+              probe.remove();
+            }
+            const readout = `${visible}|${rate.textContent ?? ""}`;
             const prev = seen.get(readout);
             if (prev === undefined) {
               seen.set(readout, item);

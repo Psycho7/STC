@@ -353,12 +353,23 @@ the constants exactly as RecipeNode derives them; sprite rows, rate shown):
   row budgets derived from the constants, title and products budgets,
   goal-pair distinctness at the real budget; keep the monospace-stub
   cases).
-- [ ] W4 -- Restore the rendered-prefix pixel probe in
+- [x] W4 -- Restore the rendered-prefix pixel probe in
   `test/e2e/row-collisions.spec.ts`; green plan-wide.
 - [ ] W5 -- Re-record placement-shots goldens (label pixels change again);
   chip-widths and geometry-audit unmoved at the develop-tip control
   failset.
 - [ ] W6 -- `docs/render-conventions.md` partial-suffix sentence.
+
+- Evidence (W4): the spec keeps the plan-wide scope (12 scenarios x 4
+  locales, per-page seen-map keyed by handle item id, readout = visible
+  label + rate) and restores develop's #42 measurement: when a .lbl
+  overflows, a hidden span in the label's own font binary-searches the
+  longest fitting prefix + ellipsis, and THAT is the compared string. The
+  before-run on the pre-W2 tree (2c52767) recorded the 25-collision ledger
+  above, matching the review exactly; after W2 the spec is 48/48 GREEN
+  plan-wide with only the byte-identical
+  transfer_tundra_glass_bottle/glass_bottle pair allow-listed. Gates:
+  typecheck OK, typecheck:tools OK, lint OK, shards 1-10 EXIT=0.
 
 - Evidence (W2, commit 2973b02): elide.ts gains tier (b) -- partial window
   with script-dependent direction, grapheme floors, and the
