@@ -6,6 +6,7 @@ import {
   itemHue,
 } from "../../src/canvas/itemColor";
 import { pack } from "../../src/data/load";
+import iconsMeta from "@aef/icons/data.json";
 
 // Perceptual floor two pack colors must clear to read as different lines. The
 // metric comes from the implementation (deltaE/hslToLab are exported) so a
@@ -20,6 +21,33 @@ function parseHsl(color: string): Hsl {
   return { h: Number(match[1]), s: Number(match[2]), l: Number(match[3]) };
 }
 
+// Hue of an icon's dominant color, derived here from the vendor metadata so the
+// expectation does not borrow the implementation's own lookup.
+function iconHue(iconId: string): number {
+  const icons = (iconsMeta as { icons: { id: string; color: string }[] }).icons;
+  const icon = icons.find((entry) => entry.id === iconId);
+  if (icon === undefined) throw new Error(`no icon metadata for ${iconId}`);
+  const hex = icon.color.replace("#", "");
+  const r = parseInt(hex.slice(0, 2), 16) / 255;
+  const g = parseInt(hex.slice(2, 4), 16) / 255;
+  const b = parseInt(hex.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const delta = max - Math.min(r, g, b);
+  if (delta === 0) return 0;
+  const sector =
+    max === r
+      ? ((g - b) / delta) % 6
+      : max === g
+        ? (b - r) / delta + 2
+        : (r - g) / delta + 4;
+  return ((Math.round(sector * 60) % 360) + 360) % 360;
+}
+
+function labOf(itemId: string): [number, number, number] {
+  const { h, s, l } = parseHsl(itemColor(itemId));
+  return hslToLab(h, s, l);
+}
+
 describe("canvas/itemColor", () => {
   it("returns the same color for the same item id", () => {
     expect(itemColor("Iron Plate")).toBe(itemColor("Iron Plate"));
@@ -27,9 +55,9 @@ describe("canvas/itemColor", () => {
   });
 
   it("returns different hues for two icon families", () => {
-    // belt derives hue 22 from its icon, carbon_powder derives hue 180.
+    // belt derives hue 22 from its icon, carbon_powder derives hue 30.
     expect(itemHue("belt")).toBe(22);
-    expect(itemHue("carbon_powder")).toBe(180);
+    expect(itemHue("carbon_powder")).toBe(30);
     expect(itemHue("belt")).not.toBe(itemHue("carbon_powder"));
   });
 
@@ -47,9 +75,33 @@ describe("canvas/itemColor", () => {
   });
 
   it("pins the near-gray icon branch", () => {
-    // carbon_powder icon #4c4e4e -> h 180, s 1 (< 25) -> light gray band.
-    expect(parseHsl(itemColor("carbon_powder")).h).toBe(180);
+    // carbon_powder icon #4e4d4c -> h 30, s 1 (< 25) -> light gray band.
+    expect(parseHsl(itemColor("carbon_powder")).h).toBe(30);
     expect(parseHsl(itemColor("carbon_powder")).s).toBeLessThan(25);
+  });
+
+  it("colors items whose icon id differs from their own id through that icon", () => {
+    // Upstream renamed some item icons to opaque ids, so item.id === item.icon
+    // no longer holds pack-wide. Those items must keep their icon-family hue
+    // instead of dropping to the djb2 fallback, which puts unrelated items on
+    // arbitrary hues and can collide two members of one family.
+    const renamed = pack.items.filter((item) => item.icon !== item.id);
+    expect(renamed.map((item) => item.id)).toEqual([
+      "iron_bottle-liquid_plant_grass_1",
+      "iron_bottle-liquid_plant_grass_2",
+      "copper_bottle-liquid_plant_grass_1",
+      "copper_bottle-liquid_plant_grass_2",
+    ]);
+    for (const item of renamed) {
+      expect(itemHue(item.id), item.id).toBe(iconHue(item.icon));
+    }
+    const d = deltaE(
+      labOf("iron_bottle-liquid_plant_grass_1"),
+      labOf("iron_bottle-liquid_plant_grass_2"),
+    );
+    expect(d, `iron bottle pair deltaE ${d.toFixed(2)}`).toBeGreaterThanOrEqual(
+      MIN_DELTA_E,
+    );
   });
 
   it("never returns the identical color for two different pack items", () => {
@@ -126,16 +178,16 @@ describe("canvas/itemColor", () => {
   });
 
   it("keeps every pack item color inside the legible range", () => {
-    // Saturated icons stay clearly colored (s >= 45), near-gray icons stay
+    // Saturated icons stay clearly colored (s >= 35), near-gray icons stay
     // gray-ish (s <= 24, under the COLOR_SATURATION_MIN threshold), and every
     // lightness lands where it reads against the dark canvas. No raw icon color
-    // leaks through. The saturated candidate set opens at 35, but the placement
-    // has never needed that lane on the shipped pack; pinning the bound at the
-    // saturation actually in use keeps this a guard rather than a restatement of
-    // the candidate list.
+    // leaks through. The bound is pinned at the saturation actually in use: the
+    // shipped pack now crowds enough items onto shared hues that the placement
+    // reaches the opening 35 lane of the saturated candidate set, so a tighter
+    // bound would fail rather than guard.
     for (const item of pack.items) {
       const { s, l } = parseHsl(itemColor(item.id));
-      expect(s >= 45 || s <= 24, `${item.id} saturation ${s}`).toBe(true);
+      expect(s >= 35 || s <= 24, `${item.id} saturation ${s}`).toBe(true);
       expect(l, `${item.id} lightness ${l}`).toBeGreaterThanOrEqual(46);
       expect(l, `${item.id} lightness ${l}`).toBeLessThanOrEqual(90);
     }
