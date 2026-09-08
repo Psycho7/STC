@@ -10,8 +10,11 @@ export function isInputSupplyRecipe(recipe: Recipe): boolean {
 
 // Recipe flags the pack uses to name a machine the player places on a map
 // deposit rather than on the factory floor: "mining" on the 8 miner and pump
-// recipes, "world-node" on the 2 purification nodes (derived by the extractor
-// from the upstream machine's cost === -1 skip sentinel).
+// recipes, "world-node" on the 2 purification nodes. The extractor stamps
+// "world-node" from its own WORLD_NODE_MACHINES hand table, unioned with any
+// upstream machine that still carries the cost === -1 skip sentinel; upstream
+// dropped that sentinel from the purification nodes in 1.5.3, so the hand
+// table is what names them now.
 const EXTRACTION_FLAGS = ["mining", "world-node"];
 
 // An extraction recipe draws a material out of the world instead of making it:
@@ -57,9 +60,9 @@ export function isPlanterRecipe(recipe: Recipe): boolean {
 
 // A sink recipe consumes items and produces nothing back. A target rate is
 // undefined for such a recipe, so it can never be a target. The empty output
-// list covers both the cost === -1 liquid_cleaner_1 waste sinks and the
-// cost-less pure consumers (sewage-treat, power_originium_ore,
-// power_proc_battery_1..5), which carry no sentinel at all.
+// list covers both the cost === -1 liquid_cleaner_1 waste sinks and the pure
+// consumers that carry no sentinel (sewage-treat, power_originium_ore,
+// power_proc_battery_1..5).
 export function isSinkRecipe(recipe: Recipe): boolean {
   return recipe.out.length === 0;
 }

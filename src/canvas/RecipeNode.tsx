@@ -14,7 +14,7 @@ import {
 import { orderByItem } from "./orderByItem";
 import { formatMultiplicityBadge } from "./multiplicity-badge";
 import { useItemPack } from "./itemPackContext";
-import { iconPosition } from "./iconSprite";
+import { iconIdForItem, iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
 
 // Looks up the sprite position by icon id and renders an <ico><spr> pair.
@@ -250,7 +250,7 @@ export default function RecipeNode({
                   side="left"
                   item={p.item}
                 />
-                <Sprite iconId={p.item} size={20} />
+                <Sprite iconId={iconIdForItem(p.item)} size={20} />
                 <span className="lbl" title={label}>
                   {label}
                 </span>
@@ -285,7 +285,7 @@ export default function RecipeNode({
                   side="right"
                   item={p.item}
                 />
-                <Sprite iconId={p.item} size={20} />
+                <Sprite iconId={iconIdForItem(p.item)} size={20} />
                 <span className="lbl" title={label}>
                   {label}
                 </span>

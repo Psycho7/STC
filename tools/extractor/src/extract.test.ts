@@ -11,6 +11,8 @@ import {
   type Transport,
 } from "./schema.ts";
 import {
+  SKIP_SINK_RECIPES,
+  WORLD_NODE_MACHINES,
   collapseSyntheticChains,
   main as runExtractor,
   validateReferentialIntegrity,
@@ -21,11 +23,15 @@ const TRANSPORT_CONFIG_PATH = resolve(REPO_ROOT, "data/aef/transport-config.json
 
 let pack: RecipePack;
 let i18n: RecipePackI18n;
+let droppedEventItems: string[];
+let droppedEventRecipes: string[];
 
 beforeAll(async () => {
   // Build in-memory only; a test run must never rewrite the committed
   // data/aef/ artifacts.
-  ({ pack, i18n } = await runExtractor({ write: false }));
+  ({ pack, i18n, droppedEventItems, droppedEventRecipes } = await runExtractor({
+    write: false,
+  }));
 });
 
 describe("schema and source provenance", () => {
@@ -43,9 +49,16 @@ describe("schema and source provenance", () => {
 });
 
 describe("counts", () => {
-  test("expected counts for AEF v1.4 after synthetic-chain collapse", () => {
+  test("expected counts for AEF v1.5.3 after synthetic-chain collapse", () => {
     // Synthetic collapse drops __miner_water (item), __miner_pump_1 (machine),
     // and the __miner_water identity recipe.
+    //
+    // These counts also guard the two hand tables. Dropping an id upstream
+    // fails loudly: the extractor throws on a WORLD_NODE_MACHINES machine or a
+    // SKIP_SINK_RECIPES recipe that is missing. Adding one does not - a new
+    // purification gate or cleaner sink upstream shows up only as a machine or
+    // recipe count that moved here. When a count moves, check those tables
+    // before re-pinning the number.
     expect(pack.items).toHaveLength(113);
     expect(pack.machines).toHaveLength(33);
     // Two upstream transports (belt, pipe) plus the synthetic gas carrier.
@@ -199,8 +212,8 @@ describe("optional-field counts", () => {
     expect(pack.recipes.filter((r) => r.usage !== undefined)).toHaveLength(9);
   });
 
-  test("29 recipes carry a cost hint", () => {
-    expect(pack.recipes.filter((r) => r.cost !== undefined)).toHaveLength(29);
+  test("34 recipes carry a cost hint", () => {
+    expect(pack.recipes.filter((r) => r.cost !== undefined)).toHaveLength(34);
   });
 
   test("4 items carry a buildIcon", () => {
@@ -329,10 +342,118 @@ describe("recipe flags", () => {
     expect(exp!.cost).toBeUndefined();
   });
 
-  test("a machine without the -1 sentinel leaves its recipes unflagged", () => {
+  test("a machine outside the world-node table leaves its recipes unflagged", () => {
     const r = pack.recipes.find((x) => x.id === "liquid_plant_grass_1");
     expect(r).toBeDefined();
     expect(r!.flags).toBeUndefined();
+  });
+});
+
+describe("hand-pinned skip sentinels", () => {
+  test("every WORLD_NODE_MACHINES id is a machine in the pack", () => {
+    const machineIds = new Set(pack.machines.map((m) => m.id));
+    for (const id of WORLD_NODE_MACHINES) {
+      expect(machineIds.has(id)).toBe(true);
+    }
+  });
+
+  test("every SKIP_SINK_RECIPES id is a recipe in the pack", () => {
+    const recipeIds = new Set(pack.recipes.map((r) => r.id));
+    for (const id of SKIP_SINK_RECIPES) {
+      expect(recipeIds.has(id)).toBe(true);
+    }
+  });
+
+  test("cost === -1 marks exactly the three liquid_cleaner_1 waste sinks", () => {
+    const skipped = pack.recipes.filter((r) => r.cost === -1).map((r) => r.id);
+    expect(skipped.sort()).toEqual(
+      [
+        "liquid_cleaner_1-sewage",
+        "liquid_cleaner_1-xiranite_lowpoly",
+        "liquid_cleaner_1-xiranite_poly",
+      ].sort(),
+    );
+  });
+
+  test("the pinned sinks keep the rest of their upstream shape", () => {
+    for (const id of [
+      "liquid_cleaner_1-sewage",
+      "liquid_cleaner_1-xiranite_lowpoly",
+      "liquid_cleaner_1-xiranite_poly",
+    ]) {
+      const r = pack.recipes.find((x) => x.id === id);
+      expect(r).toBeDefined();
+      expect(r!.out).toEqual([]);
+      expect(r!.usage).toBe(50);
+      expect(r!.producers).toEqual(["liquid_cleaner_1"]);
+    }
+  });
+});
+
+describe("retired event rows", () => {
+  test("the dropped item set is exactly the eleven event items", () => {
+    expect(droppedEventItems).toEqual([
+      "activity_copper_poly",
+      "activity_copper_poly_cmpt",
+      "activity_copper_poly_gas",
+      "activity_copper_poly_tool",
+      "activity_copper_xiranite_tool",
+      "activity_xiranite_box",
+      "activity_xiranite_enr_box",
+      "activity_xiranite_enr_lung",
+      "activity_xiranite_enr_nugget",
+      "activity_xiranite_lung",
+      "activity_xiranite_nugget",
+    ]);
+  });
+
+  test("the dropped recipe set is exactly the fourteen event recipes", () => {
+    expect(droppedEventRecipes).toEqual([
+      "activity_copper_poly_cmpt",
+      "activity_copper_poly_gas",
+      "activity_copper_poly_tool",
+      "activity_copper_xiranite_tool",
+      "activity_xiranite_box",
+      "activity_xiranite_enr_box",
+      "activity_xiranite_enr_lung",
+      "activity_xiranite_enr_nugget",
+      "activity_xiranite_lung",
+      "activity_xiranite_nugget",
+      "jinlong_coupon-activity_xiranite_enr_lung",
+      "jinlong_coupon-activity_xiranite_lung",
+      "phase_trans_2-activity_copper_poly",
+      "phase_trans_2-activity_copper_poly_gas",
+    ]);
+  });
+
+  test("no event id survives anywhere in the pack", () => {
+    for (const item of pack.items) {
+      expect(item.id.startsWith("activity_"), item.id).toBe(false);
+    }
+    for (const r of pack.recipes) {
+      expect(r.id.startsWith("activity_"), r.id).toBe(false);
+      for (const s of [...r.in, ...r.out]) {
+        expect(s.item.startsWith("activity_"), `${r.id} -> ${s.item}`).toBe(false);
+      }
+    }
+  });
+
+  test("jinlong_coupon keeps its twelve producer recipes", () => {
+    const producers = pack.recipes.filter((r) =>
+      r.out.some((s) => s.item === "jinlong_coupon"),
+    );
+    expect(producers).toHaveLength(12);
+  });
+
+  test("the i18n sidecar carries no event key", () => {
+    for (const locale of LOCALES) {
+      const buckets = Object.values(i18n.names[locale]) as Record<string, string>[];
+      for (const bucket of buckets) {
+        for (const id of Object.keys(bucket)) {
+          expect(id.startsWith("activity_"), `${locale}: ${id}`).toBe(false);
+        }
+      }
+    }
   });
 });
 

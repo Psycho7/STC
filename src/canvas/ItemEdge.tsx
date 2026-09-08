@@ -27,6 +27,7 @@ import {
   liveCrossingCues,
   type CrossingCue,
 } from "./crossings";
+import { iconIdForItem } from "./iconSprite";
 import { itemColor } from "./itemColor";
 import { Sprite } from "./RecipeNode";
 import { BELT_COLOR, GAS_COLOR, PIPE_COLOR } from "./transportPalette";
@@ -290,7 +291,7 @@ export function FlowChip({
       >
         {/* An icon-less item that collapses leaves the box EMPTY on purpose: it
             stays a tinted hover target carrying title/aria-label. */}
-        <Sprite iconId={item} size={16} />
+        <Sprite iconId={iconIdForItem(item)} size={16} />
         {/* The text rides in its own span so the .flow-chip max-width clamp can
             ellipsize it (text-overflow does not reach a bare text node inside a
             flex container). The title attribute above keeps the full value. A

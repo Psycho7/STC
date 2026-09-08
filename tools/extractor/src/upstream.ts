@@ -44,8 +44,10 @@ export interface UpstreamMachine {
   locations?: string[] | null;
   totalRecipe?: boolean | null;
   // Upstream solver hint on the machine, mirroring UpstreamRecipe.cost.
-  // cost === -1 marks a machine the default solver should skip; the extractor
-  // reads it only to derive the world-node recipe flag and never emits it.
+  // cost === -1 marked a machine the default solver should skip. Upstream
+  // dropped the sentinel in v1.5.3 and no machine carries it any more, so the
+  // world-node recipe flag now comes from the WORLD_NODE_MACHINES table in
+  // extract.ts; the field stays typed in case upstream brings it back.
   cost?: number | null;
 }
 

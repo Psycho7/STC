@@ -721,3 +721,27 @@ test("each item trigger is named by its own item", () => {
     "BUTTON",
   );
 });
+
+// Upstream renames some item icons to opaque hashes, so a row cannot assume the
+// item id is also the icon id; it has to resolve the sprite through the pack.
+test("a target whose icon id is not its item id still draws its sprite", () => {
+  const itemId = "iron_bottle-liquid_plant_grass_1";
+  const item = realPack.items.find((i) => i.id === itemId);
+  // Premise guard: the assertion below only bites while the shipped pack keeps
+  // this icon id apart from its item id.
+  expect(item?.icon).toBeDefined();
+  expect(item!.icon).not.toBe(itemId);
+  render(
+    <LocaleProvider locale="en">
+      <TargetsPanel
+        targets={[{ itemId, ratePerSec: { num: "1", denom: "1" } }]}
+        onChange={() => {}}
+        pack={realPack}
+      />
+    </LocaleProvider>,
+  );
+  const slot = screen.getByTestId("target-row").querySelector(".slot");
+  expect(slot).not.toBeNull();
+  expect(slot!.classList.contains("empty")).toBe(false);
+  expect(slot!.querySelector(".ico")).not.toBeNull();
+});

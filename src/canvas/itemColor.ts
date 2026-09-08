@@ -1,5 +1,6 @@
 import iconsMeta from "@aef/icons/data.json";
 import { pack } from "../data/load";
+import { iconIdForItem } from "./iconSprite";
 
 // Stable per-item edge color. The same item id always maps to the same hue, so
 // one item stays visually traceable across local edges, trunks, and branches.
@@ -91,6 +92,10 @@ const iconHSById: ReadonlyMap<string, IconHS> = new Map(
     hexToHS(icon.color),
   ]),
 );
+
+function iconHSFor(itemId: string): IconHS | undefined {
+  return iconHSById.get(iconIdForItem(itemId) ?? itemId);
+}
 
 // djb2: hash * 33 + c, folded to an unsigned 32-bit int each step so the result
 // is stable regardless of platform integer width. The only fallback for item
@@ -330,7 +335,7 @@ const packColorById: ReadonlyMap<string, string> = (() => {
   const saturated: { id: string; h: number }[] = [];
   const gray: { id: string; h: number }[] = [];
   for (const item of pack.items) {
-    const iconHS = iconHSById.get(item.id);
+    const iconHS = iconHSFor(item.id);
     if (iconHS === undefined) continue;
     const list = iconHS.s >= COLOR_SATURATION_MIN ? saturated : gray;
     list.push({ id: item.id, h: iconHS.h });
@@ -347,7 +352,7 @@ const packColorById: ReadonlyMap<string, string> = (() => {
 })();
 
 export function itemHue(itemId: string): number {
-  const iconHS = iconHSById.get(itemId);
+  const iconHS = iconHSFor(itemId);
   if (iconHS !== undefined) {
     return iconHS.h;
   }
@@ -363,7 +368,7 @@ export function itemColor(itemId: string): string {
   // ids). Pack colors are floored once at module load; these are floored here at
   // call time so an off-pack blue or deep-red icon still clears the contrast
   // floor instead of leaking a dark base rung.
-  const iconHS = iconHSById.get(itemId);
+  const iconHS = iconHSFor(itemId);
   if (iconHS !== undefined) {
     const [s, baseL] =
       iconHS.s >= COLOR_SATURATION_MIN ? ([65, 60] as const) : ([12, 62] as const);

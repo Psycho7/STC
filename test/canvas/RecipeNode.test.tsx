@@ -6,6 +6,8 @@ import type { Recipe } from "@aef/schema";
 import RecipeNode from "../../src/canvas/RecipeNode";
 import { LocaleProvider } from "../../src/data/i18n-context";
 import { itemColor } from "../../src/canvas/itemColor";
+import { iconPosition } from "../../src/canvas/iconSprite";
+import { pack } from "../../src/data/load";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import {
   ItemPackProvider,
@@ -46,9 +48,27 @@ const multiRowRecipe: Recipe = {
   time: 1,
   in: [
     { item: "copper_nugget", qty: 1 },
-    { item: "copper_ore-liquid_water", qty: 2 },
+    { item: "liquid_water", qty: 2 },
   ],
   out: [{ item: "copper_powder", qty: 1 }],
+  producers: ["smelter"],
+};
+
+// Upstream does not guarantee that a pack item's icon id equals its item id:
+// the 1.5.3 snapshot renamed the bottled-plant-grass icons to opaque hashes.
+// A recipe built from those items exercises the row sprite lookup.
+const HASHED_IN_ITEM = "iron_bottle-liquid_plant_grass_1";
+const HASHED_OUT_ITEM = "copper_bottle-liquid_plant_grass_1";
+
+const hashedIconRecipe: Recipe = {
+  id: "hashed_icon",
+  name: "Hashed Icon",
+  category: "craft",
+  icon: "copper_powder",
+  row: 0,
+  time: 1,
+  in: [{ item: HASHED_IN_ITEM, qty: 1 }],
+  out: [{ item: HASHED_OUT_ITEM, qty: 1 }],
   producers: ["smelter"],
 };
 
@@ -155,6 +175,34 @@ describe("RecipeNode", () => {
     }
   });
 
+  it("draws row sprites for items whose icon id is not their item id", () => {
+    const iconOf = (id: string) => pack.items.find((i) => i.id === id)?.icon;
+    const inIcon = iconOf(HASHED_IN_ITEM);
+    const outIcon = iconOf(HASHED_OUT_ITEM);
+    // Premise guard: the fixture only exercises the lookup while the shipped
+    // pack still keeps these icon ids apart from their item ids.
+    expect(inIcon).toBeDefined();
+    expect(inIcon).not.toBe(HASHED_IN_ITEM);
+    expect(outIcon).not.toBe(HASHED_OUT_ITEM);
+    expect(iconPosition(HASHED_IN_ITEM)).toBeUndefined();
+
+    const { container } = renderRecipe({
+      recipe: hashedIconRecipe,
+      kind: "recipe",
+      multiplier: 1,
+    });
+    const inSpr = container.querySelector<HTMLElement>(
+      ".rn-side.in .rn-row.input .ico .spr",
+    );
+    const outSpr = container.querySelector<HTMLElement>(
+      ".rn-side.out .rn-row.output .ico .spr",
+    );
+    expect(inSpr).not.toBeNull();
+    expect(outSpr).not.toBeNull();
+    expect(inSpr!.style.backgroundPosition).toBe(iconPosition(inIcon));
+    expect(outSpr!.style.backgroundPosition).toBe(iconPosition(outIcon));
+  });
+
   it("fallback path (no inputOrder): each handle nests in its own row in declaration order with no computed inline top", () => {
     const { container } = renderRecipe({
       recipe: multiRowRecipe,
@@ -178,7 +226,7 @@ describe("RecipeNode", () => {
     const outputRows = container.querySelectorAll<HTMLElement>(
       ".rn-side.out .rn-row.output",
     );
-    const expectedInIds = ["in:copper_nugget", "in:copper_ore-liquid_water"];
+    const expectedInIds = ["in:copper_nugget", "in:liquid_water"];
     inputHandles.forEach((handle, i) => {
       expect(handle.getAttribute("data-handleid")).toBe(expectedInIds[i]);
       expect(handle.style.top).toBe("");
@@ -193,19 +241,19 @@ describe("RecipeNode", () => {
 
   it("reordered path (inputOrder present): handles nest in their rows following the resolved order, rates track each item", () => {
     // The resolved order reverses the declaration order [copper_nugget,
-    // copper_ore-liquid_water]. The handle at slot i and the row at slot i must
-    // both describe the item at inputOrder[i], and each row keeps its own qty
-    // (copper_nugget qty=1 -> 60/min, copper_ore-liquid_water qty=2 -> 120/min).
+    // liquid_water]. The handle at slot i and the row at slot i must both
+    // describe the item at inputOrder[i], and each row keeps its own qty
+    // (copper_nugget qty=1 -> 60/min, liquid_water qty=2 -> 120/min).
     const { container } = renderRecipe({
       recipe: multiRowRecipe,
       kind: "recipe",
       multiplier: 1,
-      inputOrder: ["copper_ore-liquid_water", "copper_nugget"],
+      inputOrder: ["liquid_water", "copper_nugget"],
     });
     const inputRows =
       container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input");
     expect(inputRows.length).toBe(2);
-    const expectedInIds = ["in:copper_ore-liquid_water", "in:copper_nugget"];
+    const expectedInIds = ["in:liquid_water", "in:copper_nugget"];
     // The handle inside each row (slot i) matches the resolved item at slot i.
     inputRows.forEach((row, i) => {
       const handle = row.querySelector<HTMLElement>("[data-handleid]");
@@ -219,7 +267,7 @@ describe("RecipeNode", () => {
     const inputRates = Array.from(
       container.querySelectorAll(".rn-side.in .rn-row.input .rate"),
     ).map((el) => el.textContent);
-    expect(inputLbls).toEqual(["赤铜矿", "赤铜块"]);
+    expect(inputLbls).toEqual(["清水", "赤铜块"]);
     expect(inputRates).toEqual(["120", "60"]);
   });
 
@@ -265,7 +313,7 @@ describe("RecipeNode", () => {
     const outputLbls = Array.from(
       container.querySelectorAll(".rn-side.out .rn-row.output .lbl"),
     ).map((el) => el.textContent);
-    expect(inputLbls).toEqual(["赤铜块", "赤铜矿"]);
+    expect(inputLbls).toEqual(["赤铜块", "清水"]);
     expect(outputLbls).toEqual(["赤铜粉末"]);
 
     const inputRates = Array.from(
@@ -293,7 +341,7 @@ describe("RecipeNode", () => {
     ).map((r) => r.style.getPropertyValue("--row-accent"));
     expect(inputAccents).toEqual([
       itemColor("copper_nugget"),
-      itemColor("copper_ore-liquid_water"),
+      itemColor("liquid_water"),
     ]);
     const outputAccents = Array.from(
       container.querySelectorAll<HTMLElement>(".rn-side.out .rn-row.output"),
@@ -304,7 +352,7 @@ describe("RecipeNode", () => {
   it("nests both the Handle and the PortGlyph inside the .rn-row for each port", () => {
     const portTransportKinds: PortTransportKinds = new Map([
       ["in:copper_nugget", "belt"],
-      ["in:copper_ore-liquid_water", "pipe"],
+      ["in:liquid_water", "pipe"],
       ["out:copper_powder", "belt"],
     ]);
     const { container } = renderRecipe({
@@ -325,7 +373,7 @@ describe("RecipeNode", () => {
     // pairs row slot i with expectedInIds[i].
     const inputRows =
       container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input");
-    const expectedInIds = ["in:copper_nugget", "in:copper_ore-liquid_water"];
+    const expectedInIds = ["in:copper_nugget", "in:liquid_water"];
     inputRows.forEach((row, i) => {
       const handles = row.querySelectorAll<HTMLElement>("[data-handleid]");
       expect(handles.length).toBe(1);

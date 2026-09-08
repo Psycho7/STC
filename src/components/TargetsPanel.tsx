@@ -8,7 +8,7 @@ import {
   ratePerSecToPerMin,
 } from "../data/rate-format";
 import { computeItemDepths } from "../data/recipe-depth";
-import { iconPosition } from "../canvas/iconSprite";
+import { iconIdForItem, iconPosition } from "../canvas/iconSprite";
 import { Sprite } from "../canvas/RecipeNode";
 import { ItemPickerPopup } from "./ItemPickerPopup";
 import { useRateEdit } from "./useRateEdit";
@@ -194,12 +194,13 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
         <div className="b-empty">{i18n.t("targets.empty")}</div>
       ) : null}
       {targets.map((t) => {
-        const iconPos = iconPosition(t.itemId);
+        const iconId = iconIdForItem(t.itemId);
+        const iconPos = iconPosition(iconId);
         const rate = rateEdit.field(t.itemId, ratePerSecToPerMin(t.ratePerSec));
         return (
           <div key={t.itemId} className="b-row" data-testid="target-row">
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              <Sprite iconId={t.itemId} size={40} />
+              <Sprite iconId={iconId} size={40} />
             </span>
             <div className="info">
               <span className="b-pick">
@@ -271,12 +272,13 @@ export function TargetsPanel({ targets, onChange, pack }: Props) {
         );
       })}
       {drafts.map((draft) => {
-        const iconPos =
-          draft.itemId !== "" ? iconPosition(draft.itemId) : undefined;
+        const iconId =
+          draft.itemId !== "" ? iconIdForItem(draft.itemId) : undefined;
+        const iconPos = iconPosition(iconId);
         return (
           <div key={draft.id} className="b-row" data-testid="target-draft-row">
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
-              <Sprite iconId={draft.itemId} size={40} />
+              <Sprite iconId={iconId} size={40} />
             </span>
             <div className="info">
               <span className="b-pick">
