@@ -9,7 +9,7 @@ import type { ReactNode } from "react";
 import { loadI18n, type I18nIndex, type Locale } from "./i18n";
 import { LOCALE_STORAGE_KEY as STORAGE_KEY } from "./storage-keys";
 
-const SUPPORTED: ReadonlySet<Locale> = new Set(["en", "ja", "ru", "zh"]);
+const SUPPORTED: ReadonlySet<Locale> = new Set(["en", "zh"]);
 
 type LocaleContextValue = {
   locale: Locale;
@@ -55,7 +55,7 @@ export function LocaleProvider({
   );
   // Keep the document language in sync with the active locale so screen readers
   // pronounce the UI with the right rules and index.html's static lang="en" no
-  // longer misdescribes a zh/ja/ru session.
+  // longer misdescribes a zh session.
   useEffect(() => {
     if (typeof document !== "undefined") {
       document.documentElement.lang = locale;
