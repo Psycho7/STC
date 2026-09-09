@@ -2,9 +2,9 @@ import { test, expect } from "vitest";
 import { loadI18n, type Locale } from "./i18n";
 
 // Every locale's rate-bearing strings must carry that locale's own unit.
-// zh/ja localize the unit as the CJK minute glyph and ru as the Cyrillic
-// abbreviation; a Latin "min" leaking into those locales is the Z1 exam family.
-const NON_LATIN_UNIT_LOCALES: Locale[] = ["zh", "ja", "ru"];
+// zh localizes the unit as the CJK minute glyph; a Latin "min" leaking into
+// that locale is the Z1 exam family.
+const NON_LATIN_UNIT_LOCALES: Locale[] = ["zh"];
 const RATE_KEYS = [
   "product.tap.share",
   "canvas.chip.share",

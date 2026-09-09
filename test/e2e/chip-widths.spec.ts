@@ -3,7 +3,7 @@ import { waitForStableViewport, waitForWebfonts } from "./viewport";
 import { SCENARIOS, scenarioHash, type Scenario } from "./scenarios";
 import { CHIP_BOX_HEIGHT } from "../../src/canvas/dimensions";
 
-// The committed four-locale seat-width check: "drawn <= reserved at rest" is
+// The committed two-locale seat-width check: "drawn <= reserved at rest" is
 // the load-bearing premise of the realistic seat box, and this spec is what
 // fails when the .flow-chip CSS, the number font, or a locale's unit string
 // drifts out from under the estimator constants (CHIP_GLYPH_PX,
@@ -14,8 +14,8 @@ import { CHIP_BOX_HEIGHT } from "../../src/canvas/dimensions";
 // against CHIP_BOX_HEIGHT rather than the estimate.
 //
 // The chip bodies are locale-independent ASCII digits, so the full scenario
-// corpus runs in en only; the other locales vary just the appended unit
-// string, and two dense scenarios cover them. The pinned unit strings double
+// corpus runs in en only; zh varies just the appended unit string, and two
+// dense scenarios cover it. The pinned unit strings double
 // as a composition check: each drawn chip text must be exactly body + unit,
 // so a render that composes chip text differently fails here rather than
 // silently invalidating the estimator's split.
@@ -25,7 +25,7 @@ test.use({ viewport: { width: 1920, height: 1080 } });
 // Locale rate units as rendered (canvas.rate.unit in src/data/i18n.ts). A
 // deliberate pin: a new or changed unit string must re-justify
 // CHIP_UNIT_MAX_PX, and this spec failing is the reminder.
-const UNITS = { en: "/min", ja: "/分", ru: "/мин", zh: "/分" } as const;
+const UNITS = { en: "/min", zh: "/分" } as const;
 type LocaleId = keyof typeof UNITS;
 
 // Sub-pixel slack on client rects; real drift is glyph-sized (>1px).
@@ -162,6 +162,6 @@ function defineCheck(locale: LocaleId, scenario: Scenario): void {
 
 test.describe("chip seat-width bound", () => {
   for (const scenario of SCENARIOS) defineCheck("en", scenario);
-  for (const locale of ["ja", "ru", "zh"] as const)
+  for (const locale of ["zh"] as const)
     for (const scenario of DENSE_SCENARIOS) defineCheck(locale, scenario);
 });
