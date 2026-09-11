@@ -31,8 +31,8 @@ import type {
 //      the aggregate for item "a:b" and the container "b" of item "a".
 //   2. A machine vertex id does not start with a family word followed by `:`.
 //      Otherwise a recipe unit collides with the family that word names.
-//   3. A container id does not start with `tap:` and is not literally
-//      "target", the two reserved container slots under `u:in:<item>:`.
+//   3. A container id is not literally "target", the one reserved container
+//      slot under `u:in:<item>:`.
 // The pack census in src/solver/pack-shape.test.ts pins clause 1 on the
 // shipped pack; clauses 2 and 3 hold because vertex and container ids are
 // minted inside the pipeline, not read off the pack.
@@ -54,11 +54,6 @@ export const unitIdForInputContainer = (
   item: ItemId,
   containerId: ContainerId,
 ): RenderUnitId => `u:in:${item}:${containerId}`;
-
-export const unitIdForInputTap = (
-  item: ItemId,
-  consumerUnit: RenderUnitId,
-): RenderUnitId => `u:in:${item}:tap:${consumerUnit}`;
 
 // Dedicated boundary import that feeds a free-supply target item's export
 // passthrough; distinct from the consumer-feeding input ids so consumer

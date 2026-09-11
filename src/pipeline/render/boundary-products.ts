@@ -21,43 +21,34 @@ import { REL_TOL } from "./invariants";
 import {
   unitIdForInputAggregate,
   unitIdForInputContainer,
-  unitIdForInputTap,
   unitIdForInputTargetFeed,
   unitIdForOutputProduct,
   unitIdForSurplus,
 } from "./unit-ids";
 
-// When a raw item is consumed across several buckets, the renderer emits an
-// aggregate input node `u:in:<item>` fanning out to per-bucket slice nodes. A
-// bucket is either a real container (`u:in:<item>:<container>`) or a single
-// loose consumer with no container (a "tap": `u:in:<item>:tap:<consumerUnit>`).
-// Loose consumers no longer share one bucket; each gets its own tap so a later
-// layout pass can pin it next to its consumer. Each slice carries its own
-// consumer edges; the aggregate carries the item-level rateCap and the sum of
-// slice rates. When the item is consumed within a single bucket (one container,
-// or a lone loose consumer) the renderer emits one node with the `u:in:<item>`
-// id (or `u:in:<item>:<ctr>` when that bucket is a real container), keeping
-// unclustered plans byte-identical to the older single-node shape.
+// A boundary item's consumers are grouped into buckets: one bucket per real
+// container (an SCC loop or blueprint group, `u:in:<item>:<container>`) plus a
+// single shared "loose" bucket holding every consumer that sits in no
+// container. Only a container bucket ever gets its own card, because an edge
+// must enter a compound node once; loose consumers draw straight from the
+// item's input card and their per-branch rate chip already states the amount.
+//
+// Topology per item, decided once:
+//   - Loose bucket only: one node `u:in:<item>`, consumer edges direct.
+//   - One container bucket and nothing loose: one node `u:in:<item>:<ctr>`.
+//   - Otherwise: an aggregate node `u:in:<item>` carrying the item-level
+//     rateCap and the sum of all bucket rates (loose included), one `isFanout`
+//     slice per container bucket, and the loose consumers' edges straight off
+//     the aggregate.
 type BoundaryBucket =
   | { kind: "container"; containerId: ContainerId }
-  | { kind: "tap"; consumerUnit: RenderUnitId };
-const bucketFor = (
-  containerId: ContainerId | undefined,
-  consumerUnit: RenderUnitId,
-): BoundaryBucket =>
-  containerId === undefined
-    ? { kind: "tap", consumerUnit }
-    : { kind: "container", containerId };
-// BoundaryBucket is local to this file, so these two stay here as thin
-// dispatchers over the shared constructors.
-const unitIdForInputFanout = (
-  item: ItemId,
-  bucket: BoundaryBucket,
-): RenderUnitId =>
-  bucket.kind === "container"
-    ? unitIdForInputContainer(item, bucket.containerId)
-    : unitIdForInputTap(item, bucket.consumerUnit);
-const unitIdForInputSingleBucket = (
+  | { kind: "loose" };
+const LOOSE_BUCKET: BoundaryBucket = { kind: "loose" };
+const bucketFor = (containerId: ContainerId | undefined): BoundaryBucket =>
+  containerId === undefined ? LOOSE_BUCKET : { kind: "container", containerId };
+// BoundaryBucket is local to this file, so these stay here as thin dispatchers
+// over the shared constructors.
+const unitIdForInputBucket = (
   item: ItemId,
   bucket: BoundaryBucket,
 ): RenderUnitId =>
@@ -67,7 +58,7 @@ const unitIdForInputSingleBucket = (
 const boundaryKey = (item: ItemId, bucket: BoundaryBucket): string =>
   bucket.kind === "container"
     ? `${item}\0c\0${bucket.containerId}`
-    : `${item}\0t\0${bucket.consumerUnit}`;
+    : `${item}\0loose`;
 
 const FRAC_ONE = new Fraction(1);
 
@@ -410,7 +401,7 @@ export function deriveBoundaryProducts(
   const bucketByKey = new Map<ConsumerKey, BoundaryBucket>();
   const totalDemandByItem = new Map<ItemId, Fraction>();
   for (const c of boundaryConsumers) {
-    const bucket = bucketFor(c.containerId, c.toUnit);
+    const bucket = bucketFor(c.containerId);
     const k = boundaryKey(c.item, bucket);
     const arr = consumersByKey.get(k) ?? [];
     arr.push(c);
@@ -465,7 +456,7 @@ export function deriveBoundaryProducts(
   }
 
   // Group keys by item so the topology decision (single bucket vs aggregate +
-  // fanout slices) is made once per item.
+  // container fanout slices) is made once per item.
   const keysByItem = new Map<ItemId, ConsumerKey[]>();
   for (const key of consumersByKey.keys()) {
     const itemId = itemByKey.get(key)!;
@@ -500,7 +491,7 @@ export function deriveBoundaryProducts(
       const bucket = bucketByKey.get(key)!;
       const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
       const base: Omit<RenderUnitInputProduct, "rateCap"> = {
-        id: unitIdForInputSingleBucket(itemId, bucket),
+        id: unitIdForInputBucket(itemId, bucket),
         kind: "inputProduct",
         itemId,
         count: 1,
@@ -515,10 +506,11 @@ export function deriveBoundaryProducts(
       continue;
     }
 
-    // Multiple buckets: emit an aggregate node plus one fanout slice per bucket.
-    // The aggregate carries the item-level rateCap and total realized rate; each
-    // slice carries only its per-container rate, so the slice label reads as a
-    // tap rather than another item-level cap.
+    // Multiple buckets: emit an aggregate node plus one fanout slice per
+    // container bucket. The aggregate carries the item-level rateCap and the
+    // total realized rate (loose share included); each slice carries only its
+    // per-container rate, so the slice label reads as a tap rather than another
+    // item-level cap.
     const aggregateId = unitIdForInputAggregate(itemId);
     aggregateIdByItem.set(itemId, aggregateId);
     const aggregateRate = keys.reduce(
@@ -540,9 +532,14 @@ export function deriveBoundaryProducts(
     );
     for (const key of keys) {
       const bucket = bucketByKey.get(key)!;
+      emittedKeys.add(key);
+      // The loose bucket gets no card of its own: its consumers hang off the
+      // aggregate directly.
+      if (bucket.kind !== "container") continue;
+
       const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
       inputProducts.push({
-        id: unitIdForInputFanout(itemId, bucket),
+        id: unitIdForInputContainer(itemId, bucket.containerId),
         kind: "inputProduct",
         itemId,
         count: 1,
@@ -550,7 +547,6 @@ export function deriveBoundaryProducts(
         isFanout: true,
         parentRate: rationalToString(aggregateRate),
       });
-      emittedKeys.add(key);
     }
   }
 
@@ -590,11 +586,11 @@ export function deriveBoundaryProducts(
     // Avoid 0/0 if all consumer rates collapse to zero.
     if (totalDemand.equals(new Fraction(0))) continue;
     const consumedSupply = consumedSupplyByItem.get(itemId)!;
-    // With an aggregate, per-bucket consumer edges originate from the fanout
-    // slice; otherwise from the single-bucket node.
-    const fromUnit = aggregateIdByItem.has(itemId)
-      ? unitIdForInputFanout(itemId, bucket)
-      : unitIdForInputSingleBucket(itemId, bucket);
+    // With an aggregate, a container bucket's consumer edges originate from its
+    // fanout slice and the loose bucket's originate from the aggregate itself;
+    // without one, from the single-bucket node (which is either the container
+    // card or the bare `u:in:<item>` card).
+    const fromUnit = unitIdForInputBucket(itemId, bucket);
     for (const c of consumers) {
       // Multiply before divide to keep precision under exact rationals.
       const rate = c.rate.mul(consumedSupply).div(totalDemand);
@@ -620,10 +616,12 @@ export function deriveBoundaryProducts(
     const keys = keysByItem.get(itemId)!.slice().sort();
     for (const key of keys) {
       const bucket = bucketByKey.get(key)!;
+      if (bucket.kind !== "container") continue;
+
       const realizedRate = realizedRateByKey.get(key) ?? new Fraction(0);
       boundaryEdges.push({
         fromUnit: aggregateId,
-        toUnit: unitIdForInputFanout(itemId, bucket),
+        toUnit: unitIdForInputContainer(itemId, bucket.containerId),
         item: itemId,
         rate: realizedRate,
         transportKind: item.transportKind,

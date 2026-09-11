@@ -473,10 +473,9 @@ function inputProductUnitToElk(
   //   - Aggregate (isAggregate): FIRST_SEPARATE, its own layer ahead of FIRST,
   //     so the aggregate -> fanout edge is a valid forward edge into FIRST or
   //     beyond. ELK does not support a FIRST-to-FIRST edge.
-  //   - Fanout slice (isFanout): unconstrained, so ELK barycenters each slice
-  //     (per-container or per-consumer tap) next to the consumers it feeds
-  //     instead of pinning it beside the aggregate. This collapses the long
-  //     boundary-supply edges.
+  //   - Fanout slice (isFanout): unconstrained, so ELK barycenters each
+  //     per-container slice next to the consumers it feeds instead of pinning
+  //     it beside the aggregate. This collapses the long boundary-supply edges.
   //   - Single-bucket input (neither isFanout nor isAggregate): FIRST, the older
   //     placement for items with one bucket or no fanouts at all.
   let layoutOptions: ElkNode["layoutOptions"];

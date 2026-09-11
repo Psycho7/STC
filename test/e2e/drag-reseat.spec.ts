@@ -1,6 +1,6 @@
 // App re-seats every chip when a node drag ends. Drag the default plan's ore
-// tap down until its leg is one straight run: without the re-seat the stale
-// dogleg offset would park the chip well below the line.
+// input card down so its legs change shape: without the re-seat the stale
+// dogleg offsets would park the chips off their lines.
 import { test, expect, type Page } from "@playwright/test";
 import {
   CENSUS_ZOOM,
@@ -17,9 +17,13 @@ import {
 } from "./geometry";
 import { collectGeometry } from "./collect";
 
-const DRAGGED_NODE = "u:in:copper_ore:tap:u:class:q:3";
-// The ore tap sits 69 graph units above the refinery row it feeds.
-const DRAG_DY_GRAPH = 69;
+const DRAGGED_NODE = "u:in:copper_ore";
+// Far enough that every leg off the card re-bends, short enough to stay clear
+// of the card below it.
+const DRAG_DY_GRAPH = 60;
+// React Flow swallows the first few pointer pixels as its drag threshold, so
+// the card lands a little short of the pointer travel.
+const DRAG_SLACK_PX = 8;
 async function seatAudits(page: Page) {
   const geom = await page.evaluate(collectGeometry);
   const chips = geom.chips as ChipRect[];
@@ -73,7 +77,7 @@ for (const mode of ["on", "off"] as const) {
     await waitForStableViewport(page);
     const moved = (await card.boundingBox())!;
     expect(moved.y - box.y, "the card actually moved").toBeGreaterThan(
-      dyPx - 4,
+      dyPx - DRAG_SLACK_PX,
     );
 
     const after = await seatAudits(page);
