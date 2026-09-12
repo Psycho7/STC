@@ -33,7 +33,12 @@ import { iconIdForItem } from "./iconSprite";
 // from every color already placed. Lab distance is the metric
 // because per-channel hsl deltas are not perceptual: two colors 25 degrees of
 // hue apart at 12% saturation read as one gray. See assignColors for the
-// placement and its determinism/stability tradeoff.
+// placement and its determinism/stability tradeoff, and
+// repairOffendingPairs for the floor-enforcing pass that follows it: pairs the
+// max-min placement left under the two-tier separation floor get their
+// later-placed member re-placed on a finer grid, at the item's icon hue or, if
+// that fails, at the smallest nudge off it (bounded by HUE_NUDGE_CAP), so only
+// offenders ever move and their family hue still reads.
 //
 // Item ids with no icon entry (synthetic test ids and the like) fall back to a
 // djb2 hash folded to 0-359, so itemHue never throws on an unknown id. Every
@@ -110,8 +115,13 @@ function hashItemId(itemId: string): number {
 }
 
 // Legibility floor and ceiling for assigned lightness: below the floor the
-// color sinks into the canvas, above the ceiling it washes out against light UI
-// surfaces (chip fills, hover cards). Matches the range test.
+// color sinks into the canvas. The ceiling is not a contrast limit - nothing
+// paints these colors on a light surface (the chip fill is a fixed dark
+// gradient and no consumer sets dark text on them), and contrast against the
+// near-black canvas only rises with lightness - it is where the hue itself
+// starts washing to white as the chroma factor collapses. The placement cap
+// stays at 90 so the shipped placement stays byte-identical; the repair grid
+// reaches REPAIR_LIGHT_CAP near that ceiling. Matches the range test.
 const LIGHT_FLOOR = 46;
 const LIGHT_CAP = 90;
 // Lightness granularity of the placement search. Step 2 halves the candidate
@@ -119,10 +129,45 @@ const LIGHT_CAP = 90;
 const LIGHT_STEP = 2;
 
 // Saturation candidates per band, ordered so ties fall to the first entry. The
-// gray band stays below COLOR_SATURATION_MIN so near-gray icon families keep
-// reading gray.
+// gray band's ladder keeps its step-4 rhythm and clamps its top rung to the 34
+// gray ceiling - past the icon-saturation threshold, but a saturation that
+// still reads as a gray tint on the dark canvas - so the crowded band has room
+// to clear its floor of 8 against its own members.
 const SAT_CANDIDATES: readonly number[] = [35, 45, 55, 65, 75, 85, 95];
-const GRAY_CANDIDATES: readonly number[] = [8, 12, 16, 20, 24];
+const GRAY_SAT_CEILING = 34;
+const GRAY_CANDIDATES: readonly number[] = [
+  8, 12, 16, 20, 24, 28, 32, GRAY_SAT_CEILING,
+];
+
+// Two-tier separation floor the repair pass enforces (measured 2026-09-07):
+// two saturated-band items must clear 15, and any pair involving the gray band
+// - gray-gray or cross-band - must clear 8. A uniform 15 is unreachable on
+// this pack even with the gray band deleted (ceiling 13.65), so pairs the
+// gray band takes part in sit at the measured reachable 8.
+const SATURATED_PAIR_FLOOR = 15;
+const GRAY_PAIR_FLOOR = 8;
+
+// Repair-grid shape, for the pass that re-places pairs the max-min placement
+// left under those floors. Saturation steps by 5 within the item's band; the
+// gray band's rungs start at 5 and always include the 34 ceiling. Lightness
+// runs by 1 up to a cap near the contrast-safe maximum: contrast against the
+// near-black canvas is monotone in lightness and no consumer paints these
+// colors on a light surface, so the binding limit at the top is the hue still
+// reading - at lightness 96 the chroma factor is 8 percent, about where a
+// color starts washing to white. The sweep bound is belt-and-braces: every
+// accepted move clears the mover against all others, so the offender set can
+// only shrink and the pass terminates regardless.
+const REPAIR_SAT_STEP = 5;
+const REPAIR_GRAY_SAT_MIN = 5;
+const REPAIR_LIGHT_CAP = 96;
+const REPAIR_MAX_SWEEPS = 8;
+
+// How far the repair search may push an item's hue off its icon hue. The
+// nudge is the last resort: the search tries the icon hue itself first, then
+// offsets in ascending magnitude, and an item only leaves its icon hue when
+// no point at the icon hue cleared the floor. Fifteen degrees is small
+// enough that an edge still reads as its product family.
+const HUE_NUDGE_CAP = 15;
 
 // Canvas background the edge colors and chips sit on (--ak-bg-canvas). The floor
 // below keeps every color readable against this near-black. Exported so the CSS
@@ -282,11 +327,24 @@ export function floorLightness(h: number, s: number, l: number): number {
 // entry's color depends on the entries placed before it, so a pack update that
 // adds, renames, or removes an item can shift the colors of others. Per-item
 // stability across pack versions is not guaranteed.
+// One placed pack item: its icon hue, the band it placed in, the chosen
+// saturation/lightness, and the Lab point the searches compare. The repair
+// pass re-places these records in placement order.
+type PlacedItem = {
+  id: string;
+  h: number;
+  gray: boolean;
+  s: number;
+  l: number;
+  lab: [number, number, number];
+};
+
 function assignColors(
-  entries: readonly { id: string; h: number }[],
+  entries: readonly { id: string; h: number; gray: boolean }[],
   saturations: readonly number[],
   assigned: [number, number, number][],
   out: Map<string, string>,
+  placed: PlacedItem[],
 ): void {
   const sorted = [...entries].sort(
     (a, b) => a.h - b.h || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
@@ -321,8 +379,166 @@ function assignColors(
         }
       }
     }
-    assigned.push(hslToLab(entry.h, bestS, bestL));
+    const lab = hslToLab(entry.h, bestS, bestL);
+    assigned.push(lab);
+    placed.push({
+      id: entry.id,
+      h: entry.h,
+      gray: entry.gray,
+      s: bestS,
+      l: bestL,
+      lab,
+    });
     out.set(entry.id, `hsl(${entry.h} ${bestS}% ${bestL}%)`);
+  }
+}
+
+// The floor one placed pair must clear: 15 between two saturated-band items,
+// 8 once the gray band is involved.
+function pairFloor(a: PlacedItem, b: PlacedItem): number {
+  return a.gray || b.gray ? GRAY_PAIR_FLOOR : SATURATED_PAIR_FLOOR;
+}
+
+// Saturation rungs of the repair grid for one band: every REPAIR_SAT_STEP
+// from the band's lowest rung to its ceiling, with the ceiling always a rung
+// even when the step does not land on it (the gray band tops out at 34).
+function repairSaturationRungs(gray: boolean): number[] {
+  const first = gray ? REPAIR_GRAY_SAT_MIN : SAT_CANDIDATES[0]!;
+  const cap = gray ? GRAY_SAT_CEILING : SAT_CANDIDATES[SAT_CANDIDATES.length - 1]!;
+  const rungs: number[] = [];
+  for (let s = first; s <= cap; s += REPAIR_SAT_STEP) {
+    rungs.push(s);
+  }
+  if (rungs[rungs.length - 1] !== cap) {
+    rungs.push(cap);
+  }
+  return rungs;
+}
+
+type RepairCandidate = {
+  hue: number;
+  s: number;
+  l: number;
+  lab: [number, number, number];
+  minDistanceSq: number;
+};
+
+// Hue offsets the repair search tries, smallest magnitude first: the icon hue
+// itself, then a nudge ladder out to HUE_NUDGE_CAP in both directions.
+function repairHueOffsets(): readonly number[] {
+  const offsets: number[] = [0];
+  for (let off = 1; off <= HUE_NUDGE_CAP; off++) {
+    offsets.push(off, -off);
+  }
+  return offsets;
+}
+
+// Best eligible repair point for one item at one hue offset, against every
+// other placed item. A candidate is eligible only if it clears the pair floor
+// against all of them (and lightness never starts below the contrast floor),
+// so accepting a candidate cannot break a pair that already cleared; among
+// eligible candidates the largest minimum squared distance wins, and strict
+// comparison keeps the first in grid order (lowest saturation, then lowest
+// lightness) on ties, so the search is deterministic.
+function searchRepairGrid(
+  mover: PlacedItem,
+  others: readonly PlacedItem[],
+  hueOffset: number,
+): RepairCandidate | undefined {
+  const hue = (mover.h + hueOffset + 360) % 360;
+  let best: RepairCandidate | undefined;
+  for (const s of repairSaturationRungs(mover.gray)) {
+    const lo = floorLightness(hue, s, LIGHT_FLOOR);
+    for (let l = lo; l <= REPAIR_LIGHT_CAP; l++) {
+      const lab = hslToLab(hue, s, l);
+      let minSq = Infinity;
+      let eligible = true;
+      for (const other of others) {
+        const d = deltaESq(lab, other.lab);
+        if (d < pairFloor(mover, other) ** 2) {
+          eligible = false;
+          break;
+        }
+        if (d < minSq) {
+          minSq = d;
+        }
+      }
+      if (eligible && (best === undefined || minSq > best.minDistanceSq)) {
+        best = { hue, s, l, lab, minDistanceSq: minSq };
+      }
+    }
+  }
+  return best;
+}
+
+// Repair pass over the finished placement: walk the pairs still under their
+// floor in placement order and re-place the later-placed member. The placement
+// maximizes the worst distance but guarantees no floor; this pass supplies
+// one, moving as few items as the grid allows. Every move is an offender - a
+// member of an offending pair - so items already at or above their floor keep
+// their exact hsl. Each mover searches its icon hue first and only then the
+// bounded nudge ladder, so hue moves are a last resort and as small as the
+// grid allows. When the later member has no eligible point anywhere in the
+// allowed hue range - boxed in by its own family, as the dense copper-hue
+// cluster on this pack - the earlier member gets the same ladder, which is
+// what lets every pair reach its floor. Sweeps repeat because one move can
+// expose a better fix for the next; they stop when a sweep moves nothing, and
+// the sweep bound backs the loop with a hard cap.
+function repairOffendingPairs(
+  placed: PlacedItem[],
+  out: Map<string, string>,
+): void {
+  const hueOffsets = repairHueOffsets();
+  const tryRepair = (index: number): boolean => {
+    for (const offset of hueOffsets) {
+      const mover = placed[index]!;
+      const others = placed.filter((_, k) => k !== index);
+      const best = searchRepairGrid(mover, others, offset);
+      if (best === undefined) {
+        continue;
+      }
+      placed[index] = {
+        ...mover,
+        h: best.hue,
+        s: best.s,
+        l: best.l,
+        lab: best.lab,
+      };
+      out.set(mover.id, `hsl(${best.hue} ${best.s}% ${best.l}%)`);
+      return true;
+    }
+    return false;
+  };
+  for (let sweep = 0; sweep < REPAIR_MAX_SWEEPS; sweep++) {
+    const offenders: { earlier: number; later: number }[] = [];
+    for (let i = 0; i < placed.length; i++) {
+      for (let j = i + 1; j < placed.length; j++) {
+        const a = placed[i]!;
+        const b = placed[j]!;
+        if (deltaE(a.lab, b.lab) < pairFloor(a, b)) {
+          offenders.push({ earlier: i, later: j });
+        }
+      }
+    }
+    if (offenders.length === 0) {
+      return;
+    }
+    offenders.sort((x, y) => x.later - y.later || x.earlier - y.earlier);
+    let moved = false;
+    for (const { earlier, later } of offenders) {
+      // A move earlier in this sweep may already have cleared this pair.
+      const a = placed[earlier]!;
+      const b = placed[later]!;
+      if (deltaE(a.lab, b.lab) >= pairFloor(a, b)) {
+        continue;
+      }
+      if (tryRepair(later) || tryRepair(earlier)) {
+        moved = true;
+      }
+    }
+    if (!moved) {
+      return;
+    }
   }
 }
 
@@ -330,24 +546,28 @@ function assignColors(
 // into the two bands and place both apart in Lab at their own icon hue. The
 // gray band goes first because it is the crowded one - it holds most of the
 // pack inside the narrowest saturation range, so it gets first pick of the
-// room.
+// room. The placement maximizes the worst distance but guarantees no floor,
+// so a repair pass follows it, re-placing only the members of pairs still
+// under the two-tier floor.
 const packColorById: ReadonlyMap<string, string> = (() => {
-  const saturated: { id: string; h: number }[] = [];
-  const gray: { id: string; h: number }[] = [];
+  const saturated: { id: string; h: number; gray: boolean }[] = [];
+  const gray: { id: string; h: number; gray: boolean }[] = [];
   for (const item of pack.items) {
     const iconHS = iconHSFor(item.id);
     if (iconHS === undefined) continue;
     const list = iconHS.s >= COLOR_SATURATION_MIN ? saturated : gray;
-    list.push({ id: item.id, h: iconHS.h });
+    list.push({ id: item.id, h: iconHS.h, gray: list === gray });
   }
   const out = new Map<string, string>();
   const assigned: [number, number, number][] = [];
+  const placed: PlacedItem[] = [];
   for (const [entries, saturations] of [
     [gray, GRAY_CANDIDATES],
     [saturated, SAT_CANDIDATES],
   ] as const) {
-    assignColors(entries, saturations, assigned, out);
+    assignColors(entries, saturations, assigned, out, placed);
   }
+  repairOffendingPairs(placed, out);
   return out;
 })();
 
