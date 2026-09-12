@@ -177,7 +177,14 @@ Do not report these as defects.
   chip lifted clear of the lane it labels is not.
 - A fan-out branch chip, or a fan-in member chip that would land on the shared
   run, may be deliberately hidden. The rate remains on the target card's input
-  row.
+  row and on the edge's hover tooltip.
+- A plain item edge may draw no chip at all: a bare stroke with no chip on it,
+  not even an icon-only square, is the seating pass hiding a chip whose only
+  remaining seat was more than one chip pitch off the line it labels (a
+  crowded corridor, a foreign stroke or a neighbouring chip on every on-line
+  seat). The rate stays on the target card's input row and on the edge's hover
+  tooltip. A step of a pitch or less still reads as sitting beside its line and
+  still draws.
 - Mid-drag, a fan-in merge dot can vanish while the merged run still shows one
   member's rate. The dot hides as soon as its stamped x leaves the owner's live
   polyline, while a non-owner member's chip hide is pinned to the port ROW

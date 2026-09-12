@@ -331,6 +331,7 @@ export default function BusEdge({
       {fan !== null || memberCount > 1 ? (
         <JunctionDot
           testId={`bus-junction-${id}`}
+          family={fan !== null ? "fanout" : "lane"}
           x={junction.x}
           y={junction.y}
           color={stroke}

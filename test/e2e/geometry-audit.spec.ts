@@ -13,6 +13,7 @@ import {
   auditChipsVsCards,
   auditDotsUnderChips,
   auditEndpointParity,
+  auditFanoutChipsOnOwnLeg,
   auditFrameRides,
   auditOwnCardPierces,
   auditSegmentsVsCards,
@@ -772,8 +773,15 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // left-to-right band): default 1 -> 2, battery5 4 -> 8 (off 4 -> 10), multi6
 // 0 -> 3, rot-bottled_food_3 0 -> 2. default's is the sidestep-gate trade --
 // its sewage chip now grazes on its own line where it used to step off it.
+// FAN-OUT LEG SEAT: default 2 -> 3 in BOTH arms. Seating a fan-out branch chip
+// on the member's own horizontal leg, instead of the shared junction column it
+// used to park on, puts liquid_water's member e:12 rise chip on the leg row
+// copper_ore's member e:8 runs along, so e:8's segment passes under that box.
+// One chip, one segment, in the softest tier, and the same chip is the whole of
+// this plan's FOREIGN_STROKE move below. Bought for every branch chip on the
+// corpus reaching a seat on the leg it labels (FANOUT_LEG_BASELINE stays 0).
 const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
-  default: 2,
+  default: 3,
   battery5: 8,
   "battery5-xiranite": 16,
   crystal: 1,
@@ -789,8 +797,10 @@ const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
 const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_SEGMENT_BASELINE_ON,
   // R14: 15 -> 42. R16: 42 -> 43 (up move, same trade as the on arm).
+  // FAN-OUT LEG SEAT: default 2 -> 3, the same e:12-on-e:8's-leg-row chip as
+  // the on arm.
   off: {
-    default: 2,
+    default: 3,
     battery5: 10,
     "battery5-xiranite": 15,
     crystal: 1,
@@ -889,6 +899,46 @@ const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
     script43: 1,
     "coupon-web": 0,
     "gas-web": 1,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
+  },
+};
+
+// Fan-out leg ratchet: member chips whose centre lies off the member's OWN leg
+// (the polyline suffix right of the shared junction column), counting kind
+// "bus" -- the fan-out branch chip -- as well as label chips, which the
+// off-path ratchet above cannot see. A branch chip names its member by sitting
+// on that member's leg; the column belongs to every member of the fan-out, so a
+// chip parked there names none of them to the reader. Pinned at 0 on the
+// whole corpus in both modes: this is a hard rule, not a residue, and nothing
+// here is ratified as a trade.
+const FANOUT_LEG_BASELINE_ON: Record<string, number> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+};
+const FANOUT_LEG_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: FANOUT_LEG_BASELINE_ON,
+  off: {
+    default: 0,
+    battery5: 0,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
   },
@@ -1365,6 +1415,31 @@ test.describe("segment placement audit", () => {
                 `${scenario.id}: ${offPath.length} label chip(s) off their own polyline exceeds baseline ${offPathBaseline}:\n${offPathInventory.join("\n")}`,
               )
               .toBeLessThanOrEqual(offPathBaseline);
+          }
+
+          const offLeg = auditFanoutChipsOnOwnLeg(
+            chips,
+            rawEdges,
+            geom.dots as DotRect[],
+          );
+          const offLegInventory = offLeg.map(
+            (v) =>
+              `  chip of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its own fan-out leg`,
+          );
+          const offLegBaseline = baselineFor(
+            FANOUT_LEG_BASELINE,
+            "FANOUT_LEG_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (offLegBaseline !== null) {
+            expect
+              .soft(
+                offLeg.length,
+                `${scenario.id}: ${offLeg.length} fan-out member chip(s) off their own leg exceeds baseline ${offLegBaseline}:\n${offLegInventory.join("\n")}`,
+              )
+              .toBeLessThanOrEqual(offLegBaseline);
           }
 
           // Tier 3 (SOFT ratchet): padding-only grazes stay at or below the
@@ -1938,8 +2013,11 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
 // SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
 // left-to-right band): default 1 -> 2 in both arms and rot-bottled_food_3
 // 0 -> 2, the same sidestep-gate trade the chip-segment table records.
+// FAN-OUT LEG SEAT: default 2 -> 3 in BOTH arms, the chip-side reading of the
+// single pair CHIP_SEGMENT_BASELINE records above -- e:12's rise chip, seated on
+// its own leg row, now has e:8's stroke through its box.
 const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
-  default: 2,
+  default: 3,
   battery5: 3,
   "battery5-xiranite": 6,
   crystal: 1,
@@ -1955,8 +2033,9 @@ const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
 const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FOREIGN_STROKE_BASELINE_ON,
   // R14: 32 -> 49. R16: 49 -> 45.
+  // FAN-OUT LEG SEAT: default 2 -> 3, the same chip as the on arm.
   off: {
-    default: 2,
+    default: 3,
     battery5: 3,
     "battery5-xiranite": 5,
     crystal: 1,
@@ -2285,7 +2364,8 @@ const CENSUS_TOTALS: Record<
     // gas-web 8 -> 7).
     // SINGLE-BAND RE-MEASURE (eeda816): 54 -> 57, tracking the per-cell raises
     // in FOREIGN_STROKE_BASELINE (default 1 -> 2, rot-bottled_food_3 0 -> 2).
-    foreignStroke: 57,
+    // FAN-OUT LEG SEAT: 57 -> 58, tracking default 2 -> 3 in that table.
+    foreignStroke: 58,
     outsideBand: 0,
   },
   off: {
@@ -2294,7 +2374,8 @@ const CENSUS_TOTALS: Record<
     seatValidity: 1,
     cardIntrusion: 0,
     // SINGLE-BAND RE-MEASURE (eeda816): 45 -> 46 (default 1 -> 2).
-    foreignStroke: 46,
+    // FAN-OUT LEG SEAT: 46 -> 47 (default 2 -> 3).
+    foreignStroke: 47,
     outsideBand: 0,
   },
 };
