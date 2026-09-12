@@ -36,25 +36,6 @@ describe("AEF round-trip with bisim", () => {
       if (mult === undefined || ideal === undefined) continue;
       expect(mult).toBe(Number(ideal.ceil(0).valueOf()));
     }
-
-    // Quotient cardinality: bisim never grows the replica set, so the
-    // number of raw replicas (classByReplicaId.size) is an upper bound on
-    // the number of quotient replicas (full.replicas.length).
-    expect(full.classByReplicaId.size).toBeGreaterThanOrEqual(
-      full.replicas.length,
-    );
-
-    // Surjection: every distinct class value in classByReplicaId maps to a
-    // quotient replica, and every quotient replica id appears in
-    // classToQuotient.values().
-    const seenClasses = new Set(full.classByReplicaId.values());
-    for (const cid of seenClasses) {
-      expect(full.classToQuotient.has(cid)).toBe(true);
-    }
-    const quotientIds = new Set(full.replicas.map((r) => r.id));
-    for (const qid of full.classToQuotient.values()) {
-      expect(quotientIds.has(qid)).toBe(true);
-    }
   });
 
   it("idempotence: re-running bisim on the wired output produces no further merges", () => {

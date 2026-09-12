@@ -4,9 +4,9 @@ import packJson from "@aef/data/recipe-pack.json";
 import {
   defaultTransportConfig,
   loadTransportConfig,
+  UnknownCarrierError,
   type TransportConfig,
 } from "../src/data/transport-config";
-import { UnknownCarrierError } from "../src/solver/types";
 
 function mkConfig(carrierKinds: string[]): TransportConfig {
   const carriers: TransportConfig["carriers"] = {};

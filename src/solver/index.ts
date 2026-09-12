@@ -13,7 +13,7 @@ import { pickTearEdges } from "./tear";
 import { replicatePerConsumer } from "./replicate";
 import { assignIdealMultipliers } from "./multiplier";
 import { assembleLogicalGraph } from "./assemble";
-import { bisimQuotient, deriveReplicaEdges, type ClassId } from "./bisim";
+import { bisimQuotient, deriveReplicaEdges } from "./bisim";
 import { assertInvariants } from "./invariants";
 import { netSelfConsumption } from "./net-self";
 import type {
@@ -71,14 +71,7 @@ function assertSolvable(
   }
 }
 
-function runBisim(
-  g: RecipeGraph,
-  rawReplicas: Replica[],
-): {
-  replicas: Replica[];
-  classByReplicaId: Map<ReplicaId, ClassId>;
-  classToQuotient: Map<ClassId, ReplicaId>;
-} {
+function runBisim(g: RecipeGraph, rawReplicas: Replica[]): Replica[] {
   const rawEdges = deriveReplicaEdges(g, rawReplicas);
   const pinnedReplicaIds = new Set(
     rawReplicas.filter((r) => r.sharedAtArticulation).map((r) => r.id),
@@ -87,15 +80,13 @@ function runBisim(
   // targetClass, item). Nothing downstream reads them - the later stages rebuild
   // per-pair flow rates from assembleLogicalGraph's edge list - so the solve
   // path opts out and only the bisim unit tests exercise that aggregation.
-  const { quotientReplicas, classByReplicaId, classToQuotient } = bisimQuotient(
-    {
-      replicas: rawReplicas,
-      edges: rawEdges,
-      pinnedReplicaIds,
-      emitEdges: false,
-    },
-  );
-  return { replicas: quotientReplicas, classByReplicaId, classToQuotient };
+  const { quotientReplicas } = bisimQuotient({
+    replicas: rawReplicas,
+    edges: rawEdges,
+    pinnedReplicaIds,
+    emitEdges: false,
+  });
+  return quotientReplicas;
 }
 
 /**
@@ -123,14 +114,6 @@ export type SolvePlanFull = {
    * can fold equivalent replicas on the pre-ceiling rate.
    */
   idealCount: Map<ReplicaId, Fraction>;
-  /** Raw replica id -> its bisim class. Test-only: nothing in the render
-   *  pipeline or the canvas reads it; the bisim round-trip suite does.
-   */
-  classByReplicaId: Map<ReplicaId, ClassId>;
-  /** ClassId -> quotient replica id ("q:N"). Test-only, paired with
-   *  classByReplicaId by the same bisim round-trip suite.
-   */
-  classToQuotient: Map<ClassId, ReplicaId>;
   /**
    * Feasibility summary from the LP result. `softFeasible` is false when any
    * material demand stayed unmet; `deficits` lists each unmet item and its
@@ -229,10 +212,7 @@ function runSolvePipeline(
     augmented,
     boundaryShare,
   });
-  const { replicas, classByReplicaId, classToQuotient } = runBisim(
-    g,
-    rawReplicas,
-  );
+  const replicas = runBisim(g, rawReplicas);
   const idealCount = assignIdealMultipliers(replicas, machineById, recipeById);
   // The integer machine count is the ceiling of the exact rational ideal.
   // idealCount already skipped zero-rate replicas, so every ceiling is >= 1.
@@ -268,8 +248,6 @@ function runSolvePipeline(
     recipeById,
     rates,
     idealCount,
-    classByReplicaId,
-    classToQuotient,
     feasibility: {
       softFeasible: lpResult.softFeasible,
       deficits: lpResult.deficit,

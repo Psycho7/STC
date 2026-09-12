@@ -1,6 +1,19 @@
-import type { RecipePack, TransportKindId } from "@aef/schema";
+import type { Item, RecipePack, TransportKindId } from "@aef/schema";
 import raw from "@aef/data/transport-config.json";
-import { UnknownCarrierError } from "../solver/types";
+
+export class UnknownCarrierError extends Error {
+  constructor(
+    public itemId: Item["id"] | null,
+    public kind: TransportKindId,
+  ) {
+    super(
+      itemId === null
+        ? `unknown carrier kind '${kind}'`
+        : `unknown carrier kind '${kind}' for item '${itemId}'`,
+    );
+    this.name = "UnknownCarrierError";
+  }
+}
 
 export type TransportConfig = {
   schemaVersion: string;
