@@ -66,7 +66,14 @@ const PARALLEL_FOREIGN: EdgeSegments = {
 describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)", () => {
   it("seats at the anchor on its own line when only a foreign line blocks it", () => {
     const field = makeClearanceField([PARALLEL_FOREIGN], []);
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: LINE,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     // toMatchObject, not toEqual: a RateSeat also carries the ChipBox the field
     // reserved, which every seat assertion here is indifferent to.
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
@@ -81,7 +88,14 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
       halfW: (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2,
       halfH: MAX_CHIP_SCALE * 12,
     });
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: LINE,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat.tier).toBe("graze");
     // Still on the own line...
     expect(seat.dy).toBe(0);
@@ -94,7 +108,14 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
 
   it("still prefers a fully clear on-line seat when one exists (anchor tier)", () => {
     const field = makeClearanceField([], []);
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: LINE,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
   });
 
@@ -106,9 +127,9 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
     // positive delta: an uncrowded chip took a spurious one-step slide left.
     // The clamped anchor seats at the path end, a sub-rounding offset at most.
     const field = makeClearanceField([], []);
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [0, 0],
           [100, 0],
@@ -116,11 +137,11 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
         anchorX: 100.0075,
         anchorY: 0,
       },
-      "own",
-      "t",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat.dy).toBe(0);
     expect(Math.abs(seat.dx)).toBeLessThanOrEqual(0.02);
   });
@@ -138,7 +159,14 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
       border: 0,
     };
     const field = makeClearanceField([], [card]);
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: LINE,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat.tier).toBe("nudge");
     expect(seat.dx).toBe(0);
     // First nudge step clear of the card's 30-bottom plus the 24 half-height:
@@ -167,9 +195,9 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
       ],
       [],
     );
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [0, 100],
           [1200, 100],
@@ -177,11 +205,11 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
         anchorX: 48,
         anchorY: 100,
       },
-      "own",
-      "T",
-      NO_EXEMPT,
-      { left: 2000, right: 2100, top: 0, bottom: 200 },
-    );
+      flowKey: "own",
+      target: "T",
+      exempt: NO_EXEMPT,
+      entryBand: { left: 2000, right: 2100, top: 0, bottom: 200 },
+    });
     expect(seat.tier).toBe("graze");
     expect(seat.dy).toBe(0);
     expect(seat.dx).toBe(144);
@@ -216,9 +244,9 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
       ],
       [],
     );
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [408, 100],
           [792, 100],
@@ -226,11 +254,11 @@ describe("seatRateChip: graze tier (on-own-line outranks foreign-line clearance)
         anchorX: 600,
         anchorY: 100,
       },
-      "own",
-      "T",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+      flowKey: "own",
+      target: "T",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat.tier).toBe("graze");
     expect(seat.dy).toBe(0);
     expect(seat.dx).toBe(192);
@@ -598,14 +626,14 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
       anchorX: 720,
       anchorY: 0,
     };
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      line,
-      "own",
-      "t",
-      portZone("T", "target"),
-      NO_BAND,
-    );
+      path: line,
+      flowKey: "own",
+      target: "t",
+      exempt: portZone("T", "target"),
+      entryBand: NO_BAND,
+    });
     // Moved off the buried anchor...
     expect(seat.dx !== 0 || seat.dy !== 0).toBe(true);
     // ...to a seat whose centre no longer sits on the card body.
@@ -640,14 +668,14 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
       anchorX: 490,
       anchorY: 0,
     };
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      line,
-      "own",
-      "t",
-      portZone("T", "target"),
-      NO_BAND,
-    );
+      path: line,
+      flowKey: "own",
+      target: "t",
+      exempt: portZone("T", "target"),
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: -120, dy: 0, tier: "slide" });
     expect(seatedBox(490, 0, seat).right).toBeLessThanOrEqual(card.left);
     expect(chipEntersOwnCardBody(seatedBox(490, 0, seat), card, "target")).toBe(
@@ -678,7 +706,14 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
       anchorX: 500,
       anchorY: 0,
     };
-    const seat = seatRateChip(field, line, "own", "t", exempt, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: line,
+      flowKey: "own",
+      target: "t",
+      exempt,
+      entryBand: NO_BAND,
+    });
     expect(["nudge", "escape"]).toContain(seat.tier);
     expect(Math.abs(seat.dy)).toBeLessThanOrEqual(300);
     expect(chipEntersOwnCardBody(seatedBox(500, 0, seat), card, "target")).toBe(
@@ -723,7 +758,14 @@ describe("seatRateChip: own-card port-zone exemption (issue #10)", () => {
       anchorX: 460,
       anchorY: 0,
     };
-    const seat = seatRateChip(field, trunk, "own", "t", exempt, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: trunk,
+      flowKey: "own",
+      target: "t",
+      exempt,
+      entryBand: NO_BAND,
+    });
     expect(seat.tier).toBe("slide");
     expect(seat.dx).toBeLessThan(0);
     expect(seat.dy).toBe(0);
@@ -789,9 +831,9 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
     // A box lapping the own card's port band is not a legal anchor: the seat
     // walks one slide step back, box at the band's outer edge.
     const field = makeClearanceField([], [INTRUSION_CARD]);
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [0, 0],
           [500, 0],
@@ -799,11 +841,11 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
         anchorX: 389,
         anchorY: 0,
       },
-      "own",
-      "t",
-      portZone("T", "target"),
-      NO_BAND,
-    );
+      flowKey: "own",
+      target: "t",
+      exempt: portZone("T", "target"),
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: -24, dy: 0, tier: "slide" });
     expect(seat.box.x + seat.box.halfW).toBeLessThanOrEqual(491);
   });
@@ -815,9 +857,9 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
     // walk stops at the first legal candidate rather than the shallowest one
     // anywhere on the line.
     const field = makeClearanceField([], [INTRUSION_CARD]);
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [0, 0],
           [500, 0],
@@ -825,11 +867,11 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
         anchorX: 390,
         anchorY: 0,
       },
-      "own",
-      "t",
-      portZone("T", "target"),
-      NO_BAND,
-    );
+      flowKey: "own",
+      target: "t",
+      exempt: portZone("T", "target"),
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: -24, dy: 0, tier: "slide" });
   });
 
@@ -840,9 +882,9 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
     // among those tied candidates: the seat walks back to the nearest one whose
     // box is off the card body, still on its own line, still tier graze.
     const field = makeClearanceField([PARALLEL_FOREIGN], [INTRUSION_CARD]);
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [0, 0],
           [500, 0],
@@ -850,11 +892,11 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
         anchorX: 490,
         anchorY: 0,
       },
-      "own",
-      "t",
-      portZone("T", "target"),
-      NO_BAND,
-    );
+      flowKey: "own",
+      target: "t",
+      exempt: portZone("T", "target"),
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: -120, dy: 0, tier: "graze" });
     expect(seatedBox(490, 0, seat).right).toBeLessThanOrEqual(
       INTRUSION_CARD.left,
@@ -869,9 +911,9 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
       [INTRUSION_CARD],
       [{ x: 300, y: 0, kind: "fanout" }],
     );
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [300, 0],
           [500, 0],
@@ -879,11 +921,11 @@ describe("seatRateChip: own-card intrusion preference (F1)", () => {
         anchorX: 380,
         anchorY: 0,
       },
-      "own",
-      "t",
-      portZone("T", "target"),
-      NO_BAND,
-    );
+      flowKey: "own",
+      target: "t",
+      exempt: portZone("T", "target"),
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: -24, dy: 0, tier: "slide" });
     expect(seat.box.x + seat.box.halfW).toBeLessThanOrEqual(491);
     // The dot at 300 stays swallowed: every band-clear candidate on this
@@ -926,14 +968,14 @@ describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (iss
       segs: [[80, -1000, 80, 2000]],
     };
     const field = makeClearanceField([foreignVertical], []);
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      ownVertical,
-      "own",
-      "t",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+      path: ownVertical,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     const cx = ownVertical.anchorX + seat.dx;
     // The seated box no longer overlaps the foreign leg at x=80: a wide box needs
     // a full half-width of centre separation to clear a vertical line.
@@ -970,14 +1012,14 @@ describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (iss
       segs: [[16, -1000, 16, 2000]],
     };
     const field = makeClearanceField([foreignVertical], []);
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      ownVertical,
-      "own",
-      "t",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+      path: ownVertical,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
@@ -987,7 +1029,14 @@ describe("seatRateChip: horizontal sidestep off a parallel foreign vertical (iss
     // finds nothing and the chip stays ON its own line via the graze tier rather
     // than flying off. Guards that the sidestep never regresses the #9 fix.
     const field = makeClearanceField([PARALLEL_FOREIGN], []);
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: LINE,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 });
@@ -1029,9 +1078,19 @@ describe("seatRateChip: trunk-aware foreignness for the aggregate (issue #28)", 
       anchorX: 160,
       anchorY: 0,
     };
-    const seat = seatRateChip(field, trunk, "trunk", "t", NO_EXEMPT, NO_BAND, {
-      ownIds: new Set(["m"]),
-    });
+    const seat = seatRateChip(
+      {
+        field,
+        path: trunk,
+        flowKey: "trunk",
+        target: "t",
+        exempt: NO_EXEMPT,
+        entryBand: NO_BAND,
+      },
+      {
+        ownIds: new Set(["m"]),
+      },
+    );
     // Stepped off the direct edge's vertical (x=225): a wide box needs a full
     // half-width of centre separation to clear it.
     const cx = trunk.anchorX + seat.dx;
@@ -1051,7 +1110,14 @@ describe("seatRateChip: junction-dot keep-off (#50)", () => {
     // box no longer covers the dot -- a wide box needs more than a half-width of
     // centre separation to stop covering a point.
     const field = makeClearanceField([], [], [{ x: 500, y: 0, kind: "fanin" }]);
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: LINE,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat.tier).toBe("slide");
     // Still on its own line: the keep-off never trades the line for a dot.
     expect(seat.dy).toBe(0);
@@ -1064,9 +1130,9 @@ describe("seatRateChip: junction-dot keep-off (#50)", () => {
     // a decorative marker would be the worse defect. The seat stays exactly
     // where it sits today.
     const field = makeClearanceField([], [], [{ x: 500, y: 0, kind: "fanin" }]);
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [440, 0],
           [560, 0],
@@ -1074,11 +1140,11 @@ describe("seatRateChip: junction-dot keep-off (#50)", () => {
         anchorX: 500,
         anchorY: 0,
       },
-      "own",
-      "t",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
   });
 });
@@ -1105,9 +1171,19 @@ describe("seatRateChip: slide barrier keeps branch chips in stack order (issue #
     field.seat({ x: 0, y: 384, halfW: HALF_W, halfH: HALF_H });
     // Foreign lane chip covering [408, 640]: blocks the anchor and below it.
     field.seat({ x: 0, y: 524, halfW: HALF_W, halfH: 116 });
-    const seat = seatRateChip(field, leg, "own", "t", NO_EXEMPT, NO_BAND, {
-      barrierYs: [384],
-    });
+    const seat = seatRateChip(
+      {
+        field,
+        path: leg,
+        flowKey: "own",
+        target: "t",
+        exempt: NO_EXEMPT,
+        entryBand: NO_BAND,
+      },
+      {
+        barrierYs: [384],
+      },
+    );
     // Seats BELOW the sibling (y > 384): monotonic top-to-bottom order kept, no
     // crossing above it.
     expect(leg.anchorY + seat.dy).toBeGreaterThan(384);
@@ -1164,9 +1240,9 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
     // a foreign window that hangs off the END of the own polyline is not
     // braided with it (there is no own stroke there to confuse it with), and a
     // short own line would score that as the win instead of the real one.
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [-1200, 0],
           [1800, 0],
@@ -1174,11 +1250,11 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
         anchorX: 300,
         anchorY: 0,
       },
-      "own",
-      "T",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+      flowKey: "own",
+      target: "T",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     // The first candidate whose box has left the braid's reach (x = 600).
     expect(seat).toMatchObject({ dx: 432, dy: 0, tier: "graze" });
   });
@@ -1194,7 +1270,14 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       [vertical("braid", 5), vertical("wide", -75)],
       [],
     );
-    const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: OWN_LEG,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 48, dy: 0, tier: "sidestep" });
   });
 
@@ -1207,7 +1290,14 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       [vertical("apart", 40), vertical("wide", -75)],
       [],
     );
-    const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: OWN_LEG,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
@@ -1222,7 +1312,14 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       [vertical("braid", 5), vertical("mid", -40)],
       [],
     );
-    const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: OWN_LEG,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
@@ -1250,9 +1347,9 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       ],
       [],
     );
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [240, 0],
           [280, 0],
@@ -1260,11 +1357,11 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
         anchorX: 260,
         anchorY: 0,
       },
-      "own",
-      "t",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
@@ -1307,9 +1404,9 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       ],
       [],
     );
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [0, 480],
           [0, 520],
@@ -1317,11 +1414,11 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
         anchorX: 0,
         anchorY: 500,
       },
-      "own",
-      "t",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "graze" });
   });
 
@@ -1341,7 +1438,14 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       ],
       [],
     );
-    const seat = seatRateChip(field, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: OWN_LEG,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 48, dy: 0, tier: "sidestep" });
   });
 
@@ -1367,9 +1471,9 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       ],
       [card],
     );
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      {
+      path: {
         pts: [
           [0, 480],
           [0, 520],
@@ -1377,11 +1481,11 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
         anchorX: 0,
         anchorY: 500,
       },
-      "own",
-      "t",
-      portZone("S", "source"),
-      NO_BAND,
-    );
+      flowKey: "own",
+      target: "t",
+      exempt: portZone("S", "source"),
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 60, dy: 0, tier: "sidestep" });
     // The seated box no longer touches the source's port band [-78, -60].
     expect(seat.box.x - seat.box.halfW).toBeGreaterThanOrEqual(-60);
@@ -1399,22 +1503,36 @@ describe("seatRateChip: own-line binding and the scored sidestep (Z2 braids)", (
       [vertical("far", 300), vertical("wide", -75), vertical("braid", 5)],
       [],
     );
-    const a = seatRateChip(forward, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
-    const b = seatRateChip(backward, OWN_LEG, "own", "t", NO_EXEMPT, NO_BAND);
+    const a = seatRateChip({
+      field: forward,
+      path: OWN_LEG,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
+    const b = seatRateChip({
+      field: backward,
+      path: OWN_LEG,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(a).toEqual(b);
     // ...and twice through the same field state, which is the plain
     // reproducibility half of the same property.
-    const again = seatRateChip(
-      makeClearanceField(
+    const again = seatRateChip({
+      field: makeClearanceField(
         [vertical("braid", 5), vertical("wide", -75), vertical("far", 300)],
         [],
       ),
-      OWN_LEG,
-      "own",
-      "t",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+      path: OWN_LEG,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(again).toEqual(a);
   });
 });
@@ -1446,23 +1564,25 @@ describe("seatRateChip: a narrow reserve takes a corridor the wide box cannot", 
       anchorX: 500,
       anchorY: 0,
     };
-    const wide = seatRateChip(
-      makeClearanceField(walls, []),
-      line,
-      "own",
-      "t",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+    const wide = seatRateChip({
+      field: makeClearanceField(walls, []),
+      path: line,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(wide.tier).toBe("graze");
 
     const narrow = seatRateChip(
-      makeClearanceField(walls, []),
-      line,
-      "own",
-      "t",
-      NO_EXEMPT,
-      NO_BAND,
+      {
+        field: makeClearanceField(walls, []),
+        path: line,
+        flowKey: "own",
+        target: "t",
+        exempt: NO_EXEMPT,
+        entryBand: NO_BAND,
+      },
       { text: { body: "30/270", unit: false } },
     );
     expect(narrow).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
@@ -1490,7 +1610,14 @@ describe("ClearanceField: the seat / unseat contract", () => {
 
     // ...and the freed position takes the next seat, at the anchor tier, rather
     // than the slide a lingering phantom box would have forced.
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND);
+    const seat = seatRateChip({
+      field,
+      path: LINE,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat).toMatchObject({ dx: 0, dy: 0, tier: "anchor" });
   });
 
@@ -1533,14 +1660,14 @@ describe("ClearanceField: the seat / unseat contract", () => {
       anchorX: 390,
       anchorY: 0,
     };
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      line,
-      "own",
-      "t",
-      portZone("T", "target"),
-      NO_BAND,
-    );
+      path: line,
+      flowKey: "own",
+      target: "t",
+      exempt: portZone("T", "target"),
+      entryBand: NO_BAND,
+    });
     expect(seat.tier).toBe("slide");
     expect(seat.box.x).toBe(line.anchorX + seat.dx);
     expect(seat.box.y).toBe(line.anchorY + seat.dy);
@@ -1596,12 +1723,14 @@ describe("port-band keep-out (#82)", () => {
     // band's outer edge at 991.
     const field = makeClearanceField([], [SOURCE_CARD, TARGET_CARD]);
     const seat = seatRateChip(
-      field,
-      CORRIDOR,
-      "own",
-      "T",
-      BOTH_EXEMPT,
-      NO_BAND,
+      {
+        field,
+        path: CORRIDOR,
+        flowKey: "own",
+        target: "T",
+        exempt: BOTH_EXEMPT,
+        entryBand: NO_BAND,
+      },
       {
         iconOnly: true,
         clearSpan: { lo: CORRIDOR.anchorX - 9, hi: CORRIDOR.anchorX + 9 },
@@ -1630,14 +1759,14 @@ describe("port-band keep-out (#82)", () => {
 
   it("slides off a target band along its own line", () => {
     const field = makeClearanceField([], [SOURCE_CARD, TARGET_CARD]);
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      CORRIDOR,
-      "own",
-      "T",
-      BOTH_EXEMPT,
-      NO_BAND,
-    );
+      path: CORRIDOR,
+      flowKey: "own",
+      target: "T",
+      exempt: BOTH_EXEMPT,
+      entryBand: NO_BAND,
+    });
     // The wide default box overhangs the target band at the anchor, so the
     // seat stays on the line but walks left of the band's outer edge.
     expect(seat.tier).not.toBe("nudge");
@@ -1648,14 +1777,14 @@ describe("port-band keep-out (#82)", () => {
 
   it("slides off a source band (the copper_bottle shape: anchor near the out-port)", () => {
     const field = makeClearanceField([], [SOURCE_CARD, TARGET_CARD]);
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      { ...CORRIDOR, anchorX: 60 },
-      "own",
-      "T",
-      BOTH_EXEMPT,
-      NO_BAND,
-    );
+      path: { ...CORRIDOR, anchorX: 60 },
+      flowKey: "own",
+      target: "T",
+      exempt: BOTH_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat.tier).not.toBe("nudge");
     expect(seat.tier).not.toBe("escape");
     expect(seat.dy).toBe(0);
@@ -1670,12 +1799,14 @@ describe("port-band keep-out (#82)", () => {
     // box would be pushed into.
     const field = makeClearanceField([], [SOURCE_CARD, TARGET_CARD]);
     const seat = seatRateChip(
-      field,
-      CORRIDOR,
-      "own",
-      "T",
-      BOTH_EXEMPT,
-      NO_BAND,
+      {
+        field,
+        path: CORRIDOR,
+        flowKey: "own",
+        target: "T",
+        exempt: BOTH_EXEMPT,
+        entryBand: NO_BAND,
+      },
       {
         iconOnly: true,
       },
@@ -1693,14 +1824,14 @@ describe("port-band keep-out (#82)", () => {
       [PARALLEL_FOREIGN],
       [SOURCE_CARD, TARGET_CARD],
     );
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      CORRIDOR,
-      "own",
-      "T",
-      BOTH_EXEMPT,
-      NO_BAND,
-    );
+      path: CORRIDOR,
+      flowKey: "own",
+      target: "T",
+      exempt: BOTH_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat.tier).toBe("graze");
     expect(seat.dy).toBe(0);
     expect(seat.box.x + seat.box.halfW).toBeLessThanOrEqual(991);
@@ -1729,7 +1860,14 @@ describe("port-band keep-out (#82)", () => {
   it("is deterministic under obstacle order", () => {
     const seatOf = (cards: CardRect[]) => {
       const field = makeClearanceField([PARALLEL_FOREIGN], cards);
-      return seatRateChip(field, CORRIDOR, "own", "T", BOTH_EXEMPT, NO_BAND);
+      return seatRateChip({
+        field,
+        path: CORRIDOR,
+        flowKey: "own",
+        target: "T",
+        exempt: BOTH_EXEMPT,
+        entryBand: NO_BAND,
+      });
     };
     const a = seatOf([SOURCE_CARD, TARGET_CARD]);
     const b = seatOf([TARGET_CARD, SOURCE_CARD]);
@@ -1747,10 +1885,20 @@ describe("seatRateChip: capped reserve (B4, #82)", () => {
     // is 100: full (100 >= 87), capped (100 < 174). The reserved half-width
     // is 50, not the max-scale 87.
     const field = makeClearanceField([], []);
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND, {
-      text: { body: "30", unit: true },
-      clearSpan: { lo: 450, hi: 550 },
-    });
+    const seat = seatRateChip(
+      {
+        field,
+        path: LINE,
+        flowKey: "own",
+        target: "t",
+        exempt: NO_EXEMPT,
+        entryBand: NO_BAND,
+      },
+      {
+        text: { body: "30", unit: true },
+        clearSpan: { lo: 450, hi: 550 },
+      },
+    );
     expect(seat.tier).toBe("anchor");
     expect(seat.box.halfW).toBeCloseTo(50, 6);
     expect(seat.box.halfW).toBeLessThan(
@@ -1760,10 +1908,20 @@ describe("seatRateChip: capped reserve (B4, #82)", () => {
 
   it("keeps the uncapped reserve when the window holds the max-scale box", () => {
     const field = makeClearanceField([], []);
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND, {
-      text: { body: "30", unit: true },
-      clearSpan: { lo: 300, hi: 700 },
-    });
+    const seat = seatRateChip(
+      {
+        field,
+        path: LINE,
+        flowKey: "own",
+        target: "t",
+        exempt: NO_EXEMPT,
+        entryBand: NO_BAND,
+      },
+      {
+        text: { body: "30", unit: true },
+        clearSpan: { lo: 300, hi: 700 },
+      },
+    );
     expect(seat.box.halfW).toBe(
       chipSeatHalfW({ body: "30", unit: true }, false),
     );
@@ -1786,9 +1944,19 @@ describe("seatRateChip: capped reserve (B4, #82)", () => {
     };
     const field = makeClearanceField([], []);
     field.seat({ x: 664, y: 0, halfW: 87, halfH: 24 });
-    const seat = seatRateChip(field, LINE2, "own", "t", NO_EXEMPT, NO_BAND, {
-      text: { body: "30", unit: true },
-    });
+    const seat = seatRateChip(
+      {
+        field,
+        path: LINE2,
+        flowKey: "own",
+        target: "t",
+        exempt: NO_EXEMPT,
+        entryBand: NO_BAND,
+      },
+      {
+        text: { body: "30", unit: true },
+      },
+    );
     expect(seat.tier).toBe("slide");
     expect(seat.dy).toBe(0);
     expect(Math.abs(seat.dx)).toBe(24);
@@ -1804,9 +1972,19 @@ describe("seatRateChip: shrink before leaving the line", () => {
     // chip belongs on its line at the smaller size, not one nudge step off it.
     field.seat({ x: 500, y: -39, halfW: 600, halfH: 24 });
     const text = { body: "30", unit: true };
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND, {
-      text,
-    });
+    const seat = seatRateChip(
+      {
+        field,
+        path: LINE,
+        flowKey: "own",
+        target: "t",
+        exempt: NO_EXEMPT,
+        entryBand: NO_BAND,
+      },
+      {
+        text,
+      },
+    );
     expect(seat.dy).toBe(0);
     expect(seat.tier).toBe("anchor");
     expect(seat.scaleCap).toBe(1);
@@ -1817,9 +1995,19 @@ describe("seatRateChip: shrink before leaving the line", () => {
   it("keeps the max-scale reserve when it seats on the line", () => {
     const field = makeClearanceField([], []);
     const text = { body: "30", unit: true };
-    const seat = seatRateChip(field, LINE, "own", "t", NO_EXEMPT, NO_BAND, {
-      text,
-    });
+    const seat = seatRateChip(
+      {
+        field,
+        path: LINE,
+        flowKey: "own",
+        target: "t",
+        exempt: NO_EXEMPT,
+        entryBand: NO_BAND,
+      },
+      {
+        text,
+      },
+    );
     expect(seat.scaleCap).toBe(MAX_CHIP_SCALE);
     expect(seat.box.halfW).toBe(chipSeatHalfW(text, false));
   });

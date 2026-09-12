@@ -1215,30 +1215,38 @@ function onLineCandidates(
   return out;
 }
 
+// Everything needed to ask where a chip could sit: the clearance field, the
+// chip's OWN polyline with its render anchor, the flow key and target id that
+// decide which lines and cards count as foreign, the card exemption, and the
+// entry band an arrival cluster is narrowed to. It describes the query, not the
+// chip -- the chip's own text, icon state, own-id set, barriers and clear span
+// travel beside it in RateSeatOpts.
+//
+// A query is evaluated against the field AS IT STANDS. Read once per edge
+// BEFORE any item chip is placed, it is a property of the edge and the bus
+// furniture rather than of the seating order, and so order-independent and
+// deterministic.
+export type SeatQuery = {
+  readonly field: ClearanceField;
+  readonly path: {
+    readonly pts: ReadonlyArray<readonly [number, number]>;
+    readonly anchorX: number;
+    readonly anchorY: number;
+  };
+  readonly flowKey: string;
+  readonly target: string;
+  readonly exempt: CardExemption;
+  readonly entryBand: EntryBand;
+};
+
 // How many points on this edge's OWN polyline could still hold its rate chip
 // fully clear of every placed chip, every foreign flow line, every foreign card
-// and its own port bands -- its supply of on-line seats, measured against the
-// field AS IT STANDS. Measured at the NARROWEST reserve the online passes use
-// (the natural box, what the chip paints at counter-scale 1), so a count of zero
-// means no box this chip can draw fits anywhere on its line: the edge cannot be
-// seated on its line at all.
-//
-// Read once per edge BEFORE any item chip is placed, which makes it a property
-// of the edge and the bus furniture rather than of the seating order, and so
-// order-independent and deterministic.
-function clearOnLineSeats(
-  field: ClearanceField,
-  path: {
-    pts: ReadonlyArray<readonly [number, number]>;
-    anchorX: number;
-    anchorY: number;
-  },
-  flowKey: string,
-  target: string,
-  exempt: CardExemption,
-  entryBand: EntryBand,
-  opts?: RateSeatOpts,
-): number {
+// and its own port bands -- its supply of on-line seats. Measured at the
+// NARROWEST reserve the online passes use (the natural box, what the chip paints
+// at counter-scale 1), so a count of zero means no box this chip can draw fits
+// anywhere on its line: the edge cannot be seated on its line at all.
+function clearOnLineSeats(query: SeatQuery, opts?: RateSeatOpts): number {
+  const { field, path, flowKey, target, exempt, entryBand } = query;
   const { pts, anchorX, anchorY } = path;
   const halfW =
     chipSeatHalfW(opts?.text, opts?.iconOnly === true) / MAX_CHIP_SCALE;
@@ -1276,19 +1284,7 @@ function clearOnLineSeats(
 // Exported for the seating suites, which assert the tier ladder one seat at a
 // time (graze, sidestep, shrink, off-line) -- tiers deconflictChipAnchors'
 // stamped output cannot tell apart.
-export function seatRateChip(
-  field: ClearanceField,
-  path: {
-    pts: ReadonlyArray<readonly [number, number]>;
-    anchorX: number;
-    anchorY: number;
-  },
-  flowKey: string,
-  target: string,
-  exempt: CardExemption,
-  entryBand: EntryBand,
-  opts?: RateSeatOpts,
-): RateSeat {
+export function seatRateChip(query: SeatQuery, opts?: RateSeatOpts): RateSeat {
   const maxHalfW = chipSeatHalfW(opts?.text, opts?.iconOnly === true);
   const naturalHalfW = maxHalfW / MAX_CHIP_SCALE;
   const span = opts?.clearSpan;
@@ -1301,18 +1297,7 @@ export function seatRateChip(
           maxHalfW,
         );
   const run = (halfW: number, halfH: number, online: boolean) =>
-    seatRateChipPass(
-      field,
-      path,
-      flowKey,
-      target,
-      exempt,
-      entryBand,
-      opts,
-      halfW,
-      halfH,
-      online,
-    );
+    seatRateChipPass(query, opts, halfW, halfH, online);
   const withCap = (seat: RateSeat | null, scaleCap: number) =>
     seat === null ? null : { ...seat, scaleCap };
   return (
@@ -1327,21 +1312,13 @@ export function seatRateChip(
 // cascades, which always seat. The returned scaleCap is a placeholder the
 // driver overwrites.
 function seatRateChipPass(
-  field: ClearanceField,
-  path: {
-    pts: ReadonlyArray<readonly [number, number]>;
-    anchorX: number;
-    anchorY: number;
-  },
-  flowKey: string,
-  target: string,
-  exempt: CardExemption,
-  entryBand: EntryBand,
+  query: SeatQuery,
   opts: RateSeatOpts | undefined,
   halfW: number,
   halfH: number,
   online: boolean,
 ): RateSeat | null {
+  const { field, path, flowKey, target, exempt, entryBand } = query;
   const { pts, anchorX, anchorY } = path;
   const ownIds = opts?.ownIds;
   const barrierYs = opts?.barrierYs;
@@ -2987,17 +2964,20 @@ export function deconflictChipAnchors(
       [trunkEndX, geom.trunkAnchor.y],
     ];
     const seat = seatRateChip(
-      field,
       {
-        pts: trunkPts,
-        anchorX: geom.trunkAnchor.x,
-        anchorY: geom.trunkAnchor.y,
+        field,
+        path: {
+          pts: trunkPts,
+          anchorX: geom.trunkAnchor.x,
+          anchorY: geom.trunkAnchor.y,
+        },
+        flowKey: flowKeyOf(edge),
+        target: edge.target,
+        exempt:
+          trunkExempt.get((edge.data as BusEdgeData).trunkKey) ??
+          cardExemptFor(edge),
+        entryBand: NEVER_BAND,
       },
-      flowKeyOf(edge),
-      edge.target,
-      trunkExempt.get((edge.data as BusEdgeData).trunkKey) ??
-        cardExemptFor(edge),
-      NEVER_BAND,
       {
         ownIds: trunkMemberIds.get((edge.data as BusEdgeData).trunkKey),
         text: aggregateChipText(edge),
@@ -3064,16 +3044,18 @@ export function deconflictChipAnchors(
     // resolver falls back to the leg's own midpoint -- its seat moves ONTO
     // the leg, which is the point.
     const seat = seatRateChip(
-      field,
       {
-        pts: geom.branchPts,
-        anchorX: geom.branchAnchor.x,
-        anchorY: geom.branchAnchor.y,
+        field,
+        path: {
+          pts: geom.branchPts,
+          anchorX: geom.branchAnchor.x,
+          anchorY: geom.branchAnchor.y,
+        },
+        flowKey: flowKeyOf(edge),
+        target: edge.target,
+        exempt: cardExemptFor(edge),
+        entryBand: entryBandOf(edge),
       },
-      flowKeyOf(edge),
-      edge.target,
-      cardExemptFor(edge),
-      entryBandOf(edge),
       {
         barrierYs: seatedBranchYByTrunk.get(trunkKey),
         // A branch chip that renders collapsed (stamped below) reserves the
@@ -3154,16 +3136,18 @@ export function deconflictChipAnchors(
     windowsByIndex.set(
       index,
       clearOnLineSeats(
-        field,
         {
-          pts: fanoutLegPtsByIndex.get(index) ?? geom.pts,
-          anchorX: geom.lx,
-          anchorY: geom.ly,
+          field,
+          path: {
+            pts: fanoutLegPtsByIndex.get(index) ?? geom.pts,
+            anchorX: geom.lx,
+            anchorY: geom.ly,
+          },
+          flowKey: flowKeyOf(edge),
+          target: edge.target,
+          exempt: cardExemptFor(edge),
+          entryBand: entryBandOf(edge),
         },
-        flowKeyOf(edge),
-        edge.target,
-        cardExemptFor(edge),
-        entryBandOf(edge),
         seatOpts(edge, index),
       ),
     );
@@ -3180,16 +3164,18 @@ export function deconflictChipAnchors(
     if (geom === undefined || target === undefined) continue;
     const entryBand = entryBandOf(edge);
     const seat = seatRateChip(
-      field,
       {
-        pts: fanoutLegPtsByIndex.get(index) ?? geom.pts,
-        anchorX: geom.lx,
-        anchorY: geom.ly,
+        field,
+        path: {
+          pts: fanoutLegPtsByIndex.get(index) ?? geom.pts,
+          anchorX: geom.lx,
+          anchorY: geom.ly,
+        },
+        flowKey: flowKeyOf(edge),
+        target: edge.target,
+        exempt: cardExemptFor(edge),
+        entryBand,
       },
-      flowKeyOf(edge),
-      edge.target,
-      cardExemptFor(edge),
-      entryBand,
       // A short-leg item chip renders collapsed at every zoom (chipIconOnly,
       // stamped below from the same set), so it reserves the square icon box
       // rather than the wide worst case it never draws.

@@ -214,14 +214,14 @@ describe("seatRateChip: the vertical leg's sidestep gate", () => {
 
   it("keeps the chip on the line when only crossings block it", () => {
     const field = makeClearanceField(crossings(), []);
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      ownVertical,
-      "own",
-      "t",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+      path: ownVertical,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat.tier).toBe("graze");
     expect(seat.dx).toBe(0);
   });
