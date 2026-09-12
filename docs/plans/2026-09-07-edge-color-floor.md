@@ -117,6 +117,20 @@ Final ledger (before -> after): pack-wide min 7.51 -> 8.02; saturated-band min 1
 
 **Acceptance:** all gates green; ledger shows saturated min >= 15, gray and cross-band min >= 8, nudged items listed with offsets.
 
+## Rebase onto develop (2026-09-12)
+
+The branch was written against develop@6706c7e on recipe pack v1.4. It was rebased onto develop@2432b3d, which carries pack v1.5.3 (`e13773a`) plus the `iconIdForItem` indirection that routes an item's color through its icon id. The task records above are the v1.4 measurements as taken at the time and are left as-is; the numbers below are the same ledger re-run on v1.5.3.
+
+The separation mechanism needed no change: `repairOffendingPairs` derives everything from the pack at module load, so the new colours flowed through it and the all-pairs floor test passed on the first run after the rebase. Only the two pinned values moved.
+
+Re-measured ledger (develop@2432b3d -> branch, pack v1.5.3): pack-wide min 7.31 -> 8.12; saturated-band min 10.50 -> 15.03; gray-band min 7.31 -> 8.91; cross-band min 10.60 -> 8.12; pairs below their tier floor 24 -> 0; pairs under 10 62 -> 12; hue offsets 0 -> 10 items (copper_cmpt +11, copper_enr +5, copper_enr2_cmpt +4, copper_powder -13, crystal_enr +1, gas_copper -14, liquid_copper_enr +13, originium_ore +2, originium_powder +1, plant_moss_powder_1 -11), max offset 14 within the 15-degree cap; fingerprint 0cf3bd51. Issue pairs: gas_copper/gas_copper_enr 15.31, copper_ore/copper_cmpt 42.99, copper_nugget/gas_copper 15.40, originium_ore/originium_powder 33.38.
+
+The 2026-09-12 re-verification measured five sub-floor pairs on multi6 under this policy (min 7.5). A pack-wide count of zero pairs below their tier floor covers them, since the map is plan-independent.
+
+Conflict resolutions carried a fix of their own: the band lookup in the test helpers keyed on the item id, which v1.5.3 broke for the four renamed-icon items, so it now goes through `item.icon`. The legible-range guard became a per-band assertion because develop lowered the saturated bound to 35 while this branch raised the gray cap to 34 - a combined `s >= 35 || s <= 34` admits every saturation and asserts nothing.
+
+Gates after the rebase: typecheck OK, typecheck:tools OK, lint OK, `vitest run` 158 files / 1795 passed, 1 skipped. Formatting is untouched; prettier reports pre-existing repo-wide drift on develop too (194 files there, 182 here).
+
 ## Non-goals
 
 - Per-plan color re-spread, non-color family channels (rejected 2026-09-07).

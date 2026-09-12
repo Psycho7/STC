@@ -209,7 +209,7 @@ describe("canvas/itemColor", () => {
     // placement. b577d038 is 0d710d7f plus the completed repair pass: 18
     // offender entries re-placed on the finer grid, 10 of them with a hue
     // nudge, until every pair cleared its tier floor.
-    expect(placementFingerprint()).toBe("b577d038");
+    expect(placementFingerprint()).toBe("0cf3bd51");
   });
 
   it("keeps every pair of pack item colors perceptually distinct", () => {
@@ -278,15 +278,31 @@ describe("canvas/itemColor", () => {
   it("pins the items whose hue sits off their icon hue", () => {
     // The nudge is a last resort, so the moved set is pinned outright: a pack
     // update cannot start nudging items silently. Each entry names the item
-    // and its offset from the icon hue.
+    // and its signed offset from the icon hue, every offset within the
+    // 15-degree cap.
     const nudged = pack.items
-      .map((item) => ({
-        id: item.id,
-        offset: hueDistance(itemHue(item.id), parseHsl(itemColor(item.id)).h),
-      }))
+      .map((item) => {
+        const h = parseHsl(itemColor(item.id)).h;
+        const offset = ((h - itemHue(item.id) + 540) % 360) - 180;
+        return { id: item.id, offset };
+      })
       .filter((row) => row.offset !== 0)
-      .map((row) => `${row.id} +${row.offset}`);
-    expect(nudged.join(", ")).toBe("");
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .map((row) => `${row.id} ${row.offset > 0 ? "+" : ""}${row.offset}`);
+    expect(nudged.join(", ")).toBe(
+      [
+        "copper_cmpt +11",
+        "copper_enr +5",
+        "copper_enr2_cmpt +4",
+        "copper_powder -13",
+        "crystal_enr +1",
+        "gas_copper -14",
+        "liquid_copper_enr +13",
+        "originium_ore +2",
+        "originium_powder +1",
+        "plant_moss_powder_1 -11",
+      ].join(", "),
+    );
   });
 
   it("keeps the hue within 0-359", () => {
