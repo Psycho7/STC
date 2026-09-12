@@ -11,11 +11,11 @@ import type {
   RenderUnitOutputProduct,
 } from "../types";
 import { isMachineRecipeVertex, isMachineSccVertex } from "../types";
-import { effectiveSupply } from "../../solver/effectiveSupply";
+import type { SupplyTable } from "../../solver/effectiveSupply";
 import { toleranceScaleFloor } from "../../solver/lp";
 import type { ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
-import type { Item, Recipe, RecipePack } from "@aef/schema";
+import type { Item, Recipe } from "@aef/schema";
 import { rationalFromString, rationalToString } from "./rational";
 import { REL_TOL } from "./invariants";
 import {
@@ -68,7 +68,9 @@ export type DeriveBoundaryProductsInput = {
   itemOverrides: ReadonlyArray<ItemOverride>;
   itemById: ReadonlyMap<ItemId, Item>;
   recipeById: ReadonlyMap<RecipeId, Recipe>;
-  pack: Pick<RecipePack, "items">;
+  // Effective supply per item, resolved once by the caller. Built from the RAW
+  // pack's items and the same overrides as `itemOverrides`.
+  supply: SupplyTable;
   unitIdByVertex: ReadonlyMap<MachineVertexId, RenderUnitId>;
   // Per finite-capped item the LP drew from the boundary: the fraction of its
   // consumption in-graph producers cover (boundaryResidualShare). Missing
@@ -107,7 +109,7 @@ export function deriveBoundaryProducts(
     itemOverrides,
     itemById,
     recipeById,
-    pack,
+    supply: supplyTable,
     unitIdByVertex,
     boundaryShare,
   } = args;
@@ -146,15 +148,6 @@ export function deriveBoundaryProducts(
   // this code never inspects `raw` / `plan` directly.
   const overrideByItem = new Map<ItemId, (typeof itemOverrides)[number]>();
   for (const ov of itemOverrides) overrideByItem.set(ov.itemId, ov);
-
-  const supplyMemo = new Map<ItemId, Fraction | typeof Infinity>();
-  const supplyFor = (id: ItemId): Fraction | typeof Infinity => {
-    const cached = supplyMemo.get(id);
-    if (cached !== undefined) return cached;
-    const v = effectiveSupply(id, pack, [...itemOverrides]);
-    supplyMemo.set(id, v);
-    return v;
-  };
 
   const producedItems = new Set<ItemId>();
   for (const v of machineGraph.vertices) {
@@ -237,7 +230,7 @@ export function deriveBoundaryProducts(
   const recaptureEdges: RenderEdge[] = [];
   for (const [itemId, producers] of recapProducers) {
     if (machineEdgeItems.has(itemId)) continue;
-    if (supplyFor(itemId) !== Infinity) continue;
+    if (!supplyTable.isFree(itemId)) continue;
     const consumers = recapConsumers.get(itemId);
     if (!consumers || consumers.length === 0) continue;
     const itemMeta = itemById.get(itemId);
@@ -327,7 +320,7 @@ export function deriveBoundaryProducts(
   ): void => {
     const item = itemById.get(itemId);
     if (!item) return;
-    const supply = supplyFor(itemId);
+    const supply = supplyTable.supplyOf(itemId);
     // Zero finite supply -> emit nothing (item is fully built internally).
     if (supply !== Infinity && (supply as Fraction).equals(new Fraction(0))) {
       return;
@@ -420,7 +413,7 @@ export function deriveBoundaryProducts(
       consumedSupplyByItem.set(itemId, new Fraction(0));
       continue;
     }
-    const supply = supplyFor(itemId);
+    const supply = supplyTable.supplyOf(itemId);
     let consumed: Fraction;
     if (supply === Infinity) {
       consumed = totalDemand;
@@ -772,7 +765,7 @@ export function deriveBoundaryProducts(
   // items never take this path (their import is the capped override dual
   // render and the LP builds a real row for them).
   for (const [outItem, total] of targetRateByItem) {
-    if (supplyFor(outItem) !== Infinity) continue;
+    if (!supplyTable.isFree(outItem)) continue;
     const billed = targetBilledByItem.get(outItem) ?? new Fraction(0);
     const shortfall = total.sub(billed);
     if (shortfall.compare(0) <= 0) continue;

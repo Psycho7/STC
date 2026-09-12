@@ -13,6 +13,7 @@ import type { ItemOverride } from "../data/plan";
 import type { ItemTarget } from "../data/targets";
 import type { SolvePlanFull } from "../solver";
 import type { SccId } from "../solver/types";
+import { buildSupplyTable } from "../solver/effectiveSupply";
 import { PillarsOnly } from "./cluster";
 import { expandMultipliers } from "./expand";
 import { computeEdgeRates } from "./expand/edge-rates";
@@ -70,12 +71,14 @@ export function renderPlanFromSolve(
   // Raw versus netted, and both are used deliberately. `recipeById` above is
   // the NETTED recipe map (netSelfConsumption ran before the solver built it),
   // so downstream rates match what the LP solved. `pack` is the RAW pack, and
-  // the itemById/machineById maps below are built from it; the render policy
-  // also reads `pack.items` raw for effective supply. Never rebuild these two
-  // maps from `recipeById`, and never pass a netted pack in: the result is a
-  // silently wrong-stoichiometry render, not a crash.
+  // the itemById/machineById maps below are built from it. Never rebuild these
+  // two maps from `recipeById`, and never pass a netted pack in: the result is
+  // a silently wrong-stoichiometry render, not a crash. The supply table is the
+  // exception - it reads `pack.items` only, so the solve half's table and this
+  // one agree whichever pack variant each was built from.
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
+  const supply = buildSupplyTable(pack, itemOverrides);
 
   // Keep only surviving replicas. assembleLogicalGraph already dropped zero-rate
   // replicas from the multipliers map, and the pipeline works from that set.
@@ -138,7 +141,7 @@ export function renderPlanFromSolve(
     itemOverrides,
     itemById,
     recipeById,
-    pack,
+    supply,
     idealCount,
     boundaryShare,
   });

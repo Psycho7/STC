@@ -74,7 +74,7 @@ export const NoFoldRender: RenderPolicy = (input): RenderPlan => {
     itemOverrides,
     itemById,
     recipeById,
-    pack,
+    supply,
     boundaryShare,
   } = input;
 
@@ -131,7 +131,7 @@ export const NoFoldRender: RenderPolicy = (input): RenderPlan => {
       itemOverrides,
       itemById,
       recipeById,
-      pack,
+      supply,
       unitIdByVertex,
       boundaryShare,
     });

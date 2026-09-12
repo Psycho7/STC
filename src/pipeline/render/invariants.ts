@@ -3,7 +3,7 @@ import type { RecipePack } from "@aef/schema";
 import type { ItemTarget } from "../../data/targets";
 import type { ItemOverride } from "../../data/plan";
 import type { InvariantResult } from "../../solver/invariants";
-import { effectiveSupply } from "../../solver/effectiveSupply";
+import { buildSupplyTable } from "../../solver/effectiveSupply";
 import { netSelfConsumption } from "../../solver/net-self";
 import { REL_TOL, demandByItem, toleranceScaleFloor } from "../../solver/lp";
 import type {
@@ -185,6 +185,12 @@ export function checkBoundaryProductsJustified(
   const { plan, rates, pack, targets, itemOverrides } = args;
   const violations: string[] = [];
 
+  // This checker is the only one of the nine that asks about supply, so it
+  // builds its own table rather than widening the shared args record. The
+  // table reads pack.items only, so it equals the one the render pipeline
+  // built for the same plan.
+  const supplyTable = buildSupplyTable(pack, itemOverrides);
+
   const production = productionByItem(rates, pack);
   const consumption = consumptionByItem(rates, pack);
   const demandOf = demandByItem(targets);
@@ -193,7 +199,7 @@ export function checkBoundaryProductsJustified(
   for (const unit of plan.units) {
     if (isInputProductUnit(unit)) {
       const x = unit.itemId;
-      const supply = effectiveSupply(x, pack, itemOverrides as ItemOverride[]);
+      const supply = supplyTable.supplyOf(x);
       // Justified only with real external supply and net consumption (consumption
       // exceeds internal production).
       const hasExternalSupply =

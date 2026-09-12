@@ -1,7 +1,11 @@
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
 import type { ItemOverride } from "../data/plan";
+import type { ItemId } from "./types";
 import { rationalFromString } from "../data/targets";
+
+/** Resolved external boundary supply for one item. */
+export type Supply = Fraction | typeof Infinity;
 
 /**
  * Resolves the external boundary supply for an item given the active overrides.
@@ -27,14 +31,14 @@ import { rationalFromString } from "../data/targets";
  *   - Override present, `ratePerSec` set:           parse `num`/`denom` into a
  *     `Fraction`. Zero forces internal build; positive caps external supply.
  *
- * O(n) over `overrides.length` plus the item lookup. Callers that hot-loop
- * can memoise via a `Map<ItemId, Fraction | typeof Infinity>` keyed on item id.
+ * O(n) over `overrides.length` plus the item lookup. Callers reading more than
+ * one item resolve the whole set once through `buildSupplyTable` instead.
  */
 export function effectiveSupply(
   itemId: string,
   pack: Pick<RecipePack, "items">,
-  overrides: ItemOverride[],
-): Fraction | typeof Infinity {
+  overrides: ReadonlyArray<ItemOverride>,
+): Supply {
   const isRaw = pack.items.find((i) => i.id === itemId)?.raw === true;
   const override = overrides.find((o) => o.itemId === itemId);
   if (!override) {
@@ -47,4 +51,59 @@ export function effectiveSupply(
     return isRaw ? new Fraction(0) : Infinity;
   }
   return Infinity;
+}
+
+const FRAC_ZERO = new Fraction(0);
+
+/**
+ * Every item's effective supply, resolved once against one pack and one
+ * override list.
+ *
+ * Resolution reads `pack.items` and nothing else in the pack, so a netted pack
+ * and the raw original it came from produce identical tables: the solve half
+ * and the render half can each build their own and still agree. That agreement
+ * is a property of this type, not a convention the callers have to keep.
+ *
+ * Entries exist for `pack.items` plus every overridden item id, the latter
+ * possibly absent from the pack. `supplyOf` for an id outside that set answers
+ * `Fraction(0)`, matching the rule's treatment of an unknown item as non-raw
+ * with no override. Queries never throw; a malformed `ratePerSec` throws while
+ * the table is being built.
+ *
+ * The table is immutable once built and owns the memoisation, so no caller
+ * memoises a second time.
+ */
+export type SupplyTable = {
+  /** `Infinity` for a free boundary, otherwise a (possibly zero) cap. */
+  supplyOf(itemId: ItemId): Supply;
+  /**
+   * True for an uncapped boundary item. `typeof Infinity` is `number`, so a
+   * caller narrowing a `Supply` by hand must test the value type
+   * (`typeof supply === "number"`) rather than `=== Infinity`; this predicate
+   * exists so it does not have to.
+   */
+  isFree(itemId: ItemId): boolean;
+  /** Every entry, pack items first, in pack order then override order. */
+  entries(): IterableIterator<readonly [ItemId, Supply]>;
+};
+
+/** Resolves `effectiveSupply` for every item the pack and the overrides name. */
+export function buildSupplyTable(
+  pack: Pick<RecipePack, "items">,
+  overrides: ReadonlyArray<ItemOverride>,
+): SupplyTable {
+  const byItem = new Map<ItemId, Supply>();
+  for (const it of pack.items) {
+    byItem.set(it.id, effectiveSupply(it.id, pack, overrides));
+  }
+  for (const ov of overrides) {
+    if (byItem.has(ov.itemId)) continue;
+    byItem.set(ov.itemId, effectiveSupply(ov.itemId, pack, overrides));
+  }
+
+  return {
+    supplyOf: (itemId) => byItem.get(itemId) ?? FRAC_ZERO,
+    isFree: (itemId) => byItem.get(itemId) === Infinity,
+    entries: () => byItem.entries(),
+  };
 }

@@ -5,7 +5,7 @@ import type { ItemOverride } from "../data/plan";
 import type { LpResult } from "./lp";
 import { REL_TOL, demandByItem, toleranceScaleFloor } from "./lp";
 import type { SolvePlanFull } from "./index";
-import { effectiveSupply } from "./effectiveSupply";
+import { buildSupplyTable } from "./effectiveSupply";
 import { isSanctionedAbsentProducer } from "../data/recipe-category";
 import { assertOptimal } from "./optimality";
 import type { RecipeId } from "./types";
@@ -55,14 +55,15 @@ export function checkMassBalance(
   result: LpResult,
   pack: RecipePack,
   targets: ReadonlyArray<ItemTarget>,
-  overrides: ItemOverride[],
+  overrides: ReadonlyArray<ItemOverride>,
 ): InvariantResult {
   const violations: string[] = [];
   const demandOf = demandByItem(targets);
   const scaleFloor = toleranceScaleFloor(demandOf);
+  const supply = buildSupplyTable(pack, overrides);
 
   for (const it of pack.items) {
-    if (effectiveSupply(it.id, pack, overrides) === Infinity) continue;
+    if (supply.isFree(it.id)) continue;
     const bal = netProduction(result, pack, it.id);
     const surplus = result.surplus.get(it.id)?.valueOf() ?? 0;
     const deficit = result.deficit.get(it.id)?.valueOf() ?? 0;
@@ -146,9 +147,10 @@ export function checkTargetsMet(
 export function checkRawOnlyBoundary(
   result: LpResult,
   pack: RecipePack,
-  overrides: ItemOverride[],
+  overrides: ReadonlyArray<ItemOverride>,
 ): InvariantResult {
   const violations: string[] = [];
+  const supply = buildSupplyTable(pack, overrides);
 
   for (const it of pack.items) {
     let production = new Fraction(0);
@@ -169,7 +171,7 @@ export function checkRawOnlyBoundary(
     const deficit = result.deficit.get(it.id) ?? new Fraction(0);
     const externalSupply = consumption.sub(production).add(surplus).sub(deficit);
 
-    const cap = effectiveSupply(it.id, pack, overrides);
+    const cap = supply.supplyOf(it.id);
     if (cap === Infinity) continue; // unlimited external supply: always passes.
 
     // Scale the slack by cap magnitude, like checkMassBalance and checkTargetsMet;
@@ -317,7 +319,7 @@ export const SOLVER_INVARIANT_CHECKERS: ReadonlyArray<{
   {
     name: "massBalance",
     check: (a) =>
-      checkMassBalance(a.result, a.pack, a.targets, [...a.itemOverrides]),
+      checkMassBalance(a.result, a.pack, a.targets, a.itemOverrides),
     asserted: true,
   },
   {
@@ -327,7 +329,7 @@ export const SOLVER_INVARIANT_CHECKERS: ReadonlyArray<{
   },
   {
     name: "rawOnlyBoundary",
-    check: (a) => checkRawOnlyBoundary(a.result, a.pack, [...a.itemOverrides]),
+    check: (a) => checkRawOnlyBoundary(a.result, a.pack, a.itemOverrides),
     asserted: true,
   },
   {

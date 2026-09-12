@@ -3,7 +3,7 @@ import type { Recipe, RecipePack } from "@aef/schema";
 import type { RecipeGraph, RecipeEdge, RecipeId } from "./types";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
-import { effectiveSupply } from "./effectiveSupply";
+import { buildSupplyTable } from "./effectiveSupply";
 import { isExcludedProducer } from "../data/recipe-category";
 import { computeRecipeDepths } from "../data/recipe-depth";
 
@@ -64,6 +64,7 @@ export function buildRecipeGraphMulti(
     pack,
     itemOverrides,
   );
+  const supply = buildSupplyTable(pack, overrides);
 
   const nodes = new Map<string, Recipe>();
   const outgoing = new Map<string, RecipeEdge[]>();
@@ -112,7 +113,7 @@ export function buildRecipeGraphMulti(
       // Stop expanding producers only when this item's boundary supply is
       // unlimited. A finite cap falls through so the producer stays in the graph
       // and any deficit can be accounted for.
-      if (effectiveSupply(inp.item, pack, overrides) === Infinity) continue;
+      if (supply.isFree(inp.item)) continue;
       // producersByItem is pre-sorted by (depth, id); every viable candidate
       // is attached so the LP picks the producer.
       const candidates = producersByItem.get(inp.item) ?? [];
@@ -153,6 +154,7 @@ export function augmentGraphWithLpSupport(
   itemOverrides?: ItemOverride[],
 ): Set<RecipeId> {
   const overrides = itemOverrides ?? [];
+  const supply = buildSupplyTable(pack, overrides);
   const added = new Set<RecipeId>();
 
   for (const r of pack.recipes) {
@@ -173,7 +175,7 @@ export function augmentGraphWithLpSupport(
     for (const inp of consumer.in) {
       // Same boundary rule as the walk: an unlimited-supply item is a raw
       // boundary feed, not an internal edge.
-      if (effectiveSupply(inp.item, pack, overrides) === Infinity) continue;
+      if (supply.isFree(inp.item)) continue;
       for (const [pid, producer] of g.nodes) {
         // Unlike the walk, skip self-edges: a recipe consuming its own output
         // nets the flow internally and a self-loop adds nothing downstream.

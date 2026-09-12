@@ -10,6 +10,8 @@ import type {
   RenderUnitRecipe,
 } from "../../../src/pipeline/types";
 import type { Item, Recipe } from "@aef/schema";
+import type { ItemOverride } from "../../../src/data/plan";
+import { buildSupplyTable } from "../../../src/solver/effectiveSupply";
 
 function makeRecipeVertex(
   id: string,
@@ -41,7 +43,7 @@ function makeInput(
     itemOverrides: [],
     itemById: new Map(),
     recipeById: new Map(),
-    pack: { items: [] },
+    supply: buildSupplyTable({ items: [] }, []),
     idealCount,
     boundaryShare: new Map(),
   };
@@ -418,16 +420,20 @@ describe("AlwaysFoldRender - boundary products parity with NoFoldRender", () => 
       ["r_prod#0", new Fraction(1)],
       ["r_cons#0", new Fraction(1)],
     ]);
+    const itemOverrides: ItemOverride[] = [
+      { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
+    ];
     const input: RenderPolicyInput = {
       containers: { containers: [], containerByMember: new Map() },
       machineGraph: { vertices: [producer, consumer], edges: [edge] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
-      itemOverrides: [
-        { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
-      ],
+      itemOverrides,
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: buildSupplyTable(
+        { items: [...itemById.values()] },
+        itemOverrides,
+      ),
       idealCount,
       boundaryShare: new Map(),
     };

@@ -11,6 +11,8 @@ import {
 import type { Target } from "../../src/data/targets";
 import type { ItemOverride } from "../../src/data/plan";
 import { NoFoldRender } from "../../src/pipeline/render/policy";
+import type { SupplyTable } from "../../src/solver/effectiveSupply";
+import { buildSupplyTable } from "../../src/solver/effectiveSupply";
 import {
   isInputProductUnit,
   isOutputProductUnit,
@@ -22,6 +24,16 @@ import type {
   RenderUnitOutputProduct,
 } from "../../src/pipeline/types";
 import type { Item, Recipe } from "@aef/schema";
+
+// The policy takes a resolved supply table where it used to take the pack's
+// items, so every site builds one from the same item map and override list it
+// hands the policy.
+function mkSupply(
+  itemById: ReadonlyMap<string, Item>,
+  itemOverrides: ReadonlyArray<ItemOverride> = [],
+): SupplyTable {
+  return buildSupplyTable({ items: [...itemById.values()] }, itemOverrides);
+}
 
 // Helper: run the full pipeline end-to-end for a given targets+overrides
 // combo and return the input/output product units the policy emitted along
@@ -191,7 +203,7 @@ describe("render policy / boundary product units", () => {
       itemOverrides: [],
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById),
       // No consumed items in either recipe, so nothing is drawn from the
       // boundary.
       boundaryShare: new Map(),
@@ -260,17 +272,18 @@ describe("render policy / boundary product units", () => {
       stampIndex: 0,
       executionRate: new Fraction(1),
     };
+    const itemOverrides: ItemOverride[] = [
+      { itemId: "built", ratePerSec: { num: "1", denom: "2" } },
+    ];
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
-      itemOverrides: [
-        { itemId: "built", ratePerSec: { num: "1", denom: "2" } },
-      ],
+      itemOverrides,
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById, itemOverrides),
       // No in-graph producer for `built`, so the boundary covers all of its
       // demand (share 0 < 1 -> input product emitted with the cap).
       boundaryShare: new Map([["built", new Fraction(0)]]),
@@ -332,17 +345,18 @@ describe("render policy / boundary product units", () => {
       stampIndex: 0,
       executionRate: new Fraction(1),
     };
+    const itemOverrides: ItemOverride[] = [
+      { itemId: "built", ratePerSec: { num: "0", denom: "1" } },
+    ];
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
-      itemOverrides: [
-        { itemId: "built", ratePerSec: { num: "0", denom: "1" } },
-      ],
+      itemOverrides,
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById, itemOverrides),
       // Zero finite supply is gated upstream regardless of share, so the
       // boundary draw is irrelevant here.
       boundaryShare: new Map(),
@@ -410,7 +424,7 @@ describe("render policy / boundary product units", () => {
       itemOverrides: [],
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById),
       // raw_in has Infinity effective supply, so the share map is never
       // consulted for it.
       boundaryShare: new Map(),
@@ -544,17 +558,18 @@ describe("render policy / boundary product units", () => {
 
   it("non-raw item with finite cap AND in-graph producer emits BOTH the inputProduct and the producer's machine edge (dual-emission)", () => {
     const { producer, consumer, edge } = dualEmissionFixture();
+    const itemOverrides: ItemOverride[] = [
+      { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
+    ];
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [producer, consumer], edges: [edge] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
-      itemOverrides: [
-        { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
-      ],
+      itemOverrides,
       itemById: dualEmissionItems,
       recipeById: dualEmissionRecipes,
-      pack: { items: [...dualEmissionItems.values()] },
+      supply: mkSupply(dualEmissionItems, itemOverrides),
       // Partial boundary draw (share 0 < 1): the boundary input product and
       // its edge are emitted alongside the in-graph producer's edge.
       boundaryShare: new Map([["shared", new Fraction(0)]]),
@@ -590,15 +605,16 @@ describe("render policy / boundary product units", () => {
     // machine graph and asserting the input unit is present but no producer
     // machine vertex / edge exists.
     const { consumer } = dualEmissionFixture();
+    const itemOverrides: ItemOverride[] = [{ itemId: "shared" }];
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [consumer], edges: [] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
-      itemOverrides: [{ itemId: "shared" }],
+      itemOverrides,
       itemById: dualEmissionItems,
       recipeById: dualEmissionRecipes,
-      pack: { items: [...dualEmissionItems.values()] },
+      supply: mkSupply(dualEmissionItems, itemOverrides),
       // Override with no fields => Infinity effective supply; share is never
       // consulted, and with no producer in-graph the item single-emits.
       boundaryShare: new Map(),
@@ -800,6 +816,9 @@ describe("render policy / boundary product units", () => {
         transportKind: "belt",
       },
     ];
+    const itemOverrides: ItemOverride[] = [
+      { itemId: "shared", ratePerSec: { num: "1", denom: "1" } },
+    ];
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
@@ -808,12 +827,10 @@ describe("render policy / boundary product units", () => {
         edges,
       },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
-      itemOverrides: [
-        { itemId: "shared", ratePerSec: { num: "1", denom: "1" } },
-      ],
+      itemOverrides,
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById, itemOverrides),
       // In-graph producers cover half of total demand (1/s of 2/s); the
       // boundary supplies the residual half. Each consumer's boundary edge =
       // c.rate * (1 - share) = 1 * 1/2 = 1/2, completing its 1/s demand.
@@ -906,15 +923,18 @@ describe("render policy / boundary product units", () => {
       stampIndex: 0,
       executionRate: new Fraction(1),
     };
+    const itemOverrides: ItemOverride[] = [
+      { itemId: "dual", ratePerSec: { num: "1", denom: "2" } },
+    ];
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [producer, consumer], edges: [] },
       targets: [{ itemId: "dual", ratePerSec: { num: "1", denom: "1" } }],
-      itemOverrides: [{ itemId: "dual", ratePerSec: { num: "1", denom: "2" } }],
+      itemOverrides,
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById, itemOverrides),
       // Partial boundary draw (share 0 < 1) so `dual` surfaces as a capped
       // input product in addition to its target output.
       boundaryShare: new Map([["dual", new Fraction(0)]]),
@@ -1004,7 +1024,7 @@ describe("render policy / boundary product units", () => {
       itemOverrides: [],
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById),
       // raw_target is raw (Infinity supply) so the source never reads its
       // share; the recapture deficit alone drives the input emission.
       boundaryShare: new Map(),
@@ -1027,6 +1047,9 @@ describe("render policy / boundary product units", () => {
       executionRate: new Fraction(1, 2),
     };
     const edgeAtHalf: MachineEdge = { ...edge, rate: new Fraction(1, 2) };
+    const itemOverrides: ItemOverride[] = [
+      { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
+    ];
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
@@ -1035,12 +1058,10 @@ describe("render policy / boundary product units", () => {
         edges: [edgeAtHalf],
       },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
-      itemOverrides: [
-        { itemId: "shared", ratePerSec: { num: "1", denom: "2" } },
-      ],
+      itemOverrides,
       itemById: dualEmissionItems,
       recipeById: dualEmissionRecipes,
-      pack: { items: [...dualEmissionItems.values()] },
+      supply: mkSupply(dualEmissionItems, itemOverrides),
       // Producer covers half the 1/s demand; boundary covers the residual
       // half. Boundary edge = c.rate * (1 - share) = 1 * 1/2 = 1/2.
       boundaryShare: new Map([["shared", new Fraction(1, 2)]]),
@@ -1139,7 +1160,7 @@ describe("render policy / boundary product units", () => {
       itemOverrides: [],
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById),
       // raw_in has Infinity supply (no override): consumedSupply collapses to
       // total demand; share is never consulted.
       boundaryShare: new Map(),
@@ -1218,17 +1239,18 @@ describe("render policy / boundary product units", () => {
       stampIndex: 0,
       executionRate: new Fraction(1),
     };
+    const itemOverrides: ItemOverride[] = [
+      { itemId: "built", ratePerSec: { num: "1", denom: "2" } },
+    ];
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
       machineGraph: { vertices: [cons], edges: [] },
       targets: [{ itemId: "out", ratePerSec: { num: "1", denom: "1" } }],
-      itemOverrides: [
-        { itemId: "built", ratePerSec: { num: "1", denom: "2" } },
-      ],
+      itemOverrides,
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById, itemOverrides),
       // Supply < demand (cap 1/2 vs demand 1): consumedSupply =
       // totalDemand * (1 - share) = 1 * 1/2 = 1/2, matching the cap-limited
       // boundary draw.
@@ -1370,7 +1392,7 @@ describe("render policy / input fan-out per container", () => {
       itemOverrides: [],
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById),
       // water is raw with no override -> Infinity supply; share unused.
       boundaryShare: new Map(),
     });
@@ -1426,7 +1448,7 @@ describe("render policy / input fan-out per container", () => {
       itemOverrides: [],
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById),
       // water is raw with no override -> Infinity supply; share unused.
       boundaryShare: new Map(),
     });
@@ -1451,7 +1473,7 @@ describe("render policy / input fan-out per container", () => {
       itemOverrides: [],
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById),
       // water is raw with no override -> Infinity supply; share unused.
       boundaryShare: new Map(),
     });
@@ -1489,7 +1511,7 @@ describe("render policy / input fan-out per container", () => {
       itemOverrides: [],
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById),
       // water is raw with no override -> Infinity supply; share unused.
       boundaryShare: new Map(),
     });
@@ -1515,7 +1537,7 @@ describe("render policy / input fan-out per container", () => {
       itemOverrides: [],
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById),
       // water is raw with no override -> Infinity supply; share unused.
       boundaryShare: new Map(),
     });
@@ -1563,6 +1585,9 @@ describe("render policy / input fan-out per container", () => {
     // Cap is 2/sec; total demand is 4/sec. Per-container realized rates
     // should be (3/4)*2 = 3/2 and (1/4)*2 = 1/2 respectively. The aggregate
     // carries the item-level cap and the sum (=2).
+    const itemOverrides: ItemOverride[] = [
+      { itemId: "water", ratePerSec: { num: "2", denom: "1" } },
+    ];
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
       idealCount: new Map(),
@@ -1571,10 +1596,10 @@ describe("render policy / input fan-out per container", () => {
         { itemId: "out_a", ratePerSec: { num: "3", denom: "1" } },
         { itemId: "out_b", ratePerSec: { num: "1", denom: "1" } },
       ],
-      itemOverrides: [{ itemId: "water", ratePerSec: { num: "2", denom: "1" } }],
+      itemOverrides,
       itemById,
       recipeById,
-      pack: { items: [...itemById.values()] },
+      supply: mkSupply(itemById, itemOverrides),
       // Cap 2/s draws against total demand 4/s: consumedSupply =
       // totalDemand * (1 - share) = 4 * 1/2 = 2, so the aggregate realizes the
       // full cap and the per-container fanouts prorate to 3/2 and 1/2.
