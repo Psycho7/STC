@@ -161,14 +161,16 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     // Nothing seats a drop chip on a multi-member trunk, so the owner carries no
     // busDropDy at all.
     expect(busDropDyRawOf(out, "e0")).toBeUndefined();
-    // e0 takes the freed slot; e1 is hidden, not cascaded. e0's rise lifts one
-    // pitch off the lane rather than seating flush on it: its slot sits a
-    // chamfer from the trunk's junction dot, so the seat takes the dot keep-off
-    // pass (#50) -- the same "beside the lane" offset the cascade uses, and
-    // still inside the one-pitch band that distinguishes a lane-side chip from
-    // an orphaned one.
+    // e0 takes the freed slot and seats FLUSH on its lane, covering the trunk's
+    // junction dot a chamfer away. Nothing lifts it off: a bite is the most a
+    // lane chip lifts for a thin obstacle -- the furthest offset at which the
+    // lane stroke is still inside the box the chip paints -- a neighbouring chip
+    // is what costs a full pitch, and a dot costs nothing, sitting ON the lane
+    // and so inside the box at every bite-sized offset. The chip keeping its lane
+    // is the ratified trade: the dot is decorative, a rate chip floating beside a
+    // lane it is no longer tied to is not.
     expect(busRiseHiddenOf(out, "e0")).toBe(false);
-    expect(busChipDyOf(out, "e0")).toBe(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT);
+    expect(busChipDyOf(out, "e0")).toBe(0);
     expect(busRiseHiddenOf(out, "e1")).toBe(true);
     expect(busChipDyOf(out, "e1")).toBe(0);
   });
@@ -374,9 +376,9 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     // column (1135, the DRAWN one: a recipe's in handle sits 3 left of the
     // model card edge), so its window [895, 1127] parks it at the FAR end,
     // 1127 = riseX - CHAMFER, where the run's own junction dot sits -- the
-    // wide box swallows the dot wherever it lands near that end, so the dot
-    // keep-off pass (#50) lifts it one pitch off the lane. Beside its own
-    // corner beats spread onto a sibling's stroke.
+    // wide box swallows the dot wherever it lands near that end, and the chip
+    // stays seated on its lane anyway. Beside its own corner beats spread onto
+    // a sibling's stroke.
     const r = mkRecipe("r", ["a"], ["b"]);
     const far = 300 + (BUS_SPAN_THRESHOLD + 50);
     const nodes: RFAnyNode[] = [
@@ -397,8 +399,11 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     }
     expect(busChipDyOf(out, "e1")).toBe(0);
     expect(busChipDyOf(out, "e2")).toBe(0);
-    // Top band, so the nearest member's dot keep-off lifts it upward.
-    expect(busChipDyOf(out, "e0")).toBe(-(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT));
+    // The nearest member is not lifted either: a bite is the most a lane chip
+    // lifts for a thin obstacle (a neighbouring chip costs a full pitch, a dot
+    // costs nothing), and no offset that small takes the box off a dot sitting
+    // on the lane, so the chip keeps its lane slot (see the flush seat above).
+    expect(busChipDyOf(out, "e0")).toBe(0);
     expect(busChipXOf(out, "e0")).toBe(1127);
   });
 

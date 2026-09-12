@@ -46,6 +46,8 @@ const PORT_DY = 1;
 const CHIP_HALF_W = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
 const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
 const CHIP_PITCH = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+// chipSeating's LANE_BITE, mirrored (the module does not export it).
+const LANE_BITE = CHIP_HALF_H - 4;
 
 const ITEM = "s";
 
@@ -79,8 +81,9 @@ const drawnEnds = (
 });
 
 const dataOf = (edges: Edge[], id: string): Record<string, unknown> =>
-  (edges.find((e) => e.id === id)?.data as Record<string, unknown> | undefined) ??
-  {};
+  (edges.find((e) => e.id === id)?.data as
+    | Record<string, unknown>
+    | undefined) ?? {};
 
 describe("junction dots: lane bus member (BusEdge branch dot)", () => {
   it("draws its dot on the trunk lane, just left of the member's rise column", () => {
@@ -111,25 +114,29 @@ describe("junction dots: lane bus member (BusEdge branch dot)", () => {
     const seated = deconflictChipAnchors(nodes, routed);
     expect(dataOf(seated, "e:1").laneY).toBe(laneY);
 
-    // A LONE member draws no dot (nothing branches at its corner, #83), so the
-    // keep-off never fires and its rise chip stays seated ON the lane.
+    // A LONE member draws no dot (nothing branches at its corner, #83), and its
+    // rise chip stays seated ON the lane.
     expect(dataOf(seated, "e:1").busChipDy).toBeUndefined();
 
-    // Stamped multi-member, the dot returns -- and the cached dot is READ, not
-    // merely cached (#50): the member's rise chip anchors on the lane a
-    // chamfer right of this junction, so its box would swallow the dot at
-    // dy 0. The keep-off lifts it exactly one lane pitch (bottom band, so
-    // downward), the same distance the rise loop already accepts as "beside
-    // the lane". This is the pin that fails if the cached lane dot ever stops
-    // matching the drawn one above.
+    // Stamped multi-member, the dot returns, and the rise chip still keeps its
+    // lane slot: it anchors on the lane a chamfer right of this junction, so its
+    // box swallows the dot at dy 0, and nothing lifts it off. Covering the dot
+    // is the ratified trade -- the dot is decorative, a rate chip cut loose from
+    // its lane is not -- because the seat only lifts to clear a chip or a
+    // stroke, and a dot sitting ON the lane is neither.
     const multi = routed.map((e) =>
-      e.id === "e:1"
-        ? { ...e, data: { ...e.data, busMemberCount: 2 } }
-        : e,
+      e.id === "e:1" ? { ...e, data: { ...e.data, busMemberCount: 2 } } : e,
     );
     const seatedMulti = deconflictChipAnchors(nodes, multi);
-    expect(dataOf(seatedMulti, "e:1").busChipDy).toBe(CHIP_PITCH);
-    expect(Math.abs(CHIP_PITCH)).toBeGreaterThan(CHIP_HALF_H);
+    expect(dataOf(seatedMulti, "e:1").busChipDy).toBeUndefined();
+    // Why no lift can buy the dot back: the bite is strictly under one chip
+    // half-height, so the lane stroke stays inside the box the chip paints,
+    // while a dot sitting ON the lane needs more than a half-height of lift to
+    // leave that box. A pitch is exactly two half-heights, which puts the stroke
+    // ON the box edge -- a lift the seat only pays to clear a neighbouring chip,
+    // never for a dot.
+    expect(Math.abs(LANE_BITE)).toBeLessThan(CHIP_HALF_H);
+    expect(Math.abs(CHIP_PITCH)).toBeGreaterThanOrEqual(2 * CHIP_HALF_H);
   });
 });
 
@@ -226,7 +233,8 @@ describe("junction dots: declined fan-out divergence (stamped on the owner)", ()
     const src = producer("src", 0, 0);
     // Row tops that put a consumer's in-port on the source's out-port row, so
     // "straight" never leaves that row and "bent" peels off 200 units below it.
-    const inY = measureRecipe(consumer("probe", 0, 0).data.recipe).inHandleYs[0]!;
+    const inY = measureRecipe(consumer("probe", 0, 0).data.recipe)
+      .inHandleYs[0]!;
     const rowTop = portOffsetY(src, ITEM, "out") - inY;
     const straight = consumer("straight", nodeWidth(src) + gap, rowTop);
     const bent = consumer("bent", nodeWidth(src) + gap, rowTop + 200);

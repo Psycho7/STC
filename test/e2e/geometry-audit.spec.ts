@@ -597,6 +597,9 @@ test.describe("DOM geometry audit", () => {
 // First recordings for the two exam-surfaced scenarios (campaign-first
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): rot-bottled_food_3 3, rot-bottled_food_4 22.
+// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
+// left-to-right band): battery5 13 -> 14 (off 10 -> 12) and multi6 137 -> 205,
+// re-measured on the wider band, where longer edges cross more corridors.
 const CROSSING_BASELINE_ON: Record<string, number> = {
   default: 4, // 9 -> 4, Task 7 y-window re-measure
   // 8 -> 9 at the exam-surfaced R4 re-measure (declared output rows flip the
@@ -604,11 +607,11 @@ const CROSSING_BASELINE_ON: Record<string, number> = {
   // loop returns stay in the mid-graph instead of flying over it, so their
   // rails cross corridors they used to overfly (Task 7; the crossing cue
   // marks them). rot-bottled_food_3 3 -> 5, same cause.
-  battery5: 13,
+  battery5: 14,
   "battery5-xiranite": 47, // 55 -> 47, Task 7
   crystal: 1,
   equip4: 1,
-  multi6: 137, // 415 -> 121, Task 7. 121 -> 137 at R10 (2026-09-04):
+  multi6: 205, // 415 -> 121, Task 7. 121 -> 137 at R10 (2026-09-04):
   // out-of-band rail strikes padded by the full gap, so multi6's dense
   // backward rails settle further out and cross more mid-graph corridors.
   tundra: 0,
@@ -624,7 +627,7 @@ const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
   // default 2 -> 4 rose with the ratified fan-out restoration (lanes off).
   off: {
     default: 4,
-    battery5: 10,
+    battery5: 12,
     "battery5-xiranite": 24,
     crystal: 1,
     equip4: 1,
@@ -777,27 +780,38 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // full-height column passing under label chips family as above.
 // R14 (port-band eviction): 23 -> 46. R16 (shrink pass): 46 -> 58, an up
 // move bought against CHIP_OFFPATH 35 -> 5 and SEAT_VALIDITY 36 -> 3.
+// battery5-xiranite moved under its pins without ever reddening: measured 15 on
+// / 12 off before the sidestep gate, 16 / 14 after it and after the seat-order
+// and rise-chip changes. The ON cell is re-pinned DOWN to the measurement,
+// 18 -> 16. The OFF cell measures 14 against a pin of 14 -- exactly on it, no
+// headroom -- and is raised 14 -> 15 on a controller ruling, so one unit of
+// drift in this family reports as a number rather than as a red gate. That is a
+// deliberate unit of slack: a real +1 regression here now passes.
+// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
+// left-to-right band): default 1 -> 2, battery5 4 -> 8 (off 4 -> 10), multi6
+// 0 -> 3, rot-bottled_food_3 0 -> 2. default's is the sidestep-gate trade --
+// its sewage chip now grazes on its own line where it used to step off it.
 const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
-  default: 1,
-  battery5: 4,
-  "battery5-xiranite": 18,
+  default: 2,
+  battery5: 8,
+  "battery5-xiranite": 16,
   crystal: 1,
   equip4: 1,
-  multi6: 0,
+  multi6: 3,
   tundra: 0,
   script43: 12,
   "coupon-web": 5,
   "gas-web": 12,
-  "rot-bottled_food_3": 0,
+  "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 4,
 };
 const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_SEGMENT_BASELINE_ON,
   // R14: 15 -> 42. R16: 42 -> 43 (up move, same trade as the on arm).
   off: {
-    default: 1,
-    battery5: 4,
-    "battery5-xiranite": 14,
+    default: 2,
+    battery5: 10,
+    "battery5-xiranite": 15,
     crystal: 1,
     equip4: 1,
     multi6: 0,
@@ -854,7 +868,20 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
 // CARD_INTRUSION 77 -> 0. R16 (shrink pass): 35 -> 5.
 const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
   default: 0,
-  battery5: 0,
+  // 0 -> 1 (RULING): e:14 "Sewage x 90/min" seats 16.00px off its polyline, and
+  // it is the issue-#28 TWIN-CORRIDOR shape, not a seat this counter should be
+  // asking the renderer to move. Its anchor sits on a 248-unit vertical corridor
+  // leg with a foreign stroke running PARALLEL to it inside the chip's box: no
+  // motion ALONG the line sheds a parallel neighbour, because the box travels
+  // beside it the whole way, so the sidestep tier steps the box off the line by
+  // a bounded 16 units -- against a painted half-width of 21.75, which leaves the
+  // own line INSIDE the box the chip draws, and the seat-validity census agrees
+  // (it reads this chip as bound to its line). Only this counter flags it,
+  // because it measures the chip's CENTRE against the polyline at a 1px
+  // tolerance, and every bounded step off a vertical leg fails that by
+  // construction. The lanes-off arm was ratified at 2 for exactly this shape on
+  // 2026-08-21; the single-band layout has now brought the on arm onto it too.
+  battery5: 1,
   "battery5-xiranite": 2,
   crystal: 0,
   equip4: 0,
@@ -972,10 +999,12 @@ const OWN_PIERCE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // bottled_food_4 cell re-measured unchanged in the same pass: e:12 is a
 // forward jog descent, not a return column, and no fix in this family moves
 // it; it stays the sole recorded residue.
+// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
+// left-to-right band): battery5 on 0 -> 1.
 const FRAME_RIDE_BASELINE_ON: Record<string, number> = {
   default: 0,
   // 1 -> 0, round-2 per-side bands (e:9); first recording was Task 7.
-  battery5: 0,
+  battery5: 1,
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
@@ -1074,15 +1103,24 @@ const FRAME_RIDE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): rot-bottled_food_3 1 and rot-bottled_food_4 1, both a bus
 // rise chip covering its own junction dot.
+// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
+// left-to-right band): rot-bottled_food_4 off 0 -> 2.
+// RISE-CHIP CONTAINMENT (this round): battery5-xiranite 0 -> 2 and script43
+// 0 -> 1 on the on arm. A bus rise chip may no longer lift a full pitch off its
+// lane, because that offset puts the lane line outside the box the chip paints
+// and the chip reads as floating. No smaller lift clears a junction dot sitting
+// ON the lane (the dot needs more than a half-height of lift, the line needs
+// less), so the dot keep-off finds nothing and yields -- which is the precedence
+// it already states: the dot is decorative, a floating rate chip is not.
 const DOT_COVER_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 0,
-  "battery5-xiranite": 0,
+  "battery5-xiranite": 2,
   crystal: 0,
   equip4: 0,
   multi6: 0,
   tundra: 0,
-  script43: 0,
+  script43: 1,
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
@@ -1103,7 +1141,7 @@ const DOT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
     "coupon-web": 0,
     "gas-web": 0,
     "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
+    "rot-bottled_food_4": 2,
   },
 };
 
@@ -1913,8 +1951,11 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
 // chips.
 // R14: 40 -> 59. R16: 59 -> 54, with multi6 19 -> 20 the one ratified up
 // cell (a chip grazing a foreign line on its own row instead of escaping).
+// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
+// left-to-right band): default 1 -> 2 in both arms and rot-bottled_food_3
+// 0 -> 2, the same sidestep-gate trade the chip-segment table records.
 const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
-  default: 1,
+  default: 2,
   battery5: 3,
   "battery5-xiranite": 6,
   crystal: 1,
@@ -1924,14 +1965,14 @@ const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
   script43: 7,
   "coupon-web": 3,
   "gas-web": 10,
-  "rot-bottled_food_3": 0,
+  "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 2,
 };
 const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FOREIGN_STROKE_BASELINE_ON,
   // R14: 32 -> 49. R16: 49 -> 45.
   off: {
-    default: 1,
+    default: 2,
     battery5: 3,
     "battery5-xiranite": 5,
     crystal: 1,
@@ -2047,13 +2088,16 @@ const OUTSIDE_BAND_BASELINE: Record<LaneMode, Record<string, number>> = {
 // the campaign): rot-bottled_food_3 pins 4 (two Sandleaf Powder and two
 // Sandleaf Seed rise chips on band-less runs; that plan renders no band rects
 // at all), rot-bottled_food_4 pins 0.
+// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
+// left-to-right band): multi6 13 -> 15 in both arms. An INVENTORY, not a
+// ratchet: the plan simply draws two more fan-out rise chips than it did.
 const SKIPPED_BAND_INVENTORY_ON: Record<string, number> = {
   default: 4,
   battery5: 2,
   "battery5-xiranite": 2,
   crystal: 2,
   equip4: 2,
-  multi6: 13,
+  multi6: 15,
   tundra: 0,
   // 2 -> 3 at the exam-surfaced R4 re-measure: the copper_nugget rise chips
   // e:3/e:4/e:5 (out of q:11) bind to no lane band (ratified 2026-09-04).
@@ -2072,7 +2116,7 @@ const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
     "battery5-xiranite": 2,
     crystal: 2,
     equip4: 2,
-    multi6: 13,
+    multi6: 15,
     tundra: 0,
     script43: 3,
     "coupon-web": 0,
@@ -2255,7 +2299,9 @@ const CENSUS_TOTALS: Record<
     // 36 -> 37 (coupon-web foreign stroke, the e:15-under-e:8 corridor run).
     // 37 -> 35 at the Task 8 branch-leg re-measure (script43 6 -> 5,
     // gas-web 8 -> 7).
-    foreignStroke: 54,
+    // SINGLE-BAND RE-MEASURE (eeda816): 54 -> 57, tracking the per-cell raises
+    // in FOREIGN_STROKE_BASELINE (default 1 -> 2, rot-bottled_food_3 0 -> 2).
+    foreignStroke: 57,
     outsideBand: 0,
   },
   off: {
@@ -2263,7 +2309,8 @@ const CENSUS_TOTALS: Record<
     // 32 -> 49. R16: seatValidity 35 -> 1, foreignStroke 49 -> 45.
     seatValidity: 1,
     cardIntrusion: 0,
-    foreignStroke: 45,
+    // SINGLE-BAND RE-MEASURE (eeda816): 45 -> 46 (default 1 -> 2).
+    foreignStroke: 46,
     outsideBand: 0,
   },
 };

@@ -689,10 +689,16 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
 });
 
 // Two taps feeding adjacent input rows of one recipe across a 119-unit
-// corridor: the first chip takes the one band-clear seat at max scale, the
-// second only fits at scale 1 and seats on its line at cap 1.
+// corridor: only one of the pair fits the one band-clear seat at max scale, and
+// the other has to shrink to scale 1 to stay on its own line. Which one shrinks
+// is the scarcity-first seat order's call -- the WATER leg's anchor sits on a
+// vertical run with few clear windows, so it is seated first and keeps the full
+// reserve, and the ORE chip, which has a wide upper run to fall back on, takes
+// the cap. (Under the old id order the two were the other way round; the
+// invariant this fixture exists for -- both chips on their own lines, one of
+// them capped -- is the same either way.)
 describe("deconflictChipAnchors: adjacent-row pair shrinks onto its line", () => {
-  it("caps the second chip at 1 and keeps it on its own line", () => {
+  it("caps the chip with the richer line and keeps both on their own lines", () => {
     const recipe = mkRecipe("r", ["ore", "water"], ["out"]);
     const nodes: RFAnyNode[] = [
       recipeNode("r", 560, 29, recipe),
@@ -763,9 +769,9 @@ describe("deconflictChipAnchors: adjacent-row pair shrinks onto its line", () =>
         ),
       ).toBeLessThan(0.01);
     }
-    const water = out.find((o) => o.id === edges[1]!.id)?.data as {
+    const ore = out.find((o) => o.id === edges[0]!.id)?.data as {
       chipScaleCap?: number;
     };
-    expect(water.chipScaleCap).toBe(1);
+    expect(ore.chipScaleCap).toBe(1);
   });
 });

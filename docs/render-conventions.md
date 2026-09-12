@@ -140,8 +140,14 @@ natural size before it takes any seat off the line. A chip that had to move is
 still bound to its own polyline; dragging a card re-seats every chip when the
 drag ends, so a dropped plan obeys the same rules (mid-drag, chips ride the
 live line with their last seat offsets); one that reads as belonging to a neighbouring line is a defect. A
-lane chip seated one lane pitch beside its lane is clearing a junction dot, not
-changing lines.
+lane chip first tries a bite-sized lift off its lane -- under one chip
+half-height, so the lane stroke still runs inside the box the chip paints and
+keeps saying which trunk the rate belongs to -- and that much clears a thin
+obstacle such as a foreign stroke. A neighbouring chip needs more than a bite:
+for one of those the lane chip may step exactly one lane pitch beside its lane,
+which still reads as sitting beside it. A rise that would need more than one
+pitch is hidden instead (see Intentional behaviours). A junction dot sitting on
+the lane buys no lift at all.
 
 ## Intentional behaviours
 
@@ -163,6 +169,8 @@ Do not report these as defects.
   chip) render icon-only as well. All of them keep the rate on the hover title
   and the aria label. A digit-less square chip is intentional, not a missing
   rate.
+- A lane rise chip may cover its own junction dot. The dot is decorative, a rate
+  chip lifted clear of the lane it labels is not.
 - A fan-out branch chip, or a fan-in member chip that would land on the shared
   run, may be deliberately hidden. The rate remains on the target card's input
   row.

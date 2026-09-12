@@ -39,22 +39,29 @@ describe("reseatChips", () => {
   it("re-seats from clean edges after a node moves, leaving no stale stamp", () => {
     const { nodes, edges } = pairFixture(127);
     const laid = deconflictChipAnchors(nodes, edges);
-    // Premise: the layout-time seat shrank the water chip.
-    expect(dataOf(laid, "e:2:tapWater->r:water").chipScaleCap).toBe(1);
+    // Premise: the layout-time seat shrank ONE of the pair -- the ore chip,
+    // which is the one the scarcity-first seat order leaves to squeeze. The
+    // water leg's anchor sits on a vertical run with few clear windows, so it
+    // is seated first and takes the corridor's one band-clear seat at full
+    // reserve; the ore chip has a wide upper run to fall back on and settles
+    // at cap 1. (Under the old id order the two were the other way round.)
+    expect(dataOf(laid, "e:1:tapOre->r:ore").chipScaleCap).toBe(1);
 
     // The water tap is dragged 300 units down: its leg is now a long dogleg
-    // clear of the ore chip, so the shrink (cap 1) must not survive. The
-    // window cap stays, because the corridor between the same two cards is
-    // as wide as before.
+    // clear of the ore chip, so the shrink (cap 1) must not survive on EITHER
+    // chip. The window cap stays, because the corridor between the same two
+    // cards is as wide as before.
     const moved: RFAnyNode[] = nodes.map((n) =>
       n.id === "tapWater" ? { ...n, position: { x: 286, y: 427 } } : n,
     );
     const reseated = reseatChips(moved, laid);
     const fresh = deconflictChipAnchors(moved, pairFixture(427).edges);
     expect(reseated.map((e) => e.data)).toEqual(fresh.map((e) => e.data));
-    const cap = dataOf(reseated, "e:2:tapWater->r:water").chipScaleCap;
-    expect(cap).not.toBe(1);
-    expect(cap).toBeGreaterThan(1);
+    for (const id of ["e:1:tapOre->r:ore", "e:2:tapWater->r:water"]) {
+      const cap = dataOf(reseated, id).chipScaleCap;
+      expect(cap).not.toBe(1);
+      expect(cap).toBeGreaterThan(1);
+    }
   });
 
   it("is a no-op re-run when nothing moved", () => {
