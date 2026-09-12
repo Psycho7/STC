@@ -90,6 +90,7 @@ import {
   ENTRY_SLOT_PITCH,
   OBSTACLE_PAD_LEFT,
   OBSTACLE_PAD_Y,
+  edgePortsModel,
   flowKeyOf as busFlowKey,
   isTrunkOwner,
   type BusEdgeData,
@@ -102,8 +103,8 @@ import {
   drawnPortsOf,
   edgeItem,
   nodeHeight,
+  nodeIndexOf,
   nodeWidth,
-  portOffsetY,
 } from "./nodeGeometry";
 // Type-only: ItemEdge.tsx declares the base canvas edge payload this pass seats
 // chips for. Erased at compile time, so it adds no runtime or bundler edge.
@@ -1908,8 +1909,7 @@ export function deconflictChipAnchors(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): Edge[] {
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
+  const byId = nodeIndexOf(nodes);
 
   // Reconstructed edge polylines, obstacles for the bus / rate seats: a chip
   // must not sit on a FOREIGN edge's line (the reader would bind the rate to
@@ -3003,12 +3003,7 @@ export function deconflictChipAnchors(
   >();
   // Target in-port y of a fan-out member: the top-to-bottom key its branch chip
   // stacks by when several members share one junction column.
-  const branchEntryY = (edge: Edge): number => {
-    const target = byId.get(edge.target)!;
-    return (
-      absoluteTop(target, byId) + portOffsetY(target, edgeItem(edge), "in")
-    );
-  };
+  const branchEntryY = (edge: Edge): number => edgePortsModel(edge, byId)!.ty;
   // Seat the branch chips within each trunk TOP-TO-BOTTOM by their target's
   // in-port y, not edge-id order which can invert the visible stack when members
   // share one junction column (issue #28, the multi6 fan-out lane): the first
@@ -3348,8 +3343,7 @@ export function contentBounds(
   edges: ReadonlyArray<Edge>,
 ): ContentRect | null {
   if (nodes.length === 0) return null;
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
+  const byId = nodeIndexOf(nodes);
 
   let left = Infinity;
   let top = Infinity;

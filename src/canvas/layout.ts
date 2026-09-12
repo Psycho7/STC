@@ -848,32 +848,89 @@ export type RoutingPass = (
 // entry left. Nothing makes a reorder a compile error -- all eight passes share
 // one signature -- so the order is pinned by test/canvas/layout-pass-order.test.ts
 // instead, and reordering these entries silently changes routing geometry.
+// `because` says what each entry needs from the entries above it, so the reason
+// for the order lives beside the order; the pass headers in busRouting.ts and
+// chipSeating.ts point here rather than restating it.
 export const ROUTING_PASSES: ReadonlyArray<{
   readonly name: string;
   readonly run: RoutingPass;
+  readonly because: string;
 }> = [
   // Classify long-span edges into bus trunks, each on a lane in a top or
   // bottom band. The one pass busLanesEnabled: false drops.
-  { name: "routeBusEdges", run: routeBusEdges },
+  {
+    name: "routeBusEdges",
+    run: routeBusEdges,
+    because:
+      "Consumes no stamp: it reads the placed nodes alone. It writes the " +
+      'type: "bus" retype and laneY every lane pass below keys on.',
+  },
   // Consolidate N >= 2 same-source-port edges in one layer gap onto a shared
   // junction column (a fan-out trunk, retyped bus but off-lane).
-  { name: "routeFanoutEdges", run: routeFanoutEdges },
+  {
+    name: "routeFanoutEdges",
+    run: routeFanoutEdges,
+    because:
+      'Takes only the still-"item" remainder routeBusEdges leaves, but the two ' +
+      "classify disjoint span ranges, so the order is scheduling rather than a " +
+      "dependency and this pass is unchanged with lanes off.",
+  },
   // Stake out per-target entry-gutter columns so backward rails and bus rises
   // into one node stay parallel.
-  { name: "assignEntryColumns", run: assignEntryColumns },
+  {
+    name: "assignEntryColumns",
+    run: assignEntryColumns,
+    because:
+      "Reads the bus retype from routeBusEdges, so a lane rise into a node is " +
+      "staggered against that node's backward rails instead of colliding with " +
+      "them. Writes entryX.",
+  },
   // Move bus drop / rise verticals clear of any foreign card / gutter (starts
   // from the entry stagger).
-  { name: "clearBusColumns", run: clearBusColumns },
+  {
+    name: "clearBusColumns",
+    run: clearBusColumns,
+    because:
+      "Reads laneY from routeBusEdges and entryX from assignEntryColumns: the " +
+      "rise's desired column is the final staggered entry column, and clearing " +
+      "starts from it.",
+  },
   // Stagger the remaining item edges' bend columns so their verticals fan out
   // (clamped clear of gutters).
-  { name: "assignBendColumns", run: assignBendColumns },
+  {
+    name: "assignBendColumns",
+    run: assignBendColumns,
+    because:
+      'Reads the bus retype from routeBusEdges (it fans only still-"item" ' +
+      "edges) and leaves the bendX routeFanoutEdges pinned on a far member " +
+      "alone. Writes bendX for everything else.",
+  },
   // Bend a blocked forward final leg to a clear y so it does not cross an
   // intervening card (reads bendX).
-  { name: "jogForwardLegs", run: jogForwardLegs },
+  {
+    name: "jogForwardLegs",
+    run: jogForwardLegs,
+    because:
+      "Reads each edge's FINAL bendX from assignBendColumns, because the leg " +
+      "it jogs starts at that column.",
+  },
   // Move the backward detour rails clear of the cards they span.
-  { name: "clampBackwardRails", run: clampBackwardRails },
+  {
+    name: "clampBackwardRails",
+    run: clampBackwardRails,
+    because:
+      "Reads entryX from assignEntryColumns, which fixes the rail's left end " +
+      "before the rail level is clamped.",
+  },
   // Stack crowded chips (entry, bus, midpoint) so none coincide.
-  { name: "deconflictChipAnchors", run: deconflictChipAnchors },
+  {
+    name: "deconflictChipAnchors",
+    run: deconflictChipAnchors,
+    because:
+      "Reads every stamp above (laneY, entryX, dropX / riseX, bendX, legY, " +
+      "railY) to reconstruct the drawn polylines a chip must avoid, so it can " +
+      "only run once they are final.",
+  },
 ];
 
 // layoutRenderPlan: one elk.layout() call per cycle.

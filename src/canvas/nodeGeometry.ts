@@ -40,6 +40,14 @@ import { measureRecipe } from "./recipeGeometry";
 import { orderByItem } from "./orderByItem";
 import type { RFAnyNode } from "./layout";
 
+// The id -> node index every geometry accessor here takes. Last id wins on a
+// duplicate, matching the loops this replaces.
+export function nodeIndexOf(
+  nodes: ReadonlyArray<RFAnyNode>,
+): Map<string, RFAnyNode> {
+  return new Map<string, RFAnyNode>(nodes.map((n) => [n.id, n]));
+}
+
 // Absolute left-edge x for a node. Container children store a parent-relative
 // position, so resolve one level of `parentId` and add the parent's own x.
 // Mirrors test/canvas/edgeSpans.ts.
@@ -202,6 +210,11 @@ function driftedPortY(
 // item's row), then shifted onto the drawn handle coordinates by PORT_DRIFT.
 // Null when either endpoint is missing from the node map. Shared by the seating
 // pass and contentBounds so both reconstruct the DRAWN geometry.
+//
+// This is the DRAWN frame. Its sibling edgePortsModel in busRouting.ts answers
+// the same four names in the MODEL frame, the coordinate the routing passes
+// place by. The two are never merged: the difference is PORT_DRIFT, 1-2 units,
+// exactly the size the ratcheted occlusion and crossing counts turn on.
 export function drawnPortsOf(
   edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,

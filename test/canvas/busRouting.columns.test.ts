@@ -13,6 +13,7 @@ import {
   clampBackwardRails,
   clearBusColumns,
   clearColumnX,
+  edgePortsModel,
   jogForwardLegs,
   entryGutterRects,
   paddedObstacles,
@@ -24,6 +25,7 @@ import {
   OBSTACLE_PAD_Y,
 } from "../../src/canvas/busRouting";
 import { ENTRY_GUTTER_OVERHANG } from "../../src/canvas/dimensions";
+import { nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import {
   PORT_STUB,
   CHAMFER,
@@ -1550,5 +1552,25 @@ describe("clampBackwardRails column clamp", () => {
     expect(railXLeft).not.toBe(-24);
     // Cleared off the foreign card's raw left edge (f card left = 0 - 34 = -34).
     expect(railXLeft! < -34).toBe(true);
+  });
+});
+
+describe("edgePortsModel", () => {
+  it("reads the source out-port and target in-port rows in the model frame", () => {
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, 148, 60),
+      productNode("t", 400, 100, 148, 60),
+    ];
+    const ports = edgePortsModel(
+      mkEdge("e0", "s", "t", "w"),
+      nodeIndexOf(nodes),
+    );
+    // Product rows fall back to the node's vertical centre on both sides.
+    expect(ports).toEqual({ sx: 148, sy: 30, tx: 400, ty: 130 });
+  });
+
+  it("yields no port coordinates when an endpoint is missing from the node index", () => {
+    const byId = nodeIndexOf([productNode("s", 0, 0, 148, 60)]);
+    expect(edgePortsModel(mkEdge("e0", "s", "t", "w"), byId)).toBeNull();
   });
 });
