@@ -992,6 +992,27 @@ function clipRunLeft(
   ];
 }
 
+// Where a fan-out branch chip's seat starts from. chamferFanoutPath anchors the
+// chip on the midpoint of the branch's longest part, which is the column the
+// trunk's members SHARE whenever a member's descent outgrows its own leg; every
+// seat tier that leaves the line (sidestep, nudge, escape) then moves relative
+// to a point on that column and parks the chip there. On such a member the seat
+// starts from the leg's own midpoint instead; where the render anchor already
+// lies on the leg it is kept, so those members seat exactly as before.
+function branchSeatAnchorOf(
+  branchAnchor: { x: number; y: number },
+  leg: ReadonlyArray<readonly [number, number]> | null,
+): { x: number; y: number } {
+  const a = leg?.[0];
+  const b = leg?.[1];
+  if (a === undefined || b === undefined) return branchAnchor;
+  const onLeg =
+    Math.abs(branchAnchor.y - a[1]) <= RUN_ROW_EPS &&
+    branchAnchor.x >= Math.min(a[0], b[0]) &&
+    branchAnchor.x <= Math.max(a[0], b[0]);
+  return onLeg ? branchAnchor : { x: (a[0] + b[0]) / 2, y: a[1] };
+}
+
 // Cumulative arc-length of point (x, y) along the parsed polyline. The point is
 // on exactly one segment by construction (a clear-segment anchor is a segment
 // midpoint), so this returns the length from the path start to it. Falls back to
@@ -1937,9 +1958,16 @@ export function deconflictChipAnchors(
   // re-parses the `d` -- the lockstep mirror of itemGeomById for rate chips.
   type FanoutGeom = {
     pts: ReadonlyArray<readonly [number, number]>;
-    // The member's OWN leg (see branchLegAfterJunction): the polyline the
+    // The member's OWN horizontal leg (see the slice below): the run the
     // branch chip's seat slides over and the branch short-leg rule measures.
     branchPts: ReadonlyArray<readonly [number, number]>;
+    // Where the branch seat starts from: the midpoint of that leg. It is NOT
+    // branchAnchor -- the point BusEdge adds the stamped offsets to, which for
+    // a member whose descent outgrows its leg sits on the shared column -- and
+    // every tier that leaves the line (sidestep, nudge, escape) moves relative
+    // to the anchor it was handed, so an off-leg anchor parks those seats on
+    // the column however tightly the slide is confined.
+    branchSeatAnchor: { x: number; y: number };
     junction: { x: number; y: number };
     trunkAnchor: { x: number; y: number };
     branchAnchor: { x: number; y: number };
@@ -2035,9 +2063,28 @@ export function deconflictChipAnchors(
     // cannot answer a different polyline than the one on screen.
     const drawn = drawnEdge(ends, edge.type, edge.data);
     if (drawn.shape === "fanout") {
+      // drawnEdge's branch leg is the whole suffix after the junction, which
+      // still runs DOWN the column every member of the trunk shares before it
+      // turns into this member's own horizontal run, and chamferFanoutPath
+      // anchors the branch chip on the midpoint of the branch's longest part --
+      // that shared column whenever the descent outgrows the leg, which is
+      // where two members three rows apart stack their chips on one line. Keep
+      // only the horizontal run into the target port, clipped past the split
+      // dot's keep-off: the seat slides along the points it is given, so on
+      // this run it can neither start nor slide back onto the column (the
+      // pinned item members below are confined the same way). The run is the
+      // last segment of every fan-out shape -- straight trunk, small-dy
+      // diagonal and branching member alike.
+      const branchSuffix = drawn.branchPts;
+      const branchLeg = clipRunLeft(
+        branchSuffix.slice(branchSuffix.length - 2),
+        drawn.junction.x + DOT_KEEPOFF,
+      );
+      const branchPts = branchLeg ?? branchSuffix;
       fanoutGeomById.set(edge.id, {
         pts: drawn.pts,
-        branchPts: drawn.branchPts,
+        branchPts,
+        branchSeatAnchor: branchSeatAnchorOf(drawn.branchAnchor, branchLeg),
         junction: drawn.junction,
         trunkAnchor: drawn.trunkAnchor,
         branchAnchor: drawn.branchAnchor,
@@ -2055,7 +2102,7 @@ export function deconflictChipAnchors(
       const bands = ownPortBandXs(edge);
       bands.push({ lo: -Infinity, hi: drawn.junction.x + DOT_KEEPOFF });
       if (
-        !measureWindow(edge.id, drawn.branchPts, bands, branchChipText(edge)) ||
+        !measureWindow(edge.id, branchPts, bands, branchChipText(edge)) ||
         (edge.data as FanoutBusEdgeData).fanoutContested === true
       )
         branchIconOnlyByIndex.add(index);
@@ -3020,24 +3067,24 @@ export function deconflictChipAnchors(
   for (const { edge, index } of branchOrder) {
     const geom = fanoutGeomById.get(edge.id)!;
     const trunkKey = (edge.data as BusEdgeData).trunkKey;
-    // The branch chip slides over its OWN leg only (geom.branchPts, the
-    // suffix after the junction) -- the mirror of the aggregate seat's
-    // trunk-prefix truncation above. On the full polyline the slide could
-    // walk back across the junction onto the shared trunk, where the box
-    // reads as a trunk label and buries the split dot from the left; on the
-    // leg the same push goes down the member's own column instead. The
-    // branch anchor is on the leg by construction for branching and diagonal
-    // members (the column's midpoint, the diagonal's); a shared-y member's
-    // whole-corridor midpoint can sit left of the junction, where the arc
-    // resolver falls back to the leg's own midpoint -- its seat moves ONTO
-    // the leg, which is the point.
+    // The branch chip slides over its OWN horizontal leg only
+    // (geom.branchPts) -- the mirror of the aggregate seat's trunk-prefix
+    // truncation above. On the fuller polyline the slide could walk back
+    // across the junction onto the shared trunk, where the box reads as a
+    // trunk label and buries the split dot from the left, or up the shared
+    // column, where every member's chip stacks on one line. The branch anchor
+    // the offsets are stamped against is NOT always on that leg (it is the
+    // longest branch part's midpoint, so it sits on the column for a member
+    // whose descent outgrows its leg); the arc resolver then falls back to
+    // the leg's own midpoint, and the seat moves ONTO the leg, which is the
+    // point.
     const seat = seatRateChip(
       {
         field,
         path: {
           pts: geom.branchPts,
-          anchorX: geom.branchAnchor.x,
-          anchorY: geom.branchAnchor.y,
+          anchorX: geom.branchSeatAnchor.x,
+          anchorY: geom.branchSeatAnchor.y,
         },
         flowKey: flowKeyOf(edge),
         target: edge.target,
@@ -3088,8 +3135,12 @@ export function deconflictChipAnchors(
     const seatedYs = seatedBranchYByTrunk.get(trunkKey) ?? [];
     seatedYs.push(seat.box.y);
     seatedBranchYByTrunk.set(trunkKey, seatedYs);
-    if (seat.dx !== 0) fanoutBranchDxByIndex.set(index, seat.dx);
-    if (seat.dy !== 0) fanoutBranchDyByIndex.set(index, seat.dy);
+    // The seat is relative to the leg anchor above; BusEdge draws the chip at
+    // chamferFanoutPath's branchAnchor, so carry the offsets back to that frame.
+    const dx = seat.dx + geom.branchSeatAnchor.x - geom.branchAnchor.x;
+    const dy = seat.dy + geom.branchSeatAnchor.y - geom.branchAnchor.y;
+    if (dx !== 0) fanoutBranchDxByIndex.set(index, dx);
+    if (dy !== 0) fanoutBranchDyByIndex.set(index, dy);
   }
 
   // Phase 4 -- item rate chips: each item edge's clear-segment anchor (cached

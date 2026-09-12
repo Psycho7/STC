@@ -22,7 +22,9 @@ import { drawnPortsOf, nodeWidth } from "../../src/canvas/nodeGeometry";
 import {
   CHAMFER,
   PORT_STUB,
+  chamferFanoutPath,
   chamferStepPath,
+  parsePathPoints,
   routingHintsFromData,
   type DrawnPorts,
 } from "../../src/canvas/edgePath";
@@ -548,4 +550,98 @@ describe("the gas_xiranite fan-out of equip_script_4_3", () => {
       expect(data.fanout === true || data.fanoutColumn === true).toBe(true);
     }
   });
+});
+
+describe("the gas-web copper_nugget fan-out", () => {
+  // The exam plan (test/e2e/scenarios.ts, "gas-web"): the Refining Unit's
+  // copper_nugget output fans out to three consumers sitting three rows apart,
+  // so each member's descent down the SHARED column is longer than its own
+  // horizontal leg. The chip belongs on the leg; on the column three chips
+  // stack on one line and none of them names the flow it labels (all three are
+  // icon-only, so position is the only cue left).
+  const GAS_WEB_TARGETS: ItemTarget[] = [
+    { itemId: "gas_xiranite_enr", ratePerSec: { num: "1", denom: "2" } },
+    { itemId: "gas_copper_enr2", ratePerSec: { num: "1", denom: "2" } },
+    { itemId: "gas_inert", ratePerSec: { num: "1", denom: "4" } },
+  ];
+
+  const layOutGasWeb = async (
+    busLanesEnabled: boolean,
+  ): Promise<{ nodes: RFAnyNode[]; edges: Edge[] }> => {
+    const { nodes, edges } = await layoutSolved(
+      solveForRender({ targets: GAS_WEB_TARGETS, pack }),
+      { busLanesEnabled },
+    );
+    return { nodes: nodes as RFAnyNode[], edges };
+  };
+
+  // The member's OWN horizontal leg: the jog's cleared run when jogForwardLegs
+  // bent the approach, otherwise the final run into the target port.
+  const ownLeg = (
+    pts: ReadonlyArray<readonly [number, number]>,
+    legY: number | undefined,
+  ): readonly [readonly [number, number], readonly [number, number]] => {
+    if (legY !== undefined) {
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1]!;
+        const b = pts[i]!;
+        if (Math.abs(a[1] - legY) <= 1 && Math.abs(b[1] - legY) <= 1) {
+          return [a, b];
+        }
+      }
+    }
+    return [pts[pts.length - 2]!, pts[pts.length - 1]!];
+  };
+
+  for (const busLanesEnabled of [false, true]) {
+    it(`seats every member's chip on its own leg (lanes ${busLanesEnabled ? "on" : "off"})`, async () => {
+      const { nodes, edges } = await layOutGasWeb(busLanesEnabled);
+      const byId = new Map(nodes.map((n) => [n.id, n]));
+      let checked = 0;
+
+      for (const e of edges) {
+        const data = e.data as EdgeData;
+        const branch = e.type === "bus" && data.fanout === true;
+        const pinned = e.type === "item" && data.fanoutColumn === true;
+        if (!branch && !pinned) continue;
+        // A hidden branch chip draws nothing, so it has no seat to check.
+        if (data.fanoutBranchHidden === true) continue;
+
+        const ends = drawnPortsOfEdge(e, byId);
+        const hints = routingHintsFromData(data);
+        let column: number;
+        let pts: ReadonlyArray<readonly [number, number]>;
+        let chipX: number;
+        let chipY: number;
+        if (branch) {
+          const fan = chamferFanoutPath({ ...ends, ...hints });
+          pts = parsePathPoints(fan.path);
+          // The drawn column: the junction dot sits one chamfer before it.
+          column = fan.junction.x + CHAMFER;
+          chipX = fan.branchAnchor.x + ((data.fanoutBranchDx as number) ?? 0);
+          chipY = fan.branchAnchor.y + ((data.fanoutBranchDy as number) ?? 0);
+        } else {
+          const [path, lx, ly] = chamferStepPath({ ...ends, ...hints });
+          pts = parsePathPoints(path);
+          column = hints.srcColX ?? (data.bendX as number);
+          chipX = lx + ((data.labelDx as number) ?? 0);
+          chipY = ly + ((data.labelDy as number) ?? 0);
+        }
+
+        const leg = ownLeg(pts, data.legY as number | undefined);
+        expect(chipY, `${e.id} chip row`).toBe(leg[1][1]);
+        expect(chipX, `${e.id} chip off the column`).toBeGreaterThan(
+          column + DOT_KEEPOFF,
+        );
+        expect(chipX, `${e.id} chip within its leg`).toBeLessThanOrEqual(
+          Math.max(leg[0][0], leg[1][0]),
+        );
+        checked++;
+      }
+
+      // Premise: the plan really does carry the fan-outs this pins -- the three
+      // copper_nugget branches plus the gas_xiranite / gas_inert pinned members.
+      expect(checked).toBeGreaterThanOrEqual(3);
+    });
+  }
 });
