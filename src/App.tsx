@@ -36,10 +36,7 @@ import type { Target } from "./data/targets";
 import { pack } from "./data/load";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
-import { planToSolverArgs } from "./solver/planToSolverArgs";
-import { solveForRender } from "./pipeline/solveForRender";
-import { targetOutputShortfalls } from "./pipeline/render/invariants";
-import type { RenderPlan } from "./pipeline/types";
+import { solveFromPlan } from "./pipeline/solveForRender";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { BusLanesToggle } from "./components/BusLanesToggle";
@@ -48,17 +45,6 @@ import StatsStrip from "./canvas/StatsStrip";
 import { displayedInputCount } from "./components/InputsPanel";
 import { iconSheetUrl } from "./canvas/iconSprite";
 import { BUS_LANES_STORAGE_KEY } from "./data/storage-keys";
-
-// The target items the rendered plan feeds below their declared rate. The LP
-// never reports these as infeasible - a capped raw input with no alternative
-// route just yields a partial plan - so this is the one signal that the drawn
-// graph does not meet the declared intent.
-function underDeliveredItems(
-  plan: RenderPlan,
-  targets: ReadonlyArray<Target>,
-): string[] {
-  return targetOutputShortfalls(plan, targets).map((s) => s.item);
-}
 
 // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
 // with per-replica kind:"recipe" stamps, so neither the raw length nor the
@@ -406,13 +392,7 @@ function AppInner() {
           return;
         }
         const nextPlan = outcome.plan;
-        const { targets, itemOverrides, recipeCosts } =
-          planToSolverArgs(nextPlan);
-        const solved = solveForRender({
-          targets,
-          itemOverrides,
-          recipeCosts,
-        });
+        const solved = solveFromPlan(nextPlan);
         const laid = await layoutSolved(solved, {
           busLanesEnabled: busLanesEnabledRef.current,
         });
@@ -428,7 +408,7 @@ function AppInner() {
         setRecipeCount(countDistinctRecipes(solved.full.logical));
         setNodes(laid.nodes as Node[]);
         setEdges(laid.edges);
-        setUnderDelivered(underDeliveredItems(solved.plan, targets));
+        setUnderDelivered(solved.underDelivered);
         setLayoutGeneration((g) => g + 1);
         setPlanEpoch((e) => e + 1);
         // A fresh render is authoritative: the canvas now matches the plan.
@@ -503,13 +483,7 @@ function AppInner() {
     const myGen = ++solveGen.current;
     setPending(true);
     try {
-      const { targets, itemOverrides, recipeCosts } =
-        planToSolverArgs(nextPlan);
-      const solved = solveForRender({
-        targets,
-        itemOverrides,
-        recipeCosts,
-      });
+      const solved = solveFromPlan(nextPlan);
       const laid = await layoutSolved(solved, {
         busLanesEnabled: busLanesEnabledRef.current,
       });
@@ -517,7 +491,7 @@ function AppInner() {
       setRecipeCount(countDistinctRecipes(solved.full.logical));
       setNodes(laid.nodes as Node[]);
       setEdges(laid.edges);
-      setUnderDelivered(underDeliveredItems(solved.plan, targets));
+      setUnderDelivered(solved.underDelivered);
       setLayoutGeneration((g) => g + 1);
       setMutationError(null);
       setStale(false);

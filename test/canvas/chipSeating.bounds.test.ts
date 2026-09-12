@@ -30,8 +30,7 @@ import type { RFAnyNode } from "../../src/canvas/layout";
 import { productNode } from "./busRouting.testkit";
 import { pack } from "../../src/data/load";
 import type { Plan } from "../../src/data/plan";
-import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
-import { solveForRender } from "../../src/pipeline/solveForRender";
+import { solveFromPlan } from "../../src/pipeline/solveForRender";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
 
 const CHIP_HALF_W = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
@@ -224,10 +223,7 @@ describe("contentBounds: dense plan", () => {
         { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } },
       ],
     };
-    const { targets, itemOverrides, recipeCosts } = planToSolverArgs(plan);
-    const laid = await layoutSolved(
-      solveForRender({ targets, pack, itemOverrides, recipeCosts }),
-    );
+    const laid = await layoutSolved(solveFromPlan(plan, pack));
 
     const byId = new Map(laid.nodes.map((n) => [n.id, n]));
     let nl = Infinity;

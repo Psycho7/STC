@@ -35,9 +35,13 @@ vi.mock("../../src/pipeline/driver", async (importOriginal) => {
   };
 });
 
-import { solveForRender } from "../../src/pipeline/solveForRender";
+import {
+  solveForRender,
+  solveFromPlan,
+} from "../../src/pipeline/solveForRender";
 import { CLOSED_FORM_FIXTURES } from "../../src/solver/closed-form-fixtures";
-import type { ItemOverride } from "../../src/data/plan";
+import { defaultPlan, type ItemOverride, type Plan } from "../../src/data/plan";
+import { pack } from "../../src/data/load";
 
 const chain = CLOSED_FORM_FIXTURES.find((f) => f.name === "chain")!;
 
@@ -81,6 +85,38 @@ describe("solveForRender: one pack, one targets list, one overrides list", () =>
     const solveOverrides = calls.solve[0]![2];
     expect(solveOverrides).toEqual([]);
     expect(calls.render[0]![3]).toBe(solveOverrides);
+  });
+});
+
+// copper_jar at 1/s needs more inert gas than the 1/2 per second cap allows,
+// and no recipe produces gas_inert, so the shortfall cannot be routed around:
+// the LP funds a deficit column and returns a partial plan instead of throwing.
+const CAPPED: Plan = {
+  ...defaultPlan(pack),
+  targets: [{ itemId: "copper_jar", ratePerSec: { num: "1", denom: "1" } }],
+  itemOverrides: [
+    { itemId: "gas_inert", ratePerSec: { num: "1", denom: "2" } },
+  ],
+};
+
+describe("solveFromPlan: the targets the drawn plan misses", () => {
+  it("names a target the plan feeds below its declared rate", () => {
+    // The DEV render-invariant hook throws on exactly this plan, which would
+    // mask the reported list the production UI reads.
+    vi.stubEnv("DEV", false);
+    try {
+      const out = solveFromPlan(CAPPED);
+
+      expect(out.underDelivered).toEqual(["copper_jar"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("reports nothing for the same target with no cap starving it", () => {
+    const out = solveFromPlan({ ...CAPPED, itemOverrides: [] });
+
+    expect(out.underDelivered).toEqual([]);
   });
 });
 

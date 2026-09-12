@@ -24,11 +24,13 @@
 
 import type { RecipePack } from "@aef/schema";
 import { pack as shippedPack } from "../data/load";
-import type { ItemOverride } from "../data/plan";
+import type { ItemOverride, Plan } from "../data/plan";
 import type { ItemTarget } from "../data/targets";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "../solver";
+import { planToSolverArgs } from "../solver/planToSolverArgs";
 import type { RecipeId } from "../solver/types";
 import { renderPlanFromSolve, type RenderPipelineOutput } from "./driver";
+import { targetOutputShortfalls } from "./render/invariants";
 
 export type SolveForRenderRequest = {
   targets: ReadonlyArray<ItemTarget>;
@@ -43,10 +45,16 @@ export type SolveForRenderRequest = {
  * The render pipeline's output, the solve it came from, and the RAW pack both
  * ran against -- the layout step needs that same pack to build its item and
  * recipe lookups.
+ *
+ * `targets` and `itemOverrides` are the very lists both calls received, defaults
+ * already applied: a caller that checks the result (render invariants, shortfall
+ * reads) asserts against what was solved rather than re-deriving it.
  */
 export type SolveForRenderOutput = RenderPipelineOutput & {
   full: SolvePlanFull;
   pack: RecipePack;
+  targets: ReadonlyArray<ItemTarget>;
+  itemOverrides: ReadonlyArray<ItemOverride>;
 };
 
 export function solveForRender({
@@ -65,5 +73,42 @@ export function solveForRender({
     overrides,
     recipeCosts,
   );
-  return { full, pack, ...renderPlanFromSolve(full, pack, targets, overrides) };
+  return {
+    full,
+    pack,
+    targets,
+    itemOverrides: overrides,
+    ...renderPlanFromSolve(full, pack, targets, overrides),
+  };
+}
+
+/** A solve driven by a validated Plan, plus what the drawing fails to deliver. */
+export type SolveFromPlanOutput = SolveForRenderOutput & {
+  /**
+   * The target items the drawn plan feeds below their declared rate. The LP
+   * never reports these as infeasible - a capped raw input with no alternative
+   * route just yields a partial plan - so this is the one signal that the drawn
+   * graph does not meet the declared intent.
+   */
+  underDelivered: string[];
+};
+
+/**
+ * The Plan-driven half of the seam: convert the plan to solver arguments, solve
+ * and render it, and read the shortfalls off the plan that was drawn. Callers
+ * holding a Plan use this so the argument conversion and the shortfall read have
+ * one home each.
+ */
+export function solveFromPlan(
+  plan: Plan,
+  pack?: RecipePack | undefined,
+): SolveFromPlanOutput {
+  const { targets, itemOverrides, recipeCosts } = planToSolverArgs(plan);
+  const out = solveForRender({ targets, itemOverrides, recipeCosts, pack });
+  return {
+    ...out,
+    underDelivered: targetOutputShortfalls(out.plan, out.targets).map(
+      (s) => s.item,
+    ),
+  };
 }

@@ -17,7 +17,7 @@ import {
 } from "../../solver/closed-form-fixtures";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import type { Target } from "../../data/targets";
-import { solveForRender } from "../solveForRender";
+import { solveForRender, solveFromPlan } from "../solveForRender";
 import {
   capProducerInputOutflow,
   type CapEdge,
@@ -66,7 +66,6 @@ const JINLONG_STEER: Map<string, number> = new Map(
     .map((r) => [r.id, 1000]),
 );
 import { loadPlan } from "../../data/plan";
-import { planToSolverArgs } from "../../solver/planToSolverArgs";
 import { isMachineRecipeVertex, isRecipeUnit } from "../types";
 import { rationalFromString } from "./rational";
 import type { RenderPlan } from "../types";
@@ -113,13 +112,10 @@ describe("render corpus: RF-1 regression", () => {
         `failed to load RF-1 plan: ${JSON.stringify(outcome)}`,
       );
     }
-    const { targets, itemOverrides, recipeCosts } = planToSolverArgs(outcome.plan);
-    const { full, plan } = solveForRender({
-      targets,
+    const { full, plan, targets, itemOverrides } = solveFromPlan(
+      outcome.plan,
       pack,
-      itemOverrides,
-      recipeCosts,
-    });
+    );
     const results = checkRenderPlan({
       plan,
       rates: full.rates,

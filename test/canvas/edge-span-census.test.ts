@@ -13,8 +13,7 @@ import {
 } from "./edgeSpans";
 import { directCorridorClear } from "../../src/canvas/busRouting";
 import { loadPlan } from "../../src/data/plan";
-import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
-import { solveForRender } from "../../src/pipeline/solveForRender";
+import { solveFromPlan } from "../../src/pipeline/solveForRender";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
 import { pack } from "../../src/data/load";
 
@@ -46,7 +45,7 @@ describe("computeEdgeSpans", () => {
 });
 
 // The repro fragment (gzip + urlsafe-base64 plan JSON), sans leading '#'. Decoded
-// through the same loadPlan -> planToSolverArgs -> solve -> render -> layout chain
+// through the same loadPlan -> solve -> render -> layout chain
 // the app runs at mount time.
 const REPRO_FRAGMENT =
   "v1.H4sIAAAAAAAAAxXMyw6CMBAF0H-566pYHtL-gTsTl4SQMjM1jbwsZUX4d8PurM6OxdEXtoFM7IMMfCE30M07SnMM8-B6KGRXDYXCU1FpU9RejK9Kzb3OdFmbMmeumTLT5-zJPNAqpJAGgQUUkosfSStssyMkGZ8MC_ltYelWimFJXdGdfXRJXhLfQrA7pm2ExR0KLNN8Wmc4jvb4A_HsvUGyAAAA";
@@ -60,10 +59,7 @@ async function solvedReproPlan() {
       `repro fragment failed to load: ${JSON.stringify(outcome.error)}`,
     );
   }
-  const { targets, itemOverrides, recipeCosts } = planToSolverArgs(
-    outcome.plan,
-  );
-  return solveForRender({ targets, pack, itemOverrides, recipeCosts });
+  return solveFromPlan(outcome.plan, pack);
 }
 
 describe("edge-span census: repro plan", () => {
