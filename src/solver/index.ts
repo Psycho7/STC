@@ -1,7 +1,6 @@
 import Fraction from "fraction.js";
 import type { LogicalGraph } from "../canvas/layout";
-import type { Recipe, RecipePack } from "@aef/schema";
-import type { TransportConfig } from "../data/transport-config";
+import type { RecipePack } from "@aef/schema";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { augmentGraphWithLpSupport, buildRecipeGraphMulti } from "./graph";
@@ -13,9 +12,13 @@ import { pickTearEdges } from "./tear";
 import { replicatePerConsumer } from "./replicate";
 import { assignIdealMultipliers } from "./multiplier";
 import { assembleLogicalGraph } from "./assemble";
-import { bisimQuotient, deriveReplicaEdges, type ClassId } from "./bisim";
+import { bisimQuotient, deriveReplicaEdges } from "./bisim";
 import { assertInvariants } from "./invariants";
-import { netSelfConsumption } from "./net-self";
+import {
+  netSelfConsumption,
+  type NettedPack,
+  type NettedRecipeMap,
+} from "./net-self";
 import type {
   Condensation,
   ItemId,
@@ -71,14 +74,7 @@ function assertSolvable(
   }
 }
 
-function runBisim(
-  g: RecipeGraph,
-  rawReplicas: Replica[],
-): {
-  replicas: Replica[];
-  classByReplicaId: Map<ReplicaId, ClassId>;
-  classToQuotient: Map<ClassId, ReplicaId>;
-} {
+function runBisim(g: RecipeGraph, rawReplicas: Replica[]): Replica[] {
   const rawEdges = deriveReplicaEdges(g, rawReplicas);
   const pinnedReplicaIds = new Set(
     rawReplicas.filter((r) => r.sharedAtArticulation).map((r) => r.id),
@@ -87,15 +83,13 @@ function runBisim(
   // targetClass, item). Nothing downstream reads them - the later stages rebuild
   // per-pair flow rates from assembleLogicalGraph's edge list - so the solve
   // path opts out and only the bisim unit tests exercise that aggregation.
-  const { quotientReplicas, classByReplicaId, classToQuotient } = bisimQuotient(
-    {
-      replicas: rawReplicas,
-      edges: rawEdges,
-      pinnedReplicaIds,
-      emitEdges: false,
-    },
-  );
-  return { replicas: quotientReplicas, classByReplicaId, classToQuotient };
+  const { quotientReplicas } = bisimQuotient({
+    replicas: rawReplicas,
+    edges: rawEdges,
+    pinnedReplicaIds,
+    emitEdges: false,
+  });
+  return quotientReplicas;
 }
 
 /**
@@ -110,7 +104,12 @@ export type SolvePlanFull = {
   multipliers: Map<ReplicaId, number>;
   condensation: Condensation;
   torn: TornEdge[];
-  recipeById: Map<RecipeId, Recipe>;
+  /**
+   * Recipe lookup built from the NETTED pack, so the stoichiometry matches
+   * what the LP solved. Branded, and named for it: the drawing layers need the
+   * in-game rows and must build their own map from the raw pack instead.
+   */
+  nettedRecipeById: NettedRecipeMap;
   /**
    * Per-recipe execution rate from the LP solver. Zero-rate recipes drop out of
    * `replicas` (gated by the multipliers map), but this map stays complete so
@@ -123,14 +122,6 @@ export type SolvePlanFull = {
    * can fold equivalent replicas on the pre-ceiling rate.
    */
   idealCount: Map<ReplicaId, Fraction>;
-  /** Raw replica id -> its bisim class. Test-only: nothing in the render
-   *  pipeline or the canvas reads it; the bisim round-trip suite does.
-   */
-  classByReplicaId: Map<ReplicaId, ClassId>;
-  /** ClassId -> quotient replica id ("q:N"). Test-only, paired with
-   *  classByReplicaId by the same bisim round-trip suite.
-   */
-  classToQuotient: Map<ClassId, ReplicaId>;
   /**
    * Feasibility summary from the LP result. `softFeasible` is false when any
    * material demand stayed unmet; `deficits` lists each unmet item and its
@@ -161,8 +152,9 @@ export type SolvePlanFull = {
 // Shared pipeline behind the public entry point. Runs the full solve (graph
 // build, SCC condensation, LP solve, replication, bisim, multiplier assignment,
 // tear-edge rebuild, logical-graph assembly) and returns the assembled
-// SolvePlanFull plus the raw LpResult. It does NOT run the dev-only invariant
-// assertions; those stay with solvePlanWithIntermediates.
+// SolvePlanFull plus the raw LpResult and the netted pack it solved on. It
+// does NOT run the dev-only invariant assertions; those stay with
+// solvePlanWithIntermediates, which asserts against that same netted pack.
 //
 // The TornEdge[] is rebuilt here because the LP solver returns no torn-edge
 // metadata; return-arc rendering needs the full TornEdge objects with their
@@ -173,13 +165,16 @@ function runSolvePipeline(
   rawPack: RecipePack,
   itemOverrides: ItemOverride[] | undefined,
   recipeCosts: Map<RecipeId, number> | undefined,
-): { full: SolvePlanFull; lpResult: LpResult } {
+): { full: SolvePlanFull; lpResult: LpResult; nettedPack: NettedPack } {
   // Everything below (graph walk, LP, replication, assembly, and the
-  // recipeById map that feeds the render pipeline) must see the netted form;
-  // only display layers go back to the raw pack.
+  // nettedRecipeById map that feeds the render pipeline) must see the netted
+  // form; only display layers go back to the raw pack. The RawPack/NettedPack
+  // brands hold that line at the type level.
   const pack = netSelfConsumption(rawPack);
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const recipeById = new Map(
+    pack.recipes.map((r) => [r.id, r]),
+  ) as NettedRecipeMap;
 
   const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
   const lpResult = solveLp({
@@ -228,10 +223,7 @@ function runSolvePipeline(
     augmented,
     boundaryShare,
   });
-  const { replicas, classByReplicaId, classToQuotient } = runBisim(
-    g,
-    rawReplicas,
-  );
+  const replicas = runBisim(g, rawReplicas);
   const idealCount = assignIdealMultipliers(replicas, machineById, recipeById);
   // The integer machine count is the ceiling of the exact rational ideal.
   // idealCount already skipped zero-rate replicas, so every ceiling is >= 1.
@@ -264,11 +256,9 @@ function runSolvePipeline(
     multipliers,
     condensation: c,
     torn,
-    recipeById,
+    nettedRecipeById: recipeById,
     rates,
     idealCount,
-    classByReplicaId,
-    classToQuotient,
     feasibility: {
       softFeasible: lpResult.softFeasible,
       deficits: lpResult.deficit,
@@ -277,29 +267,21 @@ function runSolvePipeline(
     boundaryShare,
   };
 
-  return { full, lpResult };
+  return { full, lpResult, nettedPack: pack };
 }
 
 /**
  * Solve a plan and return the assembled LogicalGraph together with the
  * intermediate artifacts the render pipeline (cluster, expand, bisim, render)
  * needs. Runs the reference-free invariant assertions in dev/test builds.
- *
- * `tConfig` is accepted but unread: the transport config only ever fed the
- * lane packer, and every caller still hands it over. It stays in the signature
- * so callers keep a single solve entry point once transport is modelled again.
- * Nothing here validates it any more, so a carrier kind missing from the config
- * is caught only by loadTransportConfig, which the app runs at startup and the
- * CLI tools do not.
  */
 export function solvePlanWithIntermediates(
   targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
-  tConfig: TransportConfig,
   itemOverrides?: ItemOverride[],
   recipeCosts?: Map<RecipeId, number>,
 ): SolvePlanFull {
-  const { full, lpResult } = runSolvePipeline(
+  const { full, lpResult, nettedPack } = runSolvePipeline(
     targets,
     pack,
     itemOverrides,
@@ -307,10 +289,16 @@ export function solvePlanWithIntermediates(
   );
 
   if (import.meta.env.DEV) {
-    // Check against the same netted form the pipeline solved; raw
-    // self-consuming stoichiometry would flag phantom deficits on flows the
-    // netting already folded away.
-    assertInvariants(full, lpResult, netSelfConsumption(pack), targets, itemOverrides ?? []);
+    // Assert against the very pack the pipeline solved, not a second netting
+    // of the raw one: the checkers read the stoichiometry the LP saw.
+    assertInvariants({
+      full,
+      result: lpResult,
+      pack: nettedPack,
+      targets,
+      itemOverrides: itemOverrides ?? [],
+      ...(recipeCosts !== undefined && { recipeCosts }),
+    });
   }
 
   return full;

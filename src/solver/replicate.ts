@@ -1,5 +1,5 @@
 import Fraction from "fraction.js";
-import type { Recipe } from "@aef/schema";
+import type { Recipe, Stoich } from "@aef/schema";
 import type {
   Condensation,
   GroupId,
@@ -56,8 +56,10 @@ import { rationalFromString, type ItemTarget } from "../data/targets";
  * dispatch the four producer roles (SCC member, AP-shared, byproduct-shared,
  * per-consumer). It's stateful glue, not a public seam.
  *
- * `assignSplitRoles` and `propagateGroups` are exported so tests can exercise
- * the pure rules without a full RecipeGraph fixture.
+ * `splitConsumerDemand` and `assignSplitRoles` are exported as test surface,
+ * not as seams: no production code outside this module imports them. Both are
+ * pure, so their rules can be pinned with hand-built records instead of a full
+ * RecipeGraph fixture.
  */
 const EMPTY_ITEM_SET: ReadonlySet<ItemId> = new Set();
 
@@ -457,13 +459,13 @@ export function splitConsumerDemand(
 //   - Target seed -> `target:${rid}`  (a per-target tree)
 //   - Non-shared  -> inherits the consumer's group (a per-consumer tree)
 // One function so the grouping policy is auditable in one place.
-export type GroupRole =
+type GroupRole =
   | { kind: "scc"; sccId: SccId }
   | { kind: "apShared"; recipeId: RecipeId }
   | { kind: "target"; recipeId: RecipeId }
   | { kind: "inherit"; consumerGroupId: GroupId };
 
-export function propagateGroups(role: GroupRole): GroupId {
+function propagateGroups(role: GroupRole): GroupId {
   switch (role.kind) {
     case "scc":
       return `scc:${role.sccId}`;
@@ -489,27 +491,37 @@ export function propagateGroups(role: GroupRole): GroupId {
 // The split balances on one "split-driving" output item: one the recipe both
 // feeds intra-SCC and ships cross-boundary. Each entry of targetOutItems adds
 // a synthetic cross consumer on that produced item, so a targeted output
-// (primary or co-product) can be split-driving. outQtys gives per-item
-// produced quantities for the
-// produced-flow computation; primaryOutItem is the recipe's primary output and
-// the count==0 fallback balance item when nothing is split-driving. The >=2
-// split-driving case (a co-product role-split) is deferred and guarded by a
-// dev-only assertion.
+// (primary or co-product) can be split-driving. The recipe's own execution
+// rate, its primary output (the count==0 fallback balance item when nothing is
+// split-driving) and its per-item produced quantities all come off its member
+// record. The >=2 split-driving case (a co-product role-split) is deferred and
+// guarded by a dev-only assertion.
 //
 // Mass-balance contract: on a `split`, looperRate + delivererRate equals the
-// input `recipeRate` (apart from a defensive negative-cross clamp the
+// recipe's execution rate (apart from a defensive negative-cross clamp the
 // exact-rational solver makes unreachable in practice).
 //
 // Pure on purpose. The role classification is the load-bearing part and the
-// highest-value thing to test in isolation. Callers own the RecipeGraph and
-// resolve each edge's consumer rate and in-qty up front, so no graph access
-// lives here and tests can drive it with hand-built records.
-export type RoleEdge = { item: string; target: RecipeId };
+// highest-value thing to test in isolation. The caller owns the RecipeGraph
+// and flattens the SCC's members into plain records, so no graph access lives
+// here and tests can drive it with hand-built records.
+type RoleEdge = { item: string; target: RecipeId };
+
+// An SCC member as the role decision needs it: its LP execution rate plus its
+// stoichiometry. Flat and graph-free so the decision can derive the SCC's
+// apportionment itself.
+type SccMemberRecipe = {
+  id: RecipeId;
+  rate: Fraction;
+  in: ReadonlyArray<Stoich>;
+  out: ReadonlyArray<Stoich>;
+};
 
 // An intra-SCC outgoing edge with its consumer's per-edge stoichiometry
-// resolved. The caller multiplies `consumerRate * consumerInQty` per edge for
-// the intra-side flow share; edges with no resolvable consumer are dropped by
-// the caller, so they never contribute to intraFlow.
+// resolved. ensureSccReplicas multiplies `consumerRate * consumerInQty` per
+// edge to apportion the producing member's intra supply across its intra
+// consumers; an edge with no resolvable consumer carries zero stoichiometry
+// and so draws nothing. The role decision reads only item and target.
 export type ResolvedIntraEdge = {
   item: string;
   target: RecipeId;
@@ -517,7 +529,7 @@ export type ResolvedIntraEdge = {
   consumerInQty: number;
 };
 
-export type SplitDecision =
+type SplitDecision =
   | { kind: "single" }
   | {
       kind: "split";
@@ -527,36 +539,73 @@ export type SplitDecision =
       delivererFilter: Set<string>;
     };
 
+// Per intra-SCC item, the total demand from intra consumers (each consumer
+// counted once) and the total produced flow from intra producers (zero-rate
+// members contribute zero and self-cancel). When an item has >= 2 live intra
+// producers, each producer must be billed only its produced-flow share of the
+// consumers' demand, not every producer the consumer's whole demand (which
+// drove each producer's cross flow negative, zeroed every deliverer, and
+// starved the cross consumer). This mirrors the produced-flow weighting
+// splitConsumerDemand already uses for the boundary split.
+function sccApportionment(members: ReadonlyArray<SccMemberRecipe>): {
+  intraDemandByItem: Map<string, Fraction>;
+  intraProdByItem: Map<string, Fraction>;
+} {
+  const intraDemandByItem = new Map<string, Fraction>();
+  const intraProdByItem = new Map<string, Fraction>();
+  // Items produced by some member (so consumer demand for them is
+  // intra-supplied, not boundary-supplied).
+  const intraProducedItems = new Set<string>();
+  for (const m of members) {
+    for (const o of m.out) {
+      intraProducedItems.add(o.item);
+      intraProdByItem.set(
+        o.item,
+        (intraProdByItem.get(o.item) ?? new Fraction(0)).add(
+          m.rate.mul(new Fraction(o.qty)),
+        ),
+      );
+    }
+  }
+
+  // Each member's demand for an intra-produced input, counted once per
+  // (consumer, item) regardless of how many producers feed it.
+  for (const m of members) {
+    for (const inItem of m.in) {
+      if (!intraProducedItems.has(inItem.item)) continue;
+      intraDemandByItem.set(
+        inItem.item,
+        (intraDemandByItem.get(inItem.item) ?? new Fraction(0)).add(
+          m.rate.mul(new Fraction(inItem.qty)),
+        ),
+      );
+    }
+  }
+  return { intraDemandByItem, intraProdByItem };
+}
+
 export function assignSplitRoles(args: {
-  recipeRate: Fraction;
-  primaryOutItem: string; // recipe.out[0].item, or "" when recipe has no outputs
-  outQtys: Map<string, number>; // produced qty per output item
-  intraEdges: ResolvedIntraEdge[];
-  crossEdges: RoleEdge[];
+  // The member being decided. Absent from `members` (a malformed SCC) it
+  // reads as a rate-0 recipe with no outputs, which never splits.
+  recipeId: RecipeId;
+  // Every member of the recipe's SCC, the recipe itself included. The
+  // apportionment below is derived from them, so no caller can hand in a
+  // billing rule production never takes.
+  members: ReadonlyArray<SccMemberRecipe>;
+  intraEdges: ReadonlyArray<RoleEdge>;
+  crossEdges: ReadonlyArray<RoleEdge>;
   // Produced items of this recipe that are declared target items; each acts
   // as a synthetic cross-boundary consumer (the target output unit).
   targetOutItems: ReadonlySet<string>;
-  // Per intra-produced item: total intra-consumer demand (counted once per
-  // consumer) and total produced flow across the SCC's intra producers
-  // (zero-rate members contribute zero and self-cancel). When >= 2 producers
-  // feed an item, this recipe is billed only its produced-flow share of the
-  // demand; a single producer's share is 100% and its intra flow caps at
-  // min(demand, production). Required: every caller, tests included, derives
-  // them the way ensureSccReplicas does, so no caller can exercise a billing
-  // rule production never takes.
-  intraDemandByItem: ReadonlyMap<string, Fraction>;
-  intraProdByItem: ReadonlyMap<string, Fraction>;
 }): SplitDecision {
-  const {
-    recipeRate,
-    primaryOutItem,
-    outQtys,
-    intraEdges,
-    crossEdges,
-    targetOutItems,
-    intraDemandByItem,
-    intraProdByItem,
-  } = args;
+  const { recipeId, members, intraEdges, crossEdges, targetOutItems } = args;
+  const self = members.find((m) => m.id === recipeId);
+  const recipeRate = self?.rate ?? new Fraction(0);
+  // recipe.out[0].item, or "" when the recipe has no outputs.
+  const primaryOutItem = self?.out[0]?.item ?? "";
+  const outQtys = new Map<string, number>();
+  for (const o of self?.out ?? []) outQtys.set(o.item, o.qty);
+  const { intraDemandByItem, intraProdByItem } = sccApportionment(members);
   const shouldSplit =
     intraEdges.length > 0 &&
     (crossEdges.length > 0 || targetOutItems.size > 0) &&
@@ -727,57 +776,29 @@ function ensureSccReplicas(state: ReplicateState, sid: SccId): void {
   // what the loop already supplies over the torn arc.
   const intraSupplyByMember = new Map<RecipeId, Map<string, Fraction>>();
 
-  // Per intra-SCC item, the total demand from intra consumers (each consumer
-  // counted once) and the total produced flow from intra producers. When an item
-  // has >= 2 live intra producers, each producer must be billed only its produced
-  // -flow share of the consumers' demand, not every producer the consumer's whole
-  // demand (which drove each producer's cross flow negative, zeroed every
-  // deliverer, and starved the cross consumer). This mirrors the produced-flow
-  // weighting splitConsumerDemand already uses for the boundary split.
-  const intraDemandByItem = new Map<string, Fraction>();
-  const intraProdByItem = new Map<string, Fraction>();
-  {
-    // Items produced by some intra member (so consumer demand for them is
-    // intra-supplied, not boundary-supplied).
-    const intraProducedItems = new Set<string>();
-    for (const rid of scc.recipeIds) {
-      const rate = state.rates.get(rid) ?? new Fraction(0);
-      for (const o of state.g.nodes.get(rid)?.out ?? []) {
-        intraProducedItems.add(o.item);
-        intraProdByItem.set(
-          o.item,
-          (intraProdByItem.get(o.item) ?? new Fraction(0)).add(
-            rate.mul(new Fraction(o.qty)),
-          ),
-        );
-      }
-    }
-    // Each member's demand for an intra-produced input, counted once per
-    // (consumer, item) regardless of how many producers feed it.
-    for (const rid of scc.recipeIds) {
-      const rate = state.rates.get(rid) ?? new Fraction(0);
-      for (const inItem of state.g.nodes.get(rid)?.in ?? []) {
-        if (!intraProducedItems.has(inItem.item)) continue;
-        intraDemandByItem.set(
-          inItem.item,
-          (intraDemandByItem.get(inItem.item) ?? new Fraction(0)).add(
-            rate.mul(new Fraction(inItem.qty)),
-          ),
-        );
-      }
-    }
-  }
+  // The SCC flattened into plain records: assignSplitRoles derives the intra
+  // demand and production apportionment from them, so it needs no graph.
+  const memberRecipes: SccMemberRecipe[] = scc.recipeIds.map((rid) => {
+    const node = state.g.nodes.get(rid);
+    return {
+      id: rid,
+      rate: state.rates.get(rid) ?? new Fraction(0),
+      in: node?.in ?? [],
+      out: node?.out ?? [],
+    };
+  });
 
   for (const rid of scc.recipeIds) {
     // Split the recipe's outgoing edges into intra-SCC and cross-boundary roles.
-    // Intra edges resolve their consumer's per-edge rate and in-qty here so
-    // assignSplitRoles stays graph-free. The target-output role is a virtual
-    // cross-boundary signal that fires when this recipe is a user-declared target
-    // (the boundary-products pass later synthesizes a target output edge from its
-    // stamps). An edge whose consumer can't be resolved (missing node or no
-    // matching in-stoich) is emitted with zero stoichiometry, so the looperFilter
-    // still gets the edge key while the flow loop sees a zero contribution -
-    // identical to the earlier null-skip-but-always-include-in-filter behavior.
+    // Intra edges resolve their consumer's per-edge rate and in-qty here, for
+    // the intra-supply apportionment further down. The target-output role is a
+    // virtual cross-boundary signal that fires when this recipe is a
+    // user-declared target (the boundary-products pass later synthesizes a
+    // target output edge from its stamps). An edge whose consumer can't be
+    // resolved (missing node or no matching in-stoich) is emitted with zero
+    // stoichiometry, so the looperFilter still gets the edge key while the
+    // supply loop sees a zero contribution - identical to the earlier
+    // null-skip-but-always-include-in-filter behavior.
     const intraEdges: ResolvedIntraEdge[] = [];
     const crossEdges: RoleEdge[] = [];
     for (const e of state.g.outgoing.get(rid) ?? []) {
@@ -801,7 +822,6 @@ function ensureSccReplicas(state: ReplicateState, sid: SccId): void {
       state.targetItemsByRecipe.get(rid) ?? EMPTY_ITEM_SET;
     const recipeRate = state.rates.get(rid) ?? new Fraction(0);
     const recipe = state.g.nodes.get(rid);
-    const primaryOutItem = recipe?.out[0]?.item ?? "";
     const outQtys = new Map<string, number>();
     for (const o of recipe?.out ?? []) outQtys.set(o.item, o.qty);
     // Accumulate this member's intra supply to its intra consumers. An item's
@@ -854,14 +874,11 @@ function ensureSccReplicas(state: ReplicateState, sid: SccId): void {
       }
     }
     const decision = assignSplitRoles({
-      recipeRate,
-      primaryOutItem,
-      outQtys,
+      recipeId: rid,
+      members: memberRecipes,
       intraEdges,
       crossEdges,
       targetOutItems,
-      intraDemandByItem,
-      intraProdByItem,
     });
 
     if (decision.kind === "single") {

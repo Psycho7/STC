@@ -1,28 +1,19 @@
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import { renderPlanFromSolve } from "../../src/pipeline/driver";
-import { solvePlanWithIntermediates } from "../../src/solver";
+import { netSelfConsumption } from "../../src/solver/net-self";
+import type { LayoutInput } from "../../src/canvas/layout";
 import { pack } from "../../src/data/load";
-import {
-  defaultTransportConfig,
-  loadTransportConfig,
-} from "../../src/data/transport-config";
 import { defaultTargets, rationalFromString } from "../../src/data/targets";
 
 describe("pipeline driver: default AEF targets", () => {
   it("produces a render plan with at least one unit and one edge", () => {
-    const full = solvePlanWithIntermediates(
-      defaultTargets(),
-      pack,
-      loadTransportConfig(defaultTransportConfig, pack),
-    );
     const targets = defaultTargets();
-    const { plan, machineGraph, containers } = renderPlanFromSolve(
-      full,
-      pack,
+    const { plan, machineGraph, containers } = solveForRender({
       targets,
-      [],
-    );
+      pack,
+    });
 
     expect(plan.units.length).toBeGreaterThan(0);
     expect(plan.edges.length).toBeGreaterThan(0);
@@ -54,12 +45,7 @@ describe("pipeline driver: default AEF targets", () => {
     const targets = [
       { itemId: "plant_grass_seed_1", ratePerSec: targetRatePerSec },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      loadTransportConfig(defaultTransportConfig, pack),
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { plan } = solveForRender({ targets, pack });
 
     const targetRecipe = pack.recipes.find((r) => r.id === targetRecipeId);
     if (!targetRecipe) throw new Error("test fixture missing");
@@ -96,11 +82,7 @@ describe("pipeline driver: default AEF targets", () => {
     const targets = [
       { itemId: targetItem, ratePerSec: { num: "1", denom: "1" } },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      loadTransportConfig(defaultTransportConfig, pack),
-    );
+    const { full, plan } = solveForRender({ targets, pack });
 
     // Mass-balance invariant: sum of split planter executionRates equals the
     // pre-split recipe rate (rates.get(plant_moss_3) == 2).
@@ -133,7 +115,6 @@ describe("pipeline driver: default AEF targets", () => {
 
     // Pipeline render: expect two recipe render units for the planter
     // (distinct replica ids) plus one for the picker.
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
     const planterUnits = plan.units.filter(
       (u) => u.kind === "recipe" && u.recipeId === targetRecipeId,
     );
@@ -181,12 +162,7 @@ describe("pipeline driver: default AEF targets", () => {
 describe("pipeline driver: stamp cap is invisible after folding", () => {
   const solve = (ratePerSec: { num: string; denom: string }) => {
     const targets = [{ itemId: "proc_battery_5", ratePerSec }];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      loadTransportConfig(defaultTransportConfig, pack),
-    );
-    return { full, ...renderPlanFromSolve(full, pack, targets, []) };
+    return solveForRender({ targets, pack });
   };
 
   const SCALE = 1000;
@@ -247,5 +223,36 @@ describe("pipeline driver: stamp cap is invisible after folding", () => {
         ),
       ).toBe(true);
     }
+  });
+});
+
+// The raw/netted split used to be four prose comments. These two cases pin it
+// as a compile error instead: neither call is ever run, the assertion is that
+// tsc rejects the argument. Same pattern as the strict-mode case in
+// test/transport-config-guard.test.ts.
+describe("the netted form cannot cross into the drawing layers", () => {
+  it("refuses a netted pack at the render pipeline entry", () => {
+    const targets = defaultTargets();
+    const { full } = solveForRender({ targets, pack });
+    const netted = netSelfConsumption(pack);
+    const attempt = () =>
+      renderPlanFromSolve(
+        full,
+        // @ts-expect-error -- renderPlanFromSolve takes the RAW pack.
+        netted,
+        targets,
+        [],
+      );
+    expect(typeof attempt).toBe("function");
+  });
+
+  it("refuses the solve's netted recipe map at the layout entry", () => {
+    const targets = defaultTargets();
+    const { full } = solveForRender({ targets, pack });
+    const input: Pick<LayoutInput, "recipeById"> = {
+      // @ts-expect-error -- layoutRenderPlan draws from the RAW stoichiometry.
+      recipeById: full.nettedRecipeById,
+    };
+    expect(input.recipeById.size).toBeGreaterThan(0);
   });
 });

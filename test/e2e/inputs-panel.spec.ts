@@ -1,4 +1,5 @@
 import { test, expect, type ConsoleMessage, type Page } from "@playwright/test";
+import { bootExamPage, waitForCanvasReady } from "./viewport";
 import { planHash } from "./plan-hash";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
@@ -25,18 +26,6 @@ function attachConsoleListener(page: Page): ConsoleLog {
     errors.push(`pageerror: ${err.message}`);
   });
   return { errors, warnings };
-}
-
-// Wait for the React Flow canvas to render at least one pipeline node. Without
-// this gate, panel mutations race the initial solver/render pass.
-async function waitForCanvasReady(page: Page): Promise<void> {
-  const anyNode = page
-    .locator(".react-flow")
-    .locator(
-      ".react-flow__node-recipe, .react-flow__node-loop, .react-flow__node-product",
-    )
-    .first();
-  await expect(anyNode).toBeVisible({ timeout: 20_000 });
 }
 
 // Wait for the side-panel InputsPanel to mount. PlanV2 is bootstrapped on first
@@ -130,8 +119,7 @@ test.describe("InputsPanel golden-path coverage", () => {
     page,
   }) => {
     const log = attachConsoleListener(page);
-    await page.goto("/", { waitUntil: "load" });
-    await waitForCanvasReady(page);
+    await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
     await waitForInputsPanel(page);
 
     const initialCount = await inputRows(page).count();
@@ -161,8 +149,7 @@ test.describe("InputsPanel golden-path coverage", () => {
     page,
   }) => {
     const log = attachConsoleListener(page);
-    await page.goto("/", { waitUntil: "load" });
-    await waitForCanvasReady(page);
+    await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
     await waitForInputsPanel(page);
 
     const initialCount = await inputRows(page).count();
@@ -195,8 +182,7 @@ test.describe("InputsPanel golden-path coverage", () => {
     page,
   }) => {
     const log = attachConsoleListener(page);
-    await page.goto("/", { waitUntil: "load" });
-    await waitForCanvasReady(page);
+    await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
     await waitForInputsPanel(page);
 
     const initialCount = await inputRows(page).count();
@@ -232,10 +218,11 @@ test.describe("InputsPanel golden-path coverage", () => {
     const log = attachConsoleListener(page);
     // Seed the dual-listed plan so copper_powder is consumed in-graph (by
     // liquid_copper) and an input override on it surfaces a boundary input node.
-    await page.goto(`/#${await makeDualListedPlanHash()}`, {
-      waitUntil: "load",
+    await bootExamPage(page, {
+      url: `/#${await makeDualListedPlanHash()}`,
+      readiness: "nodes",
+      settle: "none",
     });
-    await waitForCanvasReady(page);
     await waitForInputsPanel(page);
 
     const initialCount = await inputRows(page).count();
@@ -315,8 +302,7 @@ test.describe("InputsPanel golden-path coverage", () => {
     page,
   }) => {
     const log = attachConsoleListener(page);
-    await page.goto("/", { waitUntil: "load" });
-    await waitForCanvasReady(page);
+    await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
     await waitForInputsPanel(page);
 
     // copper_ore is a raw boundary input for the default plan, so it is an
@@ -371,10 +357,11 @@ test.describe("InputsPanel golden-path coverage", () => {
     const log = attachConsoleListener(page);
     // Seed a plan whose targets are copper_powder and liquid_copper, the latter
     // consuming copper_powder so the item is both produced and consumed.
-    await page.goto(`/#${await makeDualListedPlanHash()}`, {
-      waitUntil: "load",
+    await bootExamPage(page, {
+      url: `/#${await makeDualListedPlanHash()}`,
+      readiness: "nodes",
+      settle: "none",
     });
-    await waitForCanvasReady(page);
     await waitForInputsPanel(page);
 
     // copper_powder is a target output AND is consumed by liquid_copper in the
@@ -427,10 +414,11 @@ test.describe("InputsPanel golden-path coverage", () => {
     page,
   }) => {
     const log = attachConsoleListener(page);
-    await page.goto(`/#${await makeDualListedPlanHash()}`, {
-      waitUntil: "load",
+    await bootExamPage(page, {
+      url: `/#${await makeDualListedPlanHash()}`,
+      readiness: "nodes",
+      settle: "none",
     });
-    await waitForCanvasReady(page);
     await waitForInputsPanel(page);
 
     // This pins current behaviour, it does not endorse it. Tests 4 and 6 pick

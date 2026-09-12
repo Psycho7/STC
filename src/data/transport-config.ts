@@ -1,6 +1,19 @@
-import type { RecipePack, TransportKindId } from "@aef/schema";
+import type { Item, RecipePack, TransportKindId } from "@aef/schema";
 import raw from "@aef/data/transport-config.json";
-import { UnknownCarrierError } from "../solver/types";
+
+export class UnknownCarrierError extends Error {
+  constructor(
+    public itemId: Item["id"] | null,
+    public kind: TransportKindId,
+  ) {
+    super(
+      itemId === null
+        ? `unknown carrier kind '${kind}'`
+        : `unknown carrier kind '${kind}' for item '${itemId}'`,
+    );
+    this.name = "UnknownCarrierError";
+  }
+}
 
 export type TransportConfig = {
   schemaVersion: string;
@@ -17,6 +30,13 @@ const EXPECTED_SCHEMA = "0.2";
 
 export const defaultTransportConfig: TransportConfig = raw as TransportConfig;
 
+/**
+ * Validate that every carrier kind the pack names has a config entry, and
+ * return the config. This is the only carrier-kind check left: the solver
+ * stopped taking a transport config, so a kind missing from the config is
+ * caught here alone. The app runs this at startup; the CLI tools do not, so
+ * they would render an unknown kind without complaint.
+ */
 export function loadTransportConfig(
   config: TransportConfig,
   pack: RecipePack,

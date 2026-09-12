@@ -12,7 +12,7 @@ import {
   makeRecipeNodeProps,
 } from "./node.testkit";
 import { LocaleProvider } from "../data/i18n-context";
-import { cssBlock } from "../../test/canvas/cssContract";
+import { cssBlock } from "./cssContract.testkit";
 
 afterEach(cleanup);
 

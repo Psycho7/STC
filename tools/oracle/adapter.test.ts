@@ -41,6 +41,28 @@ describe("STC -> FactorioLab adapter", () => {
     expect(result.steps.length).toBeGreaterThan(0);
   });
 
+  // An override may name an item the pack does not carry (a stale plan, a
+  // renamed id). buildSupplyTable answers such an id, but the adapter's index
+  // maps are built from pack.items alone, so an Input objective on it would
+  // name an item the dataset never declares and runGlpk would crash on the
+  // missing itemAvailableRecipeIds entry.
+  it("ignores an override on an id the pack does not carry", () => {
+    const ghostId = "not_an_item_in_the_pack";
+    expect(pack.items.some((i) => i.id === ghostId)).toBe(false);
+
+    const { objectives, data } = buildAdapterInput({
+      pack,
+      targets: headline,
+      itemOverrides: [
+        { itemId: ghostId, ratePerSec: { num: "1", denom: "1" } },
+      ],
+    });
+
+    expect(objectives.some((o) => o.targetId === ghostId)).toBe(false);
+    expect(data.itemIds).not.toContain(ghostId);
+    expect(data.itemAvailableRecipeIds[ghostId]).toBeUndefined();
+  });
+
   // Fidelity check under the v1.4 pack.
   //
   // PREMISE UPDATED: the old fixture asserted a 4:1 liquid_xiranite_poly :

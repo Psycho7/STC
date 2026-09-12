@@ -13,6 +13,10 @@ import { InputsPanel } from "../../src/components/InputsPanel";
 import { makePack } from "../../src/solver/closed-form-fixtures";
 import { LocaleProvider } from "../../src/data/i18n-context";
 import type { ItemOverride } from "../../src/data/plan";
+import {
+  controlledOwner,
+  pickerTile,
+} from "../../src/components/panel.testkit";
 
 afterEach(() => cleanup());
 
@@ -33,15 +37,6 @@ const TEXT_ADD = "添加输入";
 // the string, not just the element, is what ties the rendered hint to
 // inputs.picker.listed rather than to any string the popup happened to get.
 const TEXT_PICKER_HINT = "灰显的物品已在面板中 — 请直接编辑对应行";
-
-// data-item-id appears on picker tiles, on auto-rows and on override rows, and
-// the popup portals to document.body alongside the Testing Library container,
-// so a bare [data-item-id] query can resolve to a row instead of a tile.
-function pickerTile(itemId: string): HTMLButtonElement | null {
-  return document.querySelector(
-    `[data-testid="picker-tile"][data-item-id="${itemId}"]`,
-  );
-}
 
 // onChange takes a functional updater, so every assertion about what a gesture
 // commits runs that updater over a starting list. The cast is the same at every
@@ -130,17 +125,16 @@ describe("InputsPanel", () => {
 
   it("a pick from the Add picker focuses the new row's rate input", async () => {
     const user = userEvent.setup();
-    function Parent() {
-      const [rows, setRows] = useState<ItemOverride[]>([]);
-      return (
+    const owner = controlledOwner<ItemOverride[]>([]);
+    render(
+      owner.element((overrides, onChange) => (
         <InputsPanel
-          itemOverrides={rows}
-          onChange={(update) => setRows((cur) => update(cur))}
+          itemOverrides={overrides}
+          onChange={onChange}
           pack={fixturePack}
         />
-      );
-    }
-    render(<Parent />);
+      )),
+    );
     await user.click(screen.getByText(TEXT_ADD));
     await user.click(pickerTile("iron_ore")!);
     const rateInput = screen.getAllByLabelText("速率")[0]!;
@@ -517,8 +511,8 @@ describe("InputsPanel", () => {
     // Unlimited indicator left is the rate-input placeholder.
     expect(screen.queryByTestId("input-unlimited")).toBeNull();
     expect(screen.queryByText(/^RAW$/)).toBeNull();
-    const rateInputs = screen.getAllByLabelText("速率");
-    expect(rateInputs[0]!.getAttribute("placeholder")).toBe("无限");
+    const rateFields = screen.getAllByLabelText("速率");
+    expect(rateFields[0]!.getAttribute("placeholder")).toBe("无限");
   });
 
   it("auto-rows: assumed-raw items without an override stay visible alongside overrides", () => {
@@ -699,19 +693,16 @@ describe("InputsPanel", () => {
 
   it("a committed swap moves focus to the swapped row's trigger", async () => {
     const user = userEvent.setup();
-    function Parent() {
-      const [rows, setRows] = useState<ItemOverride[]>([
-        { itemId: "copper_ore" },
-      ]);
-      return (
+    const owner = controlledOwner<ItemOverride[]>([{ itemId: "copper_ore" }]);
+    render(
+      owner.element((overrides, onChange) => (
         <InputsPanel
-          itemOverrides={rows}
-          onChange={(update) => setRows((cur) => update(cur))}
+          itemOverrides={overrides}
+          onChange={onChange}
           pack={fixturePack}
         />
-      );
-    }
-    render(<Parent />);
+      )),
+    );
     await user.click(rowTrigger());
     await user.click(pickerTile("iron_ore")!);
     const trigger = rowTrigger();
@@ -745,20 +736,19 @@ describe("InputsPanel", () => {
 
   it("swapping a capped row onto an auto-row item carries the cap and retires the auto-row", async () => {
     const user = userEvent.setup();
-    function Parent() {
-      const [rows, setRows] = useState<ItemOverride[]>([
-        { itemId: "zinc", ratePerSec: { num: "3", denom: "1" } },
-      ]);
-      return (
+    const owner = controlledOwner<ItemOverride[]>([
+      { itemId: "zinc", ratePerSec: { num: "3", denom: "1" } },
+    ]);
+    render(
+      owner.element((overrides, onChange) => (
         <InputsPanel
-          itemOverrides={rows}
-          onChange={(update) => setRows((cur) => update(cur))}
+          itemOverrides={overrides}
+          onChange={onChange}
           pack={fixturePack}
           assumedRawItemIds={["copper_ore", "iron_ore"]}
         />
-      );
-    }
-    render(<Parent />);
+      )),
+    );
     // The override row's trigger is the only 物品 control; auto-rows have none.
     await user.click(rowTrigger());
     await user.click(pickerTile("copper_ore")!);
@@ -858,7 +848,7 @@ describe("InputsPanel", () => {
 
   it("an unapplied pick does not leave a token that steals focus later", async () => {
     const user = userEvent.setup();
-    function Parent() {
+    function InertOwner() {
       const [rows, setRows] = useState<ItemOverride[]>([
         { itemId: "copper_plate" },
       ]);
@@ -875,7 +865,7 @@ describe("InputsPanel", () => {
         </>
       );
     }
-    render(<Parent />);
+    render(<InertOwner />);
     await user.click(rowTrigger());
     await user.click(pickerTile("zinc")!);
     // Park focus somewhere unrelated, as a user would.

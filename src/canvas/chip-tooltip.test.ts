@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import { cssBlock } from "../../test/canvas/cssContract";
+import { cssBlock } from "./cssContract.testkit";
 
 // The chip tooltip only shows if the chip itself accepts pointer events; the
 // edgelabel-renderer that portals the chip sets pointer-events:none, so the

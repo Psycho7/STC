@@ -1,5 +1,5 @@
 import Fraction from "fraction.js";
-import type { Recipe, TransportKindId } from "@aef/schema";
+import type { Recipe } from "@aef/schema";
 
 export type RecipeId = string;
 export type ItemId = string;
@@ -75,19 +75,5 @@ export class MissingMachineError extends Error {
       `recipe ${recipeId} has no resolvable producer (${producerId ?? "<empty>"})`,
     );
     this.name = "MissingMachineError";
-  }
-}
-
-export class UnknownCarrierError extends Error {
-  constructor(
-    public itemId: ItemId | null,
-    public kind: TransportKindId,
-  ) {
-    super(
-      itemId === null
-        ? `unknown carrier kind '${kind}'`
-        : `unknown carrier kind '${kind}' for item '${itemId}'`,
-    );
-    this.name = "UnknownCarrierError";
   }
 }

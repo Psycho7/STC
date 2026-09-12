@@ -1,10 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { solvePlanWithIntermediates } from "../../src/solver";
 import { pack } from "../../src/data/load";
-import {
-  defaultTransportConfig,
-  loadTransportConfig,
-} from "../../src/data/transport-config";
 import { defaultTargets } from "../../src/data/targets";
 
 describe("solvePlanWithIntermediates (end-to-end on real AEF)", () => {
@@ -16,12 +12,7 @@ describe("solvePlanWithIntermediates (end-to-end on real AEF)", () => {
     // across 4 blueprint groups (3 targets + 1 shared). Thresholds set just
     // below those so harmless upstream data drift does not break the smoke
     // check.
-    const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-    const graph = solvePlanWithIntermediates(
-      defaultTargets(),
-      pack,
-      tConfig,
-    ).logical;
+    const graph = solvePlanWithIntermediates(defaultTargets(), pack).logical;
     const recipeNodes = graph.nodes.filter((n) => n.kind === "recipe");
     const groupNodes = graph.nodes.filter((n) => n.kind === "group");
     expect(recipeNodes.length).toBeGreaterThanOrEqual(3);
@@ -29,12 +20,7 @@ describe("solvePlanWithIntermediates (end-to-end on real AEF)", () => {
   });
 
   it("default targets land copper_powder with a positive multiplier", () => {
-    const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-    const graph = solvePlanWithIntermediates(
-      defaultTargets(),
-      pack,
-      tConfig,
-    ).logical;
+    const graph = solvePlanWithIntermediates(defaultTargets(), pack).logical;
     const cp = graph.nodes.find(
       (n) => n.kind === "recipe" && n.recipe.id === "copper_powder",
     );
@@ -43,17 +29,8 @@ describe("solvePlanWithIntermediates (end-to-end on real AEF)", () => {
   });
 
   it("deterministic across two calls", () => {
-    const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-    const g1 = solvePlanWithIntermediates(
-      defaultTargets(),
-      pack,
-      tConfig,
-    ).logical;
-    const g2 = solvePlanWithIntermediates(
-      defaultTargets(),
-      pack,
-      tConfig,
-    ).logical;
+    const g1 = solvePlanWithIntermediates(defaultTargets(), pack).logical;
+    const g2 = solvePlanWithIntermediates(defaultTargets(), pack).logical;
     const n1 = g1.nodes.map((n) => n.id).sort();
     const n2 = g2.nodes.map((n) => n.id).sort();
     expect(JSON.stringify(n1)).toBe(JSON.stringify(n2));

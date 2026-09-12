@@ -17,7 +17,12 @@ import Fraction from "fraction.js";
 import { solveLp } from "./lp";
 import { activeRecipeSet } from "./optimality";
 import { checkMassBalance, checkTargetsMet } from "./invariants";
-import {
+import * as corpus from "./corpus";
+
+// One namespace import, then the names the scenario bodies below use. Binding
+// them here instead of importing each one keeps the corpus module's surface out
+// of this file's import list.
+const {
   splitTargetProducers,
   splitTargetProducersGolden,
   acyclicSingleProducer,
@@ -58,7 +63,7 @@ import {
   freeBoundaryTargetGolden,
   freeBoundaryTargetWithMiner,
   freeBoundaryTargetWithMinerGolden,
-} from "./corpus";
+} = corpus;
 
 // Relative tolerance for objectiveValue; tighter than the 1e-6
 // Fraction.simplify threshold in lp.ts.

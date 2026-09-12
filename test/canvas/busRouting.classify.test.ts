@@ -31,6 +31,7 @@ import {
 } from "../../src/canvas/busRouting";
 import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
+import { formatRatePerMin } from "../../src/data/rate-format";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import {
   PORT_STUB,
@@ -1401,4 +1402,130 @@ describe("routeBusEdges trunk rise-chip slots", () => {
     }
   });
 
+});
+
+// A far-apart product source and several product targets, so every source->target
+// edge clears the bus span threshold and gets classified into one (item, source)
+// trunk. Product nodes carry explicit width/height so nodeHeight needs no recipe.
+function waterProductNode(id: string, x: number): RFAnyNode {
+  return {
+    id,
+    type: "product",
+    position: { x, y: 0 },
+    width: 148,
+    height: 60,
+    data: { kind: "inputProduct", itemId: "water" },
+  } as unknown as RFAnyNode;
+}
+
+function waterBusEdge(id: string, target: string, rate: Fraction): Edge {
+  return {
+    id,
+    source: "s",
+    target,
+    data: { item: "water", rate },
+  };
+}
+
+describe("routeBusEdges product trunks", () => {
+  it("routeBusEdges aggregates one trunk into a single owner chip with the summed rate", () => {
+    const nodes = [
+      waterProductNode("s", 0),
+      waterProductNode("t1", 5000),
+      waterProductNode("t2", 5000),
+      waterProductNode("t3", 5000),
+    ];
+    const edges = [
+      waterBusEdge("e:1", "t1", new Fraction(400)),
+      waterBusEdge("e:3", "t2", new Fraction(400)),
+      waterBusEdge("e:2", "t3", new Fraction(700)),
+    ];
+
+    const routed = routeBusEdges(nodes, edges);
+    const owners = routed.filter(
+      (e) => (e.data as { busChipOwner?: boolean }).busChipOwner,
+    );
+    // Exactly one member of the trunk owns the drop chip.
+    expect(owners).toHaveLength(1);
+    // Election is deterministic: the lexicographically smallest edge id wins.
+    expect(owners[0]!.id).toBe("e:1");
+    const ownerData = owners[0]!.data as {
+      busTotalRate?: Fraction;
+      busMemberCount?: number;
+    };
+    // The owner carries the exact trunk total (400 + 400 + 700) and the count.
+    expect(ownerData.busTotalRate!.equals(new Fraction(1500))).toBe(true);
+    expect(ownerData.busMemberCount).toBe(3);
+    // Non-owner members are flagged so BusEdge suppresses their drop chip.
+    for (const e of routed) {
+      if (e.id === "e:1") continue;
+      expect((e.data as { busChipOwner?: boolean }).busChipOwner).toBe(false);
+    }
+  });
+
+  it("routeBusEdges' aggregate keeps the exact total the cards format", () => {
+    // 4.256/min and 2.856/min display as "4.26" and "2.86" (sum 7.12), but the
+    // boundary cards format the exact total 7.112 as "7.11". The chip
+    // denominator must agree with the cards, not with the rounded member sum
+    // (exam Z3: 24.55-vs-24.56 read as an accounting error).
+    const nodes = [
+      waterProductNode("s", 0),
+      waterProductNode("t1", 5000),
+      waterProductNode("t2", 5000),
+    ];
+    const edges = [
+      waterBusEdge("e:1", "t1", new Fraction("4.256").div(60)),
+      waterBusEdge("e:2", "t2", new Fraction("2.856").div(60)),
+    ];
+    const routed = routeBusEdges(nodes, edges);
+    const owner = routed.find(
+      (e) => (e.data as { busChipOwner?: boolean }).busChipOwner,
+    )!;
+    const d = owner.data as { busTotalRate?: Fraction };
+    expect(formatRatePerMin(d.busTotalRate!)).toBe("7.11");
+    expect(d.busTotalRate!.equals(new Fraction("7.112").div(60))).toBe(true);
+    expect(
+      "busDisplayTotalRate" in (owner.data as Record<string, unknown>),
+    ).toBe(false);
+  });
+
+  it("routeBusEdges leaves a lone trunk member as its own owner with count 1", () => {
+    // The mid blocker keeps the lone member's corridor unprovable so it stays on
+    // the lane (a clear corridor would demote it to a plain item edge).
+    const nodes = [
+      waterProductNode("s", 0),
+      waterProductNode("mid", 2500),
+      waterProductNode("t1", 5000),
+    ];
+    const edges = [waterBusEdge("e:1", "t1", new Fraction(400))];
+    const routed = routeBusEdges(nodes, edges);
+    const d = routed[0]!.data as {
+      busChipOwner?: boolean;
+      busMemberCount?: number;
+      busTotalRate?: Fraction;
+    };
+    expect(d.busChipOwner).toBe(true);
+    expect(d.busMemberCount).toBe(1);
+    expect(d.busTotalRate!.equals(new Fraction(400))).toBe(true);
+  });
+
+  it("routeBusEdges gives two members feeding one target distinct rise-chip slots", () => {
+    // Two bus members feeding the same far target would rise at the same column and
+    // stack their rise chips. routeBusEdges instead assigns each member a distinct
+    // lane x-slot, so their rise chips spread along the lane. Ordering is by edge
+    // id (e:1 before e:2).
+    const nodes = [waterProductNode("s", 0), waterProductNode("t1", 5000)];
+    const edges = [
+      waterBusEdge("e:1", "t1", new Fraction(400)),
+      waterBusEdge("e:2", "t1", new Fraction(400)),
+    ];
+    const out = routeBusEdges(nodes, edges);
+    const slots = out.map((e) => (e.data as { busChipX?: number }).busChipX);
+    for (const x of slots) expect(typeof x).toBe("number");
+    expect(new Set(slots).size).toBe(2);
+    const byId = new Map(
+      out.map((e) => [e.id, (e.data as { busChipX: number }).busChipX]),
+    );
+    expect(byId.get("e:1")!).toBeLessThan(byId.get("e:2")!);
+  });
 });

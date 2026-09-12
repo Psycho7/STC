@@ -440,3 +440,139 @@ describe("replicatePerConsumer", () => {
     expect(m2!.outgoingEdgeFilter).toBeUndefined();
   });
 });
+
+// The blueprintGroupId a replica lands in follows from how it was reached:
+// an SCC member is grouped with its SCC, an AP-shared producer with its own
+// recipe, a target producer with its target tree, and a per-consumer producer
+// inherits its consumer's group. Asserted on the emitted replicas rather than
+// on the derivation rule, which is module-private.
+describe("replicatePerConsumer: blueprint grouping", () => {
+  it("groups every member of one SCC under scc:<sccId>", () => {
+    const g = buildG(
+      [
+        { id: "M1", in: [{ item: "b", qty: 1 }], out: [{ item: "a", qty: 1 }] },
+        { id: "M2", in: [{ item: "a", qty: 1 }], out: [{ item: "b", qty: 1 }] },
+      ],
+      [
+        ["M1", "M2", "a"],
+        ["M2", "M1", "b"],
+      ],
+    );
+    const rates = new Map([
+      ["M1", new Fraction(2)],
+      ["M2", new Fraction(1)],
+    ]);
+    const condensation: Condensation = {
+      sccs: [{ id: "S1", recipeIds: ["M1", "M2"] }],
+      sccOfRecipe: new Map([
+        ["M1", "S1"],
+        ["M2", "S1"],
+      ]),
+      outgoing: new Map([["S1", new Set<string>()]]),
+      incoming: new Map([["S1", new Set<string>()]]),
+    };
+    const { replicas } = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation,
+      targets: [tgt("a")],
+    });
+    const members = replicas.filter(
+      (r) => r.recipeId === "M1" || r.recipeId === "M2",
+    );
+    expect(members.length).toBeGreaterThan(0);
+    for (const r of members) {
+      expect(r.blueprintGroupId).toBe("scc:S1");
+    }
+  });
+
+  it("groups an AP-shared producer under shared:<recipeId>", () => {
+    const g = buildG(
+      [
+        { id: "P", in: [], out: [{ item: "x", qty: 1 }] },
+        { id: "A", in: [{ item: "x", qty: 1 }], out: [{ item: "ya", qty: 1 }] },
+        { id: "B", in: [{ item: "x", qty: 1 }], out: [{ item: "yb", qty: 1 }] },
+      ],
+      [
+        ["P", "A", "x"],
+        ["P", "B", "x"],
+      ],
+    );
+    const rates = new Map([
+      ["A", new Fraction(1)],
+      ["B", new Fraction(1)],
+      ["P", new Fraction(2)],
+    ]);
+    const { replicas } = replicatePerConsumer({
+      g,
+      articulation: new Set(["P"]),
+      rates,
+      condensation: trivialCondensation(["P", "A", "B"]),
+      targets: [tgt("ya"), tgt("yb")],
+    });
+    const p = replicas.find((r) => r.recipeId === "P");
+    expect(p!.blueprintGroupId).toBe("shared:P");
+  });
+
+  it("groups a seeded target producer under target:<recipeId>", () => {
+    const g = buildG(
+      [
+        { id: "P", in: [], out: [{ item: "x", qty: 1 }] },
+        { id: "T", in: [{ item: "x", qty: 1 }], out: [{ item: "y", qty: 1 }] },
+      ],
+      [["P", "T", "x"]],
+    );
+    const rates = new Map([
+      ["P", new Fraction(1)],
+      ["T", new Fraction(1)],
+    ]);
+    const { replicas } = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation: trivialCondensation(["P", "T"]),
+      targets: [tgt("y")],
+    });
+    const t = replicas.find((r) => r.recipeId === "T");
+    expect(t!.blueprintGroupId).toBe("target:T");
+  });
+
+  it("gives a per-consumer producer its consumer's group verbatim", () => {
+    const g = buildG(
+      [
+        { id: "R", in: [], out: [{ item: "raw", qty: 1 }] },
+        {
+          id: "P",
+          in: [{ item: "raw", qty: 1 }],
+          out: [{ item: "x", qty: 1 }],
+        },
+        { id: "T", in: [{ item: "x", qty: 1 }], out: [{ item: "y", qty: 1 }] },
+      ],
+      [
+        ["R", "P", "raw"],
+        ["P", "T", "x"],
+      ],
+    );
+    const rates = new Map([
+      ["R", new Fraction(1)],
+      ["P", new Fraction(1)],
+      ["T", new Fraction(1)],
+    ]);
+    const { replicas } = replicatePerConsumer({
+      g,
+      articulation: new Set<RecipeId>(),
+      rates,
+      condensation: trivialCondensation(["R", "P", "T"]),
+      targets: [tgt("y")],
+    });
+    // Both walk one step further from the target seed, so both carry the
+    // seed's group rather than one of their own.
+    expect(replicas.find((r) => r.recipeId === "P")!.blueprintGroupId).toBe(
+      "target:T",
+    );
+    expect(replicas.find((r) => r.recipeId === "R")!.blueprintGroupId).toBe(
+      "target:T",
+    );
+  });
+});

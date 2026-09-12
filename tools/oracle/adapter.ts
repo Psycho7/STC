@@ -13,7 +13,7 @@
 import type { RecipePack, Recipe as StcRecipe } from "@aef/schema";
 import type { ItemTarget } from "../../src/data/targets";
 import type { ItemOverride } from "../../src/data/plan";
-import { effectiveSupply } from "../../src/solver/effectiveSupply";
+import { buildSupplyTable } from "../../src/solver/effectiveSupply";
 import { isExtractionRecipe } from "../../src/data/recipe-category";
 import { recipeCostWeight } from "../../src/solver/lp";
 
@@ -115,19 +115,24 @@ export function buildAdapterInput(input: AdapterInput): AdapterOutput {
   //    Input objective (capped free supply) added below.
   const freeItemIds = new Set<string>();
   const cappedSupply = new Map<string, Rational>();
-  for (const it of pack.items) {
-    const supply = effectiveSupply(it.id, pack, overrides);
-    // effectiveSupply returns `Fraction | typeof Infinity`; `typeof Infinity`
-    // is `number`, so narrow on the value type rather than `=== Infinity`.
+  // One walk of the resolved table, over the PACK's items only: the table also
+  // answers overridden ids the pack does not carry, and such an id has no entry
+  // in the recipe index maps below, so an objective on it would name an item
+  // FactorioLab's dataset never declares.
+  const supplyTable = buildSupplyTable(pack, overrides);
+  for (const { id: itemId } of pack.items) {
+    const supply = supplyTable.supplyOf(itemId);
+    // The table answers `Fraction | typeof Infinity`; `typeof Infinity` is
+    // `number`, so narrow on the value type rather than `=== Infinity`.
     if (typeof supply === "number") {
-      freeItemIds.add(it.id);
+      freeItemIds.add(itemId);
     } else {
       // Fraction; positive => finite external supply cap. Zero => no external
       // supply (build internally), which needs no Input objective. fraction.js
       // exposes bigint n/d/s.
       const num = supply.n * supply.s; // signed numerator (bigint)
       const den = supply.d; // bigint
-      if (num > 0n) cappedSupply.set(it.id, new Rational(num, den));
+      if (num > 0n) cappedSupply.set(itemId, new Rational(num, den));
     }
   }
   // The hardcoded boundary id must be a free no-recipe item regardless of pack.

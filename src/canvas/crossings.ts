@@ -162,13 +162,25 @@ export type CrossingCue = {
   partners?: ReadonlyArray<CrossingCuePartner>;
 };
 
+// Does a stamped point still sit on the polyline this render just built? The
+// third shape of the staleness question (the two in dimensions.ts compare a
+// stamp against a single live anchor), for a stamp whose live counterpart is a
+// LINE rather than a point: the crossing cues below, and the junction dots
+// ItemEdge draws, both record a point the seating pass found on a group of
+// edges, and the only thing the render layer can corroborate it against is the
+// one polyline it owns. Same eps as the anchor rules, applied to the distance
+// from the point to the line.
+export function stampOnOwnPolyline(p: Pt, pts: ReadonlyArray<Pt>): boolean {
+  return pointToPolylineDistance(p, pts) < HIDE_STALE_EPS;
+}
+
 // Drop cues whose stamped point no longer sits on the edge's own LIVE
 // polyline, or whose partners have all since moved away (the optional
 // predicate, fed from crossingPartnerBits by the render layer). The stamps
 // are absolute points from the seating pass and nodes stay mouse-draggable
 // until the drop re-seats, so a dragged edge would otherwise float its cues
-// off the lines they mark -- the same stale-stamp rule the fan-in marker and the
-// fan-out branch hide follow (HIDE_STALE_EPS) -- and a dragged PARTNER would
+// off the lines they mark -- the on-own-line rule above, which ItemEdge's
+// junction dots apply through the same predicate -- and a dragged PARTNER would
 // leave a gap cut into this stroke where nothing crosses anymore: the
 // crossing is only real while BOTH sides stand where it was found. At rest
 // the stamp lies on the reconstructed polyline and the drawn polyline agrees
@@ -186,7 +198,7 @@ export function liveCrossingCues(
   return cues
     .filter(
       (c, i) =>
-        pointToPolylineDistance([c.x, c.y], pts) < HIDE_STALE_EPS &&
+        stampOnOwnPolyline([c.x, c.y], pts) &&
         (partnerLive === undefined || partnerLive(c, i)),
     )
     .map((c) => ({ x: c.x, y: c.y }));
@@ -211,9 +223,13 @@ export type CrossingPartnerStore = {
 // cross this edge at one point; the gap outlives any one of them). The eps
 // is the shared HIDE_STALE_EPS, not the cue gap's radius: the radius is a
 // PAINT constant (sized to clear the passing-over stroke's width), while
-// this is a staleness threshold, and it is the SAME eps the own-polyline half of
-// the filter above already applies -- so the two sides of one crossing go
-// stale at the same drift distance instead of flipping at different drags.
+// this is a staleness threshold. The two sides of one crossing share that eps
+// but NOT the metric they measure it with: this half takes the Euclidean
+// distance a partner node has been dragged, the own-polyline half above takes
+// the distance from a point to a polyline, and the stamp-liveness rules in
+// dimensions.ts take each axis on its own. Deliberate -- each half measures the
+// drift that can invalidate the thing it guards -- so the two sides can flip at
+// slightly different drags.
 // A cue with no partner records (hand-built) reads as live: the bits judge
 // only what the stamp recorded.
 export function crossingPartnerBits(

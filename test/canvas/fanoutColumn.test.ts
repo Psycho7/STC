@@ -18,26 +18,20 @@ import type { Edge } from "@xyflow/react";
 import { ROUTING_PASSES } from "../../src/canvas/layout";
 import { routeFanoutEdges } from "../../src/canvas/busRouting";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
-import {
-  absoluteLeft,
-  absoluteTop,
-  nodeWidth,
-  portOffsetY,
-} from "../../src/canvas/nodeGeometry";
+import { drawnPortsOf, nodeWidth } from "../../src/canvas/nodeGeometry";
 import {
   CHAMFER,
   PORT_STUB,
   chamferStepPath,
   routingHintsFromData,
+  type DrawnPorts,
 } from "../../src/canvas/edgePath";
 import { DOT_KEEPOFF } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
-import { layoutRenderPlan } from "../../src/canvas/layout";
+import { layoutSolved } from "../../src/canvas/layoutSolved";
 import { pack } from "../../src/data/load";
-import { solvePlanWithIntermediates } from "../../src/solver/index";
-import { defaultTransportConfig } from "../../src/data/transport-config";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import type { ItemTarget } from "../../src/data/targets";
 
 // How many of the card's members jogForwardLegs re-columns (srcColX): a member
@@ -48,13 +42,6 @@ import type { ItemTarget } from "../../src/data/targets";
 const JOG_RECOLUMNED_MEMBERS = 0;
 
 const ITEM = "s";
-
-// chipSeating's PORT_DRIFT.recipe, mirrored here (the module does not export
-// it): the drawn out handle sits 5 units right of the model right edge, the in
-// handle 3 units left of the model left edge, both a unit below the model row y.
-const SRC_DX = 5;
-const TGT_DX = -3;
-const PORT_DY = 1;
 
 // One layer is a column gap plus a recipe card, the pitch routeFanoutEdges'
 // near / far bound is derived from.
@@ -73,57 +60,30 @@ const edge = (id: string, source: string, target: string): Edge => ({
   data: { item: ITEM, rate: new Fraction(1) },
 });
 
-// The DRAWN endpoints of a producer -> consumer edge, exactly as chipSeating's
-// edgeEndpoints and React Flow's handle anchoring resolve them.
-const drawnEnds = (
+// The DRAWN endpoints of a producer -> consumer edge, resolved by nodeGeometry's
+// one model -> drawn conversion -- the frame chipSeating reconstructs in and
+// React Flow's handle anchoring lands on.
+const drawnPortsFor = (
   src: RFRecipeNode,
   tgt: RFRecipeNode,
-): { sourceX: number; sourceY: number; targetX: number; targetY: number } => ({
-  sourceX: src.position.x + nodeWidth(src) + SRC_DX,
-  sourceY: src.position.y + portOffsetY(src, ITEM, "out") + PORT_DY,
-  targetX: tgt.position.x + TGT_DX,
-  targetY: tgt.position.y + portOffsetY(tgt, ITEM, "in") + PORT_DY,
-});
+): { sourceX: number; sourceY: number; targetX: number; targetY: number } =>
+  drawnPortsOfEdge(
+    edge("drawn-ports", src.id, tgt.id),
+    new Map<string, RFAnyNode>([
+      [src.id, src],
+      [tgt.id, tgt],
+    ]),
+  );
 
 type EdgeData = Record<string, unknown>;
 
-// chipSeating's PORT_DRIFT table (the module does not export it), for the two
-// node kinds a laid-out plan puts on a fan-out: a product card's handles sit 4
-// units outside its box, a recipe card's 5 / -3 with a unit of row drift.
-const PLAN_DRIFT: Record<
-  string,
-  { sourceDx: number; targetDx: number; dy: number }
-> = {
-  recipe: { sourceDx: 5, targetDx: -3, dy: 1 },
-  product: { sourceDx: 4, targetDx: -4, dy: 0 },
-};
-const driftOf = (
-  node: RFAnyNode,
-): { sourceDx: number; targetDx: number; dy: number } =>
-  PLAN_DRIFT[node.type ?? ""] ?? { sourceDx: 0, targetDx: 0, dy: 0 };
-
-// The drawn endpoints of a laid-out plan's edge, the same reconstruction the
-// seating pass runs on absolute node positions.
-const planDrawnEnds = (
-  source: RFAnyNode,
-  target: RFAnyNode,
+// One edge's drawn endpoints in the shape the path builders take. Works on a
+// laid-out plan's nested nodes too: the conversion resolves the parent hop
+// itself.
+const drawnPortsOfEdge = (
+  e: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
-): { sourceX: number; sourceY: number; targetX: number; targetY: number } => {
-  const sd = driftOf(source);
-  const td = driftOf(target);
-  return {
-    sourceX: absoluteLeft(source, byId) + nodeWidth(source) + sd.sourceDx,
-    sourceY:
-      absoluteTop(source, byId) +
-      portOffsetY(source, "gas_xiranite", "out") +
-      sd.dy,
-    targetX: absoluteLeft(target, byId) + td.targetDx,
-    targetY:
-      absoluteTop(target, byId) +
-      portOffsetY(target, "gas_xiranite", "in") +
-      td.dy,
-  };
-};
+): DrawnPorts => drawnPortsOf(e, byId)!;
 
 const dataOf = (edges: Edge[], id: string): EdgeData =>
   (edges.find((e) => e.id === id)?.data as EdgeData | undefined) ?? {};
@@ -209,7 +169,7 @@ describe("routeFanoutEdges: one shared column for near and far members", () => {
     const routed = routeAll(nodes, edges);
     const far = nodes[3] as RFRecipeNode;
     const data = dataOf(routed, "e:3");
-    const ends = drawnEnds(nodes[0] as RFRecipeNode, far);
+    const ends = drawnPortsFor(nodes[0] as RFRecipeNode, far);
     const [, labelX, labelY] = chamferStepPath({
       ...ends,
       ...routingHintsFromData(data),
@@ -265,9 +225,11 @@ describe("routeFanoutEdges: a trunk of far members only", () => {
     const owners = ids.filter(
       (id) => dataOf(routed, id).fanoutJunctionX !== undefined,
     );
-    expect(owners).toEqual(["e:1"]); // lex-smallest id owns it
-    const owner = dataOf(routed, "e:1");
-    const ends = drawnEnds(src, nodes[1] as RFRecipeNode);
+    // The smallest id among the BENDING members owns it: "e:1" runs straight
+    // out of the port and never peels off, so it carries no split of its own.
+    expect(owners).toEqual(["e:2"]);
+    const owner = dataOf(routed, "e:2");
+    const ends = drawnPortsFor(src, nodes[2] as RFRecipeNode);
     expect(owner.fanoutJunctionY).toBe(ends.sourceY);
     expect(owner.fanoutJunctionX).toBeGreaterThan(ends.sourceX);
     expect(owner.fanoutJunctionX).toBeLessThan(ends.targetX);
@@ -293,7 +255,7 @@ describe("routeFanoutEdges: the column's chip leg floor", () => {
       edge("e:2", "src", "far1"),
       edge("e:3", "src", "far2"),
     ]);
-    return { nodes, routed, nearTx: drawnEnds(src, near).targetX };
+    return { nodes, routed, nearTx: drawnPortsFor(src, near).targetX };
   };
 
   it("shifts the column left when the nearest leg cannot hold a chip", () => {
@@ -465,7 +427,7 @@ describe("chip seating: a pinned member's chip stays off the shared column", () 
     expect(typeof legY).toBe("number");
 
     const [, labelX, labelY] = chamferStepPath({
-      ...drawnEnds(src, nodes[2] as RFRecipeNode),
+      ...drawnPortsFor(src, nodes[2] as RFRecipeNode),
       ...routingHintsFromData(data),
     });
     const anchorX = labelX + ((data.labelDx as number | undefined) ?? 0);
@@ -483,7 +445,7 @@ describe("chip seating: a pinned member's chip stays off the shared column", () 
     const src = producer("src", 0, 0);
     const tgt = consumer("tgt", nodeWidth(src) + 300, 300);
     const nodes: RFAnyNode[] = [src, tgt];
-    const ends = drawnEnds(src, tgt);
+    const ends = drawnPortsFor(src, tgt);
     const bendX = ends.targetX - 70;
     const pinned: Edge[] = [
       {
@@ -527,17 +489,8 @@ describe("the gas_xiranite fan-out of equip_script_4_3", () => {
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
-    const { nodes, edges } = await layoutRenderPlan({
-      plan,
-      recipeById: full.recipeById,
-      itemById: new Map(pack.items.map((i) => [i.id, i])),
+    const solved = solveForRender({ targets, pack });
+    const { nodes, edges } = await layoutSolved(solved, {
       // The app's default: with lanes on, the long members would be the lane
       // pass's and never reach the fan-out grouping.
       busLanesEnabled: false,
@@ -582,10 +535,8 @@ describe("the gas_xiranite fan-out of equip_script_4_3", () => {
     const byId = new Map(nodes.map((n) => [n.id, n]));
     for (const e of members) {
       const data = e.data as EdgeData;
-      const source = byId.get(e.source)!;
-      const target = byId.get(e.target)!;
       const [, labelX] = chamferStepPath({
-        ...planDrawnEnds(source, target, byId),
+        ...drawnPortsOfEdge(e, byId),
         ...routingHintsFromData(data),
       });
       const seatedX = labelX + ((data.labelDx as number | undefined) ?? 0);

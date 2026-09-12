@@ -3,9 +3,8 @@ import type { Item } from "@aef/schema";
 import {
   buildPnKind,
   buildPnKindRate,
-} from "../../src/canvas/productNodeMetadata";
-import type { ProductNodeData } from "../../src/canvas/ProductNode";
-import type { ItemOverride } from "../../src/data/plan";
+  type ProductNodeData,
+} from "../../src/canvas/ProductNode";
 import { loadI18n } from "../../src/data/i18n";
 
 // The caption words are localized; these fixtures pin the English table so the
@@ -43,9 +42,7 @@ describe("buildPnKind", () => {
       itemId: "iron-ore",
       rate: { num: "2", denom: "1" },
     };
-    expect(buildPnKind(data, rawItem("iron-ore"), [], en)).toBe(
-      "In ·\u00A0raw",
-    );
+    expect(buildPnKind(data, rawItem("iron-ore"), en)).toBe("In ·\u00A0raw");
     // Inputs carry no rate in the caption, so the rate builder returns null.
     expect(buildPnKindRate(data, en)).toBeNull();
   });
@@ -57,9 +54,7 @@ describe("buildPnKind", () => {
       rate: { num: "4", denom: "1" },
       rateCap: { num: "4", denom: "1" },
     };
-    expect(buildPnKind(data, rawItem("iron-ore"), [], en)).toBe(
-      "In ·\u00A0raw",
-    );
+    expect(buildPnKind(data, rawItem("iron-ore"), en)).toBe("In ·\u00A0raw");
   });
 
   it("renders import input caption when item is not raw", () => {
@@ -69,10 +64,7 @@ describe("buildPnKind", () => {
       rate: { num: "2", denom: "1" },
       rateCap: { num: "2", denom: "1" },
     };
-    const overrides: ItemOverride[] = [
-      { itemId: "iron-plate", ratePerSec: { num: "2", denom: "1" } },
-    ];
-    expect(buildPnKind(data, nonRawItem("iron-plate"), overrides, en)).toBe(
+    expect(buildPnKind(data, nonRawItem("iron-plate"), en)).toBe(
       "In ·\u00A0import",
     );
   });
@@ -85,9 +77,7 @@ describe("buildPnKind", () => {
       isFanout: true,
       parentRate: { num: "9", denom: "2" },
     };
-    expect(buildPnKind(data, rawItem("iron-ore"), [], en)).toBe(
-      "In ·\u00A0tap",
-    );
+    expect(buildPnKind(data, rawItem("iron-ore"), en)).toBe("In ·\u00A0tap");
   });
 
   it("renders target output words and rate segment", () => {
@@ -97,7 +87,7 @@ describe("buildPnKind", () => {
       rate: { num: "8", denom: "5" },
       flavor: "target",
     };
-    expect(buildPnKind(data, nonRawItem("iron-plate"), [], en)).toBe(
+    expect(buildPnKind(data, nonRawItem("iron-plate"), en)).toBe(
       "Out ·\u00A0target",
     );
     expect(buildPnKindRate(data, en)).toBe("96/min");
@@ -110,7 +100,7 @@ describe("buildPnKind", () => {
       rate: { num: "1", denom: "5" },
       flavor: "surplus",
     };
-    expect(buildPnKind(data, nonRawItem("iron-plate"), [], en)).toBe(
+    expect(buildPnKind(data, nonRawItem("iron-plate"), en)).toBe(
       "Out ·\u00A0surplus",
     );
     expect(buildPnKindRate(data, en)).toBe("12/min");

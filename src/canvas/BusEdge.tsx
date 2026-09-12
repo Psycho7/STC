@@ -16,13 +16,9 @@ import {
   isTrunkOwner,
   type BusEdgeData,
 } from "./busRouting";
-import {
-  chamferBusPath,
-  chamferFanoutPath,
-  routingHintsFromData,
-} from "./edgePath";
-import { branchChipText } from "./chipSeating";
-import { HIDE_STALE_EPS } from "./dimensions";
+import { drawnEdge } from "./edgePath";
+import { branchChipText } from "./chipMetrics";
+import { anchorStampLive } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
@@ -68,45 +64,26 @@ export default function BusEdge({
   const fanoutData = edgeData?.fanout === true ? edgeData : undefined;
   const laneData =
     edgeData !== undefined && edgeData.fanout !== true ? edgeData : undefined;
-  // Fall back to targetY if laneY is somehow missing, which collapses the run to
-  // a sane orthogonal drop-and-rise (the rise vertical vanishes) rather than
-  // throwing.
-  const laneY = laneData?.laneY ?? targetY;
-  const isFanout = fanoutData !== undefined;
   // Fan-out members draw the short in-corridor trunk (source port -> shared
   // junction column -> branch to the target); lane members drop into the shared
   // band and rise at their column. Both expose one aggregate chip anchor (the
   // trunk / drop) and one per-member chip anchor (the branch / rise), so the chip
-  // markup below is shared.
+  // markup below is shared. drawnEdge picks the arm off the same `fanout`
+  // discriminant, resolves the routing hints, and rides a lane member with no
+  // stamped laneY on its target row instead, which collapses the run to a sane
+  // orthogonal drop-and-rise (the rise vertical vanishes) rather than throwing.
   // Memoized on the endpoints and edge data: the geometry does not depend on
   // zoom, and the zoom subscription above re-renders every edge each zoom tick.
-  const { fan, bus } = useMemo(
-    () =>
-      isFanout
-        ? {
-            fan: chamferFanoutPath({
-              sourceX,
-              sourceY,
-              targetX,
-              targetY,
-              ...routingHintsFromData(edgeData),
-            }),
-            bus: null,
-          }
-        : {
-            fan: null,
-            bus: chamferBusPath({
-              sourceX,
-              sourceY,
-              targetX,
-              targetY,
-              laneY,
-              ...routingHintsFromData(edgeData),
-            }),
-          },
-    [isFanout, sourceX, sourceY, targetX, targetY, laneY, edgeData],
+  const drawn = useMemo(
+    () => drawnEdge({ sourceX, sourceY, targetX, targetY }, "bus", edgeData),
+    [sourceX, sourceY, targetX, targetY, edgeData],
   );
-  const path = fan?.path ?? bus!.path;
+  // This component renders the "bus" edge type alone (Canvas's edgeTypes map),
+  // which drawnEdge answers with one of the two bus shapes, so exactly one of
+  // these is non-null.
+  const fan = drawn.shape === "fanout" ? drawn : null;
+  const bus = drawn.shape === "lane" ? drawn : null;
+  const path = drawn.path;
   const junction = fan?.junction ?? bus!.junction;
   // Aggregate chip anchor: the fan-out trunk-segment midpoint, or the lane drop
   // column. Per-member chip anchor: the fan-out branch-leg midpoint, or the lane
@@ -117,7 +94,7 @@ export default function BusEdge({
     : bus!.dropX;
   const aggY = fan
     ? fan.trunkAnchor.y + (fanoutData?.fanoutAggDy ?? 0)
-    : laneY + (laneData?.busDropDy ?? 0);
+    : bus!.laneY + (laneData?.busDropDy ?? 0);
 
   const { stroke, style: mergedStyle } = edgeStrokeStyle(
     edgeData?.transportKind,
@@ -201,19 +178,15 @@ export default function BusEdge({
   // flagged fanoutBranchHidden draws no branch chip at all: the seating pass
   // found no chip/card-clear point on its own polyline, and an off-line chip
   // would float in empty canvas (the rate stays on the target card's row and
-  // this edge's hover tooltip below). The hide only holds while the live
-  // branch anchor still matches the one it was stamped at: nodes stay
-  // mouse-draggable and the seating pass reruns only when a drag ENDS
-  // (reseatChips), so mid-drag the anchors diverge, the hide is stale and the
-  // chip returns until the drop re-seats it. The divergence
-  // threshold is the shared HIDE_STALE_EPS, sized in dimensions.ts.
+  // this edge's hover tooltip below). The hide was taken at this member's own
+  // branch anchor, so it is checked against the anchor rebuilt from the live
+  // props -- and only when there is one: a null fan path leaves nothing to
+  // compare, and a stamped hide with no live anchor drops.
   const hiddenAt = fanoutData?.fanoutBranchHiddenAt;
   const branchHidden =
     fanoutData?.fanoutBranchHidden === true &&
     (hiddenAt === undefined ||
-      (fan !== null &&
-        Math.abs(fan.branchAnchor.x - hiddenAt.x) < HIDE_STALE_EPS &&
-        Math.abs(fan.branchAnchor.y - hiddenAt.y) < HIDE_STALE_EPS));
+      (fan !== null && anchorStampLive(hiddenAt, fan.branchAnchor)));
   // Lane member whose rise chip the seating pass could not keep on its lane:
   // either the trunk's short run has no room for it at the member-to-member
   // chip separation (issue #24), or its seat cascaded more than one pitch off
@@ -295,7 +268,7 @@ export default function BusEdge({
     : (laneData?.busChipX ?? bus!.riseX);
   const branchY = fan
     ? fan.branchAnchor.y + (fanoutData?.fanoutBranchDy ?? 0)
-    : laneY + (laneData?.busChipDy ?? 0);
+    : bus!.laneY + (laneData?.busChipDy ?? 0);
 
   // One chip at the drop point (where the flow enters the trunk) and one at the
   // rise point (where it leaves toward the target). Both sit on the lane.

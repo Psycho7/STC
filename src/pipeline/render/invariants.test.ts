@@ -17,9 +17,7 @@ import {
   CLOSED_FORM_FIXTURES,
   withoutGasMachines,
 } from "../../solver/closed-form-fixtures";
-import { solvePlanWithIntermediates } from "../../solver/index";
-import { defaultTransportConfig } from "../../data/transport-config";
-import { renderPlanFromSolve } from "../driver";
+import { solveForRender } from "../solveForRender";
 import { pack as fullPack } from "../../data/load";
 import type { RenderPlan, RenderUnit, RenderEdge } from "../types";
 import {
@@ -1237,18 +1235,11 @@ describe("checkUnitOutflowVsProduction", () => {
 
   for (const fixture of FEASIBLE_FIXTURES) {
     it(`feasible fixture "${fixture.name}" reports no violations`, () => {
-      const full = solvePlanWithIntermediates(
-        fixture.targets,
-        fixture.pack,
-        defaultTransportConfig,
-        fixture.itemOverrides ?? [],
-      );
-      const { plan } = renderPlanFromSolve(
-        full,
-        fixture.pack,
-        fixture.targets,
-        fixture.itemOverrides ?? [],
-      );
+      const { full, plan } = solveForRender({
+        targets: fixture.targets,
+        pack: fixture.pack,
+        itemOverrides: fixture.itemOverrides ?? [],
+      });
       const result = checkUnitOutflowVsProduction({
         plan,
         rates: full.rates,
@@ -1273,13 +1264,7 @@ describe("checkUnitOutflowVsProduction", () => {
       itemId: fullPack.recipes.find((r) => r.id === recipeId)!.out[0]!.item,
       ratePerSec: { num: "1", denom: "1" },
     }));
-    const full = solvePlanWithIntermediates(
-      targets,
-      fullPack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, fullPack, targets, []);
+    const { full, plan } = solveForRender({ targets, pack: fullPack });
     return { plan, rates: full.rates, pack: fullPack, targets, itemOverrides: [] };
   }
 
@@ -1356,13 +1341,7 @@ function mutableArgs(
     itemId: fullPack.recipes.find((r) => r.id === recipeId)!.out[0]!.item,
     ratePerSec: { num: "1", denom: "1" },
   }));
-  const full = solvePlanWithIntermediates(
-    targets,
-    packArg,
-    defaultTransportConfig,
-    [],
-  );
-  const { plan } = renderPlanFromSolve(full, packArg, targets, []);
+  const { full, plan } = solveForRender({ targets, pack: packArg });
   const cloned: RenderPlan = {
     units: plan.units.map((u) => ({ ...u })) as RenderUnit[],
     edges: plan.edges.map((e) => ({ ...e })) as RenderEdge[],

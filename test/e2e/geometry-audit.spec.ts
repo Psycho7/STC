@@ -1,11 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import {
-  CENSUS_ZOOM,
-  loadCensusScenario,
-  waitForCanvasReady,
-  waitForStableViewport,
-  waitForWebfonts,
-} from "./viewport";
+import { CENSUS_ZOOM, bootExamPage, loadCensusScenario } from "./viewport";
 import { SCENARIOS, extraScenariosFromEnv, scenarioHash } from "./scenarios";
 import {
   CARD_INTRUSION_BUDGET,
@@ -141,23 +135,10 @@ function skipUnpinnedRatchets(unpinned: string[]): void {
 test.describe("DOM geometry audit", () => {
   for (const mode of LANE_MODES) {
     test.describe(`lanes ${mode}`, () => {
-      test.beforeEach(async ({ page }) => {
-        // The mode travels as an ARGUMENT, not a captured constant:
-        // page.addInitScript serialises the callback source and evaluates it in
-        // the page, so nothing from this module's scope reaches it.
-        await page.addInitScript((busLanes: string) => {
-          window.localStorage.setItem("aef.locale", "en");
-          window.localStorage.setItem("aef.busLanes", busLanes);
-        }, mode);
-      });
-
       for (const scenario of AUDIT_SCENARIOS) {
         test(scenario.id, async ({ page }) => {
           const hash = await scenarioHash(scenario);
-          await page.goto(`/#${hash}`, { waitUntil: "load" });
-          await waitForCanvasReady(page);
-          await waitForWebfonts(page);
-          await waitForStableViewport(page);
+          await loadScenario(page, hash, mode);
 
           const {
             chips,
@@ -1215,11 +1196,21 @@ const ENDPOINT_PARITY_TOL: Record<LaneMode, Record<string, number>> = {
   },
 };
 
-async function loadScenario(page: Page, hash: string): Promise<void> {
-  await page.goto(`/#${hash}`, { waitUntil: "load" });
-  await waitForCanvasReady(page);
-  await waitForWebfonts(page);
-  await waitForStableViewport(page);
+// The lane mode travels as an ARGUMENT all the way into the init script: it is
+// serialised into the page, so nothing captured from this module's scope could
+// reach it.
+async function loadScenario(
+  page: Page,
+  hash: string,
+  mode: LaneMode,
+): Promise<void> {
+  await bootExamPage(page, {
+    url: `/#${hash}`,
+    locale: "en",
+    busLanes: mode,
+    readiness: "nodes",
+    settle: "both",
+  });
 }
 
 // The tundra ore-feed edge: the ore item entering the tundra chain. Selected by
@@ -1275,18 +1266,11 @@ async function collectBandTags(page: Page): Promise<BandTagRect[]> {
 test.describe("segment placement audit", () => {
   for (const mode of LANE_MODES) {
     test.describe(`lanes ${mode}`, () => {
-      test.beforeEach(async ({ page }) => {
-        await page.addInitScript((busLanes: string) => {
-          window.localStorage.setItem("aef.locale", "en");
-          window.localStorage.setItem("aef.busLanes", busLanes);
-        }, mode);
-      });
-
       for (const scenario of AUDIT_SCENARIOS) {
         test(scenario.id, async ({ page }) => {
           const unpinned: string[] = [];
           const hash = await scenarioHash(scenario);
-          await loadScenario(page, hash);
+          await loadScenario(page, hash, mode);
 
           const geom = await page.evaluate(collectGeometry);
           const rawEdges = toRawEdges(geom.edges);
@@ -2328,13 +2312,6 @@ function sumOf(table: Record<string, number>): number {
 test.describe("chip seating census", () => {
   for (const mode of LANE_MODES) {
     test.describe(`lanes ${mode}`, () => {
-      test.beforeEach(async ({ page }) => {
-        await page.addInitScript((busLanes: string) => {
-          window.localStorage.setItem("aef.locale", "en");
-          window.localStorage.setItem("aef.busLanes", busLanes);
-        }, mode);
-      });
-
       test("corpus totals match the per-scenario tables", () => {
         // Loops over BOTH modes itself: the arithmetic holds per mode, so one
         // run of this test states it for the whole corpus whatever mode group
@@ -2363,7 +2340,10 @@ test.describe("chip seating census", () => {
         test(scenario.id, async ({ page }) => {
           const unpinned: string[] = [];
           const hash = await scenarioHash(scenario);
-          await loadCensusScenario(page, hash);
+          await loadCensusScenario(page, hash, {
+            locale: "en",
+            busLanes: mode,
+          });
 
           const geom = await page.evaluate(collectGeometry);
 
@@ -2529,13 +2509,6 @@ test.describe("chip seating census", () => {
 test.describe("edge reload determinism", () => {
   for (const mode of LANE_MODES) {
     test.describe(`lanes ${mode}`, () => {
-      test.beforeEach(async ({ page }) => {
-        await page.addInitScript((busLanes: string) => {
-          window.localStorage.setItem("aef.locale", "en");
-          window.localStorage.setItem("aef.busLanes", busLanes);
-        }, mode);
-      });
-
       for (const scenario of AUDIT_SCENARIOS) {
         test(scenario.id, async ({ page }) => {
           const hash = await scenarioHash(scenario);
@@ -2544,7 +2517,7 @@ test.describe("edge reload determinism", () => {
             edges: Record<string, string>;
             transform: string;
           }> => {
-            await loadScenario(page, hash);
+            await loadScenario(page, hash, mode);
             const { edges } = await page.evaluate(collectGeometry);
             const transform = await page.evaluate(
               () =>

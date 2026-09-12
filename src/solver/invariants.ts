@@ -5,8 +5,10 @@ import type { ItemOverride } from "../data/plan";
 import type { LpResult } from "./lp";
 import { REL_TOL, demandByItem, toleranceScaleFloor } from "./lp";
 import type { SolvePlanFull } from "./index";
-import { effectiveSupply } from "./effectiveSupply";
+import { buildSupplyTable } from "./effectiveSupply";
 import { isSanctionedAbsentProducer } from "../data/recipe-category";
+import { assertOptimal } from "./optimality";
+import type { RecipeId } from "./types";
 
 // Reference-free feasibility invariant checkers. Each function is pure: its
 // verdict comes only from its inputs, never from an external golden. The shared
@@ -53,14 +55,15 @@ export function checkMassBalance(
   result: LpResult,
   pack: RecipePack,
   targets: ReadonlyArray<ItemTarget>,
-  overrides: ItemOverride[],
+  overrides: ReadonlyArray<ItemOverride>,
 ): InvariantResult {
   const violations: string[] = [];
   const demandOf = demandByItem(targets);
   const scaleFloor = toleranceScaleFloor(demandOf);
+  const supply = buildSupplyTable(pack, overrides);
 
   for (const it of pack.items) {
-    if (effectiveSupply(it.id, pack, overrides) === Infinity) continue;
+    if (supply.isFree(it.id)) continue;
     const bal = netProduction(result, pack, it.id);
     const surplus = result.surplus.get(it.id)?.valueOf() ?? 0;
     const deficit = result.deficit.get(it.id)?.valueOf() ?? 0;
@@ -144,9 +147,10 @@ export function checkTargetsMet(
 export function checkRawOnlyBoundary(
   result: LpResult,
   pack: RecipePack,
-  overrides: ItemOverride[],
+  overrides: ReadonlyArray<ItemOverride>,
 ): InvariantResult {
   const violations: string[] = [];
+  const supply = buildSupplyTable(pack, overrides);
 
   for (const it of pack.items) {
     let production = new Fraction(0);
@@ -167,7 +171,7 @@ export function checkRawOnlyBoundary(
     const deficit = result.deficit.get(it.id) ?? new Fraction(0);
     const externalSupply = consumption.sub(production).add(surplus).sub(deficit);
 
-    const cap = effectiveSupply(it.id, pack, overrides);
+    const cap = supply.supplyOf(it.id);
     if (cap === Infinity) continue; // unlimited external supply: always passes.
 
     // Scale the slack by cap magnitude, like checkMassBalance and checkTargetsMet;
@@ -219,7 +223,7 @@ export function checkRepresentable(full: SolvePlanFull): InvariantResult {
   for (const [recipeId, rate] of full.rates) {
     if (rate.compare(FRAC_ZERO) <= 0) continue;
     if (logicalIds.has(recipeId)) continue;
-    const recipe = full.recipeById.get(recipeId);
+    const recipe = full.nettedRecipeById.get(recipeId);
     if (recipe && isSanctionedAbsentProducer(recipe)) continue;
     violations.push(
       `positive-rate recipe ${recipeId} has no node in the logical graph`,
@@ -255,26 +259,102 @@ export function checkNoOrphanLogicalNodes(
 }
 
 /**
- * Run the four reference-free checkers against a completed solve and throw if any
- * fails. Dev-only (compiled out of release): a violation is a solver/assembly bug
- * that should never reach a user. checkNoOrphanLogicalNodes is omitted (known
- * out-of-scope finding).
+ * Shared args record for the invariant table. Every row adapts it to the
+ * checker signature it wraps, so the checkers stay callable positionally.
+ *
+ * `pack` MUST be the NETTED pack (netSelfConsumption) the solve ran on: raw
+ * self-consuming stoichiometry would flag phantom deficits on flows the
+ * netting already folded away.
  */
-export function assertInvariants(
-  full: SolvePlanFull,
-  result: LpResult,
-  pack: RecipePack,
-  targets: ReadonlyArray<ItemTarget>,
-  overrides: ItemOverride[],
-): void {
-  const violations = [
-    checkMassBalance(result, pack, targets, overrides),
-    checkTargetsMet(result, targets),
-    checkRawOnlyBoundary(result, pack, overrides),
-    checkRepresentable(full),
-  ].flatMap((r) => r.violations);
+export type SolverInvariantArgs = {
+  full: SolvePlanFull;
+  result: LpResult;
+  pack: RecipePack;
+  targets: ReadonlyArray<ItemTarget>;
+  itemOverrides: ReadonlyArray<ItemOverride>;
+  recipeCosts?: Map<RecipeId, number>;
+};
+
+/**
+ * Run every registered invariant, asserted or not, and return the verdicts in
+ * table order. Results are index-aligned with SOLVER_INVARIANT_CHECKERS, so a
+ * debug surface can zip its labels against the table.
+ */
+export function checkSolvePlan(args: SolverInvariantArgs): InvariantResult[] {
+  return SOLVER_INVARIANT_CHECKERS.map((c) => c.check(args));
+}
+
+/**
+ * Run the asserted rows against a completed solve and throw one Error
+ * aggregating every violation. Dev-only (compiled out of release): a violation
+ * is a solver/assembly bug that should never reach a user. The rows the table
+ * marks not-asserted never run here, which is what keeps assertOptimal's
+ * per-candidate re-solves off every app solve.
+ */
+export function assertInvariants(args: SolverInvariantArgs): void {
+  const violations = SOLVER_INVARIANT_CHECKERS.filter(
+    (c) => c.asserted,
+  ).flatMap((c) => c.check(args).violations);
 
   if (violations.length > 0) {
     throw new Error(`solver invariants violated:\n${violations.join("\n")}`);
   }
 }
+
+/**
+ * The six invariants paired with the names a debug surface prints them under
+ * and whether the dev assert path runs them. This table IS the order both
+ * consumers run and return them in, so a checker registered here needs no
+ * second entry anywhere: a consumer zips its labels against the table and
+ * cannot mislabel a verdict.
+ *
+ * Each row adapts the shared args record to the checker's own signature; the
+ * checkers keep their positional shapes for their direct test call sites.
+ */
+export const SOLVER_INVARIANT_CHECKERS: ReadonlyArray<{
+  readonly name: string;
+  readonly check: (args: SolverInvariantArgs) => InvariantResult;
+  readonly asserted: boolean;
+}> = [
+  {
+    name: "massBalance",
+    check: (a) =>
+      checkMassBalance(a.result, a.pack, a.targets, a.itemOverrides),
+    asserted: true,
+  },
+  {
+    name: "targetsMet",
+    check: (a) => checkTargetsMet(a.result, a.targets),
+    asserted: true,
+  },
+  {
+    name: "rawOnlyBoundary",
+    check: (a) => checkRawOnlyBoundary(a.result, a.pack, a.itemOverrides),
+    asserted: true,
+  },
+  {
+    name: "representable",
+    check: (a) => checkRepresentable(a.full),
+    asserted: true,
+  },
+  // Reports any logical recipe node with no positive LP rate. Not asserted: a
+  // false verdict is a known out-of-scope graph finding, not a solver bug.
+  {
+    name: "noOrphanLogicalNodes",
+    check: (a) => checkNoOrphanLogicalNodes(a.full),
+    asserted: false,
+  },
+  // Not asserted because it re-solves the LP once per candidate recipe, which
+  // no app solve can afford.
+  {
+    name: "optimal",
+    check: (a) =>
+      assertOptimal({
+        targets: a.targets,
+        pack: a.pack,
+        itemOverrides: [...a.itemOverrides],
+        ...(a.recipeCosts !== undefined ? { recipeCosts: a.recipeCosts } : {}),
+      }),
+    asserted: false,
+  },
+];

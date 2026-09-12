@@ -7,7 +7,10 @@
 // Scenario set (PLAN-001 T5):
 //   1. The STC solver corpus (src/solver/corpus.ts) - its scenarios up to
 //      feasible-empty. The corpus has grown past that point; the later
-//      scenarios have never been wired in here.
+//      scenarios are omitted deliberately, not by oversight. Classifying one
+//      takes a GLPK run plus a per-scenario judgement about adapter
+//      artifacts, so they stay out until it is settled whether this oracle is
+//      live or kept only as provenance for the run it came from.
 //   2. The headline plan - the app default targets + the ADAPTER-NOTES 4:1 case.
 //   3. Risk axes not covered by 1-2 - reuse tools/oracle/fixtures.
 //

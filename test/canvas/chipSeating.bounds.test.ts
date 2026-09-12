@@ -30,14 +30,8 @@ import type { RFAnyNode } from "../../src/canvas/layout";
 import { productNode } from "./busRouting.testkit";
 import { pack } from "../../src/data/load";
 import type { Plan } from "../../src/data/plan";
-import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
-import { solvePlanWithIntermediates } from "../../src/solver";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
-import { layoutRenderPlan } from "../../src/canvas/layout";
-import {
-  defaultTransportConfig,
-  loadTransportConfig,
-} from "../../src/data/transport-config";
+import { solveFromPlan } from "../../src/pipeline/solveForRender";
+import { layoutSolved } from "../../src/canvas/layoutSolved";
 
 const CHIP_HALF_W = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
 const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
@@ -229,27 +223,7 @@ describe("contentBounds: dense plan", () => {
         { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } },
       ],
     };
-    const { targets, itemOverrides, recipeCosts } = planToSolverArgs(plan);
-    const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      tConfig,
-      itemOverrides,
-      recipeCosts,
-    );
-    const itemById = new Map(pack.items.map((i) => [i.id, i]));
-    const { plan: renderPlan } = renderPlanFromSolve(
-      full,
-      pack,
-      targets,
-      itemOverrides,
-    );
-    const laid = await layoutRenderPlan({
-      plan: renderPlan,
-      recipeById: full.recipeById,
-      itemById,
-    });
+    const laid = await layoutSolved(solveFromPlan(plan, pack));
 
     const byId = new Map(laid.nodes.map((n) => [n.id, n]));
     let nl = Infinity;

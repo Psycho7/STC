@@ -22,7 +22,7 @@ import {
   type EdgeSegments,
   type EntryBand,
 } from "../../src/canvas/chipSeating";
-import { layoutRenderPlan } from "../../src/canvas/layout";
+import { layoutSolved } from "../../src/canvas/layoutSolved";
 import {
   chamferStepPath,
   routingHintsFromData,
@@ -35,9 +35,7 @@ import {
 } from "../../src/canvas/nodeGeometry";
 import { pointToPolylineDistance } from "../../src/canvas/crossings";
 import { pack } from "../../src/data/load";
-import { solvePlanWithIntermediates } from "../../src/solver/index";
-import { defaultTransportConfig } from "../../src/data/transport-config";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import type { ItemTarget } from "../../src/data/targets";
 import type { RFAnyNode } from "../../src/canvas/layout";
 
@@ -96,19 +94,10 @@ async function offPathChips(
   targets: ItemTarget[],
   busLanesEnabled: boolean,
 ): Promise<OffPathHit[]> {
-  const full = solvePlanWithIntermediates(
-    targets,
-    pack,
-    defaultTransportConfig,
-    [],
+  const { nodes, edges } = await layoutSolved(
+    solveForRender({ targets, pack }),
+    { busLanesEnabled },
   );
-  const { plan } = renderPlanFromSolve(full, pack, targets, []);
-  const { nodes, edges } = await layoutRenderPlan({
-    plan,
-    recipeById: full.recipeById,
-    itemById: new Map(pack.items.map((i) => [i.id, i])),
-    busLanesEnabled,
-  });
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const hits: OffPathHit[] = [];
   for (const edge of edges) {
@@ -214,14 +203,14 @@ describe("seatRateChip: the vertical leg's sidestep gate", () => {
 
   it("keeps the chip on the line when only crossings block it", () => {
     const field = makeClearanceField(crossings(), []);
-    const seat = seatRateChip(
+    const seat = seatRateChip({
       field,
-      ownVertical,
-      "own",
-      "t",
-      NO_EXEMPT,
-      NO_BAND,
-    );
+      path: ownVertical,
+      flowKey: "own",
+      target: "t",
+      exempt: NO_EXEMPT,
+      entryBand: NO_BAND,
+    });
     expect(seat.tier).toBe("graze");
     expect(seat.dx).toBe(0);
   });
@@ -244,10 +233,23 @@ describe("battery5: no chip takes the only line another edge has", () => {
     { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } },
   ];
 
+  // With lanes on this plan also carries the one seat the browser off-path
+  // audit ratified for it (CHIP_OFFPATH_BASELINE_ON.battery5 = 1): e:14
+  // "Sewage" anchors on a corridor vertical with a foreign stroke running
+  // PARALLEL to it inside the chip's box, so no motion along the line sheds the
+  // neighbour and the sidestep tier steps the box a bounded 16 units off -- less
+  // than the painted half-width, so the chip's own line still runs inside its
+  // box. This suite only started seeing it once it stopped laying the plan out
+  // against the solver's netted recipe map, which drops the self-consumed rows
+  // of the two phase_trans recipes and moves every port below them.
+  const RATIFIED_OFF_PATH = [
+    "e:14:u:class:q:5->u:class:q:9:liquid_sewage 16.00px",
+  ];
+
   for (const busLanesEnabled of [true, false]) {
     it(`seats every rate chip on its polyline with lanes ${busLanesEnabled ? "on" : "off"}`, async () => {
       const hits = await offPathChips(targets, busLanesEnabled);
-      expect(named(hits)).toEqual([]);
+      expect(named(hits)).toEqual(busLanesEnabled ? RATIFIED_OFF_PATH : []);
     }, 60_000);
   }
 });
@@ -272,17 +274,7 @@ describe("multi6: a bus rise chip keeps the lane stroke inside its box", () => {
   ];
 
   it("lifts no rise chip past the depth its own box covers", async () => {
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
-    const { edges } = await layoutRenderPlan({
-      plan,
-      recipeById: full.recipeById,
-      itemById: new Map(pack.items.map((i) => [i.id, i])),
+    const { edges } = await layoutSolved(solveForRender({ targets, pack }), {
       busLanesEnabled: true,
     });
 

@@ -14,6 +14,7 @@ import { TargetsPanel } from "./TargetsPanel";
 import { makePack } from "../solver/closed-form-fixtures";
 import { LocaleProvider } from "../data/i18n-context";
 import type { Target } from "../data/targets";
+import { controlledOwner, pickerTile, rateInputs } from "./panel.testkit";
 
 afterEach(cleanup);
 beforeEach(() => vi.useFakeTimers());
@@ -57,16 +58,6 @@ function targets3(): Target[] {
   ];
 }
 
-function rateInputs(): HTMLInputElement[] {
-  return screen
-    .getAllByRole("textbox")
-    .filter((el) => el instanceof HTMLInputElement) as HTMLInputElement[];
-}
-
-// The item picker is a portal-rendered popup; tiles carry data-item-id.
-function pickerTile(itemId: string): HTMLButtonElement | null {
-  return document.querySelector(`[data-item-id="${itemId}"]`);
-}
 function pickTile(itemId: string) {
   fireEvent.click(pickerTile(itemId)!);
 }
@@ -94,64 +85,42 @@ test("typing a rate does not commit, even after time passes", () => {
 });
 
 test("blur commits the parsed value exactly once", () => {
-  let latest: Target[] = [
+  const owner = controlledOwner<Target[]>([
     { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
-  ];
-  const emissions: Target[][] = [];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
+  ]);
+  render(
+    owner.element((targets, onChange) => (
       <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            const next = update(latest);
-            if (next === latest) return;
-            emissions.push(next);
-            latest = next;
-            setT(next);
-          }}
-          pack={PACK}
-        />
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "99" } });
   fireEvent.blur(input);
-  expect(emissions.length).toBe(1);
+  expect(owner.emissions.length).toBe(1);
   // 99/min = 33/20 per sec.
-  expect(latest).toEqual([
+  expect(owner.latest).toEqual([
     { itemId: "widget", ratePerSec: { num: "33", denom: "20" } },
   ]);
 });
 
 test("Enter commits the parsed value", () => {
-  let latest: Target[] = [
+  const owner = controlledOwner<Target[]>([
     { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
-  ];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
+  ]);
+  render(
+    owner.element((targets, onChange) => (
       <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            latest = update(latest);
-            setT(latest);
-          }}
-          pack={PACK}
-        />
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "45" } });
   fireEvent.keyDown(input, { key: "Enter" });
   // 45/min = 3/4 per sec.
-  expect(latest).toEqual([
+  expect(owner.latest).toEqual([
     { itemId: "widget", ratePerSec: { num: "3", denom: "4" } },
   ]);
 });
@@ -160,40 +129,27 @@ test("Enter commits the parsed value", () => {
 // re-serialized into a 16-digit float, and an invalid in-progress "1/" survives
 // an Enter (with the invalid cue) so the user can keep typing.
 test("Enter keeps invalid text with an invalid cue; a valid rational commits and keeps its text", () => {
-  let latest: Target[] = [
+  const owner = controlledOwner<Target[]>([
     { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
-  ];
-  const emissions: Target[][] = [];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
+  ]);
+  render(
+    owner.element((targets, onChange) => (
       <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            const next = update(latest);
-            if (next === latest) return;
-            emissions.push(next);
-            latest = next;
-            setT(next);
-          }}
-          pack={PACK}
-        />
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "1/" } });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(input.value).toBe("1/");
   expect(input.getAttribute("aria-invalid")).toBe("true");
-  expect(emissions.length).toBe(0);
+  expect(owner.emissions.length).toBe(0);
   fireEvent.change(input, { target: { value: "1/3" } });
   fireEvent.keyDown(input, { key: "Enter" });
-  expect(emissions.length).toBe(1);
+  expect(owner.emissions.length).toBe(1);
   // 1/3 per min = 1/180 per sec.
-  expect(latest).toEqual([
+  expect(owner.latest).toEqual([
     { itemId: "widget", ratePerSec: { num: "1", denom: "180" } },
   ]);
   // Field keeps "1/3", not "0.3333333333333333".
@@ -269,65 +225,43 @@ test("empty target rate is treated as invalid on Enter", () => {
 
 // A re-blur without a fresh edit does not re-commit: exactly one solve per edit.
 test("blurring again without editing does not emit a second commit", () => {
-  let latest: Target[] = [
+  const owner = controlledOwner<Target[]>([
     { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
-  ];
-  const emissions: Target[][] = [];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
+  ]);
+  render(
+    owner.element((targets, onChange) => (
       <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            const next = update(latest);
-            if (next === latest) return;
-            emissions.push(next);
-            latest = next;
-            setT(next);
-          }}
-          pack={PACK}
-        />
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "99" } });
   fireEvent.blur(input);
   fireEvent.blur(input);
-  expect(emissions.length).toBe(1);
+  expect(owner.emissions.length).toBe(1);
 });
 
 // An in-flight (uncommitted) rate edit follows the row when the user swaps its
 // item, then commits to the new id on blur.
 test("uncommitted rate edit follows the row across an item swap", () => {
-  let latest: Target[] = [
+  const owner = controlledOwner<Target[]>([
     { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
-  ];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
+  ]);
+  render(
+    owner.element((targets, onChange) => (
       <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            latest = update(latest);
-            setT(latest);
-          }}
-          pack={PACK}
-        />
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   fireEvent.change(rateInputs()[0]!, { target: { value: "99" } });
   fireEvent.click(screen.getByLabelText(/item/i));
   pickTile("gadget");
   // The typed text is still shown on the swapped row.
   expect(rateInputs()[0]!.value).toBe("99");
   fireEvent.blur(rateInputs()[0]!);
-  expect(latest).toEqual([
+  expect(owner.latest).toEqual([
     { itemId: "gadget", ratePerSec: { num: "33", denom: "20" } },
   ]);
 });
@@ -335,25 +269,16 @@ test("uncommitted rate edit follows the row across an item swap", () => {
 test("an item swap hands focus to the swapped row's trigger", () => {
   // The swap unmounts the row (keys are itemIds), so without the pending-focus
   // token the picker's close refocus falls to the body.
-  let latest: Target[] = [
+  const owner = controlledOwner<Target[]>([
     { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
-  ];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
+  ]);
+  render(
+    owner.element((targets, onChange) => (
       <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            latest = update(latest);
-            setT(latest);
-          }}
-          pack={PACK}
-        />
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   fireEvent.click(screen.getByLabelText(/item/i));
   pickTile("gadget");
   const trigger = screen.getByLabelText(/gadget/i);
@@ -361,23 +286,14 @@ test("an item swap hands focus to the swapped row's trigger", () => {
 });
 
 test("a promoted draft hands focus to the new row's rate input", () => {
-  let latest: Target[] = [];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
+  const owner = controlledOwner<Target[]>([]);
+  render(
+    owner.element((targets, onChange) => (
       <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            latest = update(latest);
-            setT(latest);
-          }}
-          pack={PACK}
-        />
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   fireEvent.click(screen.getByText(/add/i));
   fireEvent.click(screen.getByLabelText(/choose/i));
   pickTile("widget");
@@ -385,7 +301,7 @@ test("a promoted draft hands focus to the new row's rate input", () => {
   fireEvent.change(draftRate, { target: { value: "60" } });
   fireEvent.keyDown(draftRate, { key: "Enter" });
   // The draft promoted into a real row; its rate input carries the focus on.
-  expect(latest).toEqual([
+  expect(owner.latest).toEqual([
     { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
   ]);
   expect(document.activeElement).toBe(rateInputs()[0]!);
@@ -393,40 +309,27 @@ test("a promoted draft hands focus to the new row's rate input", () => {
 
 // Removing a row that has an uncommitted edit must never commit that edit.
 test("removing a row with an uncommitted edit does not commit it", () => {
-  let latest: Target[] = targets3();
-  const emissions: Target[][] = [];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
+  const owner = controlledOwner<Target[]>(targets3());
+  render(
+    owner.element((targets, onChange) => (
       <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            const next = update(latest);
-            if (next === latest) return;
-            emissions.push(next);
-            latest = next;
-            setT(next);
-          }}
-          pack={PACK}
-        />
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   // Type into row 0 but never blur; then remove it.
   fireEvent.change(rateInputs()[0]!, { target: { value: "999" } });
   fireEvent.click(screen.getAllByTestId("remove-target")[0]!);
-  expect(latest.map((t) => t.itemId)).toEqual(["gadget", "sprocket"]);
+  expect(owner.latest.map((t) => t.itemId)).toEqual(["gadget", "sprocket"]);
   // Exactly one emission: the removal. The orphaned edit never commits.
-  expect(emissions.length).toBe(1);
+  expect(owner.emissions.length).toBe(1);
 });
 
 // Replacing the plan (navigation) remounts the panel via a plan-identity key,
 // discarding any uncommitted local edit: the field falls back to the newly
 // loaded value rather than showing leftover text.
 test("uncommitted edit is discarded when the plan changes", () => {
-  function Parent() {
+  function PlanSwapOwner() {
     const [epoch, setEpoch] = useState(0);
     const [t, setT] = useState<Target[]>([
       { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
@@ -444,7 +347,7 @@ test("uncommitted edit is discarded when the plan changes", () => {
       </LocaleProvider>
     );
   }
-  render(<Parent />);
+  render(<PlanSwapOwner />);
   const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "777" } });
   expect(input.value).toBe("777");
@@ -494,37 +397,28 @@ test("clicking Add creates a draft row without committing", () => {
 // D4: a draft commits exactly once, when it has both an item and a nonzero
 // rate, and the draft row is then replaced by a committed target row.
 test("a draft commits once an item and a nonzero rate are set", () => {
-  let latest: Target[] = [];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
+  const owner = controlledOwner<Target[]>([]);
+  render(
+    owner.element((targets, onChange) => (
       <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            latest = update(latest);
-            setT(latest);
-          }}
-          pack={PACK}
-        />
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Add target" }));
   fireEvent.click(
     within(screen.getByTestId("target-draft-row")).getByLabelText(/item/i),
   );
   pickTile("widget");
   // An item alone does not commit.
-  expect(latest.length).toBe(0);
+  expect(owner.latest.length).toBe(0);
   const rate = within(screen.getByTestId("target-draft-row")).getByLabelText(
     /rate/i,
   );
   fireEvent.change(rate, { target: { value: "60" } });
   fireEvent.blur(rate);
   // 60/min = 1/1 per sec.
-  expect(latest).toEqual([
+  expect(owner.latest).toEqual([
     { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
   ]);
   expect(screen.queryAllByTestId("target-draft-row").length).toBe(0);
@@ -556,28 +450,19 @@ test("a draft with an item but a zero rate does not commit", () => {
 
 // Removing a draft is a purely local action: the plan is never touched.
 test("a draft's unparseable rate shows the invalid cue; zero stays quiet", () => {
-  let latest: Target[] = [];
-  function Parent() {
-    const [t, setT] = useState(latest);
-    return (
+  const owner = controlledOwner<Target[]>([]);
+  render(
+    owner.element((targets, onChange) => (
       <LocaleProvider locale="en">
-        <TargetsPanel
-          targets={t}
-          onChange={(update) => {
-            latest = update(latest);
-            setT(latest);
-          }}
-          pack={PACK}
-        />
+        <TargetsPanel targets={targets} onChange={onChange} pack={PACK} />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   fireEvent.click(screen.getByText(/add/i));
   const draftRate = rateInputs()[0]!;
   fireEvent.change(draftRate, { target: { value: "abc" } });
   fireEvent.keyDown(draftRate, { key: "Enter" });
-  expect(latest).toEqual([]);
+  expect(owner.latest).toEqual([]);
   expect(draftRate.getAttribute("aria-invalid")).toBe("true");
   expect(screen.getByTestId("rate-invalid")).toBeTruthy();
   // Typing clears the cue.
@@ -586,7 +471,7 @@ test("a draft's unparseable rate shows the invalid cue; zero stays quiet", () =>
   // The pinned zero-rate refusal stays quiet (its cue needs a ruling).
   fireEvent.change(draftRate, { target: { value: "0" } });
   fireEvent.keyDown(draftRate, { key: "Enter" });
-  expect(latest).toEqual([]);
+  expect(owner.latest).toEqual([]);
   expect(draftRate.getAttribute("aria-invalid")).toBeNull();
 });
 

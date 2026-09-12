@@ -4,21 +4,16 @@
 // which no jsdom hit-test exercises and no static capture can show.
 import { test, expect, type Page } from "@playwright/test";
 
+import { bootExamPage } from "./viewport";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 
 test.use({ viewport: { width: 1920, height: 1080 } });
 
-async function waitForCanvasReady(page: Page): Promise<void> {
-  const anyNode = page
-    .locator(".react-flow")
-    .locator(
-      ".react-flow__node-recipe, .react-flow__node-loop, .react-flow__node-product",
-    )
-    .first();
-  await expect(anyNode).toBeVisible({ timeout: 20_000 });
-  await page.waitForTimeout(1200);
+// The chips are the hover sources this spec points at, so the boot is not done
+// until one of them is on screen: they are portalled in a pass after the nodes.
+async function waitForChips(page: Page): Promise<void> {
   await expect(page.locator(".flow-chip[data-edge-id]").first()).toBeVisible({
-    timeout: 10_000,
+    timeout: 30_000,
   });
 }
 
@@ -68,8 +63,12 @@ async function panePoint(page: Page): Promise<{ x: number; y: number }> {
 
 test("a rate chip lights the edge it labels", async ({ page }) => {
   const scenario = SCENARIOS.find((s) => s.id === "default")!;
-  await page.goto(`/#${await scenarioHash(scenario)}`, { waitUntil: "load" });
-  await waitForCanvasReady(page);
+  await bootExamPage(page, {
+    url: `/#${await scenarioHash(scenario)}`,
+    readiness: "nodes",
+    settle: "both",
+  });
+  await waitForChips(page);
 
   // An item-edge chip whose box the pointer can actually reach. Its owner is a
   // plain edge on no trunk, so every other edge on the plan is unrelated to it

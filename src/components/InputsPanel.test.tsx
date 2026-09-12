@@ -6,6 +6,7 @@ import { InputsPanel, displayedInputCount } from "./InputsPanel";
 import { makePack } from "../solver/closed-form-fixtures";
 import { LocaleProvider } from "../data/i18n-context";
 import type { ItemOverride } from "../data/plan";
+import { controlledOwner, rateInputs } from "./panel.testkit";
 
 afterEach(cleanup);
 afterEach(() => vi.useRealTimers());
@@ -16,12 +17,6 @@ const PACK3 = makePack(
   [],
   [{ id: "widget" }, { id: "gadget" }, { id: "sprocket" }],
 );
-
-function rateInputs(): HTMLInputElement[] {
-  return screen
-    .getAllByRole("textbox")
-    .filter((el) => el instanceof HTMLInputElement) as HTMLInputElement[];
-}
 
 // The supply counters must count the rows the panel actually renders: with no
 // overrides, the assumed-raw auto-rows are on screen, so a count of 0 lies.
@@ -136,97 +131,74 @@ test("realized demand on an uncapped override row renders as the shared decimal"
 
 // Typing a cap does not commit until blur.
 test("typing a cap does not commit; blur commits it", () => {
-  let latest: ItemOverride[] = [{ itemId: "widget" }];
-  const emissions: ItemOverride[][] = [];
-  function Parent() {
-    const [o, setO] = useState(latest);
-    return (
+  const owner = controlledOwner<ItemOverride[]>([{ itemId: "widget" }]);
+  render(
+    owner.element((overrides, onChange) => (
       <LocaleProvider locale="en">
         <InputsPanel
-          itemOverrides={o}
-          onChange={(update) => {
-            const next = update(latest);
-            if (next === latest) return;
-            emissions.push(next);
-            latest = next;
-            setO(latest);
-          }}
+          itemOverrides={overrides}
+          onChange={onChange}
           pack={PACK}
         />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "120" } });
-  expect(emissions.length).toBe(0);
+  expect(owner.emissions.length).toBe(0);
   fireEvent.blur(input);
   // 120/min = 2/1 per sec.
-  expect(latest).toEqual([
+  expect(owner.latest).toEqual([
     { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
   ]);
 });
 
 // Blur with an empty cap uncaps the override (empty means Unlimited here).
 test("blurring an emptied cap uncaps the override", () => {
-  let latest: ItemOverride[] = [
+  const owner = controlledOwner<ItemOverride[]>([
     { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
-  ];
-  function Parent() {
-    const [o, setO] = useState(latest);
-    return (
+  ]);
+  render(
+    owner.element((overrides, onChange) => (
       <LocaleProvider locale="en">
         <InputsPanel
-          itemOverrides={o}
-          onChange={(update) => {
-            latest = update(latest);
-            setO(latest);
-          }}
+          itemOverrides={overrides}
+          onChange={onChange}
           pack={PACK}
         />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "" } });
   fireEvent.blur(input);
-  expect(latest).toEqual([{ itemId: "widget" }]);
+  expect(owner.latest).toEqual([{ itemId: "widget" }]);
 });
 
 // Removing a row with an uncommitted cap edit must never commit that edit.
 test("removing a row with an uncommitted edit does not commit it", () => {
   vi.useFakeTimers();
-  let latest: ItemOverride[] = [
+  const owner = controlledOwner<ItemOverride[]>([
     { itemId: "widget", ratePerSec: { num: "1", denom: "1" } },
     { itemId: "gadget", ratePerSec: { num: "2", denom: "1" } },
     { itemId: "sprocket", ratePerSec: { num: "3", denom: "1" } },
-  ];
-  const emissions: ItemOverride[][] = [];
-  function Parent() {
-    const [o, setO] = useState(latest);
-    return (
+  ]);
+  render(
+    owner.element((overrides, onChange) => (
       <LocaleProvider locale="en">
         <InputsPanel
-          itemOverrides={o}
-          onChange={(update) => {
-            const next = update(latest);
-            if (next === latest) return;
-            emissions.push(next);
-            latest = next;
-            setO(latest);
-          }}
+          itemOverrides={overrides}
+          onChange={onChange}
           pack={PACK3}
         />
       </LocaleProvider>
-    );
-  }
-  render(<Parent />);
+    )),
+  );
   // Type into row 0 (widget) but never blur; then remove it.
   fireEvent.change(rateInputs()[0]!, { target: { value: "999" } });
   fireEvent.click(screen.getAllByTestId("remove-input")[0]!);
-  expect(latest.map((o) => o.itemId)).toEqual(["gadget", "sprocket"]);
-  expect(emissions.length).toBe(1);
+  expect(owner.latest.map((o) => o.itemId)).toEqual(["gadget", "sprocket"]);
+  expect(owner.emissions.length).toBe(1);
 });
 
 // A cap typed into an auto-row promotes it to an override on blur; when that
@@ -334,7 +306,7 @@ test("an empty auto-row stays Unlimited with no invalid cue", () => {
 // Navigation remounts the panel via a plan-identity key, discarding an
 // uncommitted cap edit.
 test("uncommitted cap edit is discarded when the plan changes", () => {
-  function Parent() {
+  function PlanSwapOwner() {
     const [epoch, setEpoch] = useState(0);
     const [o, setO] = useState<ItemOverride[]>([
       { itemId: "widget", ratePerSec: { num: "2", denom: "1" } },
@@ -357,7 +329,7 @@ test("uncommitted cap edit is discarded when the plan changes", () => {
       </LocaleProvider>
     );
   }
-  render(<Parent />);
+  render(<PlanSwapOwner />);
   const input = rateInputs()[0]!;
   fireEvent.change(input, { target: { value: "777" } });
   expect(input.value).toBe("777");

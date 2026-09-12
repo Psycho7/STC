@@ -23,7 +23,8 @@ import ProductNode from "./ProductNode";
 import ItemEdge from "./ItemEdge";
 import BusEdge from "./BusEdge";
 import BusBands from "./BusBands";
-import { contentBounds, examChipReservations } from "./chipSeating";
+import { contentBounds } from "./chipSeating";
+import { examChipReservations } from "./chipMetrics";
 import { isTrunkOwner, type BusAggregate } from "./busRouting";
 import type { RFAnyNode } from "./layout";
 import { useI18n } from "../data/i18n-context";
@@ -281,8 +282,9 @@ function CanvasInner({
       },
       contentBounds: () =>
         contentBounds(nodes as unknown as RFAnyNode[], edges),
-      // Per-chip seat-width reservations for the four-locale width-bound spec;
-      // plain edge-data reads, as inert as contentBounds.
+      // Per-chip seat-width reservations for the width-bound spec (it runs the
+      // locales in Locale, src/data/i18n.ts); plain edge-data reads, as inert
+      // as contentBounds.
       chipReservations: () => examChipReservations(edges),
       commit: __STC_COMMIT__,
       pack: {

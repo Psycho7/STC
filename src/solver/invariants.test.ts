@@ -7,12 +7,16 @@ import {
   checkRawOnlyBoundary,
   checkRepresentable,
   checkNoOrphanLogicalNodes,
+  assertInvariants,
+  checkSolvePlan,
+  SOLVER_INVARIANT_CHECKERS,
+  type SolverInvariantArgs,
 } from "./invariants";
 import { solveLp, type LpResult } from "./lp";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./index";
 import { withoutGasMachines } from "./closed-form-fixtures";
+import { netSelfConsumption, type NettedRecipeMap } from "./net-self";
 import { pack } from "../data/load";
-import { defaultTransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipePack } from "@aef/schema";
@@ -33,11 +37,7 @@ const headlineTargets: ItemTarget[] = [
 const noOverrides: ItemOverride[] = [];
 
 function makeFull(): SolvePlanFull {
-  return solvePlanWithIntermediates(
-    headlineTargets,
-    pack,
-    defaultTransportConfig,
-  );
+  return solvePlanWithIntermediates(headlineTargets, pack);
 }
 
 describe("invariants - headline plan (all checkers pass)", () => {
@@ -194,12 +194,7 @@ describe("checkMassBalance - bounded supply draw", () => {
   });
 
   it("solvePlanWithIntermediates does not throw on a finite cap under DEV invariants", () => {
-    const full = solvePlanWithIntermediates(
-      capTargets,
-      pack,
-      defaultTransportConfig,
-      capOverrides,
-    );
+    const full = solvePlanWithIntermediates(capTargets, pack, capOverrides);
     expect(full.logical.nodes.length).toBeGreaterThan(0);
   });
 });
@@ -442,7 +437,10 @@ describe("checkRepresentable - detection power", () => {
     const corrupted: SolvePlanFull = {
       ...full,
       rates: new Map(full.rates).set(fakeId, new Fraction(3)),
-      recipeById: new Map(full.recipeById).set(fakeId, fakeRecipe),
+      nettedRecipeById: new Map(full.nettedRecipeById).set(
+        fakeId,
+        fakeRecipe,
+      ) as NettedRecipeMap,
     };
     const r = checkRepresentable(corrupted);
     expect(r.ok).toBe(false);
@@ -463,7 +461,10 @@ describe("checkRepresentable - detection power", () => {
     const corrupted: SolvePlanFull = {
       ...full,
       rates: new Map(full.rates).set(xferId, new Fraction(3)),
-      recipeById: new Map(full.recipeById).set(xferId, xferRecipe),
+      nettedRecipeById: new Map(full.nettedRecipeById).set(
+        xferId,
+        xferRecipe,
+      ) as NettedRecipeMap,
     };
     const r = checkRepresentable(corrupted);
     expect(r.violations.some((v) => v.includes(xferId))).toBe(false);
@@ -479,5 +480,73 @@ describe("checkNoOrphanLogicalNodes - detection power", () => {
     const r = checkNoOrphanLogicalNodes(stripped);
     expect(r.ok).toBe(false);
     expect(r.violations.length).toBeGreaterThan(0);
+  });
+});
+
+// A recipe-cost map that records whether anything read it. Only the `optimal`
+// row consumes recipe costs, so a read is proof that row ran.
+class TracingCosts extends Map<string, number> {
+  read = false;
+
+  override get(key: string): number | undefined {
+    this.read = true;
+    return super.get(key);
+  }
+
+  override [Symbol.iterator](): MapIterator<[string, number]> {
+    this.read = true;
+    return super[Symbol.iterator]();
+  }
+}
+
+describe("solver invariant table", () => {
+  const nettedPack = netSelfConsumption(pack);
+
+  function makeArgs(recipeCosts: Map<string, number>): SolverInvariantArgs {
+    return {
+      full: makeFull(),
+      result: solveLp({ targets: headlineTargets, pack: nettedPack }),
+      pack: nettedPack,
+      targets: headlineTargets,
+      itemOverrides: noOverrides,
+      recipeCosts,
+    };
+  }
+
+  it("registers the six rows in order, asserting only the first four", () => {
+    expect(SOLVER_INVARIANT_CHECKERS.map((c) => c.name)).toEqual([
+      "massBalance",
+      "targetsMet",
+      "rawOnlyBoundary",
+      "representable",
+      "noOrphanLogicalNodes",
+      "optimal",
+    ]);
+    expect(SOLVER_INVARIANT_CHECKERS.map((c) => c.asserted)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+    ]);
+  });
+
+  it("returns one result per row, index-aligned with the table", () => {
+    const results = checkSolvePlan(makeArgs(new Map()));
+    expect(results.length).toBe(SOLVER_INVARIANT_CHECKERS.length);
+    for (const [i, row] of SOLVER_INVARIANT_CHECKERS.entries()) {
+      expect(results[i], row.name).toEqual(row.check(makeArgs(new Map())));
+    }
+  });
+
+  it("skips the optimal row on the assert path but runs it when reporting", () => {
+    const assertCosts = new TracingCosts();
+    assertInvariants(makeArgs(assertCosts));
+    expect(assertCosts.read).toBe(false);
+
+    const reportCosts = new TracingCosts();
+    checkSolvePlan(makeArgs(reportCosts));
+    expect(reportCosts.read).toBe(true);
   });
 });

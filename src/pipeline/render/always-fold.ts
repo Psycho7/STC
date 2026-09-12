@@ -159,7 +159,7 @@ export const AlwaysFoldRender: RenderPolicy = (input): RenderPlan => {
       itemOverrides: input.itemOverrides,
       itemById: input.itemById,
       recipeById: input.recipeById,
-      pack: input.pack,
+      supply: input.supply,
       unitIdByVertex,
       boundaryShare: input.boundaryShare,
     });

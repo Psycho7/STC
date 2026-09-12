@@ -9,8 +9,7 @@ import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import { pack } from "../../data/load";
 import { solvePlanWithIntermediates } from "../../solver/index";
-import { defaultTransportConfig } from "../../data/transport-config";
-import { renderPlanFromSolve } from "../driver";
+import { solveForRender } from "../solveForRender";
 import { checkRenderPlan } from "./invariants";
 import { makePack } from "../../solver/closed-form-fixtures";
 import { isInputProductUnit, isOutputProductUnit, isRecipeUnit } from "../types";
@@ -27,13 +26,11 @@ function solveAndRender(
   rates: ReadonlyMap<string, Fraction>;
   softFeasible: boolean;
 } {
-  const full = solvePlanWithIntermediates(
+  const { full, plan } = solveForRender({
     targets,
-    fixturePack,
-    defaultTransportConfig,
-    overrides,
-  );
-  const { plan } = renderPlanFromSolve(full, fixturePack, targets, overrides);
+    pack: fixturePack,
+    itemOverrides: overrides,
+  });
   const violations = checkRenderPlan({
     plan,
     rates: full.rates,
@@ -93,12 +90,7 @@ describe("itemOverride matrix on copper_nugget@1/s (copper_ore)", () => {
   // from nothing), which is true of every shortfall plan and not of this ban -
   // capping iron_ore short has always thrown the same way.
   it.each(short)("%s reports the shortfall and mines nothing", (_name, overrides) => {
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      overrides,
-    );
+    const full = solvePlanWithIntermediates(targets, pack, overrides);
     expect(full.rates.has("copper_ore-liquid_water")).toBe(false);
     expect(full.feasibility.softFeasible).toBe(false);
   });

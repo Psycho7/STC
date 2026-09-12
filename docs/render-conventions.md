@@ -139,7 +139,11 @@ way: when the full box has no seat left on the line, the chip shrinks to its
 natural size before it takes any seat off the line. A chip that had to move is
 still bound to its own polyline; dragging a card re-seats every chip when the
 drag ends, so a dropped plan obeys the same rules (mid-drag, chips ride the
-live line with their last seat offsets); one that reads as belonging to a neighbouring line is a defect. A
+live line with their last seat offsets); one that reads as belonging to a neighbouring line is a defect.
+A decision the pass recorded against an anchor -- a hidden chip, a junction dot --
+survives a drag only while that anchor still matches the live geometry, and
+comes back or disappears as soon as it does not; a decision recorded with no
+anchor stands until the next re-seat. A
 lane chip first tries a bite-sized lift off its lane -- under one chip
 half-height, so the lane stroke still runs inside the box the chip paints and
 keeps saying which trunk the rate belongs to -- and that much clears a thin
@@ -174,6 +178,11 @@ Do not report these as defects.
 - A fan-out branch chip, or a fan-in member chip that would land on the shared
   run, may be deliberately hidden. The rate remains on the target card's input
   row.
+- Mid-drag, a fan-in merge dot can vanish while the merged run still shows one
+  member's rate. The dot hides as soon as its stamped x leaves the owner's live
+  polyline, while a non-owner member's chip hide is pinned to the port ROW
+  alone, so a source dragged horizontally slides the line out from under the dot
+  without changing any row. Both stamps are restored by the reseat at drag-stop.
 - A member of a multi-member lane trunk may draw no rise chip at all. The
   seating pass hides a rise chip when the trunk's run has no room for it at one
   chip's separation from its neighbours, and when its seat would have to leave

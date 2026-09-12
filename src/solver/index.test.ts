@@ -6,11 +6,10 @@ import {
   coProductTarget,
   dualTargetItemsOneRecipe,
 } from "./corpus";
-import { renderPlanFromSolve } from "../pipeline/driver";
+import { solveForRender } from "../pipeline/solveForRender";
 import { checkRenderPlan } from "../pipeline/render/invariants";
 import { withoutGasMachines } from "./closed-form-fixtures";
 import { pack } from "../data/load";
-import { defaultTransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
 import type { RecipePack } from "@aef/schema";
 import type { LpResult } from "./lp";
@@ -54,11 +53,7 @@ describe("solvePlanWithIntermediates (LP)", () => {
       },
     ];
     // legacyPack: on the full v1.4 pack the gas route displaces both producers.
-    const full = solvePlanWithIntermediates(
-      targets,
-      legacyPack,
-      defaultTransportConfig,
-    );
+    const full = solvePlanWithIntermediates(targets, legacyPack);
     expect(full.rates.get("liquid_xiranite_poly")).toBeDefined();
     expect(full.rates.get("liquid_xiranite_poly-purifier")).toBeDefined();
     expect(full.logical.nodes.length).toBeGreaterThan(0);
@@ -95,7 +90,6 @@ describe("solver status handling", () => {
     const full = solvePlanWithIntermediates(
       emptyFeasibleTargets,
       emptyFeasiblePack,
-      defaultTransportConfig,
     );
     expect(full.rates.size).toBe(0);
     expect(full.logical.nodes.length).toBe(0);
@@ -115,9 +109,9 @@ describe("solver status handling", () => {
   it("throws on infeasible status", () => {
     lpStatusOverride.status = "infeasible";
     try {
-      expect(() =>
-        solvePlanWithIntermediates(targets, pack, defaultTransportConfig),
-      ).toThrow(/infeasible/);
+      expect(() => solvePlanWithIntermediates(targets, pack)).toThrow(
+        /infeasible/,
+      );
     } finally {
       lpStatusOverride.status = undefined;
     }
@@ -134,12 +128,7 @@ describe("solver status handling", () => {
     try {
       let caught: unknown;
       try {
-        solvePlanWithIntermediates(
-          targets,
-          pack,
-          defaultTransportConfig,
-          overrides,
-        );
+        solvePlanWithIntermediates(targets, pack, overrides);
       } catch (e) {
         caught = e;
       }
@@ -255,7 +244,6 @@ describe("multi-producer input of a split SCC member (assemble re-route)", () =>
     const full = solvePlanWithIntermediates(
       sccTargets,
       sccPack,
-      defaultTransportConfig,
       sccOverrides,
       sccCosts,
     );
@@ -305,12 +293,7 @@ describe("torn feedback covers every intra-SCC logical cycle", () => {
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
+    const full = solvePlanWithIntermediates(targets, pack, []);
     const recipeOfReplica = new Map(
       full.replicas.map((r) => [r.id, r.recipeId]),
     );
@@ -396,12 +379,7 @@ describe("replica coverage of the LP solution", () => {
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
+    const full = solvePlanWithIntermediates(targets, pack, []);
 
     const zero = new Fraction(0);
     const sums = new Map<string, Fraction>();
@@ -441,13 +419,12 @@ describe("LP-split target item through replicate and render", () => {
   it("replicates both producers and feeds the target output the declared rate", () => {
     const { pack: p, targets, itemOverrides, recipeCosts } =
       splitTargetProducers;
-    const full = solvePlanWithIntermediates(
+    const { full, plan } = solveForRender({
       targets,
-      p,
-      defaultTransportConfig,
+      pack: p,
       itemOverrides,
       recipeCosts,
-    );
+    });
 
     // (a) Both producers replicate at their full LP rates.
     const zero = new Fraction(0);
@@ -462,7 +439,6 @@ describe("LP-split target item through replicate and render", () => {
 
     // (c) The render pipeline completes under the DEV invariant hooks and
     // every render checker reports zero violations.
-    const { plan } = renderPlanFromSolve(full, p, targets, itemOverrides);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -500,7 +476,7 @@ describe("co-product target items through replicate and render", () => {
   // production as its split weight.
   it("feeds the primary-output consumer despite a co-product draw on its producer", () => {
     const { pack: p, targets } = coProductTarget;
-    const full = solvePlanWithIntermediates(targets, p, defaultTransportConfig);
+    const { full, plan } = solveForRender({ targets, pack: p });
 
     const zero = new Fraction(0);
     const sumOf = (rid: string) =>
@@ -512,7 +488,6 @@ describe("co-product target items through replicate and render", () => {
     expect(sumOf("r_co").equals(1)).toBe(true);
     expect(sumOf("r_use").equals(1)).toBe(true);
 
-    const { plan } = renderPlanFromSolve(full, p, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -543,14 +518,13 @@ describe("co-product target items through replicate and render", () => {
   // once and the per-item draws must both be honored.
   it("seeds a two-target-item recipe once and feeds both target outputs", () => {
     const { pack: p, targets } = dualTargetItemsOneRecipe;
-    const full = solvePlanWithIntermediates(targets, p, defaultTransportConfig);
+    const { full, plan } = solveForRender({ targets, pack: p });
 
     expect(full.rates.get("r_dual")!.equals(1)).toBe(true);
     const dualReplicas = full.replicas.filter((r) => r.recipeId === "r_dual");
     expect(dualReplicas).toHaveLength(1);
     expect(dualReplicas[0]!.executionRate.equals(1)).toBe(true);
 
-    const { plan } = renderPlanFromSolve(full, p, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -582,13 +556,8 @@ describe("co-product target items through replicate and render", () => {
     const targets: ItemTarget[] = [
       { itemId: "liquid_sewage", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-    );
+    const { full, plan } = solveForRender({ targets, pack });
     expect(full.feasibility.softFeasible).toBe(true);
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -614,15 +583,10 @@ describe("free-boundary target items through render", () => {
     const targets: ItemTarget[] = [
       { itemId: "iron_ore", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-    );
+    const { full, plan } = solveForRender({ targets, pack });
     expect(full.feasibility.softFeasible).toBe(true);
     expect(full.rates.size).toBe(0);
 
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,

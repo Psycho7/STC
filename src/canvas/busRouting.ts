@@ -40,7 +40,9 @@ import {
 import {
   absoluteLeft,
   absoluteTop,
+  edgeItem,
   nodeHeight,
+  nodeIndexOf,
   nodeWidth,
   portOffsetY,
 } from "./nodeGeometry";
@@ -251,11 +253,31 @@ function edgeSpan(
   return Math.max(0, targetLeft - sourceRight);
 }
 
-export function edgeItem(edge: Edge): string | undefined {
-  // Deliberately weaker than ItemEdgeData: older fixtures carry a non-string
-  // item, so the guard below has to see `unknown` rather than a claimed type.
-  const item = (edge.data as { item?: unknown } | undefined)?.item;
-  return typeof item === "string" ? item : undefined;
+// The four port coordinates of one edge: the source's out-port on its right
+// edge and the target's in-port on its left edge, each at the row the edge's
+// item resolves to. Null when either endpoint is missing from the node index --
+// the guard every caller used to write by hand.
+//
+// This is the MODEL frame, the coordinate the layout places by and every
+// routing pass reasons in. Its sibling drawnPortsOf in nodeGeometry.ts answers
+// the same four names in the DRAWN frame (model plus PORT_DRIFT). The two are
+// never merged: the gap between them is 1-2 units, exactly where the ratcheted
+// occlusion and crossing counts turn, so comparing a model value against drawn
+// geometry is a real error, not a rounding one.
+export function edgePortsModel(
+  edge: Edge,
+  byId: ReadonlyMap<string, RFAnyNode>,
+): { sx: number; sy: number; tx: number; ty: number } | null {
+  const source = byId.get(edge.source);
+  const target = byId.get(edge.target);
+  if (source === undefined || target === undefined) return null;
+  const item = edgeItem(edge);
+  return {
+    sx: absoluteLeft(source, byId) + nodeWidth(source),
+    sy: absoluteTop(source, byId) + portOffsetY(source, item, "out"),
+    tx: absoluteLeft(target, byId),
+    ty: absoluteTop(target, byId) + portOffsetY(target, item, "in"),
+  };
 }
 
 // Key of one FLOW: the (item, source unit) pair leaving a single out-port. A
@@ -342,18 +364,16 @@ function minAbsoluteNodeTop(
   return top;
 }
 
-// Absolute y of the source out-port and target in-port of a bus member, given
-// the resolved endpoints and item. The band decision averages these across a
-// trunk's members.
+// Midpoint between a bus member's source out-port and target in-port. The band
+// decision averages these across a trunk's members. Null for an edge whose
+// endpoints are not both in the index.
 function memberPortMidY(
-  source: RFAnyNode,
-  target: RFAnyNode,
-  item: string | undefined,
+  edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
-): number {
-  const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
-  const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
-  return (sy + ty) / 2;
+): number | null {
+  const ports = edgePortsModel(edge, byId);
+  if (ports === null) return null;
+  return (ports.sy + ports.ty) / 2;
 }
 
 // routeBusEdges: classify long edges as bus members and give
@@ -365,8 +385,7 @@ export function routeBusEdges(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): Edge[] {
-  const byId = new Map<string, RFAnyNode>();
-  for (const node of nodes) byId.set(node.id, node);
+  const byId = nodeIndexOf(nodes);
 
   // First pass: classify. An edge is a bus member iff its span exceeds the
   // threshold.
@@ -419,17 +438,10 @@ export function routeBusEdges(
       // classifier change cannot silently demote a backward member, whose
       // corridor is the rail shape, not this forward leg.
       if (nodeGap(source, target, byId) <= 0) continue;
-      const item = edgeItem(edge);
-      if (!forwardCorridorClear(source, target, item, byId, obstacles)) {
+      if (!forwardCorridorClear(edge, byId, obstacles)) {
         continue; // horizontal corridor not provably clear -> keep the lane
       }
-      const proof = provenForwardBendColumn(
-        source,
-        target,
-        item,
-        byId,
-        obstacles,
-      );
+      const proof = provenForwardBendColumn(edge, byId, obstacles);
       if (proof === null) {
         continue; // no clear vertical bend column -> keep the lane
       }
@@ -476,9 +488,8 @@ export function routeBusEdges(
   const trunkPortCount = new Map<string, number>();
   trunkKeyByEdgeIndex.forEach((trunkKey, index) => {
     const edge = edges[index]!;
-    const source = byId.get(edge.source)!;
-    const target = byId.get(edge.target)!;
-    const midY = memberPortMidY(source, target, edgeItem(edge), byId);
+    const midY = memberPortMidY(edge, byId);
+    if (midY === null) return; // unreachable: classification resolved both
     trunkPortSum.set(trunkKey, (trunkPortSum.get(trunkKey) ?? 0) + midY);
     trunkPortCount.set(trunkKey, (trunkPortCount.get(trunkKey) ?? 0) + 1);
   });
@@ -717,8 +728,7 @@ export function busBandRegions(
   const bands = laneBands(edges);
   if (bands.top === null && bands.bottom === null) return [];
 
-  const byId = new Map<string, RFAnyNode>();
-  for (const node of nodes) byId.set(node.id, node);
+  const byId = nodeIndexOf(nodes);
 
   // Per-band horizontal run: the min drop column to the max rise column over the
   // band's lane members, from the shared bases (busDropBase / busRiseBase, the
@@ -771,12 +781,11 @@ export function busBandRegions(
 
 // routeFanoutEdges: synthesize a first-class fan-out trunk wherever N >= 2 edges
 // leave the SAME source port (same item, same source unit) into targets one
-// layer over. Runs AFTER routeBusEdges, on the still-"item" remainder (bus
-// members and demoted trunks are already retyped / bound, and none overlap a
-// fan-out by span). The order is scheduling, not a dependency: the two passes
-// classify disjoint span ranges, so this pass sees the same members with
-// routeBusEdges skipped (busLanesEnabled: false). Each qualifying member is
-// retyped `type: "bus"` and stamped
+// layer over. It takes the still-"item" remainder (bus members and demoted
+// trunks are already retyped / bound, and none overlap a fan-out by span); its
+// place in the order, and why that placement is scheduling rather than a
+// dependency, is the ROUTING_PASSES entry in layout.ts. Each qualifying member
+// is retyped `type: "bus"` and stamped
 // { fanout, junctionX, trunkKey, busTotalRate, busMemberCount, busChipOwner } --
 // reusing the trunk aggregation scaffolding -- but carries NO laneY, so the lane
 // passes (clearBusColumns, the bus drop/rise chip phases) skip it and BusEdge
@@ -812,8 +821,7 @@ export function routeFanoutEdges(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): Edge[] {
-  const byId = new Map<string, RFAnyNode>();
-  for (const node of nodes) byId.set(node.id, node);
+  const byId = nodeIndexOf(nodes);
 
   // Bucket qualifying members by (item, source-port) == trunkKey. A recipe
   // out-port carries exactly one item, so item + source id identifies the port.
@@ -938,11 +946,12 @@ export function routeFanoutEdges(
     let total = new Fraction(0);
     let owner: string | undefined;
     let corridorRight = Infinity;
-    // Source is shared across members; resolve its port geometry once.
-    const source = byId.get(edges[indices[0]!]!.source)!;
-    const item = edgeItem(edges[indices[0]!]!);
-    const sx = absoluteLeft(source, byId) + nodeWidth(source);
-    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
+    // Source is shared across members; resolve its port geometry once. Every
+    // member reached this point with both endpoints in the index, so the
+    // accessor cannot answer null here or in the member loop below.
+    const first = edges[indices[0]!]!;
+    const source = byId.get(first.source)!;
+    const { sx, sy } = edgePortsModel(first, byId)!;
     const endpoints: RFAnyNode[] = [source];
     let yLo = sy;
     let yHi = sy;
@@ -954,8 +963,7 @@ export function routeFanoutEdges(
       total = total.add(edgeRate(edge) ?? new Fraction(0));
       if (owner === undefined || edge.id < owner) owner = edge.id;
       const target = byId.get(edge.target)!;
-      const tx = absoluteLeft(target, byId);
-      const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+      const { tx, ty } = edgePortsModel(edge, byId)!;
       corridorRight = Math.min(corridorRight, tx);
       yLo = Math.min(yLo, ty);
       yHi = Math.max(yHi, ty);
@@ -1246,15 +1254,17 @@ export function routeFanoutEdges(
 // legitimately starts / ends inside them. A clear result means the edge needs no
 // bus lane; anything unproven keeps the lane.
 function forwardCorridorClear(
-  source: RFAnyNode,
-  target: RFAnyNode,
-  item: string | undefined,
+  edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
   obstacles: ReadonlyArray<PaddedObstacle>,
 ): boolean {
-  const sx = absoluteLeft(source, byId) + nodeWidth(source);
-  const tx = absoluteLeft(target, byId);
-  const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+  const source = byId.get(edge.source);
+  const target = byId.get(edge.target);
+  const ports = edgePortsModel(edge, byId);
+  if (source === undefined || target === undefined || ports === null) {
+    return false;
+  }
+  const { sx, tx, ty } = ports;
   const exempt = ownExempt([source, target]);
   const foreign = obstacles.filter(
     (o) => o.kind === "card" && !exempt.has(o.nodeId),
@@ -1284,16 +1294,17 @@ function forwardCorridorClear(
 // passes through untouched.
 type BendProof = { bendX: number | null };
 function provenForwardBendColumn(
-  source: RFAnyNode,
-  target: RFAnyNode,
-  item: string | undefined,
+  edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
   obstacles: ReadonlyArray<PaddedObstacle>,
 ): BendProof | null {
-  const sx = absoluteLeft(source, byId) + nodeWidth(source);
-  const tx = absoluteLeft(target, byId);
-  const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
-  const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+  const source = byId.get(edge.source);
+  const target = byId.get(edge.target);
+  const ports = edgePortsModel(edge, byId);
+  if (source === undefined || target === undefined || ports === null) {
+    return null;
+  }
+  const { sx, sy, tx, ty } = ports;
   const mid = (sx + tx) / 2;
   if (Math.abs(ty - sy) <= 2 * CHAMFER) return { bendX: null }; // no vertical run
   const exempt = ownExempt([source, target]);
@@ -1339,14 +1350,13 @@ export function directCorridorClear(
   edges: ReadonlyArray<Edge>,
   edge: Edge,
 ): boolean {
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
+  const byId = nodeIndexOf(nodes);
   const source = byId.get(edge.source);
   const target = byId.get(edge.target);
   if (source === undefined || target === undefined) return false;
   if (nodeGap(source, target, byId) <= 0) return false;
   const obstacles = paddedObstacles(nodes, edges);
-  return forwardCorridorClear(source, target, edgeItem(edge), byId, obstacles);
+  return forwardCorridorClear(edge, byId, obstacles);
 }
 
 // -- Entry gutter -------------------------------------------------------------
@@ -1369,11 +1379,14 @@ export function directCorridorClear(
 // Width scales with the node's own gutter in-degree rather than a global max, so
 // a node with a single entry keeps the minimal band (and its geometry stays
 // byte-identical to the pre-gutter default).
-export const ENTRY_GUTTER_MIN = PORT_STUB + CHAMFER; // 32
+const ENTRY_GUTTER_MIN = PORT_STUB + CHAMFER; // 32
 export const ENTRY_SLOT_PITCH = 2 * CHAMFER; // 16
 
 // Band width for a node hosting `columnCount` staggered entry columns. Zero or
 // one column -> the minimal band; each extra column adds one pitch.
+//
+// Exported for the column suite, which asserts a node's gutter rect measures
+// exactly gutterWidth(entry count) across.
 export function gutterWidth(columnCount: number): number {
   return ENTRY_GUTTER_MIN + Math.max(0, columnCount - 1) * ENTRY_SLOT_PITCH;
 }
@@ -1434,10 +1447,7 @@ function occupiesGutterColumn(
 // Resolved input-port index of an edge at its target, or -1 when unknown. Only
 // recipe/loop nodes carry the ELK-resolved `inputOrder`; product targets have a
 // single port. Used to order a target's staggered entry columns top to bottom.
-export function inputPortIndex(
-  target: RFAnyNode,
-  item: string | undefined,
-): number {
+function inputPortIndex(target: RFAnyNode, item: string | undefined): number {
   if (item === undefined) return -1;
   if (target.type !== "recipe" && target.type !== "loop") return -1;
   const order = target.data.inputOrder;
@@ -1469,8 +1479,7 @@ export function entryGutterRects(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): Map<string, GutterRect> {
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
+  const byId = nodeIndexOf(nodes);
   const counts = gutterColumnCounts(edges, byId);
   const rects = new Map<string, GutterRect>();
   for (const node of nodes) {
@@ -1496,14 +1505,14 @@ export function entryGutterRects(
 // which is the pre-gutter default, so a single-entry node is unchanged).
 //
 // Pure and deterministic: the column of an edge depends only on its target and
-// port rank, never on edge order. Runs after routeBusEdges (so bus members are
-// already retyped) and leaves every non-gutter edge untouched by reference.
+// port rank, never on edge order. Leaves every non-gutter edge untouched by
+// reference. What it needs from the passes before it is the ROUTING_PASSES
+// entry in layout.ts.
 export function assignEntryColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): Edge[] {
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
+  const byId = nodeIndexOf(nodes);
 
   // Bucket gutter edges by target, remembering each one's original index so the
   // emitted array can be rebuilt in place.
@@ -1560,10 +1569,10 @@ export function assignEntryColumns(
 
 // assignBendColumns: stagger the bend column of forward item edges that share a
 // corridor so their vertical runs do not overlap into one blurred line. Pure and
-// deterministic. Runs after routeBusEdges, so it only sees still-type:"item"
-// edges (bus members were already retyped) and skips backward / zero-gap edges.
-// Non-member edges pass through by reference; members get { bendX } merged onto
-// their data (consumed by chamferStepPath).
+// deterministic. It fans only still-type:"item" edges and skips backward /
+// zero-gap ones; what it needs from the passes before it is the ROUTING_PASSES
+// entry in layout.ts. Non-member edges pass through by reference; members get
+// { bendX } merged onto their data (consumed by chamferStepPath).
 //
 // Banding: candidates are bucketed by their source LAYER, keyed on the source's
 // absolute left edge (quantized to the pixel). Same-layer nodes share that left
@@ -1591,8 +1600,7 @@ export function assignBendColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): Edge[] {
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
+  const byId = nodeIndexOf(nodes);
 
   const leftMargin = ENTRY_GUTTER_MIN; // keeps columns off the source port stubs
 
@@ -1795,12 +1803,23 @@ export type PaddedObstacle = ObstacleRect & {
   nodeId: string;
 };
 
+// The obstacle field a routing pass avoids, in two arms with different
+// lifetimes:
+//   card arm   a fold over `nodes` alone. The nodes array is the same object
+//              for every pass (layoutRenderPlan never re-derives it), so this
+//              arm is stable for the whole run.
+//   gutter arm a fold over `(nodes, edges-as-of-now)`: occupiesGutterColumn
+//              reads edge.type and data.fanout, which routeBusEdges and
+//              routeFanoutEdges rewrite, so it changes under the first two
+//              passes and only freezes from the third on.
+// Each pass therefore rebuilds the field instead of sharing one hoisted to a
+// stage boundary. Hoisting would give the same rects today and go silently
+// wrong the day a pass that retypes an edge is added after it.
 export function paddedObstacles(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): PaddedObstacle[] {
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
+  const byId = nodeIndexOf(nodes);
   const out: PaddedObstacle[] = [];
   for (const node of nodes) {
     const left = absoluteLeft(node, byId);
@@ -1849,8 +1868,11 @@ export function paddedObstacles(
 // segment-vs-card audit quantifies the residual rather than flinging the run
 // across the graph). Pure and deterministic: a function of the sorted obstacle
 // list (and the pure accept) only.
-export const CLEAR_COLUMN_RADIUS = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
+const CLEAR_COLUMN_RADIUS = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
 
+// Exported for the column suite, which asserts the escape distance and the
+// toward-target tie-break on synthetic obstacle rows; a routed edge only shows
+// the column that won.
 export function clearColumnX(
   desiredX: number,
   yLo: number,
@@ -1916,8 +1938,7 @@ export function clearColumnX(
 // the user sees, even where sibling paddings overlap and the padded model calls
 // the whole corridor blocked.
 function rawCardRects(nodes: ReadonlyArray<RFAnyNode>): PaddedObstacle[] {
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
+  const byId = nodeIndexOf(nodes);
   return nodes.map((node) => {
     const left = absoluteLeft(node, byId);
     const top = absoluteTop(node, byId);
@@ -2237,9 +2258,10 @@ function localRanks(
 // is accepted only when the connecting horizontal from the port also stays clear,
 // with a raw-gap fallback where sibling paddings overlap.
 //
-// Runs AFTER assignEntryColumns so the rise's desired column is the final
-// staggered entryX (clearance starts from the stagger and only moves it when it
-// pierces foreign geometry; riseX then overrides entryX in chamferBusPath). The
+// The rise's desired column is the final staggered entryX (clearance starts
+// from the stagger and only moves it when it pierces foreign geometry; riseX
+// then overrides entryX in chamferBusPath); which pass leaves that stamp, and
+// the rest of the order, is the ROUTING_PASSES entry in layout.ts. The
 // narrow-forward hairpin member has no distinct drop / rise column (both collapse
 // onto the corridor midpoint), so it is left untouched -- reachable only for a
 // hand-built bus edge, since routeBusEdges classifies nothing under
@@ -2256,8 +2278,7 @@ export function clearBusColumns(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): Edge[] {
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
+  const byId = nodeIndexOf(nodes);
 
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
@@ -2290,11 +2311,9 @@ export function clearBusColumns(
     const data = edge.data as BusEdgeData | undefined;
     if (data === undefined || !("laneY" in data)) return;
     const laneY = data.laneY;
-    const item = edgeItem(edge);
-    const sx = absoluteLeft(source, byId) + nodeWidth(source);
-    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
-    const tx = absoluteLeft(target, byId);
-    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    const ports = edgePortsModel(edge, byId);
+    if (ports === null) return;
+    const { sx, sy, tx, ty } = ports;
     const gap = tx - sx;
     if (gap > 0 && gap < FORWARD_STEP_BUDGET) return;
     members.push({
@@ -2567,14 +2586,13 @@ export function clearBusColumns(
 // horizontal run crosses. Because those rects now carry the port-stub / entry-
 // chip overhang and each node's entry gutter, the rail also avoids grazing that
 // overhang, not just the raw card. Threads { railY } onto the affected edges;
-// every other edge passes through by reference. Runs after assignEntryColumns so
-// it sees the entry column that fixes the rail's left end.
+// every other edge passes through by reference. What it needs from the passes
+// before it is the ROUTING_PASSES entry in layout.ts.
 export function clampBackwardRails(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): Edge[] {
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
+  const byId = nodeIndexOf(nodes);
 
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
@@ -2592,11 +2610,9 @@ export function clampBackwardRails(
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) return;
     if (nodeGap(source, target, byId) > 0) return; // forward edges keep the step
-    const item = edgeItem(edge);
-    const sx = absoluteLeft(source, byId) + nodeWidth(source);
-    const tx = absoluteLeft(target, byId);
-    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
-    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    const ports = edgePortsModel(edge, byId);
+    if (ports === null) return;
+    const { sx, sy, tx, ty } = ports;
     // Rail x-span and level come from chamferStepPath's own backward defaults,
     // so the clamp starts at exactly the shape the drawer would produce.
     const {
@@ -2759,8 +2775,9 @@ export function clampBackwardRails(
 // no worse than before -- and the residual is left for a deeper routing pass
 // rather than a jog that fights itself.
 //
-// Runs after assignBendColumns so it reads each edge's FINAL bendX (the leg
-// starts at that column). Only the normal forward step has a distinct final leg
+// It reads each edge's FINAL bendX (the leg starts at that column); which pass
+// settles it is the ROUTING_PASSES entry in layout.ts.
+// Only the normal forward step has a distinct final leg
 // to jog; the same-y straight line and small-dy diagonal are left to their own
 // branches, which do not read legY. Threads { legY } onto the affected edges;
 // every other edge passes through by reference. Pure and deterministic.
@@ -2768,8 +2785,7 @@ export function jogForwardLegs(
   nodes: ReadonlyArray<RFAnyNode>,
   edges: ReadonlyArray<Edge>,
 ): Edge[] {
-  const byId = new Map<string, RFAnyNode>();
-  for (const n of nodes) byId.set(n.id, n);
+  const byId = nodeIndexOf(nodes);
 
   const obstacles = paddedObstacles(nodes, edges);
   const rawCards = rawCardRects(nodes);
@@ -2799,11 +2815,9 @@ export function jogForwardLegs(
     const target = byId.get(edge.target);
     if (source === undefined || target === undefined) return;
     if (nodeGap(source, target, byId) <= 0) return; // backward / zero-gap edge
-    const item = edgeItem(edge);
-    const sx = absoluteLeft(source, byId) + nodeWidth(source);
-    const tx = absoluteLeft(target, byId);
-    const sy = absoluteTop(source, byId) + portOffsetY(source, item, "out");
-    const ty = absoluteTop(target, byId) + portOffsetY(target, item, "in");
+    const ports = edgePortsModel(edge, byId);
+    if (ports === null) return;
+    const { sx, sy, tx, ty } = ports;
     // Only the normal forward step draws a distinct final horizontal leg: the
     // same-y case is a straight line and the small-dy case a single diagonal,
     // neither of which reads legY. Mirror chamferStepPath's branch guards so a

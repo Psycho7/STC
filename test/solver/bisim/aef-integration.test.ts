@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { solvePlanWithIntermediates } from "../../../src/solver";
 import { pack } from "../../../src/data/load";
-import { defaultTransportConfig } from "../../../src/data/transport-config";
 import { defaultTargets } from "../../../src/data/targets";
 import {
   augmentGraphWithLpSupport,
@@ -19,12 +18,7 @@ describe("AEF round-trip with bisim", () => {
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
+    const full = solvePlanWithIntermediates(targets, pack, []);
     expect(full.replicas.length).toBeGreaterThan(0);
 
     // Ceiling invariant: the solve path derives every integer machine count as
@@ -35,25 +29,6 @@ describe("AEF round-trip with bisim", () => {
       const ideal = full.idealCount.get(r.id);
       if (mult === undefined || ideal === undefined) continue;
       expect(mult).toBe(Number(ideal.ceil(0).valueOf()));
-    }
-
-    // Quotient cardinality: bisim never grows the replica set, so the
-    // number of raw replicas (classByReplicaId.size) is an upper bound on
-    // the number of quotient replicas (full.replicas.length).
-    expect(full.classByReplicaId.size).toBeGreaterThanOrEqual(
-      full.replicas.length,
-    );
-
-    // Surjection: every distinct class value in classByReplicaId maps to a
-    // quotient replica, and every quotient replica id appears in
-    // classToQuotient.values().
-    const seenClasses = new Set(full.classByReplicaId.values());
-    for (const cid of seenClasses) {
-      expect(full.classToQuotient.has(cid)).toBe(true);
-    }
-    const quotientIds = new Set(full.replicas.map((r) => r.id));
-    for (const qid of full.classToQuotient.values()) {
-      expect(quotientIds.has(qid)).toBe(true);
     }
   });
 
@@ -66,12 +41,7 @@ describe("AEF round-trip with bisim", () => {
     // graphs; this test proves it on real AEF data threaded through the
     // wired pipeline.
     const targets = defaultTargets();
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
+    const full = solvePlanWithIntermediates(targets, pack, []);
     expect(full.replicas.length).toBeGreaterThan(0);
 
     // Same ceiling pin as above, on the larger seed plan. At least one ideal

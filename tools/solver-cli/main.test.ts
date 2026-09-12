@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { runCli } from "./main";
 import { pack } from "../../src/data/load";
 import { defaultPlan, encodePlan } from "../../src/data/plan";
+import { SOLVER_INVARIANT_CHECKERS } from "../../src/solver/invariants";
 
 // Smoke tests for the solver-cli. These call runCli() directly (no process
 // spawning) and assert on the returned string. The headline plan is a single
@@ -25,6 +26,13 @@ describe("solver-cli smoke", () => {
     expect(out).toMatch(/^rawOnlyBoundary ok=/m);
     expect(out).toMatch(/^representable ok=/m);
     expect(out).toMatch(/^optimal ok=/m);
+  });
+
+  it("prints one verdict per table row, in table order", async () => {
+    const out = await runCli(HEADLINE_ARGV);
+    const block = out.split("# invariants")[1] ?? "";
+    const printed = [...block.matchAll(/^(\S+) ok=/gm)].map((m) => m[1]);
+    expect(printed).toEqual(SOLVER_INVARIANT_CHECKERS.map((c) => c.name));
   });
 
   it("reports noOrphanLogicalNodes ok=true for the stock pack", async () => {

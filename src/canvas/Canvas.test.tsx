@@ -12,7 +12,7 @@ import type { Recipe } from "@aef/schema";
 import Canvas, { zoomBand } from "./Canvas";
 import { ItemPackProvider, type ItemPackContextValue } from "./itemPackContext";
 import { LocaleProvider } from "../data/i18n-context";
-import { cssBlock } from "../../test/canvas/cssContract";
+import { cssBlock } from "./cssContract.testkit";
 
 // The camera-refit effect drives fitView imperatively off the React Flow
 // instance and the node-measurement signal. jsdom never measures nodes, so the

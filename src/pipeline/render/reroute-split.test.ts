@@ -8,9 +8,7 @@ import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import type { RecipePack } from "@aef/schema";
 import type { ItemTarget } from "../../data/targets";
-import { solvePlanWithIntermediates } from "../../solver/index";
-import { defaultTransportConfig } from "../../data/transport-config";
-import { renderPlanFromSolve } from "../driver";
+import { solveForRender } from "../solveForRender";
 import { checkRenderPlan } from "./invariants";
 import { isMachineRecipeVertex } from "../types";
 
@@ -98,14 +96,13 @@ const recipeCosts = new Map([["P2", 2]]);
 
 describe("render: deferred re-route keeps every producer's machine edge", () => {
   it("renders the P2->B edge at rate 1/2 and passes every render checker", () => {
-    const full = solvePlanWithIntermediates(
+    const out = solveForRender({
       targets,
       pack,
-      defaultTransportConfig,
       itemOverrides,
       recipeCosts,
-    );
-    const out = renderPlanFromSolve(full, pack, targets, itemOverrides);
+    });
+    const full = out.full;
 
     // Machine edge P2 -> B carrying x at exactly 1/2.
     const vertexRecipe = new Map(

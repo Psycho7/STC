@@ -17,9 +17,10 @@ import {
 import Canvas, { type CanvasStatus } from "./canvas/Canvas";
 import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
-import { layoutRenderPlan, type RFAnyNode } from "./canvas/layout";
+import type { RFAnyNode } from "./canvas/layout";
+import { layoutSolved } from "./canvas/layoutSolved";
 import { reseatChips } from "./canvas/chipSeating";
-import { buildRealizedRateByItem } from "./canvas/productNodeMetadata";
+import { buildRealizedRateByItem } from "./canvas/realizedRateByItem";
 import {
   describePlanLoadError,
   encodePlan,
@@ -30,19 +31,12 @@ import type { ItemOverride, Plan } from "./data/plan";
 import {
   defaultTransportConfig,
   loadTransportConfig,
-  type TransportConfig,
 } from "./data/transport-config";
 import type { Target } from "./data/targets";
 import { pack } from "./data/load";
 import type { LogicalGraph } from "./canvas/layout";
-import {
-  LpInfeasibleError,
-  solvePlanWithIntermediates,
-  type SolvePlanFull,
-} from "./solver";
-import { planToSolverArgs } from "./solver/planToSolverArgs";
-import { renderPlanFromSolve } from "./pipeline/driver";
-import { targetOutputShortfalls } from "./pipeline/render/invariants";
+import { LpInfeasibleError } from "./solver";
+import { solveFromPlan } from "./pipeline/solveForRender";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { BusLanesToggle } from "./components/BusLanesToggle";
@@ -51,38 +45,6 @@ import StatsStrip from "./canvas/StatsStrip";
 import { displayedInputCount } from "./components/InputsPanel";
 import { iconSheetUrl } from "./canvas/iconSprite";
 import { BUS_LANES_STORAGE_KEY } from "./data/storage-keys";
-
-// Run the render pipeline over a SolvePlanFull and turn it into React Flow nodes
-// and edges via layoutRenderPlan.
-//
-// `underDelivered` lists the target items the rendered plan feeds below their
-// declared rate. The LP never reports these as infeasible - a capped raw input
-// with no alternative route just yields a partial plan - so this is the one
-// signal that the drawn graph does not meet the declared intent.
-async function renderFromFull(
-  full: SolvePlanFull,
-  itemOverrides: ReadonlyArray<import("./data/plan").ItemOverride>,
-  targets: ReadonlyArray<import("./data/targets").Target>,
-  busLanesEnabled: boolean,
-): Promise<{ nodes: Node[]; edges: Edge[]; underDelivered: string[] }> {
-  const itemById = new Map(pack.items.map((i) => [i.id, i]));
-  const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
-  const underDelivered = targetOutputShortfalls(plan, targets).map(
-    (s) => s.item,
-  );
-  // Raw-pack recipes, NOT full.recipeById: the solver map is netted (see
-  // netSelfConsumption), while node rows and geometry should show the in-game
-  // stoichiometry - a self-consumed input renders as a row with no incoming
-  // edge, telling the player to loop that flow back themselves.
-  const rawRecipeById = new Map(pack.recipes.map((r) => [r.id, r]));
-  const laid = await layoutRenderPlan({
-    plan,
-    recipeById: rawRecipeById,
-    itemById,
-    busLanesEnabled,
-  });
-  return { nodes: laid.nodes as Node[], edges: laid.edges, underDelivered };
-}
 
 // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
 // with per-replica kind:"recipe" stamps, so neither the raw length nor the
@@ -144,11 +106,9 @@ const shortfallStripStyle: CSSProperties = {
 // Validated once at import: loadTransportConfig is a pure check over the two
 // module constants and hands back its first argument, so the outcome (including
 // an UnknownCarrierError throw on a pack the config cannot carry) is the same on
-// every run.
-const transportConfig: TransportConfig = loadTransportConfig(
-  defaultTransportConfig,
-  pack,
-);
+// every run. The returned config is not threaded anywhere - solveForRender
+// supplies it to the solver itself - so this call IS the check.
+loadTransportConfig(defaultTransportConfig, pack);
 
 // Bus-lane preference persistence. A view-only setting, so it lives in
 // localStorage (like the locale), never in the plan wire / URL hash. The key
@@ -432,21 +392,10 @@ function AppInner() {
           return;
         }
         const nextPlan = outcome.plan;
-        const { targets, itemOverrides, recipeCosts } =
-          planToSolverArgs(nextPlan);
-        const full = solvePlanWithIntermediates(
-          targets,
-          pack,
-          transportConfig,
-          itemOverrides,
-          recipeCosts,
-        );
-        const laid = await renderFromFull(
-          full,
-          itemOverrides,
-          targets,
-          busLanesEnabledRef.current,
-        );
+        const solved = solveFromPlan(nextPlan);
+        const laid = await layoutSolved(solved, {
+          busLanesEnabled: busLanesEnabledRef.current,
+        });
         if (outcome.kind === "seeded") {
           const newHash = "#" + (await encodePlan(nextPlan));
           if (myGen !== solveGen.current) return;
@@ -456,10 +405,10 @@ function AppInner() {
         if (myGen !== solveGen.current) return;
         planRef.current = nextPlan;
         setPlan(nextPlan);
-        setRecipeCount(countDistinctRecipes(full.logical));
-        setNodes(laid.nodes);
+        setRecipeCount(countDistinctRecipes(solved.full.logical));
+        setNodes(laid.nodes as Node[]);
         setEdges(laid.edges);
-        setUnderDelivered(laid.underDelivered);
+        setUnderDelivered(solved.underDelivered);
         setLayoutGeneration((g) => g + 1);
         setPlanEpoch((e) => e + 1);
         // A fresh render is authoritative: the canvas now matches the plan.
@@ -534,26 +483,15 @@ function AppInner() {
     const myGen = ++solveGen.current;
     setPending(true);
     try {
-      const { targets, itemOverrides, recipeCosts } =
-        planToSolverArgs(nextPlan);
-      const full = solvePlanWithIntermediates(
-        targets,
-        pack,
-        transportConfig,
-        itemOverrides,
-        recipeCosts,
-      );
-      const laid = await renderFromFull(
-        full,
-        itemOverrides,
-        targets,
-        busLanesEnabledRef.current,
-      );
+      const solved = solveFromPlan(nextPlan);
+      const laid = await layoutSolved(solved, {
+        busLanesEnabled: busLanesEnabledRef.current,
+      });
       if (myGen !== solveGen.current) return;
-      setRecipeCount(countDistinctRecipes(full.logical));
-      setNodes(laid.nodes);
+      setRecipeCount(countDistinctRecipes(solved.full.logical));
+      setNodes(laid.nodes as Node[]);
       setEdges(laid.edges);
-      setUnderDelivered(laid.underDelivered);
+      setUnderDelivered(solved.underDelivered);
       setLayoutGeneration((g) => g + 1);
       setMutationError(null);
       setStale(false);

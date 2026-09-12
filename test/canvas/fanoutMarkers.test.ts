@@ -20,12 +20,17 @@ import {
   FANOUT_SPAN_MIN,
   FANOUT_SPAN_MAX,
 } from "../../src/canvas/busRouting";
-import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
+import {
+  drawnPortsOf,
+  nodeWidth,
+  portOffsetY,
+} from "../../src/canvas/nodeGeometry";
 import {
   CHAMFER,
   chamferStepPath,
   parsePathPoints,
   routingHintsFromData,
+  type DrawnPorts,
   type RoutingHints,
 } from "../../src/canvas/edgePath";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
@@ -47,14 +52,6 @@ const dataOf = (edges: Edge[], id: string): FanoutData =>
 // fan-out to the trunk's shared one).
 const routedHints = (edges: Edge[], id: string): RoutingHints =>
   routingHintsFromData(edges.find((e) => e.id === id)?.data);
-
-// chipSeating's own PORT_DRIFT.recipe, mirrored here (the module does not export
-// it): a recipe's drawn out handle sits 5 units right of the model right edge,
-// its in handle 3 units left of the model left edge, and both a unit below the
-// model row y.
-const SRC_DX = 5;
-const TGT_DX = -3;
-const PORT_DY = 1;
 
 const ITEM = "s";
 
@@ -83,8 +80,24 @@ const rateEdge = (
 const srcNode = (): RFRecipeNode =>
   recipeNode("src", 0, 0, mkRecipe("src", [], [ITEM]));
 const sourceRight = nodeWidth(srcNode());
-const sourceX = sourceRight + SRC_DX;
-const sourceY = portOffsetY(srcNode(), ITEM, "out") + PORT_DY;
+
+// The DRAWN ports of a src -> target edge, through nodeGeometry's one model ->
+// drawn conversion (the frame chipSeating reconstructs in and React Flow's
+// handle anchoring lands on).
+const drawnPortsFor = (target: RFRecipeNode): DrawnPorts =>
+  drawnPortsOf(
+    rateEdge("drawn-ports", "src", target.id, new Fraction(1)),
+    new Map<string, RFAnyNode>([
+      ["src", srcNode()],
+      [target.id, target],
+    ]),
+  )!;
+
+// The source half of that conversion does not depend on the target, so a
+// throwaway consumer resolves the out-port every fixture leaves from.
+const srcPorts = drawnPortsFor(orderedRecipeNode("probe", 0, 0, [ITEM]));
+const sourceX = srcPorts.sourceX;
+const sourceY = srcPorts.sourceY;
 
 // A one-input consumer card whose in-port row lands `rowOffset` below the
 // source's out-port row (0 => a straight, never-bending member).
@@ -94,7 +107,7 @@ const consumer = (id: string, gap: number, rowOffset: number): RFRecipeNode => {
   return orderedRecipeNode(
     id,
     sourceRight + gap,
-    sourceY - PORT_DY - inY + rowOffset,
+    portOffsetY(srcNode(), ITEM, "out") - inY + rowOffset,
     [ITEM],
   );
 };
@@ -106,14 +119,8 @@ const drawnPoints = (
   target: RFRecipeNode,
   hints: RoutingHints = {},
 ): ReadonlyArray<readonly [number, number]> => {
-  const inY = measureRecipe(target.data.recipe).inHandleYs[0]!;
-  const [path] = chamferStepPath({
-    sourceX,
-    sourceY,
-    targetX: target.position.x + TGT_DX,
-    targetY: target.position.y + inY + PORT_DY,
-    ...hints,
-  });
+  const ports = drawnPortsFor(target);
+  const [path] = chamferStepPath({ ...ports, ...hints });
   return parsePathPoints(path);
 };
 
@@ -174,8 +181,8 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     const ptsB = drawnPoints(tgtB);
 
     const out = deconflictChipAnchors(nodes, declined);
-    const owner = dataOf(out, "e:a"); // lexicographically smallest id
-    const other = dataOf(out, "e:b");
+    const owner = dataOf(out, "e:b"); // smallest id among the BENDING members
+    const other = dataOf(out, "e:a");
 
     expect(owner.fanoutJunctionY).toBe(sourceY);
     const jx = owner.fanoutJunctionX!;
@@ -225,7 +232,7 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     expect(declined.map((e) => e.type)).toEqual(["item", "item"]);
 
     const out = deconflictChipAnchors(nodes, declined);
-    const jx = dataOf(out, "e:a").fanoutJunctionX!;
+    const jx = dataOf(out, "e:b").fanoutJunctionX!;
     const ptsA = drawnPoints(tgtA);
     const ptsB = drawnPoints(tgtB);
     expect(yAt(ptsA, jx)).toBeCloseTo(sourceY, 6);
@@ -233,7 +240,7 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     expect(yAt(ptsB, jx + 2)).not.toBeCloseTo(sourceY, 6);
     // Out in the corridor: past the source card's own port zone, not hugging it.
     expect(jx - sourceX).toBeGreaterThan(FANOUT_SPAN_MIN);
-    expect(dataOf(out, "e:b").fanoutJunctionX).toBeUndefined();
+    expect(dataOf(out, "e:a").fanoutJunctionX).toBeUndefined();
   });
 
   it("stamps the FIRST peel-off when two members bend at different columns", () => {
@@ -273,14 +280,16 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     expect(bendB).toBeLessThan(bendC);
 
     const out = deconflictChipAnchors(nodes, routed);
-    const jx = dataOf(out, "e:a").fanoutJunctionX; // lex-smallest id owns it
+    // The smallest id among the BENDING members owns it -- the straight "e:a"
+    // is lex-smaller but carries no peel-off column of its own.
+    const jx = dataOf(out, "e:b").fanoutJunctionX;
     expect(jx).toBe(Math.min(bendB, bendC));
     expect(jx).toBe(bendB);
     // The last shared column, not the last column anyone shares with anyone:
     // stamping the later bend would put the dot where member B has already gone.
     expect(jx).not.toBe(bendC);
-    expect(dataOf(out, "e:a").fanoutJunctionY).toBe(sourceY);
-    expect(dataOf(out, "e:b").fanoutJunctionX).toBeUndefined();
+    expect(dataOf(out, "e:b").fanoutJunctionY).toBe(sourceY);
+    expect(dataOf(out, "e:a").fanoutJunctionX).toBeUndefined();
     expect(dataOf(out, "e:c").fanoutJunctionX).toBeUndefined();
   });
 
@@ -350,9 +359,9 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     expect(bendC).toBeLessThan(bendB);
 
     const out = deconflictChipAnchors(nodes, declined);
-    expect(dataOf(out, "e:a").fanoutJunctionX).toBe(bendB);
-    expect(dataOf(out, "e:a").fanoutJunctionY).toBe(sourceY);
-    expect(dataOf(out, "e:b").fanoutJunctionX).toBeUndefined();
+    expect(dataOf(out, "e:b").fanoutJunctionX).toBe(bendB);
+    expect(dataOf(out, "e:b").fanoutJunctionY).toBe(sourceY);
+    expect(dataOf(out, "e:a").fanoutJunctionX).toBeUndefined();
     expect(dataOf(out, "e:c").fanoutJunctionX).toBeUndefined();
   });
 

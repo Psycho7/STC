@@ -1123,6 +1123,19 @@ describe("deconflictChipAnchors: reconstruction tripwires", () => {
   });
 });
 
+// A product source and target far enough apart that their item edges stay plain
+// forward edges; explicit width/height so nodeHeight needs no recipe.
+function waterProductNode(id: string, x: number): RFAnyNode {
+  return {
+    id,
+    type: "product",
+    position: { x, y: 0 },
+    width: 148,
+    height: 60,
+    data: { kind: "inputProduct", itemId: "water" },
+  } as unknown as RFAnyNode;
+}
+
 describe("deconflictChipAnchors: merged collision set", () => {
   it("moves a coincident midpoint chip by at least the max-scale pitch (48)", () => {
     // Two parallel forward edges share one source and one target, so their
@@ -1158,6 +1171,46 @@ describe("deconflictChipAnchors: merged collision set", () => {
     expect(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT).toBe(48);
     expect(labelDyOf(out, "m:2")).toBeGreaterThanOrEqual(
       MAX_CHIP_SCALE * CHIP_BOX_HEIGHT,
+    );
+  });
+
+  it("separates two coincident item midpoint chips along their line", () => {
+    // Two forward item edges with identical endpoint geometry produce coincident
+    // midpoint anchors. The graze tier keeps both chips ON the shared line
+    // (leaving the line is a last resort), so the second chip slides along it by
+    // at least a full max-scale chip-box width instead of lifting vertically.
+    const nodes = [
+      waterProductNode("sA", 0),
+      waterProductNode("tA", 2000),
+      waterProductNode("sB", 0),
+      waterProductNode("tB", 2000),
+    ];
+    const edges: Edge[] = [
+      {
+        id: "e:1",
+        source: "sA",
+        target: "tA",
+        type: "item",
+        data: { item: "water", rate: new Fraction(400) },
+      },
+      {
+        id: "e:2",
+        source: "sB",
+        target: "tB",
+        type: "item",
+        data: { item: "water", rate: new Fraction(300) },
+      },
+    ];
+    const out = deconflictChipAnchors(nodes, edges);
+    const seats = out.map((e) => {
+      const d = e.data as { labelDx?: number; labelDy?: number };
+      return { dx: d.labelDx ?? 0, dy: d.labelDy ?? 0 };
+    });
+    // Both chips stay on the shared horizontal line...
+    for (const s of seats) expect(s.dy).toBe(0);
+    // ...separated along it by a full max-scale chip-box width.
+    expect(Math.abs(seats[0]!.dx - seats[1]!.dx)).toBeGreaterThanOrEqual(
+      MAX_CHIP_SCALE * CHIP_BOX_WIDTH,
     );
   });
 });

@@ -8,9 +8,10 @@
 // nothing visible: the page simply boots on its defaults, and every capture
 // taken after it is silently in the wrong locale or with the lanes off.
 //
-// A leaf with no imports, so a CLI can name a key without loading the app. The
-// Playwright specs under test/e2e still write the strings out by hand, because
-// an addInitScript callback is serialised and cannot close over an import; a
-// rename has to sweep those too.
+// A leaf with no imports, so a CLI can name a key without loading the app. An
+// addInitScript callback is serialised and cannot close over an import, but it
+// can be handed an argument, so both writers import these two and pass them in
+// through the boot helper in test/e2e/viewport.ts: a rename is a compile error
+// on both sides of the browser boundary rather than a silent no-op.
 export const LOCALE_STORAGE_KEY = "aef.locale";
 export const BUS_LANES_STORAGE_KEY = "aef.busLanes";

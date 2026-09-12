@@ -13,15 +13,9 @@ import {
 } from "./edgeSpans";
 import { directCorridorClear } from "../../src/canvas/busRouting";
 import { loadPlan } from "../../src/data/plan";
-import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
-import { solvePlanWithIntermediates } from "../../src/solver";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
-import { layoutRenderPlan } from "../../src/canvas/layout";
+import { solveFromPlan } from "../../src/pipeline/solveForRender";
+import { layoutSolved } from "../../src/canvas/layoutSolved";
 import { pack } from "../../src/data/load";
-import {
-  defaultTransportConfig,
-  loadTransportConfig,
-} from "../../src/data/transport-config";
 
 describe("computeEdgeSpans", () => {
   it("pins the current long-edge threshold at 820 so span fixtures stay valid", () => {
@@ -51,7 +45,7 @@ describe("computeEdgeSpans", () => {
 });
 
 // The repro fragment (gzip + urlsafe-base64 plan JSON), sans leading '#'. Decoded
-// through the same loadPlan -> planToSolverArgs -> solve -> render -> layout chain
+// through the same loadPlan -> solve -> render -> layout chain
 // the app runs at mount time.
 const REPRO_FRAGMENT =
   "v1.H4sIAAAAAAAAAxXMyw6CMBAF0H-566pYHtL-gTsTl4SQMjM1jbwsZUX4d8PurM6OxdEXtoFM7IMMfCE30M07SnMM8-B6KGRXDYXCU1FpU9RejK9Kzb3OdFmbMmeumTLT5-zJPNAqpJAGgQUUkosfSStssyMkGZ8MC_ltYelWimFJXdGdfXRJXhLfQrA7pm2ExR0KLNN8Wmc4jvb4A_HsvUGyAAAA";
@@ -65,30 +59,17 @@ async function solvedReproPlan() {
       `repro fragment failed to load: ${JSON.stringify(outcome.error)}`,
     );
   }
-  const { targets, itemOverrides, recipeCosts } = planToSolverArgs(
-    outcome.plan,
-  );
-  const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-  const full = solvePlanWithIntermediates(
-    targets,
-    pack,
-    tConfig,
-    itemOverrides,
-    recipeCosts,
-  );
-  const itemById = new Map(pack.items.map((i) => [i.id, i]));
-  const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
-  return { plan, recipeById: full.recipeById, itemById };
+  return solveFromPlan(outcome.plan, pack);
 }
 
 describe("edge-span census: repro plan", () => {
   it("every long non-bus edge has a provably clear direct corridor", async () => {
-    const { plan, recipeById, itemById } = await solvedReproPlan();
+    const solved = await solvedReproPlan();
     // Time the layout + bus-routing pass (routeBusEdges runs inside
     // layoutRenderPlan) for the census log only. Nothing asserts on it: a
     // wall-clock bound is a machine-load coin flip inside a unit suite.
     const layoutStart = performance.now();
-    const laid = await layoutRenderPlan({ plan, recipeById, itemById });
+    const laid = await layoutSolved(solved);
     const layoutMs = performance.now() - layoutStart;
 
     // Full-census spans (all edges) for the record.
@@ -130,15 +111,10 @@ describe("edge-span census: repro plan", () => {
   });
 
   it("busLanesEnabled: false yields zero LANE edges but keeps fan-out trunks", async () => {
-    const { plan, recipeById, itemById } = await solvedReproPlan();
+    const solved = await solvedReproPlan();
 
-    const on = await layoutRenderPlan({ plan, recipeById, itemById });
-    const off = await layoutRenderPlan({
-      plan,
-      recipeById,
-      itemById,
-      busLanesEnabled: false,
-    });
+    const on = await layoutSolved(solved);
+    const off = await layoutSolved(solved, { busLanesEnabled: false });
 
     // The default arm proves the fixture exercises the toggle at all.
     expect(on.edges.some((e) => e.type === "bus")).toBe(true);

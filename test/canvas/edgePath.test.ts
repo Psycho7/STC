@@ -6,9 +6,11 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  branchLegAfterJunction,
   chamferStepPath,
   chamferBusPath,
   chamferFanoutPath,
+  drawnEdge,
   parsePathPoints,
   pathPointAtPts,
   routingHintsFromData,
@@ -920,5 +922,100 @@ describe("chamferFanoutPath", () => {
       junctionX: 100,
     });
     expect(up.junction).toEqual(down.junction);
+  });
+});
+
+describe("drawnEdge", () => {
+  const PORTS = { sourceX: 0, sourceY: 0, targetX: 200, targetY: 100 };
+
+  it("draws an item edge exactly as a direct chamferStepPath call does", () => {
+    for (const hints of [{}, { bendX: 140, chamferBudget: 20 }]) {
+      const drawn = drawnEdge(PORTS, "item", { item: "s", ...hints });
+      expect(drawn.shape).toBe("item");
+      if (drawn.shape !== "item") return;
+      const [path, lx, ly] = chamferStepPath({ ...PORTS, ...hints });
+      expect(drawn.path).toBe(path);
+      expect(drawn.labelAnchor).toEqual({ x: lx, y: ly });
+      expect(drawn.pts).toEqual(parsePathPoints(path));
+    }
+  });
+
+  it("draws a fan-out member exactly as a direct chamferFanoutPath call does", () => {
+    for (const hints of [{}, { junctionX: 120 }]) {
+      const drawn = drawnEdge(PORTS, "bus", {
+        item: "s",
+        fanout: true,
+        ...hints,
+      });
+      expect(drawn.shape).toBe("fanout");
+      if (drawn.shape !== "fanout") return;
+      const fan = chamferFanoutPath({ ...PORTS, ...hints });
+      expect(drawn.path).toBe(fan.path);
+      expect(drawn.junction).toEqual(fan.junction);
+      expect(drawn.trunkAnchor).toEqual(fan.trunkAnchor);
+      expect(drawn.branchAnchor).toEqual(fan.branchAnchor);
+      expect(drawn.pts).toEqual(parsePathPoints(fan.path));
+      expect(drawn.branchPts).toEqual(
+        branchLegAfterJunction(parsePathPoints(fan.path), fan.junction),
+      );
+    }
+  });
+
+  it("draws a lane member exactly as a direct chamferBusPath call does", () => {
+    for (const hints of [{}, { dropX: 60, riseX: 150 }]) {
+      const drawn = drawnEdge(PORTS, "bus", {
+        item: "s",
+        laneY: 300,
+        ...hints,
+      });
+      expect(drawn.shape).toBe("lane");
+      if (drawn.shape !== "lane") return;
+      const lane = chamferBusPath({ ...PORTS, laneY: 300, ...hints });
+      expect(drawn.path).toBe(lane.path);
+      expect(drawn.laneY).toBe(300);
+      expect(drawn.dropX).toBe(lane.dropX);
+      expect(drawn.riseX).toBe(lane.riseX);
+      expect(drawn.junction).toEqual(lane.junction);
+      expect(drawn.pts).toEqual(parsePathPoints(lane.path));
+    }
+  });
+
+  it("falls back to the item shape with default hints for an unstamped edge", () => {
+    const drawn = drawnEdge(PORTS, undefined, undefined);
+    expect(drawn.shape).toBe("item");
+    const [path] = chamferStepPath(PORTS);
+    expect(drawn.path).toBe(path);
+  });
+
+  it("falls back to the target row for a lane member carrying no laneY", () => {
+    const drawn = drawnEdge(PORTS, "bus", { item: "s", busMemberCount: 2 });
+    expect(drawn.shape).toBe("lane");
+    if (drawn.shape !== "lane") return;
+    expect(drawn.laneY).toBe(PORTS.targetY);
+    expect(drawn.path).toBe(
+      chamferBusPath({ ...PORTS, laneY: PORTS.targetY }).path,
+    );
+  });
+
+  it("seats every returned anchor ON its own returned polyline", () => {
+    // The invariant each of the five hand-written copies assumed and none
+    // asserted: an anchor a shape hands back must lie on the shape's own drawn
+    // geometry, or the chip that rides it floats off its line.
+    const ON_LINE = 1; // sub-unit: paths round to two decimals
+    const item = drawnEdge(PORTS, "item", { item: "s" });
+    if (item.shape !== "item") throw new Error("expected the item shape");
+    expect(distanceToPolyline(item.path, item.labelAnchor)).toBeLessThan(
+      ON_LINE,
+    );
+
+    const fan = drawnEdge(PORTS, "bus", { item: "s", fanout: true });
+    if (fan.shape !== "fanout") throw new Error("expected the fan-out shape");
+    for (const anchor of [fan.junction, fan.trunkAnchor, fan.branchAnchor]) {
+      expect(distanceToPolyline(fan.path, anchor)).toBeLessThan(ON_LINE);
+    }
+
+    const lane = drawnEdge(PORTS, "bus", { item: "s", laneY: 300 });
+    if (lane.shape !== "lane") throw new Error("expected the lane shape");
+    expect(distanceToPolyline(lane.path, lane.junction)).toBeLessThan(ON_LINE);
   });
 });

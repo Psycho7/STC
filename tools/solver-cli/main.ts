@@ -8,23 +8,18 @@
 import Fraction from "fraction.js";
 import { pack } from "../../src/data/load";
 import { netSelfConsumption } from "../../src/solver/net-self";
-import { defaultTransportConfig } from "../../src/data/transport-config";
 import { rationalFromString, type Target } from "../../src/data/targets";
 import { solveLp } from "../../src/solver/lp";
 import { solvePlanWithIntermediates } from "../../src/solver/index";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import {
-  checkMassBalance,
-  checkTargetsMet,
-  checkRawOnlyBoundary,
-  checkRepresentable,
-  checkNoOrphanLogicalNodes,
+  checkSolvePlan,
+  SOLVER_INVARIANT_CHECKERS,
 } from "../../src/solver/invariants";
-import { assertOptimal } from "../../src/solver/optimality";
 import { loadPlan, describePlanLoadError } from "../../src/data/plan";
 import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
 import type { ItemOverride } from "../../src/data/plan";
 import type { RecipeId } from "../../src/solver/types";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
 import {
   checkRenderPlan,
   RENDER_INVARIANT_CHECKERS,
@@ -242,73 +237,40 @@ export async function runCli(argv: string[]): Promise<string> {
       return `error: cannot run full invariants on a non-feasible solve (status=${lpResult.status})\n\n${lines.join("\n")}`;
     }
     // --- Invariants ---
-    const massBalance = checkMassBalance(
-      lpResult,
-      netted,
-      targets,
-      itemOverrides,
-    );
-    const targetsMet = checkTargetsMet(lpResult, targets);
-    const rawOnlyBoundary = checkRawOnlyBoundary(
-      lpResult,
-      netted,
-      itemOverrides,
-    );
     const full = solvePlanWithIntermediates(
       targets,
       pack,
-      defaultTransportConfig,
       itemOverrides,
       recipeCosts,
     );
-    const representable = checkRepresentable(full);
 
-    // checkNoOrphanLogicalNodes reports any logical recipe node with no positive
-    // LP rate. Printed for visibility; a false verdict is a graph finding, not a
-    // CLI error, so it never gates the run.
-    const noOrphanLogicalNodes = checkNoOrphanLogicalNodes(full);
-
-    const optimal = assertOptimal({
-      targets,
+    const results = checkSolvePlan({
+      full,
+      result: lpResult,
       pack: netted,
+      targets,
       itemOverrides,
       ...(recipeCosts !== undefined ? { recipeCosts } : {}),
     });
 
+    // Labels come from the checker table exported beside the checkers
+    // themselves, so a new checker names itself here. A row the table marks
+    // not-asserted (noOrphanLogicalNodes, optimal) still prints: its verdict
+    // is a finding, not a CLI error, so it never gates the run.
+    if (results.length !== SOLVER_INVARIANT_CHECKERS.length)
+      throw new Error(
+        `solver invariant count drift: ${results.length} results vs ${SOLVER_INVARIANT_CHECKERS.length} labels`,
+      );
     lines.push("# invariants");
-    for (const l of fmtVerdict(
-      "massBalance",
-      massBalance.ok,
-      massBalance.violations,
-    ))
-      lines.push(l);
-    for (const l of fmtVerdict(
-      "targetsMet",
-      targetsMet.ok,
-      targetsMet.violations,
-    ))
-      lines.push(l);
-    for (const l of fmtVerdict(
-      "rawOnlyBoundary",
-      rawOnlyBoundary.ok,
-      rawOnlyBoundary.violations,
-    ))
-      lines.push(l);
-    for (const l of fmtVerdict(
-      "representable",
-      representable.ok,
-      representable.violations,
-    ))
-      lines.push(l);
-    // Informational verdict (a graph finding, not an error).
-    for (const l of fmtVerdict(
-      "noOrphanLogicalNodes",
-      noOrphanLogicalNodes.ok,
-      noOrphanLogicalNodes.violations,
-    ))
-      lines.push(l);
-    for (const l of fmtVerdict("optimal", optimal.ok, optimal.violations))
-      lines.push(l);
+    for (const [i, checker] of SOLVER_INVARIANT_CHECKERS.entries()) {
+      for (const l of fmtVerdict(
+        checker.name,
+        results[i]!.ok,
+        results[i]!.violations,
+      )) {
+        lines.push(l);
+      }
+    }
   }
 
   if (mode === "render") {
@@ -316,14 +278,12 @@ export async function runCli(argv: string[]): Promise<string> {
       return `error: cannot run render checks on a non-feasible solve (status=${lpResult.status})\n\n${lines.join("\n")}`;
     }
 
-    const full = solvePlanWithIntermediates(
+    const { plan } = solveForRender({
       targets,
       pack,
-      defaultTransportConfig,
       itemOverrides,
       recipeCosts,
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
+    });
 
     const results = checkRenderPlan({
       plan,

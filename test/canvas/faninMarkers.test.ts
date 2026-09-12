@@ -11,6 +11,7 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
+import { drawnPortsOf } from "../../src/canvas/nodeGeometry";
 import { routeFanoutEdges } from "../../src/canvas/busRouting";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
@@ -31,10 +32,11 @@ type FaninData = {
   fanout?: boolean;
 };
 
-// chipSeating's own PORT_DRIFT.recipe.dy, mirrored here (the module does not
-// export it): a recipe's drawn handle row sits one unit below the model row y,
-// so every drawn port y is the model port y plus this.
-const PORT_DY = 1;
+// The DRAWN port row an edge enters, the frame the fan-in detection runs in
+// (nodeGeometry owns the model -> drawn conversion; the drift numbers are
+// controlled by test/canvas/portDrift.test.ts, not restated here).
+const drawnTargetY = (edge: Edge, nodes: ReadonlyArray<RFAnyNode>): number =>
+  drawnPortsOf(edge, new Map(nodes.map((n) => [n.id, n])))!.targetY;
 
 // The collinearity tolerance the fan-in detection applies, mirrored from
 // chipSeating's FANIN_EPS, and the two-decimal rounding every emitted path
@@ -83,7 +85,7 @@ describe("deconflictChipAnchors: fan-in markers", () => {
 
     // The owner carries the marker, stamped on the DRAWN port row (a unit below
     // the model row y) so the dot sits on the line the member is drawn along.
-    expect(owner.faninJunctionY).toBe(ty + PORT_DY);
+    expect(owner.faninJunctionY).toBe(drawnTargetY(edges[1]!, nodes));
     // The dot marks where the last member joins the shared run (rightmost join),
     // which is the straight member's drawn source-right endpoint: model right
     // edge 900 plus the recipe source port drift of 5.
@@ -102,9 +104,9 @@ describe("deconflictChipAnchors: fan-in markers", () => {
   it("detects the merge when the drawn approach carries sub-unit noise", () => {
     // Saturation guard. The detection compares the member's final leg against
     // the target port; both sides must be read in the DRAWN frame. Reading the
-    // raw model port instead leaves a constant PORT_DY of slack between them,
-    // which is the whole FANIN_EPS budget -- so ANY real sub-unit noise on the
-    // drawn approach tips a genuine merge out of detection.
+    // raw model port instead leaves the constant row drift of slack between
+    // them, which is the whole FANIN_EPS budget -- so ANY real sub-unit noise on
+    // the drawn approach tips a genuine merge out of detection.
     //
     // The noise here is the one every laid-out plan carries: ELK positions cards
     // at fractional y, and the path builder rounds each emitted coordinate to
@@ -114,7 +116,18 @@ describe("deconflictChipAnchors: fan-in markers", () => {
     const tgtRecipe = mkRecipe("tgt", ["s"], []);
     const tgt = orderedRecipeNode("tgt", 1000, 100 + NUDGE, ["s"]);
     const modelTy = 100 + NUDGE + measureRecipe(tgtRecipe).inHandleYs[0]!;
-    const drawnTy = modelTy + PORT_DY;
+
+    const srcA = recipeNode("srcA", 0, 0, mkRecipe("srcA", [], ["s"]));
+    const srcBRecipe = mkRecipe("srcB", [], ["s"]);
+    const srcBOutY0 = measureRecipe(srcBRecipe).outHandleYs[0]!;
+    const srcB = recipeNode("srcB", 600, modelTy - srcBOutY0, srcBRecipe);
+
+    const nodes: RFAnyNode[] = [srcA, srcB, tgt];
+    const edges: Edge[] = [
+      rateEdge("e:1:srcA->tgt:s", "srcA", "tgt", "s", new Fraction(4)),
+      rateEdge("e:2:srcB->tgt:s", "srcB", "tgt", "s", new Fraction(1)),
+    ];
+    const drawnTy = drawnTargetY(edges[1]!, nodes);
     const legY = r2(drawnTy); // what the emitted path puts the final leg at
 
     // Premise: this leg is collinear with the port within eps in the drawn
@@ -123,16 +136,7 @@ describe("deconflictChipAnchors: fan-in markers", () => {
     expect(Math.abs(legY - drawnTy)).toBeLessThan(FANIN_EPS);
     expect(Math.abs(legY - modelTy)).toBeGreaterThan(FANIN_EPS);
 
-    const srcA = recipeNode("srcA", 0, 0, mkRecipe("srcA", [], ["s"]));
-    const srcBRecipe = mkRecipe("srcB", [], ["s"]);
-    const srcBOutY0 = measureRecipe(srcBRecipe).outHandleYs[0]!;
-    const srcB = recipeNode("srcB", 600, modelTy - srcBOutY0, srcBRecipe);
-
-    const nodes: RFAnyNode[] = [srcA, srcB, tgt];
-    const out = deconflictChipAnchors(nodes, [
-      rateEdge("e:1:srcA->tgt:s", "srcA", "tgt", "s", new Fraction(4)),
-      rateEdge("e:2:srcB->tgt:s", "srcB", "tgt", "s", new Fraction(1)),
-    ]);
+    const out = deconflictChipAnchors(nodes, edges);
 
     // The merge is still detected: dot on the owner, at the drawn port row.
     const owner = dataOf(out, "e:1:srcA->tgt:s");

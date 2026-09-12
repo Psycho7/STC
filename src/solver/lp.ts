@@ -4,7 +4,8 @@ import type { Recipe, RecipePack } from "@aef/schema";
 import { rationalFromString, type ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipeId, ItemId } from "./types";
-import { effectiveSupply } from "./effectiveSupply";
+import type { SupplyTable } from "./effectiveSupply";
+import { buildSupplyTable } from "./effectiveSupply";
 import {
   isExcludedProducer,
   isExtractionRecipe,
@@ -193,10 +194,7 @@ export function solveLp(input: LpInput): LpResult {
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
 
   // Effective supply per item. Infinity = free boundary; finite = fixed cap.
-  const supplyById = new Map<ItemId, Fraction | typeof Infinity>();
-  for (const it of items) {
-    supplyById.set(it.id, effectiveSupply(it.id, pack, itemOverrides));
-  }
+  const supplyTable = buildSupplyTable(pack, itemOverrides);
 
   const demand = demandByItem(targets);
 
@@ -250,7 +248,7 @@ export function solveLp(input: LpInput): LpResult {
     // override of 0 ties with the free draw and the pick is solver-arbitrary
     // (the lex pass ranks only recipes). Accepted corner.
     for (const it of items) {
-      const supply = supplyById.get(it.id)!;
+      const supply = supplyTable.supplyOf(it.id);
       if (supply === Infinity) continue;
       const cn = `mb_${it.id}`;
       constraints[cn] = { equal: demand.get(it.id) ?? 0 };
@@ -354,7 +352,7 @@ export function solveLp(input: LpInput): LpResult {
     recipes,
     items,
     recipeById,
-    supplyById,
+    supplyTable,
     costById,
     demand,
     targets,
@@ -396,7 +394,7 @@ type ExtractArgs = {
   recipes: Recipe[];
   items: RecipePack["items"];
   recipeById: Map<string, Recipe>;
-  supplyById: Map<ItemId, Fraction | typeof Infinity>;
+  supplyTable: SupplyTable;
   costById: Map<RecipeId, number>;
   demand: Map<ItemId, number>;
   targets: ReadonlyArray<ItemTarget>;
@@ -418,7 +416,7 @@ function extractResult(args: ExtractArgs): LpResult {
     recipes,
     items,
     recipeById,
-    supplyById,
+    supplyTable,
     costById,
     demand,
     targets,
@@ -472,7 +470,7 @@ function extractResult(args: ExtractArgs): LpResult {
   // rows close exactly against the reported draws.
   const draws = new Map<ItemId, Fraction>();
   for (const it of items) {
-    const supply = supplyById.get(it.id)!;
+    const supply = supplyTable.supplyOf(it.id);
     if (supply === Infinity) continue;
     const cap = supply as Fraction;
     const capValue = cap.valueOf();
@@ -517,8 +515,7 @@ function extractResult(args: ExtractArgs): LpResult {
     }
     const slackByItem = new Map<ItemId, Fraction>();
     for (const it of items) {
-      const supply = supplyById.get(it.id)!;
-      if (supply === Infinity) continue;
+      if (supplyTable.isFree(it.id)) continue;
       slackByItem.set(
         it.id,
         (net.get(it.id) ?? FRAC_ZERO)
@@ -631,7 +628,7 @@ function extractResult(args: ExtractArgs): LpResult {
   // free-boundary items (demand 0) are skipped, leaving the raw-input draw path
   // untouched.
   for (const it of items) {
-    if (supplyById.get(it.id) !== Infinity) continue;
+    if (!supplyTable.isFree(it.id)) continue;
     const demandIt = demandExact.get(it.id) ?? FRAC_ZERO;
     if (demandIt.equals(0)) continue;
     let net = FRAC_ZERO;

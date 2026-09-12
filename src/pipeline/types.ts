@@ -245,10 +245,10 @@ export type RenderPolicyInput = {
   itemOverrides: ReadonlyArray<import("../data/plan").ItemOverride>;
   itemById: ReadonlyMap<ItemId, import("@aef/schema").Item>;
   recipeById: ReadonlyMap<RecipeId, import("@aef/schema").Recipe>;
-  // The bit of the pack the policy passes on to `effectiveSupply`, which only
-  // reads `pack.items`. Narrowed to that one field so callers don't have to
-  // supply a whole RecipePack just to satisfy the type.
-  pack: Pick<import("@aef/schema").RecipePack, "items">;
+  // Effective supply per item, resolved once by the driver from the RAW pack's
+  // items and the same overrides as `itemOverrides`. The policy passes it on to
+  // deriveBoundaryProducts; nothing here reads the pack itself.
+  supply: import("../solver/effectiveSupply").SupplyTable;
   // The per-replica rational machine count from assignIdealMultipliers. The
   // always-fold policy reads it to set RenderUnitRecipe.multiplicity, giving one
   // rational badge per equivalence class instead of N separate stamp vertices.
