@@ -18,6 +18,7 @@ import type { RecipePack } from "@aef/schema";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipeId } from "./types";
+import { makePack } from "./closed-form-fixtures";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -25,6 +26,9 @@ import type { RecipeId } from "./types";
 
 // Minimal pack constructor. The cast omits non-solver fields (name, icon,
 // producers, locations, etc.) that solveLp never reads.
+// Deliberately kept instead of makePack: every fixture built here is a negative
+// control proving solveLp reads only `recipes` and `items`, which a full pack
+// would silently satisfy.
 function mkPack(
   recipes: {
     id: string;
@@ -42,70 +46,6 @@ function mkPack(
 
 function rate(num: string, denom: string): ItemTarget["ratePerSec"] {
   return { num, denom };
-}
-
-// Full pack constructor for fixtures that run the whole pipeline (replicate,
-// multipliers, render): unlike mkPack it fills in the machine and per-recipe
-// producers/name/icon fields those stages read.
-function mkFullPack(
-  recipes: {
-    id: string;
-    category: string;
-    time: number;
-    in: { item: string; qty: number }[];
-    out: { item: string; qty: number }[];
-    flags?: string[];
-    cost?: number;
-  }[],
-  items: { id: string; raw: boolean }[],
-): RecipePack {
-  return {
-    schemaVersion: "0.2",
-    source: {
-      name: "corpus",
-      sourceRepo: "",
-      sourceCommit: "",
-      gameVersion: "",
-      extractedAt: "",
-    },
-    categories: [{ id: "material", name: "material", icon: "material" }],
-    locations: [],
-    items: items.map((i) => ({
-      id: i.id,
-      name: i.id,
-      category: "material",
-      icon: i.id,
-      row: 0,
-      raw: i.raw,
-      transportKind: "belt",
-      stack: 1,
-    })),
-    machines: [
-      {
-        id: "machine",
-        name: "machine",
-        icon: "machine",
-        speed: 1,
-        powerType: "electric",
-        powerKw: 1,
-        hideRate: false,
-      },
-    ],
-    transports: [],
-    recipes: recipes.map((r) => ({
-      id: r.id,
-      name: r.id,
-      category: r.category,
-      icon: r.id,
-      row: 0,
-      time: r.time,
-      in: r.in,
-      out: r.out,
-      producers: ["machine"],
-      ...(r.flags !== undefined ? { flags: r.flags } : {}),
-      ...(r.cost !== undefined ? { cost: r.cost } : {}),
-    })),
-  } as unknown as RecipePack;
 }
 
 // ---------------------------------------------------------------------------
@@ -932,27 +872,15 @@ export const freeBoundaryTargetWithMinerGolden = {
 // pipeline tests can run it end-to-end through replicate and render.
 // ---------------------------------------------------------------------------
 export const splitTargetProducers = {
-  pack: mkFullPack(
+  pack: makePack(
     [
-      {
-        id: "r_cheap",
-        category: "material",
-        time: 1,
-        in: [{ item: "vein", qty: 1 }],
-        out: [{ item: "gold", qty: 1 }],
-      },
-      {
-        id: "r_dear",
-        category: "material",
-        time: 1,
-        in: [{ item: "rock", qty: 1 }],
-        out: [{ item: "gold", qty: 3 }],
-      },
+      { id: "r_cheap", time: 1, in: { vein: 1 }, out: { gold: 1 } },
+      { id: "r_dear", time: 1, in: { rock: 1 }, out: { gold: 3 } },
     ],
     [
-      { id: "gold", raw: false },
-      { id: "vein", raw: false },
-      { id: "rock", raw: true },
+      { id: "gold", stack: 1 },
+      { id: "vein", stack: 1 },
+      { id: "rock", raw: true, stack: 1 },
     ],
   ),
   targets: [{ itemId: "gold", ratePerSec: rate("5", "1") }],
@@ -987,31 +915,16 @@ export const splitTargetProducersGolden = {
 //   r_co = 1, r_use = 1, no surplus, no deficit.
 // ---------------------------------------------------------------------------
 export const coProductTarget = {
-  pack: mkFullPack(
+  pack: makePack(
     [
-      {
-        id: "r_co",
-        category: "material",
-        time: 1,
-        in: [{ item: "rock", qty: 1 }],
-        out: [
-          { item: "main", qty: 1 },
-          { item: "co", qty: 1 },
-        ],
-      },
-      {
-        id: "r_use",
-        category: "material",
-        time: 1,
-        in: [{ item: "main", qty: 1 }],
-        out: [{ item: "cout", qty: 1 }],
-      },
+      { id: "r_co", time: 1, in: { rock: 1 }, out: { main: 1, co: 1 } },
+      { id: "r_use", time: 1, in: { main: 1 }, out: { cout: 1 } },
     ],
     [
-      { id: "rock", raw: true },
-      { id: "main", raw: false },
-      { id: "co", raw: false },
-      { id: "cout", raw: false },
+      { id: "rock", raw: true, stack: 1 },
+      { id: "main", stack: 1 },
+      { id: "co", stack: 1 },
+      { id: "cout", stack: 1 },
     ],
   ),
   targets: [
@@ -1030,23 +943,12 @@ export const coProductTarget = {
 // accumulate per (recipe, item): (r_dual, a) = 1 and (r_dual, b) = 1.
 // ---------------------------------------------------------------------------
 export const dualTargetItemsOneRecipe = {
-  pack: mkFullPack(
+  pack: makePack(
+    [{ id: "r_dual", time: 1, in: { rock: 1 }, out: { a: 1, b: 2 } }],
     [
-      {
-        id: "r_dual",
-        category: "material",
-        time: 1,
-        in: [{ item: "rock", qty: 1 }],
-        out: [
-          { item: "a", qty: 1 },
-          { item: "b", qty: 2 },
-        ],
-      },
-    ],
-    [
-      { id: "rock", raw: true },
-      { id: "a", raw: false },
-      { id: "b", raw: false },
+      { id: "rock", raw: true, stack: 1 },
+      { id: "a", stack: 1 },
+      { id: "b", stack: 1 },
     ],
   ),
   targets: [
@@ -1054,3 +956,119 @@ export const dualTargetItemsOneRecipe = {
     { itemId: "b", ratePerSec: rate("1", "1") },
   ],
 };
+
+// ---------------------------------------------------------------------------
+// Registry
+//
+// Every scenario above, once, in declaration order. The named consts stay the
+// way the goldens are read; this list is how a suite iterates the corpus
+// without hand-maintaining a 20-name import. `name` is the export identifier
+// and is the stable join key with the oracle's classification table.
+// ---------------------------------------------------------------------------
+export interface CorpusScenario {
+  name: string;
+  pack: RecipePack;
+  targets: ItemTarget[];
+  itemOverrides?: ItemOverride[];
+  recipeCosts?: Map<RecipeId, number>;
+  // Present only for scenarios with a captured golden; its shape varies per
+  // scenario (some pin status/softFeasible/per-recipe rates too), so only the
+  // two fields every golden carries are typed here.
+  golden?: { objectiveValue?: number; activeRecipes: string[] };
+}
+
+export const CORPUS: CorpusScenario[] = [
+  {
+    name: "acyclicSingleProducer",
+    ...acyclicSingleProducer,
+    golden: acyclicSingleProducerGolden,
+  },
+  {
+    name: "multiProducerCostChoice",
+    ...multiProducerCostChoice,
+    golden: multiProducerCostChoiceGolden,
+  },
+  {
+    name: "multiProducerCostChoiceWithOverride",
+    ...multiProducerCostChoiceWithOverride,
+    golden: multiProducerCostChoiceWithOverrideGolden,
+  },
+  {
+    name: "equalCostTieBreak",
+    ...equalCostTieBreak,
+    golden: equalCostTieBreakGolden,
+  },
+  {
+    name: "byproductSurplus",
+    ...byproductSurplus,
+    golden: byproductSurplusGolden,
+  },
+  {
+    name: "finiteCapForcingFallback",
+    ...finiteCapForcingFallback,
+    golden: finiteCapForcingFallbackGolden,
+  },
+  {
+    name: "planPassthrough",
+    ...planPassthrough,
+    golden: planPassthroughGolden,
+  },
+  {
+    name: "domainTransferExclusion",
+    ...domainTransferExclusion,
+    golden: domainTransferExclusionGolden,
+  },
+  {
+    name: "domainTransferScc",
+    ...domainTransferScc,
+    golden: domainTransferSccGolden,
+  },
+  {
+    name: "targetOnlyFlagExclusion",
+    ...targetOnlyFlagExclusion,
+    golden: targetOnlyFlagExclusionGolden,
+  },
+  {
+    name: "costMinusOneSinkExclusion",
+    ...costMinusOneSinkExclusion,
+    golden: costMinusOneSinkExclusionGolden,
+  },
+  {
+    name: "deficitUnmetDemand",
+    ...deficitUnmetDemand,
+    golden: deficitUnmetDemandGolden,
+  },
+  { name: "feasibleEmpty", ...feasibleEmpty, golden: feasibleEmptyGolden },
+  {
+    name: "producerChoiceByCost",
+    ...producerChoiceByCost,
+    golden: producerChoiceByCostGolden,
+  },
+  {
+    name: "byproductOnlyTarget",
+    ...byproductOnlyTarget,
+    golden: byproductOnlyTargetGolden,
+  },
+  {
+    name: "rawItemTargetViaMiner",
+    ...rawItemTargetViaMiner,
+    golden: rawItemTargetViaMinerGolden,
+  },
+  {
+    name: "freeBoundaryTarget",
+    ...freeBoundaryTarget,
+    golden: freeBoundaryTargetGolden,
+  },
+  {
+    name: "freeBoundaryTargetWithMiner",
+    ...freeBoundaryTargetWithMiner,
+    golden: freeBoundaryTargetWithMinerGolden,
+  },
+  {
+    name: "splitTargetProducers",
+    ...splitTargetProducers,
+    golden: splitTargetProducersGolden,
+  },
+  { name: "coProductTarget", ...coProductTarget },
+  { name: "dualTargetItemsOneRecipe", ...dualTargetItemsOneRecipe },
+];

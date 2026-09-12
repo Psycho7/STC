@@ -15,6 +15,7 @@ export interface MicroRecipe {
   out: Record<string, number>;
   cost?: number;
   category?: string;
+  flags?: string[];
 }
 
 export interface MicroItem {
@@ -38,6 +39,7 @@ export function makePack(recipes: MicroRecipe[], items: MicroItem[]): RecipePack
     in: toStoich(r.in),
     out: toStoich(r.out),
     producers: ["machine"],
+    ...(r.flags !== undefined ? { flags: r.flags } : {}),
     ...(r.cost !== undefined ? { cost: r.cost } : {}),
   }));
 
