@@ -13,6 +13,7 @@ import {
   auditChipsVsCards,
   auditDotsUnderChips,
   auditEndpointParity,
+  auditFanoutChipsOnOwnLeg,
   auditFrameRides,
   auditOwnCardPierces,
   auditSegmentsVsCards,
@@ -894,6 +895,46 @@ const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
   },
 };
 
+// Fan-out leg ratchet: member chips whose centre lies off the member's OWN leg
+// (the polyline suffix right of the shared junction column), counting kind
+// "bus" -- the fan-out branch chip -- as well as label chips, which the
+// off-path ratchet above cannot see. A branch chip names its member by sitting
+// on that member's leg; the column belongs to every member of the fan-out, so a
+// chip parked there names none of them to the reader. Pinned at 0 on the
+// whole corpus in both modes: this is a hard rule, not a residue, and nothing
+// here is ratified as a trade.
+const FANOUT_LEG_BASELINE_ON: Record<string, number> = {
+  default: 0,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
+  tundra: 0,
+  script43: 0,
+  "coupon-web": 0,
+  "gas-web": 0,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+};
+const FANOUT_LEG_BASELINE: Record<LaneMode, Record<string, number>> = {
+  on: FANOUT_LEG_BASELINE_ON,
+  off: {
+    default: 0,
+    battery5: 0,
+    "battery5-xiranite": 0,
+    crystal: 0,
+    equip4: 0,
+    multi6: 0,
+    tundra: 0,
+    script43: 0,
+    "coupon-web": 0,
+    "gas-web": 0,
+    "rot-bottled_food_3": 0,
+    "rot-bottled_food_4": 0,
+  },
+};
+
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
 // target card's RAW body. The foreign segment audit (tier 1) exempts an edge's
 // own endpoint cards, so this residue is its blind spot -- a rise / drop that
@@ -1365,6 +1406,31 @@ test.describe("segment placement audit", () => {
                 `${scenario.id}: ${offPath.length} label chip(s) off their own polyline exceeds baseline ${offPathBaseline}:\n${offPathInventory.join("\n")}`,
               )
               .toBeLessThanOrEqual(offPathBaseline);
+          }
+
+          const offLeg = auditFanoutChipsOnOwnLeg(
+            chips,
+            rawEdges,
+            geom.dots as DotRect[],
+          );
+          const offLegInventory = offLeg.map(
+            (v) =>
+              `  chip of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its own fan-out leg`,
+          );
+          const offLegBaseline = baselineFor(
+            FANOUT_LEG_BASELINE,
+            "FANOUT_LEG_BASELINE",
+            scenario.id,
+            mode,
+            unpinned,
+          );
+          if (offLegBaseline !== null) {
+            expect
+              .soft(
+                offLeg.length,
+                `${scenario.id}: ${offLeg.length} fan-out member chip(s) off their own leg exceeds baseline ${offLegBaseline}:\n${offLegInventory.join("\n")}`,
+              )
+              .toBeLessThanOrEqual(offLegBaseline);
           }
 
           // Tier 3 (SOFT ratchet): padding-only grazes stay at or below the

@@ -796,6 +796,78 @@ export function auditChipsOnOwnPath(
 // A DRAWN junction dot's box in graph coordinates, tagged with its data-testid.
 export type DotRect = RawRect & { testId: string };
 
+// The testid prefix the collector gives a fan-out / lane trunk junction dot.
+const BUS_JUNCTION_PREFIX = "bus-junction-";
+
+// Every fan-out MEMBER chip whose centre lies farther than `tol` from the
+// member's OWN leg. The member's polyline suffix past the trunk junction is not
+// the leg: it opens with the descent down the junction column, which every
+// member of that fan-out shares, so a chip seated on the column is on its own
+// polyline and off its own leg. The leg is the suffix right of the column --
+// the horizontal run past it and any bends after that.
+//
+// The column's x is the junction dot's x plus one CHAMFER, not the dot's x: the
+// dot is drawn at the trunk row's divergence corner and the path bevels from
+// that corner into the column, so on gas-web the dot reads 641 while the column
+// the members descend stands at 649. Cutting at the dot would leave the whole
+// column inside the "leg" and the counter would see nothing.
+//
+// Members are the edges the collector reports a `bus-junction-<edge>` dot for.
+// Kind "bus" is counted here, unlike in auditChipsOnOwnPath: a fan-out branch
+// chip is collected as a bus chip, and it is exactly the chip this counter is
+// for. Hidden chips are never collected, so they are never counted.
+export function auditFanoutChipsOnOwnLeg(
+  chips: ReadonlyArray<ChipRect>,
+  edges: ReadonlyArray<RawEdge>,
+  dots: ReadonlyArray<DotRect>,
+  tol = 1,
+): ChipOffPathViolation[] {
+  const edgeById = new Map<string, RawEdge>();
+  for (const e of edges) edgeById.set(e.id, e);
+
+  const junctionXById = new Map<string, number>();
+  for (const dot of dots) {
+    if (!dot.testId.startsWith(BUS_JUNCTION_PREFIX)) continue;
+    junctionXById.set(
+      dot.testId.slice(BUS_JUNCTION_PREFIX.length),
+      centreOf(dot)[0],
+    );
+  }
+
+  const out: ChipOffPathViolation[] = [];
+  for (const chip of chips) {
+    if (chip.kind !== "label" && chip.kind !== "bus") continue;
+    const jx = junctionXById.get(chip.edgeId);
+    if (jx === undefined) continue;
+    const owner = edgeById.get(chip.edgeId);
+    if (owner === undefined) continue;
+
+    const pts = parsePath(owner.d);
+    const cut = jx + CHAMFER;
+    const legStart = pts.findIndex((p) => p[0] > cut);
+    if (legStart <= 0) continue; // no leg: the path never bends past the column
+
+    // Open the leg at the cut itself, not at the last vertex before it: taking
+    // the whole entering segment would hand a chip the part of it that lies on
+    // or left of the column, which is the run this counter exists to exclude.
+    const prev = pts[legStart - 1]!;
+    const next = pts[legStart]!;
+    const t = (cut - prev[0]) / (next[0] - prev[0]);
+    const entry: Pt = [cut, prev[1] + t * (next[1] - prev[1])];
+    const leg: Pt[] = [entry, ...pts.slice(legStart)];
+
+    const dist = pointToPolylineDistance(centreOf(chip), leg);
+    if (dist > tol) {
+      out.push({
+        chipEdgeId: chip.edgeId,
+        chipLabel: chip.label,
+        distance: dist,
+      });
+    }
+  }
+  return out;
+}
+
 export type DotCoverage = {
   dotId: string;
   chipEdgeId: string;
