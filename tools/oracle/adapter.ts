@@ -115,9 +115,13 @@ export function buildAdapterInput(input: AdapterInput): AdapterOutput {
   //    Input objective (capped free supply) added below.
   const freeItemIds = new Set<string>();
   const cappedSupply = new Map<string, Rational>();
-  // One walk of the resolved table. Its entries cover pack.items plus any
-  // overridden id the pack does not carry.
-  for (const [itemId, supply] of buildSupplyTable(pack, overrides).entries()) {
+  // One walk of the resolved table, over the PACK's items only: the table also
+  // answers overridden ids the pack does not carry, and such an id has no entry
+  // in the recipe index maps below, so an objective on it would name an item
+  // FactorioLab's dataset never declares.
+  const supplyTable = buildSupplyTable(pack, overrides);
+  for (const { id: itemId } of pack.items) {
+    const supply = supplyTable.supplyOf(itemId);
     // The table answers `Fraction | typeof Infinity`; `typeof Infinity` is
     // `number`, so narrow on the value type rather than `=== Infinity`.
     if (typeof supply === "number") {
