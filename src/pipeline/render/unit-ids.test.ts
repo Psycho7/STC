@@ -3,7 +3,6 @@ import {
   unitIdForClass,
   unitIdForInputAggregate,
   unitIdForInputContainer,
-  unitIdForInputTap,
   unitIdForInputTargetFeed,
   unitIdForOutputProduct,
   unitIdForRecipe,
@@ -35,12 +34,6 @@ test("unitIdForInputAggregate pins the item-level input form", () => {
 
 test("unitIdForInputContainer pins the per-container slice form", () => {
   expect(unitIdForInputContainer("water", "c0")).toBe("u:in:water:c0");
-});
-
-test("unitIdForInputTap pins the loose-consumer slice form", () => {
-  expect(unitIdForInputTap("water", "u:r:pump")).toBe(
-    "u:in:water:tap:u:r:pump",
-  );
 });
 
 test("unitIdForInputTargetFeed pins the passthrough-feed form", () => {

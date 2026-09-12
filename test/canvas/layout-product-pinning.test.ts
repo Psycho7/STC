@@ -98,7 +98,7 @@ describe("layout / product-unit ELK layer pinning", () => {
     ).toBeUndefined();
   });
 
-  it("pins aggregate to FIRST_SEPARATE, single-bucket input to FIRST, output to LAST, and leaves fanout tap slices unconstrained", () => {
+  it("pins aggregate to FIRST_SEPARATE, single-bucket input to FIRST, output to LAST, and leaves container slices unconstrained", () => {
     const aggregateUnit: RenderUnitInputProduct = {
       id: "u:in:water",
       kind: "inputProduct",
@@ -107,18 +107,8 @@ describe("layout / product-unit ELK layer pinning", () => {
       rate: { num: "1", denom: "1" },
       isAggregate: true,
     };
-    const tapUnit: RenderUnitInputProduct = {
-      id: "u:in:water:tap:u:v_b",
-      kind: "inputProduct",
-      itemId: "water",
-      count: 1,
-      rate: { num: "1", denom: "1" },
-      isFanout: true,
-    };
-    // A legacy loose-suffixed fanout slice must also be unconstrained once the
-    // dedicated `:loose` pinning branch is gone.
-    const looseUnit: RenderUnitInputProduct = {
-      id: "u:in:water:loose",
+    const sliceUnit: RenderUnitInputProduct = {
+      id: "u:in:water:c_b",
       kind: "inputProduct",
       itemId: "water",
       count: 1,
@@ -126,7 +116,7 @@ describe("layout / product-unit ELK layer pinning", () => {
       isFanout: true,
     };
     const fanoutPlan: RenderPlan = {
-      units: [aggregateUnit, tapUnit, looseUnit, inputUnit, outputUnit],
+      units: [aggregateUnit, sliceUnit, inputUnit, outputUnit],
       edges: [],
       containers: [],
     };
@@ -147,13 +137,10 @@ describe("layout / product-unit ELK layer pinning", () => {
     expect(byId.get(outputUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY]).toBe(
       ELK_LAYER_LAST,
     );
-    // Fanout tap slices carry no layer constraint so ELK barycenters them
+    // Container slices carry no layer constraint so ELK barycenters them
     // next to their consumers instead of pinning them beside the aggregate.
     expect(
-      byId.get(tapUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY],
-    ).toBeUndefined();
-    expect(
-      byId.get(looseUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY],
+      byId.get(sliceUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY],
     ).toBeUndefined();
   });
 

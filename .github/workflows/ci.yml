@@ -1,10 +1,13 @@
 name: CI
 
 on:
+  # Push stays on develop only: every same-repo PR already runs through
+  # pull_request, so an unfiltered push would build and deploy it twice. The
+  # pull_request trigger has no base filter, so a PR stacked on another branch
+  # still gets checks and a preview.
   push:
     branches: [develop]
   pull_request:
-    branches: [develop]
 
 concurrency:
   group: ci-${{ github.ref }}

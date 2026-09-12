@@ -1438,7 +1438,7 @@ describe("render policy / input fan-out per container", () => {
     expect(inputs[0]!.rate).toEqual({ num: "2", denom: "1" });
   });
 
-  it("loose consumers (no containerId) each get their own tap slice under an aggregate", () => {
+  it("loose consumers (no containerId) share the single u:in:water card", () => {
     const [v_a, v_b] = makeConsumers({}); // both undefined containerId
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
@@ -1458,51 +1458,25 @@ describe("render policy / input fan-out per container", () => {
     const inputs = plan.units
       .filter(isInputProductUnit)
       .filter((u) => u.itemId === "water");
-    // Each loose consumer gets its own tap slice keyed by its consumer unit id;
-    // the aggregate keeps the legacy bare id.
-    const ids = inputs.map((u) => u.id).sort();
-    expect(ids).toEqual([
-      "u:in:water",
-      "u:in:water:tap:u:v_a",
-      "u:in:water:tap:u:v_b",
-    ]);
-    const byId = new Map(inputs.map((u) => [u.id, u]));
-    expect(byId.get("u:in:water")!.isAggregate).toBe(true);
-    expect(byId.get("u:in:water")!.isFanout).toBeUndefined();
-    const tapA = byId.get("u:in:water:tap:u:v_a")!;
-    const tapB = byId.get("u:in:water:tap:u:v_b")!;
-    expect(tapA.isFanout).toBe(true);
-    expect(tapB.isFanout).toBe(true);
-    // Every slice carries the aggregate's total so the card can show its share
-    // of the source it taps; the aggregate itself carries none.
-    expect(byId.get("u:in:water")!.parentRate).toBeUndefined();
-    expect(tapA.parentRate).toEqual(byId.get("u:in:water")!.rate);
-    expect(tapB.parentRate).toEqual(byId.get("u:in:water")!.rate);
-    // (b) tap rates sum exactly to the aggregate rate (rational equality).
-    const aggRate = byId.get("u:in:water")!.rate;
-    const tapSum = new Fraction(`${tapA.rate.num}/${tapA.rate.denom}`).add(
-      new Fraction(`${tapB.rate.num}/${tapB.rate.denom}`),
-    );
-    expect(
-      tapSum.equals(new Fraction(`${aggRate.num}/${aggRate.denom}`)),
-    ).toBe(true);
-    // Aggregate -> tap edges (one per slice).
-    const aggregateOut = plan.edges.filter(
+    // Loose consumers get no slice cards of their own: one plain input node,
+    // one direct edge per consumer.
+    expect(inputs.map((u) => u.id)).toEqual(["u:in:water"]);
+    const node = inputs[0]!;
+    expect(node.isAggregate).toBeUndefined();
+    expect(node.isFanout).toBeUndefined();
+    expect(node.parentRate).toBeUndefined();
+    const outEdges = plan.edges.filter(
       (e) => e.fromUnit === "u:in:water" && e.item === "water",
     );
-    expect(aggregateOut.map((e) => e.toUnit).sort()).toEqual([
-      "u:in:water:tap:u:v_a",
-      "u:in:water:tap:u:v_b",
-    ]);
-    // Each tap carries only its own consumer edge.
-    const aEdges = plan.edges.filter(
-      (e) => e.fromUnit === "u:in:water:tap:u:v_a" && e.item === "water",
+    expect(outEdges.map((e) => e.toUnit).sort()).toEqual(["u:v_a", "u:v_b"]);
+    // Edge rates sum exactly to the node rate (rational equality).
+    const edgeSum = outEdges.reduce(
+      (acc, e) => acc.add(e.rate),
+      new Fraction(0),
     );
-    const bEdges = plan.edges.filter(
-      (e) => e.fromUnit === "u:in:water:tap:u:v_b" && e.item === "water",
-    );
-    expect(aEdges.map((e) => e.toUnit)).toEqual(["u:v_a"]);
-    expect(bEdges.map((e) => e.toUnit)).toEqual(["u:v_b"]);
+    expect(
+      edgeSum.equals(new Fraction(`${node.rate.num}/${node.rate.denom}`)),
+    ).toBe(true);
   });
 
   it("single lone loose consumer collapses to legacy u:in:water with no aggregate", () => {
@@ -1528,7 +1502,7 @@ describe("render policy / input fan-out per container", () => {
     expect(inputs[0]!.isFanout).toBeUndefined();
   });
 
-  it("mixed grouped + loose consumer: aggregate + grouped fanout + per-consumer tap slice", () => {
+  it("mixed grouped + loose consumer: aggregate + grouped fanout, loose edge off the aggregate", () => {
     const [v_a, v_b] = makeConsumers({ containerA: "grp:A" }); // B undefined
     const plan = NoFoldRender({
       containers: { containers: [], containerByMember: new Map() },
@@ -1549,22 +1523,34 @@ describe("render policy / input fan-out per container", () => {
       .filter(isInputProductUnit)
       .filter((u) => u.itemId === "water");
     const ids = inputs.map((u) => u.id).sort();
-    // Aggregate keeps the bare `u:in:water` id; the loose consumer gets its own
-    // tap slice keyed by its consumer unit id (no shared `:loose` bucket).
-    expect(ids).toEqual([
-      "u:in:water",
-      "u:in:water:grp:A",
-      "u:in:water:tap:u:v_b",
-    ]);
+    // Aggregate keeps the bare `u:in:water` id; only the container bucket gets
+    // a slice card.
+    expect(ids).toEqual(["u:in:water", "u:in:water:grp:A"]);
     const byId = new Map(inputs.map((u) => [u.id, u]));
+    expect(byId.get("u:in:water")!.isAggregate).toBe(true);
     expect(byId.get("u:in:water")!.isFanout).toBeUndefined();
     expect(byId.get("u:in:water:grp:A")!.isFanout).toBe(true);
-    expect(byId.get("u:in:water:tap:u:v_b")!.isFanout).toBe(true);
-    // Tap slice carries the loose consumer's edge.
-    const looseEdges = plan.edges.filter(
-      (e) => e.fromUnit === "u:in:water:tap:u:v_b" && e.item === "water",
+    // The aggregate feeds its slice and the loose consumer directly.
+    const aggregateOut = plan.edges.filter(
+      (e) => e.fromUnit === "u:in:water" && e.item === "water",
     );
-    expect(looseEdges.map((e) => e.toUnit)).toEqual(["u:v_b"]);
+    expect(aggregateOut.map((e) => e.toUnit).sort()).toEqual([
+      "u:in:water:grp:A",
+      "u:v_b",
+    ]);
+    const groupEdges = plan.edges.filter(
+      (e) => e.fromUnit === "u:in:water:grp:A" && e.item === "water",
+    );
+    expect(groupEdges.map((e) => e.toUnit)).toEqual(["u:v_a"]);
+    // Aggregate rate == sum(slice inbound) + sum(direct loose edges).
+    const aggSum = aggregateOut.reduce(
+      (acc, e) => acc.add(e.rate),
+      new Fraction(0),
+    );
+    const aggRate = byId.get("u:in:water")!.rate;
+    expect(aggSum.equals(new Fraction(`${aggRate.num}/${aggRate.denom}`))).toBe(
+      true,
+    );
   });
 
   it("finite cap below total demand: aggregate carries cap + total rate; fanouts prorate (mass-balance invariant)", () => {

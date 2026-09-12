@@ -133,11 +133,13 @@ export type RenderUnitLoop = {
 //
 // `isFanout` is true only when the node is a per-container slice sitting below
 // an aggregate input node. A fanout slice has one inbound edge from the
-// aggregate and outbound edges to the consumers in its own container. The
-// aggregate is pinned to FIRST_SEPARATE -- its own layer just before FIRST --
-// which keeps the aggregate-to-fanout edge a valid downhill edge, while the
-// fanouts themselves float (or pin to FIRST for the loose bucket) and settle
-// near their containers. Not set on aggregate nodes or on single-bucket plans.
+// aggregate and outbound edges to the consumers in its own container; a
+// container needs its own card because an edge must enter a compound node
+// once. Consumers in no container draw straight from the aggregate and get no
+// slice card. The aggregate is pinned to FIRST_SEPARATE -- its own layer just
+// before FIRST -- which keeps the aggregate-to-fanout edge a valid downhill
+// edge, while the fanouts themselves float and settle near their containers.
+// Not set on aggregate nodes or on single-bucket plans.
 //
 // `isAggregate` is true only when the node is the aggregate feeding one or more
 // fanout slices for the same item. Layout reads it to put the node on the

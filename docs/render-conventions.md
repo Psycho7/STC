@@ -20,6 +20,12 @@ recipe's own declared order, so two cards of one recipe read alike. Cyan
 product chips are boundary inputs and outputs rather than machines. Group slabs
 and loop boxes are containers, and the cards inside one are its members.
 
+An item imported at the boundary draws one input chip. Consumers outside any
+container draw straight from that chip; a container gets a chip of its own,
+marked as a tap and fed by the item's chip, because an edge entering a
+container has to enter it once. So several tap chips of one item mean several
+containers, not several consumers.
+
 ## Edges
 
 An item edge is an orthogonal polyline with chamfered corners, coloured by the
