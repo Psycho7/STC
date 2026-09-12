@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import { catalystDrawFromRates, solveLp } from "./lp";
 import { solvePlanWithIntermediates } from "./index";
-import { defaultTransportConfig } from "../data/transport-config";
 import {
   CATALYST_FIXTURES,
   CLOSED_FORM_FIXTURES,
@@ -101,7 +100,6 @@ describe("closed-form fixtures - catalysts", () => {
       const full = solvePlanWithIntermediates(
         fx.targets,
         fx.pack,
-        defaultTransportConfig,
         fx.itemOverrides ?? [],
       );
       const cat = fx.expected.catalystDraw!;

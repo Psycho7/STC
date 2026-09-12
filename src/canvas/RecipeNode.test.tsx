@@ -12,9 +12,7 @@ import {
   makeRecipeNodeProps,
 } from "./node.testkit";
 import { LocaleProvider } from "../data/i18n-context";
-import { ENV_BAND_HEIGHT, ENV_BAND_WIDTH } from "./iconSprite";
-import { RECIPE_HEADER_HEIGHT } from "./dimensions";
-import { cssBlock, cssPx } from "./cssContract.testkit";
+import { cssBlock } from "./cssContract.testkit";
 
 afterEach(cleanup);
 
@@ -399,21 +397,13 @@ test("missing machine record falls back to speed 1", () => {
   expect(container.querySelector(".rate-val")?.textContent).toBe("10");
 });
 
-// --- Environment badge -------------------------------------------------------
+// --- Environment requirement ----------------------------------------------
 //
-// Some recipes only run inside a gas environment the player builds a disperser
-// for. Upstream records that nowhere in its data: the only marker is a colored
-// banner baked into the recipe icon, a full-tile-width strip at rows 5..14 of
-// the 64px tile. The badge is that strip, cut from the shared sheet at native
-// scale, so the card shows the same mark the game does.
+// Some recipes only run inside a gas environment the player builds a
+// disperser for. The requirement shows on the card root: the data attribute
+// marks it and the hover title names it in the active locale.
 
-// The band offsets, pinned rather than recomputed so the expectation cannot
-// drift with the component: each is the badge icon's own sheet position with y
-// moved 5 px further negative, skipping the tile rows above the banner.
-const STABLE_BAND = "-576px -709px";
-const ACIDIC_BAND = "-768px -709px";
-
-function renderedBadge(
+function renderedRoot(
   environment: "stable" | "acidic",
   locale: "en" | "zh" = "en",
 ) {
@@ -428,111 +418,24 @@ function renderedBadge(
       </LocaleProvider>
     </ReactFlowProvider>,
   );
-  return container;
+  return container.querySelector<HTMLElement>('[data-testid="recipe-node"]')!;
 }
 
-test("a stable recipe shows the stable banner band beside the title", () => {
-  const container = renderedBadge("stable");
-  const badges = container.querySelectorAll<HTMLElement>(".env-badge");
-  expect(badges.length).toBe(1);
-  const badge = badges[0]!;
-  // Drawn from the pack's stable reference icon, not the recipe's own icon, so
-  // every stable card carries an identical banner.
-  expect(badge.style.backgroundPosition).toBe(
-    STABLE_BAND,
+test("an environment recipe's root carries data-environment and a localised title; a plain recipe's carries neither", () => {
+  const root = renderedRoot("stable");
+  expect(root.getAttribute("data-environment")).toBe("stable");
+  expect(root.getAttribute("title")).toBe("Stable environment");
+  // The title localises, naming the environment in the active locale.
+  expect(renderedRoot("stable", "zh").getAttribute("title")).toBe("稳定环境");
+  expect(renderedRoot("acidic").getAttribute("data-environment")).toBe(
+    "acidic",
   );
-  expect(badge.getAttribute("title")).toBe("Stable environment");
-  // Rides the title row next to the multiplier chip, not the rate block.
-  expect(badge.parentElement?.className).toBe("machine-title");
-  expect(container.querySelector(".rn-rate-block .env-badge")).toBeNull();
-});
 
-test("an acidic recipe shows the acidic banner with its own tooltip", () => {
-  const container = renderedBadge("acidic");
-  const badge = container.querySelector<HTMLElement>(".env-badge")!;
-  expect(badge.style.backgroundPosition).toBe(
-    ACIDIC_BAND,
-  );
-  expect(badge.getAttribute("title")).toBe("Acidic environment");
-  // The two environments must not collapse onto one band.
-  expect(badge.style.backgroundPosition).not.toBe(
-    STABLE_BAND,
-  );
-});
-
-test("the badge tooltip localizes", () => {
-  const container = renderedBadge("stable", "zh");
-  expect(container.querySelector(".env-badge")?.getAttribute("title")).toBe(
-    "稳定环境",
-  );
-});
-
-// A recipe with no environment requirement renders exactly what it did before.
-test("a recipe without an environment renders no badge", () => {
-  const props = makeRecipeNodeProps({ recipe: RECIPE });
-  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
-  expect(container.querySelector(".env-badge")).toBeNull();
-  expect(container.querySelector(".machine-title .cn")?.textContent).toBe(
-    "mk1",
-  );
-});
-
-// The badge is a build requirement, so it is critical info and survives the
-// low-zoom LOD on the same footing as the multiplier chip: it lives outside
-// .rn-rate-block, so none of the band's hide rules reach it.
-test("environment badge survives zoom-low like the multiplier chip", () => {
-  document.head.insertAdjacentHTML(
-    "beforeend",
-    `<style id="env-zoom-low-probe">
-       .ak-canvas-theme.zoom-low .rn-footer,
-       .ak-canvas-theme.zoom-low .rn-head .rn-products,
-       .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-val,
-       .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-lbl,
-       .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-sub {
-         display: none;
-       }
-     </style>`,
-  );
-  const recipe: Recipe = { ...RECIPE, environment: "stable" };
-  const props = makeRecipeNodeProps({ recipe, multiplier: 3 });
-  const { container } = render(
-    <ReactFlowProvider>
-      <LocaleProvider locale="en">
-        <ItemPackProvider value={packWithSpeed(1)}>
-          <div className="ak-canvas-theme zoom-low">
-            <RecipeNode {...props} />
-          </div>
-        </ItemPackProvider>
-      </LocaleProvider>
-    </ReactFlowProvider>,
-  );
-  const badge = container.querySelector<HTMLElement>(".env-badge")!;
-  const chip = container.querySelector<HTMLElement>(".rn-mult-chip")!;
-  const rateVal = container.querySelector<HTMLElement>(".rate-val")!;
-  expect(getComputedStyle(badge).display).not.toBe("none");
-  expect(getComputedStyle(chip).display).not.toBe("none");
-  expect(getComputedStyle(rateVal).display).toBe("none");
-  document.getElementById("env-zoom-low-probe")?.remove();
-});
-
-// jsdom does no layout, so the band geometry is asserted against the rule text.
-// The badge draws the sheet through a band-sized window at native scale: any
-// transform, or a width or height that is not the band's, would show a
-// different slice of the icon than the game's banner.
-test("the badge rule is the band drawn at native scale", () => {
-  const block = cssBlock(".rn-head .env-badge");
-  expect(cssPx(".rn-head .env-badge", "width")).toBe(ENV_BAND_WIDTH);
-  expect(cssPx(".rn-head .env-badge", "height")).toBe(ENV_BAND_HEIGHT);
-  expect(block).not.toMatch(/transform:/);
-  // Never shrinks, so the machine name's ellipsis budget is the title row
-  // minus the badge and its gap rather than a squeezed badge.
-  expect(block).toMatch(/flex-shrink:\s*0/);
-  expect(block).toMatch(/background-image:\s*var\(--icons-url\)/);
-});
-
-// The badge shares the title row rather than growing the header: the offline
-// geometry model and ELK both size cards off RECIPE_HEADER_HEIGHT, so a taller
-// header would drop every port below its modelled y-slot.
-test("the environment badge leaves the header height alone", () => {
-  expect(cssPx(".rn-head", "height")).toBe(RECIPE_HEADER_HEIGHT);
+  const plainProps = makeRecipeNodeProps({ recipe: RECIPE });
+  const { container } = wrap(<RecipeNode {...plainProps} />, packWithSpeed(1));
+  const plainRoot = container.querySelector<HTMLElement>(
+    '[data-testid="recipe-node"]',
+  )!;
+  expect(plainRoot.hasAttribute("data-environment")).toBe(false);
+  expect(plainRoot.hasAttribute("title")).toBe(false);
 });
