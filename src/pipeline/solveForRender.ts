@@ -22,11 +22,11 @@
 // tools/exam/coverage) run this chain headless. The layout step lives behind
 // its own module.
 
-import type { RecipePack } from "@aef/schema";
 import { pack as shippedPack } from "../data/load";
 import type { ItemOverride, Plan } from "../data/plan";
 import type { ItemTarget } from "../data/targets";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "../solver";
+import type { RawPack } from "../solver/net-self";
 import { planToSolverArgs } from "../solver/planToSolverArgs";
 import type { RecipeId } from "../solver/types";
 import { renderPlanFromSolve, type RenderPipelineOutput } from "./driver";
@@ -37,8 +37,8 @@ export type SolveForRenderRequest = {
   /** Defaults to no overrides. */
   itemOverrides?: ReadonlyArray<ItemOverride> | undefined;
   recipeCosts?: Map<RecipeId, number> | undefined;
-  /** Defaults to the shipped pack. Must be the RAW pack. */
-  pack?: RecipePack | undefined;
+  /** Defaults to the shipped pack. The RawPack brand rejects a netted one. */
+  pack?: RawPack | undefined;
 };
 
 /**
@@ -52,7 +52,7 @@ export type SolveForRenderRequest = {
  */
 export type SolveForRenderOutput = RenderPipelineOutput & {
   full: SolvePlanFull;
-  pack: RecipePack;
+  pack: RawPack;
   targets: ReadonlyArray<ItemTarget>;
   itemOverrides: ReadonlyArray<ItemOverride>;
 };
@@ -101,7 +101,7 @@ export type SolveFromPlanOutput = SolveForRenderOutput & {
  */
 export function solveFromPlan(
   plan: Plan,
-  pack?: RecipePack | undefined,
+  pack?: RawPack | undefined,
 ): SolveFromPlanOutput {
   const { targets, itemOverrides, recipeCosts } = planToSolverArgs(plan);
   const out = solveForRender({ targets, itemOverrides, recipeCosts, pack });

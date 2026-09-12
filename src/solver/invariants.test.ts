@@ -15,7 +15,7 @@ import {
 import { solveLp, type LpResult } from "./lp";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./index";
 import { withoutGasMachines } from "./closed-form-fixtures";
-import { netSelfConsumption } from "./net-self";
+import { netSelfConsumption, type NettedRecipeMap } from "./net-self";
 import { pack } from "../data/load";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
@@ -437,7 +437,10 @@ describe("checkRepresentable - detection power", () => {
     const corrupted: SolvePlanFull = {
       ...full,
       rates: new Map(full.rates).set(fakeId, new Fraction(3)),
-      recipeById: new Map(full.recipeById).set(fakeId, fakeRecipe),
+      nettedRecipeById: new Map(full.nettedRecipeById).set(
+        fakeId,
+        fakeRecipe,
+      ) as NettedRecipeMap,
     };
     const r = checkRepresentable(corrupted);
     expect(r.ok).toBe(false);
@@ -458,7 +461,10 @@ describe("checkRepresentable - detection power", () => {
     const corrupted: SolvePlanFull = {
       ...full,
       rates: new Map(full.rates).set(xferId, new Fraction(3)),
-      recipeById: new Map(full.recipeById).set(xferId, xferRecipe),
+      nettedRecipeById: new Map(full.nettedRecipeById).set(
+        xferId,
+        xferRecipe,
+      ) as NettedRecipeMap,
     };
     const r = checkRepresentable(corrupted);
     expect(r.violations.some((v) => v.includes(xferId))).toBe(false);

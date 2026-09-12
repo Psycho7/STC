@@ -1337,7 +1337,7 @@ describe("render corpus: shared byproduct supplier apportionment (plan:true over
   ): void {
     expect(outflow.size).toBeGreaterThan(0);
     for (const [rid, shipped] of outflow) {
-      const recipe = full.recipeById.get(rid)!;
+      const recipe = full.nettedRecipeById.get(rid)!;
       const outQty = recipe.out.find((o) => o.item === "liquid_water")!.qty;
       const production = full.rates.get(rid)!.mul(new Fraction(outQty));
       expect(
@@ -1355,7 +1355,7 @@ describe("render corpus: shared byproduct supplier apportionment (plan:true over
   ): void {
     expect(inflow.size).toBeGreaterThan(0);
     for (const [rid, fed] of inflow) {
-      const recipe = full.recipeById.get(rid)!;
+      const recipe = full.nettedRecipeById.get(rid)!;
       const inQty = recipe.in.find((s) => s.item === "liquid_water")!.qty;
       const demand = full.rates.get(rid)!.mul(new Fraction(inQty));
       expect(

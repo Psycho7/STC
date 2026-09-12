@@ -8,10 +8,10 @@
 // rendering so the render policy still sees the per-replica edges before they
 // fold together.
 
-import type { RecipePack } from "@aef/schema";
 import type { ItemOverride } from "../data/plan";
 import type { ItemTarget } from "../data/targets";
 import type { SolvePlanFull } from "../solver";
+import type { RawPack } from "../solver/net-self";
 import type { SccId } from "../solver/types";
 import { buildSupplyTable } from "../solver/effectiveSupply";
 import { PillarsOnly } from "./cluster";
@@ -41,7 +41,8 @@ export type RenderPipelineOutput = {
  * Run the pipeline over the solver's intermediate results and return a
  * RenderPlan that layoutRenderPlan() consumes directly.
  *
- * `pack` must be the RAW pack and `targets`/`itemOverrides` must be the same
+ * `pack` is the RAW pack (the RawPack brand enforces it) and
+ * `targets`/`itemOverrides` must be the same
  * values handed to the solvePlanWithIntermediates call that produced `full`;
  * the DEV invariant hook checks the plan against them.
  *
@@ -52,7 +53,7 @@ export type RenderPipelineOutput = {
  */
 export function renderPlanFromSolve(
   full: SolvePlanFull,
-  pack: RecipePack,
+  pack: RawPack,
   targets: ReadonlyArray<ItemTarget>,
   itemOverrides: ReadonlyArray<ItemOverride>,
 ): RenderPipelineOutput {
@@ -62,18 +63,19 @@ export function renderPlanFromSolve(
     multipliers,
     idealCount,
     condensation,
-    recipeById,
+    nettedRecipeById,
     rates,
     supplyShares,
     boundaryShare,
   } = full;
 
-  // Raw versus netted, and both are used deliberately. `recipeById` above is
-  // the NETTED recipe map (netSelfConsumption ran before the solver built it),
-  // so downstream rates match what the LP solved. `pack` is the RAW pack, and
-  // the itemById/machineById maps below are built from it. Never rebuild these
-  // two maps from `recipeById`, and never pass a netted pack in: the result is
-  // a silently wrong-stoichiometry render, not a crash. The supply table is the
+  // Raw versus netted, and both are used deliberately. `nettedRecipeById`
+  // above is the NETTED recipe map (netSelfConsumption ran before the solver
+  // built it), so downstream rates match what the LP solved. `pack` is the RAW
+  // pack, and the itemById/machineById maps below are built from it. Never
+  // rebuild these two maps from `nettedRecipeById`, and never pass a netted
+  // pack in: the result is a silently wrong-stoichiometry render, not a crash.
+  // Both rules are now typed, not just written here. The supply table is the
   // exception - it reads `pack.items` only, so the solve half's table and this
   // one agree whichever pack variant each was built from.
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
@@ -93,7 +95,7 @@ export function renderPlanFromSolve(
   const edgeRatesByLogicalEdgeId = computeEdgeRates({
     logical,
     replicas: surviving,
-    recipeById,
+    recipeById: nettedRecipeById,
     rates,
     supplyShares,
     boundaryShare,
@@ -140,7 +142,7 @@ export function renderPlanFromSolve(
     targets,
     itemOverrides,
     itemById,
-    recipeById,
+    recipeById: nettedRecipeById,
     supply,
     idealCount,
     boundaryShare,

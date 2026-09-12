@@ -63,7 +63,9 @@ describe("layoutSolved on a self-consuming recipe", () => {
     const solved = solveForRender({ targets });
     const { nodes } = await layoutRenderPlan({
       plan: solved.plan,
-      recipeById: solved.full.recipeById,
+      // @ts-expect-error -- the RawRecipeMap brand rejects the solve's netted
+      // map; this control passes it on purpose to show what it costs.
+      recipeById: solved.full.nettedRecipeById,
       itemById: new Map(pack.items.map((i) => [i.id, i])),
       busLanesEnabled: false,
     });

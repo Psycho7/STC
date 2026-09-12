@@ -223,7 +223,7 @@ export function checkRepresentable(full: SolvePlanFull): InvariantResult {
   for (const [recipeId, rate] of full.rates) {
     if (rate.compare(FRAC_ZERO) <= 0) continue;
     if (logicalIds.has(recipeId)) continue;
-    const recipe = full.recipeById.get(recipeId);
+    const recipe = full.nettedRecipeById.get(recipeId);
     if (recipe && isSanctionedAbsentProducer(recipe)) continue;
     violations.push(
       `positive-rate recipe ${recipeId} has no node in the logical graph`,

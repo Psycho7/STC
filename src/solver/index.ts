@@ -1,6 +1,6 @@
 import Fraction from "fraction.js";
 import type { LogicalGraph } from "../canvas/layout";
-import type { Recipe, RecipePack } from "@aef/schema";
+import type { RecipePack } from "@aef/schema";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { augmentGraphWithLpSupport, buildRecipeGraphMulti } from "./graph";
@@ -14,7 +14,11 @@ import { assignIdealMultipliers } from "./multiplier";
 import { assembleLogicalGraph } from "./assemble";
 import { bisimQuotient, deriveReplicaEdges } from "./bisim";
 import { assertInvariants } from "./invariants";
-import { netSelfConsumption } from "./net-self";
+import {
+  netSelfConsumption,
+  type NettedPack,
+  type NettedRecipeMap,
+} from "./net-self";
 import type {
   Condensation,
   ItemId,
@@ -100,7 +104,12 @@ export type SolvePlanFull = {
   multipliers: Map<ReplicaId, number>;
   condensation: Condensation;
   torn: TornEdge[];
-  recipeById: Map<RecipeId, Recipe>;
+  /**
+   * Recipe lookup built from the NETTED pack, so the stoichiometry matches
+   * what the LP solved. Branded, and named for it: the drawing layers need the
+   * in-game rows and must build their own map from the raw pack instead.
+   */
+  nettedRecipeById: NettedRecipeMap;
   /**
    * Per-recipe execution rate from the LP solver. Zero-rate recipes drop out of
    * `replicas` (gated by the multipliers map), but this map stays complete so
@@ -156,13 +165,16 @@ function runSolvePipeline(
   rawPack: RecipePack,
   itemOverrides: ItemOverride[] | undefined,
   recipeCosts: Map<RecipeId, number> | undefined,
-): { full: SolvePlanFull; lpResult: LpResult; nettedPack: RecipePack } {
+): { full: SolvePlanFull; lpResult: LpResult; nettedPack: NettedPack } {
   // Everything below (graph walk, LP, replication, assembly, and the
-  // recipeById map that feeds the render pipeline) must see the netted form;
-  // only display layers go back to the raw pack.
+  // nettedRecipeById map that feeds the render pipeline) must see the netted
+  // form; only display layers go back to the raw pack. The RawPack/NettedPack
+  // brands hold that line at the type level.
   const pack = netSelfConsumption(rawPack);
   const machineById = new Map(pack.machines.map((m) => [m.id, m]));
-  const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
+  const recipeById = new Map(
+    pack.recipes.map((r) => [r.id, r]),
+  ) as NettedRecipeMap;
 
   const g = buildRecipeGraphMulti(targets, pack, itemOverrides);
   const lpResult = solveLp({
@@ -244,7 +256,7 @@ function runSolvePipeline(
     multipliers,
     condensation: c,
     torn,
-    recipeById,
+    nettedRecipeById: recipeById,
     rates,
     idealCount,
     feasibility: {

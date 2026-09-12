@@ -52,7 +52,7 @@ function emitProducts(
   });
   const inputs = plan.units.filter(isInputProductUnit);
   const outputs = plan.units.filter(isOutputProductUnit);
-  return { inputs, outputs, plan, recipeById: full.recipeById };
+  return { inputs, outputs, plan, recipeById: full.nettedRecipeById };
 }
 
 describe("render policy / boundary product units", () => {

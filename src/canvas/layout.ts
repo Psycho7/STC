@@ -75,6 +75,7 @@ import type {
   SccId,
   TransportKindId,
 } from "../pipeline/types";
+import type { RawRecipeMap } from "../solver/net-self";
 import type { RationalString } from "../data/targets";
 
 // LogicalGraph types
@@ -128,7 +129,10 @@ export type LoopInteriorSize = { width: number; height: number };
 
 export type LayoutInput = {
   plan: RenderPlan;
-  recipeById: ReadonlyMap<RecipeId, Recipe>;
+  // The RAW pack's stoichiometry: every node row is drawn from it. The
+  // RawRecipeMap brand rejects the solve's own netted map, which would drop
+  // the self-consumed input rows the player has to loop back by hand.
+  recipeById: RawRecipeMap;
   // Item lookup used to resolve each port's `transportKind`. It is required so
   // the type system forces callers to supply it; pass `new Map()` to take the
   // "no glyphs" path. Resolving the kind here lets the node components stay

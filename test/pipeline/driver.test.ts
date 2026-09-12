@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import { solveForRender } from "../../src/pipeline/solveForRender";
+import { renderPlanFromSolve } from "../../src/pipeline/driver";
+import { netSelfConsumption } from "../../src/solver/net-self";
+import type { LayoutInput } from "../../src/canvas/layout";
 import { pack } from "../../src/data/load";
 import { defaultTargets, rationalFromString } from "../../src/data/targets";
 
@@ -220,5 +223,36 @@ describe("pipeline driver: stamp cap is invisible after folding", () => {
         ),
       ).toBe(true);
     }
+  });
+});
+
+// The raw/netted split used to be four prose comments. These two cases pin it
+// as a compile error instead: neither call is ever run, the assertion is that
+// tsc rejects the argument. Same pattern as the strict-mode case in
+// test/transport-config-guard.test.ts.
+describe("the netted form cannot cross into the drawing layers", () => {
+  it("refuses a netted pack at the render pipeline entry", () => {
+    const targets = defaultTargets();
+    const { full } = solveForRender({ targets, pack });
+    const netted = netSelfConsumption(pack);
+    const attempt = () =>
+      renderPlanFromSolve(
+        full,
+        // @ts-expect-error -- renderPlanFromSolve takes the RAW pack.
+        netted,
+        targets,
+        [],
+      );
+    expect(typeof attempt).toBe("function");
+  });
+
+  it("refuses the solve's netted recipe map at the layout entry", () => {
+    const targets = defaultTargets();
+    const { full } = solveForRender({ targets, pack });
+    const input: Pick<LayoutInput, "recipeById"> = {
+      // @ts-expect-error -- layoutRenderPlan draws from the RAW stoichiometry.
+      recipeById: full.nettedRecipeById,
+    };
+    expect(input.recipeById.size).toBeGreaterThan(0);
   });
 });
