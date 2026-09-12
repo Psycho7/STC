@@ -48,21 +48,17 @@ test.describe("visible machine-title collisions", () => {
   for (const scenario of SCENARIOS) {
     for (const locale of LOCALES) {
       test(`${locale} ${scenario.id} titles`, async ({ page }) => {
-        await page.addInitScript(
-          (l) => {
-            window.localStorage.setItem("aef.locale", l);
-            window.localStorage.setItem("aef.busLanes", "on");
-          },
+        await bootExamPage(page, {
+          url: "/#" + (await scenarioHash(scenario)),
           locale,
-        );
-        await page.goto("/#" + (await scenarioHash(scenario)), {
-          waitUntil: "load",
+          busLanes: "on",
+          readiness: "nodes",
+          settle: "webfonts",
         });
         await page
           .locator(".machine-title .cn")
           .first()
           .waitFor({ state: "visible", timeout: 30_000 });
-        await waitForWebfonts(page);
         const { collisions, titles } = await page.evaluate(() => {
           // Keyed by the RAW title string (the title attribute), so several
           // cards of one machine are legal and the guard compares only
