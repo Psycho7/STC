@@ -19,7 +19,7 @@ import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
 import { layoutRenderPlan, type RFAnyNode } from "./canvas/layout";
 import { reseatChips } from "./canvas/chipSeating";
-import { buildRealizedRateByItem } from "./canvas/productNodeMetadata";
+import { buildRealizedRateByItem } from "./canvas/realizedRateByItem";
 import {
   describePlanLoadError,
   encodePlan,

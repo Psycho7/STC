@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Node } from "@xyflow/react";
-import { buildRealizedRateByItem } from "./productNodeMetadata";
+import { buildRealizedRateByItem } from "./realizedRateByItem";
 
 // Minimal stand-in for the React Flow product nodes the layout layer writes.
 // Only the fields buildRealizedRateByItem reads are populated; the helper

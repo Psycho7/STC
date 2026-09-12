@@ -1,10 +1,11 @@
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import type { Item } from "@aef/schema";
 import { useI18n } from "../data/i18n-context";
+import type { I18nIndex } from "../data/i18n";
 import { formatRationalPerMin } from "../data/rate-format";
 import type { RationalString } from "../pipeline/types";
 import { PortGlyph } from "./PortGlyph";
 import { useItemPack } from "./itemPackContext";
-import { buildPnKind, buildPnKindRate } from "./productNodeMetadata";
 import type { PortTransportKinds } from "./layout";
 import { iconPosition } from "./iconSprite";
 import { Sprite } from "./RecipeNode";
@@ -43,6 +44,63 @@ export type ProductNodeData =
 
 export type ProductNodeType = Node<ProductNodeData, "product">;
 
+// Build the pn-kind caption words shown on a ProductNode.
+//
+// Every card reads "<Direction> <Classification>"; the parts are joined by a
+// middle-dot separator and localized through the i18n table. An output's rate
+// used to ride this string and now comes from buildPnKindRate below, because
+// .pn-kind runs the words through text-transform: uppercase and the rate's
+// localized unit ("/min", the Russian per-minute string) must keep its own
+// casing (unit-casing-mix family).
+//
+// Direction is "In" for an inputProduct and "Out" for an outputProduct.
+// For an inputProduct, the classification is "tap" when the node is a fanout
+// slice of an aggregate input card, otherwise "raw" when item.raw is true and
+// "import" when it is not. For an outputProduct, it is data.flavor ("target"
+// or "surplus").
+//
+// The NBSP after each middle dot keeps a wrapped caption from stranding the
+// dot at line end; a break lands before the dot instead.
+export function buildPnKind(
+  data: ProductNodeData,
+  item: Item,
+  i18n: I18nIndex,
+): string {
+  if (data.kind === "inputProduct") {
+    const classification = i18n.t(
+      data.isFanout
+        ? "product.class.tap"
+        : item.raw
+          ? "product.class.raw"
+          : "product.class.import",
+    );
+    return `${i18n.t("product.dir.in")} ·\u00A0${classification}`;
+  }
+  const flavor = i18n.t(
+    data.flavor === "surplus"
+      ? "product.flavor.surplus"
+      : "product.flavor.target",
+  );
+  return `${i18n.t("product.dir.out")} ·\u00A0${flavor}`;
+}
+
+// Build the trailing rate segment of an output's pn-kind caption: the
+// formatted rate followed by the locale's canvas.rate.unit string
+// (formatRationalPerMin(rate) + "/min" under en). Inputs carry no rate in the
+// caption, mirroring buildPnKind's input branch, so the helper returns null
+// and the caller renders no span.
+//
+// The caller joins this to the caption words with the same "space, middle
+// dot, NBSP" glue and renders it inside a span the caption's uppercase
+// transform does not reach, so the composed caption's text is unchanged.
+export function buildPnKindRate(
+  data: ProductNodeData,
+  i18n: I18nIndex,
+): string | null {
+  if (data.kind === "inputProduct") return null;
+  return `${formatRationalPerMin(data.rate)}${i18n.t("canvas.rate.unit")}`;
+}
+
 function chromeClasses(data: ProductNodeData): string {
   if (data.kind === "inputProduct") {
     // A fanout slice is a derived view of the item's aggregate card, not an
@@ -63,7 +121,7 @@ export default function ProductNode({
   selected,
 }: NodeProps<ProductNodeType>) {
   const i18n = useI18n();
-  const { itemById, overrides } = useItemPack();
+  const { itemById } = useItemPack();
   const item = itemById.get(data.itemId);
   const displayName = i18n.displayName(data.itemId);
   const isInput = data.kind === "inputProduct";
@@ -71,9 +129,9 @@ export default function ProductNode({
   // pack entries that declare none.
   const iconId = item?.icon ?? data.itemId;
 
-  // The pn-kind caption comes from the shared helper. If the item is missing
+  // The pn-kind caption comes from the helper above. If the item is missing
   // from the pack (corrupt data), fall back to nothing.
-  const pnKindText = item ? buildPnKind(data, item, overrides, i18n) : null;
+  const pnKindText = item ? buildPnKind(data, item, i18n) : null;
   // Trailing rate segment of the caption, outputs only. Rendered in a child
   // span joined by the same dot+NBSP glue so the caption's total text is
   // unchanged; the span drops the caption's uppercase transform so the
