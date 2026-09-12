@@ -51,14 +51,11 @@ import {
   type SceneCollection,
   type SceneElement,
 } from "../../test/e2e/collect";
+import { bootExamPage } from "../../test/e2e/viewport";
 import {
   LABEL_MIN_ZOOM,
   CHIP_ICON_ONLY_MAX_ZOOM,
 } from "../../src/canvas/dimensions";
-import {
-  BUS_LANES_STORAGE_KEY,
-  LOCALE_STORAGE_KEY,
-} from "../../src/data/storage-keys";
 import {
   assertZoomAchieved,
   correctiveFileName,
@@ -249,10 +246,12 @@ function parseArgs(argv: string[]): Options | string {
 
 export type BootOptions = { baseUrl: string; hash: string; locale: string };
 
-// Open a page on the plan and wait until it is examinable. Mirrors the settled
-// wait sequence of the placement screenshot spec, which is the recipe that made
-// those shots reproducible across machines. Throws if any stage times out; the
-// caller decides what a boot failure means.
+// Open a page on the plan and wait until it is examinable. The context, the
+// device scale and the console listener are this CLI's; the seeding and the
+// readiness ladder are the shared e2e boot, so a capture settles exactly the
+// way the placement screenshot spec does - the recipe that made those shots
+// reproducible across machines. Throws if any stage times out; the caller
+// decides what a boot failure means.
 export async function bootPage(
   browser: Browser,
   opts: BootOptions,
@@ -272,40 +271,19 @@ export async function bootPage(
     consoleErrors.push(`pageerror: ${err.message}`);
   });
 
-  // The locale is read from localStorage in the i18n provider's initial state,
-  // so it has to be set before the app boots or label text and its metrics
-  // change under the camera. Bus lanes ride the same store and default OFF
-  // for a missing key; the exam corpus opts in exactly as the e2e specs do,
-  // so the capture shows the lanes, bands and captions the audits ratchet.
-  // The keys travel as an ARGUMENT, not as module constants: page.addInitScript
-  // serialises the callback source and evaluates it in the page, so nothing from
-  // this module's scope reaches it and a captured import would be a fresh
-  // ReferenceError inside the browser rather than a compile error here.
-  await page.addInitScript(
-    (seed: { localeKey: string; locale: string; busLanesKey: string }) => {
-      window.localStorage.setItem(seed.localeKey, seed.locale);
-      window.localStorage.setItem(seed.busLanesKey, "on");
-    },
-    {
-      localeKey: LOCALE_STORAGE_KEY,
-      locale: opts.locale,
-      busLanesKey: BUS_LANES_STORAGE_KEY,
-    },
-  );
-
-  await page.goto(examUrl(opts.baseUrl, opts.hash), { waitUntil: "load" });
-
-  await page
-    .locator(".react-flow")
-    .locator(
-      ".react-flow__node-recipe, .react-flow__node-loop, .react-flow__node-product",
-    )
-    .first()
-    .waitFor({ state: "visible", timeout: 30_000 });
-  await page
-    .locator(".canvas-annot.bottom-right", { hasText: "READY" })
-    .waitFor({ state: "visible", timeout: 30_000 });
-  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  // Bus lanes default OFF for a missing key; the exam corpus opts in exactly as
+  // the e2e specs do, so the capture shows the lanes, bands and captions the
+  // audits ratchet. --locale is a free string on the CLI, and the app ignores a
+  // stored value outside the two it ships: seeding nothing for one of those
+  // leaves the page on the app's own default, which is what it does today.
+  await bootExamPage(page, {
+    url: examUrl(opts.baseUrl, opts.hash),
+    locale:
+      opts.locale === "en" || opts.locale === "zh" ? opts.locale : undefined,
+    busLanes: "on",
+    readiness: "ready",
+    settle: "both",
+  });
 
   return { page, consoleErrors };
 }

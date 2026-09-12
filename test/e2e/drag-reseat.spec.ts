@@ -41,12 +41,11 @@ async function seatAudits(page: Page) {
 
 for (const mode of ["on", "off"] as const) {
   test(`chips re-seat after a node drag (lanes ${mode})`, async ({ page }) => {
-    await page.addInitScript((busLanes: string) => {
-      window.localStorage.setItem("aef.locale", "en");
-      window.localStorage.setItem("aef.busLanes", busLanes);
-    }, mode);
     const scenario = SCENARIOS.find((s) => s.id === "default")!;
-    await loadCensusScenario(page, await scenarioHash(scenario));
+    await loadCensusScenario(page, await scenarioHash(scenario), {
+      locale: "en",
+      busLanes: mode,
+    });
 
     const before = await seatAudits(page);
     expect(before.portCover, "laid-out plan covers no port").toEqual([]);

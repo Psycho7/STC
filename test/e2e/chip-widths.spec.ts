@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { waitForStableViewport, waitForWebfonts } from "./viewport";
+import { bootExamPage, waitForStableViewport } from "./viewport";
 import { SCENARIOS, scenarioHash, type Scenario } from "./scenarios";
 import { CHIP_BOX_HEIGHT } from "../../src/canvas/dimensions";
 
@@ -47,23 +47,9 @@ type Reservation = {
   reservedPx: number;
 };
 
-async function waitForCanvasReady(page: Page): Promise<void> {
-  const anyNode = page
-    .locator(".react-flow")
-    .locator(
-      ".react-flow__node-recipe, .react-flow__node-loop, .react-flow__node-product",
-    )
-    .first();
-  await expect(anyNode).toBeVisible({ timeout: 30_000 });
-}
-
-
 async function measureAtRest(
   page: Page,
 ): Promise<{ chips: MeasuredChip[]; reservations: Reservation[] }> {
-  await waitForCanvasReady(page);
-  await waitForWebfonts(page);
-  await waitForStableViewport(page);
   // "At rest" is zoom 1: chips render at scale 1 with every zoom gate open
   // (LABEL_MIN_ZOOM, the icon-only band), so the member chips the fit zoom
   // hides are measured too. Only `compact` chips stay icon-only here.
@@ -137,15 +123,18 @@ function auditChips(
 
 function defineCheck(locale: LocaleId, scenario: Scenario): void {
   test(`${locale} ${scenario.id}`, async ({ page }) => {
-    await page.addInitScript((l) => {
-      window.localStorage.setItem("aef.locale", l);
-      // The audit corpus polices the bus machinery, so every spec opts the
-      // toggle on explicitly; the app default (off since the bus-lanes flip)
-      // is a product decision this suite does not re-test.
-      window.localStorage.setItem("aef.busLanes", "on");
-    }, locale);
     const hash = await scenarioHash(scenario);
-    await page.goto(`/?exam=1#${hash}`, { waitUntil: "load" });
+    // The audit corpus polices the bus machinery, so every spec opts the
+    // toggle on explicitly; the app default (off since the bus-lanes flip)
+    // is a product decision this suite does not re-test. Settled on both
+    // counts before a single chip box is measured.
+    await bootExamPage(page, {
+      url: `/#${hash}`,
+      locale,
+      busLanes: "on",
+      readiness: "nodes",
+      settle: "both",
+    });
     const { chips, reservations } = await measureAtRest(page);
 
     // Selector-drift guard: an audit that measures nothing proves nothing.

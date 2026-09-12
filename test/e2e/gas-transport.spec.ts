@@ -5,6 +5,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { bootExamPage } from "./viewport";
 import { planHash } from "./plan-hash";
 
 test.use({ viewport: { width: 1920, height: 1080 } });
@@ -24,17 +25,6 @@ async function gasPlanHash(): Promise<string> {
       { itemId: "copper_enr2", ratePerSec: { num: "1", denom: "2" } },
     ],
   });
-}
-
-async function waitForCanvasReady(page: Page): Promise<void> {
-  const anyNode = page
-    .locator(".react-flow")
-    .locator(
-      ".react-flow__node-recipe, .react-flow__node-loop, .react-flow__node-product",
-    )
-    .first();
-  await expect(anyNode).toBeVisible({ timeout: 20_000 });
-  await page.waitForTimeout(1200);
 }
 
 function normalizeDash(css: string): string {
@@ -63,8 +53,11 @@ async function strokeMidpoint(
 test("gas edges stay distinct from pipe across idle, lit, and dimmed states", async ({
   page,
 }) => {
-  await page.goto(`/#${await gasPlanHash()}`, { waitUntil: "load" });
-  await waitForCanvasReady(page);
+  await bootExamPage(page, {
+    url: `/#${await gasPlanHash()}`,
+    readiness: "nodes",
+    settle: "both",
+  });
 
   const gasPaths = page.locator(
     '.react-flow__edge path[data-transport-kind="gas"]',

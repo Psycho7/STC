@@ -1,4 +1,5 @@
 import { test, expect, type ConsoleMessage } from "@playwright/test";
+import { bootExamPage } from "./viewport";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -28,15 +29,17 @@ test.describe("render pipeline e2e gate", () => {
   }, testInfo) => {
     const { errors } = attachConsoleErrorListener(page);
 
-    await page.goto("/", { waitUntil: "load" });
+    await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
 
     const canvas = page.locator(".react-flow");
-    // Without the fold pipeline, the render policy emits one unit per machine
-    // vertex; recipe and loop are the only pipeline node kinds.
+    // Deliberately narrower than the shared readiness selector: without the
+    // fold pipeline the render policy emits one unit per machine vertex, so
+    // recipe and loop are the only pipeline node kinds, and a plan that came
+    // up as product nodes alone would be a failure this spec must report.
     const pipelineNode = canvas
       .locator(".react-flow__node-recipe, .react-flow__node-loop")
       .first();
-    await expect(pipelineNode).toBeVisible({ timeout: 20_000 });
+    await expect(pipelineNode).toBeVisible({ timeout: 30_000 });
 
     const itemEdgeLabel = canvas
       .locator('[data-testid^="item-edge-label-"]')

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { waitForWebfonts } from "./viewport";
+import { bootExamPage } from "./viewport";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 
 // Issue #42: fixed row chrome left .rn-row .lbl 65-83px of a 150px half-card,
@@ -11,21 +11,21 @@ import { SCENARIOS, scenarioHash } from "./scenarios";
 for (const id of ["default", "equip4"] as const) {
   test(`no within-card visible-string collisions: ${id}`, async ({ page }) => {
     const scenario = SCENARIOS.find((s) => s.id === id)!;
-    await page.addInitScript(() => {
-      window.localStorage.setItem("aef.locale", "en");
-      // The audit corpus polices the bus machinery, so every spec opts the
-      // toggle on explicitly; the app default (off since the bus-lanes flip)
-      // is a product decision this suite does not re-test.
-      window.localStorage.setItem("aef.busLanes", "on");
+    // The audit corpus polices the bus machinery, so every spec opts the
+    // toggle on explicitly; the app default (off since the bus-lanes flip)
+    // is a product decision this suite does not re-test.
+    await bootExamPage(page, {
+      url: "/#" + (await scenarioHash(scenario)),
+      locale: "en",
+      busLanes: "on",
+      readiness: "nodes",
+      settle: "webfonts",
     });
-    await page.goto("/#" + (await scenarioHash(scenario)), {
-      waitUntil: "load",
-    });
+    // The measured elements themselves: a card is on screen before its rows are.
     await page
       .locator(".rn-row .lbl")
       .first()
       .waitFor({ state: "visible", timeout: 30_000 });
-    await waitForWebfonts(page);
     const collisions = await page.evaluate(() => {
       const out: string[] = [];
       for (const card of document.querySelectorAll(".recipe-node")) {

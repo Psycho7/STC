@@ -1,5 +1,6 @@
 import { test, expect, type ConsoleMessage, type Page } from "@playwright/test";
 import type { ItemOverride } from "../../src/data/plan";
+import { bootExamPage } from "./viewport";
 import { planHash } from "./plan-hash";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
@@ -43,27 +44,17 @@ function attachConsoleListener(page: Page): ConsoleLog {
   return { errors, warnings };
 }
 
-// Wait for the React Flow canvas to render at least one node so subsequent
-// assertions don't race the initial pipeline pass.
-async function waitForCanvasReady(page: Page): Promise<void> {
-  const anyNode = page
-    .locator(".react-flow")
-    .locator(
-      ".react-flow__node-recipe, .react-flow__node-loop, .react-flow__node-product",
-    )
-    .first();
-  await expect(anyNode).toBeVisible({ timeout: 20_000 });
-}
-
 test.describe("raw-product boundaries and transport-kind styling", () => {
   test("default plan with target copper_nugget: copper_ore input product visible, miner_4 recipe NOT visible", async ({
     page,
   }, testInfo) => {
     const log = attachConsoleListener(page);
     const hash = await makeHashForCopperNugget();
-    await page.goto(`/#${hash}`, { waitUntil: "load" });
-
-    await waitForCanvasReady(page);
+    await bootExamPage(page, {
+      url: `/#${hash}`,
+      readiness: "nodes",
+      settle: "none",
+    });
 
     // copper_ore is raw -> input ProductNode renders at the boundary. Use
     // toBeAttached because React Flow may pan/zoom such that the node is in
@@ -109,9 +100,11 @@ test.describe("raw-product boundaries and transport-kind styling", () => {
     const hash = await makeHashForCopperNugget([
       { itemId: "copper_ore", plan: true },
     ]);
-    await page.goto(`/#${hash}`, { waitUntil: "load" });
-
-    await waitForCanvasReady(page);
+    await bootExamPage(page, {
+      url: `/#${hash}`,
+      readiness: "nodes",
+      settle: "none",
+    });
 
     // Asking for copper_ore to be built pulls in no producer: the only recipe
     // that makes it runs on miner_4, a machine placed on a map deposit rather
@@ -160,8 +153,7 @@ test.describe("raw-product boundaries and transport-kind styling", () => {
     // produces both edge kinds: copper_nugget / copper_powder edges run on
     // belts; liquid_sewage / liquid_water edges run on pipes. Using the
     // default plan keeps this test independent of the override-walk path.
-    await page.goto("/", { waitUntil: "load" });
-    await waitForCanvasReady(page);
+    await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
 
     // At least one belt edge and one pipe edge should be rendered. The
     // data-transport-kind attribute sits on the inner <path> via BaseEdge
@@ -201,8 +193,7 @@ test.describe("raw-product boundaries and transport-kind styling", () => {
     // any, input products, output products, edges of both transport kinds)
     // without depending on the override-walk path. Any Handle / Node-context
     // regressions surface here.
-    await page.goto("/", { waitUntil: "load" });
-    await waitForCanvasReady(page);
+    await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
 
     // Give React/React Flow a tick to flush any post-mount warnings before
     // we snapshot the console buffer.

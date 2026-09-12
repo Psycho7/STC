@@ -1,5 +1,7 @@
 import { test, expect, type ConsoleMessage, type Page } from "@playwright/test";
 
+import { bootExamPage, waitForCanvasReady } from "./viewport";
+
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 // Sibling of inputs-panel Test 5 ("cap exceeding demand commits cleanly"),
@@ -30,16 +32,6 @@ function attachConsoleListener(page: Page): ConsoleLog {
   return { errors, warnings };
 }
 
-async function waitForCanvasReady(page: Page): Promise<void> {
-  const anyNode = page
-    .locator(".react-flow")
-    .locator(
-      ".react-flow__node-recipe, .react-flow__node-loop, .react-flow__node-product",
-    )
-    .first();
-  await expect(anyNode).toBeVisible({ timeout: 20_000 });
-}
-
 async function waitForInputsPanel(page: Page): Promise<void> {
   await page.getByTestId("side-panel-tab-inputs").click();
   await expect(page.getByRole("button", { name: "添加输入" })).toBeVisible({
@@ -58,8 +50,7 @@ test("a raw cap below demand warns instead of reporting READY", async ({
   page,
 }) => {
   const log = attachConsoleListener(page);
-  await page.goto("/", { waitUntil: "load" });
-  await waitForCanvasReady(page);
+  await bootExamPage(page, { url: "/", readiness: "nodes", settle: "none" });
   await waitForInputsPanel(page);
 
   // No strip on the default plan: every target is delivered in full.
