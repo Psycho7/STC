@@ -71,6 +71,7 @@ import {
   chamferFanoutPath,
   chamferStepPath,
   clamp,
+  drawnEdge,
   forwardStepGeometry,
   parsePathPoints,
   pathPointAtPts,
@@ -3376,16 +3377,23 @@ export function contentBounds(
   // the seating pass stamped. Hidden chips draw nothing, so they frame nothing.
   for (const edge of edges) {
     const data = edge.data as ChipAnchorData | undefined;
+    // The canvas draws two edge types (Canvas's edgeTypes map); anything else
+    // carries no chip family to frame, and drawnEdge would answer it with the
+    // item shape, so it is skipped before the per-shape arms below.
+    if (edge.type !== "item" && edge.type !== "bus") continue;
     const ends = drawnPortsOf(edge, byId);
     if (ends === null) continue;
-    const geom = {
-      sourceX: ends.sx,
-      sourceY: ends.sy,
-      targetX: ends.tx,
-      targetY: ends.ty,
-      ...routingHintsFromData(edge.data),
-    };
-    if (edge.type === "item") {
+    const drawn = drawnEdge(
+      {
+        sourceX: ends.sx,
+        sourceY: ends.sy,
+        targetX: ends.tx,
+        targetY: ends.ty,
+      },
+      edge.type,
+      edge.data,
+    );
+    if (drawn.shape === "item") {
       // Staleness parity with ItemEdge: the hide was taken at the target port
       // row, so it is checked against this reconstruction's own target y. A
       // chip the renderer brings back mid-drag has to be framed here too.
@@ -3395,16 +3403,17 @@ export function contentBounds(
       ) {
         continue;
       }
-      const [, lx, ly] = chamferStepPath(geom);
-      unionChip(lx + (data?.labelDx ?? 0), ly + (data?.labelDy ?? 0));
-    } else if (edge.type === "bus" && data?.fanout === true) {
-      const fan = chamferFanoutPath(geom);
+      unionChip(
+        drawn.labelAnchor.x + (data?.labelDx ?? 0),
+        drawn.labelAnchor.y + (data?.labelDy ?? 0),
+      );
+    } else if (drawn.shape === "fanout") {
       // A multi-member trunk renders no aggregate chip (issue #39), so it
       // frames none.
-      if (isTrunkOwner(data) && (data.busMemberCount ?? 1) === 1) {
+      if (isTrunkOwner(data) && (data?.busMemberCount ?? 1) === 1) {
         unionChip(
-          fan.trunkAnchor.x + (data.fanoutAggDx ?? 0),
-          fan.trunkAnchor.y + (data.fanoutAggDy ?? 0),
+          drawn.trunkAnchor.x + (data?.fanoutAggDx ?? 0),
+          drawn.trunkAnchor.y + (data?.fanoutAggDy ?? 0),
         );
       }
       // Staleness parity with BusEdge: the hide was taken at this member's own
@@ -3412,23 +3421,25 @@ export function contentBounds(
       // (BusEdge also un-hides when its fan path is null; here the branch
       // already resolved a fan-out path, so that arm cannot arise.)
       const branchHidden =
-        data.fanoutBranchHidden === true &&
-        anchorStampLive(data.fanoutBranchHiddenAt, fan.branchAnchor);
+        data?.fanoutBranchHidden === true &&
+        anchorStampLive(data.fanoutBranchHiddenAt, drawn.branchAnchor);
       if (!branchHidden) {
         unionChip(
-          fan.branchAnchor.x + (data.fanoutBranchDx ?? 0),
-          fan.branchAnchor.y + (data.fanoutBranchDy ?? 0),
+          drawn.branchAnchor.x + (data?.fanoutBranchDx ?? 0),
+          drawn.branchAnchor.y + (data?.fanoutBranchDy ?? 0),
         );
       }
-    } else if (edge.type === "bus" && data?.laneY !== undefined) {
-      const bus = chamferBusPath({ ...geom, laneY: data.laneY });
+      // A bus member with no stamped laneY rides drawnEdge's target-row
+      // fallback: the renderer draws it, but the seating pass reserved no lane
+      // chip on it, so there is no seated box to frame.
+    } else if (data?.laneY !== undefined) {
       if (isTrunkOwner(data) && (data.busMemberCount ?? 1) === 1) {
-        unionChip(bus.dropX, data.laneY + (data.busDropDy ?? 0));
+        unionChip(drawn.dropX, drawn.laneY + (data.busDropDy ?? 0));
       }
       if (data.busRiseHidden !== true) {
         unionChip(
-          data.busChipX ?? bus.riseX,
-          data.laneY + (data.busChipDy ?? 0),
+          data.busChipX ?? drawn.riseX,
+          drawn.laneY + (data.busChipDy ?? 0),
         );
       }
     }

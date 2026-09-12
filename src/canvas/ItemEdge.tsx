@@ -16,11 +16,7 @@ import {
   MAX_CHIP_SCALE,
   faninHideLive,
 } from "./dimensions";
-import {
-  chamferStepPath,
-  parsePathPoints,
-  routingHintsFromData,
-} from "./edgePath";
+import { drawnEdge, parsePathPoints, type DrawnEdge } from "./edgePath";
 import {
   crossingCueRadius,
   crossingPartnerBits,
@@ -446,11 +442,10 @@ export function useLiveCrossingCues(
   );
 }
 
-// Stable empty vertex list for the memoized path parses that follow (the cue
-// filter's, the matching one in BusEdge, and the junction dots'): an edge with
-// no stamp to corroborate returns it instead of allocating, and every consumer
-// has already answered "no stamp" by then, so the shared identity is all that
-// matters.
+// Stable empty vertex list for MaskedEdge's memoized cue parse below (shared by
+// both edge components): a cue-less edge returns it instead of allocating, and
+// the consumer has already answered "no stamp" by then, so the shared identity
+// is all that matters.
 export const NO_CUE_PTS: ReadonlyArray<readonly [number, number]> = [];
 
 // The merge junction dot, portaled into the shared edgelabel-renderer layer (not
@@ -698,26 +693,32 @@ export default function ItemEdge({
     [item, rate, rateStr, unit, i18n],
   );
 
-  // chamferStepPath returns the label anchor on the polyline's PREFERRED CLEAR
-  // SEGMENT (a corridor leg away from the card rows), not the geometric midpoint.
-  // deconflictChipAnchors then seats the chip from there via labelDx/labelDy: it
-  // slides along the polyline to a clear point and normally keeps the chip on the
-  // line it labels, but its escape tier deliberately seats it OFF the line when
-  // that is the only way to uphold the hard chip-vs-chip / chip-vs-card
-  // invariants (the ratcheted off-path residue).
+  // The drawn shape of this edge: the polyline, its vertices and its label
+  // anchor, resolved by drawnEdge from the live React Flow endpoints and this
+  // edge's stamped data, so the render and the seating pass's reconstruction
+  // read one derivation. The anchor sits on the polyline's PREFERRED CLEAR
+  // SEGMENT (a corridor leg away from the card rows), not the geometric
+  // midpoint. deconflictChipAnchors then seats the chip from there via
+  // labelDx/labelDy: it slides along the polyline to a clear point and normally
+  // keeps the chip on the line it labels, but its escape tier deliberately
+  // seats it OFF the line when that is the only way to uphold the hard
+  // chip-vs-chip / chip-vs-card invariants (the ratcheted off-path residue).
+  // This component renders the "item" edge type alone (Canvas's edgeTypes map),
+  // the type drawnEdge answers with the item shape, so the union's two bus arms
+  // are unreachable here.
   // Memoized on the endpoints and edge data: the geometry does not depend on
   // zoom, and the zoom subscription above re-renders every edge each zoom tick.
-  const [edgePath, labelX, labelY] = useMemo(
+  const drawn = useMemo(
     () =>
-      chamferStepPath({
-        sourceX,
-        sourceY,
-        targetX,
-        targetY,
-        ...routingHintsFromData(edgeData),
-      }),
+      drawnEdge(
+        { sourceX, sourceY, targetX, targetY },
+        "item",
+        edgeData,
+      ) as Extract<DrawnEdge, { shape: "item" }>,
     [sourceX, sourceY, targetX, targetY, edgeData],
   );
+  const edgePath = drawn.path;
+  const { x: labelX, y: labelY } = drawn.labelAnchor;
 
   // Both junction dots mark a point the seating pass found on a GROUP of edges
   // -- where the last member merges into one port, where the first member of a
@@ -726,17 +727,10 @@ export default function ItemEdge({
   // whether the stamp is on the line it just drew, the same corroboration the
   // crossing cues get. That is what makes a drag on x alone visible: it leaves
   // the port ROW where it was, so the row checks above keep the dot, while the
-  // line slides out from under the stamp and this drops it. Parsed only for an
-  // edge carrying a dot stamp and memoized on the path, for the reason
-  // MaskedEdge's cue parse states.
-  const dotPts = useMemo(
-    () =>
-      edgeData?.faninJunctionX !== undefined ||
-      edgeData?.fanoutJunctionX !== undefined
-        ? parsePathPoints(edgePath)
-        : NO_CUE_PTS,
-    [edgePath, edgeData],
-  );
+  // line slides out from under the stamp and this drops it. The vertices come
+  // from the drawn shape above, so the check costs no second parse of the path
+  // this render just built.
+  const dotPts = drawn.pts;
   const faninDotLive =
     faninMarkerLive &&
     edgeData?.faninJunctionX !== undefined &&
