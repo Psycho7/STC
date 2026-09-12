@@ -232,9 +232,11 @@ describe("routeFanoutEdges: a trunk of far members only", () => {
     const owners = ids.filter(
       (id) => dataOf(routed, id).fanoutJunctionX !== undefined,
     );
-    expect(owners).toEqual(["e:1"]); // lex-smallest id owns it
-    const owner = dataOf(routed, "e:1");
-    const ends = drawnPortsFor(src, nodes[1] as RFRecipeNode);
+    // The smallest id among the BENDING members owns it: "e:1" runs straight
+    // out of the port and never peels off, so it carries no split of its own.
+    expect(owners).toEqual(["e:2"]);
+    const owner = dataOf(routed, "e:2");
+    const ends = drawnPortsFor(src, nodes[2] as RFRecipeNode);
     expect(owner.fanoutJunctionY).toBe(ends.sourceY);
     expect(owner.fanoutJunctionX).toBeGreaterThan(ends.sourceX);
     expect(owner.fanoutJunctionX).toBeLessThan(ends.targetX);

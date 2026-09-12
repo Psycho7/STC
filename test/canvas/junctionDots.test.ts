@@ -25,8 +25,10 @@ import {
 import {
   chamferBusPath,
   chamferFanoutPath,
+  drawnEdge,
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
+import { stampOnOwnPolyline } from "../../src/canvas/crossings";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import {
   CHIP_BOX_HEIGHT,
@@ -255,11 +257,52 @@ describe("junction dots: declined fan-out divergence (stamped on the owner)", ()
     ]);
 
     const out = deconflictChipAnchors(nodes, edges);
-    const owner = dataOf(out, "e:a"); // smallest id of the group
+    const owner = dataOf(out, "e:b"); // smallest id among the BENDING members
     expect(owner.fanoutJunctionX).toBe(312.5);
     expect(owner.fanoutJunctionY).toBe(drawnPortsFor(src, straight).sourceY);
     expect(owner.fanoutJunctionY).toBe(98);
     // One dot per split: the non-owner carries none.
-    expect(dataOf(out, "e:b").fanoutJunctionX).toBeUndefined();
+    expect(dataOf(out, "e:a").fanoutJunctionX).toBeUndefined();
+  });
+});
+
+describe("junction dots: declined fan-out divergence owner election", () => {
+  it("elects a bending member, so the stamp lies on the owner's own line", () => {
+    // Same declined-fan-out shape as above, but the smallest-id member is the
+    // STRAIGHT leg and its target stops short of the sibling's peel-off column:
+    // stamping the dot on that member would leave it off the line it is drawn
+    // from, and ItemEdge's on-own-polyline gate would hide it at rest.
+    const src = producer("src", 0, 0);
+    const inY = measureRecipe(consumer("probe", 0, 0).data.recipe)
+      .inHandleYs[0]!;
+    const rowTop = portOffsetY(src, ITEM, "out") - inY;
+    const straight = consumer("straight", nodeWidth(src) + 12, rowTop);
+    const bent = consumer("bent", nodeWidth(src) + 120, rowTop + 200);
+    const nodes: RFAnyNode[] = [src, straight, bent];
+    const edges = [
+      rateEdge("e:a", "src", "straight"),
+      rateEdge("e:b", "src", "bent"),
+    ];
+    // Only the bent member clears FANOUT_SPAN_MIN, so the trunk never reaches
+    // two members and both stay plain item edges.
+    expect(routeFanoutEdges(nodes, edges).map((e) => e.type)).toEqual([
+      "item",
+      "item",
+    ]);
+
+    const out = deconflictChipAnchors(nodes, edges);
+    const stamped = edges.find(
+      (e) => dataOf(out, e.id).fanoutJunctionX !== undefined,
+    )!;
+    const data = dataOf(out, stamped.id);
+    const junctionX = data.fanoutJunctionX as number;
+    // Premise: the split column really is right of the straight leg's target.
+    expect(junctionX).toBeGreaterThan(drawnPortsFor(src, straight).targetX);
+
+    const tgt = stamped.target === "straight" ? straight : bent;
+    const pts = drawnEdge(drawnPortsFor(src, tgt), "item", data).pts;
+    expect(
+      stampOnOwnPolyline([junctionX, data.fanoutJunctionY as number], pts),
+    ).toBe(true);
   });
 });

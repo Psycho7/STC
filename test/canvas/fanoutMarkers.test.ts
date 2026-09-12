@@ -188,8 +188,8 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     const ptsB = drawnPoints(tgtB);
 
     const out = deconflictChipAnchors(nodes, declined);
-    const owner = dataOf(out, "e:a"); // lexicographically smallest id
-    const other = dataOf(out, "e:b");
+    const owner = dataOf(out, "e:b"); // smallest id among the BENDING members
+    const other = dataOf(out, "e:a");
 
     expect(owner.fanoutJunctionY).toBe(sourceY);
     const jx = owner.fanoutJunctionX!;
@@ -239,7 +239,7 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     expect(declined.map((e) => e.type)).toEqual(["item", "item"]);
 
     const out = deconflictChipAnchors(nodes, declined);
-    const jx = dataOf(out, "e:a").fanoutJunctionX!;
+    const jx = dataOf(out, "e:b").fanoutJunctionX!;
     const ptsA = drawnPoints(tgtA);
     const ptsB = drawnPoints(tgtB);
     expect(yAt(ptsA, jx)).toBeCloseTo(sourceY, 6);
@@ -247,7 +247,7 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     expect(yAt(ptsB, jx + 2)).not.toBeCloseTo(sourceY, 6);
     // Out in the corridor: past the source card's own port zone, not hugging it.
     expect(jx - sourceX).toBeGreaterThan(FANOUT_SPAN_MIN);
-    expect(dataOf(out, "e:b").fanoutJunctionX).toBeUndefined();
+    expect(dataOf(out, "e:a").fanoutJunctionX).toBeUndefined();
   });
 
   it("stamps the FIRST peel-off when two members bend at different columns", () => {
@@ -287,14 +287,16 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     expect(bendB).toBeLessThan(bendC);
 
     const out = deconflictChipAnchors(nodes, routed);
-    const jx = dataOf(out, "e:a").fanoutJunctionX; // lex-smallest id owns it
+    // The smallest id among the BENDING members owns it -- the straight "e:a"
+    // is lex-smaller but carries no peel-off column of its own.
+    const jx = dataOf(out, "e:b").fanoutJunctionX;
     expect(jx).toBe(Math.min(bendB, bendC));
     expect(jx).toBe(bendB);
     // The last shared column, not the last column anyone shares with anyone:
     // stamping the later bend would put the dot where member B has already gone.
     expect(jx).not.toBe(bendC);
-    expect(dataOf(out, "e:a").fanoutJunctionY).toBe(sourceY);
-    expect(dataOf(out, "e:b").fanoutJunctionX).toBeUndefined();
+    expect(dataOf(out, "e:b").fanoutJunctionY).toBe(sourceY);
+    expect(dataOf(out, "e:a").fanoutJunctionX).toBeUndefined();
     expect(dataOf(out, "e:c").fanoutJunctionX).toBeUndefined();
   });
 
@@ -364,9 +366,9 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     expect(bendC).toBeLessThan(bendB);
 
     const out = deconflictChipAnchors(nodes, declined);
-    expect(dataOf(out, "e:a").fanoutJunctionX).toBe(bendB);
-    expect(dataOf(out, "e:a").fanoutJunctionY).toBe(sourceY);
-    expect(dataOf(out, "e:b").fanoutJunctionX).toBeUndefined();
+    expect(dataOf(out, "e:b").fanoutJunctionX).toBe(bendB);
+    expect(dataOf(out, "e:b").fanoutJunctionY).toBe(sourceY);
+    expect(dataOf(out, "e:a").fanoutJunctionX).toBeUndefined();
     expect(dataOf(out, "e:c").fanoutJunctionX).toBeUndefined();
   });
 

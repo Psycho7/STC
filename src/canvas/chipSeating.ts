@@ -2508,7 +2508,12 @@ export function deconflictChipAnchors(
     // junction (the #43 reopen).
     for (const m of bends) divergenceKeepoffs.push({ x: m.bendX!, y: m.sy });
     const junctionX = Math.min(...bends.map((m) => m.bendX!));
-    const owner = members.reduce((a, b) => (a.id <= b.id ? a : b));
+    // The owner is elected among the BENDING members only: the column above is
+    // one of their peel-offs, and a straight member whose target stops short of
+    // it would carry a stamp off its own line, which the render layer's
+    // on-own-polyline gate then hides while the keep-offs still push chips away
+    // from the invisible dot.
+    const owner = bends.reduce((a, b) => (a.id <= b.id ? a : b));
     // A dot at the port itself would read as part of the source card's own
     // output row, not as a split in the run.
     if (junctionX <= owner.sx) continue;
