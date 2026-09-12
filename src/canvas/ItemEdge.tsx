@@ -448,6 +448,13 @@ export function useLiveCrossingCues(
 // is all that matters.
 export const NO_CUE_PTS: ReadonlyArray<readonly [number, number]> = [];
 
+// Which family of junction a dot marks. The testid alone cannot tell them
+// apart: BusEdge draws `bus-junction-<edge>` for BOTH a lane rise and a fan-out
+// branch, and only the fan-out one owns a shared column, so the geometry audit
+// needs the family as its own hook. Same four names chipSeating's junction-dot
+// kind uses; declared here rather than imported to keep that type unexported.
+export type JunctionFamily = "lane" | "fanout" | "fanin" | "divergence";
+
 // The merge junction dot, portaled into the shared edgelabel-renderer layer (not
 // an SVG circle in the edge group) so it shares the chips' stacking context: it
 // sits BELOW the flow chips (.bus-junction z-index 1 vs .flow-chip z-index 2 in
@@ -457,6 +464,7 @@ export const NO_CUE_PTS: ReadonlyArray<readonly [number, number]> = [];
 // fan-out branch dots) and ItemEdge (fan-in merge dots).
 export function JunctionDot({
   testId,
+  family,
   x,
   y,
   color,
@@ -464,6 +472,7 @@ export function JunctionDot({
   zoom,
 }: {
   testId: string;
+  family: JunctionFamily;
   x: number;
   y: number;
   color: string;
@@ -474,6 +483,7 @@ export function JunctionDot({
     <EdgeLabelRenderer>
       <div
         data-testid={testId}
+        data-family={family}
         aria-hidden="true"
         className={"bus-junction" + (dimmed ? " dimmed" : "")}
         style={{
@@ -794,6 +804,7 @@ export default function ItemEdge({
       {faninDotLive && edgeData?.faninJunctionX !== undefined ? (
         <JunctionDot
           testId={`fanin-junction-${id}`}
+          family="fanin"
           x={edgeData.faninJunctionX}
           y={edgeData.faninJunctionY!}
           color={stroke}
@@ -808,6 +819,7 @@ export default function ItemEdge({
       {fanoutDotLive && edgeData?.fanoutJunctionX !== undefined ? (
         <JunctionDot
           testId={`fanout-junction-${id}`}
+          family="divergence"
           x={edgeData.fanoutJunctionX}
           y={edgeData.fanoutJunctionY!}
           color={stroke}

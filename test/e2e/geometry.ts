@@ -793,11 +793,16 @@ export function auditChipsOnOwnPath(
   return out;
 }
 
-// A DRAWN junction dot's box in graph coordinates, tagged with its data-testid.
-export type DotRect = RawRect & { testId: string };
+// A DRAWN junction dot's box in graph coordinates, tagged with its data-testid
+// and its data-family.
+export type DotRect = RawRect & { testId: string; family: string };
 
 // The testid prefix the collector gives a fan-out / lane trunk junction dot.
 const BUS_JUNCTION_PREFIX = "bus-junction-";
+
+// The data-family a fan-out branch dot carries. A lane rise dot shares the
+// testid prefix and carries family "lane" instead.
+const FANOUT_FAMILY = "fanout";
 
 // Every fan-out MEMBER chip whose centre lies farther than `tol` from the
 // member's OWN leg. The member's polyline suffix past the trunk junction is not
@@ -812,10 +817,17 @@ const BUS_JUNCTION_PREFIX = "bus-junction-";
 // the members descend stands at 649. Cutting at the dot would leave the whole
 // column inside the "leg" and the counter would see nothing.
 //
-// Members are the edges the collector reports a `bus-junction-<edge>` dot for.
+// Members are the edges the collector reports a `bus-junction-<edge>` dot with
+// family "fanout" for. A lane member's dot carries the same testid prefix but
+// family "lane": its rise chip sits on a vertical rise and owns no leg in this
+// sense, so counting it would report a violation that has no meaning.
 // Kind "bus" is counted here, unlike in auditChipsOnOwnPath: a fan-out branch
 // chip is collected as a bus chip, and it is exactly the chip this counter is
 // for. Hidden chips are never collected, so they are never counted.
+//
+// A member whose polyline has no point right of the cut is SKIPPED, not
+// counted: with no leg to measure against there is nothing to be off, so the
+// counter can undercount but never reports a false positive.
 export function auditFanoutChipsOnOwnLeg(
   chips: ReadonlyArray<ChipRect>,
   edges: ReadonlyArray<RawEdge>,
@@ -828,6 +840,7 @@ export function auditFanoutChipsOnOwnLeg(
   const junctionXById = new Map<string, number>();
   for (const dot of dots) {
     if (!dot.testId.startsWith(BUS_JUNCTION_PREFIX)) continue;
+    if (dot.family !== FANOUT_FAMILY) continue;
     junctionXById.set(
       dot.testId.slice(BUS_JUNCTION_PREFIX.length),
       centreOf(dot)[0],

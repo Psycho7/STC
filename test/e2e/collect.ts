@@ -192,12 +192,16 @@ export type BandGeom = {
 };
 // One DRAWN junction dot: its data-testid hook (`bus-junction-<edge>` for the
 // lane / fan-out trunk families, `fanin-junction-<edge>` for the merge dot,
-// `fanout-junction-<edge>` for the declined-fan-out divergence dot) plus its box
-// in graph coordinates. The dot is sized in graph units from a zoom-clamped
-// screen radius, so its measured box already carries the extent it renders at
-// THIS camera - no radius has to be recomputed audit-side.
+// `fanout-junction-<edge>` for the declined-fan-out divergence dot), its
+// data-family hook, plus its box in graph coordinates. The testid does not
+// separate a lane rise from a fan-out branch (both are `bus-junction-<edge>`)
+// and only the fan-out one owns a shared column, so the family comes along.
+// The dot is sized in graph units from a zoom-clamped screen radius, so its
+// measured box already carries the extent it renders at THIS camera - no
+// radius has to be recomputed audit-side.
 export type DotGeom = {
   testId: string;
+  family: string;
   left: number;
   top: number;
   right: number;
@@ -338,6 +342,7 @@ export function collectGeometry(): Geometry {
     const r = el.getBoundingClientRect();
     return {
       testId: el.getAttribute("data-testid") ?? "(dot)",
+      family: el.getAttribute("data-family") ?? "(dot)",
       left: toGraphX(r.left),
       top: toGraphY(r.top),
       right: toGraphX(r.right),

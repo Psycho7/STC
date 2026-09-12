@@ -31,13 +31,18 @@ const edge: RawEdge = {
   d: `M 500,192 L ${JUNCTION_X},192 L ${COLUMN_X},200 L ${COLUMN_X},${LEG_Y} L 800,${LEG_Y}`,
 };
 
-const dot: DotRect = {
-  testId: `bus-junction-${edge.id}`,
-  left: JUNCTION_X - 3,
-  right: JUNCTION_X + 3,
-  top: 189,
-  bottom: 195,
-};
+function junctionDot(family: string): DotRect {
+  return {
+    testId: `bus-junction-${edge.id}`,
+    family,
+    left: JUNCTION_X - 3,
+    right: JUNCTION_X + 3,
+    top: 189,
+    bottom: 195,
+  };
+}
+
+const dot = junctionDot("fanout");
 
 function chip(
   kind: ChipRect["kind"],
@@ -83,6 +88,17 @@ describe("auditFanoutChipsOnOwnLeg", () => {
     const onLeg = chip("bus", [720, LEG_Y]);
 
     expect(auditFanoutChipsOnOwnLeg([onLeg], [edge], [dot])).toEqual([]);
+  });
+
+  it("ignores a lane member: its dot owns no shared column", () => {
+    // Same testid prefix, same geometry, family "lane": a lane rise chip sits
+    // on the vertical rise and has no leg, so the column seat is not a
+    // violation for it.
+    const onColumn = chip("bus", [COLUMN_X, 300]);
+
+    expect(
+      auditFanoutChipsOnOwnLeg([onColumn], [edge], [junctionDot("lane")]),
+    ).toEqual([]);
   });
 
   it("ignores an edge with no junction dot", () => {
