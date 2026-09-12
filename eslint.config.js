@@ -4,7 +4,18 @@ import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 
 export default tseslint.config(
-  { ignores: ["dist", "node_modules", ".sweep", ".artifacts"] },
+  // .claude/worktrees holds checkouts of this repo, so linting it would lint
+  // every branch again. The rest of .claude stays in scope: the workflow
+  // scripts below are tracked.
+  {
+    ignores: [
+      "dist",
+      "node_modules",
+      ".sweep",
+      ".artifacts",
+      ".claude/worktrees/**",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
