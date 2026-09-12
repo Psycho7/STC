@@ -76,6 +76,19 @@ export const HIDE_STALE_EPS = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
 // guess.
 export const CHIP_BOX_WIDTH = 120;
 
+// Half-extent of the keep-off square a junction dot claims, in graph units. A
+// dot renders at a screen radius clamped to 3-5px (junctionRadius in
+// ItemEdge.tsx), so in graph units its radius is 3 / zoom below zoom 1: about 3
+// units at a sparse plan's 0.9 fit and about 14 at the densest corpus plan's
+// 0.21 fit. Seating runs before the camera exists and cannot know the zoom, so
+// the keep-off is sized for the widest of those plus a couple of units, keeping
+// the dot clear of the chip's edge rather than flush against it. Re-derive it if
+// JUNCTION_MIN_PX / JUNCTION_RADIUS change or the fit floor drops much below
+// 0.2. Read by the chip seating pass (which keeps every chip out of the square)
+// and by the fan-out column placement (whose leg floor must leave a member's
+// chip room past the split dot).
+export const DOT_KEEPOFF = 16;
+
 // Left overhang a routed vertical (rise / bend / rail column) keeps clear of a
 // target's Left port, in graph units. The retired icon-only entry chips
 // reached this far left of the port (a 12 inset plus half a 22-wide max-scale

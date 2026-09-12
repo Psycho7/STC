@@ -1,11 +1,14 @@
-// Declined fan-out divergence dot (issue #43). routeFanoutEdges only builds a
-// real trunk (with its own junction dot from BusEdge) when the source/target gap
-// sits inside (FANOUT_SPAN_MIN, FANOUT_SPAN_MAX]. Outside that band the members
-// stay plain ItemEdges that leave the same out-port and run coincident until
-// they peel off one by one, so the reader sees a single line and reads one
-// member's rate as the whole flow. deconflictChipAnchors marks the split point
-// with a junction dot on ONE elected owner edge; these tests pin the election,
-// the stamped point, and the cases that must NOT be marked.
+// Fan-out divergence dot on plain item edges (issue #43). routeFanoutEdges
+// retypes a member as a bus fan-out branch (with its own junction dot from
+// BusEdge) only inside (FANOUT_SPAN_MIN, FANOUT_SPAN_MAX]. Everything else off a
+// shared out-port stays a plain ItemEdge: a group below FANOUT_SPAN_MIN, which
+// forms no trunk at all, and the FAR members past FANOUT_SPAN_MAX, which do join
+// a trunk but only borrow its column. Either way the members leave the same
+// out-port and run coincident until they peel off, so the reader sees a single
+// line and reads one member's rate as the whole flow. deconflictChipAnchors
+// marks the split point with a junction dot on ONE elected owner edge; these
+// tests pin the election, the stamped point, and the cases that must NOT be
+// marked.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
@@ -22,6 +25,7 @@ import {
   CHAMFER,
   chamferStepPath,
   parsePathPoints,
+  routingHintsFromData,
   type RoutingHints,
 } from "../../src/canvas/edgePath";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
@@ -36,6 +40,13 @@ type FanoutData = {
 
 const dataOf = (edges: Edge[], id: string): FanoutData =>
   (edges.find((e) => e.id === id)?.data as FanoutData | undefined) ?? {};
+
+// The routing hints a pass left on one edge, extracted exactly as the renderer
+// and the seating reconstruction do -- so a fixture's drawn polyline is rebuilt
+// on the SAME column the pass pinned (routeFanoutEdges pins every member of a
+// fan-out to the trunk's shared one).
+const routedHints = (edges: Edge[], id: string): RoutingHints =>
+  routingHintsFromData(edges.find((e) => e.id === id)?.data);
 
 // chipSeating's own PORT_DRIFT.recipe, mirrored here (the module does not export
 // it): a recipe's drawn out handle sits 5 units right of the model right edge,
@@ -194,10 +205,12 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     expect(other.fanoutJunctionY).toBeUndefined();
   });
 
-  it("marks the other decline too: a span past FANOUT_SPAN_MAX", () => {
-    // The band is declined from both sides. Over-long spans are the roomier
-    // case: the shared prefix runs to the bend column, far from the port, so the
-    // dot lands well out in the corridor rather than against the source card.
+  it("marks a group of far members sharing the trunk column", () => {
+    // Past FANOUT_SPAN_MAX the members are not retyped: they ride the trunk's
+    // shared column as plain item edges, so this dot -- not BusEdge's -- is the
+    // one that marks their split. The roomier case too: the shared prefix runs
+    // to the column, far from the port, so the dot lands well out in the
+    // corridor rather than against the source card.
     const gap = FANOUT_SPAN_MAX + 200;
     const src = srcNode();
     const tgtA = consumer("tgtA", gap, 0);
@@ -224,36 +237,42 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
   });
 
   it("stamps the FIRST peel-off when two members bend at different columns", () => {
-    // Three members off one port: a straight one plus two that bend at
-    // different columns (different target distances => different bend
-    // midpoints). The line stops being shared where the EARLIEST of them
-    // leaves, so the dot belongs at the smaller column -- everything past it is
-    // already fewer lines than the reader sees at the port.
+    // Three members off one port: a straight one, one a jog pushed onto its own
+    // early column (srcColX, the one way a same-port member still leaves the
+    // shared line), and one bending on the trunk's shared column. The line
+    // stops being shared where the EARLIEST of them leaves, so the dot belongs
+    // at the smaller column -- everything past it is already fewer lines than
+    // the reader sees at the port.
     const src = srcNode();
     const nearGap = FANOUT_SPAN_MAX + 200;
     const farGap = FANOUT_SPAN_MAX + 700;
     const tgtA = consumer("tgtA", nearGap, 0); // straight
-    const tgtB = consumer("tgtB", nearGap, 200); // early bend
-    const tgtC = consumer("tgtC", farGap, 300); // late bend
+    const tgtB = consumer("tgtB", nearGap, 200); // jogged onto its own column
+    const tgtC = consumer("tgtC", farGap, 300); // bends on the shared column
+    const jogColumn = sourceX + 100;
     const nodes: RFAnyNode[] = [src, tgtA, tgtB, tgtC];
     const edges: Edge[] = [
       rateEdge("e:a", "src", "tgtA", new Fraction(2)),
-      rateEdge("e:b", "src", "tgtB", new Fraction(3)),
+      rateEdge("e:b", "src", "tgtB", new Fraction(3), {
+        srcColX: jogColumn,
+      }),
       rateEdge("e:c", "src", "tgtC", new Fraction(4)),
     ];
 
-    const declined = routeFanoutEdges(nodes, edges);
-    expect(declined.map((e) => e.type)).toEqual(["item", "item", "item"]);
+    const routed = routeFanoutEdges(nodes, edges);
+    expect(routed.map((e) => e.type)).toEqual(["item", "item", "item"]);
     expect(new Set(edges.map((e) => e.target)).size).toBe(3);
 
     // Premise: the drawn geometry really has TWO distinct peel-off columns and
     // one member that never leaves the row -- otherwise "first" is vacuous.
-    const bendB = bendXOf(drawnPoints(tgtB))!;
-    const bendC = bendXOf(drawnPoints(tgtC))!;
-    expect(bendXOf(drawnPoints(tgtA))).toBeUndefined();
+    const bendB = bendXOf(drawnPoints(tgtB, routedHints(routed, "e:b")))!;
+    const bendC = bendXOf(drawnPoints(tgtC, routedHints(routed, "e:c")))!;
+    expect(bendXOf(drawnPoints(tgtA, routedHints(routed, "e:a")))).toBe(
+      undefined,
+    );
     expect(bendB).toBeLessThan(bendC);
 
-    const out = deconflictChipAnchors(nodes, declined);
+    const out = deconflictChipAnchors(nodes, routed);
     const jx = dataOf(out, "e:a").fanoutJunctionX; // lex-smallest id owns it
     expect(jx).toBe(Math.min(bendB, bendC));
     expect(jx).toBe(bendB);
@@ -325,7 +344,7 @@ describe("deconflictChipAnchors: declined fan-out divergence dot", () => {
     // stamper that counted it would move the dot.
     const ptsC = drawnPoints(tgtC);
     expect(ptsC[ptsC.length - 1]![0]).toBeLessThan(ptsC[0]![0]);
-    const bendB = bendXOf(drawnPoints(tgtB))!;
+    const bendB = bendXOf(drawnPoints(tgtB, routedHints(declined, "e:b")))!;
     const bendC = bendXOf(ptsC)!;
     expect(bendC).toBeGreaterThan(sourceX);
     expect(bendC).toBeLessThan(bendB);

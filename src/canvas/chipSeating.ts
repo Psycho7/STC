@@ -59,6 +59,7 @@ import type { Edge } from "@xyflow/react";
 import {
   CHIP_BOX_HEIGHT,
   CHIP_BOX_WIDTH,
+  DOT_KEEPOFF,
   GLYPH_SIDE_OFFSET,
   HIDE_STALE_EPS,
   MAX_CHIP_SCALE,
@@ -69,6 +70,7 @@ import {
   chamferFanoutPath,
   chamferStepPath,
   clamp,
+  forwardStepGeometry,
   parsePathPoints,
   pathPointAtPts,
   routingHintsFromData,
@@ -384,16 +386,6 @@ const CHIP_NUDGE_STEP = CHIP_PITCH_Y;
 // their half-extents on BOTH axes.
 export type ChipBox = { x: number; y: number; halfW: number; halfH: number };
 
-// Half-extent of the keep-off square a junction dot claims, in graph units. A
-// dot renders at a screen radius clamped to 3-5px (junctionRadius in
-// ItemEdge.tsx), so in graph units its radius is 3 / zoom below zoom 1: about 3
-// units at a sparse plan's 0.9 fit and about 14 at the densest corpus plan's
-// 0.21 fit. Seating runs before the camera exists and cannot know the zoom, so
-// the keep-off is sized for the widest of those plus a couple of units, keeping
-// the dot clear of the chip's edge rather than flush against it. Re-derive it if
-// JUNCTION_MIN_PX / JUNCTION_RADIUS change or the fit floor drops much below
-// 0.2.
-const DOT_KEEPOFF = 16;
 // Frame margin around foreign card rects in the clearance field.
 const CARD_CLEAR_MARGIN = 0.5;
 
@@ -1172,6 +1164,50 @@ export function branchLegAfterJunction(
     return rest;
   }
   return [[junction.x, junction.y] as const, ...rest];
+}
+
+// Row tolerance for matching a stamped y against a drawn vertex: paths round to
+// two decimals, so a unit is well clear of the rounding and well under any real
+// row separation. Same value the fan-in run detection uses.
+const RUN_ROW_EPS = 1;
+
+// The polyline's horizontal run at y: the first vertex pair whose two ends both
+// sit on that level (within the row tolerance). Empty when the polyline
+// draws no such run -- a jog always draws one, between its two chamfers.
+function horizontalRunAt(
+  pts: ReadonlyArray<readonly [number, number]>,
+  y: number,
+): ReadonlyArray<readonly [number, number]> {
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    if (
+      Math.abs(a[1] - y) <= RUN_ROW_EPS &&
+      Math.abs(b[1] - y) <= RUN_ROW_EPS
+    ) {
+      return [a, b];
+    }
+  }
+  return [];
+}
+
+// A two-point horizontal run with its left end pushed to `lo`, or null when the
+// run does not reach past it (nothing of it is seatable, so the caller leaves
+// the seat on the whole polyline and the window measurement decides).
+function clipRunLeft(
+  run: ReadonlyArray<readonly [number, number]>,
+  lo: number,
+): ReadonlyArray<readonly [number, number]> | null {
+  const a = run[0];
+  const b = run[run.length - 1];
+  if (a === undefined || b === undefined || run.length < 2) return null;
+  const left = Math.min(a[0], b[0]);
+  const right = Math.max(a[0], b[0]);
+  if (right <= lo) return null;
+  return [
+    [Math.max(left, lo), a[1]],
+    [right, b[1]],
+  ];
 }
 
 // Cumulative arc-length of point (x, y) along the parsed polyline. The point is
@@ -2119,6 +2155,12 @@ export function deconflictChipAnchors(
   // the port bands blanket it): the collapse verdict, the seat's capped
   // reserve and its preferred candidate all read it.
   const clearSpanByIndex = new Map<number, XSpan | null>();
+  // Final-leg points of each item edge pinned to a shared fan-out column: the
+  // stretch of its polyline its rate chip may seat on (see the slice below).
+  const fanoutLegPtsByIndex = new Map<
+    number,
+    ReadonlyArray<readonly [number, number]>
+  >();
   // The counter-scale cap each seat allows (RateSeat.scaleCap).
   const scaleCapByIndex = new Map<number, number>();
   // The drawn card rects a chip's box must stay clear of (see cardRectsFor);
@@ -2243,9 +2285,40 @@ export function deconflictChipAnchors(
       d = path;
       const itemPts = parsePathPoints(d);
       itemGeomByIndex.set(index, { pts: itemPts, lx, ly });
-      if (
-        !measureWindow(index, itemPts, ownPortBandXs(edge), rateChipText(edge))
-      )
+      // A member pinned to a fan-out trunk's SHARED column draws its vertical
+      // on the same line as every sibling, and the split dot sits at its top.
+      // Its chip belongs on the horizontal run that is the member's ALONE, so
+      // the window is banded off at the column exactly as a formed fan-out
+      // branch's is: no seat may slide back onto the shared vertical, and the
+      // collapse below then fires only when that run is narrower than the chip.
+      const bands = ownPortBandXs(edge);
+      const itemData = edge.data as ItemEdgeData | undefined;
+      if (itemData?.fanoutColumn === true && itemData.bendX !== undefined) {
+        // The DRAWN column: a jog that had to clear a blocked source leg
+        // replaces it outright (srcColX), exactly as chamferStepPath resolves
+        // it, so the band never sits on a line this member does not draw.
+        const drawnBx =
+          routingHintsFromData(edge.data).srcColX ??
+          forwardStepGeometry(sx, tx, itemData.bendX).bx;
+        const keepOff = drawnBx + DOT_KEEPOFF;
+        bands.push({ lo: -Infinity, hi: keepOff });
+        // The seat slides along the points it is given, so a pinned member is
+        // seated on that own run alone. Without this a crowded chip could slide
+        // back over the bend onto the column every sibling draws, which is the
+        // stack the whole formation exists to avoid (the fan-out branch seat
+        // confines itself to branchLegAfterJunction for the same reason). The
+        // run is the last segment -- the horizontal into the target port -- or,
+        // when jogForwardLegs bent the approach, the cleared horizontal at
+        // legY, which is where chamferStepPath anchors such a member. Either is
+        // clipped to start past the column's keep-off.
+        const own =
+          itemData.legY === undefined
+            ? itemPts.slice(itemPts.length - 2)
+            : horizontalRunAt(itemPts, itemData.legY);
+        const clipped = clipRunLeft(own, keepOff);
+        if (clipped !== null) fanoutLegPtsByIndex.set(index, clipped);
+      }
+      if (!measureWindow(index, itemPts, bands, rateChipText(edge)))
         shortLegByIndex.add(index);
     }
     const pts = itemGeomByIndex.get(index)?.pts ?? parsePathPoints(d);
@@ -2300,7 +2373,10 @@ export function deconflictChipAnchors(
   //     member's drop/rise column meeting the lane (the column ENDS at
   //     laneY, an endpoint touch on the run's interior), or
   //   - a shared fan-out trunk (the members leave the junction from one
-  //     shared vertex, so every intersection is an endpoint touch),
+  //     shared vertex, so every intersection is an endpoint touch), or its
+  //     FAR members, the item edges pinned to the same junction column: their
+  //     verticals overlap collinearly on that column and they are same-flow
+  //     besides, so neither clause can fire between two members of one trunk,
   // so the cue cannot mark a real merge or a trunk as a crossing. Same-flow
   // pairs are skipped outright: one flow is one visual line (the flowKey
   // doctrine the chip clearance tiers already apply).
@@ -3241,7 +3317,11 @@ export function deconflictChipAnchors(
     const entryBand = entryBandOf(edge);
     const seat = seatRateChip(
       field,
-      { pts: geom.pts, anchorX: geom.lx, anchorY: geom.ly },
+      {
+        pts: fanoutLegPtsByIndex.get(index) ?? geom.pts,
+        anchorX: geom.lx,
+        anchorY: geom.ly,
+      },
       flowKeyOf(edge),
       edge.target,
       cardExemptFor(edge),

@@ -175,6 +175,14 @@ export type ObstacleRect = {
 //           shares this column: their trunk segments (source port out to the
 //           junction) overlap into one line, and each branches off it up / down
 //           to its own target. Absent -> the corridor midpoint (a plain step).
+//   fanoutColumn: this forward item edge's bendX is a SHARED fan-out column
+//           (routeFanoutEdges pinned every same-(item, source-port) member to
+//           it), not a staggered one of its own. Present -> the step's label
+//           anchor moves off the shared vertical onto the middle of this
+//           member's own final horizontal leg, so the members' chips spread
+//           along their legs instead of stacking on the one column. Absent ->
+//           the bend-column anchor, byte-identical for direct callers. The
+//           drawn path never changes.
 //   chamferBudget: per-bend corridor room available for enlarging a forward
 //           step's corner bevels (assignBendColumns). Half the stagger pitch, so
 //           an edge's fattened chamfer never reaches a sibling column's vertical.
@@ -194,6 +202,7 @@ export type RoutingHints = {
   railXRight?: number;
   railXLeft?: number;
   junctionX?: number;
+  fanoutColumn?: boolean;
   chamferBudget?: number;
 };
 
@@ -215,12 +224,23 @@ const HINT_KEYS = [
   "chamferBudget",
 ] as const satisfies ReadonlyArray<keyof RoutingHints>;
 
+// The hints carried as flags rather than coordinates, extracted the same way
+// but type-checked as booleans (an absent or non-boolean value is dropped, so a
+// stray string cannot switch a shape on).
+const FLAG_HINT_KEYS = ["fanoutColumn"] as const satisfies ReadonlyArray<
+  keyof RoutingHints
+>;
+
 export function routingHintsFromData(data: unknown): RoutingHints {
   const d = data as Record<string, unknown> | undefined;
   const hints: RoutingHints = {};
   for (const key of HINT_KEYS) {
     const v = d?.[key];
     if (typeof v === "number") hints[key] = v;
+  }
+  for (const key of FLAG_HINT_KEYS) {
+    const v = d?.[key];
+    if (typeof v === "boolean") hints[key] = v;
   }
   return hints;
 }
@@ -543,6 +563,17 @@ export function chamferStepPath(
   const { chamfer, bx: stepBx } = forwardStepGeometry(sx, tx, bendX);
   const bx = args.srcColX ?? stepBx;
 
+  // Shared fan-out column (fanoutColumn): every member of one (item, source
+  // port) formation draws its vertical at the SAME bx, so the bend-column
+  // anchor below would stack all their chips on the one line. Such a member
+  // anchors at the middle of its own final horizontal leg instead -- the run
+  // from the bend's outgoing chamfer to the target port, which is the member's
+  // alone. Clamped to the leg so a degenerate (or unclamped srcColX) column
+  // cannot push the anchor off the drawn polyline.
+  const legAnchorX = (cornerChamfer: number): number =>
+    (Math.min(bx + cornerChamfer, tx) + tx) / 2;
+  const fanoutLeg = args.fanoutColumn === true;
+
   // Same rail: a plain straight line, no vertical offset at all. The anchor
   // sits at the bend column (on the line by construction), NOT the geometric
   // midpoint: the three forward shapes (straight, small-dy diagonal, full
@@ -555,7 +586,7 @@ export function chamferStepPath(
   // column IS the corridor midpoint.
   if (sy === ty) {
     const d = `M ${r(sx)},${r(sy)} L ${r(tx)},${r(ty)}`;
-    return [d, r(bx), r(sy)];
+    return [d, r(fanoutLeg ? legAnchorX(chamfer) : bx), r(sy)];
   }
 
   // Small dy: a vertical run plus two chamfers will not fit between the rails, so
@@ -568,7 +599,9 @@ export function chamferStepPath(
       ` L ${r(bx - chamfer)},${r(sy)}` +
       ` L ${r(bx + chamfer)},${r(ty)}` +
       ` L ${r(tx)},${r(ty)}`;
-    return [d, r(bx), r((sy + ty) / 2)];
+    return fanoutLeg
+      ? [d, r(legAnchorX(chamfer)), r(ty)]
+      : [d, r(bx), r((sy + ty) / 2)];
   }
 
   // Normal forward step: H run, chamfer, V run, chamfer, H run into target.
@@ -585,6 +618,19 @@ export function chamferStepPath(
       chamferColumn(bx, sy, args.legY, chamfer) +
       chamferColumn(descentX, args.legY, ty, chamfer) +
       ` L ${r(tx)},${r(ty)}`;
+    // A member pinned to a shared fan-out column anchors on the JOG's clear
+    // horizontal (the run at legY from the bend to the descent column) instead:
+    // the descent vertical is fine for a lone edge, but here the run this member
+    // shares with its siblings is the bend vertical, and a chip that slid back
+    // to it would stand on every sibling's stroke. The run at legY is this
+    // member's alone. Falls through to the descent anchor when the jog leaves no
+    // horizontal between the two chamfers (a descent column right beside the
+    // bend).
+    const runLo = bx + chamfer;
+    const runHi = descentX - chamfer;
+    if (fanoutLeg && runHi > runLo) {
+      return [jog, r((runLo + runHi) / 2), r(args.legY)];
+    }
     // Clear-segment anchor: the jog-descent vertical (descentX) run midpoint --
     // the corridor leg carrying the edge down into the target after the leg has
     // cleared the intervening card.
@@ -619,6 +665,7 @@ export function chamferStepPath(
     `M ${r(sx)},${r(sy)}` +
     chamferColumn(bx, sy, ty, stepChamfer) +
     ` L ${r(tx)},${r(ty)}`;
+  if (fanoutLeg) return [d, r(legAnchorX(stepChamfer)), r(ty)];
   // Clear-segment anchor: the bend-column vertical (bx) run midpoint. The old
   // geometric midpoint often landed on the target-side horizontal, which cuts
   // across foreign card rows; this vertical corridor leg is clear of them.

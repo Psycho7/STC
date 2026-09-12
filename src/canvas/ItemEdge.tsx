@@ -44,6 +44,12 @@ export type ItemEdgeData = {
   // Bend column x assigned by the stagger pass (assignBendColumns). Optional:
   // when absent the path builder centers the bend at the corridor midpoint.
   bendX?: number;
+  // Set beside bendX when that column is a fan-out trunk's SHARED junction
+  // column (routeFanoutEdges pinned every same-(item, source-port) member to
+  // it) rather than a stagger column of this edge's own. chamferStepPath then
+  // anchors this member's rate chip on its own final horizontal leg instead of
+  // the shared vertical, where every member's chip would stack.
+  fanoutColumn?: boolean;
   // Per-bend corridor budget (half the stagger pitch) assigned alongside bendX by
   // assignBendColumns. chamferStepPath grows the forward step's corner chamfers
   // toward MAX_CHAMFER, capped by this budget so a fattened bevel never reaches a
@@ -136,7 +142,9 @@ export type ItemEdgeData = {
   // strokes reads as a join; the gap is what says "crossing, not a merge".
   // Strict-interior crossing semantics (crossings.ts) mean a collinear
   // fan-in run, a bus lane's overlapping member runs, and a shared fan-out
-  // trunk can never produce a stamp. Cues render only while the crossing
+  // trunk -- including the far members riding its junction column as plain
+  // item edges, whose verticals overlap collinearly on that column -- can
+  // never produce a stamp. Cues render only while the crossing
   // still stands on BOTH sides: the stamp must sit on this edge's own live
   // polyline (the shared stale-stamp rule) AND at least one recorded
   // partner edge must still exist with both endpoints within the stale eps

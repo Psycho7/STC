@@ -62,8 +62,10 @@ plan opened in a browser that has never touched the topbar toggle draws no
 lanes and no BUS bands: long edges stay individual strokes. The fan-out
 junction columns described under "Fan-out and fan-in" are not part of the
 toggle: a junction column is not a lane (it carries no lane y and draws no
-band), so same-source edges one layer over still share their junction column
-in both modes. Six e2e specs and the geometry audit cover the setting
+band), so same-source edges still share their junction column in both modes --
+though with lanes on, the members whose span reaches past the lane threshold
+are the lane's rather than the column's. Six e2e specs and the geometry audit
+cover the setting
 explicitly; the render-exam capture still switches it on before loading, so
 the exam never sees the lanes-off render -- a known coverage gap. Both modes
 are correct renders of the same plan.
@@ -87,9 +89,16 @@ unlabelled.
 
 ## Fan-out and fan-in
 
-Same-source edges heading one layer over share a junction column, marked with a
-dot. Each member carries its own rate chip on its own branch, and no aggregate
-rides the shared run.
+Every edge leaving one source port shares a single junction column, marked with
+a dot where the flow splits. Members heading one layer over branch off the
+column straight into their target. Members reaching further ride the same
+column and then run their own leg across to their target, bending around any
+card on the way. Each member carries its own rate chip on its own leg, never on
+the shared column, and no aggregate rides the shared run.
+
+The column keeps enough room for the nearest member's leg to hold that
+member's chip, shifting toward the source port when the corridor is tight;
+where even that cannot free a chip-wide leg, the chip collapses to icon-only.
 
 Several such fan-outs can be forced into one corridor, and the columns are then
 spread across it to keep them apart. Where that spread still leaves them closer
