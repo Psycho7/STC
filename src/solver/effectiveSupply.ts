@@ -39,8 +39,18 @@ export function effectiveSupply(
   pack: Pick<RecipePack, "items">,
   overrides: ReadonlyArray<ItemOverride>,
 ): Supply {
-  const isRaw = pack.items.find((i) => i.id === itemId)?.raw === true;
-  const override = overrides.find((o) => o.itemId === itemId);
+  return resolveSupply(
+    pack.items.find((i) => i.id === itemId)?.raw === true,
+    overrides.find((o) => o.itemId === itemId),
+  );
+}
+
+// The resolution table above, once, on inputs both entry points have already
+// looked up: the single-item call scans, the table indexes.
+function resolveSupply(
+  isRaw: boolean,
+  override: ItemOverride | undefined,
+): Supply {
   if (!override) {
     return isRaw ? Infinity : new Fraction(0);
   }
@@ -92,13 +102,25 @@ export function buildSupplyTable(
   pack: Pick<RecipePack, "items">,
   overrides: ReadonlyArray<ItemOverride>,
 ): SupplyTable {
+  // Indexed once: resolving each item through effectiveSupply would rescan
+  // pack.items and the override list per entry, which is quadratic on a real
+  // pack.
+  const overrideByItem = new Map<ItemId, ItemOverride>();
+  for (const ov of overrides) {
+    if (!overrideByItem.has(ov.itemId)) overrideByItem.set(ov.itemId, ov);
+  }
+
   const byItem = new Map<ItemId, Supply>();
   for (const it of pack.items) {
-    byItem.set(it.id, effectiveSupply(it.id, pack, overrides));
+    byItem.set(
+      it.id,
+      resolveSupply(it.raw === true, overrideByItem.get(it.id)),
+    );
   }
   for (const ov of overrides) {
     if (byItem.has(ov.itemId)) continue;
-    byItem.set(ov.itemId, effectiveSupply(ov.itemId, pack, overrides));
+    // Absent from pack.items, hence not raw.
+    byItem.set(ov.itemId, resolveSupply(false, overrideByItem.get(ov.itemId)));
   }
 
   return {
