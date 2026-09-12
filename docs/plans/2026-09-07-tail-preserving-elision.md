@@ -732,3 +732,40 @@ and the two CSS-clip slips, corrected in place above).
   rewritten: rewording it would rehash every descendant commit and
   break the hash references in this plan's evidence lines. Recorded
   here as an accepted residue.
+
+## Rebase onto develop and review fixes (2026-09-12)
+
+The branch was written against develop@6706c7e. It was rebased onto develop@2432b3d and the two fixes the 2026-09-07 branch review (grade 82, "merge after fixes") left open were applied.
+
+### What the rebase changed
+
+- `test/e2e/title-truncation.spec.ts` stayed deleted per R4. Develop had migrated it to the shared `bootExamPage` harness in the meantime; both collision guards now boot through that harness instead of their own init script and `goto`.
+- The locale loop narrowed from four locales to English and Chinese. Develop's `cf59fc3` limited the app's `Locale` union to those two, so a spec that wrote `aef.locale = "ru"` would have measured English while claiming to measure Russian. The pack still ships ja and ru names; nothing in the app can render them.
+
+### Fix 1: the partial-tail head no longer sits at its floor
+
+Tier (b) handed every spare pixel to the window, which pinned the head at `minHead` and produced two stubs ("Cupr...Bott"). Head and window now grow together, one code point at a time from their two floors. The window's distinguishing power is spent within its first few code points, so pixels past that buy more as head.
+
+Measured effect: the Latin row case moves `Cupr...(Jinc` to `Cupri...(Jin`, and the title case `Cupr...(Jincao So` to `Cuprium...(Jinca`. The three non-Latin cases are unmoved -- a wide glyph costs a full em and the next step does not fit. Every goal pair stays distinct.
+
+### Fix 2: labels are measured, not bounded
+
+The char-class table is an upper bound carrying headroom for font substitution, and on the shipped corpus it ran about 25% over the truth. The compounding with the equally-bounded rate estimate elided 152 of 186 elided rows (82%) that had room for their whole name, wasting up to 27px of a box.
+
+A canvas 2D context measures the same string in the same resolved faces the DOM lays out with: over 48 distinct labels on multi6, canvas and DOM agreed to within 0.01px. So `measureText.ts` measures in the browser and falls back to the table for jsdom, for any non-browser caller, and for the window before a requested face has arrived. Faces settle late, so the module bumps a generation on `loadingdone`, which clears the elision cache and re-renders every card against the metrics then in effect.
+
+Census across the corpus in English (445 rows): elided rows 186 -> 73, over-elided 152 -> 15, worst unused slack 27px -> 1px. The 15 residual rows are all within 1px, which is the helper's own `BUCKET_PX` budget quantisation rather than estimator error.
+
+### R1 refinement this forced (decided 2026-09-12)
+
+Exact measurement moved a family of rows out of the raw fallback and into tier (a), where it exposed a latent defect the over-estimate had been hiding: "Dense Crystal Powder" and "Dense Originium Powder" share their last word, so preserving that word spent the head budget cutting away the one word that told them apart and both rendered "Dens...Powder". Plain truncation had been showing "Dense Crys" and "Dense Orig". The `en crystal` and `en equip4` collision guards went red on it.
+
+R1 says the rule fires whenever a name has a *distinguishing* tail, and the open question it left is what makes a tail distinguishing. The ruling taken here: a bracketed group, a `run` tier mark and a CJK-boundary tail always qualify, because plain truncation eats those whole. A bare trailing WORD must price the trade -- it may cost the head no more prefix than the word itself returns. This keeps the rule plan-wide and per-string; it is still not a fallback waiting to see a collision, and it does not consult siblings. It only sharpens what counts as distinguishing.
+
+Rejected alternative: passing the helper the competing names on the same surface and choosing whichever candidate keeps them apart. It decides every case correctly, but it is exactly the collision-driven fallback R1 rules out.
+
+### Gates
+
+`bun run typecheck`, `bun run typecheck:tools`, `bun run lint` clean. `vitest run`: 161 files, 1815 passed, 1 skipped. `row-collisions.spec.ts`: 48/48 (12 scenarios x 2 locales x rows and titles). `chip-widths` 14/14, `raw-and-transport` 4/4, `gas-transport` 1/1 -- the frozen surfaces are unmoved.
+
+`test/setup.ts` now stubs `HTMLCanvasElement.getContext` to return null. jsdom has no canvas backend and logged a "Not implemented" notice on every probe; the measurer treats a missing context as the expected fallback path, so the stub keeps the run's output about failures.
