@@ -46,6 +46,13 @@ const BUCKET_PX = 1;
 const CACHE_MAX_ENTRIES = 4096;
 const cache = new Map<string, string>();
 
+// Dropped whenever the resolved font metrics change (measureText.ts): every
+// entry was computed against the faces in effect when it was cached, and a
+// face arriving late makes all of them answers to a different question.
+export function clearElisionCache(): void {
+  cache.clear();
+}
+
 function bucketDown(px: number): number {
   return Math.floor(px / BUCKET_PX) * BUCKET_PX;
 }
@@ -181,7 +188,7 @@ function canWindowTail(
   split: { tail: string; kind: TailKind },
   trimmedBase: string,
 ): boolean {
-  if (split.kind === "bracket" || split.kind === "cjk") return true;
+  if (split.kind !== "token") return true;
   return !/\s/.test(trimmedBase);
 }
 
@@ -189,6 +196,49 @@ function canWindowTail(
 // `fontKey` names the estimator (font + metrics) for memoisation: pass a
 // distinct key per font context, because the cache trusts it to tell
 // estimators apart.
+// Whether keeping this tail whole beats letting plain tail-ellipsis run.
+//
+// A BRACKETED tail is a qualifier -- "(Jincao Solution)", " [A]" -- and plain
+// truncation always eats it whole, so preserving it is the entire point of the
+// rule and it is worth whatever head it costs. So is a "run" tail, the tier
+// mark on a name with no spaces at all (the ja canned family's trailing Roman
+// numeral), and a CJK-boundary tail.
+//
+// A BARE trailing WORD is the case that can backfire. The pack is full of
+// families whose names share their last noun and differ in the middle ("Dense
+// Crystal Powder" against "Dense Originium Powder"), and preserving that
+// shared word spends the head budget cutting away the one word that told them
+// apart: both render "Dens...Powder", which is the defect rather than the fix,
+// where plain truncation would have shown "Dense Crys" and "Dense Orig".
+//
+// The helper never sees the sibling, so it prices the trade instead of
+// guessing at it: a bare word may cost the head no more prefix than the word
+// itself returns. A short tail on a roomy budget still rides along, while a
+// tail that would eat more prefix than it is worth hands the string back and
+// CSS keeps the longer prefix. That keeps the rule plan-wide and per-string --
+// it is still not a fallback waiting to see a collision -- and only sharpens
+// what counts as a distinguishing tail.
+function worthPreserving(
+  split: { base: string; tail: string; kind: TailKind },
+  head: string,
+  bucket: number,
+  ellW: number,
+  estimate: WidthFn,
+): boolean {
+  if (split.kind !== "token") return true;
+  const plainBudget = bucket - ellW;
+  let used = 0;
+  let plainLen = 0;
+  for (const p of codePoints(split.base + " " + split.tail)) {
+    const w = estimate(p);
+    if (used + w > plainBudget) break;
+    used += w;
+    plainLen++;
+  }
+  const tailLen = codePoints(split.tail).length;
+  return codePoints(head).length >= plainLen - tailLen;
+}
+
 export function elideName(
   name: string,
   budgetPx: number,
@@ -227,7 +277,10 @@ export function elideName(
             keep.push(p);
           }
           const head = keep.join("").replace(/\s+$/, "");
-          if (codePoints(head).length >= minHead) {
+          if (
+            codePoints(head).length >= minHead &&
+            worthPreserving(split, head, bucket, ellW, estimate)
+          ) {
             out = head + ELLIPSIS + split.tail;
           }
         } else if (canWindowTail(split, trimmedBase)) {

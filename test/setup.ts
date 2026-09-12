@@ -105,3 +105,14 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     return 80;
   },
 });
+
+// jsdom ships no canvas backend, so getContext("2d") returns null and logs a
+// "Not implemented" notice through the virtual console. The label elision
+// measurer probes for a usable context on purpose and falls back to its
+// char-class table when there is none, so that notice is the expected path
+// announcing itself once per module registry. Return null directly and keep
+// the run's output about failures.
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+  configurable: true,
+  value: () => null,
+});

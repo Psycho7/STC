@@ -17,7 +17,12 @@ import { useItemPack } from "./itemPackContext";
 import { iconIdForItem, iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
 import { elideName } from "./elide";
-import { estimateTextWidth } from "./textWidth";
+import {
+  measureTextWidth,
+  useFontMetrics,
+  widthFnFor,
+  type MeasuredFont,
+} from "./measureText";
 import {
   RECIPE_HEAD_TITLE_COL,
   RECIPE_HEAD_BLOCK_PAD_X,
@@ -35,8 +40,17 @@ import {
 const ROW_PAD_X = 14;
 const ROW_GAP = 5;
 const ROW_SPRITE = 20;
-const ROW_LABEL_FONT = { fontSize: 12, weight: 400 };
-const ROW_RATE_FONT = { fontSize: 12, weight: 700 };
+const ROW_LABEL_FONT: MeasuredFont = {
+  fontSize: 12,
+  weight: 400,
+  family: "--font-ui",
+};
+const ROW_RATE_FONT: MeasuredFont = {
+  fontSize: 12,
+  weight: 700,
+  family: "--font-num",
+  letterSpacingEm: -0.01,
+};
 
 // Header budgets from the pinned columns (dimensions.ts, ruling R3): the
 // recipe block's content width, minus the multiplier chip and its gap when
@@ -44,9 +58,21 @@ const ROW_RATE_FONT = { fontSize: 12, weight: 700 };
 // padding + 2x1px border) and the 0.04em tracking on top of the number-face
 // bound, so the title errs narrow on chip-bearing cards -- the safe
 // direction for the same reason as the row rate.
-const TITLE_FONT = { fontSize: 17, weight: 600 };
-const PRODUCTS_FONT = { fontSize: 11, weight: 500 };
-const CHIP_FONT = { fontSize: 12, weight: 700 };
+const TITLE_FONT: MeasuredFont = {
+  fontSize: 17,
+  weight: 600,
+  family: "--font-ui",
+};
+const PRODUCTS_FONT: MeasuredFont = {
+  fontSize: 11,
+  weight: 500,
+  family: "--font-ui",
+};
+const CHIP_FONT: MeasuredFont = {
+  fontSize: 12,
+  weight: 700,
+  family: "--font-num",
+};
 const CHIP_CHROME_X = 12;
 const CHIP_TRACKING_EM = 0.04;
 const TITLE_CHIP_GAP = 8;
@@ -66,11 +92,11 @@ function elideRowLabel(
     ROW_PAD_X -
     (hasSprite ? ROW_SPRITE + ROW_GAP : 0) -
     ROW_GAP -
-    estimateTextWidth(rateText, ROW_RATE_FONT);
+    measureTextWidth(rateText, ROW_RATE_FONT);
   return elideName(
     name,
     budget,
-    (text) => estimateTextWidth(text, ROW_LABEL_FONT),
+    widthFnFor(ROW_LABEL_FONT),
     "row-12",
   );
 }
@@ -152,6 +178,9 @@ export default function RecipeNode({
   data,
   selected,
 }: NodeProps<RecipeNodeType>) {
+  // Every visible name below is elided against measured text widths, so the
+  // card has to redraw when a late-arriving face changes those measurements.
+  useFontMetrics();
   const {
     recipe,
     multiplier,
@@ -225,12 +254,12 @@ export default function RecipeNode({
     machineName,
     headerContentWidth() -
       (badgeText !== null
-        ? estimateTextWidth(badgeText, CHIP_FONT) +
+        ? measureTextWidth(badgeText, CHIP_FONT) +
           badgeText.length * CHIP_TRACKING_EM * CHIP_FONT.fontSize +
           CHIP_CHROME_X +
           TITLE_CHIP_GAP
         : 0),
-    (text) => estimateTextWidth(text, TITLE_FONT),
+    widthFnFor(TITLE_FONT),
     "title-17",
   );
   const visibleProductNames = recipe.out
@@ -238,7 +267,7 @@ export default function RecipeNode({
       elideName(
         i18n.displayName(p.item),
         headerContentWidth(),
-        (text) => estimateTextWidth(text, PRODUCTS_FONT),
+        widthFnFor(PRODUCTS_FONT),
         "products-11",
       ),
     )
