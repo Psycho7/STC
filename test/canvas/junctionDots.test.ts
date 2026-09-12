@@ -27,6 +27,7 @@ import {
   chamferFanoutPath,
   drawnEdge,
   routingHintsFromData,
+  type DrawnPorts,
 } from "../../src/canvas/edgePath";
 import { stampOnOwnPolyline } from "../../src/canvas/crossings";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
@@ -69,24 +70,14 @@ const consumer = (id: string, x: number, y: number): RFRecipeNode =>
 // reconstructs with, and the same frame React Flow's handle anchoring lands on).
 // The path builders below are fed these, so the pinned junctions are the drawn
 // ones.
-const drawnPortsFor = (
-  src: RFRecipeNode,
-  tgt: RFRecipeNode,
-): { sourceX: number; sourceY: number; targetX: number; targetY: number } => {
-  const ports = drawnPortsOf(
+const drawnPortsFor = (src: RFRecipeNode, tgt: RFRecipeNode): DrawnPorts =>
+  drawnPortsOf(
     rateEdge("drawn-ports", src.id, tgt.id),
     new Map<string, RFAnyNode>([
       [src.id, src],
       [tgt.id, tgt],
     ]),
   )!;
-  return {
-    sourceX: ports.sx,
-    sourceY: ports.sy,
-    targetX: ports.tx,
-    targetY: ports.ty,
-  };
-};
 
 const dataOf = (edges: Edge[], id: string): Record<string, unknown> =>
   (edges.find((e) => e.id === id)?.data as

@@ -36,7 +36,7 @@ type FaninData = {
 // (nodeGeometry owns the model -> drawn conversion; the drift numbers are
 // controlled by test/canvas/portDrift.test.ts, not restated here).
 const drawnTargetY = (edge: Edge, nodes: ReadonlyArray<RFAnyNode>): number =>
-  drawnPortsOf(edge, new Map(nodes.map((n) => [n.id, n])))!.ty;
+  drawnPortsOf(edge, new Map(nodes.map((n) => [n.id, n])))!.targetY;
 
 // The collinearity tolerance the fan-in detection applies, mirrored from
 // chipSeating's FANIN_EPS, and the two-decimal rounding every emitted path

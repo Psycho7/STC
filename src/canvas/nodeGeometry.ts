@@ -38,6 +38,7 @@ import type { Edge } from "@xyflow/react";
 import { RECIPE_WIDTH, loopBoxDimensions } from "./dimensions";
 import { measureRecipe } from "./recipeGeometry";
 import { orderByItem } from "./orderByItem";
+import type { DrawnPorts } from "./edgePath";
 import type { RFAnyNode } from "./layout";
 
 // The id -> node index every geometry accessor here takes. Last id wins on a
@@ -218,18 +219,18 @@ function driftedPortY(
 export function drawnPortsOf(
   edge: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
-): { sx: number; sy: number; tx: number; ty: number } | null {
+): DrawnPorts | null {
   const source = byId.get(edge.source);
   const target = byId.get(edge.target);
   if (source === undefined || target === undefined) return null;
   const item = edgeItem(edge);
   return {
-    sx:
+    sourceX:
       absoluteLeft(source, byId) +
       nodeWidth(source) +
       portDrift(source).sourceDx,
-    sy: absoluteTop(source, byId) + driftedPortY(source, item, "out"),
-    tx: absoluteLeft(target, byId) + portDrift(target).targetDx,
-    ty: absoluteTop(target, byId) + driftedPortY(target, item, "in"),
+    sourceY: absoluteTop(source, byId) + driftedPortY(source, item, "out"),
+    targetX: absoluteLeft(target, byId) + portDrift(target).targetDx,
+    targetY: absoluteTop(target, byId) + driftedPortY(target, item, "in"),
   };
 }

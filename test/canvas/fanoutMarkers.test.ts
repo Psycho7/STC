@@ -30,6 +30,7 @@ import {
   chamferStepPath,
   parsePathPoints,
   routingHintsFromData,
+  type DrawnPorts,
   type RoutingHints,
 } from "../../src/canvas/edgePath";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
@@ -83,9 +84,7 @@ const sourceRight = nodeWidth(srcNode());
 // The DRAWN ports of a src -> target edge, through nodeGeometry's one model ->
 // drawn conversion (the frame chipSeating reconstructs in and React Flow's
 // handle anchoring lands on).
-const drawnPortsFor = (
-  target: RFRecipeNode,
-): { sx: number; sy: number; tx: number; ty: number } =>
+const drawnPortsFor = (target: RFRecipeNode): DrawnPorts =>
   drawnPortsOf(
     rateEdge("drawn-ports", "src", target.id, new Fraction(1)),
     new Map<string, RFAnyNode>([
@@ -97,8 +96,8 @@ const drawnPortsFor = (
 // The source half of that conversion does not depend on the target, so a
 // throwaway consumer resolves the out-port every fixture leaves from.
 const srcPorts = drawnPortsFor(orderedRecipeNode("probe", 0, 0, [ITEM]));
-const sourceX = srcPorts.sx;
-const sourceY = srcPorts.sy;
+const sourceX = srcPorts.sourceX;
+const sourceY = srcPorts.sourceY;
 
 // A one-input consumer card whose in-port row lands `rowOffset` below the
 // source's out-port row (0 => a straight, never-bending member).
@@ -121,13 +120,7 @@ const drawnPoints = (
   hints: RoutingHints = {},
 ): ReadonlyArray<readonly [number, number]> => {
   const ports = drawnPortsFor(target);
-  const [path] = chamferStepPath({
-    sourceX: ports.sx,
-    sourceY: ports.sy,
-    targetX: ports.tx,
-    targetY: ports.ty,
-    ...hints,
-  });
+  const [path] = chamferStepPath({ ...ports, ...hints });
   return parsePathPoints(path);
 };
 

@@ -24,6 +24,7 @@ import {
   PORT_STUB,
   chamferStepPath,
   routingHintsFromData,
+  type DrawnPorts,
 } from "../../src/canvas/edgePath";
 import { DOT_KEEPOFF } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
@@ -82,15 +83,7 @@ type EdgeData = Record<string, unknown>;
 const drawnPortsOfEdge = (
   e: Edge,
   byId: ReadonlyMap<string, RFAnyNode>,
-): { sourceX: number; sourceY: number; targetX: number; targetY: number } => {
-  const ports = drawnPortsOf(e, byId)!;
-  return {
-    sourceX: ports.sx,
-    sourceY: ports.sy,
-    targetX: ports.tx,
-    targetY: ports.ty,
-  };
-};
+): DrawnPorts => drawnPortsOf(e, byId)!;
 
 const dataOf = (edges: Edge[], id: string): EdgeData =>
   (edges.find((e) => e.id === id)?.data as EdgeData | undefined) ?? {};

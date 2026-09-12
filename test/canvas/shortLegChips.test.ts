@@ -21,6 +21,7 @@ import {
   chamferFanoutPath,
   parsePathPoints,
   routingHintsFromData,
+  type DrawnPorts,
 } from "../../src/canvas/edgePath";
 import { routeFanoutEdges } from "../../src/canvas/busRouting";
 import {
@@ -52,15 +53,7 @@ const CHIP_HALF_W_WIDE = 120;
 const drawnPortsOfEdge = (
   e: Edge,
   nodes: ReadonlyArray<RFAnyNode>,
-): { sourceX: number; sourceY: number; targetX: number; targetY: number } => {
-  const ports = drawnPortsOf(e, new Map(nodes.map((n) => [n.id, n])))!;
-  return {
-    sourceX: ports.sx,
-    sourceY: ports.sy,
-    targetX: ports.tx,
-    targetY: ports.ty,
-  };
-};
+): DrawnPorts => drawnPortsOf(e, new Map(nodes.map((n) => [n.id, n])))!;
 
 const CARD_W = 100;
 const CARD_H = 60;

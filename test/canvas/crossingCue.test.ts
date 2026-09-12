@@ -43,7 +43,7 @@ import {
 } from "../../src/canvas/crossings";
 import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
-import { chamferBusPath } from "../../src/canvas/edgePath";
+import { chamferBusPath, type DrawnPorts } from "../../src/canvas/edgePath";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 
@@ -60,10 +60,7 @@ type CueData = {
 // polylines in. nodeGeometry owns the model -> drawn conversion and
 // test/canvas/portDrift.test.ts is the control on its offsets, so this suite
 // states none of them.
-const portsOf = (
-  edge: Edge,
-  nodes: ReadonlyArray<RFAnyNode>,
-): { sx: number; sy: number; tx: number; ty: number } =>
+const portsOf = (edge: Edge, nodes: ReadonlyArray<RFAnyNode>): DrawnPorts =>
   drawnPortsOf(edge, new Map(nodes.map((n) => [n.id, n])))!;
 
 const dataOf = (edges: Edge[], id: string): CueData =>
@@ -104,7 +101,7 @@ describe("deconflictChipAnchors: crossing cues", () => {
       rateEdge(e2, "B1", "B2", "s", new Fraction(1)),
     ];
     // Edge 1's drawn rail: both its ports resolve to the same row.
-    const railY = portsOf(edges[0]!, nodes).sy;
+    const railY = portsOf(edges[0]!, nodes).sourceY;
 
     const out = deconflictChipAnchors(nodes, edges);
 
@@ -195,7 +192,7 @@ describe("deconflictChipAnchors: crossing cues", () => {
       rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
       rateEdge(e2, "A1", "A3", "s", new Fraction(4)),
     ];
-    const railY = portsOf(edges[1]!, nodes).sy;
+    const railY = portsOf(edges[1]!, nodes).sourceY;
     const out = deconflictChipAnchors(nodes, edges);
     expect(dataOf(out, f).crossingCues).toEqual([
       {
@@ -251,7 +248,7 @@ describe("deconflictChipAnchors: crossing cues", () => {
       rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
     ];
     // The member edge's drawn rail, read through its container parent.
-    const railY = portsOf(edges[1]!, nodes).sy;
+    const railY = portsOf(edges[1]!, nodes).sourceY;
     const out = deconflictChipAnchors(nodes, edges);
 
     // The earlier (top-level, z 0) edge carries the cue although the member
@@ -348,20 +345,8 @@ describe("deconflictChipAnchors: crossing cues", () => {
     // with the same builder and the same drawn ports the reconstruction uses.
     const p1 = portsOf(edges[0]!, nodes);
     const p2 = portsOf(edges[1]!, nodes);
-    const m1 = chamferBusPath({
-      sourceX: p1.sx,
-      sourceY: p1.sy,
-      targetX: p1.tx,
-      targetY: p1.ty,
-      laneY,
-    });
-    const m2 = chamferBusPath({
-      sourceX: p2.sx,
-      sourceY: p2.sy,
-      targetX: p2.tx,
-      targetY: p2.ty,
-      laneY,
-    });
+    const m1 = chamferBusPath({ ...p1, laneY });
+    const m2 = chamferBusPath({ ...p2, laneY });
     // Member 2 drops inside member 1's run and member 1 rises inside member
     // 2's run: both lane runs overlap, by hundreds of units.
     expect(m2.dropX).toBeGreaterThan(m1.dropX);

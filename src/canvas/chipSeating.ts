@@ -2028,16 +2028,12 @@ export function deconflictChipAnchors(
     if (edge.type !== "item" && edge.type !== "bus") return;
     const ends = drawnPortsOf(edge, byId);
     if (ends === null) return;
-    const { sx, sy, tx, ty } = ends;
+    const { sourceX: sx, sourceY: sy } = ends;
     // One drawn shape per edge, from the same seam the renderers draw through:
     // the hint spread, the fan-out and lane discriminants, the lane-row
     // fallback and the parse of `d` all resolve there, so this reconstruction
     // cannot answer a different polyline than the one on screen.
-    const drawn = drawnEdge(
-      { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty },
-      edge.type,
-      edge.data,
-    );
+    const drawn = drawnEdge(ends, edge.type, edge.data);
     if (drawn.shape === "fanout") {
       fanoutGeomById.set(edge.id, {
         pts: drawn.pts,
@@ -2095,7 +2091,7 @@ export function deconflictChipAnchors(
         // not a point on the drawn polyline.
         const drawnBx =
           routingHintsFromData(edge.data).srcColX ??
-          forwardStepGeometry(sx, tx, itemData.bendX).bx;
+          forwardStepGeometry(sx, ends.targetX, itemData.bendX).bx;
         const keepOff = drawnBx + DOT_KEEPOFF;
         bands.push({ lo: -Infinity, hi: keepOff });
         // The seat slides along the points it is given, so a pinned member is
@@ -2340,7 +2336,7 @@ export function deconflictChipAnchors(
     // the geometry pass above skipped too.
     const ends = drawnPortsOf(edge, byId);
     if (ends === null) return;
-    const { tx, ty } = ends;
+    const { targetX: tx, targetY: ty } = ends;
     const key = item + "|" + edge.target;
     const itemGeom = itemGeomById.get(edge.id);
     const fanGeom = fanoutGeomById.get(edge.id);
@@ -2630,7 +2626,7 @@ export function deconflictChipAnchors(
     // contentBounds and the placement audit all reading the drawn one.
     const ends = drawnPortsOf(edge, byId);
     if (ends === null) continue;
-    const { ty } = ends;
+    const { targetY: ty } = ends;
     // The columns the prologue's drawn lane shape resolved for this member --
     // the same shape the polyline reconstruction and BusEdge draw, so the
     // clamp below reads the drawn lane rather than a second rebuild of it.
@@ -3372,23 +3368,14 @@ export function contentBounds(
     if (edge.type !== "item" && edge.type !== "bus") continue;
     const ends = drawnPortsOf(edge, byId);
     if (ends === null) continue;
-    const drawn = drawnEdge(
-      {
-        sourceX: ends.sx,
-        sourceY: ends.sy,
-        targetX: ends.tx,
-        targetY: ends.ty,
-      },
-      edge.type,
-      edge.data,
-    );
+    const drawn = drawnEdge(ends, edge.type, edge.data);
     if (drawn.shape === "item") {
       // Staleness parity with ItemEdge: the hide was taken at the target port
       // row, so it is checked against this reconstruction's own target y. A
       // chip the renderer brings back mid-drag has to be framed here too.
       if (
         data?.faninChipHidden === true &&
-        faninHideLive(data.faninChipHiddenAtY, ends.ty)
+        faninHideLive(data.faninChipHiddenAtY, ends.targetY)
       ) {
         continue;
       }
