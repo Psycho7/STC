@@ -27,6 +27,15 @@
   --ak-accent-amber-dim: #8a5c12;
   --ak-accent-ink: #d8d5cd;
 
+  /* Gas-environment colors. Upstream names the environments nowhere in its
+     data; the only marker is a colored banner baked into the recipe icon.
+     These are the dominant banner pixels sampled from the 1.5.3 sprite sheet
+     -- stable from icon LESvbc0cp at -576px -704px, acidic from ynGeJZzIH at
+     -768px -704px, rows 5..14 of the 64px tile -- so a later snapshot can be
+     re-sampled the same way. */
+  --ak-env-stable: #36c0fc;
+  --ak-env-acidic: #ffbe04;
+
   --font-ui: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", sans-serif;
   --font-display:
     "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, serif;
@@ -2162,23 +2171,6 @@
   white-space: nowrap;
 }
 
-/* Environment badge: the in-game banner rather than a home-drawn chip. Upstream
-   bakes a colored strip across the full width of every icon whose recipe needs
-   a gas environment, so this is the shared sprite sheet drawn at native scale
-   through a band-sized window -- no transform, and the band offset rides an
-   inline background-position (iconSprite.ts owns the numbers). It rides the
-   title line beside the multiplier chip, survives every zoom band for the same
-   reason that chip does, and never shrinks, so the machine name's ellipsis
-   budget is the title row less the badge and its gap. */
-.rn-head .env-badge {
-  flex-shrink: 0;
-  width: 64px;
-  height: 10px;
-  background-image: var(--icons-url);
-  background-repeat: no-repeat;
-  image-rendering: -webkit-optimize-contrast;
-}
-
 .rn-head .rn-rate-block {
   padding: 0 8px;
   display: flex;
@@ -2237,10 +2229,9 @@
   color: var(--ak-text-decoration);
 }
 
-/* Header title: the machine name with the multiplier chip and the environment
-   badge riding inline. The name span ellipsizes; neither the chip nor the badge
-   shrinks, so each one it carries takes its own width plus one gap out of the
-   name's budget. */
+/* Header title: the machine name with the multiplier chip riding inline. The
+   name span ellipsizes; the chip does not shrink, so a card that carries one
+   spends the chip's width plus one gap out of the name's budget. */
 .rn-head .machine-title {
   display: flex;
   align-items: center;

@@ -508,26 +508,6 @@ describe("environment pack census", () => {
       .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     expect(stamped).toEqual(ENVIRONMENTS);
   });
-
-  // The badges are borrowed sprites, not new art: each one is the icon of a
-  // recipe that already reads as that environment upstream. Deriving the
-  // expectation from those recipes rather than pinning the opaque icon strings
-  // keeps the census meaningful after an icon-id reshuffle.
-  test("each badge is the icon of a recipe stamped with that environment", () => {
-    expect(Object.keys(pack.environmentBadges).sort()).toEqual([
-      "acidic",
-      "stable",
-    ]);
-    const source = new Map([
-      ["stable", "gas_copper_enr-gas_inert"],
-      ["acidic", "gas_copper_enr2"],
-    ]);
-    for (const [env, recipeId] of source) {
-      const r = pack.recipes.find((x) => x.id === recipeId)!;
-      expect(r.environment).toBe(env);
-      expect(pack.environmentBadges[env as "stable" | "acidic"]).toBe(r.icon);
-    }
-  });
 });
 
 // Ruling 1: `environment` is display-only. The solver must never read it - an

@@ -67,7 +67,6 @@ export function makePack(recipes: MicroRecipe[], items: MicroItem[]): RecipePack
     ],
     transports: [],
     recipes: recs,
-    environmentBadges: { stable: "badge_stable", acidic: "badge_acidic" },
   } as RecipePack;
 }
 

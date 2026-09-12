@@ -634,7 +634,6 @@ describe("SolvePlanFull.catalystDraw", () => {
     const full = solvePlanWithIntermediates(
       [{ itemId: "gas_copper", ratePerSec: { num: "1", denom: "1" } }],
       pack,
-      defaultTransportConfig,
       [],
     );
     expect(full.rates.get("phase_trans_2-gas_copper")!.equals(1)).toBe(true);

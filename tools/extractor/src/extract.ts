@@ -4,7 +4,6 @@ import {
   LOCALES,
   SCHEMA_VERSION,
   TRANSPORT_KIND,
-  type EnvironmentBadges,
   type EnvironmentId,
   type Item,
   type Locale,
@@ -98,13 +97,6 @@ export const ENVIRONMENT_BY_RECIPE: Record<string, EnvironmentId> = {
   "gas_xiranite_enr-gas_inert": "stable",
   "xiranite_powder-carbon_mtl": "stable",
   gas_copper_enr2: "acidic",
-};
-
-// Nothing in the data names the environments, so each badge borrows the icon of
-// a recipe that already reads as that environment.
-const ENVIRONMENT_BADGE_RECIPES: Record<keyof EnvironmentBadges, string> = {
-  stable: "gas_copper_enr-gas_inert",
-  acidic: "gas_copper_enr2",
 };
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
@@ -233,7 +225,6 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
     machines,
     transports,
     recipes,
-    environmentBadges: buildEnvironmentBadges(upstream),
   };
 
   const i18n = await buildI18nSidecar(pack, source, dropped);
@@ -391,27 +382,6 @@ export function splitCatalyst(u: UpstreamRecipe, inputs: Stoich[]): Stoich[] | u
     throw new Error(`recipe ${u.id} catalyst charge ${qty} does not rate at ${CATALYST_PER_MINUTE}/min`);
   }
   return [{ item, qty }];
-}
-
-// Icon id per environment, checked against the upstream sprite sheet so a
-// vendor refresh that renames or drops a sprite fails the extract instead of
-// shipping a badge that renders as a hole.
-function buildEnvironmentBadges(upstream: UpstreamData): EnvironmentBadges {
-  const iconIds = new Set(upstream.icons.map((i) => i.id));
-  const byRecipeId = new Map(upstream.recipes.map((r) => [r.id, r]));
-  const badges = {} as EnvironmentBadges;
-  for (const [environment, recipeId] of Object.entries(ENVIRONMENT_BADGE_RECIPES) as [
-    keyof EnvironmentBadges,
-    string,
-  ][]) {
-    const recipe = byRecipeId.get(recipeId);
-    if (!recipe) throw new Error(`environment badge recipe "${recipeId}" is missing from upstream`);
-    if (!iconIds.has(recipe.icon)) {
-      throw new Error(`environment badge icon "${recipe.icon}" is missing from upstream icons`);
-    }
-    badges[environment] = recipe.icon;
-  }
-  return badges;
 }
 
 // A recipe whose every producer is a skip machine is a world node - a fixture

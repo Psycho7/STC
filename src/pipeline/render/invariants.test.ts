@@ -73,7 +73,6 @@ function makeFullPack(
       in: r.in.map((x) => ({ item: x.item, qty: x.qty })),
       out: r.out.map((x) => ({ item: x.item, qty: x.qty })),
     })),
-    environmentBadges: { stable: "badge_stable", acidic: "badge_acidic" },
   };
 }
 
@@ -102,7 +101,6 @@ function makePack(itemIds: string[]): RecipePack {
     machines: [],
     transports: [],
     recipes: [],
-    environmentBadges: { stable: "badge_stable", acidic: "badge_acidic" },
   };
 }
 

@@ -9,7 +9,7 @@ import { itemColor } from "../../src/canvas/itemColor";
 import { iconPosition } from "../../src/canvas/iconSprite";
 import { pack } from "../../src/data/load";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
-import { cssBlock } from "./cssContract";
+import { cssBlock } from "../../src/canvas/cssContract.testkit";
 import {
   ItemPackProvider,
   type ItemPackContextValue,

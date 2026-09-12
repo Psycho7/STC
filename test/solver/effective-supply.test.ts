@@ -6,7 +6,6 @@ import {
   effectiveSupply,
 } from "../../src/solver/effectiveSupply";
 import { netSelfConsumption } from "../../src/solver/net-self";
-import { pack as shippedPack } from "../../src/data/load";
 import type { ItemOverride } from "../../src/data/plan";
 
 function mkItem(id: string, raw: boolean): Item {
@@ -37,7 +36,6 @@ function mkPack(items: Item[]): RecipePack {
     machines: [],
     transports: [],
     recipes: [],
-    environmentBadges: { stable: "badge_stable", acidic: "badge_acidic" },
   };
 }
 
@@ -161,23 +159,37 @@ describe("buildSupplyTable", () => {
   it("resolves the same supply for a netted pack as for its raw original", () => {
     // The solve half resolves supply against the netted pack and the render
     // half against the raw one. netSelfConsumption rewrites `recipes` only, so
-    // both halves must see one table. The shipped pack carries two
-    // self-consuming recipes (phase_trans_1-liquid_xiranite,
-    // phase_trans_2-gas_xiranite), so netting is a real change here.
-    const netted = netSelfConsumption(shippedPack);
-    expect(netted).not.toBe(shippedPack);
+    // both halves must see one table. The catalyst split moved the shipped
+    // pack's self-consumers into the `catalyst` field (netting is the identity
+    // on it now), so the netting-is-real premise rides on a synthetic
+    // phase-style recipe: the same item on both sides, 1 in / 3 out.
+    const selfCycle: RecipePack = {
+      ...mkPack([mkItem("ore", true), mkItem("phase", false)]),
+      recipes: [
+        {
+          id: "phase",
+          name: "phase",
+          category: "material",
+          icon: "phase",
+          row: 0,
+          time: 1,
+          producers: ["mk"],
+          in: [{ item: "phase", qty: 1 }],
+          out: [{ item: "phase", qty: 3 }],
+        },
+      ],
+    };
+    const netted = netSelfConsumption(selfCycle);
+    expect(netted).not.toBe(selfCycle);
 
     const overrides: ItemOverride[] = [
-      {
-        itemId: shippedPack.items[0]!.id,
-        ratePerSec: { num: "3", denom: "2" },
-      },
-      { itemId: shippedPack.items[1]!.id, plan: true },
+      { itemId: "ore", ratePerSec: { num: "3", denom: "2" } },
+      { itemId: "phase", plan: true },
     ];
-    const raw = buildSupplyTable(shippedPack, overrides);
+    const raw = buildSupplyTable(selfCycle, overrides);
     const net = buildSupplyTable(netted, overrides);
 
-    for (const it of shippedPack.items) {
+    for (const it of selfCycle.items) {
       const a = raw.supplyOf(it.id);
       const b = net.supplyOf(it.id);
       if (a === Infinity || b === Infinity) {

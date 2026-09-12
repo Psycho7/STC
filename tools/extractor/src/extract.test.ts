@@ -21,7 +21,7 @@ import {
   splitCatalyst,
   validateReferentialIntegrity,
 } from "./extract.ts";
-import type { UpstreamData, UpstreamRecipe } from "./upstream.ts";
+import type { UpstreamRecipe } from "./upstream.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const TRANSPORT_CONFIG_PATH = resolve(REPO_ROOT, "data/aef/transport-config.json");
@@ -30,7 +30,6 @@ let pack: RecipePack;
 let i18n: RecipePackI18n;
 let droppedEventItems: string[];
 let droppedEventRecipes: string[];
-let upstream: UpstreamData;
 
 beforeAll(async () => {
   // Build in-memory only; a test run must never rewrite the committed
@@ -38,9 +37,6 @@ beforeAll(async () => {
   ({ pack, i18n, droppedEventItems, droppedEventRecipes } = await runExtractor({
     write: false,
   }));
-  upstream = (await Bun.file(
-    resolve(REPO_ROOT, "vendor/endfield-calc/data.json"),
-  ).json()) as UpstreamData;
 });
 
 describe("schema and source provenance", () => {
@@ -295,20 +291,6 @@ describe("recipe environment", () => {
       gas_copper_enr2: "acidic",
     });
     expect(stamped).toEqual(ENVIRONMENT_BY_RECIPE);
-  });
-
-  test("environmentBadges carry the reference recipes' icon ids", () => {
-    expect(pack.environmentBadges).toEqual({ stable: "LESvbc0cp", acidic: "ynGeJZzIH" });
-    const stable = pack.recipes.find((r) => r.id === "gas_copper_enr-gas_inert");
-    const acidic = pack.recipes.find((r) => r.id === "gas_copper_enr2");
-    expect(pack.environmentBadges.stable).toBe(stable!.icon);
-    expect(pack.environmentBadges.acidic).toBe(acidic!.icon);
-  });
-
-  test("both badge icon ids resolve in the upstream sprite sheet", () => {
-    const iconIds = new Set(upstream.icons.map((i) => i.id));
-    expect(iconIds.has(pack.environmentBadges.stable)).toBe(true);
-    expect(iconIds.has(pack.environmentBadges.acidic)).toBe(true);
   });
 });
 

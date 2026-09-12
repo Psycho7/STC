@@ -24,20 +24,11 @@ export interface RecipePack {
   machines: Machine[];
   transports: Transport[];
   recipes: Recipe[];
-  environmentBadges: EnvironmentBadges;
 }
 
 // The atmosphere a recipe has to run in. Upstream ships no field for it, so the
 // values come from a hand table in the extractor.
 export type EnvironmentId = "stable" | "acidic";
-
-// Icon id per environment, taken from a recipe that already reads as that
-// environment upstream. Nothing in the game data names the environments, so the
-// badge borrows an existing sprite instead of shipping new art.
-export interface EnvironmentBadges {
-  stable: string;
-  acidic: string;
-}
 
 export interface SourceProvenance {
   name: string;

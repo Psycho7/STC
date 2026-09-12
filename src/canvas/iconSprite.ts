@@ -27,28 +27,3 @@ export function iconIdForItem(itemId: string | undefined): string | undefined {
   if (itemId === undefined) return undefined;
   return iconIdByItemId.get(itemId) ?? itemId;
 }
-
-// The environment banner band. Upstream records a recipe's gas-environment
-// requirement nowhere in its data: the only marker is a colored strip baked
-// into the recipe icon, spanning the full tile width at rows 5..14 of the 64px
-// tile and identical across every icon of the same environment. The badge is
-// that strip drawn at native scale, so a card shows the same mark the game
-// does. These three numbers are the one place the band's geometry is written;
-// the .env-badge rule in canvas.css is pinned to them by test.
-export const ENV_BAND_WIDTH = 64;
-export const ENV_BAND_HEIGHT = 10;
-export const ENV_BAND_TOP = 5;
-
-// The background position that shows an icon's banner band at the top-left of a
-// band-sized element. A CSS background-position of "-Xpx -Ypx" puts sheet pixel
-// (X, Y) at the element's origin, so skipping the tile's first ENV_BAND_TOP
-// rows means moving y that many pixels further negative. Returns undefined when
-// the icon or its position string is unknown, so the slot collapses instead of
-// showing an arbitrary slice of the sheet.
-export function envBandPosition(id: string | undefined): string | undefined {
-  const pos = iconPosition(id);
-  if (pos === undefined) return undefined;
-  const parts = pos.match(/^(-?[\d.]+)px (-?[\d.]+)px$/);
-  if (parts === null) return undefined;
-  return `${parts[1]}px ${Number(parts[2]) - ENV_BAND_TOP}px`;
-}
