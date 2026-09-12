@@ -178,6 +178,11 @@ Do not report these as defects.
 - A fan-out branch chip, or a fan-in member chip that would land on the shared
   run, may be deliberately hidden. The rate remains on the target card's input
   row.
+- Mid-drag, a fan-in merge dot can vanish while the merged run still shows one
+  member's rate. The dot hides as soon as its stamped x leaves the owner's live
+  polyline, while a non-owner member's chip hide is pinned to the port ROW
+  alone, so a source dragged horizontally slides the line out from under the dot
+  without changing any row. Both stamps are restored by the reseat at drag-stop.
 - A member of a multi-member lane trunk may draw no rise chip at all. The
   seating pass hides a rise chip when the trunk's run has no room for it at one
   chip's separation from its neighbours, and when its seat would have to leave
