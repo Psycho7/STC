@@ -66,14 +66,10 @@ import {
 } from "./dimensions";
 import {
   CHAMFER,
-  branchLegAfterJunction,
-  chamferBusPath,
-  chamferFanoutPath,
-  chamferStepPath,
   clamp,
   drawnEdge,
+  type DrawnEdge,
   forwardStepGeometry,
-  parsePathPoints,
   pathPointAtPts,
   routingHintsFromData,
 } from "./edgePath";
@@ -1919,7 +1915,10 @@ export function deconflictChipAnchors(
   // siblings. Reconstruction mirrors the render components (same builders,
   // same hints), so the avoided lines are the drawn ones. Item edges also
   // cache their parsed points and clear-segment anchor here, so the rate-chip
-  // phase below neither rebuilds the path nor re-parses the `d` string.
+  // phase below neither rebuilds the path nor re-parses the `d` string. Every
+  // geometry cache below is keyed by EDGE ID, not by position in the edges
+  // array: the drawn shape is a function of one edge alone, so nothing that
+  // reads it back has to know where that edge sat in the input.
   const flowKeyOf = (edge: Edge): string =>
     busFlowKey(edgeItem(edge), edge.source);
   const edgeSegments: EdgeSegments[] = [];
@@ -1932,10 +1931,10 @@ export function deconflictChipAnchors(
     lx: number;
     ly: number;
   };
-  const itemGeomByIndex = new Map<number, ItemGeom>();
+  const itemGeomById = new Map<string, ItemGeom>();
   // Fan-out members cache their reconstructed geometry (points + the two chip
   // anchors) so the fan-out seating phase below neither rebuilds the path nor
-  // re-parses the `d` -- the lockstep mirror of itemGeomByIndex for rate chips.
+  // re-parses the `d` -- the lockstep mirror of itemGeomById for rate chips.
   type FanoutGeom = {
     pts: ReadonlyArray<readonly [number, number]>;
     // The member's OWN leg (see branchLegAfterJunction): the polyline the
@@ -1946,11 +1945,16 @@ export function deconflictChipAnchors(
     branchAnchor: { x: number; y: number };
     owner: boolean;
   };
-  const fanoutGeomByIndex = new Map<number, FanoutGeom>();
-  // Lane bus members cache the junction BusEdge draws at their branch point.
-  // Taken from the same chamferBusPath result the polyline comes from, so the
-  // cached dot is the drawn dot rather than a second derivation of it.
-  const laneJunctionByIndex = new Map<number, { x: number; y: number }>();
+  const fanoutGeomById = new Map<string, FanoutGeom>();
+  // Lane bus members cache the whole drawn lane shape, so the bus-slot loop
+  // below reads the drop and rise columns this reconstruction resolved instead
+  // of rebuilding the lane path a second time with a second copy of the hints.
+  type LaneGeom = Extract<DrawnEdge, { shape: "lane" }>;
+  const laneGeomById = new Map<string, LaneGeom>();
+  // Lane bus members whose branch point carries a junction dot. Taken from the
+  // same drawn lane shape the polyline comes from, so the cached dot is the
+  // drawn dot rather than a second derivation of it.
+  const laneJunctionById = new Map<string, { x: number; y: number }>();
   // Item edges whose clear window cannot hold their own rate chip: the chip
   // renders icon-only.
   const shortLegByIndex = new Set<number>();
@@ -1964,11 +1968,11 @@ export function deconflictChipAnchors(
   // The longest clear run of each item edge / fan-out branch leg (null when
   // the port bands blanket it): the collapse verdict, the seat's capped
   // reserve and its preferred candidate all read it.
-  const clearSpanByIndex = new Map<number, XSpan | null>();
+  const clearSpanById = new Map<string, XSpan | null>();
   // Final-leg points of each item edge pinned to a shared fan-out column: the
   // stretch of its polyline its rate chip may seat on (see the slice below).
-  const fanoutLegPtsByIndex = new Map<
-    number,
+  const fanoutLegPtsById = new Map<
+    string,
     ReadonlyArray<readonly [number, number]>
   >();
   // The counter-scale cap each seat allows (RateSeat.scaleCap).
@@ -2011,13 +2015,13 @@ export function deconflictChipAnchors(
   // Measure a chip's clear window on its line and return whether the chip's
   // natural box fits it.
   const measureWindow = (
-    index: number,
+    id: string,
     pts: ReadonlyArray<readonly [number, number]>,
     bands: ReadonlyArray<XSpan>,
     text: ChipText | undefined,
   ): boolean => {
     const span = largestClearSpan(pts, bands);
-    clearSpanByIndex.set(index, span);
+    clearSpanById.set(id, span);
     return span !== null && span.hi - span.lo >= chipNaturalWidth(text);
   };
   edges.forEach((edge, index) => {
@@ -2025,24 +2029,22 @@ export function deconflictChipAnchors(
     const ends = drawnPortsOf(edge, byId);
     if (ends === null) return;
     const { sx, sy, tx, ty } = ends;
-    let d: string;
-    if (edge.type === "bus" && (edge.data as BusEdgeData | undefined)?.fanout) {
-      const fan = chamferFanoutPath({
-        sourceX: sx,
-        sourceY: sy,
-        targetX: tx,
-        targetY: ty,
-        ...routingHintsFromData(edge.data),
-      });
-      d = fan.path;
-      const fanPts = parsePathPoints(d);
-      const branchPts = branchLegAfterJunction(fanPts, fan.junction);
-      fanoutGeomByIndex.set(index, {
-        pts: fanPts,
-        branchPts,
-        junction: fan.junction,
-        trunkAnchor: fan.trunkAnchor,
-        branchAnchor: fan.branchAnchor,
+    // One drawn shape per edge, from the same seam the renderers draw through:
+    // the hint spread, the fan-out and lane discriminants, the lane-row
+    // fallback and the parse of `d` all resolve there, so this reconstruction
+    // cannot answer a different polyline than the one on screen.
+    const drawn = drawnEdge(
+      { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty },
+      edge.type,
+      edge.data,
+    );
+    if (drawn.shape === "fanout") {
+      fanoutGeomById.set(edge.id, {
+        pts: drawn.pts,
+        branchPts: drawn.branchPts,
+        junction: drawn.junction,
+        trunkAnchor: drawn.trunkAnchor,
+        branchAnchor: drawn.branchAnchor,
         // Deliberately STRICTER than isTrunkOwner, which reads absent as owner:
         // routeFanoutEdges always stamps the field in production, so the two
         // rules only diverge on hand-built fixtures. Unifying them is
@@ -2055,46 +2057,28 @@ export function deconflictChipAnchors(
       // contested corridor collapses the chip too: the wide box reaches the
       // sibling trunk's column from every seat there.
       const bands = ownPortBandXs(edge);
-      bands.push({ lo: -Infinity, hi: fan.junction.x + DOT_KEEPOFF });
+      bands.push({ lo: -Infinity, hi: drawn.junction.x + DOT_KEEPOFF });
       if (
-        !measureWindow(index, branchPts, bands, branchChipText(edge)) ||
+        !measureWindow(edge.id, drawn.branchPts, bands, branchChipText(edge)) ||
         (edge.data as FanoutBusEdgeData).fanoutContested === true
       )
         branchIconOnlyByIndex.add(index);
-    } else if (edge.type === "bus") {
-      // Narrow the union on `"laneY" in` (the same discriminant laneBands and the
-      // census helpers use) rather than a bare LaneBusEdgeData cast: it does not
-      // silently assume this bus edge is the lane variant just because the fan-out
-      // branch ran first.
-      const data = edge.data as BusEdgeData | undefined;
-      const laneY = data !== undefined && "laneY" in data ? data.laneY : ty;
-      const lane = chamferBusPath({
-        sourceX: sx,
-        sourceY: sy,
-        targetX: tx,
-        targetY: ty,
-        laneY,
-        ...routingHintsFromData(edge.data),
-      });
-      d = lane.path;
+    } else if (drawn.shape === "lane") {
+      laneGeomById.set(edge.id, drawn);
       // A lone-member trunk draws no junction dot (nothing branches at its
       // corner; BusEdge mirrors this), so it registers no keep-off either --
       // otherwise the keep-off would evict the rise chip off the lane to dodge
       // a dot that is not there (#83).
+      const data = edge.data as BusEdgeData | undefined;
       if ((data?.busMemberCount ?? 1) > 1) {
-        laneJunctionByIndex.set(index, lane.junction);
+        laneJunctionById.set(edge.id, drawn.junction);
       }
     } else {
-      const [path, lx, ly] = chamferStepPath({
-        sourceX: sx,
-        sourceY: sy,
-        targetX: tx,
-        targetY: ty,
-        ...routingHintsFromData(edge.data),
+      itemGeomById.set(edge.id, {
+        pts: drawn.pts,
+        lx: drawn.labelAnchor.x,
+        ly: drawn.labelAnchor.y,
       });
-      d = path;
-      const itemPts = parsePathPoints(d);
-      itemGeomByIndex.set(index, { pts: itemPts, lx, ly });
       // A member pinned to a fan-out trunk's SHARED column draws its vertical
       // on the same line as every sibling, and the split dot sits at its top.
       // Its chip belongs on the horizontal run that is the member's ALONE, so
@@ -2106,7 +2090,9 @@ export function deconflictChipAnchors(
       if (itemData?.fanoutColumn === true && itemData.bendX !== undefined) {
         // The DRAWN column: a jog that had to clear a blocked source leg
         // replaces it outright (srcColX), exactly as chamferStepPath resolves
-        // it, so the band never sits on a line this member does not draw.
+        // it, so the band never sits on a line this member does not draw. The
+        // hints are read directly here because the column is a routing stamp,
+        // not a point on the drawn polyline.
         const drawnBx =
           routingHintsFromData(edge.data).srcColX ??
           forwardStepGeometry(sx, tx, itemData.bendX).bx;
@@ -2123,18 +2109,22 @@ export function deconflictChipAnchors(
         // clipped to start past the column's keep-off.
         const own =
           itemData.legY === undefined
-            ? itemPts.slice(itemPts.length - 2)
-            : horizontalRunAt(itemPts, itemData.legY);
+            ? drawn.pts.slice(drawn.pts.length - 2)
+            : horizontalRunAt(drawn.pts, itemData.legY);
         const clipped = clipRunLeft(own, keepOff);
-        if (clipped !== null) fanoutLegPtsByIndex.set(index, clipped);
+        if (clipped !== null) fanoutLegPtsById.set(edge.id, clipped);
       }
-      if (!measureWindow(index, itemPts, bands, rateChipText(edge)))
+      if (!measureWindow(edge.id, drawn.pts, bands, rateChipText(edge)))
         shortLegByIndex.add(index);
     }
-    const pts = itemGeomByIndex.get(index)?.pts ?? parsePathPoints(d);
     const segs: Array<readonly [number, number, number, number]> = [];
-    for (let i = 1; i < pts.length; i++) {
-      segs.push([pts[i - 1]![0], pts[i - 1]![1], pts[i]![0], pts[i]![1]]);
+    for (let i = 1; i < drawn.pts.length; i++) {
+      segs.push([
+        drawn.pts[i - 1]![0],
+        drawn.pts[i - 1]![1],
+        drawn.pts[i]![0],
+        drawn.pts[i]![1],
+      ]);
     }
     edgeSegments.push({
       id: edge.id,
@@ -2352,8 +2342,8 @@ export function deconflictChipAnchors(
     if (ends === null) return;
     const { tx, ty } = ends;
     const key = item + "|" + edge.target;
-    const itemGeom = itemGeomByIndex.get(index);
-    const fanGeom = fanoutGeomByIndex.get(index);
+    const itemGeom = itemGeomById.get(edge.id);
+    const fanGeom = fanoutGeomById.get(edge.id);
     let pts: ReadonlyArray<readonly [number, number]>;
     let anchorX = 0;
     let anchorY = 0;
@@ -2479,7 +2469,7 @@ export function deconflictChipAnchors(
   const divergenceGroups = new Map<string, DivergenceMember[]>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item") return;
-    const geom = itemGeomByIndex.get(index);
+    const geom = itemGeomById.get(edge.id);
     if (geom === undefined) return;
     const pts = geom.pts;
     if (pts.length < 2) return;
@@ -2535,8 +2525,8 @@ export function deconflictChipAnchors(
     seenDots.add(key);
     dotKeepoffs.push({ x: p.x, y: p.y, kind });
   };
-  for (const p of laneJunctionByIndex.values()) addDot(p, "lane");
-  for (const g of fanoutGeomByIndex.values()) addDot(g.junction, "fanout");
+  for (const p of laneJunctionById.values()) addDot(p, "lane");
+  for (const g of fanoutGeomById.values()) addDot(g.junction, "fanout");
   for (const p of faninJunctionByIndex.values()) addDot(p, "fanin");
   // The declined groups' peel-off corners ARE the divergence dot set: every
   // bending member's column is stamped below, and the first peel-off's entry
@@ -2556,9 +2546,10 @@ export function deconflictChipAnchors(
   // Phases 1 and 2 -- bus chips: a LONE-member trunk draws one aggregate drop
   // chip (on the owner member); a multi-member trunk draws none (issue #39).
   // Every trunk draws one rise chip per member, all on the trunk's lane.
-  // Reconstruct their lane anchors from the same geometry BusEdge uses
-  // (chamferBusPath for dropX/riseX, busChipX for the spread rise slot) and
-  // seat each one, cascading off the lane when it crowds a neighbour. Seating
+  // Reconstruct their lane anchors from the same geometry BusEdge uses (the
+  // prologue's drawn lane shape for dropX/riseX, busChipX for the spread rise
+  // slot) and seat each one, cascading off the lane when it crowds a
+  // neighbour. Seating
   // is two-phase: every drawn drop chip settles first, then every rise chip,
   // each phase in edge-id order. The drop chip is the trunk's aggregate total
   // at its junction; interleaving by edge id alone would let an earlier
@@ -2634,15 +2625,13 @@ export function deconflictChipAnchors(
     // contentBounds and the placement audit all reading the drawn one.
     const ends = drawnPortsOf(edge, byId);
     if (ends === null) continue;
-    const { sx, sy, tx, ty } = ends;
-    const { dropX, riseX } = chamferBusPath({
-      sourceX: sx,
-      sourceY: sy,
-      targetX: tx,
-      targetY: ty,
-      laneY: data.laneY,
-      ...routingHintsFromData(edge.data),
-    });
+    const { ty } = ends;
+    // The columns the prologue's drawn lane shape resolved for this member --
+    // the same shape the polyline reconstruction and BusEdge draw, so the
+    // clamp below reads the drawn lane rather than a second rebuild of it.
+    const lane = laneGeomById.get(edge.id);
+    if (lane === undefined) continue;
+    const { dropX, riseX } = lane;
     // Pull the trunk-wide rise slot back into this member's own lane run.
     // routeBusEdges spreads a trunk's slots across the WHOLE trunk extent (the
     // drop column out to the rightmost member's rise column), but a member's
@@ -2651,9 +2640,10 @@ export function deconflictChipAnchors(
     // point where its line leaves the lane, parking its rate chip on a
     // sibling's stroke with nothing of its own beneath it.
     // The clamp belongs HERE and not in routeBusEdges: these dropX / riseX come
-    // out of chamferBusPath with the stamped routing hints, so they are the
-    // columns actually drawn (assignEntryColumns staggers the rise afterwards
-    // and clearBusColumns may dodge either column by far more than a chamfer).
+    // out of the drawn lane shape with the stamped routing hints, so they are
+    // the columns actually drawn (assignEntryColumns staggers the rise
+    // afterwards and clearBusColumns may dodge either column by far more than
+    // a chamfer).
     // The slots are collected raw here and clamped just below the loop: the
     // clamp's co-location carve-out needs a trunk-level fact (see there). It
     // stays per member and order-independent, so routeBusEdges' shuffled-input
@@ -2910,7 +2900,7 @@ export function deconflictChipAnchors(
   };
   const fanoutEdges = edges
     .map((edge, index) => ({ edge, index }))
-    .filter((e) => fanoutGeomByIndex.has(e.index))
+    .filter((e) => fanoutGeomById.has(e.edge.id))
     .sort((a, b) =>
       a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0,
     );
@@ -2943,7 +2933,7 @@ export function deconflictChipAnchors(
     ids.add(edge.id);
   }
   for (const { edge, index } of fanoutEdges) {
-    const geom = fanoutGeomByIndex.get(index)!;
+    const geom = fanoutGeomById.get(edge.id)!;
     if (!geom.owner) continue;
     // Multi-member trunks draw no aggregate chip (issue #39), so seat none.
     if (((edge.data as BusEdgeData).busMemberCount ?? 1) > 1) continue;
@@ -3027,7 +3017,7 @@ export function deconflictChipAnchors(
   // chip to invert against.
   const seatedBranchYByTrunk = new Map<string, number[]>();
   for (const { edge, index } of branchOrder) {
-    const geom = fanoutGeomByIndex.get(index)!;
+    const geom = fanoutGeomById.get(edge.id)!;
     const trunkKey = (edge.data as BusEdgeData).trunkKey;
     // The branch chip slides over its OWN leg only (geom.branchPts, the
     // suffix after the junction) -- the mirror of the aggregate seat's
@@ -3060,7 +3050,7 @@ export function deconflictChipAnchors(
         // have cleared.
         iconOnly: branchIconOnlyByIndex.has(index),
         text: branchChipText(edge),
-        clearSpan: clearSpanByIndex.get(index),
+        clearSpan: clearSpanById.get(edge.id),
       },
     );
     scaleCapByIndex.set(index, seat.scaleCap);
@@ -3121,14 +3111,14 @@ export function deconflictChipAnchors(
   const seatOpts = (edge: Edge, index: number): RateSeatOpts => ({
     iconOnly: shortLegByIndex.has(index),
     text: rateChipText(edge),
-    clearSpan: clearSpanByIndex.get(index),
+    clearSpan: clearSpanById.get(edge.id),
   });
   const items = edges
     .map((edge, index) => ({ edge, index }))
     .filter((e) => e.edge.type === "item");
   const windowsByIndex = new Map<number, number>();
   for (const { edge, index } of items) {
-    const geom = itemGeomByIndex.get(index);
+    const geom = itemGeomById.get(edge.id);
     if (geom === undefined) continue;
     windowsByIndex.set(
       index,
@@ -3136,7 +3126,7 @@ export function deconflictChipAnchors(
         {
           field,
           path: {
-            pts: fanoutLegPtsByIndex.get(index) ?? geom.pts,
+            pts: fanoutLegPtsById.get(edge.id) ?? geom.pts,
             anchorX: geom.lx,
             anchorY: geom.ly,
           },
@@ -3156,7 +3146,7 @@ export function deconflictChipAnchors(
     return a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0;
   });
   for (const { edge, index } of items) {
-    const geom = itemGeomByIndex.get(index);
+    const geom = itemGeomById.get(edge.id);
     const target = byId.get(edge.target);
     if (geom === undefined || target === undefined) continue;
     const entryBand = entryBandOf(edge);
@@ -3164,7 +3154,7 @@ export function deconflictChipAnchors(
       {
         field,
         path: {
-          pts: fanoutLegPtsByIndex.get(index) ?? geom.pts,
+          pts: fanoutLegPtsById.get(edge.id) ?? geom.pts,
           anchorX: geom.lx,
           anchorY: geom.ly,
         },
@@ -3236,7 +3226,7 @@ export function deconflictChipAnchors(
     // The counter-scale cap, stamped only when it binds.
     const cap = scaleCapByIndex.get(index);
     if (cap !== undefined && cap < MAX_CHIP_SCALE) {
-      if (fanoutGeomByIndex.has(index)) patch.fanoutBranchScaleCap = cap;
+      if (fanoutGeomById.has(edge.id)) patch.fanoutBranchScaleCap = cap;
       else patch.chipScaleCap = cap;
     }
     stamp("busDropDy", busDropDyByIndex.get(index));
