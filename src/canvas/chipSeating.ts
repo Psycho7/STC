@@ -2028,7 +2028,7 @@ export function deconflictChipAnchors(
     if (edge.type !== "item" && edge.type !== "bus") return;
     const ends = drawnPortsOf(edge, byId);
     if (ends === null) return;
-    const { sourceX: sx, sourceY: sy } = ends;
+    const { sourceX: sx } = ends;
     // One drawn shape per edge, from the same seam the renderers draw through:
     // the hint spread, the fan-out and lane discriminants, the lane-row
     // fallback and the parse of `d` all resolve there, so this reconstruction

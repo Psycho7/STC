@@ -14,7 +14,11 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
-import { chipSeatHalfW } from "../../src/canvas/chipMetrics";
+import {
+  CHIP_HALF_H,
+  CHIP_HALF_W_WIDE,
+  chipSeatHalfW,
+} from "../../src/canvas/chipMetrics";
 import {
   branchLegAfterJunction,
   chamferStepPath,
@@ -29,7 +33,7 @@ import {
   nodeWidth,
   portOffsetY,
 } from "../../src/canvas/nodeGeometry";
-import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
+import { MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import {
   inputProductNode,
@@ -39,12 +43,6 @@ import {
   orderedRecipeNode,
   mkRecipe,
 } from "./busRouting.testkit";
-
-// chipSeating's own CHIP_HALF_W_WIDE (MAX_CHIP_SCALE * CHIP_BOX_WIDTH / 2),
-// which the fan-out BRANCH short-leg rule USED to gate on as SHORT_LEG_MAX
-// (both the item and the branch rule now gate on the per-chip natural width;
-// see chipNaturalWidth). Mirrored here (the module does not export it).
-const CHIP_HALF_W_WIDE = 120;
 
 // One edge's DRAWN endpoints in the shape the path builders take, through
 // nodeGeometry's single model -> drawn conversion -- the frame the seating pass
@@ -350,7 +348,7 @@ const FAN_ITEM = "s";
 // 1px border the full chip carries (.flow-chip.icon-only in canvas.css), so its
 // half-width at max counter-scale is the shared half-HEIGHT. With chipSeating's
 // DOT_KEEPOFF this is the separation a collapsed chip needs from a dot.
-const CHIP_HALF_W_ICON = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
+const CHIP_HALF_W_ICON = CHIP_HALF_H;
 const DOT_KEEPOFF = 16;
 
 const fanProducer = (id: string, x: number, y: number): RFRecipeNode =>
