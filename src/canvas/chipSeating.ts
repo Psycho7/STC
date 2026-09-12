@@ -151,6 +151,9 @@ export type XSpan = { lo: number; hi: number };
 // points are empty or the bands blanket the extent. Its width is the chip's
 // clear window (the collapse rule and the scale cap both read it) and its
 // midpoint is the seat's preferred on-line candidate.
+//
+// Exported for the seating suite, which asserts that bands blanketing the
+// extent report no window at all rather than the bare extent.
 export function largestClearSpan(
   pts: ReadonlyArray<readonly [number, number]>,
   ownBands: ReadonlyArray<XSpan>,
@@ -379,12 +382,15 @@ export const PORT_ZONE_DEPTH = 8;
 
 // How far the port furniture (the PortGlyph, which reaches past the handle)
 // hangs outside the row edge, in graph units.
-export const PORT_FURNITURE_OUT = GLYPH_SIDE_OFFSET;
+const PORT_FURNITURE_OUT = GLYPH_SIDE_OFFSET;
 
 // The port keep-out band: the full-height x-strip straddling one own endpoint
 // card's port edge, from the glyph's outer edge to the port strip's inner
 // edge. Full card height because a step edge anchors at mid(sy,ty), so a
 // row-height band would let a wide box land on a neighbouring row's text.
+//
+// Exported for the port-zone suite, which asserts the band reaches the drawn
+// glyph's outer edge on each card kind.
 export function portKeepOutRect(
   card: CardRect,
   side: PortZoneSide,
@@ -464,6 +470,9 @@ export function chipEntersOwnCardBody(
 // exempts (9): a chip lying across its own port strip is the normal on-line
 // state however wide it is. Taken as a default argument, not a module const,
 // because CARD_BORDER is declared further down the file.
+//
+// Exported for the seating suite, which asserts a box lying no deeper than the
+// port strip scores zero intrusion.
 export function chipOwnCardIntrusion(
   chip: PortZoneRect,
   card: PortZoneRect,
@@ -589,6 +598,9 @@ export type ClearanceField = {
   ownCardIntrusion(box: ChipBox, exempt: CardExemption): number;
 };
 
+// Exported for the seating and sidestep-gate suites, which build a field from
+// synthetic crossings and cards and assert the seat / unseat contract (an
+// unseated box is no obstacle again) directly.
 export function makeClearanceField(
   segments: ReadonlyArray<EdgeSegments>,
   cards: ReadonlyArray<CardRect>,
@@ -951,6 +963,9 @@ function clampChipXToOwnRun(
 // straight path has no vertex of its own at that x. The source-port vertex at
 // index 0 is always strictly left of the junction (the corridor clamps the
 // junction column a stub-plus-chamfer out), so the scan starts past it.
+//
+// Exported for the short-leg suite, which measures a member's leg extent with
+// this same slice so its premise reads the leg the branch rule gates on.
 export function branchLegAfterJunction(
   pts: ReadonlyArray<readonly [number, number]>,
   junction: { x: number; y: number },
@@ -1247,7 +1262,7 @@ function onLineCandidates(
 // Read once per edge BEFORE any item chip is placed, which makes it a property
 // of the edge and the bus furniture rather than of the seating order, and so
 // order-independent and deterministic.
-export function clearOnLineSeats(
+function clearOnLineSeats(
   field: ClearanceField,
   path: {
     pts: ReadonlyArray<readonly [number, number]>;
@@ -1294,6 +1309,9 @@ export function clearOnLineSeats(
   return clear;
 }
 
+// Exported for the seating suites, which assert the tier ladder one seat at a
+// time (graze, sidestep, shrink, off-line) -- tiers deconflictChipAnchors'
+// stamped output cannot tell apart.
 export function seatRateChip(
   field: ClearanceField,
   path: {
@@ -1890,7 +1908,7 @@ export function cardGrowth(type: string | undefined): number {
 }
 
 // The frame width one node kind draws per side (half its growth).
-export function cardBorder(type: string | undefined): number {
+function cardBorder(type: string | undefined): number {
   return type === "recipe" ? CARD_BORDER : 0;
 }
 

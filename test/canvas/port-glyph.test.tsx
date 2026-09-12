@@ -23,7 +23,7 @@ import {
   type ItemPackContextValue,
 } from "../../src/canvas/itemPackContext";
 import type { PortTransportKinds } from "../../src/canvas/layout";
-import { cssBlock } from "./cssContract";
+import { cssBlock } from "../../src/canvas/cssContract.testkit";
 
 const EMPTY_PACK_VALUE: ItemPackContextValue = {
   itemById: new Map(),

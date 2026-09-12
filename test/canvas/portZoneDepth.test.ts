@@ -34,7 +34,11 @@ import { CANVAS_BG_HEX } from "../../src/canvas/itemColor";
 import { nodeHeight } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { mkRecipe, productNode, recipeNode } from "./busRouting.testkit";
-import { cssBlock, cssPx, cssValue } from "./cssContract";
+import {
+  cssBlock,
+  cssPx,
+  cssValue,
+} from "../../src/canvas/cssContract.testkit";
 
 describe("PORT_ZONE_DEPTH is coupled to the recipe row inset", () => {
   it("matches .rn-row.input padding-left", () => {

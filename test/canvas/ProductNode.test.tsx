@@ -5,7 +5,7 @@ import type { Item } from "@aef/schema";
 import ProductNode from "../../src/canvas/ProductNode";
 import { LocaleProvider } from "../../src/data/i18n-context";
 import { ItemPackProvider } from "../../src/canvas/itemPackContext";
-import { cssBlock } from "./cssContract";
+import { cssBlock } from "../../src/canvas/cssContract.testkit";
 import {
   makeItem,
   makePackValue,

@@ -15,7 +15,7 @@ import {
   CHIP_PAD_X_PX,
 } from "../../src/canvas/chipMetrics";
 import { CHIP_BOX_HEIGHT } from "../../src/canvas/dimensions";
-import { cssPx } from "./cssContract";
+import { cssPx } from "../../src/canvas/cssContract.testkit";
 
 describe("the chip's horizontal chrome matches the stylesheet it mirrors", () => {
   it("charges the .ico-16 sprite width for the item icon", () => {

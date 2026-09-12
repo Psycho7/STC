@@ -1369,11 +1369,14 @@ export function directCorridorClear(
 // Width scales with the node's own gutter in-degree rather than a global max, so
 // a node with a single entry keeps the minimal band (and its geometry stays
 // byte-identical to the pre-gutter default).
-export const ENTRY_GUTTER_MIN = PORT_STUB + CHAMFER; // 32
+const ENTRY_GUTTER_MIN = PORT_STUB + CHAMFER; // 32
 export const ENTRY_SLOT_PITCH = 2 * CHAMFER; // 16
 
 // Band width for a node hosting `columnCount` staggered entry columns. Zero or
 // one column -> the minimal band; each extra column adds one pitch.
+//
+// Exported for the column suite, which asserts a node's gutter rect measures
+// exactly gutterWidth(entry count) across.
 export function gutterWidth(columnCount: number): number {
   return ENTRY_GUTTER_MIN + Math.max(0, columnCount - 1) * ENTRY_SLOT_PITCH;
 }
@@ -1434,10 +1437,7 @@ function occupiesGutterColumn(
 // Resolved input-port index of an edge at its target, or -1 when unknown. Only
 // recipe/loop nodes carry the ELK-resolved `inputOrder`; product targets have a
 // single port. Used to order a target's staggered entry columns top to bottom.
-export function inputPortIndex(
-  target: RFAnyNode,
-  item: string | undefined,
-): number {
+function inputPortIndex(target: RFAnyNode, item: string | undefined): number {
   if (item === undefined) return -1;
   if (target.type !== "recipe" && target.type !== "loop") return -1;
   const order = target.data.inputOrder;
@@ -1849,8 +1849,11 @@ export function paddedObstacles(
 // segment-vs-card audit quantifies the residual rather than flinging the run
 // across the graph). Pure and deterministic: a function of the sorted obstacle
 // list (and the pure accept) only.
-export const CLEAR_COLUMN_RADIUS = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
+const CLEAR_COLUMN_RADIUS = RECIPE_WIDTH + BETWEEN_LAYERS_SPACING;
 
+// Exported for the column suite, which asserts the escape distance and the
+// toward-target tie-break on synthetic obstacle rows; a routed edge only shows
+// the column that won.
 export function clearColumnX(
   desiredX: number,
   yLo: number,

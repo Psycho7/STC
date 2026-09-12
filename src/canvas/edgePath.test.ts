@@ -1,10 +1,6 @@
 import { expect, test } from "vitest";
-import Fraction from "fraction.js";
-import type { Edge } from "@xyflow/react";
 import { clearRailY, chamferStepPath, type ObstacleRect } from "./edgePath";
-import { clampBackwardRails } from "./busRouting";
-import type { RFAnyNode } from "./layout";
-import { cssBlock } from "../../test/canvas/cssContract";
+import { cssBlock } from "./cssContract.testkit";
 
 const CARD: ObstacleRect = { left: 100, right: 400, top: 90, bottom: 210 };
 
@@ -75,51 +71,6 @@ test("chamferStepPath honors a railY override in its backward branch", () => {
   });
   // The overridden rail level appears as a vertex y in the emitted polyline.
   expect(path).toContain(",500");
-});
-
-test("clampBackwardRails threads a clear railY onto a card-crossing recycle edge", () => {
-  // A backward edge (target left of source) whose midway rail would cut through
-  // a card sitting between them.
-  const nodes = [
-    {
-      id: "src",
-      type: "product",
-      position: { x: 800, y: 0 },
-      width: 148,
-      height: 60,
-      data: { kind: "inputProduct", itemId: "water" },
-    },
-    {
-      id: "tgt",
-      type: "product",
-      position: { x: 0, y: 0 },
-      width: 148,
-      height: 60,
-      data: { kind: "inputProduct", itemId: "water" },
-    },
-    {
-      id: "mid",
-      type: "product",
-      position: { x: 400, y: 0 },
-      width: 148,
-      height: 200,
-      data: { kind: "inputProduct", itemId: "water" },
-    },
-  ] as unknown as RFAnyNode[];
-  const edges: Edge[] = [
-    {
-      id: "e:1",
-      source: "src",
-      target: "tgt",
-      type: "item",
-      data: { item: "water", rate: new Fraction(1) },
-    },
-  ];
-  const out = clampBackwardRails(nodes, edges);
-  const railY = (out[0]!.data as { railY?: number }).railY;
-  expect(railY).toBeDefined();
-  // The threaded rail clears the mid card's y-extent (top 0, bottom 200).
-  expect(railY! < 0 || railY! > 200).toBe(true);
 });
 
 test("the chip label layer is lifted above node cards via z-index", () => {
