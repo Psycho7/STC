@@ -5,30 +5,28 @@
 // graph is well-formed.
 
 import { describe, it, expect } from "vitest";
-import { solveForRender } from "../../../src/pipeline/solveForRender";
-import { layoutRenderPlan } from "../../../src/canvas/layout";
+import {
+  solveForRender,
+  type SolveForRenderOutput,
+} from "../../../src/pipeline/solveForRender";
+import { layoutSolved } from "../../../src/canvas/layoutSolved";
 import { pack } from "../../../src/data/load";
 import { defaultTargets } from "../../../src/data/targets";
-import type { RenderPlan } from "../../../src/pipeline/types";
 import type { ItemOverride } from "../../../src/data/plan";
 
 // The default-targets plan, rendered exactly the way the app renders it.
-function buildAlwaysFoldPlan(): RenderPlan {
+function buildAlwaysFoldPlan(): SolveForRenderOutput {
   const targets = defaultTargets();
   const itemOverrides: ItemOverride[] = [];
-  return solveForRender({ targets, pack, itemOverrides }).plan;
+  return solveForRender({ targets, pack, itemOverrides });
 }
 
 describe("AlwaysFoldRender -> ELK acceptance", () => {
   it("produces a layout with finite coordinates for every node on the default plan", async () => {
-    const plan = buildAlwaysFoldPlan();
-    expect(plan.units.length).toBeGreaterThan(0);
+    const solved = buildAlwaysFoldPlan();
+    expect(solved.plan.units.length).toBeGreaterThan(0);
 
-    const laid = await layoutRenderPlan({
-      plan,
-      recipeById: new Map(pack.recipes.map((r) => [r.id, r])),
-      itemById: new Map(pack.items.map((i) => [i.id, i])),
-    });
+    const laid = await layoutSolved(solved);
 
     expect(laid.nodes.length).toBeGreaterThan(0);
     for (const n of laid.nodes) {
@@ -40,13 +38,10 @@ describe("AlwaysFoldRender -> ELK acceptance", () => {
   });
 
   it("every render-plan edge endpoint resolves to a laid-out node", async () => {
-    const plan = buildAlwaysFoldPlan();
+    const solved = buildAlwaysFoldPlan();
+    const { plan } = solved;
 
-    const laid = await layoutRenderPlan({
-      plan,
-      recipeById: new Map(pack.recipes.map((r) => [r.id, r])),
-      itemById: new Map(pack.items.map((i) => [i.id, i])),
-    });
+    const laid = await layoutSolved(solved);
 
     const nodeIds = new Set(laid.nodes.map((n) => n.id));
     // Cross-check: every unit emitted by AlwaysFoldRender shows up as a laid

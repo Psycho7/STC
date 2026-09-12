@@ -39,9 +39,14 @@ export type SolveForRenderRequest = {
   pack?: RecipePack | undefined;
 };
 
-/** The render pipeline's output plus the solve it came from. */
+/**
+ * The render pipeline's output, the solve it came from, and the RAW pack both
+ * ran against -- the layout step needs that same pack to build its item and
+ * recipe lookups.
+ */
 export type SolveForRenderOutput = RenderPipelineOutput & {
   full: SolvePlanFull;
+  pack: RecipePack;
 };
 
 export function solveForRender({
@@ -60,5 +65,5 @@ export function solveForRender({
     overrides,
     recipeCosts,
   );
-  return { full, ...renderPlanFromSolve(full, pack, targets, overrides) };
+  return { full, pack, ...renderPlanFromSolve(full, pack, targets, overrides) };
 }

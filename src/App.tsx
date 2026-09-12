@@ -17,7 +17,8 @@ import {
 import Canvas, { type CanvasStatus } from "./canvas/Canvas";
 import { TargetsPanel } from "./components/TargetsPanel";
 import { InputsPanel } from "./components/InputsPanel";
-import { layoutRenderPlan, type RFAnyNode } from "./canvas/layout";
+import type { RFAnyNode } from "./canvas/layout";
+import { layoutSolved } from "./canvas/layoutSolved";
 import { reseatChips } from "./canvas/chipSeating";
 import { buildRealizedRateByItem } from "./canvas/realizedRateByItem";
 import {
@@ -36,11 +37,9 @@ import { pack } from "./data/load";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
 import { planToSolverArgs } from "./solver/planToSolverArgs";
-import {
-  solveForRender,
-  type SolveForRenderOutput,
-} from "./pipeline/solveForRender";
+import { solveForRender } from "./pipeline/solveForRender";
 import { targetOutputShortfalls } from "./pipeline/render/invariants";
+import type { RenderPlan } from "./pipeline/types";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { BusLanesToggle } from "./components/BusLanesToggle";
@@ -50,35 +49,15 @@ import { displayedInputCount } from "./components/InputsPanel";
 import { iconSheetUrl } from "./canvas/iconSprite";
 import { BUS_LANES_STORAGE_KEY } from "./data/storage-keys";
 
-// Turn what solveForRender returned into React Flow nodes and edges via
-// layoutRenderPlan.
-//
-// `underDelivered` lists the target items the rendered plan feeds below their
-// declared rate. The LP never reports these as infeasible - a capped raw input
-// with no alternative route just yields a partial plan - so this is the one
-// signal that the drawn graph does not meet the declared intent.
-async function layoutSolved(
-  solved: SolveForRenderOutput,
-  targets: ReadonlyArray<import("./data/targets").Target>,
-  busLanesEnabled: boolean,
-): Promise<{ nodes: Node[]; edges: Edge[]; underDelivered: string[] }> {
-  const itemById = new Map(pack.items.map((i) => [i.id, i]));
-  const { plan } = solved;
-  const underDelivered = targetOutputShortfalls(plan, targets).map(
-    (s) => s.item,
-  );
-  // Raw-pack recipes, NOT full.recipeById: the solver map is netted (see
-  // netSelfConsumption), while node rows and geometry should show the in-game
-  // stoichiometry - a self-consumed input renders as a row with no incoming
-  // edge, telling the player to loop that flow back themselves.
-  const rawRecipeById = new Map(pack.recipes.map((r) => [r.id, r]));
-  const laid = await layoutRenderPlan({
-    plan,
-    recipeById: rawRecipeById,
-    itemById,
-    busLanesEnabled,
-  });
-  return { nodes: laid.nodes as Node[], edges: laid.edges, underDelivered };
+// The target items the rendered plan feeds below their declared rate. The LP
+// never reports these as infeasible - a capped raw input with no alternative
+// route just yields a partial plan - so this is the one signal that the drawn
+// graph does not meet the declared intent.
+function underDeliveredItems(
+  plan: RenderPlan,
+  targets: ReadonlyArray<Target>,
+): string[] {
+  return targetOutputShortfalls(plan, targets).map((s) => s.item);
 }
 
 // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
@@ -434,11 +413,9 @@ function AppInner() {
           itemOverrides,
           recipeCosts,
         });
-        const laid = await layoutSolved(
-          solved,
-          targets,
-          busLanesEnabledRef.current,
-        );
+        const laid = await layoutSolved(solved, {
+          busLanesEnabled: busLanesEnabledRef.current,
+        });
         if (outcome.kind === "seeded") {
           const newHash = "#" + (await encodePlan(nextPlan));
           if (myGen !== solveGen.current) return;
@@ -449,9 +426,9 @@ function AppInner() {
         planRef.current = nextPlan;
         setPlan(nextPlan);
         setRecipeCount(countDistinctRecipes(solved.full.logical));
-        setNodes(laid.nodes);
+        setNodes(laid.nodes as Node[]);
         setEdges(laid.edges);
-        setUnderDelivered(laid.underDelivered);
+        setUnderDelivered(underDeliveredItems(solved.plan, targets));
         setLayoutGeneration((g) => g + 1);
         setPlanEpoch((e) => e + 1);
         // A fresh render is authoritative: the canvas now matches the plan.
@@ -533,16 +510,14 @@ function AppInner() {
         itemOverrides,
         recipeCosts,
       });
-      const laid = await layoutSolved(
-        solved,
-        targets,
-        busLanesEnabledRef.current,
-      );
+      const laid = await layoutSolved(solved, {
+        busLanesEnabled: busLanesEnabledRef.current,
+      });
       if (myGen !== solveGen.current) return;
       setRecipeCount(countDistinctRecipes(solved.full.logical));
-      setNodes(laid.nodes);
+      setNodes(laid.nodes as Node[]);
       setEdges(laid.edges);
-      setUnderDelivered(laid.underDelivered);
+      setUnderDelivered(underDeliveredItems(solved.plan, targets));
       setLayoutGeneration((g) => g + 1);
       setMutationError(null);
       setStale(false);

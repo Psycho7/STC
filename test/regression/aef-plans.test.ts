@@ -2,12 +2,10 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { solveForRender } from "../../src/pipeline/solveForRender";
-import { layoutRenderPlan } from "../../src/canvas/layout";
+import { layoutSolved } from "../../src/canvas/layoutSolved";
 import { pack } from "../../src/data/load";
 import type { Target } from "../../src/data/targets";
 import type { ItemOverride } from "../../src/data/plan";
-import type { Recipe } from "@aef/schema";
-import type { RecipeId } from "../../src/solver/types";
 import { RENDER_UNIT_KINDS } from "../../src/pipeline/types";
 
 // ---------------------------------------------------------------------------
@@ -99,14 +97,6 @@ function loadFixtures(): ReadonlyArray<{
   });
 }
 
-// Build the recipeById map once so the layout pass has the data it needs.
-// Mirrors solvePlanWithIntermediates' internal construction; the public
-// SolvePlanFull surface already returns this map, but the layout call wants a
-// plain readonly Map so we reuse the solver result directly.
-function recipeByIdFromPack(): ReadonlyMap<RecipeId, Recipe> {
-  return new Map(pack.recipes.map((r) => [r.id, r]));
-}
-
 const fixtures = loadFixtures();
 
 describe("regression: AEF render-plan fixtures", () => {
@@ -121,16 +111,13 @@ describe("regression: AEF render-plan fixtures", () => {
       it("runs solver -> render plan -> layout and meets expectations", async () => {
         const itemOverrides = fixture.itemOverrides ?? [];
         const targets = fixture.targets;
-        const { plan } = solveForRender({ targets, pack, itemOverrides });
+        const solved = solveForRender({ targets, pack, itemOverrides });
+        const { plan } = solved;
 
         // Layout must succeed; we do not snapshot positions here (those are
         // ELK-dependent and noisy under version bumps). The call itself
         // exercises the render-plan -> ELK -> RF-node path end-to-end.
-        const laid = await layoutRenderPlan({
-          plan,
-          recipeById: recipeByIdFromPack(),
-          itemById: new Map(pack.items.map((i) => [i.id, i])),
-        });
+        const laid = await layoutSolved(solved);
         expect(laid.nodes.length).toBeGreaterThan(0);
 
         // Structural assertions against the render plan.

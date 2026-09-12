@@ -32,7 +32,7 @@ import { pack } from "../../src/data/load";
 import type { Plan } from "../../src/data/plan";
 import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
 import { solveForRender } from "../../src/pipeline/solveForRender";
-import { layoutRenderPlan } from "../../src/canvas/layout";
+import { layoutSolved } from "../../src/canvas/layoutSolved";
 
 const CHIP_HALF_W = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
 const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
@@ -225,18 +225,9 @@ describe("contentBounds: dense plan", () => {
       ],
     };
     const { targets, itemOverrides, recipeCosts } = planToSolverArgs(plan);
-    const { full, plan: renderPlan } = solveForRender({
-      targets,
-      pack,
-      itemOverrides,
-      recipeCosts,
-    });
-    const itemById = new Map(pack.items.map((i) => [i.id, i]));
-    const laid = await layoutRenderPlan({
-      plan: renderPlan,
-      recipeById: full.recipeById,
-      itemById,
-    });
+    const laid = await layoutSolved(
+      solveForRender({ targets, pack, itemOverrides, recipeCosts }),
+    );
 
     const byId = new Map(laid.nodes.map((n) => [n.id, n]));
     let nl = Infinity;

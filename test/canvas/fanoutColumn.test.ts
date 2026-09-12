@@ -28,7 +28,7 @@ import {
 import { DOT_KEEPOFF } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
-import { layoutRenderPlan } from "../../src/canvas/layout";
+import { layoutSolved } from "../../src/canvas/layoutSolved";
 import { pack } from "../../src/data/load";
 import { solveForRender } from "../../src/pipeline/solveForRender";
 import type { ItemTarget } from "../../src/data/targets";
@@ -494,11 +494,8 @@ describe("the gas_xiranite fan-out of equip_script_4_3", () => {
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
-    const { full, plan } = solveForRender({ targets, pack });
-    const { nodes, edges } = await layoutRenderPlan({
-      plan,
-      recipeById: full.recipeById,
-      itemById: new Map(pack.items.map((i) => [i.id, i])),
+    const solved = solveForRender({ targets, pack });
+    const { nodes, edges } = await layoutSolved(solved, {
       // The app's default: with lanes on, the long members would be the lane
       // pass's and never reach the fan-out grouping.
       busLanesEnabled: false,

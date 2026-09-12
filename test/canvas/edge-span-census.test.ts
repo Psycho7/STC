@@ -15,7 +15,7 @@ import { directCorridorClear } from "../../src/canvas/busRouting";
 import { loadPlan } from "../../src/data/plan";
 import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
 import { solveForRender } from "../../src/pipeline/solveForRender";
-import { layoutRenderPlan } from "../../src/canvas/layout";
+import { layoutSolved } from "../../src/canvas/layoutSolved";
 import { pack } from "../../src/data/load";
 
 describe("computeEdgeSpans", () => {
@@ -63,24 +63,17 @@ async function solvedReproPlan() {
   const { targets, itemOverrides, recipeCosts } = planToSolverArgs(
     outcome.plan,
   );
-  const { full, plan } = solveForRender({
-    targets,
-    pack,
-    itemOverrides,
-    recipeCosts,
-  });
-  const itemById = new Map(pack.items.map((i) => [i.id, i]));
-  return { plan, recipeById: full.recipeById, itemById };
+  return solveForRender({ targets, pack, itemOverrides, recipeCosts });
 }
 
 describe("edge-span census: repro plan", () => {
   it("every long non-bus edge has a provably clear direct corridor", async () => {
-    const { plan, recipeById, itemById } = await solvedReproPlan();
+    const solved = await solvedReproPlan();
     // Time the layout + bus-routing pass (routeBusEdges runs inside
     // layoutRenderPlan) for the census log only. Nothing asserts on it: a
     // wall-clock bound is a machine-load coin flip inside a unit suite.
     const layoutStart = performance.now();
-    const laid = await layoutRenderPlan({ plan, recipeById, itemById });
+    const laid = await layoutSolved(solved);
     const layoutMs = performance.now() - layoutStart;
 
     // Full-census spans (all edges) for the record.
@@ -122,15 +115,10 @@ describe("edge-span census: repro plan", () => {
   });
 
   it("busLanesEnabled: false yields zero LANE edges but keeps fan-out trunks", async () => {
-    const { plan, recipeById, itemById } = await solvedReproPlan();
+    const solved = await solvedReproPlan();
 
-    const on = await layoutRenderPlan({ plan, recipeById, itemById });
-    const off = await layoutRenderPlan({
-      plan,
-      recipeById,
-      itemById,
-      busLanesEnabled: false,
-    });
+    const on = await layoutSolved(solved);
+    const off = await layoutSolved(solved, { busLanesEnabled: false });
 
     // The default arm proves the fixture exercises the toggle at all.
     expect(on.edges.some((e) => e.type === "bus")).toBe(true);
