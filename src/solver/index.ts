@@ -161,8 +161,9 @@ export type SolvePlanFull = {
 // Shared pipeline behind the public entry point. Runs the full solve (graph
 // build, SCC condensation, LP solve, replication, bisim, multiplier assignment,
 // tear-edge rebuild, logical-graph assembly) and returns the assembled
-// SolvePlanFull plus the raw LpResult. It does NOT run the dev-only invariant
-// assertions; those stay with solvePlanWithIntermediates.
+// SolvePlanFull plus the raw LpResult and the netted pack it solved on. It
+// does NOT run the dev-only invariant assertions; those stay with
+// solvePlanWithIntermediates, which asserts against that same netted pack.
 //
 // The TornEdge[] is rebuilt here because the LP solver returns no torn-edge
 // metadata; return-arc rendering needs the full TornEdge objects with their
@@ -173,7 +174,7 @@ function runSolvePipeline(
   rawPack: RecipePack,
   itemOverrides: ItemOverride[] | undefined,
   recipeCosts: Map<RecipeId, number> | undefined,
-): { full: SolvePlanFull; lpResult: LpResult } {
+): { full: SolvePlanFull; lpResult: LpResult; nettedPack: RecipePack } {
   // Everything below (graph walk, LP, replication, assembly, and the
   // recipeById map that feeds the render pipeline) must see the netted form;
   // only display layers go back to the raw pack.
@@ -277,7 +278,7 @@ function runSolvePipeline(
     boundaryShare,
   };
 
-  return { full, lpResult };
+  return { full, lpResult, nettedPack: pack };
 }
 
 /**
@@ -299,7 +300,7 @@ export function solvePlanWithIntermediates(
   itemOverrides?: ItemOverride[],
   recipeCosts?: Map<RecipeId, number>,
 ): SolvePlanFull {
-  const { full, lpResult } = runSolvePipeline(
+  const { full, lpResult, nettedPack } = runSolvePipeline(
     targets,
     pack,
     itemOverrides,
@@ -307,10 +308,16 @@ export function solvePlanWithIntermediates(
   );
 
   if (import.meta.env.DEV) {
-    // Check against the same netted form the pipeline solved; raw
-    // self-consuming stoichiometry would flag phantom deficits on flows the
-    // netting already folded away.
-    assertInvariants(full, lpResult, netSelfConsumption(pack), targets, itemOverrides ?? []);
+    // Assert against the very pack the pipeline solved, not a second netting
+    // of the raw one: the checkers read the stoichiometry the LP saw.
+    assertInvariants({
+      full,
+      result: lpResult,
+      pack: nettedPack,
+      targets,
+      itemOverrides: itemOverrides ?? [],
+      ...(recipeCosts !== undefined && { recipeCosts }),
+    });
   }
 
   return full;

@@ -7,10 +7,15 @@ import {
   checkRawOnlyBoundary,
   checkRepresentable,
   checkNoOrphanLogicalNodes,
+  assertInvariants,
+  checkSolvePlan,
+  SOLVER_INVARIANT_CHECKERS,
+  type SolverInvariantArgs,
 } from "./invariants";
 import { solveLp, type LpResult } from "./lp";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "./index";
 import { withoutGasMachines } from "./closed-form-fixtures";
+import { netSelfConsumption } from "./net-self";
 import { pack } from "../data/load";
 import { defaultTransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
@@ -479,5 +484,73 @@ describe("checkNoOrphanLogicalNodes - detection power", () => {
     const r = checkNoOrphanLogicalNodes(stripped);
     expect(r.ok).toBe(false);
     expect(r.violations.length).toBeGreaterThan(0);
+  });
+});
+
+// A recipe-cost map that records whether anything read it. Only the `optimal`
+// row consumes recipe costs, so a read is proof that row ran.
+class TracingCosts extends Map<string, number> {
+  read = false;
+
+  override get(key: string): number | undefined {
+    this.read = true;
+    return super.get(key);
+  }
+
+  override [Symbol.iterator](): MapIterator<[string, number]> {
+    this.read = true;
+    return super[Symbol.iterator]();
+  }
+}
+
+describe("solver invariant table", () => {
+  const nettedPack = netSelfConsumption(pack);
+
+  function makeArgs(recipeCosts: Map<string, number>): SolverInvariantArgs {
+    return {
+      full: makeFull(),
+      result: solveLp({ targets: headlineTargets, pack: nettedPack }),
+      pack: nettedPack,
+      targets: headlineTargets,
+      itemOverrides: noOverrides,
+      recipeCosts,
+    };
+  }
+
+  it("registers the six rows in order, asserting only the first four", () => {
+    expect(SOLVER_INVARIANT_CHECKERS.map((c) => c.name)).toEqual([
+      "massBalance",
+      "targetsMet",
+      "rawOnlyBoundary",
+      "representable",
+      "noOrphanLogicalNodes",
+      "optimal",
+    ]);
+    expect(SOLVER_INVARIANT_CHECKERS.map((c) => c.asserted)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+    ]);
+  });
+
+  it("returns one result per row, index-aligned with the table", () => {
+    const results = checkSolvePlan(makeArgs(new Map()));
+    expect(results.length).toBe(SOLVER_INVARIANT_CHECKERS.length);
+    for (const [i, row] of SOLVER_INVARIANT_CHECKERS.entries()) {
+      expect(results[i], row.name).toEqual(row.check(makeArgs(new Map())));
+    }
+  });
+
+  it("skips the optimal row on the assert path but runs it when reporting", () => {
+    const assertCosts = new TracingCosts();
+    assertInvariants(makeArgs(assertCosts));
+    expect(assertCosts.read).toBe(false);
+
+    const reportCosts = new TracingCosts();
+    checkSolvePlan(makeArgs(reportCosts));
+    expect(reportCosts.read).toBe(true);
   });
 });
