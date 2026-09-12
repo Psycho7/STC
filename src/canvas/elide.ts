@@ -246,8 +246,7 @@ export function elideName(
           // one measured exception directly below. The window must clear
           // the same minimum-grapheme floor as the head (four
           // Latin/Cyrillic, two CJK), else the raw string goes back.
-          const winBudget = bucket - ellW - minHeadW;
-          if (winBudget > 0) {
+          if (bucket - ellW - minHeadW > 0) {
             // The exception: a BARE word/run tail whose whole base
             // survives beside the ellipsis at this budget windows from
             // the tail's START whatever the script. A single-word tail
@@ -268,17 +267,49 @@ export function elideName(
             const minWin = minHeadFor(split.tail);
             const tailPts = codePoints(split.tail);
             const seq = fromEnd ? [...tailPts].reverse() : tailPts;
-            const win: string[] = [];
-            let used = 0;
-            for (const p of seq) {
-              const w = estimate(p);
-              if (used + w > winBudget) break;
-              used += w;
-              win.push(p);
+            // Head and window GROW TOGETHER from their two floors rather
+            // than the window taking every spare pixel. Handing the
+            // remainder to the window alone pinned the head at its floor
+            // and produced two stubs ("Cupr...Bott"), which reads as
+            // neither name; the distinguishing power of the window is
+            // already spent at its first few code points (the species
+            // token, or the inflected ending under a trailing window), so
+            // the pixels past that buy far more as head. Alternating one
+            // code point at a time keeps the split even at every budget
+            // and stays deterministic: the head takes the odd steps, so a
+            // budget that affords exactly one more glyph spends it on the
+            // side the reader names the row by.
+            const basePts = codePoints(trimmedBase);
+            let headLen = minHead;
+            let winLen = minWin;
+            if (basePts.length < headLen || seq.length < winLen) {
+              winLen = -1;
+            } else {
+              const widthOf = (hLen: number, wLen: number): number =>
+                estimate(basePts.slice(0, hLen).join("")) +
+                ellW +
+                estimate(seq.slice(0, wLen).join(""));
+              if (widthOf(headLen, winLen) > bucket) {
+                winLen = -1;
+              } else {
+                for (let grewHead = true, grewWin = true; grewHead || grewWin; ) {
+                  grewHead =
+                    headLen < basePts.length &&
+                    widthOf(headLen + 1, winLen) <= bucket;
+                  if (grewHead) headLen++;
+                  grewWin =
+                    winLen < seq.length && widthOf(headLen, winLen + 1) <= bucket;
+                  if (grewWin) winLen++;
+                }
+              }
             }
-            if (win.length >= minWin) {
-              const windowStr = (fromEnd ? win.reverse() : win).join("");
-              out = headStr + ELLIPSIS + windowStr;
+            if (winLen >= minWin) {
+              const win = seq.slice(0, winLen);
+              const windowStr = (fromEnd ? [...win].reverse() : win).join("");
+              const head = basePts.slice(0, headLen).join("").replace(/\s+$/, "");
+              if (codePoints(head).length >= minHead) {
+                out = head + ELLIPSIS + windowStr;
+              }
             }
           }
         }

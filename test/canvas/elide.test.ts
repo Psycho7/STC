@@ -252,13 +252,16 @@ describe("canvas/elide real-budget battery", () => {
   it("keeps the parenthesis-bottle goal pairs distinct at the 86px row budget", () => {
     // The review's headline defect: the two copper bottles may never read
     // the same. Exact expected strings document the window policy (lead
-    // window for Latin/CJK brackets, trailing window for Cyrillic).
+    // window for Latin/CJK brackets, trailing window for Cyrillic) and the
+    // even head/window split: the Latin head carries one code point past
+    // its floor here, and the three non-Latin cases sit at their floors
+    // because a wide glyph costs a full em and the next step does not fit.
     const cases: ReadonlyArray<readonly [number, readonly string[], string[]]> =
       [
         [
           86,
           ["Cuprium Bottle(Jincao Solution)", "Cuprium Bottle(Yazhen Solution)"],
-          [`Cupr${ELLIPSIS}(Jinc`, `Cupr${ELLIPSIS}(Yazh`],
+          [`Cupri${ELLIPSIS}(Jin`, `Cupri${ELLIPSIS}(Yaz`],
         ],
         [
           86,
@@ -420,8 +423,8 @@ describe("canvas/elide real-budget battery", () => {
       "Cuprium Bottle(Yazhen Solution)",
     ].map((n) => elideName(n, budget, (t) => est(t, TITLE_FONT), "title-17"));
     expect(new Set(visible).size).toBe(2);
-    expect(visible[0]).toBe(`Cupr${ELLIPSIS}(Jincao So`);
-    expect(visible[1]).toBe(`Cupr${ELLIPSIS}(Yazhen So`);
+    expect(visible[0]).toBe(`Cuprium${ELLIPSIS}(Jinca`);
+    expect(visible[1]).toBe(`Cuprium${ELLIPSIS}(Yazhe`);
     // The zh gate pair fits the whole title column (the jsdom title test
     // covers the chip-bearing, narrower budget).
     expect(
