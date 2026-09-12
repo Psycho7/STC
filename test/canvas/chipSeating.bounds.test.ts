@@ -207,6 +207,52 @@ describe("contentBounds: stale hides frame the chip again", () => {
       height: boxBottom - boxTop,
     });
   });
+
+  // The item phase's own hide, stamped at the label anchor rather than a port y
+  // and dropped per axis like the branch one. The displaced offset is left on
+  // the edge so the stale arm has a cascade to frame.
+  const displacedEdges = (hiddenAt: { x: number; y: number }): Edge[] => {
+    const data = {
+      item: "ore",
+      rate: new Fraction(1),
+      labelDy: 900,
+      itemChipHidden: true,
+      itemChipHiddenAt: hiddenAt,
+    };
+    return [{ id: "e1", type: "item", source: "a", target: "b", data }];
+  };
+  const labelAnchorOf = (edges: Edge[]): { x: number; y: number } => {
+    const [, lx, ly] = chamferStepPath({
+      sourceX: SX,
+      sourceY: SY,
+      targetX: TX,
+      targetY: TY,
+      ...routingHintsFromData(edges[0]!.data),
+    });
+    return { x: lx, y: ly };
+  };
+
+  it("skips a displaced item chip whose stamp still matches the live anchor", () => {
+    const live = labelAnchorOf(displacedEdges({ x: 0, y: 0 }));
+    expect(contentBounds(NODES, displacedEdges(live))).toEqual(NODE_BOX);
+  });
+
+  it("frames a displaced item chip whose stamp has drifted off the anchor", () => {
+    const live = labelAnchorOf(displacedEdges({ x: 0, y: 0 }));
+    const edges = displacedEdges({ x: live.x + HIDE_STALE_EPS, y: live.y });
+    const cy = live.y + 900;
+    const boxLeft = Math.min(0, live.x - CHIP_HALF_W);
+    const boxRight = Math.max(TX + NODE_W, live.x + CHIP_HALF_W);
+    const boxTop = Math.min(0, cy - CHIP_HALF_H);
+    const boxBottom = Math.max(NODE_H, cy + CHIP_HALF_H);
+
+    expect(contentBounds(NODES, edges)).toEqual({
+      x: boxLeft,
+      y: boxTop,
+      width: boxRight - boxLeft,
+      height: boxBottom - boxTop,
+    });
+  });
 });
 
 describe("contentBounds: dense plan", () => {

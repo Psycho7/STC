@@ -175,9 +175,11 @@ Do not report these as defects.
   rate.
 - A lane rise chip may cover its own junction dot. The dot is decorative, a rate
   chip lifted clear of the lane it labels is not.
-- A fan-out branch chip, or a fan-in member chip that would land on the shared
-  run, may be deliberately hidden. The rate remains on the target card's input
-  row.
+- A fan-out branch chip, a fan-in member chip that would land on the shared
+  run, or an item-edge chip whose only remaining seat is more than one chip
+  pitch off the line it labels, may be deliberately hidden. The rate remains on
+  the target card's input row and on the edge's hover tooltip. A step of a pitch
+  or less still reads as sitting beside its line and still draws.
 - Mid-drag, a fan-in merge dot can vanish while the merged run still shows one
   member's rate. The dot hides as soon as its stamped x leaves the owner's live
   polyline, while a non-owner member's chip hide is pinned to the port ROW

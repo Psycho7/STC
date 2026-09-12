@@ -1880,6 +1880,8 @@ const SEAT_PATCH_KEYS = [
   "faninJunctionY",
   "faninChipHidden",
   "faninChipHiddenAtY",
+  "itemChipHidden",
+  "itemChipHiddenAt",
   "fanoutJunctionX",
   "fanoutJunctionY",
   "crossingCues",
@@ -3160,6 +3162,8 @@ export function deconflictChipAnchors(
   // the sort is a total order on fixed keys and stays deterministic.
   const labelDyByIndex = new Map<number, number>();
   const labelDxByIndex = new Map<number, number>();
+  const itemChipHiddenByIndex = new Set<number>();
+  const itemChipHiddenAtByIndex = new Map<number, { x: number; y: number }>();
   const seatOpts = (edge: Edge, index: number): RateSeatOpts => ({
     iconOnly: shortLegByIndex.has(index),
     text: rateChipText(edge),
@@ -3229,6 +3233,35 @@ export function deconflictChipAnchors(
         `chip seating: last-resort cascade for ${edge.id} exhausted its cap; ` +
           "chip parked at its anchor (chip/card hard invariants abandoned)",
       );
+    }
+    // A rate chip belongs on the line it labels, and a seat that leaves the
+    // line is judged by DISTANCE, not by which tier produced it. Up to one
+    // max-scale chip pitch the box still reads as sitting beside its own line
+    // -- the #28 sidestep and the one-pitch step both land inside that reach,
+    // and a chip pitch is the separation the whole pass is built on. Past a
+    // pitch the line runs a full box-height clear of the box and the chip
+    // names nothing where it sits (the issue-#9 shape), so hide it the way a
+    // fan-out branch chip with no on-line seat hides: the rate stays on the
+    // target card's input row and on this edge's tooltip. The measure is the
+    // geometry audit's own -- the seated CENTRE against the drawn polyline --
+    // so a slide ALONG the line, however long, never counts. One exemption:
+    // a chip whose own line is too short to hold even its collapsed box steps
+    // off by ruling R15 and has no on-line seat to return to, so hiding it
+    // would cost a chip the line could never have carried. (`exhausted` parks
+    // the chip AT its anchor, on its line, so it falls under the threshold on
+    // its own; the DEV tripwire above is that tier's signal.) Release the
+    // reserved box so the phantom never blocks a later chip, and stamp the
+    // anchor the hide was decided at so a drag that moves the geometry drops
+    // the hide.
+    const offOwnLine = pointToPolylineDistance(
+      [seat.box.x, seat.box.y],
+      geom.pts,
+    );
+    if (offOwnLine > CHIP_PITCH_Y && !shortLegByIndex.has(index)) {
+      field.unseat(seat.box);
+      itemChipHiddenByIndex.add(index);
+      itemChipHiddenAtByIndex.set(index, { x: geom.lx, y: geom.ly });
+      continue;
     }
     // A non-owner fan-in member whose own chip SEATED on the shared run (at the
     // port y, between the merge and the port) crowds the run the owner's chip
@@ -3317,6 +3350,13 @@ export function deconflictChipAnchors(
       patch.faninChipHidden = true;
       patch.faninChipHiddenAtY = faninMemberRunByIndex.get(index)!.ty;
     }
+    // The off-line hide (a seat more than one chip pitch off its own polyline)
+    // carries the label anchor it was decided at, the fanoutBranchHiddenAt
+    // staleness pattern on the item phase's own anchor.
+    if (itemChipHiddenByIndex.has(index)) {
+      patch.itemChipHidden = true;
+      stamp("itemChipHiddenAt", itemChipHiddenAtByIndex.get(index));
+    }
     if (Object.keys(patch).length === 0) return edge;
     return { ...edge, data: { ...edge.data, ...patch } };
   });
@@ -3341,7 +3381,12 @@ export type ContentRect = {
 type ChipAnchorData = Partial<
   Pick<
     ItemEdgeData,
-    "labelDx" | "labelDy" | "faninChipHidden" | "faninChipHiddenAtY"
+    | "labelDx"
+    | "labelDy"
+    | "faninChipHidden"
+    | "faninChipHiddenAtY"
+    | "itemChipHidden"
+    | "itemChipHiddenAt"
   > &
     Pick<
       LaneBusEdgeData,
@@ -3427,6 +3472,15 @@ export function contentBounds(
       if (
         data?.faninChipHidden === true &&
         faninHideLive(data.faninChipHiddenAtY, ends.targetY)
+      ) {
+        continue;
+      }
+      // Staleness parity with ItemEdge's off-line hide (a seat more than one
+      // chip pitch off its own polyline), per-axis against the live label
+      // anchor; an absent stamp still hides.
+      if (
+        data?.itemChipHidden === true &&
+        anchorStampLive(data.itemChipHiddenAt, drawn.labelAnchor)
       ) {
         continue;
       }

@@ -14,6 +14,7 @@ import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
   MAX_CHIP_SCALE,
+  anchorStampLive,
   faninHideLive,
 } from "./dimensions";
 import { drawnEdge, parsePathPoints, type DrawnEdge } from "./edgePath";
@@ -112,6 +113,16 @@ export type ItemEdgeData = {
   // (like the whole marker) drops once a drag moves the live port off the stamp.
   faninChipHidden?: boolean;
   faninChipHiddenAtY?: number;
+  // Set on an item edge whose seated rate chip ended up MORE THAN ONE max-scale
+  // chip pitch off its own polyline: ItemEdge then draws no rate chip at all,
+  // because at that distance the line runs clear of the box and the chip names
+  // no flow. A seat at or under a pitch still draws, the #28 sidestep among
+  // them. The exact rate stays on the hover path and the target card's input
+  // row, as with the fan-in hide above. itemChipHiddenAt records the label
+  // anchor the hide was decided at, so a drag that moves the anchor drops the
+  // hide.
+  itemChipHidden?: true;
+  itemChipHiddenAt?: { x: number; y: number };
   // Declined fan-out marker (deconflictChipAnchors, #43). Where N >= 2 edges of
   // the same (item, source) run to >= 2 distinct targets but their span falls
   // outside routeFanoutEdges' band, no bus trunk forms: the members stay plain
@@ -673,16 +684,6 @@ export default function ItemEdge({
   const fanoutMarkerLive =
     edgeData?.fanoutJunctionY !== undefined &&
     faninHideLive(edgeData.fanoutJunctionY, sourceY);
-  // The zoom gate yields to the hover focus: a lit edge shows its rate at any
-  // zoom. The overlap-driven hides above still win, since they are placement
-  // rulings, not level of detail.
-  const chipText =
-    edgeData &&
-    rateStr &&
-    (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true) &&
-    !ownChipHidden
-      ? `${rateStr}${unit}`
-      : "";
   // The label pair is BigInt Fraction work (the exact half re-formats the
   // rational in full), and the zoom subscription above re-renders every edge on
   // every zoom tick, so it is memoized on what it actually reads: this edge's
@@ -756,6 +757,27 @@ export default function ItemEdge({
       dotPts,
     );
 
+  // A seat more than one chip pitch off the line it labels is hidden by the
+  // seating pass rather than floated (itemChipHidden). The hide holds only
+  // while the live label anchor still matches the stamp: nodes stay draggable
+  // and the pass reruns on drop, so mid-drag the chip returns rather than
+  // vanish where the geometry has since opened room. Same per-axis,
+  // absent-stamp-still-hides rule as BusEdge's branch hide.
+  const seatChipHidden =
+    edgeData?.itemChipHidden === true &&
+    anchorStampLive(edgeData.itemChipHiddenAt, drawn.labelAnchor);
+  // The zoom gate yields to the hover focus: a lit edge shows its rate at any
+  // zoom. The overlap-driven hides above still win, since they are placement
+  // rulings, not level of detail.
+  const chipText =
+    edgeData &&
+    rateStr &&
+    (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true) &&
+    !ownChipHidden &&
+    !seatChipHidden
+      ? `${rateStr}${unit}`
+      : "";
+
   const { stroke, style: mergedStyle } = edgeStrokeStyle(
     edgeData?.transportKind,
     edgeData?.item,
@@ -792,10 +814,11 @@ export default function ItemEdge({
           zoom={zoom}
         />
       ) : null}
-      {/* A hidden fan-in member drew no rate chip, so keep its exact rate
-          reachable on the edge itself: a transparent hover path over the same
-          geometry carries the native SVG tooltip (mirrors BusEdge). */}
-      {ownChipHidden && exactTitle ? (
+      {/* A hidden chip (fan-in member, or a seat more than one chip pitch off
+          its own polyline) drew no rate chip, so keep its exact rate reachable
+          on the edge itself: a transparent hover path over the same geometry
+          carries the native SVG tooltip (mirrors BusEdge). */}
+      {(ownChipHidden || seatChipHidden) && exactTitle ? (
         <HoverTitlePath d={edgePath} title={exactTitle} />
       ) : null}
       {/* Fan-in merge dot (owner only): where the last same-item member joins the
