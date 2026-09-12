@@ -15,9 +15,9 @@ import type { Edge } from "@xyflow/react";
 
 import {
   branchLegAfterJunction,
-  chipSeatHalfW,
   deconflictChipAnchors,
 } from "../../src/canvas/chipSeating";
+import { chipSeatHalfW } from "../../src/canvas/chipMetrics";
 import {
   chamferStepPath,
   chamferFanoutPath,

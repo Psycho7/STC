@@ -21,7 +21,7 @@ import {
   chamferFanoutPath,
   routingHintsFromData,
 } from "./edgePath";
-import { branchChipText } from "./chipSeating";
+import { branchChipText } from "./chipMetrics";
 import { HIDE_STALE_EPS } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
