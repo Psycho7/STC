@@ -1265,6 +1265,13 @@ export type SeatQuery = {
 // NARROWEST reserve the online passes use (the natural box, what the chip paints
 // at counter-scale 1), so a count of zero means no box this chip can draw fits
 // anywhere on its line: the edge cannot be seated on its line at all.
+//
+// Deliberately uncapped, though it walks the whole candidate list per item edge:
+// measured on multi6 at ~1400 candidate evaluations with lanes on and ~2400 with
+// lanes off, about 9% and 19% of a layout pass. Every cap that saves any of that
+// (anything up to 48) reorders the item seats, because the counts saturate and
+// the ties fall to the edge id; a cap of 12 or less hands battery5's e:1 its
+// approach leg to e:12 -- the one seat this ranking exists to protect.
 function clearOnLineSeats(query: SeatQuery, opts?: RateSeatOpts): number {
   const { field, path, flowKey, target, exempt, entryBand } = query;
   const { pts, anchorX, anchorY } = path;
