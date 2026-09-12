@@ -12,6 +12,7 @@ import { defaultTransportConfig } from "../../src/data/transport-config";
 import { rationalFromString, type Target } from "../../src/data/targets";
 import { solveLp } from "../../src/solver/lp";
 import { solvePlanWithIntermediates } from "../../src/solver/index";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import {
   checkSolvePlan,
   SOLVER_INVARIANT_CHECKERS,
@@ -20,7 +21,6 @@ import { loadPlan, describePlanLoadError } from "../../src/data/plan";
 import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
 import type { ItemOverride } from "../../src/data/plan";
 import type { RecipeId } from "../../src/solver/types";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
 import {
   checkRenderPlan,
   RENDER_INVARIANT_CHECKERS,
@@ -280,14 +280,12 @@ export async function runCli(argv: string[]): Promise<string> {
       return `error: cannot run render checks on a non-feasible solve (status=${lpResult.status})\n\n${lines.join("\n")}`;
     }
 
-    const full = solvePlanWithIntermediates(
+    const { plan } = solveForRender({
       targets,
       pack,
-      defaultTransportConfig,
       itemOverrides,
       recipeCosts,
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
+    });
 
     const results = checkRenderPlan({
       plan,

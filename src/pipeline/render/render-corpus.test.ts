@@ -18,7 +18,7 @@ import {
 import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
 import type { Target } from "../../data/targets";
-import { renderPlanFromSolve } from "../driver";
+import { solveForRender } from "../solveForRender";
 import {
   capProducerInputOutflow,
   type CapEdge,
@@ -86,18 +86,11 @@ const FEASIBLE_FIXTURES = CLOSED_FORM_FIXTURES.filter(
 describe("render corpus: known-good fixtures pass all invariants", () => {
   for (const fixture of FEASIBLE_FIXTURES) {
     it(`fixture: ${fixture.name}`, () => {
-      const full = solvePlanWithIntermediates(
-        fixture.targets,
-        fixture.pack,
-        defaultTransportConfig,
-        fixture.itemOverrides,
-      );
-      const { plan } = renderPlanFromSolve(
-        full,
-        fixture.pack,
-        fixture.targets,
-        fixture.itemOverrides ?? [],
-      );
+      const { full, plan } = solveForRender({
+        targets: fixture.targets,
+        pack: fixture.pack,
+        itemOverrides: fixture.itemOverrides ?? [],
+      });
       expect(() =>
         assertRenderInvariants({
           plan,
@@ -122,14 +115,12 @@ describe("render corpus: RF-1 regression", () => {
       );
     }
     const { targets, itemOverrides, recipeCosts } = planToSolverArgs(outcome.plan);
-    const full = solvePlanWithIntermediates(
+    const { full, plan } = solveForRender({
       targets,
       pack,
-      defaultTransportConfig,
       itemOverrides,
       recipeCosts,
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
+    });
     const results = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -171,66 +162,54 @@ describe("render corpus: RF-1 regression", () => {
 // jinlong_coupon-proc_battery_5 (single-target) and xiranite_poly+iron_powder
 // (multi-target).
 //
-// After isInvariantThrow classification (below) the swept population is green.
+// After isLpThrow classification (below) the swept population is green.
 // The two buckets that used to be deferred for the shared solver-residual
 // defect (copper_enr+liquid_xiranite_enr and 34 transfer_tundra_* singles, all
 // the wrong-rational pin-extraction class) are clean since the extraction snaps
 // pinned rates onto their exact floors, and sweep with everything else.
 //
-// isInvariantThrow separates a dev-invariant throw (surfaced as a failure) from
-// a genuine infeasibility/unsolvable throw (a legit skip), so a regression that
-// trips the solver/render dev assertion can no longer hide behind the
-// solve-catch.
+// isLpThrow separates a genuine infeasibility/unsolvable throw (a legit skip)
+// from everything else (surfaced as a failure), so a regression that trips the
+// solver/render dev assertion can no longer hide behind the solve-catch.
 // ---------------------------------------------------------------------------
 
 const SWEEP_TOL = new Fraction(1, 1000000);
 
-// A thrown error counts as a real failure only when it is an invariant
-// violation: the solver dev assertion throws "solver invariants violated:"
+// A genuinely infeasible/unsolvable LP throws "LP solver: infeasible problem" /
+// "LP solver: unbounded objective" from assertSolvable (src/solver/index.ts),
+// which is a legit skip. Every other throw out of the chain is a real failure:
+// the solver dev assertion throws "solver invariants violated:"
 // (src/solver/invariants.ts) and the render dev assertion throws "render
-// invariants violated:" (src/pipeline/render/invariants.ts). A genuinely
-// infeasible/unsolvable LP throws "LP solver: infeasible problem" / "LP solver:
-// unbounded objective" from assertSolvable (src/solver/index.ts), which is a
-// legit skip.
-function isInvariantThrow(err: unknown): boolean {
-  return String(err).includes("invariants violated");
+// invariants violated:" (src/pipeline/render/invariants.ts).
+function isLpThrow(err: unknown): boolean {
+  return String(err).includes("LP solver:");
 }
 
 // Run one plan through solve + render and return its gate failures. Empty array
 // means clean, or skipped as non-feasible (skipped is true and the caller does
-// not count it). A solve/render throw from a dev invariant assertion is
-// surfaced as a failure; only an infeasibility/unsolvable throw is a skip.
+// not count it). Solve and render are one call, so one catch classifies both:
+// only an infeasibility/unsolvable throw is a skip, every other throw (a dev
+// invariant assertion from either half) is a failure.
 function sweepPlan(
   name: string,
   targets: Target[],
 ): { skipped: boolean; failures: string[] } {
-  let full;
+  let out;
   try {
-    full = solvePlanWithIntermediates(targets, pack, defaultTransportConfig, []);
+    out = solveForRender({ targets, pack });
   } catch (err) {
-    if (isInvariantThrow(err)) {
-      return {
-        skipped: false,
-        failures: [`${name}: solver-invariant-throw: ${String(err)}`],
-      };
-    }
-    // Infeasible / unsolvable LP: a skip.
-    return { skipped: true, failures: [] };
+    // Infeasible / unsolvable LP: a skip. Anything else is a dev invariant
+    // assertion from one of the two halves, which is a failure.
+    if (isLpThrow(err)) return { skipped: true, failures: [] };
+    return {
+      skipped: false,
+      failures: [`${name}: invariant-throw: ${String(err)}`],
+    };
   }
+  const { full, plan, machineGraph } = out;
   if (!full.feasibility.softFeasible) return { skipped: true, failures: [] };
 
   const failures: string[] = [];
-
-  let out;
-  try {
-    out = renderPlanFromSolve(full, pack, targets, []);
-  } catch (err) {
-    // A feasible plan whose render throws the dev render-invariant assertion is
-    // a failure, not a skip.
-    failures.push(`${name}: render-crash: ${String(err)}`);
-    return { skipped: false, failures };
-  }
-  const { plan, machineGraph } = out;
 
   // Gate (a): render invariants.
   const results = checkRenderPlan({
@@ -320,13 +299,7 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
 // ---------------------------------------------------------------------------
 describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
   function renderClean(targets: Target[]) {
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { full, plan } = solveForRender({ targets, pack });
     const results = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -397,13 +370,8 @@ describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
 const MC_TOL = new Fraction(1, 1000000);
 
 function machineCountGaps(targets: Target[], packArg = pack) {
-  const full = solvePlanWithIntermediates(
-    targets,
-    packArg,
-    defaultTransportConfig,
-    [],
-  );
-  const out = renderPlanFromSolve(full, packArg, targets, []);
+  const out = solveForRender({ targets, pack: packArg });
+  const full = out.full;
   const vtx = new Map<string, Fraction>();
   for (const v of out.machineGraph.vertices)
     if (isMachineRecipeVertex(v))
@@ -483,14 +451,8 @@ describe("render corpus: tiny plan clears sub-unit checker tolerances", () => {
     const targets: Target[] = [
       { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "1000000" } },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
+    const { full, plan } = solveForRender({ targets, pack });
     expect(full.feasibility.softFeasible).toBe(true);
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -660,14 +622,11 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
   } {
     // BRIDGE: JINLONG_STEER keeps the jinlong demand on the xiranite route
     // (no-op for plans without a jinlong target).
-    const full = solvePlanWithIntermediates(
+    const { full, plan } = solveForRender({
       targets,
-      legacyPack,
-      defaultTransportConfig,
-      [],
-      JINLONG_STEER,
-    );
-    const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
+      pack: legacyPack,
+      recipeCosts: JINLONG_STEER,
+    });
     const enrUnitIds = new Set(
       plan.units
         .filter((u) => u.kind === "recipe" && u.recipeId === "xiranite_enr_powder")
@@ -687,14 +646,11 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
       // legacyPack: on the full v1.4 pack the gas route displaces
       // xiranite_enr_powder from these plans entirely, so the SCC this suite
       // regression-tests never forms.
-      const full = solvePlanWithIntermediates(
+      const { full, plan } = solveForRender({
         targets,
-        legacyPack,
-        defaultTransportConfig,
-        [],
-        JINLONG_STEER,
-      );
-      const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
+        pack: legacyPack,
+        recipeCosts: JINLONG_STEER,
+      });
       const violations = checkRenderPlan({
         plan,
         rates: full.rates,
@@ -721,13 +677,7 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
       { itemId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
       { itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      legacyPack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
+    const { full, plan } = solveForRender({ targets, pack: legacyPack });
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -804,13 +754,7 @@ describe("torn-arc coverage: back-edge tearing on witness plans", () => {
         itemId: pack.recipes.find((r) => r.id === recipeId)?.out[0]?.item ?? "",
         ratePerSec: { num: "1", denom: "1" },
       }));
-      const full = solvePlanWithIntermediates(
-        targets,
-        pack,
-        defaultTransportConfig,
-        [],
-      );
-      const { plan } = renderPlanFromSolve(full, pack, targets, []);
+      const { full, plan } = solveForRender({ targets, pack });
       const violations = checkRenderPlan({
         plan,
         rates: full.rates,
@@ -885,14 +829,11 @@ describe("render corpus: co-product fans across sibling replicas (P6)", () => {
   // exercises only forms on the pre-gas route. On the full v1.4 pack the gas
   // chain meets the steered jinlong demand and liquid_xiranite_poly never runs.
   function solveP6() {
-    const full = solvePlanWithIntermediates(
-      P6_TARGETS,
-      legacyPack,
-      defaultTransportConfig,
-      [],
-      JINLONG_STEER,
-    );
-    const { plan } = renderPlanFromSolve(full, legacyPack, P6_TARGETS, []);
+    const { full, plan } = solveForRender({
+      targets: P6_TARGETS,
+      pack: legacyPack,
+      recipeCosts: JINLONG_STEER,
+    });
     return { full, plan };
   }
 
@@ -1041,13 +982,7 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       { itemId: "plant_moss_seed_3", ratePerSec: { num: "1", denom: "1" } },
       { itemId: "plant_moss_powder_3", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { full, plan } = solveForRender({ targets, pack });
 
     const rows = producerSpares(plan, "plant_moss_seed_3");
     const zeroSpare = rows.filter((r) => r.trueSpare.equals(new Fraction(0)));
@@ -1091,13 +1026,7 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       { itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "1" } },
       { itemId: "liquid_xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      legacyPack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
+    const { full, plan } = solveForRender({ targets, pack: legacyPack });
 
     const allRows = producerSpares(plan, "liquid_xiranite_poly");
     const rows = allRows.filter(
@@ -1152,13 +1081,7 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { full, plan } = solveForRender({ targets, pack });
 
     const outflow = checkUnitOutflowVsProduction({
       plan,
@@ -1208,13 +1131,7 @@ describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", (
     }));
 
     function solveWitness() {
-      const full = solvePlanWithIntermediates(
-        targets,
-        pack,
-        defaultTransportConfig,
-        [],
-      );
-      const { plan } = renderPlanFromSolve(full, pack, targets, []);
+      const { full, plan } = solveForRender({ targets, pack });
       return { full, plan };
     }
 
@@ -1401,14 +1318,12 @@ describe("render corpus: shared byproduct supplier apportionment (plan:true over
   // BRIDGE: JINLONG_STEER keeps a jinlong target on the xiranite route
   // (no-op for plans without a jinlong target).
   function waterFlowsByRecipe(targets: Target[]) {
-    const full = solvePlanWithIntermediates(
+    const { full, plan } = solveForRender({
       targets,
       pack,
-      defaultTransportConfig,
-      WATER_OVERRIDE,
-      JINLONG_STEER,
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, WATER_OVERRIDE);
+      itemOverrides: WATER_OVERRIDE,
+      recipeCosts: JINLONG_STEER,
+    });
     const unitRecipe = new Map<string, string>();
     for (const u of plan.units) {
       if (u.kind === "recipe") unitRecipe.set(u.id, u.recipeId);
@@ -1528,13 +1443,7 @@ describe("render corpus: edge-rate bit-identity guard (copper_enr_cmpt)", () => 
     const targets: Target[] = [
       { itemId: "copper_enr_cmpt", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      legacyPack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, legacyPack, targets, []);
+    const { plan } = solveForRender({ targets, pack: legacyPack });
     const unitLabel = new Map<string, string>();
     for (const u of plan.units) {
       unitLabel.set(u.id, u.kind === "recipe" ? u.recipeId : `${u.kind}:${u.id}`);

@@ -14,14 +14,9 @@ import {
 import { directCorridorClear } from "../../src/canvas/busRouting";
 import { loadPlan } from "../../src/data/plan";
 import { planToSolverArgs } from "../../src/solver/planToSolverArgs";
-import { solvePlanWithIntermediates } from "../../src/solver";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import { layoutRenderPlan } from "../../src/canvas/layout";
 import { pack } from "../../src/data/load";
-import {
-  defaultTransportConfig,
-  loadTransportConfig,
-} from "../../src/data/transport-config";
 
 describe("computeEdgeSpans", () => {
   it("pins the current long-edge threshold at 820 so span fixtures stay valid", () => {
@@ -68,16 +63,13 @@ async function solvedReproPlan() {
   const { targets, itemOverrides, recipeCosts } = planToSolverArgs(
     outcome.plan,
   );
-  const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-  const full = solvePlanWithIntermediates(
+  const { full, plan } = solveForRender({
     targets,
     pack,
-    tConfig,
     itemOverrides,
     recipeCosts,
-  );
+  });
   const itemById = new Map(pack.items.map((i) => [i.id, i]));
-  const { plan } = renderPlanFromSolve(full, pack, targets, itemOverrides);
   return { plan, recipeById: full.recipeById, itemById };
 }
 

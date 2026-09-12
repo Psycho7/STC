@@ -1,14 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { solvePlanWithIntermediates } from "../../src/solver";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import { layoutRenderPlan } from "../../src/canvas/layout";
 import { pack } from "../../src/data/load";
-import {
-  defaultTransportConfig,
-  loadTransportConfig,
-} from "../../src/data/transport-config";
 import type { Target } from "../../src/data/targets";
 import type { ItemOverride } from "../../src/data/plan";
 import type { Recipe } from "@aef/schema";
@@ -124,21 +119,9 @@ describe("regression: AEF render-plan fixtures", () => {
   for (const { file, fixture } of fixtures) {
     describe(`${file}: ${fixture.name}`, () => {
       it("runs solver -> render plan -> layout and meets expectations", async () => {
-        const tConfig = loadTransportConfig(defaultTransportConfig, pack);
         const itemOverrides = fixture.itemOverrides ?? [];
         const targets = fixture.targets;
-        const full = solvePlanWithIntermediates(
-          targets,
-          pack,
-          tConfig,
-          itemOverrides,
-        );
-        const { plan } = renderPlanFromSolve(
-          full,
-          pack,
-          targets,
-          itemOverrides,
-        );
+        const { plan } = solveForRender({ targets, pack, itemOverrides });
 
         // Layout must succeed; we do not snapshot positions here (those are
         // ELK-dependent and noisy under version bumps). The call itself

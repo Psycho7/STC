@@ -10,7 +10,7 @@ import Fraction from "fraction.js";
 import { pack } from "../../data/load";
 import { solvePlanWithIntermediates } from "../../solver/index";
 import { defaultTransportConfig } from "../../data/transport-config";
-import { renderPlanFromSolve } from "../driver";
+import { solveForRender } from "../solveForRender";
 import { checkRenderPlan } from "./invariants";
 import { makePack } from "../../solver/closed-form-fixtures";
 import { isInputProductUnit, isOutputProductUnit, isRecipeUnit } from "../types";
@@ -27,13 +27,11 @@ function solveAndRender(
   rates: ReadonlyMap<string, Fraction>;
   softFeasible: boolean;
 } {
-  const full = solvePlanWithIntermediates(
+  const { full, plan } = solveForRender({
     targets,
-    fixturePack,
-    defaultTransportConfig,
-    overrides,
-  );
-  const { plan } = renderPlanFromSolve(full, fixturePack, targets, overrides);
+    pack: fixturePack,
+    itemOverrides: overrides,
+  });
   const violations = checkRenderPlan({
     plan,
     rates: full.rates,

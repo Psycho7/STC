@@ -38,9 +38,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Machine, Recipe, RecipePack } from "@aef/schema";
 import { pack as shippedPack } from "../../src/data/load";
-import { defaultTransportConfig } from "../../src/data/transport-config";
 import { rationalFromString } from "../../src/data/targets";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import {
   isInputProductUnit,
   isRecipeUnit,
@@ -52,7 +51,6 @@ import {
   isSinkRecipe,
   producibleItemIds,
 } from "../../src/data/recipe-category";
-import { solvePlanWithIntermediates } from "../../src/solver/index";
 import {
   SCENARIOS,
   scenarioHash,
@@ -236,14 +234,7 @@ async function coverOne(
   scenario: Scenario,
 ): Promise<PlanCoverage> {
   const hash = await scenarioHash(scenario);
-  const full = solvePlanWithIntermediates(
-    scenario.targets,
-    pack,
-    defaultTransportConfig,
-    [],
-    undefined,
-  );
-  const out = renderPlanFromSolve(full, pack, scenario.targets, []);
+  const out = solveForRender({ targets: scenario.targets, pack });
 
   const recipeById = new Map(pack.recipes.map((r) => [r.id, r]));
   const recipeIds = new Set<string>();

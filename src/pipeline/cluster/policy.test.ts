@@ -5,9 +5,7 @@ import type { ClusteringPolicyInput } from "../types";
 import type { Condensation, Replica } from "../../solver/types";
 import type { LogicalGraph } from "../../canvas/layout";
 import { pack } from "../../data/load";
-import { solvePlanWithIntermediates } from "../../solver/index";
-import { defaultTransportConfig } from "../../data/transport-config";
-import { renderPlanFromSolve } from "../../pipeline/driver";
+import { solveForRender } from "../solveForRender";
 import type { ItemTarget } from "../../data/targets";
 
 // PillarsOnly ignores the logical graph entirely; an empty one keeps the
@@ -97,13 +95,7 @@ describe("loop boxes against the shipped pack", () => {
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { plan } = solveForRender({ targets, pack });
     return plan.containers
       .filter((c) => c.kind === "loop-box")
       .map((c) => ({

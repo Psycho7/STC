@@ -6,7 +6,7 @@ import {
   coProductTarget,
   dualTargetItemsOneRecipe,
 } from "./corpus";
-import { renderPlanFromSolve } from "../pipeline/driver";
+import { solveForRender } from "../pipeline/solveForRender";
 import { checkRenderPlan } from "../pipeline/render/invariants";
 import { withoutGasMachines } from "./closed-form-fixtures";
 import { pack } from "../data/load";
@@ -441,13 +441,12 @@ describe("LP-split target item through replicate and render", () => {
   it("replicates both producers and feeds the target output the declared rate", () => {
     const { pack: p, targets, itemOverrides, recipeCosts } =
       splitTargetProducers;
-    const full = solvePlanWithIntermediates(
+    const { full, plan } = solveForRender({
       targets,
-      p,
-      defaultTransportConfig,
+      pack: p,
       itemOverrides,
       recipeCosts,
-    );
+    });
 
     // (a) Both producers replicate at their full LP rates.
     const zero = new Fraction(0);
@@ -462,7 +461,6 @@ describe("LP-split target item through replicate and render", () => {
 
     // (c) The render pipeline completes under the DEV invariant hooks and
     // every render checker reports zero violations.
-    const { plan } = renderPlanFromSolve(full, p, targets, itemOverrides);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -500,7 +498,7 @@ describe("co-product target items through replicate and render", () => {
   // production as its split weight.
   it("feeds the primary-output consumer despite a co-product draw on its producer", () => {
     const { pack: p, targets } = coProductTarget;
-    const full = solvePlanWithIntermediates(targets, p, defaultTransportConfig);
+    const { full, plan } = solveForRender({ targets, pack: p });
 
     const zero = new Fraction(0);
     const sumOf = (rid: string) =>
@@ -512,7 +510,6 @@ describe("co-product target items through replicate and render", () => {
     expect(sumOf("r_co").equals(1)).toBe(true);
     expect(sumOf("r_use").equals(1)).toBe(true);
 
-    const { plan } = renderPlanFromSolve(full, p, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -543,14 +540,13 @@ describe("co-product target items through replicate and render", () => {
   // once and the per-item draws must both be honored.
   it("seeds a two-target-item recipe once and feeds both target outputs", () => {
     const { pack: p, targets } = dualTargetItemsOneRecipe;
-    const full = solvePlanWithIntermediates(targets, p, defaultTransportConfig);
+    const { full, plan } = solveForRender({ targets, pack: p });
 
     expect(full.rates.get("r_dual")!.equals(1)).toBe(true);
     const dualReplicas = full.replicas.filter((r) => r.recipeId === "r_dual");
     expect(dualReplicas).toHaveLength(1);
     expect(dualReplicas[0]!.executionRate.equals(1)).toBe(true);
 
-    const { plan } = renderPlanFromSolve(full, p, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -582,13 +578,8 @@ describe("co-product target items through replicate and render", () => {
     const targets: ItemTarget[] = [
       { itemId: "liquid_sewage", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-    );
+    const { full, plan } = solveForRender({ targets, pack });
     expect(full.feasibility.softFeasible).toBe(true);
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,
@@ -614,15 +605,10 @@ describe("free-boundary target items through render", () => {
     const targets: ItemTarget[] = [
       { itemId: "iron_ore", ratePerSec: { num: "1", denom: "1" } },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-    );
+    const { full, plan } = solveForRender({ targets, pack });
     expect(full.feasibility.softFeasible).toBe(true);
     expect(full.rates.size).toBe(0);
 
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
     const violations = checkRenderPlan({
       plan,
       rates: full.rates,

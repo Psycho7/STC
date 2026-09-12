@@ -5,14 +5,9 @@
 // graph is well-formed.
 
 import { describe, it, expect } from "vitest";
-import { solvePlanWithIntermediates } from "../../../src/solver";
-import { renderPlanFromSolve } from "../../../src/pipeline/driver";
+import { solveForRender } from "../../../src/pipeline/solveForRender";
 import { layoutRenderPlan } from "../../../src/canvas/layout";
 import { pack } from "../../../src/data/load";
-import {
-  defaultTransportConfig,
-  loadTransportConfig,
-} from "../../../src/data/transport-config";
 import { defaultTargets } from "../../../src/data/targets";
 import type { RenderPlan } from "../../../src/pipeline/types";
 import type { ItemOverride } from "../../../src/data/plan";
@@ -21,14 +16,7 @@ import type { ItemOverride } from "../../../src/data/plan";
 function buildAlwaysFoldPlan(): RenderPlan {
   const targets = defaultTargets();
   const itemOverrides: ItemOverride[] = [];
-  const tConfig = loadTransportConfig(defaultTransportConfig, pack);
-  const full = solvePlanWithIntermediates(
-    targets,
-    pack,
-    tConfig,
-    itemOverrides,
-  );
-  return renderPlanFromSolve(full, pack, targets, itemOverrides).plan;
+  return solveForRender({ targets, pack, itemOverrides }).plan;
 }
 
 describe("AlwaysFoldRender -> ELK acceptance", () => {

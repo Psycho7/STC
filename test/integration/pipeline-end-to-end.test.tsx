@@ -1,13 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import App from "../../src/App";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
-import { solvePlanWithIntermediates } from "../../src/solver";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import { pack } from "../../src/data/load";
-import {
-  defaultTransportConfig,
-  loadTransportConfig,
-} from "../../src/data/transport-config";
 import { defaultTargets } from "../../src/data/targets";
 import { RENDER_UNIT_KINDS } from "../../src/pipeline/types";
 
@@ -52,12 +47,7 @@ describe("integration: App boots end-to-end via the new pipeline", () => {
 
 describe("integration: render plan emits only MVP unit kinds", () => {
   it("contains no fold-era or other legacy unit kinds", () => {
-    const full = solvePlanWithIntermediates(
-      defaultTargets(),
-      pack,
-      loadTransportConfig(defaultTransportConfig, pack),
-    );
-    const { plan } = renderPlanFromSolve(full, pack, defaultTargets(), []);
+    const { plan } = solveForRender({ targets: defaultTargets(), pack });
     const allowed = new Set<string>(RENDER_UNIT_KINDS);
     for (const u of plan.units) {
       expect(allowed.has(u.kind)).toBe(true);

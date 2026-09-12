@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import Fraction from "fraction.js";
 import type { Item, Recipe, Stoich, TransportKindId } from "@aef/schema";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import { expandMultipliers } from "../../src/pipeline/expand";
 import type {
   LogicalEdge,
@@ -10,12 +10,7 @@ import type {
 } from "../../src/canvas/layout";
 import type { ItemId } from "../../src/pipeline/types";
 import type { Replica } from "../../src/solver/types";
-import { solvePlanWithIntermediates } from "../../src/solver";
 import { pack } from "../../src/data/load";
-import {
-  defaultTransportConfig,
-  loadTransportConfig,
-} from "../../src/data/transport-config";
 import { defaultTargets } from "../../src/data/targets";
 
 // ---------------------------------------------------------------------------
@@ -247,13 +242,8 @@ describe("expandMultipliers / MachineEdge.transportKind", () => {
 
 describe("renderPlanFromSolve / RenderEdge.transportKind end-to-end", () => {
   it("propagates pack-derived transportKind onto every RenderEdge", () => {
-    const full = solvePlanWithIntermediates(
-      defaultTargets(),
-      pack,
-      loadTransportConfig(defaultTransportConfig, pack),
-    );
+    const { plan } = solveForRender({ targets: defaultTargets(), pack });
     const itemById = new Map(pack.items.map((i) => [i.id, i]));
-    const { plan } = renderPlanFromSolve(full, pack, defaultTargets(), []);
     expect(plan.edges.length).toBeGreaterThan(0);
     for (const e of plan.edges) {
       const item = itemById.get(e.item);

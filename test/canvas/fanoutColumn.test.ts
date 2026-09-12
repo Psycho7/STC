@@ -30,9 +30,7 @@ import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 import { layoutRenderPlan } from "../../src/canvas/layout";
 import { pack } from "../../src/data/load";
-import { solvePlanWithIntermediates } from "../../src/solver/index";
-import { defaultTransportConfig } from "../../src/data/transport-config";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import type { ItemTarget } from "../../src/data/targets";
 
 // How many of the card's members jogForwardLegs re-columns (srcColX): a member
@@ -496,13 +494,7 @@ describe("the gas_xiranite fan-out of equip_script_4_3", () => {
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { full, plan } = solveForRender({ targets, pack });
     const { nodes, edges } = await layoutRenderPlan({
       plan,
       recipeById: full.recipeById,

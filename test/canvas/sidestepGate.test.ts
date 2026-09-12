@@ -35,9 +35,7 @@ import {
 } from "../../src/canvas/nodeGeometry";
 import { pointToPolylineDistance } from "../../src/canvas/crossings";
 import { pack } from "../../src/data/load";
-import { solvePlanWithIntermediates } from "../../src/solver/index";
-import { defaultTransportConfig } from "../../src/data/transport-config";
-import { renderPlanFromSolve } from "../../src/pipeline/driver";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import type { ItemTarget } from "../../src/data/targets";
 import type { RFAnyNode } from "../../src/canvas/layout";
 
@@ -96,13 +94,7 @@ async function offPathChips(
   targets: ItemTarget[],
   busLanesEnabled: boolean,
 ): Promise<OffPathHit[]> {
-  const full = solvePlanWithIntermediates(
-    targets,
-    pack,
-    defaultTransportConfig,
-    [],
-  );
-  const { plan } = renderPlanFromSolve(full, pack, targets, []);
+  const { full, plan } = solveForRender({ targets, pack });
   const { nodes, edges } = await layoutRenderPlan({
     plan,
     recipeById: full.recipeById,
@@ -272,13 +264,7 @@ describe("multi6: a bus rise chip keeps the lane stroke inside its box", () => {
   ];
 
   it("lifts no rise chip past the depth its own box covers", async () => {
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
-    const { plan } = renderPlanFromSolve(full, pack, targets, []);
+    const { full, plan } = solveForRender({ targets, pack });
     const { edges } = await layoutRenderPlan({
       plan,
       recipeById: full.recipeById,

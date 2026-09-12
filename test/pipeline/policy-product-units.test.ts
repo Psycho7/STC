@@ -1,13 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import Fraction from "fraction.js";
 import { renderPlanFromSolve } from "../../src/pipeline/driver";
-import { solvePlanWithIntermediates } from "../../src/solver";
+import { solveForRender } from "../../src/pipeline/solveForRender";
 import { pack } from "../../src/data/load";
 import { makePack } from "../../src/solver/closed-form-fixtures";
-import {
-  defaultTransportConfig,
-  loadTransportConfig,
-} from "../../src/data/transport-config";
 import type { Target } from "../../src/data/targets";
 import type { ItemOverride } from "../../src/data/plan";
 import { NoFoldRender } from "../../src/pipeline/render/policy";
@@ -48,20 +44,12 @@ function emitProducts(
   plan: ReturnType<typeof renderPlanFromSolve>["plan"];
   recipeById: ReadonlyMap<string, Recipe>;
 } {
-  const tConfig = loadTransportConfig(defaultTransportConfig, fixturePack);
   const solverTargets = targets;
-  const full = solvePlanWithIntermediates(
-    solverTargets,
-    fixturePack,
-    tConfig,
+  const { full, plan } = solveForRender({
+    targets: solverTargets,
+    pack: fixturePack,
     itemOverrides,
-  );
-  const { plan } = renderPlanFromSolve(
-    full,
-    fixturePack,
-    solverTargets,
-    itemOverrides,
-  );
+  });
   const inputs = plan.units.filter(isInputProductUnit);
   const outputs = plan.units.filter(isOutputProductUnit);
   return { inputs, outputs, plan, recipeById: full.recipeById };

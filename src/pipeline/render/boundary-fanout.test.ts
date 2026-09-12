@@ -10,9 +10,7 @@ import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import { pack } from "../../data/load";
 import { withoutGasMachines } from "../../solver/closed-form-fixtures";
-import { solvePlanWithIntermediates } from "../../solver/index";
-import { defaultTransportConfig } from "../../data/transport-config";
-import { renderPlanFromSolve } from "../driver";
+import { solveForRender } from "../solveForRender";
 import { isInputProductUnit } from "../types";
 import type { RenderPlan, RenderUnitInputProduct } from "../types";
 import type { Target } from "../../data/targets";
@@ -44,13 +42,7 @@ function renderPlanFor(
     itemId: packArg.recipes.find((r) => r.id === recipeId)!.out[0]!.item,
     ratePerSec: RATE_ONE,
   }));
-  const full = solvePlanWithIntermediates(
-    targets,
-    packArg,
-    defaultTransportConfig,
-    [],
-  );
-  const { plan } = renderPlanFromSolve(full, packArg, targets, []);
+  const { full, plan } = solveForRender({ targets, pack: packArg });
   return {
     plan,
     rates: full.rates,
@@ -161,25 +153,32 @@ describe("boundary inputs: container slices plus loose consumers", () => {
   });
 });
 
+// assertSolvable throws "LP solver: infeasible problem" / "LP solver:
+// unbounded objective" (src/solver/index.ts) when the plan has no solution at
+// all; every other throw out of the solve+render chain is a DEV invariant
+// assertion.
+function isLpThrow(err: unknown): boolean {
+  return String(err).includes("LP solver:");
+}
+
 describe("boundary inputs: corpus sweep", () => {
   it("mints no per-consumer slice ids and keeps every product rate clean", () => {
     const failures: string[] = [];
 
     const sweep = (name: string, targets: Target[]): void => {
-      let full;
+      let out;
       try {
-        full = solvePlanWithIntermediates(
-          targets,
-          pack,
-          defaultTransportConfig,
-          [],
-        );
-      } catch {
-        return; // infeasible / unsolvable: not this suite's business
+        out = solveForRender({ targets, pack });
+      } catch (err) {
+        // Infeasible / unsolvable: not this suite's business. Anything else
+        // (a DEV invariant assertion from either half) still rides out, the
+        // way a render throw always has.
+        if (!isLpThrow(err)) throw err;
+        return;
       }
-      if (!full.feasibility.softFeasible) return;
+      if (!out.full.feasibility.softFeasible) return;
 
-      const { plan } = renderPlanFromSolve(full, pack, targets, []);
+      const { full, plan } = out;
       for (const u of plan.units) {
         if (u.id.includes(":tap:")) failures.push(`${name}: tap id ${u.id}`);
       }
