@@ -253,13 +253,15 @@ describe("battery5: no chip takes the only line another edge has", () => {
 });
 
 describe("multi6: a bus rise chip keeps the lane stroke inside its box", () => {
-  // e:80's rise chip sits a chamfer from its own trunk's junction dot, so the
-  // dot keep-off used to lift it a full CHIP_PITCH_Y off the lane. A pitch is
-  // exactly two max-scale half-heights, so the lane stroke landed ON the box
-  // edge and the chip read as floating beside a lane with nothing tying it
-  // there (the e2e seat-validity census reported it 48.0 off its own line).
-  // The keep-off's budget is now one bite, too small to take the box off a dot
-  // on the lane, so it yields and the chip keeps its lane slot.
+  // e:80's rise chip sits a chamfer from its own trunk's junction dot, and it
+  // stays seated on its lane: a bite is the most a lane chip lifts for a thin
+  // obstacle, and a bite is under a max-scale half-height, so the lane stroke
+  // still runs inside the box the chip paints. A neighbouring chip is what costs
+  // a full CHIP_PITCH_Y lift, and a dot costs nothing. At a pitch -- exactly two
+  // max-scale half-heights -- the stroke lands ON the box edge, which is why a
+  // rise needing more than one pitch is hidden rather than cast adrift (the e2e
+  // seat-validity census reported such a chip 48.0 off its own line). Covering
+  // the dot is the accepted cost of keeping the chip on its lane.
   const targets: ItemTarget[] = [
     { itemId: "bottled_food_5", ratePerSec: { num: "1", denom: "2" } },
     { itemId: "bottled_rec_hp_5", ratePerSec: { num: "1", denom: "2" } },

@@ -114,31 +114,27 @@ describe("junction dots: lane bus member (BusEdge branch dot)", () => {
     const seated = deconflictChipAnchors(nodes, routed);
     expect(dataOf(seated, "e:1").laneY).toBe(laneY);
 
-    // A LONE member draws no dot (nothing branches at its corner, #83), so the
-    // keep-off never fires and its rise chip stays seated ON the lane.
+    // A LONE member draws no dot (nothing branches at its corner, #83), and its
+    // rise chip stays seated ON the lane.
     expect(dataOf(seated, "e:1").busChipDy).toBeUndefined();
 
-    // Stamped multi-member, the dot returns -- and the cached dot is READ, not
-    // merely cached (#50): the member's rise chip anchors on the lane a
-    // chamfer right of this junction, so its box would swallow the dot at
-    // dy 0 -- and it does, because the keep-off no longer lifts it. The pass's
-    // budget is one BITE, the furthest offset that keeps the lane stroke inside
-    // the box the chip paints, and a dot sitting ON the lane needs more than a
-    // half-height of lift to leave that box: the two cannot both be had. So the
-    // pass yields under its own stated precedence (the dot is decorative, a rate
-    // chip cut loose from its lane is not) and the chip keeps its lane slot.
-    // This is still the pin that fails if the cached lane dot ever stops
-    // matching the drawn one above: a stamped lift would mean the pass saw a
-    // DIFFERENT dot from the one drawn.
+    // Stamped multi-member, the dot returns, and the rise chip still keeps its
+    // lane slot: it anchors on the lane a chamfer right of this junction, so its
+    // box swallows the dot at dy 0, and nothing lifts it off. Covering the dot
+    // is the ratified trade -- the dot is decorative, a rate chip cut loose from
+    // its lane is not -- because the seat only lifts to clear a chip or a
+    // stroke, and a dot sitting ON the lane is neither.
     const multi = routed.map((e) =>
       e.id === "e:1" ? { ...e, data: { ...e.data, busMemberCount: 2 } } : e,
     );
     const seatedMulti = deconflictChipAnchors(nodes, multi);
     expect(dataOf(seatedMulti, "e:1").busChipDy).toBeUndefined();
-    // Why the old one-pitch lift had to go: a pitch is exactly two half-heights,
-    // so it puts the lane stroke ON the box edge, where the seat-validity census
-    // reads the line as missing the box. Any lift the pass may still take is
-    // strictly inside that depth.
+    // Why no lift can buy the dot back: the bite is strictly under one chip
+    // half-height, so the lane stroke stays inside the box the chip paints,
+    // while a dot sitting ON the lane needs more than a half-height of lift to
+    // leave that box. A pitch is exactly two half-heights, which puts the stroke
+    // ON the box edge -- a lift the seat only pays to clear a neighbouring chip,
+    // never for a dot.
     expect(Math.abs(LANE_BITE)).toBeLessThan(CHIP_HALF_H);
     expect(Math.abs(CHIP_PITCH)).toBeGreaterThanOrEqual(2 * CHIP_HALF_H);
   });

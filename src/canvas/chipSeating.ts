@@ -390,8 +390,7 @@ const CHIP_NUDGE_STEP = CHIP_PITCH_Y;
 // ON the box edge and the chip reads as floating beside the lane. The bite is
 // that depth less a few units of margin. It is tried as an early rung of the
 // cascade, ahead of the full pitch, so a chip that can clear its obstacle with a
-// small lift keeps its line; and it is the WHOLE budget of the junction-dot
-// keep-off, which may not buy a dot at the price of casting the chip adrift.
+// small lift keeps its line.
 const LANE_LINE_KEEP = 4;
 const LANE_BITE = CHIP_HALF_H - LANE_LINE_KEEP;
 
@@ -764,23 +763,19 @@ export type ClearanceField = {
     entryBand?: EntryBand,
     ownIds?: ReadonlySet<string>,
   ): ReadonlyArray<ClippedSeg>;
-  // Would this box swallow a junction dot? Chips paint ABOVE the dots in the
-  // shared label layer (canvas.css .flow-chip z-index 2 vs .bus-junction 1) and
-  // are opaque, so a chip seated on a dot does not overlap it -- it deletes it,
-  // and the merge / split the dot marks reads as an ordinary corner. Unlike the
-  // chip and card predicates this one is a PREFERENCE the seat tiers consult
-  // where a cheap alternative exists (a step along the own line, one pitch off a
-  // lane); it never forces a chip off its line or into a coarser tier.
-  coversDot(box: ChipBox): boolean;
-  // How many junction dots this box swallows -- the counting sibling of
-  // coversDot, for the graze tier's scored seat. Zero exactly when coversDot is
-  // false.
+  // How many junction dots this box would swallow, for the graze tier's scored
+  // seat. Chips paint ABOVE the dots in the shared label layer (canvas.css
+  // .flow-chip z-index 2 vs .bus-junction 1) and are opaque, so a chip seated on
+  // a dot does not overlap it -- it deletes it, and the merge / split the dot
+  // marks reads as an ordinary corner. Unlike the chip and card predicates this
+  // one is a PREFERENCE: it never forces a chip off its line or into a coarser
+  // tier.
   dotsCovered(box: ChipBox): number;
   // Deepest over-budget reach of this box into one of the edge's OWN endpoint
   // cards (chipOwnCardIntrusion, worst card), 0 when every one of them is within
   // the port strip. Only own cards are asked: a foreign card is hard-blocked by
   // entersForeignCard in every tier, so a candidate that got this far cannot be
-  // on one. Like coversDot this is a PREFERENCE -- the on-line tiers minimise it
+  // on one. Like dotsCovered this is a PREFERENCE -- the on-line tiers minimise it
   // and no tier is blocked by it.
   ownCardIntrusion(box: ChipBox, exempt: CardExemption): number;
 };
@@ -891,7 +886,6 @@ export function makeClearanceField(
       }
       return out;
     },
-    coversDot: (box) => dots.some((d) => swallows(box, d)),
     dotsCovered: (box) =>
       dots.reduce((n, d) => n + (swallows(box, d) ? 1 : 0), 0),
     ownCardIntrusion: (box, exempt) => {
@@ -971,18 +965,10 @@ function seatChip(
   // card, upholding the bus-drop-vs-card hard tier at the seating side. Absent
   // for rise chips (lane-anchored, out of scope for that tier).
   cardExempt?: CardExemption,
-  // Run the junction-dot keep-off pass below (#50). Only the RISE seat passes
-  // it: a lane's junction dot is drawn one chamfer from the member's RISE
-  // column by construction (chamferBusPath), so the rise chip is the one
-  // structurally seated on top of it. A drop chip sits at the drop column, a
-  // different place, and reaches a dot only where a collapsed run puts the two
-  // columns together -- and there, lifting the drop merely hands its lane slot
-  // to the rise, which covers the same dot again. So the drop keeps its seat.
-  avoidDots = false,
   // Soft cascade cap, in steps (the bus DROP seat only). Inside the cap the
   // seat is tried first against everything, then again with the FOREIGN-LINE
-  // preference relaxed -- the softest obstacle this seat consults, since a drop
-  // runs no dot pass -- so a drop chip grazing a foreign stroke beside its own
+  // preference relaxed -- the softest obstacle this seat consults -- so a drop
+  // chip grazing a foreign stroke beside its own
   // junction beats a clean seat pitches away in empty canvas, where no rule
   // hides it and nothing marks which trunk it belongs to. Chips (and, with a
   // cardExempt, foreign cards) stay HARD throughout: when nothing inside the
@@ -990,35 +976,7 @@ function seatChip(
   // let two chips overlap.
   capSteps?: number,
 ): { dy: number; box: ChipBox } {
-  // Dot keep-off pass (#50). A rise chip sits ON the lane a chamfer from its own
-  // trunk's junction dot, so at dy = 0 its box routinely swallows the dot. Probe
-  // the lane slot and then ONE pitch along the band's own cascade direction,
-  // taking the first that clears everything the cascade below clears AND leaves
-  // the dot visible. One pitch is the whole budget: it is the offset the rise
-  // loop already reads as "beside the lane" rather than orphaned, and past it
-  // the chip would be hidden. The budget is ONE BITE, not one pitch: a dot
-  // sitting on the lane needs more than a half-height of lift to leave the box,
-  // the lane line needs less than one to stay in it, so a pitch-sized dot lift
-  // always trades the chip's tie to its lane for a decorative marker. Inside the
-  // bite the pass finds nothing where the dot is on the lane, and yields -- which
-  // is exactly the precedence stated below.
-  // The direction is not searched backwards either --
-  // a band cascades away from the graph by design, and the weakest preference in
-  // the pass has no business inverting that. When neither slot qualifies the dot
-  // yields to the plain cascade below: the dot is decorative, a missing or
-  // floating rate chip is not.
   const bite = step < 0 ? -LANE_BITE : LANE_BITE;
-  for (const dy of avoidDots ? [0, bite] : []) {
-    const box = { x, y: y + dy, halfW, halfH };
-    if (
-      !field.overlapsChip(box) &&
-      !field.onForeignLine(box, flowKey, target) &&
-      (cardExempt === undefined || !field.entersForeignCard(box, cardExempt)) &&
-      !field.coversDot(box)
-    ) {
-      return { dy, box: field.seat(box) };
-    }
-  }
   // The bite rung: a lift small enough to keep the lane line inside the painted
   // box, tried before the pitch-sized ladder below so a chip that clears its
   // obstacle cheaply never pays the full pitch for it. A pitch-sized neighbour
@@ -3132,7 +3090,6 @@ export function deconflictChipAnchors(
       slot.target,
       slot.id,
       laneTrunkExempt.get(slot.trunkKey),
-      false,
       BUS_DROP_CASCADE_STEPS,
     );
     if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
@@ -3221,10 +3178,6 @@ export function deconflictChipAnchors(
       slot.flowKey,
       slot.target,
       slot.id,
-      undefined,
-      // The rise column is where the lane's junction dots live, so this seat
-      // takes the dot keep-off pass (#50).
-      true,
     );
     // seatChip's cascade is unbounded in y, so a KEPT rise whose lane slot is
     // blocked can still walk clean off the band into empty canvas -- the chip
