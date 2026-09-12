@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Pinned rather than `latest` so a bun release cannot change what CI runs
       # between two pushes of the same commit. Matches the local toolchain.
@@ -68,8 +68,12 @@ jobs:
         env:
           STC_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
+      # v6, not v5: v5 added preliminary node24 support but still ran on
+      # node20 by default, so v6 is the first tag that drops the deprecation
+      # warning. The matching tag for download-artifact is v7, one further
+      # along, because it took an extra major to make the same switch.
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dist
           path: dist
@@ -90,13 +94,16 @@ jobs:
       pull-requests: write
     steps:
       - name: Download build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: dist
           path: dist
 
       - name: Publish to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+        # v4 is the first major on the node24 runtime; it also installs
+        # wrangler v4 by default, which the unpinned v3 action already
+        # resolved to here.
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
