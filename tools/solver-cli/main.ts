@@ -8,7 +8,6 @@
 import Fraction from "fraction.js";
 import { pack } from "../../src/data/load";
 import { netSelfConsumption } from "../../src/solver/net-self";
-import { defaultTransportConfig } from "../../src/data/transport-config";
 import { rationalFromString, type Target } from "../../src/data/targets";
 import { solveLp } from "../../src/solver/lp";
 import { solvePlanWithIntermediates } from "../../src/solver/index";
@@ -241,7 +240,6 @@ export async function runCli(argv: string[]): Promise<string> {
     const full = solvePlanWithIntermediates(
       targets,
       pack,
-      defaultTransportConfig,
       itemOverrides,
       recipeCosts,
     );

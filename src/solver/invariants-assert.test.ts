@@ -6,7 +6,6 @@ import { solvePlanWithIntermediates } from "./index";
 import { solveLp } from "./lp";
 import { netSelfConsumption } from "./net-self";
 import { pack } from "../data/load";
-import { defaultTransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
 
 // Both mocks delegate to the real implementation and only record what passed
@@ -52,11 +51,7 @@ const headlineTargets: ItemTarget[] = [
 function nettedArgs(): SolverInvariantArgs {
   const netted = netSelfConsumption(pack);
   return {
-    full: solvePlanWithIntermediates(
-      headlineTargets,
-      pack,
-      defaultTransportConfig,
-    ),
+    full: solvePlanWithIntermediates(headlineTargets, pack),
     result: solveLp({ targets: headlineTargets, pack: netted }),
     pack: netted,
     targets: headlineTargets,
@@ -83,7 +78,7 @@ describe("assertInvariants", () => {
     recorded.nettedPacks.length = 0;
     recorded.assertedArgs.length = 0;
 
-    solvePlanWithIntermediates(headlineTargets, pack, defaultTransportConfig);
+    solvePlanWithIntermediates(headlineTargets, pack);
 
     expect(recorded.nettedPacks.length).toBe(1);
     expect(recorded.assertedArgs.length).toBe(1);

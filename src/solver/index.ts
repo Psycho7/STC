@@ -1,7 +1,6 @@
 import Fraction from "fraction.js";
 import type { LogicalGraph } from "../canvas/layout";
 import type { Recipe, RecipePack } from "@aef/schema";
-import type { TransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { augmentGraphWithLpSupport, buildRecipeGraphMulti } from "./graph";
@@ -263,18 +262,10 @@ function runSolvePipeline(
  * Solve a plan and return the assembled LogicalGraph together with the
  * intermediate artifacts the render pipeline (cluster, expand, bisim, render)
  * needs. Runs the reference-free invariant assertions in dev/test builds.
- *
- * `tConfig` is accepted but unread: the transport config only ever fed the
- * lane packer, and every caller still hands it over. It stays in the signature
- * so callers keep a single solve entry point once transport is modelled again.
- * Nothing here validates it any more, so a carrier kind missing from the config
- * is caught only by loadTransportConfig, which the app runs at startup and the
- * CLI tools do not.
  */
 export function solvePlanWithIntermediates(
   targets: ReadonlyArray<ItemTarget>,
   pack: RecipePack,
-  tConfig: TransportConfig,
   itemOverrides?: ItemOverride[],
   recipeCosts?: Map<RecipeId, number>,
 ): SolvePlanFull {

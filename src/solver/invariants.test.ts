@@ -17,7 +17,6 @@ import { solvePlanWithIntermediates, type SolvePlanFull } from "./index";
 import { withoutGasMachines } from "./closed-form-fixtures";
 import { netSelfConsumption } from "./net-self";
 import { pack } from "../data/load";
-import { defaultTransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { RecipePack } from "@aef/schema";
@@ -38,11 +37,7 @@ const headlineTargets: ItemTarget[] = [
 const noOverrides: ItemOverride[] = [];
 
 function makeFull(): SolvePlanFull {
-  return solvePlanWithIntermediates(
-    headlineTargets,
-    pack,
-    defaultTransportConfig,
-  );
+  return solvePlanWithIntermediates(headlineTargets, pack);
 }
 
 describe("invariants - headline plan (all checkers pass)", () => {
@@ -199,12 +194,7 @@ describe("checkMassBalance - bounded supply draw", () => {
   });
 
   it("solvePlanWithIntermediates does not throw on a finite cap under DEV invariants", () => {
-    const full = solvePlanWithIntermediates(
-      capTargets,
-      pack,
-      defaultTransportConfig,
-      capOverrides,
-    );
+    const full = solvePlanWithIntermediates(capTargets, pack, capOverrides);
     expect(full.logical.nodes.length).toBeGreaterThan(0);
   });
 });

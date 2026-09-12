@@ -59,7 +59,7 @@ describe("solveForRender: one pack, one targets list, one overrides list", () =>
 
     expect(calls.solve).toHaveLength(1);
     expect(calls.render).toHaveLength(1);
-    const [solveTargets, solvePack, , solveOverrides] = calls.solve[0]!;
+    const [solveTargets, solvePack, solveOverrides] = calls.solve[0]!;
     const [renderFull, renderPack, renderTargets, renderOverrides] =
       calls.render[0]!;
 
@@ -78,7 +78,7 @@ describe("solveForRender: one pack, one targets list, one overrides list", () =>
 
     solveForRender({ targets: chain.targets, pack: chain.pack });
 
-    const solveOverrides = calls.solve[0]![3];
+    const solveOverrides = calls.solve[0]![2];
     expect(solveOverrides).toEqual([]);
     expect(calls.render[0]![3]).toBe(solveOverrides);
   });

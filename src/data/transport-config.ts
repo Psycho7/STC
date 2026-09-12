@@ -30,6 +30,13 @@ const EXPECTED_SCHEMA = "0.2";
 
 export const defaultTransportConfig: TransportConfig = raw as TransportConfig;
 
+/**
+ * Validate that every carrier kind the pack names has a config entry, and
+ * return the config. This is the only carrier-kind check left: the solver
+ * stopped taking a transport config, so a kind missing from the config is
+ * caught here alone. The app runs this at startup; the CLI tools do not, so
+ * they would render an unknown kind without complaint.
+ */
 export function loadTransportConfig(
   config: TransportConfig,
   pack: RecipePack,

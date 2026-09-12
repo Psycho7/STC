@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { solvePlanWithIntermediates } from "./index";
 import { pack } from "../data/load";
-import { defaultTransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
 
 const headlineTargets: ItemTarget[] = [
@@ -13,11 +12,7 @@ const headlineTargets: ItemTarget[] = [
 
 describe("SolvePlanFull.feasibility", () => {
   it("a satisfiable plan surfaces softFeasible:true with no deficits", () => {
-    const full = solvePlanWithIntermediates(
-      headlineTargets,
-      pack,
-      defaultTransportConfig,
-    );
+    const full = solvePlanWithIntermediates(headlineTargets, pack);
     expect(full.feasibility.softFeasible).toBe(true);
     expect(full.feasibility.deficits.size).toBe(0);
   });

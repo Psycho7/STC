@@ -10,7 +10,6 @@ import { solveForRender } from "../pipeline/solveForRender";
 import { checkRenderPlan } from "../pipeline/render/invariants";
 import { withoutGasMachines } from "./closed-form-fixtures";
 import { pack } from "../data/load";
-import { defaultTransportConfig } from "../data/transport-config";
 import type { ItemTarget } from "../data/targets";
 import type { RecipePack } from "@aef/schema";
 import type { LpResult } from "./lp";
@@ -54,11 +53,7 @@ describe("solvePlanWithIntermediates (LP)", () => {
       },
     ];
     // legacyPack: on the full v1.4 pack the gas route displaces both producers.
-    const full = solvePlanWithIntermediates(
-      targets,
-      legacyPack,
-      defaultTransportConfig,
-    );
+    const full = solvePlanWithIntermediates(targets, legacyPack);
     expect(full.rates.get("liquid_xiranite_poly")).toBeDefined();
     expect(full.rates.get("liquid_xiranite_poly-purifier")).toBeDefined();
     expect(full.logical.nodes.length).toBeGreaterThan(0);
@@ -95,7 +90,6 @@ describe("solver status handling", () => {
     const full = solvePlanWithIntermediates(
       emptyFeasibleTargets,
       emptyFeasiblePack,
-      defaultTransportConfig,
     );
     expect(full.rates.size).toBe(0);
     expect(full.logical.nodes.length).toBe(0);
@@ -115,9 +109,9 @@ describe("solver status handling", () => {
   it("throws on infeasible status", () => {
     lpStatusOverride.status = "infeasible";
     try {
-      expect(() =>
-        solvePlanWithIntermediates(targets, pack, defaultTransportConfig),
-      ).toThrow(/infeasible/);
+      expect(() => solvePlanWithIntermediates(targets, pack)).toThrow(
+        /infeasible/,
+      );
     } finally {
       lpStatusOverride.status = undefined;
     }
@@ -134,12 +128,7 @@ describe("solver status handling", () => {
     try {
       let caught: unknown;
       try {
-        solvePlanWithIntermediates(
-          targets,
-          pack,
-          defaultTransportConfig,
-          overrides,
-        );
+        solvePlanWithIntermediates(targets, pack, overrides);
       } catch (e) {
         caught = e;
       }
@@ -255,7 +244,6 @@ describe("multi-producer input of a split SCC member (assemble re-route)", () =>
     const full = solvePlanWithIntermediates(
       sccTargets,
       sccPack,
-      defaultTransportConfig,
       sccOverrides,
       sccCosts,
     );
@@ -305,12 +293,7 @@ describe("torn feedback covers every intra-SCC logical cycle", () => {
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
+    const full = solvePlanWithIntermediates(targets, pack, []);
     const recipeOfReplica = new Map(
       full.replicas.map((r) => [r.id, r.recipeId]),
     );
@@ -396,12 +379,7 @@ describe("replica coverage of the LP solution", () => {
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
+    const full = solvePlanWithIntermediates(targets, pack, []);
 
     const zero = new Fraction(0);
     const sums = new Map<string, Fraction>();

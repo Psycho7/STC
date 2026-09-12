@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { solvePlanWithIntermediates } from "../../../src/solver";
 import { pack } from "../../../src/data/load";
-import { defaultTransportConfig } from "../../../src/data/transport-config";
 import { defaultTargets } from "../../../src/data/targets";
 import {
   augmentGraphWithLpSupport,
@@ -19,12 +18,7 @@ describe("AEF round-trip with bisim", () => {
         ratePerSec: { num: "1", denom: "1" },
       },
     ];
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
+    const full = solvePlanWithIntermediates(targets, pack, []);
     expect(full.replicas.length).toBeGreaterThan(0);
 
     // Ceiling invariant: the solve path derives every integer machine count as
@@ -47,12 +41,7 @@ describe("AEF round-trip with bisim", () => {
     // graphs; this test proves it on real AEF data threaded through the
     // wired pipeline.
     const targets = defaultTargets();
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
+    const full = solvePlanWithIntermediates(targets, pack, []);
     expect(full.replicas.length).toBeGreaterThan(0);
 
     // Same ceiling pin as above, on the larger seed plan. At least one ideal

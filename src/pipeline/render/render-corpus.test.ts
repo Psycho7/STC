@@ -16,7 +16,6 @@ import {
   withoutGasMachines,
 } from "../../solver/closed-form-fixtures";
 import { solvePlanWithIntermediates } from "../../solver/index";
-import { defaultTransportConfig } from "../../data/transport-config";
 import type { Target } from "../../data/targets";
 import { solveForRender } from "../solveForRender";
 import {
@@ -498,12 +497,7 @@ describe("render corpus: LP-support closure renders disposal absorbers", () => {
     expect(gaps).toEqual([]);
     expect(violations).toEqual([]);
 
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
+    const full = solvePlanWithIntermediates(targets, pack, []);
     expect(checkRepresentable(full).violations).toEqual([]);
   });
 
@@ -534,12 +528,7 @@ describe("render corpus: LP-support closure renders disposal absorbers", () => {
     expect(gaps).toEqual([]);
     expect(violations).toEqual([]);
 
-    const full = solvePlanWithIntermediates(
-      targets,
-      pack,
-      defaultTransportConfig,
-      [],
-    );
+    const full = solvePlanWithIntermediates(targets, pack, []);
     expect(checkRepresentable(full).violations).toEqual([]);
 
     const lp = solveLp({ targets, pack, itemOverrides: [] });

@@ -26,7 +26,6 @@ import type { RecipePack } from "@aef/schema";
 import { pack as shippedPack } from "../data/load";
 import type { ItemOverride } from "../data/plan";
 import type { ItemTarget } from "../data/targets";
-import { defaultTransportConfig } from "../data/transport-config";
 import { solvePlanWithIntermediates, type SolvePlanFull } from "../solver";
 import type { RecipeId } from "../solver/types";
 import { renderPlanFromSolve, type RenderPipelineOutput } from "./driver";
@@ -58,7 +57,6 @@ export function solveForRender({
   const full = solvePlanWithIntermediates(
     targets,
     pack,
-    defaultTransportConfig,
     overrides,
     recipeCosts,
   );
