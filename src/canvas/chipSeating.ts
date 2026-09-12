@@ -60,8 +60,9 @@ import {
   CHIP_BOX_HEIGHT,
   DOT_KEEPOFF,
   GLYPH_SIDE_OFFSET,
-  HIDE_STALE_EPS,
   MAX_CHIP_SCALE,
+  anchorStampLive,
+  faninHideLive,
 } from "./dimensions";
 import {
   CHAMFER,
@@ -3385,15 +3386,15 @@ export function contentBounds(
       ...routingHintsFromData(edge.data),
     };
     if (edge.type === "item") {
-      // Staleness parity with ItemEdge: the fan-in member hide holds only while
-      // the stamped port y is still within HIDE_STALE_EPS of the LIVE target y,
-      // so a drag that moved the port brings the chip back -- and the frame with
-      // it. An ABSENT stamp is not stale, which keeps the chip out of the rect
-      // exactly as the renderer keeps it off the canvas.
-      const stampY = data?.faninChipHiddenAtY;
-      const faninStale =
-        stampY !== undefined && Math.abs(stampY - ends.ty) >= HIDE_STALE_EPS;
-      if (data?.faninChipHidden === true && !faninStale) continue;
+      // Staleness parity with ItemEdge: the hide was taken at the target port
+      // row, so it is checked against this reconstruction's own target y. A
+      // chip the renderer brings back mid-drag has to be framed here too.
+      if (
+        data?.faninChipHidden === true &&
+        faninHideLive(data.faninChipHiddenAtY, ends.ty)
+      ) {
+        continue;
+      }
       const [, lx, ly] = chamferStepPath(geom);
       unionChip(lx + (data?.labelDx ?? 0), ly + (data?.labelDy ?? 0));
     } else if (edge.type === "bus" && data?.fanout === true) {
@@ -3406,16 +3407,13 @@ export function contentBounds(
           fan.trunkAnchor.y + (data.fanoutAggDy ?? 0),
         );
       }
-      // Staleness parity with BusEdge, whose rule differs from the fan-in one
-      // above: per-axis, strict, and an ABSENT stamp still hides. (BusEdge also
-      // un-hides when its fan path is null; here the branch already resolved a
-      // fan-out path, so that arm cannot arise.)
-      const hiddenAt = data.fanoutBranchHiddenAt;
+      // Staleness parity with BusEdge: the hide was taken at this member's own
+      // branch anchor, checked against the one this reconstruction rebuilt.
+      // (BusEdge also un-hides when its fan path is null; here the branch
+      // already resolved a fan-out path, so that arm cannot arise.)
       const branchHidden =
         data.fanoutBranchHidden === true &&
-        (hiddenAt === undefined ||
-          (Math.abs(fan.branchAnchor.x - hiddenAt.x) < HIDE_STALE_EPS &&
-            Math.abs(fan.branchAnchor.y - hiddenAt.y) < HIDE_STALE_EPS));
+        anchorStampLive(data.fanoutBranchHiddenAt, fan.branchAnchor);
       if (!branchHidden) {
         unionChip(
           fan.branchAnchor.x + (data.fanoutBranchDx ?? 0),

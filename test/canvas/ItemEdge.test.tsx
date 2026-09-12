@@ -259,10 +259,15 @@ describe("canvas/ItemEdge icon-only collapse", () => {
 });
 
 describe("canvas/ItemEdge fan-in marker", () => {
-  // The marker is stale-checked against the LIVE target port y, so a fixture has
-  // to discover that y from a plain render before it can seat a stamp on it.
-  async function livePortY(): Promise<number> {
-    renderEdge({ item: "belt", rate: new Fraction(2, 1) }, 1);
+  // The marker is stale-checked against the LIVE target port row AND the live
+  // polyline, so a fixture has to discover a real merge point from a plain
+  // render before it can seat a stamp on it: the start of the final leg into
+  // the port, which is where the last member of a real group joins the shared
+  // run. A stamp invented off that line is stale by the rule under test.
+  async function liveMergePoint(
+    nodes: Node[] = NODES,
+  ): Promise<{ x: number; y: number }> {
+    renderEdge({ item: "belt", rate: new Fraction(2, 1) }, 1, nodes);
     await waitFor(() =>
       expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
     );
@@ -271,13 +276,21 @@ describe("canvas/ItemEdge fan-in marker", () => {
         .querySelector<SVGPathElement>(".react-flow__edge-path")!
         .getAttribute("d")!,
     );
-    const y = pts[pts.length - 1]![1];
+    const join = pts[pts.length - 2]!;
     cleanup();
-    return y;
+    return { x: join[0], y: join[1] };
   }
 
+  // The same two cards with the target dragged sideways: a drag on x alone
+  // leaves the port ROW where it was, which is the case the row check cannot
+  // see and the live-line check can.
+  const draggedRight = (dx: number): Node[] => [
+    NODES[0]!,
+    { ...NODES[1]!, position: { x: NODES[1]!.position.x + dx, y: 0 } },
+  ];
+
   it("draws the merge dot and the owner's own rate chip, never an aggregate", async () => {
-    const targetY = await livePortY();
+    const merge = await liveMergePoint();
     // The legacy aggregate stamp rides along on purpose: the seating pass no
     // longer emits these fields, and no render path may be left that could turn
     // them back into a chip. The cast is what feeds them past the data type.
@@ -285,10 +298,10 @@ describe("canvas/ItemEdge fan-in marker", () => {
       {
         item: "belt",
         rate: new Fraction(1, 1),
-        faninJunctionX: 120,
-        faninJunctionY: targetY,
+        faninJunctionX: merge.x,
+        faninJunctionY: merge.y,
         faninSigmaX: 150,
-        faninSigmaY: targetY,
+        faninSigmaY: merge.y,
         faninTotalRate: new Fraction(5, 1),
         faninMemberCount: 3,
       } as ItemEdgeData,
@@ -311,17 +324,80 @@ describe("canvas/ItemEdge fan-in marker", () => {
     ).toBeNull();
   });
 
-  it("drops the owner's chip below the label zoom, leaving the dot alone", async () => {
-    // Accepted consequence of removing the gate-exempt aggregate: at a dense
-    // plan's fit zoom a fan-in port shows the dot and no number. The target
-    // card's input row still states the rate.
-    const targetY = await livePortY();
+  // Read the polyline of the render that is already mounted, without tearing it
+  // down the way liveMergePoint has to.
+  function mountedPts(): ReadonlyArray<readonly [number, number]> {
+    return parsePathPoints(
+      document
+        .querySelector<SVGPathElement>(".react-flow__edge-path")!
+        .getAttribute("d")!,
+    );
+  }
+
+  it("keeps the merge dot through a sideways drag that stays under the threshold", async () => {
+    const merge = await liveMergePoint();
+    const dx = HIDE_STALE_EPS - 4;
     renderEdge(
       {
         item: "belt",
         rate: new Fraction(1, 1),
-        faninJunctionX: 120,
-        faninJunctionY: targetY,
+        faninJunctionX: merge.x,
+        faninJunctionY: merge.y,
+      },
+      1,
+      draggedRight(dx),
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    const pts = mountedPts();
+    // Premise: the drag moved the line sideways and left the port ROW alone, so
+    // the row check cannot see it and only the live-line check is under test.
+    expect(pts[pts.length - 1]![1]).toBe(merge.y);
+    expect(pts[pts.length - 2]![0]).toBeGreaterThan(merge.x);
+    expect(
+      document.querySelector('[data-testid="fanin-junction-e1"]'),
+    ).not.toBeNull();
+  });
+
+  it("drops the merge dot when a sideways drag slides the line off the stamp", async () => {
+    const merge = await liveMergePoint();
+    // A step path bends at the midpoint between the two ports, so the line only
+    // travels half the drag, and the chamfered corner just before the port stays
+    // nearer to the abandoned stamp than the final leg does. Hence a drag
+    // several times the eps to put every piece of the line past it.
+    const dx = HIDE_STALE_EPS * 4;
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        faninJunctionX: merge.x,
+        faninJunctionY: merge.y,
+      },
+      1,
+      draggedRight(dx),
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    const pts = mountedPts();
+    expect(pts[pts.length - 1]![1], "the port row did not move").toBe(merge.y);
+    expect(
+      document.querySelector('[data-testid="fanin-junction-e1"]'),
+    ).toBeNull();
+  });
+
+  it("drops the owner's chip below the label zoom, leaving the dot alone", async () => {
+    // Accepted consequence of removing the gate-exempt aggregate: at a dense
+    // plan's fit zoom a fan-in port shows the dot and no number. The target
+    // card's input row still states the rate.
+    const merge = await liveMergePoint();
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        faninJunctionX: merge.x,
+        faninJunctionY: merge.y,
       },
       LABEL_MIN_ZOOM - 0.05,
     );
@@ -348,7 +424,11 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
   // Live port rows, read off the drawn polyline's ends -- the same discovery the
   // fan-in marker tests do, since the stale check compares a stamp to the props
   // React Flow measured, not to anything the fixture can assert directly.
-  async function portRows(): Promise<{ sourceY: number; targetY: number }> {
+  async function portRows(): Promise<{
+    sourceX: number;
+    sourceY: number;
+    targetY: number;
+  }> {
     await waitFor(() =>
       expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
     );
@@ -357,8 +437,25 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
         .querySelector<SVGPathElement>(".react-flow__edge-path")!
         .getAttribute("d")!,
     );
-    return { sourceY: pts[0]![1], targetY: pts[pts.length - 1]![1] };
+    return {
+      sourceX: pts[0]![0],
+      sourceY: pts[0]![1],
+      targetY: pts[pts.length - 1]![1],
+    };
   }
+
+  // The same two cards with the SOURCE dragged sideways. The dot marks a column
+  // just outside the source port, so this is the drag that walks the port past
+  // the stamp while leaving the source row exactly where it was.
+  const draggedSourceRight = (dx: number): Node[] => [
+    { ...SPLIT_ROW_NODES[0]!, position: { x: dx, y: 0 } },
+    SPLIT_ROW_NODES[1]!,
+  ];
+
+  // How far outside the source port the fixture seats its peel-off column: far
+  // enough that the port can be dragged past it, short enough to stay on the
+  // shared prefix.
+  const PEEL_OFF_DX = 45;
 
   async function fanoutDot(): Promise<HTMLElement | null> {
     await waitFor(() =>
@@ -411,6 +508,50 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
       1,
       SPLIT_ROW_NODES,
     );
+    expect(await fanoutDot()).toBeNull();
+  });
+  it("keeps the dot when a sideways drag leaves it within reach of the line", async () => {
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
+    const { sourceX, sourceY } = await portRows();
+    cleanup();
+
+    // Drag the source past the stamp, but not by more than the eps: the stamp
+    // is off the end of the line now and still close enough to count.
+    const dx = PEEL_OFF_DX + HIDE_STALE_EPS - 8;
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        fanoutJunctionX: sourceX + PEEL_OFF_DX,
+        fanoutJunctionY: sourceY,
+      },
+      1,
+      draggedSourceRight(dx),
+    );
+    const pts = await portRows();
+    expect(pts.sourceY, "the drag left the source row alone").toBe(sourceY);
+    expect(pts.sourceX - sourceX).toBe(dx);
+    expect(await fanoutDot()).not.toBeNull();
+  });
+
+  it("drops the dot when a sideways drag slides the line off the stamp", async () => {
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
+    const { sourceX, sourceY } = await portRows();
+    cleanup();
+
+    const dx = PEEL_OFF_DX + HIDE_STALE_EPS * 2;
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        fanoutJunctionX: sourceX + PEEL_OFF_DX,
+        fanoutJunctionY: sourceY,
+      },
+      1,
+      draggedSourceRight(dx),
+    );
+    const pts = await portRows();
+    expect(pts.sourceY, "the drag left the source row alone").toBe(sourceY);
     expect(await fanoutDot()).toBeNull();
   });
 });

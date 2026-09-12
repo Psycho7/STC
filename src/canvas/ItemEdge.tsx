@@ -12,9 +12,9 @@ import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 import {
   CHIP_ICON_ONLY_MAX_ZOOM,
-  HIDE_STALE_EPS,
   LABEL_MIN_ZOOM,
   MAX_CHIP_SCALE,
+  faninHideLive,
 } from "./dimensions";
 import {
   chamferStepPath,
@@ -25,6 +25,7 @@ import {
   crossingCueRadius,
   crossingPartnerBits,
   liveCrossingCues,
+  stampOnOwnPolyline,
   type CrossingCue,
 } from "./crossings";
 import { iconIdForItem } from "./iconSprite";
@@ -445,10 +446,11 @@ export function useLiveCrossingCues(
   );
 }
 
-// Stable empty vertex list for the memoized cue-path parse below (and the
-// matching one in BusEdge): a cue-less edge returns it instead of allocating,
-// and liveCrossingCues never reads the points once its own cue early-out
-// fires, so the shared identity is all that matters.
+// Stable empty vertex list for the memoized path parses that follow (the cue
+// filter's, the matching one in BusEdge, and the junction dots'): an edge with
+// no stamp to corroborate returns it instead of allocating, and every consumer
+// has already answered "no stamp" by then, so the shared identity is all that
+// matters.
 export const NO_CUE_PTS: ReadonlyArray<readonly [number, number]> = [];
 
 // The merge junction dot, portaled into the shared edgelabel-renderer layer (not
@@ -647,34 +649,25 @@ export default function ItemEdge({
   // The full "Name x rate/min" string rides on aria-label so a screen reader can
   // name the item, and a separate tooltip carries the exact, un-rounded rate the
   // rounding hides (chips now accept pointer events, so hovering shows it).
-  // Drag-staleness guard for the fan-in marker, mirroring BusEdge's
-  // fanoutBranchHiddenAt pattern (the ratified issue-9 stale-hide rule): the
-  // marker fields are stamped absolute coordinates from the seating pass, and
-  // nodes stay mouse-draggable until the drop re-seats. Once the stamped port y
-  // diverges from the LIVE target port y (the targetY prop) past the eps, the
-  // dot and the member hide drop together -- a floating marker or a wrongly
-  // hidden chip is worse than a temporarily unmarked merge. The threshold is
-  // the shared HIDE_STALE_EPS, sized in dimensions.ts.
-  const faninStale = (stampY: number | undefined): boolean =>
-    stampY !== undefined && Math.abs(stampY - targetY) >= HIDE_STALE_EPS;
   // A non-owner fan-in member whose own rate chip would sit on the shared merged
   // run draws no rate chip -- the owner's own chip reads there instead. The exact
   // member rate stays reachable on the transparent hover path below (and the
-  // target card's input row), mirroring the bus member-hide. The hide only holds
-  // while the live port still matches the stamp (see the staleness guard above).
+  // target card's input row), mirroring the bus member-hide. The hide was taken
+  // at the target port row, so it is checked against the LIVE target port y
+  // React Flow measured (the targetY prop).
   const ownChipHidden =
     edgeData?.faninChipHidden === true &&
-    !faninStale(edgeData.faninChipHiddenAtY);
-  // The owner's merge dot follows the same staleness rule.
+    faninHideLive(edgeData.faninChipHiddenAtY, targetY);
+  // The owner's merge dot sits on the run into the same target port, so it is
+  // checked against the same live row -- and, below, against the live line.
   const faninMarkerLive =
     edgeData?.faninJunctionY !== undefined &&
-    !faninStale(edgeData.faninJunctionY);
-  // The declined fan-out dot sits near the SOURCE port, so it is stale-checked
-  // against the live source y instead of the target y -- same eps, same rule:
-  // once a drag moves the port off the stamp, drop the dot rather than float it.
+    faninHideLive(edgeData.faninJunctionY, targetY);
+  // The declined fan-out dot sits near the SOURCE port instead, so it is checked
+  // against the live source y.
   const fanoutMarkerLive =
     edgeData?.fanoutJunctionY !== undefined &&
-    Math.abs(edgeData.fanoutJunctionY - sourceY) < HIDE_STALE_EPS;
+    faninHideLive(edgeData.fanoutJunctionY, sourceY);
   // The zoom gate yields to the hover focus: a lit edge shows its rate at any
   // zoom. The overlap-driven hides above still win, since they are placement
   // rulings, not level of detail.
@@ -726,6 +719,39 @@ export default function ItemEdge({
     [sourceX, sourceY, targetX, targetY, edgeData],
   );
 
+  // Both junction dots mark a point the seating pass found on a GROUP of edges
+  // -- where the last member merges into one port, where the first member of a
+  // declined fan-out peels off -- so neither is recomputable here: the group is
+  // not reachable from an edge's own props. What this edge can still say is
+  // whether the stamp is on the line it just drew, the same corroboration the
+  // crossing cues get. That is what makes a drag on x alone visible: it leaves
+  // the port ROW where it was, so the row checks above keep the dot, while the
+  // line slides out from under the stamp and this drops it. Parsed only for an
+  // edge carrying a dot stamp and memoized on the path, for the reason
+  // MaskedEdge's cue parse states.
+  const dotPts = useMemo(
+    () =>
+      edgeData?.faninJunctionX !== undefined ||
+      edgeData?.fanoutJunctionX !== undefined
+        ? parsePathPoints(edgePath)
+        : NO_CUE_PTS,
+    [edgePath, edgeData],
+  );
+  const faninDotLive =
+    faninMarkerLive &&
+    edgeData?.faninJunctionX !== undefined &&
+    stampOnOwnPolyline(
+      [edgeData.faninJunctionX, edgeData.faninJunctionY!],
+      dotPts,
+    );
+  const fanoutDotLive =
+    fanoutMarkerLive &&
+    edgeData?.fanoutJunctionX !== undefined &&
+    stampOnOwnPolyline(
+      [edgeData.fanoutJunctionX, edgeData.fanoutJunctionY!],
+      dotPts,
+    );
+
   const { stroke, style: mergedStyle } = edgeStrokeStyle(
     edgeData?.transportKind,
     edgeData?.item,
@@ -770,8 +796,8 @@ export default function ItemEdge({
       ) : null}
       {/* Fan-in merge dot (owner only): where the last same-item member joins the
           shared run into the target port. Reuses BusEdge's junction dot markup.
-          Dropped while stale (see the staleness guard above). */}
-      {faninMarkerLive && edgeData?.faninJunctionX !== undefined ? (
+          Dropped while stale (see the staleness guards above). */}
+      {faninDotLive && edgeData?.faninJunctionX !== undefined ? (
         <JunctionDot
           testId={`fanin-junction-${id}`}
           x={edgeData.faninJunctionX}
@@ -784,8 +810,8 @@ export default function ItemEdge({
       {/* Declined fan-out divergence dot (#43, owner only): where coincident
           same-flow item edges leave the shared out-port run for their own
           targets. Same markup and stacking as the fan-in merge dot; dropped
-          while stale against the live source y. */}
-      {fanoutMarkerLive && edgeData?.fanoutJunctionX !== undefined ? (
+          while stale against the live source y or the live line. */}
+      {fanoutDotLive && edgeData?.fanoutJunctionX !== undefined ? (
         <JunctionDot
           testId={`fanout-junction-${id}`}
           x={edgeData.fanoutJunctionX}

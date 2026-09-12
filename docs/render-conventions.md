@@ -139,7 +139,11 @@ way: when the full box has no seat left on the line, the chip shrinks to its
 natural size before it takes any seat off the line. A chip that had to move is
 still bound to its own polyline; dragging a card re-seats every chip when the
 drag ends, so a dropped plan obeys the same rules (mid-drag, chips ride the
-live line with their last seat offsets); one that reads as belonging to a neighbouring line is a defect. A
+live line with their last seat offsets); one that reads as belonging to a neighbouring line is a defect.
+A decision the pass recorded against an anchor -- a hidden chip, a junction dot --
+survives a drag only while that anchor still matches the live geometry, and
+comes back or disappears as soon as it does not; a decision recorded with no
+anchor stands until the next re-seat. A
 lane chip first tries a bite-sized lift off its lane -- under one chip
 half-height, so the lane stroke still runs inside the box the chip paints and
 keeps saying which trunk the rate belongs to -- and that much clears a thin

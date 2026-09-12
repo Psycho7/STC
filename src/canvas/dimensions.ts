@@ -62,6 +62,35 @@ export const GLYPH_SIDE_OFFSET = GLYPH_SIZE + 2;
 // this threshold with it.
 export const HIDE_STALE_EPS = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
 
+// The two shapes of the staleness question, stated here beside the threshold
+// that sizes them so no caller restates the rule. Both answer the same thing:
+// does the anchor a decision was stamped at still describe the live geometry?
+// An ABSENT stamp answers yes -- nothing contradicts the seating decision, so
+// the decision stands -- and this is the only place that default is stated.
+// faninHideLive is the 1-D form for a decision anchored to a port row (the
+// fan-in hide and both junction-dot families compare a stamped y against the
+// live port y). anchorStampLive is the 2-D form for a decision anchored to a
+// point, and it is per-axis rather than Euclidean because what the stamp
+// records is "this chip box was clear here": a box is a rectangle, so
+// rectangular drift is what invalidates it.
+export function faninHideLive(
+  stampY: number | undefined,
+  liveY: number,
+): boolean {
+  return stampY === undefined || Math.abs(stampY - liveY) < HIDE_STALE_EPS;
+}
+
+export function anchorStampLive(
+  stamp: { x: number; y: number } | undefined,
+  liveAnchor: { x: number; y: number },
+): boolean {
+  return (
+    stamp === undefined ||
+    (Math.abs(stamp.x - liveAnchor.x) < HIDE_STALE_EPS &&
+      Math.abs(stamp.y - liveAnchor.y) < HIDE_STALE_EPS)
+  );
+}
+
 // Horizontal chip-box metrics, the x-axis analogs of CHIP_BOX_HEIGHT. A chip's
 // on-screen width is roughly constant at low zoom (it counter-scales by 1/zoom,
 // capped at MAX_CHIP_SCALE), so in graph units its box is at most

@@ -22,7 +22,7 @@ import {
   routingHintsFromData,
 } from "./edgePath";
 import { branchChipText } from "./chipMetrics";
-import { HIDE_STALE_EPS } from "./dimensions";
+import { anchorStampLive } from "./dimensions";
 import { useI18n } from "../data/i18n-context";
 import { formatRateExactPerMin, formatRatePerMin } from "../data/rate-format";
 
@@ -201,19 +201,15 @@ export default function BusEdge({
   // flagged fanoutBranchHidden draws no branch chip at all: the seating pass
   // found no chip/card-clear point on its own polyline, and an off-line chip
   // would float in empty canvas (the rate stays on the target card's row and
-  // this edge's hover tooltip below). The hide only holds while the live
-  // branch anchor still matches the one it was stamped at: nodes stay
-  // mouse-draggable and the seating pass reruns only when a drag ENDS
-  // (reseatChips), so mid-drag the anchors diverge, the hide is stale and the
-  // chip returns until the drop re-seats it. The divergence
-  // threshold is the shared HIDE_STALE_EPS, sized in dimensions.ts.
+  // this edge's hover tooltip below). The hide was taken at this member's own
+  // branch anchor, so it is checked against the anchor rebuilt from the live
+  // props -- and only when there is one: a null fan path leaves nothing to
+  // compare, and a stamped hide with no live anchor drops.
   const hiddenAt = fanoutData?.fanoutBranchHiddenAt;
   const branchHidden =
     fanoutData?.fanoutBranchHidden === true &&
     (hiddenAt === undefined ||
-      (fan !== null &&
-        Math.abs(fan.branchAnchor.x - hiddenAt.x) < HIDE_STALE_EPS &&
-        Math.abs(fan.branchAnchor.y - hiddenAt.y) < HIDE_STALE_EPS));
+      (fan !== null && anchorStampLive(hiddenAt, fan.branchAnchor)));
   // Lane member whose rise chip the seating pass could not keep on its lane:
   // either the trunk's short run has no room for it at the member-to-member
   // chip separation (issue #24), or its seat cascaded more than one pitch off
