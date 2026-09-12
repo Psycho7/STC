@@ -769,3 +769,15 @@ Rejected alternative: passing the helper the competing names on the same surface
 `bun run typecheck`, `bun run typecheck:tools`, `bun run lint` clean. `vitest run`: 161 files, 1815 passed, 1 skipped. `row-collisions.spec.ts`: 48/48 (12 scenarios x 2 locales x rows and titles). `chip-widths` 14/14, `raw-and-transport` 4/4, `gas-transport` 1/1 -- the frozen surfaces are unmoved.
 
 `test/setup.ts` now stubs `HTMLCanvasElement.getContext` to return null. jsdom has no canvas backend and logged a "Not implemented" notice on every probe; the measurer treats a missing context as the expected fallback path, so the stub keeps the run's output about failures.
+
+### Defect the exact measurement exposed: the sprite column
+
+Visual verification (rendered-prefix probe over the corpus in both locales) found labels carrying their own ellipsis and STILL being clipped by CSS -- the helper's string overflowing the box it was elided for. On multi6 "Cuprium...(Jincao " measured 104px against an 86px box.
+
+Cause: the row budget asked `iconPosition(p.item)` whether a sprite renders, while the `Sprite` beside it resolves through `iconIdForItem(p.item)`. Upstream renamed four item icons, so for those four the budget concluded "no sprite" and handed the label the sprite's 20px plus its flex gap while the sprite was on screen using them. The budget ran 25px wide and the helper filled the space.
+
+This predates the branch. The old char-class bound was running ~25% over, which absorbed the 25px error and kept it invisible; measuring exactly removed the cushion. Fixed by resolving the icon the same way the sprite does.
+
+The guard now carries the invariant that would have caught it: a label carrying the ellipsis must fit its box, because the helper owns that string. Verified by mutation -- restoring `iconPosition(p.item)` turns `en multi6` red naming all four labels and their overflow.
+
+Corpus audit after the fix (12 plans x 2 locales, rendered): 0 elided labels overflow. The 39 clipped labels that remain are all raw fallbacks in English, where the bare-word tail was declined and CSS tail-ellipsis shows the longer prefix by design; zh has none.

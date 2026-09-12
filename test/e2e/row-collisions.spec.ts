@@ -138,9 +138,10 @@ test.describe("visible row-label collisions", () => {
           .locator(".rn-row .lbl")
           .first()
           .waitFor({ state: "visible", timeout: 30_000 });
-        const { collisions, rows } = await page.evaluate(() => {
+        const { collisions, rows, overflowing } = await page.evaluate(() => {
           const seen = new Map<string, string>();
           const out: { readout: string; a: string; b: string }[] = [];
+          const overflowing: string[] = [];
           let rows = 0;
           for (const row of document.querySelectorAll(".rn-row")) {
             const handle = row.querySelector<HTMLElement>("[data-handleid]");
@@ -154,6 +155,19 @@ test.describe("visible row-label collisions", () => {
             const full = lbl.textContent ?? "";
             let visible = full;
             if (lbl.scrollWidth > lbl.clientWidth + 1) {
+              // The helper OWNS the visible string, so a label carrying its
+              // ellipsis must already fit its box: overflowing means the
+              // budget the helper elided against was wider than the box the
+              // row actually gives, and CSS is clipping a string that was
+              // already cut once. That is how the sprite-column slip stayed
+              // invisible (the budget asked iconPosition for the raw item id,
+              // which misses the renamed icons, and handed the label the
+              // sprite's width while the sprite was on screen using it).
+              if (full.indexOf("\u2026") >= 0) {
+                overflowing.push(
+                  `${full} (${lbl.scrollWidth} > ${lbl.clientWidth})`,
+                );
+              }
               // Binary-search the longest prefix that fits with the
               // ellipsis, measured in the label's own font.
               const probe = document.createElement("span");
@@ -180,11 +194,15 @@ test.describe("visible row-label collisions", () => {
               out.push({ readout, a: prev, b: item });
             }
           }
-          return { collisions: out, rows };
+          return { collisions: out, rows, overflowing };
         });
         // Selector-drift guard: an audit that measured nothing proves
         // nothing. Every corpus plan carries at least one recipe row.
         expect(rows).toBeGreaterThan(0);
+        expect(
+          overflowing,
+          `elided labels that still overflow their box:\n${overflowing.join("\n")}`,
+        ).toEqual([]);
         const novel = collisions.filter(
           (c) => !KNOWN_IDENTICAL_PAIRS.has(`${c.a}|${c.b}`),
         );

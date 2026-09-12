@@ -349,7 +349,13 @@ export default function RecipeNode({
               label,
               geom.width,
               rateText,
-              iconPosition(p.item) !== undefined,
+              // Through iconIdForItem, exactly as the Sprite below resolves
+              // it: upstream renamed four item icons, and asking iconPosition
+              // for the raw item id misses those four. The budget then hands
+              // the label the sprite's 20px and its gap while the sprite is on
+              // screen taking them, and the label overflows into the CSS
+              // ellipsis the helper exists to keep it out of.
+              iconPosition(iconIdForItem(p.item)) !== undefined,
             );
             return (
               // The Handle and PortGlyph live inside the row so the DOM row
@@ -391,7 +397,13 @@ export default function RecipeNode({
               label,
               geom.width,
               rateText,
-              iconPosition(p.item) !== undefined,
+              // Through iconIdForItem, exactly as the Sprite below resolves
+              // it: upstream renamed four item icons, and asking iconPosition
+              // for the raw item id misses those four. The budget then hands
+              // the label the sprite's 20px and its gap while the sprite is on
+              // screen taking them, and the label overflows into the CSS
+              // ellipsis the helper exists to keep it out of.
+              iconPosition(iconIdForItem(p.item)) !== undefined,
             );
             return (
               // Handle and PortGlyph nested in the row (see input side above).
