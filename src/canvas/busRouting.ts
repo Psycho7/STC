@@ -40,6 +40,7 @@ import {
 import {
   absoluteLeft,
   absoluteTop,
+  edgeItem,
   nodeHeight,
   nodeWidth,
   portOffsetY,
@@ -249,13 +250,6 @@ function edgeSpan(
   const sourceRight = absoluteLeft(source, byId) + nodeWidth(source);
   const targetLeft = absoluteLeft(target, byId);
   return Math.max(0, targetLeft - sourceRight);
-}
-
-export function edgeItem(edge: Edge): string | undefined {
-  // Deliberately weaker than ItemEdgeData: older fixtures carry a non-string
-  // item, so the guard below has to see `unknown` rather than a claimed type.
-  const item = (edge.data as { item?: unknown } | undefined)?.item;
-  return typeof item === "string" ? item : undefined;
 }
 
 // Key of one FLOW: the (item, source unit) pair leaving a single out-port. A

@@ -65,6 +65,7 @@ import {
 } from "./dimensions";
 import {
   CHAMFER,
+  branchLegAfterJunction,
   chamferBusPath,
   chamferFanoutPath,
   chamferStepPath,
@@ -87,7 +88,6 @@ import {
   ENTRY_SLOT_PITCH,
   OBSTACLE_PAD_LEFT,
   OBSTACLE_PAD_Y,
-  edgeItem,
   flowKeyOf as busFlowKey,
   isTrunkOwner,
   type BusEdgeData,
@@ -97,10 +97,11 @@ import {
 import {
   absoluteLeft,
   absoluteTop,
+  drawnPortsOf,
+  edgeItem,
   nodeHeight,
   nodeWidth,
   portOffsetY,
-  portRowResolved,
 } from "./nodeGeometry";
 // Type-only: ItemEdge.tsx declares the base canvas edge payload this pass seats
 // chips for. Erased at compile time, so it adds no runtime or bundler edge.
@@ -442,8 +443,9 @@ export function chipEntersOwnCardBody(
   const oy = Math.min(chip.bottom, card.bottom) - Math.max(chip.top, card.top);
   if (oy <= eps) return false; // not even level with the card: never on its body
   const cx = (chip.left + chip.right) / 2;
-  // CARD_BORDER is declared further down this file, next to the PORT_DRIFT /
-  // CARD_GROWTH tables it is derived with; hoisting makes it readable here.
+  // CARD_BORDER is declared further down this file, next to the CARD_GROWTH
+  // table it is derived with (the port-side counterpart, PORT_DRIFT, lives with
+  // drawnPortsOf in nodeGeometry.ts); hoisting makes it readable here.
   const depth = CARD_BORDER + PORT_ZONE_DEPTH;
   return side === "target" ? cx > card.left + depth : cx < card.right - depth;
 }
@@ -945,44 +947,6 @@ function clampChipXToOwnRun(
   const clampLo = Math.max(lo + CHAMFER, windowLo);
   const clampHi = Math.min(hi - CHAMFER, windowHi);
   return Math.min(Math.max(busChipX, clampLo), clampHi);
-}
-
-// The sub-polyline a fan-out member's BRANCH chip draws on: the suffix from
-// the trunk's junction point onward (junction -> branch column -> target
-// port), the branch-side counterpart of the aggregate seat's trunk-prefix
-// truncation below. The full polyline includes the shared trunk prefix, and
-// the branch seat's slide walks BOTH directions from the anchor, so a branch
-// chip seated on the full polyline can walk back across the junction onto the
-// shared trunk -- the box then reads as a trunk label and buries the split
-// dot from the side the reader approaches it. Every fan-out path starts with
-// the horizontal run all members share, and the junction point sits ON that
-// run as an exact polyline vertex for branching and small-dy (diagonal)
-// members alike (chamferFanoutPath emits `jx - CHAMFER, sy` as the first
-// turn), so the slice is the member's own leg plus, for a shared-y member,
-// its post-junction run -- the junction vertex is prepended there because a
-// straight path has no vertex of its own at that x. The source-port vertex at
-// index 0 is always strictly left of the junction (the corridor clamps the
-// junction column a stub-plus-chamfer out), so the scan starts past it.
-//
-// Exported for the short-leg suite, which measures a member's leg extent with
-// this same slice so its premise reads the leg the branch rule gates on.
-export function branchLegAfterJunction(
-  pts: ReadonlyArray<readonly [number, number]>,
-  junction: { x: number; y: number },
-): ReadonlyArray<readonly [number, number]> {
-  let i = 1;
-  while (i < pts.length && pts[i]![0] < junction.x) i++;
-  const rest = pts.slice(i);
-  const head = rest[0];
-  if (
-    head !== undefined &&
-    rest.length >= 2 &&
-    Math.abs(head[0] - junction.x) <= 1 &&
-    Math.abs(head[1] - junction.y) <= 1
-  ) {
-    return rest;
-  }
-  return [[junction.x, junction.y] as const, ...rest];
 }
 
 // Row tolerance for matching a stamped y against a drawn vertex: paths round to
@@ -1819,61 +1783,11 @@ function seatRateChipPass(
   return seat(anchorX, anchorY, "exhausted");
 }
 
-// Drawn-vs-model port drift, in graph units, per node kind. React Flow anchors
-// an edge at the OUTER edge of the handle's 8x8 box (getHandlePosition), not at
-// the model port busRouting computes, so the drawn path starts and ends a few
-// units off the model coordinate. Derivation, from the DOM boxes:
-//   recipe: the card is content-box RECIPE_WIDTH (300) with a 1px border per
-//     side, so its border box is 302 wide while node.position is still the
-//     model left L. Handles hang off the .rn-row edges INSIDE that border
-//     (row spans L+1 .. L+301), each box centred on its row edge, so the outer
-//     edges land at L-3 and L+305: targetDx -3, and sourceDx +5 against the
-//     model port at L+300. The same 1px top border pushes each row's mid-line
-//     one unit below the model row y, hence dy +1.
-//   product: the 148-wide wrapper carries no such width discrepancy, so its
-//     handle boxes give a symmetric [-4, +4]; the handles are CSS-centred on a
-//     wrapper inline-sized to node.height, so dy is 0.
-//   loop / container: no measured drift and no edge endpoints on them in any
-//     corpus plan, so they stay at zero rather than borrowing another kind's
-//     numbers.
-// Re-derive these if the card borders or paddings change, if handle sizing or
-// nesting changes (RecipeNode/ProductNode markup, .react-flow__handle CSS), or
-// if React Flow changes its handle-anchoring rule.
-// This table stays unexported on purpose: every copy below is a negative
-// control, rebuilding the drawn port from the model side so a suite can catch
-// this module quietly agreeing with itself. Eight copies live in seven suites,
-// so changing these numbers is an eight-site edit:
-//   test/canvas/junctionDots.test.ts     SRC_DX / TGT_DX / PORT_DY
-//   test/canvas/crossingCue.test.ts      PORT_SX / PORT_TX / PORT_DY
-//   test/canvas/fanoutMarkers.test.ts    SRC_DX / TGT_DX / PORT_DY
-//   test/canvas/faninMarkers.test.ts     PORT_DY alone
-//   test/canvas/shortLegChips.test.ts    PRODUCT_DX for the product row, and a
-//                                        second SRC_DX / TGT_DX / PORT_DY in
-//                                        the fan-out half of the same file
-//   test/canvas/busRouting.chips.test.ts the recipe row inline, in the
-//                                        branch-confinement reconstruction
-//   test/e2e/geometry.ts                 the whole table, all three rows
-// The unit mirrors run this module's own code beside their copy, so a stale one
-// fails loudly; the e2e mirror has no cross-check against src at all, so a
-// stale copy there stays silent.
-type PortDrift = { sourceDx: number; targetDx: number; dy: number };
-
-const PORT_DRIFT: Record<"recipe" | "product" | "other", PortDrift> = {
-  recipe: { sourceDx: 5, targetDx: -3, dy: 1 },
-  product: { sourceDx: 4, targetDx: -4, dy: 0 },
-  other: { sourceDx: 0, targetDx: 0, dy: 0 },
-};
-
-function portDrift(node: RFAnyNode): PortDrift {
-  if (node.type === "recipe") return PORT_DRIFT.recipe;
-  if (node.type === "product") return PORT_DRIFT.product;
-  return PORT_DRIFT.other;
-}
-
 // The card border, in graph units per side: the 1px frame a rendered card draws
 // around its content box (canvas.css .recipe-node / .product-node). It is the
-// same discrepancy PORT_DRIFT.recipe derives its handle offsets from, seen from
-// the box side instead of the port side, so the two must be re-derived together.
+// same discrepancy nodeGeometry's PORT_DRIFT.recipe derives its handle offsets
+// from, seen from the box side instead of the port side, so the two must be
+// re-derived together, in their two homes.
 export const CARD_BORDER = 1;
 
 // How much WIDER and TALLER a node's DRAWN border box is than the model box the
@@ -1882,7 +1796,8 @@ export const CARD_BORDER = 1;
 // bottom only.
 //   recipe: the card is content-box RECIPE_WIDTH (300) with a CARD_BORDER frame
 //     per side, so the drawn box is 302 wide and two units taller than
-//     recipeHeight -- exactly the offset PORT_DRIFT.recipe's derivation records.
+//     recipeHeight -- exactly the offset nodeGeometry's PORT_DRIFT.recipe
+//     derivation records.
 //   product: the model width ALREADY counts the card's borders (124 content +
 //     20 padding + 1 border + a 3 accent border = the 148 layout assigns), so
 //     the drawn box is the model box.
@@ -1890,8 +1805,8 @@ export const CARD_BORDER = 1;
 //     border stays inside the box and likewise adds no growth.
 // Measured in-browser across the seven corpus scenarios (recipe 302 x
 // recipeHeight+2 everywhere, product 148x78, group == its model size, no loop
-// node in any corpus plan). Re-derive alongside PORT_DRIFT whenever a card's
-// border or box-sizing changes.
+// node in any corpus plan). Re-derive alongside nodeGeometry's PORT_DRIFT
+// whenever a card's border or box-sizing changes.
 const CARD_GROWTH: Record<"recipe" | "product" | "other", number> = {
   recipe: 2 * CARD_BORDER,
   product: 0,
@@ -1918,7 +1833,7 @@ function cardBorder(type: string | undefined): number {
 // audit; the per-edge exemption the seating pass applies is the same one the
 // audit applies.
 //
-// These are DRAWN border boxes, the same frame edgeEndpoints reconstructs the
+// These are DRAWN border boxes, the same frame drawnPortsOf reconstructs the
 // polylines in: the model box grown by CARD_GROWTH, which is zero for every
 // kind but the recipe card, whose 1px border makes it 302 wide against the
 // model's 300 (see CARD_BORDER). The audit collects the rendered card rect
@@ -1946,45 +1861,6 @@ export function cardRectsFor(
       border: cardBorder(n.type),
     };
   });
-}
-
-// The drawn port y for one endpoint. The recipe dy applies only when the port
-// resolved to an actual row: portOffsetY falls back to the node's vertical
-// centre for an unresolvable item / order, and that fallback is a deliberate
-// approximation of an unknown row, not a row shifted by the card border.
-// portRowResolved tells the two apart exactly (its row-vs-centre proof lives
-// with it in nodeGeometry.ts).
-function driftedPortY(
-  node: RFAnyNode,
-  item: string | undefined,
-  side: "in" | "out",
-): number {
-  const y = portOffsetY(node, item, side);
-  return portRowResolved(node, y) ? y + portDrift(node).dy : y;
-}
-
-// The four port coordinates an edge's path builders take, resolved the same way
-// every routing pass resolves them (source Right port, target Left port, at the
-// item's row), then shifted onto the drawn handle coordinates by PORT_DRIFT.
-// Null when either endpoint is missing from the node map. Shared by the seating
-// pass and contentBounds so both reconstruct the DRAWN geometry.
-function edgeEndpoints(
-  edge: Edge,
-  byId: ReadonlyMap<string, RFAnyNode>,
-): { sx: number; sy: number; tx: number; ty: number } | null {
-  const source = byId.get(edge.source);
-  const target = byId.get(edge.target);
-  if (source === undefined || target === undefined) return null;
-  const item = edgeItem(edge);
-  return {
-    sx:
-      absoluteLeft(source, byId) +
-      nodeWidth(source) +
-      portDrift(source).sourceDx,
-    sy: absoluteTop(source, byId) + driftedPortY(source, item, "out"),
-    tx: absoluteLeft(target, byId) + portDrift(target).targetDx,
-    ty: absoluteTop(target, byId) + driftedPortY(target, item, "in"),
-  };
 }
 
 // One drawn junction dot and the family it belongs to. The four families are
@@ -2167,7 +2043,7 @@ export function deconflictChipAnchors(
   };
   edges.forEach((edge, index) => {
     if (edge.type !== "item" && edge.type !== "bus") return;
-    const ends = edgeEndpoints(edge, byId);
+    const ends = drawnPortsOf(edge, byId);
     if (ends === null) return;
     const { sx, sy, tx, ty } = ends;
     let d: string;
@@ -2350,7 +2226,7 @@ export function deconflictChipAnchors(
   {
     // The partner record for one segment entry: its edge id plus its two
     // endpoint node ABSOLUTE origins (rounded to the stamp's two decimals).
-    // Every segment entry resolved its endpoints (edgeEndpoints returned
+    // Every segment entry resolved its endpoints (drawnPortsOf returned
     // non-null), so both nodes exist here.
     const partnerStampOf = (segIdx: number): CrossingCuePartner => {
       const edge = edges[edgeIndexOfSegment[segIdx]!]!;
@@ -2464,10 +2340,10 @@ export function deconflictChipAnchors(
   // fan-out role.
   //
   // Every comparison below is in the DRAWN frame: the port coordinates come from
-  // edgeEndpoints, the same reconstruction the polylines above were built from,
+  // drawnPortsOf, the same reconstruction the polylines above were built from,
   // so FANIN_EPS is a real collinearity tolerance rather than a budget already
   // spent on the frame mismatch. Taking the raw model port instead left every
-  // recipe target off by PORT_DRIFT.recipe.dy (and the run's right bound off by
+  // recipe target off by the recipe row drift (and the run's right bound off by
   // targetDx), which sat exactly at the eps: the sub-pixel rounding of a
   // fractional layout y was then enough to tip a genuine merge out of detection.
   const FANIN_EPS = 1;
@@ -2493,7 +2369,7 @@ export function deconflictChipAnchors(
     // The drawn target port, from the same reconstruction the polylines came
     // from. Null only when an endpoint is missing from the node map, the case
     // the geometry pass above skipped too.
-    const ends = edgeEndpoints(edge, byId);
+    const ends = drawnPortsOf(edge, byId);
     if (ends === null) return;
     const { tx, ty } = ends;
     const key = item + "|" + edge.target;
@@ -2770,14 +2646,14 @@ export function deconflictChipAnchors(
   for (const { edge, index } of busEdges) {
     const data = edge.data as BusEdgeData | undefined;
     if (data === undefined || !("laneY" in data)) continue;
-    // The DRAWN frame, through the same edgeEndpoints the polyline
+    // The DRAWN frame, through the same drawnPortsOf the polyline
     // reconstruction above uses. Rebuilding the model-frame ports here instead
-    // put an unmoved trunk's drop column PORT_DRIFT.sourceDx out from where
+    // put an unmoved trunk's drop column one source-port drift out from where
     // BusEdge paints it (5 units on a recipe source, 4 on a product), so the
     // drop chip reserved its clearance box beside its junction rather than on
     // it -- and this was the last seat left in the model frame, with BusEdge,
     // contentBounds and the placement audit all reading the drawn one.
-    const ends = edgeEndpoints(edge, byId);
+    const ends = drawnPortsOf(edge, byId);
     if (ends === null) continue;
     const { sx, sy, tx, ty } = ends;
     const { dropX, riseX } = chamferBusPath({
@@ -3513,7 +3389,7 @@ export function contentBounds(
   // the seating pass stamped. Hidden chips draw nothing, so they frame nothing.
   for (const edge of edges) {
     const data = edge.data as ChipAnchorData | undefined;
-    const ends = edgeEndpoints(edge, byId);
+    const ends = drawnPortsOf(edge, byId);
     if (ends === null) continue;
     const geom = {
       sourceX: ends.sx,

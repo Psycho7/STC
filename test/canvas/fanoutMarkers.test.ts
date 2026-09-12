@@ -20,7 +20,11 @@ import {
   FANOUT_SPAN_MIN,
   FANOUT_SPAN_MAX,
 } from "../../src/canvas/busRouting";
-import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
+import {
+  drawnPortsOf,
+  nodeWidth,
+  portOffsetY,
+} from "../../src/canvas/nodeGeometry";
 import {
   CHAMFER,
   chamferStepPath,
@@ -47,14 +51,6 @@ const dataOf = (edges: Edge[], id: string): FanoutData =>
 // fan-out to the trunk's shared one).
 const routedHints = (edges: Edge[], id: string): RoutingHints =>
   routingHintsFromData(edges.find((e) => e.id === id)?.data);
-
-// chipSeating's own PORT_DRIFT.recipe, mirrored here (the module does not export
-// it): a recipe's drawn out handle sits 5 units right of the model right edge,
-// its in handle 3 units left of the model left edge, and both a unit below the
-// model row y.
-const SRC_DX = 5;
-const TGT_DX = -3;
-const PORT_DY = 1;
 
 const ITEM = "s";
 
@@ -83,8 +79,26 @@ const rateEdge = (
 const srcNode = (): RFRecipeNode =>
   recipeNode("src", 0, 0, mkRecipe("src", [], [ITEM]));
 const sourceRight = nodeWidth(srcNode());
-const sourceX = sourceRight + SRC_DX;
-const sourceY = portOffsetY(srcNode(), ITEM, "out") + PORT_DY;
+
+// The DRAWN ports of a src -> target edge, through nodeGeometry's one model ->
+// drawn conversion (the frame chipSeating reconstructs in and React Flow's
+// handle anchoring lands on).
+const drawnPortsFor = (
+  target: RFRecipeNode,
+): { sx: number; sy: number; tx: number; ty: number } =>
+  drawnPortsOf(
+    rateEdge("drawn-ports", "src", target.id, new Fraction(1)),
+    new Map<string, RFAnyNode>([
+      ["src", srcNode()],
+      [target.id, target],
+    ]),
+  )!;
+
+// The source half of that conversion does not depend on the target, so a
+// throwaway consumer resolves the out-port every fixture leaves from.
+const srcPorts = drawnPortsFor(orderedRecipeNode("probe", 0, 0, [ITEM]));
+const sourceX = srcPorts.sx;
+const sourceY = srcPorts.sy;
 
 // A one-input consumer card whose in-port row lands `rowOffset` below the
 // source's out-port row (0 => a straight, never-bending member).
@@ -94,7 +108,7 @@ const consumer = (id: string, gap: number, rowOffset: number): RFRecipeNode => {
   return orderedRecipeNode(
     id,
     sourceRight + gap,
-    sourceY - PORT_DY - inY + rowOffset,
+    portOffsetY(srcNode(), ITEM, "out") - inY + rowOffset,
     [ITEM],
   );
 };
@@ -106,12 +120,12 @@ const drawnPoints = (
   target: RFRecipeNode,
   hints: RoutingHints = {},
 ): ReadonlyArray<readonly [number, number]> => {
-  const inY = measureRecipe(target.data.recipe).inHandleYs[0]!;
+  const ports = drawnPortsFor(target);
   const [path] = chamferStepPath({
-    sourceX,
-    sourceY,
-    targetX: target.position.x + TGT_DX,
-    targetY: target.position.y + inY + PORT_DY,
+    sourceX: ports.sx,
+    sourceY: ports.sy,
+    targetX: ports.tx,
+    targetY: ports.ty,
     ...hints,
   });
   return parsePathPoints(path);

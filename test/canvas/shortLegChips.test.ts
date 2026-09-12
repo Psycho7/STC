@@ -13,19 +13,21 @@ import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
-import {
-  branchLegAfterJunction,
-  deconflictChipAnchors,
-} from "../../src/canvas/chipSeating";
+import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { chipSeatHalfW } from "../../src/canvas/chipMetrics";
 import {
+  branchLegAfterJunction,
   chamferStepPath,
   chamferFanoutPath,
   parsePathPoints,
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
 import { routeFanoutEdges } from "../../src/canvas/busRouting";
-import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
+import {
+  drawnPortsOf,
+  nodeWidth,
+  portOffsetY,
+} from "../../src/canvas/nodeGeometry";
 import { CHIP_BOX_HEIGHT, MAX_CHIP_SCALE } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import {
@@ -43,10 +45,22 @@ import {
 // see chipNaturalWidth). Mirrored here (the module does not export it).
 const CHIP_HALF_W_WIDE = 120;
 
-// Product handle drift, from chipSeating's PORT_DRIFT.product: the drawn source
-// handle sits 4 units right of the card's right edge, the drawn target handle 4
-// units left of the card's left edge.
-const PRODUCT_DX = 4;
+// One edge's DRAWN endpoints in the shape the path builders take, through
+// nodeGeometry's single model -> drawn conversion -- the frame the seating pass
+// reconstructs in. The drift numbers themselves are pinned by
+// test/canvas/portDrift.test.ts, so this suite restates none of them.
+const drawnPortsOfEdge = (
+  e: Edge,
+  nodes: ReadonlyArray<RFAnyNode>,
+): { sourceX: number; sourceY: number; targetX: number; targetY: number } => {
+  const ports = drawnPortsOf(e, new Map(nodes.map((n) => [n.id, n])))!;
+  return {
+    sourceX: ports.sx,
+    sourceY: ports.sy,
+    targetX: ports.tx,
+    targetY: ports.ty,
+  };
+};
 
 const CARD_W = 100;
 const CARD_H = 60;
@@ -75,12 +89,7 @@ const rowFixture = (
   ];
   // The drawn polyline, from the same path builder chipSeating reconstructs it
   // with, so the premise below measures the real leg rather than assuming it.
-  const [d] = chamferStepPath({
-    sourceX: srcX + CARD_W + PRODUCT_DX,
-    sourceY: CARD_Y + CARD_H / 2,
-    targetX: tgtX - PRODUCT_DX,
-    targetY: CARD_Y + CARD_H / 2,
-  });
+  const [d] = chamferStepPath(drawnPortsOfEdge(edges[0]!, nodes));
   return { nodes, edges, legLen: polylineLength(parsePathPoints(d)) };
 };
 
@@ -115,12 +124,9 @@ const corridorFixture = (): {
     });
     // The drawn polyline, from the same path builder chipSeating reconstructs
     // it with (rowFixture's contract).
-    const [d] = chamferStepPath({
-      sourceX: srcX + CARD_W + PRODUCT_DX,
-      sourceY: rowY + CARD_H / 2,
-      targetX: tgtX - PRODUCT_DX,
-      targetY: rowY + dys[i]! + CARD_H / 2,
-    });
+    const [d] = chamferStepPath(
+      drawnPortsOfEdge(edges[edges.length - 1]!, nodes),
+    );
     legs.push({ pts: parsePathPoints(d) });
   });
   return { nodes, edges, legs };
@@ -172,14 +178,7 @@ const chainFixture = (gap: number): { nodes: RFAnyNode[]; edges: Edge[] } => {
 // The chip anchor chamferStepPath puts on an edge of the chain fixture, in the
 // drawn frame the seating pass reconstructs.
 const chipAnchorOf = (nodes: RFAnyNode[], edge: Edge): number => {
-  const src = nodes.find((n) => n.id === edge.source)!;
-  const tgt = nodes.find((n) => n.id === edge.target)!;
-  const [, lx] = chamferStepPath({
-    sourceX: src.position.x + CARD_W + PRODUCT_DX,
-    sourceY: CARD_Y + CARD_H / 2,
-    targetX: tgt.position.x - PRODUCT_DX,
-    targetY: CARD_Y + CARD_H / 2,
-  });
+  const [, lx] = chamferStepPath(drawnPortsOfEdge(edge, nodes));
   return lx;
 };
 
@@ -353,12 +352,6 @@ describe("deconflictChipAnchors: per-chip reserved box", () => {
 // clear; the rate stays readable on the chip's title / aria-label.
 
 const FAN_ITEM = "s";
-// chipSeating's PORT_DRIFT.recipe, mirrored here (the module does not export
-// it): the drawn out handle sits 5 units right of the model right edge, the in
-// handle 3 units left of the model left edge, both a unit below the model row y.
-const SRC_DX = 5;
-const TGT_DX = -3;
-const PORT_DY = 1;
 
 // An icon-only chip is a square: the 16px sprite plus the same 3px padding and
 // 1px border the full chip carries (.flow-chip.icon-only in canvas.css), so its
@@ -380,15 +373,11 @@ const fanEdge = (id: string, source: string, target: string): Edge => ({
   data: { item: FAN_ITEM, rate: new Fraction(1) },
 });
 
-const drawnFanEnds = (
+const drawnFanPorts = (
   src: RFRecipeNode,
   tgt: RFRecipeNode,
-): { sourceX: number; sourceY: number; targetX: number; targetY: number } => ({
-  sourceX: src.position.x + nodeWidth(src) + SRC_DX,
-  sourceY: src.position.y + portOffsetY(src, FAN_ITEM, "out") + PORT_DY,
-  targetX: tgt.position.x + TGT_DX,
-  targetY: tgt.position.y + portOffsetY(tgt, FAN_ITEM, "in") + PORT_DY,
-});
+): { sourceX: number; sourceY: number; targetX: number; targetY: number } =>
+  drawnPortsOfEdge(fanEdge("drawn-ports", src.id, tgt.id), [src, tgt]);
 
 const fanDataOf = (edges: Edge[], id: string): Record<string, unknown> =>
   (edges.find((e) => e.id === id)?.data as
@@ -434,7 +423,7 @@ const fanoutFixture = (
   // alongside as the premise it used to be).
   const extentOf = (tgt: RFRecipeNode, id: string): number => {
     const fan = chamferFanoutPath({
-      ...drawnFanEnds(src, tgt),
+      ...drawnFanPorts(src, tgt),
       ...routingHintsFromData(fanDataOf(routed, id)),
     });
     const pts = parsePathPoints(fan.path);
@@ -496,7 +485,7 @@ const riserGeometry = (
   branchAnchor: { x: number; y: number };
 } => {
   const fan = chamferFanoutPath({
-    ...drawnFanEnds(fixture.src, fixture.riser),
+    ...drawnFanPorts(fixture.src, fixture.riser),
     ...routingHintsFromData(fanDataOf(fixture.routed, "e:1")),
   });
   const pts = parsePathPoints(fan.path);
@@ -526,7 +515,7 @@ const riserPushFixture = (): {
   sy: number;
 } => {
   const base = riserFixture();
-  const sy = drawnFanEnds(base.src, base.riser).sourceY;
+  const sy = drawnFanPorts(base.src, base.riser).sourceY;
   const lineY = sy - 27;
   const fs = productNode("fs", -1054, lineY - CARD_H / 2, CARD_W, CARD_H);
   const ft = productNode("ft", 1000, lineY - CARD_H / 2, CARD_W, CARD_H);
@@ -595,7 +584,7 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     const src = nodes[0] as RFRecipeNode;
     const level = nodes[1] as RFRecipeNode;
     const fan = chamferFanoutPath({
-      ...drawnFanEnds(src, level),
+      ...drawnFanPorts(src, level),
       ...routingHintsFromData(data),
     });
     const cx = fan.branchAnchor.x + ((data.fanoutBranchDx as number) ?? 0);
@@ -612,8 +601,8 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     // ...and it did not leave its leg to get there: the seat is on the straight
     // run between the two ports, at the port y.
     expect(cy).toBe(fan.branchAnchor.y);
-    expect(cx).toBeGreaterThanOrEqual(drawnFanEnds(src, level).sourceX);
-    expect(cx).toBeLessThanOrEqual(drawnFanEnds(src, level).targetX);
+    expect(cx).toBeGreaterThanOrEqual(drawnFanPorts(src, level).sourceX);
+    expect(cx).toBeLessThanOrEqual(drawnFanPorts(src, level).targetX);
   });
 
   it("collapses a long-trunk riser whose own leg cannot hold its chip", () => {
@@ -632,7 +621,7 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
     // clears one chip box (the old rule's bound, why this was red there) while
     // the member's own leg does not clear THIS chip's reserved width.
     expect(fixture.routed.map((e) => e.type)).toEqual(["bus", "bus"]);
-    const ends = drawnFanEnds(fixture.src, fixture.riser);
+    const ends = drawnFanPorts(fixture.src, fixture.riser);
     expect(Math.abs(ends.targetY - ends.sourceY)).toBe(RISER_DY);
     expect(polylineLength(geom.pts)).toBeGreaterThanOrEqual(CHIP_HALF_W_WIDE);
     expect(polylineXExtent(geom.suffix)).toBeLessThan(
@@ -749,15 +738,8 @@ describe("deconflictChipAnchors: adjacent-row pair shrinks onto its line", () =>
         labelDy?: number;
         chipScaleCap?: number;
       };
-      const tap = nodes.find((n) => n.id === e.source)!;
       const [d, lx, ly] = chamferStepPath({
-        sourceX: tap.position.x + 148 + PRODUCT_DX,
-        sourceY: tap.position.y + 39,
-        targetX: 560 - 3,
-        targetY:
-          29 +
-          portOffsetY(nodes[0]!, (e.data as { item: string }).item, "in") +
-          1,
+        ...drawnPortsOfEdge(e, nodes),
         ...routingHintsFromData(e.data),
       });
       // Both chips sit ON their own polylines: no nudge, no escape.

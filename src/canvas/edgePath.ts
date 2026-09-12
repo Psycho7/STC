@@ -463,9 +463,6 @@ export function pathPointAtPts(
 // The anchor is derived from the SAME branch geometry that builds the `d` (the
 // bend column bx, the jog descentX, the rail column xr are all in hand), never
 // re-parsed, so render and reconstruction agree by construction.
-//
-// New routing hint? Thread it through RoutingHints (and routingHintsFromData)
-// so render and deconflictChipAnchors stay in lockstep.
 export function chamferStepPath(
   args: {
     sourceX: number;
@@ -681,8 +678,6 @@ export function chamferStepPath(
 // Accepts the full RoutingHints so callers can spread routingHintsFromData; a
 // bus run reads only the bus-relevant hints (entryX, dropX, riseX) and ignores
 // the rest (bendX / legY / railY apply to the forward step and backward rail).
-// New routing hint? Thread it through RoutingHints (and routingHintsFromData) so
-// render and deconflictChipAnchors stay in lockstep.
 export function chamferBusPath(
   args: {
     sourceX: number;
@@ -816,9 +811,6 @@ export function chamferBusPath(
 // leg anchor (where this member's own branch chip seats). Same degenerate guards
 // as chamferStepPath's forward branch: a shared-y member draws a straight trunk
 // with no branch vertical, a small-dy member a single diagonal. Pure.
-//
-// New routing hint? Thread it through RoutingHints (and routingHintsFromData) so
-// render and deconflictChipAnchors stay in lockstep.
 export function chamferFanoutPath(
   args: {
     sourceX: number;
@@ -889,4 +881,150 @@ export function chamferFanoutPath(
     chamferColumn(jx, sy, ty, CHAMFER) +
     ` L ${r(tx)},${r(ty)}`;
   return { path: d, junction, trunkAnchor, branchAnchor };
+}
+
+// The sub-polyline a fan-out member's BRANCH chip draws on: the suffix from
+// the trunk's junction point onward (junction -> branch column -> target
+// port), the branch-side counterpart of the aggregate seat's trunk-prefix
+// truncation below. The full polyline includes the shared trunk prefix, and
+// the branch seat's slide walks BOTH directions from the anchor, so a branch
+// chip seated on the full polyline can walk back across the junction onto the
+// shared trunk -- the box then reads as a trunk label and buries the split
+// dot from the side the reader approaches it. Every fan-out path starts with
+// the horizontal run all members share, and the junction point sits ON that
+// run as an exact polyline vertex for branching and small-dy (diagonal)
+// members alike (chamferFanoutPath emits `jx - CHAMFER, sy` as the first
+// turn), so the slice is the member's own leg plus, for a shared-y member,
+// its post-junction run -- the junction vertex is prepended there because a
+// straight path has no vertex of its own at that x. The source-port vertex at
+// index 0 is always strictly left of the junction (the corridor clamps the
+// junction column a stub-plus-chamfer out), so the scan starts past it.
+//
+// Exported for the seating pass, whose branch seat slices the same leg, and
+// for the short-leg suite, which measures a member's leg extent with this
+// slice so its premise reads the leg the branch rule gates on.
+export function branchLegAfterJunction(
+  pts: ReadonlyArray<readonly [number, number]>,
+  junction: { x: number; y: number },
+): ReadonlyArray<readonly [number, number]> {
+  let i = 1;
+  while (i < pts.length && pts[i]![0] < junction.x) i++;
+  const rest = pts.slice(i);
+  const head = rest[0];
+  if (
+    head !== undefined &&
+    rest.length >= 2 &&
+    Math.abs(head[0] - junction.x) <= 1 &&
+    Math.abs(head[1] - junction.y) <= 1
+  ) {
+    return rest;
+  }
+  return [[junction.x, junction.y] as const, ...rest];
+}
+
+// The DRAWN edge: given one edge's drawn ports, its type and its stamped data,
+// the polyline the canvas paints and every anchor that rides it. The one place
+// that resolves the routing hints, the bus / fan-out discriminants, the lane-row
+// fallback, the parse of `d` into vertices, and the fan-out branch-leg slice --
+// so the renderers (endpoints from React Flow props) and the chip-seating
+// reconstruction (endpoints from drawnPortsOf) cannot disagree about any of it.
+// A new routing hint threaded through RoutingHints and routingHintsFromData
+// therefore reaches render and deconflictChipAnchors at once, by construction
+// rather than by convention.
+//
+// Frame: DRAWN, never model. Comparing any of these coordinates against a model
+// rect is wrong by the port drift, exactly at the thresholds the ratchets live
+// on. `pts` is the parse of `path`, so no caller re-parses; every returned
+// anchor lies on `pts`. Pure, total, deterministic: an unrecognised type or
+// unstamped data yields the item shape with the builders' default hints, the
+// same way an unrecognised edge passes a routing pass through unchanged.
+//
+// What stays outside: the seat offsets (labelDx/Dy, fanoutBranch*, busChipDy),
+// the hide flags and the dot families are stamps on edge data. This answers
+// where the line and its anchors are, never where a chip ended up.
+export type DrawnPorts = {
+  sourceX: number;
+  sourceY: number;
+  targetX: number;
+  targetY: number;
+};
+
+type Anchor = { x: number; y: number };
+
+export type DrawnEdge =
+  | {
+      shape: "item";
+      path: string;
+      pts: ReadonlyArray<readonly [number, number]>;
+      labelAnchor: Anchor;
+    }
+  | {
+      shape: "fanout";
+      path: string;
+      pts: ReadonlyArray<readonly [number, number]>;
+      branchPts: ReadonlyArray<readonly [number, number]>;
+      junction: Anchor;
+      trunkAnchor: Anchor;
+      branchAnchor: Anchor;
+    }
+  | {
+      shape: "lane";
+      path: string;
+      pts: ReadonlyArray<readonly [number, number]>;
+      laneY: number;
+      dropX: number;
+      riseX: number;
+      junction: Anchor;
+    };
+
+export function drawnEdge(
+  ports: DrawnPorts,
+  edgeType: string | undefined,
+  data: unknown,
+): DrawnEdge {
+  const hints = routingHintsFromData(data);
+  const d = data as Record<string, unknown> | undefined;
+
+  if (edgeType === "bus" && d?.fanout === true) {
+    const fan = chamferFanoutPath({ ...ports, ...hints });
+    const pts = parsePathPoints(fan.path);
+    return {
+      shape: "fanout",
+      path: fan.path,
+      pts,
+      branchPts: branchLegAfterJunction(pts, fan.junction),
+      junction: fan.junction,
+      trunkAnchor: fan.trunkAnchor,
+      branchAnchor: fan.branchAnchor,
+    };
+  }
+
+  if (edgeType === "bus") {
+    // Narrow on `"laneY" in` (the discriminant the lane bands and the census
+    // helpers use) rather than a cast: this bus edge is the lane variant only
+    // because the fan-out arm above did not claim it. A member whose lane is
+    // unstamped rides its own target row.
+    const laneY =
+      d !== undefined && "laneY" in d && typeof d.laneY === "number"
+        ? d.laneY
+        : ports.targetY;
+    const lane = chamferBusPath({ ...ports, laneY, ...hints });
+    return {
+      shape: "lane",
+      path: lane.path,
+      pts: parsePathPoints(lane.path),
+      laneY,
+      dropX: lane.dropX,
+      riseX: lane.riseX,
+      junction: lane.junction,
+    };
+  }
+
+  const [path, labelX, labelY] = chamferStepPath({ ...ports, ...hints });
+  return {
+    shape: "item",
+    path,
+    pts: parsePathPoints(path),
+    labelAnchor: { x: labelX, y: labelY },
+  };
 }

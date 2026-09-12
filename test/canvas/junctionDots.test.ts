@@ -17,7 +17,11 @@ import {
   BUS_SPAN_THRESHOLD,
   FANOUT_SPAN_MIN,
 } from "../../src/canvas/busRouting";
-import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
+import {
+  drawnPortsOf,
+  nodeWidth,
+  portOffsetY,
+} from "../../src/canvas/nodeGeometry";
 import {
   chamferBusPath,
   chamferFanoutPath,
@@ -31,14 +35,6 @@ import {
 } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
-
-// chipSeating's own PORT_DRIFT.recipe, mirrored here (the module does not
-// export it): a recipe's drawn out handle sits 5 units right of the model right
-// edge, its in handle 3 units left of the model left edge, and both a unit
-// below the model row y.
-const SRC_DX = 5;
-const TGT_DX = -3;
-const PORT_DY = 1;
 
 // The chip box the seating pass reserves at max counter-scale, and the vertical
 // pitch a crowded chip is bumped by -- the two numbers the dot keep-off's
@@ -66,19 +62,29 @@ const producer = (id: string, x: number, y: number): RFRecipeNode =>
 const consumer = (id: string, x: number, y: number): RFRecipeNode =>
   orderedRecipeNode(id, x, y, [ITEM]);
 
-// The DRAWN endpoints of a producer -> consumer edge on ITEM: the model ports
-// shifted onto the handle coordinates, exactly as chipSeating's edgeEndpoints
-// and React Flow's own handle anchoring resolve them. The path builders below
-// are fed these, so the pinned junctions are the drawn ones.
-const drawnEnds = (
+// The DRAWN endpoints of a producer -> consumer edge on ITEM, resolved by
+// nodeGeometry's one model -> drawn conversion (the same one the seating pass
+// reconstructs with, and the same frame React Flow's handle anchoring lands on).
+// The path builders below are fed these, so the pinned junctions are the drawn
+// ones.
+const drawnPortsFor = (
   src: RFRecipeNode,
   tgt: RFRecipeNode,
-): { sourceX: number; sourceY: number; targetX: number; targetY: number } => ({
-  sourceX: src.position.x + nodeWidth(src) + SRC_DX,
-  sourceY: src.position.y + portOffsetY(src, ITEM, "out") + PORT_DY,
-  targetX: tgt.position.x + TGT_DX,
-  targetY: tgt.position.y + portOffsetY(tgt, ITEM, "in") + PORT_DY,
-});
+): { sourceX: number; sourceY: number; targetX: number; targetY: number } => {
+  const ports = drawnPortsOf(
+    rateEdge("drawn-ports", src.id, tgt.id),
+    new Map<string, RFAnyNode>([
+      [src.id, src],
+      [tgt.id, tgt],
+    ]),
+  )!;
+  return {
+    sourceX: ports.sx,
+    sourceY: ports.sy,
+    targetX: ports.tx,
+    targetY: ports.ty,
+  };
+};
 
 const dataOf = (edges: Edge[], id: string): Record<string, unknown> =>
   (edges.find((e) => e.id === id)?.data as
@@ -102,7 +108,7 @@ describe("junction dots: lane bus member (BusEdge branch dot)", () => {
     expect(laneY).toBe(420);
 
     const junction = chamferBusPath({
-      ...drawnEnds(src, tgt),
+      ...drawnPortsFor(src, tgt),
       laneY,
       ...routingHintsFromData(routed[0]!.data),
     }).junction;
@@ -155,11 +161,11 @@ describe("junction dots: fan-out trunk (BusEdge split dot)", () => {
     expect(routed.map((e) => e.type)).toEqual(["bus", "bus"]);
 
     const upJunction = chamferFanoutPath({
-      ...drawnEnds(src, up),
+      ...drawnPortsFor(src, up),
       ...routingHintsFromData(dataOf(routed, "e:1")),
     }).junction;
     const downJunction = chamferFanoutPath({
-      ...drawnEnds(src, down),
+      ...drawnPortsFor(src, down),
       ...routingHintsFromData(dataOf(routed, "e:2")),
     }).junction;
 
@@ -167,7 +173,7 @@ describe("junction dots: fan-out trunk (BusEdge split dot)", () => {
     // Every member draws the same dot: the trunk splits once.
     expect(downJunction).toEqual(upJunction);
     // The dot sits on the source row, out along the shared trunk.
-    expect(upJunction.y).toBe(drawnEnds(src, up).sourceY);
+    expect(upJunction.y).toBe(drawnPortsFor(src, up).sourceY);
 
     // The split dot is in the seating pass's keep-off set too (#50), so no
     // seated branch chip may end up painting over it. Both branch chips here
@@ -181,7 +187,7 @@ describe("junction dots: fan-out trunk (BusEdge split dot)", () => {
     ] as const) {
       const data = dataOf(seated, id);
       const branch = chamferFanoutPath({
-        ...drawnEnds(src, tgt),
+        ...drawnPortsFor(src, tgt),
         ...routingHintsFromData(data),
       }).branchAnchor;
       const cx = branch.x + ((data.fanoutBranchDx as number | undefined) ?? 0);
@@ -216,8 +222,8 @@ describe("junction dots: fan-in merge (stamped on the owner item edge)", () => {
     expect(owner.faninJunctionX).toBe(905);
     // On the DRAWN port row, so the dot sits on the run it marks: the model row
     // y plus the recipe handle drift, which is what the members are drawn along.
-    expect(owner.faninJunctionY).toBe(drawnEnds(srcA, tgt).targetY);
-    expect(owner.faninJunctionY).toBe(ty + PORT_DY);
+    expect(owner.faninJunctionY).toBe(drawnPortsFor(srcA, tgt).targetY);
+    expect(owner.faninJunctionY).toBe(198);
     expect(ty).toBe(197);
     // One dot per merge: the non-owner carries none.
     expect(dataOf(out, "e:2:srcB->tgt").faninJunctionX).toBeUndefined();
@@ -251,7 +257,7 @@ describe("junction dots: declined fan-out divergence (stamped on the owner)", ()
     const out = deconflictChipAnchors(nodes, edges);
     const owner = dataOf(out, "e:a"); // smallest id of the group
     expect(owner.fanoutJunctionX).toBe(312.5);
-    expect(owner.fanoutJunctionY).toBe(drawnEnds(src, straight).sourceY);
+    expect(owner.fanoutJunctionY).toBe(drawnPortsFor(src, straight).sourceY);
     expect(owner.fanoutJunctionY).toBe(98);
     // One dot per split: the non-owner carries none.
     expect(dataOf(out, "e:b").fanoutJunctionX).toBeUndefined();

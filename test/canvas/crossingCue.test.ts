@@ -34,6 +34,7 @@ import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
+import { drawnPortsOf } from "../../src/canvas/nodeGeometry";
 import {
   crossingPartnerBits,
   liveCrossingCues,
@@ -43,7 +44,6 @@ import {
 import { HIDE_STALE_EPS } from "../../src/canvas/dimensions";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import { chamferBusPath } from "../../src/canvas/edgePath";
-import { RECIPE_WIDTH } from "../../src/canvas/dimensions";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 
@@ -56,13 +56,15 @@ type CueData = {
   faninJunctionX?: number;
 };
 
-// chipSeating's own PORT_DRIFT.recipe row, mirrored here (the module does not
-// export it): a recipe's drawn out-port sits 5 right of the card edge, its
-// drawn in-port 3 left of it, and a resolved row one unit below the model row
-// y. Same mirrors as the fan-in marker suite.
-const PORT_SX = 5;
-const PORT_TX = -3;
-const PORT_DY = 1;
+// The DRAWN ports of an edge, the frame the seating pass reconstructs its
+// polylines in. nodeGeometry owns the model -> drawn conversion and
+// test/canvas/portDrift.test.ts is the control on its offsets, so this suite
+// states none of them.
+const portsOf = (
+  edge: Edge,
+  nodes: ReadonlyArray<RFAnyNode>,
+): { sx: number; sy: number; tx: number; ty: number } =>
+  drawnPortsOf(edge, new Map(nodes.map((n) => [n.id, n])))!;
 
 const dataOf = (edges: Edge[], id: string): CueData =>
   (edges.find((e) => e.id === id)?.data as CueData | undefined) ?? {};
@@ -84,7 +86,6 @@ describe("deconflictChipAnchors: crossing cues", () => {
     const A1 = recipeNode("A1", 0, 0, mkRecipe("A1", [], ["s"]));
     const A2 = orderedRecipeNode("A2", 1000, 0, ["s"]);
     const row0 = measureRecipe(mkRecipe("x", [], ["s"])).outHandleYs[0]!;
-    const railY = 0 + row0 + PORT_DY;
 
     // Edge 2 (LATER): B1 at (100,-160) drops a full forward step to B2 at
     // (900,200). Drawn source port (405,-62), drawn target port (897,298):
@@ -102,6 +103,8 @@ describe("deconflictChipAnchors: crossing cues", () => {
       rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
       rateEdge(e2, "B1", "B2", "s", new Fraction(1)),
     ];
+    // Edge 1's drawn rail: both its ports resolve to the same row.
+    const railY = portsOf(edges[0]!, nodes).sy;
 
     const out = deconflictChipAnchors(nodes, edges);
 
@@ -181,21 +184,19 @@ describe("deconflictChipAnchors: crossing cues", () => {
     const A1 = recipeNode("A1", 0, 0, mkRecipe("A1", [], ["s"]));
     const A2 = orderedRecipeNode("A2", 1000, 0, ["s"]);
     const A3 = orderedRecipeNode("A3", 1400, 0, ["s"]);
-    const row0 = measureRecipe(mkRecipe("x", [], ["s"])).outHandleYs[0]!;
-    const railY = 0 + row0 + PORT_DY;
     const B1 = recipeNode("B1", 100, -160, mkRecipe("B1", [], ["s"]));
     const B2 = orderedRecipeNode("B2", 900, 200, ["s"]);
     const f = "e:0:B1->B2:s";
     const e1 = "e:1:A1->A2:s";
     const e2 = "e:2:A1->A3:s";
-    const out = deconflictChipAnchors(
-      [A1, A2, A3, B1, B2],
-      [
-        rateEdge(f, "B1", "B2", "s", new Fraction(1)),
-        rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
-        rateEdge(e2, "A1", "A3", "s", new Fraction(4)),
-      ],
-    );
+    const nodes: RFAnyNode[] = [A1, A2, A3, B1, B2];
+    const edges: Edge[] = [
+      rateEdge(f, "B1", "B2", "s", new Fraction(1)),
+      rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
+      rateEdge(e2, "A1", "A3", "s", new Fraction(4)),
+    ];
+    const railY = portsOf(edges[1]!, nodes).sy;
+    const out = deconflictChipAnchors(nodes, edges);
     expect(dataOf(out, f).crossingCues).toEqual([
       {
         x: 651,
@@ -239,20 +240,19 @@ describe("deconflictChipAnchors: crossing cues", () => {
       ...orderedRecipeNode("A2", 50, 50, ["s"]),
       parentId: "G",
     } as RFAnyNode;
-    const row0 = measureRecipe(mkRecipe("x", [], ["s"])).outHandleYs[0]!;
-    const railY = 0 + row0 + PORT_DY;
     const B1 = recipeNode("B1", 100, -160, mkRecipe("B1", [], ["s"]));
     const B2 = orderedRecipeNode("B2", 900, 200, ["s"]);
 
     const e1 = "e:1:A1->A2:s"; // z 1 (container member), LATER in the array
     const e2 = "e:2:B1->B2:s"; // z 0 (both endpoints top-level), earlier
-    const out = deconflictChipAnchors(
-      [A1, G, A2, B1, B2],
-      [
-        rateEdge(e2, "B1", "B2", "s", new Fraction(1)),
-        rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
-      ],
-    );
+    const nodes: RFAnyNode[] = [A1, G, A2, B1, B2];
+    const edges: Edge[] = [
+      rateEdge(e2, "B1", "B2", "s", new Fraction(1)),
+      rateEdge(e1, "A1", "A2", "s", new Fraction(4)),
+    ];
+    // The member edge's drawn rail, read through its container parent.
+    const railY = portsOf(edges[1]!, nodes).sy;
+    const out = deconflictChipAnchors(nodes, edges);
 
     // The earlier (top-level, z 0) edge carries the cue although the member
     // edge paints above it; the member edge carries nothing.
@@ -316,10 +316,8 @@ describe("deconflictChipAnchors: crossing cues", () => {
     // other member's run at its own laneY endpoint. Strict-interior semantics
     // must be what keeps the stamps empty.
     const laneY = 200;
-    const row0 = measureRecipe(mkRecipe("x", [], ["iron"])).outHandleYs[0]!;
-    // Drawn ports: source (x + RECIPE_WIDTH + 5, y + row0 + 1), target
-    // (x - 3, y + row0 + 1). All four cards sit on the same rows so the
-    // members share the corridor.
+    // All four cards sit on the same rows, so every member's drawn ports land
+    // on one row and the members share the corridor.
     const A = recipeNode("A", 0, 0, mkRecipe("A", [], ["iron"]));
     const T1 = orderedRecipeNode("T1", 1000, 0, ["iron"]);
     const B = recipeNode("B", 200, 0, mkRecipe("B", [], ["copper"]));
@@ -339,26 +337,29 @@ describe("deconflictChipAnchors: crossing cues", () => {
     });
     const e1 = "e:1:A->T1:iron";
     const e2 = "e:2:B->T2:copper";
-    const out = deconflictChipAnchors([A, T1, B, T2], [
+    const nodes: RFAnyNode[] = [A, T1, B, T2];
+    const edges: Edge[] = [
       busEdge(e1, "A", "T1", "iron"),
       busEdge(e2, "B", "T2", "copper"),
-    ]);
+    ];
+    const out = deconflictChipAnchors(nodes, edges);
 
     // Premise: the two reconstructed lane runs really do overlap. Rebuilt
     // with the same builder and the same drawn ports the reconstruction uses.
-    const sy = 0 + row0 + PORT_DY;
+    const p1 = portsOf(edges[0]!, nodes);
+    const p2 = portsOf(edges[1]!, nodes);
     const m1 = chamferBusPath({
-      sourceX: 0 + RECIPE_WIDTH + PORT_SX,
-      sourceY: sy,
-      targetX: 1000 + PORT_TX,
-      targetY: sy,
+      sourceX: p1.sx,
+      sourceY: p1.sy,
+      targetX: p1.tx,
+      targetY: p1.ty,
       laneY,
     });
     const m2 = chamferBusPath({
-      sourceX: 200 + RECIPE_WIDTH + PORT_SX,
-      sourceY: sy,
-      targetX: 1200 + PORT_TX,
-      targetY: sy,
+      sourceX: p2.sx,
+      sourceY: p2.sy,
+      targetX: p2.tx,
+      targetY: p2.ty,
       laneY,
     });
     // Member 2 drops inside member 1's run and member 1 rises inside member
