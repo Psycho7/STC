@@ -429,6 +429,153 @@ describe("RecipeNode", () => {
     });
   });
 
+  // Tail-preserving row-label elision (issue #84): the four solution-bottle
+  // recipes and the bracket-family syringes render under the en locale, where
+  // their long shared prefixes are exactly the collision the helper exists to
+  // break. The bottles' parenthesis tails cannot fit the row budget whole,
+  // so those rows keep a PARTIAL tail window (ruling R5) and must read
+  // distinctly; the syringes' "[A]"/"[C]" tails fit whole, so those rows
+  // elide head-first and end in their distinguishing tail.
+  describe("row label elision", () => {
+    function renderEn(data: RecipeNodeData) {
+      return render(
+        <LocaleProvider locale="en">
+          <ItemPackProvider
+            value={makePackValue({
+              machines: [makeMachine("smelter")],
+            })}
+          >
+            <ReactFlowProvider>
+              <RecipeNode {...makeRecipeNodeProps(data)} />
+            </ReactFlowProvider>
+          </ItemPackProvider>
+        </LocaleProvider>,
+      );
+    }
+
+    function bottleRecipe(bottle: string, solution: string): Recipe {
+      return {
+        id: `${bottle}-${solution}`,
+        name: "Bottling",
+        category: "assemble",
+        icon: bottle,
+        row: 0,
+        time: 2,
+        in: [
+          { item: bottle, qty: 1 },
+          { item: solution, qty: 1 },
+        ],
+        out: [{ item: `${bottle}-${solution}`, qty: 1 }],
+        producers: ["smelter"],
+      } as unknown as Recipe;
+    }
+
+    function outputLabels(container: HTMLElement): string[] {
+      return Array.from(
+        container.querySelectorAll(".rn-side.out .rn-row.output .lbl"),
+      ).map((el) => el.textContent ?? "");
+    }
+
+    it("keeps the four solution-bottle rows distinct with the full name on title", () => {
+      const recipes = [
+        bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
+        bottleRecipe("copper_bottle", "liquid_plant_grass_2"),
+        bottleRecipe("iron_bottle", "liquid_plant_grass_1"),
+        bottleRecipe("iron_bottle", "liquid_plant_grass_2"),
+      ];
+      const visible: string[] = [];
+      const titles: string[] = [];
+      for (const recipe of recipes) {
+        const { container } = renderEn({ recipe, kind: "recipe" });
+        const labels = container.querySelectorAll(
+          ".rn-side.out .rn-row.output .lbl",
+        );
+        expect(labels.length).toBe(1);
+        const el = labels[0]!;
+        // The full name stays reachable on hover whatever the visible string.
+        expect(el.getAttribute("title")).toContain("Solution)");
+        titles.push(el.getAttribute("title") ?? "");
+        visible.push(el.textContent ?? "");
+      }
+      // No two of the four names render the same visible string, and every
+      // tooltip carries its own full name.
+      expect(new Set(visible).size).toBe(4);
+      expect(new Set(titles).size).toBe(4);
+    });
+
+    it("elides a bracket-family row to its distinguishing tail", () => {
+      const syringe = (item: string): Recipe =>
+        ({
+          ...bottleRecipe("copper_cmpt", "liquid_plant_grass_1"),
+          id: item,
+          out: [{ item, qty: 1 }],
+        }) as unknown as Recipe;
+      const first = renderEn({ recipe: syringe("bottled_rec_hp_4"), kind: "recipe" });
+      const second = renderEn({ recipe: syringe("bottled_rec_hp_5"), kind: "recipe" });
+      const [visA, visC] = [outputLabels(first.container)[0]!, outputLabels(second.container)[0]!];
+      // Both elide head-first and end in their own bracket tail.
+      expect(visA).toContain("\u2026");
+      expect(visA.endsWith("[C]")).toBe(true);
+      expect(visC.endsWith("[A]")).toBe(true);
+      expect(visA).not.toBe(visC);
+    });
+
+    it("shows both bottle tails in the products subtitle", () => {
+      const twoBottles = {
+        ...bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
+        out: [
+          { item: "copper_bottle-liquid_plant_grass_1", qty: 1 },
+          { item: "copper_bottle-liquid_plant_grass_2", qty: 1 },
+        ],
+      } as unknown as Recipe;
+      const { container } = renderEn({
+        recipe: twoBottles,
+        kind: "recipe",
+      });
+      const subtitle = container.querySelector(".rn-products");
+      expect(subtitle).not.toBeNull();
+      const text = subtitle!.textContent ?? "";
+      expect(text).toContain("(Jincao Solution)");
+      expect(text).toContain("(Yazhen Solution)");
+      expect(text).toContain("\u2026");
+      // The full join stays on the title attribute.
+      expect(subtitle!.getAttribute("title")).toBe(
+        "Cuprium Bottle(Jincao Solution) \u00b7\u00a0Cuprium Bottle(Yazhen Solution)",
+      );
+    });
+
+    it("keeps a colliding machine-title pair distinct with tails intact (zh gates)", () => {
+      // The two Purification Node machines differ only in their parenthesis
+      // tail; under the pinned title budget the visible titles elide
+      // head-first and keep it.
+      const gate = (id: string): RecipeNodeData => ({
+        recipe: {
+          ...bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
+          id,
+          producers: [id],
+        } as unknown as Recipe,
+        kind: "recipe",
+      });
+      const first = renderRecipe(gate("liquid_clean_gate"), makePackValue({
+        machines: [makeMachine("liquid_clean_gate"), makeMachine("liquid_recycle_gate")],
+      }));
+      const second = renderRecipe(gate("liquid_recycle_gate"), makePackValue({
+        machines: [makeMachine("liquid_clean_gate"), makeMachine("liquid_recycle_gate")],
+      }));
+      const t = (c: HTMLElement) =>
+        c.querySelector(".machine-title .cn")?.textContent ?? "";
+      const a = t(first.container as HTMLElement);
+      const b = t(second.container as HTMLElement);
+      expect(a).not.toBe(b);
+      expect(a.endsWith("(\u6c61\u6c34\u63a5\u5165\u53e3)")).toBe(true);
+      expect(b.endsWith("(\u4ea7\u7269\u6392\u51fa\u53e3)")).toBe(true);
+      // The full machine names stay on the title attributes.
+      expect(
+        first.container.querySelector(".machine-title .cn")?.getAttribute("title"),
+      ).toBe("\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)");
+    });
+  });
+
   describe("header title structure", () => {
     const plateRecipe: Recipe = {
       id: "iron-plate",

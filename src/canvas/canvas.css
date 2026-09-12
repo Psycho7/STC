@@ -2084,12 +2084,16 @@
      not collapse the box). box-sizing keeps the 1px border-bottom inside 80px.
      The columns still stretch and center their content, so the block stays
      vertically centered with the extra headroom.
-     Column 1 sizes to the icon block (28px icon + padding + border) instead of
-     a fixed 52px, so the title column reclaims the difference. */
+     The side columns are pinned to RECIPE_HEAD_ICON_COL / RECIPE_HEAD_RATE_COL
+     (dimensions.ts, ruling R3): 41px is the icon block's full box (28px icon +
+     padding + border) and 58px holds the widest rate figure and localized
+     unit label, so the middle column is a constant RECIPE_HEAD_TITLE_COL wide
+     and the title and products elision budgets are deterministic instead of
+     depending on what the auto columns happen to hold. */
   height: 80px;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 41px 1fr 58px;
   align-items: stretch;
   background: linear-gradient(180deg, var(--ak-bg-primary) 0%, #1b1d21 100%);
   border-bottom: 1px solid var(--ak-divider);
@@ -2112,7 +2116,10 @@
 }
 
 .rn-head .rn-recipe-block {
-  padding: 10px 12px;
+  /* Pad pinned to RECIPE_HEAD_BLOCK_PAD_X (dimensions.ts): the
+     title/products elision budget is RECIPE_HEAD_TITLE_COL minus twice this
+     pad, so the number lives in both files and must stay in step. */
+  padding: 8px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -2163,7 +2170,10 @@
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--ak-text-secondary);
-  letter-spacing: 0.18em;
+  /* Tracking tuned to the pinned rate column (RECIPE_HEAD_RATE_COL): at the
+     old 0.18em the ru unit label alone is wider than the column's content
+     box, so the tracking sits at 0.1em where every locale's label fits. */
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 

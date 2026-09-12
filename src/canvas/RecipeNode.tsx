@@ -16,6 +16,90 @@ import { formatMultiplicityBadge } from "./multiplicity-badge";
 import { useItemPack } from "./itemPackContext";
 import { iconIdForItem, iconPosition } from "./iconSprite";
 import { itemColor } from "./itemColor";
+import { elideName } from "./elide";
+import {
+  measureTextWidth,
+  useFontMetrics,
+  widthFnFor,
+  type MeasuredFont,
+} from "./measureText";
+import {
+  RECIPE_HEAD_TITLE_COL,
+  RECIPE_HEAD_BLOCK_PAD_X,
+} from "./dimensions";
+
+// Row-label elision budget, from the constants that shape the row (see
+// .rn-row in canvas.css): half of the card body, minus the row's horizontal
+// padding (6px per side plus the extra 2px on the port edge), minus the
+// 20px item sprite and one flex gap when the sprite renders (Sprite returns
+// null without an icon position, which drops both), minus one more flex gap
+// and the rate string. Port glyphs and handles are absolutely positioned
+// and cost no flex width. The rate estimate is an upper bound, so the label
+// budget errs narrow -- eliding early is safe, overflowing into CSS
+// ellipsis is the defect.
+const ROW_PAD_X = 14;
+const ROW_GAP = 5;
+const ROW_SPRITE = 20;
+const ROW_LABEL_FONT: MeasuredFont = {
+  fontSize: 12,
+  weight: 400,
+  family: "--font-ui",
+};
+const ROW_RATE_FONT: MeasuredFont = {
+  fontSize: 12,
+  weight: 700,
+  family: "--font-num",
+  letterSpacingEm: -0.01,
+};
+
+// Header budgets from the pinned columns (dimensions.ts, ruling R3): the
+// recipe block's content width, minus the multiplier chip and its gap when
+// one rides the title line. The chip estimate adds the box chrome (2x5px
+// padding + 2x1px border) and the 0.04em tracking on top of the number-face
+// bound, so the title errs narrow on chip-bearing cards -- the safe
+// direction for the same reason as the row rate.
+const TITLE_FONT: MeasuredFont = {
+  fontSize: 17,
+  weight: 600,
+  family: "--font-ui",
+};
+const PRODUCTS_FONT: MeasuredFont = {
+  fontSize: 11,
+  weight: 500,
+  family: "--font-ui",
+};
+const CHIP_FONT: MeasuredFont = {
+  fontSize: 12,
+  weight: 700,
+  family: "--font-num",
+};
+const CHIP_CHROME_X = 12;
+const CHIP_TRACKING_EM = 0.04;
+const TITLE_CHIP_GAP = 8;
+
+function headerContentWidth(): number {
+  return RECIPE_HEAD_TITLE_COL - 2 * RECIPE_HEAD_BLOCK_PAD_X;
+}
+
+function elideRowLabel(
+  name: string,
+  bodyWidth: number,
+  rateText: string,
+  hasSprite: boolean,
+): string {
+  const budget =
+    bodyWidth / 2 -
+    ROW_PAD_X -
+    (hasSprite ? ROW_SPRITE + ROW_GAP : 0) -
+    ROW_GAP -
+    measureTextWidth(rateText, ROW_RATE_FONT);
+  return elideName(
+    name,
+    budget,
+    widthFnFor(ROW_LABEL_FONT),
+    "row-12",
+  );
+}
 
 // Looks up the sprite position by icon id and renders an <ico><spr> pair.
 // Returns null when no position is found, so the slot collapses instead of
@@ -94,6 +178,9 @@ export default function RecipeNode({
   data,
   selected,
 }: NodeProps<RecipeNodeType>) {
+  // Every visible name below is elided against measured text widths, so the
+  // card has to redraw when a late-arriving face changes those measurements.
+  useFontMetrics();
   const {
     recipe,
     multiplier,
@@ -159,6 +246,33 @@ export default function RecipeNode({
     badgeText = `x${multiplier}`;
   }
 
+  // Visible header strings: the elision helper owns them against the pinned
+  // header budgets (title minus the chip and its gap when one rides the
+  // line; products at the recipe block's full content width), and the title
+  // attributes keep the full names for hover.
+  const visibleMachineName = elideName(
+    machineName,
+    headerContentWidth() -
+      (badgeText !== null
+        ? measureTextWidth(badgeText, CHIP_FONT) +
+          badgeText.length * CHIP_TRACKING_EM * CHIP_FONT.fontSize +
+          CHIP_CHROME_X +
+          TITLE_CHIP_GAP
+        : 0),
+    widthFnFor(TITLE_FONT),
+    "title-17",
+  );
+  const visibleProductNames = recipe.out
+    .map((p) =>
+      elideName(
+        i18n.displayName(p.item),
+        headerContentWidth(),
+        widthFnFor(PRODUCTS_FONT),
+        "products-11",
+      ),
+    )
+    .join(" \u00b7\u00a0");
+
   // Header rate column. The primary value is the aggregate (per-machine x
   // scale); the secondary line keeps the per-machine figure so the aggregate
   // stays reconcilable to one machine's throughput. Empty string hides the
@@ -199,7 +313,7 @@ export default function RecipeNode({
               rate figures drop at zoom-low; this line does not). */}
           <div className="machine-title">
             <span className="cn" title={machineName}>
-              {machineName}
+              {visibleMachineName}
             </span>
             {badgeText !== null ? (
               <span className="rn-mult-chip">{badgeText}</span>
@@ -207,7 +321,7 @@ export default function RecipeNode({
           </div>
           {productNames !== "" ? (
             <div className="rn-products" title={productNames}>
-              {productNames}
+              {visibleProductNames}
             </div>
           ) : null}
         </div>
@@ -228,6 +342,21 @@ export default function RecipeNode({
           {ins.map((p) => {
             const label = i18n.displayName(p.item);
             const handleId = `in:${p.item}`;
+            // The visible label is the elided string (tail preserved when
+            // the budget allows); the title attribute keeps the full name.
+            const rateText = rowRateText(p, recipe.time, speed, scale);
+            const visible = elideRowLabel(
+              label,
+              geom.width,
+              rateText,
+              // Through iconIdForItem, exactly as the Sprite below resolves
+              // it: upstream renamed four item icons, and asking iconPosition
+              // for the raw item id misses those four. The budget then hands
+              // the label the sprite's 20px and its gap while the sprite is on
+              // screen taking them, and the label overflows into the CSS
+              // ellipsis the helper exists to keep it out of.
+              iconPosition(iconIdForItem(p.item)) !== undefined,
+            );
             return (
               // The Handle and PortGlyph live inside the row so the DOM row
               // center is the anchor truth (both center via CSS top:50% on the
@@ -252,11 +381,9 @@ export default function RecipeNode({
                 />
                 <Sprite iconId={iconIdForItem(p.item)} size={20} />
                 <span className="lbl" title={label}>
-                  {label}
+                  {visible}
                 </span>
-                <span className="rate">
-                  {rowRateText(p, recipe.time, speed, scale)}
-                </span>
+                <span className="rate">{rateText}</span>
               </div>
             );
           })}
@@ -265,6 +392,19 @@ export default function RecipeNode({
           {outs.map((p) => {
             const label = i18n.displayName(p.item);
             const handleId = `out:${p.item}`;
+            const rateText = rowRateText(p, recipe.time, speed, scale);
+            const visible = elideRowLabel(
+              label,
+              geom.width,
+              rateText,
+              // Through iconIdForItem, exactly as the Sprite below resolves
+              // it: upstream renamed four item icons, and asking iconPosition
+              // for the raw item id misses those four. The budget then hands
+              // the label the sprite's 20px and its gap while the sprite is on
+              // screen taking them, and the label overflows into the CSS
+              // ellipsis the helper exists to keep it out of.
+              iconPosition(iconIdForItem(p.item)) !== undefined,
+            );
             return (
               // Handle and PortGlyph nested in the row (see input side above).
               // --row-accent tints the row's right accent tab to the item color
@@ -287,11 +427,9 @@ export default function RecipeNode({
                 />
                 <Sprite iconId={iconIdForItem(p.item)} size={20} />
                 <span className="lbl" title={label}>
-                  {label}
+                  {visible}
                 </span>
-                <span className="rate">
-                  {rowRateText(p, recipe.time, speed, scale)}
-                </span>
+                <span className="rate">{rateText}</span>
               </div>
             );
           })}

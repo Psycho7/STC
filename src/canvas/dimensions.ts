@@ -17,6 +17,24 @@ export const RECIPE_ROW_HEIGHT = 22;
 export const RECIPE_FOOTER_HEIGHT = 26;
 export const RECIPE_ROWS_TOP_PAD = 6;
 
+// Card-header grid columns, pinned (ruling R3) so the title and products
+// budgets are deterministic instead of depending on what the auto columns
+// happen to hold. The icon column is the machine block's full box (28px
+// icon + 8px 6px padding + 1px right border); the rate column holds the
+// widest rate figure and localized unit label across the locales (the ru
+// "шт/мин" mono label at 0.1em tracking, inside the block's 8px-per-side
+// padding). The title column takes the remainder -- at least as wide as the
+// old auto layout ever gave the default plan in en, so no chip-bearing
+// title that fit before pins clips now. RECIPE_HEAD_BLOCK_PAD_X is the
+// .rn-recipe-block horizontal padding subtracted from the title column to
+// get the name budget (RecipeNode). canvas.css hardcodes the same numbers;
+// keep them in step.
+export const RECIPE_HEAD_ICON_COL = 41;
+export const RECIPE_HEAD_RATE_COL = 58;
+export const RECIPE_HEAD_TITLE_COL =
+  RECIPE_WIDTH - RECIPE_HEAD_ICON_COL - RECIPE_HEAD_RATE_COL;
+export const RECIPE_HEAD_BLOCK_PAD_X = 8;
+
 export function recipeHeight(inPorts: number, outPorts: number): number {
   return (
     RECIPE_HEADER_HEIGHT +
