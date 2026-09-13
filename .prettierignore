@@ -1,0 +1,2 @@
+# vendor/akedata/ is a byte-for-byte copy of the AKEData tables as served; formatting it would break the pin.
+vendor/akedata/
