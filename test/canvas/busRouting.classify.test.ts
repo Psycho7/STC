@@ -17,6 +17,7 @@ import {
 } from "../../src/canvas/busRouting";
 import { nodeWidth, portOffsetY } from "../../src/canvas/nodeGeometry";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
+import { RECIPE_WIDTH } from "../../src/canvas/dimensions";
 import {
   PORT_STUB,
   CHAMFER,
@@ -35,8 +36,9 @@ import {
 
 describe("routeFanoutEdges (6C)", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  // One layer over: gap = 410 - 300 = 110, inside FANOUT_SPAN_MAX (410).
-  const oneGap = 410;
+  // One layer over: the targets sit at FANOUT_SPAN_MAX, so the empty gap is
+  // BETWEEN_LAYERS_SPACING (110), inside the fan-out window.
+  const oneGap = FANOUT_SPAN_MAX;
 
   const fanData = (edges: Edge[], id: string) =>
     edges.find((e) => e.id === id)!.data as {
@@ -136,7 +138,7 @@ describe("routeFanoutEdges (6C)", () => {
       expect(d.trunkKey).toBe("b|s");
       // Junction column stamped, inside the corridor.
       expect(typeof d.junctionX).toBe("number");
-      expect(d.junctionX!).toBeGreaterThan(300); // right of source
+      expect(d.junctionX!).toBeGreaterThan(RECIPE_WIDTH); // right of source
       expect(d.junctionX!).toBeLessThan(oneGap); // left of targets
     }
     // Aggregate = summed member rates (1 + 1), count 2, exactly one owner.
@@ -214,9 +216,9 @@ describe("routeFanoutEdges (6C)", () => {
   });
 
   it("does NOT fan out a two-layer (multi-gap) pair", () => {
-    // gap = 820 - 300 = 520 > FANOUT_SPAN_MAX (410): two layers over.
-    const twoGap = 820;
-    expect(twoGap - 300).toBeGreaterThan(FANOUT_SPAN_MAX);
+    // gap = 700 - 240 = 460 > FANOUT_SPAN_MAX (350): two layers over.
+    const twoGap = 2 * FANOUT_SPAN_MAX;
+    expect(twoGap - RECIPE_WIDTH).toBeGreaterThan(FANOUT_SPAN_MAX);
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", twoGap, 0, r),
@@ -229,10 +231,10 @@ describe("routeFanoutEdges (6C)", () => {
   });
 
   it("does NOT fan out a sub-budget (too-tight) gap", () => {
-    // gap = 360 - 300 = 60 <= FANOUT_SPAN_MIN: no room for a distinct junction
+    // gap = 60 <= FANOUT_SPAN_MIN (64): no room for a distinct junction
     // column, so the pair stays plain item edges (boundary case).
-    const tight = 360;
-    expect(tight - 300).toBeLessThanOrEqual(FANOUT_SPAN_MIN);
+    const tight = RECIPE_WIDTH + FANOUT_SPAN_MIN - 4;
+    expect(tight - RECIPE_WIDTH).toBeLessThanOrEqual(FANOUT_SPAN_MIN);
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", tight, 0, r),
@@ -316,7 +318,7 @@ describe("routeFanoutEdges (6C)", () => {
   });
 
   it("spreads a tight-corridor pair to the corridor ends", () => {
-    // One-gap corridor: usable width 410 - 300 - 2 * (PORT_STUB + CHAMFER) = 46.
+    // One-gap corridor: usable width 350 - 240 - 2 * (PORT_STUB + CHAMFER) = 46.
     // Two contesting trunks spread to the corridor ends, the widest separation
     // the window allows.
     const rc = mkRecipe("rc", ["a"], ["c"]);
@@ -340,7 +342,9 @@ describe("routeFanoutEdges (6C)", () => {
     }
     // The top trunk (sy order) takes the corridor's low end; the other spreads
     // as far right as the obstacle model allows, at least a PORT_STUB away.
-    expect(fanData(out, "e0").junctionX).toBe(300 + PORT_STUB + CHAMFER);
+    expect(fanData(out, "e0").junctionX).toBe(
+      RECIPE_WIDTH + PORT_STUB + CHAMFER,
+    );
     expect(
       fanData(out, "e2").junctionX! - fanData(out, "e0").junctionX!,
     ).toBeGreaterThanOrEqual(PORT_STUB);
@@ -403,7 +407,7 @@ describe("routeFanoutEdges (6C)", () => {
     const rb = mkRecipe("rb", ["a"], ["b"]);
     const rc = mkRecipe("rc", ["a"], ["c"]);
     const rd = mkRecipe("rd", ["a"], ["d"]);
-    const tgt = 550; // gap 250: corridor [332, 518], pitch (518 - 332) / 2 = 93
+    const tgt = RECIPE_WIDTH + 250; // gap 250: corridor [272, 458], pitch (458 - 272) / 2 = 93
     const nodes: RFAnyNode[] = [
       recipeNode("s1", 0, 0, rb),
       recipeNode("s2", 0, 600, rc),
@@ -433,7 +437,9 @@ describe("routeFanoutEdges (6C)", () => {
     }
     // Slots are still handed out top-to-bottom by source-port y, so the topmost
     // trunk takes the corridor's low end and the columns sit a pitch apart.
-    expect(fanData(out, "e0").junctionX).toBe(300 + PORT_STUB + CHAMFER);
+    expect(fanData(out, "e0").junctionX).toBe(
+      RECIPE_WIDTH + PORT_STUB + CHAMFER,
+    );
     const columns = ["e0", "e2", "e4"].map((id) => fanData(out, id).junctionX!);
     expect(columns[1]! - columns[0]!).toBeGreaterThanOrEqual(PORT_STUB);
     expect(columns[2]! - columns[1]!).toBeGreaterThanOrEqual(PORT_STUB);
@@ -523,11 +529,11 @@ describe("routeFanoutEdges (6C)", () => {
     // The acceptance-gated junction stakes the shared column clear of a
     // mid-corridor obstacle AND keeps the shared trunk leg (source port ->
     // column) and every branch leg (column -> target port) off the card. Give
-    // the corridor room (gap 380), read the unobstructed column, then drop a thin
+    // the corridor room (gap 320), read the unobstructed column, then drop a thin
     // foreign card straddling it and spanning the junction's vertical run but
     // sitting BETWEEN the two rows (clear of every port y), so a clean dodge that
     // clears all three horizontals exists.
-    const wideGap = 680; // 680 - 300 = 380, inside FANOUT_SPAN_MAX (410)
+    const wideGap = RECIPE_WIDTH + 320; // 560 - 240 = 320, inside FANOUT_SPAN_MAX (350)
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", wideGap, 0, r),
@@ -554,7 +560,7 @@ describe("routeFanoutEdges (6C)", () => {
     expect(jx).toBe(fanData(out, "e1").junctionX!);
     expect(jx).not.toBe(clearJx);
     expect(jx < clearJx - 10 || jx > clearJx + 10).toBe(true);
-    expect(jx).toBeGreaterThan(300);
+    expect(jx).toBeGreaterThan(RECIPE_WIDTH);
     expect(jx).toBeLessThan(wideGap);
 
     // Strengthened invariant: the drawn trunk AND branch horizontals clear the
@@ -575,7 +581,7 @@ describe("routeFanoutEdges (6C)", () => {
     // the trunk leg or a branch leg would slice the card, so no acceptable shared
     // column exists. The fan-out does not form; the members stay plain item edges
     // (keeping the item-edge passes' per-leg jog protection a bus retype loses).
-    const wideGap = 680;
+    const wideGap = RECIPE_WIDTH + 320;
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", wideGap, 0, r),
@@ -607,7 +613,7 @@ describe("routeFanoutEdges (6C)", () => {
 describe("directCorridorClear", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
   // Past two full layers, the reach the census helper is asked about.
-  const far = 300 + (2 * FANOUT_SPAN_MAX + 50);
+  const far = RECIPE_WIDTH + (2 * FANOUT_SPAN_MAX + 50);
 
   it("reads a card-straddled corridor as blocked", () => {
     const nodes: RFAnyNode[] = [

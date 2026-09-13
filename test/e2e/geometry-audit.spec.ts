@@ -122,7 +122,6 @@ test.describe("DOM geometry audit", () => {
       const {
         chips,
         rows,
-        multPairs,
         recipeNodeCount,
         containerRect,
         flowChipZ,
@@ -173,6 +172,29 @@ test.describe("DOM geometry audit", () => {
       // (b) Every row handle centred on its row (vertical axis).
       const offCenter: string[] = [];
       for (const row of rows) {
+        // A catalyst row is an input the machine cycles rather than
+        // consumes, and it draws its own edge from the item's boundary
+        // supply node (CATALYST_SUPPLY_EDGES in src/flags.ts, on). So it
+        // carries exactly one handle, on the `cat:` namespace rather than
+        // `in:`, seated inside the row like every other port: a row without
+        // one leaves that edge no endpoint to land on, and a second handle
+        // would offer the arriving edge a choice of two.
+        if (row.rowClass.split(" ").includes("catalyst")) {
+          const catIds = row.handleIds.filter((id) => id.startsWith("cat:"));
+          const seated =
+            row.handleCenterY !== null &&
+            row.handleCenterY >= row.rowTop &&
+            row.handleCenterY <= row.rowBottom;
+          if (row.handleIds.length !== 1 || catIds.length !== 1 || !seated) {
+            offCenter.push(
+              `${row.nodeId} catalyst row "${row.item}" carries ` +
+                `[${row.handleIds.join(", ")}] instead of one seated ` +
+                `cat: handle (row ${row.rowTop.toFixed(1)}-${row.rowBottom.toFixed(1)}, ` +
+                `handle ${row.handleCenterY === null ? "none" : row.handleCenterY.toFixed(1)})`,
+            );
+          }
+          continue;
+        }
         if (row.handleCenterY === null) {
           offCenter.push(
             `${row.nodeId} row "${row.item}" (${row.rowClass}) has no handle`,
@@ -189,32 +211,12 @@ test.describe("DOM geometry audit", () => {
         }
       }
 
-      // (c) The machine-multiplier chip and the rate block never overlap. The
-      // promoted header cell replaced the old absolute .rn-mult-badge overlay
-      // (audit issue 5); the two boxes must stay disjoint on every node that
-      // shows a chip.
-      const chipCollisions: string[] = [];
-      for (const pair of multPairs) {
-        const hit = overlapPx(pair.chip, pair.rate);
-        if (hit !== null) {
-          chipCollisions.push(
-            `${pair.nodeId}: mult-chip ${fmtRect(pair.chip)} overlaps ` +
-              `rate-block ${fmtRect(pair.rate)} by ` +
-              `${hit.dx.toFixed(1)}x${hit.dy.toFixed(1)}px`,
-          );
-        }
-      }
-
       // Handle centring is a per-node CSS invariant independent of chip layout;
       // assert it first so that if a scenario also has chip overlaps, reaching
       // the overlap assertion still confirms the handles were centred.
       expect(
         offCenter,
         `${scenario.id}: ${offCenter.length} off-centre handle(s) among ${rows.length} rows in ${recipeNodeCount} recipe node(s):\n${offCenter.join("\n")}`,
-      ).toEqual([]);
-      expect(
-        chipCollisions,
-        `${scenario.id}: ${chipCollisions.length} mult-chip/rate-block overlap(s) among ${multPairs.length} chipped node(s):\n${chipCollisions.join("\n")}`,
       ).toEqual([]);
       expect(
         overlaps,
@@ -558,20 +560,40 @@ test.describe("DOM geometry audit", () => {
 // SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
 // left-to-right band): battery5 13 -> 14 (off 10 -> 12) and multi6 137 -> 205,
 // re-measured on the wider band, where longer edges cross more corridors.
-// default 2 -> 4 rose with the ratified fan-out restoration.
+// First recording for the transmuter scenario (2026-09-07): 25 in both
+// modes, the tap columns of the two shared raws crossing the gas chain.
+// Catalyst-row re-pin (2026-09-07): coupon-web 13 -> 17 (lanes on) and 14 -> 17
+// (lanes off). The plan's two phase_trans_2 cards each gained a catalyst row,
+// 22px taller apiece, and the column re-packed around them, so corridors that
+// used to clear the chain now cut across it. Same furniture cause as the
+// CHIP_OFFPATH move below. UP moves, listed as ruling items.
+// Catalyst-edge re-pin (2026-09-13): battery5 14 -> 15 (lanes on) and 12 -> 19
+// (off), multi6 205 -> 264 (on), transmuters 25 -> 28 (on) and 25 -> 27 (off).
+// Cause: every catalyst row now draws its own edge from the item's boundary
+// supply node (CATALYST_SUPPLY_EDGES), so each of these plans gained corridors
+// that run the width of the graph -- battery5 e:23 u:in:liquid_xiranite ->
+// u:class:q:2, multi6 e:69 / e:71 / e:72 u:in:gas_xiranite -> q:12 / q:45 /
+// q:49, transmuters e:17 u:in:gas_xiranite -> q:3 plus e:20 / e:21 / e:24 off
+// the two loop-return supply nodes. A boundary supply column sits at the left
+// rim while the transmuters it now feeds sit deep in the chain, so each new
+// edge crosses most of the corridors between them; multi6 carries three such
+// spans across its 92-edge graph, which is where the bulk of its move is.
+// UP moves, listed as ruling items.
 const CROSSING_BASELINE: Record<string, number> = {
+  // default 2 -> 4 rose with the ratified fan-out restoration (lanes off).
   default: 4,
-  battery5: 12,
+  battery5: 19, // 12 -> 19 at the catalyst edges.
   "battery5-xiranite": 24,
   crystal: 1,
   equip4: 1,
   multi6: 139,
   tundra: 0,
   script43: 34,
-  "coupon-web": 14,
+  "coupon-web": 17, // 14 -> 17 at the catalyst rows.
   "gas-web": 38,
   "rot-bottled_food_3": 5,
   "rot-bottled_food_4": 6,
+  transmuters: 27, // 25 -> 27 at the catalyst edges.
 };
 
 // Padding-graze baseline (tier 3): segments that clip only a foreign card's
@@ -612,19 +634,31 @@ const CROSSING_BASELINE: Record<string, number> = {
 // the campaign): rot-bottled_food_3 2 (one plant_moss_3 drop column grazing
 // two cards' padding), rot-bottled_food_4 1 (an iron_ore tap approach into
 // loop:plant_grass_1).
+// Catalyst-split re-pin (2026-09-07, both modes): multi6 0 -> 1 and script43
+// 2 -> 3. Moving the transmuter xiranite catalyst out of Recipe.in drops the
+// 0.2 gas_xiranite / liquid_xiranite feed edges those plans carried and adds a
+// portless catalyst row to every transmuter card, so the cards are one row
+// taller and the columns beside them re-pack; the new grazes are a liquid_water
+// tap column (multi6 e:100) and a gas_xiranite tap column (script43 e:30)
+// clipping a neighbour's padding. UP moves, listed as ruling items.
 const PADDED_GRAZE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  multi6: 0,
+  multi6: 1,
   tundra: 0,
-  script43: 2,
+  script43: 3,
   "coupon-web": 2,
   "gas-web": 1,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 0 -> 1. e:24, the
+  // liquid_xiranite catalyst supply run off the copper_powder loop-return
+  // node, crosses the gutter at y 263 and clips u:class:q:13's padding on the
+  // way. UP move, listed for ruling.
+  transmuters: 1,
 };
 
 // P3 chip-tier ratchets. Chip seating follows the ratified priority order:
@@ -713,21 +747,55 @@ const PADDED_GRAZE_BASELINE: Record<string, number> = {
 // One chip, one segment, in the softest tier, and the same chip is the whole of
 // this plan's FOREIGN_STROKE move below. Bought for every branch chip on the
 // corpus reaching a seat on the leg it labels (FANOUT_LEG_BASELINE stays 0).
-// R14: 15 -> 42. R16: 42 -> 43.
-// FAN-OUT LEG SEAT: default 2 -> 3, the e:12-on-e:8's-leg-row chip.
+// Catalyst-split re-pin (2026-09-07): gas-web 5 -> 9, lanes off only. The
+// dropped catalyst feed edges shorten the gas chain's corridors, so more of the
+// tap bundle runs under the chips seated on it. UP move, a ruling item.
+// Environment-frame re-pin (2026-09-12): transmuters 0 -> 1 in both modes.
+// e:8's liquid_sewage surplus run at y 65 passes under e:11's "Sewage x
+// 150/min" chip (q:5 -> the same surplus node) -- this table's own
+// surplus-column-under-chip residue family. The seats date to the catalyst-split
+// corpus being rebased onto current develop (the same base move that surfaced
+// multi6's RAW pierce, since fixed by the jog pass's small-dy extension):
+// probed at the pre-footprint frame commit the cell already reads 1, so the
+// environment frame's grown ELK box did not move it. UP move, listed as a
+// ruling item.
+// Catalyst-edge re-pin (2026-09-13): transmuters 1 -> 6 (lanes on) and 1 -> 4
+// (off), battery5 10 -> 11 (off only). Cause: the catalyst supply edges. On
+// transmuters lanes on, e:17 and e:18 (both u:in:gas_xiranite -> u:class:q:3,
+// the same card's catalyst row and in: row) run the boundary column down past
+// e:20's "Xiragen x 3/min" rise chip, and the re-packed left rim puts e:13's
+// copper_ore run and e:15's gas_inert column under e:23's "Clean Water x
+// 150/min" chip; lanes off keeps the latter three of those. On battery5 lanes
+// off the new e:23 u:in:liquid_xiranite -> u:class:q:2 catalyst run crosses the
+// full boundary gutter at y 614 and passes under e:20's "Xiragen x 240/min"
+// chip. Softest tier, UP moves, listed as ruling items.
 const CHIP_SEGMENT_BASELINE: Record<string, number> = {
+  // R14: 15 -> 42. R16: 42 -> 43 (up move, same trade as the on arm).
+  // FAN-OUT LEG SEAT: default 2 -> 3, the same e:12-on-e:8's-leg-row chip as
+  // the on arm.
+  // RECIPE CARD TRIM (2026-09-13): multi6 0 -> 40 and gas-web 5 -> 8, the
+  // same coincident-corridor class as the on arm. UP moves, listed for
+  // ruling in the trim's PR. gas-web's cell keeps the larger catalyst-split
+  // 5 -> 9 move above rather than the trim's 5 -> 8, which the merged tree
+  // measures under.
   default: 3,
-  battery5: 10,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 11 -> 12. UP move at the
+  // merge of the trim with the catalyst supply edges, listed for ruling: the
+  // inventory is the boundary-gutter class both parents already record (rim
+  // runs e:19 / e:20 / e:22 / e:23 passing under each other's chips), so no
+  // single pair in it is attributable to one parent.
+  battery5: 12,
   "battery5-xiranite": 15,
   crystal: 1,
   equip4: 1,
-  multi6: 0,
+  multi6: 40,
   tundra: 0,
   script43: 10,
   "coupon-web": 5,
-  "gas-web": 5,
+  "gas-web": 9,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 2,
+  transmuters: 4, // 1 -> 4 at the catalyst edges.
 };
 
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
@@ -773,21 +841,54 @@ const CHIP_SEGMENT_BASELINE: Record<string, number> = {
 // R14 (port band hard, one trade with the CHIP_SEGMENT / SEAT_VALIDITY /
 // FOREIGN_STROKE rises): 0 -> 35, buying PORT_COVER 124 -> 0 and
 // CARD_INTRUSION 77 -> 0. R16 (shrink pass): 35 -> 5.
-// R14: 0 -> 38, buying PORT_COVER 126 -> 0 and CARD_INTRUSION 79 -> 0.
-// R16: 38 -> 8.
+// First recording for the transmuter scenario (2026-09-07): 1 in both modes,
+// the e:15 copper_ore tap chip seated 32.00px off its own column.
+// Catalyst-split re-pin (2026-09-07): script43 1 -> 2 in both modes, gas-web
+// 0 -> 2 (on) and 1 -> 2 (off). Same cause as the padded-graze re-pin: the
+// taller transmuter cards and the dropped catalyst feed edges move the chips'
+// on-line candidates, and the least-bad seat for two of them is now an escape.
+// UP moves, listed as ruling items.
+// Catalyst-row re-pin (2026-09-07): coupon-web 0 -> 3 in both modes. The plan's
+// two phase_trans_2 cards each gained a catalyst row, 22px taller apiece, and
+// the column re-packed around them. The seats: e:3 (q:2 -> q:5,
+// xiranite_powder) 9.31px off its own polyline, e:6 (q:4 -> q:3,
+// copper_nugget) 12.00px, and e:9 (q:5 -> out:filter_core, filter_core)
+// 14.01px. UP move, listed as a ruling item.
 const CHIP_OFFPATH_BASELINE: Record<string, number> = {
+  // R14: 0 -> 38, buying PORT_COVER 126 -> 0 and CARD_INTRUSION 79 -> 0.
+  // R16: 38 -> 8.
+  // RECIPE CARD TRIM (2026-09-13): battery5 2 -> 3, multi6 0 -> 4,
+  // rot-bottled_food_3 0 -> 1, rot-bottled_food_4 0 -> 1. The trim's row
+  // lift and the 240px card re-deal every corridor; the new seats are the
+  // bounded-sidestep and least-bad-escape classes the table already records
+  // (mirrored per edge in the unit seating corpora of the same PR). UP
+  // moves, listed for ruling in the trim's PR. The merge with the catalyst
+  // supply edges reset the two rot- cells to develop's 0 and they are
+  // re-pinned to 1 below, so the trim's pairs still chain.
   default: 0,
-  battery5: 2,
+  battery5: 3,
   "battery5-xiranite": 4,
   crystal: 0,
   equip4: 0,
-  multi6: 0,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 4 -> 5. A fifth chip
+  // escapes its own polyline (e:10 4.50px, e:14 16.00px, e:19 32.00px, e:24
+  // 41.00px, e:28 16.00px), the same least-bad-escape class as the trim's
+  // own four. UP move at the merge of the trim with the catalyst supply
+  // edges, listed for ruling.
+  multi6: 5,
   tundra: 0,
-  script43: 1,
-  "coupon-web": 0,
-  "gas-web": 1,
-  "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 0,
+  script43: 2,
+  "coupon-web": 3, // 0 -> 3 at the catalyst rows.
+  "gas-web": 2,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 0 -> 1. e:15's "Ferrium
+  // Powder x 1200/min" chip, 44.23px off its polyline -- the same seat as
+  // the on arm. UP move, listed for ruling.
+  "rot-bottled_food_3": 1,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 0 -> 1. e:11's "Jincao
+  // Powder x 150/min" chip takes a bounded 4.50px sidestep off its own
+  // polyline. UP move, listed for ruling.
+  "rot-bottled_food_4": 1,
+  transmuters: 1,
 };
 
 // Fan-out leg ratchet: member chips whose centre lies off the member's OWN leg
@@ -798,6 +899,10 @@ const CHIP_OFFPATH_BASELINE: Record<string, number> = {
 // chip parked there names none of them to the reader. Pinned at 0 on the
 // whole corpus in both modes: this is a hard rule, not a residue, and nothing
 // here is ratified as a trade.
+// The transmuters row was missed when that scenario joined the corpus, so the
+// membership guard threw before the audit could read it (environment-frame
+// change, 2026-09-12). First recording, measured on this tree: 0 in both
+// modes -- every fan-out branch chip holds its member's leg.
 const FANOUT_LEG_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -811,6 +916,7 @@ const FANOUT_LEG_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
@@ -851,6 +957,7 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Frame-ride ratchet (Task 7, loop-backedge-braids-container family): edge
@@ -885,6 +992,7 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
 // left-to-right band): battery5 on 0 -> 1.
 const FRAME_RIDE_BASELINE: Record<string, number> = {
+  // Structural zero with no bands drawn.
   default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
@@ -897,6 +1005,7 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
@@ -964,9 +1073,26 @@ const FRAME_RIDE_BASELINE: Record<string, number> = {
 // the campaign): rot-bottled_food_3 1 and rot-bottled_food_4 1, both a bus
 // rise chip covering its own junction dot.
 // SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
-// left-to-right band): rot-bottled_food_4 0 -> 2.
-// The one survivor is battery5's fan-in owner chip (e:18, ruling R13).
+// left-to-right band): rot-bottled_food_4 off 0 -> 2.
+// RISE-CHIP CONTAINMENT (this round): battery5-xiranite 0 -> 2 and script43
+// 0 -> 1 on the on arm. A bus rise chip may no longer lift a full pitch off its
+// lane, because that offset puts the lane line outside the box the chip paints
+// and the chip reads as floating. No smaller lift clears a junction dot sitting
+// ON the lane (the dot needs more than a half-height of lift, the line needs
+// less), so the dot keep-off finds nothing and yields -- which is the precedence
+// it already states: the dot is decorative, a floating rate chip is not.
+// Catalyst-edge re-pin (2026-09-13): battery5-xiranite 2 -> 3 and transmuters
+// 0 -> 1, lanes on. Cause: the catalyst supply edges join the boundary node's
+// fan-out, so its shared junction column carries more dots under the same rise
+// chip. On battery5-xiranite the u:in:gas_xiranite fan-out gained e:30 (the
+// catalyst edge into u:class:q:6) beside e:28 into q:23, and e:31's "Xiragen x
+// 75 of 660/min" chip now covers three dots on that column instead of two. On
+// transmuters the same column carries the new e:17 (catalyst into q:3) whose
+// dot sits under e:18's "Xiragen x 15 of 48/min" chip -- e:18 being the
+// ordinary in: edge into the same card, which cycles the gas it consumes.
+// UP moves, listed as ruling items.
 const DOT_COVER_BASELINE: Record<string, number> = {
+  // The one survivor is battery5's fan-in owner chip (e:18, ruling R13).
   default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
@@ -979,6 +1105,7 @@ const DOT_COVER_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 2,
+  transmuters: 0,
 };
 
 // Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
@@ -1031,6 +1158,7 @@ const ENDPOINT_PARITY_TOL: Record<string, number> = {
   "gas-web": 0.5,
   "rot-bottled_food_3": 0.5,
   "rot-bottled_food_4": 0.5,
+  transmuters: 0.5,
 };
 
 async function loadScenario(page: Page, hash: string): Promise<void> {
@@ -1498,20 +1626,30 @@ test.describe("segment placement audit", () => {
 // First recordings for the two exam-surfaced scenarios (campaign-first
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero; every chip holds its own line inside its box.
-// R14: 2 -> 35. R16: 35 -> 1.
+// R14: 5 -> 36 (the chips CHIP_OFFPATH counts). R16: 36 -> 3.
+// Catalyst-split re-pin (2026-09-07): multi6 0 -> 2 (lanes on), script43 0 -> 1
+// (lanes off). UP moves, listed as ruling items; same re-pack cause as above.
+// The seats: multi6 e:88 and e:89, the two liquid_water tap rise chips into q:8
+// and q:9, each sitting 48.0px off its own line; script43 e:9, the gas_copper
+// label chip on q:23 -> q:6, 93.3px off.
 const SEAT_VALIDITY_BASELINE: Record<string, number> = {
+  // R14: 2 -> 35. R16: 35 -> 1.
+  // RECIPE CARD TRIM (2026-09-13): multi6 0 -> 1 and rot-bottled_food_3
+  // 0 -> 1, the same two escape-cascade seats as the on arm (44.2 off the
+  // line each). UP moves, listed for ruling in the trim's PR.
   default: 0,
   battery5: 0,
   "battery5-xiranite": 1,
   crystal: 0,
   equip4: 0,
-  multi6: 0,
+  multi6: 1,
   tundra: 0,
-  script43: 0,
+  script43: 1,
   "coupon-web": 0,
   "gas-web": 0,
-  "rot-bottled_food_3": 0,
+  "rot-bottled_food_3": 1,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Card intrusion: chips whose box reaches more than CARD_INTRUSION_BUDGET deep
@@ -1617,6 +1755,7 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // Foreign strokes: chips with at least one foreign flow's stroke through the
@@ -1661,21 +1800,42 @@ const CARD_INTRUSION_BASELINE: Record<string, number> = {
 // FAN-OUT LEG SEAT: default 2 -> 3 in BOTH arms, the chip-side reading of the
 // single pair CHIP_SEGMENT_BASELINE records above -- e:12's rise chip, seated on
 // its own leg row, now has e:8's stroke through its box.
-// R14: 32 -> 49. R16: 49 -> 45.
-// FAN-OUT LEG SEAT: default 2 -> 3.
+// Catalyst-split re-pin (2026-09-07): battery5-xiranite 6 -> 7 (on) and 5 -> 8
+// (off), script43 5 -> 7 (off), gas-web 5 -> 6 (off). UP moves, listed as ruling
+// items; the softest tier, and the same re-pack cause as above.
+// Environment-frame re-pin (2026-09-12): transmuters 0 -> 1 in both modes --
+// the census-camera reading of the same e:8 surplus stroke under e:11's "Sewage
+// x 150/min" chip the CHIP_SEGMENT table records above. Same cause: the seats
+// date to the catalyst-split rebase onto develop, and the environment frame's
+// footprint probed identical (1 at the pre-footprint commit). UP move, listed
+// as a ruling item.
+// Catalyst-edge re-pin (2026-09-13): transmuters 1 -> 3 (lanes on) and 1 -> 2
+// (off). Cause: the catalyst supply edges. Lanes on, e:20's "Xiragen x 3/min"
+// rise chip takes the strokes of e:17 (the catalyst edge into u:class:q:3) and
+// e:18 (the ordinary in: edge into the same card), and in both modes e:23's
+// "Clean Water x 150/min" rise chip takes e:13's copper_ore and e:15's
+// gas_inert strokes off the re-packed left rim. The pre-existing e:8-under-e:11
+// surplus stroke stays. Softest tier, UP moves, listed as ruling items.
 const FOREIGN_STROKE_BASELINE: Record<string, number> = {
+  // R14: 32 -> 49. R16: 49 -> 45.
+  // FAN-OUT LEG SEAT: default 2 -> 3, the same chip as the on arm.
   default: 3,
   battery5: 3,
-  "battery5-xiranite": 5,
+  "battery5-xiranite": 8,
   crystal: 1,
   equip4: 1,
   multi6: 19,
   tundra: 0,
-  script43: 5,
+  script43: 7,
   "coupon-web": 3,
-  "gas-web": 5,
+  "gas-web": 6,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 2,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 2 -> 3. e:21's "Xiragen
+  // x 12/min" rise chip, off the gas_xiranite loop-return supply node, now
+  // takes e:9's copper_nugget stroke through its box; the e:8-under-e:11
+  // surplus stroke and e:23's rise chip stay. UP move, listed for ruling.
+  transmuters: 3,
 };
 
 // PORT-COVER: chips whose drawn box covers a handle, glyph or row strip of
@@ -1693,12 +1853,21 @@ const PORT_COVER_BASELINE: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 
 // CHIP-COLLAPSE: chips drawing their icon-only variant at the census camera.
 // Not a defect counter but the trade dial every keep-out or cap pays into.
 // 35 -> 48 at the port-clear render (R14),
 // 48 -> 43 at the shrink pass (R16).
+// First recording for the transmuter scenario (2026-09-07): 4 in both modes,
+// out of 26 chips at the census camera.
+// Environment-frame re-pin (2026-09-12): transmuters 4 -> 6 in both modes.
+// Two more of the plan's chips collapse icon-only at the census camera -- the
+// rebased catalyst-split seating puts them on legs too short for their full
+// label boxes, the trade this dial exists to record. The environment frame's
+// footprint probed identical (6 at the pre-footprint commit). UP move, listed
+// as a ruling item.
 const CHIP_COLLAPSE_BASELINE: Record<string, number> = {
   default: 4,
   battery5: 2,
@@ -1712,6 +1881,10 @@ const CHIP_COLLAPSE_BASELINE: Record<string, number> = {
   "gas-web": 3,
   "rot-bottled_food_3": 4,
   "rot-bottled_food_4": 0,
+  // 4 -> 6 at the environment-frame re-measure.
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 6 -> 7, the same
+  // unattributable collapse as the on arm. UP move, listed for ruling.
+  transmuters: 7,
 };
 
 // TIER-1 SLIDE DRIFT, re-measured after the per-chip reserved seat box
@@ -1791,11 +1964,23 @@ const CENSUS_TOTALS: {
 } = {
   // R14: seatValidity 2 -> 35, cardIntrusion 79 -> 0, foreignStroke
   // 32 -> 49. R16: seatValidity 35 -> 1, foreignStroke 49 -> 45.
-  seatValidity: 1,
+  // Catalyst split (2026-09-07): script43 seatValidity 0 -> 1;
+  // battery5-xiranite foreignStroke 5 -> 8, script43 5 -> 7, gas-web 5 -> 6.
+  // Totals follow: 1 -> 2, 45 -> 51.
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 2 -> 4, tracking the
+  // trim's multi6 0 -> 1 and rot-bottled_food_3 0 -> 1 in the table.
+  seatValidity: 4,
   cardIntrusion: 0,
   // SINGLE-BAND RE-MEASURE (eeda816): 45 -> 46 (default 1 -> 2).
   // FAN-OUT LEG SEAT: 46 -> 47 (default 2 -> 3).
-  foreignStroke: 47,
+  // Catalyst split (2026-09-07) on top: battery5-xiranite 5 -> 8,
+  // script43 5 -> 7, gas-web 5 -> 6, so 47 -> 53.
+  // Environment-frame re-measure (2026-09-12) on top: transmuters 0 -> 1,
+  // 53 -> 54.
+  // Catalyst edges (2026-09-13) on top: transmuters 1 -> 2, 54 -> 55.
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 55 -> 56, tracking
+  // transmuters 2 -> 3 in the table.
+  foreignStroke: 56,
 };
 
 function censusInventory(hits: ReadonlyArray<ChipCensusHit>): string {

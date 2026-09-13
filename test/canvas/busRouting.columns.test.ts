@@ -15,13 +15,17 @@ import {
   jogForwardLegs,
   entryGutterRects,
   paddedObstacles,
+  FANOUT_SPAN_MAX,
   gutterWidth,
   ENTRY_SLOT_PITCH,
   CONTAINER_COLUMN_GAP,
   CONTAINER_RAIL_GAP,
   OBSTACLE_PAD_Y,
 } from "../../src/canvas/busRouting";
-import { ENTRY_GUTTER_OVERHANG } from "../../src/canvas/dimensions";
+import {
+  ENTRY_GUTTER_OVERHANG,
+  RECIPE_WIDTH,
+} from "../../src/canvas/dimensions";
 import { nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import {
   PORT_STUB,
@@ -57,8 +61,8 @@ function budgetOf(edges: Edge[], id: string): number | undefined {
 
 describe("assignBendColumns", () => {
   it("fans bend columns across the shared corridor for a same-source group", () => {
-    // Source right edge at x = 0 + 300 = 300; targets at x = 500 (left edge),
-    // so the corridor is [300, 500], usable = 200 - 2*(24+8) = 136.
+    // Source right edge at x = 0 + 240 = 240; targets at x = 500 (left edge),
+    // so the corridor is [240, 500], usable = 260 - 2*(24+8) = 196.
     const r = mkRecipe("r", ["a"], ["b"]);
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
@@ -72,19 +76,19 @@ describe("assignBendColumns", () => {
     const margin = PORT_STUB + CHAMFER;
     // Both inside the corridor margins.
     for (const b of [b0, b1]) {
-      expect(b).toBeGreaterThan(300 + margin);
+      expect(b).toBeGreaterThan(RECIPE_WIDTH + margin);
       expect(b).toBeLessThan(500 - margin);
     }
     // Distinct, evenly pitched slots: e0 sorts first (slot 1), e1 second.
     expect(b0).toBeLessThan(b1);
-    const pitch = (200 - 2 * margin) / 3;
-    expect(b0).toBeCloseTo(300 + margin + pitch, 6);
-    expect(b1).toBeCloseTo(300 + margin + 2 * pitch, 6);
+    const pitch = (500 - RECIPE_WIDTH - 2 * margin) / 3;
+    expect(b0).toBeCloseTo(RECIPE_WIDTH + margin + pitch, 6);
+    expect(b1).toBeCloseTo(RECIPE_WIDTH + margin + 2 * pitch, 6);
   });
 
   it("stamps a pitch-bounded, sibling-safe chamfer budget per bend", () => {
-    // Same corridor as the fan test: [300, 500], usable = 136, two members, so
-    // pitch = 136 / 3. Each bend carries budget = pitch / 2, the largest chamfer
+    // Same corridor as the fan test: [240, 500], usable = 196, two members, so
+    // pitch = 196 / 3. Each bend carries budget = pitch / 2, the largest chamfer
     // whose envelope [bend - budget, bend + budget] stays off its sibling's.
     const r = mkRecipe("r", ["a"], ["b"]);
     const nodes: RFAnyNode[] = [
@@ -95,7 +99,7 @@ describe("assignBendColumns", () => {
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
     const out = assignBendColumns(nodes, edges);
     const margin = PORT_STUB + CHAMFER;
-    const pitch = (200 - 2 * margin) / 3;
+    const pitch = (500 - RECIPE_WIDTH - 2 * margin) / 3;
     const g0 = budgetOf(out, "e0")!;
     const g1 = budgetOf(out, "e1")!;
     expect(g0).toBeCloseTo(pitch / 2, 6);
@@ -114,7 +118,7 @@ describe("assignBendColumns", () => {
       recipeNode("s", 0, 0, r),
       recipeNode("back", 0, 200, r),
     ];
-    // s right edge 300 > back left 0 -> backward, skipped by the stagger.
+    // s right edge 240 > back left 0 -> backward, skipped by the stagger.
     const out = assignBendColumns(nodes, [mkEdge("bwd0", "s", "back", "b")]);
     expect(bendOf(out, "bwd0")).toBeUndefined();
     expect(budgetOf(out, "bwd0")).toBeUndefined();
@@ -159,16 +163,16 @@ describe("assignBendColumns", () => {
   });
 
   it("bands mixed-width sources of one layer together (finding 2)", () => {
-    // A product source (width 148 -> right 148) and a recipe source (width 300
-    // -> right 300) share the same source layer (left x = 0) and both feed the
+    // A product source (width 148 -> right 148) and a recipe source (width 240
+    // -> right 240) share the same source layer (left x = 0) and both feed the
     // next layer at x = 500. Banding by source LEFT (not source right) puts them
     // in ONE band so they fan against each other and land on DISTINCT columns
-    // inside the shared first gap [300, 500]; the old source-right banding split
+    // inside the shared first gap [240, 500]; the old source-right banding split
     // them into independent bands that could pick coincident columns.
     const r = mkRecipe("r", ["a"], ["b"]);
     const nodes: RFAnyNode[] = [
       inputProductNode("sp", "b", 0, 0), // right 0 + 148 = 148
-      recipeNode("sr", 0, 300, r), //         right 0 + 300 = 300
+      recipeNode("sr", 0, 300, r), //         right 0 + 240 = 240
       recipeNode("t1", 500, 0, r),
       recipeNode("t2", 500, 300, r),
     ];
@@ -182,10 +186,10 @@ describe("assignBendColumns", () => {
     const margin = PORT_STUB + CHAMFER;
     expect(bp).toBeDefined();
     expect(br).toBeDefined();
-    // Corridor is the shared first gap: rightmost source edge (300) to the next
+    // Corridor is the shared first gap: rightmost source edge (240) to the next
     // node column (500). Both bends sit inside it, and they are distinct.
     for (const b of [bp!, br!]) {
-      expect(b).toBeGreaterThan(300 + margin);
+      expect(b).toBeGreaterThan(RECIPE_WIDTH + margin);
       expect(b).toBeLessThan(500 - margin);
     }
     expect(bp).not.toBe(br);
@@ -196,11 +200,11 @@ describe("assignBendColumns", () => {
     // between them. Its bend must land in the first gap (before the layer-1
     // column), never inside the intermediate node box.
     const r = mkRecipe("r", ["a"], ["b"]);
-    const midLeft = 410;
+    const midLeft = FANOUT_SPAN_MAX;
     const nodes: RFAnyNode[] = [
-      recipeNode("s", 0, 0, r), //          right 300
-      recipeNode("mid", midLeft, 0, r), //  layer-1 column at 410
-      recipeNode("t", 820, 200, r), //      layer-2 target
+      recipeNode("s", 0, 0, r), //          right 240
+      recipeNode("mid", midLeft, 0, r), //  layer-1 column at 350
+      recipeNode("t", 2 * FANOUT_SPAN_MAX, 200, r), // layer-2 target at 700
     ];
     const out = assignBendColumns(nodes, [mkEdge("e0", "s", "t", "b")]);
     const b = bendOf(out, "e0");
@@ -219,9 +223,9 @@ describe("assignBendColumns", () => {
     // dropping bends for the whole band, far edges included.
     const r = mkRecipe("r", ["a"], ["b"]);
     const nodes: RFAnyNode[] = [
-      recipeNode("sR", 0, 0, r), //          width 300 -> right 300 (sets groupLeft)
+      recipeNode("sR", 0, 0, r), //          width 240 -> right 240 (sets groupLeft)
       inputProductNode("sP", "b", 0, 400), // width 148 -> right 148
-      recipeNode("near", 200, 400, r), //     adjacent target, left 200 <= 300
+      recipeNode("near", 200, 400, r), //     adjacent target, left 200 <= 240
       recipeNode("far1", 1000, 0, r),
       recipeNode("far2", 1000, 400, r),
     ];
@@ -314,7 +318,7 @@ describe("assignEntryColumns", () => {
     // every one of their bend columns must stay left of M's gutter so no
     // vertical run crosses M's entering rails.
     const nodes: RFAnyNode[] = [
-      recipeNode("s", 0, 0, mkRecipe("s", [], ["b"])), // right edge 300
+      recipeNode("s", 0, 0, mkRecipe("s", [], ["b"])), // right edge 240
       orderedRecipeNode("m", 600, 0, ["b", "w", "x", "y", "z"]),
       recipeNode("t1", 1200, 0, mkRecipe("t1", ["b"], [])),
       recipeNode("t2", 1200, 200, mkRecipe("t2", ["b"], [])),
@@ -768,6 +772,59 @@ describe("jogForwardLegs", () => {
 
   it("stamps nothing and passes the edge through by reference when the leg is clear", () => {
     const { nodes, edges } = buildFixture(false);
+    const out = jogForwardLegs(nodes, edges);
+    expect(legYOf(out, "e0")).toBeUndefined();
+    expect(out[0]).toBe(edges[0]);
+  });
+
+  it("jogs a blocked small-dy leg, whose closing horizontal crosses a foreign card", () => {
+    // The small-dy diagonal still closes on a long horizontal at the target y,
+    // and that leg can slice a card exactly like the normal step's (a group
+    // input feeding a container member one row off its own port y). The scan
+    // has to cover it: legY stamped, and the drawn path clear of the card.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 100, 148, 78), // right 148, port y 139
+      inputProductNode("t", "ore", 760, 87, 148, 78), // left 760, port y 126
+      inputProductNode("mid", "ore", 400, 60, 148, 78), // y 60..138 holds 126
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+      },
+    ];
+    const out = jogForwardLegs(nodes, edges);
+    const legY = legYOf(out, "e0");
+    expect(legY).toBeDefined();
+    expect(legY).not.toBe(126); // moved off the target port y
+
+    const [d] = chamferStepPath({
+      sourceX: 148,
+      sourceY: 139,
+      targetX: 760,
+      targetY: 126,
+      ...routingHintsFromData(out[0]!.data),
+    });
+    const midCard = paddedObstacles(nodes, edges).find(
+      (o) => o.kind === "card" && o.nodeId === "mid",
+    )!;
+    const pts = parsePoints(d);
+    for (let i = 1; i < pts.length; i++) {
+      expect(segCrossesRect(pts[i - 1]!, pts[i]!, midCard)).toBe(false);
+    }
+  });
+
+  it("passes a clear small-dy edge through by reference", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 100, 148, 78),
+      inputProductNode("t", "ore", 760, 87, 148, 78),
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+      },
+    ];
     const out = jogForwardLegs(nodes, edges);
     expect(legYOf(out, "e0")).toBeUndefined();
     expect(out[0]).toBe(edges[0]);

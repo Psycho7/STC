@@ -98,33 +98,30 @@ export const AlwaysFoldRender: RenderPolicy = (input): RenderPlan => {
     );
   }
 
-  // Aggregate machine edges by (fromUnit, toUnit, item) within the class graph.
+  // Aggregate machine edges by (fromUnit, toUnit, item, target port kind)
+  // within the class graph. The port kind is part of the key because one card
+  // can take the same item on an `in:` row and a catalyst row, and those two
+  // edges land on different ports.
   type EdgeKey = string;
   const keyFor = (
     fromUnit: RenderUnitId,
     toUnit: RenderUnitId,
     item: string,
-  ): EdgeKey => `${fromUnit}\0${toUnit}\0${item}`;
+    toPortKind: "catalyst" | undefined,
+  ): EdgeKey => `${fromUnit}\0${toUnit}\0${item}\0${toPortKind ?? "in"}`;
 
-  const edgeAccum = new Map<
-    EdgeKey,
-    {
-      fromUnit: RenderUnitId;
-      toUnit: RenderUnitId;
-      item: string;
-      rate: Fraction;
-      transportKind: TransportKindId;
-    }
-  >();
-  const accumEdge = (e: {
+  type AccumEdge = {
     fromUnit: RenderUnitId;
     toUnit: RenderUnitId;
     item: string;
     rate: Fraction;
     transportKind: TransportKindId;
-  }): void => {
+    toPortKind?: "catalyst";
+  };
+  const edgeAccum = new Map<EdgeKey, AccumEdge>();
+  const accumEdge = (e: AccumEdge): void => {
     if (e.fromUnit === e.toUnit) return; // self-edges suppressed
-    const k = keyFor(e.fromUnit, e.toUnit, e.item);
+    const k = keyFor(e.fromUnit, e.toUnit, e.item, e.toPortKind);
     const existing = edgeAccum.get(k);
     if (existing) {
       existing.rate = existing.rate.add(e.rate);
@@ -175,6 +172,7 @@ export const AlwaysFoldRender: RenderPolicy = (input): RenderPlan => {
       item: a.item,
       rate: a.rate,
       transportKind: a.transportKind,
+      ...(a.toPortKind !== undefined ? { toPortKind: a.toPortKind } : {}),
     });
   }
 

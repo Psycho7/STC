@@ -1,9 +1,13 @@
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
-import type { Recipe, Stoich } from "@aef/schema";
+import type { CSSProperties } from "react";
+import type { EnvironmentId, Recipe, Stoich } from "@aef/schema";
 import { measureRecipe } from "./recipeGeometry";
+import { envBannerLayers } from "./envBanner";
 import { useI18n } from "../data/i18n-context";
 import { PortGlyph } from "./PortGlyph";
+import { CatalystGlyph } from "./CatalystGlyph";
+import { CATALYST_SUPPLY_EDGES } from "../flags";
 import { formatRationalPerMin } from "../data/rate-format";
 import type { PortTransportKinds } from "./layout";
 import type { ItemId } from "../pipeline/types";
@@ -26,11 +30,11 @@ import { RECIPE_HEAD_TITLE_COL, RECIPE_HEAD_BLOCK_PAD_X } from "./dimensions";
 // .rn-row in canvas.css): half of the card body, minus the row's horizontal
 // padding (6px per side plus the extra 2px on the port edge), minus the
 // 20px item sprite and one flex gap when the sprite renders (Sprite returns
-// null without an icon position, which drops both), minus one more flex gap
-// and the rate string. Port glyphs and handles are absolutely positioned
-// and cost no flex width. The rate estimate is an upper bound, so the label
-// budget errs narrow -- eliding early is safe, overflowing into CSS
-// ellipsis is the defect.
+// null without an icon position, which drops both). The rate is an
+// out-of-flow overlay over the label tail, so the label budget is the
+// row's own width minus its padding and the sprite line -- nothing is
+// reserved for digits. Port glyphs and handles are absolutely positioned
+// and cost no flex width.
 const ROW_PAD_X = 14;
 const ROW_GAP = 5;
 const ROW_SPRITE = 20;
@@ -38,12 +42,6 @@ const ROW_LABEL_FONT: MeasuredFont = {
   fontSize: 12,
   weight: 400,
   family: "--font-ui",
-};
-const ROW_RATE_FONT: MeasuredFont = {
-  fontSize: 12,
-  weight: 700,
-  family: "--font-num",
-  letterSpacingEm: -0.01,
 };
 
 // Header budgets from the pinned columns (dimensions.ts, ruling R3): the
@@ -55,11 +53,6 @@ const ROW_RATE_FONT: MeasuredFont = {
 const TITLE_FONT: MeasuredFont = {
   fontSize: 17,
   weight: 600,
-  family: "--font-ui",
-};
-const PRODUCTS_FONT: MeasuredFont = {
-  fontSize: 11,
-  weight: 500,
   family: "--font-ui",
 };
 const CHIP_FONT: MeasuredFont = {
@@ -75,18 +68,47 @@ function headerContentWidth(): number {
   return RECIPE_HEAD_TITLE_COL - 2 * RECIPE_HEAD_BLOCK_PAD_X;
 }
 
+// The gas-environment frame around an environment card: the plate SVGs bake
+// the plate colour into their data URIs (an SVG fill cannot resolve a CSS
+// var), so the token VALUE is read from the stylesheet at runtime. The tokens
+// never change at runtime, so the whole six-property style is memoised per
+// environment on first render.
+const ENV_PLATE_TOKEN: Record<EnvironmentId, string> = {
+  stable: "--ak-env-stable",
+  acidic: "--ak-env-acidic",
+};
+
+const envFrameStyles = new Map<EnvironmentId, CSSProperties>();
+
+function envFrameStyle(environment: EnvironmentId): CSSProperties {
+  const cached = envFrameStyles.get(environment);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const plate = getComputedStyle(document.documentElement)
+    .getPropertyValue(ENV_PLATE_TOKEN[environment])
+    .trim();
+  const layers = envBannerLayers(environment, plate);
+  const style: CSSProperties = {
+    ["--rn-env-plate" as string]: plate,
+    ["--rn-env-glyph" as string]: layers.top.glyph.uri,
+    ["--rn-env-top-left" as string]: layers.top.leftCap.uri,
+    ["--rn-env-top-right" as string]: layers.top.rightCap.uri,
+    ["--rn-env-bottom-left" as string]: layers.bottom.leftCap.uri,
+    ["--rn-env-bottom-right" as string]: layers.bottom.rightCap.uri,
+  };
+  envFrameStyles.set(environment, style);
+  return style;
+}
+
 function elideRowLabel(
   name: string,
   bodyWidth: number,
-  rateText: string,
   hasSprite: boolean,
 ): string {
   const budget =
-    bodyWidth / 2 -
-    ROW_PAD_X -
-    (hasSprite ? ROW_SPRITE + ROW_GAP : 0) -
-    ROW_GAP -
-    measureTextWidth(rateText, ROW_RATE_FONT);
+    bodyWidth / 2 - ROW_PAD_X - (hasSprite ? ROW_SPRITE + ROW_GAP : 0);
   return elideName(name, budget, widthFnFor(ROW_LABEL_FONT), "row-12");
 }
 
@@ -142,11 +164,11 @@ type RecipeNodeType = Node<RecipeNodeData, "recipe">;
 // Per-row rate label: items per cycle over cycle time, times the machine speed
 // (the solver runs a machine at speed/time executions per second, so the
 // per-machine port rate is qty * speed / time), times the `scale` factor. The
-// render-pipeline path passes the solved rational multiplicity so rows and the
-// header show the aggregate flow across all machines (matching the edge chips);
-// scale=1 yields the per-machine figure. Exact Fraction math keeps non-integer
-// speeds and multiplicities free of float junk; rates here are non-negative, so
-// serializing .n/.d is safe.
+// render-pipeline path passes the solved rational multiplicity so rows show
+// the aggregate flow across all machines (matching the edge chips); scale=1
+// yields the per-machine figure. Exact Fraction math keeps non-integer
+// speeds and multiplicities free of float junk; rates here are non-negative,
+// so serializing .n/.d is safe.
 function rowRateText(
   stoich: Stoich,
   recipeTime: number,
@@ -185,11 +207,15 @@ export default function RecipeNode({
   // (busRouting / ELK), which the pinned CSS keeps in sync with these rows.
   const ins = orderByItem(recipe.in, inputOrder);
   const outs = recipe.out;
+  // Port-less rows appended below the input ports (see the row markup). They
+  // keep the recipe's declared order: no layout pass orders them, because no
+  // edge arrives at one.
+  const catalysts = recipe.catalyst ?? [];
   const geom = measureRecipe(recipe);
   // Aggregate scale across all machines. The render-pipeline path supplies a
   // rational `multiplicity`; the older boot path an integer `multiplier`; a
-  // node with neither runs a single machine. Rows and the header multiply by
-  // this so the node's numbers match its incident edge chips.
+  // node with neither runs a single machine. Rows multiply by this so the
+  // node's numbers match its incident edge chips.
   const perMachine = new Fraction(1);
   const scale: Fraction = multiplicity
     ? rationalFromString(multiplicity)
@@ -206,12 +232,6 @@ export default function RecipeNode({
   // node.
   const machineName =
     producerId !== undefined ? i18n.displayName(producerId) : "";
-  // Secondary line: every produced item, in declaration order. A recipe can
-  // have multiple outputs, so all of them are listed; the line ellipsizes and
-  // the title attribute keeps the full list hoverable.
-  const productNames = recipe.out
-    .map((p) => i18n.displayName(p.item))
-    .join(" ·\u00A0");
   // Same speed factor the solver applies (multiplier.ts); a missing machine
   // record (corrupt fixture) falls back to 1, the only value the pack uses.
   const speed =
@@ -228,10 +248,9 @@ export default function RecipeNode({
     badgeText = `x${multiplier}`;
   }
 
-  // Visible header strings: the elision helper owns them against the pinned
-  // header budgets (title minus the chip and its gap when one rides the
-  // line; products at the recipe block's full content width), and the title
-  // attributes keep the full names for hover.
+  // Visible header string: the elision helper owns it against the pinned
+  // header budget (title minus the chip and its gap when one rides the
+  // line), and the title attribute keeps the full name for hover.
   const visibleMachineName = elideName(
     machineName,
     headerContentWidth() -
@@ -244,55 +263,54 @@ export default function RecipeNode({
     widthFnFor(TITLE_FONT),
     "title-17",
   );
-  const visibleProductNames = recipe.out
-    .map((p) =>
-      elideName(
-        i18n.displayName(p.item),
-        headerContentWidth(),
-        widthFnFor(PRODUCTS_FONT),
-        "products-11",
-      ),
-    )
-    .join(" \u00b7\u00a0");
+  // The "/min" suffix the catalyst rows carry, the same locale string the
+  // product cards and rate chips use.
+  const rateUnit = i18n.t("canvas.rate.unit");
 
-  // Header rate column. The primary value is the aggregate (per-machine x
-  // scale); the secondary line keeps the per-machine figure so the aggregate
-  // stays reconcilable to one machine's throughput. Empty string hides the
-  // value when there is no primary output. Uses recipe.out[0] (declared
-  // primary), not the reordered side-column top, for the same reason as the
-  // header product.
-  const primaryOut = recipe.out[0];
-  const rateValText =
-    primaryOut !== undefined
-      ? rowRateText(primaryOut, recipe.time, speed, scale)
-      : "";
-  const perMachineText =
-    primaryOut !== undefined
-      ? rowRateText(primaryOut, recipe.time, speed, perMachine)
-      : "";
+  // Environment requirement: the data attribute marks the requirement and the
+  // hover title names the environment. An absent field means no requirement,
+  // so neither attribute is written.
+  const environment = recipe.environment;
+  const envLabel =
+    environment === undefined
+      ? undefined
+      : i18n.t(environment === "stable" ? "env.stable" : "env.acidic");
 
   return (
     <div
       data-testid="recipe-node"
       data-recipe-id={recipe.id}
       className={selected ? "recipe-node selected" : "recipe-node"}
+      {...(environment !== undefined
+        ? { "data-environment": environment, title: envLabel }
+        : {})}
       style={{
         position: "relative",
         width: geom.width,
         minHeight: geom.height,
       }}
     >
-      {/* Header: a 28px machine icon slot plus the machine title line. */}
+      {/* The environment frame: canvas.css paints the plates and the haze
+          from the custom properties. Absolutely positioned at negative
+          insets, so it takes no part in the card's layout -- the box,
+          border, header height and every port y-slot are unchanged. */}
+      {environment !== undefined ? (
+        <div
+          className="rn-env"
+          aria-hidden="true"
+          style={envFrameStyle(environment)}
+        />
+      ) : null}
+      {/* Header: the 40px machine icon block plus the machine title line. */}
       <div className="rn-head">
         <div className="rn-machine-block">
           <div className="machine-icon" data-machine-icon={machineIconKey}>
-            <Sprite iconId={machine?.icon ?? producerId} size={28} />
+            <Sprite iconId={machine?.icon ?? producerId} size={40} />
           </div>
         </div>
         <div className="rn-recipe-block">
           {/* Title: machine name plus the machine-count multiplier chip. The
-              chip is critical info, so it survives at every zoom band (the
-              rate figures drop at zoom-low; this line does not). */}
+              chip is critical info, so it survives at every zoom band. */}
           <div className="machine-title">
             <span className="cn" title={machineName}>
               {visibleMachineName}
@@ -301,21 +319,6 @@ export default function RecipeNode({
               <span className="rn-mult-chip">{badgeText}</span>
             ) : null}
           </div>
-          {productNames !== "" ? (
-            <div className="rn-products" title={productNames}>
-              {visibleProductNames}
-            </div>
-          ) : null}
-        </div>
-        <div className="rn-rate-block">
-          <div className="rate-val">{rateValText}</div>
-          <div className="rate-lbl">{i18n.t("node.upm")}</div>
-          {rateValText !== "" ? (
-            <div className="rate-sub">
-              <span className="rate-sub-val">{perMachineText}</span>
-              <span className="rate-sub-ea">{i18n.t("node.each")}</span>
-            </div>
-          ) : null}
         </div>
       </div>
 
@@ -326,11 +329,10 @@ export default function RecipeNode({
             const handleId = `in:${p.item}`;
             // The visible label is the elided string (tail preserved when
             // the budget allows); the title attribute keeps the full name.
-            const rateText = rowRateText(p, recipe.time, speed, scale);
+            const rate = rowRateText(p, recipe.time, speed, scale);
             const visible = elideRowLabel(
               label,
               geom.width,
-              rateText,
               // Through iconIdForItem, exactly as the Sprite below resolves
               // it: upstream renamed four item icons, and asking iconPosition
               // for the raw item id misses those four. The budget then hands
@@ -361,7 +363,53 @@ export default function RecipeNode({
                 <span className="lbl" title={label}>
                   {visible}
                 </span>
-                <span className="rate">{rateText}</span>
+                <span className="rate">{rate}</span>
+              </div>
+            );
+          })}
+          {catalysts.map((p) => {
+            const label = i18n.displayName(p.item);
+            const handleId = `cat:${p.item}`;
+            return (
+              // A catalyst row: an input the machine cycles rather than
+              // consumes. With CATALYST_SUPPLY_EDGES on it is supplied from the
+              // item's boundary card like any raw draw, so it takes a target
+              // Handle of its own -- in the `cat:` namespace, because the same
+              // item can also sit on an input row above -- and wears that
+              // port's transport glyph. With the flag off nothing arrives here,
+              // so the row keeps the catalyst disc and no Handle. It carries no
+              // `input` class either way, since that class paints the accent
+              // tab. Appended after the port rows so no port's y moves;
+              // recipeGeometry counts it toward the card height.
+              <div key={`catalyst-row:${p.item}`} className="rn-row catalyst">
+                {CATALYST_SUPPLY_EDGES ? (
+                  <>
+                    <Handle
+                      id={handleId}
+                      type="target"
+                      position={Position.Left}
+                    />
+                    <PortGlyph
+                      kind={portTransportKinds?.get(handleId)}
+                      side="left"
+                      item={p.item}
+                    />
+                  </>
+                ) : (
+                  <CatalystGlyph item={p.item} />
+                )}
+                <Sprite iconId={iconIdForItem(p.item)} size={20} />
+                <span className="lbl" title={label}>
+                  {label}
+                </span>
+                {/* Per MACHINE, not the aggregate the port rows show, and the
+                    only row that spells its unit out -- the suffix is what
+                    marks the figure as reading on a different scale from the
+                    numbers directly above it. */}
+                <span className="rate">
+                  {rowRateText(p, recipe.time, speed, perMachine)}
+                  {rateUnit}
+                </span>
               </div>
             );
           })}
@@ -370,11 +418,10 @@ export default function RecipeNode({
           {outs.map((p) => {
             const label = i18n.displayName(p.item);
             const handleId = `out:${p.item}`;
-            const rateText = rowRateText(p, recipe.time, speed, scale);
+            const rate = rowRateText(p, recipe.time, speed, scale);
             const visible = elideRowLabel(
               label,
               geom.width,
-              rateText,
               // Through iconIdForItem, exactly as the Sprite below resolves
               // it: upstream renamed four item icons, and asking iconPosition
               // for the raw item id misses those four. The budget then hands
@@ -403,20 +450,11 @@ export default function RecipeNode({
                 <span className="lbl" title={label}>
                   {visible}
                 </span>
-                <span className="rate">{rateText}</span>
+                <span className="rate">{rate}</span>
               </div>
             );
           })}
         </div>
-      </div>
-
-      {/* Footer: left half shows cycle time; right half (.pwr) is reserved for
-          power. */}
-      <div className="rn-footer">
-        <div className="cycle">
-          {i18n.t("node.cycle", { time: recipe.time })}
-        </div>
-        <div className="pwr" />
       </div>
     </div>
   );
