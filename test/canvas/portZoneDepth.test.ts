@@ -219,6 +219,41 @@ describe("the recipe card's box is declared the same in TS and in CSS", () => {
   });
 });
 
+describe("the row rate is an overlay hidden at rest and revealed per card", () => {
+  it("takes the rate out of the row flow", () => {
+    expect(cssValue(".rn-row .rate", "position")).toBe("absolute");
+  });
+
+  it("hides the rate at rest", () => {
+    expect(cssValue(".rn-row .rate", "display")).toBe("none");
+  });
+
+  it("reveals the rate on card hover and on selection", () => {
+    // One shared rule carries both selector-list entries, so each selector
+    // resolves to the same block; both spellings must declare the reveal.
+    expect(cssBlock(".recipe-node:hover .rn-row .rate")).toMatch(
+      /display:\s*block/,
+    );
+    expect(cssBlock(".recipe-node.selected .rn-row .rate")).toMatch(
+      /display:\s*block/,
+    );
+  });
+
+  it("keeps the reveal suppressed under zoom-low", () => {
+    expect(
+      cssValue(
+        ".ak-canvas-theme.zoom-low .recipe-node .rn-row .rate",
+        "display",
+      ),
+    ).toBe("none");
+  });
+
+  it("seats the overlay at the row's inner-end padding", () => {
+    expect(cssValue(".rn-row.input .rate", "right")).toBe("6px");
+    expect(cssValue(".rn-row.output .rate", "left")).toBe("6px");
+  });
+});
+
 describe("the product card's drawn width is what the layout assigns", () => {
   it("adds up to PRODUCT_WIDTH from the content column and its chrome", () => {
     // The model width already counts the card's borders, and the widest of the

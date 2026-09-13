@@ -1465,6 +1465,12 @@
 .ak-canvas-theme.zoom-low .react-flow {
   background-image: none;
 }
+/* The rate overlay stays hidden at low zoom; without the extra .recipe-node
+   class this compound would only tie the later reveal rules' specificity
+   and lose on file order. */
+.ak-canvas-theme.zoom-low .recipe-node .rn-row .rate {
+  display: none;
+}
 
 /* Mid-zoom LOD (0.4-0.8): a lighter touch. Keep the detail text but firm up card
    borders and drop the grid to half strength so the graph still leads. */
@@ -2010,7 +2016,6 @@
   flex-direction: row-reverse;
 }
 
-.rn-row.output .rate,
 .rn-row.output .lbl {
   text-align: right;
 }
@@ -2031,19 +2036,40 @@
   font-size: 12px;
 }
 
+/* The row rate is an overlay over the label tail, out of flow so the label
+   budget never pays for it, hidden at rest and revealed by pointer hover or
+   card selection (rules below). The backdrop is the card body gradient's end
+   colour, which the rows sit on, so the digits read legibly over the tail. */
 .rn-row .rate {
   font-family: var(--font-num);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: -0.01em;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  background: #1f2125;
+  padding: 0 2px;
 }
 
+/* The overlay seats at the row's inner end (right for inputs, left for
+   outputs), inset by the row's own horizontal padding on that side; the row
+   is position:relative already. */
 .rn-row.input .rate {
   color: var(--ak-text-secondary);
+  right: 6px;
 }
 
 .rn-row.output .rate {
   color: var(--ak-accent-cyan-soft);
+  left: 6px;
+}
+
+/* Pointer-only hover plus selection; no intent delay, no focus-set involvement. */
+.recipe-node:hover .rn-row .rate,
+.recipe-node.selected .rn-row .rate {
+  display: block;
 }
 
 .rn-row.input::before,

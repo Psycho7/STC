@@ -187,6 +187,50 @@ test("an unselected node carries no selected class", () => {
   );
 });
 
+// Selected-path reveal contract for the row-rate overlay (jsdom cannot
+// drive :hover; the rate-reveal e2e covers the pointer path). Inject the
+// canvas.css rules verbatim -- base hide, hover/selected reveal, zoom-low
+// suppression -- and assert the cascade a browser would compute: a
+// selected card's row rates show, an unselected card's stay hidden.
+test("a selected card reveals its row rates; an unselected card keeps them hidden", () => {
+  document.head.insertAdjacentHTML(
+    "beforeend",
+    `<style id="rate-reveal-probe">
+       .rn-row .rate {
+         display: none;
+       }
+       .recipe-node:hover .rn-row .rate,
+       .recipe-node.selected .rn-row .rate {
+         display: block;
+       }
+       .ak-canvas-theme.zoom-low .recipe-node .rn-row .rate {
+         display: none;
+       }
+     </style>`,
+  );
+  const selected = wrap(
+    <RecipeNode {...makeRecipeNodeProps({ recipe: RECIPE }, true)} />,
+    packWithSpeed(1),
+  );
+  const unselected = wrap(
+    <RecipeNode {...makeRecipeNodeProps({ recipe: RECIPE })} />,
+    packWithSpeed(1),
+  );
+  const displays = (container: HTMLElement) =>
+    [...container.querySelectorAll(".rn-row .rate")].map(
+      (el) => getComputedStyle(el).display,
+    );
+  expect(displays(selected.container as HTMLElement)).toEqual([
+    "block",
+    "block",
+  ]);
+  expect(displays(unselected.container as HTMLElement)).toEqual([
+    "none",
+    "none",
+  ]);
+  document.getElementById("rate-reveal-probe")?.remove();
+});
+
 // 8B: each port's React Flow Handle and its PortGlyph render INSIDE the
 // .rn-row for that item, so the DOM row center is the anchor truth instead of a
 // computed constant offset. The handle carries no inline `top` (it centers via

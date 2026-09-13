@@ -32,11 +32,11 @@ import {
 // .rn-row in canvas.css): half of the card body, minus the row's horizontal
 // padding (6px per side plus the extra 2px on the port edge), minus the
 // 20px item sprite and one flex gap when the sprite renders (Sprite returns
-// null without an icon position, which drops both), minus one more flex gap
-// and the rate string. Port glyphs and handles are absolutely positioned
-// and cost no flex width. The rate estimate is an upper bound, so the label
-// budget errs narrow -- eliding early is safe, overflowing into CSS
-// ellipsis is the defect.
+// null without an icon position, which drops both). The rate is an
+// out-of-flow overlay over the label tail, so the label budget is the
+// row's own width minus its padding and the sprite line -- nothing is
+// reserved for digits. Port glyphs and handles are absolutely positioned
+// and cost no flex width.
 const ROW_PAD_X = 14;
 const ROW_GAP = 5;
 const ROW_SPRITE = 20;
@@ -44,12 +44,6 @@ const ROW_LABEL_FONT: MeasuredFont = {
   fontSize: 12,
   weight: 400,
   family: "--font-ui",
-};
-const ROW_RATE_FONT: MeasuredFont = {
-  fontSize: 12,
-  weight: 700,
-  family: "--font-num",
-  letterSpacingEm: -0.01,
 };
 
 // Header budgets from the pinned columns (dimensions.ts, ruling R3): the
@@ -79,15 +73,10 @@ function headerContentWidth(): number {
 function elideRowLabel(
   name: string,
   bodyWidth: number,
-  rateText: string,
   hasSprite: boolean,
 ): string {
   const budget =
-    bodyWidth / 2 -
-    ROW_PAD_X -
-    (hasSprite ? ROW_SPRITE + ROW_GAP : 0) -
-    ROW_GAP -
-    measureTextWidth(rateText, ROW_RATE_FONT);
+    bodyWidth / 2 - ROW_PAD_X - (hasSprite ? ROW_SPRITE + ROW_GAP : 0);
   return elideName(
     name,
     budget,
@@ -290,11 +279,10 @@ export default function RecipeNode({
             const handleId = `in:${p.item}`;
             // The visible label is the elided string (tail preserved when
             // the budget allows); the title attribute keeps the full name.
-            const rateText = rowRateText(p, recipe.time, speed, scale);
+            const rate = rowRateText(p, recipe.time, speed, scale);
             const visible = elideRowLabel(
               label,
               geom.width,
-              rateText,
               // Through iconIdForItem, exactly as the Sprite below resolves
               // it: upstream renamed four item icons, and asking iconPosition
               // for the raw item id misses those four. The budget then hands
@@ -329,7 +317,7 @@ export default function RecipeNode({
                 <span className="lbl" title={label}>
                   {visible}
                 </span>
-                <span className="rate">{rateText}</span>
+                <span className="rate">{rate}</span>
               </div>
             );
           })}
@@ -338,11 +326,10 @@ export default function RecipeNode({
           {outs.map((p) => {
             const label = i18n.displayName(p.item);
             const handleId = `out:${p.item}`;
-            const rateText = rowRateText(p, recipe.time, speed, scale);
+            const rate = rowRateText(p, recipe.time, speed, scale);
             const visible = elideRowLabel(
               label,
               geom.width,
-              rateText,
               // Through iconIdForItem, exactly as the Sprite below resolves
               // it: upstream renamed four item icons, and asking iconPosition
               // for the raw item id misses those four. The budget then hands
@@ -375,7 +362,7 @@ export default function RecipeNode({
                 <span className="lbl" title={label}>
                   {visible}
                 </span>
-                <span className="rate">{rateText}</span>
+                <span className="rate">{rate}</span>
               </div>
             );
           })}
