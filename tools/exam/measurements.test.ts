@@ -139,6 +139,7 @@ const geometry = (): Geometry => ({
   dots: [],
   crossingCues: [],
   portFurniture: [],
+  gapZones: [],
   zoom: 1,
 });
 
@@ -194,12 +195,22 @@ const sceneCollection = (): SceneCollection => {
   };
 };
 
+// The one measurement of a kind, or - where a kind legitimately fires once per
+// chip - the one that names `elementId`.
 function only(
   measurements: Measurement[],
   kind: Measurement["kind"],
+  elementId?: string,
 ): Measurement {
-  const hits = measurements.filter((m) => m.kind === kind);
-  expect(hits, `exactly one ${kind}`).toHaveLength(1);
+  const hits = measurements.filter(
+    (m) =>
+      m.kind === kind &&
+      (elementId === undefined || m.elementIds.includes(elementId)),
+  );
+  expect(
+    hits,
+    `exactly one ${kind}${elementId === undefined ? "" : ` naming ${elementId}`}`,
+  ).toHaveLength(1);
   return hits[0]!;
 }
 
@@ -207,7 +218,14 @@ describe("measurementsFor", () => {
   test("records one measurement per kind, each with a located footprint", () => {
     const { measurements } = measurementsFor(geometry(), sceneCollection());
 
+    // Three chip-off-own-path entries, one per chip: the rule audit covers
+    // every chip kind and asks for a HORIZONTAL RUN of the chip's own polyline,
+    // and each of the three chips here is placed for another purpose (a
+    // distance, a card overlap, a straddled leg) rather than on a run of its
+    // own line.
     expect(measurements.map((m) => m.kind).sort()).toEqual([
+      "chip-off-own-path",
+      "chip-off-own-path",
       "chip-off-own-path",
       "chip-vs-card",
       "chip-vs-segment",
@@ -235,9 +253,9 @@ describe("measurementsFor", () => {
       rect(210, 205, 40, 20),
     );
     // The chip's own box; the audit reports a distance and no place.
-    expect(only(measurements, "chip-off-own-path").footprint).toEqual(
-      rect(700, 600, 60, 20),
-    );
+    expect(
+      only(measurements, "chip-off-own-path", CHIP_RATE_ID).footprint,
+    ).toEqual(rect(700, 600, 60, 20));
 
     for (const m of measurements) {
       const f = m.footprint;
@@ -274,9 +292,9 @@ describe("measurementsFor", () => {
     expect(only(measurements, "chip-vs-segment").elementIds).toEqual(
       expect.arrayContaining([CHIP_RISE_ID, E_WATER, E_IRON]),
     );
-    expect(only(measurements, "chip-off-own-path").elementIds).toEqual(
-      expect.arrayContaining([CHIP_RATE_ID, E_IRON]),
-    );
+    expect(
+      only(measurements, "chip-off-own-path", CHIP_RATE_ID).elementIds,
+    ).toEqual(expect.arrayContaining([CHIP_RATE_ID, E_IRON]));
     expect(only(measurements, "segment-vs-card").elementIds).toEqual([
       E_IRON,
       "C",
@@ -292,11 +310,11 @@ describe("measurementsFor", () => {
     scene.elements = scene.elements.filter((e) => e.kind !== "chip");
     const { measurements } = measurementsFor(geometry(), scene);
 
-    expect(measurements).toHaveLength(5);
+    expect(measurements).toHaveLength(7);
     for (const m of measurements) {
       expect(m.elementIds.length).toBeGreaterThan(0);
     }
-    expect(only(measurements, "chip-off-own-path").elementIds).toEqual([
+    expect(only(measurements, "chip-off-own-path", E_IRON).elementIds).toEqual([
       E_IRON,
     ]);
   });
@@ -313,9 +331,9 @@ describe("measurementsFor", () => {
     // stands uncued in this hand-built scene.
     expect(crossingCensus).toEqual({ count: 1, cued: 0 });
     // A crossing has no participating ids and no place, so it contributes no
-    // measurement: the list is still exactly the five the rest of the geometry
+    // measurement: the list is still exactly the seven the rest of the geometry
     // produces, and none of them is explained by that crossing.
-    expect(measurements).toHaveLength(5);
+    expect(measurements).toHaveLength(7);
     for (const m of measurements) {
       expect(m.detail).not.toMatch(/cross/i);
     }
@@ -363,6 +381,7 @@ describe("measurementsFor", () => {
       dots: [],
       crossingCues: [],
       portFurniture: [],
+      gapZones: [],
       zoom: 1,
     };
     const scene: SceneCollection = {

@@ -25,6 +25,7 @@ import { contentBounds } from "./chipSeating";
 import { examChipReservations } from "./chipMetrics";
 import { isTrunkOwner, type BusAggregate } from "./busRouting";
 import type { RFAnyNode } from "./layout";
+import type { GapRecord } from "./layerModel";
 import { useI18n } from "../data/i18n-context";
 import { pack } from "../data/load";
 import type { CSSProperties } from "react";
@@ -81,6 +82,11 @@ export type CanvasStatus = "READY" | "SOLVING" | "ERROR";
 interface CanvasProps {
   nodes: Node[];
   edges: Edge[];
+  // The inter-layer gap reserves the layout produced, forwarded to the exam
+  // hook and used nowhere else on the canvas: the chip anchors are already
+  // stamped by the time these arrive, and only an audit outside the app needs
+  // to know which room a chip was charged to.
+  gaps?: ReadonlyArray<GapRecord>;
   status?: CanvasStatus;
   // Monotonically increasing counter bumped by App on every applied solve +
   // layout. A change means the node/edge arrays are a fresh plan, so the
@@ -182,6 +188,7 @@ export default function Canvas(props: CanvasProps) {
 function CanvasInner({
   nodes,
   edges,
+  gaps = [],
   status = "READY",
   layoutGeneration = 0,
   onNodesChange,
@@ -264,6 +271,24 @@ function CanvasInner({
       // locales in Locale, src/data/i18n.ts); plain edge-data reads, as inert
       // as contentBounds.
       chipReservations: () => examChipReservations(edges),
+      gapZones: () =>
+        gaps.map((gap) => ({
+          index: gap.index,
+          left: gap.left,
+          right: gap.right,
+          sourceZone: {
+            left: gap.sourceZone.left,
+            right: gap.sourceZone.right,
+          },
+          columnZone: {
+            left: gap.columnZone.left,
+            right: gap.columnZone.right,
+          },
+          targetZone: {
+            left: gap.targetZone.left,
+            right: gap.targetZone.right,
+          },
+        })),
       commit: __STC_COMMIT__,
       pack: {
         sourceCommit: pack.source.sourceCommit,
@@ -273,7 +298,7 @@ function CanvasInner({
     return () => {
       delete window.__stcExam;
     };
-  }, [setViewport, fitContent, nodes, edges]);
+  }, [setViewport, fitContent, nodes, edges, gaps]);
 
   // Live zoom drives the low-zoom LOD band on the theme container. Reading
   // transform[2] (zoom only) re-renders on zoom changes but not on pan.

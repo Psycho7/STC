@@ -215,6 +215,19 @@ export type PortFurnitureGeom = {
   right: number;
   bottom: number;
 };
+// One inter-layer gap's reserve model, in absolute graph x, as the exam hook
+// reports it: the chip zone flush against each side's cards and the trunk
+// column zone between them. Nothing in the DOM records these - a zone is room
+// the layout set aside, not a drawn thing - so they come from the hook the app
+// installs under `?exam=1` rather than from a rect.
+export type GapZoneGeom = {
+  index: number;
+  left: number;
+  right: number;
+  sourceZone: { left: number; right: number };
+  columnZone: { left: number; right: number };
+  targetZone: { left: number; right: number };
+};
 export type Geometry = {
   edges: EdgeGeom[];
   nodes: NodeGeom[];
@@ -222,6 +235,9 @@ export type Geometry = {
   dots: DotGeom[];
   crossingCues: CrossingCueGeom[];
   portFurniture: PortFurnitureGeom[];
+  // Empty on a page loaded without `?exam=1`, and on a plan whose layout
+  // produced no gaps (a single-layer graph).
+  gapZones: GapZoneGeom[];
   // The live camera zoom, needed to state a screen-pixel visibility tolerance
   // in the graph frame the rects above live in.
   zoom: number;
@@ -361,6 +377,7 @@ export function collectGeometry(): Geometry {
     dots,
     crossingCues,
     portFurniture,
+    gapZones: window.__stcExam?.gapZones() ?? [],
     zoom: k,
   };
 }

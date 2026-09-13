@@ -16,6 +16,7 @@ import {
   RECIPE_WIDTH,
   recipeHeight,
 } from "../../src/canvas/dimensions";
+import { RESERVE_COLUMN_PAD } from "../../src/canvas/layerModel";
 import {
   CARD_BORDER,
   PORT_ZONE_DEPTH,
@@ -719,6 +720,9 @@ export function auditChipsVsCards(
 }
 
 export type ChipOffPathViolation = {
+  // The chip's data-testid: one edge can own two chips, so its edge id alone
+  // does not name the box a report is about.
+  chipId: string;
   chipEdgeId: string;
   chipLabel: string;
   distance: number;
@@ -732,13 +736,35 @@ export type ChipOffPathViolation = {
 // this module's former private copy returned Infinity for both; real paths
 // always carry >= 2 vertices, so the audits' behaviour is unchanged.
 
-// Every LABEL chip whose centre lies farther than `tol` from its own edge's
-// polyline (the P3 on-own-line invariant). The two bus kinds are excluded: a
-// branch chip is anchored to its branch leg and a trunk drop chip to the trunk,
-// neither of which is the member edge's own path. A label chip's
-// clear-segment anchor is on the path by construction, and both the along-line
-// slide and a downward nudge along a vertical corridor leg keep it there; a
-// chip flagged here was cascaded off its line.
+// The horizontal segments of a polyline, in order. A chip is a horizontal box,
+// so a seat on a vertical or on a chamfer diagonal does not read as a label of
+// the run beneath it -- only these segments can carry one.
+function horizontalSegmentsOf(pts: ReadonlyArray<Pt>): Array<[Pt, Pt]> {
+  return segmentsOf(pts).filter(([a, b]) => a[1] === b[1]);
+}
+
+// Distance from `p` to the nearest HORIZONTAL segment of this polyline, or
+// Infinity when the polyline has none (a pure diagonal or a single vertical --
+// there is no run a chip could stand on, so no distance is small enough).
+function horizontalRunDistance(p: Pt, pts: ReadonlyArray<Pt>): number {
+  let best = Infinity;
+  for (const [a, b] of horizontalSegmentsOf(pts)) {
+    best = Math.min(best, pointSegDistance(p, a, b));
+  }
+  return best;
+}
+
+// Every chip whose centre does NOT stand on a horizontal segment of its OWN
+// edge's polyline -- the placement rule, as a hard invariant rather than a
+// measurement. It holds for every chip family the canvas draws: an item edge's
+// rate chip on its longest run, a trunk's aggregate chip on the run its members
+// share, a member's own chip on the stretch that is the member's alone. All
+// three are computed off the drawn polyline by the path builder, so a chip off
+// its own runs means a stamp outlived the geometry it was measured on.
+//
+// `tol` is measurement slack, in graph units: the centre comes from a client
+// rect mapped back through the inverse viewport transform while the polyline
+// comes from the path's own `d`, and the two agree to well under a unit.
 export function auditChipsOnOwnPath(
   chips: ReadonlyArray<ChipRect>,
   edges: ReadonlyArray<RawEdge>,
@@ -748,14 +774,14 @@ export function auditChipsOnOwnPath(
   for (const e of edges) edgeById.set(e.id, e);
   const out: ChipOffPathViolation[] = [];
   for (const chip of chips) {
-    if (chip.kind !== "label") continue;
     const owner = edgeById.get(chip.edgeId);
     if (owner === undefined) continue;
     const pts = parsePath(owner.d);
     if (pts.length === 0) continue;
-    const dist = pointToPolylineDistance(centreOf(chip), pts);
+    const dist = horizontalRunDistance(centreOf(chip), pts);
     if (dist > tol) {
       out.push({
+        chipId: chip.testId,
         chipEdgeId: chip.edgeId,
         chipLabel: chip.label,
         distance: dist,
@@ -769,11 +795,64 @@ export function auditChipsOnOwnPath(
 // and its data-family.
 export type DotRect = RawRect & { testId: string; family: string };
 
-// The testid prefix the collector gives a fan-out trunk junction dot.
+// The testid prefixes the collector gives a trunk's junction dot: the
+// divergence dot of a fan-out, the convergence dot of a fan-in.
 const BUS_JUNCTION_PREFIX = "bus-junction-";
+const FANIN_JUNCTION_PREFIX = "fanin-junction-";
 
-// The data-family a fan-out branch dot carries.
+// The data-family each of those dots carries.
 const FANOUT_FAMILY = "fanout";
+const FANIN_FAMILY = "fanin";
+
+// The junction dot x of every edge that draws one of the given family, keyed by
+// edge id.
+function junctionXByEdge(
+  dots: ReadonlyArray<DotRect>,
+  prefix: string,
+  family: string,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const dot of dots) {
+    if (!dot.testId.startsWith(prefix)) continue;
+    if (dot.family !== family) continue;
+    out.set(dot.testId.slice(prefix.length), centreOf(dot)[0]);
+  }
+  return out;
+}
+
+// The part of a polyline on one side of a vertical cut, opened AT the cut
+// itself rather than at the last vertex before it: taking the whole entering
+// segment would hand a chip the part of it that lies on the far side, which is
+// the run these counters exist to exclude. Null when the polyline has no vertex
+// on that side -- with no stretch to measure against there is nothing to be
+// off, so the counter undercounts rather than reporting a false positive.
+function polylineBeyond(
+  pts: ReadonlyArray<Pt>,
+  cut: number,
+  side: "right" | "left",
+): Pt[] | null {
+  if (side === "right") {
+    const from = pts.findIndex((p) => p[0] > cut);
+    if (from <= 0) return null;
+    return [
+      interpolateAtX(pts[from - 1]!, pts[from]!, cut),
+      ...pts.slice(from),
+    ];
+  }
+  let to = -1;
+  for (let i = 0; i < pts.length; i++) {
+    if (pts[i]![0] < cut) to = i;
+    else break;
+  }
+  if (to < 0 || to >= pts.length - 1) return null;
+  return [...pts.slice(0, to + 1), interpolateAtX(pts[to]!, pts[to + 1]!, cut)];
+}
+
+// The point at x = `cut` on the segment a -> b (which spans it).
+function interpolateAtX(a: Pt, b: Pt, cut: number): Pt {
+  const t = (cut - a[0]) / (b[0] - a[0]);
+  return [cut, a[1] + t * (b[1] - a[1])];
+}
 
 // Every fan-out MEMBER chip whose centre lies farther than `tol` from the
 // member's OWN leg. The member's polyline suffix past the trunk junction is not
@@ -789,14 +868,10 @@ const FANOUT_FAMILY = "fanout";
 // column inside the "leg" and the counter would see nothing.
 //
 // Members are the edges the collector reports a `bus-junction-<edge>` dot with
-// family "fanout" for.
-// Kind "bus" is counted here, unlike in auditChipsOnOwnPath: a fan-out branch
-// chip is collected as a bus chip, and it is exactly the chip this counter is
-// for. Hidden chips are never collected, so they are never counted.
-//
-// A member whose polyline has no point right of the cut is SKIPPED, not
-// counted: with no leg to measure against there is nothing to be off, so the
-// counter can undercount but never reports a false positive.
+// family "fanout" for. Both drawn kinds count: a member routed by BusEdge
+// carries its chip as kind "bus", and one retyped onto the trunk's column as
+// kind "label". The trunk's aggregate chip (kind "bus-drop") is not a member
+// chip and rides the shared run by design, so it is left out.
 export function auditFanoutChipsOnOwnLeg(
   chips: ReadonlyArray<ChipRect>,
   edges: ReadonlyArray<RawEdge>,
@@ -805,16 +880,11 @@ export function auditFanoutChipsOnOwnLeg(
 ): ChipOffPathViolation[] {
   const edgeById = new Map<string, RawEdge>();
   for (const e of edges) edgeById.set(e.id, e);
-
-  const junctionXById = new Map<string, number>();
-  for (const dot of dots) {
-    if (!dot.testId.startsWith(BUS_JUNCTION_PREFIX)) continue;
-    if (dot.family !== FANOUT_FAMILY) continue;
-    junctionXById.set(
-      dot.testId.slice(BUS_JUNCTION_PREFIX.length),
-      centreOf(dot)[0],
-    );
-  }
+  const junctionXById = junctionXByEdge(
+    dots,
+    BUS_JUNCTION_PREFIX,
+    FANOUT_FAMILY,
+  );
 
   const out: ChipOffPathViolation[] = [];
   for (const chip of chips) {
@@ -824,27 +894,258 @@ export function auditFanoutChipsOnOwnLeg(
     const owner = edgeById.get(chip.edgeId);
     if (owner === undefined) continue;
 
-    const pts = parsePath(owner.d);
-    const cut = jx + CHAMFER;
-    const legStart = pts.findIndex((p) => p[0] > cut);
-    if (legStart <= 0) continue; // no leg: the path never bends past the column
-
-    // Open the leg at the cut itself, not at the last vertex before it: taking
-    // the whole entering segment would hand a chip the part of it that lies on
-    // or left of the column, which is the run this counter exists to exclude.
-    const prev = pts[legStart - 1]!;
-    const next = pts[legStart]!;
-    const t = (cut - prev[0]) / (next[0] - prev[0]);
-    const entry: Pt = [cut, prev[1] + t * (next[1] - prev[1])];
-    const leg: Pt[] = [entry, ...pts.slice(legStart)];
+    const leg = polylineBeyond(parsePath(owner.d), jx + CHAMFER, "right");
+    if (leg === null) continue;
 
     const dist = pointToPolylineDistance(centreOf(chip), leg);
     if (dist > tol) {
       out.push({
+        chipId: chip.testId,
         chipEdgeId: chip.edgeId,
         chipLabel: chip.label,
         distance: dist,
       });
+    }
+  }
+  return out;
+}
+
+// The fan-in mirror of the counter above, on the edges that draw a
+// `fanin-junction-<edge>` dot with family "fanin". A fan-in's members reach one
+// target port along one shared leg, so the two chips of the structure sit on
+// opposite sides of the convergence dot:
+//   member chip (kinds "bus" and "label") on its OWN source stub, the prefix
+//     LEFT of the column -- everything right of it is the shared leg;
+//   aggregate chip (kind "bus-drop") on the leg INTO the target, the suffix
+//     right of the dot, which is the stretch the trunk shares and the one its
+//     total labels.
+// The cut mirrors the fan-out's: the dot is drawn one chamfer PAST the column
+// on the target row, so the members' own stubs end one chamfer before it.
+export function auditFaninChipsOnOwnLeg(
+  chips: ReadonlyArray<ChipRect>,
+  edges: ReadonlyArray<RawEdge>,
+  dots: ReadonlyArray<DotRect>,
+  tol = 1,
+): ChipOffPathViolation[] {
+  const edgeById = new Map<string, RawEdge>();
+  for (const e of edges) edgeById.set(e.id, e);
+  const junctionXById = junctionXByEdge(
+    dots,
+    FANIN_JUNCTION_PREFIX,
+    FANIN_FAMILY,
+  );
+
+  const out: ChipOffPathViolation[] = [];
+  for (const chip of chips) {
+    const jx = junctionXById.get(chip.edgeId);
+    if (jx === undefined) continue;
+    const owner = edgeById.get(chip.edgeId);
+    if (owner === undefined) continue;
+
+    const pts = parsePath(owner.d);
+    const part =
+      chip.kind === "bus-drop"
+        ? polylineBeyond(pts, jx, "right")
+        : polylineBeyond(pts, jx - CHAMFER, "left");
+    if (part === null) continue;
+
+    const dist = pointToPolylineDistance(centreOf(chip), part);
+    if (dist > tol) {
+      out.push({
+        chipId: chip.testId,
+        chipEdgeId: chip.edgeId,
+        chipLabel: chip.label,
+        distance: dist,
+      });
+    }
+  }
+  return out;
+}
+
+// One inter-layer gap's reserve model, in absolute graph x, as the exam hook
+// reports it and the collector passes it through: a chip zone flush against
+// each side's cards with the trunk columns between them.
+export type GapZones = {
+  index: number;
+  left: number;
+  right: number;
+  sourceZone: { left: number; right: number };
+  columnZone: { left: number; right: number };
+  targetZone: { left: number; right: number };
+};
+
+// One trunk chip resolved to the room the placement rule charged it to: the
+// chip, the reserve zone it must stand in, and its trunk's junction dot.
+export type TrunkChipSeat = {
+  chip: ChipRect;
+  side: "source" | "target";
+  zone: { left: number; right: number };
+  dot: Pt;
+};
+
+// Is a fan-in convergence dot standing ON this polyline? That is what makes a
+// fan-out member a DUAL member -- it hands its flow to a fan-in column before
+// reaching the target, so the stretch that is its own ends at that column and
+// lies in the gap's COLUMN zone, not in either chip reserve. The rule does not
+// place such a chip, so the reserve audit leaves it alone. The geometry is the
+// only hook there is: the dot belongs to a sibling edge, and nothing in the DOM
+// says the two are joined.
+function handsOverToFanin(
+  pts: ReadonlyArray<Pt>,
+  faninDots: ReadonlyArray<DotRect>,
+  tol: number,
+): boolean {
+  return faninDots.some(
+    (dot) => pointToPolylineDistance(centreOf(dot), pts) <= tol,
+  );
+}
+
+// Every trunk chip paired with the gap reserve it belongs in. Which side that
+// is follows the PORT the chip labels, which for a member reaching two layers
+// over is not the gap its trunk column stands in:
+//   fan-out aggregate  the source port's zone (it labels the whole port's flow
+//                      leaving that card);
+//   fan-out member     the target port's zone (its own leg arrives there);
+//   fan-in member      the source port's zone (its own stub leaves there);
+//   fan-in aggregate   the target port's zone (it labels the merged arrival).
+// A chip whose port sits on a layer boundary rather than inside a gap, and a
+// dual fan-out member (see above), resolve to no reserve and are left out.
+export function trunkChipSeats(
+  chips: ReadonlyArray<ChipRect>,
+  edges: ReadonlyArray<RawEdge>,
+  dots: ReadonlyArray<DotRect>,
+  gaps: ReadonlyArray<GapZones>,
+  tol = 1,
+): TrunkChipSeat[] {
+  const edgeById = new Map<string, RawEdge>();
+  for (const e of edges) edgeById.set(e.id, e);
+  const fanoutX = junctionXByEdge(dots, BUS_JUNCTION_PREFIX, FANOUT_FAMILY);
+  const faninX = junctionXByEdge(dots, FANIN_JUNCTION_PREFIX, FANIN_FAMILY);
+  const dotByTestId = new Map(dots.map((d) => [d.testId, d] as const));
+  const faninDots = dots.filter((d) => d.family === FANIN_FAMILY);
+
+  const out: TrunkChipSeat[] = [];
+  for (const chip of chips) {
+    if (chip.kind !== "bus" && chip.kind !== "bus-drop") continue;
+    const owner = edgeById.get(chip.edgeId);
+    if (owner === undefined) continue;
+    const fanout = fanoutX.has(chip.edgeId);
+    const fanin = faninX.has(chip.edgeId);
+    if (fanout === fanin) continue; // no dot, or one of each: not a trunk chip
+    const dot = dotByTestId.get(
+      (fanout ? BUS_JUNCTION_PREFIX : FANIN_JUNCTION_PREFIX) + chip.edgeId,
+    );
+    if (dot === undefined) continue;
+
+    const pts = parsePath(owner.d);
+    if (pts.length === 0) continue;
+    const aggregate = chip.kind === "bus-drop";
+    if (fanout && !aggregate && handsOverToFanin(pts, faninDots, tol)) continue;
+
+    const side: "source" | "target" =
+      fanout === aggregate ? "source" : "target";
+    const portX = (side === "source" ? pts[0]! : pts[pts.length - 1]!)[0];
+    const gap = gaps.find((g) => portX > g.left && portX < g.right);
+    if (gap === undefined) continue;
+
+    out.push({
+      chip,
+      side,
+      zone: side === "source" ? gap.sourceZone : gap.targetZone,
+      dot: centreOf(dot),
+    });
+  }
+  return out;
+}
+
+// Trunk chips standing outside the reserve they were charged to, and trunk
+// chips standing on their own trunk's junction dot. Both are hard invariants of
+// the reserve model: layerModel widens every gap to hold exactly these boxes,
+// so a chip outside its zone is standing in room reserved for something else,
+// and the model's column-side pad is the clearance the chip owes the dot
+// (cleared on EITHER axis -- a chip a row away from the dot owes it nothing in
+// x). `tol` is the same measurement slack the on-line audits carry.
+export function auditTrunkChipReserves(
+  seats: ReadonlyArray<TrunkChipSeat>,
+  tol = 1,
+): { outside: ChipCensusHit[]; onDot: ChipCensusHit[] } {
+  const outside: ChipCensusHit[] = [];
+  const onDot: ChipCensusHit[] = [];
+  for (const seat of seats) {
+    const { chip, zone } = seat;
+    if (chip.left < zone.left - tol || chip.right > zone.right + tol) {
+      outside.push(
+        censusHit(
+          chip,
+          `box [${chip.left.toFixed(1)}, ${chip.right.toFixed(1)}] leaves its ` +
+            `${seat.side} reserve [${zone.left.toFixed(1)}, ${zone.right.toFixed(1)}]`,
+        ),
+      );
+    }
+    const [cx, cy] = centreOf(chip);
+    const clearsX =
+      Math.abs(seat.dot[0] - cx) >=
+      (chip.right - chip.left) / 2 + RESERVE_COLUMN_PAD - tol;
+    const clearsY =
+      Math.abs(seat.dot[1] - cy) >=
+      (chip.bottom - chip.top) / 2 + RESERVE_COLUMN_PAD - tol;
+    if (!clearsX && !clearsY) {
+      onDot.push(
+        censusHit(
+          chip,
+          `stands ${Math.abs(seat.dot[0] - cx).toFixed(1)} x ` +
+            `${Math.abs(seat.dot[1] - cy).toFixed(1)} from its junction dot at ` +
+            `(${seat.dot[0].toFixed(1)}, ${seat.dot[1].toFixed(1)}), inside the ` +
+            `${RESERVE_COLUMN_PAD} column pad`,
+        ),
+      );
+    }
+  }
+  return { outside, onDot };
+}
+
+// Foreign strokes running through a reserve zone at a seated chip's row: the
+// zone's full x-range by the y-extent of the chip standing in it. The reserve
+// is room the gap was widened for, so a stroke of another flow crossing it is
+// a line drawn through a chip's own room -- the same misread as a stroke
+// through the box, one zone wider. Foreignness is chipForeignTo, shared with
+// the chip-box counters so no stroke can be foreign to one and waived here.
+export function auditReserveZoneStrokes(
+  seats: ReadonlyArray<TrunkChipSeat>,
+  edges: ReadonlyArray<RawEdge>,
+  nodes: ReadonlyArray<NodeRect>,
+  eps = 0.5,
+): ChipCensusHit[] {
+  const edgeById = new Map<string, RawEdge>();
+  for (const e of edges) edgeById.set(e.id, e);
+  const cardById = new Map<string, RawRect>();
+  for (const n of nodes) cardById.set(n.nodeId, n);
+  const out: ChipCensusHit[] = [];
+  for (const seat of seats) {
+    const box: RawRect = {
+      left: seat.zone.left,
+      right: seat.zone.right,
+      top: seat.chip.top,
+      bottom: seat.chip.bottom,
+    };
+    const through: string[] = [];
+    for (const edge of edges) {
+      if (!chipForeignTo(seat.chip, edge, edgeById, cardById)) continue;
+      const pts = parsePath(edge.d);
+      if (pts.length === 0) continue;
+      if (segmentsOf(pts).some(([a, b]) => segmentEntersRect(a, b, box, eps))) {
+        through.push(edge.id);
+      }
+    }
+    if (through.length > 0) {
+      out.push(
+        censusHit(
+          seat.chip,
+          `${through.length} foreign stroke(s) through its ${seat.side} ` +
+            `reserve [${seat.zone.left.toFixed(1)}, ${seat.zone.right.toFixed(1)}]: ` +
+            through.join(", "),
+        ),
+      );
     }
   }
   return out;
@@ -1144,20 +1445,20 @@ export function fmtSeg(seg: readonly [Pt, Pt]): string {
 
 // -- reading-zoom seating census ---------------------------------------------
 //
-// Four counters over the SAME collected snapshot as the audits above, taken at a
-// fixed reading zoom instead of fit zoom (the spec's own describe explains the
-// camera). They exist because the tiers above are blind to whole chip families:
-// auditChipsOnOwnPath sees "label" chips only and auditChipsVsCards skips "bus"
-// chips, so every trunk / branch chip is invisible to both. Each counter here
-// covers ALL chip kinds and counts CHIPS, not (chip, other) pairs: the census
-// asks how many SEATS a reader would find wrong, and a chip crossed by four
-// foreign strokes is one bad seat, not four.
+// Three counters over the SAME collected snapshot as the audits above, taken at
+// a fixed reading zoom instead of fit zoom (the spec's own describe explains the
+// camera). They exist because the fit camera draws far fewer chips than a reader
+// ever sees: every chip below the digits gate is collapsed and every chip below
+// the mount gate is absent, so a fit-zoom count of a dense plan measures almost
+// nothing. Each counter covers ALL chip kinds and counts CHIPS, not
+// (chip, other) pairs: the census asks how many SEATS a reader would find wrong,
+// and a chip crossed by four foreign strokes is one bad seat, not four.
 //
 // The counters are deliberately not the same criteria as the tiers above -- they
-// are structural (does the line pass through the box) and depth-based (how far
-// past a card border) -- so a seat can be legal there and counted here. Where the two DO overlap
-// (foreign-stroke vs CHIP_SEGMENT_BASELINE) the waiver set is literally shared,
-// so the two can never move in opposite directions for one seat.
+// are depth-based (how far past a card border) and per-chip -- so a seat can be
+// legal there and counted here. Where the two DO overlap (foreign-stroke vs
+// CHIP_SEGMENT_BASELINE) the waiver set is literally shared, so the two can
+// never move in opposite directions for one seat.
 export type ChipCensusHit = {
   // The chip's data-testid: the element id a report names.
   chipId: string;
@@ -1176,50 +1477,6 @@ function censusHit(chip: ChipRect, detail: string): ChipCensusHit {
     chipKind: chip.kind,
     detail,
   };
-}
-
-// Every chip whose OWN edge's drawn polyline does not pass through its drawn
-// box -- the structural seat-validity rule. This is the e2e analogue of the
-// seating pass's segIntersectsChipBox, and deliberately NOT a centre-distance
-// rule like auditChipsOnOwnPath: a sidestep seat holds its own line inside the
-// box it RESERVED while moving the centre off it, so a centre-distance rule
-// would red-flag a seat the reader still reads as bound to its line. Both
-// sidestep tiers cap their reach at half the reserved half-width, which keeps
-// the own line inside the box and so inside this counter's rule.
-//
-// Takes the RAW collected edges ({ id, d }) rather than parsed RawEdges so a
-// chip is never judged against an edge list that dropped its owner for id-shape
-// reasons: a chip whose owner path is genuinely absent from the DOM counts as
-// invalid, since no line at all reaches it.
-export function auditChipSeatValidity(
-  chips: ReadonlyArray<ChipRect>,
-  edges: ReadonlyArray<{ id: string; d: string }>,
-  eps = 0.5,
-): ChipCensusHit[] {
-  const pathById = new Map<string, string>();
-  for (const e of edges) pathById.set(e.id, e.d);
-  const out: ChipCensusHit[] = [];
-  for (const chip of chips) {
-    const d = pathById.get(chip.edgeId);
-    if (d === undefined) {
-      out.push(censusHit(chip, `owner edge ${chip.edgeId} draws no path`));
-      continue;
-    }
-    const pts = parsePath(d);
-    const on = segmentsOf(pts).some(([a, b]) =>
-      segmentEntersRect(a, b, chip, eps),
-    );
-    if (!on) {
-      const gap = pointToPolylineDistance(centreOf(chip), pts);
-      out.push(
-        censusHit(
-          chip,
-          `own polyline misses its box (centre ${gap.toFixed(1)} off the line)`,
-        ),
-      );
-    }
-  }
-  return out;
 }
 
 // The intrusion budget a chip box may spend inside a node card: the port-side

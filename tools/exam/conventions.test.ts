@@ -79,12 +79,44 @@ describe("docs/render-conventions.md", () => {
     expect(flat(section(doc(), "Locale notes"))).not.toContain("`/MIN`");
   });
 
-  // The second cause of a collapsed branch chip, alongside the short leg.
-  test("names the contested fan-out corridor as a second icon-only cause", () => {
+  // The placement rule, per chip kind. An evaluator that has not been told it
+  // reads a chip standing off-centre on its run as a seating failure.
+  test("states the placement rule per chip kind", () => {
+    const chips = flat(section(doc(), "Rate chips"));
+    expect(chips).toContain("the centre of the longest horizontal run");
+    expect(chips).toContain("one port stub out of the port it labels");
+    expect(chips).toContain("the stretch that is the member's alone");
+    expect(chips).toContain(
+      "a chip on a vertical or on a chamfered corner is a defect",
+    );
+  });
+
+  // The reserve model is why a trunk chip stands out from its port with empty
+  // corridor beside it - the shape most likely to be filed as a stray chip.
+  test("states the reserve model a trunk chip stands in", () => {
+    const chips = flat(section(doc(), "Rate chips"));
+    expect(chips).toContain("each gap between two layers is widened");
+    expect(chips).toContain("a dot keep-off on the column side");
+    expect(chips).toContain("inside its own side's zone");
+    expect(chips).toContain("a trunk chip out among the columns");
+  });
+
+  // The three LOD bands, and the fact that nothing else removes a chip: an
+  // icon-only square is the level of detail, not a lost rate.
+  test("states the three zoom bands and the single cause of them", () => {
+    const chips = flat(section(doc(), "Rate chips"));
+    expect(chips).toContain("from zoom 0.5 up a chip draws in full");
+    expect(chips).toContain("between 0.35 and 0.5 it draws as its item icon");
+    expect(chips).toContain("below 0.35 it is not drawn at all");
+    expect(chips).toContain("no chip is hidden for lack of room");
+  });
+
+  // Mechanisms the renderer no longer has. A doc that still describes one
+  // teaches an evaluator to look for a shape the canvas cannot draw.
+  test("describes no chip collapse the renderer cannot produce", () => {
     const text = flat(doc());
-    expect(text).toContain("the corridor is contested");
-    expect(text).toContain("closer together than a chip is wide");
-    expect(text).toContain("render icon-only");
-    expect(text).toContain("rates stay on the target cards");
+    expect(text).not.toContain("contested");
+    expect(text).not.toContain("too short for its box");
+    expect(text).not.toContain("deliberately hidden");
   });
 });
