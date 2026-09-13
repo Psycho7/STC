@@ -539,12 +539,10 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(title!.textContent).toBe("Iron Plate x 60/min");
   });
 
-  it("renders only the aggregate drop chip below the zoom threshold", async () => {
-    // In the band between the icon-only gate and LABEL_MIN_ZOOM the per-member
-    // rise chip is gated, but the owner's aggregate drop chip is exempt and still
-    // carries its full total (this lone member is its own owner, showing its rate
-    // as the total). Zoom sits above the icon-only gate so the aggregate keeps
-    // its digits (the collapse below it has its own test).
+  it("draws no chip at all below the label zoom, aggregate included", async () => {
+    // Band 1 of the LOD: the owner's aggregate drop chip takes the same mount
+    // gate as every per-member chip, so a trunk below LABEL_MIN_ZOOM shows its
+    // junction dot and no number.
     renderEdge(
       {
         item: "Iron Plate",
@@ -552,15 +550,31 @@ describe("canvas/BusEdge trunk labels", () => {
         fanout: true,
         trunkKey: "Iron Plate|src",
       },
+      LABEL_MIN_ZOOM - 0.05,
+    );
+    await findEdgePath();
+    expect(chips()).toHaveLength(0);
+  });
+
+  it("collapses both chips to icon-only between the two gates", async () => {
+    // Band 2: at and above LABEL_MIN_ZOOM but below the icon-only gate, the
+    // aggregate and the per-member chip both mount without digits.
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(2, 1),
+        fanout: true,
+        trunkKey: "belt|src",
+      },
       (CHIP_ICON_ONLY_MAX_ZOOM + LABEL_MIN_ZOOM) / 2,
     );
     await findEdgePath();
     const labels = chips();
-    expect(labels).toHaveLength(1);
-    expect(labels[0]!.getAttribute("data-testid")).toBe(
-      "bus-edge-label-e1-drop",
-    );
-    expect(labels[0]!.textContent).toBe("120/min");
+    expect(labels).toHaveLength(2);
+    for (const chip of labels) {
+      expect(chip.classList.contains("icon-only")).toBe(true);
+      expect(chip.textContent).toBe("");
+    }
   });
 
   it("reveals a focused member's rise chip below the zoom threshold", async () => {

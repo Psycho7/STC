@@ -161,11 +161,16 @@ describe("canvas/ItemEdge zoom gating", () => {
     expect(label).toBeNull();
   });
 
-  it("shows the label at the threshold zoom", async () => {
-    renderEdge({ item: "Iron Plate", rate: new Fraction(2, 1) }, 0.35);
+  it("mounts the label at the threshold zoom, collapsed to its icon", async () => {
+    // LABEL_MIN_ZOOM is the mount gate; the digits arrive one band higher, at
+    // CHIP_ICON_ONLY_MAX_ZOOM.
+    renderEdge(
+      { item: "Iron Plate", rate: new Fraction(2, 1) },
+      LABEL_MIN_ZOOM,
+    );
     const label = await findLabel();
     expect(label).not.toBeNull();
-    expect(label!.textContent).toBe("120/min");
+    expect(label!.classList.contains("icon-only")).toBe(true);
   });
 
   it("shows the label when zoomed in", async () => {
@@ -178,27 +183,37 @@ describe("canvas/ItemEdge zoom gating", () => {
 describe("canvas/ItemEdge icon-only collapse", () => {
   const belowIconOnly = CHIP_ICON_ONLY_MAX_ZOOM - 0.05;
 
-  it("keeps the zoom-gated rate chip hidden below the icon-only zoom, never collapsing it to an icon", async () => {
-    // The plain member rate chip is gated by LABEL_MIN_ZOOM (0.35), a HIGHER
-    // gate than the icon-only zoom. Below the icon-only zoom it must stay fully
-    // hidden -- it must not turn into an icon-only chip the way the exempt
-    // aggregates do.
-    renderEdge({ item: "belt", rate: new Fraction(2, 1) }, belowIconOnly);
-    const label = await findLabel();
-    expect(label).toBeNull();
-  });
-
-  it("keeps a capped chip's digits between the icon-only zoom and the cap's text floor", async () => {
-    // The icon-only gate is one fixed zoom for every chip: a cap-1 chip keeps
-    // its digits at 0.5 and draws them smaller.
+  it("draws the full chip at and above the icon-only zoom", async () => {
+    // Band 3 of the LOD: icon, digits and unit.
     renderEdge(
-      { item: "belt", rate: new Fraction(2, 1), chipScaleCap: 1 },
-      0.5,
+      { item: "belt", rate: new Fraction(2, 1) },
+      CHIP_ICON_ONLY_MAX_ZOOM,
     );
     const label = await findLabel();
     expect(label).not.toBeNull();
     expect(label!.classList.contains("icon-only")).toBe(false);
-    expect(label!.textContent).toContain("120");
+    expect(label!.textContent).toBe("120/min");
+  });
+
+  it("collapses the rate chip to its icon between the two gates", async () => {
+    // Band 2: at and above LABEL_MIN_ZOOM but below the icon-only zoom, every
+    // chip sheds its digits -- no family is exempt.
+    renderEdge({ item: "belt", rate: new Fraction(2, 1) }, belowIconOnly);
+    const label = await findLabel();
+    expect(label).not.toBeNull();
+    expect(label!.classList.contains("icon-only")).toBe(true);
+    expect(label!.textContent).toBe("");
+    expect(label!.getAttribute("title")).toContain("120/min");
+  });
+
+  it("drops the rate chip below the label zoom", async () => {
+    // Band 1: no chip at all.
+    renderEdge(
+      { item: "belt", rate: new Fraction(2, 1) },
+      LABEL_MIN_ZOOM - 0.05,
+    );
+    const label = await findLabel();
+    expect(label).toBeNull();
   });
 
   it("collapses a chipIconOnly rate chip above the icon-only zoom", async () => {

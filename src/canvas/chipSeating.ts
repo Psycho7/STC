@@ -54,13 +54,11 @@ import {
   DOT_KEEPOFF,
   ENV_FRAME_EXTENTS,
   GLYPH_SIDE_OFFSET,
-  MAX_CHIP_SCALE,
   anchorStampLive,
   faninHideLive,
 } from "./dimensions";
 import {
   CHAMFER,
-  clamp,
   drawnEdge,
   forwardStepGeometry,
   pathPointAtPts,
@@ -169,10 +167,9 @@ export function largestClearSpan(
   return best;
 }
 
-// Vertical pitch a colliding chip is bumped by each step, and the shared full
-// chip-box height. A full max-scale box height keeps the resolved clearance from
-// dropping below one box at any zoom.
-const CHIP_PITCH_Y = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
+// Vertical pitch a colliding chip is bumped by each step: one full chip-box
+// height, so the resolved clearance never drops below one box.
+const CHIP_PITCH_Y = CHIP_BOX_HEIGHT;
 const CHIP_NUDGE_STEP = CHIP_PITCH_Y;
 
 // A placed chip box in the shared collision set: its centre plus per-axis
@@ -433,8 +430,7 @@ export function chipEntersOwnCardBody(
 // depth saturates there, which is the "swallowed whole" state. Conservative in
 // the same direction as the e2e census counter (auditChipCardIntrusion in the
 // geometry audit), which mirrors this rule against the DRAWN box; the box here
-// is the seat's max-counter-scale reservation, so it is never narrower than the
-// box the census measures.
+// is the seat's reservation of that same box.
 //
 // The budget is the same CARD_BORDER + PORT_ZONE_DEPTH strip the centre rule
 // exempts (9): a chip lying across its own port strip is the normal on-line
@@ -832,10 +828,10 @@ const LAST_RESORT_CAP_STEPS = 200;
 // side, by ENTRY_SLOT_PITCH increments.
 //
 // The reach is HALF the reserved half-width, and the halving is a containment
-// bound rather than a taste call. The reserve is what the chip may draw at
-// MAX_CHIP_SCALE; at counter-scale 1 (zoom 1 and above) it paints half of that,
-// so an offset past halfW / 2 puts the own line outside the PAINTED box and the
-// chip reads as an orphan floating beside its line -- the issue-#9 defect the
+// bound rather than a taste call: an offset past halfW / 2 leaves the own line
+// in only the outer half of the box, and past halfW it leaves the box
+// altogether, so the chip reads as an orphan floating beside its line -- the
+// issue-#9 defect the
 // whole tier ladder exists to prevent. BOTH sidestep tiers take that bound:
 // the fully clear step (tier 1c) and the scored step (tier 1b'). Tier 1c used
 // to keep the full half-width on the argument that a seat shedding every
@@ -894,9 +890,6 @@ export type RateSeat = {
   dy: number;
   tier: RateSeatTier;
   box: ChipBox;
-  // The counter-scale the reserved box allows: MAX_CHIP_SCALE, less when the
-  // clear window capped the reserve, 1 for a seat found on the shrink pass.
-  scaleCap: number;
 };
 
 export type RateSeatOpts = {
@@ -913,8 +906,8 @@ export type RateSeatOpts = {
   // The text the chip draws, sizing the reserve; omitted, the worst case.
   text?: ChipText | undefined;
   // The longest clear run of the chip's own line (largestClearSpan). Its
-  // width caps the reserve and its centre is the first candidate after the
-  // anchor, ahead of the slide grid that can step over a narrow corridor.
+  // centre is the first candidate after the anchor, ahead of the slide grid
+  // that can step over a narrow corridor.
   clearSpan?: XSpan | null | undefined;
 };
 
@@ -943,12 +936,9 @@ export type RateSeatOpts = {
 // prefer down). The seat is pushed into the field; the returned offsets are
 // relative to the anchor.
 //
-// The on-line tiers run twice before any seat leaves the line: at the full
-// reserve (the max-scale box, capped at the clear window), then at the
-// scale-1 box, so two chips whose full boxes cannot share a corridor both
-// stay on their lines at the smaller size. The off-line tiers keep the full
-// reserve. The reserve never drops below the scale-1 box: the render floors
-// the cap at 1, so a narrower reserve would pass the band at a seat the
+// The on-line tiers run at the box the chip draws, and so do the off-line
+// tiers: a chip draws that box at every zoom, so there is no second, smaller
+// reserve to retry at. A narrower reserve would pass the band at a seat the
 // painted box then covers.
 // Every seat the on-line tiers may take, in the order they prefer them: the
 // anchor, the clear-span centre, then the arc-length grid nearest offset first,
@@ -1006,10 +996,9 @@ export type SeatQuery = {
 
 // How many points on this edge's OWN polyline could still hold its rate chip
 // fully clear of every placed chip, every foreign flow line, every foreign card
-// and its own port bands -- its supply of on-line seats. Measured at the
-// NARROWEST reserve the online passes use (the natural box, what the chip paints
-// at counter-scale 1), so a count of zero means no box this chip can draw fits
-// anywhere on its line: the edge cannot be seated on its line at all.
+// and its own port bands -- its supply of on-line seats. Measured at the box the
+// chip draws, so a count of zero means that box fits nowhere on its line: the
+// edge cannot be seated on its line at all.
 //
 // Deliberately uncapped, though it walks the whole candidate list per item edge:
 // measured on multi6 at ~1400 candidate evaluations with lanes on and ~2400 with
@@ -1020,8 +1009,7 @@ export type SeatQuery = {
 function clearOnLineSeats(query: SeatQuery, opts?: RateSeatOpts): number {
   const { field, path, flowKey, target, exempt, entryBand } = query;
   const { pts, anchorX, anchorY } = path;
-  const halfW =
-    chipSeatHalfW(opts?.text, opts?.iconOnly === true) / MAX_CHIP_SCALE;
+  const halfW = chipSeatHalfW(opts?.text, opts?.iconOnly === true);
   const halfH = CHIP_BOX_HEIGHT / 2;
   let total = 0;
   for (let i = 1; i < pts.length; i++) {
@@ -1057,32 +1045,15 @@ function clearOnLineSeats(query: SeatQuery, opts?: RateSeatOpts): number {
 // time (graze, sidestep, shrink, off-line) -- tiers deconflictChipAnchors'
 // stamped output cannot tell apart.
 export function seatRateChip(query: SeatQuery, opts?: RateSeatOpts): RateSeat {
-  const maxHalfW = chipSeatHalfW(opts?.text, opts?.iconOnly === true);
-  const naturalHalfW = maxHalfW / MAX_CHIP_SCALE;
-  const span = opts?.clearSpan;
-  const fullHalfW =
-    span === undefined
-      ? maxHalfW
-      : clamp(
-          span === null ? 0 : (span.hi - span.lo) / 2,
-          naturalHalfW,
-          maxHalfW,
-        );
-  const run = (halfW: number, halfH: number, online: boolean) =>
-    seatRateChipPass(query, opts, halfW, halfH, online);
-  const withCap = (seat: RateSeat | null, scaleCap: number) =>
-    seat === null ? null : { ...seat, scaleCap };
-  return (
-    withCap(run(fullHalfW, CHIP_HALF_H, true), fullHalfW / naturalHalfW) ??
-    withCap(run(naturalHalfW, CHIP_BOX_HEIGHT / 2, true), 1) ??
-    withCap(run(fullHalfW, CHIP_HALF_H, false), fullHalfW / naturalHalfW)!
-  );
+  const halfW = chipSeatHalfW(opts?.text, opts?.iconOnly === true);
+  const run = (online: boolean) =>
+    seatRateChipPass(query, opts, halfW, CHIP_HALF_H, online);
+  return run(true) ?? run(false)!;
 }
 
-// One pass of the tier ladder at a fixed reserve. Online: the anchor / slide /
-// sidestep / graze tiers, null when none seats. Offline: the nudge and escape
-// cascades, which always seat. The returned scaleCap is a placeholder the
-// driver overwrites.
+// One pass of the tier ladder. Online: the anchor / slide / sidestep / graze
+// tiers, null when none seats. Offline: the nudge and escape cascades, which
+// always seat.
 function seatRateChipPass(
   query: SeatQuery,
   opts: RateSeatOpts | undefined,
@@ -1135,7 +1106,7 @@ function seatRateChipPass(
   };
   const seat = (px: number, py: number, tier: RateSeatTier): RateSeat => {
     const box = field.seat(boxAt(px, py));
-    return { dx: px - anchorX, dy: py - anchorY, tier, box, scaleCap: 1 };
+    return { dx: px - anchorX, dy: py - anchorY, tier, box };
   };
   const hardClearAt = (px: number, py: number): boolean => {
     const box = boxAt(px, py);
@@ -1307,10 +1278,10 @@ function seatRateChipPass(
     // The reach both sidestep tiers share, built once and walked twice below:
     // the fully clear step (tier 1c) and the scored step (tier 1b'). It is HALF
     // the reserved half-width, a containment bound rather than a taste call --
-    // the reserve is what the chip may draw at MAX_CHIP_SCALE, at counter-scale 1
-    // it paints half of that, so an offset past halfW / 2 puts the own line
-    // outside the PAINTED box and the chip reads as an orphan floating beside its
-    // line (the issue-#9 defect this whole ladder exists to prevent). Derived from
+    // an offset past halfW / 2 leaves the own line in only the outer half of the
+    // box, and past halfW it leaves the box altogether, so the chip reads as an
+    // orphan floating beside its line (the issue-#9 defect this whole ladder
+    // exists to prevent). Derived from
     // the box THIS chip reserves, so a collapsed chip -- or one whose estimated
     // box is narrower than the worst case -- steps only as far as its own box
     // still holds the line. Both directions are probed nearest-first so the free
@@ -1327,7 +1298,7 @@ function seatRateChipPass(
     // every remaining on-line seat crosses at least one foreign line (a
     // zero-crossing hard-clear point would already have been taken by tier 1).
     // Taking the FIRST hard-clear candidate parks the chip at the anchor, which
-    // at saturated counter-scale is the thick of the fan. Walk the same
+    // on a dense plan is the thick of the fan. Walk the same
     // candidates in the same order, score each by its foreign-line crossings, and
     // seat at the minimum. Strict less-than keeps the nearest-first,
     // forward-first preference on ties (an all-equal line still seats at the
@@ -1475,9 +1446,8 @@ function seatRateChipPass(
     //
     // Its reach is sidestepMax, the containment bound the fully clear tier now
     // shares (SIDESTEP_MAX derives it): at an offset within half the reserve the
-    // own line stays inside the painted box down to counter-scale 1 (zoom 1),
-    // which covers every reading camera; past it the chip reads as an orphan
-    // floating beside its line. Measured before the bound reached tier 1c: the
+    // own line stays in the inner half of the drawn box; past it the chip reads
+    // as an orphan floating beside its line. Measured before the bound reached tier 1c: the
     // one corpus seat this tier moved to a flush 120 (multi6 e:18) shed both its
     // strokes and became exactly that orphan. Shedding a 3-unit braid needs
     // almost the whole reserve, so under this bound neither tier can separate the
@@ -1647,7 +1617,6 @@ const SEAT_PATCH_KEYS = [
   "labelDx",
   "labelDy",
   "chipIconOnly",
-  "chipScaleCap",
   "faninJunctionX",
   "faninJunctionY",
   "faninChipHidden",
@@ -1662,7 +1631,6 @@ const SEAT_PATCH_KEYS = [
   "fanoutBranchDx",
   "fanoutBranchDy",
   "fanoutBranchIconOnly",
-  "fanoutBranchScaleCap",
   "fanoutBranchHidden",
   "fanoutBranchHiddenAt",
 ] as const;
@@ -1753,8 +1721,8 @@ export function deconflictChipAnchors(
   // gets drawn.
   const branchIconOnlyByIndex = new Set<number>();
   // The longest clear run of each item edge / fan-out branch leg (null when
-  // the port bands blanket it): the collapse verdict, the seat's capped
-  // reserve and its preferred candidate all read it.
+  // the port bands blanket it): the collapse verdict and the seat's preferred
+  // candidate both read it.
   const clearSpanById = new Map<string, XSpan | null>();
   // Final-leg points of each item edge pinned to a shared fan-out column: the
   // stretch of its polyline its rate chip may seat on (see the slice below).
@@ -1762,8 +1730,6 @@ export function deconflictChipAnchors(
     string,
     ReadonlyArray<readonly [number, number]>
   >();
-  // The counter-scale cap each seat allows (RateSeat.scaleCap).
-  const scaleCapByIndex = new Map<number, number>();
   // The drawn card rects a chip's box must stay clear of (see cardRectsFor);
   // the clearance field consumes the same array.
   const cards: CardRect[] = cardRectsFor(nodes, byId);
@@ -2514,7 +2480,6 @@ export function deconflictChipAnchors(
         clearSpan: clearSpanById.get(edge.id),
       },
     );
-    scaleCapByIndex.set(index, seat.scaleCap);
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
       // The hide below covers the exhausted tier too, but exhausting the
       // bounded cascade is a seating regression, never an intentional hide, so
@@ -2525,7 +2490,7 @@ export function deconflictChipAnchors(
       );
     }
     // A branch chip that cannot seat ON its own polyline is hidden rather than
-    // parked off-line: a narrow-corridor fan-out cannot host two max-scale chip
+    // parked off-line: a narrow-corridor fan-out cannot host two chip
     // boxes side by side, so once the owner's aggregate covers the short path
     // an off-line seat would float in empty canvas. The rate it would have
     // shown remains on the edge tooltip and on the target card's input row,
@@ -2636,7 +2601,6 @@ export function deconflictChipAnchors(
       // rather than the wide worst case it never draws.
       seatOpts(edge, index),
     );
-    scaleCapByIndex.set(index, seat.scaleCap);
     if (seat.tier === "exhausted" && import.meta.env.DEV) {
       // Dev/test-only tripwire, tree-shaken out of production builds (parity
       // with the render hook in src/pipeline/driver.ts). Never expected: cards
@@ -2648,7 +2612,7 @@ export function deconflictChipAnchors(
     }
     // A rate chip belongs on the line it labels, and a seat that leaves the
     // line is judged by DISTANCE, not by which tier produced it. Up to one
-    // max-scale chip pitch the box still reads as sitting beside its own line
+    // chip pitch the box still reads as sitting beside its own line
     // -- the #28 sidestep and the one-pitch step both land inside that reach,
     // and a chip pitch is the separation the whole pass is built on. Past a
     // pitch the line runs a full box-height clear of the box and the chip
@@ -2722,12 +2686,6 @@ export function deconflictChipAnchors(
     stamp("labelDy", labelDyByIndex.get(index));
     stamp("labelDx", labelDxByIndex.get(index));
     if (shortLegByIndex.has(index)) patch.chipIconOnly = true;
-    // The counter-scale cap, stamped only when it binds.
-    const cap = scaleCapByIndex.get(index);
-    if (cap !== undefined && cap < MAX_CHIP_SCALE) {
-      if (fanoutGeomById.has(edge.id)) patch.fanoutBranchScaleCap = cap;
-      else patch.chipScaleCap = cap;
-    }
     stamp("fanoutAggDx", fanoutAggDxByIndex.get(index));
     stamp("fanoutAggDy", fanoutAggDyByIndex.get(index));
     stamp("fanoutBranchDx", fanoutBranchDxByIndex.get(index));

@@ -20,7 +20,6 @@ import {
   CHIP_BOX_WIDTH,
   DOT_KEEPOFF,
   ENTRY_GUTTER_OVERHANG,
-  MAX_CHIP_SCALE,
   RECIPE_WIDTH,
 } from "./dimensions";
 import {
@@ -123,9 +122,6 @@ export type FanoutBusEdgeData = BusAggregate & {
   // chip off the trunk's split dot; the narrow box can. The rate stays readable
   // on the chip's aria-label and hover title.
   fanoutBranchIconOnly?: true;
-  // Counter-scale cap stamped when the branch chip's clear window is narrower
-  // than its max-scale box (see ItemEdgeData.chipScaleCap).
-  fanoutBranchScaleCap?: number;
   // Set by routeFanoutEdges on every member of a trunk whose corridor is
   // CONTESTED: sibling trunks spread across one layer gap closer than a
   // worst-case chip half-box, so a full-width branch chip anywhere on the
@@ -549,12 +545,12 @@ export function routeFanoutEdges(
       group.forEach((geom, k) => {
         geom.desired = corLo + k * pitch;
       });
-      // The spread separates the COLUMNS, but a worst-case (max counter-scale)
-      // chip box centred on one column can still reach a sibling's vertical
-      // when the pitch is narrower than its half-width. No seat anywhere on
+      // The spread separates the COLUMNS, but a worst-case chip box centred on
+      // one column can still reach a sibling's vertical when the pitch is
+      // narrower than its half-width. No seat anywhere on
       // such a column sheds that stroke, so the members' branch chips collapse
       // to the icon-only render instead (fanoutContested, stamped below).
-      if (pitch < (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2) {
+      if (pitch < CHIP_BOX_WIDTH / 2) {
         for (const geom of group) contestedTrunks.add(geom.trunkKey);
       }
     }

@@ -79,12 +79,12 @@ export default function BusEdge({
   );
 
   const unit = i18n.t("canvas.rate.unit");
-  // The drop (trunk) chip is EXEMPT from the label zoom gate: it always renders
-  // (counter-scaled) so a lone member's rate survives at the dense-plan fit
-  // zoom, where per-member chips would be illegible clutter. The per-member
-  // (branch) chip keeps the gate, so it appears only once the reader has
-  // zoomed into that trunk.
-  const showAggChip = edgeData !== undefined;
+  // The aggregate (drop) chip takes the same mount gate as every other chip --
+  // no family is exempt -- and a hover-lit edge is the one thing that lifts it,
+  // because the hover is the reader asking for that rate.
+  const showAggChip =
+    edgeData !== undefined &&
+    (zoom >= LABEL_MIN_ZOOM || edgeData.focused === true);
 
   // Drop chip: drawn only on a SINGLE-member trunk, where it is that edge's
   // plain rate label at the junction. A multi-member trunk draws no aggregate:
@@ -174,7 +174,6 @@ export default function BusEdge({
     label: string,
     title: string,
     compact = false,
-    scaleCap?: number,
   ) => (
     <FlowChip
       testId={`bus-edge-label-${id}-${suffix}`}
@@ -188,7 +187,6 @@ export default function BusEdge({
       dimmed={edgeData?.dimmed}
       focused={edgeData?.focused}
       compact={compact}
-      scaleCap={scaleCap}
       zoom={zoom}
     />
   );
@@ -239,7 +237,6 @@ export default function BusEdge({
             riseLabel,
             riseTitle,
             fanoutData?.fanoutBranchIconOnly === true,
-            fanoutData?.fanoutBranchScaleCap,
           )
         : null}
     </>

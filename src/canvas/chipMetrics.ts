@@ -19,27 +19,22 @@
 
 import type { Edge } from "@xyflow/react";
 
-import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH, MAX_CHIP_SCALE } from "./dimensions";
+import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH } from "./dimensions";
 import { edgeRate, type BusEdgeData } from "./busRouting";
 import { formatRatePerMin } from "../data/rate-format";
 
-// Chip half-extents, in graph units. A chip counter-scales up to MAX_CHIP_SCALE
-// about its centre, so its rendered box in graph space never exceeds
-// MAX_CHIP_SCALE times its natural dimension; half of that is the half-extent two
-// centres must stay apart on an axis to keep the boxes clear at every zoom down
-// to the fit floor. The collision test sums the two boxes' half-extents per
-// axis, so a wide-vs-wide pair needs the full MAX_CHIP_SCALE * CHIP_BOX_WIDTH
-// of centre separation -- the earlier single fixed 60 flagged only
-// near-coincident pairs and missed wide chips that overlap on screen from tens
-// of graph units away.
-export const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
-export const CHIP_HALF_W_WIDE = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
+// Chip half-extents, in graph units. A chip draws at its natural CSS size at
+// every zoom, so its box in graph space IS that box and half of each dimension
+// is the half-extent two centres must stay apart on an axis to keep the boxes
+// clear. The collision test sums the two boxes' half-extents per axis, so a
+// wide-vs-wide pair needs a full CHIP_BOX_WIDTH of centre separation.
+export const CHIP_HALF_H = CHIP_BOX_HEIGHT / 2;
+export const CHIP_HALF_W_WIDE = CHIP_BOX_WIDTH / 2;
 
 // Half-width of a COLLAPSED (icon-only) chip's box. Such a chip is a square:
-// the 16px item sprite plus the same 3px padding and 1px border the full chip
+// the 16px item sprite plus the same 1px padding and 1px border the full chip
 // carries (.flow-chip.icon-only in canvas.css), i.e. CHIP_BOX_HEIGHT on both
-// axes, counter-scaled by the same cap. So its half-width IS the shared
-// half-height.
+// axes. So its half-width IS the shared half-height.
 const CHIP_HALF_W_ICON = CHIP_HALF_H;
 
 // Chrome the .flow-chip box carries around its body text, in px at natural
@@ -98,10 +93,9 @@ export type ChipText = { body: string; unit: boolean };
 
 // The half-width one chip's seat reserves, in graph units. The rendered box is
 // CHIP_CHROME_PX plus the body text plus the unit, clamped by the CSS
-// max-width: 120px (which ellipsizes rather than growing past it), and it
-// counter-scales up to MAX_CHIP_SCALE about its centre -- so the zoom-safe
-// reserve is MAX_CHIP_SCALE times that natural width, and half of it is the
-// half-extent every tier measures with.
+// max-width: 120px (which ellipsizes rather than growing past it), and the chip
+// draws that box at every zoom -- so half of it is the half-extent every tier
+// measures with.
 //
 // Why estimate at all: reserving CHIP_BOX_WIDTH for every chip charges the
 // widest box the clamp allows to a chip that draws half of it, and that surplus
@@ -125,16 +119,16 @@ export function chipSeatHalfW(
     CHIP_CHROME_PX +
     CHIP_GLYPH_PX * text.body.length +
     (text.unit ? CHIP_UNIT_MAX_PX : 0);
-  return (MAX_CHIP_SCALE * Math.min(CHIP_BOX_WIDTH, natural)) / 2;
+  return Math.min(CHIP_BOX_WIDTH, natural) / 2;
 }
 
-// The natural-scale width of the box one chip draws: the text box, or the
-// CHIP_BOX_HEIGHT square once collapsed.
+// The width of the box one chip draws: the text box, or the CHIP_BOX_HEIGHT
+// square once collapsed.
 export function chipNaturalWidth(
   text: ChipText | undefined,
   iconOnly = false,
 ): number {
-  return (2 * chipSeatHalfW(text, iconOnly)) / MAX_CHIP_SCALE;
+  return 2 * chipSeatHalfW(text, iconOnly);
 }
 
 // The chip text a plain rate chip draws: the item edge's own rate through the
@@ -170,9 +164,8 @@ export function branchChipText(edge: Edge): ChipText | undefined {
 }
 
 // One row per chip an edge CAN draw, keyed by the FlowChip testId, carrying the
-// ChipText the seat measures and the natural-scale width it reserves
-// (reservedPx: the un-counter-scaled bound, min(CHIP_BOX_WIDTH, estimated
-// natural width)). Exam-only: the width-bound spec walks the rendered
+// ChipText the seat measures and the width it reserves
+// (reservedPx: min(CHIP_BOX_WIDTH, estimated natural width)). Exam-only: the width-bound spec walks the rendered
 // .flow-chip boxes and compares each against its row, which is what keeps
 // CHIP_GLYPH_PX / CHIP_UNIT_MAX_PX honest when the .flow-chip CSS or a
 // locale's unit string drifts. Render gates (zoom, hides, the icon-only
@@ -194,7 +187,7 @@ export function examChipReservations(edges: Edge[]): ExamChipReservation[] {
       testId,
       body: text.body,
       unit: text.unit,
-      reservedPx: (2 * chipSeatHalfW(text, false)) / MAX_CHIP_SCALE,
+      reservedPx: 2 * chipSeatHalfW(text, false),
     });
   };
   for (const edge of edges) {

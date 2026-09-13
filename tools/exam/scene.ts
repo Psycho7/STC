@@ -303,10 +303,9 @@ function idList(...values: Array<string | undefined>): string[] {
 //
 // The counts here are NOT comparable to those baselines, and a difference is not
 // a regression: the baselines are taken at the app's fit camera, these at the
-// exam's target zoom. Chips counter-scale, so a chip's world footprint grows as
-// zoom falls; the same layout therefore yields fewer chip-tier occurrences at the
-// higher target zoom than at a lower fit. Comparing the two numbers can only
-// mislead - compare a capture against another capture at the same target zoom.
+// exam's target zoom, where the chip LOD gates mount a different set of chips.
+// Comparing the two numbers can only mislead - compare a capture against another
+// capture at the same target zoom.
 //
 // `geom` and `scene` must come from the SAME camera: chip identity is recovered
 // by matching world rects between the two collectors, and that join only holds

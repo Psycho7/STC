@@ -1631,10 +1631,9 @@
   align-items: center;
   gap: 6px;
   /* Paint above the bus-junction dot in the shared edgelabel-renderer layer.
-     A chip counter-scales up to 2x about its centre, so its enlarged box
-     envelops the world-fixed dot; the digits carry the rate while the dot is
-     decorative (aria-hidden), so the chip must win. Strictly above the dot's
-     z-index: 1 (below), which keeps a sibling member edge's dot from painting
+     A chip's box can envelop the world-fixed dot; the digits carry the rate
+     while the dot is decorative (aria-hidden), so the chip must win. Strictly
+     above the dot's z-index: 1 (below), which keeps a sibling member edge's dot from painting
      over the owner's aggregate chip on DOM order. An overlapped dot hides
      behind the chip, which reads the same as suppressing it.
      This order is now the FALLBACK, not the first line of defence (#50): the
@@ -1648,7 +1647,10 @@
      title tooltip shows the exact rate on hover. The nodrag/nopan classes keep
      React Flow's own drag/pan from being hijacked by the chip. */
   pointer-events: auto;
-  padding: 3px 7px;
+  /* Vertical padding set so sprite + padding + border adds up to
+     CHIP_BOX_HEIGHT in dimensions.ts, which is what lets the seating pass treat
+     a chip's graph-unit box as its CSS box (portZoneDepth pins the sum). */
+  padding: 1px 7px;
   background: linear-gradient(180deg, #1f2125 0%, #14171b 100%);
   border: 1px solid var(--chip-accent, var(--ak-accent-cyan));
   font-family: var(--font-num);
@@ -1678,12 +1680,12 @@
   text-overflow: ellipsis;
 }
 
-/* Icon-only collapse (see CHIP_ICON_ONLY_MAX_ZOOM in ItemEdge): below the second
-   zoom gate an exempt chip drops its rate digits and renders as the icon plus an
-   optional sum glyph. Tighten the padding and gap so the surviving box is compact
-   and stops blanketing dense clusters at fit zoom. */
+/* Icon-only collapse (see CHIP_ICON_ONLY_MAX_ZOOM in dimensions): below the
+   digits gate every chip drops its rate digits and renders as the bare item
+   icon, so dense clusters stop blanketing at fit zoom. The padding keeps the
+   box a CHIP_BOX_HEIGHT square, which is the box the seat reserves for it. */
 .flow-chip.icon-only {
-  padding: 3px;
+  padding: 1px;
   gap: 3px;
 }
 

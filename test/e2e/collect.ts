@@ -365,8 +365,8 @@ export function collectGeometry(): Geometry {
 // of the .react-flow pane, the same frame `overlays` uses, so an element and an
 // overlay can be compared directly. `worldRect` is the same box mapped back
 // through the inverse viewport transform, which is the frame setViewport speaks.
-// Chips counter-scale about their centre, so their worldRect shrinks as the pane
-// zooms in - that is the true graph-space footprint, not a measurement error.
+// A chip draws its natural CSS box at every zoom, so its clientRect is constant
+// in CSS pixels and its worldRect is constant in graph units.
 export type SceneElement = {
   id: string;
   kind: "node" | "edge" | "chip" | "junction" | "glyph" | "group";

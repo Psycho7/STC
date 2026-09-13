@@ -13,12 +13,8 @@ import {
 } from "../../src/canvas/edgePath";
 import { portOffsetY } from "../../src/canvas/nodeGeometry";
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
-import {
-  CHIP_BOX_HEIGHT,
-  CHIP_BOX_WIDTH,
-  MAX_CHIP_SCALE,
-  RECIPE_WIDTH,
-} from "../../src/canvas/dimensions";
+import { chipNaturalWidth } from "../../src/canvas/chipMetrics";
+import { CHIP_BOX_HEIGHT, RECIPE_WIDTH } from "../../src/canvas/dimensions";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import {
   mkRecipe,
@@ -105,13 +101,12 @@ function waterProductNode(id: string, x: number): RFAnyNode {
 }
 
 describe("deconflictChipAnchors: merged collision set", () => {
-  it("moves a coincident midpoint chip by at least the max-scale pitch (48)", () => {
+  it("moves a coincident midpoint chip by at least the chip pitch (20)", () => {
     // Two parallel forward edges share one source and one target, so their
     // straight-line midpoints coincide exactly. The second (by edge id) is
     // nudged, and its offset must be at least the chip pitch so the two boxes
-    // clear at the fit-zoom counter-scale cap. Pinning the magnitude to the
-    // exported product catches a silent decoupling of the nudge step / collision
-    // box from the chip dimensions.
+    // clear. Pinning the magnitude to the exported constant catches a silent
+    // decoupling of the nudge step / collision box from the chip dimensions.
     const nodes: RFAnyNode[] = [
       productNode("s", 0, 170, 100, 60), // right 100, center 200
       productNode("t", 300, 170, 100, 60), // left 300, center 200
@@ -136,17 +131,17 @@ describe("deconflictChipAnchors: merged collision set", () => {
     const out = deconflictChipAnchors(nodes, edges);
 
     expect(labelDyOf(out, "m:1")).toBe(0); // first placed, unmoved
-    expect(MAX_CHIP_SCALE * CHIP_BOX_HEIGHT).toBe(48);
-    expect(labelDyOf(out, "m:2")).toBeGreaterThanOrEqual(
-      MAX_CHIP_SCALE * CHIP_BOX_HEIGHT,
-    );
+    expect(CHIP_BOX_HEIGHT).toBe(20);
+    expect(labelDyOf(out, "m:2")).toBeGreaterThanOrEqual(CHIP_BOX_HEIGHT);
   });
 
   it("separates two coincident item midpoint chips along their line", () => {
     // Two forward item edges with identical endpoint geometry produce coincident
     // midpoint anchors. The graze tier keeps both chips ON the shared line
     // (leaving the line is a last resort), so the second chip slides along it by
-    // at least a full max-scale chip-box width instead of lifting vertically.
+    // at least the width of the box each of them draws, instead of lifting
+    // vertically. Both rates round to a five-glyph body, so the two reserves
+    // are equal and their sum is one such box width.
     const nodes = [
       waterProductNode("sA", 0),
       waterProductNode("tA", 2000),
@@ -176,9 +171,9 @@ describe("deconflictChipAnchors: merged collision set", () => {
     });
     // Both chips stay on the shared horizontal line...
     for (const s of seats) expect(s.dy).toBe(0);
-    // ...separated along it by a full max-scale chip-box width.
+    // ...separated along it by the width of the box they draw.
     expect(Math.abs(seats[0]!.dx - seats[1]!.dx)).toBeGreaterThanOrEqual(
-      MAX_CHIP_SCALE * CHIP_BOX_WIDTH,
+      chipNaturalWidth({ body: "24000", unit: true }),
     );
   });
 });
@@ -241,7 +236,6 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
         fanoutBranchDx?: number;
         fanoutBranchDy?: number;
         fanoutBranchIconOnly?: true;
-        fanoutBranchScaleCap?: number;
       };
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
@@ -278,14 +272,9 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     expect(cx).toBeGreaterThanOrEqual(fan.junction.x);
     expect(cx).toBeLessThanOrEqual(t1.position.x - 3);
     // Clear of the split dot's keep-off square on at least one axis (half the
-    // box the chip RESERVES plus DOT_KEEPOFF -- the capped half once the
-    // corridor window is narrower than the max-scale box -- so the
-    // dot stays visible under nothing the chip can draw).
-    const reservedHalf =
-      (((branchOf(out, "e0").fanoutBranchScaleCap as number | undefined) ??
-        MAX_CHIP_SCALE) *
-        ((MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2)) /
-      MAX_CHIP_SCALE;
+    // box the chip RESERVES plus DOT_KEEPOFF, so the dot stays visible under
+    // nothing the chip can draw).
+    const reservedHalf = CHIP_BOX_HEIGHT / 2;
     expect(
       Math.abs(cx - fan.junction.x) >= reservedHalf + 16 ||
         Math.abs(cy - fan.junction.y) >= reservedHalf + 16,
@@ -322,10 +311,10 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     const probe = orderedRecipeNode("probe", 0, 0, ["b"]);
     const levelY = portOffsetY(s, "b", "out") - portOffsetY(probe, "b", "in");
     const sy = portOffsetY(s, "b", "out");
-    // The smallest box the ladder tries on the line is the scale-1 box of the
-    // shrink pass, half-height CHIP_BOX_HEIGHT / 2 = 12; the wall half-gap
-    // must stay under THAT for the line to count as blocked at every reserve.
-    const wallHalfGap = CHIP_BOX_HEIGHT / 2 - 4;
+    // Every box the ladder tries on the line is CHIP_BOX_HEIGHT tall, so the
+    // wall half-gap must stay under CHIP_BOX_HEIGHT / 2 for the line to count
+    // as blocked.
+    const wallHalfGap = CHIP_BOX_HEIGHT / 2 - 1;
     const nodes: RFAnyNode[] = [
       s,
       orderedRecipeNode("t1", oneGap, levelY, ["b"]), // level member

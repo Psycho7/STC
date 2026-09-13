@@ -168,13 +168,13 @@ describe("rot-bottled_food_4 keeps its bend-column chips on their lines", () => 
     { itemId: "bottled_food_4", ratePerSec: { num: "1", denom: "2" } },
   ];
 
-  const RATIFIED_OFF_PATH = [
-    "e:11:u:class:q:9->u:class:q:6:plant_grass_powder_1 4.50px",
-  ];
-
+  // MERGE 2026-09-13 (chips graph objects on the develop merge): the e:11
+  // sidestep above is RETIRED. Its cause was the 48-tall max-scale box; the
+  // graph-object chip is its natural box at height 20, which fits the 106-wide
+  // window on the line, so the walk never leaves it. Tightened back to none.
   it("seats every rate chip on its polyline", async () => {
     const hits = await offPathChips(targets);
-    expect(named(hits)).toEqual(RATIFIED_OFF_PATH);
+    expect(named(hits)).toEqual([]);
   }, 60_000);
 });
 
@@ -192,17 +192,17 @@ describe("seatRateChip: the vertical leg's sidestep gate", () => {
     anchorY: 500,
   };
 
-  // Transversal strokes every box-height down the whole leg, so a box of any
-  // seatable height always straddles one and NO point on the line is fully clear
-  // -- the state that reaches the sidestep tiers. Each one stops 65 units LEFT of
-  // the own line, so a step out to the reach (half of the 120 half-width) does
+  // Transversal strokes closer together than one box height down the whole leg,
+  // so every seatable box straddles one and NO point on the line is fully clear
+  // -- the state that reaches the sidestep tiers. Each one stops 40 units LEFT of
+  // the own line, so a step out to the reach (half of the 60 half-width) does
   // clear them all: the old ungated tier took exactly that step and carried the
-  // chip 60 units off its own vertical. Every one of them crosses the box side to
+  // chip 30 units off its own vertical. Every one of them crosses the box side to
   // side; none runs alongside the own line, so none is a stroke a step is for.
-  const CROSS_PITCH = 48;
-  const CROSS_RIGHT_END = -65;
+  const CROSS_PITCH = 19;
+  const CROSS_RIGHT_END = -40;
   const crossings = (): EdgeSegments[] =>
-    Array.from({ length: 21 }, (_, i) => i * CROSS_PITCH).map((y, i) => ({
+    Array.from({ length: 54 }, (_, i) => i * CROSS_PITCH).map((y, i) => ({
       id: `cross${i}`,
       flowKey: `cross${i}`,
       target: "elsewhere",
@@ -262,12 +262,12 @@ describe("battery5: no chip takes the only line another edge has", () => {
   // the 141-wide reserve, the stroke sits 30 past the line) and the stroke
   // is too far away to braid, so the chip now grazes ON its own line and
   // drops out of this list.
-  const RATIFIED_OFF_PATH = [
-    "e:1:u:class:q:1->u:class:q:11:originium_powder 4.50px",
-  ];
-
+  // MERGE 2026-09-13 (chips graph objects on the develop merge): the e:1
+  // sidestep above is RETIRED for the same reason as the rot-bottled_food_4
+  // one. Every box the walk tries is now 20 tall, not 48, so a seat centred ON
+  // the approach leg clears e:12's line and the chip never steps beside it.
   it("seats every rate chip on its polyline", async () => {
     const hits = await offPathChips(targets);
-    expect(named(hits)).toEqual(RATIFIED_OFF_PATH);
+    expect(named(hits)).toEqual([]);
   }, 60_000);
 });

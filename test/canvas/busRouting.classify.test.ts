@@ -395,19 +395,19 @@ describe("routeFanoutEdges (6C)", () => {
   });
 
   it("groups three nested-span trunks into one contesting corridor", () => {
-    // Three trunks in one 186-unit corridor whose y-spans form a chain only a
+    // Three trunks in one 86-unit corridor whose y-spans form a chain only a
     // real interval union sees. Ports resolve to: b|s1 spans 70..97, c|s2
     // 670..697, and d|s3 80..997 -- the last one's source port sits at the
     // bottom while one of its branches climbs to the top, so it overlaps BOTH
     // siblings while they do not touch each other. Walking the trunks in
     // source-port order (b, c, d) breaks the chain at the first pair and leaves
     // b spread on its own; ordering the chain by span start unions all three.
-    // With n = 3 the pitch is 93, under the worst-case chip half-box, so every
+    // With n = 3 the pitch is 43, under the worst-case chip half-box, so every
     // member's branch chip collapses to the icon-only render.
     const rb = mkRecipe("rb", ["a"], ["b"]);
     const rc = mkRecipe("rc", ["a"], ["c"]);
     const rd = mkRecipe("rd", ["a"], ["d"]);
-    const tgt = RECIPE_WIDTH + 250; // gap 250: corridor [272, 458], pitch (458 - 272) / 2 = 93
+    const tgt = RECIPE_WIDTH + 150; // gap 150: corridor [272, 358], pitch (358 - 272) / 2 = 43
     const nodes: RFAnyNode[] = [
       recipeNode("s1", 0, 0, rb),
       recipeNode("s2", 0, 600, rc),

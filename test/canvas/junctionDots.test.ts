@@ -24,18 +24,14 @@ import {
 } from "../../src/canvas/edgePath";
 import { stampOnOwnPolyline } from "../../src/canvas/crossings";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
-import {
-  CHIP_BOX_HEIGHT,
-  CHIP_BOX_WIDTH,
-  MAX_CHIP_SCALE,
-} from "../../src/canvas/dimensions";
+import { CHIP_BOX_HEIGHT, CHIP_BOX_WIDTH } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 
-// The chip box the seating pass reserves at max counter-scale -- the numbers the
-// dot keep-off's observable effects are stated in.
-const CHIP_HALF_W = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
-const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
+// The chip box the seating pass reserves -- the numbers the dot keep-off's
+// observable effects are stated in.
+const CHIP_HALF_W = CHIP_BOX_WIDTH / 2;
+const CHIP_HALF_H = CHIP_BOX_HEIGHT / 2;
 
 const ITEM = "s";
 

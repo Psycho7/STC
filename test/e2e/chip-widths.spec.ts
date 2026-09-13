@@ -50,9 +50,9 @@ type Reservation = {
 async function measureAtRest(
   page: Page,
 ): Promise<{ chips: MeasuredChip[]; reservations: Reservation[] }> {
-  // "At rest" is zoom 1: chips render at scale 1 with every zoom gate open
-  // (LABEL_MIN_ZOOM, the icon-only band), so the member chips the fit zoom
-  // hides are measured too. Only `compact` chips stay icon-only here.
+  // "At rest" is zoom 1: every zoom gate is open (LABEL_MIN_ZOOM, the icon-only
+  // band), so the member chips the fit zoom hides are measured too. Only
+  // `compact` chips stay icon-only here.
   await page.evaluate(() => {
     window.__stcExam!.setViewport({ x: 0, y: 0, zoom: 1 });
   });
