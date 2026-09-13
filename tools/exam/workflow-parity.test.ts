@@ -194,8 +194,9 @@ const CASES: Case[] = [
     ),
   ),
 
-  // An element reaching the pane only under the minimap or the zoom controls is
-  // in the image and outside the region the evaluator was given to read.
+  // An element reaching the pane only under the zoom controls or the
+  // attribution badge is in the image and outside the region the evaluator was
+  // given to read.
   kase(
     "footprint projects below the tile's safe region",
     finding({

@@ -1429,20 +1429,6 @@
   fill: var(--ak-accent-lime);
 }
 
-/* Dark-theme the overview minimap so it matches the blueprint canvas: a
-   canvas-toned panel with a divider border. The node fills and mask color come
-   from props (SVG fill attributes cannot resolve CSS vars); this styles the
-   surrounding panel. */
-.ak-canvas-theme .react-flow__minimap {
-  background: var(--ak-bg-secondary);
-  border: 1px solid var(--ak-divider);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
-}
-
-.ak-canvas-theme .react-flow__minimap svg {
-  border-radius: 2px;
-}
-
 /* Blueprint-grid dot pattern on the canvas. */
 .ak-canvas-theme .react-flow {
   background-image: var(--blueprint-grid);

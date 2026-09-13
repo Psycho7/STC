@@ -42,8 +42,8 @@ async function edgeState(
   }, ids);
 }
 
-// Empty graph background, clear of the targets panel, the HUD strip, the
-// controls and the minimap.
+// Empty graph background, clear of the targets panel, the HUD strip and the
+// controls.
 async function panePoint(page: Page): Promise<{ x: number; y: number }> {
   return page.evaluate(() => {
     const cand = [

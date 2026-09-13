@@ -42,7 +42,7 @@ const EPS = 1e-9;
 // middle would split the region in two, and the result has to stay a rectangle.
 // When an overlay touches several edges, prefer raising the floor or lowering
 // the ceiling over cutting a flank, because React Flow's chrome (controls,
-// minimap, attribution) all hugs the bottom - one horizontal cut clears the lot,
+// attribution) all hugs the bottom - one horizontal cut clears the lot,
 // whereas per-overlay side cuts would eat both flanks of the viewport. A cut
 // that would collapse the region is rejected in favour of the other axis, which
 // is what keeps a full-height sidebar from erasing everything.

@@ -140,9 +140,10 @@ describe("corroborationsFor", () => {
     expect(corroborationsFor(bogus, [CHIP], TILES)).toEqual([]);
   });
 
-  // An element reaching the pane only under the minimap or the zoom controls is
-  // in the image and outside the safe region, and the evaluator was told to read
-  // only the safe region. Support there is support for something nobody saw.
+  // An element reaching the pane only under the zoom controls or the
+  // attribution badge is in the image and outside the safe region, and the
+  // evaluator was told to read only the safe region. Support there is support
+  // for something nobody saw.
   test("does not join a footprint that projects outside the tile's safe region", () => {
     const occluded: TileFrame = {
       ...TILE_A,

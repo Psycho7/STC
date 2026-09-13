@@ -27,15 +27,15 @@ describe("safeRegion", () => {
     expect(safeRegion(PANE, [floating], 0)).toEqual(PANE);
   });
 
-  // The real React Flow chrome: controls bottom-left, minimap bottom-right,
-  // attribution bottom-right under the minimap. All three sit on the floor, so
-  // the safe region must keep its full width and only lose height.
+  // Chrome sitting on the floor must cost height only, never width: one
+  // horizontal cut clears the lot. (Of the real React Flow chrome only the
+  // attribution badge is corner-flush; the controls cluster floats on 15 px
+  // Panel margins and subtracts nothing, so these rects are synthetic.)
   test("keeps full width when the whole chrome row sits on the floor", () => {
     const controls: Rect = { x: 0, y: 1000, width: 40, height: 80 };
-    const minimap: Rect = { x: 1700, y: 880, width: 220, height: 200 };
     const attribution: Rect = { x: 1830, y: 1060, width: 90, height: 20 };
-    const safe = safeRegion(PANE, [controls, minimap, attribution], 0);
-    expect(safe).toEqual({ x: 0, y: 0, width: 1920, height: 880 });
+    const safe = safeRegion(PANE, [controls, attribution], 0);
+    expect(safe).toEqual({ x: 0, y: 0, width: 1920, height: 1000 });
   });
 
   test("cuts the side when a full-height overlay hugs the left edge", () => {
