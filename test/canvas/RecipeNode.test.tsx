@@ -416,9 +416,10 @@ describe("RecipeNode", () => {
   });
 
   // A catalyst is an input the machine cycles rather than consumes: it is drawn
-  // and returned every cycle, so it has no supplier, no edge and no port. The
-  // card still has to declare the draw, so it renders as an extra input-column
-  // row below every port row.
+  // from the plan boundary and handed back every cycle. The card declares the
+  // draw as an extra input-column row below every port row, and with
+  // CATALYST_SUPPLY_EDGES on that row takes a `cat:` port of its own so the
+  // edge from the boundary card can land on it.
   describe("catalyst rows", () => {
     // qty 1 over a 10s cycle at speed 1 is the pack's 6/min catalyst draw.
     const catalystRecipe: Recipe = {
@@ -427,11 +428,19 @@ describe("RecipeNode", () => {
       catalyst: [{ item: "gas_xiranite", qty: 1 }],
     };
 
+    const catalystPortKinds: PortTransportKinds = new Map([
+      ["in:copper_nugget", "belt"],
+      ["in:liquid_water", "pipe"],
+      ["cat:gas_xiranite", "gas"],
+      ["out:copper_powder", "belt"],
+    ]);
+
     function renderCatalyst(multiplier = 1) {
       return renderRecipe({
         recipe: catalystRecipe,
         kind: "recipe",
         multiplier,
+        portTransportKinds: catalystPortKinds,
       });
     }
 
@@ -450,28 +459,37 @@ describe("RecipeNode", () => {
       expect(container.querySelectorAll(".rn-row.catalyst")).toHaveLength(1);
     });
 
-    it("gives the catalyst row an icon, a label, a rate and the catalyst glyph", () => {
+    it("gives the catalyst row an icon, a label, a rate and the item's transport glyph", () => {
       const { container } = renderCatalyst();
       const row = container.querySelector(".rn-row.catalyst")!;
       expect(row.querySelector(".ico")).not.toBeNull();
       expect(row.querySelector(".lbl")?.textContent).not.toBe("");
       expect(row.querySelector(".rate")).not.toBeNull();
+      // The row takes an edge now, so it wears the transport shape its port
+      // carries instead of the catalyst disc.
       const glyph = row.querySelector("[data-glyph]");
       expect(glyph).not.toBeNull();
-      expect(glyph!.getAttribute("data-glyph")).toBe("catalyst");
+      expect(glyph!.getAttribute("data-glyph")).toBe("gas");
     });
 
-    it("hangs no handle on the catalyst row and leaves the per-side handle counts on the ports", () => {
+    it("hangs a cat: handle on the catalyst row alongside the port handles", () => {
       const { container } = renderCatalyst();
       const row = container.querySelector(".rn-row.catalyst")!;
-      expect(row.querySelectorAll("[data-handleid]")).toHaveLength(0);
+      const handles = row.querySelectorAll<HTMLElement>("[data-handleid]");
+      expect(handles).toHaveLength(1);
+      expect(handles[0]!.getAttribute("data-handleid")).toBe(
+        "cat:gas_xiranite",
+      );
+      // The row's handle is a target on the left, exactly like an input row's,
+      // and the input rows keep theirs.
+      expect(handles[0]!.getAttribute("data-handlepos")).toBe("left");
       expect(
         container.querySelectorAll('[data-handlepos="left"]'),
-      ).toHaveLength(2);
+      ).toHaveLength(3);
       expect(
         container.querySelectorAll('[data-handlepos="right"]'),
       ).toHaveLength(1);
-      expect(container.querySelectorAll("[data-handleid]")).toHaveLength(3);
+      expect(container.querySelectorAll("[data-handleid]")).toHaveLength(4);
     });
 
     it("spells the per-machine draw out with the locale rate unit", () => {

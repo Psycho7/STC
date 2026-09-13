@@ -30,6 +30,7 @@ import {
 import {
   absoluteLeft,
   absoluteTop,
+  edgeTargetSide,
   nodeWidth,
   portOffsetY,
 } from "../../src/canvas/nodeGeometry";
@@ -114,8 +115,14 @@ async function offPathChips(
       sourceY:
         absoluteTop(source, byId) + portOffsetY(source, item, "out") + sd.dy,
       targetX: absoluteLeft(target, byId) + td.targetDx,
+      // The target row is read by side, exactly as the drawn-frame reader
+      // does: a catalyst edge lands on the card's `cat:` row, which for an
+      // item the same card also consumes is a different row from its `in:`
+      // one.
       targetY:
-        absoluteTop(target, byId) + portOffsetY(target, item, "in") + td.dy,
+        absoluteTop(target, byId) +
+        portOffsetY(target, item, edgeTargetSide(edge)) +
+        td.dy,
       ...routingHintsFromData(data),
     });
     const distance = pointToPolylineDistance(
@@ -233,23 +240,17 @@ describe("battery5: no chip takes the only line another edge has", () => {
     { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } },
   ];
 
-  // With lanes on this plan also carries the one seat the browser off-path
-  // audit ratified for it (CHIP_OFFPATH_BASELINE_ON.battery5 = 1): e:14
-  // "Sewage" anchors on a corridor vertical with a foreign stroke running
-  // PARALLEL to it inside the chip's box, so no motion along the line sheds the
-  // neighbour and the sidestep tier steps the box a bounded 16 units off -- less
-  // than the painted half-width, so the chip's own line still runs inside its
-  // box. This suite only started seeing it once it stopped laying the plan out
-  // against the solver's netted recipe map, which drops the self-consumed rows
-  // of the two phase_trans recipes and moves every port below them.
-  const RATIFIED_OFF_PATH = [
-    "e:14:u:class:q:5->u:class:q:9:liquid_sewage 16.00px",
-  ];
-
+  // With lanes on, this plan used to carry the one seat the browser off-path
+  // audit ratified for it (CHIP_OFFPATH_BASELINE_ON.battery5 = 1): a "Sewage"
+  // chip anchored on a corridor vertical with a foreign stroke running PARALLEL
+  // to it inside the box, stepped a bounded 16 units off. Catalyst supply edges
+  // changed the clearance field that seat was measured in and the chip now
+  // seats on its own line, so the census is clean on both settings; a seat
+  // reappearing here is a regression, not a re-ratification.
   for (const busLanesEnabled of [true, false]) {
     it(`seats every rate chip on its polyline with lanes ${busLanesEnabled ? "on" : "off"}`, async () => {
       const hits = await offPathChips(targets, busLanesEnabled);
-      expect(named(hits)).toEqual(busLanesEnabled ? RATIFIED_OFF_PATH : []);
+      expect(named(hits)).toEqual([]);
     }, 60_000);
   }
 });

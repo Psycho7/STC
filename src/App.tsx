@@ -38,6 +38,7 @@ import {
 } from "./data/transport-config";
 import type { Target } from "./data/targets";
 import { pack } from "./data/load";
+import { CATALYST_SUPPLY_EDGES } from "./flags";
 import type { LogicalGraph } from "./canvas/layout";
 import { LpInfeasibleError } from "./solver";
 import { solveFromPlan } from "./pipeline/solveForRender";
@@ -572,17 +573,22 @@ function AppInner() {
   }, [plan]);
 
   // Boundary supply per input item: the realized demand of the latest render
-  // pass, read off the input ProductNode data the layout layer wrote, plus the
-  // catalyst draw the solve reported. A catalyst is external supply the same
-  // way a raw draw is, but no producer is expanded for it and no edge carries
-  // it, so it exists nowhere in the nodes. The two ADD: a raw item can have a
-  // balanced product node and a catalyst draw at once, and showing only one of
-  // them would understate what the plan imports. InputsPanel mirrors this so
-  // the side row shows the same number as the canvas.
+  // pass, read off the input ProductNode data the layout layer wrote.
+  //
+  // A catalyst is external supply the same way a raw draw is. With
+  // CATALYST_SUPPLY_EDGES on the render pipeline already counts the cycled
+  // draw into the input product node's rate, so adding the solve's
+  // catalystDraw here would double-bill it. With the flag off no node carries
+  // the draw at all, and the panel is the only place it can surface, so the
+  // two ADD: a raw item can have a balanced product node and a catalyst draw
+  // at once, and showing only one of them would understate what the plan
+  // imports. InputsPanel mirrors this so the side row shows the same number as
+  // the canvas.
   const supplyRateByItem = useMemo<
     ReadonlyMap<string, import("./pipeline/types").RationalString>
   >(() => {
     const map = new Map(buildRealizedRateByItem(nodes));
+    if (CATALYST_SUPPLY_EDGES) return map;
     for (const [itemId, draw] of catalystDraw) {
       const balanced = map.get(itemId);
       map.set(

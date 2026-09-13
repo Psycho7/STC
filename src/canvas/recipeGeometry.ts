@@ -15,17 +15,18 @@ import {
 // Invariants:
 //   inHandleYs.length === recipe.in.length
 //   outHandleYs.length === recipe.out.length
+//   catHandleYs.length === (recipe.catalyst?.length ?? 0)
 // Each array indexes by row position within its own side's column (input rows
 // start at row 0 on the left, output rows at row 0 on the right), not by some
 // shared row index. When iterating recipe.in or recipe.out, callers can read
 // inHandleYs[i] or outHandleYs[i] directly without a bounds check.
 //
-// Catalyst rows are the one place row count and handle count part ways. A
-// catalyst is cycled rather than consumed, so RecipeNode draws it as an extra
-// row at the BOTTOM of the input column with no handle and no edge. Those rows
-// count toward `height` (the card has to be tall enough to hold them) but never
-// toward the handle arrays, and because they come last, every port's y is the
-// same as it would be on the same recipe without a catalyst.
+// Catalyst rows share the left column with the input rows but keep their own
+// array. They are appended at the BOTTOM of that column, so their row indices
+// continue where the input rows stop (row inCount + i) and every input port's
+// y is the same as it would be on the same recipe without a catalyst. A card
+// can carry one item on an input row AND a catalyst row, so a lookup by item
+// alone is ambiguous: callers pick the array, never search both.
 export type RecipeGeometry = {
   width: number;
   height: number;
@@ -34,6 +35,9 @@ export type RecipeGeometry = {
   // recipe has no ports on that side.
   inHandleYs: number[];
   outHandleYs: number[];
+  // y-offsets of the catalyst rows, in recipe.catalyst order, continuing the
+  // input column below the last input row.
+  catHandleYs: number[];
 };
 
 // Memoized per recipe object: the geometry is a pure function of the recipe's
@@ -52,6 +56,9 @@ export function measureRecipe(recipe: Recipe): RecipeGeometry {
     height: recipeHeight(inCount + catalystCount, outCount),
     inHandleYs: Array.from({ length: inCount }, (_, i) => rowHandleY(i)),
     outHandleYs: Array.from({ length: outCount }, (_, i) => rowHandleY(i)),
+    catHandleYs: Array.from({ length: catalystCount }, (_, i) =>
+      rowHandleY(inCount + i),
+    ),
   };
   geometryByRecipe.set(recipe, geometry);
   return geometry;

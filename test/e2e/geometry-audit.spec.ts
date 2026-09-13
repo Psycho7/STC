@@ -196,14 +196,30 @@ test.describe("DOM geometry audit", () => {
           const offCenter: string[] = [];
           for (const row of rows) {
             // A catalyst row is an input the machine cycles rather than
-            // consumes, so it carries no handle by design. The invariant on it
-            // is the mirror of the others: a handle here would offer an edge
-            // endpoint for a flow that never arrives, and would have moved
-            // every port row below it.
+            // consumes, and it draws its own edge from the item's boundary
+            // supply node (CATALYST_SUPPLY_EDGES in src/flags.ts, on). So it
+            // carries exactly one handle, on the `cat:` namespace rather than
+            // `in:`, seated inside the row like every other port: a row without
+            // one leaves that edge no endpoint to land on, and a second handle
+            // would offer the arriving edge a choice of two.
             if (row.rowClass.split(" ").includes("catalyst")) {
-              if (row.handleCenterY !== null) {
+              const catIds = row.handleIds.filter((id) =>
+                id.startsWith("cat:"),
+              );
+              const seated =
+                row.handleCenterY !== null &&
+                row.handleCenterY >= row.rowTop &&
+                row.handleCenterY <= row.rowBottom;
+              if (
+                row.handleIds.length !== 1 ||
+                catIds.length !== 1 ||
+                !seated
+              ) {
                 offCenter.push(
-                  `${row.nodeId} catalyst row "${row.item}" carries a handle`,
+                  `${row.nodeId} catalyst row "${row.item}" carries ` +
+                    `[${row.handleIds.join(", ")}] instead of one seated ` +
+                    `cat: handle (row ${row.rowTop.toFixed(1)}-${row.rowBottom.toFixed(1)}, ` +
+                    `handle ${row.handleCenterY === null ? "none" : row.handleCenterY.toFixed(1)})`,
                 );
               }
               continue;
@@ -602,6 +618,18 @@ test.describe("DOM geometry audit", () => {
 // 22px taller apiece, and the column re-packed around them, so corridors that
 // used to clear the chain now cut across it. Same furniture cause as the
 // CHIP_OFFPATH move below. UP moves, listed as ruling items.
+// Catalyst-edge re-pin (2026-09-13): battery5 14 -> 15 (lanes on) and 12 -> 19
+// (off), multi6 205 -> 264 (on), transmuters 25 -> 28 (on) and 25 -> 27 (off).
+// Cause: every catalyst row now draws its own edge from the item's boundary
+// supply node (CATALYST_SUPPLY_EDGES), so each of these plans gained corridors
+// that run the width of the graph -- battery5 e:23 u:in:liquid_xiranite ->
+// u:class:q:2, multi6 e:69 / e:71 / e:72 u:in:gas_xiranite -> q:12 / q:45 /
+// q:49, transmuters e:17 u:in:gas_xiranite -> q:3 plus e:20 / e:21 / e:24 off
+// the two loop-return supply nodes. A boundary supply column sits at the left
+// rim while the transmuters it now feeds sit deep in the chain, so each new
+// edge crosses most of the corridors between them; multi6 carries three such
+// spans across its 92-edge graph, which is where the bulk of its move is.
+// UP moves, listed as ruling items.
 const CROSSING_BASELINE_ON: Record<string, number> = {
   default: 4, // 9 -> 4, Task 7 y-window re-measure
   // 8 -> 9 at the exam-surfaced R4 re-measure (declared output rows flip the
@@ -609,11 +637,11 @@ const CROSSING_BASELINE_ON: Record<string, number> = {
   // loop returns stay in the mid-graph instead of flying over it, so their
   // rails cross corridors they used to overfly (Task 7; the crossing cue
   // marks them). rot-bottled_food_3 3 -> 5, same cause.
-  battery5: 14,
+  battery5: 15, // 14 -> 15 at the catalyst edges.
   "battery5-xiranite": 47, // 55 -> 47, Task 7
   crystal: 1,
   equip4: 1,
-  multi6: 205, // 415 -> 121, Task 7. 121 -> 137 at R10 (2026-09-04):
+  multi6: 264, // 415 -> 121, Task 7. 121 -> 137 at R10 (2026-09-04):
   // out-of-band rail strikes padded by the full gap, so multi6's dense
   // backward rails settle further out and cross more mid-graph corridors.
   tundra: 0,
@@ -623,14 +651,14 @@ const CROSSING_BASELINE_ON: Record<string, number> = {
   // multi6.
   "rot-bottled_food_3": 5, // 3 -> 5 at R9, same cause as battery5
   "rot-bottled_food_4": 20, // 22 -> 20, Task 7
-  transmuters: 25,
+  transmuters: 28, // 25 -> 28 at the catalyst edges.
 };
 const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CROSSING_BASELINE_ON,
   // default 2 -> 4 rose with the ratified fan-out restoration (lanes off).
   off: {
     default: 4,
-    battery5: 12,
+    battery5: 19, // 12 -> 19 at the catalyst edges.
     "battery5-xiranite": 24,
     crystal: 1,
     equip4: 1,
@@ -641,7 +669,7 @@ const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 38,
     "rot-bottled_food_3": 5,
     "rot-bottled_food_4": 6,
-    transmuters: 25,
+    transmuters: 27, // 25 -> 27 at the catalyst edges.
   },
 };
 
@@ -823,6 +851,16 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // probed at the pre-footprint frame commit the cell already reads 1, so the
 // environment frame's grown ELK box did not move it. UP move, listed as a
 // ruling item.
+// Catalyst-edge re-pin (2026-09-13): transmuters 1 -> 6 (lanes on) and 1 -> 4
+// (off), battery5 10 -> 11 (off only). Cause: the catalyst supply edges. On
+// transmuters lanes on, e:17 and e:18 (both u:in:gas_xiranite -> u:class:q:3,
+// the same card's catalyst row and in: row) run the boundary column down past
+// e:20's "Xiragen x 3/min" rise chip, and the re-packed left rim puts e:13's
+// copper_ore run and e:15's gas_inert column under e:23's "Clean Water x
+// 150/min" chip; lanes off keeps the latter three of those. On battery5 lanes
+// off the new e:23 u:in:liquid_xiranite -> u:class:q:2 catalyst run crosses the
+// full boundary gutter at y 614 and passes under e:20's "Xiragen x 240/min"
+// chip. Softest tier, UP moves, listed as ruling items.
 const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
   default: 3,
   battery5: 8,
@@ -836,7 +874,7 @@ const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
   "gas-web": 12,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 4,
-  transmuters: 1, // 0 -> 1 at the environment-frame re-measure.
+  transmuters: 6, // 1 -> 6 at the catalyst edges.
 };
 const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_SEGMENT_BASELINE_ON,
@@ -845,7 +883,7 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   // the on arm.
   off: {
     default: 3,
-    battery5: 10,
+    battery5: 11, // 10 -> 11 at the catalyst edges.
     "battery5-xiranite": 15,
     crystal: 1,
     equip4: 1,
@@ -856,7 +894,7 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 9,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 2,
-    transmuters: 1, // 0 -> 1 at the environment-frame re-measure.
+    transmuters: 4, // 1 -> 4 at the catalyst edges.
   },
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
@@ -1213,10 +1251,20 @@ const FRAME_RIDE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // ON the lane (the dot needs more than a half-height of lift, the line needs
 // less), so the dot keep-off finds nothing and yields -- which is the precedence
 // it already states: the dot is decorative, a floating rate chip is not.
+// Catalyst-edge re-pin (2026-09-13): battery5-xiranite 2 -> 3 and transmuters
+// 0 -> 1, lanes on. Cause: the catalyst supply edges join the boundary node's
+// fan-out, so its shared junction column carries more dots under the same rise
+// chip. On battery5-xiranite the u:in:gas_xiranite fan-out gained e:30 (the
+// catalyst edge into u:class:q:6) beside e:28 into q:23, and e:31's "Xiragen x
+// 75 of 660/min" chip now covers three dots on that column instead of two. On
+// transmuters the same column carries the new e:17 (catalyst into q:3) whose
+// dot sits under e:18's "Xiragen x 15 of 48/min" chip -- e:18 being the
+// ordinary in: edge into the same card, which cycles the gas it consumes.
+// UP moves, listed as ruling items.
 const DOT_COVER_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 0,
-  "battery5-xiranite": 2,
+  "battery5-xiranite": 3, // 2 -> 3 at the catalyst edges.
   crystal: 0,
   equip4: 0,
   multi6: 0,
@@ -1226,7 +1274,7 @@ const DOT_COVER_BASELINE_ON: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 1,
-  transmuters: 0,
+  transmuters: 1, // 0 -> 1 at the catalyst edges.
 };
 const DOT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: DOT_COVER_BASELINE_ON,
@@ -2108,6 +2156,13 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
 // date to the catalyst-split rebase onto develop, and the environment frame's
 // footprint probed identical (1 at the pre-footprint commit). UP move, listed
 // as a ruling item.
+// Catalyst-edge re-pin (2026-09-13): transmuters 1 -> 3 (lanes on) and 1 -> 2
+// (off). Cause: the catalyst supply edges. Lanes on, e:20's "Xiragen x 3/min"
+// rise chip takes the strokes of e:17 (the catalyst edge into u:class:q:3) and
+// e:18 (the ordinary in: edge into the same card), and in both modes e:23's
+// "Clean Water x 150/min" rise chip takes e:13's copper_ore and e:15's
+// gas_inert strokes off the re-packed left rim. The pre-existing e:8-under-e:11
+// surplus stroke stays. Softest tier, UP moves, listed as ruling items.
 const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
   default: 3,
   battery5: 3,
@@ -2121,7 +2176,7 @@ const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
   "gas-web": 10,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 2,
-  transmuters: 1, // 0 -> 1 at the environment-frame re-measure.
+  transmuters: 3, // 1 -> 3 at the catalyst edges.
 };
 const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FOREIGN_STROKE_BASELINE_ON,
@@ -2140,7 +2195,7 @@ const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 6,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 2,
-    transmuters: 1, // 0 -> 1 at the environment-frame re-measure.
+    transmuters: 2, // 1 -> 2 at the catalyst edges.
   },
 };
 
@@ -2256,6 +2311,16 @@ const OUTSIDE_BAND_BASELINE: Record<LaneMode, Record<string, number>> = {
 // Catalyst-split re-pin (2026-09-07): script43 3 -> 2 and gas-web 3 -> 2 in both
 // modes. An exact pin moving DOWN - one xiranite rise chip per plan is gone with
 // the catalyst feed edge that carried it.
+// Catalyst-edge re-pin (2026-09-13): script43 2 -> 3 and gas-web 2 -> 3 in both
+// modes, transmuters 6 -> 7 in both modes. The two 2 -> 3 cells RESTORE the
+// third member of a copper_nugget fan-out the catalyst split had removed
+// (script43 e:3 / e:4 / e:5 out of q:11, gas-web e:10 / e:11 / e:12 out of
+// q:9): the catalyst edges put the transmuter cards back on the paths that
+// formation spans, so its third rise chip is drawn again. On transmuters the
+// new chip is the catalyst edge's own: e:20
+// (u:in:gas_xiranite:loop:copper_powder -> u:class:q:13) carries a "Xiragen x
+// 3/min" rise that binds to no lane band. An exact pin, re-measured from the
+// failure inventory.
 const SKIPPED_BAND_INVENTORY_ON: Record<string, number> = {
   default: 4,
   battery5: 2,
@@ -2267,13 +2332,13 @@ const SKIPPED_BAND_INVENTORY_ON: Record<string, number> = {
   // 2 -> 3 at the exam-surfaced R4 re-measure: the copper_nugget rise chips
   // e:3/e:4/e:5 (out of q:11) bind to no lane band (ratified 2026-09-04).
   // 3 -> 2 at the catalyst split: one band-unbound rise chip fewer, leaving the
-  // e:3/e:4 pair out of q:11.
-  script43: 2,
+  // e:3/e:4 pair out of q:11. 2 -> 3 at the catalyst edges: e:5 is back.
+  script43: 3,
   "coupon-web": 0,
-  "gas-web": 2,
+  "gas-web": 3, // 2 -> 3 at the catalyst edges.
   "rot-bottled_food_3": 4,
   "rot-bottled_food_4": 0,
-  transmuters: 6,
+  transmuters: 7, // 6 -> 7 at the catalyst edges.
 };
 const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
   on: SKIPPED_BAND_INVENTORY_ON,
@@ -2286,12 +2351,12 @@ const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
     equip4: 2,
     multi6: 15,
     tundra: 0,
-    script43: 2,
+    script43: 3, // 2 -> 3 at the catalyst edges.
     "coupon-web": 0,
-    "gas-web": 2,
+    "gas-web": 3, // 2 -> 3 at the catalyst edges.
     "rot-bottled_food_3": 4,
     "rot-bottled_food_4": 0,
-    transmuters: 6,
+    transmuters: 7, // 6 -> 7 at the catalyst edges.
   },
 };
 
@@ -2488,7 +2553,8 @@ const CENSUS_TOTALS: Record<
     // Catalyst split (2026-09-07) on top: battery5-xiranite 6 -> 7, 58 -> 59.
     // Environment-frame re-measure (2026-09-12) on top: transmuters 0 -> 1,
     // 59 -> 60.
-    foreignStroke: 60,
+    // Catalyst edges (2026-09-13) on top: transmuters 1 -> 3, 60 -> 62.
+    foreignStroke: 62,
     outsideBand: 0,
   },
   off: {
@@ -2505,7 +2571,8 @@ const CENSUS_TOTALS: Record<
     // script43 5 -> 7, gas-web 5 -> 6, so 47 -> 53.
     // Environment-frame re-measure (2026-09-12) on top: transmuters 0 -> 1,
     // 53 -> 54.
-    foreignStroke: 54,
+    // Catalyst edges (2026-09-13) on top: transmuters 1 -> 2, 54 -> 55.
+    foreignStroke: 55,
     outsideBand: 0,
   },
 };
