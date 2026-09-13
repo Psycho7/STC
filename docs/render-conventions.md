@@ -41,11 +41,22 @@ short enough not to clip at card width.
 
 Below the input rows a card may carry catalyst rows: inputs the machine cycles
 rather than consumes, drawn from the plan boundary and handed straight back
-every cycle. A catalyst has no supplier and no edge, so its row has no port
-handle and no accent tab, and shows a small filled disc where a port row shows
-its transport glyph. Its label is muted a step below the supplied rows, and its
-rate is the draw for one machine with its unit spelled out ("6/min") rather than
-the flow across every machine that the port rows above it carry.
+every cycle. No producer is ever built for a catalyst, so the charge arrives
+from the item's boundary supply card over an edge of its own, landing on a
+`cat:<item>` handle at the row's left -- the same x as the input handles, at the
+row's centre -- and the row shows the item's transport glyph like a port row
+does. The boundary card's rate counts that draw alongside ordinary consumption,
+so the card and the inputs panel read the same number. One card can carry the
+same item on an input row and a catalyst row; the two take separate handles and
+separate edges. A catalyst row keeps no accent tab, its label is muted a step
+below the supplied rows, and its rate is the draw for one machine with its unit
+spelled out ("6/min") rather than the flow across every machine that the port
+rows above it carry.
+
+The behaviour is behind the `CATALYST_SUPPLY_EDGES` code flag (`src/flags.ts`),
+on by default; with it off a catalyst row carries no handle and no edge, wears a
+small filled disc in the glyph slot, and the inputs panel adds the cycled draw
+onto the supply row itself.
 
 Some recipes only run inside a gas environment, which the player builds a
 disperser for. Such a card states its requirement as a frame around the card

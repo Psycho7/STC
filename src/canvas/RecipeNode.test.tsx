@@ -354,10 +354,11 @@ test("handle and port glyph render inside their recipe row", () => {
   expect(container.querySelectorAll('[data-handlepos="right"]').length).toBe(1);
 });
 
-// A catalyst is cycled, not consumed, so its row carries no Handle: an edge
-// endpoint that landed on it would claim a supplier the plan never builds. The
-// row still declares the draw, in full units, at the per-machine figure.
-test("a catalyst renders a port-less row carrying the per-machine draw", () => {
+// A catalyst is supplied from the plan boundary, so its row carries a target
+// Handle in the `cat:` namespace and no transport glyph unless the port map
+// names a kind. The row declares the draw, in full units, at the per-machine
+// figure.
+test("a catalyst renders a cat: port row carrying the per-machine draw", () => {
   // qty 1 over a 10s cycle at speed 1 is the pack's 6/min catalyst draw.
   const recipe: Recipe = {
     ...RECIPE,
@@ -373,15 +374,15 @@ test("a catalyst renders a port-less row carrying the per-machine draw", () => {
 
   const row = container.querySelector<HTMLElement>(".rn-row.catalyst");
   expect(row).not.toBeNull();
-  expect(row!.querySelectorAll("[data-handleid]").length).toBe(0);
-  expect(row!.querySelector("[data-glyph]")?.getAttribute("data-glyph")).toBe(
-    "catalyst",
-  );
+  const handles = row!.querySelectorAll<HTMLElement>("[data-handleid]");
+  expect(handles.length).toBe(1);
+  expect(handles[0]!.getAttribute("data-handleid")).toBe("cat:gas_xiranite");
   // Per machine even at multiplicity 3, and carrying the unit the aggregate
   // port rows leave to the header.
   expect(row!.querySelector(".rate")?.textContent).toBe("6/min");
-  // The ports are untouched: one target, one source, neither on this row.
-  expect(container.querySelectorAll('[data-handlepos="left"]').length).toBe(1);
+  // The port rows are untouched: the row adds one target handle on the left
+  // and nothing on the right.
+  expect(container.querySelectorAll('[data-handlepos="left"]').length).toBe(2);
   expect(container.querySelectorAll('[data-handlepos="right"]').length).toBe(1);
 });
 

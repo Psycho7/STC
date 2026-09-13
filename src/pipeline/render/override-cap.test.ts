@@ -227,15 +227,20 @@ describe("catalyst charged against a shipped-pack cap", () => {
     expect(catalystDraw.get("gas_xiranite")?.equals(new Fraction(1, 10))).toBe(
       true,
     );
-    // The cycled charge is not a draw: no boundary import stands for it, no
-    // edge carries it, and the internal producer the old split funded to cover
-    // the rest is not funded now.
-    expect(
-      plan.units.some(
-        (u) => isInputProductUnit(u) && u.itemId === "gas_xiranite",
-      ),
-    ).toBe(false);
-    expect(plan.edges.some((e) => e.item === "gas_xiranite")).toBe(false);
+    // The cycled charge is boundary supply: one import card carrying the whole
+    // 1/10 draw, one catalyst edge into the transmuter that cycles it, and the
+    // internal producer the old split funded to cover the rest is not funded.
+    const importCard = plan.units.find(
+      (u) => isInputProductUnit(u) && u.itemId === "gas_xiranite",
+    );
+    expect(importCard).toBeDefined();
+    expect((importCard as { rate: unknown }).rate).toEqual({
+      num: "1",
+      denom: "10",
+    });
+    const xiraniteEdges = plan.edges.filter((e) => e.item === "gas_xiranite");
+    expect(xiraniteEdges.map((e) => e.toPortKind)).toEqual(["catalyst"]);
+    expect(xiraniteEdges[0]!.rate.equals(new Fraction(1, 10))).toBe(true);
     expect(rates.has("phase_trans_2-gas_xiranite")).toBe(false);
   });
 });

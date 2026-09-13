@@ -111,17 +111,23 @@ describe("measureRecipe", () => {
     expect(measureRecipe(fakeRecipe(1, 0)).outHandleYs).toEqual([]);
   });
 
-  // A catalyst is drawn on the input side as an extra row with no handle, so it
-  // occupies a row of card height while adding nothing to the handle arrays.
-  // Height counts in + catalyst against the output side; the invariant on
-  // inHandleYs stays on recipe.in alone.
-  it("counts catalyst rows in the height and leaves the handle arrays on the port counts", () => {
+  // A catalyst row sits at the bottom of the input column and carries its own
+  // handle, so it gets its own array: inHandleYs stays on recipe.in alone and
+  // catHandleYs continues the same row sequence.
+  it("counts catalyst rows in the height and keeps them out of inHandleYs", () => {
     const g = measureRecipe(fakeRecipe(2, 1, 1));
     expect(g.height).toBe(recipeHeight(3, 1));
     expect(g.inHandleYs).toHaveLength(2);
     expect(g.outHandleYs).toHaveLength(1);
     // 80 header + 12 side pads + 3 * 22 rows + 26 footer.
     expect(g.height).toBe(184);
+  });
+
+  it("puts catHandleYs on the rows after the input rows", () => {
+    const g = measureRecipe(fakeRecipe(2, 1, 2));
+    expect(g.catHandleYs).toEqual([rowMid(2), rowMid(3)]);
+    expect(g.catHandleYs).toEqual([141, 163]);
+    expect(measureRecipe(fakeRecipe(2, 1)).catHandleYs).toEqual([]);
   });
 
   // The rows append AFTER the ports, so no port moves. This is the property the
@@ -147,8 +153,34 @@ describe("measureRecipe", () => {
     expect(portOffsetY(fakeNode(withCatalyst), "o0", "out")).toBe(
       portOffsetY(fakeNode(plain), "o0", "out"),
     );
-    // A catalyst item is not a port: it resolves to the centre fallback, which
-    // on a 3-row card is 92 and can never collide with a row mid-line.
+    // A catalyst item is on no input row: asked for side "in" it resolves to
+    // the centre fallback, which on a 3-row card is 92 and can never collide
+    // with a row mid-line.
     expect(portOffsetY(fakeNode(withCatalyst), "c0", "in")).toBe(92);
+  });
+
+  // Side "cat" is what a catalyst edge's target end resolves with: the row is
+  // read off recipe.catalyst, never off the input rows, so a card carrying the
+  // same item on both sides answers each side with its own row.
+  it("portOffsetY resolves side 'cat' on the catalyst rows", () => {
+    const withCatalyst = fakeRecipe(2, 1, 1);
+    const geom = measureRecipe(withCatalyst);
+    expect(portOffsetY(fakeNode(withCatalyst), "c0", "cat")).toBe(
+      geom.catHandleYs[0],
+    );
+    // An input item is on no catalyst row: centre fallback.
+    expect(portOffsetY(fakeNode(withCatalyst), "i0", "cat")).toBe(92);
+  });
+
+  it("keeps the two sides apart when one item is both an input and a catalyst", () => {
+    const shared = {
+      ...fakeRecipe(2, 1, 1),
+      catalyst: [{ item: "i0", qty: 1 }],
+    } as Recipe;
+    const geom = measureRecipe(shared);
+    expect(portOffsetY(fakeNode(shared), "i0", "in")).toBe(geom.inHandleYs[0]);
+    expect(portOffsetY(fakeNode(shared), "i0", "cat")).toBe(
+      geom.catHandleYs[0],
+    );
   });
 });

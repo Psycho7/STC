@@ -1,13 +1,17 @@
 // @vitest-environment jsdom
 //
-// The catalyst draw the solver reports is external supply like a raw draw, so
-// it has to reach the inputs panel as an ordinary supply row: a non-raw
-// catalyst item gets a row the raw flag would never give it, and a raw
-// catalyst item's row shows the cycled draw ADDED to its balanced demand, not
-// in place of it.
+// The catalyst draw is external supply like a raw draw, so it has to reach the
+// inputs panel as an ordinary supply row: a non-raw catalyst item gets a row
+// the raw flag would never give it, and a raw catalyst item's row shows the
+// cycled draw ADDED to its balanced demand, not in place of it.
 //
-// layoutRenderPlan is mocked so the product nodes the fold adds to are fixed
-// by the test rather than by the layout pass, which keeps the assertion on the
+// With CATALYST_SUPPLY_EDGES on, both numbers come off the input product node
+// the render pipeline sized -- the panel adds nothing. The OFF twin of this
+// file (App.catalystOff.test.tsx) pins the same two numbers arriving the other
+// way, from the panel-side addition.
+//
+// layoutRenderPlan is mocked so the product nodes the fold reads are fixed by
+// the test rather than by the layout pass, which keeps the assertion on the
 // fold itself. Canvas is stubbed; it draws nothing this file reads.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -69,6 +73,24 @@ afterEach(() => {
 });
 
 test("a non-raw catalyst item gets a supply row carrying its 6 per minute draw", async () => {
+  // The pipeline draws the cycled charge from a boundary card of its own, so
+  // the row's 1/10 per second arrives as an ordinary input product node.
+  vi.mocked(layoutRenderPlan).mockResolvedValue({
+    nodes: [
+      {
+        id: "in:liquid_xiranite",
+        type: "product",
+        position: { x: 0, y: 0 },
+        data: {
+          kind: "inputProduct",
+          itemId: "liquid_xiranite",
+          rate: { num: "1", denom: "10" },
+        },
+      },
+    ],
+    edges: [],
+  } as unknown as Awaited<ReturnType<typeof layoutRenderPlan>>);
+
   window.location.hash = "#" + (await encodePlan(TRANSMUTER));
   render(<App />);
 
@@ -78,27 +100,25 @@ test("a non-raw catalyst item gets a supply row carrying its 6 per minute draw",
     },
     { timeout: 10000 },
   );
-  // No product node carries liquid_xiranite (the solver expands no producer
-  // for a catalyst), so the rate on the row can only have come from the
-  // catalyst draw: 1/10 per second is 6 per minute.
+  // 1/10 per second is 6 per minute.
   const row = autoRow("liquid_xiranite")!;
   expect(
     row.querySelector('[data-testid="input-realized-rate"]')?.textContent,
   ).toBe("needed 6/min");
-  // The row is an ordinary supply row, so the stats strip counts it: with no
-  // product nodes laid out, the two catalysts are the only supply rows on
-  // screen.
+  // The row is an ordinary supply row, so the stats strip counts it: the one
+  // product node laid out is the only supply row on screen.
   const strip = screen.getByTestId("stats-strip");
-  expect(screen.getAllByTestId("input-auto-row").length).toBe(2);
+  expect(screen.getAllByTestId("input-auto-row").length).toBe(1);
   expect(strip.querySelectorAll(".strip-stat .val")[1]?.textContent).toContain(
-    "2",
+    "1",
   );
 });
 
-test("a raw catalyst item's row adds the catalyst draw to its balanced demand", async () => {
-  // 1/2 per second of balanced gas_xiranite demand from the render pass; the
-  // solve adds 1/10 per second of catalyst draw on top, so the row must read
-  // (1/2 + 1/10) * 60 = 36 per minute. An overwrite would read 30 or 6.
+test("a raw catalyst item's row reads the node rate that already carries the draw", async () => {
+  // 1/2 per second of balanced gas_xiranite demand plus 1/10 per second of
+  // cycled charge, summed by the render pipeline onto the one input product
+  // node: the row must read (1/2 + 1/10) * 60 = 36 per minute. A panel-side
+  // addition on top of that node would read 42.
   vi.mocked(layoutRenderPlan).mockResolvedValue({
     nodes: [
       {
@@ -108,7 +128,7 @@ test("a raw catalyst item's row adds the catalyst draw to its balanced demand", 
         data: {
           kind: "inputProduct",
           itemId: "gas_xiranite",
-          rate: { num: "1", denom: "2" },
+          rate: { num: "3", denom: "5" },
         },
       },
     ],

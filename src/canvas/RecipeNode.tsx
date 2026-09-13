@@ -7,6 +7,7 @@ import { envBannerLayers } from "./envBanner";
 import { useI18n } from "../data/i18n-context";
 import { PortGlyph } from "./PortGlyph";
 import { CatalystGlyph } from "./CatalystGlyph";
+import { CATALYST_SUPPLY_EDGES } from "../flags";
 import { formatRationalPerMin } from "../data/rate-format";
 import type { PortTransportKinds } from "./layout";
 import type { ItemId } from "../pipeline/types";
@@ -434,17 +435,35 @@ export default function RecipeNode({
           })}
           {catalysts.map((p) => {
             const label = i18n.displayName(p.item);
+            const handleId = `cat:${p.item}`;
             return (
               // A catalyst row: an input the machine cycles rather than
-              // consumes. It is drawn from the plan boundary and returned every
-              // cycle, so it has no supplier, no edge, and therefore no Handle
-              // -- a handle here would offer a connection nothing can make and
-              // would move every port below it. It carries no `input` class
-              // either, since that class paints the accent tab that promises an
-              // entering edge. Appended after the port rows so no port's y
-              // moves; recipeGeometry counts it toward the card height.
+              // consumes. With CATALYST_SUPPLY_EDGES on it is supplied from the
+              // item's boundary card like any raw draw, so it takes a target
+              // Handle of its own -- in the `cat:` namespace, because the same
+              // item can also sit on an input row above -- and wears that
+              // port's transport glyph. With the flag off nothing arrives here,
+              // so the row keeps the catalyst disc and no Handle. It carries no
+              // `input` class either way, since that class paints the accent
+              // tab. Appended after the port rows so no port's y moves;
+              // recipeGeometry counts it toward the card height.
               <div key={`catalyst-row:${p.item}`} className="rn-row catalyst">
-                <CatalystGlyph item={p.item} />
+                {CATALYST_SUPPLY_EDGES ? (
+                  <>
+                    <Handle
+                      id={handleId}
+                      type="target"
+                      position={Position.Left}
+                    />
+                    <PortGlyph
+                      kind={portTransportKinds?.get(handleId)}
+                      side="left"
+                      item={p.item}
+                    />
+                  </>
+                ) : (
+                  <CatalystGlyph item={p.item} />
+                )}
                 <Sprite iconId={iconIdForItem(p.item)} size={20} />
                 <span className="lbl" title={label}>
                   {label}

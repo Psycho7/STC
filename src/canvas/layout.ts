@@ -33,6 +33,7 @@ import {
 } from "@xyflow/react";
 import Fraction from "fraction.js";
 
+import { CATALYST_SUPPLY_EDGES } from "../flags";
 import {
   BETWEEN_LAYERS_SPACING,
   CONTAINER_CAPTION_BAND,
@@ -465,6 +466,22 @@ function buildRecipePorts(
         at(0, geom.inHandleYs[i] ?? 0),
       ),
     ),
+    // Catalyst rows take a WEST port too when the flag is on: their edge comes
+    // from the item's boundary card, exactly like an input row's. The port id
+    // uses the `cat:` namespace because a card can carry one item on both an
+    // input row and a catalyst row.
+    ...(CATALYST_SUPPLY_EDGES
+      ? (recipe.catalyst ?? []).map((p, i) =>
+          makePort(
+            `${unitId}.cat:${p.item}`,
+            "WEST",
+            recipe.in.length + i,
+            p.item,
+            kindOf,
+            at(0, geom.catHandleYs[i] ?? 0),
+          ),
+        )
+      : []),
     ...recipe.out.map((p, i) =>
       makePort(
         `${unitId}.out:${p.item}`,
@@ -633,11 +650,17 @@ function loopUnitToElk(
   };
 }
 
+// A catalyst edge lands on the `cat:` port; every other edge on the `in:` port.
+// The item alone cannot decide it: one card can carry both rows for one item.
 function renderEdgeToElk(e: RenderEdge, index: number): ElkExtendedEdge {
+  const targetPort =
+    CATALYST_SUPPLY_EDGES && e.toPortKind === "catalyst"
+      ? `cat:${e.item}`
+      : `in:${e.item}`;
   return {
     id: `e:${index}:${e.fromUnit}->${e.toUnit}:${e.item}`,
     sources: [`${e.fromUnit}.out:${e.item}`],
-    targets: [`${e.toUnit}.in:${e.item}`],
+    targets: [`${e.toUnit}.${targetPort}`],
   };
 }
 
@@ -738,6 +761,11 @@ export function fromElkRenderLayout(
     if (renderEdge?.transportKind !== undefined) {
       edgeData.transportKind = renderEdge.transportKind;
     }
+    // The geometry readers resolve the target row by side, and this is the only
+    // thing telling them the edge lands on a catalyst row.
+    if (renderEdge?.toPortKind !== undefined) {
+      edgeData.toPortKind = renderEdge.toPortKind;
+    }
     return {
       id: e.id,
       type: "item",
@@ -755,8 +783,8 @@ export function fromElkRenderLayout(
 
 // Build the per-node Handle-id -> TransportKindId map from a laid-out ELK node's
 // ports. Handle ids drop the leading `<unitId>.` prefix and read like
-// "in:copper_ore" or "out:copper_powder", the same shape the node components use
-// when they build `<Handle id={...} />`.
+// "in:copper_ore", "cat:gas_xiranite" or "out:copper_powder", the same shape the
+// node components use when they build `<Handle id={...} />`.
 function portKindsFromElkNode(node: ElkNode): PortTransportKinds {
   const out = new Map<string, TransportKindId>();
   for (const p of node.ports ?? []) {
@@ -777,7 +805,8 @@ function portKindsFromElkNode(node: ElkNode): PortTransportKinds {
 // from the port id ("<unitId>.in:<item>" -> "<item>"); ports whose id is not
 // ".in:" are ignored -- the east ports are skipped on purpose (ruling R4:
 // output rows read in the recipe's own declared order, so no ELK output order
-// exists to read back).
+// exists to read back), and so are the west `cat:` ports, whose rows are pinned
+// below every input row and never take part in the input ordering.
 //
 // Ports without a numeric y (synthetic ELK graphs in unit tests never run the
 // real layout, so their ports keep no coordinates) fall back to y=0, which makes
@@ -805,6 +834,7 @@ function resolveInputOrder(node: ElkNode): {
 function portToItem(port: string): string {
   if (port.startsWith("out:")) return port.slice("out:".length);
   if (port.startsWith("in:")) return port.slice("in:".length);
+  if (port.startsWith("cat:")) return port.slice("cat:".length);
   return port;
 }
 

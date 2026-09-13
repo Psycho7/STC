@@ -2,9 +2,8 @@
 // netted map. The catalyst split moved each transmuter's cycled input into a
 // `catalyst` field (phase_trans_1-liquid_xiranite: gas in, liquid out, a
 // fifth of the output cycled), so the row that has to survive the raw pass is
-// the catalyst row: drawn from the plan boundary, so it has no supplier, no
-// port and no edge, while the drawing still shows the flow the player must
-// supply.
+// the catalyst row: supplied from the plan boundary over a `cat:` port, and
+// never mixed into the input row order.
 
 import { describe, it, expect } from "vitest";
 
@@ -33,7 +32,7 @@ function recipeNodeOf(
 }
 
 describe("layoutSolved on a catalyst-cycling recipe", () => {
-  it("draws the cycled row with no incoming edge", async () => {
+  it("draws the cycled row on its own cat: port", async () => {
     const solved = solveForRender({ targets });
     const { nodes, edges } = await layoutSolved(solved, {
       busLanesEnabled: false,
@@ -44,13 +43,15 @@ describe("layoutSolved on a catalyst-cycling recipe", () => {
     // back as the catalyst.
     expect(node.data.recipe.in.map((s) => s.item)).toEqual([FED_ITEM]);
     expect(node.data.recipe.catalyst?.map((s) => s.item)).toEqual([SELF_ITEM]);
-    // The cycled row takes no west port slot: no edge can arrive at it.
+    // The cycled row is not an input row: it never enters inputOrder, and its
+    // edge lands on the `cat:` port rather than an `in:` one.
     expect(node.data.inputOrder).not.toContain(SELF_ITEM);
 
     const incoming = edges.filter((e) => e.target === node.id);
-    // Premise: the gas row IS fed, so "no incoming edge" below is about the
-    // cycled row and not about an unrouted card.
+    // Premise: the gas row IS fed, so the cycled row's own handle below is
+    // read off a routed card.
     expect(incoming.map((e) => e.targetHandle)).toContain(`in:${FED_ITEM}`);
+    expect(incoming.map((e) => e.targetHandle)).toContain(`cat:${SELF_ITEM}`);
     expect(incoming.map((e) => e.targetHandle)).not.toContain(
       `in:${SELF_ITEM}`,
     );
