@@ -407,18 +407,14 @@ export function auditOwnCardPierces(
 
 // Frame rides: segments of a BACKWARD item edge (target at or left of the
 // source, mirroring clampBackwardRails' nodeGap test) that run ALONG a
-// container slab's border or a bus band's border, close enough that the
-// stroke and the border read as one line (the loop-backedge-braids-container
-// family, #29 follow-on). Two kinds:
-//   frame -- a vertical segment within `tol` of a container's left/right border
-//     (overlapping the border's y-run by more than two port stubs, so a
-//     legitimate perpendicular crossing or a short corner never counts), or a
-//     horizontal segment within `tol` of a container's top/bottom border with
-//     the same overlap rule. Diagonal chamfers never ride a frame.
-//   band -- a horizontal run within `tol` of a bus band's top/bottom border,
-//     either side: the dashed return that read as one line with the band
-//     tint's edge ran 8 units inside the band bottom.
-// Forward edges are out of scope on both kinds: a forward tap's jog descent
+// container slab's border, close enough that the stroke and the border read as
+// one line (the loop-backedge-braids-container family, #29 follow-on): a
+// vertical segment within `tol` of a container's left/right border (overlapping
+// the border's y-run by more than two port stubs, so a legitimate perpendicular
+// crossing or a short corner never counts), or a horizontal segment within `tol`
+// of a container's top/bottom border with the same overlap rule. Diagonal
+// chamfers never ride a frame.
+// Forward edges are out of scope: a forward tap's jog descent
 // may share an entry-gutter line with a container border (the convention
 // doc's stated exception), and the forward column passes take no container
 // clearance, so counting them would pin a shape the doctrine declares legal
@@ -429,8 +425,8 @@ export function auditOwnCardPierces(
 // tolerance matches that constant. Pure and deterministic.
 export type FrameRideHit = {
   edgeId: string;
-  kind: "frame" | "band";
-  // The container node id (frame) or band testid (band) whose border is ridden.
+  kind: "frame";
+  // The container node id whose border is ridden.
   target: string;
   border: "left" | "right" | "top" | "bottom";
   seg: [Pt, Pt];
@@ -447,7 +443,6 @@ const FRAME_RIDE_MIN_OVERLAP = 2 * PORT_STUB;
 export function auditFrameRides(
   edges: ReadonlyArray<RawEdge>,
   nodes: ReadonlyArray<NodeRect>,
-  bands: ReadonlyArray<BandRect>,
   tol = FRAME_RIDE_TOL,
   eps = 0.5,
 ): FrameRideHit[] {
@@ -460,7 +455,7 @@ export function auditFrameRides(
   const out: FrameRideHit[] = [];
   const push = (
     edgeId: string,
-    kind: "frame" | "band",
+    kind: "frame",
     target: string,
     border: FrameRideHit["border"],
     p0: Pt,
@@ -505,13 +500,6 @@ export function auditFrameRides(
         if (dt < limit) push(edge.id, "frame", c.nodeId, "top", p0, p1, dt);
         if (db < limit) push(edge.id, "frame", c.nodeId, "bottom", p0, p1, db);
       }
-      for (const b of bands) {
-        if (overlapX(b) <= FRAME_RIDE_MIN_OVERLAP) continue;
-        const dt = Math.abs(p0[1] - b.top);
-        const db = Math.abs(p0[1] - b.bottom);
-        if (dt < limit) push(edge.id, "band", b.testId, "top", p0, p1, dt);
-        if (db < limit) push(edge.id, "band", b.testId, "bottom", p0, p1, db);
-      }
     }
   }
   return out;
@@ -525,7 +513,7 @@ export type ChipRect = RawRect & {
   // can own both a rise and a drop chip.
   testId: string;
   label: string;
-  // "bus" = lane-anchored bus rise/branch chip (out of scope for the corridor
+  // "bus" = bus branch chip (out of scope for the corridor
   // invariants), "bus-drop" = the trunk-seated aggregate chip (audited against
   // foreign cards with a trunk-member exemption), "label" = item rate chip.
   kind: "label" | "bus" | "bus-drop";
@@ -574,11 +562,11 @@ function centreInRect(p: Pt, r: RawRect): boolean {
 // canvas design rather than bare edge identity (the chip de-confliction pass
 // applies the same set):
 //   - own edge: a chip sits on its own path by construction;
-//   - same flow (same item AND source): a trunk's members share one lane and a
+//   - same flow (same item AND source): a trunk's members share one line and a
 //     fanout's slices share their common trajectory, so a chip on that shared
 //     line is on its OWN line even when a sibling edge id owns the segment;
 //   - arrival cluster (same target), NARROWED (3a): the bus kinds are always
-//     exempt (anchored on their lane or trunk by design, not on the member
+//     exempt (anchored on their own leg or trunk by design, not on the member
 //     edge's path); a label chip is exempt only while its centre sits in the
 //     entry band -- the gutter just left of the consumer card where the final
 //     approaches converge. A rate chip out on the corridor is no longer masked
@@ -605,7 +593,7 @@ function chipForeignTo(
   }
   if (owner !== undefined && owner.target === edge.target) {
     // Arrival cluster, narrowed: the bus kinds are always exempt (anchored on
-    // their lane or trunk by design); a rate chip is exempt only when its
+    // their own leg or trunk by design); a rate chip is exempt only when its
     // centre lies in the target's entry band.
     if (chip.kind !== "label") return false;
     const card = cardById.get(owner.target);
@@ -668,11 +656,11 @@ export type ChipCardViolation = {
 //   - label chip: the owner edge's source (source zone) and target (target zone).
 //   - bus-drop (aggregate) chip: the shared source plus EVERY member target of
 //     the owner's sub-trunk (each a target zone). A (source, item) port can host
-//     BOTH a fan-out sub-trunk (adjacent-layer targets) and a lane sub-trunk
+//     BOTH a fan-out sub-trunk (adjacent-layer targets) and a long-span sub-trunk
 //     (long-span targets) under one trunkKey, so members are split by the same
 //     FANOUT_SPAN_MAX boundary the routing passes use, matching the seating
-//     trunkExempt / laneTrunkExempt union.
-//   - rise / branch bus chips (kind "bus") stay skipped -- lane-anchored, out of
+//     trunkExempt union.
+//   - branch bus chips (kind "bus") stay skipped -- leg-anchored, out of
 //     scope for this tier.
 // `raw` is always true here (raw cards only); the field mirrors SegmentViolation
 // so callers report uniformly.
@@ -694,7 +682,7 @@ export function auditChipsVsCards(
   };
   const out: ChipCardViolation[] = [];
   for (const chip of chips) {
-    if (chip.kind === "bus") continue; // rise/branch, lane-anchored, out of scope
+    if (chip.kind === "bus") continue; // branch, leg-anchored, out of scope
     const owner = edgeById.get(chip.edgeId);
     const whole = new Set<string>();
     const zones = new Map<string, "source" | "target">();
@@ -762,8 +750,8 @@ export type ChipOffPathViolation = {
 
 // Every LABEL chip whose centre lies farther than `tol` from its own edge's
 // polyline (the P3 on-own-line invariant). The two bus kinds are excluded: a
-// lane rise or branch chip is anchored to its lane and a trunk drop chip to the
-// trunk, neither of which is the member edge's own path. A label chip's
+// branch chip is anchored to its branch leg and a trunk drop chip to the trunk,
+// neither of which is the member edge's own path. A label chip's
 // clear-segment anchor is on the path by construction, and both the along-line
 // slide and a downward nudge along a vertical corridor leg keep it there; a
 // chip flagged here was cascaded off its line.
@@ -797,11 +785,10 @@ export function auditChipsOnOwnPath(
 // and its data-family.
 export type DotRect = RawRect & { testId: string; family: string };
 
-// The testid prefix the collector gives a fan-out / lane trunk junction dot.
+// The testid prefix the collector gives a fan-out trunk junction dot.
 const BUS_JUNCTION_PREFIX = "bus-junction-";
 
-// The data-family a fan-out branch dot carries. A lane rise dot shares the
-// testid prefix and carries family "lane" instead.
+// The data-family a fan-out branch dot carries.
 const FANOUT_FAMILY = "fanout";
 
 // Every fan-out MEMBER chip whose centre lies farther than `tol` from the
@@ -818,9 +805,7 @@ const FANOUT_FAMILY = "fanout";
 // column inside the "leg" and the counter would see nothing.
 //
 // Members are the edges the collector reports a `bus-junction-<edge>` dot with
-// family "fanout" for. A lane member's dot carries the same testid prefix but
-// family "lane": its rise chip sits on a vertical rise and owns no leg in this
-// sense, so counting it would report a violation that has no meaning.
+// family "fanout" for.
 // Kind "bus" is counted here, unlike in auditChipsOnOwnPath: a fan-out branch
 // chip is collected as a bus chip, and it is exactly the chip this counter is
 // for. Hidden chips are never collected, so they are never counted.
@@ -1234,15 +1219,14 @@ export function fmtSeg(seg: readonly [Pt, Pt]): string {
 // fixed reading zoom instead of fit zoom (the spec's own describe explains the
 // camera). They exist because the tiers above are blind to whole chip families:
 // auditChipsOnOwnPath sees "label" chips only and auditChipsVsCards skips "bus"
-// chips, so every lane rise / drop chip is invisible to both. Each counter here
+// chips, so every trunk / branch chip is invisible to both. Each counter here
 // covers ALL chip kinds and counts CHIPS, not (chip, other) pairs: the census
 // asks how many SEATS a reader would find wrong, and a chip crossed by four
 // foreign strokes is one bad seat, not four.
 //
 // The counters are deliberately not the same criteria as the tiers above -- they
-// are structural (does the line pass through the box), depth-based (how far past
-// a card border), and containment-based (is the box still in its band) -- so a
-// seat can be legal there and counted here. Where the two DO overlap
+// are structural (does the line pass through the box) and depth-based (how far
+// past a card border) -- so a seat can be legal there and counted here. Where the two DO overlap
 // (foreign-stroke vs CHIP_SEGMENT_BASELINE) the waiver set is literally shared,
 // so the two can never move in opposite directions for one seat.
 export type ChipCensusHit = {
@@ -1377,8 +1361,8 @@ export function auditChipCardIntrusion(
 // foreignness rule as auditSegmentsVsChips (own edge skipped, same item+source
 // waived as one visual line, same-target arrival cluster waived), shared through
 // chipForeignTo -- what differs is the shape of the count (per chip, not per
-// segment) and the reach: this one is not restricted to any chip kind, so a lane
-// rise chip lying across someone else's column shows up here.
+// segment) and the reach: this one is not restricted to any chip kind, so a
+// branch chip lying across someone else's column shows up here.
 export function auditChipForeignStrokes(
   chips: ReadonlyArray<ChipRect>,
   edges: ReadonlyArray<RawEdge>,
@@ -1412,101 +1396,6 @@ export function auditChipForeignStrokes(
     }
   }
   return out;
-}
-
-// A drawn bus band's rect, tagged with the data-testid BusBands emits
-// (`bus-band-top` / `bus-band-bottom`).
-export type BandRect = RawRect & { testId: string };
-
-// The band a lane-seated bus chip belongs to, recovered from the chip's LANE
-// rather than from its own box: the owner edge's longest HORIZONTAL run whose y
-// lies inside a band strip is that member's lane run, and its band is the one
-// the chip is supposed to stay in. Binding by the box instead (nearest band)
-// would make an escaped chip define its own target and the escape would never
-// count. A lane stroke is inside its band by construction (the band is the lane
-// extent padded), so a chip with no such run is not lane-seated at all -- a
-// fan-out branch or aggregate chip, which no band covers -- and is skipped.
-function laneBandOf(
-  d: string,
-  bands: ReadonlyArray<BandRect>,
-  eps: number,
-): BandRect | null {
-  let best: BandRect | null = null;
-  let bestRun = -1;
-  for (const [a, b] of segmentsOf(parsePath(d))) {
-    if (Math.abs(a[1] - b[1]) > eps) continue;
-    const y = (a[1] + b[1]) / 2;
-    for (const band of bands) {
-      if (y < band.top - eps || y > band.bottom + eps) continue;
-      const run = Math.abs(b[0] - a[0]);
-      if (run > bestRun) {
-        bestRun = run;
-        best = band;
-      }
-    }
-  }
-  return best;
-}
-
-// Bus chips that have left the tinted band their lane runs in. `escapes` are
-// the VERTICAL escapes -- the box shares no y with the band at all, which is
-// what a reader sees as a rate chip floating above / below the tint. A chip
-// touching the band edge counts as inside (the pad covers exactly one cascade
-// pitch, so containment has to be inclusive or the covered case reads as an
-// escape). `xOverflows` are reported alongside but kept OUT of the ratchet: a
-// box wider than the band's own x-run is a different, milder shape than a chip
-// off the lane entirely.
-export function auditBusChipsOutsideBand(
-  chips: ReadonlyArray<ChipRect>,
-  edges: ReadonlyArray<{ id: string; d: string }>,
-  bands: ReadonlyArray<BandRect>,
-  eps = 0.5,
-): {
-  escapes: ChipCensusHit[];
-  xOverflows: ChipCensusHit[];
-  // Bus chips that bind to NO lane band (fan-out formations, short runs, or a
-  // plan with no bands at all). They are exempt from the two counters above by
-  // construction, so the hard zeros there are only trustworthy alongside this
-  // inventory: a routing change that silently unbinds a chip moves it into
-  // this set instead of vanishing from the audit.
-  skipped: ChipCensusHit[];
-} {
-  const escapes: ChipCensusHit[] = [];
-  const xOverflows: ChipCensusHit[] = [];
-  const skipped: ChipCensusHit[] = [];
-  const pathById = new Map<string, string>();
-  for (const e of edges) pathById.set(e.id, e.d);
-  for (const chip of chips) {
-    if (chip.kind === "label") continue;
-    const d = pathById.get(chip.edgeId);
-    if (d === undefined) continue;
-    const band = laneBandOf(d, bands, eps);
-    if (band === null) {
-      skipped.push(censusHit(chip, "binds to no lane band"));
-      continue;
-    }
-    const overlapY =
-      Math.min(chip.bottom, band.bottom) - Math.max(chip.top, band.top);
-    if (overlapY <= eps) {
-      escapes.push(
-        censusHit(
-          chip,
-          `box [${chip.top.toFixed(0)},${chip.bottom.toFixed(0)}] is outside ` +
-            `${band.testId} [${band.top.toFixed(0)},${band.bottom.toFixed(0)}]`,
-        ),
-      );
-    }
-    if (chip.left < band.left - eps || chip.right > band.right + eps) {
-      xOverflows.push(
-        censusHit(
-          chip,
-          `box [${chip.left.toFixed(0)},${chip.right.toFixed(0)}] overruns ` +
-            `${band.testId} [${band.left.toFixed(0)},${band.right.toFixed(0)}] in x`,
-        ),
-      );
-    }
-  }
-  return { escapes, xOverflows, skipped };
 }
 
 // One piece of drawn port furniture (a handle, a PortGlyph span, or an .rn-row

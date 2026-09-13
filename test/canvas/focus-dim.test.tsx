@@ -54,7 +54,7 @@ function busData(trunkKey: string): Record<string, unknown> {
   return {
     item: "Iron",
     rate: new Fraction(1, 1),
-    laneY: 100,
+    fanout: true,
     trunkKey,
   } as unknown as Record<string, unknown>;
 }
@@ -273,7 +273,7 @@ function trunkMember(owner: boolean): Record<string, unknown> {
   return {
     item: "Iron",
     rate: new Fraction(1, 1),
-    laneY: 100,
+    fanout: true,
     trunkKey: "Iron|a",
     busChipOwner: owner,
     busTotalRate: new Fraction(3, 1),

@@ -4,7 +4,7 @@ import { ReactFlow, type Edge, type Node } from "@xyflow/react";
 import Fraction from "fraction.js";
 import BusEdge, { junctionRadius } from "../../src/canvas/BusEdge";
 import type { BusEdgeData } from "../../src/canvas/busRouting";
-import { busRiseBase, parsePathPoints } from "../../src/canvas/edgePath";
+import { parsePathPoints } from "../../src/canvas/edgePath";
 import {
   CHIP_ICON_ONLY_MAX_ZOOM,
   LABEL_MIN_ZOOM,
@@ -12,7 +12,6 @@ import {
 } from "../../src/canvas/ItemEdge";
 import { itemColor } from "../../src/canvas/itemColor";
 import { LocaleProvider } from "../../src/data/i18n-context";
-import { expectRightwardFinish } from "./pathAssertions";
 
 afterEach(() => {
   cleanup();
@@ -45,13 +44,6 @@ function makeEdge(data: BusData): Edge {
   };
 }
 
-// Same src / tgt ids as NODES, but the target sits far downstream so the lane
-// run spans several layers -- a "long detour" for the consumer-labeling gate.
-const FAR_NODES: Node[] = [
-  { id: "src", position: { x: 0, y: 0 }, data: { label: "src" } },
-  { id: "tgt", position: { x: 2000, y: 0 }, data: { label: "tgt" } },
-];
-
 function renderEdge(data: BusData, zoom?: number, nodes: Node[] = NODES) {
   return render(
     <LocaleProvider locale="en">
@@ -80,32 +72,15 @@ async function findEdgePath(): Promise<SVGPathElement> {
 }
 
 describe("canvas/BusEdge", () => {
-  it("routes the path drop -> lane run -> rise through data.laneY", async () => {
+  it("draws the junction dot in the HTML label layer at the branch point", async () => {
     renderEdge({
       item: "Iron Plate",
       rate: new Fraction(2, 1),
-      laneY: 500,
-      trunkKey: "Iron Plate|src",
-    });
-    const path = await findEdgePath();
-    const d = path.getAttribute("d") ?? "";
-    // The lane run sits at laneY = 500 (appears as the y of the lane points).
-    expect(d).toContain(",500");
-    // The path enters the target with a final rightward horizontal so the arrow
-    // points right.
-    expectRightwardFinish(d);
-  });
-
-  it("draws the junction dot in the HTML label layer at (branch point, laneY)", async () => {
-    // Multi-member: a lone trunk has no branch point and draws no dot (#83).
-    renderEdge({
-      item: "Iron Plate",
-      rate: new Fraction(2, 1),
-      laneY: 500,
+      fanout: true,
       trunkKey: "Iron Plate|src",
       busMemberCount: 2,
     });
-    await findEdgePath();
+    const path = await findEdgePath();
     // No SVG circle any more: the dot moved into the label layer so it z-wins
     // over the aggregate chip.
     expect(document.querySelector("circle")).toBeNull();
@@ -114,11 +89,16 @@ describe("canvas/BusEdge", () => {
     );
     expect(dot).not.toBeNull();
     expect(dot!.classList.contains("bus-junction")).toBe(true);
-    // Centred on the branch point via the double translate: the -50%,-50% centre
-    // plus an explicit numeric x on the branch column and laneY = 500 on the y.
-    // Pin both axes so an axis swap or a dropped coordinate fails, not just y.
+    // Centred on the branch point via the double translate: the -50%,-50%
+    // centre plus an explicit numeric x on the junction column and the trunk
+    // row on the y. Pin both axes so an axis swap or a dropped coordinate
+    // fails, not just y: the trunk runs at the source port row, which is the
+    // drawn path's first vertex.
+    const sourceY = parsePathPoints(path.getAttribute("d") ?? "")[0]![1];
     expect(dot!.style.transform).toMatch(
-      /translate\(-50%, -50%\) translate\(-?\d[\d.]*px, 500px\)/,
+      new RegExp(
+        `translate\\(-50%, -50%\\) translate\\(-?\\d[\\d.]*px, ${sourceY}px\\)`,
+      ),
     );
     // Not dimmed when the edge carries no dim state.
     expect(dot!.classList.contains("dimmed")).toBe(false);
@@ -128,7 +108,7 @@ describe("canvas/BusEdge", () => {
     renderEdge({
       item: "Iron Plate",
       rate: new Fraction(2, 1),
-      laneY: 500,
+      fanout: true,
       trunkKey: "Iron Plate|src",
       busMemberCount: 2,
       dimmed: true,
@@ -144,13 +124,13 @@ describe("canvas/BusEdge", () => {
 
 describe("canvas/BusEdge crossing cues", () => {
   // The cue stamp must sit on the edge's own live polyline (the stale-stamp
-  // rule), so the fixture discovers an on-line point -- the lane path's
+  // rule), so the fixture discovers an on-line point -- the drawn path's
   // middle vertex -- from a plain render first.
-  async function laneMidpoint(): Promise<{ x: number; y: number }> {
+  async function pathMidpoint(): Promise<{ x: number; y: number }> {
     renderEdge({
       item: "Iron Plate",
       rate: new Fraction(2, 1),
-      laneY: 500,
+      fanout: true,
       trunkKey: "Iron Plate|src",
     });
     const path = await findEdgePath();
@@ -161,11 +141,11 @@ describe("canvas/BusEdge crossing cues", () => {
   }
 
   it("masks its own stroke around a stamped crossing", async () => {
-    const on = await laneMidpoint();
+    const on = await pathMidpoint();
     renderEdge({
       item: "Iron Plate",
       rate: new Fraction(2, 1),
-      laneY: 500,
+      fanout: true,
       trunkKey: "Iron Plate|src",
       crossingCues: [on],
     });
@@ -191,7 +171,7 @@ describe("canvas/BusEdge crossing cues", () => {
     renderEdge({
       item: "Iron Plate",
       rate: new Fraction(2, 1),
-      laneY: 500,
+      fanout: true,
       trunkKey: "Iron Plate|src",
     });
     const path = await findEdgePath();
@@ -211,7 +191,7 @@ describe("canvas/BusEdge transport kind", () => {
     renderEdge({
       item: "gas_water",
       rate: new Fraction(2, 1),
-      laneY: 500,
+      fanout: true,
       trunkKey: "gas_water|src",
       transportKind: "gas",
     } as BusData);
@@ -228,7 +208,7 @@ describe("canvas/BusEdge transport kind", () => {
     renderEdge({
       item: "Iron Plate",
       rate: new Fraction(2, 1),
-      laneY: 500,
+      fanout: true,
       trunkKey: "Iron Plate|src",
     });
     const path = await findEdgePath();
@@ -265,7 +245,7 @@ describe("canvas/BusEdge trunk labels", () => {
       {
         item: "Iron Plate",
         rate: new Fraction(2, 1),
-        laneY: 500,
+        fanout: true,
         trunkKey: "Iron Plate|src",
       },
       1,
@@ -284,7 +264,7 @@ describe("canvas/BusEdge trunk labels", () => {
       {
         item: "Iron Plate",
         rate: new Fraction(2, 1),
-        laneY: 500,
+        fanout: true,
         trunkKey: "Iron Plate|src",
       },
       0.35,
@@ -298,7 +278,7 @@ describe("canvas/BusEdge trunk labels", () => {
       {
         item: "Iron Plate",
         rate: new Fraction(2, 1),
-        laneY: 500,
+        fanout: true,
         trunkKey: "Iron Plate|src",
       },
       1,
@@ -322,7 +302,7 @@ describe("canvas/BusEdge trunk labels", () => {
       {
         item: "Iron Plate",
         rate: new Fraction(1, 1), // this member: 60/min
-        laneY: 500,
+        fanout: true,
         trunkKey: "Iron Plate|src",
         busChipOwner: true,
         busTotalRate: new Fraction(2, 1), // trunk total: 120/min
@@ -334,16 +314,14 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(
       document.querySelector('[data-testid="bus-edge-label-e1-drop"]'),
     ).toBeNull();
-    // The member's own rise chip carries the share instead: compact digits on
-    // the chip (no unit, so the pair fits the fixed chip box), full wording
-    // with the localized unit on the hover / aria text.
+    // The member's own branch chip carries its own rate instead (R3: a fan-out
+    // branch keeps the plain rate + unit reading its unformed siblings read).
     const rise = document.querySelector<HTMLElement>(
       '[data-testid="bus-edge-label-e1-rise"]',
     );
     expect(rise).not.toBeNull();
-    expect(rise!.textContent).toBe("60/120");
-    expect(rise!.getAttribute("aria-label")).toBe("Iron Plate x 60 of 120/min");
-    expect(rise!.getAttribute("title")).toBe("Iron Plate x 60 of 120/min");
+    expect(rise!.textContent).toBe("60/min");
+    expect(rise!.getAttribute("aria-label")).toBe("Iron Plate x 60/min");
   });
 
   it("keeps the plain rate on a single-member trunk's chips", async () => {
@@ -354,7 +332,7 @@ describe("canvas/BusEdge trunk labels", () => {
       {
         item: "Iron Plate",
         rate: new Fraction(1, 1),
-        laneY: 500,
+        fanout: true,
         trunkKey: "Iron Plate|src",
         busChipOwner: true,
         busTotalRate: new Fraction(1, 1),
@@ -565,15 +543,13 @@ describe("canvas/BusEdge trunk labels", () => {
     // In the band between the icon-only gate and LABEL_MIN_ZOOM the per-member
     // rise chip is gated, but the owner's aggregate drop chip is exempt and still
     // carries its full total (this lone member is its own owner, showing its rate
-    // as the total). NODES are one layer apart, so the lane run is short and the
-    // consumer-labeling exemption (#32) does not trigger. Zoom sits above the
-    // icon-only gate so the aggregate keeps its digits (the collapse below it has
-    // its own test).
+    // as the total). Zoom sits above the icon-only gate so the aggregate keeps
+    // its digits (the collapse below it has its own test).
     renderEdge(
       {
         item: "Iron Plate",
         rate: new Fraction(2, 1),
-        laneY: 500,
+        fanout: true,
         trunkKey: "Iron Plate|src",
       },
       (CHIP_ICON_ONLY_MAX_ZOOM + LABEL_MIN_ZOOM) / 2,
@@ -595,7 +571,7 @@ describe("canvas/BusEdge trunk labels", () => {
       {
         item: "Iron Plate",
         rate: new Fraction(2, 1),
-        laneY: 500,
+        fanout: true,
         trunkKey: "Iron Plate|src",
         focused: true,
       },
@@ -614,67 +590,6 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(drop!.classList.contains("icon-only")).toBe(false);
   });
 
-  it("exempts the rise chip on a lone member's long detour below the zoom threshold", async () => {
-    // A single-member trunk whose lane run spans several layers (FAR_NODES) is a
-    // long detour: its rise end sits far from the source, so the consumer
-    // would arrive unlabeled at fit zoom. The rise chip is exempted from the
-    // zoom gate (#32) and is the trunk's ONE label: the drop chip stays
-    // undrawn, since restating the same rate two screens back reads as a
-    // second flow (#83). routeBusEdges omits the lane slot (busChipX) for this
-    // case -- as this manually built edge does -- so the chip must anchor at
-    // the geometric rise column (busRiseBase of the target port), the consumer
-    // end, not mid-lane.
-    renderEdge(
-      {
-        item: "Iron Plate",
-        rate: new Fraction(2, 1),
-        laneY: 500,
-        trunkKey: "Iron Plate|src",
-      },
-      0.3,
-      FAR_NODES,
-    );
-    const path = await findEdgePath();
-    const labels = chips();
-    expect(labels).toHaveLength(1);
-    expect(labels[0]!.getAttribute("data-testid")).toBe(
-      "bus-edge-label-e1-rise",
-    );
-    // Anchor check: the rise chip's x sits on the drawn rise column, one
-    // busRiseBase inside the target port (the path's final point).
-    const end = path.getAttribute("d")!.match(/L\s*(-?[\d.]+),(-?[\d.]+)\s*$/);
-    const tx = Number(end![1]);
-    const rise = labels.find(
-      (l) => l.getAttribute("data-testid") === "bus-edge-label-e1-rise",
-    )!;
-    const t = rise.style.transform.match(
-      /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/,
-    );
-    expect(Number(t![1])).toBeCloseTo(busRiseBase(tx), 1);
-  });
-
-  it("falls back to the drop chip when a long lone run's rise chip is hidden", async () => {
-    // The seating pass hid the rise (busRiseHidden), so the drop chip returns
-    // as the trunk's always-on label; without it the whole run is unlabeled.
-    renderEdge(
-      {
-        item: "Iron Plate",
-        rate: new Fraction(2, 1),
-        laneY: 500,
-        trunkKey: "Iron Plate|src",
-        busRiseHidden: true,
-      } as unknown as BusData,
-      0.3,
-      FAR_NODES,
-    );
-    await findEdgePath();
-    const labels = chips();
-    expect(labels).toHaveLength(1);
-    expect(labels[0]!.getAttribute("data-testid")).toBe(
-      "bus-edge-label-e1-drop",
-    );
-  });
-
   it("collapses the exempt aggregate drop chip to icon-only below the icon-only zoom", async () => {
     // "belt" carries a sprite, so the icon survives the collapse. A lone member
     // is its own owner and its drop chip carries no marker, so the collapsed
@@ -683,7 +598,7 @@ describe("canvas/BusEdge trunk labels", () => {
       {
         item: "belt",
         rate: new Fraction(2, 1),
-        laneY: 500,
+        fanout: true,
         trunkKey: "belt|src",
       },
       CHIP_ICON_ONLY_MAX_ZOOM - 0.05,
@@ -705,7 +620,7 @@ describe("canvas/BusEdge trunk labels", () => {
       {
         item: "belt",
         rate: new Fraction(2, 1),
-        laneY: 500,
+        fanout: true,
         trunkKey: "belt|src",
       },
       CHIP_ICON_ONLY_MAX_ZOOM,
@@ -717,51 +632,5 @@ describe("canvas/BusEdge trunk labels", () => {
     expect(drop).not.toBeNull();
     expect(drop!.classList.contains("icon-only")).toBe(false);
     expect(drop!.textContent).toBe("120/min");
-  });
-
-  it("collapses a lone member's exempt long-detour rise chip to icon-only", async () => {
-    renderEdge(
-      {
-        item: "belt",
-        rate: new Fraction(2, 1),
-        laneY: 500,
-        trunkKey: "belt|src",
-      },
-      CHIP_ICON_ONLY_MAX_ZOOM - 0.05,
-      FAR_NODES,
-    );
-    await findEdgePath();
-    const rise = document.querySelector<HTMLElement>(
-      '[data-testid="bus-edge-label-e1-rise"]',
-    );
-    expect(rise).not.toBeNull();
-    expect(rise!.classList.contains("icon-only")).toBe(true);
-    expect(rise!.textContent).toBe("");
-    expect(rise!.querySelector(".ico.ico-16 .spr")).not.toBeNull();
-  });
-
-  it("keeps a multi-member trunk's rise chips gated on a long detour", async () => {
-    // The exemption is lone-member only: a multi-member trunk's per-member rise
-    // chips stay behind the zoom gate even on a long run, so a dense bus stays
-    // legible at fit zoom. Such a trunk draws no aggregate either, so it is
-    // unlabeled at this zoom and the shares ride the hover.
-    renderEdge(
-      {
-        item: "Iron Plate",
-        rate: new Fraction(1, 1),
-        laneY: 500,
-        trunkKey: "Iron Plate|src",
-        busChipOwner: true,
-        busTotalRate: new Fraction(2, 1),
-        busMemberCount: 2,
-      },
-      0.3,
-      FAR_NODES,
-    );
-    await findEdgePath();
-    expect(
-      document.querySelector('[data-testid="bus-edge-label-e1-rise"]'),
-    ).toBeNull();
-    expect(chips()).toHaveLength(0);
   });
 });

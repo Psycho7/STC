@@ -1,29 +1,22 @@
-// Junction-dot coordinates, all four families pinned in one place: the lane bus
-// member's branch dot and the fan-out trunk's split dot (both drawn by BusEdge
-// from the shared path builders), plus the fan-in merge dot and the
-// declined-fan-out divergence dot (both stamped onto item-edge data by
-// deconflictChipAnchors). chipSeating resolves all four up front, before any
-// chip seats, so these are the coordinates that cache -- and the render layer
-// that draws the dots -- must keep reproducing.
+// Junction-dot coordinates, all three families pinned in one place: the fan-out
+// trunk's split dot (drawn by BusEdge from the shared path builders), plus the
+// fan-in merge dot and the declined-fan-out divergence dot (both stamped onto
+// item-edge data by deconflictChipAnchors). chipSeating resolves all three up
+// front, before any chip seats, so these are the coordinates that cache -- and
+// the render layer that draws the dots -- must keep reproducing.
 
 import { describe, it, expect } from "vitest";
 import Fraction from "fraction.js";
 import type { Edge } from "@xyflow/react";
 
 import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
-import {
-  routeBusEdges,
-  routeFanoutEdges,
-  BUS_SPAN_THRESHOLD,
-  FANOUT_SPAN_MIN,
-} from "../../src/canvas/busRouting";
+import { routeFanoutEdges, FANOUT_SPAN_MIN } from "../../src/canvas/busRouting";
 import {
   drawnPortsOf,
   nodeWidth,
   portOffsetY,
 } from "../../src/canvas/nodeGeometry";
 import {
-  chamferBusPath,
   chamferFanoutPath,
   drawnEdge,
   routingHintsFromData,
@@ -35,19 +28,14 @@ import {
   CHIP_BOX_HEIGHT,
   CHIP_BOX_WIDTH,
   MAX_CHIP_SCALE,
-  RECIPE_WIDTH,
 } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 
-// The chip box the seating pass reserves at max counter-scale, and the vertical
-// pitch a crowded chip is bumped by -- the two numbers the dot keep-off's
-// observable effects are stated in.
+// The chip box the seating pass reserves at max counter-scale -- the numbers the
+// dot keep-off's observable effects are stated in.
 const CHIP_HALF_W = (MAX_CHIP_SCALE * CHIP_BOX_WIDTH) / 2;
 const CHIP_HALF_H = (MAX_CHIP_SCALE * CHIP_BOX_HEIGHT) / 2;
-const CHIP_PITCH = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
-// chipSeating's LANE_BITE, mirrored (the module does not export it).
-const LANE_BITE = CHIP_HALF_H - 4;
 
 const ITEM = "s";
 
@@ -84,61 +72,6 @@ const dataOf = (edges: Edge[], id: string): Record<string, unknown> =>
   (edges.find((e) => e.id === id)?.data as
     | Record<string, unknown>
     | undefined) ?? {};
-
-describe("junction dots: lane bus member (BusEdge branch dot)", () => {
-  it("draws its dot on the trunk lane, just left of the member's rise column", () => {
-    const src = producer("src", 0, 0);
-    const tgt = consumer("tgt", RECIPE_WIDTH + BUS_SPAN_THRESHOLD + 50, 200);
-    // A card straddling the direct corridor at the target row, so the lone
-    // member is not demoted to a plain item edge and stays on a lane.
-    const mid = recipeNode("mid", 600, 200, mkRecipe("mid", ["z"], ["z"]));
-    const nodes: RFAnyNode[] = [src, tgt, mid];
-    const routed = routeBusEdges(nodes, [rateEdge("e:1", "src", "tgt")]);
-
-    // Premise: the edge really is a lane bus member, so BusEdge draws its dot
-    // from chamferBusPath.
-    expect(routed[0]!.type).toBe("bus");
-    const laneY = dataOf(routed, "e:1").laneY as number;
-    expect(laneY).toBe(370); // 290 (lowest card bottom) + LANE_TOP_OFFSET
-
-    const junction = chamferBusPath({
-      ...drawnPortsFor(src, tgt),
-      laneY,
-      ...routingHintsFromData(routed[0]!.data),
-    }).junction;
-    expect(junction).toEqual({ x: 947, y: 370 });
-    // The dot sits ON the lane it marks the branch off.
-    expect(junction.y).toBe(laneY);
-
-    // Seating moves chips, never the lane the dot is drawn on.
-    const seated = deconflictChipAnchors(nodes, routed);
-    expect(dataOf(seated, "e:1").laneY).toBe(laneY);
-
-    // A LONE member draws no dot (nothing branches at its corner, #83), and its
-    // rise chip stays seated ON the lane.
-    expect(dataOf(seated, "e:1").busChipDy).toBeUndefined();
-
-    // Stamped multi-member, the dot returns, and the rise chip still keeps its
-    // lane slot: it anchors on the lane a chamfer right of this junction, so its
-    // box swallows the dot at dy 0, and nothing lifts it off. Covering the dot
-    // is the ratified trade -- the dot is decorative, a rate chip cut loose from
-    // its lane is not -- because the seat only lifts to clear a chip or a
-    // stroke, and a dot sitting ON the lane is neither.
-    const multi = routed.map((e) =>
-      e.id === "e:1" ? { ...e, data: { ...e.data, busMemberCount: 2 } } : e,
-    );
-    const seatedMulti = deconflictChipAnchors(nodes, multi);
-    expect(dataOf(seatedMulti, "e:1").busChipDy).toBeUndefined();
-    // Why no lift can buy the dot back: the bite is strictly under one chip
-    // half-height, so the lane stroke stays inside the box the chip paints,
-    // while a dot sitting ON the lane needs more than a half-height of lift to
-    // leave that box. A pitch is exactly two half-heights, which puts the stroke
-    // ON the box edge -- a lift the seat only pays to clear a neighbouring chip,
-    // never for a dot.
-    expect(Math.abs(LANE_BITE)).toBeLessThan(CHIP_HALF_H);
-    expect(Math.abs(CHIP_PITCH)).toBeGreaterThanOrEqual(2 * CHIP_HALF_H);
-  });
-});
 
 describe("junction dots: fan-out trunk (BusEdge split dot)", () => {
   it("draws one shared dot where the trunk splits into its branches", () => {

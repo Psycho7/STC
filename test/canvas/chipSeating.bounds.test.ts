@@ -80,28 +80,6 @@ describe("contentBounds: chip extents", () => {
       height: boxBottom - boxTop,
     });
   });
-
-  it("contains a bus chip parked outside the node box", () => {
-    // A lane rise chip whose slot sits 1000 units right of the rightmost card.
-    // Its x was never unioned before (only the lane y was), so the chip fell
-    // outside the fitted rect entirely.
-    const busChipX = 748 + 1000;
-    const data = {
-      item: "ore",
-      rate: new Fraction(1),
-      laneY: 400,
-      busChipX,
-      busChipOwner: false,
-    };
-    const edges: Edge[] = [
-      { id: "e1", type: "bus", source: "a", target: "b", data },
-    ];
-
-    const bounds = contentBounds(NODES, edges)!;
-    expect(bounds.x + bounds.width).toBeGreaterThanOrEqual(
-      busChipX + CHIP_HALF_W,
-    );
-  });
 });
 
 // The two stamped hides (a fan-in member's rate chip, a fan-out member's branch

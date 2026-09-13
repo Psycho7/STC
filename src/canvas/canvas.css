@@ -467,17 +467,6 @@
   color: var(--ak-accent-red);
 }
 
-.topbar .bus-lanes-toggle {
-  cursor: pointer;
-}
-
-/* Outranks the generic .ak-app-shell .topbar button:hover rule below so the
-   active tint survives hover. */
-.ak-app-shell .topbar .bus-lanes-toggle.on {
-  border-color: var(--ak-accent-lime);
-  color: var(--ak-accent-lime);
-}
-
 /* Override the generic .ak-app-shell button rule inside the topbar so the
    locale switcher + action buttons keep their topbar look. */
 .ak-app-shell .topbar select,
@@ -1572,52 +1561,6 @@
 .ak-canvas-theme .canvas-annot.bottom-right {
   bottom: 32px;
   right: 32px;
-}
-
-/* Bus-lane band marking (BusBands, via ViewportPortal). Rendered BENEATH the
-   edges in flow coordinates, so it pans and zooms with the graph. NON-DOMINANT
-   is a hard constraint: a <= 0.05-opacity fill, 1px top/bottom hairlines, and a
-   small faint BUS tag -- it reads as background texture, never as a chip. The
-   fill and hairlines scale with zoom via the viewport transform, so the tint
-   stays equally faint at every zoom. */
-.ak-canvas-theme .bus-band {
-  background: rgba(176, 180, 188, 0.04);
-  border-top: 1px solid rgba(176, 180, 188, 0.16);
-  border-bottom: 1px solid rgba(176, 180, 188, 0.16);
-  pointer-events: none;
-  box-sizing: border-box;
-}
-/* The BUS caption. DECORATIVE (exam-surfaced R5): background texture, never
-   a chip and never an obstacle -- nothing in the routing model avoids it, so
-   it must SIT where no stroke can enter: the band's OUTER pad, the BAND_Y_PAD
-   strip (one lane spacing 48 plus a max-scale chip half height 24 = 72 flow
-   units) on the far side of the graph. Every bus drop / rise column ends at
-   its own lane and lanes sit graph-side, so an outer pad carries no path
-   vertex; the 20-unit tag pinned 4 off the pad edge clears the outermost
-   vertex by 48 units, and that box is zoom-invariant because the tag rides
-   the viewport transform with no counter-scale. The two bands anchor at
-   OPPOSITE pads: the bottom band's TOP pad is the corridor its members'
-   columns descend through from the graph (multi6: five tap columns at
-   x 192-208 cross its full height), so top-anchoring both would drop the
-   caption back under strokes. It moved from mid-band, where a stroke crossed
-   the text at the leftmost column (the caption half of
-   stroke-crosses-foreign-chip: multi6 bus-label-under-stroke,
-   rot-bottled_food_4 loop-label-crossed-by-back-edge). */
-.ak-canvas-theme .bus-band-tag {
-  position: absolute;
-  left: 6px;
-  font-family: var(--font-mono);
-  font-size: 20px;
-  line-height: 1;
-  color: var(--ak-text-decoration-faint);
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-}
-.ak-canvas-theme .bus-band[data-testid="bus-band-top"] .bus-band-tag {
-  top: 4px;
-}
-.ak-canvas-theme .bus-band[data-testid="bus-band-bottom"] .bus-band-tag {
-  bottom: 4px;
 }
 
 /* Icon sprite system. */

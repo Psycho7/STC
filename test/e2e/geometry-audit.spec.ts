@@ -3,7 +3,6 @@ import { CENSUS_ZOOM, bootExamPage, loadCensusScenario } from "./viewport";
 import { SCENARIOS, extraScenariosFromEnv, scenarioHash } from "./scenarios";
 import {
   CARD_INTRUSION_BUDGET,
-  auditBusChipsOutsideBand,
   auditCardFrames,
   auditChipCardIntrusion,
   auditChipForeignStrokes,
@@ -24,17 +23,13 @@ import {
   fmtSeg,
   parsePath,
   polylineLength,
-  segmentEntersRect,
-  segmentsOf,
   toRawEdges,
-  type BandRect,
   type ChipCensusHit,
   type ChipRect,
   type DotRect,
   type NodeRect,
   type PortFurnitureRect,
   type RawEdge,
-  type RawRect,
 } from "./geometry";
 import { collectAudit, collectGeometry, type AuditChipRect } from "./collect";
 
@@ -84,40 +79,25 @@ const AUDIT_SCENARIOS = [...SCENARIOS, ...extraScenariosFromEnv()];
 // The fixed corpus, which every table below is required to pin in full.
 const FIXED_IDS = new Set(SCENARIOS.map((s) => s.id));
 
-// The two bus-lanes render modes every describe below runs in. "off" is the
-// fresh-browser default (no stored aef.busLanes key reads as off); "on" is what
-// the audit corpus had pinned exclusively until the mode dimension landed.
-type LaneMode = "on" | "off";
-const LANE_MODES: readonly LaneMode[] = ["on", "off"];
-
-// The on and off sub-tables of every baseline below are independent
-// measurements of two renders: an off cell is never derived from its on
-// sibling, and the ratchet convention (down freely, up only on a recorded
-// ruling) applies within a mode. With no bands drawn OUTSIDE_BAND is a
-// structural zero and SKIPPED_BAND_INVENTORY equals the fan-out chip count.
-
 // A baseline read that tolerates a scenario the table does not pin. Returns null
 // and records why, so the caller can leave that one ratchet unasserted while the
 // rest of the test runs. Only a rotating id earns that tolerance: a fixed-corpus
 // id with no entry means the table lost a row, so it throws instead of quietly
 // downgrading its own membership guard to a skip.
 function baselineFor(
-  table: Record<LaneMode, Record<string, number>>,
+  table: Record<string, number>,
   tableName: string,
   scenarioId: string,
-  mode: LaneMode,
   unpinned: string[],
 ): number | null {
-  const pinned = table[mode][scenarioId];
+  const pinned = table[scenarioId];
   if (pinned === undefined) {
     if (FIXED_IDS.has(scenarioId))
       throw new Error(
-        `${tableName}[${mode}] has no entry for fixed-corpus scenario "${scenarioId}": ` +
-          `every SCENARIOS id must stay pinned in every baseline table, in both modes`,
+        `${tableName} has no entry for fixed-corpus scenario "${scenarioId}": ` +
+          `every SCENARIOS id must stay pinned in every baseline table`,
       );
-    unpinned.push(
-      `${scenarioId} has no ${tableName}[${mode}] entry (rotating plan)`,
-    );
+    unpinned.push(`${scenarioId} has no ${tableName} entry (rotating plan)`);
     return null;
   }
   return pinned;
@@ -134,144 +114,134 @@ function skipUnpinnedRatchets(unpinned: string[]): void {
 }
 
 test.describe("DOM geometry audit", () => {
-  for (const mode of LANE_MODES) {
-    test.describe(`lanes ${mode}`, () => {
-      for (const scenario of AUDIT_SCENARIOS) {
-        test(scenario.id, async ({ page }) => {
-          const hash = await scenarioHash(scenario);
-          await loadScenario(page, hash, mode);
+  for (const scenario of AUDIT_SCENARIOS) {
+    test(scenario.id, async ({ page }) => {
+      const hash = await scenarioHash(scenario);
+      await loadScenario(page, hash);
 
-          const {
-            chips,
-            rows,
-            recipeNodeCount,
-            containerRect,
-            flowChipZ,
-            busJunctionZ,
-          } = await page.evaluate(collectAudit);
+      const {
+        chips,
+        rows,
+        recipeNodeCount,
+        containerRect,
+        flowChipZ,
+        busJunctionZ,
+      } = await page.evaluate(collectAudit);
 
-          // (a) Zero pairwise chip overlaps. Collect the full inventory so one run
-          // reports every offending pair, not just the first.
-          const overlaps: string[] = [];
-          for (let i = 0; i < chips.length; i++) {
-            for (let j = i + 1; j < chips.length; j++) {
-              const hit = overlapPx(chips[i]!, chips[j]!);
-              if (hit !== null) {
-                overlaps.push(
-                  `"${chips[i]!.label}" ${fmtRect(chips[i]!)} vs ` +
-                    `"${chips[j]!.label}" ${fmtRect(chips[j]!)} ` +
-                    `overlap ${hit.dx.toFixed(1)}x${hit.dy.toFixed(1)}px`,
-                );
-              }
-            }
-          }
-
-          // (a2) Every chip sits inside the visible pane at fit zoom. fitBounds
-          // frames the node cards PLUS the seated chip extents (contentBounds), so a
-          // chip cascaded below the deepest lane band or nudged past a card edge is
-          // inside the viewport instead of clipped at the rim. A chip whose box pokes
-          // past any container edge by more than the epsilon is clipped.
-          const clipped: string[] = [];
-          for (const c of chips) {
-            const dxOut = Math.max(
-              containerRect.x - c.x,
-              c.right - containerRect.right,
+      // (a) Zero pairwise chip overlaps. Collect the full inventory so one run
+      // reports every offending pair, not just the first.
+      const overlaps: string[] = [];
+      for (let i = 0; i < chips.length; i++) {
+        for (let j = i + 1; j < chips.length; j++) {
+          const hit = overlapPx(chips[i]!, chips[j]!);
+          if (hit !== null) {
+            overlaps.push(
+              `"${chips[i]!.label}" ${fmtRect(chips[i]!)} vs ` +
+                `"${chips[j]!.label}" ${fmtRect(chips[j]!)} ` +
+                `overlap ${hit.dx.toFixed(1)}x${hit.dy.toFixed(1)}px`,
             );
-            const dyOut = Math.max(
-              containerRect.y - c.y,
-              c.bottom - containerRect.bottom,
+          }
+        }
+      }
+
+      // (a2) Every chip sits inside the visible pane at fit zoom. fitBounds
+      // frames the node cards PLUS the seated chip extents (contentBounds), so a
+      // chip cascaded below the deepest lane band or nudged past a card edge is
+      // inside the viewport instead of clipped at the rim. A chip whose box pokes
+      // past any container edge by more than the epsilon is clipped.
+      const clipped: string[] = [];
+      for (const c of chips) {
+        const dxOut = Math.max(
+          containerRect.x - c.x,
+          c.right - containerRect.right,
+        );
+        const dyOut = Math.max(
+          containerRect.y - c.y,
+          c.bottom - containerRect.bottom,
+        );
+        if (dxOut > OVERLAP_EPS_PX || dyOut > OVERLAP_EPS_PX) {
+          clipped.push(
+            `"${c.label}" ${fmtRect(c)} pokes past the pane ` +
+              `[${containerRect.x.toFixed(1)},${containerRect.y.toFixed(1)} ` +
+              `${containerRect.right.toFixed(1)}x${containerRect.bottom.toFixed(1)}] ` +
+              `by ${Math.max(0, dxOut).toFixed(1)}x${Math.max(0, dyOut).toFixed(1)}px`,
+          );
+        }
+      }
+
+      // (b) Every row handle centred on its row (vertical axis).
+      const offCenter: string[] = [];
+      for (const row of rows) {
+        // A catalyst row is an input the machine cycles rather than
+        // consumes, and it draws its own edge from the item's boundary
+        // supply node (CATALYST_SUPPLY_EDGES in src/flags.ts, on). So it
+        // carries exactly one handle, on the `cat:` namespace rather than
+        // `in:`, seated inside the row like every other port: a row without
+        // one leaves that edge no endpoint to land on, and a second handle
+        // would offer the arriving edge a choice of two.
+        if (row.rowClass.split(" ").includes("catalyst")) {
+          const catIds = row.handleIds.filter((id) => id.startsWith("cat:"));
+          const seated =
+            row.handleCenterY !== null &&
+            row.handleCenterY >= row.rowTop &&
+            row.handleCenterY <= row.rowBottom;
+          if (row.handleIds.length !== 1 || catIds.length !== 1 || !seated) {
+            offCenter.push(
+              `${row.nodeId} catalyst row "${row.item}" carries ` +
+                `[${row.handleIds.join(", ")}] instead of one seated ` +
+                `cat: handle (row ${row.rowTop.toFixed(1)}-${row.rowBottom.toFixed(1)}, ` +
+                `handle ${row.handleCenterY === null ? "none" : row.handleCenterY.toFixed(1)})`,
             );
-            if (dxOut > OVERLAP_EPS_PX || dyOut > OVERLAP_EPS_PX) {
-              clipped.push(
-                `"${c.label}" ${fmtRect(c)} pokes past the pane ` +
-                  `[${containerRect.x.toFixed(1)},${containerRect.y.toFixed(1)} ` +
-                  `${containerRect.right.toFixed(1)}x${containerRect.bottom.toFixed(1)}] ` +
-                  `by ${Math.max(0, dxOut).toFixed(1)}x${Math.max(0, dyOut).toFixed(1)}px`,
-              );
-            }
           }
+          continue;
+        }
+        if (row.handleCenterY === null) {
+          offCenter.push(
+            `${row.nodeId} row "${row.item}" (${row.rowClass}) has no handle`,
+          );
+          continue;
+        }
+        const delta = Math.abs(row.handleCenterY - row.rowCenterY);
+        if (delta > HANDLE_CENTER_TOL_PX) {
+          offCenter.push(
+            `${row.nodeId} row "${row.item}" (${row.rowClass}) ` +
+              `handle centre off by ${delta.toFixed(2)}px ` +
+              `(row ${row.rowCenterY.toFixed(1)}, handle ${row.handleCenterY.toFixed(1)})`,
+          );
+        }
+      }
 
-          // (b) Every row handle centred on its row (vertical axis).
-          const offCenter: string[] = [];
-          for (const row of rows) {
-            // A catalyst row is an input the machine cycles rather than
-            // consumes, and it draws its own edge from the item's boundary
-            // supply node (CATALYST_SUPPLY_EDGES in src/flags.ts, on). So it
-            // carries exactly one handle, on the `cat:` namespace rather than
-            // `in:`, seated inside the row like every other port: a row without
-            // one leaves that edge no endpoint to land on, and a second handle
-            // would offer the arriving edge a choice of two.
-            if (row.rowClass.split(" ").includes("catalyst")) {
-              const catIds = row.handleIds.filter((id) =>
-                id.startsWith("cat:"),
-              );
-              const seated =
-                row.handleCenterY !== null &&
-                row.handleCenterY >= row.rowTop &&
-                row.handleCenterY <= row.rowBottom;
-              if (
-                row.handleIds.length !== 1 ||
-                catIds.length !== 1 ||
-                !seated
-              ) {
-                offCenter.push(
-                  `${row.nodeId} catalyst row "${row.item}" carries ` +
-                    `[${row.handleIds.join(", ")}] instead of one seated ` +
-                    `cat: handle (row ${row.rowTop.toFixed(1)}-${row.rowBottom.toFixed(1)}, ` +
-                    `handle ${row.handleCenterY === null ? "none" : row.handleCenterY.toFixed(1)})`,
-                );
-              }
-              continue;
-            }
-            if (row.handleCenterY === null) {
-              offCenter.push(
-                `${row.nodeId} row "${row.item}" (${row.rowClass}) has no handle`,
-              );
-              continue;
-            }
-            const delta = Math.abs(row.handleCenterY - row.rowCenterY);
-            if (delta > HANDLE_CENTER_TOL_PX) {
-              offCenter.push(
-                `${row.nodeId} row "${row.item}" (${row.rowClass}) ` +
-                  `handle centre off by ${delta.toFixed(2)}px ` +
-                  `(row ${row.rowCenterY.toFixed(1)}, handle ${row.handleCenterY.toFixed(1)})`,
-              );
-            }
-          }
+      // Handle centring is a per-node CSS invariant independent of chip layout;
+      // assert it first so that if a scenario also has chip overlaps, reaching
+      // the overlap assertion still confirms the handles were centred.
+      expect(
+        offCenter,
+        `${scenario.id}: ${offCenter.length} off-centre handle(s) among ${rows.length} rows in ${recipeNodeCount} recipe node(s):\n${offCenter.join("\n")}`,
+      ).toEqual([]);
+      expect(
+        overlaps,
+        `${scenario.id}: ${overlaps.length} chip overlap(s) among ${chips.length} chips:\n${overlaps.join("\n")}`,
+      ).toEqual([]);
+      expect(
+        clipped,
+        `${scenario.id}: ${clipped.length} chip(s) clipped outside the pane among ${chips.length} chips:\n${clipped.join("\n")}`,
+      ).toEqual([]);
 
-          // Handle centring is a per-node CSS invariant independent of chip layout;
-          // assert it first so that if a scenario also has chip overlaps, reaching
-          // the overlap assertion still confirms the handles were centred.
-          expect(
-            offCenter,
-            `${scenario.id}: ${offCenter.length} off-centre handle(s) among ${rows.length} rows in ${recipeNodeCount} recipe node(s):\n${offCenter.join("\n")}`,
-          ).toEqual([]);
-          expect(
-            overlaps,
-            `${scenario.id}: ${overlaps.length} chip overlap(s) among ${chips.length} chips:\n${overlaps.join("\n")}`,
-          ).toEqual([]);
-          expect(
-            clipped,
-            `${scenario.id}: ${clipped.length} chip(s) clipped outside the pane among ${chips.length} chips:\n${clipped.join("\n")}`,
-          ).toEqual([]);
-
-          // (d2) Flow chips paint ABOVE bus junction dots. Both are portaled into
-          // the shared .react-flow__edgelabel-renderer stacking context, and a chip
-          // counter-scales up to 2x about its centre, so an enlarged aggregate chip
-          // envelops the world-fixed dot. The dot is decorative (aria-hidden); the
-          // chip carries the digits, so it must win. A strict order is required: the
-          // lowest chip z-index must exceed the highest dot z-index, or a sibling
-          // member edge's dot could still paint over the owner's chip on DOM order.
-          // Only asserted where a scenario renders both.
-          if (flowChipZ.length > 0 && busJunctionZ.length > 0) {
-            const minChipZ = Math.min(...flowChipZ);
-            const maxDotZ = Math.max(...busJunctionZ);
-            expect(
-              minChipZ,
-              `${scenario.id}: flow-chip z-index (min ${minChipZ}) must be strictly above bus-junction z-index (max ${maxDotZ}) among ${flowChipZ.length} chips and ${busJunctionZ.length} junction dots`,
-            ).toBeGreaterThan(maxDotZ);
-          }
-        });
+      // (d2) Flow chips paint ABOVE bus junction dots. Both are portaled into
+      // the shared .react-flow__edgelabel-renderer stacking context, and a chip
+      // counter-scales up to 2x about its centre, so an enlarged aggregate chip
+      // envelops the world-fixed dot. The dot is decorative (aria-hidden); the
+      // chip carries the digits, so it must win. A strict order is required: the
+      // lowest chip z-index must exceed the highest dot z-index, or a sibling
+      // member edge's dot could still paint over the owner's chip on DOM order.
+      // Only asserted where a scenario renders both.
+      if (flowChipZ.length > 0 && busJunctionZ.length > 0) {
+        const minChipZ = Math.min(...flowChipZ);
+        const maxDotZ = Math.max(...busJunctionZ);
+        expect(
+          minChipZ,
+          `${scenario.id}: flow-chip z-index (min ${minChipZ}) must be strictly above bus-junction z-index (max ${maxDotZ}) among ${flowChipZ.length} chips and ${busJunctionZ.length} junction dots`,
+        ).toBeGreaterThan(maxDotZ);
       }
     });
   }
@@ -296,7 +266,7 @@ test.describe("DOM geometry audit", () => {
 //     baseline (packed-layout residue where sibling paddings overlap);
 //   tier 4 (P3): chip/foreign-card overlaps HARD ZERO on every scenario (the
 //     ratified acceptance criterion), plus chips-off-own-line as a SOFT ratchet
-//     (residue where parallel edges / bus lanes / card-hardness force a nudge);
+//     (residue where parallel edges / card-hardness force a nudge);
 //   dots (SOFT ratchet): junction dots hidden under a chip box <= per-scenario
 //     baseline (the merge / split markers a chip's opaque box takes from the
 //     reader; chips deliberately paint above the dots, so the seating pass is
@@ -565,9 +535,9 @@ test.describe("DOM geometry audit", () => {
 //
 // #25 per-trunk column separation ruling. Baseline bumps: default 0 -> 9,
 // multi6 236 -> 415 (the prior 236 was stale pre-P2 slack; the actual measured
-// pre-#25 multi6 count was 158, so the real delta is +257). clearBusColumns now
-// steps two DISTINCT-item trunks that resolve onto the SAME drop or rise column
-// in one band apart by one entry-slot pitch. The counts rise because formerly-
+// pre-#25 multi6 count was 158, so the real delta is +257). The column passes
+// then stepped two DISTINCT-item trunks that resolved onto the SAME column in
+// one band apart by one entry-slot pitch. The counts rise because formerly-
 // coincident columns HID their crossings as colinear vertical overlaps -- the
 // candy stripe WAS the degenerate crossing -- and separating them converts each
 // into a proper crossing the counter can see. Bus-member pair multiplicity
@@ -609,52 +579,21 @@ test.describe("DOM geometry audit", () => {
 // edge crosses most of the corridors between them; multi6 carries three such
 // spans across its 92-edge graph, which is where the bulk of its move is.
 // UP moves, listed as ruling items.
-const CROSSING_BASELINE_ON: Record<string, number> = {
-  default: 4, // 9 -> 4, Task 7 y-window re-measure
-  // 8 -> 9 at the exam-surfaced R4 re-measure (declared output rows flip the
-  // copper_nugget ports; ratified 2026-09-04). 9 -> 13 at R9 (2026-09-04):
-  // loop returns stay in the mid-graph instead of flying over it, so their
-  // rails cross corridors they used to overfly (Task 7; the crossing cue
-  // marks them). rot-bottled_food_3 3 -> 5, same cause.
-  battery5: 15, // 14 -> 15 at the catalyst edges.
-  "battery5-xiranite": 47, // 55 -> 47, Task 7
+const CROSSING_BASELINE: Record<string, number> = {
+  // default 2 -> 4 rose with the ratified fan-out restoration (lanes off).
+  default: 4,
+  battery5: 19, // 12 -> 19 at the catalyst edges.
+  "battery5-xiranite": 24,
   crystal: 1,
   equip4: 1,
-  multi6: 264, // 415 -> 121, Task 7. 121 -> 137 at R10 (2026-09-04):
-  // out-of-band rail strikes padded by the full gap, so multi6's dense
-  // backward rails settle further out and cross more mid-graph corridors.
-  // RECIPE CARD TRIM (2026-09-13): 205 -> 214 measured on the trim's own base.
-  // The narrower card moves every column and corridor and multi6's mid-graph
-  // crossings follow it. The merge with the catalyst supply edges takes the
-  // larger 205 -> 264 move above instead, which the merged tree measures under,
-  // so the pin stays 264. UP move, listed for ruling in the trim's PR.
+  multi6: 139,
   tundra: 0,
-  script43: 26, // 55 -> 26, Task 7
-  "coupon-web": 17, // 14 -> 13, Task 7. 13 -> 17 at the catalyst rows.
-  "gas-web": 40, // 42 -> 39, Task 7. 39 -> 40 at R10, same cause as
-  // multi6.
-  "rot-bottled_food_3": 5, // 3 -> 5 at R9, same cause as battery5
-  "rot-bottled_food_4": 20, // 22 -> 20, Task 7
-  transmuters: 28, // 25 -> 28 at the catalyst edges.
-};
-const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: CROSSING_BASELINE_ON,
-  // default 2 -> 4 rose with the ratified fan-out restoration (lanes off).
-  off: {
-    default: 4,
-    battery5: 19, // 12 -> 19 at the catalyst edges.
-    "battery5-xiranite": 24,
-    crystal: 1,
-    equip4: 1,
-    multi6: 139,
-    tundra: 0,
-    script43: 34,
-    "coupon-web": 17, // 14 -> 17 at the catalyst rows.
-    "gas-web": 38,
-    "rot-bottled_food_3": 5,
-    "rot-bottled_food_4": 6,
-    transmuters: 27, // 25 -> 27 at the catalyst edges.
-  },
+  script43: 34,
+  "coupon-web": 17, // 14 -> 17 at the catalyst rows.
+  "gas-web": 38,
+  "rot-bottled_food_3": 5,
+  "rot-bottled_food_4": 6,
+  transmuters: 27, // 25 -> 27 at the catalyst edges.
 };
 
 // Padding-graze baseline (tier 3): segments that clip only a foreign card's
@@ -702,42 +641,24 @@ const CROSSING_BASELINE: Record<LaneMode, Record<string, number>> = {
 // taller and the columns beside them re-pack; the new grazes are a liquid_water
 // tap column (multi6 e:100) and a gas_xiranite tap column (script43 e:30)
 // clipping a neighbour's padding. UP moves, listed as ruling items.
-const PADDED_GRAZE_BASELINE_ON: Record<string, number> = {
+const PADDED_GRAZE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
-  multi6: 1, // 1 -> 0, Task 7. 0 -> 1 at the catalyst split.
+  multi6: 1,
   tundra: 0,
   script43: 3,
   "coupon-web": 2,
   "gas-web": 1,
-  "rot-bottled_food_3": 0, // 2 -> 0, Task 7
-  "rot-bottled_food_4": 1,
-  transmuters: 0,
-};
-const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: PADDED_GRAZE_BASELINE_ON,
-  off: {
-    default: 0,
-    battery5: 1,
-    "battery5-xiranite": 0,
-    crystal: 0,
-    equip4: 0,
-    multi6: 1,
-    tundra: 0,
-    script43: 3,
-    "coupon-web": 2,
-    "gas-web": 1,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
-    // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 0 -> 1. e:24, the
-    // liquid_xiranite catalyst supply run off the copper_powder loop-return
-    // node, crosses the gutter at y 263 and clips u:class:q:13's padding on the
-    // way. UP move, listed for ruling.
-    transmuters: 1,
-  },
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 0,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 0 -> 1. e:24, the
+  // liquid_xiranite catalyst supply run off the copper_powder loop-return
+  // node, crosses the gutter at y 263 and clips u:class:q:13's padding on the
+  // way. UP move, listed for ruling.
+  transmuters: 1,
 };
 
 // P3 chip-tier ratchets. Chip seating follows the ratified priority order:
@@ -752,8 +673,7 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 //     box there necessarily occludes a crossing sibling line, and the hard
 //     chip/card invariant forbids the escapes that would clear it.
 //   chip-off-path: a chip nudged off its own polyline. NOT zero because
-//     coincident parallel edges and shared bus lanes cannot separate along one
-//     shared line, and card-hardness can push the escape past every on-line
+//     coincident parallel edges cannot separate along one shared line, and card-hardness can push the escape past every on-line
 //     candidate; the seat stays as near the line as the hard pair allows.
 // default (0 -> 2), multi6 (0 -> 3), and battery5-xiranite (0 -> 7) rose with the
 // P4 aggregate-chip work: the owner's aggregate chip is now exempt from the
@@ -849,29 +769,7 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // off the new e:23 u:in:liquid_xiranite -> u:class:q:2 catalyst run crosses the
 // full boundary gutter at y 614 and passes under e:20's "Xiragen x 240/min"
 // chip. Softest tier, UP moves, listed as ruling items.
-const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
-  default: 3,
-  battery5: 8,
-  "battery5-xiranite": 16,
-  crystal: 1,
-  equip4: 1,
-  // RECIPE CARD TRIM (2026-09-13): 3 -> 40. The 240px card re-deals multi6's
-  // densest corridors: boundary-input pairs now share one horizontal band
-  // (gas_inert/gas_xiranite run 2 units apart) and the q:23..q:31 fan-out
-  // cluster packs one column, so corridor mates' strokes pierce each other's
-  // chips -- the R12 coincident-stroke class, too close for any box model to
-  // exclude. UP move, listed for ruling in the trim's PR.
-  multi6: 40,
-  tundra: 0,
-  script43: 12,
-  "coupon-web": 5,
-  "gas-web": 12,
-  "rot-bottled_food_3": 2,
-  "rot-bottled_food_4": 4,
-  transmuters: 6, // 1 -> 6 at the catalyst edges.
-};
-const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: CHIP_SEGMENT_BASELINE_ON,
+const CHIP_SEGMENT_BASELINE: Record<string, number> = {
   // R14: 15 -> 42. R16: 42 -> 43 (up move, same trade as the on arm).
   // FAN-OUT LEG SEAT: default 2 -> 3, the same e:12-on-e:8's-leg-row chip as
   // the on arm.
@@ -880,27 +778,26 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   // ruling in the trim's PR. gas-web's cell keeps the larger catalyst-split
   // 5 -> 9 move above rather than the trim's 5 -> 8, which the merged tree
   // measures under.
-  off: {
-    default: 3,
-    // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 11 -> 12. UP move at the
-    // merge of the trim with the catalyst supply edges, listed for ruling: the
-    // inventory is the boundary-gutter class both parents already record (rim
-    // runs e:19 / e:20 / e:22 / e:23 passing under each other's chips), so no
-    // single pair in it is attributable to one parent.
-    battery5: 12,
-    "battery5-xiranite": 15,
-    crystal: 1,
-    equip4: 1,
-    multi6: 40,
-    tundra: 0,
-    script43: 10,
-    "coupon-web": 5,
-    "gas-web": 9,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 2,
-    transmuters: 4, // 1 -> 4 at the catalyst edges.
-  },
+  default: 3,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 11 -> 12. UP move at the
+  // merge of the trim with the catalyst supply edges, listed for ruling: the
+  // inventory is the boundary-gutter class both parents already record (rim
+  // runs e:19 / e:20 / e:22 / e:23 passing under each other's chips), so no
+  // single pair in it is attributable to one parent.
+  battery5: 12,
+  "battery5-xiranite": 15,
+  crystal: 1,
+  equip4: 1,
+  multi6: 40,
+  tundra: 0,
+  script43: 10,
+  "coupon-web": 5,
+  "gas-web": 9,
+  "rot-bottled_food_3": 0,
+  "rot-bottled_food_4": 2,
+  transmuters: 4, // 1 -> 4 at the catalyst edges.
 };
+
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
 // candidates all overlap a card, so card-hardness pushes its seat off the line.
 // battery5-xiranite rose 0 -> 2 for the same reason its chip-segment count rose:
@@ -957,40 +854,7 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
 // xiranite_powder) 9.31px off its own polyline, e:6 (q:4 -> q:3,
 // copper_nugget) 12.00px, and e:9 (q:5 -> out:filter_core, filter_core)
 // 14.01px. UP move, listed as a ruling item.
-const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
-  default: 0,
-  // 0 -> 1 (RULING): e:14 "Sewage x 90/min" seats 16.00px off its polyline, and
-  // it is the issue-#28 TWIN-CORRIDOR shape, not a seat this counter should be
-  // asking the renderer to move. Its anchor sits on a 248-unit vertical corridor
-  // leg with a foreign stroke running PARALLEL to it inside the chip's box: no
-  // motion ALONG the line sheds a parallel neighbour, because the box travels
-  // beside it the whole way, so the sidestep tier steps the box off the line by
-  // a bounded 16 units -- against a painted half-width of 21.75, which leaves the
-  // own line INSIDE the box the chip draws, and the seat-validity census agrees
-  // (it reads this chip as bound to its line). Only this counter flags it,
-  // because it measures the chip's CENTRE against the polyline at a 1px
-  // tolerance, and every bounded step off a vertical leg fails that by
-  // construction. The lanes-off arm was ratified at 2 for exactly this shape on
-  // 2026-08-21; the single-band layout has now brought the on arm onto it too.
-  battery5: 1,
-  "battery5-xiranite": 2,
-  crystal: 0,
-  equip4: 0,
-  multi6: 0,
-  tundra: 0,
-  script43: 2,
-  "coupon-web": 3, // 0 -> 3 at the catalyst rows.
-  "gas-web": 2,
-  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 0 -> 1. e:15's "Ferrium
-  // Powder x 1200/min" chip takes a least-bad escape 44.23px off its own
-  // polyline, the same seat the off arm and SEAT_VALIDITY_BASELINE record.
-  // UP move, listed for ruling.
-  "rot-bottled_food_3": 1,
-  "rot-bottled_food_4": 2,
-  transmuters: 1,
-};
-const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: CHIP_OFFPATH_BASELINE_ON,
+const CHIP_OFFPATH_BASELINE: Record<string, number> = {
   // R14: 0 -> 38, buying PORT_COVER 126 -> 0 and CARD_INTRUSION 79 -> 0.
   // R16: 38 -> 8.
   // RECIPE CARD TRIM (2026-09-13): battery5 2 -> 3, multi6 0 -> 4,
@@ -1001,32 +865,30 @@ const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
   // moves, listed for ruling in the trim's PR. The merge with the catalyst
   // supply edges reset the two rot- cells to develop's 0 and they are
   // re-pinned to 1 below, so the trim's pairs still chain.
-  off: {
-    default: 0,
-    battery5: 3,
-    "battery5-xiranite": 4,
-    crystal: 0,
-    equip4: 0,
-    // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 4 -> 5. A fifth chip
-    // escapes its own polyline (e:10 4.50px, e:14 16.00px, e:19 32.00px, e:24
-    // 41.00px, e:28 16.00px), the same least-bad-escape class as the trim's
-    // own four. UP move at the merge of the trim with the catalyst supply
-    // edges, listed for ruling.
-    multi6: 5,
-    tundra: 0,
-    script43: 2,
-    "coupon-web": 3, // 0 -> 3 at the catalyst rows.
-    "gas-web": 2,
-    // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 0 -> 1. e:15's "Ferrium
-    // Powder x 1200/min" chip, 44.23px off its polyline -- the same seat as
-    // the on arm. UP move, listed for ruling.
-    "rot-bottled_food_3": 1,
-    // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 0 -> 1. e:11's "Jincao
-    // Powder x 150/min" chip takes a bounded 4.50px sidestep off its own
-    // polyline. UP move, listed for ruling.
-    "rot-bottled_food_4": 1,
-    transmuters: 1,
-  },
+  default: 0,
+  battery5: 3,
+  "battery5-xiranite": 4,
+  crystal: 0,
+  equip4: 0,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 4 -> 5. A fifth chip
+  // escapes its own polyline (e:10 4.50px, e:14 16.00px, e:19 32.00px, e:24
+  // 41.00px, e:28 16.00px), the same least-bad-escape class as the trim's
+  // own four. UP move at the merge of the trim with the catalyst supply
+  // edges, listed for ruling.
+  multi6: 5,
+  tundra: 0,
+  script43: 2,
+  "coupon-web": 3, // 0 -> 3 at the catalyst rows.
+  "gas-web": 2,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 0 -> 1. e:15's "Ferrium
+  // Powder x 1200/min" chip, 44.23px off its polyline -- the same seat as
+  // the on arm. UP move, listed for ruling.
+  "rot-bottled_food_3": 1,
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 0 -> 1. e:11's "Jincao
+  // Powder x 150/min" chip takes a bounded 4.50px sidestep off its own
+  // polyline. UP move, listed for ruling.
+  "rot-bottled_food_4": 1,
+  transmuters: 1,
 };
 
 // Fan-out leg ratchet: member chips whose centre lies off the member's OWN leg
@@ -1041,7 +903,7 @@ const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
 // membership guard threw before the audit could read it (environment-frame
 // change, 2026-09-12). First recording, measured on this tree: 0 in both
 // modes -- every fan-out branch chip holds its member's leg.
-const FANOUT_LEG_BASELINE_ON: Record<string, number> = {
+const FANOUT_LEG_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
@@ -1055,24 +917,6 @@ const FANOUT_LEG_BASELINE_ON: Record<string, number> = {
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
   transmuters: 0,
-};
-const FANOUT_LEG_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: FANOUT_LEG_BASELINE_ON,
-  off: {
-    default: 0,
-    battery5: 0,
-    "battery5-xiranite": 0,
-    crystal: 0,
-    equip4: 0,
-    multi6: 0,
-    tundra: 0,
-    script43: 0,
-    "coupon-web": 0,
-    "gas-web": 0,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
-    transmuters: 0,
-  },
 };
 
 // Own-endpoint-pierce ratchet: segments that run inside their OWN source /
@@ -1100,7 +944,7 @@ const FANOUT_LEG_BASELINE: Record<LaneMode, Record<string, number>> = {
 // First recordings for the two exam-surfaced scenarios (campaign-first
 // measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
 // the campaign): both zero.
-const OWN_PIERCE_BASELINE_ON: Record<string, number> = {
+const OWN_PIERCE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
@@ -1114,24 +958,6 @@ const OWN_PIERCE_BASELINE_ON: Record<string, number> = {
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
   transmuters: 0,
-};
-const OWN_PIERCE_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: OWN_PIERCE_BASELINE_ON,
-  off: {
-    default: 0,
-    battery5: 0,
-    "battery5-xiranite": 0,
-    crystal: 0,
-    equip4: 0,
-    multi6: 0,
-    tundra: 0,
-    script43: 0,
-    "coupon-web": 0,
-    "gas-web": 0,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
-    transmuters: 0,
-  },
 };
 
 // Frame-ride ratchet (Task 7, loop-backedge-braids-container family): edge
@@ -1165,10 +991,10 @@ const OWN_PIERCE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // it; it stays the sole recorded residue.
 // SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
 // left-to-right band): battery5 on 0 -> 1.
-const FRAME_RIDE_BASELINE_ON: Record<string, number> = {
+const FRAME_RIDE_BASELINE: Record<string, number> = {
+  // Structural zero with no bands drawn.
   default: 0,
-  // 1 -> 0, round-2 per-side bands (e:9); first recording was Task 7.
-  battery5: 1,
+  battery5: 0,
   "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
@@ -1178,31 +1004,8 @@ const FRAME_RIDE_BASELINE_ON: Record<string, number> = {
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
-  // First recording, Task 7 (e:12); held at the round-2 per-side bands
-  // re-measure (a jog descent, not a return column). 1 -> 0 once the audit
-  // scoped itself to backward edges: the e:12 descent is a forward tap's
-  // entry column, the shape the convention doc exempts.
   "rot-bottled_food_4": 0,
   transmuters: 0,
-};
-const FRAME_RIDE_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: FRAME_RIDE_BASELINE_ON,
-  // Structural zero with no bands drawn.
-  off: {
-    default: 0,
-    battery5: 0,
-    "battery5-xiranite": 0,
-    crystal: 0,
-    equip4: 0,
-    multi6: 0,
-    tundra: 0,
-    script43: 0,
-    "coupon-web": 0,
-    "gas-web": 0,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
-    transmuters: 0,
-  },
 };
 
 // Hidden-junction-dot ratchet: dots whose whole drawn disc sits under a chip
@@ -1288,39 +1091,21 @@ const FRAME_RIDE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // dot sits under e:18's "Xiragen x 15 of 48/min" chip -- e:18 being the
 // ordinary in: edge into the same card, which cycles the gas it consumes.
 // UP moves, listed as ruling items.
-const DOT_COVER_BASELINE_ON: Record<string, number> = {
+const DOT_COVER_BASELINE: Record<string, number> = {
+  // The one survivor is battery5's fan-in owner chip (e:18, ruling R13).
   default: 0,
   battery5: 0,
-  "battery5-xiranite": 3, // 2 -> 3 at the catalyst edges.
+  "battery5-xiranite": 0,
   crystal: 0,
   equip4: 0,
   multi6: 0,
   tundra: 0,
-  script43: 1,
+  script43: 0,
   "coupon-web": 0,
   "gas-web": 0,
   "rot-bottled_food_3": 0,
-  "rot-bottled_food_4": 1,
-  transmuters: 1, // 0 -> 1 at the catalyst edges.
-};
-const DOT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: DOT_COVER_BASELINE_ON,
-  // The one survivor is battery5's fan-in owner chip (e:18, ruling R13).
-  off: {
-    default: 0,
-    battery5: 0,
-    "battery5-xiranite": 0,
-    crystal: 0,
-    equip4: 0,
-    multi6: 0,
-    tundra: 0,
-    script43: 0,
-    "coupon-web": 0,
-    "gas-web": 0,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 2,
-    transmuters: 0,
-  },
+  "rot-bottled_food_4": 2,
+  transmuters: 0,
 };
 
 // Endpoint-parity tolerance, in GRAPH UNITS, per scenario: the largest
@@ -1360,7 +1145,7 @@ const DOT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
 // exam-surfaced-families Task 0, re-measurable within the campaign) measured
 // the same residue and take the same flat 0.5 pin: rot-bottled_food_3 0.001
 // (38 endpoints), rot-bottled_food_4 0.003 (42).
-const ENDPOINT_PARITY_TOL_ON: Record<string, number> = {
+const ENDPOINT_PARITY_TOL: Record<string, number> = {
   default: 0.5,
   battery5: 0.5,
   "battery5-xiranite": 0.5,
@@ -1375,38 +1160,11 @@ const ENDPOINT_PARITY_TOL_ON: Record<string, number> = {
   "rot-bottled_food_4": 0.5,
   transmuters: 0.5,
 };
-// The off arm's worst parity read 0.007 (multi6): the same flat 0.5 pin.
-const ENDPOINT_PARITY_TOL: Record<LaneMode, Record<string, number>> = {
-  on: ENDPOINT_PARITY_TOL_ON,
-  off: {
-    default: 0.5,
-    battery5: 0.5,
-    "battery5-xiranite": 0.5,
-    crystal: 0.5,
-    equip4: 0.5,
-    multi6: 0.5,
-    tundra: 0.5,
-    script43: 0.5,
-    "coupon-web": 0.5,
-    "gas-web": 0.5,
-    "rot-bottled_food_3": 0.5,
-    "rot-bottled_food_4": 0.5,
-    transmuters: 0.5,
-  },
-};
 
-// The lane mode travels as an ARGUMENT all the way into the init script: it is
-// serialised into the page, so nothing captured from this module's scope could
-// reach it.
-async function loadScenario(
-  page: Page,
-  hash: string,
-  mode: LaneMode,
-): Promise<void> {
+async function loadScenario(page: Page, hash: string): Promise<void> {
   await bootExamPage(page, {
     url: `/#${hash}`,
     locale: "en",
-    busLanes: mode,
     readiness: "nodes",
     settle: "both",
   });
@@ -1428,447 +1186,348 @@ function tundraOreFeed(edges: RawEdge[]): RawEdge | null {
   return ore[0]!;
 }
 
-// One DRAWN bus-band caption (the faint "BUS" tag BusBands paints inside each
-// band tint), in graph coordinates: the band it rides plus the tag's box. Read
-// by a spec-local self-contained collector (page.evaluate cannot close over
-// imports) that mirrors collectGeometry's viewport-inverse mapping, so a tag
-// box compares directly with edge paths. The caption is DECORATION, not an
-// obstacle the seating passes measure against (the exam-surfaced campaign's R5
-// moved it into the band's top pad rather than registering it), so the shared
-// collectors deliberately do not carry it and this check reads it itself.
-type BandTagRect = RawRect & { band: string };
-
-async function collectBandTags(page: Page): Promise<BandTagRect[]> {
-  return page.evaluate(() => {
-    const rf = document.querySelector<HTMLElement>(".react-flow");
-    const vp = document.querySelector<HTMLElement>(".react-flow__viewport");
-    if (rf === null || vp === null) return [];
-    const rfRect = rf.getBoundingClientRect();
-    const m = new DOMMatrixReadOnly(getComputedStyle(vp).transform);
-    const toGraphX = (x: number): number => (x - rfRect.left - m.e) / m.a;
-    const toGraphY = (y: number): number => (y - rfRect.top - m.f) / m.a;
-    return Array.from(
-      document.querySelectorAll<HTMLElement>(".bus-band-tag"),
-    ).map((el) => {
-      const r = el.getBoundingClientRect();
-      return {
-        band: el.closest<HTMLElement>(".bus-band")?.dataset.testid ?? "(band)",
-        left: toGraphX(r.left),
-        top: toGraphY(r.top),
-        right: toGraphX(r.right),
-        bottom: toGraphY(r.bottom),
-      };
-    });
-  });
-}
-
 test.describe("segment placement audit", () => {
-  for (const mode of LANE_MODES) {
-    test.describe(`lanes ${mode}`, () => {
-      for (const scenario of AUDIT_SCENARIOS) {
-        test(scenario.id, async ({ page }) => {
-          const unpinned: string[] = [];
-          const hash = await scenarioHash(scenario);
-          await loadScenario(page, hash, mode);
+  for (const scenario of AUDIT_SCENARIOS) {
+    test(scenario.id, async ({ page }) => {
+      const unpinned: string[] = [];
+      const hash = await scenarioHash(scenario);
+      await loadScenario(page, hash);
 
-          const geom = await page.evaluate(collectGeometry);
-          const rawEdges = toRawEdges(geom.edges);
-          const nodes: NodeRect[] = geom.nodes.map((n) => ({
-            nodeId: n.nodeId,
-            type: n.type,
-            left: n.left,
-            top: n.top,
-            right: n.right,
-            bottom: n.bottom,
-          }));
+      const geom = await page.evaluate(collectGeometry);
+      const rawEdges = toRawEdges(geom.edges);
+      const nodes: NodeRect[] = geom.nodes.map((n) => ({
+        nodeId: n.nodeId,
+        type: n.type,
+        left: n.left,
+        top: n.top,
+        right: n.right,
+        bottom: n.bottom,
+      }));
 
-          // Every criterion below asserts SOFT so a failing tier never hides the
-          // others: the census and detour bound are still evaluated (and reported)
-          // even when a card tier is red.
+      // Every criterion below asserts SOFT so a failing tier never hides the
+      // others: the census and detour bound are still evaluated (and reported)
+      // even when a card tier is red.
 
-          const violations = auditSegmentsVsCards(rawEdges, nodes);
+      const violations = auditSegmentsVsCards(rawEdges, nodes);
 
-          // Tier 1 (HARD gate): zero segments entering a foreign RAW card box.
-          const rawHits = violations.filter((v) => v.raw);
-          const rawInventory = rawHits.map(
-            (v) =>
-              `  ${v.edgeId} seg ${fmtSeg(v.seg)} pierces RAW card ${v.card}`,
-          );
-          expect
-            .soft(
-              rawHits.length,
-              `${scenario.id}: ${rawHits.length} RAW segment/card intersection(s):\n${rawInventory.join("\n")}`,
-            )
-            .toBe(0);
+      // Tier 1 (HARD gate): zero segments entering a foreign RAW card box.
+      const rawHits = violations.filter((v) => v.raw);
+      const rawInventory = rawHits.map(
+        (v) => `  ${v.edgeId} seg ${fmtSeg(v.seg)} pierces RAW card ${v.card}`,
+      );
+      expect
+        .soft(
+          rawHits.length,
+          `${scenario.id}: ${rawHits.length} RAW segment/card intersection(s):\n${rawInventory.join("\n")}`,
+        )
+        .toBe(0);
 
-          // Tier 2 (SOFT ratchet): segments entering a foreign edge's chip box stay
-          // at or below the per-scenario baseline. Zero on the sparse plans; the 2B
-          // anchor trades a bounded set of line-occlusions on the packed plans (see
-          // CHIP_SEGMENT_BASELINE) for the chip/card clearance the next tier checks.
-          const chips = geom.chips as ChipRect[];
-          const chipHits = auditSegmentsVsChips(rawEdges, chips, nodes);
-          const chipInventory = chipHits.map(
-            (v) =>
-              `  ${v.edgeId} seg ${fmtSeg(v.seg)} pierces chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
-          );
-          const chipSegBaseline = baselineFor(
-            CHIP_SEGMENT_BASELINE,
-            "CHIP_SEGMENT_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (chipSegBaseline !== null) {
-            expect
-              .soft(
-                chipHits.length,
-                `${scenario.id}: ${chipHits.length} segment/chip intersection(s) exceeds baseline ${chipSegBaseline} among ${geom.chips.length} chips:\n${chipInventory.join("\n")}`,
-              )
-              .toBeLessThanOrEqual(chipSegBaseline);
-          }
-
-          // Tier 4 (P3). Chip-vs-card is the RATIFIED HARD gate: zero chip boxes
-          // entering a FOREIGN raw card, on every scenario. The seating pass
-          // upholds it by priority order -- when the on-line slide cannot clear,
-          // the escape cascade treats cards (like chips) as hard obstacles and
-          // yields the softer preferences instead (on-own-line, foreign-line
-          // clearance), which are the ratcheted residues asserted after it.
-          const chipCardHits = auditChipsVsCards(chips, rawEdges, nodes);
-          const chipCardInventory = chipCardHits.map(
-            (v) =>
-              `  ${v.chipKind} chip of ${v.chipEdgeId} ("${v.chipLabel}") enters RAW card ${v.card}`,
-          );
-          expect
-            .soft(
-              chipCardHits.length,
-              `${scenario.id}: ${chipCardHits.length} chip/card intersection(s) among ${chips.length} chips:\n${chipCardInventory.join("\n")}`,
-            )
-            .toBe(0);
-
-          const offPath = auditChipsOnOwnPath(chips, rawEdges);
-          const offPathInventory = offPath.map(
-            (v) =>
-              `  chip of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its polyline`,
-          );
-          const offPathBaseline = baselineFor(
-            CHIP_OFFPATH_BASELINE,
-            "CHIP_OFFPATH_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (offPathBaseline !== null) {
-            expect
-              .soft(
-                offPath.length,
-                `${scenario.id}: ${offPath.length} label chip(s) off their own polyline exceeds baseline ${offPathBaseline}:\n${offPathInventory.join("\n")}`,
-              )
-              .toBeLessThanOrEqual(offPathBaseline);
-          }
-
-          const offLeg = auditFanoutChipsOnOwnLeg(
-            chips,
-            rawEdges,
-            geom.dots as DotRect[],
-          );
-          const offLegInventory = offLeg.map(
-            (v) =>
-              `  chip of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its own fan-out leg`,
-          );
-          const offLegBaseline = baselineFor(
-            FANOUT_LEG_BASELINE,
-            "FANOUT_LEG_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (offLegBaseline !== null) {
-            expect
-              .soft(
-                offLeg.length,
-                `${scenario.id}: ${offLeg.length} fan-out member chip(s) off their own leg exceeds baseline ${offLegBaseline}:\n${offLegInventory.join("\n")}`,
-              )
-              .toBeLessThanOrEqual(offLegBaseline);
-          }
-
-          // Tier 3 (SOFT ratchet): padding-only grazes stay at or below the
-          // recorded baseline. These clip a foreign card's padding overhang (entry
-          // chip reserve / port stub) where sibling paddings overlap in a packed
-          // column; they never touch the raw box.
-          const grazes = violations.filter((v) => !v.raw);
-          const grazeInventory = grazes.map(
-            (v) =>
-              `  ${v.edgeId} seg ${fmtSeg(v.seg)} grazes padding of ${v.card}`,
-          );
-          const grazeBaseline = baselineFor(
-            PADDED_GRAZE_BASELINE,
-            "PADDED_GRAZE_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (grazeBaseline !== null) {
-            expect
-              .soft(
-                grazes.length,
-                `${scenario.id}: ${grazes.length} padding graze(s) exceeds baseline ${grazeBaseline}:\n${grazeInventory.join("\n")}`,
-              )
-              .toBeLessThanOrEqual(grazeBaseline);
-          }
-
-          // Own-endpoint-pierce ratchet: segments running inside their OWN source /
-          // target card's raw body. Tier 1 exempts endpoint cards and cannot see
-          // these; the pierce rescue's last-resort own-card traversal lands here.
-          // Ratchets down only.
-          const ownPierces = auditOwnCardPierces(rawEdges, nodes);
-          const ownPierceInventory = ownPierces.map(
-            (v) =>
-              `  ${v.edgeId} seg ${fmtSeg(v.seg)} runs inside own ${v.role} card ${v.card}`,
-          );
-          const ownPierceBaseline = baselineFor(
-            OWN_PIERCE_BASELINE,
-            "OWN_PIERCE_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (ownPierceBaseline !== null) {
-            expect
-              .soft(
-                ownPierces.length,
-                `${scenario.id}: ${ownPierces.length} own-card pierce(s) exceeds baseline ${ownPierceBaseline}:\n${ownPierceInventory.join("\n")}`,
-              )
-              .toBeLessThanOrEqual(ownPierceBaseline);
-          }
-
-          // Frame-ride ratchet (Task 7): backward item edges' segments running
-          // along a container slab's border or a bus band's border (forward tap
-          // descents may share a border line by convention and are not counted). Stroke-on-frame braids are the loop-return family this counter
-          // exists to hold at zero; see FRAME_RIDE_BASELINE above.
-          const frameRides = auditFrameRides(
-            rawEdges,
-            nodes,
-            geom.bands as BandRect[],
-          );
-          const frameRideInventory = frameRides.map(
-            (v) =>
-              `  ${v.edgeId} rides the ${v.border} border of ${v.target} ` +
-              `${v.distance.toFixed(1)} off it (${v.kind}), seg ${fmtSeg(v.seg)}`,
-          );
-          const frameRideBaseline = baselineFor(
-            FRAME_RIDE_BASELINE,
-            "FRAME_RIDE_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (frameRideBaseline !== null) {
-            expect
-              .soft(
-                frameRides.length,
-                `${scenario.id}: ${frameRides.length} frame/band ride(s) exceeds baseline ${frameRideBaseline} among ${geom.bands.length} band(s):\n${frameRideInventory.join("\n")}`,
-              )
-              .toBeLessThanOrEqual(frameRideBaseline);
-          }
-
-          // Hidden-dot ratchet: junction dots swallowed by a chip box at fit zoom.
-          // The dot rects come from the DOM, so they carry the zoom-clamped radius
-          // the dot actually renders at; the camera zoom only converts the
-          // one-screen-pixel visibility tolerance into graph units.
-          const hiddenDots = auditDotsUnderChips(
-            chips,
-            geom.dots as DotRect[],
-            geom.zoom,
-          );
-          const hiddenDotInventory = hiddenDots.map(
-            (v) =>
-              `  ${v.dotId} at (${v.at[0].toFixed(1)},${v.at[1].toFixed(1)}) hidden under the chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
-          );
-          const dotBaseline = baselineFor(
-            DOT_COVER_BASELINE,
-            "DOT_COVER_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (dotBaseline !== null) {
-            expect
-              .soft(
-                hiddenDots.length,
-                `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotBaseline} among ${geom.dots.length} dots:\n${hiddenDotInventory.join("\n")}`,
-              )
-              .toBeLessThanOrEqual(dotBaseline);
-          }
-
-          // Card frames: the box the seating pass measures a recipe card by is the
-          // box the browser paints. Unlike the parity check below, which anchors on
-          // the drawn origin and so cannot see the seating pass's own frame, this
-          // one compares a DRAWN size against a rebuilt one, so a seating frame two
-          // units off the border box reddens it. Hard zero, no baseline.
-          const frameMismatches = auditCardFrames(geom.nodes);
-          const frameInventory = frameMismatches.map(
-            (m) =>
-              `  ${m.nodeId}: drawn ${m.drawnWidth.toFixed(2)}x${m.drawnHeight.toFixed(2)} ` +
-              `vs seating ${m.seatingWidth.toFixed(2)}x${m.seatingHeight.toFixed(2)}`,
-          );
-          expect
-            .soft(
-              frameMismatches.length,
-              `${scenario.id}: ${frameMismatches.length} recipe card(s) drawn in a different frame than the seating pass measures:\n${frameInventory.join("\n")}`,
-            )
-            .toBe(0);
-
-          // Endpoint parity: each drawn path starts and ends where a model +
-          // PORT_DRIFT reconstruction of the same port says it should. The two
-          // descriptions are independent -- the drawn vertex comes from React Flow's
-          // handle anchoring, the rebuilt one from the card origin plus the row
-          // geometry the routing model computes -- so a port resolving to the wrong
-          // row shows here as a full row-pitch gap. Reported as the worst endpoint,
-          // with every endpoint past the tolerance named.
-          const parities = auditEndpointParity(rawEdges, geom.nodes);
-          const worstParity = parities.reduce(
-            (m, p) => Math.max(m, p.delta),
-            0,
-          );
-          const parityTol = baselineFor(
-            ENDPOINT_PARITY_TOL,
-            "ENDPOINT_PARITY_TOL",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (parityTol !== null) {
-            const parityInventory = parities
-              .filter((p) => p.delta > parityTol)
-              .map(
-                (p) =>
-                  `  ${p.edgeId} ${p.end} on ${p.nodeType} ${p.nodeId}: ` +
-                  `drawn (${p.drawn[0].toFixed(2)},${p.drawn[1].toFixed(2)}) vs ` +
-                  `rebuilt (${p.rebuilt[0].toFixed(2)},${p.rebuilt[1].toFixed(2)}), ` +
-                  `d=(${p.dx.toFixed(2)},${p.dy.toFixed(2)})`,
-              );
-            expect
-              .soft(
-                worstParity,
-                `${scenario.id}: worst endpoint parity ${worstParity.toFixed(3)} exceeds tolerance ${parityTol} among ${parities.length} endpoints (${parityInventory.length} past tolerance):\n${parityInventory.join("\n")}`,
-              )
-              .toBeLessThanOrEqual(parityTol);
-          }
-
-          // Census: pairwise crossings never regress past the pre-P2 baseline.
-          const crossings = countCrossings(geom.edges);
-          const baseline = baselineFor(
-            CROSSING_BASELINE,
-            "CROSSING_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (baseline !== null) {
-            expect
-              .soft(
-                crossings,
-                `${scenario.id}: ${crossings} crossings exceeds pre-P2 baseline ${baseline}`,
-              )
-              .toBeLessThanOrEqual(baseline);
-          }
-
-          // Crossing-cue coverage (Task 9): every counted crossing between
-          // DIFFERENT flows (different item|source) must carry a DRAWN cue on
-          // one edge of the pair -- the stroke masked out around the crossing,
-          // whichever of the two the seating pass picked (a transparent gap
-          // reads the same in either paint order, so no z key is involved).
-          // ZERO-TOLERANCE by design, no baseline table: the seating pass stamps
-          // a cue for every cross-flow proper crossing by construction, and the
-          // renderers cut every stamped cue that still sits on their live
-          // polyline, so a miss means the stamp pass or the render broke --
-          // there is no legitimate residue class to pin. Same-flow crossings (between one flow's own
-          // edges: trunk members overlapping a lane, fan-out slices sharing a
-          // trajectory) are one visual line by the flowKey doctrine and
-          // deliberately NEVER cued; they are reported in the message so a plan
-          // where that class suddenly grows stays visible instead of silently
-          // living outside the assertion.
-          // First recordings (2026-09-04, informational, not a ratchet) --
-          // crossFlow / sameFlow per scenario, cued equalled crossFlow on every
-          // one: default 4/0, battery5 13/0, battery5-xiranite 46/1, crystal 1/0,
-          // equip4 1/0, multi6 130/7, tundra 0/0, script43 26/0, coupon-web 13/0,
-          // gas-web 39/1, rot-bottled_food_3 5/0, rot-bottled_food_4 20/0. The
-          // drawn-cue count can sit BELOW cued (multi6 120 gaps for 130 cued
-          // crossings): the stamp pass dedupes per edge and point, so trunk
-          // members sharing a lane that crosses one foreign edge together draw
-          // one gap where the census counts each member pair.
-          const coverage = crossingCueCoverage(geom.edges, geom.crossingCues);
-          expect
-            .soft(
-              coverage.uncued.length,
-              `${scenario.id}: ${coverage.uncued.length} of ${coverage.crossFlow} cross-flow crossing(s) carry no cue on either edge` +
-                ` (same-flow crossings, never cued: ${coverage.sameFlow}):\n${coverage.uncued.join("\n")}`,
-            )
-            .toBe(0);
-
-          // Detour: the tundra ore feed stays within 1.5x its endpoints' Manhattan
-          // distance. Only tundra carries the long ore feed the bound targets.
-          if (scenario.id === "tundra") {
-            const feed = tundraOreFeed(rawEdges);
-            expect(feed, "tundra ore-feed edge present").not.toBeNull();
-            const pts = parsePath(feed!.d);
-            const len = polylineLength(pts);
-            const direct = endpointManhattan(pts);
-            expect
-              .soft(
-                len,
-                `tundra ore feed ${feed!.id}: path ${len.toFixed(1)} exceeds 1.5x Manhattan ${direct.toFixed(1)}`,
-              )
-              .toBeLessThanOrEqual(1.5 * direct);
-          }
-
-          // ZERO-TOLERANCE (exam-surfaced campaign, ruling R5): no edge path
-          // segment enters a bus-band caption's box. The caption is a decorative
-          // tag, never an obstacle -- nothing in the routing model avoids it --
-          // so the invariant is held by WHERE IT SITS: in the band's OUTER pad,
-          // the BAND_Y_PAD strip (one lane spacing 48 plus a max-scale chip half
-          // height 24 = 72 flow units) on the far side of the graph. Every bus
-          // drop / rise column ends at its own lane and lanes sit graph-side, so
-          // no path vertex enters an outer pad and the 20-unit tag pinned 4 off
-          // the pad edge clears the outermost vertex by 48 units. The top band
-          // anchors at its top pad and the bottom band at its bottom pad because
-          // the pads are NOT interchangeable: the bottom band's top pad is the
-          // corridor its members' columns descend through from the graph
-          // (multi6: five tap columns at x 192-208 cross its full height), so
-          // top-anchoring both bands drops the caption back under strokes. The
-          // caption moved from mid-band, where a stroke crossed the text at the
-          // leftmost column (the caption half of stroke-crosses-foreign-chip:
-          // multi6 bus-label-under-stroke, rot-bottled_food_4
-          // loop-label-crossed-by-back-edge). The check reads the DRAWN box, so a
-          // CSS regression that re-centres the caption on the lanes reddens it
-          // directly; the tag rides the viewport transform (no counter-scale), so
-          // its graph-space rect -- like the paths -- is the same at every zoom
-          // and one fit-zoom reading states the invariant at all of them.
-          // Rotating plans get this check through extraScenariosFromEnv like
-          // every zero-tolerance criterion here.
-          const bandTags = await collectBandTags(page);
-          const tagHits: string[] = [];
-          for (const tag of bandTags) {
-            for (const edge of rawEdges) {
-              for (const [seg0, seg1] of segmentsOf(parsePath(edge.d))) {
-                if (segmentEntersRect(seg0, seg1, tag, 0.5)) {
-                  tagHits.push(
-                    `  ${edge.id} seg ${fmtSeg([seg0, seg1])} enters the BUS caption of ${tag.band}`,
-                  );
-                }
-              }
-            }
-          }
-          expect
-            .soft(
-              tagHits.length,
-              `${scenario.id}: ${tagHits.length} segment(s) strike the BUS caption(s) among ${bandTags.length} band tag(s):\n${tagHits.join("\n")}`,
-            )
-            .toBe(0);
-
-          skipUnpinnedRatchets(unpinned);
-        });
+      // Tier 2 (SOFT ratchet): segments entering a foreign edge's chip box stay
+      // at or below the per-scenario baseline. Zero on the sparse plans; the 2B
+      // anchor trades a bounded set of line-occlusions on the packed plans (see
+      // CHIP_SEGMENT_BASELINE) for the chip/card clearance the next tier checks.
+      const chips = geom.chips as ChipRect[];
+      const chipHits = auditSegmentsVsChips(rawEdges, chips, nodes);
+      const chipInventory = chipHits.map(
+        (v) =>
+          `  ${v.edgeId} seg ${fmtSeg(v.seg)} pierces chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
+      );
+      const chipSegBaseline = baselineFor(
+        CHIP_SEGMENT_BASELINE,
+        "CHIP_SEGMENT_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (chipSegBaseline !== null) {
+        expect
+          .soft(
+            chipHits.length,
+            `${scenario.id}: ${chipHits.length} segment/chip intersection(s) exceeds baseline ${chipSegBaseline} among ${geom.chips.length} chips:\n${chipInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(chipSegBaseline);
       }
+
+      // Tier 4 (P3). Chip-vs-card is the RATIFIED HARD gate: zero chip boxes
+      // entering a FOREIGN raw card, on every scenario. The seating pass
+      // upholds it by priority order -- when the on-line slide cannot clear,
+      // the escape cascade treats cards (like chips) as hard obstacles and
+      // yields the softer preferences instead (on-own-line, foreign-line
+      // clearance), which are the ratcheted residues asserted after it.
+      const chipCardHits = auditChipsVsCards(chips, rawEdges, nodes);
+      const chipCardInventory = chipCardHits.map(
+        (v) =>
+          `  ${v.chipKind} chip of ${v.chipEdgeId} ("${v.chipLabel}") enters RAW card ${v.card}`,
+      );
+      expect
+        .soft(
+          chipCardHits.length,
+          `${scenario.id}: ${chipCardHits.length} chip/card intersection(s) among ${chips.length} chips:\n${chipCardInventory.join("\n")}`,
+        )
+        .toBe(0);
+
+      const offPath = auditChipsOnOwnPath(chips, rawEdges);
+      const offPathInventory = offPath.map(
+        (v) =>
+          `  chip of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its polyline`,
+      );
+      const offPathBaseline = baselineFor(
+        CHIP_OFFPATH_BASELINE,
+        "CHIP_OFFPATH_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (offPathBaseline !== null) {
+        expect
+          .soft(
+            offPath.length,
+            `${scenario.id}: ${offPath.length} label chip(s) off their own polyline exceeds baseline ${offPathBaseline}:\n${offPathInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(offPathBaseline);
+      }
+
+      const offLeg = auditFanoutChipsOnOwnLeg(
+        chips,
+        rawEdges,
+        geom.dots as DotRect[],
+      );
+      const offLegInventory = offLeg.map(
+        (v) =>
+          `  chip of ${v.chipEdgeId} ("${v.chipLabel}") is ${v.distance.toFixed(2)}px off its own fan-out leg`,
+      );
+      const offLegBaseline = baselineFor(
+        FANOUT_LEG_BASELINE,
+        "FANOUT_LEG_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (offLegBaseline !== null) {
+        expect
+          .soft(
+            offLeg.length,
+            `${scenario.id}: ${offLeg.length} fan-out member chip(s) off their own leg exceeds baseline ${offLegBaseline}:\n${offLegInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(offLegBaseline);
+      }
+
+      // Tier 3 (SOFT ratchet): padding-only grazes stay at or below the
+      // recorded baseline. These clip a foreign card's padding overhang (entry
+      // chip reserve / port stub) where sibling paddings overlap in a packed
+      // column; they never touch the raw box.
+      const grazes = violations.filter((v) => !v.raw);
+      const grazeInventory = grazes.map(
+        (v) => `  ${v.edgeId} seg ${fmtSeg(v.seg)} grazes padding of ${v.card}`,
+      );
+      const grazeBaseline = baselineFor(
+        PADDED_GRAZE_BASELINE,
+        "PADDED_GRAZE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (grazeBaseline !== null) {
+        expect
+          .soft(
+            grazes.length,
+            `${scenario.id}: ${grazes.length} padding graze(s) exceeds baseline ${grazeBaseline}:\n${grazeInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(grazeBaseline);
+      }
+
+      // Own-endpoint-pierce ratchet: segments running inside their OWN source /
+      // target card's raw body. Tier 1 exempts endpoint cards and cannot see
+      // these; the pierce rescue's last-resort own-card traversal lands here.
+      // Ratchets down only.
+      const ownPierces = auditOwnCardPierces(rawEdges, nodes);
+      const ownPierceInventory = ownPierces.map(
+        (v) =>
+          `  ${v.edgeId} seg ${fmtSeg(v.seg)} runs inside own ${v.role} card ${v.card}`,
+      );
+      const ownPierceBaseline = baselineFor(
+        OWN_PIERCE_BASELINE,
+        "OWN_PIERCE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (ownPierceBaseline !== null) {
+        expect
+          .soft(
+            ownPierces.length,
+            `${scenario.id}: ${ownPierces.length} own-card pierce(s) exceeds baseline ${ownPierceBaseline}:\n${ownPierceInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(ownPierceBaseline);
+      }
+
+      // Frame-ride ratchet (Task 7): backward item edges' segments running
+      // along a container slab's border (forward tap descents may share a border
+      // line by convention and are not counted). Stroke-on-frame braids are the
+      // loop-return family this counter exists to hold at zero; see
+      // FRAME_RIDE_BASELINE above.
+      const frameRides = auditFrameRides(rawEdges, nodes);
+      const frameRideInventory = frameRides.map(
+        (v) =>
+          `  ${v.edgeId} rides the ${v.border} border of ${v.target} ` +
+          `${v.distance.toFixed(1)} off it (${v.kind}), seg ${fmtSeg(v.seg)}`,
+      );
+      const frameRideBaseline = baselineFor(
+        FRAME_RIDE_BASELINE,
+        "FRAME_RIDE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (frameRideBaseline !== null) {
+        expect
+          .soft(
+            frameRides.length,
+            `${scenario.id}: ${frameRides.length} frame ride(s) exceeds baseline ${frameRideBaseline}:\n${frameRideInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(frameRideBaseline);
+      }
+
+      // Hidden-dot ratchet: junction dots swallowed by a chip box at fit zoom.
+      // The dot rects come from the DOM, so they carry the zoom-clamped radius
+      // the dot actually renders at; the camera zoom only converts the
+      // one-screen-pixel visibility tolerance into graph units.
+      const hiddenDots = auditDotsUnderChips(
+        chips,
+        geom.dots as DotRect[],
+        geom.zoom,
+      );
+      const hiddenDotInventory = hiddenDots.map(
+        (v) =>
+          `  ${v.dotId} at (${v.at[0].toFixed(1)},${v.at[1].toFixed(1)}) hidden under the chip of ${v.chipEdgeId} ("${v.chipLabel}")`,
+      );
+      const dotBaseline = baselineFor(
+        DOT_COVER_BASELINE,
+        "DOT_COVER_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (dotBaseline !== null) {
+        expect
+          .soft(
+            hiddenDots.length,
+            `${scenario.id}: ${hiddenDots.length} junction dot(s) hidden under a chip exceeds baseline ${dotBaseline} among ${geom.dots.length} dots:\n${hiddenDotInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(dotBaseline);
+      }
+
+      // Card frames: the box the seating pass measures a recipe card by is the
+      // box the browser paints. Unlike the parity check below, which anchors on
+      // the drawn origin and so cannot see the seating pass's own frame, this
+      // one compares a DRAWN size against a rebuilt one, so a seating frame two
+      // units off the border box reddens it. Hard zero, no baseline.
+      const frameMismatches = auditCardFrames(geom.nodes);
+      const frameInventory = frameMismatches.map(
+        (m) =>
+          `  ${m.nodeId}: drawn ${m.drawnWidth.toFixed(2)}x${m.drawnHeight.toFixed(2)} ` +
+          `vs seating ${m.seatingWidth.toFixed(2)}x${m.seatingHeight.toFixed(2)}`,
+      );
+      expect
+        .soft(
+          frameMismatches.length,
+          `${scenario.id}: ${frameMismatches.length} recipe card(s) drawn in a different frame than the seating pass measures:\n${frameInventory.join("\n")}`,
+        )
+        .toBe(0);
+
+      // Endpoint parity: each drawn path starts and ends where a model +
+      // PORT_DRIFT reconstruction of the same port says it should. The two
+      // descriptions are independent -- the drawn vertex comes from React Flow's
+      // handle anchoring, the rebuilt one from the card origin plus the row
+      // geometry the routing model computes -- so a port resolving to the wrong
+      // row shows here as a full row-pitch gap. Reported as the worst endpoint,
+      // with every endpoint past the tolerance named.
+      const parities = auditEndpointParity(rawEdges, geom.nodes);
+      const worstParity = parities.reduce((m, p) => Math.max(m, p.delta), 0);
+      const parityTol = baselineFor(
+        ENDPOINT_PARITY_TOL,
+        "ENDPOINT_PARITY_TOL",
+        scenario.id,
+        unpinned,
+      );
+      if (parityTol !== null) {
+        const parityInventory = parities
+          .filter((p) => p.delta > parityTol)
+          .map(
+            (p) =>
+              `  ${p.edgeId} ${p.end} on ${p.nodeType} ${p.nodeId}: ` +
+              `drawn (${p.drawn[0].toFixed(2)},${p.drawn[1].toFixed(2)}) vs ` +
+              `rebuilt (${p.rebuilt[0].toFixed(2)},${p.rebuilt[1].toFixed(2)}), ` +
+              `d=(${p.dx.toFixed(2)},${p.dy.toFixed(2)})`,
+          );
+        expect
+          .soft(
+            worstParity,
+            `${scenario.id}: worst endpoint parity ${worstParity.toFixed(3)} exceeds tolerance ${parityTol} among ${parities.length} endpoints (${parityInventory.length} past tolerance):\n${parityInventory.join("\n")}`,
+          )
+          .toBeLessThanOrEqual(parityTol);
+      }
+
+      // Census: pairwise crossings never regress past the pre-P2 baseline.
+      const crossings = countCrossings(geom.edges);
+      const baseline = baselineFor(
+        CROSSING_BASELINE,
+        "CROSSING_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (baseline !== null) {
+        expect
+          .soft(
+            crossings,
+            `${scenario.id}: ${crossings} crossings exceeds pre-P2 baseline ${baseline}`,
+          )
+          .toBeLessThanOrEqual(baseline);
+      }
+
+      // Crossing-cue coverage (Task 9): every counted crossing between
+      // DIFFERENT flows (different item|source) must carry a DRAWN cue on
+      // one edge of the pair -- the stroke masked out around the crossing,
+      // whichever of the two the seating pass picked (a transparent gap
+      // reads the same in either paint order, so no z key is involved).
+      // ZERO-TOLERANCE by design, no baseline table: the seating pass stamps
+      // a cue for every cross-flow proper crossing by construction, and the
+      // renderers cut every stamped cue that still sits on their live
+      // polyline, so a miss means the stamp pass or the render broke --
+      // there is no legitimate residue class to pin. Same-flow crossings (between one flow's own
+      // edges: trunk members overlapping a lane, fan-out slices sharing a
+      // trajectory) are one visual line by the flowKey doctrine and
+      // deliberately NEVER cued; they are reported in the message so a plan
+      // where that class suddenly grows stays visible instead of silently
+      // living outside the assertion.
+      // First recordings (2026-09-04, informational, not a ratchet) --
+      // crossFlow / sameFlow per scenario, cued equalled crossFlow on every
+      // one: default 4/0, battery5 13/0, battery5-xiranite 46/1, crystal 1/0,
+      // equip4 1/0, multi6 130/7, tundra 0/0, script43 26/0, coupon-web 13/0,
+      // gas-web 39/1, rot-bottled_food_3 5/0, rot-bottled_food_4 20/0. The
+      // drawn-cue count can sit BELOW cued (multi6 120 gaps for 130 cued
+      // crossings): the stamp pass dedupes per edge and point, so trunk
+      // members sharing a lane that crosses one foreign edge together draw
+      // one gap where the census counts each member pair.
+      const coverage = crossingCueCoverage(geom.edges, geom.crossingCues);
+      expect
+        .soft(
+          coverage.uncued.length,
+          `${scenario.id}: ${coverage.uncued.length} of ${coverage.crossFlow} cross-flow crossing(s) carry no cue on either edge` +
+            ` (same-flow crossings, never cued: ${coverage.sameFlow}):\n${coverage.uncued.join("\n")}`,
+        )
+        .toBe(0);
+
+      // Detour: the tundra ore feed stays within 1.5x its endpoints' Manhattan
+      // distance. Only tundra carries the long ore feed the bound targets.
+      if (scenario.id === "tundra") {
+        const feed = tundraOreFeed(rawEdges);
+        expect(feed, "tundra ore-feed edge present").not.toBeNull();
+        const pts = parsePath(feed!.d);
+        const len = polylineLength(pts);
+        const direct = endpointManhattan(pts);
+        expect
+          .soft(
+            len,
+            `tundra ore feed ${feed!.id}: path ${len.toFixed(1)} exceeds 1.5x Manhattan ${direct.toFixed(1)}`,
+          )
+          .toBeLessThanOrEqual(1.5 * direct);
+      }
+
+      skipUnpinnedRatchets(unpinned);
     });
   }
 });
@@ -1973,13 +1632,17 @@ test.describe("segment placement audit", () => {
 // The seats: multi6 e:88 and e:89, the two liquid_water tap rise chips into q:8
 // and q:9, each sitting 48.0px off its own line; script43 e:9, the gas_copper
 // label chip on q:23 -> q:6, 93.3px off.
-const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
+const SEAT_VALIDITY_BASELINE: Record<string, number> = {
+  // R14: 2 -> 35. R16: 35 -> 1.
+  // RECIPE CARD TRIM (2026-09-13): multi6 0 -> 1 and rot-bottled_food_3
+  // 0 -> 1, the same two escape-cascade seats as the on arm (44.2 off the
+  // line each). UP moves, listed for ruling in the trim's PR.
   default: 0,
   battery5: 0,
-  "battery5-xiranite": 2,
+  "battery5-xiranite": 1,
   crystal: 0,
   equip4: 0,
-  multi6: 2,
+  multi6: 1,
   tundra: 0,
   script43: 1,
   "coupon-web": 0,
@@ -1987,28 +1650,6 @@ const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
   "rot-bottled_food_3": 1,
   "rot-bottled_food_4": 0,
   transmuters: 0,
-};
-const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: SEAT_VALIDITY_BASELINE_ON,
-  // R14: 2 -> 35. R16: 35 -> 1.
-  // RECIPE CARD TRIM (2026-09-13): multi6 0 -> 1 and rot-bottled_food_3
-  // 0 -> 1, the same two escape-cascade seats as the on arm (44.2 off the
-  // line each). UP moves, listed for ruling in the trim's PR.
-  off: {
-    default: 0,
-    battery5: 0,
-    "battery5-xiranite": 1,
-    crystal: 0,
-    equip4: 0,
-    multi6: 1,
-    tundra: 0,
-    script43: 1,
-    "coupon-web": 0,
-    "gas-web": 0,
-    "rot-bottled_food_3": 1,
-    "rot-bottled_food_4": 0,
-    transmuters: 0,
-  },
 };
 
 // Card intrusion: chips whose box reaches more than CARD_INTRUSION_BUDGET deep
@@ -2101,7 +1742,7 @@ const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
 // the campaign): rot-bottled_food_3 2 (shallow, 9.5 and 10.8 deep),
 // rot-bottled_food_4 5 (10.7 to 21.7), all label chips on their own endpoint
 // cards.
-const CARD_INTRUSION_BASELINE_ON: Record<string, number> = {
+const CARD_INTRUSION_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
@@ -2115,24 +1756,6 @@ const CARD_INTRUSION_BASELINE_ON: Record<string, number> = {
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
   transmuters: 0,
-};
-const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: CARD_INTRUSION_BASELINE_ON,
-  off: {
-    default: 0,
-    battery5: 0,
-    "battery5-xiranite": 0,
-    crystal: 0,
-    equip4: 0,
-    multi6: 0,
-    tundra: 0,
-    script43: 0,
-    "coupon-web": 0,
-    "gas-web": 0,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
-    transmuters: 0,
-  },
 };
 
 // Foreign strokes: chips with at least one foreign flow's stroke through the
@@ -2193,100 +1816,31 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
 // "Clean Water x 150/min" rise chip takes e:13's copper_ore and e:15's
 // gas_inert strokes off the re-packed left rim. The pre-existing e:8-under-e:11
 // surplus stroke stays. Softest tier, UP moves, listed as ruling items.
-const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
+const FOREIGN_STROKE_BASELINE: Record<string, number> = {
+  // R14: 32 -> 49. R16: 49 -> 45.
+  // FAN-OUT LEG SEAT: default 2 -> 3, the same chip as the on arm.
   default: 3,
   battery5: 3,
-  "battery5-xiranite": 7,
+  "battery5-xiranite": 8,
   crystal: 1,
   equip4: 1,
-  multi6: 20,
+  multi6: 19,
   tundra: 0,
   script43: 7,
   "coupon-web": 3,
-  "gas-web": 10,
-  "rot-bottled_food_3": 2,
+  "gas-web": 6,
+  "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 2,
-  transmuters: 3, // 1 -> 3 at the catalyst edges.
-};
-const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: FOREIGN_STROKE_BASELINE_ON,
-  // R14: 32 -> 49. R16: 49 -> 45.
-  // FAN-OUT LEG SEAT: default 2 -> 3, the same chip as the on arm.
-  off: {
-    default: 3,
-    battery5: 3,
-    "battery5-xiranite": 8,
-    crystal: 1,
-    equip4: 1,
-    multi6: 19,
-    tundra: 0,
-    script43: 7,
-    "coupon-web": 3,
-    "gas-web": 6,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 2,
-    // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 2 -> 3. e:21's "Xiragen
-    // x 12/min" rise chip, off the gas_xiranite loop-return supply node, now
-    // takes e:9's copper_nugget stroke through its box; the e:8-under-e:11
-    // surplus stroke and e:23's rise chip stay. UP move, listed for ruling.
-    transmuters: 3,
-  },
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 2 -> 3. e:21's "Xiragen
+  // x 12/min" rise chip, off the gas_xiranite loop-return supply node, now
+  // takes e:9's copper_nugget stroke through its box; the e:8-under-e:11
+  // surplus stroke and e:23's rise chip stay. UP move, listed for ruling.
+  transmuters: 3,
 };
 
-// Outside band: bus chips whose box shares no vertical extent with the band its
-// own lane runs in. The band is bound from the LANE (the owner edge's horizontal
-// run inside a band strip), never from the chip box, or an escaped chip would
-// pick whichever band it landed near and the escape would vanish. Horizontal
-// overruns are reported in the same failure message but are NOT in this count.
-// Measured 11 corpus-wide: default e:14, battery5 e:16, battery5-xiranite e:2,
-// multi6 e:74 (drop) / e:94 / e:108, script43 e:24 / e:27 / e:28, gas-web
-// e:20 / e:23. Every one is exactly one cascade pitch out -- a box 40 tall
-// seated 48 off its lane, against a band that reserves 24 -- which is the whole
-// mechanism. The separately reported x-overflows measured 6 (default 1,
-// battery5 2, battery5-xiranite 2, multi6 1): a band's x-run is its trunk's own
-// drop-to-rise span plus a stub, and a chip seated at either end sticks out past
-// it. That is a band-width question, not a stranded chip, so it is reported and
-// not ratcheted. Crystal and equip4 pin 0 because they render bus chips but NO
-// band rects (counter is unjudgeable there, not clean); tundra has no bus chips
-// at all.
-//
-// RE-MEASURED at 15 after the rise-slot clamp and the drop cascade cap
-// (battery5-xiranite 1 -> 3, multi6 3 -> 4, coupon-web 0 -> 1). The counter rose
-// for one reason: a clamped slot lands at its own run's far end, where that
-// run's junction dot sits, so the keep-off pass (#50) lifts the chip one pitch
-// and a band that reserves 24 does not cover it. The mechanism is unchanged --
-// every escape is still exactly one pitch out, and the population is now purely
-// rise chips: multi6 e:74, the corpus's only escaped DROP, came home when its
-// cascade was capped.
-//
-// RE-MEASURED at 0 after BAND_Y_PAD grew to one cascade pitch plus a chip
-// half-height (24 -> 72): every escape in the corpus was a chip lifted exactly
-// one pitch, so the whole population is inside the tint now and the counter is a
-// hard zero on all ten scenarios. It is a real floor rather than a coincidence
-// of this corpus -- the seating cascade only leaves the pitch when no seat
-// within it clears a placed chip, and that escape hatch fires nowhere here. A
-// future escape means a chip past one pitch, which is exactly what this counter
-// should surface -- with one blind spot: the test is "shares NO vertical extent
-// with the band rect", so it alarms an escape off an OUTER lane, while a chip on
-// an INTERIOR lane of a multi-lane band can be lifted two pitches and still land
-// inside that band's rect, unregistered.
-// The x-overflows measure 7 (default 1, battery5 2,
-// battery5-xiranite 2, multi6 2) and did NOT move with the pad: measured before
-// and after the same build, cell for cell. They are one higher than the 6 noted
-// above because multi6 gained one at the rise-slot clamp, which was never
-// re-measured for this counter. The pad is a y-axis change and BAND_X_MARGIN is
-// untouched, so this stays a band-width question, reported and not ratcheted.
-// The magnitudes across the campaign reconcile too, though they read as if they
-// grew: the one recorded before the campaign (multi6 e:3, 25 past the band's
-// right edge) was measured in exam-camera SCREEN px at zoom 0.75, about 33 world
-// units, and multi6 also GAINED an overflow at the T3 rise-slot clamp. So the
-// ~45 world units that chip overhangs today is a unit difference plus growth
-// already recorded at the clamp, not a new drift. Either way the counter tracks
-// the COUNT, so no magnitude moves it.
-// First recordings for the two exam-surfaced scenarios (campaign-first
-// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
-// the campaign): both zero, and no x-overflows on either.
-const OUTSIDE_BAND_BASELINE_ON: Record<string, number> = {
+// PORT-COVER: chips whose drawn box covers a handle, glyph or row strip of
+// their own endpoint card. Target state zero; ratchets down.
+const PORT_COVER_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 0,
   "battery5-xiranite": 0,
@@ -2301,137 +1855,10 @@ const OUTSIDE_BAND_BASELINE_ON: Record<string, number> = {
   "rot-bottled_food_4": 0,
   transmuters: 0,
 };
-const OUTSIDE_BAND_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: OUTSIDE_BAND_BASELINE_ON,
-  // Structural zero with no bands drawn.
-  off: {
-    default: 0,
-    battery5: 0,
-    "battery5-xiranite": 0,
-    crystal: 0,
-    equip4: 0,
-    multi6: 0,
-    tundra: 0,
-    script43: 0,
-    "coupon-web": 0,
-    "gas-web": 0,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
-    transmuters: 0,
-  },
-};
-
-// BAND-UNBOUND INVENTORY (#58). Bus chips the outside-band counter SKIPS
-// because their edge binds to no lane band: fan-out formations, short runs,
-// and band-less plans. An EXACT pin, not a ratchet, in either direction: the
-// hard zeros above are only trustworthy while this set is accounted for, and a
-// routing change that silently unbinds a lane chip moves it here instead of
-// vanishing from the audit. Re-measure and re-pin (with the inventory from the
-// failure message) whenever routing legitimately changes what forms a band.
-// Measured 2026-08-30 (post #81/#83: contested tap fan-outs spread, lone-trunk
-// drop chips gone): every entry is a fan-out formation chip or a short-run
-// rise, except the two zeros, whose bus chips all carry an in-band lane run.
-// First recordings for the two exam-surfaced scenarios (campaign-first
-// measurement 2026-09-04, exam-surfaced-families Task 0, re-measurable within
-// the campaign): rot-bottled_food_3 pins 4 (two Sandleaf Powder and two
-// Sandleaf Seed rise chips on band-less runs; that plan renders no band rects
-// at all), rot-bottled_food_4 pins 0.
-// SINGLE-BAND RE-MEASURE (eeda816, the commit that made every plan ONE
-// left-to-right band): multi6 13 -> 15 in both arms. An INVENTORY, not a
-// ratchet: the plan simply draws two more fan-out rise chips than it did.
-// First recording for the transmuter scenario (2026-09-07): 6 in both modes,
-// three rise-chip pairs (copper_nugget, copper_ore, liquid_water) on tap
-// formations that bind to no lane band.
-// Catalyst-split re-pin (2026-09-07): script43 3 -> 2 and gas-web 3 -> 2 in both
-// modes. An exact pin moving DOWN - one xiranite rise chip per plan is gone with
-// the catalyst feed edge that carried it.
-// Catalyst-edge re-pin (2026-09-13): script43 2 -> 3 and gas-web 2 -> 3 in both
-// modes, transmuters 6 -> 7 in both modes. The two 2 -> 3 cells RESTORE the
-// third member of a copper_nugget fan-out the catalyst split had removed
-// (script43 e:3 / e:4 / e:5 out of q:11, gas-web e:10 / e:11 / e:12 out of
-// q:9): the catalyst edges put the transmuter cards back on the paths that
-// formation spans, so its third rise chip is drawn again. On transmuters the
-// new chip is the catalyst edge's own: e:20
-// (u:in:gas_xiranite:loop:copper_powder -> u:class:q:13) carries a "Xiragen x
-// 3/min" rise that binds to no lane band. An exact pin, re-measured from the
-// failure inventory.
-const SKIPPED_BAND_INVENTORY_ON: Record<string, number> = {
-  default: 4,
-  battery5: 2,
-  "battery5-xiranite": 2,
-  crystal: 2,
-  equip4: 2,
-  multi6: 15,
-  tundra: 0,
-  // 2 -> 3 at the exam-surfaced R4 re-measure: the copper_nugget rise chips
-  // e:3/e:4/e:5 (out of q:11) bind to no lane band (ratified 2026-09-04).
-  // 3 -> 2 at the catalyst split: one band-unbound rise chip fewer, leaving the
-  // e:3/e:4 pair out of q:11. 2 -> 3 at the catalyst edges: e:5 is back.
-  script43: 3,
-  "coupon-web": 0,
-  "gas-web": 3, // 2 -> 3 at the catalyst edges.
-  "rot-bottled_food_3": 4,
-  "rot-bottled_food_4": 0,
-  transmuters: 7, // 6 -> 7 at the catalyst edges.
-};
-const SKIPPED_BAND_INVENTORY: Record<LaneMode, Record<string, number>> = {
-  on: SKIPPED_BAND_INVENTORY_ON,
-  // Every bus chip is a fan-out chip here, so the cells match the on arm.
-  off: {
-    default: 4,
-    battery5: 2,
-    "battery5-xiranite": 2,
-    crystal: 2,
-    equip4: 2,
-    multi6: 15,
-    tundra: 0,
-    script43: 3, // 2 -> 3 at the catalyst edges.
-    "coupon-web": 0,
-    "gas-web": 3, // 2 -> 3 at the catalyst edges.
-    "rot-bottled_food_3": 4,
-    "rot-bottled_food_4": 0,
-    transmuters: 7, // 6 -> 7 at the catalyst edges.
-  },
-};
-
-// PORT-COVER: chips whose drawn box covers a handle, glyph or row strip of
-// their own endpoint card. Target state zero in both modes; ratchets down.
-const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: {
-    default: 0,
-    battery5: 0,
-    "battery5-xiranite": 0,
-    crystal: 0,
-    equip4: 0,
-    multi6: 0,
-    tundra: 0,
-    script43: 0,
-    "coupon-web": 0,
-    "gas-web": 0,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
-    transmuters: 0,
-  },
-  off: {
-    default: 0,
-    battery5: 0,
-    "battery5-xiranite": 0,
-    crystal: 0,
-    equip4: 0,
-    multi6: 0,
-    tundra: 0,
-    script43: 0,
-    "coupon-web": 0,
-    "gas-web": 0,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
-    transmuters: 0,
-  },
-};
 
 // CHIP-COLLAPSE: chips drawing their icon-only variant at the census camera.
 // Not a defect counter but the trade dial every keep-out or cap pays into.
-// Both modes share the cells: 35 -> 48 at the port-clear render (R14),
+// 35 -> 48 at the port-clear render (R14),
 // 48 -> 43 at the shrink pass (R16).
 // First recording for the transmuter scenario (2026-09-07): 4 in both modes,
 // out of 26 chips at the census camera.
@@ -2441,45 +1868,23 @@ const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
 // label boxes, the trade this dial exists to record. The environment frame's
 // footprint probed identical (6 at the pre-footprint commit). UP move, listed
 // as a ruling item.
-const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
-  on: {
-    default: 4,
-    battery5: 2,
-    "battery5-xiranite": 4,
-    crystal: 2,
-    equip4: 2,
-    multi6: 13,
-    tundra: 0,
-    script43: 3,
-    "coupon-web": 6,
-    "gas-web": 3,
-    "rot-bottled_food_3": 4,
-    "rot-bottled_food_4": 0,
-    // 4 -> 6 at the environment-frame re-measure.
-    // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 6 -> 7. UP move at the
-    // merge of the trim with the catalyst supply edges, listed for ruling: the
-    // counter reports a count only, so which chip collapsed is not readable
-    // from the failure.
-    transmuters: 7,
-  },
-  off: {
-    default: 4,
-    battery5: 2,
-    "battery5-xiranite": 4,
-    crystal: 2,
-    equip4: 2,
-    multi6: 13,
-    tundra: 0,
-    script43: 3,
-    "coupon-web": 6,
-    "gas-web": 3,
-    "rot-bottled_food_3": 4,
-    "rot-bottled_food_4": 0,
-    // 4 -> 6 at the environment-frame re-measure.
-    // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 6 -> 7, the same
-    // unattributable collapse as the on arm. UP move, listed for ruling.
-    transmuters: 7,
-  },
+const CHIP_COLLAPSE_BASELINE: Record<string, number> = {
+  default: 4,
+  battery5: 2,
+  "battery5-xiranite": 4,
+  crystal: 2,
+  equip4: 2,
+  multi6: 13,
+  tundra: 0,
+  script43: 3,
+  "coupon-web": 6,
+  "gas-web": 3,
+  "rot-bottled_food_3": 4,
+  "rot-bottled_food_4": 0,
+  // 4 -> 6 at the environment-frame re-measure.
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 6 -> 7, the same
+  // unattributable collapse as the on arm. UP move, listed for ruling.
+  transmuters: 7,
 };
 
 // TIER-1 SLIDE DRIFT, re-measured after the per-chip reserved seat box
@@ -2552,79 +1957,30 @@ const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // over a run, so it holds even when the suite is run one scenario at a time.
 // R10 (2026-09-04) moves multi6 cardIntrusion +1 and foreignStroke +5
 // (cells detailed at the two tables); totals follow: 76 -> 77, 35 -> 40.
-const CENSUS_TOTALS: Record<
-  LaneMode,
-  {
-    seatValidity: number;
-    cardIntrusion: number;
-    foreignStroke: number;
-    outsideBand: number;
-  }
-> = {
-  on: {
-    // 16 -> 6 at the Task 7 loop-return re-measure (2026-09-04): backward chip
-    // anchors ride their rails' new local-band y, and five plans' stranded seats
-    // re-seated onto their own lines (default 1 -> 0, battery5 1 -> 0, multi6
-    // 6 -> 1, script43 3 -> 1, coupon-web 1 -> 0).
-    // 6 -> 5 at the Task 8 branch-leg re-measure (multi6 1 -> 0).
-    // R14: seatValidity 5 -> 36, cardIntrusion 77 -> 0, foreignStroke
-    // 40 -> 59. R16: seatValidity 36 -> 3, foreignStroke 59 -> 54.
-    // Catalyst split (2026-09-07): multi6 seatValidity 0 -> 2, battery5-xiranite
-    // foreignStroke 6 -> 7. Totals follow: 3 -> 5, 54 -> 55.
-    // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 5 -> 6, tracking the
-    // trim's rot-bottled_food_3 0 -> 1 in SEAT_VALIDITY_BASELINE_ON, which the
-    // merge carried into the table without totalling it.
-    seatValidity: 6,
-    // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
-    // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
-    // measured 8 against its pin 7 and is LEFT AT 7 (STOP, see the Task 7 note
-    // above), so the pin sum is 77 while the measured sum is 78.
-    // R9 (2026-09-04) ratifies that held cell: 77 -> 78.
-    // 78 -> 76 at the Task 8 branch-leg re-measure (script43 11 -> 10,
-    // gas-web 8 -> 7).
-    cardIntrusion: 0,
-    // 46 -> 36 at the Task 7 loop-return re-measure (multi6 15 -> 10, script43
-    // 7 -> 6, gas-web 10 -> 8, rot-bottled_food_3 2 -> 0). coupon-web measured 2
-    // against its pin 1 and is LEFT AT 1 (STOP), so the pin sum is 36 while the
-    // measured sum is 37.
-    // R9 (2026-09-04) ratifies the two held STOP cells: 77 -> 78 (gas-web
-    // card intrusion, the re-seated chip on its rail's new anchor) and
-    // 36 -> 37 (coupon-web foreign stroke, the e:15-under-e:8 corridor run).
-    // 37 -> 35 at the Task 8 branch-leg re-measure (script43 6 -> 5,
-    // gas-web 8 -> 7).
-    // SINGLE-BAND RE-MEASURE (eeda816): 54 -> 57, tracking the per-cell raises
-    // in FOREIGN_STROKE_BASELINE (default 1 -> 2, rot-bottled_food_3 0 -> 2).
-    // FAN-OUT LEG SEAT: 57 -> 58, tracking default 2 -> 3 in that table.
-    // Catalyst split (2026-09-07) on top: battery5-xiranite 6 -> 7, 58 -> 59.
-    // Environment-frame re-measure (2026-09-12) on top: transmuters 0 -> 1,
-    // 59 -> 60.
-    // Catalyst edges (2026-09-13) on top: transmuters 1 -> 3, 60 -> 62.
-    foreignStroke: 62,
-    outsideBand: 0,
-  },
-  off: {
-    // R14: seatValidity 2 -> 35, cardIntrusion 79 -> 0, foreignStroke
-    // 32 -> 49. R16: seatValidity 35 -> 1, foreignStroke 49 -> 45.
-    // Catalyst split (2026-09-07): script43 seatValidity 0 -> 1;
-    // battery5-xiranite foreignStroke 5 -> 8, script43 5 -> 7, gas-web 5 -> 6.
-    // Totals follow: 1 -> 2, 45 -> 51.
-    // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 2 -> 4, tracking the
-    // trim's multi6 0 -> 1 and rot-bottled_food_3 0 -> 1 in the off table,
-    // which the merge carried without totalling them.
-    seatValidity: 4,
-    cardIntrusion: 0,
-    // SINGLE-BAND RE-MEASURE (eeda816): 45 -> 46 (default 1 -> 2).
-    // FAN-OUT LEG SEAT: 46 -> 47 (default 2 -> 3).
-    // Catalyst split (2026-09-07) on top: battery5-xiranite 5 -> 8,
-    // script43 5 -> 7, gas-web 5 -> 6, so 47 -> 53.
-    // Environment-frame re-measure (2026-09-12) on top: transmuters 0 -> 1,
-    // 53 -> 54.
-    // Catalyst edges (2026-09-13) on top: transmuters 1 -> 2, 54 -> 55.
-    // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 55 -> 56, tracking
-    // transmuters 2 -> 3 in the off table.
-    foreignStroke: 56,
-    outsideBand: 0,
-  },
+const CENSUS_TOTALS: {
+  seatValidity: number;
+  cardIntrusion: number;
+  foreignStroke: number;
+} = {
+  // R14: seatValidity 2 -> 35, cardIntrusion 79 -> 0, foreignStroke
+  // 32 -> 49. R16: seatValidity 35 -> 1, foreignStroke 49 -> 45.
+  // Catalyst split (2026-09-07): script43 seatValidity 0 -> 1;
+  // battery5-xiranite foreignStroke 5 -> 8, script43 5 -> 7, gas-web 5 -> 6.
+  // Totals follow: 1 -> 2, 45 -> 51.
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 2 -> 4, tracking the
+  // trim's multi6 0 -> 1 and rot-bottled_food_3 0 -> 1 in the table.
+  seatValidity: 4,
+  cardIntrusion: 0,
+  // SINGLE-BAND RE-MEASURE (eeda816): 45 -> 46 (default 1 -> 2).
+  // FAN-OUT LEG SEAT: 46 -> 47 (default 2 -> 3).
+  // Catalyst split (2026-09-07) on top: battery5-xiranite 5 -> 8,
+  // script43 5 -> 7, gas-web 5 -> 6, so 47 -> 53.
+  // Environment-frame re-measure (2026-09-12) on top: transmuters 0 -> 1,
+  // 53 -> 54.
+  // Catalyst edges (2026-09-13) on top: transmuters 1 -> 2, 54 -> 55.
+  // RECIPE CARD TRIM + CATALYST EDGES (2026-09-13): 55 -> 56, tracking
+  // transmuters 2 -> 3 in the table.
+  foreignStroke: 56,
 };
 
 function censusInventory(hits: ReadonlyArray<ChipCensusHit>): string {
@@ -2638,254 +1994,189 @@ function sumOf(table: Record<string, number>): number {
 }
 
 test.describe("chip seating census", () => {
-  for (const mode of LANE_MODES) {
-    test.describe(`lanes ${mode}`, () => {
-      test("corpus totals match the per-scenario tables", () => {
-        // Loops over BOTH modes itself: the arithmetic holds per mode, so one
-        // run of this test states it for the whole corpus whatever mode group
-        // scheduled it.
-        for (const totalsMode of LANE_MODES) {
-          expect(
-            sumOf(SEAT_VALIDITY_BASELINE[totalsMode]),
-            `seatValidity totals (${totalsMode})`,
-          ).toBe(CENSUS_TOTALS[totalsMode].seatValidity);
-          expect(
-            sumOf(CARD_INTRUSION_BASELINE[totalsMode]),
-            `cardIntrusion totals (${totalsMode})`,
-          ).toBe(CENSUS_TOTALS[totalsMode].cardIntrusion);
-          expect(
-            sumOf(FOREIGN_STROKE_BASELINE[totalsMode]),
-            `foreignStroke totals (${totalsMode})`,
-          ).toBe(CENSUS_TOTALS[totalsMode].foreignStroke);
-          expect(
-            sumOf(OUTSIDE_BAND_BASELINE[totalsMode]),
-            `outsideBand totals (${totalsMode})`,
-          ).toBe(CENSUS_TOTALS[totalsMode].outsideBand);
-        }
-      });
+  test("corpus totals match the per-scenario tables", () => {
+    expect(sumOf(SEAT_VALIDITY_BASELINE), "seatValidity totals").toBe(
+      CENSUS_TOTALS.seatValidity,
+    );
+    expect(sumOf(CARD_INTRUSION_BASELINE), "cardIntrusion totals").toBe(
+      CENSUS_TOTALS.cardIntrusion,
+    );
+    expect(sumOf(FOREIGN_STROKE_BASELINE), "foreignStroke totals").toBe(
+      CENSUS_TOTALS.foreignStroke,
+    );
+  });
 
-      for (const scenario of AUDIT_SCENARIOS) {
-        test(scenario.id, async ({ page }) => {
-          const unpinned: string[] = [];
-          const hash = await scenarioHash(scenario);
-          await loadCensusScenario(page, hash, {
-            locale: "en",
-            busLanes: mode,
-          });
+  for (const scenario of AUDIT_SCENARIOS) {
+    test(scenario.id, async ({ page }) => {
+      const unpinned: string[] = [];
+      const hash = await scenarioHash(scenario);
+      await loadCensusScenario(page, hash, { locale: "en" });
 
-          const geom = await page.evaluate(collectGeometry);
+      const geom = await page.evaluate(collectGeometry);
 
-          // The commanded camera has to be the camera that was measured: setViewport
-          // assigns the transform verbatim, but a driver that assumes its own zoom
-          // landed is exactly the mistake Canvas.tsx's hook comment warns about, and
-          // every count below is a reading at ONE zoom.
-          expect(
-            geom.zoom,
-            `${scenario.id}: census camera did not land at ${CENSUS_ZOOM}`,
-          ).toBeCloseTo(CENSUS_ZOOM, 5);
+      // The commanded camera has to be the camera that was measured: setViewport
+      // assigns the transform verbatim, but a driver that assumes its own zoom
+      // landed is exactly the mistake Canvas.tsx's hook comment warns about, and
+      // every count below is a reading at ONE zoom.
+      expect(
+        geom.zoom,
+        `${scenario.id}: census camera did not land at ${CENSUS_ZOOM}`,
+      ).toBeCloseTo(CENSUS_ZOOM, 5);
 
-          const chips = geom.chips as ChipRect[];
-          const rawEdges = toRawEdges(geom.edges);
-          const nodes: NodeRect[] = geom.nodes.map((n) => ({
-            nodeId: n.nodeId,
-            type: n.type,
-            left: n.left,
-            top: n.top,
-            right: n.right,
-            bottom: n.bottom,
-          }));
+      const chips = geom.chips as ChipRect[];
+      const rawEdges = toRawEdges(geom.edges);
+      const nodes: NodeRect[] = geom.nodes.map((n) => ({
+        nodeId: n.nodeId,
+        type: n.type,
+        left: n.left,
+        top: n.top,
+        right: n.right,
+        bottom: n.bottom,
+      }));
 
-          // Soft throughout, like the P2 describe: one red counter must not hide the
-          // other three, since the campaign moves them one fix at a time.
+      // Soft throughout, like the P2 describe: one red counter must not hide the
+      // other three, since the campaign moves them one fix at a time.
 
-          const invalid = auditChipSeatValidity(chips, geom.edges);
-          const seatBaseline = baselineFor(
-            SEAT_VALIDITY_BASELINE,
-            "SEAT_VALIDITY_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (seatBaseline !== null) {
-            expect
-              .soft(
-                invalid.length,
-                `${scenario.id}: ${invalid.length} chip(s) whose own line misses their box exceeds baseline ${seatBaseline} among ${chips.length} chips:\n${censusInventory(invalid)}`,
-              )
-              .toBeLessThanOrEqual(seatBaseline);
-          }
-
-          const intruding = auditChipCardIntrusion(chips, nodes);
-          const intrusionBaseline = baselineFor(
-            CARD_INTRUSION_BASELINE,
-            "CARD_INTRUSION_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (intrusionBaseline !== null) {
-            expect
-              .soft(
-                intruding.length,
-                `${scenario.id}: ${intruding.length} chip(s) more than ${CARD_INTRUSION_BUDGET} deep inside a card exceeds baseline ${intrusionBaseline} among ${chips.length} chips:\n${censusInventory(intruding)}`,
-              )
-              .toBeLessThanOrEqual(intrusionBaseline);
-          }
-
-          const braided = auditChipForeignStrokes(chips, rawEdges, nodes);
-          const strokeBaseline = baselineFor(
-            FOREIGN_STROKE_BASELINE,
-            "FOREIGN_STROKE_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (strokeBaseline !== null) {
-            expect
-              .soft(
-                braided.length,
-                `${scenario.id}: ${braided.length} chip(s) with a foreign stroke through the box exceeds baseline ${strokeBaseline} among ${chips.length} chips:\n${censusInventory(braided)}`,
-              )
-              .toBeLessThanOrEqual(strokeBaseline);
-          }
-
-          const { escapes, xOverflows, skipped } = auditBusChipsOutsideBand(
-            chips,
-            geom.edges,
-            geom.bands as BandRect[],
-          );
-          const bandBaseline = baselineFor(
-            OUTSIDE_BAND_BASELINE,
-            "OUTSIDE_BAND_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (bandBaseline !== null) {
-            expect
-              .soft(
-                escapes.length,
-                `${scenario.id}: ${escapes.length} bus chip(s) outside their band exceeds baseline ${bandBaseline} among ${geom.bands.length} band(s); ${xOverflows.length} x-overflow(s) reported, not counted:\n${censusInventory(escapes)}\n${censusInventory(xOverflows)}`,
-              )
-              .toBeLessThanOrEqual(bandBaseline);
-          }
-
-          const skippedPin = baselineFor(
-            SKIPPED_BAND_INVENTORY,
-            "SKIPPED_BAND_INVENTORY",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (skippedPin !== null) {
-            expect
-              .soft(
-                skipped.length,
-                `${scenario.id}: ${skipped.length} band-unbound bus chip(s) != inventory pin ${skippedPin}:\n${censusInventory(skipped)}`,
-              )
-              .toBe(skippedPin);
-          }
-
-          // Port-cover: a chip never covers its own endpoint card's port
-          // furniture. Target state zero, ratchets down.
-          const portCover = auditChipPortCover(
-            chips,
-            rawEdges,
-            geom.portFurniture as PortFurnitureRect[],
-          );
-          const portCoverPin = baselineFor(
-            PORT_COVER_BASELINE,
-            "PORT_COVER_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (portCoverPin !== null) {
-            expect
-              .soft(
-                portCover.length,
-                `${scenario.id}: ${portCover.length} chip(s) covering their own endpoint's port furniture exceeds baseline ${portCoverPin} among ${chips.length} chips:\n${censusInventory(portCover)}`,
-              )
-              .toBeLessThanOrEqual(portCoverPin);
-          }
-
-          // Collapse trade dial: how many chips render icon-only at this camera.
-          const collapsed = chips.filter((c) => c.iconOnly).length;
-          const collapsePin = baselineFor(
-            CHIP_COLLAPSE_BASELINE,
-            "CHIP_COLLAPSE_BASELINE",
-            scenario.id,
-            mode,
-            unpinned,
-          );
-          if (collapsePin !== null) {
-            expect
-              .soft(
-                collapsed,
-                `${scenario.id}: ${collapsed} icon-only chip(s) exceeds baseline ${collapsePin} among ${chips.length} chips`,
-              )
-              .toBeLessThanOrEqual(collapsePin);
-          }
-
-          skipUnpinnedRatchets(unpinned);
-        });
+      const invalid = auditChipSeatValidity(chips, geom.edges);
+      const seatBaseline = baselineFor(
+        SEAT_VALIDITY_BASELINE,
+        "SEAT_VALIDITY_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (seatBaseline !== null) {
+        expect
+          .soft(
+            invalid.length,
+            `${scenario.id}: ${invalid.length} chip(s) whose own line misses their box exceeds baseline ${seatBaseline} among ${chips.length} chips:\n${censusInventory(invalid)}`,
+          )
+          .toBeLessThanOrEqual(seatBaseline);
       }
+
+      const intruding = auditChipCardIntrusion(chips, nodes);
+      const intrusionBaseline = baselineFor(
+        CARD_INTRUSION_BASELINE,
+        "CARD_INTRUSION_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (intrusionBaseline !== null) {
+        expect
+          .soft(
+            intruding.length,
+            `${scenario.id}: ${intruding.length} chip(s) more than ${CARD_INTRUSION_BUDGET} deep inside a card exceeds baseline ${intrusionBaseline} among ${chips.length} chips:\n${censusInventory(intruding)}`,
+          )
+          .toBeLessThanOrEqual(intrusionBaseline);
+      }
+
+      const braided = auditChipForeignStrokes(chips, rawEdges, nodes);
+      const strokeBaseline = baselineFor(
+        FOREIGN_STROKE_BASELINE,
+        "FOREIGN_STROKE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (strokeBaseline !== null) {
+        expect
+          .soft(
+            braided.length,
+            `${scenario.id}: ${braided.length} chip(s) with a foreign stroke through the box exceeds baseline ${strokeBaseline} among ${chips.length} chips:\n${censusInventory(braided)}`,
+          )
+          .toBeLessThanOrEqual(strokeBaseline);
+      }
+
+      // Port-cover: a chip never covers its own endpoint card's port
+      // furniture. Target state zero, ratchets down.
+      const portCover = auditChipPortCover(
+        chips,
+        rawEdges,
+        geom.portFurniture as PortFurnitureRect[],
+      );
+      const portCoverPin = baselineFor(
+        PORT_COVER_BASELINE,
+        "PORT_COVER_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (portCoverPin !== null) {
+        expect
+          .soft(
+            portCover.length,
+            `${scenario.id}: ${portCover.length} chip(s) covering their own endpoint's port furniture exceeds baseline ${portCoverPin} among ${chips.length} chips:\n${censusInventory(portCover)}`,
+          )
+          .toBeLessThanOrEqual(portCoverPin);
+      }
+
+      // Collapse trade dial: how many chips render icon-only at this camera.
+      const collapsed = chips.filter((c) => c.iconOnly).length;
+      const collapsePin = baselineFor(
+        CHIP_COLLAPSE_BASELINE,
+        "CHIP_COLLAPSE_BASELINE",
+        scenario.id,
+        unpinned,
+      );
+      if (collapsePin !== null) {
+        expect
+          .soft(
+            collapsed,
+            `${scenario.id}: ${collapsed} icon-only chip(s) exceeds baseline ${collapsePin} among ${chips.length} chips`,
+          )
+          .toBeLessThanOrEqual(collapsePin);
+      }
+
+      skipUnpinnedRatchets(unpinned);
     });
   }
 });
 
 test.describe("edge reload determinism", () => {
-  for (const mode of LANE_MODES) {
-    test.describe(`lanes ${mode}`, () => {
-      for (const scenario of AUDIT_SCENARIOS) {
-        test(scenario.id, async ({ page }) => {
-          const hash = await scenarioHash(scenario);
+  for (const scenario of AUDIT_SCENARIOS) {
+    test(scenario.id, async ({ page }) => {
+      const hash = await scenarioHash(scenario);
 
-          const readLoad = async (): Promise<{
-            edges: Record<string, string>;
-            transform: string;
-          }> => {
-            await loadScenario(page, hash, mode);
-            const { edges } = await page.evaluate(collectGeometry);
-            const transform = await page.evaluate(
-              () =>
-                document.querySelector<HTMLElement>(".react-flow__viewport")
-                  ?.style.transform ?? "",
-            );
-            const map: Record<string, string> = {};
-            for (const e of edges) map[e.id] = e.d;
-            return { edges: map, transform };
-          };
+      const readLoad = async (): Promise<{
+        edges: Record<string, string>;
+        transform: string;
+      }> => {
+        await loadScenario(page, hash);
+        const { edges } = await page.evaluate(collectGeometry);
+        const transform = await page.evaluate(
+          () =>
+            document.querySelector<HTMLElement>(".react-flow__viewport")?.style
+              .transform ?? "",
+        );
+        const map: Record<string, string> = {};
+        for (const e of edges) map[e.id] = e.d;
+        return { edges: map, transform };
+      };
 
-          const first = await readLoad();
-          const second = await readLoad();
+      const first = await readLoad();
+      const second = await readLoad();
 
-          const ids = new Set([
-            ...Object.keys(first.edges),
-            ...Object.keys(second.edges),
-          ]);
-          const diffs: string[] = [];
-          for (const id of ids) {
-            if (first.edges[id] !== second.edges[id]) {
-              diffs.push(
-                `  ${id}:\n    load1 ${first.edges[id]}\n    load2 ${second.edges[id]}`,
-              );
-            }
-          }
-          expect(
-            diffs.length,
-            `${scenario.id}: ${diffs.length} edge path(s) differ across reloads:\n${diffs.join("\n")}`,
-          ).toBe(0);
-
-          // Camera-drift tripwire: the fit-view transform must be byte-identical
-          // across reloads (a deterministic content-bounds fit produces the same pan
-          // and zoom every load).
-          expect(
-            second.transform,
-            `${scenario.id}: viewport transform drifted across reloads:\n    load1 ${first.transform}\n    load2 ${second.transform}`,
-          ).toBe(first.transform);
-        });
+      const ids = new Set([
+        ...Object.keys(first.edges),
+        ...Object.keys(second.edges),
+      ]);
+      const diffs: string[] = [];
+      for (const id of ids) {
+        if (first.edges[id] !== second.edges[id]) {
+          diffs.push(
+            `  ${id}:\n    load1 ${first.edges[id]}\n    load2 ${second.edges[id]}`,
+          );
+        }
       }
+      expect(
+        diffs.length,
+        `${scenario.id}: ${diffs.length} edge path(s) differ across reloads:\n${diffs.join("\n")}`,
+      ).toBe(0);
+
+      // Camera-drift tripwire: the fit-view transform must be byte-identical
+      // across reloads (a deterministic content-bounds fit produces the same pan
+      // and zoom every load).
+      expect(
+        second.transform,
+        `${scenario.id}: viewport transform drifted across reloads:\n    load1 ${first.transform}\n    load2 ${second.transform}`,
+      ).toBe(first.transform);
     });
   }
 });

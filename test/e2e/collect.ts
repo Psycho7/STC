@@ -170,23 +170,11 @@ export type ChipGeom = {
   right: number;
   bottom: number;
 };
-// One DRAWN bus band: the tinted lane strip BusBands paints per band, keyed by
-// the `bus-band-top` / `bus-band-bottom` testid it emits, with its box in graph
-// coordinates. The band is the air a lane's rise / drop chips are supposed to
-// stay inside, so the census needs it in the same frame as the chip boxes.
-export type BandGeom = {
-  testId: string;
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-};
 // One DRAWN junction dot: its data-testid hook (`bus-junction-<edge>` for the
-// lane / fan-out trunk families, `fanin-junction-<edge>` for the merge dot,
+// fan-out trunk family, `fanin-junction-<edge>` for the merge dot,
 // `fanout-junction-<edge>` for the declined-fan-out divergence dot), its
-// data-family hook, plus its box in graph coordinates. The testid does not
-// separate a lane rise from a fan-out branch (both are `bus-junction-<edge>`)
-// and only the fan-out one owns a shared column, so the family comes along.
+// data-family hook, plus its box in graph coordinates. The family comes along
+// because the testid alone does not name it.
 // The dot is sized in graph units from a zoom-clamped screen radius, so its
 // measured box already carries the extent it renders at THIS camera - no
 // radius has to be recomputed audit-side.
@@ -223,7 +211,6 @@ export type Geometry = {
   nodes: NodeGeom[];
   chips: ChipGeom[];
   dots: DotGeom[];
-  bands: BandGeom[];
   crossingCues: CrossingCueGeom[];
   portFurniture: PortFurnitureGeom[];
   // The live camera zoom, needed to state a screen-pixel visibility tolerance
@@ -315,9 +302,9 @@ export function collectGeometry(): Geometry {
       label: el.getAttribute("aria-label") ?? "(chip)",
       // Chip families: the trunk-seated aggregate chip ("bus-drop", testid
       // suffix -drop), audited against foreign cards with a trunk-member
-      // exemption; lane-anchored bus rise/branch chips ("bus", out of scope for
-      // the corridor invariants); and item rate chips ("label"). Only rate
-      // chips ride the clear-segment anchor.
+      // exemption; bus branch chips ("bus", out of scope for the corridor
+      // invariants); and item rate chips ("label"). Only rate chips ride the
+      // clear-segment anchor.
       kind: (testId.startsWith("bus-edge-")
         ? testId.endsWith("-drop")
           ? "bus-drop"
@@ -338,23 +325,6 @@ export function collectGeometry(): Geometry {
     return {
       testId: el.getAttribute("data-testid") ?? "(dot)",
       family: el.getAttribute("data-family") ?? "(dot)",
-      left: toGraphX(r.left),
-      top: toGraphY(r.top),
-      right: toGraphX(r.right),
-      bottom: toGraphY(r.bottom),
-    };
-  });
-
-  // Bands are read with the SAME toGraphX/toGraphY as the rects above, so a band
-  // and a chip box compare directly. BusBands renders at most one div per band,
-  // and only for a band that holds a routed trunk, so this list is empty on a
-  // plan with no bus lanes.
-  const bands = Array.from(
-    document.querySelectorAll<HTMLElement>(".bus-band"),
-  ).map((el) => {
-    const r = el.getBoundingClientRect();
-    return {
-      testId: el.getAttribute("data-testid") ?? "(band)",
       left: toGraphX(r.left),
       top: toGraphY(r.top),
       right: toGraphX(r.right),
@@ -384,7 +354,6 @@ export function collectGeometry(): Geometry {
     nodes,
     chips,
     dots,
-    bands,
     crossingCues,
     portFurniture,
     zoom: k,
@@ -400,7 +369,7 @@ export function collectGeometry(): Geometry {
 // zooms in - that is the true graph-space footprint, not a measurement error.
 export type SceneElement = {
   id: string;
-  kind: "node" | "edge" | "chip" | "junction" | "band" | "glyph" | "group";
+  kind: "node" | "edge" | "chip" | "junction" | "glyph" | "group";
   itemId?: string;
   label?: string;
   clientRect: { x: number; y: number; width: number; height: number };
@@ -439,8 +408,8 @@ export type SceneCollection = {
 // element id, data-testid), because those stay stable across a re-render of the
 // same plan. Two families need help: the group boxes live INSIDE a
 // .react-flow__node wrapper and would otherwise reuse that node's data-id, so
-// they carry a `group-` prefix; bands and glyphs emit no per-element hook and
-// are numbered by document order. Anything still colliding gets a `-2`, `-3`
+// they carry a `group-` prefix; glyphs emit no per-element hook and are numbered
+// by document order. Anything still colliding gets a `-2`, `-3`
 // suffix, since a duplicate id would silently collapse two elements into one
 // coverage entry.
 export function collectScene(): SceneCollection {
@@ -563,21 +532,6 @@ export function collectScene(): SceneCollection {
       kind: "junction",
       id: el.getAttribute("data-testid") ?? "",
       fallbackId: `junction-${i}`,
-      el,
-    });
-  }
-
-  // BusBands already emits data-testid="bus-band-<lane>", keyed on the LANE
-  // index. Synthesising the same string from document order would put a
-  // different element behind an id that a testid locator also resolves, so read
-  // the attribute and only fall back to a plainly distinct document-order id.
-  const bands = Array.from(document.querySelectorAll<HTMLElement>(".bus-band"));
-  for (let i = 0; i < bands.length; i++) {
-    const el = bands[i]!;
-    add({
-      kind: "band",
-      id: el.getAttribute("data-testid") ?? "",
-      fallbackId: `band-${i}`,
       el,
     });
   }

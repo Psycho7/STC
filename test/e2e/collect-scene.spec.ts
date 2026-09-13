@@ -26,25 +26,14 @@ test("collectScene inventories every element kind on a dense plan", async ({
 }) => {
   const scenario = SCENARIOS.find((s) => s.id === "battery5-xiranite")!;
   const hash = await scenarioHash(scenario);
-  // The audit corpus polices the bus machinery, so every spec opts the toggle
-  // on explicitly; the app default (off since the bus-lanes flip) is a product
-  // decision this suite does not re-test.
-  await loadCensusScenario(page, hash, { locale: "en", busLanes: "on" });
+  await loadCensusScenario(page, hash, { locale: "en" });
 
   const scene = await page.evaluate(collectScene);
   const countOf = (kind: string): number =>
     scene.elements.filter((e) => e.kind === kind).length;
 
-  // All seven kinds render on this plan; none may go missing.
-  for (const kind of [
-    "node",
-    "edge",
-    "chip",
-    "junction",
-    "band",
-    "glyph",
-    "group",
-  ]) {
+  // All six kinds render on this plan; none may go missing.
+  for (const kind of ["node", "edge", "chip", "junction", "glyph", "group"]) {
     expect(countOf(kind), `no ${kind} elements collected`).toBeGreaterThan(0);
   }
 
@@ -55,7 +44,6 @@ test("collectScene inventories every element kind on a dense plan", async ({
   );
   expect(countOf("chip")).toBe(await page.locator(".flow-chip").count());
   expect(countOf("junction")).toBe(await page.locator(".bus-junction").count());
-  expect(countOf("band")).toBe(await page.locator(".bus-band").count());
   expect(countOf("glyph")).toBe(await page.locator("[data-glyph]").count());
   expect(countOf("group")).toBe(
     await page.locator('.rf-group-box, [data-testid="loop-node"]').count(),
@@ -66,8 +54,6 @@ test("collectScene inventories every element kind on a dense plan", async ({
   for (const e of scene.elements) {
     if (e.kind === "node") expect(e.id).not.toMatch(/^node-\d+$/);
     if (e.kind === "edge") expect(e.id).not.toMatch(/^edge-\d+$/);
-    // Bands carry BusBands' own data-testid, which is lane-indexed.
-    if (e.kind === "band") expect(e.id).toMatch(/^bus-band-/);
   }
   expect(new Set(scene.elements.map((e) => e.id)).size).toBe(
     scene.elements.length,

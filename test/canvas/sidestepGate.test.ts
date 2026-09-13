@@ -61,11 +61,6 @@ const driftOf = (
 // its own polyline is a chip the reader no longer reads as bound to its line.
 const OFF_PATH_TOL = 1;
 
-// chipSeating's CHIP_HALF_H, mirrored (the module does not export it): half the
-// box a chip paints at max counter-scale. A bus chip lifted this far off its
-// lane has the lane stroke on its box edge, not inside it.
-const CHIP_HALF_H = (2 * 24) / 2;
-
 // No card exemption and an INVERTED entry band no point can fall inside, so the
 // unit fixtures below see only the strokes they declare.
 const NO_EXEMPT: CardExemption = { whole: new Set(), zones: new Map() };
@@ -91,13 +86,9 @@ type OffPathHit = { id: string; distance: number };
 // Solve, render and lay out a scenario, then measure every item edge's SEATED
 // rate-chip centre against its own drawn polyline -- the node-land twin of the
 // e2e off-path audit, on the same plans.
-async function offPathChips(
-  targets: ItemTarget[],
-  busLanesEnabled: boolean,
-): Promise<OffPathHit[]> {
+async function offPathChips(targets: ItemTarget[]): Promise<OffPathHit[]> {
   const { nodes, edges } = await layoutSolved(
     solveForRender({ targets, pack }),
-    { busLanesEnabled },
   );
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const hits: OffPathHit[] = [];
@@ -153,12 +144,10 @@ describe("the landing plan's sewage chip stays on its own line", () => {
     { itemId: "iron_powder", ratePerSec: { num: "1", denom: "4" } },
   ];
 
-  for (const busLanesEnabled of [true, false]) {
-    it(`seats every rate chip on its polyline with lanes ${busLanesEnabled ? "on" : "off"}`, async () => {
-      const hits = await offPathChips(targets, busLanesEnabled);
-      expect(named(hits)).toEqual([]);
-    }, 60_000);
-  }
+  it("seats every rate chip on its polyline", async () => {
+    const hits = await offPathChips(targets);
+    expect(named(hits)).toEqual([]);
+  }, 60_000);
 });
 
 describe("rot-bottled_food_4 keeps its bend-column chips on their lines", () => {
@@ -183,12 +172,10 @@ describe("rot-bottled_food_4 keeps its bend-column chips on their lines", () => 
     "e:11:u:class:q:9->u:class:q:6:plant_grass_powder_1 4.50px",
   ];
 
-  for (const busLanesEnabled of [true, false]) {
-    it(`seats every rate chip on its polyline with lanes ${busLanesEnabled ? "on" : "off"}`, async () => {
-      const hits = await offPathChips(targets, busLanesEnabled);
-      expect(named(hits)).toEqual(RATIFIED_OFF_PATH);
-    }, 60_000);
-  }
+  it("seats every rate chip on its polyline", async () => {
+    const hits = await offPathChips(targets);
+    expect(named(hits)).toEqual(RATIFIED_OFF_PATH);
+  }, 60_000);
 });
 
 describe("seatRateChip: the vertical leg's sidestep gate", () => {
@@ -265,73 +252,22 @@ describe("battery5: no chip takes the only line another edge has", () => {
   // max-scale box this corridor no longer offers one fully-clear ON-LINE
   // seat, so the sidestep walk -- ungated on e:1, whose anchor sits on a
   // horizontal-dominant chamfer -- seats the chip beside its line instead:
-  //   e:1 (both lane arms): its own source out-band pins the corridor's left
-  //     end, and e:12's drawn line runs 22 below the approach leg at the
-  //     adjacent input row, so every max-scale box centred ON the leg
-  //     straddles one or the other. Step +32 (lanes off) / +48 (on); the leg
-  //     passes 4.5 under the seated centre.
+  // its own source out-band pins the corridor's left end, and e:12's drawn
+  // line runs 22 below the approach leg at the adjacent input row, so every
+  // max-scale box centred ON the leg straddles one or the other. The leg
+  // passes 4.5 under the seated centre.
   // The same trim RETIRED the previous ratified seat: e:14 "Sewage" stepped
-  // 16 off its corridor vertical against a parallel lane stroke, but its
+  // 16 off its corridor vertical against a parallel foreign stroke, but its
   // window-capped box can no longer step past that stroke (the reach is half
   // the 141-wide reserve, the stroke sits 30 past the line) and the stroke
   // is too far away to braid, so the chip now grazes ON its own line and
-  // drops out of this list. The trim alone also stepped e:22 and e:23 off
-  // their tap lines with lanes off; the catalyst supply edges re-dealt that
-  // clearance field and both seat on their lines again -- an observation
-  // list, not a contract.
+  // drops out of this list.
   const RATIFIED_OFF_PATH = [
     "e:1:u:class:q:1->u:class:q:11:originium_powder 4.50px",
   ];
 
-  for (const busLanesEnabled of [true, false]) {
-    it(`seats every rate chip on its polyline with lanes ${busLanesEnabled ? "on" : "off"}`, async () => {
-      const hits = await offPathChips(targets, busLanesEnabled);
-      expect(named(hits)).toEqual(RATIFIED_OFF_PATH);
-    }, 60_000);
-  }
-});
-
-describe("multi6: a bus rise chip keeps the lane stroke inside its box", () => {
-  // e:80's rise chip sits a chamfer from its own trunk's junction dot, and it
-  // stays seated on its lane: a bite is the most a lane chip lifts for a thin
-  // obstacle, and a bite is under a max-scale half-height, so the lane stroke
-  // still runs inside the box the chip paints. A neighbouring chip is what costs
-  // a full CHIP_PITCH_Y lift, and a dot costs nothing. At a pitch -- exactly two
-  // max-scale half-heights -- the stroke lands ON the box edge, which is why a
-  // rise needing more than one pitch is hidden rather than cast adrift (the e2e
-  // seat-validity census reported such a chip 48.0 off its own line). Covering
-  // the dot is the accepted cost of keeping the chip on its lane.
-  const targets: ItemTarget[] = [
-    { itemId: "bottled_food_5", ratePerSec: { num: "1", denom: "2" } },
-    { itemId: "bottled_rec_hp_5", ratePerSec: { num: "1", denom: "2" } },
-    { itemId: "proc_battery_3", ratePerSec: { num: "1", denom: "2" } },
-    { itemId: "equip_script_2", ratePerSec: { num: "1", denom: "2" } },
-    { itemId: "glass_enr_cmpt", ratePerSec: { num: "1", denom: "2" } },
-    { itemId: "copper_enr_cmpt", ratePerSec: { num: "1", denom: "2" } },
-  ];
-
-  it("lifts no rise chip past the depth its own box covers", async () => {
-    const { edges } = await layoutSolved(solveForRender({ targets, pack }), {
-      busLanesEnabled: true,
-    });
-
-    // Premise: this plan really does draw lane bus chips, the last
-    // liquid_water rise among them (e:79 since the catalyst split removed the
-    // plan's catalyst feed edges and renumbered the lot).
-    const rises = edges.filter(
-      (e) => e.type === "bus" && (e.data as EdgeData).laneY !== undefined,
-    );
-    expect(rises.length).toBeGreaterThan(0);
-    expect(rises.some((e) => e.id.startsWith("e:79:"))).toBe(true);
-
-    // Every stamped lift is strictly inside the half-height the chip's box
-    // covers, so the lane stroke it is anchored to runs through that box.
-    const lifted = rises
-      .map((e) => ({
-        id: e.id,
-        dy: ((e.data as EdgeData).busChipDy as number | undefined) ?? 0,
-      }))
-      .filter((r) => Math.abs(r.dy) >= CHIP_HALF_H);
-    expect(lifted).toEqual([]);
+  it("seats every rate chip on its polyline", async () => {
+    const hits = await offPathChips(targets);
+    expect(named(hits)).toEqual(RATIFIED_OFF_PATH);
   }, 60_000);
 });

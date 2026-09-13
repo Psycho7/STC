@@ -259,29 +259,3 @@ test("an edit made while a hash navigation is landing is refused", async () => {
   );
   expect(byId.get("copper_bottle")).toEqual({ num: "2", denom: "1" });
 });
-
-test("the bus-lanes toggle is refused while a hash navigation is landing", async () => {
-  render(<App />);
-
-  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
-  layoutGate.pending.shift()!();
-  await screen.findAllByTestId("target-row");
-  await waitFor(() => expect(window.location.hash).not.toBe(""));
-
-  window.location.hash = await encodePlanB();
-  await waitFor(() => expect(layoutGate.pending.length).toBe(1));
-
-  const toggle = screen.getByTestId("bus-lanes-toggle");
-  expect(toggle).toHaveAttribute("aria-pressed", "false");
-  fireEvent.click(toggle);
-
-  const banner = await screen.findByRole("alert");
-  expect(banner.textContent).toMatch(/loading/i);
-  // The preference did not flip, so the switch does not lie about the render.
-  expect(screen.getByTestId("bus-lanes-toggle")).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
-  expect(window.localStorage.getItem("aef.busLanes")).not.toBe("on");
-  expect(layoutGate.pending.length).toBe(1);
-});

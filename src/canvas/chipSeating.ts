@@ -1,27 +1,20 @@
 // Chip seating: the whole-graph de-confliction pass that places every
-// edge-label chip (bus drop/rise chips, fan-out chips, item rate chips) after
-// routing has finished, plus the clearance machinery it runs on.
+// edge-label chip (fan-out chips, item rate chips) after routing has finished,
+// plus the clearance machinery it runs on.
 //
-// Two coincident chips read as one, and on a bus lane the surviving chip lied
-// about the flow. deconflictChipAnchors runs last in the render pipeline
-// (after routeBusEdges, assignEntryColumns, and assignBendColumns, so it sees
-// the final laneY, entryX and bendX; busChipX it takes as routeBusEdges left it
-// and REWRITES, clamping each member's slot into its own resolved lane run)
-// and threads chip-nudge offsets
+// Two coincident chips read as one, and the surviving chip lied about the flow.
+// deconflictChipAnchors runs last in the render pipeline (after
+// routeFanoutEdges, assignEntryColumns, and assignBendColumns, so it sees the
+// final junction column, entryX and bendX) and threads chip-nudge offsets
 // onto edge data through one shared collision set (the ClearanceField).
 //
 // Seating runs in EXPLICIT PHASES, in this order -- the ordering is
 // load-bearing, not incidental, so keep it explicit rather than folding it
 // into a generic priority framework:
-//   0. junction-dot geometry: the four dot families (lane bus branch, fan-out
-//      trunk split, fan-in merge, declined-fan-out divergence) are pure
-//      functions of the reconstructed polylines, so they all resolve before the
-//      first chip seats and every seating phase runs against a known dot set.
-//   1. bus drop chips: one aggregate total per trunk at its junction; they
-//      settle before any rise so a cascading rise can never knock a trunk's
-//      aggregate off its lane.
-//   2. bus rise chips: per-member lane chips, cascading off the lane (down in
-//      the bottom band, up in the top band) when crowded.
+//   0. junction-dot geometry: the three dot families (fan-out trunk split,
+//      fan-in merge, declined-fan-out divergence) are pure functions of the
+//      reconstructed polylines, so they all resolve before the first chip seats
+//      and every seating phase runs against a known dot set.
 //   3. fan-out trunk chips: the owner's aggregate on the shared trunk, then
 //      each member's branch chip on its own leg.
 //   4. item rate chips: seated on their own polyline's clear segment by
@@ -30,8 +23,8 @@
 // order, so the whole pass is pure and deterministic.
 //
 // Phase boundaries, measured rather than assumed -- the phases are NOT separable
-// modules. No seating phase reads another seating phase's accumulator: the 13
-// index maps phases 1/2, 3 and 4 write between them flow only to the emit loop
+// modules. No seating phase reads another seating phase's accumulator: the
+// index maps phases 3 and 4 write between them flow only to the emit loop
 // at the end of deconflictChipAnchors. Their sole coupling is field.placed --
 // every seat tests overlapsChip against everything seated so far -- so the phase
 // order is a PRIORITY order, not a data dependency: reordering changes which
@@ -69,7 +62,6 @@ import {
   CHAMFER,
   clamp,
   drawnEdge,
-  type DrawnEdge,
   forwardStepGeometry,
   pathPointAtPts,
   routingHintsFromData,
@@ -83,7 +75,6 @@ import {
   type CrossingCuePartner,
 } from "./crossings";
 import {
-  BUS_LONG_RUN_THRESHOLD,
   ENTRY_SLOT_PITCH,
   OBSTACLE_PAD_LEFT,
   OBSTACLE_PAD_Y,
@@ -92,7 +83,6 @@ import {
   isTrunkOwner,
   type BusEdgeData,
   type FanoutBusEdgeData,
-  type LaneBusEdgeData,
 } from "./busRouting";
 import {
   absoluteLeft,
@@ -134,16 +124,6 @@ import {
 // counted vertical travel a horizontal chip cannot use and let the shared
 // trunk prefix puff the measure -- the two failures Task 6's item rule fixed
 // first.
-
-// Minimum centre x-separation two WIDE bus rise chips must keep when they
-// share one lane run -- the capacity floor the bus rise pass hides against
-// (see deconflictChipAnchors). Also, deliberately, the WIDTH of the rise-end
-// window clampChipXToOwnRun intersects a member's own run with, so a rise
-// chip is never seated more than one separation from the corner it labels:
-// the window is exactly as wide as the closest two chips may sit, so a chip
-// held at its window's far edge still clears a sibling parked at its own
-// corner beside it.
-const MIN_CHIP_SEP = 2 * CHIP_HALF_W_WIDE;
 
 export type XSpan = { lo: number; hi: number };
 
@@ -194,18 +174,6 @@ export function largestClearSpan(
 // dropping below one box at any zoom.
 const CHIP_PITCH_Y = MAX_CHIP_SCALE * CHIP_BOX_HEIGHT;
 const CHIP_NUDGE_STEP = CHIP_PITCH_Y;
-
-// The small lift a bus chip may take off its lane while the lane stroke still
-// runs through the box it PAINTS. A bus chip is anchored to a lane it has no
-// other tie to -- it draws no leg of its own -- so that stroke is the only thing
-// saying which trunk the rate belongs to, and it is inside the painted box only
-// while the offset stays under CHIP_HALF_H: at exactly CHIP_HALF_H the line lies
-// ON the box edge and the chip reads as floating beside the lane. The bite is
-// that depth less a few units of margin. It is tried as an early rung of the
-// cascade, ahead of the full pitch, so a chip that can clear its obstacle with a
-// small lift keeps its line.
-const LANE_LINE_KEEP = 4;
-const LANE_BITE = CHIP_HALF_H - LANE_LINE_KEEP;
 
 // A placed chip box in the shared collision set: its centre plus per-axis
 // half-extents. Two boxes overlap when their centres sit closer than the sum of
@@ -723,230 +691,6 @@ export function makeClearanceField(
       return worst;
     },
   };
-}
-
-// Cap on the cascade when foreign edge segments join the collision set. A chip
-// crossing a dense weave could otherwise walk far off its anchor; past the cap
-// the seat falls back to chip-only collisions (the pre-segment behaviour, no
-// worse than before).
-const CHIP_SEAT_MAX_STEPS = 24;
-
-// Cascade probe: the smallest dy multiple of `step` (within the cap) at which
-// the box clears every placed chip and every foreign-flow line, or null when
-// the cap exhausts. `step` is signed: bottom-band chips cascade DOWN, top-band
-// chips pass a negative step and cascade UP, away from the graph below them.
-// No side effects; callers push the box themselves.
-function cascadeClearDy(
-  field: ClearanceField,
-  x: number,
-  y: number,
-  halfW: number,
-  halfH: number,
-  step: number,
-  flowKey: string,
-  target: string,
-  maxSteps: number,
-  // When given, the cascade also clears every FOREIGN raw card (the drop
-  // aggregate's hard chip-vs-card tier); absent leaves cards unchecked (rises).
-  cardExempt?: CardExemption,
-): number | null {
-  let dy = 0;
-  for (let steps = 0; steps <= maxSteps; steps++) {
-    const box = { x, y: y + dy, halfW, halfH };
-    if (
-      !field.overlapsChip(box) &&
-      !field.onForeignLine(box, flowKey, target) &&
-      (cardExempt === undefined || !field.entersForeignCard(box, cardExempt))
-    ) {
-      return dy;
-    }
-    dy += step;
-  }
-  return null;
-}
-
-// Seat a bus chip at its preferred lane anchor, cascading in `step`-sized
-// increments until it clears every placed chip and every foreign line, then
-// record it. Returns the signed offset applied (0 when the anchor was already
-// clear). When no step within the cap clears the lines, the seat retries
-// against chips alone so crowding never regresses past the pre-segment
-// behaviour. Deterministic given a fixed placement order.
-function seatChip(
-  field: ClearanceField,
-  x: number,
-  y: number,
-  halfW: number,
-  halfH: number,
-  step: number,
-  flowKey: string,
-  target: string,
-  // Owning edge id, used only for the DEV exhaustion warning below.
-  devId: string,
-  // Trunk-member card exemption for the drop aggregate seat (union of member
-  // targets + shared source + containers). When given, both the segment-clear
-  // cascade and the chips-only fallback keep the chip off every foreign raw
-  // card, upholding the bus-drop-vs-card hard tier at the seating side. Absent
-  // for rise chips (lane-anchored, out of scope for that tier).
-  cardExempt?: CardExemption,
-  // Soft cascade cap, in steps (the bus DROP seat only). Inside the cap the
-  // seat is tried first against everything, then again with the FOREIGN-LINE
-  // preference relaxed -- the softest obstacle this seat consults -- so a drop
-  // chip grazing a foreign stroke beside its own
-  // junction beats a clean seat pitches away in empty canvas, where no rule
-  // hides it and nothing marks which trunk it belongs to. Chips (and, with a
-  // cardExempt, foreign cards) stay HARD throughout: when nothing inside the
-  // cap clears them the cap yields to the unbounded ladder below rather than
-  // let two chips overlap.
-  capSteps?: number,
-): { dy: number; box: ChipBox } {
-  const bite = step < 0 ? -LANE_BITE : LANE_BITE;
-  // The bite rung: a lift small enough to keep the lane line inside the painted
-  // box, tried before the pitch-sized ladder below so a chip that clears its
-  // obstacle cheaply never pays the full pitch for it. A pitch-sized neighbour
-  // chip is not cleared by a bite (two boxes need a full height between their
-  // centres), so this only ever picks up the cases a thin obstacle caused.
-  // The lane slot itself comes first, exactly as the ladder below would take it.
-  for (const dy of [0, bite]) {
-    const box = { x, y: y + dy, halfW, halfH };
-    if (
-      !field.overlapsChip(box) &&
-      !field.onForeignLine(box, flowKey, target) &&
-      (cardExempt === undefined || !field.entersForeignCard(box, cardExempt))
-    ) {
-      return { dy, box: field.seat(box) };
-    }
-  }
-  if (capSteps !== undefined) {
-    const capped = cascadeClearDy(
-      field,
-      x,
-      y,
-      halfW,
-      halfH,
-      step,
-      flowKey,
-      target,
-      capSteps,
-      cardExempt,
-    );
-    if (capped !== null) {
-      return {
-        dy: capped,
-        box: field.seat({ x, y: y + capped, halfW, halfH }),
-      };
-    }
-    let capDy = 0;
-    for (let steps = 0; steps <= capSteps; steps++) {
-      const box = { x, y: y + capDy, halfW, halfH };
-      if (
-        !field.overlapsChip(box) &&
-        (cardExempt === undefined || !field.entersForeignCard(box, cardExempt))
-      ) {
-        return { dy: capDy, box: field.seat(box) };
-      }
-      capDy += step;
-    }
-  }
-  const clear = cascadeClearDy(
-    field,
-    x,
-    y,
-    halfW,
-    halfH,
-    step,
-    flowKey,
-    target,
-    CHIP_SEAT_MAX_STEPS,
-    cardExempt,
-  );
-  if (clear !== null) {
-    return { dy: clear, box: field.seat({ x, y: y + clear, halfW, halfH }) };
-  }
-  // Segment-clear seat not found within the cap: fall back to the chips-only
-  // cascade so crowding never regresses past the pre-segment behaviour.
-  if (import.meta.env.DEV) {
-    // Dev/test-only tripwire, tree-shaken out of production builds (parity
-    // with the render hook in src/pipeline/driver.ts).
-    console.warn(
-      `chip seating: segment-clear cascade for ${devId || "(unnamed chip)"} ` +
-        "exhausted its cap; falling back to the chips-only cascade " +
-        "(foreign-line clearance abandoned)",
-    );
-  }
-  let dy = 0;
-  while (
-    field.overlapsChip({ x, y: y + dy, halfW, halfH }) ||
-    (cardExempt !== undefined &&
-      field.entersForeignCard({ x, y: y + dy, halfW, halfH }, cardExempt))
-  ) {
-    dy += step;
-  }
-  return { dy, box: field.seat({ x, y: y + dy, halfW, halfH }) };
-}
-
-// Clamp a lane member's trunk-wide rise slot into a WINDOW at the member's
-// OWN rise end: the resolved run intersected with [riseX - MIN_CHIP_SEP,
-// riseX] for a forward member, or [riseX, riseX + MIN_CHIP_SEP] for a
-// backward one (whose rise end is the run's LEFT end), keeping one chamfer of
-// slack at each cut so the chip anchors on the straight part of the run
-// rather than on a corner bevel. The window makes the clamp two-sided. The
-// old clamp only pulled out-of-run slots back IN, so a long-running member
-// whose slot already sat inside its own run kept it -- legally, but hundreds
-// of units from the rise corner it labels and plausibly right beside a short
-// sibling's column (battery5-xiranite: the "300/687.95" rise chip under the
-// 297.95 member's dogleg). With the window, no rise chip sits more than one
-// MIN_CHIP_SEP from its own corner whatever the spread pass does; members
-// whose windows crowd (two feeding one column) are decided by the capacity
-// check, untouched. A run with no interior left -- a hairpin (dropX ===
-// riseX), or a backward member whose two columns nearly touch -- gets the
-// run's midpoint instead. `undefined` in, `undefined` out: that is the lone
-// long-run member, whose slot routeBusEdges deliberately omits so the chip
-// falls back to the rise column at the consumer end (#32), and whose
-// zoom-gate exemption in BusEdge keys on the slot being ABSENT.
-//
-// The window has one carve-out, `riseColumnCoLocated`: a member whose rise
-// column stands within one MIN_CHIP_SEP of a SIBLING member's rise column
-// (same-layer targets, whose lane runs are therefore co-extensive). Two such
-// members' windows cut overlapping stretches out of the shared run, so the
-// two-sided clamp parks both on it -- a window one MIN_CHIP_SEP wide hosts at
-// most one chip -- and the capacity check hides one, defeating the trunk-wide
-// spread, which exists to separate exactly these members: same-layer members
-// anchor near-coincident at their rise vertices because assignEntryColumns
-// staggers the entry gutter per target, not per layer. For such a member the
-// slot keeps its spread position, clamped into the member's own run only (the
-// pull-in-only form the clamp had before the window): co-extensive runs cover
-// the whole spread extent, so the slot stays on the member's own stroke
-// wherever the spread put it, and the spread -- not the window -- separates
-// the chips. The flag is judged per MEMBER, not per trunk: one far member
-// (a longer run into the next layer) must not re-impose the window on the
-// co-located rest, whose windows would still collide. A member whose rise
-// column stands apart from every sibling's (mixed-length runs, the battery5
-// shape the window was built for) keeps the window.
-function clampChipXToOwnRun(
-  busChipX: number | undefined,
-  dropX: number,
-  riseX: number,
-  riseColumnCoLocated: boolean,
-): number | undefined {
-  if (busChipX === undefined) return undefined;
-  const lo = Math.min(dropX, riseX);
-  const hi = Math.max(dropX, riseX);
-  if (hi - lo <= 2 * CHAMFER) return (lo + hi) / 2;
-  if (riseColumnCoLocated) {
-    return Math.min(Math.max(busChipX, lo + CHAMFER), hi - CHAMFER);
-  }
-  // Direction-aware rise-end window, one MIN_CHIP_SEP wide, ending at the
-  // member's own rise column and reaching back along the run toward the drop
-  // column.
-  const windowLo = riseX >= dropX ? riseX - MIN_CHIP_SEP : riseX;
-  const windowHi = riseX >= dropX ? riseX : riseX + MIN_CHIP_SEP;
-  // Intersect with the chamfer-slack run. Never empty on this branch: the
-  // run is longer than two chamfers, so [lo + CHAMFER, hi - CHAMFER] is
-  // non-empty, and its rise-side end sits one chamfer INSIDE the window
-  // while its drop-side end is cut only when the run outlengths the window.
-  const clampLo = Math.max(lo + CHAMFER, windowLo);
-  const clampHi = Math.min(hi - CHAMFER, windowHi);
-  return Math.min(Math.max(busChipX, clampLo), clampHi);
 }
 
 // Row tolerance for matching a stamped y against a drawn vertex: paths round to
@@ -1888,13 +1632,13 @@ export function cardRectsFor(
   });
 }
 
-// One drawn junction dot and the family it belongs to. The four families are
-// drawn by three different components -- BusEdge draws the lane member's branch
-// dot and the fan-out trunk's split dot from the path builders, ItemEdge draws
-// the fan-in merge dot and the declined-fan-out divergence dot from the stamps
-// below -- but they are one obstacle class to the seating phases, so the
-// collected set keeps the family only as a label.
-type JunctionDotKind = "lane" | "fanout" | "fanin" | "divergence";
+// One drawn junction dot and the family it belongs to. The three families are
+// drawn by two different components -- BusEdge draws the fan-out trunk's split
+// dot from the path builders, ItemEdge draws the fan-in merge dot and the
+// declined-fan-out divergence dot from the stamps below -- but they are one
+// obstacle class to the seating phases, so the collected set keeps the family
+// only as a label.
+type JunctionDotKind = "fanout" | "fanin" | "divergence";
 export type JunctionDot = { x: number; y: number; kind: JunctionDotKind };
 
 // Every edge-data field the seating phases stamp. Picking them off the types
@@ -1913,10 +1657,6 @@ const SEAT_PATCH_KEYS = [
   "fanoutJunctionX",
   "fanoutJunctionY",
   "crossingCues",
-  "busChipX",
-  "busDropDy",
-  "busChipDy",
-  "busRiseHidden",
   "fanoutAggDx",
   "fanoutAggDy",
   "fanoutBranchDx",
@@ -1929,9 +1669,7 @@ const SEAT_PATCH_KEYS = [
 type SeatPatchKey = (typeof SEAT_PATCH_KEYS)[number];
 type PickSeatKeys<T> = Pick<T, Extract<SeatPatchKey, keyof T>>;
 type SeatPatch = Partial<
-  PickSeatKeys<ItemEdgeData> &
-    PickSeatKeys<LaneBusEdgeData> &
-    PickSeatKeys<FanoutBusEdgeData>
+  PickSeatKeys<ItemEdgeData> & PickSeatKeys<FanoutBusEdgeData>
 >;
 
 // The drag-end re-seat: strip every stamp the pass owns and run it again on
@@ -2004,15 +1742,6 @@ export function deconflictChipAnchors(
     owner: boolean;
   };
   const fanoutGeomById = new Map<string, FanoutGeom>();
-  // Lane bus members cache the whole drawn lane shape, so the bus-slot loop
-  // below reads the drop and rise columns this reconstruction resolved instead
-  // of rebuilding the lane path a second time with a second copy of the hints.
-  type LaneGeom = Extract<DrawnEdge, { shape: "lane" }>;
-  const laneGeomById = new Map<string, LaneGeom>();
-  // Lane bus members whose branch point carries a junction dot. Taken from the
-  // same drawn lane shape the polyline comes from, so the cached dot is the
-  // drawn dot rather than a second derivation of it.
-  const laneJunctionById = new Map<string, { x: number; y: number }>();
   // Item edges whose clear window cannot hold their own rate chip: the chip
   // renders icon-only.
   const shortLegByIndex = new Set<number>();
@@ -2088,9 +1817,9 @@ export function deconflictChipAnchors(
     if (ends === null) return;
     const { sourceX: sx } = ends;
     // One drawn shape per edge, from the same seam the renderers draw through:
-    // the hint spread, the fan-out and lane discriminants, the lane-row
-    // fallback and the parse of `d` all resolve there, so this reconstruction
-    // cannot answer a different polyline than the one on screen.
+    // the hint spread, the fan-out discriminant and the parse of `d` all resolve
+    // there, so this reconstruction cannot answer a different polyline than the
+    // one on screen.
     const drawn = drawnEdge(ends, edge.type, edge.data);
     if (drawn.shape === "fanout") {
       // drawnEdge's branch leg is the whole suffix after the junction, which
@@ -2136,16 +1865,6 @@ export function deconflictChipAnchors(
         (edge.data as FanoutBusEdgeData).fanoutContested === true
       )
         branchIconOnlyByIndex.add(index);
-    } else if (drawn.shape === "lane") {
-      laneGeomById.set(edge.id, drawn);
-      // A lone-member trunk draws no junction dot (nothing branches at its
-      // corner; BusEdge mirrors this), so it registers no keep-off either --
-      // otherwise the keep-off would evict the rise chip off the lane to dodge
-      // a dot that is not there (#83).
-      const data = edge.data as BusEdgeData | undefined;
-      if ((data?.busMemberCount ?? 1) > 1) {
-        laneJunctionById.set(edge.id, drawn.junction);
-      }
     } else {
       itemGeomById.set(edge.id, {
         pts: drawn.pts,
@@ -2241,10 +1960,7 @@ export function deconflictChipAnchors(
   // Why properCross semantics are the whole safety argument (the negative
   // tests pin each clause): a strict-interior crossing can never fire on
   //   - a collinear fan-in merge run (collinear overlap, not opposite
-  //     orientations),
-  //   - a bus lane's overlapping member runs (collinear) or a foreign
-  //     member's drop/rise column meeting the lane (the column ENDS at
-  //     laneY, an endpoint touch on the run's interior), or
+  //     orientations), or
   //   - a shared fan-out trunk (the members leave the junction from one
   //     shared vertex, so every intersection is an endpoint touch), or its
   //     FAR members, the item edges pinned to the same junction column: their
@@ -2401,7 +2117,7 @@ export function deconflictChipAnchors(
   const faninGroups = new Map<string, FaninMember[]>();
   const faninTargetByKey = new Map<string, { tx: number; ty: number }>();
   // (item, target) ports that ALSO receive a same-item edge outside the marker's
-  // scope (a lane-bus rise, a backward rail, or any non-collinear approach). A
+  // scope (a backward rail, or any non-collinear approach). A
   // dot there would mark only the collinear members' merge and misstate where
   // the card's input row is fed from, so such a port gets NO marker at all.
   const faninExcludedKeys = new Set<string>();
@@ -2429,7 +2145,8 @@ export function deconflictChipAnchors(
     } else if (fanGeom !== undefined) {
       pts = fanGeom.pts;
     } else {
-      // Lane bus members approach via a rise column, not along the port-y run.
+      // Any other bus member approaches off its own column, not along the
+      // port-y run.
       faninExcludedKeys.add(key);
       return;
     }
@@ -2476,8 +2193,8 @@ export function deconflictChipAnchors(
   >();
   for (const [key, members] of faninGroups) {
     if (members.length < 2) continue;
-    // Mixed-feed port: an out-of-scope same-item edge (lane-bus rise, backward
-    // rail, non-collinear approach) also enters this port, so a dot on the
+    // Mixed-feed port: an out-of-scope same-item edge (backward rail,
+    // non-collinear approach) also enters this port, so a dot on the
     // collinear members' join would mark a partial merge. No marker.
     if (faninExcludedKeys.has(key)) continue;
     // Fan-in needs 2+ DISTINCT incoming flows. Same-(item, source) edges are one
@@ -2603,7 +2320,6 @@ export function deconflictChipAnchors(
     seenDots.add(key);
     dotKeepoffs.push({ x: p.x, y: p.y, kind });
   };
-  for (const p of laneJunctionById.values()) addDot(p, "lane");
   for (const g of fanoutGeomById.values()) addDot(g.junction, "fanout");
   for (const p of faninJunctionByIndex.values()) addDot(p, "fanin");
   // The declined groups' peel-off corners ARE the divergence dot set: every
@@ -2621,345 +2337,10 @@ export function deconflictChipAnchors(
   // consults them through the one field.
   const field = makeClearanceField(edgeSegments, cards, dotKeepoffs);
 
-  // Phases 1 and 2 -- bus chips: a LONE-member trunk draws one aggregate drop
-  // chip (on the owner member); a multi-member trunk draws none (issue #39).
-  // Every trunk draws one rise chip per member, all on the trunk's lane.
-  // Reconstruct their lane anchors from the same geometry BusEdge uses (the
-  // prologue's drawn lane shape for dropX/riseX, busChipX for the spread rise
-  // slot) and seat each one, cascading off the lane when it crowds a
-  // neighbour. Seating
-  // is two-phase: every drawn drop chip settles first, then every rise chip,
-  // each phase in edge-id order. The drop chip is the trunk's aggregate total
-  // at its junction; interleaving by edge id alone would let an earlier
-  // trunk's cascading rise land on a later trunk's junction and knock that
-  // aggregate off its lane, so drop priority is structural, not an accident of
-  // id order. Drop and rise carry separate offsets (busDropDy, busChipDy)
-  // because a member's rise may need a different push than the trunk's shared
-  // drop.
-  const busDropDyByIndex = new Map<number, number>();
-  const busChipDyByIndex = new Map<number, number>();
-  // Clamped rise slots, stamped back onto edge data below so BusEdge's chip
-  // anchor and contentBounds' frame read the same x this pass seated.
-  const busChipXByIndex = new Map<number, number>();
-  type BusSlot = {
-    index: number;
-    id: string;
-    laneY: number;
-    dropX: number;
-    // The member's own resolved rise column, the clamp's window reference.
-    riseX: number;
-    // The trunk-wide spread slot as routeBusEdges stamped it, before the
-    // clamp: undefined for the lone long-run member, whose riseChipX falls
-    // back to the rise column and whom the clamp leaves slotless.
-    riseSlot: number | undefined;
-    riseChipX: number;
-    owner: boolean;
-    // Lane members sharing this trunk. Only a lone member draws (and so seats)
-    // an aggregate drop chip.
-    memberCount: number;
-    // Lone member on a long lane detour: its rise chip is zoom-gate exempt
-    // (#32) and labels the trunk on its own, so the drop seat is DEFERRED and
-    // taken only if the rise phase ends up hiding that chip (BusEdge mirrors
-    // the draw condition).
-    longSingleRun: boolean;
-    step: number;
-    flowKey: string;
-    target: string;
-    trunkKey: string;
-    // Target in-port y, the top-to-bottom key the rise seat loop stacks by.
-    entryY: number;
-    // Per-chip reserved half-widths (Task 10): what each seat reserves is the
-    // box ITS chip draws -- the drop seat the aggregate text (the trunk total
-    // the drop chip prints), the rise seat the member text (the share
-    // "30/270" or the plain rate) -- through the same chipSeatHalfW estimate
-    // the rate seats have carried since T6b. Until now both bus seats charged
-    // the flat 240-wide clamp, so a "600/min" rise drawing about 162 units
-    // read as blocked to the seat while the corridor beside it was open.
-    // Falls back to the wide box inside the estimator itself (no usable
-    // rate); the capacity comparator and MIN_CHIP_SEP stay wide regardless.
-    dropHalfW: number;
-    riseHalfW: number;
-  };
-  const busSlots: BusSlot[] = [];
-  const busEdges = edges
-    .map((edge, index) => ({ edge, index }))
-    .filter(
-      (e) =>
-        e.edge.type === "bus" &&
-        (e.edge.data as BusEdgeData | undefined)?.fanout !== true,
-    )
-    .sort((a, b) =>
-      a.edge.id < b.edge.id ? -1 : a.edge.id > b.edge.id ? 1 : 0,
-    );
-  for (const { edge, index } of busEdges) {
-    const data = edge.data as BusEdgeData | undefined;
-    if (data === undefined || !("laneY" in data)) continue;
-    // The DRAWN frame, through the same drawnPortsOf the polyline
-    // reconstruction above uses. Rebuilding the model-frame ports here instead
-    // put an unmoved trunk's drop column one source-port drift out from where
-    // BusEdge paints it (5 units on a recipe source, 4 on a product), so the
-    // drop chip reserved its clearance box beside its junction rather than on
-    // it -- and this was the last seat left in the model frame, with BusEdge,
-    // contentBounds and the placement audit all reading the drawn one.
-    const ends = drawnPortsOf(edge, byId);
-    if (ends === null) continue;
-    const { targetY: ty } = ends;
-    // The columns the prologue's drawn lane shape resolved for this member --
-    // the same shape the polyline reconstruction and BusEdge draw, so the
-    // clamp below reads the drawn lane rather than a second rebuild of it.
-    const lane = laneGeomById.get(edge.id);
-    if (lane === undefined) continue;
-    const { dropX, riseX } = lane;
-    // Pull the trunk-wide rise slot back into this member's own lane run.
-    // routeBusEdges spreads a trunk's slots across the WHOLE trunk extent (the
-    // drop column out to the rightmost member's rise column), but a member's
-    // own lane run ends at its OWN rise column -- so a member whose consumer
-    // sits near the source can be handed a slot hundreds of units past the
-    // point where its line leaves the lane, parking its rate chip on a
-    // sibling's stroke with nothing of its own beneath it.
-    // The clamp belongs HERE and not in routeBusEdges: these dropX / riseX come
-    // out of the drawn lane shape with the stamped routing hints, so they are
-    // the columns actually drawn (assignEntryColumns staggers the rise
-    // afterwards and clearBusColumns may dodge either column by far more than
-    // a chamfer).
-    // The slots are collected raw here and clamped just below the loop: the
-    // clamp's co-location carve-out needs a trunk-level fact (see there). It
-    // stays per member and order-independent, so routeBusEdges' shuffled-input
-    // determinism is untouched; slots the clamp pushes together are resolved by
-    // the capacity check below, which hides the overflow.
-    busSlots.push({
-      index,
-      id: edge.id,
-      laneY: data.laneY,
-      dropX,
-      riseX,
-      riseSlot: data.busChipX,
-      riseChipX: data.busChipX ?? riseX,
-      // Deliberately STRICTER than isTrunkOwner, which reads absent as owner:
-      // routeBusEdges always stamps the field in production, so the two rules
-      // only diverge on hand-built fixtures. Unifying them is render-visible
-      // and out of scope here.
-      owner: data.busChipOwner === true,
-      memberCount: data.busMemberCount ?? 1,
-      // Mirrors BusEdge's longSingleRun: keyed to routeBusEdges' own long-run
-      // decision through the ABSENT lane slot, on the same drawn columns.
-      longSingleRun:
-        (data.busMemberCount ?? 1) === 1 &&
-        data.busChipX === undefined &&
-        Math.abs(riseX - dropX) > BUS_LONG_RUN_THRESHOLD,
-      // Top-band chips cascade UP (away from the graph below them); bottom-band
-      // and un-banded chips cascade DOWN. Signed step drives seatChip's walk.
-      step: data.busBand === "top" ? -CHIP_NUDGE_STEP : CHIP_NUDGE_STEP,
-      flowKey: flowKeyOf(edge),
-      target: edge.target,
-      trunkKey: data.trunkKey,
-      entryY: ty,
-      dropHalfW: chipSeatHalfW(aggregateChipText(edge), false),
-      riseHalfW: chipSeatHalfW(branchChipText(edge), false),
-    });
-  }
-  // Trunk grouping over the lane slots, shared by the rise-slot clamp below
-  // and the capacity check further down.
-  const slotsByTrunk = new Map<string, BusSlot[]>();
-  for (const slot of busSlots) {
-    const list = slotsByTrunk.get(slot.trunkKey) ?? [];
-    list.push(slot);
-    slotsByTrunk.set(slot.trunkKey, list);
-  }
-  // The one sibling fact the clamp cannot see per member: whether a slotted
-  // member's rise column is CO-LOCATED with another slotted member's of the
-  // same trunk, within one MIN_CHIP_SEP -- same-layer targets, whose lane
-  // runs are co-extensive. Judged per member against its siblings, not as a
-  // trunk-wide extent: a trunk with three same-layer members and one further
-  // out still has three colliding windows, and the far member alone keeps
-  // its window. A lone slot bears no sibling to separate from, so it keeps
-  // the window (a chip still belongs beside the corner it labels).
-  const coLocatedIndices = new Set<number>();
-  for (const [, slots] of slotsByTrunk) {
-    const slotted = slots.filter((s) => s.riseSlot !== undefined);
-    for (const a of slotted) {
-      for (const b of slotted) {
-        if (a === b) continue;
-        if (Math.abs(a.riseX - b.riseX) <= MIN_CHIP_SEP) {
-          coLocatedIndices.add(a.index);
-          break;
-        }
-      }
-    }
-  }
-  for (const slot of busSlots) {
-    // undefined in, undefined out: the lone long-run member keeps its absent
-    // slot and its riseChipX fallback to the rise column.
-    const clampedChipX = clampChipXToOwnRun(
-      slot.riseSlot,
-      slot.dropX,
-      slot.riseX,
-      coLocatedIndices.has(slot.index),
-    );
-    if (clampedChipX === undefined) continue;
-    if (clampedChipX !== slot.riseSlot) {
-      busChipXByIndex.set(slot.index, clampedChipX);
-    }
-    slot.riseChipX = clampedChipX;
-  }
-  // Card exemption for a lane trunk's AGGREGATE drop chip: the union over every
-  // lane member of the trunk (member targets + shared source + containers),
-  // mirroring the fan-out aggregate's trunk exemption. The drop chip's wide box
-  // sits on the lane but can reach a card the trunk feeds; exempting the whole
-  // trunk keeps a sibling member's target from reading as a foreign card and
-  // shoving the aggregate, while still upholding the bus-drop-vs-card hard tier
-  // against every FOREIGN card.
-  const laneTrunkExempt = new Map<string, MutCardExemption>();
-  for (const { edge } of busEdges) {
-    const data = edge.data as BusEdgeData | undefined;
-    if (data === undefined || !("laneY" in data)) continue;
-    let set = laneTrunkExempt.get(data.trunkKey);
-    if (set === undefined) {
-      set = { whole: new Set<string>(), zones: new Map() };
-      laneTrunkExempt.set(data.trunkKey, set);
-    }
-    mergeExemptionInto(set, cardExemptFor(edge));
-  }
-  // The drop chip's cascade is capped at ONE pitch. It is the only bus chip
-  // exempt from the label zoom gate (BusEdge), i.e. a lone trunk's only rate
-  // visible at fit zoom, and no hide rule exists for it -- so an unbounded
-  // cascade could walk it several pitches off its own band into empty canvas
-  // and nothing would catch it (multi6's gas_inert drop sat 144 units out). One
-  // pitch still reads as sitting beside its junction. The cap is soft against
-  // placed chips: see seatChip's capSteps.
-  const BUS_DROP_CASCADE_STEPS = 1;
-  const seatDropChip = (slot: BusSlot): void => {
-    const { dy: dropDy } = seatChip(
-      field,
-      slot.dropX,
-      slot.laneY,
-      slot.dropHalfW,
-      CHIP_HALF_H,
-      slot.step,
-      slot.flowKey,
-      slot.target,
-      slot.id,
-      laneTrunkExempt.get(slot.trunkKey),
-      BUS_DROP_CASCADE_STEPS,
-    );
-    if (dropDy !== 0) busDropDyByIndex.set(slot.index, dropDy);
-  };
-  for (const slot of busSlots) {
-    // Multi-member trunks draw no aggregate chip (issue #39), so seat none.
-    if (!slot.owner || slot.memberCount > 1) continue;
-    // A long lone run defers its drop seat past the rise phase (#83): the rise
-    // chip labels the trunk on its own, so the drop draws (and seats) only as
-    // the fallback for a hidden rise, below.
-    if (slot.longSingleRun) continue;
-    seatDropChip(slot);
-  }
-  // Capacity check before seating the rises. A short lane run cannot host every
-  // member rise chip at the wide-chip x-separation (2 * CHIP_HALF_W_WIDE); left
-  // to seatChip the crowded rises cascade off the band into empty canvas
-  // above/below the graph (issue #24). Instead keep only the rises the run
-  // supports and hide the overflow: each hidden member's rate remains on its
-  // edge tooltip and on the target card's input row, which reveals its rate
-  // on hover or selection (mirroring fanoutBranchHidden).
-  // No aggregate chip exists on a multi-member trunk (issue #39); the run's
-  // capacity all goes to member rises, farthest from the junction first (edge-id
-  // tie-break). The keep order measures the distance from the shared junction to
-  // the CLAMPED slot -- a proxy for run length on forward members only, since a
-  // backward member's run reverses and clamps back toward the drop column, so a
-  // long backward run can rank below a hairpin's zero-length one. What the order
-  // buys either way: a chip that ends up far from the shared junction -- where
-  // the source-side junction cannot label it -- wins the scarce slots over one
-  // sitting right beside that junction, which is crowded there anyway.
-  // Single-member trunks are exempt: a lone rise merely restates its own
-  // drop's rate, and the long-run lone member (Task 4) belongs at the consumer
-  // end, so never capacity-hide it. (MIN_CHIP_SEP itself is module scope:
-  // clampChipXToOwnRun's rise-end window shares the constant.)
-  const busRiseHiddenByIndex = new Set<number>();
-  for (const [, slots] of slotsByTrunk) {
-    if (slots.length < 2) continue;
-    // The drop column no longer reserves a slot, but it stays the ordering
-    // reference: the junction is still the natural far end of the run.
-    const aggX = (slots.find((s) => s.owner) ?? slots[0]!).dropX;
-    const keptX: number[] = [];
-    const ordered = [...slots].sort((a, b) => {
-      const da = Math.abs(a.riseChipX - aggX);
-      const db = Math.abs(b.riseChipX - aggX);
-      if (da !== db) return db - da;
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-    for (const slot of ordered) {
-      if (keptX.every((x) => Math.abs(slot.riseChipX - x) >= MIN_CHIP_SEP)) {
-        keptX.push(slot.riseChipX);
-      } else {
-        busRiseHiddenByIndex.add(slot.index);
-      }
-    }
-  }
-  // Seat the kept rise chips within each trunk TOP-TO-BOTTOM by their target's
-  // in-port y, not edge-id order which can invert the visible stack (issue #28):
-  // the topmost branch takes the lane and lower branches cascade below it, so a
-  // crowded column reads in branch order. Trunks stay grouped by trunkKey and
-  // ordered among themselves as before; only the within-trunk seat sequence
-  // changes. Edge id breaks ties for determinism. The capacity KEEP decision
-  // above (farthest-from-aggregate first) is untouched -- this reorders only the
-  // seat sequence of the chips that survive it.
-  const riseOrder = [...busSlots].sort((a, b) =>
-    a.trunkKey !== b.trunkKey
-      ? a.trunkKey < b.trunkKey
-        ? -1
-        : 1
-      : a.entryY !== b.entryY
-        ? a.entryY - b.entryY
-        : a.id < b.id
-          ? -1
-          : a.id > b.id
-            ? 1
-            : 0,
-  );
-  for (const slot of riseOrder) {
-    // A capacity-hidden rise seats nothing, so its phantom box never blocks a
-    // later chip and no busChipDy is stamped (BusEdge draws no rise chip).
-    if (busRiseHiddenByIndex.has(slot.index)) continue;
-    const { dy: riseDy, box: riseBox } = seatChip(
-      field,
-      slot.riseChipX,
-      slot.laneY,
-      slot.riseHalfW,
-      CHIP_HALF_H,
-      slot.step,
-      slot.flowKey,
-      slot.target,
-      slot.id,
-    );
-    // seatChip's cascade is unbounded in y, so a KEPT rise whose lane slot is
-    // blocked can still walk clean off the band into empty canvas -- the chip
-    // ends up with no stroke touching it, the same orphan silhouette the
-    // capacity check above hides a crowded rise to avoid (issue #37). One step
-    // still reads as sitting beside the lane; two or more do not, so past that
-    // the rise is unseatable: release its seat (seatChip reserves exactly one
-    // box, and hands it back) and hide it, its rate staying on the edge
-    // tooltip and on the target card's input row, which reveals its rate on
-    // hover or selection, like every other hidden member's.
-    if (Math.abs(riseDy) > CHIP_PITCH_Y) {
-      field.unseat(riseBox);
-      busRiseHiddenByIndex.add(slot.index);
-      continue;
-    }
-    if (riseDy !== 0) busChipDyByIndex.set(slot.index, riseDy);
-  }
-  // Deferred long-lone-run drop seats (#83): the rise phase hid the trunk's
-  // only chip, so the drop steps back in as the always-on label BusEdge falls
-  // back to; a trunk whose rise seated keeps the single consumer-end label.
-  for (const slot of busSlots) {
-    if (!slot.owner || slot.memberCount > 1 || !slot.longSingleRun) continue;
-    if (!busRiseHiddenByIndex.has(slot.index)) continue;
-    seatDropChip(slot);
-  }
-
   // Phase 3 -- fan-out trunk chips: each fan-out trunk draws one aggregate chip
   // on its owner (the summed rate + xN, seated on the shared trunk segment) and
   // one branch chip per member (that member's share, seated on its branch leg).
-  // They seat here -- after the lane bus chips (structurally pinned to their
-  // lanes) and before the free item rate chips -- through seatRateChip's
+  // They seat here -- before the free item rate chips -- through seatRateChip's
   // tier ladder (slide / graze / sidestep / nudge / escape), so both slide
   // along their own drawn polyline before stepping or nudging
   // off it. Aggregates settle before branches (the trunk's one truth first,
@@ -3347,14 +2728,6 @@ export function deconflictChipAnchors(
       if (fanoutGeomById.has(edge.id)) patch.fanoutBranchScaleCap = cap;
       else patch.chipScaleCap = cap;
     }
-    stamp("busDropDy", busDropDyByIndex.get(index));
-    stamp("busChipDy", busChipDyByIndex.get(index));
-    // The clamped rise slot REPLACES routeBusEdges' trunk-wide one, so
-    // BusEdge's anchor and contentBounds' frame use the x this pass reserved a
-    // box at. Absent when the slot needed no clamping (and on the lone long-run
-    // member, which has no slot to clamp).
-    stamp("busChipX", busChipXByIndex.get(index));
-    if (busRiseHiddenByIndex.has(index)) patch.busRiseHidden = true;
     stamp("fanoutAggDx", fanoutAggDxByIndex.get(index));
     stamp("fanoutAggDy", fanoutAggDyByIndex.get(index));
     stamp("fanoutBranchDx", fanoutBranchDxByIndex.get(index));
@@ -3405,9 +2778,9 @@ export type ContentRect = {
 
 // The edge-data fields contentBounds needs to place a chip: which families the
 // edge draws, their anchors' inputs, their seated nudges, and their hides. Flat
-// and all-optional rather than the BusEdgeData / ItemEdgeData unions, because
+// and all-optional rather than the BusEdgeData / ItemEdgeData types, because
 // this reader takes one uniform view over every edge type. Picked from the
-// three declaring types rather than restated, so renaming a field there breaks
+// two declaring types rather than restated, so renaming a field there breaks
 // this build instead of silently leaving a reader behind. Each hide is Picked
 // together with the anchor it was decided at: a hide only holds while its stamp
 // still matches the live anchor, so the reader needs them both.
@@ -3423,17 +2796,9 @@ type ChipAnchorData = Partial<
     | "itemChipHiddenAt"
   > &
     Pick<
-      LaneBusEdgeData,
-      | "laneY"
-      | "busChipX"
-      | "busDropDy"
-      | "busChipDy"
-      | "busRiseHidden"
+      FanoutBusEdgeData,
       | "busMemberCount"
       | "busChipOwner"
-    > &
-    Pick<
-      FanoutBusEdgeData,
       | "fanoutAggDx"
       | "fanoutAggDy"
       | "fanoutBranchDx"
@@ -3442,8 +2807,8 @@ type ChipAnchorData = Partial<
       | "fanoutBranchHidden"
       | "fanoutBranchHiddenAt"
     >
-  // `fanout` is the only name this view declares itself: the two union arms
-  // type it `false` and `true`, so the intersection cannot Pick it.
+  // `fanout` is the only name this view declares itself: FanoutBusEdgeData
+  // types it `true`, so the Pick cannot take it as optional.
 > & { fanout?: boolean };
 
 // One seated chip's drawn box, at the anchor its render component draws and
@@ -3455,7 +2820,7 @@ type ChipAnchorData = Partial<
 // against the boxes the renderers actually draw.
 export type SeatedChipBox = {
   edgeId: string;
-  family: "label" | "fanout-agg" | "fanout-branch" | "bus-drop" | "bus-rise";
+  family: "label" | "fanout-agg" | "fanout-branch";
   source: string;
   target: string;
   x: number;
@@ -3556,28 +2921,6 @@ export function seatedChipBoxes(
             branchChipText(edge),
             data?.fanoutBranchIconOnly === true,
           ),
-        );
-      }
-      // A bus member with no stamped laneY rides drawnEdge's target-row
-      // fallback: the renderer draws it, but the seating pass reserved no lane
-      // chip on it, so there is no seated box to draw.
-    } else if (data?.laneY !== undefined) {
-      if (isTrunkOwner(data) && (data.busMemberCount ?? 1) === 1) {
-        push(
-          edge,
-          "bus-drop",
-          drawn.dropX,
-          drawn.laneY + (data.busDropDy ?? 0),
-          chipSeatHalfW(aggregateChipText(edge), false),
-        );
-      }
-      if (data.busRiseHidden !== true) {
-        push(
-          edge,
-          "bus-rise",
-          data.busChipX ?? drawn.riseX,
-          drawn.laneY + (data.busChipDy ?? 0),
-          chipSeatHalfW(branchChipText(edge), false),
         );
       }
     }

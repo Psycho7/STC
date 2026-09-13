@@ -59,10 +59,9 @@ export type ItemEdgeData = {
   // sibling column. Optional: when absent the base CHAMFER stands.
   chamferBudget?: number;
   // Entry-gutter column x assigned by the stagger pass (assignEntryColumns).
-  // Two consumers read it: chamferStepPath places a backward edge's left rail
-  // here, and chamferBusPath (via BusEdge) places a bus member's rise column
-  // here. Optional: when absent each path builder falls back to its default
-  // column just before the target port.
+  // chamferStepPath places a backward edge's left rail here. Optional: when
+  // absent the path builder falls back to its default column just before the
+  // target port.
   entryX?: number;
   // Backward-detour rail y staked out by clampBackwardRails so the rail clears
   // the cards it spans. chamferStepPath reads it in its backward branch.
@@ -468,19 +467,18 @@ export function useLiveCrossingCues(
 export const NO_CUE_PTS: ReadonlyArray<readonly [number, number]> = [];
 
 // Which family of junction a dot marks. The testid alone cannot tell them
-// apart: BusEdge draws `bus-junction-<edge>` for BOTH a lane rise and a fan-out
-// branch, and only the fan-out one owns a shared column, so the geometry audit
-// needs the family as its own hook. Same four names chipSeating's junction-dot
-// kind uses; declared here rather than imported to keep that type unexported.
-export type JunctionFamily = "lane" | "fanout" | "fanin" | "divergence";
+// apart, so the geometry audit needs the family as its own hook. Same three
+// names chipSeating's junction-dot kind uses; declared here rather than
+// imported to keep that type unexported.
+export type JunctionFamily = "fanout" | "fanin" | "divergence";
 
 // The merge junction dot, portaled into the shared edgelabel-renderer layer (not
 // an SVG circle in the edge group) so it shares the chips' stacking context: it
 // sits BELOW the flow chips (.bus-junction z-index 1 vs .flow-chip z-index 2 in
 // canvas.css), so an overlapping aggregate chip's digits win. Sized in graph
 // units via junctionRadius so the pane zoom renders it at a clamped screen
-// radius. Threads the same `dimmed` state the chips do. Shared by BusEdge (lane /
-// fan-out branch dots) and ItemEdge (fan-in merge dots).
+// radius. Threads the same `dimmed` state the chips do. Shared by BusEdge
+// (fan-out branch dots) and ItemEdge (fan-in merge dots).
 export function JunctionDot({
   testId,
   family,

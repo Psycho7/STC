@@ -8,7 +8,6 @@ import { describe, it, expect } from "vitest";
 import {
   branchLegAfterJunction,
   chamferStepPath,
-  chamferBusPath,
   chamferFanoutPath,
   drawnEdge,
   parsePathPoints,
@@ -572,246 +571,6 @@ describe("chamferStepPath", () => {
   });
 });
 
-describe("chamferBusPath", () => {
-  it("exits horizontally, dives to the lane, and rises into the target", () => {
-    const { path, dropX, riseX, junction } = chamferBusPath({
-      sourceX: 0,
-      sourceY: 0,
-      targetX: 300,
-      targetY: 20,
-      laneY: 200,
-    });
-    expect(path).toBe(
-      "M 0,0 L 24,0 L 32,8 L 32,192 L 40,200 L 260,200 L 268,192 L 268,28 L 276,20 L 300,20",
-    );
-    expect(dropX).toBe(32);
-    expect(riseX).toBe(268);
-    // Junction sits on the lane just before the rise chamfer.
-    expect(junction).toEqual({ x: 260, y: 200 });
-    expectRightwardFinish(path);
-  });
-
-  it("mirrors the shape when the lane sits ABOVE both endpoints (top band)", () => {
-    // Two-sided lane bands (9B): a top-band trunk's lane runs above the graph,
-    // so the "drop" is geometrically a RISE and the "rise" a descent.
-    // chamferColumn derives each vertical's direction from its own y0 -> y1, so
-    // the same builder must emit a sane mirrored shape with no negative-length
-    // segments. The pin proves the mirror: the first column's ys DECREASE
-    // (500 -> 492 -> 108 -> 100, source level UP to the lane) and the second's
-    // INCREASE (100 -> 108 -> 472 -> 480, lane DOWN to the target), with the
-    // 8px chamfer bevels intact on both columns.
-    const { path, dropX, riseX, junction } = chamferBusPath({
-      sourceX: 0,
-      sourceY: 500,
-      targetX: 300,
-      targetY: 480,
-      laneY: 100,
-    });
-    expect(path).toBe(
-      "M 0,500 L 24,500 L 32,492 L 32,108 L 40,100 L 260,100 L 268,108 L 268,472 L 276,480 L 300,480",
-    );
-    // Columns sit at the same default x as the lane-below case; the junction
-    // tracks the lane just before the descent chamfer.
-    expect(dropX).toBe(32);
-    expect(riseX).toBe(268);
-    expect(junction).toEqual({ x: 260, y: 100 });
-    // Structural sanity on the parsed points: no NaN, the first (drop) column's
-    // vertical run goes UP toward the lane and the second (rise) column's goes
-    // DOWN toward the target.
-    const pts = parsePoints(path);
-    for (const p of pts) {
-      expect(Number.isFinite(p.x)).toBe(true);
-      expect(Number.isFinite(p.y)).toBe(true);
-    }
-    const dropRun = [pts[1]!, pts[2]!, pts[3]!, pts[4]!].map((p) => p.y);
-    const riseRun = [pts[5]!, pts[6]!, pts[7]!, pts[8]!].map((p) => p.y);
-    expect(dropRun.every((y, i) => i === 0 || y < dropRun[i - 1]!)).toBe(true);
-    expect(riseRun.every((y, i) => i === 0 || y > riseRun[i - 1]!)).toBe(true);
-    expectRightwardFinish(path);
-  });
-
-  it("rises through an explicit entryX gutter column on a wide forward gap", () => {
-    // The entry-gutter pass may stagger the rise so two rises into one node do
-    // not coincide. entryX = 250 moves the rise right of the default
-    // (tx - PORT_STUB - CHAMFER = 268); drop, lane run, and final rightward stub
-    // are otherwise unchanged and the junction tracks the moved rise.
-    const { path, dropX, riseX, junction } = chamferBusPath({
-      sourceX: 0,
-      sourceY: 0,
-      targetX: 300,
-      targetY: 20,
-      laneY: 200,
-      entryX: 250,
-    });
-    expect(path).toBe(
-      "M 0,0 L 24,0 L 32,8 L 32,192 L 40,200 L 242,200 L 250,192 L 250,28 L 258,20 L 300,20",
-    );
-    expect(dropX).toBe(32);
-    expect(riseX).toBe(250);
-    expect(junction).toEqual({ x: 242, y: 200 });
-    expectRightwardFinish(path);
-  });
-
-  it("drops through an explicit dropX column on a wide forward gap", () => {
-    // clearBusColumns moves the drop vertical clear of a foreign card. dropX = 50
-    // relocates the drop column left of the default (sx+PORT_STUB+CHAMFER = 32);
-    // the lane run, rise column, and final stub are otherwise unchanged.
-    const { path, dropX, riseX } = chamferBusPath({
-      sourceX: 0,
-      sourceY: 0,
-      targetX: 300,
-      targetY: 20,
-      laneY: 200,
-      dropX: 50,
-    });
-    expect(path).toBe(
-      "M 0,0 L 42,0 L 50,8 L 50,192 L 58,200 L 260,200 L 268,192 L 268,28 L 276,20 L 300,20",
-    );
-    expect(dropX).toBe(50);
-    expect(riseX).toBe(268);
-    expectRightwardFinish(path);
-  });
-
-  it("lets riseX override the entryX stagger on a wide forward gap", () => {
-    // riseX (obstacle-cleared) wins over entryX (stagger), so the rise column
-    // lands at 250 regardless of the entryX hint.
-    const { path: withBoth } = chamferBusPath({
-      sourceX: 0,
-      sourceY: 0,
-      targetX: 300,
-      targetY: 20,
-      laneY: 200,
-      entryX: 999,
-      riseX: 250,
-    });
-    const { path: onlyRise } = chamferBusPath({
-      sourceX: 0,
-      sourceY: 0,
-      targetX: 300,
-      targetY: 20,
-      laneY: 200,
-      riseX: 250,
-    });
-    expect(withBoth).toBe(onlyRise);
-    expect(withBoth).toBe(
-      "M 0,0 L 24,0 L 32,8 L 32,192 L 40,200 L 242,200 L 250,192 L 250,28 L 258,20 L 300,20",
-    );
-  });
-
-  it("is byte-identical to the no-hints bus path when drop/rise hints are absent", () => {
-    const base = chamferBusPath({
-      sourceX: 0,
-      sourceY: 0,
-      targetX: 300,
-      targetY: 20,
-      laneY: 200,
-    });
-    // Mirrors the render path: data carrying no drop/rise hints spreads to nothing.
-    const threaded = chamferBusPath({
-      sourceX: 0,
-      sourceY: 0,
-      targetX: 300,
-      targetY: 20,
-      laneY: 200,
-      ...routingHintsFromData({ item: "w" }),
-    });
-    expect(threaded.path).toBe(base.path);
-    expect(base.path).toBe(
-      "M 0,0 L 24,0 L 32,8 L 32,192 L 40,200 L 260,200 L 268,192 L 268,28 L 276,20 L 300,20",
-    );
-  });
-
-  it("stays sane when targetY is below the lane (laneY-missing fallback)", () => {
-    // laneY === targetY mimics the fallback BusEdge uses when laneY is missing.
-    const { path } = chamferBusPath({
-      sourceX: 0,
-      sourceY: 0,
-      targetX: 300,
-      targetY: 100,
-      laneY: 100,
-    });
-    // No throw, no NaN, and still finishes rightward into the target.
-    expect(path).not.toMatch(/NaN/);
-    expectRightwardFinish(path);
-  });
-
-  it("routes a backward member (target left of source) through the lane", () => {
-    // gap = -200 <= 0: drop one stub+chamfer inside the source, run the lane
-    // leftward, rise one stub+chamfer inside the target, finish rightward.
-    const { path, dropX, riseX, junction } = chamferBusPath({
-      sourceX: 200,
-      sourceY: 0,
-      targetX: 0,
-      targetY: 20,
-      laneY: 200,
-    });
-    expect(path).toBe(
-      "M 200,0 L 224,0 L 232,8 L 232,192 L 224,200 L -24,200 L -32,192 L -32,28 L -24,20 L 0,20",
-    );
-    expect(dropX).toBe(232);
-    expect(riseX).toBe(-32);
-    expect(riseX).toBeLessThan(dropX); // lane runs leftward
-    expect(junction).toEqual({ x: -24, y: 200 });
-    expect(path).not.toMatch(/NaN/);
-    expectRightwardFinish(path);
-  });
-
-  it("collapses drop and rise onto the midpoint in a narrow forward gap", () => {
-    // gap 32 < budget 64 (= 2*(24+8)): scale 0.5, chamfer 4. Drop and rise
-    // columns land on the corridor midpoint as a hairpin: chamfer in, straight
-    // down to the lane apex, straight back up the same column, chamfer out.
-    const { path, dropX, riseX, junction } = chamferBusPath({
-      sourceX: 0,
-      sourceY: 0,
-      targetX: 32,
-      targetY: 20,
-      laneY: 200,
-    });
-    expect(path).toBe("M 0,0 L 12,0 L 16,4 L 16,200 L 16,24 L 20,20 L 32,20");
-    expect(dropX).toBe(16);
-    expect(riseX).toBe(16); // midpoint collapse
-    // Junction dot sits on the actual hairpin apex vertex.
-    expect(junction).toEqual({ x: 16, y: 200 });
-    expect(path).not.toMatch(/NaN/);
-    // No zero-length segments (consecutive identical points) and no zero-area
-    // spurs (an immediate A -> B -> A retrace) anywhere in the path.
-    const pts = parsePoints(path);
-    for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1]!;
-      const b = pts[i]!;
-      expect(a.x === b.x && a.y === b.y).toBe(false);
-    }
-    for (let i = 2; i < pts.length; i++) {
-      const a = pts[i - 2]!;
-      const c = pts[i]!;
-      expect(a.x === c.x && a.y === c.y).toBe(false);
-    }
-    expectRightwardFinish(path);
-  });
-
-  it("draws a flat rise when laneY === targetY (no 16px spike)", () => {
-    // The BusEdge laneY-missing fallback sets laneY = targetY. The rise column
-    // then has zero height and must collapse to a flat horizontal instead of
-    // spiking a chamfer above and below the lane.
-    const { path, riseX } = chamferBusPath({
-      sourceX: 0,
-      sourceY: 0,
-      targetX: 300,
-      targetY: 100,
-      laneY: 100,
-    });
-    // Every point from the rise column onward (x >= riseX - CHAMFER) sits flat
-    // on the lane; y never departs from 100, so there is no spike.
-    const riseAndAfter = parsePoints(path).filter(
-      (p) => p.x >= riseX - CHAMFER,
-    );
-    expect(riseAndAfter.length).toBeGreaterThan(1);
-    expect(riseAndAfter.every((p) => p.y === 100)).toBe(true);
-    expect(path).not.toMatch(/NaN/);
-    expectRightwardFinish(path);
-  });
-});
-
 describe("chamferFanoutPath", () => {
   it("draws trunk, junction, and a chamfered branch leg into the target", () => {
     const { path, junction, trunkAnchor, branchAnchor } = chamferFanoutPath({
@@ -993,25 +752,6 @@ describe("drawnEdge", () => {
     }
   });
 
-  it("draws a lane member exactly as a direct chamferBusPath call does", () => {
-    for (const hints of [{}, { dropX: 60, riseX: 150 }]) {
-      const drawn = drawnEdge(PORTS, "bus", {
-        item: "s",
-        laneY: 300,
-        ...hints,
-      });
-      expect(drawn.shape).toBe("lane");
-      if (drawn.shape !== "lane") return;
-      const lane = chamferBusPath({ ...PORTS, laneY: 300, ...hints });
-      expect(drawn.path).toBe(lane.path);
-      expect(drawn.laneY).toBe(300);
-      expect(drawn.dropX).toBe(lane.dropX);
-      expect(drawn.riseX).toBe(lane.riseX);
-      expect(drawn.junction).toEqual(lane.junction);
-      expect(drawn.pts).toEqual(parsePathPoints(lane.path));
-    }
-  });
-
   it("falls back to the item shape with default hints for an unstamped edge", () => {
     const drawn = drawnEdge(PORTS, undefined, undefined);
     expect(drawn.shape).toBe("item");
@@ -1019,18 +759,8 @@ describe("drawnEdge", () => {
     expect(drawn.path).toBe(path);
   });
 
-  it("falls back to the target row for a lane member carrying no laneY", () => {
-    const drawn = drawnEdge(PORTS, "bus", { item: "s", busMemberCount: 2 });
-    expect(drawn.shape).toBe("lane");
-    if (drawn.shape !== "lane") return;
-    expect(drawn.laneY).toBe(PORTS.targetY);
-    expect(drawn.path).toBe(
-      chamferBusPath({ ...PORTS, laneY: PORTS.targetY }).path,
-    );
-  });
-
   it("seats every returned anchor ON its own returned polyline", () => {
-    // The invariant each of the five hand-written copies assumed and none
+    // The invariant each of the hand-written copies assumed and none
     // asserted: an anchor a shape hands back must lie on the shape's own drawn
     // geometry, or the chip that rides it floats off its line.
     const ON_LINE = 1; // sub-unit: paths round to two decimals
@@ -1045,9 +775,5 @@ describe("drawnEdge", () => {
     for (const anchor of [fan.junction, fan.trunkAnchor, fan.branchAnchor]) {
       expect(distanceToPolyline(fan.path, anchor)).toBeLessThan(ON_LINE);
     }
-
-    const lane = drawnEdge(PORTS, "bus", { item: "s", laneY: 300 });
-    if (lane.shape !== "lane") throw new Error("expected the lane shape");
-    expect(distanceToPolyline(lane.path, lane.junction)).toBeLessThan(ON_LINE);
   });
 });

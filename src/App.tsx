@@ -44,12 +44,10 @@ import { LpInfeasibleError } from "./solver";
 import { solveFromPlan } from "./pipeline/solveForRender";
 import { LocaleProvider, useI18n } from "./data/i18n-context";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
-import { BusLanesToggle } from "./components/BusLanesToggle";
 import { ItemPackProvider } from "./canvas/itemPackContext";
 import StatsStrip from "./canvas/StatsStrip";
 import { displayedInputCount } from "./components/InputsPanel";
 import { iconSheetUrl } from "./canvas/iconSprite";
-import { BUS_LANES_STORAGE_KEY } from "./data/storage-keys";
 
 // Distinct recipes in the plan. logical.nodes mixes kind:"group" containers
 // with per-replica kind:"recipe" stamps, so neither the raw length nor the
@@ -114,29 +112,6 @@ const shortfallStripStyle: CSSProperties = {
 // every run. The returned config is not threaded anywhere - solveForRender
 // supplies it to the solver itself - so this call IS the check.
 loadTransportConfig(defaultTransportConfig, pack);
-
-// Bus-lane preference persistence. A view-only setting, so it lives in
-// localStorage (like the locale), never in the plan wire / URL hash. The key
-// itself is declared beside the locale one, because the exam CLIs seed both
-// before the app boots.
-
-function readStoredBusLanesEnabled(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(BUS_LANES_STORAGE_KEY) === "on";
-  } catch {
-    return false;
-  }
-}
-
-function writeStoredBusLanesEnabled(next: boolean): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(BUS_LANES_STORAGE_KEY, next ? "on" : "off");
-  } catch {
-    // Private mode / storage denied: the toggle still works for this session.
-  }
-}
 
 // A dismissible banner error. "load" wraps a hash-decode / validation failure
 // (the pasted link, not the solver); "edit" wraps an in-app edit that
@@ -245,14 +220,6 @@ function AppInner() {
   // Mutation handlers read and write it synchronously so a commit never builds
   // on a stale snapshot while a solve is still in flight.
   const planRef = useRef<Plan | null>(null);
-  // Bus-lane routing preference. The ref is the synchronous authority (same
-  // role planRef plays for the plan): the toggle handler writes it before
-  // kicking off a solve, and both render paths read it, so neither a stale
-  // closure nor loadFromHash's dependency list ever sees an old value.
-  const [busLanesEnabled, setBusLanesEnabled] = useState<boolean>(
-    readStoredBusLanesEnabled,
-  );
-  const busLanesEnabledRef = useRef(busLanesEnabled);
   const [recipeCount, setRecipeCount] = useState<number | null>(null);
   // Per-item catalyst draw from the latest solve, items per second. It is the
   // one piece of solver output the panel needs that no render node carries:
@@ -332,8 +299,8 @@ function AppInner() {
   // what you asked for" cue until the next successful solve clears it.
   const [stale, setStale] = useState(false);
   const solveGen = useRef(0);
-  // True while a hash navigation is landing. A commit or a bus-lane toggle
-  // started in that window would win the last-write-wins race and silently
+  // True while a hash navigation is landing. A commit started in that window
+  // would win the last-write-wins race and silently
   // rewrite the URL back to the plan the user just navigated away from, so
   // both refuse and say so instead. The flag cannot stick: only the newest
   // generation clears it, and the only two paths that bump solveGen past a
@@ -407,9 +374,7 @@ function AppInner() {
         }
         const nextPlan = outcome.plan;
         const solved = solveFromPlan(nextPlan);
-        const laid = await layoutSolved(solved, {
-          busLanesEnabled: busLanesEnabledRef.current,
-        });
+        const laid = await layoutSolved(solved);
         if (outcome.kind === "seeded") {
           const newHash = "#" + (await encodePlan(nextPlan));
           if (myGen !== solveGen.current) return;
@@ -499,9 +464,7 @@ function AppInner() {
     setPending(true);
     try {
       const solved = solveFromPlan(nextPlan);
-      const laid = await layoutSolved(solved, {
-        busLanesEnabled: busLanesEnabledRef.current,
-      });
+      const laid = await layoutSolved(solved);
       if (myGen !== solveGen.current) return;
       setRecipeCount(countDistinctRecipes(solved.full.logical));
       setCatalystDraw(solved.full.catalystDraw);
@@ -522,23 +485,6 @@ function AppInner() {
     } finally {
       if (myGen === solveGen.current) setPending(false);
     }
-  }
-
-  // Flip the bus-lane preference and re-render the committed plan through the
-  // existing solve path. The solver result is unchanged by the toggle; reusing
-  // scheduleSolve keeps one race-guarded pipeline instead of a second
-  // layout-only path caching solver output.
-  function handleToggleBusLanes(): void {
-    if (navigationInFlightRef.current) {
-      setMutationError({ kind: "busy" });
-      return;
-    }
-    const next = !busLanesEnabledRef.current;
-    busLanesEnabledRef.current = next;
-    setBusLanesEnabled(next);
-    writeStoredBusLanesEnabled(next);
-    const current = planRef.current;
-    if (current) void scheduleSolve(current);
   }
 
   function handleTargetsChange(update: (current: Target[]) => Target[]): void {
@@ -722,10 +668,6 @@ function AppInner() {
             >
               {status}
             </span>
-            <BusLanesToggle
-              enabled={busLanesEnabled}
-              onToggle={handleToggleBusLanes}
-            />
             <LocaleSwitcher />
           </div>
         </div>

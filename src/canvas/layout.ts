@@ -50,10 +50,8 @@ import {
   assignBendColumns,
   assignEntryColumns,
   clampBackwardRails,
-  clearBusColumns,
   jogForwardLegs,
   parseElkEdgeIndex,
-  routeBusEdges,
   routeFanoutEdges,
 } from "./busRouting";
 import { deconflictChipAnchors } from "./chipSeating";
@@ -146,9 +144,6 @@ export type LayoutInput = {
   // interior gets laid out by the SCC renderer in a later pass.
   // TODO: swap the placeholder for the real size once SCC interior layout exists.
   interiorByLoopId?: ReadonlyMap<SccId, LoopInteriorSize>;
-  // When explicitly false, routeBusEdges is skipped: no edge takes a lane.
-  // Fan-outs still form (a junction column is not a lane).
-  busLanesEnabled?: boolean;
 };
 
 // An ELK port output with a transport kind tacked on. ELK happily carries
@@ -954,7 +949,7 @@ export type RoutingPass = (
 
 // The post-layout routing passes, in the order layoutRenderPlan runs them.
 // ARRAY ORDER IS THE CONTRACT: each entry consumes the stamps every earlier
-// entry left. Nothing makes a reorder a compile error -- all eight passes share
+// entry left. Nothing makes a reorder a compile error -- all six passes share
 // one signature -- so the order is pinned by test/canvas/layout-pass-order.test.ts
 // instead, and reordering these entries silently changes routing geometry.
 // `because` says what each entry needs from the entries above it, so the reason
@@ -965,44 +960,23 @@ export const ROUTING_PASSES: ReadonlyArray<{
   readonly run: RoutingPass;
   readonly because: string;
 }> = [
-  // Classify long-span edges into bus trunks, each on a lane in a top or
-  // bottom band. The one pass busLanesEnabled: false drops.
-  {
-    name: "routeBusEdges",
-    run: routeBusEdges,
-    because:
-      "Consumes no stamp: it reads the placed nodes alone. It writes the " +
-      'type: "bus" retype and laneY every lane pass below keys on.',
-  },
   // Consolidate N >= 2 same-source-port edges in one layer gap onto a shared
-  // junction column (a fan-out trunk, retyped bus but off-lane).
+  // junction column (a fan-out trunk, retyped bus).
   {
     name: "routeFanoutEdges",
     run: routeFanoutEdges,
     because:
-      'Takes only the still-"item" remainder routeBusEdges leaves, but the two ' +
-      "classify disjoint span ranges, so the order is scheduling rather than a " +
-      "dependency and this pass is unchanged with lanes off.",
+      "Consumes no stamp: it reads the placed nodes alone. It writes the " +
+      'type: "bus" retype and the junction column every pass below keys on.',
   },
-  // Stake out per-target entry-gutter columns so backward rails and bus rises
-  // into one node stay parallel.
+  // Stake out per-target entry-gutter columns so backward rails into one node
+  // stay parallel.
   {
     name: "assignEntryColumns",
     run: assignEntryColumns,
     because:
-      "Reads the bus retype from routeBusEdges, so a lane rise into a node is " +
-      "staggered against that node's backward rails instead of colliding with " +
-      "them. Writes entryX.",
-  },
-  // Move bus drop / rise verticals clear of any foreign card / gutter (starts
-  // from the entry stagger).
-  {
-    name: "clearBusColumns",
-    run: clearBusColumns,
-    because:
-      "Reads laneY from routeBusEdges and entryX from assignEntryColumns: the " +
-      "rise's desired column is the final staggered entry column, and clearing " +
-      "starts from it.",
+      "Reads the bus retype from routeFanoutEdges, so a fan-out member is " +
+      "excluded from its target's gutter columns. Writes entryX.",
   },
   // Stagger the remaining item edges' bend columns so their verticals fan out
   // (clamped clear of gutters).
@@ -1010,7 +984,7 @@ export const ROUTING_PASSES: ReadonlyArray<{
     name: "assignBendColumns",
     run: assignBendColumns,
     because:
-      'Reads the bus retype from routeBusEdges (it fans only still-"item" ' +
+      'Reads the bus retype from routeFanoutEdges (it fans only still-"item" ' +
       "edges) and leaves the bendX routeFanoutEdges pinned on a far member " +
       "alone. Writes bendX for everything else.",
   },
@@ -1036,9 +1010,9 @@ export const ROUTING_PASSES: ReadonlyArray<{
     name: "deconflictChipAnchors",
     run: deconflictChipAnchors,
     because:
-      "Reads every stamp above (laneY, entryX, dropX / riseX, bendX, legY, " +
-      "railY) to reconstruct the drawn polylines a chip must avoid, so it can " +
-      "only run once they are final.",
+      "Reads every stamp above (entryX, junctionX, bendX, legY, railY) to " +
+      "reconstruct the drawn polylines a chip must avoid, so it can only run " +
+      "once they are final.",
   },
 ];
 
@@ -1053,19 +1027,12 @@ export async function layoutRenderPlan(input: LayoutInput): Promise<{
   const elkGraph = renderPlanToElkGraph(input);
   const laid = (await elk.layout(elkGraph)) as ElkGraph;
   const { nodes, edges } = fromElkRenderLayout(laid, input);
-  // With bus lanes off, drop only the lane pass; the remaining passes are
-  // no-ops on unstamped edges. Matched by function identity so a pass rename
-  // cannot silently defeat the filter.
-  const passes =
-    input.busLanesEnabled === false
-      ? ROUTING_PASSES.filter((p) => p.run !== routeBusEdges)
-      : ROUTING_PASSES;
   // Left fold over the passes: every pass sees the SAME nodes array
   // fromElkRenderLayout returned (final absolute positions), never a re-derived
   // one, plus the previous pass's output edges.
   return {
     nodes,
-    edges: passes.reduce<RFEdge[]>(
+    edges: ROUTING_PASSES.reduce<RFEdge[]>(
       (routed, pass) => pass.run(nodes, routed),
       edges,
     ),

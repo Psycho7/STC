@@ -320,9 +320,9 @@ const MIN_OVERLAP_FOR_WORST = 0.05;
 //
 // The ancestor chain is only one of them. On this canvas the thing behind an
 // edge stroke is routinely NOT an ancestor - node cards it crosses are opaque,
-// bus bands are tinted, the dot grid sits underneath - and measuring against the
-// ancestor chain alone reports the canvas background for a stroke that is in
-// fact painted over a card.
+// the dot grid sits underneath - and measuring against the ancestor chain alone
+// reports the canvas background for a stroke that is in fact painted over a
+// card.
 //
 // The overlapping surfaces are CANDIDATES, not proven backdrops: paint order is
 // not decidable from a rect test, so an element painted in FRONT of the measured

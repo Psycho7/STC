@@ -2,14 +2,17 @@
 // edge so a layout can be gated on a single number: how many edges still span
 // more than two layers.
 //
-// The long-edge threshold lives in the bus-routing module; this file re-exports
-// it under the census's own name. The derivation from layout dimensions stays
-// there, so it still tracks any spacing change.
+// The threshold is derived from the layout dimensions, so it tracks any spacing
+// change instead of drifting from a hardcoded 820.
 
-import { RECIPE_WIDTH, loopBoxDimensions } from "../../src/canvas/dimensions";
+import {
+  BETWEEN_LAYERS_SPACING,
+  RECIPE_WIDTH,
+  loopBoxDimensions,
+} from "../../src/canvas/dimensions";
 
 // A "long" edge reaches past two full layers (2 * (column gap + recipe width)).
-export { BUS_SPAN_THRESHOLD as SPAN_THRESHOLD } from "../../src/canvas/busRouting";
+export const SPAN_THRESHOLD = 2 * (BETWEEN_LAYERS_SPACING + RECIPE_WIDTH);
 
 // Minimal structural shape of a laid-out React Flow node. Container children
 // carry a parent-relative position plus a `parentId`; top-level nodes have

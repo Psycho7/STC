@@ -19,7 +19,6 @@ test("row rates are hidden at rest and revealed only on the hovered card", async
   await bootExamPage(page, {
     url: `/#${await scenarioHash(scenario)}`,
     locale: "en",
-    busLanes: "on",
     readiness: "nodes",
     settle: "webfonts",
   });

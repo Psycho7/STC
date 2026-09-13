@@ -34,9 +34,7 @@ function recipeNodeOf(
 describe("layoutSolved on a catalyst-cycling recipe", () => {
   it("draws the cycled row on its own cat: port", async () => {
     const solved = solveForRender({ targets });
-    const { nodes, edges } = await layoutSolved(solved, {
-      busLanesEnabled: false,
-    });
+    const { nodes, edges } = await layoutSolved(solved);
 
     const node = recipeNodeOf(nodes);
     // The raw in-game stoichiometry: gas in, a fifth of the output cycled
@@ -82,7 +80,6 @@ describe("layoutSolved on a catalyst-cycling recipe", () => {
       // map; this control passes it on purpose to show what it costs.
       recipeById: solved.full.nettedRecipeById,
       itemById: new Map(pack.items.map((i) => [i.id, i])),
-      busLanesEnabled: false,
     });
 
     const node = recipeNodeOf(nodes);
