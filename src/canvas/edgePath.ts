@@ -590,7 +590,10 @@ export function chamferStepPath(
   // join the two horizontal runs with a single diagonal (no vertical segment).
   // Anchor at the diagonal's midpoint (bx, mid(sy, ty)) -- the same bend-column
   // rule as the full step below (anchor continuity, see the same-rail comment).
-  if (Math.abs(ty - sy) <= 2 * chamfer) {
+  // The diagonal still closes on a long horizontal at ty, so a blocked small-dy
+  // leg carries a stamped legY (jogForwardLegs) and skips this branch for the
+  // jog shape below; absent the hint the diagonal is byte-identical.
+  if (args.legY === undefined && Math.abs(ty - sy) <= 2 * chamfer) {
     const d =
       `M ${r(sx)},${r(sy)}` +
       ` L ${r(bx - chamfer)},${r(sy)}` +

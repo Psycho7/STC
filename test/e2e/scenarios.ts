@@ -1,4 +1,4 @@
-// Fixture data for the ten placement-regression scenarios. Each scenario is a
+// Fixture data for the thirteen placement-regression scenarios. Each scenario is a
 // named set of solver targets the app loads from a share hash. The spec encodes
 // these into v1 hashes at runtime with the app's own encoder, so the fixtures
 // stay regenerable from the target data rather than pinned to copied blobs.
@@ -149,6 +149,20 @@ export const SCENARIOS: Scenario[] = [
     title: "rot-bottled_food_4",
     targets: [
       { itemId: "bottled_food_4", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+    ],
+    maxDiffPixels: 0,
+  },
+  // The transmuter plan. gas_copper_enr2 alone reaches phase_trans_2, the gas
+  // reactor and the liquid purifier but never phase_trans_1, so liquid_copper
+  // joins it as a second target: that route runs on phase_trans_1 and puts both
+  // transmuter kinds, both xiranite catalyst draws and both environment badges
+  // (acidic on gas_copper_enr2, stable on gas_copper_enr-gas_inert) in one plan.
+  {
+    id: "transmuters",
+    title: "transmuters",
+    targets: [
+      { itemId: "gas_copper_enr2", ratePerSec: { num: "1", denom: "2" } }, // 30/min
+      { itemId: "liquid_copper", ratePerSec: { num: "1", denom: "2" } }, // 30/min
     ],
     maxDiffPixels: 0,
   },

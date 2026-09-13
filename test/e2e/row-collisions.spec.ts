@@ -144,7 +144,7 @@ test.describe("visible row-label collisions", () => {
             if (handle === null || lbl === null || rate === null) continue;
             rows++;
             const id = handle.getAttribute("data-handleid") ?? "";
-            const item = id.replace(/^(?:in|out):/, "");
+            const item = id.replace(/^(?:in|out|cat):/, "");
             if (item === "" || item === id) continue;
             const full = lbl.textContent ?? "";
             let visible = full;

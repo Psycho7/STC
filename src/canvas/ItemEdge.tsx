@@ -39,6 +39,11 @@ export type ItemEdgeData = {
   // the belt default; an unknown value also lands on the belt default instead
   // of throwing.
   transportKind?: TransportKindId;
+  // Set only on an edge landing on a catalyst row's `cat:` port, mirroring
+  // RenderEdge.toPortKind. The geometry readers pick the target row's column
+  // from it: a card can carry the same item on an input row and a catalyst row,
+  // so the item alone cannot say which row an edge arrives at.
+  toPortKind?: "catalyst";
   // Bend column x assigned by the stagger pass (assignBendColumns). Optional:
   // when absent the path builder centers the bend at the corridor midpoint.
   bendX?: number;

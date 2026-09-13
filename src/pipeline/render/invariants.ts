@@ -20,6 +20,7 @@ import {
   isLoopUnit,
 } from "../types";
 
+import { CATALYST_SUPPLY_EDGES } from "../../flags";
 import { rationalFromString } from "./rational";
 import { unitIdForOutputProduct } from "./unit-ids";
 
@@ -122,6 +123,37 @@ function consumptionByItem(
   return result;
 }
 
+// Sum of catalyst.qty * rate over recipes: the charge every running machine
+// cycles, drawn from the plan boundary rather than from an in-plan producer.
+function catalystDrawByItem(
+  rates: ReadonlyMap<RecipeId, Fraction>,
+  pack: RecipePack,
+): Map<ItemId, Fraction> {
+  const result = new Map<ItemId, Fraction>();
+  if (!CATALYST_SUPPLY_EDGES) return result;
+  for (const r of nettedPack(pack).recipes) {
+    const rate = rates.get(r.id);
+    if (!rate) continue;
+    for (const cat of r.catalyst ?? []) {
+      result.set(
+        cat.item,
+        (result.get(cat.item) ?? FRAC_ZERO).add(
+          new Fraction(cat.qty).mul(rate),
+        ),
+      );
+    }
+  }
+  return result;
+}
+
+// Catalyst edges land on a `cat:` port, not on the `in:` port the two consumer
+// inflow checkers below account for. A card can carry the same item on both
+// rows, so the two are told apart by the edge discriminator rather than by
+// item.
+function isCatalystEdge(edge: { toPortKind?: "catalyst" }): boolean {
+  return edge.toPortKind === "catalyst";
+}
+
 // ---------------------------------------------------------------------------
 // Checkers
 // ---------------------------------------------------------------------------
@@ -201,6 +233,10 @@ export function checkBoundaryProductsJustified(
 
   const production = productionByItem(rates, pack);
   const consumption = consumptionByItem(rates, pack);
+  // A cycled charge is drawn from the boundary like any other consumption, and
+  // it is the whole justification for a boundary node on an item the plan
+  // produces itself (or does not surface as raw at all).
+  const catalystDraw = catalystDrawByItem(rates, pack);
   const demandOf = demandByItem(targets);
   const scaleFloor = planScaleFloor(targets);
 
@@ -210,9 +246,14 @@ export function checkBoundaryProductsJustified(
       const supply = supplyTable.supplyOf(x);
       // Justified only with real external supply and net consumption (consumption
       // exceeds internal production).
+      const catDraw = catalystDraw.get(x) ?? FRAC_ZERO;
+      const isCatalystImport = catDraw.compare(FRAC_ZERO) > 0;
       const hasExternalSupply =
         supply === Infinity ||
-        (supply instanceof Fraction && supply.compare(FRAC_ZERO) > 0);
+        (supply instanceof Fraction && supply.compare(FRAC_ZERO) > 0) ||
+        // A catalyst is external supply by construction: no producer is ever
+        // expanded for it, so the item's raw flag and cap say nothing about it.
+        isCatalystImport;
       if (!hasExternalSupply) {
         violations.push(
           `inputProduct for "${x}": no external supply (effectiveSupply is zero or finite-zero)`,
@@ -224,7 +265,7 @@ export function checkBoundaryProductsJustified(
       // internal consumers, so a raw-also-target item with cons < prod can
       // still be a justified boundary input.
       const prod = production.get(x) ?? FRAC_ZERO;
-      const cons = consumption.get(x) ?? FRAC_ZERO;
+      const cons = (consumption.get(x) ?? FRAC_ZERO).add(catDraw);
       const targetDemand = new Fraction(demandOf.get(x) ?? 0);
       const availRaw = prod.sub(targetDemand);
       const availProd = availRaw.compare(FRAC_ZERO) > 0 ? availRaw : FRAC_ZERO;
@@ -431,9 +472,11 @@ export function checkConsumerInputsSatisfied(
   }
 
   // Inflow keyed by "recipeId\0item" to avoid a map-of-maps. Only edges whose
-  // toUnit is a recipe unit count.
+  // toUnit is a recipe unit count, and only those landing on an `in:` port: a
+  // catalyst edge feeds the cycled charge, which no recipe.in row asks for.
   const inflow = new Map<string, Fraction>();
   for (const edge of plan.edges) {
+    if (isCatalystEdge(edge)) continue;
     const recipeId = recipeIdByUnitId.get(edge.toUnit);
     if (recipeId === undefined) continue;
     const key = `${recipeId}\0${edge.item}`;
@@ -506,9 +549,11 @@ export function checkConsumerInputsNotOverfed(
   }
 
   // Inflow keyed by "recipeId\0item" to avoid a map-of-maps. Only edges whose
-  // toUnit is a recipe unit count.
+  // toUnit is a recipe unit count, and only those landing on an `in:` port: a
+  // catalyst edge feeds the cycled charge, which no recipe.in row asks for.
   const inflow = new Map<string, Fraction>();
   for (const edge of plan.edges) {
+    if (isCatalystEdge(edge)) continue;
     const recipeId = recipeIdByUnitId.get(edge.toUnit);
     if (recipeId === undefined) continue;
     const key = `${recipeId}\0${edge.item}`;
@@ -881,7 +926,17 @@ export function checkProductUnitRates(
   // resolves consumption in O(1) instead of scanning recipe.in per edge.
   const consumedByRecipe = new Map<string, Set<ItemId>>();
   for (const recipe of nettedPack(pack).recipes) {
-    consumedByRecipe.set(recipe.id, new Set(recipe.in.map((s) => s.item)));
+    consumedByRecipe.set(
+      recipe.id,
+      new Set([
+        ...recipe.in.map((s) => s.item),
+        // A catalyst row is a landing site too: its edge carries the cycled
+        // charge from the item's boundary node.
+        ...(CATALYST_SUPPLY_EDGES
+          ? (recipe.catalyst ?? []).map((s) => s.item)
+          : []),
+      ]),
+    );
   }
 
   const consumesItem = (unit: RenderUnit, item: ItemId): boolean => {

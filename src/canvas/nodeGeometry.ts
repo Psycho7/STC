@@ -22,14 +22,16 @@
 //   4. portOffsetY returns a NODE-LOCAL y (add absoluteTop for absolute). It
 //      resolves the row via orderByItem over the node's inputOrder (input
 //      side only; output rows read in the recipe's declared order, ruling R4,
-//      so no output order exists) and returns nodeHeight(node) / 2 when the
-//      port cannot be resolved (non-recipe node, absent item, missing order,
-//      item not in that side's rows, or no handle y at that index). On a
-//      recipe node that centre fallback is exactly distinguishable from any
-//      real row: rows sit at 73 + 22i and the centre at 34 + 11 * maxRows,
-//      which have no common solution. driftedPortY below depends on that
-//      discriminator, so the fallback value must not change and must not be
-//      pre-drifted.
+//      so no output order exists; catalyst rows read in the recipe's declared
+//      order too, below every input row) and returns nodeHeight(node) / 2 when
+//      the port cannot be resolved (non-recipe node, absent item, missing
+//      order, item not in that side's rows, or no handle y at that index). The
+//      side is the caller's, never guessed from the item: one card can carry
+//      the same item on an input row and a catalyst row. On a recipe node that
+//      centre fallback is exactly distinguishable from any real row: rows sit
+//      at 73 + 22i and the centre at 34 + 11 * maxRows, which have no common
+//      solution. driftedPortY below depends on that discriminator, so the
+//      fallback value must not change and must not be pre-drifted.
 //   5. Total and pure. No throws, no React, no mutation of inputs,
 //      deterministic for a given node map.
 
@@ -97,6 +99,11 @@ export function nodeHeight(node: RFAnyNode): number {
   }
 }
 
+// Which column of rows a port sits in. "cat" is the catalyst rows at the foot
+// of the input column: they take edges like input rows but are looked up in
+// recipe.catalyst, so the same item can resolve to a different row per side.
+export type PortSide = "in" | "out" | "cat";
+
 // Node-local y of the port carrying `item` on the given side, or the node's
 // vertical center when the port cannot be resolved (product / loop node, or a
 // missing item / order). Mirrors RecipeNode's handle placement: input handles
@@ -106,16 +113,26 @@ export function nodeHeight(node: RFAnyNode): number {
 export function portOffsetY(
   node: RFAnyNode,
   item: string | undefined,
-  side: "in" | "out",
+  side: PortSide,
 ): number {
   if (node.type === "recipe" && item !== undefined) {
     const recipe = node.data.recipe;
-    const rows = side === "in" ? recipe.in : recipe.out;
+    const rows =
+      side === "in"
+        ? recipe.in
+        : side === "out"
+          ? recipe.out
+          : (recipe.catalyst ?? []);
     const order = side === "in" ? node.data.inputOrder : undefined;
     const idx = orderByItem(rows, order).findIndex((r) => r.item === item);
     if (idx >= 0) {
       const geom = measureRecipe(recipe);
-      const ys = side === "in" ? geom.inHandleYs : geom.outHandleYs;
+      const ys =
+        side === "in"
+          ? geom.inHandleYs
+          : side === "out"
+            ? geom.outHandleYs
+            : geom.catHandleYs;
       const y = ys[idx];
       if (y !== undefined) return y;
     }
@@ -140,6 +157,15 @@ export function portRowResolved(node: RFAnyNode, y: number): boolean {
 export function edgeItem(edge: Edge): string | undefined {
   const item = (edge.data as { item?: unknown } | undefined)?.item;
   return typeof item === "string" ? item : undefined;
+}
+
+// Which row column an edge's TARGET end lands in. The layout stamps
+// `toPortKind` on the edge data beside the item; only a catalyst edge carries
+// one, and it is the only way to tell a catalyst row's edge from the input-row
+// edge of the same item on the same card.
+export function edgeTargetSide(edge: Edge): PortSide {
+  const kind = (edge.data as { toPortKind?: unknown } | undefined)?.toPortKind;
+  return kind === "catalyst" ? "cat" : "in";
 }
 
 // Drawn-vs-model port drift, in graph units, per node kind. React Flow anchors
@@ -200,7 +226,7 @@ function portDrift(node: RFAnyNode): PortDrift {
 function driftedPortY(
   node: RFAnyNode,
   item: string | undefined,
-  side: "in" | "out",
+  side: PortSide,
 ): number {
   const y = portOffsetY(node, item, side);
   return portRowResolved(node, y) ? y + portDrift(node).dy : y;
@@ -224,6 +250,7 @@ export function drawnPortsOf(
   const target = byId.get(edge.target);
   if (source === undefined || target === undefined) return null;
   const item = edgeItem(edge);
+  const targetSide = edgeTargetSide(edge);
   return {
     sourceX:
       absoluteLeft(source, byId) +
@@ -231,6 +258,6 @@ export function drawnPortsOf(
       portDrift(source).sourceDx,
     sourceY: absoluteTop(source, byId) + driftedPortY(source, item, "out"),
     targetX: absoluteLeft(target, byId) + portDrift(target).targetDx,
-    targetY: absoluteTop(target, byId) + driftedPortY(target, item, "in"),
+    targetY: absoluteTop(target, byId) + driftedPortY(target, item, targetSide),
   };
 }

@@ -80,14 +80,18 @@ describe("boundary inputs: loose consumers share one card", () => {
     expect(node.isFanout).toBeUndefined();
     expect(node.parentRate).toBeUndefined();
 
-    // One direct edge per consumer, and no edge lands on another input card.
+    // One direct edge per consumer PORT, and no edge lands on another input
+    // card. A transmuter that both consumes and cycles the item takes two
+    // edges, one per port kind, so the uniqueness is on (consumer, port kind).
     const outEdges = edgesFrom(plan, node.id, LOOSE_ONLY_ITEM);
     expect(outEdges.length).toBeGreaterThanOrEqual(3);
     const inputIds = new Set(
       plan.units.filter(isInputProductUnit).map((u) => u.id),
     );
     expect(outEdges.some((e) => inputIds.has(e.toUnit))).toBe(false);
-    expect(new Set(outEdges.map((e) => e.toUnit)).size).toBe(outEdges.length);
+    expect(
+      new Set(outEdges.map((e) => `${e.toUnit}\0${e.toPortKind ?? "in"}`)).size,
+    ).toBe(outEdges.length);
 
     // Edge rates sum exactly to the card's rate.
     expect(sumRates(outEdges).equals(rationalFromString(node.rate))).toBe(true);

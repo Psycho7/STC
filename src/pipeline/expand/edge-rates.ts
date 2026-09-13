@@ -66,8 +66,15 @@ export function computeEdgeRates(args: {
   const result = new Map<string, Fraction>();
   const ZERO = new Fraction(0);
 
-  const itemFor = (port: string): string =>
-    port.startsWith("in:") ? port.slice("in:".length) : port;
+  // Port ids are "<side>:<item>"; a bare item id (older synthetic graphs) is
+  // its own item. `cat:` is spelled out rather than left to the fall-through:
+  // the logical graph never wires a catalyst row, so a cat: port arriving here
+  // would otherwise be read as an item named "cat:<item>".
+  const itemFor = (port: string): string => {
+    if (port.startsWith("in:")) return port.slice("in:".length);
+    if (port.startsWith("cat:")) return port.slice("cat:".length);
+    return port;
+  };
 
   // Pre-pass: group INPUT edges (consumer treats the item as a recipe input) by
   // (consumer replica logical-node id, item). Each consumer STAMP's demand for

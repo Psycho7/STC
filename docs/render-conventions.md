@@ -43,6 +43,40 @@ tier prefixes (a leading 优质/精选-style
 affix) are the one naming shape a tail rule cannot protect; those names are
 short enough not to clip at card width.
 
+Below the input rows a card may carry catalyst rows: inputs the machine cycles
+rather than consumes, drawn from the plan boundary and handed straight back
+every cycle. No producer is ever built for a catalyst, so the charge arrives
+from the item's boundary supply card over an edge of its own, landing on a
+`cat:<item>` handle at the row's left -- the same x as the input handles, at the
+row's centre -- and the row shows the item's transport glyph like a port row
+does. The boundary card's rate counts that draw alongside ordinary consumption,
+so the card and the inputs panel read the same number. One card can carry the
+same item on an input row and a catalyst row; the two take separate handles and
+separate edges. A catalyst row keeps no accent tab, its label is muted a step
+below the supplied rows, and its rate is the draw for one machine with its unit
+spelled out ("6/min") rather than the flow across every machine that the port
+rows above it carry.
+
+The behaviour is behind the `CATALYST_SUPPLY_EDGES` code flag (`src/flags.ts`),
+on by default; with it off a catalyst row carries no handle and no edge, wears a
+small filled disc in the glyph slot, and the inputs panel adds the cycled draw
+onto the supply row itself.
+
+Some recipes only run inside a gas environment, which the player builds a
+disperser for. Such a card states its requirement as a frame around the card
+rather than as a mark inside it: a plate of chevrons above the card, a
+single-row plate below it, and a faint tint of the environment's colour with
+a soft glow behind the card. The upper plate is two rows tall, blue for a
+stable environment and yellow for an acidic one, and carries a dark glyph at
+its centre that names the environment: two peaks for a stable one, four
+teardrops for an acidic one. The lower plate is one row of the same chevrons,
+so every triangle is the same size on both plates, and it carries no glyph.
+The space between the plates at the card's sides stays open, and the card's
+own border keeps its neutral colour; selection keeps its lime border while
+the plates keep the environment colour. Hovering the card names the
+environment. The frame is a build requirement rather than a detail figure, so
+it draws at every zoom and never collapses with the low-zoom simplifications.
+
 ## Edges
 
 An item edge is an orthogonal polyline with chamfered corners, coloured by the

@@ -30,6 +30,7 @@ import {
 import {
   absoluteLeft,
   absoluteTop,
+  edgeTargetSide,
   nodeWidth,
   portOffsetY,
 } from "../../src/canvas/nodeGeometry";
@@ -114,8 +115,14 @@ async function offPathChips(
       sourceY:
         absoluteTop(source, byId) + portOffsetY(source, item, "out") + sd.dy,
       targetX: absoluteLeft(target, byId) + td.targetDx,
+      // The target row is read by side, exactly as the drawn-frame reader
+      // does: a catalyst edge lands on the card's `cat:` row, which for an
+      // item the same card also consumes is a different row from its `in:`
+      // one.
       targetY:
-        absoluteTop(target, byId) + portOffsetY(target, item, "in") + td.dy,
+        absoluteTop(target, byId) +
+        portOffsetY(target, item, edgeTargetSide(edge)) +
+        td.dy,
       ...routingHintsFromData(data),
     });
     const distance = pointToPolylineDistance(
@@ -250,51 +257,36 @@ describe("battery5: no chip takes the only line another edge has", () => {
     { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } },
   ];
 
-  // The off-path seats this plan now carries, every one the bounded-sidestep
-  // class this suite's old e:14 entry was ratified under: a step under the
+  // The one off-path seat this plan now carries, the bounded-sidestep class
+  // this suite's old e:14 entry was ratified under: a step under the
   // max-scale painted half-height, so the chip's own line still runs inside
   // its box. The card's header/footer trim moved every input row up 20 units
   // and shortened the cards; at the rows' pitch against the 48-tall
-  // max-scale box these corridors no longer offer one fully-clear ON-LINE
-  // seat, so the sidestep walk -- ungated on e:1/e:22, whose anchors sit on
-  // horizontal-dominant chamfers, opened on e:23 because no on-line point
-  // there even clears the hard invariants -- seats the chips beside their
-  // lines instead:
+  // max-scale box this corridor no longer offers one fully-clear ON-LINE
+  // seat, so the sidestep walk -- ungated on e:1, whose anchor sits on a
+  // horizontal-dominant chamfer -- seats the chip beside its line instead:
   //   e:1 (both lane arms): its own source out-band pins the corridor's left
   //     end, and e:12's drawn line runs 22 below the approach leg at the
   //     adjacent input row, so every max-scale box centred ON the leg
   //     straddles one or the other. Step +32 (lanes off) / +48 (on); the leg
   //     passes 4.5 under the seated centre.
-  //   e:22 (lanes off only): the same shape at the water tap -- the tap's
-  //     out-band pins the anchor and the copper-ore line at the row 22 above
-  //     blocks the run. Step +32; the run passes 5.5 under the centre.
-  //   e:23 (lanes off only): the ore tap's 20-unit bend vertical has no
-  //     on-line point clear of the hard invariants at all (tap band left,
-  //     the plant-moss loop card over the lower run), so the tier's no-graze
-  //     arm opens the step: +48, three slot pitches just under the
-  //     containment bound of half the 102-wide reserve, the own run 14.5
-  //     under the centre -- under the painted half-height like the rest.
   // The same trim RETIRED the previous ratified seat: e:14 "Sewage" stepped
   // 16 off its corridor vertical against a parallel lane stroke, but its
   // window-capped box can no longer step past that stroke (the reach is half
   // the 141-wide reserve, the stroke sits 30 past the line) and the stroke
   // is too far away to braid, so the chip now grazes ON its own line and
-  // drops out of these lists -- an observation list, not a contract.
+  // drops out of this list. The trim alone also stepped e:22 and e:23 off
+  // their tap lines with lanes off; the catalyst supply edges re-dealt that
+  // clearance field and both seat on their lines again -- an observation
+  // list, not a contract.
   const RATIFIED_OFF_PATH = [
     "e:1:u:class:q:1->u:class:q:11:originium_powder 4.50px",
-  ];
-  const RATIFIED_OFF_PATH_LANES_OFF = [
-    "e:1:u:class:q:1->u:class:q:11:originium_powder 4.50px",
-    "e:22:u:in:liquid_water->u:class:q:5:liquid_water 5.50px",
-    "e:23:u:in:originium_ore->u:class:q:1:originium_ore 14.50px",
   ];
 
   for (const busLanesEnabled of [true, false]) {
     it(`seats every rate chip on its polyline with lanes ${busLanesEnabled ? "on" : "off"}`, async () => {
       const hits = await offPathChips(targets, busLanesEnabled);
-      expect(named(hits)).toEqual(
-        busLanesEnabled ? RATIFIED_OFF_PATH : RATIFIED_OFF_PATH_LANES_OFF,
-      );
+      expect(named(hits)).toEqual(RATIFIED_OFF_PATH);
     }, 60_000);
   }
 });
@@ -323,12 +315,14 @@ describe("multi6: a bus rise chip keeps the lane stroke inside its box", () => {
       busLanesEnabled: true,
     });
 
-    // Premise: this plan really does draw lane bus chips, e:80's among them.
+    // Premise: this plan really does draw lane bus chips, the last
+    // liquid_water rise among them (e:79 since the catalyst split removed the
+    // plan's catalyst feed edges and renumbered the lot).
     const rises = edges.filter(
       (e) => e.type === "bus" && (e.data as EdgeData).laneY !== undefined,
     );
     expect(rises.length).toBeGreaterThan(0);
-    expect(rises.some((e) => e.id.startsWith("e:80:"))).toBe(true);
+    expect(rises.some((e) => e.id.startsWith("e:79:"))).toBe(true);
 
     // Every stamped lift is strictly inside the half-height the chip's box
     // covers, so the lane stroke it is anchored to runs through that box.
