@@ -24,6 +24,7 @@ import {
   CONTAINER_CAPTION_BAND,
   PRODUCT_HEIGHT,
   PRODUCT_WIDTH,
+  RECIPE_HEAD_ICON_COL,
   RECIPE_HEADER_HEIGHT,
   RECIPE_ROWS_TOP_PAD,
   RECIPE_ROW_HEIGHT,
@@ -191,6 +192,20 @@ describe("the recipe card's box is declared the same in TS and in CSS", () => {
     // recipeHeight adds it unconditionally, so a shrunken .rn-head would put
     // every port below the model's y-slot at low zoom.
     expect(cssPx(".rn-head", "height")).toBe(RECIPE_HEADER_HEIGHT);
+  });
+
+  it("sizes .machine-icon at 40px and sums it to RECIPE_HEAD_ICON_COL", () => {
+    // The icon is the card's identity at fit zoom, so both the sprite box and
+    // the column it fills are pinned: the icon plus the machine block's
+    // 2x6px horizontal padding and 1px right border is the whole column.
+    const icon = cssPx(".rn-head .rn-machine-block .machine-icon", "width");
+    expect(icon).toBe(40);
+    expect(cssPx(".rn-head .rn-machine-block .machine-icon", "height")).toBe(
+      40,
+    );
+    const padX = cssPx(".rn-head .rn-machine-block", "padding", 1);
+    const border = cssPx(".rn-head .rn-machine-block", "border-right");
+    expect(icon + 2 * padX + border).toBe(RECIPE_HEAD_ICON_COL);
   });
 
   it("sizes .rn-row at RECIPE_ROW_HEIGHT", () => {

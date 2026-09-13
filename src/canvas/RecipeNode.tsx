@@ -262,11 +262,11 @@ export default function RecipeNode({
         minHeight: geom.height,
       }}
     >
-      {/* Header: the machine icon block plus the machine title line. */}
+      {/* Header: the 40px machine icon block plus the machine title line. */}
       <div className="rn-head">
         <div className="rn-machine-block">
           <div className="machine-icon" data-machine-icon={machineIconKey}>
-            <Sprite iconId={machine?.icon ?? producerId} size={28} />
+            <Sprite iconId={machine?.icon ?? producerId} size={40} />
           </div>
         </div>
         <div className="rn-recipe-block">
