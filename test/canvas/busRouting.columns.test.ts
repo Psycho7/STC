@@ -1434,6 +1434,59 @@ describe("jogForwardLegs", () => {
     expect(out[0]).toBe(edges[0]);
   });
 
+  it("jogs a blocked small-dy leg, whose closing horizontal crosses a foreign card", () => {
+    // The small-dy diagonal still closes on a long horizontal at the target y,
+    // and that leg can slice a card exactly like the normal step's (a group
+    // input feeding a container member one row off its own port y). The scan
+    // has to cover it: legY stamped, and the drawn path clear of the card.
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 100, 148, 78), // right 148, port y 139
+      inputProductNode("t", "ore", 760, 87, 148, 78), // left 760, port y 126
+      inputProductNode("mid", "ore", 400, 60, 148, 78), // y 60..138 holds 126
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+      },
+    ];
+    const out = jogForwardLegs(nodes, edges);
+    const legY = legYOf(out, "e0");
+    expect(legY).toBeDefined();
+    expect(legY).not.toBe(126); // moved off the target port y
+
+    const [d] = chamferStepPath({
+      sourceX: 148,
+      sourceY: 139,
+      targetX: 760,
+      targetY: 126,
+      ...routingHintsFromData(out[0]!.data),
+    });
+    const midCard = paddedObstacles(nodes, edges).find(
+      (o) => o.kind === "card" && o.nodeId === "mid",
+    )!;
+    const pts = parsePoints(d);
+    for (let i = 1; i < pts.length; i++) {
+      expect(segCrossesRect(pts[i - 1]!, pts[i]!, midCard)).toBe(false);
+    }
+  });
+
+  it("passes a clear small-dy edge through by reference", () => {
+    const nodes: RFAnyNode[] = [
+      inputProductNode("s", "ore", 0, 100, 148, 78),
+      inputProductNode("t", "ore", 760, 87, 148, 78),
+    ];
+    const edges: Edge[] = [
+      {
+        ...mkEdge("e0", "s", "t", "ore"),
+        data: { item: "ore", rate: new Fraction(1), bendX: 200 },
+      },
+    ];
+    const out = jogForwardLegs(nodes, edges);
+    expect(legYOf(out, "e0")).toBeUndefined();
+    expect(out[0]).toBe(edges[0]);
+  });
+
   it("leaves bus and backward edges untouched", () => {
     const { nodes } = buildFixture(true);
     const busEdge: Edge = {
