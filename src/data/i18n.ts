@@ -66,7 +66,6 @@ export type UiKey =
   | "canvas.controls.zoom_out"
   | "canvas.controls.fit_view"
   | "canvas.controls.interactive"
-  | "canvas.minimap"
   | "rate.invalid"
   | "stats.output"
   | "stats.output.unit"
@@ -148,7 +147,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.zoom_out": "缩小",
     "canvas.controls.fit_view": "适应视图",
     "canvas.controls.interactive": "切换交互",
-    "canvas.minimap": "缩略图",
     "rate.invalid": "请输入数字，例如 30 或 1/3",
     "stats.output": "输出",
     "stats.output.unit": "目标",
@@ -226,7 +224,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "canvas.controls.zoom_out": "Zoom out",
     "canvas.controls.fit_view": "Fit view",
     "canvas.controls.interactive": "Toggle interactivity",
-    "canvas.minimap": "Mini map",
     "rate.invalid": "Enter a number, e.g. 30 or 1/3",
     "stats.output": "Output",
     "stats.output.unit": "targets",

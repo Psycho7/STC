@@ -282,10 +282,12 @@ function commensurate(projected: Rect, evidence: Rect): boolean {
 // evaluator was given to read. What it excludes is coarser than the chrome it
 // stands for: `safeRegion` is a rectangle, not an occlusion mask, and the cut it
 // prefers is a full-width horizontal one, so with bottom-anchored chrome mounted
-// it raises the floor across the whole pane width and then insets by the rim. At
-// 1920x1080 with the minimap up that is roughly the bottom 170 px of every tile,
-// full width, where the real chrome covers two corners. A defect sitting low and
-// centre is therefore visible in the image and outside this region, and its
+// it raises the floor across the whole pane width and then insets by the rim.
+// The attribution badge is the only chrome that touches a pane edge - the
+// controls cluster floats on React Flow's 15 px Panel margins and subtracts
+// nothing - so at 1920x1080 the cut is roughly the bottom 30 px of every tile,
+// full width, where the real chrome covers two corners. A defect sitting low
+// and centre is therefore visible in the image and outside this region, and its
 // corroboration is wrongly refused. That costs one refuter run and never grants
 // support, which is the direction this module errs in; the per-overlay rects are
 // on the TileRecord as `overlayMasks` if a later exam wants the exact mask.

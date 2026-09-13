@@ -609,9 +609,9 @@ export function hoverDecision(
 export type SamplePoint = { at: string; x: number; y: number };
 
 // Which sample points the mouse can actually be moved to: inside the pane and
-// clear of the floating chrome. A point under the minimap hovers the minimap,
-// and a point outside the pane hovers nothing at all - either one would be
-// counted as a failed sample and could push a working hover to `false`.
+// clear of the floating chrome. A point under the zoom controls hovers the zoom
+// controls, and a point outside the pane hovers nothing at all - either one
+// would be counted as a failed sample and could push a working hover to `false`.
 //
 // `pane` is in PAGE coordinates (where the sample points and the mouse live);
 // `overlays` come from the scene collector in PANE-RELATIVE coordinates, and are

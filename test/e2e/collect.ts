@@ -621,10 +621,10 @@ export function collectScene(): SceneCollection {
 
   const overlays: SceneCollection["overlays"] = [];
   // Chrome that paints an opaque or near-opaque fill over pane content. The
-  // minimap only mounts above the dense-plan node threshold, and the React Flow
-  // attribution badge only exists because Canvas sets no proOptions; emit each
-  // when it is there and stay silent when it is not. Rects are converted to the
-  // pane frame so they compare directly against every element's clientRect.
+  // React Flow attribution badge only exists because Canvas sets no proOptions;
+  // emit each when it is there and stay silent when it is not. Rects are
+  // converted to the pane frame so they compare directly against every
+  // element's clientRect.
   //
   // .canvas-frame is deliberately NOT here: it spans the whole pane, but it is
   // pointer-events: none and paints only a vignette that is fully transparent
@@ -632,7 +632,6 @@ export function collectScene(): SceneCollection {
   // Collecting it would mark every element occluded and make this list useless.
   for (const [name, selector] of [
     ["controls", ".react-flow__controls"],
-    ["minimap", ".react-flow__minimap"],
     ["attribution", ".react-flow__attribution"],
   ] as const) {
     const el = document.querySelector<HTMLElement>(selector);

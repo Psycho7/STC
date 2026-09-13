@@ -656,11 +656,11 @@ describe("usableSamples", () => {
     ]);
   });
 
-  // A point under the minimap hovers the minimap. Counting it as a failed
-  // sample is how a working hover gets reported dead.
+  // A point under the zoom controls hovers the zoom controls. Counting it as a
+  // failed sample is how a working hover gets reported dead.
   test("rejects a point under a chrome overlay", () => {
-    const minimap = { x: 1700, y: 800, width: 200, height: 150 };
-    expect(usableSamples([point(1800, 920)], pane, [minimap])).toEqual([false]);
+    const controls = { x: 0, y: 940, width: 40, height: 140 };
+    expect(usableSamples([point(20, 1000)], pane, [controls])).toEqual([false]);
   });
 
   // Overlay rects arrive pane-relative and the points are in page coordinates:
