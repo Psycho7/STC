@@ -48,6 +48,7 @@ const geometry = (): Geometry => ({
       bottom: 50,
       inPorts: [],
       outPorts: [],
+      catPorts: [],
       catalystRows: 0,
     },
     {
@@ -59,6 +60,7 @@ const geometry = (): Geometry => ({
       bottom: 50,
       inPorts: [],
       outPorts: [],
+      catPorts: [],
       catalystRows: 0,
     },
     {
@@ -70,6 +72,7 @@ const geometry = (): Geometry => ({
       bottom: 260,
       inPorts: [],
       outPorts: [],
+      catPorts: [],
       catalystRows: 0,
     },
     {
@@ -81,6 +84,7 @@ const geometry = (): Geometry => ({
       bottom: 450,
       inPorts: [],
       outPorts: [],
+      catPorts: [],
       catalystRows: 0,
     },
     {
@@ -92,6 +96,7 @@ const geometry = (): Geometry => ({
       bottom: 450,
       inPorts: [],
       outPorts: [],
+      catPorts: [],
       catalystRows: 0,
     },
   ],
@@ -342,6 +347,7 @@ describe("measurementsFor", () => {
           bottom: 50,
           inPorts: [],
           outPorts: [],
+          catPorts: [],
           catalystRows: 0,
         },
         {
@@ -353,6 +359,7 @@ describe("measurementsFor", () => {
           bottom: 50,
           inPorts: [],
           outPorts: [],
+          catPorts: [],
           catalystRows: 0,
         },
         {
@@ -364,6 +371,7 @@ describe("measurementsFor", () => {
           bottom: 260,
           inPorts: [],
           outPorts: [],
+          catPorts: [],
           catalystRows: 0,
         },
       ],
