@@ -1,9 +1,10 @@
 // layoutSolved feeds the layout the RAW pack's recipes, never the solve's own
-// netted map. The shipped pack carries two self-consuming recipes
-// (phase_trans_1-liquid_xiranite, phase_trans_2-gas_xiranite): the solver nets
-// the self-consumed item off both sides so no self-edge materializes, and the
-// drawing has to keep the in-game row so the player can see the flow they must
-// loop back themselves.
+// netted map. The catalyst split moved each transmuter's cycled input into a
+// `catalyst` field (phase_trans_1-liquid_xiranite: gas in, liquid out, a
+// fifth of the output cycled), so the row that has to survive the raw pass is
+// the catalyst row: drawn from the plan boundary, so it has no supplier, no
+// port and no edge, while the drawing still shows the flow the player must
+// supply.
 
 import { describe, it, expect } from "vitest";
 
@@ -13,7 +14,7 @@ import { solveForRender } from "../../src/pipeline/solveForRender";
 import { pack } from "../../src/data/load";
 import type { ItemTarget } from "../../src/data/targets";
 
-const SELF_CONSUMING = "phase_trans_1-liquid_xiranite";
+const CYCLING = "phase_trans_1-liquid_xiranite";
 const SELF_ITEM = "liquid_xiranite";
 const FED_ITEM = "gas_xiranite";
 
@@ -25,32 +26,30 @@ function recipeNodeOf(
   nodes: ReadonlyArray<{ id: string; data: unknown }>,
 ): RFRecipeNode {
   const found = nodes.find(
-    (n) =>
-      (n.data as { recipe?: { id?: string } }).recipe?.id === SELF_CONSUMING,
+    (n) => (n.data as { recipe?: { id?: string } }).recipe?.id === CYCLING,
   );
-  expect(found, `no node drew ${SELF_CONSUMING}`).toBeDefined();
+  expect(found, `no node drew ${CYCLING}`).toBeDefined();
   return found as RFRecipeNode;
 }
 
-describe("layoutSolved on a self-consuming recipe", () => {
-  it("draws the self-consumed input row with no incoming edge", async () => {
+describe("layoutSolved on a catalyst-cycling recipe", () => {
+  it("draws the cycled row with no incoming edge", async () => {
     const solved = solveForRender({ targets });
     const { nodes, edges } = await layoutSolved(solved, {
       busLanesEnabled: false,
     });
 
     const node = recipeNodeOf(nodes);
-    // The raw in-game stoichiometry: gas in, a fifth of the output looped back.
-    expect(node.data.recipe.in.map((s) => s.item).sort()).toEqual([
-      FED_ITEM,
-      SELF_ITEM,
-    ]);
-    // The row really is drawn: it has an ELK-resolved west port slot.
-    expect(node.data.inputOrder).toContain(SELF_ITEM);
+    // The raw in-game stoichiometry: gas in, a fifth of the output cycled
+    // back as the catalyst.
+    expect(node.data.recipe.in.map((s) => s.item)).toEqual([FED_ITEM]);
+    expect(node.data.recipe.catalyst?.map((s) => s.item)).toEqual([SELF_ITEM]);
+    // The cycled row takes no west port slot: no edge can arrive at it.
+    expect(node.data.inputOrder).not.toContain(SELF_ITEM);
 
     const incoming = edges.filter((e) => e.target === node.id);
     // Premise: the gas row IS fed, so "no incoming edge" below is about the
-    // self-consumed row and not about an unrouted card.
+    // cycled row and not about an unrouted card.
     expect(incoming.map((e) => e.targetHandle)).toContain(`in:${FED_ITEM}`);
     expect(incoming.map((e) => e.targetHandle)).not.toContain(
       `in:${SELF_ITEM}`,
@@ -60,7 +59,22 @@ describe("layoutSolved on a self-consuming recipe", () => {
   it("loses that row when the recipe map comes from the netted solve", async () => {
     // The control the rule exists for: this is what the four canvas suites did
     // before layoutSolved, and it is what makes the assertion above meaningful.
-    const solved = solveForRender({ targets });
+    // The shipped pack no longer nets (the split emptied its self-consuming
+    // set), so the control rides on the same recipe in its pre-split shape:
+    // the cycled item back in `in`, where netting drops it from both sides.
+    const preSplitPack = {
+      ...pack,
+      recipes: pack.recipes.map((r) => {
+        if (r.id !== CYCLING) return r;
+        const preSplit = {
+          ...r,
+          in: [...r.in, { item: SELF_ITEM, qty: 0.2 }],
+        };
+        delete preSplit.catalyst;
+        return preSplit;
+      }),
+    };
+    const solved = solveForRender({ targets, pack: preSplitPack });
     const { nodes } = await layoutRenderPlan({
       plan: solved.plan,
       // @ts-expect-error -- the RawRecipeMap brand rejects the solve's netted
@@ -72,6 +86,6 @@ describe("layoutSolved on a self-consuming recipe", () => {
 
     const node = recipeNodeOf(nodes);
     expect(node.data.recipe.in.map((s) => s.item)).toEqual([FED_ITEM]);
-    expect(node.data.inputOrder).not.toContain(SELF_ITEM);
+    expect(node.data.recipe.catalyst).toBeUndefined();
   }, 60000);
 });

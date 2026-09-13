@@ -278,12 +278,14 @@ describe("multi6: a bus rise chip keeps the lane stroke inside its box", () => {
       busLanesEnabled: true,
     });
 
-    // Premise: this plan really does draw lane bus chips, e:80's among them.
+    // Premise: this plan really does draw lane bus chips, the last
+    // liquid_water rise among them (e:79 since the catalyst split removed the
+    // plan's catalyst feed edges and renumbered the lot).
     const rises = edges.filter(
       (e) => e.type === "bus" && (e.data as EdgeData).laneY !== undefined,
     );
     expect(rises.length).toBeGreaterThan(0);
-    expect(rises.some((e) => e.id.startsWith("e:80:"))).toBe(true);
+    expect(rises.some((e) => e.id.startsWith("e:79:"))).toBe(true);
 
     // Every stamped lift is strictly inside the half-height the chip's box
     // covers, so the lane stroke it is anchored to runs through that box.
