@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { bootExamPage } from "./viewport";
+import { loadCensusScenario } from "./viewport";
 import { SCENARIOS, scenarioHash } from "./scenarios";
 import { collectScene } from "./collect";
 
@@ -8,7 +8,12 @@ import { collectScene } from "./collect";
 // element kind is inventoried, the counts match what the page actually renders,
 // every element carries a stable non-fallback id, and both coordinate spaces are
 // finite. battery5-xiranite is the densest scenario, the one plan that renders
-// all seven element kinds at once.
+// all seven element kinds at once -- at the census reading camera, not at fit:
+// the catalyst rows and the environment frame's reserved footprint grew the
+// plan's content box until its fit zoom (~0.317) fell below the icon-only chip
+// LOD gate (0.32), so at fit the plan draws no chips at all, exactly as the
+// zoom-low LOD design intends. The collector contract needs a camera where
+// every kind is drawn, which is what the census camera exists to be.
 //
 // Counts are cross-checked against Playwright locators rather than against the
 // collection itself, so a selector that drifts out from under collectScene makes
@@ -24,13 +29,7 @@ test("collectScene inventories every element kind on a dense plan", async ({
   // The audit corpus polices the bus machinery, so every spec opts the toggle
   // on explicitly; the app default (off since the bus-lanes flip) is a product
   // decision this suite does not re-test.
-  await bootExamPage(page, {
-    url: `/#${hash}`,
-    locale: "en",
-    busLanes: "on",
-    readiness: "nodes",
-    settle: "webfonts",
-  });
+  await loadCensusScenario(page, hash, { locale: "en", busLanes: "on" });
 
   const scene = await page.evaluate(collectScene);
   const countOf = (kind: string): number =>

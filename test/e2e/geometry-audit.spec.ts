@@ -814,6 +814,15 @@ const PADDED_GRAZE_BASELINE: Record<LaneMode, Record<string, number>> = {
 // Catalyst-split re-pin (2026-09-07): gas-web 5 -> 9, lanes off only. The
 // dropped catalyst feed edges shorten the gas chain's corridors, so more of the
 // tap bundle runs under the chips seated on it. UP move, a ruling item.
+// Environment-frame re-pin (2026-09-12): transmuters 0 -> 1 in both modes.
+// e:8's liquid_sewage surplus run at y 65 passes under e:11's "Sewage x
+// 150/min" chip (q:5 -> the same surplus node) -- this table's own
+// surplus-column-under-chip residue family. The seats date to the catalyst-split
+// corpus being rebased onto current develop (the same base move that surfaced
+// multi6's RAW pierce, since fixed by the jog pass's small-dy extension):
+// probed at the pre-footprint frame commit the cell already reads 1, so the
+// environment frame's grown ELK box did not move it. UP move, listed as a
+// ruling item.
 const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
   default: 3,
   battery5: 8,
@@ -827,7 +836,7 @@ const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
   "gas-web": 12,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 4,
-  transmuters: 0,
+  transmuters: 1, // 0 -> 1 at the environment-frame re-measure.
 };
 const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_SEGMENT_BASELINE_ON,
@@ -847,7 +856,7 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 9,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 2,
-    transmuters: 0,
+    transmuters: 1, // 0 -> 1 at the environment-frame re-measure.
   },
 };
 // battery5 rose 5 -> 6 when chip-vs-card went hard: one pinned chip's on-line
@@ -963,6 +972,10 @@ const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
 // chip parked there names none of them to the reader. Pinned at 0 on the
 // whole corpus in both modes: this is a hard rule, not a residue, and nothing
 // here is ratified as a trade.
+// The transmuters row was missed when that scenario joined the corpus, so the
+// membership guard threw before the audit could read it (environment-frame
+// change, 2026-09-12). First recording, measured on this tree: 0 in both
+// modes -- every fan-out branch chip holds its member's leg.
 const FANOUT_LEG_BASELINE_ON: Record<string, number> = {
   default: 0,
   battery5: 0,
@@ -976,6 +989,7 @@ const FANOUT_LEG_BASELINE_ON: Record<string, number> = {
   "gas-web": 0,
   "rot-bottled_food_3": 0,
   "rot-bottled_food_4": 0,
+  transmuters: 0,
 };
 const FANOUT_LEG_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FANOUT_LEG_BASELINE_ON,
@@ -992,6 +1006,7 @@ const FANOUT_LEG_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 0,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 0,
+    transmuters: 0,
   },
 };
 
@@ -2087,6 +2102,12 @@ const CARD_INTRUSION_BASELINE: Record<LaneMode, Record<string, number>> = {
 // Catalyst-split re-pin (2026-09-07): battery5-xiranite 6 -> 7 (on) and 5 -> 8
 // (off), script43 5 -> 7 (off), gas-web 5 -> 6 (off). UP moves, listed as ruling
 // items; the softest tier, and the same re-pack cause as above.
+// Environment-frame re-pin (2026-09-12): transmuters 0 -> 1 in both modes --
+// the census-camera reading of the same e:8 surplus stroke under e:11's "Sewage
+// x 150/min" chip the CHIP_SEGMENT table records above. Same cause: the seats
+// date to the catalyst-split rebase onto develop, and the environment frame's
+// footprint probed identical (1 at the pre-footprint commit). UP move, listed
+// as a ruling item.
 const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
   default: 3,
   battery5: 3,
@@ -2100,7 +2121,7 @@ const FOREIGN_STROKE_BASELINE_ON: Record<string, number> = {
   "gas-web": 10,
   "rot-bottled_food_3": 2,
   "rot-bottled_food_4": 2,
-  transmuters: 0,
+  transmuters: 1, // 0 -> 1 at the environment-frame re-measure.
 };
 const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: FOREIGN_STROKE_BASELINE_ON,
@@ -2119,7 +2140,7 @@ const FOREIGN_STROKE_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 6,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 2,
-    transmuters: 0,
+    transmuters: 1, // 0 -> 1 at the environment-frame re-measure.
   },
 };
 
@@ -2315,6 +2336,12 @@ const PORT_COVER_BASELINE: Record<LaneMode, Record<string, number>> = {
 // 48 -> 43 at the shrink pass (R16).
 // First recording for the transmuter scenario (2026-09-07): 4 in both modes,
 // out of 26 chips at the census camera.
+// Environment-frame re-pin (2026-09-12): transmuters 4 -> 6 in both modes.
+// Two more of the plan's chips collapse icon-only at the census camera -- the
+// rebased catalyst-split seating puts them on legs too short for their full
+// label boxes, the trade this dial exists to record. The environment frame's
+// footprint probed identical (6 at the pre-footprint commit). UP move, listed
+// as a ruling item.
 const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: {
     default: 4,
@@ -2329,7 +2356,7 @@ const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 3,
     "rot-bottled_food_3": 4,
     "rot-bottled_food_4": 0,
-    transmuters: 4,
+    transmuters: 6, // 4 -> 6 at the environment-frame re-measure.
   },
   off: {
     default: 4,
@@ -2344,7 +2371,7 @@ const CHIP_COLLAPSE_BASELINE: Record<LaneMode, Record<string, number>> = {
     "gas-web": 3,
     "rot-bottled_food_3": 4,
     "rot-bottled_food_4": 0,
-    transmuters: 4,
+    transmuters: 6, // 4 -> 6 at the environment-frame re-measure.
   },
 };
 
@@ -2459,7 +2486,9 @@ const CENSUS_TOTALS: Record<
     // in FOREIGN_STROKE_BASELINE (default 1 -> 2, rot-bottled_food_3 0 -> 2).
     // FAN-OUT LEG SEAT: 57 -> 58, tracking default 2 -> 3 in that table.
     // Catalyst split (2026-09-07) on top: battery5-xiranite 6 -> 7, 58 -> 59.
-    foreignStroke: 59,
+    // Environment-frame re-measure (2026-09-12) on top: transmuters 0 -> 1,
+    // 59 -> 60.
+    foreignStroke: 60,
     outsideBand: 0,
   },
   off: {
@@ -2474,7 +2503,9 @@ const CENSUS_TOTALS: Record<
     // FAN-OUT LEG SEAT: 46 -> 47 (default 2 -> 3).
     // Catalyst split (2026-09-07) on top: battery5-xiranite 5 -> 8,
     // script43 5 -> 7, gas-web 5 -> 6, so 47 -> 53.
-    foreignStroke: 53,
+    // Environment-frame re-measure (2026-09-12) on top: transmuters 0 -> 1,
+    // 53 -> 54.
+    foreignStroke: 54,
     outsideBand: 0,
   },
 };
