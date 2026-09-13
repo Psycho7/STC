@@ -507,6 +507,45 @@ describe("RecipeNode", () => {
     });
   });
 
+  // The environment frame against the real pack: the extractor's hand table
+  // is what marks a recipe gas-gated, so the pack wiring is asserted here
+  // while the component contract (layer properties, localisation, CSS) lives
+  // in src/canvas/RecipeNode.test.tsx.
+  describe("environment frame", () => {
+    it("renders one aria-hidden .rn-env on the pack recipe the hand table marks acidic", () => {
+      const envRecipe = pack.recipes.find((r) => r.id === "gas_copper_enr2");
+      // Premise guard: the pack still marks exactly this recipe acidic.
+      expect(envRecipe?.environment).toBe("acidic");
+      const { container } = renderRecipe({
+        recipe: envRecipe!,
+        kind: "recipe",
+        multiplier: 1,
+      });
+      const root = container.querySelector<HTMLElement>(
+        '[data-testid="recipe-node"]',
+      )!;
+      expect(root.getAttribute("data-environment")).toBe("acidic");
+      const frames = root.querySelectorAll(".rn-env");
+      expect(frames).toHaveLength(1);
+      expect(frames[0]!.getAttribute("aria-hidden")).toBe("true");
+    });
+
+    it("renders no frame and no data-environment on a plain pack recipe", () => {
+      const plainRecipe = pack.recipes.find((r) => r.id === "plant_moss_1");
+      expect(plainRecipe?.environment).toBeUndefined();
+      const { container } = renderRecipe({
+        recipe: plainRecipe!,
+        kind: "recipe",
+        multiplier: 1,
+      });
+      const root = container.querySelector<HTMLElement>(
+        '[data-testid="recipe-node"]',
+      )!;
+      expect(root.hasAttribute("data-environment")).toBe(false);
+      expect(container.querySelector(".rn-env")).toBeNull();
+    });
+  });
+
   describe("footer", () => {
     it("renders cycle-time text inside .rn-footer .cycle with an empty .pwr placeholder", () => {
       const footerRecipe: Recipe = {

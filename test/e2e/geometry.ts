@@ -1121,6 +1121,15 @@ export type CardFrameMismatch = {
 // card's border, so the two frames have to be the same box, and this states it
 // against the DOM.
 //
+// One kind grows further: an environment recipe's obstacle is that model box
+// grown by `cardGrowth` PLUS the environment frame extents -- the plates and
+// haze beyond the card box, ENV_FRAME_EXTENTS in src/canvas/dimensions.ts,
+// added per node by cardRectsFor in src/canvas/chipSeating.ts so no chip seats
+// on a plate. This criterion still compares the DRAWN card box against the
+// model box plus cardGrowth alone: the frame element draws at negative insets
+// outside the card's layout, so the plain comparison is what keeps proving
+// the DOM box did not grow.
+//
 // Recipes only. A product or group card rebuilds its model width from the DOM
 // (nothing else knows it), so it would agree by construction -- the same blind
 // spot auditEndpointParity's product side documents. Recipes rebuild off the
