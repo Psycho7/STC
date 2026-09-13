@@ -44,6 +44,11 @@ import { deconflictChipAnchors } from "../../src/canvas/chipSeating";
 import { drawnPortsOf } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
+import { layoutSolved } from "../../src/canvas/layoutSolved";
+import { pack } from "../../src/data/load";
+import { solveForRender } from "../../src/pipeline/solveForRender";
+import type { ItemTarget } from "../../src/data/targets";
+import { SCENARIOS } from "../e2e/scenarios";
 
 const ITEM = "s";
 
@@ -498,4 +503,158 @@ describe("jogged descents stay left of the target zone", () => {
     );
     expect(descentX).toBeGreaterThanOrEqual(gap.columnZone.left);
   });
+});
+
+describe("routeTrunkEdges: a fan-in trunk of FAR members only", () => {
+  // Two producers two layers back feeding one consumer's single in-port. No
+  // member reaches the target from the next layer, so none is retyped: the
+  // trunk is drawn entirely from item edges pinned to one column.
+  const fixture = (): Routed => {
+    const nodes: RFAnyNode[] = [
+      producer("p1", 0, 0),
+      producer("p2", 0, 300),
+      layerFiller("mid", LAYER_PITCH),
+      consumer("tgt", 2 * LAYER_PITCH, 120),
+    ];
+    return widenAndRoute(nodes, [
+      edge("e:1", "p1", "tgt", new Fraction(2)),
+      edge("e:2", "p2", "tgt", new Fraction(3)),
+    ]);
+  };
+
+  it("pins both members to one column and retypes neither", () => {
+    const routed = fixture();
+    const zone = routed.gaps[1]!.columnZone;
+    for (const id of ["e:1", "e:2"]) {
+      expect(typeOf(routed.edges, id)).toBe("item");
+      expect(dataOf(routed.edges, id).faninColumn).toBe(true);
+      expect(num(routed.edges, id, "bendX")).toBe(
+        zone.right - COLUMN_PITCH / 2,
+      );
+    }
+  });
+
+  it("draws no aggregate chip: the trunk has no near member to carry it", () => {
+    const routed = fixture();
+    // The aggregate rides a retyped near member's leg into the port, and there
+    // is none. The target card states the total.
+    for (const id of ["e:1", "e:2"]) {
+      expect(dataOf(routed.edges, id).busChipOwner).toBeUndefined();
+      expect(dataOf(routed.edges, id).busTotalRate).toBeUndefined();
+    }
+  });
+
+  it("seats each member's chip on its own source stub", () => {
+    const routed = fixture();
+    const byId = new Map(routed.nodes.map((n) => [n.id, n]));
+    for (const id of ["e:1", "e:2"]) {
+      const e = routed.edges.find((x) => x.id === id)!;
+      const ports = drawnPortsOf(e, byId)!;
+      const drawn = drawnEdge(ports, e.type, e.data);
+      expect(drawn.shape).toBe("item");
+      if (drawn.shape !== "item") return;
+      const halfW = chipSeatHalfW(branchChipText(e), false);
+      // Its own stub, at its own source row -- not the leg into the target,
+      // which is the aggregate leg both members share.
+      expect(drawn.labelAnchor.y).toBe(ports.sourceY);
+      expect(drawn.labelAnchor.x).toBe(ports.sourceX + PORT_STUB + halfW);
+    }
+  });
+
+  it("marks the merge with one dot, on the lex-smallest member", () => {
+    const routed = fixture();
+    const seated = deconflictChipAnchors(routed.nodes, routed.edges);
+    const byId = new Map(routed.nodes.map((n) => [n.id, n]));
+    const ty = drawnPortsOf(
+      routed.edges.find((e) => e.id === "e:1")!,
+      byId,
+    )!.targetY;
+    const column = num(routed.edges, "e:1", "bendX");
+    // One chamfer past the shared column on the target row: the point every
+    // member's line passes through, where a retyped member's shape would put
+    // its merge dot.
+    expect(dataOf(seated, "e:1").faninJunctionX).toBe(column + CHAMFER);
+    expect(dataOf(seated, "e:1").faninJunctionY).toBe(ty);
+    expect(dataOf(seated, "e:2").faninJunctionX).toBeUndefined();
+  });
+
+  it("leaves a single far member unmarked", () => {
+    // One line merges with nothing: no dot.
+    const nodes: RFAnyNode[] = [
+      producer("p1", 0, 0),
+      producer("p2", 0, 300),
+      layerFiller("mid", LAYER_PITCH),
+      consumer("tgt", 2 * LAYER_PITCH, 120),
+      consumer("other", 2 * LAYER_PITCH, 900),
+    ];
+    const routed = widenAndRoute(nodes, [
+      edge("e:1", "p1", "tgt"),
+      edge("e:2", "p2", "other"),
+    ]);
+    const seated = deconflictChipAnchors(routed.nodes, routed.edges);
+    for (const id of ["e:1", "e:2"]) {
+      expect(dataOf(seated, id).faninColumn).toBeUndefined();
+      expect(dataOf(seated, id).faninJunctionX).toBeUndefined();
+    }
+  });
+});
+
+describe("the default plan's Sewage fan-in", () => {
+  // Two Refining Units feed the sewage output two layers over: a fan-in trunk
+  // whose members are both far AND both jogged (a card of the layer between
+  // straddles each source row). Before the source columns were zoned they took
+  // the same column a few units out of their ports, merged there, and ran
+  // collinear to the target with one chip on the shared line.
+  const layOut = async (): Promise<{ nodes: RFAnyNode[]; edges: Edge[] }> => {
+    const scenario = SCENARIOS.find((s) => s.id === "default")!;
+    const targets: ItemTarget[] = scenario.targets.map((t) => ({
+      itemId: t.itemId,
+      ratePerSec: t.ratePerSec,
+    }));
+    const { nodes, edges } = await layoutSolved(
+      solveForRender({ targets, pack }),
+    );
+    return { nodes: nodes as RFAnyNode[], edges };
+  };
+
+  it("gives the two members distinct stubs, their own chips and one dot", async () => {
+    const { nodes, edges } = await layOut();
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const members = edges.filter(
+      (e) =>
+        (e.data as EdgeData).item === "liquid_sewage" &&
+        (e.data as EdgeData).faninColumn === true,
+    );
+    // Premise: the plan really does route this fan-in from far members.
+    expect(members.length).toBe(2);
+
+    const columns = new Set(members.map((e) => (e.data as EdgeData).bendX));
+    expect(columns.size).toBe(1);
+    // Distinct source-side columns, one entry slot apart: the two stubs stay
+    // two lines, each carrying its own rate, instead of merging at the port.
+    const srcCols = members
+      .map((e) => (e.data as EdgeData).srcColX as number)
+      .sort((a, b) => a - b);
+    expect(srcCols[1]! - srcCols[0]!).toBe(ENTRY_SLOT_PITCH);
+
+    for (const e of members) {
+      const ports = drawnPortsOf(e, byId)!;
+      const drawn = drawnEdge(ports, e.type, e.data);
+      if (drawn.shape !== "item") throw new Error("expected the item shape");
+      expect(drawn.labelAnchor.y).toBe(ports.sourceY);
+      expect(drawn.labelAnchor.x).toBe(
+        ports.sourceX + PORT_STUB + chipSeatHalfW(branchChipText(e), false),
+      );
+    }
+
+    // Exactly one convergence dot, on the lex-smallest member, at the column.
+    const marked = members.filter(
+      (e) => (e.data as EdgeData).faninJunctionX !== undefined,
+    );
+    expect(marked.length).toBe(1);
+    expect(marked[0]!.id).toBe([...members].map((e) => e.id).sort()[0]);
+    expect((marked[0]!.data as EdgeData).faninJunctionX).toBe(
+      ((members[0]!.data as EdgeData).bendX as number) + CHAMFER,
+    );
+  }, 600_000);
 });

@@ -315,9 +315,10 @@ describe("routeTrunkEdges: the shared column and its neighbours", () => {
 
 describe("chamferStepPath: where a pinned member's label anchor lands", () => {
   // The path builder's own answer. A far member pinned to a trunk's shared
-  // column needs no special case: the run into its target is its longest
-  // horizontal, so the ONE rule already puts its chip there instead of on the
-  // column every sibling draws.
+  // column takes the LAST horizontal run of its polyline -- its own leg into
+  // the target, the same leg a retyped near member's chip rides -- seated one
+  // port stub back from the target port. Everything left of that leg is the
+  // column every sibling draws on, where their chips would stack.
   const ends = {
     sourceX: 100,
     sourceY: 200,
@@ -325,6 +326,9 @@ describe("chamferStepPath: where a pinned member's label anchor lands", () => {
     targetY: 600,
   } as const;
   const BEND_X = 160;
+  const FANIN_BEND_X = 900;
+  // The default reserve when a caller hands in no chip box: CHIP_BOX_WIDTH / 2.
+  const HALF_W = 60;
 
   it("anchors the straight step on the final horizontal leg", () => {
     const [, labelX, labelY] = chamferStepPath({
@@ -333,16 +337,20 @@ describe("chamferStepPath: where a pinned member's label anchor lands", () => {
       fanoutColumn: true,
     });
     expect(labelY).toBe(ends.targetY);
+    expect(labelX).toBe(ends.targetX - PORT_STUB - HALF_W);
     expect(labelX).toBeGreaterThan(BEND_X + DOT_KEEPOFF);
-    expect(labelX).toBeLessThan(ends.targetX);
-    // The pin changes nothing: the anchor is a property of the drawn polyline,
-    // so the unpinned step answers the same point.
+    // The pin is what moves it: without it the same polyline anchors on the
+    // centre of its longest run, which here is that same final leg.
     const [, plainX, plainY] = chamferStepPath({ ...ends, bendX: BEND_X });
-    expect(plainX).toBe(labelX);
     expect(plainY).toBe(labelY);
+    expect(plainX).toBeLessThan(labelX);
   });
 
-  it("anchors a jogged step on the jog's clear horizontal", () => {
+  it("anchors a jogged step on its final leg, not the jog's long run", () => {
+    // The jog's cleared horizontal at legY is the LONGEST run of this
+    // polyline, and the pinned member does not take it: that run is the one
+    // its siblings share the column with, so the rule sends the chip to the
+    // last run, the stub from the descent column into the port.
     const legY = 320;
     const jogDescentX = 900;
     const [, labelX, labelY] = chamferStepPath({
@@ -352,19 +360,69 @@ describe("chamferStepPath: where a pinned member's label anchor lands", () => {
       jogDescentX,
       fanoutColumn: true,
     });
-    expect(labelY).toBe(legY);
-    expect(labelX).toBeGreaterThan(BEND_X + DOT_KEEPOFF);
-    expect(labelX).toBeLessThan(jogDescentX);
-    // The jog's cleared horizontal is the longest run of that polyline, so the
-    // unpinned jog answers the same point.
+    expect(labelY).toBe(ends.targetY);
+    expect(labelX).toBe(ends.targetX - PORT_STUB - HALF_W);
+    expect(labelX).toBeGreaterThan(jogDescentX);
+    // Unpinned, the same polyline takes the long cleared run instead.
     const [, plainX, plainY] = chamferStepPath({
       ...ends,
       bendX: BEND_X,
       legY,
       jogDescentX,
     });
-    expect(plainX).toBe(labelX);
-    expect(plainY).toBe(labelY);
+    expect(plainY).toBe(legY);
+    expect(plainX).toBeLessThan(jogDescentX);
+  });
+
+  it("anchors a far FAN-IN member on its own source stub", () => {
+    // The mirror: a far fan-in member shares the final leg into the target
+    // port with every sibling (that is the trunk's aggregate leg), so its own
+    // stretch is the FIRST run -- the stub out of its source port -- and its
+    // chip seats one port stub out of that port.
+    // A fan-in column stands in the gap before the TARGET, so the member's own
+    // stub is the long run here.
+    const [path, labelX, labelY] = chamferStepPath({
+      ...ends,
+      bendX: FANIN_BEND_X,
+      faninColumn: true,
+    });
+    expect(labelY).toBe(ends.sourceY);
+    expect(labelX).toBe(ends.sourceX + PORT_STUB + HALF_W);
+    // Premise: the first run really is the source stub of the drawn shape.
+    expect(path.startsWith(`M ${ends.sourceX},${ends.sourceY}`)).toBe(true);
+  });
+
+  it("reads a dual far member -- both flags -- as the fan-out member it is", () => {
+    const [, dualX, dualY] = chamferStepPath({
+      ...ends,
+      bendX: BEND_X,
+      fanoutColumn: true,
+      faninColumn: true,
+    });
+    const [, outX, outY] = chamferStepPath({
+      ...ends,
+      bendX: BEND_X,
+      fanoutColumn: true,
+    });
+    expect([dualX, dualY]).toEqual([outX, outY]);
+  });
+
+  it("seats both far members by the box they actually draw", () => {
+    const narrow = { memberHalfW: 20 };
+    const [, outX] = chamferStepPath({
+      ...ends,
+      bendX: BEND_X,
+      fanoutColumn: true,
+      ...narrow,
+    });
+    const [, inX] = chamferStepPath({
+      ...ends,
+      bendX: FANIN_BEND_X,
+      faninColumn: true,
+      ...narrow,
+    });
+    expect(outX).toBe(ends.targetX - PORT_STUB - 20);
+    expect(inX).toBe(ends.sourceX + PORT_STUB + 20);
   });
 });
 
@@ -513,23 +571,16 @@ describe("the gas-web copper_nugget fan-out", () => {
     return { nodes: nodes as RFAnyNode[], edges };
   };
 
-  // The member's OWN horizontal leg: the jog's cleared run when jogForwardLegs
-  // bent the approach, otherwise the final run into the target port.
+  // The member's OWN horizontal leg: the LAST run of its polyline, the leg into
+  // the target port. A jogged member's cleared run at legY is longer, and the
+  // rule still does not put the chip there -- that run belongs to the shared
+  // column's side of the shape.
   const ownLeg = (
     pts: ReadonlyArray<readonly [number, number]>,
-    legY: number | undefined,
-  ): readonly [readonly [number, number], readonly [number, number]] => {
-    if (legY !== undefined) {
-      for (let i = 1; i < pts.length; i++) {
-        const a = pts[i - 1]!;
-        const b = pts[i]!;
-        if (Math.abs(a[1] - legY) <= 1 && Math.abs(b[1] - legY) <= 1) {
-          return [a, b];
-        }
-      }
-    }
-    return [pts[pts.length - 2]!, pts[pts.length - 1]!];
-  };
+  ): readonly [readonly [number, number], readonly [number, number]] => [
+    pts[pts.length - 2]!,
+    pts[pts.length - 1]!,
+  ];
 
   it("seats every member's chip on its own leg", async () => {
     const { nodes, edges } = await layOutGasWeb();
@@ -562,7 +613,7 @@ describe("the gas-web copper_nugget fan-out", () => {
         chipY = ly;
       }
 
-      const leg = ownLeg(pts, data.legY as number | undefined);
+      const leg = ownLeg(pts);
       expect(chipY, `${e.id} chip row`).toBe(leg[1][1]);
       expect(chipX, `${e.id} chip off the column`).toBeGreaterThan(
         column + DOT_KEEPOFF,

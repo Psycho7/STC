@@ -411,6 +411,75 @@ describe("canvas/ItemEdge declined fan-out dot", () => {
   });
 });
 
+describe("canvas/ItemEdge fan-in convergence dot", () => {
+  // A fan-in trunk drawn entirely from far members has no BusEdge to draw its
+  // merge dot, so the seating pass stamps it on one member item edge. It marks
+  // the TARGET row, the mirror of the divergence dot above.
+  const SPLIT_ROW_NODES: Node[] = [
+    { id: "src", position: { x: 0, y: 0 }, data: { label: "src" } },
+    { id: "tgt", position: { x: 300, y: 160 }, data: { label: "tgt" } },
+  ];
+
+  // The last vertex of the drawn polyline: the target port, whose row the stamp
+  // must sit on and whose final run it must stand on.
+  async function targetPort(): Promise<{ x: number; y: number }> {
+    await waitFor(() =>
+      expect(document.querySelector(".react-flow__edge-path")).not.toBeNull(),
+    );
+    const pts = parsePathPoints(
+      document
+        .querySelector<SVGPathElement>(".react-flow__edge-path")!
+        .getAttribute("d")!,
+    );
+    const last = pts[pts.length - 1]!;
+    return { x: last[0], y: last[1] };
+  }
+
+  const faninDot = (): HTMLElement | null =>
+    document.querySelector<HTMLElement>('[data-testid^="fanin-junction-"]');
+
+  it("draws the dot for a stamp on the live TARGET port row", async () => {
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
+    const { x, y } = await targetPort();
+    cleanup();
+
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        faninJunctionX: x - 20,
+        faninJunctionY: y,
+      },
+      1,
+      SPLIT_ROW_NODES,
+    );
+    await targetPort();
+    const dot = faninDot();
+    expect(dot).not.toBeNull();
+    expect(dot!.getAttribute("data-testid")).toBe("fanin-junction-e1");
+    expect(dot!.getAttribute("data-family")).toBe("fanin");
+  });
+
+  it("drops the dot for a stamp off the target row", async () => {
+    renderEdge({ item: "belt", rate: new Fraction(1, 1) }, 1, SPLIT_ROW_NODES);
+    const { x, y } = await targetPort();
+    cleanup();
+
+    renderEdge(
+      {
+        item: "belt",
+        rate: new Fraction(1, 1),
+        faninJunctionX: x - 20,
+        faninJunctionY: y - 4 * STAMP_ROW_EPS,
+      },
+      1,
+      SPLIT_ROW_NODES,
+    );
+    await targetPort();
+    expect(faninDot()).toBeNull();
+  });
+});
+
 describe("canvas/ItemEdge crossing cues", () => {
   // A cue stamp is only drawable while it sits on the edge's own live polyline
   // (the stale-stamp rule), so a fixture has to discover a live on-line point

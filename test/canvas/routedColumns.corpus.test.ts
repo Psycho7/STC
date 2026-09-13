@@ -33,8 +33,8 @@ const EPS = 1e-6;
 type Column = { edge: string; kind: string; x: number };
 
 // The columns one edge's stamps put in the gaps: the trunk column a bus member
-// shares, the arrival columns of a rail and a jogged descent, and a backward
-// rail's two verticals.
+// shares, the arrival columns of a rail and a jogged descent, the SOURCE-side
+// column of a jog, and a backward rail's two verticals.
 function columnsOf(edge: Edge): Column[] {
   const data = edge.data as Record<string, unknown> | undefined;
   const hints = routingHintsFromData(data);
@@ -50,6 +50,7 @@ function columnsOf(edge: Edge): Column[] {
   }
   push("entryX", hints.entryX);
   push("jogDescentX", hints.jogDescentX);
+  push("srcColX", hints.srcColX);
   push("railXLeft", hints.railXLeft);
   push("railXRight", hints.railXRight);
   return out;

@@ -16,7 +16,7 @@
 // (orient=auto) points right.
 
 import { DOT_KEEPOFF } from "./dimensions";
-import { CHIP_HALF_W_WIDE, chipHalfWidthsOf } from "./chipMetrics";
+import { CHIP_HALF_H, CHIP_HALF_W_WIDE, chipHalfWidthsOf } from "./chipMetrics";
 
 // Minimum straight run leaving a source's Right handle and entering a target's
 // Left handle. Keeps the arrow head from sprouting directly out of a corner.
@@ -177,6 +177,14 @@ export type ObstacleRect = {
 //           along their legs instead of stacking on the one column. Absent ->
 //           the bend-column anchor, byte-identical for direct callers. The
 //           drawn path never changes.
+//   chipX / chipY: the card-clear seat deconflictChipAnchors found for a 1-to-1
+//           chip whose rule seat (the longest run's centre) stood over a card.
+//           The pass knows the card rects and this module does not, so the
+//           slide is computed there and handed back as a point; it is used only
+//           while it still lies on a horizontal run of the polyline this call
+//           built, so a drag that moves the line out from under it falls back
+//           to the rule seat instead of floating the chip. Absent -> the rule
+//           seat, byte-identical for direct callers.
 //   chamferBudget: per-bend corridor room available for enlarging a forward
 //           step's corner bevels (assignBendColumns). Half the stagger pitch, so
 //           an edge's fattened chamfer never reaches a sibling column's vertical.
@@ -197,6 +205,8 @@ export type RoutingHints = {
   faninJoinX?: number;
   faninColumn?: boolean;
   fanoutColumn?: boolean;
+  chipX?: number;
+  chipY?: number;
   chamferBudget?: number;
 };
 
@@ -214,6 +224,8 @@ const HINT_KEYS = [
   "railXLeft",
   "junctionX",
   "faninJoinX",
+  "chipX",
+  "chipY",
   "chamferBudget",
 ] as const satisfies ReadonlyArray<keyof RoutingHints>;
 
@@ -423,9 +435,9 @@ export function pathPointAtPts(
 // spanned by consecutive vertices that all sit on that row. Adjacent horizontal
 // segments at one y merge into a single run, so a run is the stretch a chip can
 // actually stand on, not an emitted segment.
-type HorizontalRun = { lo: number; hi: number; y: number };
+export type HorizontalRun = { lo: number; hi: number; y: number };
 
-function horizontalRuns(
+export function horizontalRuns(
   pts: ReadonlyArray<readonly [number, number]>,
 ): HorizontalRun[] {
   const runs: HorizontalRun[] = [];
@@ -487,6 +499,176 @@ export function longestRunAnchor(
   return [r((best.lo + best.hi) / 2), r(best.y)];
 }
 
+// The chip box a chip of half-width halfW draws when anchored at (x, y), as an
+// axis-aligned rect. One derivation for the card-clear slide below and for the
+// suites that measure the same box.
+export function chipBoxAt(
+  x: number,
+  y: number,
+  halfW: number,
+): { left: number; right: number; top: number; bottom: number } {
+  return {
+    left: x - halfW,
+    right: x + halfW,
+    top: y - CHIP_HALF_H,
+    bottom: y + CHIP_HALF_H,
+  };
+}
+
+// Do two rects overlap in their strict interiors? Touching edges are not an
+// intersection: a chip box flush against a card border still reads as beside
+// the card, and the slide below seats exactly flush.
+function rectsOverlap(
+  a: { left: number; right: number; top: number; bottom: number },
+  b: { left: number; right: number; top: number; bottom: number },
+): boolean {
+  return (
+    a.right > b.left + BOX_EPS &&
+    a.left < b.right - BOX_EPS &&
+    a.bottom > b.top + BOX_EPS &&
+    a.top < b.bottom - BOX_EPS
+  );
+}
+
+// Tolerance for the card-clear box tests. The anchors and the card rects are
+// sums of the same fractional layout coordinates, so a seat computed to stand
+// exactly flush against a card edge must not read back as intersecting it.
+const BOX_EPS = 1e-6;
+
+// The runs of a polyline in the order the card-clear rule tries them: longest
+// first, ties by the run centre nearest the polyline's arc midpoint -- the same
+// order longestRunAnchor picks its single winner in, so the first run of this
+// list IS that winner and a chip that needs no slide never moves.
+function runsByPreference(
+  pts: ReadonlyArray<readonly [number, number]>,
+): HorizontalRun[] {
+  const [mx, my] = pathPointAtPts(pts, 0.5);
+  return horizontalRuns(pts)
+    .map((run) => ({
+      run,
+      len: run.hi - run.lo,
+      gap: Math.hypot((run.lo + run.hi) / 2 - mx, run.y - my),
+    }))
+    .sort((a, b) => b.len - a.len || a.gap - b.gap)
+    .map((entry) => entry.run);
+}
+
+// THE card-clear rule for a 1-to-1 chip (rule 5 of the placement model): the
+// chip stands at the centre of its longest horizontal run, but a run may pass
+// over a card, and a box standing on a card reads as that card's own label.
+// So: on the chosen run, if the box at the run centre intersects a card, slide
+// it ALONG that run to the nearest position whose box clears every card;
+// if no position on the run clears, take the next-longest run and repeat; if no
+// run clears, keep the longest run's centre.
+//
+// The candidate positions are a deterministic function of the run and the card
+// rects -- the box seated flush against each blocking card's left or right edge
+// -- with no scoring, no field and no windows: for every card the box could
+// stand on, the two places it just clears it, filtered to the ones that clear
+// every other card too, nearest to the centre winning (ties to the smaller x).
+// The anchor stays within the run, so the chip never leaves its own line.
+//
+// `cards` are the RAW drawn card rects (recipe / product / loop boxes, no
+// padding); container slabs are not cards. The caller supplies them because
+// this module sees one edge at a time and never the node list.
+export function cardClearRunAnchor(
+  pts: ReadonlyArray<readonly [number, number]>,
+  halfW: number,
+  cards: ReadonlyArray<{
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }>,
+): [x: number, y: number] {
+  const runs = runsByPreference(pts);
+  if (runs.length === 0) return pathPointAtPts(pts, 0.5);
+  const clears = (x: number, y: number, blockers: typeof cards): boolean =>
+    !blockers.some((card) => rectsOverlap(chipBoxAt(x, y, halfW), card));
+
+  for (const run of runs) {
+    const centre = (run.lo + run.hi) / 2;
+    // Only the cards this run's chip ROW can meet matter; the rest can never
+    // be hit however far the box slides along it.
+    const blockers = cards.filter(
+      (card) =>
+        card.bottom > run.y - CHIP_HALF_H + BOX_EPS &&
+        card.top < run.y + CHIP_HALF_H - BOX_EPS,
+    );
+    if (clears(centre, run.y, blockers)) return [r(centre), r(run.y)];
+    const seats = blockers
+      .flatMap((card) => [card.left - halfW, card.right + halfW])
+      .filter((x) => x >= run.lo && x <= run.hi && clears(x, run.y, blockers))
+      .sort((a, b) => Math.abs(a - centre) - Math.abs(b - centre) || a - b);
+    const seat = seats[0];
+    if (seat !== undefined) return [r(seat), r(run.y)];
+  }
+  const [x, y] = longestRunAnchor(pts);
+  return [x, y];
+}
+
+// Is a point ON a horizontal run of this polyline? The gate the stamped
+// card-clear seat passes before the drawer uses it: the pass that computed it
+// read the same geometry, so at rest it always holds, and a drag that moves
+// the line out from under the stamp drops back to the rule seat rather than
+// floating the chip off its own line.
+function onHorizontalRun(
+  runs: ReadonlyArray<HorizontalRun>,
+  x: number,
+  y: number,
+): boolean {
+  return runs.some(
+    (run) =>
+      Math.abs(run.y - y) <= BOX_EPS &&
+      x >= run.lo - BOX_EPS &&
+      x <= run.hi + BOX_EPS,
+  );
+}
+
+// THE chip anchor of an item-shaped polyline, the one rule every arm of
+// chamferStepPath exits through. Three cases, in order:
+//
+//   far fan-out member (fanoutColumn, and a dual far member carrying both
+//     flags): its LAST horizontal run -- its own leg into the target -- seated
+//     one port stub back from the target port, the same seat a retyped fan-out
+//     member takes on the same leg. Everything left of it is the column its
+//     siblings share, where every member's chip would stack.
+//   far fan-in member (faninColumn alone): its FIRST horizontal run -- its own
+//     source stub -- seated one port stub out of the source port. The stub
+//     stands in the gap's source chip reserve, which was widened for exactly
+//     this box; the run at the target row is the trunk's aggregate leg, shared
+//     with every sibling.
+//   everything else (1-to-1 forward, rail, straight line, diagonal): the
+//     longest run's centre, or the card-clear seat the pass slid it to.
+//
+// The far-member seats read the member's own chip box (memberHalfW), defaulting
+// to the worst case for a direct caller that reserves none.
+function itemAnchor(
+  pts: ReadonlyArray<readonly [number, number]>,
+  args: RoutingHints & ChipBoxes,
+  sx: number,
+  tx: number,
+): [x: number, y: number] {
+  const runs = horizontalRuns(pts);
+  const halfW = args.memberHalfW ?? CHIP_HALF_W_WIDE;
+  const first = runs[0];
+  const last = runs[runs.length - 1];
+  if (args.fanoutColumn === true && last !== undefined) {
+    return [r(reserveSeatX(tx, null, halfW, last.lo, last.hi)), r(last.y)];
+  }
+  if (args.faninColumn === true && first !== undefined) {
+    return [r(reserveSeatX(sx, null, halfW, first.lo, first.hi)), r(first.y)];
+  }
+  if (
+    args.chipX !== undefined &&
+    args.chipY !== undefined &&
+    onHorizontalRun(runs, args.chipX, args.chipY)
+  ) {
+    return [r(args.chipX), r(args.chipY)];
+  }
+  return longestRunAnchor(pts);
+}
+
 // chamferStepPath: forward step, small-dy diagonal, narrow-gap degradation, and
 // backward S/C detour, all sharing the same chamfer convention. Returns the SVG
 // path plus the chip anchor longestRunAnchor puts on it -- the centre of the
@@ -499,13 +681,15 @@ export function chamferStepPath(
     sourceY: number;
     targetX: number;
     targetY: number;
-  } & RoutingHints,
+  } & RoutingHints &
+    ChipBoxes,
 ): [path: string, labelX: number, labelY: number] {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty, bendX } = args;
   const gap = tx - sx;
   // One exit for every branch: the emitted path plus its rule anchor.
   const anchored = (d: string): [string, number, number] => {
-    const [x, y] = longestRunAnchor(parsePathPoints(d));
+    const pts = parsePathPoints(d);
+    const [x, y] = itemAnchor(pts, args, sx, tx);
     return [d, x, y];
   };
 
@@ -1049,7 +1233,11 @@ export function drawnEdge(
     };
   }
 
-  const [path, labelX, labelY] = chamferStepPath({ ...ports, ...hints });
+  const [path, labelX, labelY] = chamferStepPath({
+    ...ports,
+    ...hints,
+    ...chipHalfWidthsOf(d),
+  });
   return {
     shape: "item",
     path,

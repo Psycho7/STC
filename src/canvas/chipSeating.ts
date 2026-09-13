@@ -6,15 +6,26 @@
 // drawn polyline, resolved in edgePath.ts where the path is built (a 1-to-1
 // chip on the centre of its longest horizontal run, a trunk chip a port stub
 // out of the port it labels, on the run that is its own), so the renderers read
-// the anchor straight off drawnEdge and nothing seats, slides or hides a chip
-// after the fact.
+// the anchor straight off drawnEdge and nothing hides or collapses a chip after
+// the fact. The one input that rule needs and a single edge cannot see is the
+// card rects: the card-clear slide below computes the 1-to-1 seat from them and
+// hands it back as a hint, and edgePath applies it -- so the rule still lives in
+// one place and the stamp is an input to it, not an override of it.
 //
 // What is left is the bookkeeping no single edge can answer, because it is a
 // property of a GROUP of edges:
 //   - the declined fan-out's divergence dot: where N coincident same-flow item
 //     edges first peel apart, stamped on one elected owner edge;
 //   - the crossing cues: where two DIFFERENT flows properly cross, stamped on
-//     one edge of the pair so its renderer can mask a gap in its own stroke.
+//     one edge of the pair so its renderer can mask a gap in its own stroke;
+//   - the fan-in convergence dot of a trunk whose members are all FAR: they are
+//     drawn as plain item edges pinned to one column, so no BusEdge draws the
+//     trunk's merge dot, and one elected member carries it instead. Such a
+//     trunk still draws NO aggregate chip -- the aggregate rides a retyped near
+//     member's leg, and there is none; the target card states the total;
+//   - the card-clear seat of a 1-to-1 chip whose longest run passes over a
+//     card: the slide is a deterministic function of the run and the card
+//     rects, and the rects are what a single edge cannot see.
 // Both are pure functions of the reconstructed polylines, and the
 // reconstruction goes through drawnEdge -- the same seam the renderers draw
 // through -- so this pass cannot answer a different polyline than the one on
@@ -26,7 +37,13 @@
 import type { Edge } from "@xyflow/react";
 
 import { GLYPH_SIDE_OFFSET } from "./dimensions";
-import { drawnEdge } from "./edgePath";
+import {
+  CHAMFER,
+  cardClearRunAnchor,
+  drawnEdge,
+  longestRunAnchor,
+  routingHintsFromData,
+} from "./edgePath";
 import {
   properCrossPoint,
   type CrossingCue,
@@ -253,6 +270,10 @@ type EdgeSegments = {
 const STAMP_KEYS = [
   "fanoutJunctionX",
   "fanoutJunctionY",
+  "faninJunctionX",
+  "faninJunctionY",
+  "chipX",
+  "chipY",
   "crossingCues",
 ] as const;
 type StampKey = (typeof STAMP_KEYS)[number];
@@ -302,10 +323,14 @@ export function deconflictChipAnchors(
     string,
     ReadonlyArray<readonly [number, number]>
   >();
+  // The drawn target row of each reconstructed edge, for the fan-in dot below:
+  // that dot sits on the target row of the trunk it marks.
+  const targetYById = new Map<string, number>();
   edges.forEach((edge, index) => {
     if (edge.type !== "item" && edge.type !== "bus") return;
     const ends = drawnPortsOf(edge, byId);
     if (ends === null) return;
+    targetYById.set(edge.id, ends.targetY);
     const drawn = drawnEdge(ends, edge.type, edge.data);
     if (drawn.shape === "item") itemPtsById.set(edge.id, drawn.pts);
     const segs: Array<readonly [number, number, number, number]> = [];
@@ -513,6 +538,83 @@ export function deconflictChipAnchors(
     fanoutJunctionByIndex.set(owner.index, { x: junctionX, y: owner.sy });
   }
 
+  // FAN-IN CONVERGENCE DOT for a trunk drawn entirely from FAR members. A
+  // fan-in member reaching its target from the next layer back is retyped bus
+  // and BusEdge draws the trunk's merge dot; a member further back stays a
+  // plain item edge pinned to the trunk's column (faninColumn beside bendX),
+  // and where every member is such a one no BusEdge exists to draw it. The
+  // members still converge -- they all run into the same port along the same
+  // row -- so the reader sees several lines become one with nothing marking
+  // the merge, the very confusion the dot exists to prevent. One elected member
+  // carries it, the mirror of the declined-fan-out divergence dot above.
+  //
+  // The dot sits where the retyped shape would put it: one chamfer past the
+  // trunk's column on the target row (chamferFaninPath's junction). Members
+  // that jog may already run collinear left of it, from their source-side jog
+  // columns on; the dot still marks the trunk column, not that earlier
+  // coincidence. The point lies on every member's own final run, so each
+  // member's renderer can
+  // corroborate the stamp against the line it drew.
+  const faninJunctionByIndex = new Map<number, { x: number; y: number }>();
+  type FaninMember = { index: number; id: string; x: number; y: number };
+  const faninGroups = new Map<string, FaninMember[]>();
+  edges.forEach((edge, index) => {
+    if (edge.type !== "item") return;
+    const column = (edge.data as { faninColumn?: boolean } | undefined)
+      ?.faninColumn;
+    const bendX = routingHintsFromData(edge.data).bendX;
+    if (column !== true || bendX === undefined) return;
+    const ty = targetYById.get(edge.id);
+    if (ty === undefined) return;
+    // One trunk is one (item, target port) with one column, the same key
+    // routeTrunkEdges pinned the column by.
+    const key = `${edgeItem(edge) ?? ""}|${edge.target}|${bendX}`;
+    const list = faninGroups.get(key) ?? [];
+    list.push({ index, id: edge.id, x: bendX + CHAMFER, y: ty });
+    faninGroups.set(key, list);
+  });
+  for (const members of faninGroups.values()) {
+    if (members.length < 2) continue;
+    const owner = members.reduce((a, b) => (a.id <= b.id ? a : b));
+    faninJunctionByIndex.set(owner.index, { x: owner.x, y: owner.y });
+  }
+
+  // CARD-CLEAR SEAT of a 1-to-1 chip. The rule seat is the centre of the
+  // polyline's longest horizontal run, and that run can pass over a card: a
+  // chip box standing on a card reads as that card's own label rather than as
+  // the line's rate. cardClearRunAnchor slides it along its own run to the
+  // nearest card-clear position (next-longest run if none clears), a
+  // deterministic function of the run and the raw card rects. Only the rects
+  // need the node list, which is why the slide is computed here and handed to
+  // the drawer as a point; the drawer keeps it only while it still lies on a
+  // horizontal run of the live polyline.
+  //
+  // Trunk members -- retyped or pinned far ones -- are out of scope: their
+  // chips are reserve-placed beside a port, inside a gap zone widened for
+  // exactly that box, and sliding one along its run would walk it out of the
+  // reserve it was charged to.
+  const chipSeatByIndex = new Map<number, { x: number; y: number }>();
+  {
+    const cards = cardRectsFor(
+      nodes.filter((node) => node.type !== "group"),
+      byId,
+    );
+    edges.forEach((edge, index) => {
+      if (edge.type !== "item") return;
+      const pts = itemPtsById.get(edge.id);
+      if (pts === undefined || pts.length < 2) return;
+      const data = edge.data as
+        | { faninColumn?: boolean; fanoutColumn?: boolean }
+        | undefined;
+      if (data?.faninColumn === true || data?.fanoutColumn === true) return;
+      const halfW = chipSeatHalfW(rateChipText(edge), false);
+      const [x, y] = cardClearRunAnchor(pts, halfW, cards);
+      const [ruleX, ruleY] = longestRunAnchor(pts);
+      if (x === ruleX && y === ruleY) return;
+      chipSeatByIndex.set(index, { x, y });
+    });
+  }
+
   // Stamp both passes' verdicts onto one patch object, then decide by the
   // patch: an edge nothing stamped is returned BY REFERENCE (the routing passes
   // and their tests read that identity as "untouched"), and every other edge
@@ -523,6 +625,16 @@ export function deconflictChipAnchors(
     if (fanoutJunction !== undefined) {
       patch.fanoutJunctionX = fanoutJunction.x;
       patch.fanoutJunctionY = fanoutJunction.y;
+    }
+    const faninJunction = faninJunctionByIndex.get(index);
+    if (faninJunction !== undefined) {
+      patch.faninJunctionX = faninJunction.x;
+      patch.faninJunctionY = faninJunction.y;
+    }
+    const seat = chipSeatByIndex.get(index);
+    if (seat !== undefined) {
+      patch.chipX = seat.x;
+      patch.chipY = seat.y;
     }
     // Crossing cues read by ItemEdge AND BusEdge (the field lives on the shared
     // ItemEdgeData payload both render). Absolute graph points; the renderers

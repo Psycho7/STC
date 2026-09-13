@@ -22,6 +22,7 @@ import {
   OBSTACLE_PAD_Y,
 } from "../../src/canvas/busRouting";
 import { ENTRY_GUTTER_OVERHANG } from "../../src/canvas/dimensions";
+import { widenLayerGaps } from "../../src/canvas/layerModel";
 import { nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import {
   PORT_STUB,
@@ -869,6 +870,57 @@ describe("jogForwardLegs", () => {
     expect(legYOf(jogForwardLegs(nodes, edges), "e0")).toBe(
       legYOf(jogForwardLegs([...nodes].reverse(), edges), "e0"),
     );
+  });
+
+  // The SOURCE-side column of a jog (srcColX). A card straddling the source row
+  // between the port and the bend column is what stamps one: the step leaves sy
+  // at this column instead of running to the bend first.
+  describe("the jogged source column", () => {
+    const srcColXOf = (edges: Edge[], id: string): number | undefined =>
+      (edges.find((e) => e.id === id)?.data as { srcColX?: number } | undefined)
+        ?.srcColX;
+
+    // s -> t across three layers, with a card of the middle layer straddling
+    // the source row: the source horizontal at sy is the blocked piece, the
+    // final leg at ty is clear.
+    const fixture = (): { nodes: RFAnyNode[]; edges: Edge[] } => ({
+      nodes: [
+        inputProductNode("s", "ore", 0, 0, 148, 78), // right 148, port y 39
+        inputProductNode("blk", "ore", 300, 0, 148, 78), // straddles the source row
+        inputProductNode("t", "ore", 1200, 400, 148, 78), // left 1200, port y 439
+      ],
+      edges: [
+        {
+          ...mkEdge("e0", "s", "t", "ore"),
+          data: { item: "ore", rate: new Fraction(1), bendX: 700 },
+        },
+      ],
+    });
+
+    it("keeps the pre-zone column with no gap records", () => {
+      const { nodes, edges } = fixture();
+      // No ctx: the column is the old default, one stub plus a chamfer out of
+      // the source port -- byte-identical for a caller running the pass alone.
+      expect(srcColXOf(jogForwardLegs(nodes, edges), "e0")).toBe(
+        148 + PORT_STUB + CHAMFER,
+      );
+    });
+
+    it("stands in the column zone of the gap right of its source layer", () => {
+      const { nodes, edges } = fixture();
+      const widened = widenLayerGaps(nodes, edges);
+      const out = jogForwardLegs(widened.nodes, edges, { gaps: widened.gaps });
+      const srcColX = srcColXOf(out, "e0")!;
+      // Premise: the pass really did re-column this edge.
+      expect(typeof srcColX).toBe("number");
+      // The source sits in the first layer, so its departing runs stand in the
+      // first gap -- inside its column zone, never in the chip reserve the gap
+      // was widened for.
+      const gap = widened.gaps[0]!;
+      expect(srcColX).toBeGreaterThanOrEqual(gap.columnZone.left);
+      expect(srcColX).toBeLessThanOrEqual(gap.columnZone.right);
+      expect(srcColX).toBeGreaterThan(gap.sourceZone.right - 1e-6);
+    });
   });
 });
 

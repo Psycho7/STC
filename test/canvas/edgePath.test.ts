@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   branchLegAfterJunction,
+  cardClearRunAnchor,
   chamferStepPath,
   chamferFanoutPath,
   chamferFaninPath,
@@ -850,5 +851,104 @@ describe("trunk chip anchors, per drawn shape", () => {
     });
     expect(narrow.trunkAnchor.x).toBe(PORT_STUB + 20);
     expect(narrow.branchAnchor.x).toBe(200 - PORT_STUB - 20);
+  });
+});
+
+// The item-shape anchor as drawnEdge answers it -- the seam the renderers and
+// the bookkeeping pass both draw through. Three rules, plus the card-clear
+// stamp's gate.
+describe("drawnEdge: the item chip anchor", () => {
+  const PORTS = {
+    sourceX: 0,
+    sourceY: 0,
+    targetX: 1000,
+    targetY: 400,
+  } as const;
+  const HALF_W = 60;
+
+  const anchorOf = (data: Record<string, unknown>): [number, number] => {
+    const drawn = drawnEdge(PORTS, "item", data);
+    if (drawn.shape !== "item") throw new Error("expected the item shape");
+    return [drawn.labelAnchor.x, drawn.labelAnchor.y];
+  };
+
+  it("puts a far fan-in member one stub out of its source port", () => {
+    expect(anchorOf({ item: "s", bendX: 900, faninColumn: true })).toEqual([
+      PORT_STUB + HALF_W,
+      PORTS.sourceY,
+    ]);
+  });
+
+  it("puts a far fan-out member one stub back from its target port", () => {
+    expect(anchorOf({ item: "s", bendX: 100, fanoutColumn: true })).toEqual([
+      PORTS.targetX - PORT_STUB - HALF_W,
+      PORTS.targetY,
+    ]);
+  });
+
+  it("reads a DUAL far member as its fan-out side", () => {
+    const dual = anchorOf({
+      item: "s",
+      bendX: 100,
+      fanoutColumn: true,
+      faninColumn: true,
+    });
+    expect(dual).toEqual(
+      anchorOf({ item: "s", bendX: 100, fanoutColumn: true }),
+    );
+  });
+
+  it("puts every other item edge on the longest run's centre", () => {
+    const [, plainY] = anchorOf({ item: "s", bendX: 500 });
+    // The two horizontals of a symmetric step are equal, so the tie goes to the
+    // run nearest the arc midpoint; either way the anchor is a run centre, not
+    // a port seat.
+    expect([PORTS.sourceY, PORTS.targetY]).toContain(plainY);
+  });
+
+  it("takes a stamped card-clear seat only while it sits on a run", () => {
+    const [ruleX, ruleY] = anchorOf({ item: "s", bendX: 500 });
+    const slid = anchorOf({ item: "s", bendX: 500, chipX: 300, chipY: ruleY });
+    expect(slid).toEqual([300, ruleY]);
+    // Off every horizontal run -- what a drag in flight leaves behind -- the
+    // stamp is ignored and the rule seat stands.
+    expect(
+      anchorOf({ item: "s", bendX: 500, chipX: 300, chipY: ruleY + 37 }),
+    ).toEqual([ruleX, ruleY]);
+  });
+});
+
+describe("cardClearRunAnchor", () => {
+  // A two-run polyline: the long run at y 0 from x 0 to 400, then down to y 100
+  // and a short run to 500.
+  const PTS = parsePathPoints("M 0,0 L 400,0 L 400,100 L 500,100");
+  const HALF_W = 50;
+
+  it("keeps the run centre when no card is in the way", () => {
+    expect(cardClearRunAnchor(PTS, HALF_W, [])).toEqual([200, 0]);
+  });
+
+  it("slides the box along its run to the nearer clear side", () => {
+    // A card under the run centre: the box clears it on the left at 150 - 50
+    // and on the right at 260 + 50, and the left move is the shorter one.
+    const card = { left: 150, right: 260, top: -20, bottom: 20 };
+    expect(cardClearRunAnchor(PTS, HALF_W, [card])).toEqual([100, 0]);
+  });
+
+  it("falls to the next-longest run when nothing on this one clears", () => {
+    // A card spanning the whole long run: no seat on it clears, so the chip
+    // takes the short run at y 100 instead.
+    const card = { left: -100, right: 600, top: -20, bottom: 20 };
+    expect(cardClearRunAnchor(PTS, HALF_W, [card])).toEqual([450, 100]);
+  });
+
+  it("keeps the longest run's centre when no run clears at all", () => {
+    const wall = { left: -1000, right: 1000, top: -1000, bottom: 1000 };
+    expect(cardClearRunAnchor(PTS, HALF_W, [wall])).toEqual([200, 0]);
+  });
+
+  it("ignores a card the chip row cannot reach", () => {
+    const below = { left: 150, right: 260, top: 200, bottom: 300 };
+    expect(cardClearRunAnchor(PTS, HALF_W, [below])).toEqual([200, 0]);
   });
 });

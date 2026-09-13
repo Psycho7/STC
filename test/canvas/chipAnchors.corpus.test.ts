@@ -21,7 +21,14 @@ import { describe, it, expect } from "vitest";
 import type { Edge } from "@xyflow/react";
 
 import { layoutSolved } from "../../src/canvas/layoutSolved";
-import { drawnEdge, type DrawnEdge } from "../../src/canvas/edgePath";
+import {
+  PORT_STUB,
+  chipBoxAt,
+  drawnEdge,
+  horizontalRuns,
+  type DrawnEdge,
+} from "../../src/canvas/edgePath";
+import { cardRectsFor } from "../../src/canvas/chipSeating";
 import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
 import {
   RESERVE_COLUMN_PAD,
@@ -125,6 +132,23 @@ function onHorizontalSegment(
   return false;
 }
 
+// The chip boxes that stand over a card and are NOT the 1-to-1 rule's to move:
+// trunk chips, seated in the gap reserve beside the port they label. Sliding one
+// along its run would walk it out of the reserve it was charged to, so these are
+// recorded exactly rather than fixed. No growth allowed.
+const RESIDUE: Array<{ plan: string; edge: string; kind: string }> = [
+  {
+    plan: "multi6",
+    edge: "e:85:u:in:liquid_water:loop:plant_grass_1->u:class:q:52:liquid_water",
+    kind: "fanout member",
+  },
+  {
+    plan: "multi6",
+    edge: "e:87:u:in:liquid_water:loop:plant_grass_2->u:class:q:54:liquid_water",
+    kind: "fanout member",
+  },
+];
+
 const gapAt = (
   gaps: ReadonlyArray<GapRecord>,
   x: number,
@@ -220,5 +244,175 @@ describe("every trunk chip's box stands in its gap's chip reserve", () => {
     expect(checked).toBeGreaterThan(0);
     expect(outside).toEqual([]);
     expect(onDot).toEqual([]);
+  }, 600_000);
+});
+
+// The rects a chip box must not stand on: the RAW drawn card boxes, container
+// slabs excluded (a slab is a tint behind a whole group, not a label surface).
+function cardRectsOf(nodes: ReadonlyArray<RFAnyNode>): ReadonlyArray<{
+  id: string;
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}> {
+  const byId = nodeIndexOf(nodes);
+  return cardRectsFor(
+    nodes.filter((node) => node.type !== "group"),
+    byId,
+  );
+}
+
+describe("no two chips of one trunk overlap", () => {
+  it("holds on every corpus plan", async () => {
+    // A trunk draws one aggregate chip and one chip per member. They label
+    // different quantities on different stretches of the same structure, so two
+    // of them standing on one another is a misread, not a crowding nuisance.
+    const overlaps: Array<{ plan: string; a: string; b: string }> = [];
+    let checked = 0;
+
+    for (const scenario of SCENARIOS) {
+      const { nodes, edges } = await layOut(scenario.id);
+      const byId = nodeIndexOf(nodes);
+      const byTrunk = new Map<string, Chip[]>();
+      for (const edge of edges) {
+        if (edge.type !== "item" && edge.type !== "bus") continue;
+        const key = (edge.data as { trunkKey?: string } | undefined)?.trunkKey;
+        if (key === undefined) continue;
+        const ends = drawnPortsOf(edge, byId);
+        if (ends === null) continue;
+        const drawn = drawnEdge(ends, edge.type, edge.data);
+        const list = byTrunk.get(key) ?? [];
+        list.push(...chipsOf(scenario.id, edge, drawn));
+        byTrunk.set(key, list);
+      }
+      for (const chips of byTrunk.values()) {
+        for (let i = 0; i < chips.length; i++) {
+          for (let j = i + 1; j < chips.length; j++) {
+            const a = chips[i]!;
+            const b = chips[j]!;
+            checked += 1;
+            if (
+              Math.abs(a.x - b.x) < a.halfW + b.halfW - EPS &&
+              Math.abs(a.y - b.y) < 2 * CHIP_HALF_H - EPS
+            ) {
+              overlaps.push({
+                plan: scenario.id,
+                a: `${a.edge} ${a.kind}`,
+                b: `${b.edge} ${b.kind}`,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Premise: the corpus really does draw multi-chip trunks.
+    expect(checked).toBeGreaterThan(0);
+    expect(overlaps).toEqual([]);
+  }, 600_000);
+});
+
+describe("a far trunk member's chip stands on the run the rule names", () => {
+  it("holds on every corpus plan", async () => {
+    // A member pinned to a trunk's column (faninColumn / fanoutColumn) is drawn
+    // as a plain item edge, and the run that is its OWN is not the longest one:
+    // a far fan-in member owns its source stub (the first run) and a far fan-out
+    // member its leg into the target (the last run). Everything else is the
+    // trunk's shared stroke.
+    const wrong: Array<Chip & { run: string }> = [];
+    let checked = 0;
+
+    for (const scenario of SCENARIOS) {
+      const { nodes, edges } = await layOut(scenario.id);
+      const byId = nodeIndexOf(nodes);
+      for (const edge of edges) {
+        if (edge.type !== "item") continue;
+        const data = edge.data as
+          | { faninColumn?: boolean; fanoutColumn?: boolean }
+          | undefined;
+        const fanout = data?.fanoutColumn === true;
+        const fanin = data?.faninColumn === true;
+        if (!fanout && !fanin) continue;
+        const ends = drawnPortsOf(edge, byId);
+        if (ends === null) continue;
+        const drawn = drawnEdge(ends, edge.type, edge.data);
+        if (drawn.shape !== "item") continue;
+        const runs = horizontalRuns(drawn.pts);
+        // A dual far member -- both flags -- reads as the fan-out member it is.
+        const run = fanout ? runs[runs.length - 1] : runs[0];
+        if (run === undefined) continue;
+        const chip = chipsOf(scenario.id, edge, drawn)[0]!;
+        checked += 1;
+        const port = fanout ? ends.targetX : ends.sourceX;
+        const seat = fanout
+          ? port - PORT_STUB - chip.halfW
+          : port + PORT_STUB + chip.halfW;
+        const onRun =
+          Math.abs(chip.y - run.y) <= EPS &&
+          chip.x >= run.lo - EPS &&
+          chip.x <= run.hi + EPS;
+        // The seat is the port-stub one, or the run's own end where the run is
+        // too short to hold the box that far out.
+        const seated =
+          Math.abs(chip.x - seat) <= EPS ||
+          Math.abs(chip.x - run.lo) <= EPS ||
+          Math.abs(chip.x - run.hi) <= EPS;
+        if (!onRun || !seated) {
+          wrong.push({ ...chip, run: `[${run.lo}, ${run.hi}] @ ${run.y}` });
+        }
+      }
+    }
+
+    // Premise: the corpus really does pin far members to trunk columns.
+    expect(checked).toBeGreaterThan(0);
+    expect(wrong).toEqual([]);
+  }, 600_000);
+});
+
+describe("no 1-to-1 chip box stands over a card", () => {
+  it("holds on every corpus plan", async () => {
+    // A chip box on a card reads as that card's own label. The 1-to-1 rule
+    // slides the box along its run to the nearest card-clear seat (next-longest
+    // run when none clears), so this list is empty; the residue below is the
+    // chip families that rule does not cover -- trunk chips, which are
+    // reserve-placed beside a port and may not leave their reserve.
+    const overCard: Array<Chip & { card: string }> = [];
+    const residue: Array<{ plan: string; edge: string; kind: string }> = [];
+    let checked = 0;
+
+    for (const scenario of SCENARIOS) {
+      const { nodes, edges } = await layOut(scenario.id);
+      const byId = nodeIndexOf(nodes);
+      const cards = cardRectsOf(nodes);
+      for (const edge of edges) {
+        if (edge.type !== "item" && edge.type !== "bus") continue;
+        const ends = drawnPortsOf(edge, byId);
+        if (ends === null) continue;
+        const drawn = drawnEdge(ends, edge.type, edge.data);
+        for (const chip of chipsOf(scenario.id, edge, drawn)) {
+          checked += 1;
+          const box = chipBoxAt(chip.x, chip.y, chip.halfW);
+          const hit = cards.find(
+            (card) =>
+              box.right > card.left + EPS &&
+              box.left < card.right - EPS &&
+              box.bottom > card.top + EPS &&
+              box.top < card.bottom - EPS,
+          );
+          if (hit === undefined) continue;
+          if (drawn.shape === "item" && chip.kind === "item") {
+            overCard.push({ ...chip, card: hit.id });
+            continue;
+          }
+          residue.push({ plan: chip.plan, edge: chip.edge, kind: chip.kind });
+        }
+      }
+    }
+
+    // Premise: the corpus really does draw chips against cards.
+    expect(checked).toBeGreaterThan(0);
+    expect(overCard).toEqual([]);
+    expect(residue).toEqual(RESIDUE);
   }, 600_000);
 });

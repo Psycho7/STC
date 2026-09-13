@@ -396,8 +396,11 @@ export function routeTrunkEdges(
   // member BusEdge draws the fan-in shape for, and a dual member already draws
   // its fan-out trunk's aggregate on the same `-drop` chip, so the election runs
   // over the near members that are nobody else's fan-out branch, lex-smallest
-  // first. A trunk whose near members are all dual draws no aggregate: each of
-  // them already states its own source's total beside it.
+  // first. Two trunks draw no aggregate at all: one whose near members are all
+  // dual (each of them already states its own source's total beside it), and one
+  // with NO near member -- every member reaches from two or more layers back, so
+  // no BusEdge draws the aggregate leg the chip would ride. The target card
+  // states the total there, and chipSeating still marks the merge with a dot.
   const faninAggOwnerByTrunk = new Map<Trunk, string>();
   for (const geom of geoms) {
     if (geom.trunk.kind !== "fanIn") continue;
@@ -1699,10 +1702,12 @@ export function clampBackwardRails(
 // the long horizontal, the descent column (itself moved clear via clearColumnX,
 // starting from the target's next free entry slot), and the final stub into the
 // port. The SOURCE horizontal at sy gets the symmetric treatment: when it is the
-// blocked piece, the step leaves sy at a cleared column just out of the source
-// port (srcColX, replacing the bend column) instead of running to the bend
-// first; with a clear final leg that collapses to a single srcColX column
-// straight to ty. Two obstacle tiers: full padded quality first, then a
+// blocked piece, the step leaves sy at a cleared column inside the column zone
+// of the gap right of its source layer (srcColX, replacing the bend column)
+// instead of running to the bend first; with a clear final leg that collapses
+// to a single srcColX column straight to ty. Two members of one trunk that both
+// jog take columns one ENTRY_SLOT_PITCH apart, so their source stubs stay
+// distinct lines each carrying its own chip. Two obstacle tiers: full padded quality first, then a
 // raw-card fallback where overlapping sibling paddings leave no padded-clear
 // jog (threading the raw gaps beats keeping a straight leg through a card).
 // When no candidate clears in either tier, the edge keeps its straight leg --
@@ -1735,6 +1740,24 @@ export function jogForwardLegs(
   // rise pair, ever draw coincident verticals at the default column.
   const gutterCounts = gutterColumnCounts(edges, byId);
   const jogsByTarget = new Map<string, number>();
+
+  // The mirror bookkeeping on the SOURCE side. A jogged source column stands in
+  // the gap right of its source layer, and that gap's column zone is the room
+  // reserved for columns: a column parked in the source chip reserve stands on
+  // the chips the gap was widened for, and two members of one trunk sharing a
+  // column merge into one line before they reach the trunk's own column. So
+  // each source column starts half a slot pitch inside its zone, each further
+  // member of the SAME trunk steps one pitch right, and the obstacle search is
+  // confined to the zone. Without gap records (a hand-built fixture, or a
+  // caller re-running the passes on its own) the pre-zone rule stands: one
+  // stub plus a chamfer out of the source port.
+  const sourceGaps = sourceGapsOf(nodes, ctx);
+  const trunkByEdgeId = classifyTrunks(nodes, edges).trunkByEdgeId;
+  const srcSlotsByTrunk = new Map<string, number>();
+  const trunkKeyOf = (edge: Edge): string | undefined => {
+    const sides = trunkByEdgeId.get(edge.id);
+    return sides?.fanIn?.key ?? sides?.fanOut?.key;
+  };
 
   const legYByIndex = new Map<number, number>();
   const descentXByIndex = new Map<number, number>();
@@ -1779,6 +1802,22 @@ export function jogForwardLegs(
     const inDescentZone = (x: number): boolean =>
       descentGap === undefined ||
       (x >= descentGap.columnZone.left && x <= descentGap.columnZone.right);
+
+    // The gap the source column stands in, and this member's slot inside its
+    // trunk (see the bookkeeping above).
+    const sourceGap = sourceGaps.get(edge.source);
+    const trunkKey = trunkKeyOf(edge);
+    const srcSlot =
+      trunkKey === undefined ? 0 : (srcSlotsByTrunk.get(trunkKey) ?? 0);
+    const inSourceZone = (x: number): boolean =>
+      sourceGap === undefined ||
+      (x >= sourceGap.columnZone.left && x <= sourceGap.columnZone.right);
+    const desiredSrcColX =
+      sourceGap === undefined
+        ? sx + PORT_STUB + CHAMFER
+        : sourceGap.columnZone.left +
+          ENTRY_SLOT_PITCH / 2 +
+          srcSlot * ENTRY_SLOT_PITCH;
 
     // Exempt from the obstacle scan: both endpoints' own cards / gutters (the leg
     // leaves the source and ends inside the target) and each endpoint's own
@@ -1853,9 +1892,8 @@ export function jogForwardLegs(
         // clear.
         let C = bx;
         if (srcBlocked) {
-          const desiredC = sx + PORT_STUB + CHAMFER;
           C = clearColumnX(
-            desiredC,
+            desiredSrcColX,
             Math.min(sy, R),
             Math.max(sy, R),
             columnSet,
@@ -1863,7 +1901,10 @@ export function jogForwardLegs(
               towardTarget: 1,
               gap: colGap,
               accept: (x) =>
-                x > sx && x < tx && !legBlockedIn(cardSet, sy, sx, x),
+                x > sx &&
+                x < tx &&
+                inSourceZone(x) &&
+                !legBlockedIn(cardSet, sy, sx, x),
             },
           );
           if (
@@ -1922,7 +1963,10 @@ export function jogForwardLegs(
       }
       jogsByTarget.set(edge.target, (jogsByTarget.get(edge.target) ?? 0) + 1);
     }
-    if (srcBlocked) srcColXByIndex.set(index, jog.C);
+    if (srcBlocked) {
+      srcColXByIndex.set(index, clampToZone(jog.C, sourceGap));
+      if (trunkKey !== undefined) srcSlotsByTrunk.set(trunkKey, srcSlot + 1);
+    }
   });
 
   if (

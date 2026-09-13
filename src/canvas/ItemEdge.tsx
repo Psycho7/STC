@@ -92,6 +92,25 @@ export type ItemEdgeData = {
   // split, and gets nothing; nor does one where no member ever leaves the row.
   fanoutJunctionX?: number;
   fanoutJunctionY?: number;
+  // Fan-in convergence marker (deconflictChipAnchors), the mirror of the pair
+  // above. A fan-in trunk whose members ALL reach their target from two or more
+  // layers back is drawn from plain item edges pinned to one column, so no
+  // BusEdge draws its merge dot: these fields are stamped on the ONE elected
+  // member and mark the trunk's merge point -- one chamfer past the shared
+  // column, on the target port's row, exactly where a
+  // retyped member's shape would put it. A trunk with a single far member gets
+  // nothing: one line merges with nothing.
+  faninJunctionX?: number;
+  faninJunctionY?: number;
+  // Card-clear chip seat (deconflictChipAnchors). The rule seat of a 1-to-1
+  // chip is the centre of its longest horizontal run, and that run can pass
+  // over a card, where the box reads as the card's own label. The pass -- the
+  // only reader that sees the card rects -- slides the box along its own run to
+  // the nearest card-clear position and stamps it here. drawnEdge uses it only
+  // while it still lies on a horizontal run of the live polyline, so a drag in
+  // flight falls back to the rule seat instead of floating the chip.
+  chipX?: number;
+  chipY?: number;
   // Crossing cues (deconflictChipAnchors). Where this edge's polyline
   // properly crosses a DIFFERENT flow's polyline (different item|source),
   // the seating pass stamps the crossing point on ONE edge of the pair --
@@ -594,6 +613,11 @@ export default function ItemEdge({
   const fanoutMarkerLive =
     edgeData?.fanoutJunctionY !== undefined &&
     portRowStampLive(edgeData.fanoutJunctionY, sourceY);
+  // The fan-in convergence dot sits at the TARGET port row, so it is checked
+  // against the live target y.
+  const faninMarkerLive =
+    edgeData?.faninJunctionY !== undefined &&
+    portRowStampLive(edgeData.faninJunctionY, targetY);
   // The label pair is BigInt Fraction work (the exact half re-formats the
   // rational in full), and the zoom subscription above re-renders every edge on
   // every zoom tick, so it is memoized on what it actually reads: this edge's
@@ -655,6 +679,13 @@ export default function ItemEdge({
       [edgeData.fanoutJunctionX, edgeData.fanoutJunctionY!],
       dotPts,
     );
+  const faninDotLive =
+    faninMarkerLive &&
+    edgeData?.faninJunctionX !== undefined &&
+    stampOnOwnPolyline(
+      [edgeData.faninJunctionX, edgeData.faninJunctionY!],
+      dotPts,
+    );
 
   // The zoom gate yields to the hover focus: a lit edge shows its rate at any
   // zoom. Nothing else can take a chip away: no chip is hidden for lack of
@@ -708,6 +739,22 @@ export default function ItemEdge({
           family="divergence"
           x={edgeData.fanoutJunctionX}
           y={edgeData.fanoutJunctionY!}
+          color={stroke}
+          dimmed={edgeData.dimmed}
+          zoom={zoom}
+        />
+      ) : null}
+      {/* Fan-in convergence dot (owner only): where the far members of one
+          trunk, drawn as plain item edges pinned to a shared column, first
+          coincide on the target row. Same markup and stacking as the merge dot
+          a retyped member draws from BusEdge; dropped while stale against the
+          live target y or the live line. */}
+      {faninDotLive && edgeData?.faninJunctionX !== undefined ? (
+        <JunctionDot
+          testId={`fanin-junction-${id}`}
+          family="fanin"
+          x={edgeData.faninJunctionX}
+          y={edgeData.faninJunctionY!}
           color={stroke}
           dimmed={edgeData.dimmed}
           zoom={zoom}
