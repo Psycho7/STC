@@ -128,6 +128,38 @@ describe("chamferStepPath", () => {
     expectRightwardFinish(d);
   });
 
+  it("takes the jog shape when a blocked small-dy leg carries a legY", () => {
+    // The small-dy diagonal closes on the same long target-y horizontal the
+    // normal step does, so a blocked one carries a stamped legY (jogForwardLegs)
+    // and the diagonal is abandoned for the jog: bend to legY, run the clear
+    // horizontal, descend at descentX. Both columns collapse to diagonals when
+    // their vertical runs fit inside two chamfers, keeping the shape monotonic
+    // on a near-flat jog.
+    const [d, lx, ly] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 300,
+      targetY: 10,
+      bendX: 150,
+      legY: 12,
+      jogDescentX: 276,
+    });
+    expect(d).toBe("M 0,0 L 142,0 L 158,12 L 268,12 L 284,10 L 300,10");
+    // Clear-segment anchor: the jog-descent vertical's midpoint.
+    expect(lx).toBe(276);
+    expect(ly).toBe(11);
+    expectRightwardFinish(d);
+    // Without the hint the same edge keeps its diagonal, byte-identical.
+    const [base] = chamferStepPath({
+      sourceX: 0,
+      sourceY: 0,
+      targetX: 300,
+      targetY: 10,
+      bendX: 150,
+    });
+    expect(base).toBe("M 0,0 L 142,0 L 158,10 L 300,10");
+  });
+
   it("keeps the label anchor continuous across the small-dy branch boundary", () => {
     // The forward step flips between the diagonal (small-dy) and the full
     // vertical-run shape at |dy| = 2 * chamfer. Live handle coordinates and the

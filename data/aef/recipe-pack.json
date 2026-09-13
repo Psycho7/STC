@@ -5,7 +5,7 @@
     "sourceRepo": "https://github.com/endfield-calc/factoriolab",
     "sourceCommit": "0a3bb78eea8339177f1b3ba1d16f60ccef78902c",
     "gameVersion": "v1.5.3",
-    "extractedAt": "2026-09-07T06:16:30.213Z"
+    "extractedAt": "2026-09-07T06:39:52.370Z"
   },
   "categories": [
     {
@@ -3390,10 +3390,6 @@
         {
           "item": "gas_copper",
           "qty": 1
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3404,6 +3400,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3449,10 +3451,6 @@
         {
           "item": "gas_copper_enr",
           "qty": 2
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3463,6 +3461,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3476,10 +3480,6 @@
         {
           "item": "gas_copper_enr2",
           "qty": 1
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3490,6 +3490,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3763,10 +3769,6 @@
         {
           "item": "gas_copper",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3777,6 +3779,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3817,10 +3825,6 @@
         {
           "item": "gas_copper_enr",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3831,6 +3835,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3844,10 +3854,6 @@
         {
           "item": "liquid_copper",
           "qty": 2
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3858,6 +3864,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3871,10 +3883,6 @@
         {
           "item": "copper_nugget",
           "qty": 2
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3885,6 +3893,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3898,10 +3912,6 @@
         {
           "item": "liquid_copper_enr",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3912,6 +3922,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -3939,7 +3955,8 @@
       ],
       "producers": [
         "liquid_purifier_1"
-      ]
+      ],
+      "environment": "stable"
     },
     {
       "id": "gas_copper_enr",
@@ -3979,10 +3996,6 @@
         {
           "item": "copper_enr",
           "qty": 1
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -3993,6 +4006,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4020,7 +4039,8 @@
       ],
       "producers": [
         "gas_reactor_1"
-      ]
+      ],
+      "environment": "acidic"
     },
     {
       "id": "phase_trans_2-gas_copper_enr2",
@@ -4033,10 +4053,6 @@
         {
           "item": "copper_enr2",
           "qty": 1
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4047,6 +4063,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4074,7 +4096,8 @@
       ],
       "producers": [
         "xiranite_oven_1"
-      ]
+      ],
+      "environment": "stable"
     },
     {
       "id": "xiranite_powder-carbon_enr",
@@ -4113,7 +4136,7 @@
       "in": [
         {
           "item": "gas_xiranite",
-          "qty": 1.2
+          "qty": 1
         }
       ],
       "out": [
@@ -4124,6 +4147,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4196,10 +4225,6 @@
         {
           "item": "gas_xiranite_enr",
           "qty": 5
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 1
         }
       ],
       "out": [
@@ -4210,6 +4235,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        }
       ]
     },
     {
@@ -4251,10 +4282,6 @@
         {
           "item": "gas_xiranite",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4265,6 +4292,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4306,10 +4339,6 @@
         {
           "item": "gas_xiranite_enr",
           "qty": 5
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 1
         }
       ],
       "out": [
@@ -4320,6 +4349,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 1
+        }
       ]
     },
     {
@@ -4413,10 +4448,6 @@
         {
           "item": "gas_water",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4427,6 +4458,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4461,10 +4498,6 @@
         {
           "item": "gas_acid",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4475,6 +4508,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4488,10 +4527,6 @@
         {
           "item": "liquid_water",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4502,6 +4537,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4514,7 +4555,7 @@
       "in": [
         {
           "item": "liquid_xiranite",
-          "qty": 1.2
+          "qty": 1
         }
       ],
       "out": [
@@ -4525,6 +4566,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4538,10 +4585,6 @@
         {
           "item": "xiranite_powder",
           "qty": 1
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4552,6 +4595,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {
@@ -4606,7 +4655,8 @@
       ],
       "producers": [
         "liquid_purifier_1"
-      ]
+      ],
+      "environment": "stable"
     },
     {
       "id": "phase_trans_1-gas_xiranite_enr",
@@ -4619,10 +4669,6 @@
         {
           "item": "liquid_xiranite_enr",
           "qty": 2
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 1
         }
       ],
       "out": [
@@ -4633,6 +4679,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 1
+        }
       ]
     },
     {
@@ -4646,10 +4698,6 @@
         {
           "item": "xiranite_enr_powder",
           "qty": 2
-        },
-        {
-          "item": "gas_xiranite",
-          "qty": 1
         }
       ],
       "out": [
@@ -4660,6 +4708,12 @@
       ],
       "producers": [
         "phase_trans_2"
+      ],
+      "catalyst": [
+        {
+          "item": "gas_xiranite",
+          "qty": 1
+        }
       ]
     },
     {
@@ -4673,10 +4727,6 @@
         {
           "item": "liquid_acid",
           "qty": 1
-        },
-        {
-          "item": "liquid_xiranite",
-          "qty": 0.2
         }
       ],
       "out": [
@@ -4687,6 +4737,12 @@
       ],
       "producers": [
         "phase_trans_1"
+      ],
+      "catalyst": [
+        {
+          "item": "liquid_xiranite",
+          "qty": 0.2
+        }
       ]
     },
     {

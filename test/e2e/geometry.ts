@@ -949,6 +949,11 @@ export function auditDotsUnderChips(
 export type PortedNode = NodeRect & {
   inPorts: ReadonlyArray<string>;
   outPorts: ReadonlyArray<string>;
+  // Handle-less input rows (catalysts). They add card height without adding a
+  // port, so every height rebuilt here counts them alongside inPorts while the
+  // row INDEX of a port stays its index in inPorts -- catalyst rows sit below
+  // every port row, so no port's y depends on them.
+  catalystRows: number;
 };
 
 type PortDrift = { sourceDx: number; targetDx: number; dy: number };
@@ -1065,7 +1070,10 @@ export function auditEndpointParity(
       const ports = end === "source" ? node.outPorts : node.inPorts;
       const rowIndex = isRecipe ? ports.indexOf(edge.item) : -1;
       const modelHeight = isRecipe
-        ? recipeHeight(node.inPorts.length, node.outPorts.length)
+        ? recipeHeight(
+            node.inPorts.length + node.catalystRows,
+            node.outPorts.length,
+          )
         : node.bottom - node.top;
       // portOffsetY falls back to the card's vertical centre for an unresolved
       // item / node kind, and driftedPortY leaves that fallback undrifted.
@@ -1113,6 +1121,15 @@ export type CardFrameMismatch = {
 // card's border, so the two frames have to be the same box, and this states it
 // against the DOM.
 //
+// One kind grows further: an environment recipe's obstacle is that model box
+// grown by `cardGrowth` PLUS the environment frame extents -- the plates and
+// haze beyond the card box, ENV_FRAME_EXTENTS in src/canvas/dimensions.ts,
+// added per node by cardRectsFor in src/canvas/chipSeating.ts so no chip seats
+// on a plate. This criterion still compares the DRAWN card box against the
+// model box plus cardGrowth alone: the frame element draws at negative insets
+// outside the card's layout, so the plain comparison is what keeps proving
+// the DOM box did not grow.
+//
 // Recipes only. A product or group card rebuilds its model width from the DOM
 // (nothing else knows it), so it would agree by construction -- the same blind
 // spot auditEndpointParity's product side documents. Recipes rebuild off the
@@ -1130,7 +1147,8 @@ export function auditCardFrames(
     if (n.type !== "recipe") continue;
     const seatingWidth = RECIPE_WIDTH + growth;
     const seatingHeight =
-      recipeHeight(n.inPorts.length, n.outPorts.length) + growth;
+      recipeHeight(n.inPorts.length + n.catalystRows, n.outPorts.length) +
+      growth;
     const drawnWidth = n.right - n.left;
     const drawnHeight = n.bottom - n.top;
     if (

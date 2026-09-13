@@ -43,6 +43,7 @@ function emitProducts(
   outputs: RenderUnitOutputProduct[];
   plan: ReturnType<typeof renderPlanFromSolve>["plan"];
   recipeById: ReadonlyMap<string, Recipe>;
+  catalystDraw: ReadonlyMap<string, Fraction>;
 } {
   const solverTargets = targets;
   const { full, plan } = solveForRender({
@@ -52,7 +53,13 @@ function emitProducts(
   });
   const inputs = plan.units.filter(isInputProductUnit);
   const outputs = plan.units.filter(isOutputProductUnit);
-  return { inputs, outputs, plan, recipeById: full.nettedRecipeById };
+  return {
+    inputs,
+    outputs,
+    plan,
+    recipeById: full.nettedRecipeById,
+    catalystDraw: full.catalystDraw,
+  };
 }
 
 describe("render policy / boundary product units", () => {
@@ -115,15 +122,21 @@ describe("render policy / boundary product units", () => {
     } finally {
       vi.unstubAllEnvs();
     }
-    const { inputs, plan } = result;
+    const { inputs, plan, catalystDraw } = result;
     // Asking for copper_ore to be built cannot pull a producer in: the hydro
     // miner is the only one and no plan may run it. Nor is the ore imported -
     // plan:true is a request to build it - so the ore leaves the plan entirely
-    // and the furnace route with it. What is left is the gas route, drawing
-    // gas_xiranite over the boundary and going short on the rest.
+    // and the furnace route with it. What is left is the gas route, which
+    // cycles gas_xiranite as a catalyst rather than consuming it: the plan
+    // draws nothing at all over the boundary and goes short on gas_copper.
     const inputItems = new Set(inputs.map((u) => u.itemId));
     expect(inputItems.has("copper_ore")).toBe(false);
-    expect(inputItems).toContain("gas_xiranite");
+    expect(inputs).toEqual([]);
+    // phase_trans_2-copper_nugget makes 2 per cycle, so 1 copper_nugget/s runs
+    // it at 1/2 cycles/s and cycles 0.2 * 1/2 = 1/10 gas_xiranite per second.
+    expect(catalystDraw.get("gas_xiranite")?.equals(new Fraction(1, 10))).toBe(
+      true,
+    );
     expect(
       plan.units.some(
         (u) => u.kind === "recipe" && u.recipeId === "copper_ore-liquid_water",

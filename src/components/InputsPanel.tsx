@@ -20,23 +20,26 @@ type Props = {
   onChange: (update: (current: ItemOverride[]) => ItemOverride[]) => void;
   pack: RecipePack;
   targetItemIds?: ReadonlySet<string>;
-  // Realized demand per item from the latest render pass, summed over outbound
-  // boundary-edge rates. When present, a side row shows the same number as the
-  // matching canvas ProductNode; rows without an entry leave the rate slot
-  // empty. Shown in place of the old "UNCAPPED" chip.
-  realizedRateByItem?: ReadonlyMap<string, RationalString>;
-  // Raw items the current plan consumes as assumed-infinite supply. With no
-  // explicit overrides declared, these surface as read-only auto-rows so the
-  // "raw is unlimited by default" assumption is visible. Typing a cap into an
-  // auto-row promotes it to a real override, hiding the remaining auto-rows.
+  // Boundary supply per item: the realized demand of the latest render pass
+  // plus any catalyst draw the solve reported, already summed by the owner.
+  // When present, a side row shows the same number as the matching canvas
+  // ProductNode; rows without an entry leave the rate slot empty. Shown in
+  // place of the old "UNCAPPED" chip.
+  supplyRateByItem?: ReadonlyMap<string, RationalString>;
+  // Items the current plan draws from the boundary as assumed-infinite supply:
+  // raw items it consumes, plus any item it cycles as a catalyst (which need
+  // not be raw). With no explicit override declared, these surface as
+  // read-only auto-rows so the "unlimited by default" assumption is visible.
+  // Typing a cap into an auto-row promotes it to a real override.
   assumedRawItemIds?: ReadonlyArray<string>;
 };
 
 // Number of input rows the panel actually shows: explicit overrides plus every
-// assumed-raw item that does not yet have an override (those still render as
-// auto-rows). The supply counters (stats strip, side tab, section head) route
-// through this so none of them can report 0 while auto-rows are on screen, and
-// an overridden raw item is counted once (as its override), never twice.
+// auto-row item (assumed-raw or catalyst) that does not yet have an override
+// (those still render as auto-rows). The supply counters (stats strip, side
+// tab, section head) route through this so none of them can report 0 while
+// auto-rows are on screen, and an overridden item is counted once (as its
+// override), never twice.
 export function displayedInputCount(
   itemOverrides: ReadonlyArray<{ itemId: string }>,
   assumedRawItemIds: ReadonlyArray<string> | undefined,
@@ -60,7 +63,7 @@ export function InputsPanel({
   onChange,
   pack,
   targetItemIds,
-  realizedRateByItem,
+  supplyRateByItem,
   assumedRawItemIds,
 }: Props) {
   const i18n = useI18n();
@@ -141,6 +144,12 @@ export function InputsPanel({
   // The split also means an invalid flag does NOT follow an item across a
   // family change (auto row promoted to override, or override reverting to
   // auto): the stale cue the shared set used to carry over is dropped now.
+  // The auto-row membership test the clear-cap rule below reads. Kept as a set
+  // because the commit path is a lookup, not a walk.
+  const autoRowIds = useMemo(
+    () => new Set(assumedRawItemIds ?? []),
+    [assumedRawItemIds],
+  );
   const rowEdit = useRateEdit({
     emptyMeans: "uncap",
     keepTextAfterCommit: true,
@@ -149,6 +158,21 @@ export function InputsPanel({
         const idx = current.findIndex((o) => o.itemId === itemId);
         // Row removed since the edit: no-op (same reference).
         if (idx < 0) return current;
+        // Clearing the cap on a NON-RAW AUTO-ROW drops the whole override. A
+        // field-less override means "import this item freely across the
+        // boundary", which for a raw item is what it already was, but for a
+        // non-raw one would silently make its balanced uses free too. Dropping
+        // it returns the item to the auto-row the plan's draw already earns it.
+        // Scoped to the auto-row set on purpose: a non-raw item outside it has
+        // no row to fall back to, so dropping the override would turn a free
+        // import into a forced internal build.
+        if (
+          parsed === undefined &&
+          itemById.get(itemId)?.raw !== true &&
+          autoRowIds.has(itemId)
+        ) {
+          return current.filter((o) => o.itemId !== itemId);
+        }
         const next = current.slice();
         // Spread the existing override so a rate edit never drops its other
         // fields (a hand-authored hash can carry plan: true).
@@ -234,9 +258,11 @@ export function InputsPanel({
     });
   }
 
-  // Auto-rows are every assumed-raw item WITHOUT an explicit override
+  // Auto-rows are every boundary-supply item WITHOUT an explicit override
   // (overrideIds above), shown regardless of how many overrides exist. Capping
-  // one item no longer hides the realized demand of the remaining raw inputs.
+  // one item no longer hides the realized demand of the remaining inputs. The
+  // owner decides what belongs in the set; a catalyst item is in it because
+  // the plan draws it, not because it is raw.
   const autoRows = (assumedRawItemIds ?? []).filter(
     (id) => !overrideIds.has(id),
   );
@@ -275,7 +301,7 @@ export function InputsPanel({
         const isAlsoTarget = targetItemIds?.has(itemId) === true;
         const iconPos = iconPosition(item?.icon ?? itemId);
         const rate = autoEdit.field(itemId, "");
-        const realized = realizedRateByItem?.get(itemId);
+        const realized = supplyRateByItem?.get(itemId);
         const realizedPerMin =
           realized !== undefined ? formatRationalPerMin(realized) : null;
         return (
@@ -284,7 +310,7 @@ export function InputsPanel({
             className="b-row"
             data-testid="input-auto-row"
             data-item-id={itemId}
-            data-is-raw="true"
+            data-is-raw={item?.raw === true ? "true" : "false"}
             data-is-also-target={isAlsoTarget ? "true" : "false"}
           >
             <span className={"slot" + (iconPos === undefined ? " empty" : "")}>
@@ -347,10 +373,10 @@ export function InputsPanel({
           row.itemId,
           row.ratePerSec ? ratePerSecToPerMin(row.ratePerSec) : "",
         );
-        // Realized demand from the latest render pass. If the prop is missing
-        // (nothing rendered yet) or the item isn't in the map, show nothing
-        // until the next solve finishes.
-        const realized = realizedRateByItem?.get(row.itemId);
+        // Boundary supply for this item (realized demand plus catalyst draw).
+        // If the prop is missing (nothing rendered yet) or the item isn't in
+        // the map, show nothing until the next solve finishes.
+        const realized = supplyRateByItem?.get(row.itemId);
         const realizedPerMin =
           realized !== undefined ? formatRationalPerMin(realized) : null;
         return (

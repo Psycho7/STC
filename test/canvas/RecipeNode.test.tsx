@@ -9,6 +9,7 @@ import { itemColor } from "../../src/canvas/itemColor";
 import { iconPosition } from "../../src/canvas/iconSprite";
 import { pack } from "../../src/data/load";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
+import { cssBlock } from "../../src/canvas/cssContract.testkit";
 import {
   ItemPackProvider,
   type ItemPackContextValue,
@@ -59,6 +60,7 @@ const multiRowRecipe: Recipe = {
 // A recipe built from those items exercises the row sprite lookup.
 const HASHED_IN_ITEM = "iron_bottle-liquid_plant_grass_1";
 const HASHED_OUT_ITEM = "copper_bottle-liquid_plant_grass_1";
+const HASHED_CATALYST_ITEM = "iron_bottle-liquid_plant_grass_2";
 
 const hashedIconRecipe: Recipe = {
   id: "hashed_icon",
@@ -69,6 +71,7 @@ const hashedIconRecipe: Recipe = {
   time: 1,
   in: [{ item: HASHED_IN_ITEM, qty: 1 }],
   out: [{ item: HASHED_OUT_ITEM, qty: 1 }],
+  catalyst: [{ item: HASHED_CATALYST_ITEM, qty: 1 }],
   producers: ["smelter"],
 };
 
@@ -179,11 +182,13 @@ describe("RecipeNode", () => {
     const iconOf = (id: string) => pack.items.find((i) => i.id === id)?.icon;
     const inIcon = iconOf(HASHED_IN_ITEM);
     const outIcon = iconOf(HASHED_OUT_ITEM);
+    const catalystIcon = iconOf(HASHED_CATALYST_ITEM);
     // Premise guard: the fixture only exercises the lookup while the shipped
     // pack still keeps these icon ids apart from their item ids.
     expect(inIcon).toBeDefined();
     expect(inIcon).not.toBe(HASHED_IN_ITEM);
     expect(outIcon).not.toBe(HASHED_OUT_ITEM);
+    expect(catalystIcon).not.toBe(HASHED_CATALYST_ITEM);
     expect(iconPosition(HASHED_IN_ITEM)).toBeUndefined();
 
     const { container } = renderRecipe({
@@ -197,10 +202,19 @@ describe("RecipeNode", () => {
     const outSpr = container.querySelector<HTMLElement>(
       ".rn-side.out .rn-row.output .ico .spr",
     );
+    // The catalyst row holds only an item id too, so it resolves the same way
+    // the port rows do -- it just has no port to hang the lookup off.
+    const catalystSpr = container.querySelector<HTMLElement>(
+      ".rn-side.in .rn-row.catalyst .ico .spr",
+    );
     expect(inSpr).not.toBeNull();
     expect(outSpr).not.toBeNull();
+    expect(catalystSpr).not.toBeNull();
     expect(inSpr!.style.backgroundPosition).toBe(iconPosition(inIcon));
     expect(outSpr!.style.backgroundPosition).toBe(iconPosition(outIcon));
+    expect(catalystSpr!.style.backgroundPosition).toBe(
+      iconPosition(catalystIcon),
+    );
   });
 
   it("fallback path (no inputOrder): each handle nests in its own row in declaration order with no computed inline top", () => {
@@ -396,6 +410,140 @@ describe("RecipeNode", () => {
     // No stray handles or glyphs outside the rows.
     expect(container.querySelectorAll("[data-handleid]").length).toBe(3);
     expect(container.querySelectorAll("[data-glyph]").length).toBe(3);
+  });
+
+  // A catalyst is an input the machine cycles rather than consumes: it is drawn
+  // and returned every cycle, so it has no supplier, no edge and no port. The
+  // card still has to declare the draw, so it renders as an extra input-column
+  // row below every port row.
+  describe("catalyst rows", () => {
+    // qty 1 over a 10s cycle at speed 1 is the pack's 6/min catalyst draw.
+    const catalystRecipe: Recipe = {
+      ...multiRowRecipe,
+      time: 10,
+      catalyst: [{ item: "gas_xiranite", qty: 1 }],
+    };
+
+    function renderCatalyst(multiplier = 1) {
+      return renderRecipe({
+        recipe: catalystRecipe,
+        kind: "recipe",
+        multiplier,
+      });
+    }
+
+    it("appends one .rn-row.catalyst below every port row in the input column", () => {
+      const { container } = renderCatalyst();
+      const inSide = container.querySelector(".rn-body > .rn-side.in")!;
+      const rows = Array.from(inSide.querySelectorAll(".rn-row"));
+      expect(rows).toHaveLength(3);
+      expect(rows.slice(0, 2).map((r) => r.className)).toEqual([
+        "rn-row input",
+        "rn-row input",
+      ]);
+      // Last, and not an input row: the .input class draws the accent tab that
+      // promises an entering edge.
+      expect(rows[2]!.className).toBe("rn-row catalyst");
+      expect(container.querySelectorAll(".rn-row.catalyst")).toHaveLength(1);
+    });
+
+    it("gives the catalyst row an icon, a label, a rate and the catalyst glyph", () => {
+      const { container } = renderCatalyst();
+      const row = container.querySelector(".rn-row.catalyst")!;
+      expect(row.querySelector(".ico")).not.toBeNull();
+      expect(row.querySelector(".lbl")?.textContent).not.toBe("");
+      expect(row.querySelector(".rate")).not.toBeNull();
+      const glyph = row.querySelector("[data-glyph]");
+      expect(glyph).not.toBeNull();
+      expect(glyph!.getAttribute("data-glyph")).toBe("catalyst");
+    });
+
+    it("hangs no handle on the catalyst row and leaves the per-side handle counts on the ports", () => {
+      const { container } = renderCatalyst();
+      const row = container.querySelector(".rn-row.catalyst")!;
+      expect(row.querySelectorAll("[data-handleid]")).toHaveLength(0);
+      expect(
+        container.querySelectorAll('[data-handlepos="left"]'),
+      ).toHaveLength(2);
+      expect(
+        container.querySelectorAll('[data-handlepos="right"]'),
+      ).toHaveLength(1);
+      expect(container.querySelectorAll("[data-handleid]")).toHaveLength(3);
+    });
+
+    it("spells the per-machine draw out with the locale rate unit", () => {
+      const { container } = renderCatalyst();
+      expect(
+        container.querySelector(".rn-row.catalyst .rate")?.textContent,
+      ).toBe("6/分");
+    });
+
+    // The port rows carry the AGGREGATE flow across every machine; a catalyst
+    // is charged per machine, so its row stays on the one-machine figure and
+    // says so by carrying the unit the port rows leave to the header.
+    it("keeps the catalyst rate per machine while the port rows scale", () => {
+      const { container } = renderCatalyst(3);
+      const inputRates = Array.from(
+        container.querySelectorAll(".rn-side.in .rn-row.input .rate"),
+      ).map((el) => el.textContent);
+      expect(inputRates).toEqual(["18", "36"]);
+      expect(
+        container.querySelector(".rn-row.catalyst .rate")?.textContent,
+      ).toBe("6/分");
+    });
+
+    it("sizes the card for the catalyst row", () => {
+      const { container } = renderCatalyst();
+      const wrapper = container.firstElementChild as HTMLElement;
+      expect(wrapper.style.minHeight).toBe(
+        `${measureRecipe(catalystRecipe).height}px`,
+      );
+      // 2 port rows + 1 catalyst row against 1 output row.
+      expect(measureRecipe(catalystRecipe).height).toBe(184);
+    });
+
+    it("styles the catalyst row in canvas.css", () => {
+      expect(cssBlock(".rn-row.catalyst")).toContain("padding-left");
+    });
+  });
+
+  // The environment frame against the real pack: the extractor's hand table
+  // is what marks a recipe gas-gated, so the pack wiring is asserted here
+  // while the component contract (layer properties, localisation, CSS) lives
+  // in src/canvas/RecipeNode.test.tsx.
+  describe("environment frame", () => {
+    it("renders one aria-hidden .rn-env on the pack recipe the hand table marks acidic", () => {
+      const envRecipe = pack.recipes.find((r) => r.id === "gas_copper_enr2");
+      // Premise guard: the pack still marks exactly this recipe acidic.
+      expect(envRecipe?.environment).toBe("acidic");
+      const { container } = renderRecipe({
+        recipe: envRecipe!,
+        kind: "recipe",
+        multiplier: 1,
+      });
+      const root = container.querySelector<HTMLElement>(
+        '[data-testid="recipe-node"]',
+      )!;
+      expect(root.getAttribute("data-environment")).toBe("acidic");
+      const frames = root.querySelectorAll(".rn-env");
+      expect(frames).toHaveLength(1);
+      expect(frames[0]!.getAttribute("aria-hidden")).toBe("true");
+    });
+
+    it("renders no frame and no data-environment on a plain pack recipe", () => {
+      const plainRecipe = pack.recipes.find((r) => r.id === "plant_moss_1");
+      expect(plainRecipe?.environment).toBeUndefined();
+      const { container } = renderRecipe({
+        recipe: plainRecipe!,
+        kind: "recipe",
+        multiplier: 1,
+      });
+      const root = container.querySelector<HTMLElement>(
+        '[data-testid="recipe-node"]',
+      )!;
+      expect(root.hasAttribute("data-environment")).toBe(false);
+      expect(container.querySelector(".rn-env")).toBeNull();
+    });
   });
 
   describe("footer", () => {

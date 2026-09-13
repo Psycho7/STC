@@ -38,6 +38,7 @@ function mkPack(
     out: { item: string; qty: number }[];
     flags?: string[];
     cost?: number;
+    catalyst?: { item: string; qty: number }[];
   }[],
   items: { id: string; raw: boolean }[],
 ): RecipePack {

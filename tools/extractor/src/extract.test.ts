@@ -1,5 +1,6 @@
 import { describe, expect, test, beforeAll } from "bun:test";
 import { resolve } from "node:path";
+import Fraction from "fraction.js";
 import {
   LOCALES,
   SCHEMA_VERSION,
@@ -11,12 +12,16 @@ import {
   type Transport,
 } from "./schema.ts";
 import {
+  CATALYST_BY_PRODUCER,
+  ENVIRONMENT_BY_RECIPE,
   SKIP_SINK_RECIPES,
   WORLD_NODE_MACHINES,
   collapseSyntheticChains,
   main as runExtractor,
+  splitCatalyst,
   validateReferentialIntegrity,
 } from "./extract.ts";
+import type { UpstreamRecipe } from "./upstream.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const TRANSPORT_CONFIG_PATH = resolve(REPO_ROOT, "data/aef/transport-config.json");
@@ -111,9 +116,10 @@ describe("invariants", () => {
     }
   });
 
-  test("self-consuming recipes are exactly the two known phase-transition catalysts", () => {
-    // The solver nets these away at its boundary (netSelfConsumption); any new
-    // catalyst-style recipe must be reviewed against that support.
+  test("no recipe consumes an item it also produces", () => {
+    // The two phase-transition recipes that used to land here draw their own
+    // output as a catalyst, and the catalyst split moves that draw off `in`,
+    // so nothing is left for the solver boundary to net away.
     const offenders = pack.recipes
       .filter((r) => {
         const inIds = new Set(r.in.map((s) => s.item));
@@ -121,7 +127,7 @@ describe("invariants", () => {
       })
       .map((r) => r.id)
       .sort();
-    expect(offenders).toEqual(["phase_trans_1-liquid_xiranite", "phase_trans_2-gas_xiranite"]);
+    expect(offenders).toEqual([]);
   });
 
   test("only liquid_*/gas_* items lack a stack size after synthetic collapse", () => {
@@ -130,6 +136,161 @@ describe("invariants", () => {
     for (const id of noStack) {
       expect(id.startsWith("liquid_") || id.startsWith("gas_")).toBe(true);
     }
+  });
+});
+
+describe("transmuter catalysts", () => {
+  // Every recipe whose sole producer is a phase transmuter draws xiranite as a
+  // catalyst: the machine cycles it rather than consuming it, so the extractor
+  // lifts that draw off `in` into its own `catalyst` array.
+  const FOLDED = ["phase_trans_1-gas_xiranite", "phase_trans_2-xiranite_powder"];
+
+  test("exactly the 22 single-transmuter recipes carry a catalyst", () => {
+    const carriers = pack.recipes.filter((r) => r.catalyst !== undefined).map((r) => r.id);
+    expect(carriers).toHaveLength(22);
+    const expected = pack.recipes
+      .filter((r) => r.producers.length === 1 && CATALYST_BY_PRODUCER[r.producers[0]!] !== undefined)
+      .map((r) => r.id);
+    expect(carriers.sort()).toEqual(expected.sort());
+  });
+
+  test("each catalyst is a single entry for the producer's xiranite phase", () => {
+    for (const r of pack.recipes) {
+      if (!r.catalyst) continue;
+      expect(r.producers).toHaveLength(1);
+      const item = CATALYST_BY_PRODUCER[r.producers[0]!];
+      expect(r.catalyst).toHaveLength(1);
+      expect(r.catalyst[0]!.item).toBe(item!);
+    }
+  });
+
+  test("every catalyst draw is exactly 6 per minute at machine speed 1", () => {
+    // Exact rational comparison: the emitted 0.2 must round-trip to 1/5, not to
+    // a float that only prints like it.
+    for (const r of pack.recipes) {
+      if (!r.catalyst) continue;
+      const rate = new Fraction(r.catalyst[0]!.qty).mul(60).div(r.time);
+      expect(rate.equals(6)).toBe(true);
+    }
+  });
+
+  test("catalyst quantities are 0.2 per 2s cycle and 1 per 10s cycle", () => {
+    const short = pack.recipes.filter((r) => r.catalyst && r.time === 2);
+    const long = pack.recipes.filter((r) => r.catalyst && r.time === 10);
+    expect(short).toHaveLength(18);
+    expect(long).toHaveLength(4);
+    for (const r of short) expect(r.catalyst![0]!.qty).toBe(0.2);
+    for (const r of long) expect(r.catalyst![0]!.qty).toBe(1);
+  });
+
+  test("the catalyst item survives on `in` only where upstream folded a feed draw", () => {
+    const overlap = pack.recipes
+      .filter((r) => r.catalyst && r.in.some((s) => s.item === r.catalyst![0]!.item))
+      .map((r) => r.id)
+      .sort();
+    expect(overlap).toEqual([...FOLDED].sort());
+  });
+
+  test("phase_trans_1-gas_xiranite: folded 1.2 splits into feed 1 plus catalyst 0.2", () => {
+    const r = pack.recipes.find((x) => x.id === "phase_trans_1-gas_xiranite");
+    expect(r).toBeDefined();
+    expect(r!.in).toEqual([{ item: "liquid_xiranite", qty: 1 }]);
+    expect(r!.catalyst).toEqual([{ item: "liquid_xiranite", qty: 0.2 }]);
+    expect(r!.out).toEqual([{ item: "gas_xiranite", qty: 1 }]);
+  });
+
+  test("phase_trans_2-xiranite_powder: folded 1.2 splits into feed 1 plus catalyst 0.2", () => {
+    const r = pack.recipes.find((x) => x.id === "phase_trans_2-xiranite_powder");
+    expect(r).toBeDefined();
+    expect(r!.in).toEqual([{ item: "gas_xiranite", qty: 1 }]);
+    expect(r!.catalyst).toEqual([{ item: "gas_xiranite", qty: 0.2 }]);
+    expect(r!.out).toEqual([{ item: "xiranite_powder", qty: 1 }]);
+  });
+
+  test("phase_trans_1-liquid_xiranite: catalyst draw of its own output leaves `in` clean", () => {
+    const r = pack.recipes.find((x) => x.id === "phase_trans_1-liquid_xiranite");
+    expect(r).toBeDefined();
+    expect(r!.in).toEqual([{ item: "gas_xiranite", qty: 1 }]);
+    expect(r!.catalyst).toEqual([{ item: "liquid_xiranite", qty: 0.2 }]);
+    expect(r!.out).toEqual([{ item: "liquid_xiranite", qty: 1 }]);
+  });
+
+  test("phase_trans_2-gas_xiranite: catalyst draw of its own output leaves `in` clean", () => {
+    const r = pack.recipes.find((x) => x.id === "phase_trans_2-gas_xiranite");
+    expect(r).toBeDefined();
+    expect(r!.in).toEqual([{ item: "xiranite_powder", qty: 1 }]);
+    expect(r!.catalyst).toEqual([{ item: "gas_xiranite", qty: 0.2 }]);
+    expect(r!.out).toEqual([{ item: "gas_xiranite", qty: 1 }]);
+  });
+
+  test("the split never empties a recipe's `in`", () => {
+    for (const r of pack.recipes) {
+      if (!r.catalyst) continue;
+      expect(r.in.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("splitCatalyst guards", () => {
+  // Smallest upstream recipe the split reads: producers pick the catalyst
+  // phase, time sets the charge, and `in` carries the folded draw.
+  const makeUpstream = (
+    over: Partial<UpstreamRecipe> & Pick<UpstreamRecipe, "id">,
+  ): UpstreamRecipe => ({
+    name: over.id,
+    category: "material",
+    row: 0,
+    icon: over.id,
+    time: 2,
+    in: { liquid_xiranite: 1.2 },
+    out: { gas_xiranite: 1 },
+    producers: ["phase_trans_1"],
+    ...over,
+  });
+
+  test("splits a folded transmuter draw into feed plus catalyst", () => {
+    const inputs = [{ item: "liquid_xiranite", qty: 1.2 }];
+    expect(splitCatalyst(makeUpstream({ id: "ok" }), inputs)).toEqual([
+      { item: "liquid_xiranite", qty: 0.2 },
+    ]);
+    expect(inputs).toEqual([{ item: "liquid_xiranite", qty: 1 }]);
+  });
+
+  test("throws when a transmuter recipe gains a second producer", () => {
+    // A silent `undefined` here would ship the charge as an ordinary input and
+    // double-count the cycled xiranite, so a widened producer list has to fail
+    // the extract instead.
+    const u = makeUpstream({
+      id: "two_producers",
+      producers: ["phase_trans_1", "phase_trans_2"],
+    });
+    expect(() => splitCatalyst(u, [{ item: "liquid_xiranite", qty: 1.2 }])).toThrow(
+      "recipe two_producers lists 2 producers but phase_trans_1 cycles a catalyst",
+    );
+  });
+
+  test("throws when the split would empty a recipe's `in`", () => {
+    // An input-less recipe reads as a map deposit downstream and gets banned
+    // from every solution, so an all-catalyst draw must fail loudly here.
+    const u = makeUpstream({ id: "charge_only", in: { liquid_xiranite: 0.2 } });
+    expect(() => splitCatalyst(u, [{ item: "liquid_xiranite", qty: 0.2 }])).toThrow(
+      "recipe charge_only draws nothing but its catalyst charge",
+    );
+  });
+});
+
+describe("recipe environment", () => {
+  test("environment is stamped on exactly the four table recipes", () => {
+    const stamped = Object.fromEntries(
+      pack.recipes.filter((r) => r.environment !== undefined).map((r) => [r.id, r.environment]),
+    );
+    expect(stamped).toEqual({
+      "gas_copper_enr-gas_inert": "stable",
+      "gas_xiranite_enr-gas_inert": "stable",
+      "xiranite_powder-carbon_mtl": "stable",
+      gas_copper_enr2: "acidic",
+    });
+    expect(stamped).toEqual(ENVIRONMENT_BY_RECIPE);
   });
 });
 
@@ -669,6 +830,36 @@ describe("collapseSyntheticChains guards", () => {
       "recipe mixer in collision: substituting __miner_water -> liquid_water would duplicate liquid_water",
     );
   });
+
+  test("throws when a __-prefix reference survives on a catalyst entry", () => {
+    // The substitution pass rewrites `in` / `out` only, so a synthetic id that
+    // reached a catalyst array has to trip the post-pass guard rather than ship.
+    const items = [makeItem("__miner_water"), makeItem("liquid_water"), makeItem("cat_out")];
+    const machines = [makeMachine("__miner_pump_1"), makeMachine("cat_machine")];
+    const recipes = [
+      makeRecipe(
+        "__miner_water",
+        [],
+        [{ item: "__miner_water", qty: 1 }],
+        ["__miner_pump_1"],
+      ),
+      {
+        ...makeRecipe(
+          "cat_user",
+          [{ item: "liquid_water", qty: 1 }],
+          [{ item: "cat_out", qty: 1 }],
+          ["cat_machine"],
+        ),
+        catalyst: [{ item: "__miner_acid", qty: 1 }],
+      },
+    ];
+
+    const subs = { __miner_water: "liquid_water" };
+
+    expect(() => collapseSyntheticChains({ items, machines, recipes }, subs)).toThrow(
+      "recipe cat_user still references synthetic item __miner_acid after collapse",
+    );
+  });
 });
 
 describe("validateReferentialIntegrity guards", () => {
@@ -714,7 +905,7 @@ describe("validateReferentialIntegrity guards", () => {
         in: [],
         out: [{ item: "widget", qty: 1 }],
         producers: ["assembler"],
-      } satisfies Recipe,
+      } as Recipe,
     ],
   });
 
@@ -727,6 +918,14 @@ describe("validateReferentialIntegrity guards", () => {
     pack.transports = [mkTransport("assembler")];
     expect(() => validateReferentialIntegrity(pack)).toThrow(
       "id assembler appears as both a machine and a transport",
+    );
+  });
+
+  test("throws when a catalyst entry names an unknown item", () => {
+    const pack = mkPack();
+    pack.recipes[0]!.catalyst = [{ item: "ghost", qty: 1 }];
+    expect(() => validateReferentialIntegrity(pack)).toThrow(
+      "recipe make_widget references unknown item ghost",
     );
   });
 });

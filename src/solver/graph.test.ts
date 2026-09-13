@@ -136,12 +136,13 @@ describe("augmentGraphWithLpSupport", () => {
 });
 
 describe("pack census: self-consuming recipes", () => {
-  // Pack-update tripwire: self-consuming (catalyst-style) recipes are only
-  // legal because the solve pipeline nets them away at its boundary (see
-  // netSelfConsumption). This census pins the exact raw-pack offender set so
-  // a data refresh that adds a new one gets reviewed against that support
-  // instead of silently relying on it.
-  it("raw-pack offenders are exactly the two known phase-transition catalysts", () => {
+  // Pack-update tripwire. Self-consuming recipes are only legal because the
+  // solve pipeline nets them away at its boundary (see netSelfConsumption).
+  // The transmuter catalysts were the two that relied on it; they now sit in
+  // `catalyst`, so the raw pack has no offender left and nothing leans on that
+  // support. Pinning the empty set keeps a data refresh that reintroduces one
+  // under review instead of letting it quietly resume depending on netting.
+  it("the raw pack has no self-consuming recipe", () => {
     const offenders = pack.recipes
       .filter((r) => {
         const outs = new Set(r.out.map((o) => o.item));
@@ -149,9 +150,46 @@ describe("pack census: self-consuming recipes", () => {
       })
       .map((r) => r.id)
       .sort();
-    expect(offenders).toEqual([
-      "phase_trans_1-liquid_xiranite",
-      "phase_trans_2-gas_xiranite",
+    expect(offenders).toEqual([]);
+  });
+});
+
+// The catalyst split is a reachability change, not just a stoich one: a
+// catalyst on `in` makes the walk pull the catalyst's entire production chain
+// into every plan that runs a transmuter. gas_copper is the sharp case - only
+// the two transmuters produce it, and both recycle a xiranite fluid - so its
+// walk is the direct witness that the split holds.
+describe("catalyst reachability", () => {
+  it("a transmuter target does not pull its catalyst's production chain", () => {
+    const targets: ItemTarget[] = [
+      { itemId: "gas_copper", ratePerSec: { num: "1", denom: "1" } },
+    ];
+    const g = buildRecipeGraphMulti(targets, pack);
+
+    // The whole reached set, pinned: the two gas_copper transmuters plus the
+    // copper feedstock cone they actually consume.
+    expect([...g.nodes.keys()].sort()).toEqual([
+      "copper_nugget",
+      "copper_powder",
+      "liquid_copper",
+      "phase_trans_1-gas_copper",
+      "phase_trans_1-liquid_copper",
+      "phase_trans_2-copper_nugget",
+      "phase_trans_2-gas_copper",
     ]);
+
+    // Named negatives, so a future widening reads as the specific regression it
+    // is: liquid_xiranite is phase_trans_1-gas_copper's catalyst, and folding
+    // it back onto `in` drags in the xiranite transmuters and, behind them, the
+    // whole carbon / planter mix pool that feeds xiranite_powder.
+    for (const id of [
+      "liquid_xiranite",
+      "phase_trans_1-liquid_xiranite",
+      "phase_trans_2-xiranite_powder",
+      "xiranite_powder-carbon_mtl",
+      "carbon_mtl-plant_moss_1",
+    ]) {
+      expect(g.nodes.has(id)).toBe(false);
+    }
   });
 });

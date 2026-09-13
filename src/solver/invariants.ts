@@ -3,7 +3,12 @@ import type { RecipePack } from "@aef/schema";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import type { LpResult } from "./lp";
-import { REL_TOL, demandByItem, toleranceScaleFloor } from "./lp";
+import {
+  REL_TOL,
+  catalystDrawFromRates,
+  demandByItem,
+  toleranceScaleFloor,
+} from "./lp";
 import type { SolvePlanFull } from "./index";
 import { buildSupplyTable } from "./effectiveSupply";
 import { isSanctionedAbsentProducer } from "../data/recipe-category";
@@ -128,9 +133,13 @@ export function checkTargetsMet(
  * For each item:
  *   external_supply(item)
  *     = consumption(item) - production(item) + surplus(item) - deficit(item)
+ *       + catalyst(item)
  * i.e. what the solution must have pulled from outside the system: consumed
  * beyond internal production, plus any leftover surplus the boundary pushed in,
- * less the demand the solve openly left unmet. Assert:
+ * less the demand the solve openly left unmet, plus every catalyst the running
+ * recipes cycle. A catalyst comes back out, so it is absent from production and
+ * consumption above, but the boundary still has to hold it and it is charged
+ * against the same cap. Assert:
  *   external_supply(item) <= effectiveSupply(item) + tol
  *     - effectiveSupply === Infinity  -> always passes (raw/uncapped boundary).
  *     - finite override cap            -> external_supply <= cap + tol.
@@ -151,6 +160,7 @@ export function checkRawOnlyBoundary(
 ): InvariantResult {
   const violations: string[] = [];
   const supply = buildSupplyTable(pack, overrides);
+  const catalyst = catalystDrawFromRates(pack.recipes, result.rates);
 
   for (const it of pack.items) {
     let production = new Fraction(0);
@@ -169,7 +179,6 @@ export function checkRawOnlyBoundary(
     // estimate, or an honestly deficit-flagged shortfall would read here as an
     // illegal raw draw.
     const deficit = result.deficit.get(it.id) ?? new Fraction(0);
-    const externalSupply = consumption.sub(production).add(surplus).sub(deficit);
 
     const cap = supply.supplyOf(it.id);
     if (cap === Infinity) continue; // unlimited external supply: always passes.
@@ -177,6 +186,17 @@ export function checkRawOnlyBoundary(
     // Scale the slack by cap magnitude, like checkMassBalance and checkTargetsMet;
     // a flat absolute REL_TOL is too tight on large caps.
     const capValue = cap.valueOf();
+    // Only a finite POSITIVE cap charges a catalyst. A cap of 0 - a plain
+    // non-raw item, or `plan: true` on a raw one - gets no cap row in the
+    // model and leaves the catalyst unconstrained, so charging the cycled draw
+    // here would flag a solution the model deliberately permits.
+    const cycled =
+      capValue > 0 ? (catalyst.get(it.id) ?? new Fraction(0)) : new Fraction(0);
+    const externalSupply = consumption
+      .sub(production)
+      .add(surplus)
+      .sub(deficit)
+      .add(cycled);
     const slack = Math.max(1, Math.abs(capValue)) * REL_TOL;
     if (externalSupply.valueOf() > capValue + slack) {
       violations.push(

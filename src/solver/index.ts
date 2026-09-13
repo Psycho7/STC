@@ -5,7 +5,7 @@ import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 import { augmentGraphWithLpSupport, buildRecipeGraphMulti } from "./graph";
 import { tarjanScc, condense } from "./scc";
-import { solveLp, type LpResult } from "./lp";
+import { catalystDrawFromRates, solveLp, type LpResult } from "./lp";
 import { boundaryResidualShare } from "./boundary-share";
 import { articulationPoints } from "./bctree";
 import { pickTearEdges } from "./tear";
@@ -147,6 +147,14 @@ export type SolvePlanFull = {
    * share one definition of the cap.
    */
   boundaryShare: Map<ItemId, Fraction>;
+  /**
+   * Per item the running recipes cycle as a catalyst: items/sec drawn from the
+   * boundary and returned, never consumed. Keyed by item id, zero draws
+   * omitted. It is external supply like a raw draw, so it shares the item's
+   * supply cap, but it stays out of every mass balance: no producer is
+   * expanded for it and no edge carries it.
+   */
+  catalystDraw: Map<ItemId, Fraction>;
 };
 
 // Shared pipeline behind the public entry point. Runs the full solve (graph
@@ -265,6 +273,10 @@ function runSolvePipeline(
     },
     supplyShares,
     boundaryShare,
+    // The whole pack, where lp.ts sums over its extraction-filtered list. The
+    // sums agree: a filtered recipe never enters the model, so it is never a
+    // key of `rates` and contributes nothing either way.
+    catalystDraw: catalystDrawFromRates(pack.recipes, rates),
   };
 
   return { full, lpResult, nettedPack: pack };

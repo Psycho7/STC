@@ -26,6 +26,10 @@ export interface RecipePack {
   recipes: Recipe[];
 }
 
+// The atmosphere a recipe has to run in. Upstream ships no field for it, so the
+// values come from a hand table in the extractor.
+export type EnvironmentId = "stable" | "acidic";
+
 export interface SourceProvenance {
   name: string;
   sourceRepo: string;
@@ -106,6 +110,11 @@ export interface Recipe {
   row: number;
   time: number;
   in: Stoich[];
+  // Inputs the machine cycles rather than consumes: the draw is present while
+  // the recipe runs but comes back out, so it never appears in `out` and never
+  // counts against the recipe's material balance. Only the phase transmuters
+  // carry one today, always a single xiranite entry.
+  catalyst?: Stoich[];
   // Outputs in upstream key order, preserved verbatim. out[0] is load-bearing:
   // the planner reads it as the recipe's PRIMARY output - the item the recipe
   // exists to make - and keys shared-vs-per-consumer replica dispatch, the
@@ -128,6 +137,8 @@ export interface Recipe {
   // Per-recipe power override in kW. Negative => the recipe generates power
   // (e.g. power-gen recipes). When absent, the machine's powerKw applies.
   usage?: number;
+  // Atmosphere this recipe has to run in. Absent means the recipe runs anywhere.
+  environment?: EnvironmentId;
   // Upstream solver hint. cost === -1 marks recipes the default solver should
   // skip (e.g. waste-disposal sinks). Other values are priority weights.
   cost?: number;

@@ -5,6 +5,7 @@ import { buildRecipeGraphMulti } from "./graph";
 import { tarjanScc } from "./scc";
 import { makePack } from "./closed-form-fixtures";
 import { netSelfConsumption } from "./net-self";
+import { solveLp } from "./lp";
 import { isExcludedProducer, isExtractionRecipe } from "../data/recipe-category";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
@@ -256,11 +257,14 @@ describe("co-product fan-out pack census", () => {
 //
 // The input-less census guards the clause that has no flag behind it.
 // netSelfConsumption drops an item from `in` entirely when the recipe's output
-// of it exceeds its input, so a catalyst whose only input is its own output
-// would net to zero inputs and be banned silently. Nothing in the shipped pack
-// does that today. If this census fails, the new id is either a real extractor
-// (add it here) or a recipe the ban would wrongly swallow (key the predicate on
-// something other than the netted input count).
+// of it exceeds its input, so a recipe whose only input is its own output would
+// net to zero inputs and be banned silently. The transmuter catalysts used to
+// be the near-miss here; they now sit in `catalyst`, which netting never reads,
+// so no shipped recipe overlaps `in` with `out` at all and netting is the
+// identity on the shipped pack. The netted assertions stay because a data
+// refresh can reintroduce an overlap. If this census fails, the new id is
+// either a real extractor (add it here) or a recipe the ban would wrongly
+// swallow (key the predicate on something other than the netted input count).
 describe("extraction-recipe pack census", () => {
   const KNOWN_EXTRACTORS = [
     "gas_inert",
@@ -415,4 +419,161 @@ describe("primary-output pack census", () => {
     expect(primaryOuts(pack)).toEqual(PRIMARY_OUT);
     expect(primaryOuts(netSelfConsumption(pack))).toEqual(PRIMARY_OUT);
   });
+});
+
+// Catalysts and environments are extractor-authored: upstream ships no field
+// for either, so both come from hand tables the extractor applies. Nothing
+// downstream validates them against the pack, which makes them exactly the kind
+// of data a vendor refresh can silently widen or drop. These censuses pin what
+// the tables produced.
+//
+// The catalyst split matters to the solver: a catalyst is recycled in full, so
+// it must NOT be funded as an input. Task 1 moved it out of `in`, which is why
+// the self-consuming set is now empty (see net-self.test.ts) and why the graph
+// walk no longer pulls a catalyst's whole production chain into every plan that
+// runs a transmuter (see graph.test.ts).
+describe("catalyst pack census", () => {
+  const withCatalyst = pack.recipes.filter((r) => r.catalyst !== undefined);
+
+  test("exactly the 22 transmuter recipes carry a catalyst", () => {
+    expect(withCatalyst).toHaveLength(22);
+    const transmuters = pack.recipes.filter((r) =>
+      r.producers.some((m) => m === "phase_trans_1" || m === "phase_trans_2"),
+    );
+    expect(withCatalyst.map((r) => r.id).sort()).toEqual(
+      transmuters.map((r) => r.id).sort(),
+    );
+  });
+
+  // The catalyst is the transmuter's own working fluid, so it is a function of
+  // the machine, not of the recipe. A pack where the two disagree means the
+  // hand table drifted from the machine roster.
+  test("the catalyst item is fixed by the producing transmuter", () => {
+    const EXPECTED_BY_MACHINE = new Map([
+      ["phase_trans_1", "liquid_xiranite"],
+      ["phase_trans_2", "gas_xiranite"],
+    ]);
+    for (const r of withCatalyst) {
+      expect(r.producers).toHaveLength(1);
+      expect(r.catalyst).toHaveLength(1);
+      expect(r.catalyst![0]!.item).toBe(EXPECTED_BY_MACHINE.get(r.producers[0]!));
+    }
+  });
+
+  // The catalyst never reappears on the input side under its own item id: that
+  // is the whole point of the split, and it is what keeps the LP from funding a
+  // recycled fluid. `in` may still carry the SAME item as a genuine feedstock
+  // (phase_trans_1-gas_xiranite consumes liquid_xiranite 1 and recycles 0.2),
+  // so the pin below is on the quantities the split produced, not on absence.
+  test("the two former self-consumers keep the catalyst off both sides", () => {
+    const selfCatalysing = withCatalyst
+      .filter((r) => r.out.some((o) => o.item === r.catalyst![0]!.item))
+      .map((r) => r.id)
+      .sort();
+    expect(selfCatalysing).toEqual([
+      "phase_trans_1-liquid_xiranite",
+      "phase_trans_2-gas_xiranite",
+    ]);
+    for (const id of selfCatalysing) {
+      const r = pack.recipes.find((x) => x.id === id)!;
+      expect(r.in.some((i) => i.item === r.catalyst![0]!.item)).toBe(false);
+    }
+
+    // The folded 1.2 entries split into a whole feedstock unit plus the
+    // recycled fraction; a refresh that re-folds them shows up here.
+    const folded: Array<[string, string, number, number]> = [
+      ["phase_trans_1-gas_xiranite", "liquid_xiranite", 1, 0.2],
+      ["phase_trans_2-xiranite_powder", "gas_xiranite", 1, 0.2],
+    ];
+    for (const [id, item, inQty, catQty] of folded) {
+      const r = pack.recipes.find((x) => x.id === id)!;
+      expect(r.in).toEqual([{ item, qty: inQty }]);
+      expect(r.catalyst).toEqual([{ item, qty: catQty }]);
+    }
+  });
+});
+
+describe("environment pack census", () => {
+  const ENVIRONMENTS: Array<[string, string]> = [
+    ["gas_copper_enr-gas_inert", "stable"],
+    ["gas_copper_enr2", "acidic"],
+    ["gas_xiranite_enr-gas_inert", "stable"],
+    ["xiranite_powder-carbon_mtl", "stable"],
+  ];
+
+  test("exactly four recipes are environment-stamped", () => {
+    const stamped = pack.recipes
+      .filter((r) => r.environment !== undefined)
+      .map((r): [string, string] => [r.id, r.environment!])
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    expect(stamped).toEqual(ENVIRONMENTS);
+  });
+});
+
+// Ruling 1: `environment` is display-only. The solver must never read it - an
+// environment is a placement constraint the player satisfies by siting the
+// machine, not a resource the LP funds - so stripping the field from every
+// recipe has to leave every solve bit-identical.
+//
+// The census covers solveLp specifically - the LP build and solve, not the
+// wrappers above it - over the whole corpus rather than a sample: every recipe
+// in the pack is driven as a single item target at rate 1 (the same enumeration
+// the render corpus sweeps), solved twice, and the two results are compared on
+// status, soft-feasibility and the EXACT rational rate of every active recipe.
+// Recipes with no output are skipped because they cannot be a target at all.
+//
+// If this ever fails, some layer under solveLp started branching on the field.
+// Do not relax it: move the branch out of the solver.
+describe("ruling 1: the solver never reads `environment`", () => {
+  function stripEnvironment(p: RecipePack): RecipePack {
+    return {
+      ...p,
+      recipes: p.recipes.map((r) => {
+        if (r.environment === undefined) return r;
+        const bare: Recipe = { ...r };
+        delete bare.environment;
+        return bare;
+      }),
+    };
+  }
+
+  function signature(result: ReturnType<typeof solveLp>): string {
+    return JSON.stringify({
+      status: result.status,
+      softFeasible: result.softFeasible,
+      rates: [...result.rates]
+        .map(([id, rate]) => [id, rate.toFraction()])
+        .sort(),
+    });
+  }
+
+  test(
+    "stripping it changes no rate in any corpus plan",
+    () => {
+      const stripped = stripEnvironment(pack);
+      expect(stripped.recipes.filter((r) => r.environment !== undefined)).toEqual(
+        [],
+      );
+
+      const drifted: string[] = [];
+      let planned = 0;
+      for (const r of pack.recipes) {
+        const itemId = r.out[0]?.item;
+        if (itemId === undefined) continue;
+        planned++;
+        const targets: ItemTarget[] = [
+          { itemId, ratePerSec: { num: "1", denom: "1" } },
+        ];
+        const live = signature(solveLp({ targets, pack }));
+        const bare = signature(solveLp({ targets, pack: stripped }));
+        if (live !== bare) drifted.push(r.id);
+      }
+
+      // Guard the guard: an enumeration that silently stopped covering the pack
+      // would make the comparison above pass for the wrong reason.
+      expect(planned).toBe(232);
+      expect(drifted).toEqual([]);
+    },
+    120_000,
+  );
 });

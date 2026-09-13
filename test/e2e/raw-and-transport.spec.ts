@@ -118,18 +118,29 @@ test.describe("raw-product boundaries and transport-kind styling", () => {
     await expect(minerRecipeNode).toHaveCount(0);
 
     // The ore is neither built nor imported - plan:true asked for it to be
-    // built - so it leaves the plan with the furnace route, and what is left is
-    // the phase-transition route drawing gas_xiranite at the boundary. The
-    // rest of the demand goes unmet, which the stats strip reports.
+    // built - so it leaves the plan together with the furnace route it fed, and
+    // draws no boundary node of its own. What is left is the phase-transition
+    // route, whose xiranite draw is covered by the next assertion. The rest of
+    // the demand goes unmet, which the stats strip reports.
     const copperOreInput = page.locator(
       '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="copper_ore"]',
     );
     await expect(copperOreInput).toHaveCount(0);
 
+    // The phase-transition route's only gas_xiranite use is the transmuter
+    // catalyst, which is charged against the item cap rather than routed as a
+    // material input, so it draws no boundary node. The draw surfaces in the
+    // inputs panel instead, as an auto supply row on the item.
     const gasXiraniteInput = page.locator(
       '[data-testid="product-node"][data-flavor="inputProduct"][data-item-id="gas_xiranite"]',
     );
-    await expect(gasXiraniteInput).toBeAttached();
+    await expect(gasXiraniteInput).toHaveCount(0);
+
+    await page.getByTestId("side-panel-tab-inputs").click();
+    const gasXiraniteSupply = page.locator(
+      '[data-testid="input-auto-row"][data-item-id="gas_xiranite"]',
+    );
+    await expect(gasXiraniteSupply).toBeVisible();
 
     const png = await page.screenshot({
       path: "test-results/raw-and-transport-override.png",

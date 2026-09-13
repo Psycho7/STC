@@ -480,9 +480,11 @@ describe("chip seating: a pinned member's chip stays off the shared column", () 
 
 describe("the gas_xiranite fan-out of equip_script_4_3", () => {
   // The plan this feature came from: one imported gas_xiranite card feeding
-  // seven consumers spread over several layers. Before the shared column each
-  // of those edges took its own staggered bend column and the card sat behind a
-  // bundle of parallel verticals.
+  // consumers spread over several layers. Before the shared column each of
+  // those edges took its own staggered bend column and the card sat behind a
+  // bundle of parallel verticals. The catalyst split (2026-09-07) moved the
+  // transmuters' xiranite feeds into cycled catalyst rows, which draw no edge,
+  // so the card feeds four members now, down from seven.
   it("leaves the input card on one column", async () => {
     const targets: ItemTarget[] = [
       {
@@ -501,7 +503,7 @@ describe("the gas_xiranite fan-out of equip_script_4_3", () => {
     const sourceId = "u:in:gas_xiranite";
     const members = edges.filter((e) => e.source === sourceId);
     // Premise: this really is the wide fan-out, over more than one layer.
-    expect(members.length).toBeGreaterThanOrEqual(7);
+    expect(members.length).toBeGreaterThanOrEqual(4);
 
     // A jogged member leaves the shared line by design: jogForwardLegs replaces
     // the column with a cleared one when the source horizontal is blocked.
@@ -519,9 +521,9 @@ describe("the gas_xiranite fan-out of equip_script_4_3", () => {
     const columns = onColumn.map(columnOf);
     for (const x of columns) expect(typeof x).toBe("number");
     expect(new Set(columns).size).toBe(1);
-    // Measured census on this plan: 7 members, all of them FAR (the nearest
-    // consumer is more than one layer over), one column at x 244, none of them
-    // re-columned by a jog (four ARE leg-jogged, which keeps the column).
+    // Measured census on this plan after the catalyst split: 4 members, one
+    // column at x 254, none of them re-columned by a jog (one IS leg-jogged,
+    // which keeps the column).
     expect(
       members.filter((e) => (e.data as EdgeData).fanoutColumn === true).length,
     ).toBe(members.length);
