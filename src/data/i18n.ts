@@ -52,9 +52,6 @@ export type UiKey =
   | "inputs.empty"
   | "env.stable"
   | "env.acidic"
-  | "node.upm"
-  | "node.each"
-  | "node.cycle"
   | "product.dir.in"
   | "product.dir.out"
   | "product.class.raw"
@@ -135,9 +132,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.empty": "未配置任何输入 — 全部按 raw 自动求解",
     "env.stable": "稳定环境",
     "env.acidic": "酸性环境",
-    "node.upm": "件/分",
-    "node.each": "单台",
-    "node.cycle": "{time}秒 · 周期",
     "product.dir.in": "输入",
     "product.dir.out": "输出",
     "product.class.raw": "原料",
@@ -214,9 +208,6 @@ const UI_STRINGS: Record<Locale, Record<UiKey, string>> = {
     "inputs.empty": "No declared inputs — defaults to raw-source feed",
     "env.stable": "Stable environment",
     "env.acidic": "Acidic environment",
-    "node.upm": "UPM",
-    "node.each": "ea",
-    "node.cycle": "{time}s · cycle",
     "product.dir.in": "In",
     "product.dir.out": "Out",
     "product.class.raw": "raw",

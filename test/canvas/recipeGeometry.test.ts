@@ -4,7 +4,6 @@ import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import { portOffsetY } from "../../src/canvas/nodeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import {
-  RECIPE_FOOTER_HEIGHT,
   RECIPE_HEADER_HEIGHT,
   RECIPE_ROWS_TOP_PAD,
   RECIPE_ROW_HEIGHT,
@@ -12,11 +11,12 @@ import {
   recipeHeight,
 } from "../../src/canvas/dimensions";
 
-// The model is pinned to the rendered DOM (canvas.css): .rn-head is height:80px,
-// .rn-side has a 6px top/bottom pad, .rn-row is 22px, .rn-footer is 26px. A row
-// mid-line therefore sits at header + side pad + i*row + half-row; the browser
-// (zoom 1) puts the real handle center one further pixel down (the node's own
-// 1px border, which the model leaves out on both height and handle Y).
+// The model is pinned to the rendered DOM (canvas.css): .rn-head is height:56px,
+// .rn-side has a 6px top/bottom pad, .rn-row is 22px, and there is no footer.
+// A row mid-line therefore sits at header + side pad + i*row + half-row; the
+// browser (zoom 1) puts the real handle center one further pixel down (the
+// node's own 1px border, which the model leaves out on both height and
+// handle Y).
 const rowMid = (i: number) =>
   RECIPE_HEADER_HEIGHT +
   RECIPE_ROWS_TOP_PAD +
@@ -85,25 +85,22 @@ describe("measureRecipe", () => {
     expect(g.inHandleYs).toHaveLength(3);
     expect(g.inHandleYs[0]).toBe(rowMid(0));
     expect(g.inHandleYs[2]).toBe(rowMid(2));
-    // Concrete pinned values (80 + 6 + i*22 + 11) so a constant change re-pins.
-    expect(g.inHandleYs).toEqual([97, 119, 141]);
+    // Concrete pinned values (56 + 6 + i*22 + 11) so a constant change re-pins.
+    expect(g.inHandleYs).toEqual([73, 95, 117]);
   });
 
   it("outHandleYs uses the same row spacing as inHandleYs", () => {
     const g = measureRecipe(fakeRecipe(0, 2));
     expect(g.outHandleYs).toEqual([rowMid(0), rowMid(1)]);
-    expect(g.outHandleYs).toEqual([97, 119]);
+    expect(g.outHandleYs).toEqual([73, 95]);
   });
 
-  it("height counts header, both side pads, the taller side's rows, and footer", () => {
-    // 1x1: 80 header + 12 side pads + 22 row + 26 footer = 140.
+  it("height counts header, both side pads, and the taller side's rows", () => {
+    // 1x1: 56 header + 12 side pads + 22 row = 90.
     expect(measureRecipe(fakeRecipe(1, 1)).height).toBe(
-      RECIPE_HEADER_HEIGHT +
-        RECIPE_ROWS_TOP_PAD * 2 +
-        RECIPE_ROW_HEIGHT +
-        RECIPE_FOOTER_HEIGHT,
+      RECIPE_HEADER_HEIGHT + RECIPE_ROWS_TOP_PAD * 2 + RECIPE_ROW_HEIGHT,
     );
-    expect(measureRecipe(fakeRecipe(1, 1)).height).toBe(140);
+    expect(measureRecipe(fakeRecipe(1, 1)).height).toBe(90);
   });
 
   it("empty handle arrays when a recipe has no ports of that side", () => {
@@ -119,14 +116,14 @@ describe("measureRecipe", () => {
     expect(g.height).toBe(recipeHeight(3, 1));
     expect(g.inHandleYs).toHaveLength(2);
     expect(g.outHandleYs).toHaveLength(1);
-    // 80 header + 12 side pads + 3 * 22 rows + 26 footer.
-    expect(g.height).toBe(184);
+    // 56 header + 12 side pads + 3 * 22 rows.
+    expect(g.height).toBe(134);
   });
 
   it("puts catHandleYs on the rows after the input rows", () => {
     const g = measureRecipe(fakeRecipe(2, 1, 2));
     expect(g.catHandleYs).toEqual([rowMid(2), rowMid(3)]);
-    expect(g.catHandleYs).toEqual([141, 163]);
+    expect(g.catHandleYs).toEqual([117, 139]);
     expect(measureRecipe(fakeRecipe(2, 1)).catHandleYs).toEqual([]);
   });
 
@@ -154,9 +151,9 @@ describe("measureRecipe", () => {
       portOffsetY(fakeNode(plain), "o0", "out"),
     );
     // A catalyst item is on no input row: asked for side "in" it resolves to
-    // the centre fallback, which on a 3-row card is 92 and can never collide
+    // the centre fallback, which on a 3-row card is 67 and can never collide
     // with a row mid-line.
-    expect(portOffsetY(fakeNode(withCatalyst), "c0", "in")).toBe(92);
+    expect(portOffsetY(fakeNode(withCatalyst), "c0", "in")).toBe(67);
   });
 
   // Side "cat" is what a catalyst edge's target end resolves with: the row is
@@ -169,7 +166,7 @@ describe("measureRecipe", () => {
       geom.catHandleYs[0],
     );
     // An input item is on no catalyst row: centre fallback.
-    expect(portOffsetY(fakeNode(withCatalyst), "i0", "cat")).toBe(92);
+    expect(portOffsetY(fakeNode(withCatalyst), "i0", "cat")).toBe(67);
   });
 
   it("keeps the two sides apart when one item is both an input and a catalyst", () => {

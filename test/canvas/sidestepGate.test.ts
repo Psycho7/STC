@@ -162,17 +162,31 @@ describe("the landing plan's sewage chip stays on its own line", () => {
 });
 
 describe("rot-bottled_food_4 keeps its bend-column chips on their lines", () => {
-  // Two more of the same shape on a wider plan: e:4 (iron_cmpt) stepped 16px off
-  // a 138-unit vertical and e:11 (plant_grass_powder_1) 8.5px off a 1.5-unit
-  // one, both against crossings on the leg the graze tier had a seat on.
+  // Two more of the same shape on a wider plan: e:4 (iron_cmpt) and e:11
+  // (plant_grass_powder_1) used to step 16px / 8.5px off their bend columns
+  // against crossings on the leg the graze tier had a seat on, which the gate
+  // closed. Since the card trim moved the input rows, one bounded sidestep is
+  // back and ratified: e:11's corridor to q:6 is exactly one window-capped
+  // box wide (the two port bands leave 106 between them, and its "150/min"
+  // chip caps at exactly that), so the box fits only FLUSH -- and the anchor,
+  // the midpoint of the chamfer, still laps the source out-band by 16.5,
+  // while the water line's descent and the target in-band pin the run's
+  // right end. With no fully-clear on-line seat anywhere, the ungated step
+  // takes one slot pitch (+16) and seats clear, the own run 4.5 under the
+  // centre -- inside the painted box, the battery5 lists' class. e:4 keeps
+  // its on-line seat at both lane arms.
   const targets: ItemTarget[] = [
     { itemId: "bottled_food_4", ratePerSec: { num: "1", denom: "2" } },
+  ];
+
+  const RATIFIED_OFF_PATH = [
+    "e:11:u:class:q:9->u:class:q:6:plant_grass_powder_1 4.50px",
   ];
 
   for (const busLanesEnabled of [true, false]) {
     it(`seats every rate chip on its polyline with lanes ${busLanesEnabled ? "on" : "off"}`, async () => {
       const hits = await offPathChips(targets, busLanesEnabled);
-      expect(named(hits)).toEqual([]);
+      expect(named(hits)).toEqual(RATIFIED_OFF_PATH);
     }, 60_000);
   }
 });
@@ -230,27 +244,49 @@ describe("seatRateChip: the vertical leg's sidestep gate", () => {
 });
 
 describe("battery5: no chip takes the only line another edge has", () => {
-  // e:1 (Originium Powder) reaches its target on ONE 345-unit approach leg and
+  // e:1 (Originium Powder) reaches its target on ONE ~300-unit approach leg and
   // has nowhere else to put its chip. e:12 (Sandleaf Powder) reaches the same
   // card and has a wide run of its own to fall back on, but sorted by edge id it
   // seated FIRST, parked its box across e:1's leg, and left e:1 with no on-line
   // seat at all -- so e:1 stepped off its line. Seating the scarcest supply
-  // first gives e:1 the leg and still leaves e:12 a seat on its own line.
+  // first still settles the pair: e:12 keeps a seat on its own line at the
+  // shrink reserve (cap 1) while e:1 holds a full-reserve seat over the middle
+  // of its leg (its bounded step below), so the scarcity order this describe
+  // exists for still holds at the trimmed card's geometry.
   const targets: ItemTarget[] = [
     { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "2" } },
   ];
 
-  // With lanes on, this plan used to carry the one seat the browser off-path
-  // audit ratified for it (CHIP_OFFPATH_BASELINE_ON.battery5 = 1): a "Sewage"
-  // chip anchored on a corridor vertical with a foreign stroke running PARALLEL
-  // to it inside the box, stepped a bounded 16 units off. Catalyst supply edges
-  // changed the clearance field that seat was measured in and the chip now
-  // seats on its own line, so the census is clean on both settings; a seat
-  // reappearing here is a regression, not a re-ratification.
+  // The one off-path seat this plan now carries, the bounded-sidestep class
+  // this suite's old e:14 entry was ratified under: a step under the
+  // max-scale painted half-height, so the chip's own line still runs inside
+  // its box. The card's header/footer trim moved every input row up 20 units
+  // and shortened the cards; at the rows' pitch against the 48-tall
+  // max-scale box this corridor no longer offers one fully-clear ON-LINE
+  // seat, so the sidestep walk -- ungated on e:1, whose anchor sits on a
+  // horizontal-dominant chamfer -- seats the chip beside its line instead:
+  //   e:1 (both lane arms): its own source out-band pins the corridor's left
+  //     end, and e:12's drawn line runs 22 below the approach leg at the
+  //     adjacent input row, so every max-scale box centred ON the leg
+  //     straddles one or the other. Step +32 (lanes off) / +48 (on); the leg
+  //     passes 4.5 under the seated centre.
+  // The same trim RETIRED the previous ratified seat: e:14 "Sewage" stepped
+  // 16 off its corridor vertical against a parallel lane stroke, but its
+  // window-capped box can no longer step past that stroke (the reach is half
+  // the 141-wide reserve, the stroke sits 30 past the line) and the stroke
+  // is too far away to braid, so the chip now grazes ON its own line and
+  // drops out of this list. The trim alone also stepped e:22 and e:23 off
+  // their tap lines with lanes off; the catalyst supply edges re-dealt that
+  // clearance field and both seat on their lines again -- an observation
+  // list, not a contract.
+  const RATIFIED_OFF_PATH = [
+    "e:1:u:class:q:1->u:class:q:11:originium_powder 4.50px",
+  ];
+
   for (const busLanesEnabled of [true, false]) {
     it(`seats every rate chip on its polyline with lanes ${busLanesEnabled ? "on" : "off"}`, async () => {
       const hits = await offPathChips(targets, busLanesEnabled);
-      expect(named(hits)).toEqual([]);
+      expect(named(hits)).toEqual(RATIFIED_OFF_PATH);
     }, 60_000);
   }
 });

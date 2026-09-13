@@ -21,12 +21,6 @@ import { SCENARIOS, scenarioHash } from "./scenarios";
 // label's own font binary-searches the longest prefix that fits with an
 // ellipsis, and that prefix is the visible string. Titles are single-line
 // and take the same probe on `.machine-title .cn`.
-//
-// The products subtitle is NOT probed here: its two-line -webkit-line-clamp
-// wraps, and a single-line binary search does not model what the clamp
-// shows. That surface is guarded by the offline vitest replay over the
-// pinned corpus fixture (test/canvas/subtitle-replay.test.ts), recorded in
-// the elision plan.
 
 // Known data defect, recorded in the plan for #84 as a residue: this pair
 // carries byte-identical display names in every locale, so no elision

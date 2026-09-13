@@ -30,11 +30,11 @@ import { RECIPE_HEAD_TITLE_COL, RECIPE_HEAD_BLOCK_PAD_X } from "./dimensions";
 // .rn-row in canvas.css): half of the card body, minus the row's horizontal
 // padding (6px per side plus the extra 2px on the port edge), minus the
 // 20px item sprite and one flex gap when the sprite renders (Sprite returns
-// null without an icon position, which drops both), minus one more flex gap
-// and the rate string. Port glyphs and handles are absolutely positioned
-// and cost no flex width. The rate estimate is an upper bound, so the label
-// budget errs narrow -- eliding early is safe, overflowing into CSS
-// ellipsis is the defect.
+// null without an icon position, which drops both). The rate is an
+// out-of-flow overlay over the label tail, so the label budget is the
+// row's own width minus its padding and the sprite line -- nothing is
+// reserved for digits. Port glyphs and handles are absolutely positioned
+// and cost no flex width.
 const ROW_PAD_X = 14;
 const ROW_GAP = 5;
 const ROW_SPRITE = 20;
@@ -42,12 +42,6 @@ const ROW_LABEL_FONT: MeasuredFont = {
   fontSize: 12,
   weight: 400,
   family: "--font-ui",
-};
-const ROW_RATE_FONT: MeasuredFont = {
-  fontSize: 12,
-  weight: 700,
-  family: "--font-num",
-  letterSpacingEm: -0.01,
 };
 
 // Header budgets from the pinned columns (dimensions.ts, ruling R3): the
@@ -59,11 +53,6 @@ const ROW_RATE_FONT: MeasuredFont = {
 const TITLE_FONT: MeasuredFont = {
   fontSize: 17,
   weight: 600,
-  family: "--font-ui",
-};
-const PRODUCTS_FONT: MeasuredFont = {
-  fontSize: 11,
-  weight: 500,
   family: "--font-ui",
 };
 const CHIP_FONT: MeasuredFont = {
@@ -116,15 +105,10 @@ function envFrameStyle(environment: EnvironmentId): CSSProperties {
 function elideRowLabel(
   name: string,
   bodyWidth: number,
-  rateText: string,
   hasSprite: boolean,
 ): string {
   const budget =
-    bodyWidth / 2 -
-    ROW_PAD_X -
-    (hasSprite ? ROW_SPRITE + ROW_GAP : 0) -
-    ROW_GAP -
-    measureTextWidth(rateText, ROW_RATE_FONT);
+    bodyWidth / 2 - ROW_PAD_X - (hasSprite ? ROW_SPRITE + ROW_GAP : 0);
   return elideName(name, budget, widthFnFor(ROW_LABEL_FONT), "row-12");
 }
 
@@ -180,11 +164,11 @@ type RecipeNodeType = Node<RecipeNodeData, "recipe">;
 // Per-row rate label: items per cycle over cycle time, times the machine speed
 // (the solver runs a machine at speed/time executions per second, so the
 // per-machine port rate is qty * speed / time), times the `scale` factor. The
-// render-pipeline path passes the solved rational multiplicity so rows and the
-// header show the aggregate flow across all machines (matching the edge chips);
-// scale=1 yields the per-machine figure. Exact Fraction math keeps non-integer
-// speeds and multiplicities free of float junk; rates here are non-negative, so
-// serializing .n/.d is safe.
+// render-pipeline path passes the solved rational multiplicity so rows show
+// the aggregate flow across all machines (matching the edge chips); scale=1
+// yields the per-machine figure. Exact Fraction math keeps non-integer
+// speeds and multiplicities free of float junk; rates here are non-negative,
+// so serializing .n/.d is safe.
 function rowRateText(
   stoich: Stoich,
   recipeTime: number,
@@ -230,8 +214,8 @@ export default function RecipeNode({
   const geom = measureRecipe(recipe);
   // Aggregate scale across all machines. The render-pipeline path supplies a
   // rational `multiplicity`; the older boot path an integer `multiplier`; a
-  // node with neither runs a single machine. Rows and the header multiply by
-  // this so the node's numbers match its incident edge chips.
+  // node with neither runs a single machine. Rows multiply by this so the
+  // node's numbers match its incident edge chips.
   const perMachine = new Fraction(1);
   const scale: Fraction = multiplicity
     ? rationalFromString(multiplicity)
@@ -248,12 +232,6 @@ export default function RecipeNode({
   // node.
   const machineName =
     producerId !== undefined ? i18n.displayName(producerId) : "";
-  // Secondary line: every produced item, in declaration order. A recipe can
-  // have multiple outputs, so all of them are listed; the line ellipsizes and
-  // the title attribute keeps the full list hoverable.
-  const productNames = recipe.out
-    .map((p) => i18n.displayName(p.item))
-    .join(" ·\u00A0");
   // Same speed factor the solver applies (multiplier.ts); a missing machine
   // record (corrupt fixture) falls back to 1, the only value the pack uses.
   const speed =
@@ -270,10 +248,9 @@ export default function RecipeNode({
     badgeText = `x${multiplier}`;
   }
 
-  // Visible header strings: the elision helper owns them against the pinned
-  // header budgets (title minus the chip and its gap when one rides the
-  // line; products at the recipe block's full content width), and the title
-  // attributes keep the full names for hover.
+  // Visible header string: the elision helper owns it against the pinned
+  // header budget (title minus the chip and its gap when one rides the
+  // line), and the title attribute keeps the full name for hover.
   const visibleMachineName = elideName(
     machineName,
     headerContentWidth() -
@@ -286,32 +263,6 @@ export default function RecipeNode({
     widthFnFor(TITLE_FONT),
     "title-17",
   );
-  const visibleProductNames = recipe.out
-    .map((p) =>
-      elideName(
-        i18n.displayName(p.item),
-        headerContentWidth(),
-        widthFnFor(PRODUCTS_FONT),
-        "products-11",
-      ),
-    )
-    .join(" \u00b7\u00a0");
-
-  // Header rate column. The primary value is the aggregate (per-machine x
-  // scale); the secondary line keeps the per-machine figure so the aggregate
-  // stays reconcilable to one machine's throughput. Empty string hides the
-  // value when there is no primary output. Uses recipe.out[0] (declared
-  // primary), not the reordered side-column top, for the same reason as the
-  // header product.
-  const primaryOut = recipe.out[0];
-  const rateValText =
-    primaryOut !== undefined
-      ? rowRateText(primaryOut, recipe.time, speed, scale)
-      : "";
-  const perMachineText =
-    primaryOut !== undefined
-      ? rowRateText(primaryOut, recipe.time, speed, perMachine)
-      : "";
   // The "/min" suffix the catalyst rows carry, the same locale string the
   // product cards and rate chips use.
   const rateUnit = i18n.t("canvas.rate.unit");
@@ -350,17 +301,16 @@ export default function RecipeNode({
           style={envFrameStyle(environment)}
         />
       ) : null}
-      {/* Header: a 28px machine icon slot plus the machine title line. */}
+      {/* Header: the 40px machine icon block plus the machine title line. */}
       <div className="rn-head">
         <div className="rn-machine-block">
           <div className="machine-icon" data-machine-icon={machineIconKey}>
-            <Sprite iconId={machine?.icon ?? producerId} size={28} />
+            <Sprite iconId={machine?.icon ?? producerId} size={40} />
           </div>
         </div>
         <div className="rn-recipe-block">
           {/* Title: machine name plus the machine-count multiplier chip. The
-              chip is critical info, so it survives at every zoom band (the
-              rate figures drop at zoom-low; this line does not). */}
+              chip is critical info, so it survives at every zoom band. */}
           <div className="machine-title">
             <span className="cn" title={machineName}>
               {visibleMachineName}
@@ -369,21 +319,6 @@ export default function RecipeNode({
               <span className="rn-mult-chip">{badgeText}</span>
             ) : null}
           </div>
-          {productNames !== "" ? (
-            <div className="rn-products" title={productNames}>
-              {visibleProductNames}
-            </div>
-          ) : null}
-        </div>
-        <div className="rn-rate-block">
-          <div className="rate-val">{rateValText}</div>
-          <div className="rate-lbl">{i18n.t("node.upm")}</div>
-          {rateValText !== "" ? (
-            <div className="rate-sub">
-              <span className="rate-sub-val">{perMachineText}</span>
-              <span className="rate-sub-ea">{i18n.t("node.each")}</span>
-            </div>
-          ) : null}
         </div>
       </div>
 
@@ -394,11 +329,10 @@ export default function RecipeNode({
             const handleId = `in:${p.item}`;
             // The visible label is the elided string (tail preserved when
             // the budget allows); the title attribute keeps the full name.
-            const rateText = rowRateText(p, recipe.time, speed, scale);
+            const rate = rowRateText(p, recipe.time, speed, scale);
             const visible = elideRowLabel(
               label,
               geom.width,
-              rateText,
               // Through iconIdForItem, exactly as the Sprite below resolves
               // it: upstream renamed four item icons, and asking iconPosition
               // for the raw item id misses those four. The budget then hands
@@ -429,7 +363,7 @@ export default function RecipeNode({
                 <span className="lbl" title={label}>
                   {visible}
                 </span>
-                <span className="rate">{rateText}</span>
+                <span className="rate">{rate}</span>
               </div>
             );
           })}
@@ -484,11 +418,10 @@ export default function RecipeNode({
           {outs.map((p) => {
             const label = i18n.displayName(p.item);
             const handleId = `out:${p.item}`;
-            const rateText = rowRateText(p, recipe.time, speed, scale);
+            const rate = rowRateText(p, recipe.time, speed, scale);
             const visible = elideRowLabel(
               label,
               geom.width,
-              rateText,
               // Through iconIdForItem, exactly as the Sprite below resolves
               // it: upstream renamed four item icons, and asking iconPosition
               // for the raw item id misses those four. The budget then hands
@@ -517,20 +450,11 @@ export default function RecipeNode({
                 <span className="lbl" title={label}>
                   {visible}
                 </span>
-                <span className="rate">{rateText}</span>
+                <span className="rate">{rate}</span>
               </div>
             );
           })}
         </div>
-      </div>
-
-      {/* Footer: left half shows cycle time; right half (.pwr) is reserved for
-          power. */}
-      <div className="rn-footer">
-        <div className="cycle">
-          {i18n.t("node.cycle", { time: recipe.time })}
-        </div>
-        <div className="pwr" />
       </div>
     </div>
   );

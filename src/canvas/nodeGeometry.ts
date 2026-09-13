@@ -29,7 +29,7 @@
 //      side is the caller's, never guessed from the item: one card can carry
 //      the same item on an input row and a catalyst row. On a recipe node that
 //      centre fallback is exactly distinguishable from any real row: rows sit
-//      at 97 + 22i and the centre at 59 + 11 * maxRows, which have no common
+//      at 73 + 22i and the centre at 34 + 11 * maxRows, which have no common
 //      solution. driftedPortY below depends on that discriminator, so the
 //      fallback value must not change and must not be pre-drifted.
 //   5. Total and pure. No throws, no React, no mutation of inputs,
@@ -142,7 +142,7 @@ export function portOffsetY(
 
 // Did portOffsetY resolve `y` to an actual row on this node, rather than the
 // centre fallback? Exact on recipe nodes by the discriminator in item 4 of the
-// header contract (rows at 97 + 22i can never equal the centre 59 + 11 *
+// header contract (rows at 73 + 22i can never equal the centre 34 + 11 *
 // maxRows); the canonical statement of that proof lives there, and callers that
 // need "resolved vs fallback" must go through this predicate instead of
 // restating the numbers.
@@ -172,12 +172,12 @@ export function edgeTargetSide(edge: Edge): PortSide {
 // an edge at the OUTER edge of the handle's 8x8 box (getHandlePosition), not at
 // the model port busRouting computes, so the drawn path starts and ends a few
 // units off the model coordinate. Derivation, from the DOM boxes:
-//   recipe: the card is content-box RECIPE_WIDTH (300) with a 1px border per
-//     side, so its border box is 302 wide while node.position is still the
+//   recipe: the card is content-box RECIPE_WIDTH (240) with a 1px border per
+//     side, so its border box is 242 wide while node.position is still the
 //     model left L. Handles hang off the .rn-row edges INSIDE that border
-//     (row spans L+1 .. L+301), each box centred on its row edge, so the outer
-//     edges land at L-3 and L+305: targetDx -3, and sourceDx +5 against the
-//     model port at L+300. The same 1px top border pushes each row's mid-line
+//     (row spans L+1 .. L+241), each box centred on its row edge, so the outer
+//     edges land at L-3 and L+245: targetDx -3, and sourceDx +5 against the
+//     model port at L+240. The same 1px top border pushes each row's mid-line
 //     one unit below the model row y, hence dy +1.
 //   product: the 148-wide wrapper carries no such width discrepancy, so its
 //     handle boxes give a symmetric [-4, +4]; the handles are CSS-centred on a

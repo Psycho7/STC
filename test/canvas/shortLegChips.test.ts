@@ -669,14 +669,14 @@ describe("deconflictChipAnchors: short-leg fan-out branch chips", () => {
 });
 
 // Two taps feeding adjacent input rows of one recipe across a 119-unit
-// corridor: only one of the pair fits the one band-clear seat at max scale, and
-// the other has to shrink to scale 1 to stay on its own line. Which one shrinks
-// is the scarcity-first seat order's call -- the WATER leg's anchor sits on a
-// vertical run with few clear windows, so it is seated first and keeps the full
-// reserve, and the ORE chip, which has a wide upper run to fall back on, takes
-// the cap. (Under the old id order the two were the other way round; the
-// invariant this fixture exists for -- both chips on their own lines, one of
-// them capped -- is the same either way.)
+// corridor. The pair used to contend: only one of them fit the corridor's one
+// band-clear seat at max scale and the other shrank to scale 1 on its own
+// line. The card trim moved the input rows up 20 units, lifting the ore
+// chip's target-run seat clear of the water chip's full-reserve band, so
+// BOTH chips now hold full-reserve seats on their own lines and the cap that
+// binds each is the corridor window's, not a shrink's. The invariant this
+// fixture exists for -- both chips seated on their own lines -- is asserted
+// below either way.
 describe("deconflictChipAnchors: adjacent-row pair shrinks onto its line", () => {
   it("caps the chip with the richer line and keeps both on their own lines", () => {
     const recipe = mkRecipe("r", ["ore", "water"], ["out"]);
@@ -689,10 +689,10 @@ describe("deconflictChipAnchors: adjacent-row pair shrinks onto its line", () =>
       mkEdge("e:1:tapOre->r:ore", "tapOre", "r", "ore"),
       mkEdge("e:2:tapWater->r:water", "tapWater", "r", "water"),
     ];
-    // The bend columns the bus router assigns the pair on the default plan:
-    // the ore chip lands on its upper run at the corridor's one band-clear x,
-    // and the water leg bends past it, so the water anchor sits on a vertical
-    // run inside the target band's x-range.
+    // The pair's bend columns, the fixture's own geometry: both chips land
+    // on their target-side runs at the corridor's one band-clear x (497.5,
+    // flush against the recipe's in-band), each from an anchor on its bend
+    // column -- the ore's at its vertical's midpoint, the water's likewise.
     Object.assign(edges[0]!.data!, { bendX: 486.67, chamferBudget: 5.17 });
     Object.assign(edges[1]!.data!, { bendX: 517.67, chamferBudget: 5.17 });
     const out = deconflictChipAnchors(nodes, edges);
@@ -742,9 +742,19 @@ describe("deconflictChipAnchors: adjacent-row pair shrinks onto its line", () =>
         ),
       ).toBeLessThan(0.01);
     }
-    const ore = out.find((o) => o.id === edges[0]!.id)?.data as {
-      chipScaleCap?: number;
-    };
-    expect(ore.chipScaleCap).toBe(1);
+    // Both chips seat on the full pass at the corridor's window cap: the
+    // window between the taps' out-band (444) and the recipe's in-band (551)
+    // is 107 against the 87-unit natural "60/min" box, and the trim's
+    // 20-unit row lift moved the ore seat off the water chip's reserve (the
+    // two boxes overlapped by 5 before it, which is what used to shove the
+    // ore chip onto the shrink pass at cap 1).
+    const natural =
+      (2 * chipSeatHalfW({ body: "60", unit: true }, false)) / MAX_CHIP_SCALE;
+    for (const e of edges) {
+      const data = out.find((o) => o.id === e.id)?.data as {
+        chipScaleCap?: number;
+      };
+      expect(data.chipScaleCap).toBeCloseTo(107 / natural, 5);
+    }
   });
 });

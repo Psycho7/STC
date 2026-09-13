@@ -16,12 +16,18 @@ import { loadPlan } from "../../src/data/plan";
 import { solveFromPlan } from "../../src/pipeline/solveForRender";
 import { layoutSolved } from "../../src/canvas/layoutSolved";
 import { pack } from "../../src/data/load";
+import {
+  BETWEEN_LAYERS_SPACING,
+  RECIPE_WIDTH,
+} from "../../src/canvas/dimensions";
 
 describe("computeEdgeSpans", () => {
-  it("pins the current long-edge threshold at 820 so span fixtures stay valid", () => {
+  it("pins the current long-edge threshold at 700 so span fixtures stay valid", () => {
     // Every span fixture in the bus-routing suites is written against this
-    // number; a spacing change that moves it has to move them too.
-    expect(SPAN_THRESHOLD).toBe(820);
+    // number; a spacing change that moves it has to move them too. Two full
+    // layers: 2 * (BETWEEN_LAYERS_SPACING + RECIPE_WIDTH).
+    expect(SPAN_THRESHOLD).toBe(2 * (BETWEEN_LAYERS_SPACING + RECIPE_WIDTH));
+    expect(SPAN_THRESHOLD).toBe(700);
   });
 
   it("resolves one level of parentId for absolute positions and floors at 0", () => {

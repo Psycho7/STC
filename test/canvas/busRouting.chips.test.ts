@@ -11,10 +11,13 @@ import {
   routeBusEdges,
   routeFanoutEdges,
   BUS_SPAN_THRESHOLD,
+  FANOUT_SPAN_MAX,
   LANE_SPACING,
   LANE_TOP_OFFSET,
 } from "../../src/canvas/busRouting";
 import {
+  CHAMFER,
+  PORT_STUB,
   chamferFanoutPath,
   routingHintsFromData,
 } from "../../src/canvas/edgePath";
@@ -24,6 +27,7 @@ import {
   CHIP_BOX_HEIGHT,
   CHIP_BOX_WIDTH,
   MAX_CHIP_SCALE,
+  RECIPE_WIDTH,
 } from "../../src/canvas/dimensions";
 import type { RFAnyNode } from "../../src/canvas/layout";
 import {
@@ -370,17 +374,17 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     // across a wide lane extent, so no chip crowds another and none is nudged.
     // The trunk is multi-member, so it seats no aggregate drop chip either.
     // Every slot now clamps into a MIN_CHIP_SEP-wide window at its member's
-    // own rise end: the two far members' slots (4735, 6936.5) pull to their
-    // windows' near edges (4895, 8895 -- unpinned) and keep their lane seats.
-    // The NEAREST member's slot (2533.5) sat some 1400 units past its own rise
-    // column (1135, the DRAWN one: a recipe's in handle sits 3 left of the
-    // model card edge), so its window [895, 1127] parks it at the FAR end,
-    // 1127 = riseX - CHAMFER, where the run's own junction dot sits -- the
+    // own rise end: the two far members' slots (4615, 6786.5) pull to their
+    // windows' near edges (4715, 8715 -- unpinned) and keep their lane seats.
+    // The NEAREST member's slot (2443.5) sat some 1500 units past its own rise
+    // column (955, the DRAWN one: a recipe's in handle sits 3 left of the
+    // model card edge), so its window [715, 947] parks it at the FAR end,
+    // 947 = riseX - CHAMFER, where the run's own junction dot sits -- the
     // wide box swallows the dot wherever it lands near that end, and the chip
     // stays seated on its lane anyway. Beside its own corner beats spread onto
     // a sibling's stroke.
     const r = mkRecipe("r", ["a"], ["b"]);
-    const far = 300 + (BUS_SPAN_THRESHOLD + 50);
+    const far = RECIPE_WIDTH + (BUS_SPAN_THRESHOLD + 50);
     const nodes: RFAnyNode[] = [
       recipeNode("s", 0, 0, r),
       recipeNode("t1", far, 0, r),
@@ -404,7 +408,8 @@ describe("deconflictChipAnchors: bus lane cascade", () => {
     // costs nothing), and no offset that small takes the box off a dot sitting
     // on the lane, so the chip keeps its lane slot (see the flush seat above).
     expect(busChipDyOf(out, "e0")).toBe(0);
-    expect(busChipXOf(out, "e0")).toBe(1127);
+    // The drawn rise column (far - stub - chamfer - 3) less one chamfer.
+    expect(busChipXOf(out, "e0")).toBe(far - PORT_STUB - 2 * CHAMFER - 3);
   });
 
   it("holds both drop chips on their junctions when only foreign lines cross", () => {
@@ -1217,7 +1222,7 @@ describe("deconflictChipAnchors: merged collision set", () => {
 
 describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
   const r = mkRecipe("r", ["a"], ["b"]);
-  const oneGap = 410; // 410 - 300 = 110, inside FANOUT_SPAN_MAX
+  const oneGap = FANOUT_SPAN_MAX; // 350 - 240 = 110, inside FANOUT_SPAN_MAX
 
   const aggOf = (edges: Edge[], id: string) =>
     edges.find((e) => e.id === id)!.data as {
@@ -1299,7 +1304,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     const src = nodes[0]!;
     const t1 = nodes[1]!;
     const fan = chamferFanoutPath({
-      sourceX: src.position.x + 300 + 5,
+      sourceX: src.position.x + RECIPE_WIDTH + 5,
       sourceY: 0 + portOffsetY(src, "b", "out") + 1,
       targetX: t1.position.x - 3,
       targetY: 0 + portOffsetY(t1, "b", "in"),
@@ -1331,7 +1336,7 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
     // re-derivation: the branch seat now slides only over the member's OWN leg
     // (the suffix after the junction), and the short-leg rule collapses that
     // leg's chip to the icon-only box -- so the walls must sit where even a
-    // 24-unit scale-1 collapsed box cannot clear them (x 330..430 spans every
+    // 24-unit scale-1 collapsed box cannot clear them (x 270..370 spans every
     // on-line candidate and both sidestep directions), and the members must be LEVEL
     // with the source row so the walls do not also eat the trunk's y-span and
     // defeat the columnClear formation test. The half-gap between the walls is
@@ -1362,8 +1367,14 @@ describe("deconflictChipAnchors: fan-out aggregate seat (3b)", () => {
       s,
       orderedRecipeNode("t1", oneGap, levelY, ["b"]), // level member
       orderedRecipeNode("t2", oneGap + 210, levelY, ["b"]), // level, farther
-      productNode("wallTop", 330, sy - wallHalfGap - 9700, 100, 9700),
-      productNode("wallBot", 330, sy + wallHalfGap, 100, 9700),
+      productNode(
+        "wallTop",
+        RECIPE_WIDTH + 30,
+        sy - wallHalfGap - 9700,
+        100,
+        9700,
+      ),
+      productNode("wallBot", RECIPE_WIDTH + 30, sy + wallHalfGap, 100, 9700),
     ];
     const edges = [mkEdge("e0", "s", "t1", "b"), mkEdge("e1", "s", "t2", "b")];
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

@@ -35,6 +35,7 @@ import {
   CHIP_BOX_HEIGHT,
   CHIP_BOX_WIDTH,
   MAX_CHIP_SCALE,
+  RECIPE_WIDTH,
 } from "../../src/canvas/dimensions";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
@@ -87,7 +88,7 @@ const dataOf = (edges: Edge[], id: string): Record<string, unknown> =>
 describe("junction dots: lane bus member (BusEdge branch dot)", () => {
   it("draws its dot on the trunk lane, just left of the member's rise column", () => {
     const src = producer("src", 0, 0);
-    const tgt = consumer("tgt", 300 + BUS_SPAN_THRESHOLD + 50, 200);
+    const tgt = consumer("tgt", RECIPE_WIDTH + BUS_SPAN_THRESHOLD + 50, 200);
     // A card straddling the direct corridor at the target row, so the lone
     // member is not demoted to a plain item edge and stays on a lane.
     const mid = recipeNode("mid", 600, 200, mkRecipe("mid", ["z"], ["z"]));
@@ -98,14 +99,14 @@ describe("junction dots: lane bus member (BusEdge branch dot)", () => {
     // from chamferBusPath.
     expect(routed[0]!.type).toBe("bus");
     const laneY = dataOf(routed, "e:1").laneY as number;
-    expect(laneY).toBe(420);
+    expect(laneY).toBe(370); // 290 (lowest card bottom) + LANE_TOP_OFFSET
 
     const junction = chamferBusPath({
       ...drawnPortsFor(src, tgt),
       laneY,
       ...routingHintsFromData(routed[0]!.data),
     }).junction;
-    expect(junction).toEqual({ x: 1127, y: 420 });
+    expect(junction).toEqual({ x: 947, y: 370 });
     // The dot sits ON the lane it marks the branch off.
     expect(junction.y).toBe(laneY);
 
@@ -162,7 +163,7 @@ describe("junction dots: fan-out trunk (BusEdge split dot)", () => {
       ...routingHintsFromData(dataOf(routed, "e:2")),
     }).junction;
 
-    expect(upJunction).toEqual({ x: 392, y: 198 });
+    expect(upJunction).toEqual({ x: 362, y: 174 });
     // Every member draws the same dot: the trunk splits once.
     expect(downJunction).toEqual(upJunction);
     // The dot sits on the source row, out along the shared trunk.
@@ -212,12 +213,12 @@ describe("junction dots: fan-in merge (stamped on the owner item edge)", () => {
     ]);
 
     const owner = dataOf(out, "e:1:srcA->tgt"); // smallest id of the group
-    expect(owner.faninJunctionX).toBe(905);
+    expect(owner.faninJunctionX).toBe(845);
     // On the DRAWN port row, so the dot sits on the run it marks: the model row
     // y plus the recipe handle drift, which is what the members are drawn along.
     expect(owner.faninJunctionY).toBe(drawnPortsFor(srcA, tgt).targetY);
-    expect(owner.faninJunctionY).toBe(198);
-    expect(ty).toBe(197);
+    expect(owner.faninJunctionY).toBe(174);
+    expect(ty).toBe(173);
     // One dot per merge: the non-owner carries none.
     expect(dataOf(out, "e:2:srcB->tgt").faninJunctionX).toBeUndefined();
   });
@@ -249,9 +250,9 @@ describe("junction dots: declined fan-out divergence (stamped on the owner)", ()
 
     const out = deconflictChipAnchors(nodes, edges);
     const owner = dataOf(out, "e:b"); // smallest id among the BENDING members
-    expect(owner.fanoutJunctionX).toBe(312.5);
+    expect(owner.fanoutJunctionX).toBe(252.5);
     expect(owner.fanoutJunctionY).toBe(drawnPortsFor(src, straight).sourceY);
-    expect(owner.fanoutJunctionY).toBe(98);
+    expect(owner.fanoutJunctionY).toBe(74);
     // One dot per split: the non-owner carries none.
     expect(dataOf(out, "e:a").fanoutJunctionX).toBeUndefined();
   });

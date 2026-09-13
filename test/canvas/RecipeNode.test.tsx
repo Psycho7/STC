@@ -97,8 +97,8 @@ function renderRecipe(
 
 describe("RecipeNode", () => {
   it("renders a kind: 'recipe' unit with the header multiplier chip when multiplier > 1 and not expanded", () => {
-    // The multiplier is promoted to one reserved .rn-head grid cell; target that
-    // chip rather than a bare text match.
+    // The multiplier rides the header title line as the .rn-mult-chip; target
+    // that chip rather than a bare text match.
     const { container } = renderRecipe({
       recipe,
       kind: "recipe",
@@ -120,8 +120,8 @@ describe("RecipeNode", () => {
   });
 
   it("preserves backward-compat on-main shape: { recipe, multiplier, expanded } with no kind", () => {
-    // The multiplier is promoted to one reserved .rn-head grid cell; target that
-    // chip rather than a bare text match.
+    // The multiplier rides the header title line as the .rn-mult-chip; target
+    // that chip rather than a bare text match.
     const { container } = renderRecipe({
       recipe,
       multiplier: 4,
@@ -287,12 +287,10 @@ describe("RecipeNode", () => {
     expect(inputRates).toEqual(["120", "60"]);
   });
 
-  it("renders output rows in the recipe's declared order, matching the .rn-products subtitle", () => {
+  it("renders output rows in the recipe's declared order", () => {
     // R4 (recipe-row-order-unstable): output rows read in the recipe's own
     // declared order -- the layout stamps no output side order -- so two cards
-    // of one recipe list their outputs alike. The header subtitle
-    // (.rn-products) already reads declaration order; the side rows must agree
-    // with it item for item.
+    // of one recipe list their outputs alike.
     const twoOutRecipe: Recipe = {
       ...multiRowRecipe,
       out: [
@@ -309,11 +307,6 @@ describe("RecipeNode", () => {
       container.querySelectorAll(".rn-side.out .rn-row.output .lbl"),
     ).map((el) => el.textContent);
     expect(outLbls).toEqual(["赤铜粉末", "污水"]);
-    // The subtitle is the declaration-order join of the same display names,
-    // so it reads in the same order as the rows.
-    expect(container.querySelector(".rn-products")?.textContent).toBe(
-      outLbls.join(" ·\u00A0"),
-    );
   });
 
   it("each row's .lbl shows the zh-CN item name and .rate shows the per-min formatted value", () => {
@@ -520,7 +513,7 @@ describe("RecipeNode", () => {
         `${measureRecipe(catalystRecipe).height}px`,
       );
       // 2 port rows + 1 catalyst row against 1 output row.
-      expect(measureRecipe(catalystRecipe).height).toBe(184);
+      expect(measureRecipe(catalystRecipe).height).toBe(134);
     });
 
     it("styles the catalyst row in canvas.css", () => {
@@ -564,37 +557,6 @@ describe("RecipeNode", () => {
       )!;
       expect(root.hasAttribute("data-environment")).toBe(false);
       expect(container.querySelector(".rn-env")).toBeNull();
-    });
-  });
-
-  describe("footer", () => {
-    it("renders cycle-time text inside .rn-footer .cycle with an empty .pwr placeholder", () => {
-      const footerRecipe: Recipe = {
-        id: "copper_powder",
-        name: "Copper Powder",
-        category: "smelt",
-        icon: "copper_powder",
-        row: 0,
-        time: 2.4,
-        in: [{ item: "copper_nugget", qty: 1 }],
-        out: [{ item: "copper_powder", qty: 1 }],
-        producers: ["smelter"],
-      };
-      const { container } = renderRecipe({
-        recipe: footerRecipe,
-        kind: "recipe",
-        multiplier: 1,
-      });
-      const footer = container.querySelector(".rn-footer");
-      expect(footer).not.toBeNull();
-      const cycle = footer!.querySelector(".cycle");
-      expect(cycle).not.toBeNull();
-      // The cycle caption localizes; the harness renders under the default zh
-      // locale, so the label reads in zh.
-      expect(cycle!.textContent).toBe("2.4秒 · 周期");
-      const pwr = footer!.querySelector(".pwr");
-      expect(pwr).not.toBeNull();
-      expect(pwr!.textContent).toBe("");
     });
   });
 
@@ -698,30 +660,6 @@ describe("RecipeNode", () => {
       expect(visA).not.toBe(visC);
     });
 
-    it("shows both bottle tails in the products subtitle", () => {
-      const twoBottles = {
-        ...bottleRecipe("copper_bottle", "liquid_plant_grass_1"),
-        out: [
-          { item: "copper_bottle-liquid_plant_grass_1", qty: 1 },
-          { item: "copper_bottle-liquid_plant_grass_2", qty: 1 },
-        ],
-      } as unknown as Recipe;
-      const { container } = renderEn({
-        recipe: twoBottles,
-        kind: "recipe",
-      });
-      const subtitle = container.querySelector(".rn-products");
-      expect(subtitle).not.toBeNull();
-      const text = subtitle!.textContent ?? "";
-      expect(text).toContain("(Jincao Solution)");
-      expect(text).toContain("(Yazhen Solution)");
-      expect(text).toContain("\u2026");
-      // The full join stays on the title attribute.
-      expect(subtitle!.getAttribute("title")).toBe(
-        "Cuprium Bottle(Jincao Solution) \u00b7\u00a0Cuprium Bottle(Yazhen Solution)",
-      );
-    });
-
     it("keeps a colliding machine-title pair distinct with tails intact (zh gates)", () => {
       // The two Purification Node machines differ only in their parenthesis
       // tail; under the pinned title budget the visible titles elide
@@ -799,11 +737,7 @@ describe("RecipeNode", () => {
       expect(head!.querySelector(".machine-title .cn")?.textContent).toBe(
         "mixer",
       );
-      // The products ride the secondary line; the old .product title line and
-      // the raw machine id line are gone.
-      expect(head!.querySelector(".rn-products")?.textContent).toBe(
-        "iron-plate",
-      );
+      // The old .product title line and the raw machine id line are gone.
       expect(head!.querySelector(".product")).toBeNull();
       expect(head!.querySelector(".machine-mid")).toBeNull();
     });

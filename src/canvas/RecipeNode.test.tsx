@@ -54,47 +54,42 @@ function renderedRates(speed: number, multiplier?: number) {
     ...(multiplier !== undefined ? { multiplier } : {}),
   });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(speed));
-  const header = container.querySelector(".rate-val")?.textContent;
   const rows = [...container.querySelectorAll(".rn-row .rate")].map(
     (el) => el.textContent,
   );
-  return { header, rows };
+  return { rows };
 }
 
 // Per-machine rates must carry the machine.speed factor the solver applies
 // (executionRate = multiplicity * speed / time), or the node disagrees with
 // the multiplicity-scaled edge rates by exactly the speed factor.
-test("row and header rates scale by machine.speed", () => {
-  const { header, rows } = renderedRates(2);
-  expect(header).toBe("20");
+test("row rates scale by machine.speed", () => {
+  const { rows } = renderedRates(2);
   expect(rows).toEqual(["20", "20"]);
 });
 
 test("fractional machine.speed stays exact", () => {
-  const { header, rows } = renderedRates(0.5);
-  expect(header).toBe("5");
+  const { rows } = renderedRates(0.5);
   expect(rows).toEqual(["5", "5"]);
 });
 
 // All shipped pack machines have speed 1; display must be byte-identical there.
 test("speed-1 machine output is unchanged", () => {
-  const { header, rows } = renderedRates(1);
-  expect(header).toBe("10");
+  const { rows } = renderedRates(1);
   expect(rows).toEqual(["10", "10"]);
 });
 
 // The older boot path scales by the integer replica multiplier; the speed
 // factor composes with it.
 test("speed composes with the legacy multiplier path", () => {
-  const { header, rows } = renderedRates(2, 3);
-  expect(header).toBe("60");
+  const { rows } = renderedRates(2, 3);
   expect(rows).toEqual(["60", "60"]);
 });
 
 // The machine-count multiplier is CRITICAL info and rides the header title
 // line right after the machine name, not the old absolute .rn-mult-badge
-// overlay that collided with the rate block. It must be theme-styled (readable
-// contrast), not the dead light-theme inline color:#444 / fontSize:11.
+// overlay. It must be theme-styled (readable contrast), not the dead
+// light-theme inline color:#444 / fontSize:11.
 test("multiplier chip rides the title line with no inline color or font size", () => {
   const props = makeRecipeNodeProps({ recipe: RECIPE, multiplier: 3 });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
@@ -104,94 +99,19 @@ test("multiplier chip rides the title line with no inline color or font size", (
   const chip = chips[0] as HTMLElement;
   expect(chip.textContent).toBe("x3");
   expect(chip.parentElement?.className).toBe("machine-title");
-  // Not inside the rate block, so it never collides with the rate figures.
-  expect(container.querySelector(".rn-rate-block .rn-mult-chip")).toBeNull();
   // The old absolute overlay is gone entirely.
   expect(container.querySelector(".rn-mult-badge")).toBeNull();
   expect(chip.style.color).toBe("");
   expect(chip.style.fontSize).toBe("");
 });
 
-// zoom-low LOD drops the sub-legible rate figures (value / unit label /
-// per-machine line) but the multiplier chip is critical and survives as the sole
-// surviving rate-area element. It lives outside .rn-rate-block, so the block's
-// hide rules never reach it. Inject the real canvas.css zoom-low selectors and
-// assert the cascade: chip visible, rate figures hidden.
-test("multiplier chip survives zoom-low while the rate figures hide", () => {
-  document.head.insertAdjacentHTML(
-    "beforeend",
-    `<style id="zoom-low-probe">
-       .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-val,
-       .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-lbl,
-       .ak-canvas-theme.zoom-low .rn-head .rn-rate-block .rate-sub {
-         display: none;
-       }
-     </style>`,
-  );
-  const props = makeRecipeNodeProps({ recipe: RECIPE, multiplier: 3 });
-  const { container } = render(
-    <ReactFlowProvider>
-      <LocaleProvider locale="en">
-        <ItemPackProvider value={packWithSpeed(1)}>
-          <div className="ak-canvas-theme zoom-low">
-            <RecipeNode {...props} />
-          </div>
-        </ItemPackProvider>
-      </LocaleProvider>
-    </ReactFlowProvider>,
-  );
-  const chip = container.querySelector<HTMLElement>(".rn-mult-chip")!;
-  const rateVal = container.querySelector<HTMLElement>(".rate-val")!;
-  const rateLbl = container.querySelector<HTMLElement>(".rate-lbl")!;
-  const rateSub = container.querySelector<HTMLElement>(".rate-sub")!;
-  expect(getComputedStyle(chip).display).not.toBe("none");
-  expect(getComputedStyle(rateVal).display).toBe("none");
-  expect(getComputedStyle(rateLbl).display).toBe("none");
-  expect(getComputedStyle(rateSub).display).toBe("none");
-  document.getElementById("zoom-low-probe")?.remove();
-});
-
-// The header title identifies the machine; the produced items ride the
-// secondary .rn-products line instead of the old .product title line.
-test("header title is the machine name with the products on the secondary line", () => {
+// The header title identifies the machine.
+test("header title is the machine name", () => {
   const props = makeRecipeNodeProps({ recipe: RECIPE, multiplier: 3 });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
   const title = container.querySelector(".machine-title .cn");
   expect(title?.textContent).toBe("mk1");
   expect(container.querySelector(".product")).toBeNull();
-  expect(container.querySelector(".rn-products")?.textContent).toBe("plate");
-});
-
-// A recipe with several outputs lists every product, in declaration order,
-// with the full list hoverable via the title attribute.
-test("multi-output recipe lists all products on the secondary line", () => {
-  const recipe: Recipe = {
-    ...RECIPE,
-    out: [
-      { item: "plate", qty: 1 },
-      { item: "slag", qty: 2 },
-    ],
-  };
-  const props = makeRecipeNodeProps({ recipe });
-  const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(1));
-  const products = container.querySelector(".rn-products");
-  expect(products?.textContent).toBe("plate ·\u00A0slag");
-  expect(products?.getAttribute("title")).toBe("plate ·\u00A0slag");
-});
-
-// The products line is the only per-recipe discriminator on the card (the title
-// is the machine name, so same-machine cards share it), and one ellipsized 11px
-// line fits about 21 characters, which cuts most item names before they differ.
-// It clamps to two lines instead; the pinned 80px header has the headroom.
-// jsdom does no layout, so the rule text itself is the assertable contract.
-test("the header products line clamps to two lines instead of one ellipsized line", () => {
-  const block = cssBlock(".rn-head .rn-products");
-  expect(block).toMatch(/-webkit-line-clamp:\s*2/);
-  expect(block).not.toMatch(/white-space:\s*nowrap/);
-  // CJK text breaks between any two Han characters by default, which splits
-  // a single item name mid-word across the clamp's two lines (zh exam Z4b).
-  // keep-all restricts breaks to the separator spaces the join provides.
-  expect(block).toMatch(/word-break:\s*keep-all/);
 });
 
 // The raw machine id (e.g. "mk1") reads as debug output; the localized machine
@@ -214,66 +134,42 @@ function renderedWithMultiplicity(
     multiplicity,
   });
   const { container } = wrap(<RecipeNode {...props} />, packWithSpeed(speed));
-  const header = container.querySelector(".rate-val")?.textContent;
   const rows = [...container.querySelectorAll(".rn-row .rate")].map(
     (el) => el.textContent,
   );
-  const sub = container.querySelector(".rate-sub");
   const mult = container.querySelector(".rn-mult-chip");
-  return { header, rows, sub, mult };
+  return { rows, mult };
 }
 
 // UX-10: with a multiplicity of N the node must show the aggregate rate
-// (per-machine x N) as the primary figure on rows and header, so node numbers
-// match the incident edge chips instead of showing one machine's share.
-test("multiplicity scales rows and header to the aggregate rate", () => {
-  const { header, rows } = renderedWithMultiplicity(1, {
+// (per-machine x N) on its rows, so node numbers match the incident edge
+// chips instead of showing one machine's share.
+test("multiplicity scales rows to the aggregate rate", () => {
+  const { rows } = renderedWithMultiplicity(1, {
     num: "2",
     denom: "1",
   });
-  expect(header).toBe("20");
   expect(rows).toEqual(["20", "20"]);
 });
 
-// The per-machine figure survives as a labeled secondary line so the aggregate
-// stays reconcilable to one machine's throughput; the machine count is promoted
-// to the header multiplier chip (outside the .rate-sub line) instead.
-test("per-machine rate renders as labeled secondary text, count as the header chip", () => {
-  const { sub, mult } = renderedWithMultiplicity(1, { num: "2", denom: "1" });
-  expect(sub).not.toBeNull();
-  expect(sub!.textContent).toContain("10");
-  expect(sub!.querySelector(".rate-sub-ea")).not.toBeNull();
-  // The count is no longer in the secondary line.
-  expect(sub!.textContent).not.toContain("x2");
-  expect(sub!.querySelector(".rn-mult-chip")).toBeNull();
-  // It renders once, in the header chip.
-  expect(mult).not.toBeNull();
-  expect(mult!.textContent).toBe("x2");
-});
-
-// At multiplicity 1 the aggregate equals the per-machine rate, so the primary
-// numbers are unchanged; only the explicit per-machine scope label is added,
-// with no redundant "x1" count.
-test("multiplicity of one leaves primary numbers unchanged with a scope label", () => {
-  const { header, rows, sub, mult } = renderedWithMultiplicity(1, {
+// At multiplicity 1 the aggregate equals the per-machine rate, so the row
+// numbers are unchanged, with no redundant "x1" count chip.
+test("multiplicity of one leaves row numbers unchanged with no chip", () => {
+  const { rows, mult } = renderedWithMultiplicity(1, {
     num: "1",
     denom: "1",
   });
-  expect(header).toBe("10");
   expect(rows).toEqual(["10", "10"]);
-  expect(sub).not.toBeNull();
-  expect(sub!.querySelector(".rate-sub-ea")).not.toBeNull();
   expect(mult).toBeNull();
 });
 
 // Small-rate corpus regression: a fractional multiplicity must not leave nodes
 // claiming the per-machine ~30/min on a 0.06/min plan.
 test("fractional multiplicity shows the small aggregate, not the per-machine rate", () => {
-  const { header, rows } = renderedWithMultiplicity(3, {
+  const { rows } = renderedWithMultiplicity(3, {
     num: "1",
     denom: "500",
   });
-  expect(header).toBe("0.06");
   expect(rows).toEqual(["0.06", "0.06"]);
 });
 
@@ -296,22 +192,48 @@ test("an unselected node carries no selected class", () => {
   );
 });
 
-// UX-20: the UPM unit label is a load-bearing node internal and must localize.
-// In zh it renders the localized units-per-minute abbreviation, not "UPM".
-test("UPM label localizes under zh", () => {
-  const props = makeRecipeNodeProps({ recipe: RECIPE });
-  const { container } = render(
-    <ReactFlowProvider>
-      <LocaleProvider locale="zh">
-        <ItemPackProvider value={packWithSpeed(1)}>
-          <RecipeNode {...props} />
-        </ItemPackProvider>
-      </LocaleProvider>
-    </ReactFlowProvider>,
+// Selected-path reveal contract for the row-rate overlay (jsdom cannot
+// drive :hover; the rate-reveal e2e covers the pointer path). Inject the
+// canvas.css rules verbatim -- base hide, hover/selected reveal, zoom-low
+// suppression -- and assert the cascade a browser would compute: a
+// selected card's row rates show, an unselected card's stay hidden.
+test("a selected card reveals its row rates; an unselected card keeps them hidden", () => {
+  document.head.insertAdjacentHTML(
+    "beforeend",
+    `<style id="rate-reveal-probe">
+       .rn-row .rate {
+         display: none;
+       }
+       .recipe-node:hover .rn-row .rate,
+       .recipe-node.selected .rn-row .rate {
+         display: block;
+       }
+       .ak-canvas-theme.zoom-low .recipe-node .rn-row .rate {
+         display: none;
+       }
+     </style>`,
   );
-  const lbl = container.querySelector(".rate-lbl")?.textContent;
-  expect(lbl).toBe("件/分");
-  expect(lbl).not.toBe("UPM");
+  const selected = wrap(
+    <RecipeNode {...makeRecipeNodeProps({ recipe: RECIPE }, true)} />,
+    packWithSpeed(1),
+  );
+  const unselected = wrap(
+    <RecipeNode {...makeRecipeNodeProps({ recipe: RECIPE })} />,
+    packWithSpeed(1),
+  );
+  const displays = (container: HTMLElement) =>
+    [...container.querySelectorAll(".rn-row .rate")].map(
+      (el) => getComputedStyle(el).display,
+    );
+  expect(displays(selected.container as HTMLElement)).toEqual([
+    "block",
+    "block",
+  ]);
+  expect(displays(unselected.container as HTMLElement)).toEqual([
+    "none",
+    "none",
+  ]);
+  document.getElementById("rate-reveal-probe")?.remove();
 });
 
 // 8B: each port's React Flow Handle and its PortGlyph render INSIDE the
@@ -399,7 +321,10 @@ test("missing machine record falls back to speed 1", () => {
   const props = makeRecipeNodeProps({ recipe: RECIPE });
   const emptyPack = makePackValue();
   const { container } = wrap(<RecipeNode {...props} />, emptyPack);
-  expect(container.querySelector(".rate-val")?.textContent).toBe("10");
+  const rows = [...container.querySelectorAll(".rn-row .rate")].map(
+    (el) => el.textContent,
+  );
+  expect(rows).toEqual(["10", "10"]);
 });
 
 // --- Environment requirement ----------------------------------------------
