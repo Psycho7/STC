@@ -48,13 +48,19 @@ rate is the draw for one machine with its unit spelled out ("6/min") rather than
 the flow across every machine that the port rows above it carry.
 
 Some recipes only run inside a gas environment, which the player builds a
-disperser for. Such a card carries an environment badge on its title line, right
-of the machine name and the multiplier chip: the in-game banner itself, a
-64 by 10 strip cut from the icon sheet at native scale, blue for a stable
-environment and yellow for an acidic one. Hovering it names the environment. It
-is a build requirement rather than a detail figure, so it survives the low-zoom
-band on the same footing as the multiplier chip, and because it never shrinks
-the machine name ellipsizes into what is left of the row.
+disperser for. Such a card states its requirement as a frame around the card
+rather than as a mark inside it: a plate of chevrons above the card, a
+single-row plate below it, and a faint tint of the environment's colour with
+a soft glow behind the card. The upper plate is two rows tall, blue for a
+stable environment and yellow for an acidic one, and carries a dark glyph at
+its centre that names the environment: two peaks for a stable one, four
+teardrops for an acidic one. The lower plate is one row of the same chevrons,
+so every triangle is the same size on both plates, and it carries no glyph.
+The space between the plates at the card's sides stays open, and the card's
+own border keeps its neutral colour; selection keeps its lime border while
+the plates keep the environment colour. Hovering the card names the
+environment. The frame is a build requirement rather than a detail figure, so
+it draws at every zoom and never collapses with the low-zoom simplifications.
 
 ## Edges
 
