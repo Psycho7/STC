@@ -24,6 +24,7 @@ import { layoutSolved } from "../../src/canvas/layoutSolved";
 import {
   PORT_STUB,
   chipBoxAt,
+  chipBoxClearsCards,
   drawnEdge,
   horizontalRuns,
   type DrawnEdge,
@@ -132,22 +133,13 @@ function onHorizontalSegment(
   return false;
 }
 
-// The chip boxes that stand over a card and are NOT the 1-to-1 rule's to move:
-// trunk chips, seated in the gap reserve beside the port they label. Sliding one
-// along its run would walk it out of the reserve it was charged to, so these are
-// recorded exactly rather than fixed. No growth allowed.
-const RESIDUE: Array<{ plan: string; edge: string; kind: string }> = [
-  {
-    plan: "multi6",
-    edge: "e:85:u:in:liquid_water:loop:plant_grass_1->u:class:q:52:liquid_water",
-    kind: "fanout member",
-  },
-  {
-    plan: "multi6",
-    edge: "e:87:u:in:liquid_water:loop:plant_grass_2->u:class:q:54:liquid_water",
-    kind: "fanout member",
-  },
-];
+// The chip boxes that stand over a card and are NOT the seating rule's to move:
+// the aggregate chips of a retyped trunk, seated in the gap reserve beside the
+// port they label, where sliding one along its run would walk it out of the
+// reserve it was charged to. Every FAR member now falls back to the card-clear
+// slide on its own runs like a 1-to-1 chip, which is what emptied this list.
+// No growth allowed.
+const RESIDUE: Array<{ plan: string; edge: string; kind: string }> = [];
 
 const gapAt = (
   gaps: ReadonlyArray<GapRecord>,
@@ -320,12 +312,19 @@ describe("a far trunk member's chip stands on the run the rule names", () => {
     // a far fan-in member owns its source stub (the first run) and a far fan-out
     // member its leg into the target (the last run). Everything else is the
     // trunk's shared stroke.
+    //
+    // The named seat holds while its BOX clears every card. Where it does not --
+    // a jogged member's leg can start just past the card it dodged and be too
+    // short to carry the box a port stub back from the port -- the member falls
+    // back to the same card-clear slide a 1-to-1 chip takes, over its own runs:
+    // the chip then stands wherever on its OWN polyline the box is clear.
     const wrong: Array<Chip & { run: string }> = [];
     let checked = 0;
 
     for (const scenario of SCENARIOS) {
       const { nodes, edges } = await layOut(scenario.id);
       const byId = nodeIndexOf(nodes);
+      const cards = cardRectsOf(nodes);
       for (const edge of edges) {
         if (edge.type !== "item") continue;
         const data = edge.data as
@@ -358,7 +357,22 @@ describe("a far trunk member's chip stands on the run the rule names", () => {
           Math.abs(chip.x - seat) <= EPS ||
           Math.abs(chip.x - run.lo) <= EPS ||
           Math.abs(chip.x - run.hi) <= EPS;
-        if (!onRun || !seated) {
+        // The named seat as the rule resolves it: the port-stub seat clamped
+        // onto the named run.
+        const namedX = Math.min(Math.max(seat, run.lo), run.hi);
+        if (chipBoxClearsCards(namedX, run.y, chip.halfW, cards)) {
+          if (!onRun || !seated) {
+            wrong.push({ ...chip, run: `[${run.lo}, ${run.hi}] @ ${run.y}` });
+          }
+          continue;
+        }
+        // Fallen back: on one of the member's own runs, with a clear box.
+        const slid =
+          onHorizontalSegment(
+            { x: chip.x, y: chip.y },
+            drawn.pts.map(([x, y]) => [x, y] as const),
+          ) && chipBoxClearsCards(chip.x, chip.y, chip.halfW, cards);
+        if (!slid && !(onRun && seated)) {
           wrong.push({ ...chip, run: `[${run.lo}, ${run.hi}] @ ${run.y}` });
         }
       }

@@ -27,6 +27,7 @@ import {
   backwardRailDefaults,
   clamp,
   clearRailY,
+  fanJunctionX,
   forwardStepGeometry,
   routingHintsFromData,
   type ObstacleRect,
@@ -184,6 +185,25 @@ function ownExempt(nodes: ReadonlyArray<RFAnyNode>): Set<string> {
   return exempt;
 }
 
+// Does a HORIZONTAL run at `y` from x0 to x1 enter any rect of `set`? The
+// obstacle test every pass that owns a long leg shares: jogForwardLegs decides
+// whether a step is dirty with it, and routeTrunkEdges decides with it whether
+// a member's trunk runs are clean enough to draw as part of the trunk.
+function legBlockedIn(
+  set: ReadonlyArray<PaddedObstacle>,
+  y: number,
+  x0: number,
+  x1: number,
+): boolean {
+  return set.some(
+    (o) =>
+      o.right > Math.min(x0, x1) &&
+      o.left < Math.max(x0, x1) &&
+      y > o.top &&
+      y < o.bottom,
+  );
+}
+
 // routeTrunkEdges: draw every trunk of the graph -- fan-out and fan-in alike --
 // on one shared junction column. Its place in the order, and why that placement
 // is scheduling rather than a dependency, is the ROUTING_PASSES entry in
@@ -212,7 +232,9 @@ function ownExempt(nodes: ReadonlyArray<RFAnyNode>): Set<string> {
 // and its nearest counterpart, clamped exactly as the path builders clamp it.
 //
 // A member's treatment is by LAYER DISTANCE from its trunk's unit, not pixel
-// span:
+// span -- plus, for the next-layer case, the clearance test below, which sends
+// a member whose own trunk runs would cross a foreign card to the far
+// treatment instead:
 //   next layer      retyped `type: "bus"` and stamped { fanout | fanin,
 //                   trunkKey, junctionX, busTotalRate, busMemberCount,
 //                   busChipOwner }; BusEdge draws the in-corridor trunk
@@ -374,22 +396,71 @@ export function routeTrunkEdges(
     }
   }
 
-  // The member that draws a fan-out trunk's ONE aggregate chip: the lex-smallest
-  // NEAR member, i.e. one BusEdge draws the fan-out shape (and therefore the
-  // trunk anchor) for. Trunk.owner is elected over ALL members, so a trunk whose
-  // lex-smallest member is far or backward would hand the aggregate to an edge
-  // that draws no trunk segment and the trunk would show no total at all. A
-  // trunk with no near member draws its aggregate on nothing, the same way a
-  // fan-in trunk of all-dual members does.
-  const fanoutAggOwnerByTrunk = new Map<Trunk, string>();
-  for (const geom of geoms) {
-    if (geom.trunk.kind !== "fanOut") continue;
-    let owner: string | undefined;
-    for (const [id, reach] of geom.reachByEdgeId) {
-      if (reach !== "near") continue;
-      if (owner === undefined || id < owner) owner = id;
+  // A near member is drawn as part of the trunk -- source stub out to the
+  // junction column, branch leg from the column into the target port -- and the
+  // bus retype then takes it out of every obstacle-aware pass, so those two
+  // long horizontals are never moved off a card again. Layer distance alone
+  // does not say they are drawable: a layer is a maximal run of OVERLAPPING
+  // x-intervals, so a card of the source's or the target's own layer can sit
+  // strictly between the member's two ports, and the member would draw straight
+  // through it.
+  //
+  // So a member is near only if both runs are clear of the raw cards foreign to
+  // it (its own endpoints and their containers exempt, as everywhere else in
+  // this module). One that is not is DEMOTED to the far treatment below: it
+  // keeps the shared column as its bend and goes back to the item-edge passes,
+  // where jogForwardLegs can move its legs clear. The column itself does not
+  // move -- it is the slot the gap record handed the trunk.
+  const rawCards = rawCardRects(nodes);
+  const trunkRunsClear = (edge: Edge, junctionX: number): boolean => {
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    const ports = edgePortsModel(edge, byId);
+    if (source === undefined || target === undefined || ports === null) {
+      return true;
     }
-    if (owner !== undefined) fanoutAggOwnerByTrunk.set(geom.trunk, owner);
+    const { sx, sy, tx, ty } = ports;
+    const exempt = ownExempt([source, target]);
+    const foreign = rawCards.filter((o) => !exempt.has(o.nodeId));
+    // A shared-y member draws one straight run from port to port; every other
+    // member draws the stub at sy and the leg at ty, split by the drawn column.
+    if (sy === ty) return !legBlockedIn(foreign, sy, sx, tx);
+    const jx = fanJunctionX(sx, tx, junctionX);
+    return (
+      !legBlockedIn(foreign, sy, sx, jx - CHAMFER) &&
+      !legBlockedIn(foreign, ty, jx + CHAMFER, tx)
+    );
+  };
+  for (const [id, side] of fanOutByEdgeId) {
+    const edge = edgeById.get(id);
+    if (side.reach !== "near" || edge === undefined) continue;
+    if (trunkRunsClear(edge, side.junctionX)) continue;
+    fanOutByEdgeId.set(id, { ...side, reach: "far" });
+  }
+  for (const [id, side] of fanInByEdgeId) {
+    const edge = edgeById.get(id);
+    if (side.reach !== "near" || edge === undefined) continue;
+    // A dual member is drawn as its fan-out branch and only hands its flow to
+    // the merge column, so its runs were already tested on the fan-out side.
+    if (fanOutByEdgeId.get(id)?.reach === "near") continue;
+    if (trunkRunsClear(edge, side.junctionX)) continue;
+    fanInByEdgeId.set(id, { ...side, reach: "far" });
+  }
+
+  // The member that draws a fan-out trunk's ONE aggregate chip: the lex-smallest
+  // member that is STILL near after the demotions above, i.e. one BusEdge draws
+  // the fan-out shape (and therefore the trunk anchor) for. Trunk.owner is
+  // elected over ALL members, so a trunk whose lex-smallest member is far or
+  // backward would hand the aggregate to an edge that draws no trunk segment and
+  // the trunk would show no total at all. A trunk with no near member draws its
+  // aggregate on nothing, the same way a fan-in trunk of all-dual members does.
+  const fanoutAggOwnerByTrunk = new Map<Trunk, string>();
+  for (const [id, side] of fanOutByEdgeId) {
+    if (side.reach !== "near") continue;
+    const owner = fanoutAggOwnerByTrunk.get(side.geom.trunk);
+    if (owner === undefined || id < owner) {
+      fanoutAggOwnerByTrunk.set(side.geom.trunk, id);
+    }
   }
 
   // The member that draws a fan-in trunk's ONE aggregate chip. It has to be a
@@ -402,15 +473,13 @@ export function routeTrunkEdges(
   // no BusEdge draws the aggregate leg the chip would ride. The target card
   // states the total there, and chipSeating still marks the merge with a dot.
   const faninAggOwnerByTrunk = new Map<Trunk, string>();
-  for (const geom of geoms) {
-    if (geom.trunk.kind !== "fanIn") continue;
-    let owner: string | undefined;
-    for (const [id, reach] of geom.reachByEdgeId) {
-      if (reach !== "near") continue;
-      if (fanOutByEdgeId.get(id)?.reach === "near") continue;
-      if (owner === undefined || id < owner) owner = id;
+  for (const [id, side] of fanInByEdgeId) {
+    if (side.reach !== "near") continue;
+    if (fanOutByEdgeId.get(id)?.reach === "near") continue;
+    const owner = faninAggOwnerByTrunk.get(side.geom.trunk);
+    if (owner === undefined || id < owner) {
+      faninAggOwnerByTrunk.set(side.geom.trunk, id);
     }
-    if (owner !== undefined) faninAggOwnerByTrunk.set(geom.trunk, owner);
   }
 
   const aggregateOf = (trunk: Trunk, owner: boolean): BusAggregate => ({
@@ -1624,7 +1693,11 @@ export function clampBackwardRails(
         }),
         sourceGap,
       );
-    if (xr !== xrDesired) railXRightByIndex.set(index, xr);
+    // Stamp against the DRAWER's default, not the search's starting point: an
+    // unstamped side falls back to backwardRailDefaults, so a column the zone
+    // clamp alone moved would be drawn back where the clamp took it from --
+    // one stub off the port, inside the card band the zone is there to avoid.
+    if (xr !== defaults.xr) railXRightByIndex.set(index, xr);
     const xlExempt = ownExempt([target]);
     const xl =
       pinnedLeft ??
@@ -1647,7 +1720,7 @@ export function clampBackwardRails(
         }),
         targetGap,
       );
-    if (xl !== xlDesired) railXLeftByIndex.set(index, xl);
+    if (xl !== defaults.xl) railXLeftByIndex.set(index, xl);
   });
 
   if (
@@ -1835,19 +1908,6 @@ export function jogForwardLegs(
     );
     const foreignAll = obstacles.filter((o) => !exempt.has(o.nodeId));
     const foreignRaw = rawCards.filter((o) => !exempt.has(o.nodeId));
-    const legBlockedIn = (
-      set: ReadonlyArray<PaddedObstacle>,
-      y: number,
-      x0: number,
-      x1: number,
-    ): boolean =>
-      set.some(
-        (o) =>
-          o.right > Math.min(x0, x1) &&
-          o.left < Math.max(x0, x1) &&
-          y > o.top &&
-          y < o.bottom,
-      );
     const vRunBlockedIn = (
       set: ReadonlyArray<PaddedObstacle>,
       x: number,
@@ -1864,8 +1924,13 @@ export function jogForwardLegs(
 
     // Nothing to jog unless the straight step is dirty: the final leg at ty or
     // the SOURCE horizontal at sy out to the bend column crosses a foreign
-    // card. (A blocked bend VERTICAL with both legs clean is not a jog.)
-    const tgtBlocked = legBlockedIn(foreignCards, ty, bx, descentX0);
+    // card. (A blocked bend VERTICAL with both legs clean is not a jog.) The
+    // final leg is measured out to the PORT, not to descentX0: without a jog
+    // there is no descent column, so the straight step draws that leg all the
+    // way from the bend to tx, and stopping the test at descentX0 misses every
+    // card standing between the two -- which is exactly where a card of the
+    // layer in front of the target sits.
+    const tgtBlocked = legBlockedIn(foreignCards, ty, bx, tx);
     const srcBlocked = legBlockedIn(foreignCards, sy, sx, bx);
     if (!tgtBlocked && !srcBlocked) return;
 
@@ -1875,12 +1940,18 @@ export function jogForwardLegs(
     // blocked piece) plus each spanned card's padded top / bottom gap, nearest
     // to ty first so the jog takes the smallest vertical excursion.
     type Jog = { C: number; R: number; D: number };
+    // `relaxed` is the last-resort mode (see the tier chain below): the column
+    // searches drop the zone confinement and the escape radius, so a column may
+    // stand inside a layer's OWN x-band and as far from its desired slot as the
+    // obstacles demand.
     const tryTier = (
       cardSet: ReadonlyArray<PaddedObstacle>,
       columnSet: ReadonlyArray<PaddedObstacle>,
       pad: number,
       colGap: number,
+      relaxed: boolean,
     ): Jog | null => {
+      const radius = relaxed ? Infinity : CLEAR_COLUMN_RADIUS;
       const spanning = cardSet.filter((o) => o.right > sx && o.left < tx);
       const rails = [
         ...new Set(spanning.flatMap((o) => [o.top - pad, o.bottom + pad])),
@@ -1900,10 +1971,11 @@ export function jogForwardLegs(
             {
               towardTarget: 1,
               gap: colGap,
+              radius,
               accept: (x) =>
                 x > sx &&
                 x < tx &&
-                inSourceZone(x) &&
+                (relaxed || inSourceZone(x)) &&
                 !legBlockedIn(cardSet, sy, sx, x),
             },
           );
@@ -1933,9 +2005,10 @@ export function jogForwardLegs(
           {
             towardTarget: 1,
             gap: colGap,
+            radius,
             accept: (x) =>
               x <= tx - CHAMFER &&
-              inDescentZone(x) &&
+              (relaxed || inDescentZone(x)) &&
               !legBlockedIn(cardSet, ty, x, tx),
           },
         );
@@ -1951,20 +2024,41 @@ export function jogForwardLegs(
     // Padded tier first (full quality), then the raw-card fallback where
     // overlapping sibling paddings leave no padded-clear jog: threading the raw
     // gaps beats keeping a straight leg through a card.
+    const confined =
+      tryTier(foreignCards, foreignAll, CHAMFER, CHAMFER, false) ??
+      tryTier(foreignRaw, foreignRaw, 2, 2, false);
+    // Last resort, both obstacle tiers again with the column searches relaxed.
+    // A column is normally confined to its gap's column zone and to one card
+    // plus one layer spacing of escape, which is the right rule while the
+    // blocking card stands in a layer of its own. It is not reachable at all
+    // when the card shares a LAYER with the endpoint -- a container slab merges
+    // every column it spans into one layer, so the zone can sit hundreds of
+    // units the wrong side of the card and no candidate inside it, or inside
+    // the radius, is clear. A column standing in that layer's own band beats a
+    // leg drawn through the card; it stands in no gap, so it takes no room
+    // reserved for chips or for another gap's columns.
     const jog =
-      tryTier(foreignCards, foreignAll, CHAMFER, CHAMFER) ??
-      tryTier(foreignRaw, foreignRaw, 2, 2);
+      confined ??
+      tryTier(foreignCards, foreignAll, CHAMFER, CHAMFER, true) ??
+      tryTier(foreignRaw, foreignRaw, 2, 2, true);
     if (jog === null) return; // no clear jog -> straight leg residual
+    // The zone clamp is the confined tiers' own guard; a relaxed column is out
+    // of the zone on purpose, so clamping it would put it straight back on the
+    // card it escaped.
+    const zoned = confined !== null;
 
     if (jog.R !== ty) {
       legYByIndex.set(index, jog.R);
       if (jog.D !== tx - PORT_STUB) {
-        descentXByIndex.set(index, clampToZone(jog.D, descentGap));
+        descentXByIndex.set(
+          index,
+          zoned ? clampToZone(jog.D, descentGap) : jog.D,
+        );
       }
       jogsByTarget.set(edge.target, (jogsByTarget.get(edge.target) ?? 0) + 1);
     }
     if (srcBlocked) {
-      srcColXByIndex.set(index, clampToZone(jog.C, sourceGap));
+      srcColXByIndex.set(index, zoned ? clampToZone(jog.C, sourceGap) : jog.C);
       if (trunkKey !== undefined) srcSlotsByTrunk.set(trunkKey, srcSlot + 1);
     }
   });

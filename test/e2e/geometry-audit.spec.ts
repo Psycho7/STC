@@ -313,7 +313,7 @@ const CROSSING_BASELINE: Record<string, number> = {
   battery5: 12,
   "battery5-xiranite": 20,
   crystal: 1,
-  equip4: 0,
+  equip4: 1,
   multi6: 83,
   tundra: 0,
   script43: 23,
@@ -425,11 +425,11 @@ const OWN_PIERCE_BASELINE: Record<string, number> = {
 // near a frame: only a RUN along it counts.
 const FRAME_RIDE_BASELINE: Record<string, number> = {
   default: 0,
-  battery5: 2,
-  "battery5-xiranite": 2,
-  crystal: 1,
-  equip4: 1,
-  multi6: 4,
+  battery5: 0,
+  "battery5-xiranite": 0,
+  crystal: 0,
+  equip4: 0,
+  multi6: 0,
   tundra: 0,
   script43: 0,
   "coupon-web": 0,
@@ -973,9 +973,9 @@ const FOREIGN_STROKE_BASELINE: Record<string, number> = {
   default: 0,
   battery5: 1,
   "battery5-xiranite": 5,
-  crystal: 0,
-  equip4: 0,
-  multi6: 6,
+  crystal: 1,
+  equip4: 1,
+  multi6: 8,
   tundra: 0,
   script43: 1,
   "coupon-web": 0,
@@ -1021,7 +1021,7 @@ const CENSUS_TOTALS: {
   portCover: number;
 } = {
   cardIntrusion: 0,
-  foreignStroke: 15,
+  foreignStroke: 19,
   portCover: 5,
 };
 

@@ -571,6 +571,23 @@ function runsByPreference(
 // `cards` are the RAW drawn card rects (recipe / product / loop boxes, no
 // padding); container slabs are not cards. The caller supplies them because
 // this module sees one edge at a time and never the node list.
+// Does a chip box at (x, y) enter any of these cards? The seating pass asks it
+// of a RULE seat before deciding to slide, and the slide below asks it of every
+// candidate, so both read the same definition of "on a card".
+export function chipBoxClearsCards(
+  x: number,
+  y: number,
+  halfW: number,
+  cards: ReadonlyArray<{
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }>,
+): boolean {
+  return !cards.some((card) => rectsOverlap(chipBoxAt(x, y, halfW), card));
+}
+
 export function cardClearRunAnchor(
   pts: ReadonlyArray<readonly [number, number]>,
   halfW: number,
@@ -584,7 +601,7 @@ export function cardClearRunAnchor(
   const runs = runsByPreference(pts);
   if (runs.length === 0) return pathPointAtPts(pts, 0.5);
   const clears = (x: number, y: number, blockers: typeof cards): boolean =>
-    !blockers.some((card) => rectsOverlap(chipBoxAt(x, y, halfW), card));
+    chipBoxClearsCards(x, y, halfW, blockers);
 
   for (const run of runs) {
     const centre = (run.lo + run.hi) / 2;
@@ -639,11 +656,17 @@ function onHorizontalRun(
 //     this box; the run at the target row is the trunk's aggregate leg, shared
 //     with every sibling.
 //   everything else (1-to-1 forward, rail, straight line, diagonal): the
-//     longest run's centre, or the card-clear seat the pass slid it to.
+//     longest run's centre.
 //
-// The far-member seats read the member's own chip box (memberHalfW), defaulting
-// to the worst case for a direct caller that reserves none.
-function itemAnchor(
+// The card-clear seat the seating pass slid the chip to wins over all three,
+// for a far member as much as for a 1-to-1 chip: a named run can be shorter
+// than the box it has to carry (a jogged member's leg starts just past the card
+// it dodged), and a box hanging off the end of such a run reads as the label of
+// whatever it hangs over. The stamp is only taken while it still lies on a
+// horizontal run of the live polyline, so a dragged node drops back to the rule
+// seat. The far-member seats read the member's own chip box (memberHalfW),
+// defaulting to the worst case for a direct caller that reserves none.
+export function itemAnchor(
   pts: ReadonlyArray<readonly [number, number]>,
   args: RoutingHints & ChipBoxes,
   sx: number,
@@ -653,18 +676,18 @@ function itemAnchor(
   const halfW = args.memberHalfW ?? CHIP_HALF_W_WIDE;
   const first = runs[0];
   const last = runs[runs.length - 1];
-  if (args.fanoutColumn === true && last !== undefined) {
-    return [r(reserveSeatX(tx, null, halfW, last.lo, last.hi)), r(last.y)];
-  }
-  if (args.faninColumn === true && first !== undefined) {
-    return [r(reserveSeatX(sx, null, halfW, first.lo, first.hi)), r(first.y)];
-  }
   if (
     args.chipX !== undefined &&
     args.chipY !== undefined &&
     onHorizontalRun(runs, args.chipX, args.chipY)
   ) {
     return [r(args.chipX), r(args.chipY)];
+  }
+  if (args.fanoutColumn === true && last !== undefined) {
+    return [r(reserveSeatX(tx, null, halfW, last.lo, last.hi)), r(last.y)];
+  }
+  if (args.faninColumn === true && first !== undefined) {
+    return [r(reserveSeatX(sx, null, halfW, first.lo, first.hi)), r(first.y)];
   }
   return longestRunAnchor(pts);
 }
@@ -872,6 +895,24 @@ function dualAnchorOf(
   return { x: r((ownRunLo + joinX) / 2), y: r(ty) };
 }
 
+// The junction column a fan-out / fan-in member is actually DRAWN on: the
+// routing pass's shared column, clamped into the corridor (one stub + chamfer
+// inside each port) so both the trunk segment and the branch leg stay well
+// formed. When the corridor is too tight to host a distinct column, the
+// midpoint stands in and the member draws a plain step. Both builders below
+// share it, and so does routeTrunkEdges, which has to test the runs this
+// column produces before it commits a member to the trunk shape.
+export function fanJunctionX(
+  sx: number,
+  tx: number,
+  junctionX: number | undefined,
+): number {
+  const lo = sx + PORT_STUB + CHAMFER;
+  const hi = tx - PORT_STUB - CHAMFER;
+  const mid = (sx + tx) / 2;
+  return lo < hi ? clamp(junctionX ?? mid, lo, hi) : mid;
+}
+
 // chamferFanoutPath: one member of a fan-out trunk (routeTrunkEdges). N members
 // share a source PORT (same item, same source unit) and fan out to N targets one
 // layer over. Every member is drawn with the SAME junction column, so their
@@ -902,15 +943,7 @@ export function chamferFanoutPath(
   branchAnchor: { x: number; y: number };
 } {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = args;
-  // Junction column: the classifier's shared column, clamped into the corridor
-  // (one stub + chamfer inside each port) so both the trunk segment and the
-  // branch leg stay well formed. When the corridor is too tight to host a
-  // distinct column, fall back to the midpoint (a plain step).
-  const lo = sx + PORT_STUB + CHAMFER;
-  const hi = tx - PORT_STUB - CHAMFER;
-  const mid = (sx + tx) / 2;
-  const desired = args.junctionX ?? mid;
-  const jx = lo < hi ? clamp(desired, lo, hi) : mid;
+  const jx = fanJunctionX(sx, tx, args.junctionX);
   // The junction dot marks the split, so it must sit ON the drawn geometry.
   // The sharp corner (jx, sy) is cut away by the branch chamfer; the last
   // point every member still shares is one chamfer before the column, on the
@@ -1007,11 +1040,7 @@ export function chamferFaninPath(
   branchAnchor: { x: number; y: number };
 } {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = args;
-  const lo = sx + PORT_STUB + CHAMFER;
-  const hi = tx - PORT_STUB - CHAMFER;
-  const mid = (sx + tx) / 2;
-  const desired = args.junctionX ?? mid;
-  const jx = lo < hi ? clamp(desired, lo, hi) : mid;
+  const jx = fanJunctionX(sx, tx, args.junctionX);
   // The merge dot sits on the drawn geometry at the point the members first
   // coincide: the outgoing chamfer's end on the target row, which every
   // branching, small-dy and shared-y member alike emits (or, for a straight

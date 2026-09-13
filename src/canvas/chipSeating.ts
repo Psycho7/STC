@@ -40,8 +40,9 @@ import { GLYPH_SIDE_OFFSET } from "./dimensions";
 import {
   CHAMFER,
   cardClearRunAnchor,
+  chipBoxClearsCards,
   drawnEdge,
-  longestRunAnchor,
+  itemAnchor,
   routingHintsFromData,
 } from "./edgePath";
 import {
@@ -579,38 +580,47 @@ export function deconflictChipAnchors(
     faninJunctionByIndex.set(owner.index, { x: owner.x, y: owner.y });
   }
 
-  // CARD-CLEAR SEAT of a 1-to-1 chip. The rule seat is the centre of the
-  // polyline's longest horizontal run, and that run can pass over a card: a
-  // chip box standing on a card reads as that card's own label rather than as
-  // the line's rate. cardClearRunAnchor slides it along its own run to the
-  // nearest card-clear position (next-longest run if none clears), a
-  // deterministic function of the run and the raw card rects. Only the rects
+  // CARD-CLEAR SEAT of an item chip. The rule seat is the centre of the
+  // polyline's longest horizontal run for a 1-to-1 chip, and one port stub off
+  // the port on its own named run for a far trunk member; either can stand over
+  // a card, where the box reads as that card's own label rather than as the
+  // line's rate. A far member's named run is the one that gets too short for
+  // its box: a jogged leg starts just past the card it dodged, so the seat one
+  // stub back from the port hangs off the run's near end and over that card.
+  //
+  // Both fall back the same way: cardClearRunAnchor slides the box along the
+  // member's OWN runs, longest first, to the nearest card-clear position, a
+  // deterministic function of the runs and the raw card rects. Only the rects
   // need the node list, which is why the slide is computed here and handed to
   // the drawer as a point; the drawer keeps it only while it still lies on a
-  // horizontal run of the live polyline.
-  //
-  // Trunk members -- retyped or pinned far ones -- are out of scope: their
-  // chips are reserve-placed beside a port, inside a gap zone widened for
-  // exactly that box, and sliding one along its run would walk it out of the
-  // reserve it was charged to.
+  // horizontal run of the live polyline. A rule seat that is already clear is
+  // left alone, and so is a member no run of which can hold a clear box -- it
+  // keeps the named seat, which at least states which port the rate belongs to.
   const chipSeatByIndex = new Map<number, { x: number; y: number }>();
   {
     const cards = cardRectsFor(
       nodes.filter((node) => node.type !== "group"),
       byId,
     );
+    const boxHitsCard = (x: number, y: number, halfW: number): boolean =>
+      !chipBoxClearsCards(x, y, halfW, cards);
     edges.forEach((edge, index) => {
       if (edge.type !== "item") return;
       const pts = itemPtsById.get(edge.id);
       if (pts === undefined || pts.length < 2) return;
-      const data = edge.data as
-        | { faninColumn?: boolean; fanoutColumn?: boolean }
-        | undefined;
-      if (data?.faninColumn === true || data?.fanoutColumn === true) return;
+      const ports = drawnPortsOf(edge, byId);
+      if (ports === null) return;
       const halfW = chipSeatHalfW(rateChipText(edge), false);
+      const [ruleX, ruleY] = itemAnchor(
+        pts,
+        { ...routingHintsFromData(edge.data), memberHalfW: halfW },
+        ports.sourceX,
+        ports.targetX,
+      );
+      if (!boxHitsCard(ruleX, ruleY, halfW)) return;
       const [x, y] = cardClearRunAnchor(pts, halfW, cards);
-      const [ruleX, ruleY] = longestRunAnchor(pts);
       if (x === ruleX && y === ruleY) return;
+      if (boxHitsCard(x, y, halfW)) return;
       chipSeatByIndex.set(index, { x, y });
     });
   }

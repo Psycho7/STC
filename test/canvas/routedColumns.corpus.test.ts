@@ -13,7 +13,10 @@
 // Columns are read off the stamps the passes emit, in the MODEL frame the
 // records are in. A column that falls outside every gap (in front of the first
 // layer, behind the last, or inside a layer's own x-band) is not this rule's
-// business and is skipped.
+// business and is skipped. jogForwardLegs' last-resort tier parks a column in a
+// layer's own band ON PURPOSE -- the only way past a card that shares a layer
+// with the endpoint it stands in front of -- and such a column takes no room
+// this rule is about, since every reserve it guards lives in a gap.
 
 import { describe, it, expect } from "vitest";
 import type { Edge } from "@xyflow/react";
