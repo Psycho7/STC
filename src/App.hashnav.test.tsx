@@ -158,9 +158,7 @@ test("a bad mount hash shows a themed recovery screen with a human message", asy
   expect(alert.textContent).toContain("damaged");
   expect(alert.textContent).toMatch(/hash|parse/i);
   // Recovery action present.
-  expect(
-    screen.getByRole("button", { name: /fresh plan/i }),
-  ).not.toBeNull();
+  expect(screen.getByRole("button", { name: /fresh plan/i })).not.toBeNull();
 });
 
 test("the fresh-plan recovery action clears the hash and loads the default plan", async () => {

@@ -1388,18 +1388,20 @@ describe("render policy / input fan-out per container", () => {
       .filter(isInputProductUnit)
       .filter((u) => u.itemId === "water");
     const ids = inputs.map((u) => u.id).sort();
-    expect(ids).toEqual([
-      "u:in:water",
-      "u:in:water:grp:A",
-      "u:in:water:grp:B",
-    ]);
+    expect(ids).toEqual(["u:in:water", "u:in:water:grp:A", "u:in:water:grp:B"]);
     const byId = new Map(inputs.map((u) => [u.id, u]));
     // Aggregate carries the summed rate; fanout slices carry per-bucket rate.
     expect(byId.get("u:in:water")!.rate).toEqual({ num: "2", denom: "1" });
     expect(byId.get("u:in:water")!.isFanout).toBeUndefined();
-    expect(byId.get("u:in:water:grp:A")!.rate).toEqual({ num: "1", denom: "1" });
+    expect(byId.get("u:in:water:grp:A")!.rate).toEqual({
+      num: "1",
+      denom: "1",
+    });
     expect(byId.get("u:in:water:grp:A")!.isFanout).toBe(true);
-    expect(byId.get("u:in:water:grp:B")!.rate).toEqual({ num: "1", denom: "1" });
+    expect(byId.get("u:in:water:grp:B")!.rate).toEqual({
+      num: "1",
+      denom: "1",
+    });
     expect(byId.get("u:in:water:grp:B")!.isFanout).toBe(true);
     // Aggregate -> fanout edges (one per slice).
     const aggregateOut = plan.edges.filter(

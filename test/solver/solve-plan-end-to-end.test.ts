@@ -35,5 +35,4 @@ describe("solvePlanWithIntermediates (end-to-end on real AEF)", () => {
     const n2 = g2.nodes.map((n) => n.id).sort();
     expect(JSON.stringify(n1)).toBe(JSON.stringify(n2));
   });
-
 });

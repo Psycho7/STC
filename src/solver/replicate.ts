@@ -818,8 +818,7 @@ function ensureSccReplicas(state: ReplicateState, sid: SccId): void {
         crossEdges.push({ item: e.item, target: e.target });
       }
     }
-    const targetOutItems =
-      state.targetItemsByRecipe.get(rid) ?? EMPTY_ITEM_SET;
+    const targetOutItems = state.targetItemsByRecipe.get(rid) ?? EMPTY_ITEM_SET;
     const recipeRate = state.rates.get(rid) ?? new Fraction(0);
     const recipe = state.g.nodes.get(rid);
     const outQtys = new Map<string, number>();
@@ -853,8 +852,7 @@ function ensureSccReplicas(state: ReplicateState, sid: SccId): void {
         netProd = netProd.sub(draw);
         if (netProd.compare(0) < 0) netProd = new Fraction(0);
       }
-      const avail =
-        netProd.compare(totalDemand) < 0 ? netProd : totalDemand;
+      const avail = netProd.compare(totalDemand) < 0 ? netProd : totalDemand;
       if (avail.compare(0) <= 0) continue;
       for (const ie of ies) {
         const share = ie.consumerRate
@@ -928,10 +926,7 @@ function ensureSccReplicas(state: ReplicateState, sid: SccId): void {
     // avoids the forced reroute in assemble.ts. The
     // other split replica is still its own entry, and assembleLogicalGraph
     // picks it up through the recipeId index.
-    map.set(
-      rid,
-      decision.looperRate.compare(0) > 0 ? looper.id : deliverer.id,
-    );
+    map.set(rid, decision.looperRate.compare(0) > 0 ? looper.id : deliverer.id);
   }
 
   state.sccCreated.add(sid);

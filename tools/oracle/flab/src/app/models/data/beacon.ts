@@ -1,6 +1,6 @@
-import { EnergyType } from '../enum/energy-type';
-import { Rational, rational } from '../rational';
-import { ModuleEffect } from './module';
+import { EnergyType } from "../enum/energy-type";
+import { Rational, rational } from "../rational";
+import { ModuleEffect } from "./module";
 
 export interface BeaconJson {
   effectivity: number | string;

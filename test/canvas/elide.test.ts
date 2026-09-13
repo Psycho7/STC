@@ -50,10 +50,22 @@ const ELLIPSIS = "\u2026";
 // distinguishing tail whole and puts the ellipsis in front of it.
 const CASES: ReadonlyArray<readonly [string, number, string]> = [
   // Parenthesis family, en: suffix "(...)" preserved, base head-truncated.
-  ["Cuprium Bottle(Jincao Solution)", 208, `Cuprium${ELLIPSIS}(Jincao Solution)`],
+  [
+    "Cuprium Bottle(Jincao Solution)",
+    208,
+    `Cuprium${ELLIPSIS}(Jincao Solution)`,
+  ],
   ["Cuprium Bottle(Jincao Solution)", 176, `Cupr${ELLIPSIS}(Jincao Solution)`],
-  ["Cuprium Bottle(Yazhen Solution)", 208, `Cuprium${ELLIPSIS}(Yazhen Solution)`],
-  ["Ferrium Bottle(Jincao Solution)", 208, `Ferrium${ELLIPSIS}(Jincao Solution)`],
+  [
+    "Cuprium Bottle(Yazhen Solution)",
+    208,
+    `Cuprium${ELLIPSIS}(Yazhen Solution)`,
+  ],
+  [
+    "Ferrium Bottle(Jincao Solution)",
+    208,
+    `Ferrium${ELLIPSIS}(Jincao Solution)`,
+  ],
   // Bracket family, en: the leading space rides with the "[X]" suffix.
   ["Canned Citrome [C]", 104, `Canned C${ELLIPSIS} [C]`],
   ["Canned Citrome [B]", 104, `Canned C${ELLIPSIS} [B]`],
@@ -132,17 +144,19 @@ const RAW_CASES: ReadonlyArray<readonly [string, number]> = [
 describe("canvas/elide", () => {
   it("keeps the distinguishing tail and elides the head", () => {
     for (const [name, budget, expected] of CASES) {
-      expect(elideName(name, budget, monoStub, "mono"), `${name} @${budget}`).toBe(
-        expected,
-      );
+      expect(
+        elideName(name, budget, monoStub, "mono"),
+        `${name} @${budget}`,
+      ).toBe(expected);
     }
   });
 
   it("returns the raw string when elision cannot preserve a tail", () => {
     for (const [name, budget] of RAW_CASES) {
-      expect(elideName(name, budget, monoStub, "mono"), `${name} @${budget}`).toBe(
-        name,
-      );
+      expect(
+        elideName(name, budget, monoStub, "mono"),
+        `${name} @${budget}`,
+      ).toBe(name);
     }
   });
 
@@ -157,10 +171,7 @@ describe("canvas/elide", () => {
           "Ferrium Bottle(Yazhen Solution)",
         ],
       ],
-      [
-        104,
-        ["Canned Citrome [A]", "Canned Citrome [B]", "Canned Citrome [C]"],
-      ],
+      [104, ["Canned Citrome [A]", "Canned Citrome [B]", "Canned Citrome [C]"]],
       [
         64,
         [
@@ -178,7 +189,10 @@ describe("canvas/elide", () => {
       ],
       [
         96,
-        ["\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)", "\u8d64\u94dc\u74f6(\u82bd\u9488\u6eb6\u6db2)"],
+        [
+          "\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)",
+          "\u8d64\u94dc\u74f6(\u82bd\u9488\u6eb6\u6db2)",
+        ],
       ],
     ];
     for (const [budget, names] of families) {
@@ -205,9 +219,7 @@ describe("canvas/elide", () => {
     // budget under a different (wider) estimator must not reuse the entry.
     const wideHeavy = (text: string) =>
       [...text].reduce(
-        (w, ch) =>
-          w +
-          (isWideCodePoint(ch.codePointAt(0)!) ? 100 : NARROW_PX),
+        (w, ch) => w + (isWideCodePoint(ch.codePointAt(0)!) ? 100 : NARROW_PX),
         0,
       );
     // A tail of wide code points busts the budget under the wide-heavy
@@ -260,7 +272,10 @@ describe("canvas/elide real-budget battery", () => {
       [
         [
           86,
-          ["Cuprium Bottle(Jincao Solution)", "Cuprium Bottle(Yazhen Solution)"],
+          [
+            "Cuprium Bottle(Jincao Solution)",
+            "Cuprium Bottle(Yazhen Solution)",
+          ],
           [`Cupri${ELLIPSIS}(Jin`, `Cupri${ELLIPSIS}(Yaz`],
         ],
         [
@@ -287,7 +302,10 @@ describe("canvas/elide real-budget battery", () => {
         ],
         [
           86,
-          ["\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)", "\u8d64\u94dc\u74f6(\u82bd\u9488\u6eb6\u6db2)"],
+          [
+            "\u8d64\u94dc\u74f6(\u9526\u8349\u6eb6\u6db2)",
+            "\u8d64\u94dc\u74f6(\u82bd\u9488\u6eb6\u6db2)",
+          ],
           [
             `\u8d64\u94dc${ELLIPSIS}(\u9526\u8349\u6eb6`,
             `\u8d64\u94dc${ELLIPSIS}(\u82bd\u9488\u6eb6`,
@@ -387,10 +405,16 @@ describe("canvas/elide real-budget battery", () => {
     // after; recorded in the plan), and at the 81.196px budgets both stay
     // raw, so the raw strings differ. Pinned exactly so a direction
     // change cannot pass silently.
-    const gen = "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u0433\u0435\u043d";
-    const nit = "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u043d\u0438\u0442";
-    expect(elideRow(gen, "30")).toBe(`\u0422\u044f\u0436\u0435${ELLIPSIS}\u043a\u0441\u0438\u0440`);
-    expect(elideRow(nit, "30")).toBe(`\u0422\u044f\u0436\u0435${ELLIPSIS}\u043a\u0441\u0438\u0440`);
+    const gen =
+      "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u0433\u0435\u043d";
+    const nit =
+      "\u0422\u044f\u0436\u0435\u043b\u044b\u0439 \u043a\u0441\u0438\u0440\u0430\u043d\u0438\u0442";
+    expect(elideRow(gen, "30")).toBe(
+      `\u0422\u044f\u0436\u0435${ELLIPSIS}\u043a\u0441\u0438\u0440`,
+    );
+    expect(elideRow(nit, "30")).toBe(
+      `\u0422\u044f\u0436\u0435${ELLIPSIS}\u043a\u0441\u0438\u0440`,
+    );
     // At the rate-150 budget both fall back raw (the window misses the
     // floor) and the full names differ.
     expect(elideRow(gen, "150")).toBe(gen);
@@ -460,7 +484,9 @@ describe("canvas/elide real-budget battery", () => {
       elideName(n, budget, (t) => est(t, TITLE_FONT), "title-17"),
     );
     expect(budget).toBeCloseTo(121.6416, 3);
-    expect(visible[0]).toBe(`\u041c\u043e\u0434\u0443${ELLIPSIS}\u0443\u043f\u0430\u043a`);
+    expect(visible[0]).toBe(
+      `\u041c\u043e\u0434\u0443${ELLIPSIS}\u0443\u043f\u0430\u043a`,
+    );
     expect(visible[1]).toBe(form);
     expect(new Set(visible).size).toBe(2);
   });

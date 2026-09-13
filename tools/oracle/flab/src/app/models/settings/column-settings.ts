@@ -1,20 +1,20 @@
-import { SelectItem } from 'primeng/api';
+import { SelectItem } from "primeng/api";
 
-import { spread } from '~/helpers';
+import { spread } from "~/helpers";
 
-import { Flag } from '../flags';
+import { Flag } from "../flags";
 
 export type ColumnKey =
-  | 'checkbox'
-  | 'tree'
-  | 'items'
-  | 'belts'
-  | 'wagons'
-  | 'machines'
-  | 'beacons'
-  | 'power'
-  | 'pollution'
-  | 'link';
+  | "checkbox"
+  | "tree"
+  | "items"
+  | "belts"
+  | "wagons"
+  | "machines"
+  | "beacons"
+  | "power"
+  | "pollution"
+  | "link";
 
 export interface ColumnSettings {
   show: boolean;
@@ -70,7 +70,7 @@ export function columnOptions(flags: Set<Flag>): SelectItem<ColumnKey>[] {
       (id): SelectItem<ColumnKey> => ({
         label: `options.column.${id}`,
         value: id,
-        disabled: id === 'items' || id === 'machines',
+        disabled: id === "items" || id === "machines",
       }),
     );
 }

@@ -246,16 +246,16 @@ The restored pixel probe (W4) ran on the pre-W2 tree (2c52767): 25
 collisions, matching the review exactly. Per scenario/locale (deduped
 readout, item a vs item b):
 
-| page | n | collisions |
-| --- | --- | --- |
-| crystal/ru | 2 | 'Мелкомолот…\|60' crystal_enr_powder vs originium_enr_powder |
-| equip4/ru | 2 | 'Мелкомолот…\|120' crystal_enr_powder vs originium_enr_powder |
-| multi6/en | 2 | 'Cuprium Bot…\|150' copper_bottle-liquid_plant_grass_1 vs _2 |
-| multi6/ja | 2 | '赤銅ボトル(…\|150' copper_bottle-liquid_plant_grass_1 vs _2 |
-| multi6/ru | 10 | 'Куприевая б…\|150' solutions 1 vs 2 and vs copper_bottle; 'Куприевая …\|300' copper_cmpt vs copper_ore |
-| rot-bottled_food_3/ja | 2 | 'サンドリーフ…\|300' and '\|600' plant_moss_seed_3 vs plant_moss_powder_3 |
-| rot-bottled_food_4/ru | 4 | 'Ферриевая …\|150' iron_bottle-liquid_plant_grass_1 vs iron_bottle; 'Ферриевая …\|300' iron_cmpt vs iron_ore |
-| script43/ru | 1 | 'Пирролитов…\|30' copper_enr2_cmpt vs equip_script_4_3 |
+| page                  | n   | collisions                                                                                                   |
+| --------------------- | --- | ------------------------------------------------------------------------------------------------------------ |
+| crystal/ru            | 2   | 'Мелкомолот…\|60' crystal_enr_powder vs originium_enr_powder                                                 |
+| equip4/ru             | 2   | 'Мелкомолот…\|120' crystal_enr_powder vs originium_enr_powder                                                |
+| multi6/en             | 2   | 'Cuprium Bot…\|150' copper_bottle-liquid_plant_grass_1 vs \_2                                                |
+| multi6/ja             | 2   | '赤銅ボトル(…\|150' copper_bottle-liquid_plant_grass_1 vs \_2                                                |
+| multi6/ru             | 10  | 'Куприевая б…\|150' solutions 1 vs 2 and vs copper_bottle; 'Куприевая …\|300' copper_cmpt vs copper_ore      |
+| rot-bottled_food_3/ja | 2   | 'サンドリーフ…\|300' and '\|600' plant_moss_seed_3 vs plant_moss_powder_3                                    |
+| rot-bottled_food_4/ru | 4   | 'Ферриевая …\|150' iron_bottle-liquid_plant_grass_1 vs iron_bottle; 'Ферриевая …\|300' iron_cmpt vs iron_ore |
+| script43/ru           | 1   | 'Пирролитов…\|30' copper_enr2_cmpt vs equip_script_4_3                                                       |
 
 After W2 the same probe is GREEN plan-wide (the byte-identical
 transfer_tundra_glass_bottle / glass_bottle pair excepted); see the W4
@@ -348,16 +348,16 @@ the constants exactly as RecipeNode derives them; sprite rows, rate shown):
 
 - [x] W1 -- this record: R5 ruling, refinement-round section, citation fix.
 - [x] W2 -- Partial-tail tier in `src/canvas/elide.ts` + estimator
-  recalibration in `src/canvas/textWidth.ts` per the measured policy above.
+      recalibration in `src/canvas/textWidth.ts` per the measured policy above.
 - [x] W3 -- Real-budget battery in `test/canvas/elide.test.ts` (86px-class
-  row budgets derived from the constants, title and products budgets,
-  goal-pair distinctness at the real budget; keep the monospace-stub
-  cases).
+      row budgets derived from the constants, title and products budgets,
+      goal-pair distinctness at the real budget; keep the monospace-stub
+      cases).
 - [x] W4 -- Restore the rendered-prefix pixel probe in
-  `test/e2e/row-collisions.spec.ts`; green plan-wide.
+      `test/e2e/row-collisions.spec.ts`; green plan-wide.
 - [x] W5 -- Re-record placement-shots goldens (label pixels change again);
-  chip-widths and geometry-audit unmoved at the develop-tip control
-  failset.
+      chip-widths and geometry-audit unmoved at the develop-tip control
+      failset.
 - [x] W6 -- `docs/render-conventions.md` partial-suffix sentence.
 
 - Evidence (W6): render-conventions.md's elision paragraph now describes
@@ -578,9 +578,9 @@ generated from the same dump, names resolved from the pack at run time).
 
 - [x] W7 -- this record: finding, measurements, chosen rule, guards.
 - [x] W8 -- Leading-window rule in `src/canvas/elide.ts` (+ the
-  render-conventions sentence it changes); replay green.
+      render-conventions sentence it changes); replay green.
 - [x] W9 -- Title probe in `test/e2e/row-collisions.spec.ts`; subtitle
-  vitest replay fixture.
+      vitest replay fixture.
 
 - Evidence (W9): row-collisions.spec.ts gains the per-page
   `visible machine-title collisions` block -- the same hidden-span
@@ -613,9 +613,9 @@ generated from the same dump, names resolved from the pack at run time).
   формовки", asserted distinct with exact strings. elide + textWidth +
   subtitle-replay files: 18/18 green.
 - [x] W11 -- Controls: row-collisions (48/48 + titles), chip-widths
-  18/18, geometry-audit at the adjudicated failset, placement-shots
-  re-recorded only if pixels moved (en-only suite: the rule only changes
-  Cyrillic strings, so no re-record is expected).
+      18/18, geometry-audit at the adjudicated failset, placement-shots
+      re-recorded only if pixels moved (en-only suite: the rule only changes
+      Cyrillic strings, so no re-record is expected).
 
 - Evidence (W11, controls on the final tree): row-collisions 96/96 GREEN
   (48 row + 48 title, fresh build). chip-widths 18/18 GREEN.
@@ -649,7 +649,7 @@ generated from the same dump, names resolved from the pack at run time).
   "Купр…эня)", ja "赤銅…(錦草エ"/"赤銅…(芽針エ" -- no row regression.
   Capture paths: /tmp/before-stc-r2-modu-{0,1}-0.png,
   /tmp/after-stc-r2-modu-{0,1}-0.png,
-  /tmp/after-stc-r2-{en,ru,ja}-copper_bottle-liquid_plant_grass_{1,2}.png
+  /tmp/after-stc-r2-{en,ru,ja}-copper*bottle-liquid_plant_grass*{1,2}.png
   (before-captured by temporarily disabling the stem-first condition in
   a scratch build, then restoring the committed source; git diff HEAD
   empty after restore).
@@ -692,7 +692,7 @@ and the two CSS-clip slips, corrected in place above).
   already correct: it baselines on textContent.)
 - FIX (one line in test/e2e/row-collisions.spec.ts, mirroring the row
   guard): `let visible = full;` becomes `let visible = cn.textContent
-  ?? "";` -- the rendered string is the baseline, and the hidden-span
+?? "";` -- the rendered string is the baseline, and the hidden-span
   binary-search refinement stays for overflowing (raw+CSS-clipped)
   titles, where textContent carries the raw name anyway. The seen-map
   still records the raw title per visible string, so several cards of
@@ -760,7 +760,7 @@ Census across the corpus in English (445 rows): elided rows 186 -> 73, over-elid
 
 Exact measurement moved a family of rows out of the raw fallback and into tier (a), where it exposed a latent defect the over-estimate had been hiding: "Dense Crystal Powder" and "Dense Originium Powder" share their last word, so preserving that word spent the head budget cutting away the one word that told them apart and both rendered "Dens...Powder". Plain truncation had been showing "Dense Crys" and "Dense Orig". The `en crystal` and `en equip4` collision guards went red on it.
 
-R1 says the rule fires whenever a name has a *distinguishing* tail, and the open question it left is what makes a tail distinguishing. The ruling taken here: a bracketed group, a `run` tier mark and a CJK-boundary tail always qualify, because plain truncation eats those whole. A bare trailing WORD must price the trade -- it may cost the head no more prefix than the word itself returns. This keeps the rule plan-wide and per-string; it is still not a fallback waiting to see a collision, and it does not consult siblings. It only sharpens what counts as distinguishing.
+R1 says the rule fires whenever a name has a _distinguishing_ tail, and the open question it left is what makes a tail distinguishing. The ruling taken here: a bracketed group, a `run` tier mark and a CJK-boundary tail always qualify, because plain truncation eats those whole. A bare trailing WORD must price the trade -- it may cost the head no more prefix than the word itself returns. This keeps the rule plan-wide and per-string; it is still not a fallback waiting to see a collision, and it does not consult siblings. It only sharpens what counts as distinguishing.
 
 Rejected alternative: passing the helper the competing names on the same surface and choosing whichever candidate keeps them apart. It decides every case correctly, but it is exactly the collision-driven fallback R1 rules out.
 

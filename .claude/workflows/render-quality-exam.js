@@ -1,13 +1,27 @@
 export const meta = {
-  name: 'render-quality-exam',
-  description: 'Evaluate the rendering quality of already-captured solved plans (cold visual critique of a deterministic capture)',
-  whenToUse: 'Invoked by the render-exam skill AFTER tools/exam/capture.ts has written images and scene.json for every plan under exam',
+  name: "render-quality-exam",
+  description:
+    "Evaluate the rendering quality of already-captured solved plans (cold visual critique of a deterministic capture)",
+  whenToUse:
+    "Invoked by the render-exam skill AFTER tools/exam/capture.ts has written images and scene.json for every plan under exam",
   phases: [
-    { title: 'Evaluate', detail: 'One agent per plan: judge the captured images cold, bounded by the coverage ledger' },
-    { title: 'Triage', detail: 'No agent: validate every finding, join it to the measurements by footprint, and route it' },
-    { title: 'Refute', detail: 'One agent per individually routed finding, one per batch of at most four per plan: DISPROVE it against the running app through tools/exam/probe.ts' },
+    {
+      title: "Evaluate",
+      detail:
+        "One agent per plan: judge the captured images cold, bounded by the coverage ledger",
+    },
+    {
+      title: "Triage",
+      detail:
+        "No agent: validate every finding, join it to the measurements by footprint, and route it",
+    },
+    {
+      title: "Refute",
+      detail:
+        "One agent per individually routed finding, one per batch of at most four per plan: DISPROVE it against the running app through tools/exam/probe.ts",
+    },
   ],
-}
+};
 
 // args: {
 //   plans: [{ id, dir, url, locale, images: [{file, what}], tiles: [{file, kind, viewportTransform, safeRegion}], coverage }],
@@ -75,63 +89,74 @@ export const meta = {
 // workflow starts; an agent shooting its own screenshots into the same directory
 // would overwrite the captures with wheel-zoom and hover artifacts, which is how an
 // earlier exam filed a defect that only existed in its own screenshot.
-const input = typeof args === 'string' ? JSON.parse(args) : args
-const plans = input && input.plans
+const input = typeof args === "string" ? JSON.parse(args) : args;
+const plans = input && input.plans;
 
 if (!Array.isArray(plans) || plans.length === 0) {
   throw new Error(
-    'render-quality-exam requires args {plans: [{id, dir, url, locale, images, tiles, coverage}], ' +
-      'measurements, examDir, repoRoot, conventions}',
-  )
+    "render-quality-exam requires args {plans: [{id, dir, url, locale, images, tiles, coverage}], " +
+      "measurements, examDir, repoRoot, conventions}",
+  );
 }
-const examDir = input && typeof input.examDir === 'string' ? input.examDir.replace(/\/+$/, '') : ''
-if (examDir === '' || !examDir.startsWith('/')) {
+const examDir =
+  input && typeof input.examDir === "string"
+    ? input.examDir.replace(/\/+$/, "")
+    : "";
+if (examDir === "" || !examDir.startsWith("/")) {
   throw new Error(
     `render-quality-exam: examDir must be the absolute directory the capture wrote into, got ${JSON.stringify(input && input.examDir)}`,
-  )
+  );
 }
 // Where the probe CLI is, absolutely. A relative path in the refuter's command
 // resolves against whatever directory that agent's Bash starts in; when it
 // misses, the probe exits as a harness failure, and a harness failure settles
 // nothing in either direction - it is the one outcome that costs a refuter its
 // whole run without telling it the finding was wrong.
-const repoRoot = input && typeof input.repoRoot === 'string' ? input.repoRoot.replace(/\/+$/, '') : ''
-if (repoRoot === '' || !repoRoot.startsWith('/')) {
+const repoRoot =
+  input && typeof input.repoRoot === "string"
+    ? input.repoRoot.replace(/\/+$/, "")
+    : "";
+if (repoRoot === "" || !repoRoot.startsWith("/")) {
   throw new Error(
     `render-quality-exam: repoRoot must be the absolute path of the checkout holding tools/exam/probe.ts, got ${JSON.stringify(input && input.repoRoot)}`,
-  )
+  );
 }
 // The whole of what an evaluator is told about the design it is judging. It is a
 // tracked doc the orchestrator reads and passes the text of, not a paragraph in
 // this file: a rule written here drifts from the renderer with nothing to catch
 // it, which is exactly what the paragraph this replaced did. Required, because
 // an evaluator briefed on no design at all files the intended behaviour.
-const conventions = input && typeof input.conventions === 'string' ? input.conventions.trim() : ''
-if (conventions === '') {
+const conventions =
+  input && typeof input.conventions === "string"
+    ? input.conventions.trim()
+    : "";
+if (conventions === "") {
   throw new Error(
-    'render-quality-exam: conventions must be the text of the render-conventions doc, non-empty; ' +
-      'an evaluator given no design to judge against reports the design as the defect',
-  )
+    "render-quality-exam: conventions must be the text of the render-conventions doc, non-empty; " +
+      "an evaluator given no design to judge against reports the design as the defect",
+  );
 }
-const measurementsByPlan = new Map()
-const finite = (n) => typeof n === 'number' && Number.isFinite(n)
+const measurementsByPlan = new Map();
+const finite = (n) => typeof n === "number" && Number.isFinite(n);
 // What tools/exam/capture.ts records as the plan's url: base, then `/?exam=1`,
 // then the plan fragment. Split rather than carried as two more args, so the
 // probe command a refuter runs is built from the same string the capture booted.
-const URL_RE = /^(https?:\/\/[^?#]+?)\/\?exam=1#(.+)$/
-const TILE_KINDS = ['fit', 'tile', 'corrective']
+const URL_RE = /^(https?:\/\/[^?#]+?)\/\?exam=1#(.+)$/;
+const TILE_KINDS = ["fit", "tile", "corrective"];
 for (const p of plans) {
-  if (!p || typeof p.id !== 'string' || typeof p.dir !== 'string') {
-    throw new Error(`render-quality-exam: every plan needs a string id and dir, got ${JSON.stringify(p)}`)
+  if (!p || typeof p.id !== "string" || typeof p.dir !== "string") {
+    throw new Error(
+      `render-quality-exam: every plan needs a string id and dir, got ${JSON.stringify(p)}`,
+    );
   }
   // Required rather than defaulted to `en`: a zh capture whose locale went
   // missing reads as an en one all the way through, and both the evaluator's
   // brief and the refuter's probe command would then be about a rendering
   // nobody shot.
-  if (typeof p.locale !== 'string' || p.locale.trim() === '') {
+  if (typeof p.locale !== "string" || p.locale.trim() === "") {
     throw new Error(
       `render-quality-exam: plan ${p.id} needs scene.json's locale, the language the capture booted (e.g. "en"), got ${JSON.stringify(p.locale)}`,
-    )
+    );
   }
   // `dir` is handed to a cold evaluator, so it decides what that evaluator can
   // reach by listing it. The capture writes the images one level BELOW the plan
@@ -141,38 +166,47 @@ for (const p of plans) {
   // one sentence of prompt. So it must be a directory strictly under the plan
   // directory, checked by property rather than by the name "images", which is
   // scene.json's `imagesDir` and not this file's to assume.
-  const planRoot = `${examDir}/${p.id}`
-  const dir = p.dir.replace(/\/+$/, '')
-  const rest = dir.startsWith(`${planRoot}/`) ? dir.slice(planRoot.length + 1) : ''
-  if (rest === '' || rest.split('/').some((seg) => seg === '' || seg === '.' || seg === '..')) {
+  const planRoot = `${examDir}/${p.id}`;
+  const dir = p.dir.replace(/\/+$/, "");
+  const rest = dir.startsWith(`${planRoot}/`)
+    ? dir.slice(planRoot.length + 1)
+    : "";
+  if (
+    rest === "" ||
+    rest.split("/").some((seg) => seg === "" || seg === "." || seg === "..")
+  ) {
     throw new Error(
       `render-quality-exam: plan ${p.id} dir must be the images subdirectory ${planRoot}/<imagesDir> ` +
         `(scene.json's imagesDir), not ${JSON.stringify(p.dir)}; the plan directory itself holds scene.json, ` +
-        'which an evaluator must not be able to list',
-    )
+        "which an evaluator must not be able to list",
+    );
   }
-  if (typeof p.url !== 'string' || !URL_RE.test(p.url)) {
+  if (typeof p.url !== "string" || !URL_RE.test(p.url)) {
     throw new Error(
       `render-quality-exam: plan ${p.id} needs scene.json's url verbatim (<baseUrl>/?exam=1#<hash>), got ${JSON.stringify(p.url)}`,
-    )
+    );
   }
   if (!Array.isArray(p.images) || p.images.length === 0) {
-    throw new Error(`render-quality-exam: plan ${p.id} has no images; run tools/exam/capture.ts first`)
+    throw new Error(
+      `render-quality-exam: plan ${p.id} has no images; run tools/exam/capture.ts first`,
+    );
   }
   // Every entry is spliced into the prompt verbatim. A missing `file` renders a
   // path that resolves to nothing, and `what` is orchestrator-authored free text
   // reaching a cold evaluator, so it is a second channel for measurement language
   // and has to be a deliberate string rather than whatever fell out of a jq.
   p.images.forEach((im, i) => {
-    const named = (v) => typeof v === 'string' && v.trim() !== ''
+    const named = (v) => typeof v === "string" && v.trim() !== "";
     if (!im || !named(im.file) || !named(im.what)) {
       throw new Error(
         `render-quality-exam: plan ${p.id} images[${i}] needs a non-empty string file and what, got ${JSON.stringify(im)}`,
-      )
+      );
     }
-  })
+  });
   if (!p.coverage) {
-    throw new Error(`render-quality-exam: plan ${p.id} has no coverage ledger; pass scene.json's coverage through`)
+    throw new Error(
+      `render-quality-exam: plan ${p.id} has no coverage ledger; pass scene.json's coverage through`,
+    );
   }
 
   // The join data. Every check here exists because its absence is SILENT: a
@@ -182,60 +216,77 @@ for (const p of plans) {
   if (!Array.isArray(p.tiles) || p.tiles.length === 0) {
     throw new Error(
       `render-quality-exam: plan ${p.id} has no tiles; pass scene.json's tiles as {file, kind, viewportTransform, safeRegion}. ` +
-        'Without them every footprint join misses and every finding reads as uncorroborated',
-    )
+        "Without them every footprint join misses and every finding reads as uncorroborated",
+    );
   }
   p.tiles.forEach((t, i) => {
     // A bare file name, because that is what an evaluator can cite: it is given
     // the images directory, so a path would never match what it wrote down.
-    if (!t || typeof t.file !== 'string' || t.file.trim() === '' || t.file.includes('/')) {
+    if (
+      !t ||
+      typeof t.file !== "string" ||
+      t.file.trim() === "" ||
+      t.file.includes("/")
+    ) {
       throw new Error(
         `render-quality-exam: plan ${p.id} tiles[${i}] needs the bare image file name, got ${JSON.stringify(t && t.file)}`,
-      )
+      );
     }
     if (!TILE_KINDS.includes(t.kind)) {
       throw new Error(
-        `render-quality-exam: plan ${p.id} tiles[${i}] (${t.file}) kind must be one of ${TILE_KINDS.join(', ')}, got ${JSON.stringify(t.kind)}`,
-      )
+        `render-quality-exam: plan ${p.id} tiles[${i}] (${t.file}) kind must be one of ${TILE_KINDS.join(", ")}, got ${JSON.stringify(t.kind)}`,
+      );
     }
-    const v = t.viewportTransform
+    const v = t.viewportTransform;
     if (!v || !finite(v.x) || !finite(v.y) || !finite(v.zoom) || v.zoom <= 0) {
       throw new Error(
         `render-quality-exam: plan ${p.id} tiles[${i}] (${t.file}) needs viewportTransform {x, y, zoom} with a positive zoom, got ${JSON.stringify(v)}`,
-      )
+      );
     }
-    const s = t.safeRegion
-    if (!s || !finite(s.x) || !finite(s.y) || !finite(s.width) || !finite(s.height) || s.width < 0 || s.height < 0) {
+    const s = t.safeRegion;
+    if (
+      !s ||
+      !finite(s.x) ||
+      !finite(s.y) ||
+      !finite(s.width) ||
+      !finite(s.height) ||
+      s.width < 0 ||
+      s.height < 0
+    ) {
       throw new Error(
         `render-quality-exam: plan ${p.id} tiles[${i}] (${t.file}) needs safeRegion {x, y, width, height}, got ${JSON.stringify(s)}`,
-      )
+      );
     }
-  })
+  });
   // Every image an evaluator may cite has to be placeable, and tiles from the
   // WRONG plan are the way this goes wrong without a symptom: the transforms
   // parse, the join runs, and it matches nothing.
-  const tileFiles = new Set(p.tiles.map((t) => t.file))
-  const orphans = p.images.map((im) => im.file).filter((f) => !tileFiles.has(f))
+  const tileFiles = new Set(p.tiles.map((t) => t.file));
+  const orphans = p.images
+    .map((im) => im.file)
+    .filter((f) => !tileFiles.has(f));
   if (orphans.length > 0) {
     throw new Error(
-      `render-quality-exam: plan ${p.id} lists images with no tile record: ${orphans.join(', ')}; ` +
-        'images and tiles must both come from this plan\'s scene.json',
-    )
+      `render-quality-exam: plan ${p.id} lists images with no tile record: ${orphans.join(", ")}; ` +
+        "images and tiles must both come from this plan's scene.json",
+    );
   }
   if (!p.tiles.some(joinableTile)) {
     // Not fatal: it costs corroboration, never grants it, so every geometric
     // finding just goes to a refuter. Loud because a capture that shot only the
     // fit overview is a broken capture, not a clean plan.
-    log(`WARNING: plan ${p.id} has no tile or corrective image; nothing can corroborate a geometric finding here`)
+    log(
+      `WARNING: plan ${p.id} has no tile or corrective image; nothing can corroborate a geometric finding here`,
+    );
   }
 
-  const ms = input.measurements && input.measurements[p.id]
+  const ms = input.measurements && input.measurements[p.id];
   if (!Array.isArray(ms)) {
     throw new Error(
       `render-quality-exam: measurements["${p.id}"] must be scene.json's measurements array (\`[]\` when the plan measured clean), got ${JSON.stringify(ms)}`,
-    )
+    );
   }
-  measurementsByPlan.set(p.id, ms)
+  measurementsByPlan.set(p.id, ms);
 }
 
 // Exactly the Finding type the triage join reads, so a finding this schema admits
@@ -244,95 +295,149 @@ for (const p of plans) {
 // and `mechanismHypothesis` is a claim about the code that no image can support,
 // so stating one sends the finding to an individual refuter.
 const FINDINGS_SCHEMA = {
-  type: 'object',
+  type: "object",
   properties: {
-    planId: { type: 'string' },
-    overall: { type: 'string', description: '2-4 sentence overall quality verdict for this plan' },
+    planId: { type: "string" },
+    overall: {
+      type: "string",
+      description: "2-4 sentence overall quality verdict for this plan",
+    },
     blindSpotsAcknowledged: {
-      type: 'array',
-      items: { type: 'string' },
+      type: "array",
+      items: { type: "string" },
       description:
-        'the `id` field of each coverage.uncovered entry you could not judge, as a bare string; empty array when the capture covered everything',
+        "the `id` field of each coverage.uncovered entry you could not judge, as a bare string; empty array when the capture covered everything",
     },
     findings: {
-      type: 'array',
+      type: "array",
       items: {
-        type: 'object',
+        type: "object",
         properties: {
-          id: { type: 'string', description: 'short kebab-case slug, unique within this plan' },
-          planId: { type: 'string' },
-          title: { type: 'string', description: 'short defect statement' },
-          observation: {
-            type: 'string',
-            minLength: 1,
-            description: 'what a reader sees and why it hurts them, stated as a symptom and grounded in the pixels',
+          id: {
+            type: "string",
+            description: "short kebab-case slug, unique within this plan",
           },
-          claimType: { type: 'string', enum: ['geometric-placement', 'geometric-routing', 'geometric-collision', 'interaction', 'absence', 'subjective'] },
+          planId: { type: "string" },
+          title: { type: "string", description: "short defect statement" },
+          observation: {
+            type: "string",
+            minLength: 1,
+            description:
+              "what a reader sees and why it hurts them, stated as a symptom and grounded in the pixels",
+          },
+          claimType: {
+            type: "string",
+            enum: [
+              "geometric-placement",
+              "geometric-routing",
+              "geometric-collision",
+              "interaction",
+              "absence",
+              "subjective",
+            ],
+          },
           evidence: {
-            type: 'array',
+            type: "array",
             // At least one entry, because the triage join rejects an empty
             // `evidence` outright: a finding emitted without one is dropped there
             // with no trace, so a whole-plan complaint has to be pinned to a place.
             minItems: 1,
             items: {
-              type: 'object',
+              type: "object",
               properties: {
-                image: { type: 'string', description: 'file name of the image, exactly as listed' },
+                image: {
+                  type: "string",
+                  description: "file name of the image, exactly as listed",
+                },
                 rect: {
-                  type: 'array',
-                  items: { type: 'number' },
+                  type: "array",
+                  items: { type: "number" },
                   minItems: 4,
                   maxItems: 4,
                   description:
-                    '[x, y, width, height] in the CSS pixels of THAT image, marking the defect itself and nothing more. x and y may be 0, but width and height must be positive: a negative or non-finite extent is not a place, and the check rejects the evidence entry',
+                    "[x, y, width, height] in the CSS pixels of THAT image, marking the defect itself and nothing more. x and y may be 0, but width and height must be positive: a negative or non-finite extent is not a place, and the check rejects the evidence entry",
                 },
-                where: { type: 'string', description: 'where in the image, in words: nearby labels, which card, which line' },
+                where: {
+                  type: "string",
+                  description:
+                    "where in the image, in words: nearby labels, which card, which line",
+                },
               },
-              required: ['image', 'rect', 'where'],
+              required: ["image", "rect", "where"],
             },
           },
-          severity: { type: 'string', enum: ['major', 'minor', 'nit'] },
-          aspect: { type: 'string', enum: ['correctness', 'comprehension', 'ux'] },
+          severity: { type: "string", enum: ["major", "minor", "nit"] },
+          aspect: {
+            type: "string",
+            enum: ["correctness", "comprehension", "ux"],
+          },
           falsifier: {
-            type: 'object',
-            description: 'the probe run that would DISPROVE this finding; required except for subjective claims',
+            type: "object",
+            description:
+              "the probe run that would DISPROVE this finding; required except for subjective claims",
             properties: {
               op: {
-                type: 'string',
-                enum: ['hover-edge', 'hover-node', 'contrast', 'delta-e', 'chip-binding', 'rect', 'computed-style', 'text-overflow'],
+                type: "string",
+                enum: [
+                  "hover-edge",
+                  "hover-node",
+                  "contrast",
+                  "delta-e",
+                  "chip-binding",
+                  "rect",
+                  "computed-style",
+                  "text-overflow",
+                ],
               },
               args: {
-                type: 'object',
-                additionalProperties: { type: 'string' },
-                description: 'probe arguments as k=v strings; describe the target in words where you cannot know its id',
+                type: "object",
+                additionalProperties: { type: "string" },
+                description:
+                  "probe arguments as k=v strings; describe the target in words where you cannot know its id",
               },
-              expectedIfFalse: { type: 'string', description: 'the probe output that would mean this finding is wrong' },
+              expectedIfFalse: {
+                type: "string",
+                description:
+                  "the probe output that would mean this finding is wrong",
+              },
             },
-            required: ['op', 'args', 'expectedIfFalse'],
+            required: ["op", "args", "expectedIfFalse"],
           },
           mechanismHypothesis: {
-            type: 'string',
-            description: 'OPTIONAL cause in the code. Omit unless you have a specific reason; a symptom alone is a complete finding',
+            type: "string",
+            description:
+              "OPTIONAL cause in the code. Omit unless you have a specific reason; a symptom alone is a complete finding",
           },
         },
-        required: ['id', 'planId', 'title', 'observation', 'claimType', 'evidence', 'severity', 'aspect'],
+        required: [
+          "id",
+          "planId",
+          "title",
+          "observation",
+          "claimType",
+          "evidence",
+          "severity",
+          "aspect",
+        ],
       },
     },
   },
-  required: ['planId', 'overall', 'blindSpotsAcknowledged', 'findings'],
-}
+  required: ["planId", "overall", "blindSpotsAcknowledged", "findings"],
+};
 
 // A capture in another language is judged against the same conventions plus their
 // locale section, which lists what goes wrong in text that is not English. An en
 // capture gets nothing extra: it must not be sent chasing CJK typography that is
 // not in its images.
 const localeBrief = (p) =>
-  typeof p.locale === 'string' && p.locale !== '' && p.locale !== 'en'
+  typeof p.locale === "string" && p.locale !== "" && p.locale !== "en"
     ? `\nThis plan was captured in locale "${p.locale}", not en, so the "Locale notes" section above applies to it as well.\n`
-    : ''
+    : "";
 
 const evalPrompt = (p) => {
-  const list = p.images.map((im) => `- ${p.dir}/${im.file} :: ${im.what}`).join('\n')
+  const list = p.images
+    .map((im) => `- ${p.dir}/${im.file} :: ${im.what}`)
+    .join("\n");
   return `You are a rendering-quality examiner for the STC blueprint canvas (Arknights: Endfield factory planner; React Flow). You are given screenshots of ONE fully solved production plan, "${p.id}". Judge what a reader sees.
 
 Read EVERY image below with the Read tool (they render visually). Do NOT open the app, do not start a browser, do not take screenshots of your own, do not write any file: these images are the exam, and a shot of your own would be of a different camera than the one everything downstream is measured against.
@@ -381,8 +486,8 @@ MECHANISM IS OPTIONAL. \`mechanismHypothesis\` is a claim about the CODE, and no
 
 Discipline: every finding is grounded in specific pixels you saw. Severity: major = misleads the reader or hides information; minor = friction; nit = polish. Do not pad; if a plan renders cleanly say so in \`overall\` and return no findings. Deduplicate within your own findings: one finding per defect FAMILY, with each occurrence as its own evidence entry.
 
-Return the structured result for plan "${p.id}", with \`planId\` set to "${p.id}" on the result and on every finding.`
-}
+Return the structured result for plan "${p.id}", with \`planId\` set to "${p.id}" on the result and on every finding.`;
+};
 
 // ONE id per finding, stamped once, before either output exists.
 //
@@ -398,24 +503,27 @@ Return the structured result for plan "${p.id}", with \`planId\` set to "${p.id}
 // keyed off one list then joins to nothing in the other - silently, since both
 // halves still look well formed.
 const stampIds = (planId, result) => {
-  const used = new Set()
+  const used = new Set();
   const findings = (result.findings || []).map((f, i) => {
-    const slug = typeof f.id === 'string' && f.id.trim() !== '' ? f.id.trim() : String(i)
-    const base = `${planId}:${slug}`
-    const id = used.has(base) ? `${base}#${i}` : base
-    used.add(id)
-    return { ...f, planId, id }
-  })
-  return { ...result, planId, findings }
-}
+    const slug =
+      typeof f.id === "string" && f.id.trim() !== "" ? f.id.trim() : String(i);
+    const base = `${planId}:${slug}`;
+    const id = used.has(base) ? `${base}#${i}` : base;
+    used.add(id);
+    return { ...f, planId, id };
+  });
+  return { ...result, planId, findings };
+};
 
 // Stage one of the per-plan chain: judge this plan's images, and stamp the ids
 // everything downstream is keyed by. `null` when the agent was skipped or died,
 // which the second stage reads as "this plan contributed nothing".
 const evaluatePlan = (p) =>
-  agent(evalPrompt(p), { label: `evaluate:${p.id}`, phase: 'Evaluate', schema: FINDINGS_SCHEMA }).then((r) =>
-    r === null ? null : stampIds(p.id, r),
-  )
+  agent(evalPrompt(p), {
+    label: `evaluate:${p.id}`,
+    phase: "Evaluate",
+    schema: FINDINGS_SCHEMA,
+  }).then((r) => (r === null ? null : stampIds(p.id, r)));
 
 // ---------------------------------------------------------------------------
 // TRIAGE - a copy of tools/exam/triage.ts, which is the tested original.
@@ -442,52 +550,69 @@ const evaluatePlan = (p) =>
 //     because that is the one that skips refutation
 // ---------------------------------------------------------------------------
 
-const EPS = 1e-9
-const JOIN_SLACK_PX = 2
-const MAX_MARK_EXTENT_RATIO = 3
-const MIN_MARK_EXTENT_PX = 48
+const EPS = 1e-9;
+const JOIN_SLACK_PX = 2;
+const MAX_MARK_EXTENT_RATIO = 3;
+const MIN_MARK_EXTENT_PX = 48;
 
 // Which geometric sub-claim each measurement kind can witness: placement is
 // chip-tier, routing is segment-tier, collision is the crossing kind.
 // Interaction, absence and subjective claims get the empty row and go to a
 // refuter or a human. Mirrors the KIND_WITNESSES map in the module.
 const COMPATIBLE_KINDS = {
-  'geometric-placement': ['chip-off-own-path', 'chip-vs-card'],
-  'geometric-routing': ['segment-vs-card', 'own-card-pierce'],
-  'geometric-collision': ['chip-vs-segment'],
+  "geometric-placement": ["chip-off-own-path", "chip-vs-card"],
+  "geometric-routing": ["segment-vs-card", "own-card-pierce"],
+  "geometric-collision": ["chip-vs-segment"],
   interaction: [],
   absence: [],
   subjective: [],
-}
-const GEOMETRIC_CLAIM_TYPES = ['geometric-placement', 'geometric-routing', 'geometric-collision']
-const CLAIM_TYPES = [...GEOMETRIC_CLAIM_TYPES, 'interaction', 'absence', 'subjective']
-const SEVERITIES = ['major', 'minor', 'nit']
-const ASPECTS = ['correctness', 'comprehension', 'ux']
+};
+const GEOMETRIC_CLAIM_TYPES = [
+  "geometric-placement",
+  "geometric-routing",
+  "geometric-collision",
+];
+const CLAIM_TYPES = [
+  ...GEOMETRIC_CLAIM_TYPES,
+  "interaction",
+  "absence",
+  "subjective",
+];
+const SEVERITIES = ["major", "minor", "nit"];
+const ASPECTS = ["correctness", "comprehension", "ux"];
 
 // Measurements are taken ONCE, at the camera the last tile shot left behind, so
 // a footprint is only a place in an image shot at that camera. An allowlist, so
 // an unrecognised kind is refused rather than admitted.
 function joinableTile(tile) {
-  return tile.kind === 'tile' || tile.kind === 'corrective'
+  return tile.kind === "tile" || tile.kind === "corrective";
 }
 
 function isFiniteRect(rect) {
   return (
-    Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.width) && Number.isFinite(rect.height)
-  )
+    Number.isFinite(rect.x) &&
+    Number.isFinite(rect.y) &&
+    Number.isFinite(rect.width) &&
+    Number.isFinite(rect.height)
+  );
 }
 
 function rectFromTuple(tuple) {
-  if (!Array.isArray(tuple) || tuple.length !== 4) return null
-  const [x, y, width, height] = tuple
-  if (typeof x !== 'number' || typeof y !== 'number' || typeof width !== 'number' || typeof height !== 'number') {
-    return null
+  if (!Array.isArray(tuple) || tuple.length !== 4) return null;
+  const [x, y, width, height] = tuple;
+  if (
+    typeof x !== "number" ||
+    typeof y !== "number" ||
+    typeof width !== "number" ||
+    typeof height !== "number"
+  ) {
+    return null;
   }
-  const rect = { x, y, width, height }
+  const rect = { x, y, width, height };
   // A POSITIVE extent, not a non-negative one: x and y may be 0, but a flat
   // evidence rect marks no place, the schema below says so, and the crop CLI
   // refuses to cut one.
-  return isFiniteRect(rect) && width > 0 && height > 0 ? rect : null
+  return isFiniteRect(rect) && width > 0 && height > 0 ? rect : null;
 }
 
 // world -> the image's own CSS-pixel frame.
@@ -497,66 +622,84 @@ function project(rect, t) {
     y: rect.y * t.zoom + t.y,
     width: rect.width * t.zoom,
     height: rect.height * t.zoom,
-  }
-  return isFiniteRect(out) && out.width >= 0 && out.height >= 0 ? out : null
+  };
+  return isFiniteRect(out) && out.width >= 0 && out.height >= 0 ? out : null;
 }
 
 function inflate(rect, by) {
-  return { x: rect.x - by, y: rect.y - by, width: rect.width + 2 * by, height: rect.height + 2 * by }
+  return {
+    x: rect.x - by,
+    y: rect.y - by,
+    width: rect.width + 2 * by,
+    height: rect.height + 2 * by,
+  };
 }
 
 // Inclusive: an orthogonal footprint is flat in one axis, so demanding overlap
 // AREA would refuse every segment-tier measurement.
 function intersect(a, b) {
-  const x = Math.max(a.x, b.x)
-  const y = Math.max(a.y, b.y)
-  const right = Math.min(a.x + a.width, b.x + b.width)
-  const bottom = Math.min(a.y + a.height, b.y + b.height)
-  if (right < x - EPS || bottom < y - EPS) return null
-  return { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) }
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  if (right < x - EPS || bottom < y - EPS) return null;
+  return {
+    x,
+    y,
+    width: Math.max(0, right - x),
+    height: Math.max(0, bottom - y),
+  };
 }
 
 // Is the mark ABOUT the projected footprint, or merely a region containing it?
 // Per axis, because an orthogonal footprint is flat in one of them.
 function commensurate(projected, evidence) {
-  const limit = (extent) => Math.max(extent, MIN_MARK_EXTENT_PX) * MAX_MARK_EXTENT_RATIO
-  return evidence.width <= limit(projected.width) + EPS && evidence.height <= limit(projected.height) + EPS
+  const limit = (extent) =>
+    Math.max(extent, MIN_MARK_EXTENT_PX) * MAX_MARK_EXTENT_RATIO;
+  return (
+    evidence.width <= limit(projected.width) + EPS &&
+    evidence.height <= limit(projected.height) + EPS
+  );
 }
 
 function meets(footprint, tile, evidence) {
-  const projected = project(footprint, tile.viewportTransform)
-  if (projected === null) return false
-  if (!commensurate(projected, evidence)) return false
-  const marked = intersect(inflate(projected, JOIN_SLACK_PX), evidence)
-  if (marked === null) return false
-  return intersect(marked, tile.safeRegion) !== null
+  const projected = project(footprint, tile.viewportTransform);
+  if (projected === null) return false;
+  if (!commensurate(projected, evidence)) return false;
+  const marked = intersect(inflate(projected, JOIN_SLACK_PX), evidence);
+  if (marked === null) return false;
+  return intersect(marked, tile.safeRegion) !== null;
 }
 
 function evidenceEntries(finding) {
-  const raw = finding.evidence
-  if (!Array.isArray(raw)) return []
-  return raw.filter((entry) => typeof entry === 'object' && entry !== null)
+  const raw = finding.evidence;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry) => typeof entry === "object" && entry !== null);
 }
 
 // The measurements that occur AT THE PLACE THIS FINDING MARKS: co-location,
 // proportionality and kind compatibility, all three or nothing. A shared element
 // id is deliberately not among them.
 function corroborationsFor(finding, measurements, tiles) {
-  const kinds = CLAIM_TYPES.includes(finding.claimType) ? COMPATIBLE_KINDS[finding.claimType] : []
-  if (kinds.length === 0) return []
+  const kinds = CLAIM_TYPES.includes(finding.claimType)
+    ? COMPATIBLE_KINDS[finding.claimType]
+    : [];
+  if (kinds.length === 0) return [];
 
-  const places = []
+  const places = [];
   for (const entry of evidenceEntries(finding)) {
-    const tile = tiles.find((t) => joinableTile(t) && t.file === entry.image)
-    const rect = rectFromTuple(entry.rect)
-    if (tile === undefined || rect === null) continue
-    places.push({ tile, rect })
+    const tile = tiles.find((t) => joinableTile(t) && t.file === entry.image);
+    const rect = rectFromTuple(entry.rect);
+    if (tile === undefined || rect === null) continue;
+    places.push({ tile, rect });
   }
-  if (places.length === 0) return []
+  if (places.length === 0) return [];
 
   return measurements.filter(
-    (m) => kinds.includes(m.kind) && places.some((place) => meets(m.footprint, place.tile, place.rect)),
-  )
+    (m) =>
+      kinds.includes(m.kind) &&
+      places.some((place) => meets(m.footprint, place.tile, place.rect)),
+  );
 }
 
 // Where a finding goes next. The ORDER is the substance: a stated mechanism is a
@@ -566,64 +709,79 @@ function corroborationsFor(finding, measurements, tiles) {
 // An interaction claim is several runs of reframing and gets its own refuter; an
 // absence claim is one run and sorts by severity like any uncorroborated claim.
 function routeFinding(finding, corroborations) {
-  if (finding.claimType === 'subjective') return 'HUMAN_RULING'
+  if (finding.claimType === "subjective") return "HUMAN_RULING";
   if (
-    finding.claimType === 'interaction' ||
+    finding.claimType === "interaction" ||
     finding.mechanismHypothesis !== undefined ||
-    finding.severity === 'major'
+    finding.severity === "major"
   ) {
-    return 'REFUTE_INDIVIDUAL'
+    return "REFUTE_INDIVIDUAL";
   }
-  if (GEOMETRIC_CLAIM_TYPES.includes(finding.claimType) && corroborations.length > 0) return 'CORROBORATED'
-  return 'REFUTE_BATCH'
+  if (
+    GEOMETRIC_CLAIM_TYPES.includes(finding.claimType) &&
+    corroborations.length > 0
+  )
+    return "CORROBORATED";
+  return "REFUTE_BATCH";
 }
 
 // Schema violations, empty when the finding is well formed. Nothing here throws:
 // a finding with a missing field is exactly the input this is for.
 function validateFinding(finding) {
-  const violations = []
+  const violations = [];
 
-  if (!CLAIM_TYPES.includes(finding.claimType)) violations.push(`claimType "${String(finding.claimType)}" is not a claim type`)
-  if (!SEVERITIES.includes(finding.severity)) violations.push(`severity "${String(finding.severity)}" is not a severity`)
-  if (!ASPECTS.includes(finding.aspect)) violations.push(`aspect "${String(finding.aspect)}" is not an aspect`)
+  if (!CLAIM_TYPES.includes(finding.claimType))
+    violations.push(
+      `claimType "${String(finding.claimType)}" is not a claim type`,
+    );
+  if (!SEVERITIES.includes(finding.severity))
+    violations.push(`severity "${String(finding.severity)}" is not a severity`);
+  if (!ASPECTS.includes(finding.aspect))
+    violations.push(`aspect "${String(finding.aspect)}" is not an aspect`);
 
-  const observation = finding.observation
-  if (typeof observation !== 'string') violations.push('observation is missing')
-  else if (observation.trim() === '') violations.push('observation is empty')
+  const observation = finding.observation;
+  if (typeof observation !== "string")
+    violations.push("observation is missing");
+  else if (observation.trim() === "") violations.push("observation is empty");
 
-  const evidence = finding.evidence
+  const evidence = finding.evidence;
   if (!Array.isArray(evidence)) {
-    violations.push('evidence is missing')
+    violations.push("evidence is missing");
   } else if (evidence.length === 0) {
-    violations.push('evidence is empty')
+    violations.push("evidence is empty");
   } else {
     evidence.forEach((raw, i) => {
-      if (typeof raw !== 'object' || raw === null) {
-        violations.push(`evidence[${i}] is not an object`)
-        return
+      if (typeof raw !== "object" || raw === null) {
+        violations.push(`evidence[${i}] is not an object`);
+        return;
       }
-      if (typeof raw.image !== 'string' || raw.image.trim() === '') violations.push(`evidence[${i}] names no image`)
-      if (rectFromTuple(raw.rect) === null) violations.push(`evidence[${i}] rect is not a finite [x, y, width, height] with a positive extent`)
-    })
+      if (typeof raw.image !== "string" || raw.image.trim() === "")
+        violations.push(`evidence[${i}] names no image`);
+      if (rectFromTuple(raw.rect) === null)
+        violations.push(
+          `evidence[${i}] rect is not a finite [x, y, width, height] with a positive extent`,
+        );
+    });
   }
 
   const needsFalsifier =
     GEOMETRIC_CLAIM_TYPES.includes(finding.claimType) ||
-    finding.claimType === 'interaction' ||
-    finding.claimType === 'absence' ||
-    finding.mechanismHypothesis !== undefined
+    finding.claimType === "interaction" ||
+    finding.claimType === "absence" ||
+    finding.mechanismHypothesis !== undefined;
   if (needsFalsifier && finding.falsifier === undefined) {
     violations.push(
-      finding.mechanismHypothesis !== undefined && finding.claimType === 'subjective'
-        ? 'a mechanismHypothesis requires a falsifier'
+      finding.mechanismHypothesis !== undefined &&
+        finding.claimType === "subjective"
+        ? "a mechanismHypothesis requires a falsifier"
         : `claimType "${finding.claimType}" requires a falsifier`,
-    )
+    );
   }
-  if (finding.claimType === 'subjective' && finding.falsifier !== undefined) {
-    violations.push('claimType "subjective" must not carry a falsifier')
+  if (finding.claimType === "subjective" && finding.falsifier !== undefined) {
+    violations.push('claimType "subjective" must not carry a falsifier');
   }
 
-  return violations
+  return violations;
 }
 
 // ---------------------------------------------------------------------------
@@ -637,14 +795,18 @@ function validateFinding(finding) {
 // rather than of the app.
 // ---------------------------------------------------------------------------
 
-const planById = new Map(plans.map((p) => [p.id, p]))
+const planById = new Map(plans.map((p) => [p.id, p]));
 
 const triageFinding = (f) => {
-  const plan = planById.get(f.planId)
-  const violations = plan === undefined ? [`planId "${String(f.planId)}" is not a plan under exam`] : validateFinding(f)
-  if (violations.length > 0) return { finding: f, violations, route: null, corroborations: [] }
-  const measurements = measurementsByPlan.get(f.planId)
-  const corroborations = corroborationsFor(f, measurements, plan.tiles)
+  const plan = planById.get(f.planId);
+  const violations =
+    plan === undefined
+      ? [`planId "${String(f.planId)}" is not a plan under exam`]
+      : validateFinding(f);
+  if (violations.length > 0)
+    return { finding: f, violations, route: null, corroborations: [] };
+  const measurements = measurementsByPlan.get(f.planId);
+  const corroborations = corroborationsFor(f, measurements, plan.tiles);
   return {
     finding: f,
     violations,
@@ -652,14 +814,22 @@ const triageFinding = (f) => {
     // Which measurements, by position in this plan's own measurement array, so a
     // reader of the verdict can go back to scene.json and look at the geometry
     // that carried the finding through without a refuter.
-    corroboratedBy: corroborations.map((m) => `${f.planId}#${measurements.indexOf(m)}:${m.kind}`),
+    corroboratedBy: corroborations.map(
+      (m) => `${f.planId}#${measurements.indexOf(m)}:${m.kind}`,
+    ),
     route: routeFinding(f, corroborations),
-  }
-}
+  };
+};
 
-const ROUTES = ['CORROBORATED', 'REFUTE_INDIVIDUAL', 'REFUTE_BATCH', 'HUMAN_RULING']
-const routedIn = (rows, route) => rows.filter((t) => t.route === route)
-const histogramOf = (rows) => ROUTES.map((r) => `${r}=${routedIn(rows, r).length}`).join(' ')
+const ROUTES = [
+  "CORROBORATED",
+  "REFUTE_INDIVIDUAL",
+  "REFUTE_BATCH",
+  "HUMAN_RULING",
+];
+const routedIn = (rows, route) => rows.filter((t) => t.route === route);
+const histogramOf = (rows) =>
+  ROUTES.map((r) => `${r}=${routedIn(rows, r).length}`).join(" ");
 
 // ---------------------------------------------------------------------------
 // REFUTE
@@ -674,35 +844,52 @@ const histogramOf = (rows) => ROUTES.map((r) => `${r}=${routedIn(rows, r).length
 // carry the command it ran and what came back.
 // ---------------------------------------------------------------------------
 
-const VERDICT_ENUM = ['CONFIRMED', 'REFUTED', 'UNCERTAIN']
+const VERDICT_ENUM = ["CONFIRMED", "REFUTED", "UNCERTAIN"];
 
 const REFUTE_SCHEMA = {
-  type: 'object',
+  type: "object",
   properties: {
-    findingId: { type: 'string' },
-    observationVerdict: { type: 'string', enum: VERDICT_ENUM },
-    mechanismVerdict: { type: 'string', enum: VERDICT_ENUM },
-    probeCommand: { type: 'string', description: 'the probe command line you actually ran, verbatim' },
-    probeOutput: { type: 'string', description: 'what it printed, verbatim; trim to the relevant fields but never paraphrase' },
-    reasoning: { type: 'string', description: 'how that output settles (or fails to settle) the claim' },
+    findingId: { type: "string" },
+    observationVerdict: { type: "string", enum: VERDICT_ENUM },
+    mechanismVerdict: { type: "string", enum: VERDICT_ENUM },
+    probeCommand: {
+      type: "string",
+      description: "the probe command line you actually ran, verbatim",
+    },
+    probeOutput: {
+      type: "string",
+      description:
+        "what it printed, verbatim; trim to the relevant fields but never paraphrase",
+    },
+    reasoning: {
+      type: "string",
+      description: "how that output settles (or fails to settle) the claim",
+    },
     correctedObservation: {
-      type: 'string',
-      description: 'OPTIONAL: what is actually true, when the observation is real but stated wrongly',
+      type: "string",
+      description:
+        "OPTIONAL: what is actually true, when the observation is real but stated wrongly",
     },
   },
-  required: ['findingId', 'observationVerdict', 'probeCommand', 'probeOutput', 'reasoning'],
-}
+  required: [
+    "findingId",
+    "observationVerdict",
+    "probeCommand",
+    "probeOutput",
+    "reasoning",
+  ],
+};
 
 const REFUTE_BATCH_SCHEMA = {
-  type: 'object',
-  properties: { verdicts: { type: 'array', items: REFUTE_SCHEMA } },
-  required: ['verdicts'],
-}
+  type: "object",
+  properties: { verdicts: { type: "array", items: REFUTE_SCHEMA } },
+  required: ["verdicts"],
+};
 
 // What the refuter is told about the app it is driving. Shared by both prompts so
 // the individual and the batch refuter answer under the same rules.
 const refuterBriefing = (plan) => {
-  const [, baseUrl, hash] = URL_RE.exec(plan.url)
+  const [, baseUrl, hash] = URL_RE.exec(plan.url);
   return `You are a REFUTER on the STC render-quality exam (Arknights: Endfield factory planner; React Flow canvas). Findings below were written by an examiner who saw only screenshots. YOUR JOB IS TO DISPROVE THEM.
 
 You are not a second opinion and not a reviewer. For each finding, look for the run that would show it is WRONG, and report what you actually got.
@@ -736,39 +923,42 @@ TWO VERDICTS, JUDGED SEPARATELY:
 
 UNCERTAIN IS A CORRECT ANSWER and is preferred over guessing. If the probe could not reach the target, could not resolve it, or came back inconclusive, say UNCERTAIN and paste what you got. A guess that happens to be wrong costs more than an honest UNCERTAIN, which just sends the finding to a human.
 
-EVERY verdict needs \`probeCommand\` (the exact command line you ran) and \`probeOutput\` (what it printed, verbatim; trim to the relevant fields, never paraphrase and never invent). A verdict without both is discarded and forced to UNCERTAIN, so an unrun probe buys nothing.`
-}
+EVERY verdict needs \`probeCommand\` (the exact command line you ran) and \`probeOutput\` (what it printed, verbatim; trim to the relevant fields, never paraphrase and never invent). A verdict without both is discarded and forced to UNCERTAIN, so an unrun probe buys nothing.`;
+};
 
 const findingBlock = (plan, f) => {
   const evidence = f.evidence
-    .map((e) => `  - ${plan.dir}/${e.image} rect [${e.rect.join(', ')}] :: ${e.where}`)
-    .join('\n')
+    .map(
+      (e) =>
+        `  - ${plan.dir}/${e.image} rect [${e.rect.join(", ")}] :: ${e.where}`,
+    )
+    .join("\n");
   return `FINDING ${f.id} (plan ${f.planId}, ${f.severity}, ${f.aspect}, claimType ${f.claimType})
 title: ${f.title}
 observation: ${f.observation}
 evidence (you may Read these images to locate the target; they are the examiner's, not evidence for your verdict):
 ${evidence}
 falsifier the examiner nominated (the run that would prove the finding WRONG): ${
-    f.falsifier === undefined ? '(none)' : JSON.stringify(f.falsifier)
+    f.falsifier === undefined ? "(none)" : JSON.stringify(f.falsifier)
   }
-mechanismHypothesis: ${f.mechanismHypothesis === undefined ? '(none stated - judge the observation only, and omit mechanismVerdict)' : f.mechanismHypothesis}`
-}
+mechanismHypothesis: ${f.mechanismHypothesis === undefined ? "(none stated - judge the observation only, and omit mechanismVerdict)" : f.mechanismHypothesis}`;
+};
 
 const refutePrompt = (plan, f) =>
   `${refuterBriefing(plan)}
 
 ${findingBlock(plan, f)}
 
-Start from the nominated falsifier: it names the op whose output the examiner agreed would settle this. Run it (translating a described target into a real id first), and run another op if the first one cannot decide. Return the verdict for \`findingId\` "${f.id}".`
+Start from the nominated falsifier: it names the op whose output the examiner agreed would settle this. Run it (translating a described target into a real id first), and run another op if the first one cannot decide. Return the verdict for \`findingId\` "${f.id}".`;
 
 const refuteBatchPrompt = (plan, group) =>
   `${refuterBriefing(plan)}
 
 ${group.length} findings on plan "${plan.id}", all of them minor or nit and none carrying a mechanism. Judge each ONE AT A TIME and independently: a probe run for one says nothing about another.
 
-${group.map((f) => findingBlock(plan, f)).join('\n\n')}
+${group.map((f) => findingBlock(plan, f)).join("\n\n")}
 
-Return \`verdicts\` with exactly ${group.length} entries, one per finding, with \`findingId\` set to ${group.map((f) => `"${f.id}"`).join(', ')}. Each entry needs its OWN probeCommand and probeOutput; reusing one run for several findings means the others were never checked, and an unchecked verdict must be UNCERTAIN.`
+Return \`verdicts\` with exactly ${group.length} entries, one per finding, with \`findingId\` set to ${group.map((f) => `"${f.id}"`).join(", ")}. Each entry needs its OWN probeCommand and probeOutput; reusing one run for several findings means the others were never checked, and an unchecked verdict must be UNCERTAIN.`;
 
 // THE ONLY PLACE A VERDICT IS BUILT. Every path lands here: a refuter's answer,
 // a refuter that answered nothing usable, and a corroborated finding that never
@@ -795,17 +985,21 @@ Return \`verdicts\` with exactly ${group.length} entries, one per finding, with 
 //   correctedObservation   what is actually true; null when none was offered
 //   coercions              why a claim was forced to UNCERTAIN; [] when none was
 const buildVerdict = (finding, parts) => {
-  const observationVerdict = parts.observationVerdict
-  const mechanismVerdict = parts.mechanismVerdict ?? null
+  const observationVerdict = parts.observationVerdict;
+  const mechanismVerdict = parts.mechanismVerdict ?? null;
 
   // What the orchestrator does with it. A real symptom under a disproved cause is
   // the shape the last exam got wrong twice: it is still a finding, filed with
   // the mechanism struck out rather than dropped along with it.
-  let disposition
-  if (observationVerdict === 'REFUTED') disposition = 'DROP'
-  else if (observationVerdict === 'UNCERTAIN' || mechanismVerdict === 'UNCERTAIN') disposition = 'HUMAN_REVIEW'
-  else if (mechanismVerdict === 'REFUTED') disposition = 'FILE_SYMPTOM_ONLY'
-  else disposition = 'FILE'
+  let disposition;
+  if (observationVerdict === "REFUTED") disposition = "DROP";
+  else if (
+    observationVerdict === "UNCERTAIN" ||
+    mechanismVerdict === "UNCERTAIN"
+  )
+    disposition = "HUMAN_REVIEW";
+  else if (mechanismVerdict === "REFUTED") disposition = "FILE_SYMPTOM_ONLY";
+  else disposition = "FILE";
 
   return {
     findingId: finding.id,
@@ -813,7 +1007,8 @@ const buildVerdict = (finding, parts) => {
     observationVerdict,
     mechanismVerdict,
     mechanismStripped:
-      disposition === 'FILE_SYMPTOM_ONLY' && finding.mechanismHypothesis !== undefined
+      disposition === "FILE_SYMPTOM_ONLY" &&
+      finding.mechanismHypothesis !== undefined
         ? finding.mechanismHypothesis
         : null,
     disposition,
@@ -823,8 +1018,8 @@ const buildVerdict = (finding, parts) => {
     reasoning: parts.reasoning ?? null,
     correctedObservation: parts.correctedObservation ?? null,
     coercions: parts.coercions ?? [],
-  }
-}
+  };
+};
 
 // Every answer out of the Refute phase is read here. NEVER auto-confirm and
 // NEVER auto-drop: an agent that returned nothing, one that answered about a
@@ -835,37 +1030,48 @@ const buildVerdict = (finding, parts) => {
 // because "nothing came back" and "the answers were about other ids" send an
 // operator after two completely different bugs.
 const coerceVerdict = (finding, raw, missReason) => {
-  const r = raw !== null && typeof raw === 'object' ? raw : null
-  const nonEmpty = (v) => typeof v === 'string' && v.trim() !== ''
-  const cited = r !== null && nonEmpty(r.probeCommand) && nonEmpty(r.probeOutput)
-  const coercions = []
-  if (r === null) coercions.push(missReason)
-  else if (!cited) coercions.push('no probeCommand and probeOutput, so nothing was run')
+  const r = raw !== null && typeof raw === "object" ? raw : null;
+  const nonEmpty = (v) => typeof v === "string" && v.trim() !== "";
+  const cited =
+    r !== null && nonEmpty(r.probeCommand) && nonEmpty(r.probeOutput);
+  const coercions = [];
+  if (r === null) coercions.push(missReason);
+  else if (!cited)
+    coercions.push("no probeCommand and probeOutput, so nothing was run");
 
   const claim = (value, name) => {
-    if (!cited) return 'UNCERTAIN'
+    if (!cited) return "UNCERTAIN";
     if (!VERDICT_ENUM.includes(value)) {
-      coercions.push(`${name} ${JSON.stringify(value)} is not a verdict`)
-      return 'UNCERTAIN'
+      coercions.push(`${name} ${JSON.stringify(value)} is not a verdict`);
+      return "UNCERTAIN";
     }
-    return value
-  }
-  const observationVerdict = claim(r === null ? undefined : r.observationVerdict, 'observationVerdict')
+    return value;
+  };
+  const observationVerdict = claim(
+    r === null ? undefined : r.observationVerdict,
+    "observationVerdict",
+  );
   // A mechanism verdict only exists where a mechanism was claimed. Where one was,
   // silence about it is not agreement.
-  const hasMechanism = finding.mechanismHypothesis !== undefined
-  const mechanismVerdict = hasMechanism ? claim(r === null ? undefined : r.mechanismVerdict, 'mechanismVerdict') : null
+  const hasMechanism = finding.mechanismHypothesis !== undefined;
+  const mechanismVerdict = hasMechanism
+    ? claim(r === null ? undefined : r.mechanismVerdict, "mechanismVerdict")
+    : null;
 
   return buildVerdict(finding, {
     observationVerdict,
     mechanismVerdict,
-    probeCommand: r !== null && nonEmpty(r.probeCommand) ? r.probeCommand : null,
+    probeCommand:
+      r !== null && nonEmpty(r.probeCommand) ? r.probeCommand : null,
     probeOutput: r !== null && nonEmpty(r.probeOutput) ? r.probeOutput : null,
     reasoning: r !== null && nonEmpty(r.reasoning) ? r.reasoning : null,
-    correctedObservation: r !== null && nonEmpty(r.correctedObservation) ? r.correctedObservation : null,
+    correctedObservation:
+      r !== null && nonEmpty(r.correctedObservation)
+        ? r.correctedObservation
+        : null,
     coercions,
-  })
-}
+  });
+};
 
 // A corroborated finding never reaches an agent: an independent measurement
 // already exists at the place it marked, and that is what the join is for. The
@@ -875,13 +1081,13 @@ const coerceVerdict = (finding, raw, missReason) => {
 // guarantees the no-mechanism half, since a stated mechanism never reaches it.
 const corroboratedVerdict = (t) =>
   buildVerdict(t.finding, {
-    observationVerdict: 'CONFIRMED',
+    observationVerdict: "CONFIRMED",
     mechanismVerdict: null,
     corroboratedBy: t.corroboratedBy,
     reasoning: `corroborated by ${t.corroborations.length} independent measurement(s) at the marked place: ${t.corroborations
       .map((m) => m.detail)
-      .join(' | ')}`,
-  })
+      .join(" | ")}`,
+  });
 
 // Which of a refuter's answers is about THIS finding, and what to say when none
 // of them is. A verdict is keyed by finding id, so an answer carrying another id
@@ -891,29 +1097,33 @@ const corroboratedVerdict = (t) =>
 // that produced nothing at all, against an id-space mismatch (a batch that
 // stripped the "<planId>:" namespace answers every finding and matches none).
 const answerFor = (finding, answers) => {
-  const hit = answers.find((v) => v.findingId === finding.id)
-  if (hit !== undefined) return { raw: hit, missReason: null }
-  if (answers.length === 0) return { raw: null, missReason: 'the refuter returned nothing' }
+  const hit = answers.find((v) => v.findingId === finding.id);
+  if (hit !== undefined) return { raw: hit, missReason: null };
+  if (answers.length === 0)
+    return { raw: null, missReason: "the refuter returned nothing" };
   return {
     raw: null,
     missReason: `no answer carried this finding's id; the refuter answered about ${answers
       .map((v) => JSON.stringify(v.findingId))
-      .join(', ')}`,
-  }
-}
+      .join(", ")}`,
+  };
+};
 
 // The objects in a refuter's reply, junk entries dropped: something that is not
 // an object cannot be matched to a finding id, so it counts as no answer at all.
-const answerObjects = (list) => (Array.isArray(list) ? list.filter((v) => v !== null && typeof v === 'object') : [])
+const answerObjects = (list) =>
+  Array.isArray(list)
+    ? list.filter((v) => v !== null && typeof v === "object")
+    : [];
 
 // How many findings one batch refuter is handed. Four is where the batches of
 // the 2026-09-03 exam still reasoned per finding; the six-finding ones did not.
-const BATCH_CAP = 4
+const BATCH_CAP = 4;
 const chunk = (list, size) => {
-  const out = []
-  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size))
-  return out
-}
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+};
 
 // Stage two of the per-plan chain: everything that happens to ONE plan's
 // findings once its evaluator has answered - triage, the verdicts the join
@@ -928,26 +1138,30 @@ const chunk = (list, size) => {
 // and that one loses rows the plan had already produced, so the two have to be
 // distinguishable where they are reported.
 const triageAndRefute = async (evaluation, p) => {
-  if (evaluation === null || evaluation === undefined) return { evaluation: null, triaged: [], verdicts: [] }
+  if (evaluation === null || evaluation === undefined)
+    return { evaluation: null, triaged: [], verdicts: [] };
 
-  const triaged = evaluation.findings.map(triageFinding)
-  log(`${p.id}: ${histogramOf(triaged)} INVALID=${routedIn(triaged, null).length}`)
+  const triaged = evaluation.findings.map(triageFinding);
+  log(
+    `${p.id}: ${histogramOf(triaged)} INVALID=${routedIn(triaged, null).length}`,
+  );
 
-  const batch = routedIn(triaged, 'REFUTE_BATCH').map((t) => t.finding)
+  const batch = routedIn(triaged, "REFUTE_BATCH").map((t) => t.finding);
   const refuteTasks = [
     // One finding was asked about, so one answer is expected - and it is still
     // matched on `findingId` rather than assumed. An agent handed one finding can
     // answer about another, and a verdict is keyed by id, so taking its word for
     // it would relabel that probe output as this finding's and file it.
-    ...routedIn(triaged, 'REFUTE_INDIVIDUAL').map((t) => () =>
-      agent(refutePrompt(p, t.finding), {
-        label: `refute:${t.finding.id}`,
-        phase: 'Refute',
-        schema: REFUTE_SCHEMA,
-      }).then((r) => {
-        const { raw, missReason } = answerFor(t.finding, answerObjects([r]))
-        return [coerceVerdict(t.finding, raw, missReason)]
-      }),
+    ...routedIn(triaged, "REFUTE_INDIVIDUAL").map(
+      (t) => () =>
+        agent(refutePrompt(p, t.finding), {
+          label: `refute:${t.finding.id}`,
+          phase: "Refute",
+          schema: REFUTE_SCHEMA,
+        }).then((r) => {
+          const { raw, missReason } = answerFor(t.finding, answerObjects([r]));
+          return [coerceVerdict(t.finding, raw, missReason)];
+        }),
     ),
     // The batch for this plan, in chunks of at most BATCH_CAP. One agent per
     // plan used to take the whole list, and the two six-finding batches of the
@@ -956,33 +1170,36 @@ const triageAndRefute = async (evaluation, p) => {
     // them before it probes any. A plan whose batch fits in one chunk keeps the
     // bare `refute-batch:<plan>` label; a plan that needs several numbers them.
     ...chunk(batch, BATCH_CAP).map((group, i, groups) => () => {
-      const label = groups.length === 1 ? `refute-batch:${p.id}` : `refute-batch:${p.id}:${i + 1}`
+      const label =
+        groups.length === 1
+          ? `refute-batch:${p.id}`
+          : `refute-batch:${p.id}:${i + 1}`;
       return agent(refuteBatchPrompt(p, group), {
         label,
-        phase: 'Refute',
+        phase: "Refute",
         schema: REFUTE_BATCH_SCHEMA,
       }).then((r) => {
-        const answers = answerObjects(r === null ? null : r.verdicts)
+        const answers = answerObjects(r === null ? null : r.verdicts);
         const verdicts = group.map((f) => {
-          const { raw, missReason } = answerFor(f, answers)
-          return coerceVerdict(f, raw, missReason)
-        })
+          const { raw, missReason } = answerFor(f, answers);
+          return coerceVerdict(f, raw, missReason);
+        });
         // Answers about ids nobody asked about are logged rather than dropped:
         // they are the evidence that the batch ran and its ids were renamed, and
         // without them the run looks exactly like an agent that said nothing.
-        const asked = new Set(group.map((f) => f.id))
-        const extra = answers.filter((v) => !asked.has(v.findingId))
+        const asked = new Set(group.map((f) => f.id));
+        const extra = answers.filter((v) => !asked.has(v.findingId));
         if (extra.length > 0) {
           log(
             `${label} answered about ${extra.length} id(s) not in this batch, ignored: ${extra
               .map((v) => JSON.stringify(v.findingId))
-              .join(', ')}`,
-          )
+              .join(", ")}`,
+          );
         }
-        return verdicts
-      })
+        return verdicts;
+      });
     }),
-  ]
+  ];
 
   // A thunk that threw resolves to null in its own slot rather than failing the
   // barrier, so the flattened answers can hold nulls. Dropping them keeps the
@@ -990,15 +1207,21 @@ const triageAndRefute = async (evaluation, p) => {
   // given now have NO verdict at all - they are absent from the dispositions
   // rather than sitting in HUMAN_REVIEW, which nothing downstream can tell from
   // a finding that was never routed to a refuter.
-  const answers = refuteTasks.length === 0 ? [] : (await parallel(refuteTasks)).flat()
-  const lost = answers.filter((v) => !v).length
+  const answers =
+    refuteTasks.length === 0 ? [] : (await parallel(refuteTasks)).flat();
+  const lost = answers.filter((v) => !v).length;
   if (lost > 0) {
-    log(`${p.id}: ${lost} refuter task(s) threw, so their findings carry no verdict`)
+    log(
+      `${p.id}: ${lost} refuter task(s) threw, so their findings carry no verdict`,
+    );
   }
 
-  const verdicts = [...routedIn(triaged, 'CORROBORATED').map(corroboratedVerdict), ...answers.filter(Boolean)]
-  return { evaluation, triaged, verdicts }
-}
+  const verdicts = [
+    ...routedIn(triaged, "CORROBORATED").map(corroboratedVerdict),
+    ...answers.filter(Boolean),
+  ];
+  return { evaluation, triaged, verdicts };
+};
 
 // ---------------------------------------------------------------------------
 // RUN
@@ -1011,7 +1234,7 @@ const triageAndRefute = async (evaluation, p) => {
 // resolved, so it says the same thing it said when the phases were separated.
 // ---------------------------------------------------------------------------
 
-const chains = await pipeline(plans, evaluatePlan, triageAndRefute)
+const chains = await pipeline(plans, evaluatePlan, triageAndRefute);
 
 // A chain answers `null` only for a plan a STAGE THREW in; a plan its evaluator
 // never judged comes back as an empty chain. Both contributed nothing, and both
@@ -1020,45 +1243,63 @@ const chains = await pipeline(plans, evaluatePlan, triageAndRefute)
 // already produced, which is a bug to chase rather than a silent agent to re-run.
 // Kept in index order alongside `plans`, since a null carries no plan id itself.
 const done = chains.map((c, i) => {
-  const chain = c === null || c === undefined ? { evaluation: null, triaged: [], verdicts: [] } : c
-  return { plan: plans[i], threw: c === null || c === undefined, ...chain }
-})
+  const chain =
+    c === null || c === undefined
+      ? { evaluation: null, triaged: [], verdicts: [] }
+      : c;
+  return { plan: plans[i], threw: c === null || c === undefined, ...chain };
+});
 
-const notEvaluated = done.filter((c) => !c.threw && c.evaluation === null)
+const notEvaluated = done.filter((c) => !c.threw && c.evaluation === null);
 if (notEvaluated.length > 0) {
-  log(`Not evaluated (agent returned nothing): ${notEvaluated.map((c) => c.plan.id).join(', ')}`)
+  log(
+    `Not evaluated (agent returned nothing): ${notEvaluated.map((c) => c.plan.id).join(", ")}`,
+  );
 }
-const threw = done.filter((c) => c.threw)
-if (threw.length > 0) log(`Dropped (a stage threw): ${threw.map((c) => c.plan.id).join(', ')}`)
+const threw = done.filter((c) => c.threw);
+if (threw.length > 0)
+  log(`Dropped (a stage threw): ${threw.map((c) => c.plan.id).join(", ")}`);
 
-const evaluations = done.map((c) => c.evaluation).filter(Boolean)
+const evaluations = done.map((c) => c.evaluation).filter(Boolean);
 
 // Flattened for the steps that work finding by finding, same objects as above.
-const findings = evaluations.flatMap((e) => e.findings)
+const findings = evaluations.flatMap((e) => e.findings);
 
-log(`${evaluations.length}/${plans.length} plans evaluated, ${findings.length} findings`)
-
-const triaged = done.flatMap((c) => c.triaged)
-const invalid = routedIn(triaged, null)
-log(`Triage: ${histogramOf(triaged)} INVALID=${invalid.length}`)
-for (const t of invalid) log(`  invalid ${t.finding.id}: ${t.violations.join('; ')}`)
-
-const verdicts = done.flatMap((c) => c.verdicts)
-const dispositions = ['FILE', 'FILE_SYMPTOM_ONLY', 'HUMAN_REVIEW', 'DROP']
-  .map((d) => `${d}=${verdicts.filter((v) => v.disposition === d).length}`)
-  .join(' ')
 log(
-  `Refute: ${verdicts.length} verdicts, ${dispositions}; ${routedIn(triaged, 'HUMAN_RULING').length} awaiting a human ruling`,
-)
+  `${evaluations.length}/${plans.length} plans evaluated, ${findings.length} findings`,
+);
+
+const triaged = done.flatMap((c) => c.triaged);
+const invalid = routedIn(triaged, null);
+log(`Triage: ${histogramOf(triaged)} INVALID=${invalid.length}`);
+for (const t of invalid)
+  log(`  invalid ${t.finding.id}: ${t.violations.join("; ")}`);
+
+const verdicts = done.flatMap((c) => c.verdicts);
+const dispositions = ["FILE", "FILE_SYMPTOM_ONLY", "HUMAN_REVIEW", "DROP"]
+  .map((d) => `${d}=${verdicts.filter((v) => v.disposition === d).length}`)
+  .join(" ");
+log(
+  `Refute: ${verdicts.length} verdicts, ${dispositions}; ${routedIn(triaged, "HUMAN_RULING").length} awaiting a human ruling`,
+);
 
 return {
   evaluations,
   findings,
-  triage: triaged.map((t) => ({ id: t.finding.id, planId: t.finding.planId, route: t.route, violations: t.violations })),
+  triage: triaged.map((t) => ({
+    id: t.finding.id,
+    planId: t.finding.planId,
+    route: t.route,
+    violations: t.violations,
+  })),
   verdicts,
   // No verdict is synthesised for either of these. A subjective claim has no
   // probe that settles it, and an invalid one is a defect of the report; both
   // are handed back for a person to rule on rather than resolved here.
-  humanRuling: routedIn(triaged, 'HUMAN_RULING').map((t) => t.finding),
-  invalid: invalid.map((t) => ({ id: t.finding.id, planId: t.finding.planId, violations: t.violations })),
-}
+  humanRuling: routedIn(triaged, "HUMAN_RULING").map((t) => t.finding),
+  invalid: invalid.map((t) => ({
+    id: t.finding.id,
+    planId: t.finding.planId,
+    violations: t.violations,
+  })),
+};

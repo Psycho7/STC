@@ -22,16 +22,16 @@ Design spec: `docs/specs/2026-08-23-inputs-picker-popup-design.md`.
 
 ## File structure
 
-| File | Responsibility | Change |
-| --- | --- | --- |
-| `src/components/ItemPickerPopup.tsx` | The shared modal item grid | Modify: add `disabledHint`, rewrite two stale prop comments |
-| `src/components/ItemPickerPopup.test.tsx` | Popup unit tests | Modify: fixture + within-group ordering + hint tests |
-| `src/components/InputsPanel.tsx` | The INPUT SUPPLY section | Modify: trigger, picker state, pending focus, Add button, name spans, cleanup |
-| `src/components/InputsPanel.test.tsx` | Unit tests colocated with the panel | Modify: drop UX-17, add focus tests |
-| `test/components/InputsPanel.test.tsx` | Unit tests using the 4-item fixture | Modify: rewrite add + duplicate tests, add exhausted test |
-| `test/e2e/inputs-panel.spec.ts` | Playwright suite | Modify: replace 2 tests, restructure 1, re-preamble 3, drop 4 constants |
-| `src/canvas/canvas.css` | Styling | Modify: delete select rules, rewrite comment, add hint + aria-disabled rules |
-| `src/data/i18n.ts` | UI strings | Modify: 2 new keys across 4 locales |
+| File                                      | Responsibility                      | Change                                                                        |
+| ----------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------- |
+| `src/components/ItemPickerPopup.tsx`      | The shared modal item grid          | Modify: add `disabledHint`, rewrite two stale prop comments                   |
+| `src/components/ItemPickerPopup.test.tsx` | Popup unit tests                    | Modify: fixture + within-group ordering + hint tests                          |
+| `src/components/InputsPanel.tsx`          | The INPUT SUPPLY section            | Modify: trigger, picker state, pending focus, Add button, name spans, cleanup |
+| `src/components/InputsPanel.test.tsx`     | Unit tests colocated with the panel | Modify: drop UX-17, add focus tests                                           |
+| `test/components/InputsPanel.test.tsx`    | Unit tests using the 4-item fixture | Modify: rewrite add + duplicate tests, add exhausted test                     |
+| `test/e2e/inputs-panel.spec.ts`           | Playwright suite                    | Modify: replace 2 tests, restructure 1, re-preamble 3, drop 4 constants       |
+| `src/canvas/canvas.css`                   | Styling                             | Modify: delete select rules, rewrite comment, add hint + aria-disabled rules  |
+| `src/data/i18n.ts`                        | UI strings                          | Modify: 2 new keys across 4 locales                                           |
 
 ---
 
@@ -40,9 +40,11 @@ Design spec: `docs/specs/2026-08-23-inputs-picker-popup-design.md`.
 Run this FIRST, before any file is touched. `bun run test:e2e` is not a CI gate and this repo has known pre-existing e2e failures, so the only way to tell a regression from an inherited failure is to measure the suite before the change. Measuring it later is worse than not measuring: by Task 9 the select is already gone, every legacy test fails on `getByRole("combobox")`, and a "no new failures" gate passes vacuously.
 
 **Files:**
+
 - Create: `.artifacts/e2e-baseline.txt` (scratch; `.artifacts/` is already gitignored)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: the list of `inputs-panel` tests already failing on this branch's merge base, which Task 9 Step 7 compares against.
 
@@ -79,11 +81,13 @@ Expect some. Tests 4 and 6 in particular fill a rate with `fill()` and never blu
 ### Task 1: `ItemPickerPopup` gains `disabledHint`
 
 **Files:**
+
 - Modify: `src/components/ItemPickerPopup.tsx`
 - Modify: `src/canvas/canvas.css` (new rule after `.recipe-picker-search:focus`)
 - Test: `src/components/ItemPickerPopup.test.tsx`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `ItemPickerPopup` accepts `disabledHint?: string`. When set, the dialog renders `<div className="recipe-picker-hint" data-testid="picker-hint">{disabledHint}</div>` between the search input and `.recipe-picker-body`. When absent, no such element exists.
 
@@ -131,11 +135,13 @@ Add `disabledHint` to the destructured parameter list.
 Then insert between the `<input className="recipe-picker-search" ... />` element and `<div className="recipe-picker-body">`:
 
 ```tsx
-        {disabledHint !== undefined ? (
-          <div className="recipe-picker-hint" data-testid="picker-hint">
-            {disabledHint}
-          </div>
-        ) : null}
+{
+  disabledHint !== undefined ? (
+    <div className="recipe-picker-hint" data-testid="picker-hint">
+      {disabledHint}
+    </div>
+  ) : null;
+}
 ```
 
 - [x] **Step 4: Add the CSS rule**
@@ -172,9 +178,11 @@ git commit -m "Add an optional disabled-tile hint line to the item picker"
 The panel suite currently owns the "sorted by localized display name" guarantee via the `<select>`'s flat option list. That list is about to disappear, and the popup sorts only within a tier bucket. Move the guarantee here first, so it is never uncovered.
 
 **Files:**
+
 - Test: `src/components/ItemPickerPopup.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `ItemPickerPopup` from Task 1.
 - Produces: nothing consumed by later tasks.
 
@@ -248,10 +256,12 @@ git commit -m "Pin within-group tile ordering in the item picker suite"
 Row entry point only. Add still behaves as it does today; Task 5 changes it.
 
 **Files:**
+
 - Modify: `src/components/InputsPanel.tsx`
 - Test: `test/components/InputsPanel.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `ItemPickerPopup` from Task 1.
 - Produces: `InputsPanel` renders one `button.b-pick-trigger` per override row, with `aria-label={i18n.t("inputs.item.label")}`, `aria-haspopup="dialog"`, `title` and visible text both the localized item name. Local state `pickerFor: { kind: "row"; itemId: string } | null` and a `closePicker()` that always refocuses the stored trigger.
 
@@ -264,10 +274,10 @@ it("a row trigger opens the picker with siblings disabled and its own item selec
   const user = userEvent.setup();
   render(
     <InputsPanel
-        itemOverrides={[{ itemId: "copper_ore" }, { itemId: "iron_ore" }]}
-        onChange={() => {}}
-        pack={fixturePack}
-      />
+      itemOverrides={[{ itemId: "copper_ore" }, { itemId: "iron_ore" }]}
+      onChange={() => {}}
+      pack={fixturePack}
+    />,
   );
   const triggers = screen.getAllByLabelText("物品");
   await user.click(triggers[0]!);
@@ -284,12 +294,12 @@ it("picking a different item swaps the row and keeps its rate", async () => {
   const onChange = vi.fn();
   render(
     <InputsPanel
-        itemOverrides={[
-          { itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } },
-        ]}
-        onChange={onChange}
-        pack={fixturePack}
-      />
+      itemOverrides={[
+        { itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } },
+      ]}
+      onChange={onChange}
+      pack={fixturePack}
+    />,
   );
   await user.click(screen.getAllByLabelText("物品")[0]!);
   await user.click(pickerTile("iron_ore")!);
@@ -297,8 +307,9 @@ it("picking a different item swaps the row and keeps its rate", async () => {
   const updater = onChange.mock.calls[0]![0] as (
     c: ItemOverride[],
   ) => ItemOverride[];
-  expect(updater([{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }]))
-    .toEqual([{ itemId: "iron_ore", ratePerSec: { num: "1", denom: "2" } }]);
+  expect(
+    updater([{ itemId: "copper_ore", ratePerSec: { num: "1", denom: "2" } }]),
+  ).toEqual([{ itemId: "iron_ore", ratePerSec: { num: "1", denom: "2" } }]);
 });
 
 it("a row popup leaves auto-row items enabled and shows no hint", async () => {
@@ -341,10 +352,10 @@ it("re-picking the row's own item commits nothing and raises no alert", async ()
   const onChange = vi.fn();
   render(
     <InputsPanel
-        itemOverrides={[{ itemId: "copper_ore" }]}
-        onChange={onChange}
-        pack={fixturePack}
-      />
+      itemOverrides={[{ itemId: "copper_ore" }]}
+      onChange={onChange}
+      pack={fixturePack}
+    />,
   );
   const trigger = screen.getAllByLabelText("物品")[0]!;
   await user.click(trigger);
@@ -413,25 +424,25 @@ import { ItemPickerPopup } from "./ItemPickerPopup";
 `useRef` is already imported. Inside the component, after the `itemById` memo:
 
 ```tsx
-  // Availability depth per item id, used by the picker popup to group tiles.
-  // computeItemDepths seeds every pack item; ones no recipe can reach land in
-  // the unranked bucket, which on the shipped pack is empty.
-  const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
-  // Which row the picker popup is open for, plus the trigger button that
-  // opened it so focus can return there on close.
-  const [pickerFor, setPickerFor] = useState<{
-    kind: "row";
-    itemId: string;
-  } | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  function closePicker() {
-    setPickerFor(null);
-    const btn = triggerRef.current;
-    triggerRef.current = null;
-    // The trigger may have been removed (a committed swap unmounts its row),
-    // so guard the focus.
-    if (btn && document.contains(btn)) btn.focus();
-  }
+// Availability depth per item id, used by the picker popup to group tiles.
+// computeItemDepths seeds every pack item; ones no recipe can reach land in
+// the unranked bucket, which on the shipped pack is empty.
+const tierByItemId = useMemo(() => computeItemDepths(pack), [pack]);
+// Which row the picker popup is open for, plus the trigger button that
+// opened it so focus can return there on close.
+const [pickerFor, setPickerFor] = useState<{
+  kind: "row";
+  itemId: string;
+} | null>(null);
+const triggerRef = useRef<HTMLButtonElement | null>(null);
+function closePicker() {
+  setPickerFor(null);
+  const btn = triggerRef.current;
+  triggerRef.current = null;
+  // The trigger may have been removed (a committed swap unmounts its row),
+  // so guard the focus.
+  if (btn && document.contains(btn)) btn.focus();
+}
 ```
 
 - [x] **Step 4: Tag override rows with their item id**
@@ -447,23 +458,23 @@ Auto-rows already carry `data-item-id`; override rows do not, so no selector can
 In the override-row JSX, replace the whole `<span className="b-pick"><select ...>...</select></span>` block with:
 
 ```tsx
-              <span className="b-pick">
-                <button
-                  type="button"
-                  className="b-pick-trigger"
-                  aria-label={i18n.t("inputs.item.label")}
-                  aria-haspopup="dialog"
-                  // title shows the full localised item name on hover, for
-                  // when the trigger truncates long names at narrow widths.
-                  title={i18n.displayName(row.itemId)}
-                  onClick={(e) => {
-                    triggerRef.current = e.currentTarget;
-                    setPickerFor({ kind: "row", itemId: row.itemId });
-                  }}
-                >
-                  {i18n.displayName(row.itemId)}
-                </button>
-              </span>
+<span className="b-pick">
+  <button
+    type="button"
+    className="b-pick-trigger"
+    aria-label={i18n.t("inputs.item.label")}
+    aria-haspopup="dialog"
+    // title shows the full localised item name on hover, for
+    // when the trigger truncates long names at narrow widths.
+    title={i18n.displayName(row.itemId)}
+    onClick={(e) => {
+      triggerRef.current = e.currentTarget;
+      setPickerFor({ kind: "row", itemId: row.itemId });
+    }}
+  >
+    {i18n.displayName(row.itemId)}
+  </button>
+</span>
 ```
 
 - [x] **Step 6: Render the popup**
@@ -471,37 +482,39 @@ In the override-row JSX, replace the whole `<span className="b-pick"><select ...
 Immediately before the closing `</div>` of the `boundary-section` wrapper, after the `<button className="b-add">`:
 
 ```tsx
-      {pickerFor !== null ? renderPicker() : null}
+{
+  pickerFor !== null ? renderPicker() : null;
+}
 ```
 
 And add this function inside the component, after the `return (...)` block, mirroring how `TargetsPanel` places its own:
 
 ```tsx
-  function renderPicker() {
-    if (pickerFor === null) return null;
-    const rowId = pickerFor.itemId;
-    // Disable items the other override rows already claim; the row's own item
-    // stays enabled and highlighted so re-picking it reads as a confirm.
-    const disabledIds = new Set<string>(
-      itemOverrides.filter((o) => o.itemId !== rowId).map((o) => o.itemId),
-    );
-    return (
-      <ItemPickerPopup
-        items={pack.items}
-        disabledIds={disabledIds}
-        selectedId={rowId}
-        tierByItemId={tierByItemId}
-        onPick={(newId) => {
-          // Re-picking the row's own (still-enabled, highlighted) item is a
-          // confirm, not a swap; without this guard the dup check would match
-          // the row against itself and raise a false duplicate alert.
-          if (newId !== rowId) handleItemChange(rowId, newId);
-          closePicker();
-        }}
-        onClose={closePicker}
-      />
-    );
-  }
+function renderPicker() {
+  if (pickerFor === null) return null;
+  const rowId = pickerFor.itemId;
+  // Disable items the other override rows already claim; the row's own item
+  // stays enabled and highlighted so re-picking it reads as a confirm.
+  const disabledIds = new Set<string>(
+    itemOverrides.filter((o) => o.itemId !== rowId).map((o) => o.itemId),
+  );
+  return (
+    <ItemPickerPopup
+      items={pack.items}
+      disabledIds={disabledIds}
+      selectedId={rowId}
+      tierByItemId={tierByItemId}
+      onPick={(newId) => {
+        // Re-picking the row's own (still-enabled, highlighted) item is a
+        // confirm, not a swap; without this guard the dup check would match
+        // the row against itself and raise a false duplicate alert.
+        if (newId !== rowId) handleItemChange(rowId, newId);
+        closePicker();
+      }}
+      onClose={closePicker}
+    />
+  );
+}
 ```
 
 - [x] **Step 7: Run the tests to verify they pass**
@@ -525,10 +538,12 @@ git commit -m "Open the item picker from an input row trigger"
 A committed swap unmounts the row, because rows are keyed by `itemId`, so `closePicker`'s refocus lands on a button the next commit removes and focus falls to `document.body`.
 
 **Files:**
+
 - Modify: `src/components/InputsPanel.tsx`
 - Test: `test/components/InputsPanel.test.tsx`
 
 **Interfaces:**
+
 - Consumes: Task 3's `pickerFor` and `closePicker`.
 - Produces: a module-local type `PendingFocus = { itemId: string; kind: "rate" | "trigger" }` and a `pendingFocusRef` whose token each row's callback ref consumes only on a matching `kind`. Task 5 arms `kind: "rate"`.
 
@@ -540,13 +555,15 @@ Append to `test/components/InputsPanel.test.tsx`:
 it("a committed swap moves focus to the swapped row's trigger", async () => {
   const user = userEvent.setup();
   function Parent() {
-    const [rows, setRows] = useState<ItemOverride[]>([{ itemId: "copper_ore" }]);
+    const [rows, setRows] = useState<ItemOverride[]>([
+      { itemId: "copper_ore" },
+    ]);
     return (
       <InputsPanel
-          itemOverrides={rows}
-          onChange={(update) => setRows((cur) => update(cur))}
-          pack={fixturePack}
-        />
+        itemOverrides={rows}
+        onChange={(update) => setRows((cur) => update(cur))}
+        pack={fixturePack}
+      />
     );
   }
   render(<Parent />);
@@ -585,21 +602,21 @@ type PendingFocus = { itemId: string; kind: "rate" | "trigger" };
 Inside the component, next to `triggerRef`:
 
 ```tsx
-  // Armed by a pick, consumed by the matching row's callback ref on the next
-  // commit. A stale token (the commit was rejected, or the panel is rendered
-  // with an onChange that never feeds the prop back) is simply overwritten by
-  // the next pick.
-  const pendingFocus = useRef<PendingFocus | null>(null);
-  function focusOnMount(
-    el: HTMLElement | null,
-    itemId: string,
-    kind: PendingFocus["kind"],
-  ) {
-    const want = pendingFocus.current;
-    if (!el || !want || want.itemId !== itemId || want.kind !== kind) return;
-    pendingFocus.current = null;
-    el.focus();
-  }
+// Armed by a pick, consumed by the matching row's callback ref on the next
+// commit. A stale token (the commit was rejected, or the panel is rendered
+// with an onChange that never feeds the prop back) is simply overwritten by
+// the next pick.
+const pendingFocus = useRef<PendingFocus | null>(null);
+function focusOnMount(
+  el: HTMLElement | null,
+  itemId: string,
+  kind: PendingFocus["kind"],
+) {
+  const want = pendingFocus.current;
+  if (!el || !want || want.itemId !== itemId || want.kind !== kind) return;
+  pendingFocus.current = null;
+  el.focus();
+}
 ```
 
 - [x] **Step 4: Arm on swap and consume on the trigger**
@@ -642,11 +659,13 @@ git commit -m "Restore focus to the swapped input row's trigger"
 ### Task 5: Add opens the picker
 
 **Files:**
+
 - Modify: `src/components/InputsPanel.tsx`
 - Modify: `src/data/i18n.ts`
 - Test: `test/components/InputsPanel.test.tsx`
 
 **Interfaces:**
+
 - Consumes: Tasks 1, 3 and 4.
 - Produces: `pickerFor` widens to `{ kind: "row"; itemId: string } | { kind: "add" }`. Two new i18n keys, `inputs.picker.listed` and `inputs.add.exhausted`.
 
@@ -660,27 +679,24 @@ it("Add opens the picker and commits nothing until a pick", async () => {
   const onChange = vi.fn();
   render(
     <InputsPanel
-        itemOverrides={[]}
-        onChange={onChange}
-        pack={fixturePack}
-        assumedRawItemIds={["copper_ore"]}
-      />
+      itemOverrides={[]}
+      onChange={onChange}
+      pack={fixturePack}
+      assumedRawItemIds={["copper_ore"]}
+    />,
   );
   await user.click(screen.getByText(TEXT_ADD));
   expect(onChange).not.toHaveBeenCalled();
   expect(screen.getByTestId("picker-hint")).not.toBeNull();
   // The auto-row item already has a row, so its tile is dimmed here.
-  expect(
-    (pickerTile("copper_ore") as HTMLButtonElement)
-      .disabled,
-  ).toBe(true);
+  expect((pickerTile("copper_ore") as HTMLButtonElement).disabled).toBe(true);
 });
 
 it("a pick from the Add picker appends an uncapped override", async () => {
   const user = userEvent.setup();
   const onChange = vi.fn();
   render(
-    <InputsPanel itemOverrides={[]} onChange={onChange} pack={fixturePack} />
+    <InputsPanel itemOverrides={[]} onChange={onChange} pack={fixturePack} />,
   );
   await user.click(screen.getByText(TEXT_ADD));
   await user.click(pickerTile("iron_ore")!);
@@ -699,10 +715,10 @@ it("a pick from the Add picker focuses the new row's rate input", async () => {
     const [rows, setRows] = useState<ItemOverride[]>([]);
     return (
       <InputsPanel
-          itemOverrides={rows}
-          onChange={(update) => setRows((cur) => update(cur))}
-          pack={fixturePack}
-        />
+        itemOverrides={rows}
+        onChange={(update) => setRows((cur) => update(cur))}
+        pack={fixturePack}
+      />
     );
   }
   render(<Parent />);
@@ -717,7 +733,7 @@ it("the Add button is aria-disabled and inert when every item is claimed", async
   const onChange = vi.fn();
   const all = fixturePack.items.map((i) => ({ itemId: i.id }));
   render(
-    <InputsPanel itemOverrides={all} onChange={onChange} pack={fixturePack} />
+    <InputsPanel itemOverrides={all} onChange={onChange} pack={fixturePack} />,
   );
   const add = screen.getByText(TEXT_ADD);
   expect(add.getAttribute("aria-disabled")).toBe("true");
@@ -772,19 +788,19 @@ Then add to each of the four locale records, next to their `inputs.add` entry:
 In `src/components/InputsPanel.tsx`, widen the state type:
 
 ```tsx
-  const [pickerFor, setPickerFor] = useState<
-    { kind: "row"; itemId: string } | { kind: "add" } | null
-  >(null);
+const [pickerFor, setPickerFor] = useState<
+  { kind: "row"; itemId: string } | { kind: "add" } | null
+>(null);
 ```
 
 Replace `handleAdd` entirely (its first-unused-id scan goes):
 
 ```tsx
-  function handleAdd(e: MouseEvent<HTMLButtonElement>) {
-    if (addExhausted) return;
-    triggerRef.current = e.currentTarget;
-    setPickerFor({ kind: "add" });
-  }
+function handleAdd(e: MouseEvent<HTMLButtonElement>) {
+  if (addExhausted) return;
+  triggerRef.current = e.currentTarget;
+  setPickerFor({ kind: "add" });
+}
 ```
 
 Add `import type { MouseEvent } from "react";` and write the parameter as `e: MouseEvent<HTMLButtonElement>`. Do not write `React.MouseEvent`: `tsconfig.json` sets `verbatimModuleSyntax`, and no file under `src/` uses the `React.` namespace.
@@ -792,13 +808,13 @@ Add `import type { MouseEvent } from "react";` and write the parameter as `e: Mo
 Above the `return`, next to the existing `autoRows` computation:
 
 ```tsx
-  // Every item already has a row, so the picker would open on an all-dimmed
-  // grid. Unreachable on the shipped pack, but a hand-crafted plan can carry
-  // one override per item. Derived from the last completed render (autoRows
-  // comes from realized demand), so it lags an in-flight solve; that is
-  // harmless for a guard.
-  const addExhausted =
-    displayedInputCount(itemOverrides, assumedRawItemIds) === pack.items.length;
+// Every item already has a row, so the picker would open on an all-dimmed
+// grid. Unreachable on the shipped pack, but a hand-crafted plan can carry
+// one override per item. Derived from the last completed render (autoRows
+// comes from realized demand), so it lags an in-flight solve; that is
+// harmless for a guard.
+const addExhausted =
+  displayedInputCount(itemOverrides, assumedRawItemIds) === pack.items.length;
 ```
 
 - [x] **Step 5: Make the Add button inert rather than disabled**
@@ -806,17 +822,17 @@ Above the `return`, next to the existing `autoRows` computation:
 Replace the add button:
 
 ```tsx
-      <button
-        className="b-add"
-        onClick={handleAdd}
-        // aria-disabled, not disabled: a disabled button is not focusable, so
-        // keyboard and screen-reader users would never reach the title that
-        // explains why it does nothing.
-        aria-disabled={addExhausted ? true : undefined}
-        title={addExhausted ? i18n.t("inputs.add.exhausted") : undefined}
-      >
-        {i18n.t("inputs.add")}
-      </button>
+<button
+  className="b-add"
+  onClick={handleAdd}
+  // aria-disabled, not disabled: a disabled button is not focusable, so
+  // keyboard and screen-reader users would never reach the title that
+  // explains why it does nothing.
+  aria-disabled={addExhausted ? true : undefined}
+  title={addExhausted ? i18n.t("inputs.add.exhausted") : undefined}
+>
+  {i18n.t("inputs.add")}
+</button>
 ```
 
 - [x] **Step 6: Branch `renderPicker` on the entry point**
@@ -824,65 +840,65 @@ Replace the add button:
 Replace `renderPicker` from Task 3:
 
 ```tsx
-  function renderPicker() {
-    if (pickerFor === null) return null;
-    if (pickerFor.kind === "add") {
-      // Everything with a visible row is dimmed: the explicit overrides plus
-      // the auto-rows. Picking an auto-row item would append a bare override,
-      // which for a raw item leaves effectiveSupply at Infinity either way -
-      // a full re-solve and hash rewrite that changes nothing, and a row that
-      // jumps from the auto block to the end of the override block. Capping
-      // one stays what it is today: type into its auto-row.
-      const disabledIds = new Set<string>([
-        ...itemOverrides.map((o) => o.itemId),
-        ...(assumedRawItemIds ?? []),
-      ]);
-      return (
-        <ItemPickerPopup
-          items={pack.items}
-          disabledIds={disabledIds}
-          tierByItemId={tierByItemId}
-          disabledHint={i18n.t("inputs.picker.listed")}
-          onPick={(newId) => {
-            // The row mounts on a later commit, so hand its rate input the
-            // focus: it is the only edit that makes the new row do anything.
-            pendingFocus.current = { itemId: newId, kind: "rate" };
-            onChange((current) =>
-              current.some((o) => o.itemId === newId)
-                ? current
-                : [...current, { itemId: newId }],
-            );
-            closePicker();
-          }}
-          onClose={closePicker}
-        />
-      );
-    }
-    const rowId = pickerFor.itemId;
-    // Only the other override rows are disabled here. Auto-row items stay
-    // enabled: for a capped row handleItemChange carries the rate onto the
-    // new item, so this is a live cap move, and blocking it would force a
-    // delete-and-retype.
-    const disabledIds = new Set<string>(
-      itemOverrides.filter((o) => o.itemId !== rowId).map((o) => o.itemId),
-    );
+function renderPicker() {
+  if (pickerFor === null) return null;
+  if (pickerFor.kind === "add") {
+    // Everything with a visible row is dimmed: the explicit overrides plus
+    // the auto-rows. Picking an auto-row item would append a bare override,
+    // which for a raw item leaves effectiveSupply at Infinity either way -
+    // a full re-solve and hash rewrite that changes nothing, and a row that
+    // jumps from the auto block to the end of the override block. Capping
+    // one stays what it is today: type into its auto-row.
+    const disabledIds = new Set<string>([
+      ...itemOverrides.map((o) => o.itemId),
+      ...(assumedRawItemIds ?? []),
+    ]);
     return (
       <ItemPickerPopup
         items={pack.items}
         disabledIds={disabledIds}
-        selectedId={rowId}
         tierByItemId={tierByItemId}
+        disabledHint={i18n.t("inputs.picker.listed")}
         onPick={(newId) => {
-          if (newId !== rowId) {
-            pendingFocus.current = { itemId: newId, kind: "trigger" };
-            handleItemChange(rowId, newId);
-          }
+          // The row mounts on a later commit, so hand its rate input the
+          // focus: it is the only edit that makes the new row do anything.
+          pendingFocus.current = { itemId: newId, kind: "rate" };
+          onChange((current) =>
+            current.some((o) => o.itemId === newId)
+              ? current
+              : [...current, { itemId: newId }],
+          );
           closePicker();
         }}
         onClose={closePicker}
       />
     );
   }
+  const rowId = pickerFor.itemId;
+  // Only the other override rows are disabled here. Auto-row items stay
+  // enabled: for a capped row handleItemChange carries the rate onto the
+  // new item, so this is a live cap move, and blocking it would force a
+  // delete-and-retype.
+  const disabledIds = new Set<string>(
+    itemOverrides.filter((o) => o.itemId !== rowId).map((o) => o.itemId),
+  );
+  return (
+    <ItemPickerPopup
+      items={pack.items}
+      disabledIds={disabledIds}
+      selectedId={rowId}
+      tierByItemId={tierByItemId}
+      onPick={(newId) => {
+        if (newId !== rowId) {
+          pendingFocus.current = { itemId: newId, kind: "trigger" };
+          handleItemChange(rowId, newId);
+        }
+        closePicker();
+      }}
+      onClose={closePicker}
+    />
+  );
+}
 ```
 
 - [x] **Step 7: Consume the rate token on the rate input**
@@ -903,7 +919,9 @@ Expected: the four new tests PASS.
 In `src/canvas/canvas.css`, extend the scoped disabled rule's selector and guard both hover rules. Specificity is the whole point here: a generic `.ak-app-shell button[aria-disabled="true"]` is (0,2,1) and loses to the base `.ak-app-shell [data-testid="side-panel"] .b-add` at (0,3,0), so the button would keep `cursor: pointer`.
 
 ```css
-.ak-app-shell [data-testid="side-panel"] .b-add:hover:not([aria-disabled="true"]) {
+.ak-app-shell
+  [data-testid="side-panel"]
+  .b-add:hover:not([aria-disabled="true"]) {
   background: rgba(203, 255, 64, 0.08);
   border-color: var(--ak-accent-lime);
   color: var(--ak-accent-lime-bright);
@@ -942,10 +960,12 @@ git commit -m "Open the item picker from the Add input button"
 Focus now lands silently on an input whose accessible name is the generic rate label, identical on every row.
 
 **Files:**
+
 - Modify: `src/components/InputsPanel.tsx`
 - Test: `test/components/InputsPanel.test.tsx`
 
 **Interfaces:**
+
 - Consumes: Task 5.
 - Produces: every rate input, on both row kinds, carries `aria-describedby` referencing `i-name-${itemId}`, joined with `i-rate-err-${itemId}` when the row is invalid.
 
@@ -957,11 +977,11 @@ Append to `test/components/InputsPanel.test.tsx`:
 it("rate inputs are described by their row's item name", () => {
   render(
     <InputsPanel
-        itemOverrides={[{ itemId: "iron_ore" }]}
-        onChange={() => {}}
-        pack={fixturePack}
-        assumedRawItemIds={["copper_ore"]}
-      />
+      itemOverrides={[{ itemId: "iron_ore" }]}
+      onChange={() => {}}
+      pack={fixturePack}
+      assumedRawItemIds={["copper_ore"]}
+    />,
   );
   for (const itemId of ["copper_ore", "iron_ore"]) {
     const nameEl = document.getElementById(`i-name-${itemId}`);
@@ -987,9 +1007,7 @@ The id must sit on a dedicated node, never on the trigger button: a description 
 Override row trigger, wrap the visible text:
 
 ```tsx
-                  <span id={`i-name-${row.itemId}`}>
-                    {i18n.displayName(row.itemId)}
-                  </span>
+<span id={`i-name-${row.itemId}`}>{i18n.displayName(row.itemId)}</span>
 ```
 
 Auto row, add the id to the existing `.b-name` span:
@@ -1008,14 +1026,14 @@ Auto row, add the id to the existing `.b-name` span:
 Add a helper inside the component:
 
 ```tsx
-  // The row's item name plus, when present, the invalid-rate message. The
-  // name is a description rather than a label so the accessible NAME stays
-  // the generic rate label every existing query resolves by.
-  function rateDescribedBy(itemId: string): string {
-    const ids = [`i-name-${itemId}`];
-    if (invalidIds.has(itemId)) ids.push(`i-rate-err-${itemId}`);
-    return ids.join(" ");
-  }
+// The row's item name plus, when present, the invalid-rate message. The
+// name is a description rather than a label so the accessible NAME stays
+// the generic rate label every existing query resolves by.
+function rateDescribedBy(itemId: string): string {
+  const ids = [`i-name-${itemId}`];
+  if (invalidIds.has(itemId)) ids.push(`i-rate-err-${itemId}`);
+  return ids.join(" ");
+}
 ```
 
 Replace the `aria-describedby` expression on both the auto-row input and the override-row input with `aria-describedby={rateDescribedBy(itemId)}` and `aria-describedby={rateDescribedBy(row.itemId)}` respectively.
@@ -1037,11 +1055,13 @@ git commit -m "Describe input rate fields by their row's item name"
 ### Task 7: Remove the dead select code and comments
 
 **Files:**
+
 - Modify: `src/components/InputsPanel.tsx`
 - Modify: `src/components/ItemPickerPopup.tsx`
 - Modify: `src/canvas/canvas.css`
 
 **Interfaces:**
+
 - Consumes: Tasks 3 and 5.
 - Produces: no behavior change. The section-head denominator reads `pack.items.length`.
 
@@ -1100,9 +1120,11 @@ git commit -m "Remove the input row select and refresh its stale comments"
 ### Task 8: Retire the UX-17 option-order test
 
 **Files:**
+
 - Modify: `src/components/InputsPanel.test.tsx`
 
 **Interfaces:**
+
 - Consumes: Task 7.
 - Produces: nothing.
 
@@ -1142,9 +1164,11 @@ git commit -m "Retire the input select option-order test"
 Six tests, in file order. Two are replaced, one is restructured, three keep their assertions and gain a popup step.
 
 **Files:**
+
 - Modify: `test/e2e/inputs-panel.spec.ts`
 
 **Interfaces:**
+
 - Consumes: Tasks 3 to 7.
 - Produces: nothing.
 
@@ -1173,24 +1197,24 @@ Item ids in this file are from the real pack, not the unit fixture. Raw items ar
 The old title, "Add input row defaults to first unused itemId (lex-sorted)", describes behavior that no longer exists. Retitle it "Add opens the picker and a pick appends an uncapped override". Keep the test's existing preamble (`attachConsoleListener`, `page.goto`, `waitForCanvasReady`, `waitForInputsPanel`, `const initialCount = ...`) and its trailing `await expectNoConsoleErrors(log)`. Replace only what sits between them:
 
 ```ts
-    await clickAddInput(page);
-    // No row yet: the picker is open and nothing has been committed.
-    await expect(inputRows(page)).toHaveCount(initialCount);
-    await expect(page.locator(".recipe-picker")).toBeVisible();
-    const urlBefore = page.url();
+await clickAddInput(page);
+// No row yet: the picker is open and nothing has been committed.
+await expect(inputRows(page)).toHaveCount(initialCount);
+await expect(page.locator(".recipe-picker")).toBeVisible();
+const urlBefore = page.url();
 
-    await page.locator('.recipe-picker [data-item-id="copper_powder"]').click();
-    await expect(inputRows(page)).toHaveCount(initialCount + 1);
-    // Pin the identity of the committed row, not merely that some row appeared.
-    await expect(
-      page.locator('[data-testid="input-row"][data-item-id="copper_powder"]'),
-    ).toHaveCount(1);
-    // An uncapped override: the rate field is empty.
-    await expect(inputRows(page).nth(initialCount).locator("input")).toHaveValue(
-      "",
-    );
-    // The hash is rewritten after the solve settles, so poll rather than read.
-    await expect.poll(() => page.url(), { timeout: 5_000 }).not.toBe(urlBefore);
+await page.locator('.recipe-picker [data-item-id="copper_powder"]').click();
+await expect(inputRows(page)).toHaveCount(initialCount + 1);
+// Pin the identity of the committed row, not merely that some row appeared.
+await expect(
+  page.locator('[data-testid="input-row"][data-item-id="copper_powder"]'),
+).toHaveCount(1);
+// An uncapped override: the rate field is empty.
+await expect(inputRows(page).nth(initialCount).locator("input")).toHaveValue(
+  "",
+);
+// The hash is rewritten after the solve settles, so poll rather than read.
+await expect.poll(() => page.url(), { timeout: 5_000 }).not.toBe(urlBefore);
 ```
 
 - [x] **Step 3: Replace Test 3's body and title**
@@ -1198,24 +1222,24 @@ The old title, "Add input row defaults to first unused itemId (lex-sorted)", des
 Retitle from "Duplicate-guard surfaces error and does not propagate" to "A claimed item's tile is disabled in the picker". Same rule: keep the preamble and the trailing `expectNoConsoleErrors`. The old test drove a duplicate through `selectOption` and asserted the per-row alert. That pick is impossible now, so assert the tile is dimmed instead. Note the two rows use **different** items: once `copper_powder` has a row its tile is disabled, so a second `addInputRow` for the same id would time out on Playwright's actionability check.
 
 ```ts
-    await addInputRow(page, "copper_powder");
-    await addInputRow(page, "iron_powder");
-    await expect(inputRows(page)).toHaveCount(initialCount + 2);
+await addInputRow(page, "copper_powder");
+await addInputRow(page, "iron_powder");
+await expect(inputRows(page)).toHaveCount(initialCount + 2);
 
-    // Open the picker from the second row: the item the first row claims is
-    // dimmed, so a duplicate cannot be picked at all.
-    const secondRow = inputRows(page).nth(initialCount + 1);
-    await secondRow.getByRole("button", { name: TEXT.itemLabel }).click();
-    await expect(
-      page.locator('.recipe-picker [data-item-id="copper_powder"]'),
-    ).toBeDisabled();
-    // The row's own item stays enabled, as a confirm.
-    await expect(
-      page.locator('.recipe-picker [data-item-id="iron_powder"]'),
-    ).toBeEnabled();
+// Open the picker from the second row: the item the first row claims is
+// dimmed, so a duplicate cannot be picked at all.
+const secondRow = inputRows(page).nth(initialCount + 1);
+await secondRow.getByRole("button", { name: TEXT.itemLabel }).click();
+await expect(
+  page.locator('.recipe-picker [data-item-id="copper_powder"]'),
+).toBeDisabled();
+// The row's own item stays enabled, as a confirm.
+await expect(
+  page.locator('.recipe-picker [data-item-id="iron_powder"]'),
+).toBeEnabled();
 
-    await page.keyboard.press("Escape");
-    await expect(page.locator(".recipe-picker")).toHaveCount(0);
+await page.keyboard.press("Escape");
+await expect(page.locator(".recipe-picker")).toHaveCount(0);
 ```
 
 - [x] **Step 4: Restructure Test 5**
@@ -1227,24 +1251,22 @@ Same rule as Steps 2 and 3: keep the preamble and the trailing `expectNoConsoleE
 Three things must be preserved. Keep the cap value `9999`: the test's whole premise is a cap **above** demand, and the default plan needs roughly 270 copper_ore/min, so a smaller number can produce an infeasible solve and the very error banner the test asserts is absent. Keep the `headerErrors` count-0 assertion. And re-capture a URL baseline before the fill, since the old `urlAfterItem` was captured after a `selectOption` that no longer happens.
 
 ```ts
-    const autoRow = page.locator(
-      '[data-testid="input-auto-row"][data-item-id="copper_ore"]',
-    );
-    await expect(autoRow).toHaveCount(1);
+const autoRow = page.locator(
+  '[data-testid="input-auto-row"][data-item-id="copper_ore"]',
+);
+await expect(autoRow).toHaveCount(1);
 
-    const urlBeforeCap = page.url();
-    const rateInput = autoRow.getByRole("textbox", { name: TEXT.rateLabel });
-    await rateInput.fill("9999");
-    // fill() does not blur, and the panel commits only on blur or Enter.
-    await rateInput.press("Enter");
+const urlBeforeCap = page.url();
+const rateInput = autoRow.getByRole("textbox", { name: TEXT.rateLabel });
+await rateInput.fill("9999");
+// fill() does not blur, and the panel commits only on blur or Enter.
+await rateInput.press("Enter");
 
-    // Typing a cap promotes the auto-row into a real override row.
-    await expect(
-      page.locator('[data-testid="input-row"][data-item-id="copper_ore"]'),
-    ).toHaveCount(1);
-    await expect
-      .poll(() => page.url(), { timeout: 5_000 })
-      .not.toBe(urlBeforeCap);
+// Typing a cap promotes the auto-row into a real override row.
+await expect(
+  page.locator('[data-testid="input-row"][data-item-id="copper_ore"]'),
+).toHaveCount(1);
+await expect.poll(() => page.url(), { timeout: 5_000 }).not.toBe(urlBeforeCap);
 ```
 
 Delete `const initialCount = await inputRows(page).count();` from this test: its only consumer was the `nth(initialCount)` locator, and an unused binding fails `bun run lint`.
@@ -1254,8 +1276,8 @@ Delete `const initialCount = await inputRows(page).count();` from this test: its
 These keep their assertions. In each, the two lines
 
 ```ts
-    const select = newRow.getByRole("combobox", { name: TEXT.itemLabel });
-    await select.selectOption("copper_powder");
+const select = newRow.getByRole("combobox", { name: TEXT.itemLabel });
+await select.selectOption("copper_powder");
 ```
 
 are deleted, and `await clickAddInput(page);` becomes `await addInputRow(page, "copper_powder");`. **Keep** the `const newRow = inputRows(page).nth(initialCount);` binding: the surviving `rateInput` lines below it depend on it.
@@ -1263,8 +1285,8 @@ are deleted, and `await clickAddInput(page);` becomes `await addInputRow(page, "
 Test 2 is the exception: it calls `clickAddInput` twice and asserts `toHaveCount(initialCount + 2)`. It needs two `addInputRow` calls with two **different** non-raw items, because the first pick disables its own tile:
 
 ```ts
-    await addInputRow(page, "copper_powder");
-    await addInputRow(page, "iron_powder");
+await addInputRow(page, "copper_powder");
+await addInputRow(page, "iron_powder");
 ```
 
 Test 2 has neither a `select` nor a `newRow` binding to begin with: it only calls `clickAddInput` twice and then removes `nth(initialCount)`. That removal locator is still correct (it is the `copper_powder` row), so nothing after the preamble needs changing.
@@ -1289,12 +1311,12 @@ Match by position, not by name: Tests 1 and 3 were retitled in Steps 2 and 3, so
 > `copper_powder` no `inputProduct` node renders at all. A probe over the seeded
 > plan pinned the mechanism:
 >
-> | copper_powder override | nodes emitted |
-> | --- | --- |
-> | uncapped | `u:in:copper_powder`, `u:in:copper_powder:target`, `u:out:copper_powder` |
-> | cap 6/min | none (solver runs `loop:copper_powder` instead) |
-> | cap 30/min | none (same) |
-> | cap 120/min | `u:in:copper_powder`, `u:out:copper_powder` |
+> | copper_powder override | nodes emitted                                                            |
+> | ---------------------- | ------------------------------------------------------------------------ |
+> | uncapped               | `u:in:copper_powder`, `u:in:copper_powder:target`, `u:out:copper_powder` |
+> | cap 6/min              | none (solver runs `loop:copper_powder` instead)                          |
+> | cap 30/min             | none (same)                                                              |
+> | cap 120/min            | `u:in:copper_powder`, `u:out:copper_powder`                              |
 >
 > The mechanism is a route switch in the LP, not a render threshold. Unlimited
 > supply is a structural fork: `effectiveSupply === Infinity` drops the item's

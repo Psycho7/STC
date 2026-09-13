@@ -32,9 +32,11 @@ All paths below are relative to `STC/.claude/worktrees/fix/chip-seating/`. Run a
 ### Task 1: Record the pre-change baselines
 
 **Files:**
+
 - No source changes. Produces two recorded artifacts (paste into the task log / PR notes, do not commit): the e2e failure list and the measured actuals of all five ratchet tables.
 
 **Interfaces:**
+
 - Produces: the "before" numbers every later task's "verify" step compares against.
 
 - [x] **Step 1: Run the unit suite and e2e suite untouched** - the failure list was re-measured on the post-merge tree; the plan's "7 pre-existing failures" was stale. Actual: geometry-audit RAW gate on battery5 + multi6, inputs-panel 4, raw-and-transport 1, plus the placement-shots first-run flake.
@@ -63,9 +65,11 @@ Expected: clean tree.
 ### Task 2: Measure the port-model drift in-browser
 
 **Files:**
+
 - Modify (temporarily): `test/e2e/geometry-audit.spec.ts` (a probe describe, removed in Task 3)
 
 **Interfaces:**
+
 - Produces: a measured drift table `{recipe: {sourceDx, targetDx, dy}, product: {sourceDx, targetDx, dy}}` consumed by Task 3. Issue #34's exam reported source x drawn = model + 5 (recipe) / + 4 (product), target x drawn = model - 3, row y drawn = model + 1; this task confirms or replaces those numbers - no repo constant encodes them and the CSS facts (content-box cards with 1px/3px borders, xyflow's 8px handle box translated onto the edge) do not derive them unambiguously.
 
 - [x] **Step 1: Add the probe describe** - the probe reused the audit's own `collectGeometry` and geometry helpers instead of the inline collector below, so the flow frame matches the one every ratchet derives.
@@ -88,7 +92,9 @@ test.describe("port drift probe (temporary)", () => {
     test(`drift ${scenario.id}`, async ({ page }) => {
       // ... same goto/wait as the DOM geometry audit describe ...
       const rows = await page.evaluate(() => {
-        const vp = document.querySelector(".react-flow__viewport") as HTMLElement;
+        const vp = document.querySelector(
+          ".react-flow__viewport",
+        ) as HTMLElement;
         const m = new DOMMatrixReadOnly(getComputedStyle(vp).transform);
         const zoom = m.a;
         const pane = (
@@ -180,10 +186,12 @@ Expected: per-edge delta lines. The deltas must be CONSTANT per (node kind, endp
 ### Task 3: Align the seating pass's port model with the drawn handles
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts:669-687` (`edgeEndpoints`)
 - Modify (revert): `test/e2e/geometry-audit.spec.ts` (remove the Task 2 probe)
 
 **Interfaces:**
+
 - Consumes: the measured drift table from Task 2.
 - Produces: `edgeEndpoints` returning drawn-frame coordinates; every reconstructed polyline, anchor, and seat stamp now lands exactly on the drawn geometry. No signature changes.
 
@@ -203,7 +211,11 @@ const PORT_DRIFT = {
   product: { sourceDx: 4, targetDx: -3, dy: 1 },
 } as const;
 
-function portDrift(node: RFAnyNode): { sourceDx: number; targetDx: number; dy: number } {
+function portDrift(node: RFAnyNode): {
+  sourceDx: number;
+  targetDx: number;
+  dy: number;
+} {
   if (node.type === "recipe") return PORT_DRIFT.recipe;
   if (node.type === "product") return PORT_DRIFT.product;
   return { sourceDx: 0, targetDx: 0, dy: 0 };
@@ -213,14 +225,14 @@ function portDrift(node: RFAnyNode): { sourceDx: number; targetDx: number; dy: n
 Then change the return of `edgeEndpoints`:
 
 ```ts
-  const sd = portDrift(source);
-  const td = portDrift(target);
-  return {
-    sx: absoluteLeft(source, byId) + nodeWidth(source) + sd.sourceDx,
-    sy: absoluteTop(source, byId) + portOffsetY(source, item, "out") + sd.dy,
-    tx: absoluteLeft(target, byId) + td.targetDx,
-    ty: absoluteTop(target, byId) + portOffsetY(target, item, "in") + td.dy,
-  };
+const sd = portDrift(source);
+const td = portDrift(target);
+return {
+  sx: absoluteLeft(source, byId) + nodeWidth(source) + sd.sourceDx,
+  sy: absoluteTop(source, byId) + portOffsetY(source, item, "out") + sd.dy,
+  tx: absoluteLeft(target, byId) + td.targetDx,
+  ty: absoluteTop(target, byId) + portOffsetY(target, item, "in") + td.dy,
+};
 ```
 
 If Task 2 showed `other`-kind nodes (loop boxes) carrying a consistent nonzero drift, add a third row to `PORT_DRIFT` with those values instead of zeros.
@@ -243,9 +255,10 @@ Expected: no remaining diff in that file.
 
 Run: `bunx playwright test geometry-audit -g "battery5-xiranite"`
 Expected: PASS. Then zero `CHIP_OFFPATH_BASELINE` only (as in Task 1 Step 2), run `bunx playwright test geometry-audit`, and read the off-path actuals plus their reported distances:
+
 - `battery5-xiranite`: 1 violation (the 48.33px escape-tier chip), the 1.00px drift artifact gone.
 - The 0.50px residues on other scenarios gone; sub-`tol` values do not appear at all.
-Revert the zeroing (`git checkout -- test/e2e/geometry-audit.spec.ts`), then re-pin `CHIP_OFFPATH_BASELINE` downward to the measured actuals (e.g. `"battery5-xiranite": 1`; take every other scenario's measured value from this run, moving only down).
+  Revert the zeroing (`git checkout -- test/e2e/geometry-audit.spec.ts`), then re-pin `CHIP_OFFPATH_BASELINE` downward to the measured actuals (e.g. `"battery5-xiranite": 1`; take every other scenario's measured value from this run, moving only down).
 
 - [x] **Step 5: Regenerate visual baselines shifted by the chip moves** - nothing to regenerate here: placement-shots 7/7 at this commit (crystal's first-run flake passed on rerun). The battery5 golden went stale later, at Task 5's seat moves, and was regenerated in Task 6.
 
@@ -271,10 +284,12 @@ git commit -m "Align seating port model with drawn handle coordinates
 ### Task 4: Least-bad graze - crossing count on the clearance field
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts` (`ClearanceField` type + `makeClearanceField`)
 - Test: `test/canvas/chipSeating.seat.test.ts` (graze-tier describe at `:52`)
 
 **Interfaces:**
+
 - Produces: `foreignLineCrossings(box: ChipBox, flowKey: string, target: string, entryBand?: EntryBand, ownIds?: ReadonlySet<string>): number` on `ClearanceField` - the number of foreign (edge, segment) pairs intersecting the box, with exactly `onForeignLine`'s own/cluster exemptions. Counting (edge, segment) pairs deliberately matches what `auditSegmentsVsChips` ratchets, so minimizing the score minimizes the audit count.
 - Consumes: existing `segIntersectsChipBox`, `centreInBand`.
 
@@ -283,24 +298,24 @@ git commit -m "Align seating port model with drawn handle coordinates
 Add to the graze-tier describe in `test/canvas/chipSeating.seat.test.ts` (follow the file's existing fixture style for `EdgeSegments` / `CardRect` construction; the shapes below use the public API only):
 
 ```ts
-  test("foreignLineCrossings counts intersecting foreign segments", () => {
-    // Own flow is "own"; three foreign edges: two verticals crossing the
-    // corridor near x=40 and x=56, and one horizontal running parallel 10
-    // units below the own line, spanning the whole corridor.
-    const field = makeClearanceField(
-      [
-        { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
-        { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
-        { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
-      ],
-      [],
-    );
-    const box = { x: 48, y: 100, halfW: 120, halfH: 24 };
-    const farBox = { x: 300, y: 100, halfW: 120, halfH: 24 };
-    const band = { left: 2000, right: 2100, top: 0, bottom: 200 };
-    expect(field.foreignLineCrossings(box, "own", "T", band)).toBe(3);
-    expect(field.foreignLineCrossings(farBox, "own", "T", band)).toBe(1);
-  });
+test("foreignLineCrossings counts intersecting foreign segments", () => {
+  // Own flow is "own"; three foreign edges: two verticals crossing the
+  // corridor near x=40 and x=56, and one horizontal running parallel 10
+  // units below the own line, spanning the whole corridor.
+  const field = makeClearanceField(
+    [
+      { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
+      { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
+      { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+    ],
+    [],
+  );
+  const box = { x: 48, y: 100, halfW: 120, halfH: 24 };
+  const farBox = { x: 300, y: 100, halfW: 120, halfH: 24 };
+  const band = { left: 2000, right: 2100, top: 0, bottom: 200 };
+  expect(field.foreignLineCrossings(box, "own", "T", band)).toBe(3);
+  expect(field.foreignLineCrossings(farBox, "own", "T", band)).toBe(1);
+});
 ```
 
 If the file's existing tests build `EdgeSegments` through a helper, use that helper with the same coordinates instead of raw literals.
@@ -366,10 +381,12 @@ git commit -m "Add foreign-line crossing count to the clearance field"
 ### Task 5: Least-bad graze - score the slide instead of taking the first clear seat
 
 **Files:**
+
 - Modify: `src/canvas/chipSeating.ts:630` (the graze fallback inside `seatRateChip`)
 - Test: `test/canvas/chipSeating.seat.test.ts` (graze-tier describe)
 
 **Interfaces:**
+
 - Consumes: `foreignLineCrossings` from Task 4; existing locals `slideAlong`'s candidate walk (`anchorLen`, `total`, `pts`, `crossesBarrier`, `boxAt`, `hardClearAt`, `seat`).
 - Produces: unchanged `RateSeat` shape; graze seats still carry tier `"graze"`.
 
@@ -378,34 +395,41 @@ git commit -m "Add foreign-line crossing count to the clearance field"
 Add to the graze-tier describe:
 
 ```ts
-  test("graze seats at the least-crossed candidate, not the first clear one", () => {
-    // Own line runs horizontally (0,100)->(1200,100), anchor at x=48. A
-    // parallel foreign line 10 units below poisons every candidate (so tier 1
-    // and the sidestep both fail and the ladder reaches graze), and two
-    // foreign verticals near the anchor make the anchor a 3-crossing seat.
-    // From x=176 the box (halfW 120) sheds both verticals, leaving score 1.
-    // First-hit grazing seats at the anchor; least-bad must slide to the
-    // first arc step at or past x=176, which is x=192 (48 + 6*24).
-    const field = makeClearanceField(
-      [
-        { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
-        { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
-        { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+test("graze seats at the least-crossed candidate, not the first clear one", () => {
+  // Own line runs horizontally (0,100)->(1200,100), anchor at x=48. A
+  // parallel foreign line 10 units below poisons every candidate (so tier 1
+  // and the sidestep both fail and the ladder reaches graze), and two
+  // foreign verticals near the anchor make the anchor a 3-crossing seat.
+  // From x=176 the box (halfW 120) sheds both verticals, leaving score 1.
+  // First-hit grazing seats at the anchor; least-bad must slide to the
+  // first arc step at or past x=176, which is x=192 (48 + 6*24).
+  const field = makeClearanceField(
+    [
+      { id: "f1", flowKey: "a", target: "other", segs: [[40, 0, 40, 200]] },
+      { id: "f2", flowKey: "b", target: "other", segs: [[56, 0, 56, 200]] },
+      { id: "f3", flowKey: "c", target: "other", segs: [[0, 110, 1200, 110]] },
+    ],
+    [],
+  );
+  const seat = seatRateChip(
+    field,
+    {
+      pts: [
+        [0, 100],
+        [1200, 100],
       ],
-      [],
-    );
-    const seat = seatRateChip(
-      field,
-      { pts: [[0, 100], [1200, 100]], anchorX: 48, anchorY: 100 },
-      "own",
-      "T",
-      { whole: new Set(), zones: new Map() },
-      { left: 2000, right: 2100, top: 0, bottom: 200 },
-    );
-    expect(seat.tier).toBe("graze");
-    expect(seat.dy).toBe(0);
-    expect(seat.dx).toBe(144);
-  });
+      anchorX: 48,
+      anchorY: 100,
+    },
+    "own",
+    "T",
+    { whole: new Set(), zones: new Map() },
+    { left: 2000, right: 2100, top: 0, bottom: 200 },
+  );
+  expect(seat.tier).toBe("graze");
+  expect(seat.dy).toBe(0);
+  expect(seat.dx).toBe(144);
+});
 ```
 
 Adapt the `CardExemption` / `EntryBand` literals to the file's existing fixture helpers if it has them. Sanity of the setup: with no cards and no placed chips, every on-line candidate is hard-clear, so first-hit grazing returns `dx: 0` today.
@@ -420,43 +444,47 @@ Expected: FAIL with `seat.dx` = 0 (anchor) instead of 144.
 In `seatRateChip`, replace the single line at `src/canvas/chipSeating.ts:630`:
 
 ```ts
-  const grazed = slideAlong(hardClearAt, () => "graze");
-  if (grazed !== null) return grazed;
+const grazed = slideAlong(hardClearAt, () => "graze");
+if (grazed !== null) return grazed;
 ```
 
 with:
 
 ```ts
-  // Graze, least-bad: no candidate on the line is fully clear, so every seat
-  // crosses at least one foreign line (a zero-crossing hard-clear point would
-  // have been taken by tier 1). Instead of seating at the FIRST hard-clear
-  // candidate - which at saturated counter-scale is usually the anchor, in the
-  // thick of the fan - walk the same slide, score every hard-clear candidate
-  // by its foreign-line crossings, and take the minimum. Strict less-than
-  // keeps the nearest-first, forward-first preference on ties, and a score of
-  // 1 is optimal so the walk stops there.
-  let bestGraze: { px: number; py: number; score: number } | null = null;
-  for (let k = 0; k <= SLIDE_MAX_STEPS && (bestGraze === null || bestGraze.score > 1); k++) {
-    const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
-    for (const delta of deltas) {
-      const len = anchorLen + delta;
-      if (len < 0 || len > total) continue;
-      const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
-      if (crossesBarrier(py)) continue;
-      if (!hardClearAt(px, py)) continue;
-      const score = field.foreignLineCrossings(
-        boxAt(px, py),
-        flowKey,
-        target,
-        entryBand,
-        ownIds,
-      );
-      if (bestGraze === null || score < bestGraze.score) {
-        bestGraze = { px, py, score };
-      }
+// Graze, least-bad: no candidate on the line is fully clear, so every seat
+// crosses at least one foreign line (a zero-crossing hard-clear point would
+// have been taken by tier 1). Instead of seating at the FIRST hard-clear
+// candidate - which at saturated counter-scale is usually the anchor, in the
+// thick of the fan - walk the same slide, score every hard-clear candidate
+// by its foreign-line crossings, and take the minimum. Strict less-than
+// keeps the nearest-first, forward-first preference on ties, and a score of
+// 1 is optimal so the walk stops there.
+let bestGraze: { px: number; py: number; score: number } | null = null;
+for (
+  let k = 0;
+  k <= SLIDE_MAX_STEPS && (bestGraze === null || bestGraze.score > 1);
+  k++
+) {
+  const deltas = k === 0 ? [0] : [k * SLIDE_STEP, -k * SLIDE_STEP];
+  for (const delta of deltas) {
+    const len = anchorLen + delta;
+    if (len < 0 || len > total) continue;
+    const [px, py] = pathPointAtPts(pts, total === 0 ? 0 : len / total);
+    if (crossesBarrier(py)) continue;
+    if (!hardClearAt(px, py)) continue;
+    const score = field.foreignLineCrossings(
+      boxAt(px, py),
+      flowKey,
+      target,
+      entryBand,
+      ownIds,
+    );
+    if (bestGraze === null || score < bestGraze.score) {
+      bestGraze = { px, py, score };
     }
   }
-  if (bestGraze !== null) return seat(bestGraze.px, bestGraze.py, "graze");
+}
+if (bestGraze !== null) return seat(bestGraze.px, bestGraze.py, "graze");
 ```
 
 - [x] **Step 4: Run the unit suites** - green; no pre-existing pin needed updating.
@@ -481,9 +509,11 @@ minimum; hard tiers and the on-own-line preference are unchanged."
 ### Task 6: Re-pin the ratchets and record the rulings
 
 **Files:**
+
 - Modify: `test/e2e/geometry-audit.spec.ts` (five baseline tables + the NOTE comment block at `:385-393`)
 
 **Interfaces:**
+
 - Consumes: Task 1's before-matrix, Tasks 3+5 landed.
 
 - [x] **Step 1: Measure the after-actuals** - measured with the same probe as Tasks 1 and 3; nothing rose on any scenario relative to Task 5.
@@ -534,6 +564,7 @@ git commit -m "Tighten geometry ratchets to post-fix actuals
 ### Task 7: Visual verification and close-out
 
 **Files:**
+
 - No tracked changes. Captures go to the scratchpad, not the repo.
 
 - [x] **Step 1: Capture and inspect (mandatory protocol)** - fit shots plus zoom-1.0 crops of the named chips, captured with a scratch CLI rather than the exam harness (the harness tiles whole plans). battery5, battery5-xiranite, default and equip4 inspected; multi6 excluded as an LOD blind spot. The x=522 trunk column now pierces one chip instead of two, the sewage run is down from three consecutive segments to one, e:18 and e:34 are least-bad seats binding unambiguously to their own cards (e:34 covers part of its own tap subtitle - legibility nit, recorded not fixed), and the 48.33px escape chip remains, out of scope as predicted.

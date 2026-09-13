@@ -1,9 +1,9 @@
-import { MIP, Simplex } from 'glpk-ts';
-import type { StatusSimplex } from 'glpk-ts/dist/status';
+import { MIP, Simplex } from "glpk-ts";
+import type { StatusSimplex } from "glpk-ts/dist/status";
 
-import { SimplexResultType } from './enum/simplex-result-type';
-import { Rational } from './rational';
-import { Step } from './step';
+import { SimplexResultType } from "./enum/simplex-result-type";
+import { Rational } from "./rational";
+import { Step } from "./step";
 
 export interface MatrixResult {
   steps: Step[];

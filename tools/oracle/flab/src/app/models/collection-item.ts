@@ -1,4 +1,4 @@
-import { Category } from './data/category';
+import { Category } from "./data/category";
 
 export interface CollectionItem {
   id: string;

@@ -1,15 +1,15 @@
-import { Rational, rational } from '../rational';
+import { Rational, rational } from "../rational";
 
 export type ModuleEffect =
-  | 'consumption'
-  | 'pollution'
-  | 'productivity'
-  | 'quality'
-  | 'speed';
+  | "consumption"
+  | "pollution"
+  | "productivity"
+  | "quality"
+  | "speed";
 
 export const goodNegativeEffects = new Set<ModuleEffect>([
-  'consumption',
-  'pollution',
+  "consumption",
+  "pollution",
 ]);
 
 export function filterEffect(module: Module, effect: ModuleEffect): boolean {

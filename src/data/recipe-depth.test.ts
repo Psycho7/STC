@@ -359,7 +359,11 @@ describe("real pack ranking", () => {
     const depths = computeItemDepths(realPack);
     const unranked = realPack.items
       .map((i) => i.id)
-      .filter((id) => (depths.get(id) ?? Number.POSITIVE_INFINITY) === Number.POSITIVE_INFINITY);
+      .filter(
+        (id) =>
+          (depths.get(id) ?? Number.POSITIVE_INFINITY) ===
+          Number.POSITIVE_INFINITY,
+      );
     expect(unranked).toEqual([]);
   });
 

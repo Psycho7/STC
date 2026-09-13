@@ -24,10 +24,12 @@
 ### Task 1: Failing tests for sub-kind recognition and cross-tier refusal
 
 **Files:**
+
 - Modify: `tools/exam/triage-fixtures.ts` (add `SEG` and `XING` measurement fixtures)
 - Modify: `tools/exam/triage.test.ts` (new tests inside the existing `describe("corroborationsFor", ...)` block)
 
 **Interfaces:**
+
 - Produces: exported fixtures `SEG: Measurement` (kind `segment-vs-card`, footprint `{x:100,y:100,width:40,height:0}`) and `XING: Measurement` (kind `chip-vs-segment`, footprint `{x:100,y:100,width:1,height:10}`), both co-located with the existing `CHIP` fixture so only the kind axis can refuse a join. Task 3's parity cases import them.
 - Consumes: existing fixtures `CHIP`, `TILES`, `finding()` from `tools/exam/triage-fixtures.ts`.
 
@@ -78,35 +80,38 @@ import {
 Add inside `describe("corroborationsFor", ...)`, after the existing `test.each(["interaction", "absence", "subjective"] ...)` case:
 
 ```ts
-  // The geometric family splits by tier: a placement claim is about where a
-  // chip sits, a routing claim about where an edge runs, a collision claim
-  // about an edge crossing a chip. Each is witnessed only by its own tier's
-  // geometry; all three measurements here share one location, so the kind
-  // axis alone decides.
-  test.each([
-    ["geometric-placement", CHIP],
-    ["geometric-routing", SEG],
-    ["geometric-collision", XING],
-  ] as const)("joins a %s claim to its own tier's measurement", (claimType, m) => {
+// The geometric family splits by tier: a placement claim is about where a
+// chip sits, a routing claim about where an edge runs, a collision claim
+// about an edge crossing a chip. Each is witnessed only by its own tier's
+// geometry; all three measurements here share one location, so the kind
+// axis alone decides.
+test.each([
+  ["geometric-placement", CHIP],
+  ["geometric-routing", SEG],
+  ["geometric-collision", XING],
+] as const)(
+  "joins a %s claim to its own tier's measurement",
+  (claimType, m) => {
     expect(corroborationsFor(finding({ claimType }), [m], TILES)).toEqual([m]);
-  });
+  },
+);
 
-  test.each([
-    ["geometric-placement", SEG],
-    ["geometric-placement", XING],
-    ["geometric-routing", CHIP],
-    ["geometric-collision", SEG],
-  ] as const)(
-    "never corroborates a %s claim from another tier, however well the rect overlaps",
-    (claimType, m) => {
-      expect(corroborationsFor(finding({ claimType }), [m], TILES)).toEqual([]);
-    },
-  );
+test.each([
+  ["geometric-placement", SEG],
+  ["geometric-placement", XING],
+  ["geometric-routing", CHIP],
+  ["geometric-collision", SEG],
+] as const)(
+  "never corroborates a %s claim from another tier, however well the rect overlaps",
+  (claimType, m) => {
+    expect(corroborationsFor(finding({ claimType }), [m], TILES)).toEqual([]);
+  },
+);
 
-  test("rejects the retired claim type geometric rather than mapping it", () => {
-    const legacy = finding({ claimType: "geometric" as Finding["claimType"] });
-    expect(corroborationsFor(legacy, [CHIP, SEG, XING], TILES)).toEqual([]);
-  });
+test("rejects the retired claim type geometric rather than mapping it", () => {
+  const legacy = finding({ claimType: "geometric" as Finding["claimType"] });
+  expect(corroborationsFor(legacy, [CHIP, SEG, XING], TILES)).toEqual([]);
+});
 ```
 
 Note: these use the new claim type strings before `ClaimType` includes them. Vitest transpiles without typechecking, so the file runs; `as const` tuples keep the literals out of the type error path until Task 2 widens `ClaimType`. If the editor flags them meanwhile, that is expected.
@@ -124,11 +129,13 @@ Do not commit yet - the suite is red by design until Task 2.
 ### Task 2: Split the claim type in the module
 
 **Files:**
+
 - Modify: `tools/exam/triage.ts` (types, table, `routeFinding`, `validateFinding`)
 - Modify: `tools/exam/triage-fixtures.ts` (default `finding()` claim type)
 - Modify: `tools/exam/triage.test.ts` (re-type existing tests that pair the default finding with segment-tier measurements)
 
 **Interfaces:**
+
 - Produces: `export type GeometricClaimType = "geometric-placement" | "geometric-routing" | "geometric-collision"`; `ClaimType = GeometricClaimType | "interaction" | "absence" | "subjective"`; exported for tests if needed. `corroborationsFor`, `routeFinding`, `validateFinding` signatures unchanged.
 - Consumes: `MeasurementKind` from `tools/exam/scene.ts` (unchanged).
 
@@ -184,7 +191,9 @@ const GEOMETRIC_CLAIM_TYPES = [
   ...new Set(Object.values(KIND_WITNESSES)),
 ] as GeometricClaimType[];
 
-function isGeometricClaim(claimType: ClaimType): claimType is GeometricClaimType {
+function isGeometricClaim(
+  claimType: ClaimType,
+): claimType is GeometricClaimType {
   return (GEOMETRIC_CLAIM_TYPES as readonly ClaimType[]).includes(claimType);
 }
 
@@ -211,37 +220,37 @@ Leave `CLAIM_TYPES = Object.keys(COMPATIBLE_KINDS) as ClaimType[]` as-is; it now
 In `routeFinding` (`triage.ts:364`), replace:
 
 ```ts
-  if (finding.claimType === "geometric" && corroborations.length > 0) {
-    return "CORROBORATED";
-  }
+if (finding.claimType === "geometric" && corroborations.length > 0) {
+  return "CORROBORATED";
+}
 ```
 
 with:
 
 ```ts
-  if (isGeometricClaim(finding.claimType) && corroborations.length > 0) {
-    return "CORROBORATED";
-  }
+if (isGeometricClaim(finding.claimType) && corroborations.length > 0) {
+  return "CORROBORATED";
+}
 ```
 
 In `validateFinding` (`triage.ts:429-433`), replace:
 
 ```ts
-  const needsFalsifier =
-    finding.claimType === "geometric" ||
-    finding.claimType === "interaction" ||
-    finding.claimType === "absence" ||
-    finding.mechanismHypothesis !== undefined;
+const needsFalsifier =
+  finding.claimType === "geometric" ||
+  finding.claimType === "interaction" ||
+  finding.claimType === "absence" ||
+  finding.mechanismHypothesis !== undefined;
 ```
 
 with:
 
 ```ts
-  const needsFalsifier =
-    isGeometricClaim(finding.claimType) ||
-    finding.claimType === "interaction" ||
-    finding.claimType === "absence" ||
-    finding.mechanismHypothesis !== undefined;
+const needsFalsifier =
+  isGeometricClaim(finding.claimType) ||
+  finding.claimType === "interaction" ||
+  finding.claimType === "absence" ||
+  finding.mechanismHypothesis !== undefined;
 ```
 
 - [x] **Step 3: Update the default fixture's claim type**
@@ -281,10 +290,12 @@ Do not commit yet - the two copies must change in one commit per the sync contra
 ### Task 3: Update the workflow's inlined copy, schema, prompt, and parity cases
 
 **Files:**
+
 - Modify: `.claude/workflows/render-quality-exam.js` (inlined table, `routeFinding`, `validateFinding`, `FINDINGS_SCHEMA` enum, evaluator prompt text)
 - Modify: `tools/exam/workflow-parity.test.ts` (cross-tier cases)
 
 **Interfaces:**
+
 - Consumes: `SEG` and `XING` fixtures from Task 1; `GeometricClaimType` values from Task 2.
 - Produces: nothing new - behavioural identity between the two copies, verified by the parity diff.
 
@@ -298,17 +309,26 @@ Replace lines 394-411 (the `MEASUREMENT_KINDS` array through `ASPECTS`) with:
 // Interaction, absence and subjective claims get the empty row and go to a
 // refuter or a human. Mirrors the KIND_WITNESSES map in the module.
 const COMPATIBLE_KINDS = {
-  'geometric-placement': ['chip-off-own-path', 'chip-vs-card'],
-  'geometric-routing': ['segment-vs-card', 'own-card-pierce'],
-  'geometric-collision': ['chip-vs-segment'],
+  "geometric-placement": ["chip-off-own-path", "chip-vs-card"],
+  "geometric-routing": ["segment-vs-card", "own-card-pierce"],
+  "geometric-collision": ["chip-vs-segment"],
   interaction: [],
   absence: [],
   subjective: [],
-}
-const GEOMETRIC_CLAIM_TYPES = ['geometric-placement', 'geometric-routing', 'geometric-collision']
-const CLAIM_TYPES = [...GEOMETRIC_CLAIM_TYPES, 'interaction', 'absence', 'subjective']
-const SEVERITIES = ['major', 'minor', 'nit']
-const ASPECTS = ['correctness', 'comprehension', 'ux']
+};
+const GEOMETRIC_CLAIM_TYPES = [
+  "geometric-placement",
+  "geometric-routing",
+  "geometric-collision",
+];
+const CLAIM_TYPES = [
+  ...GEOMETRIC_CLAIM_TYPES,
+  "interaction",
+  "absence",
+  "subjective",
+];
+const SEVERITIES = ["major", "minor", "nit"];
+const ASPECTS = ["correctness", "comprehension", "ux"];
 ```
 
 The standalone `MEASUREMENT_KINDS` array existed only to build the old geometric row; if `rg -n 'MEASUREMENT_KINDS' .claude/workflows/render-quality-exam.js` shows no other use, drop it (the replacement above already omits it). If it has another consumer, keep it verbatim above `COMPATIBLE_KINDS`.
@@ -318,13 +338,18 @@ The standalone `MEASUREMENT_KINDS` array existed only to build the old geometric
 In the inlined `routeFinding` (line ~518), replace:
 
 ```js
-  if (finding.claimType === 'geometric' && corroborations.length > 0) return 'CORROBORATED'
+if (finding.claimType === "geometric" && corroborations.length > 0)
+  return "CORROBORATED";
 ```
 
 with:
 
 ```js
-  if (GEOMETRIC_CLAIM_TYPES.includes(finding.claimType) && corroborations.length > 0) return 'CORROBORATED'
+if (
+  GEOMETRIC_CLAIM_TYPES.includes(finding.claimType) &&
+  corroborations.length > 0
+)
+  return "CORROBORATED";
 ```
 
 In the inlined `validateFinding`, replace the `needsFalsifier` clause `finding.claimType === 'geometric' ||` with `GEOMETRIC_CLAIM_TYPES.includes(finding.claimType) ||` (same shape as the module's Task 2 Step 2 edit).
@@ -404,9 +429,11 @@ git commit -m "Split geometric claim type into placement, routing and collision 
 ### Task 4: Regression test from the crystal dry run
 
 **Files:**
+
 - Modify: `tools/exam/triage.test.ts` (new `describe` block at the end of the file)
 
 **Interfaces:**
+
 - Consumes: `corroborationsFor`, `routeFinding`, `finding` from Tasks 1-3. No production code changes.
 
 The live false corroboration from issue #35: plan `crystal`, finding "rate chips overhang the target card" (chip-tier), corroborated by three `segment-vs-card` measurements of edge `e:7` grazing card `u:class:q:5`. The measurements and tile below are verbatim from `.artifacts/exam/crystal/scene.json` in this worktree. The issue body's evidence rects (`[1004,400,80,27]` etc.) do not project onto these measurements through the committed scene's cameras - they came from a different capture run - so the fixture uses a rect drawn directly over the projected footprints (world `x:345,y:138` through zoom 0.75, offset `x:422.4,y:309.375` lands at image `681,413`). That makes co-location and proportionality both pass, proving the kind axis alone refuses the join.
@@ -432,21 +459,30 @@ describe("crystal dry-run regression: chip claim over segment grazes", () => {
   const grazes: Measurement[] = [
     {
       kind: "segment-vs-card",
-      elementIds: ["e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3", "u:class:q:5"],
+      elementIds: [
+        "e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3",
+        "u:class:q:5",
+      ],
       footprint: { x: 345, y: 138, width: 23.5, height: 0 },
       detail:
         "edge e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3 segment (345.0,138.0)->(368.5,138.0) enters the padding of card u:class:q:5",
     },
     {
       kind: "segment-vs-card",
-      elementIds: ["e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3", "u:class:q:5"],
+      elementIds: [
+        "e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3",
+        "u:class:q:5",
+      ],
       footprint: { x: 368.5, y: 138, width: 3.5, height: 3.5 },
       detail:
         "edge e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3 segment (368.5,138.0)->(372.0,141.5) enters the padding of card u:class:q:5",
     },
     {
       kind: "segment-vs-card",
-      elementIds: ["e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3", "u:class:q:5"],
+      elementIds: [
+        "e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3",
+        "u:class:q:5",
+      ],
       footprint: { x: 372, y: 141.5, width: 0, height: 48.5 },
       detail:
         "edge e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3 segment (372.0,141.5)->(372.0,294.5) enters the padding of card u:class:q:5",
@@ -458,7 +494,11 @@ describe("crystal dry-run regression: chip claim over segment grazes", () => {
     observation: "rate chips sit over the body of card u:class:q:5",
     claimType: "geometric-placement",
     evidence: [
-      { image: tile.file, rect: [676, 408, 30, 12], where: "over card u:class:q:5" },
+      {
+        image: tile.file,
+        rect: [676, 408, 30, 12],
+        where: "over card u:class:q:5",
+      },
     ],
   });
 
@@ -478,7 +518,11 @@ describe("crystal dry-run regression: chip claim over segment grazes", () => {
       observation: "edge e:7 runs through the padding of card u:class:q:5",
       claimType: "geometric-routing",
       evidence: [
-        { image: tile.file, rect: [676, 408, 30, 12], where: "over card u:class:q:5" },
+        {
+          image: tile.file,
+          rect: [676, 408, 30, 12],
+          where: "over card u:class:q:5",
+        },
       ],
     });
     expect(corroborationsFor(routingClaim, grazes, [tile])).toEqual(grazes);

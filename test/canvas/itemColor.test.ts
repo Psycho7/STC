@@ -254,9 +254,10 @@ describe("canvas/itemColor", () => {
       const a = parseHsl(itemColor(aId));
       const b = parseHsl(itemColor(bId));
       const d = deltaE(hslToLab(a.h, a.s, a.l), hslToLab(b.h, b.s, b.l));
-      expect(d, `${aId} vs ${bId} deltaE ${d.toFixed(2)}`).toBeGreaterThanOrEqual(
-        floorForPair(aId, bId),
-      );
+      expect(
+        d,
+        `${aId} vs ${bId} deltaE ${d.toFixed(2)}`,
+      ).toBeGreaterThanOrEqual(floorForPair(aId, bId));
     }
   });
 

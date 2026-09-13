@@ -7,39 +7,39 @@ import {
   Status,
   Variable,
   VariableProperties,
-} from 'glpk-ts';
-import type { StatusSimplex } from 'glpk-ts/dist/status';
-import { environment } from 'src/environments';
+} from "glpk-ts";
+import type { StatusSimplex } from "glpk-ts/dist/status";
+import { environment } from "src/environments";
 
-import { contains, spread } from '~/helpers';
-import { AdjustedRecipe, Recipe } from '~/models/data/recipe';
-import { AdjustedDataset } from '~/models/dataset';
-import { MaximizeType } from '~/models/enum/maximize-type';
-import { ObjectiveType } from '~/models/enum/objective-type';
+import { contains, spread } from "~/helpers";
+import { AdjustedRecipe, Recipe } from "~/models/data/recipe";
+import { AdjustedDataset } from "~/models/dataset";
+import { MaximizeType } from "~/models/enum/maximize-type";
+import { ObjectiveType } from "~/models/enum/objective-type";
 import { ObjectiveUnit } from "~/models/enum/objective-unit";
-import { SimplexResultType } from '~/models/enum/simplex-result-type';
-import { MatrixResult } from '~/models/matrix-result';
+import { SimplexResultType } from "~/models/enum/simplex-result-type";
+import { MatrixResult } from "~/models/matrix-result";
 import {
   isRecipeObjective,
   ObjectiveState,
   RecipeObjective,
-} from '~/models/objective';
-import { Rational, rational } from '~/models/rational';
+} from "~/models/objective";
+import { Rational, rational } from "~/models/rational";
 import {
   CostKey,
   CostSettings,
   FACTORIO_FLUID_COST_RATIO,
-} from '~/models/settings/cost-settings';
-import { Settings } from '~/models/settings/settings';
-import { Step } from '~/models/step';
-import { Entities } from '~/models/utils';
+} from "~/models/settings/cost-settings";
+import { Settings } from "~/models/settings/settings";
+import { Step } from "~/models/step";
+import { Entities } from "~/models/utils";
 
-import { RateService } from './rate.service';
+import { RateService } from "./rate.service";
 
 const simplexConfig: Simplex.Options = environment.debug
   ? // istanbul ignore next: Don't test debug environment level
     {}
-  : { msgLevel: 'off' };
+  : { msgLevel: "off" };
 
 export interface ItemValues {
   /** Sum of value from output objectives */
@@ -130,7 +130,7 @@ export class SimplexService {
     obj: Entities<ItemValues>,
     id: string,
     value = rational.zero,
-    key: keyof ItemValues = 'out',
+    key: keyof ItemValues = "out",
   ): void {
     if (obj[id]) {
       const current = obj[id][key];
@@ -151,25 +151,25 @@ export class SimplexService {
       return { steps: [], resultType: SimplexResultType.Skipped };
 
     // 跨地区传输 TODO 这里是丑陋的硬编码，需要重构
-    const transferNum = new Rational(1n,3600n);
-    const disableTransfer = ['domain_key_tundra'];
+    const transferNum = new Rational(1n, 3600n);
+    const disableTransfer = ["domain_key_tundra"];
     const useTransfer: string[] = [];
-    objectives = objectives.filter(it => {
+    objectives = objectives.filter((it) => {
       if (it.type !== ObjectiveType.DomainTransfer) return true;
       disableTransfer.splice(disableTransfer.indexOf(it.targetId), 1);
       useTransfer.push(it.targetId);
       return false;
     });
-    useTransfer.forEach(it => {
+    useTransfer.forEach((it) => {
       objectives.push({
-        id: it + '-1',
+        id: it + "-1",
         targetId: it,
         type: ObjectiveType.Limit,
         unit: ObjectiveUnit.Items,
         value: transferNum,
       });
       objectives.push({
-        id: it + '-2',
+        id: it + "-2",
         targetId: it,
         type: ObjectiveType.Input,
         unit: ObjectiveUnit.Items,
@@ -257,7 +257,7 @@ export class SimplexService {
               obj.recipe.produces.has(i),
             )) {
               const rate = obj.value.mul(obj.recipe.output[itemId]);
-              this.addItemValue(state.itemValues, itemId, rate, 'in');
+              this.addItemValue(state.itemValues, itemId, rate, "in");
             }
             break;
           }
@@ -283,7 +283,7 @@ export class SimplexService {
           }
           case ObjectiveType.Input: {
             // Add item objective value to input, no need to add recipes
-            this.addItemValue(state.itemValues, obj.targetId, obj.value, 'in');
+            this.addItemValue(state.itemValues, obj.targetId, obj.value, "in");
             break;
           }
           case ObjectiveType.Maximize: {
@@ -291,7 +291,7 @@ export class SimplexService {
              * Add item objective value to maximize and parse item for recipes
              * Add item to standard output values with 0-value
              */
-            this.addItemValue(state.itemValues, obj.targetId, obj.value, 'max');
+            this.addItemValue(state.itemValues, obj.targetId, obj.value, "max");
             this.addItemValue(state.itemValues, obj.targetId);
             this.parseItemRecursively(obj.targetId, state);
             break;
@@ -461,7 +461,7 @@ export class SimplexService {
   itemCost(itemId: string, costKey: CostKey, state: MatrixState): number {
     const base =
       state.data.itemEntities[itemId]?.stack == null &&
-      state.data.flags.has('fluidCostRatio')
+      state.data.flags.has("fluidCostRatio")
         ? FACTORIO_FLUID_COST_RATIO
         : rational.one;
     const cost = state.costs[costKey];
@@ -472,7 +472,7 @@ export class SimplexService {
     const itemIds = Object.keys(state.itemValues);
     const recipeIds = Object.keys(state.recipes);
 
-    const m = new Model({ sense: 'min' });
+    const m = new Model({ sense: "min" });
     // Variables for recipes
     const recipeVarEntities: Entities<Variable> = {};
     // Variables for recipe output objectives, where lb and ub represent
@@ -500,7 +500,7 @@ export class SimplexService {
     const config: VariableProperties = {
       obj: state.costs.maximize.toNumber(),
       lb: 0,
-      name: 'maximize',
+      name: "maximize",
     };
     const maximizeVar = m.addVar(config);
 
@@ -521,8 +521,8 @@ export class SimplexService {
       }
 
       // 跨地区传输只能是整数
-      if (recipeId.startsWith('transfer_')) {
-        config.type = 'integer';
+      if (recipeId.startsWith("transfer_")) {
+        config.type = "integer";
       }
 
       recipeVarEntities[recipeId] = m.addVar(config);
@@ -588,7 +588,7 @@ export class SimplexService {
       .filter((it) => it.type === ObjectiveType.MachineLimit)
       .map<[string, Rational]>((it) => [it.targetId, it.value]);
     const blackRecipe: Record<string, string[]> = {
-      'xiranite_oven_1': ['xiranite_enr_powder'],
+      xiranite_oven_1: ["xiranite_enr_powder"],
     };
 
     // TODO 这个变量目前的逻辑实际上跟固定true没区别，之后要根据资源配置卡片是否启用来判断
@@ -601,7 +601,7 @@ export class SimplexService {
       for (const recipeId of recipeIds) {
         if (state.recipes[recipeId].producers.includes(machineId)) {
           if (!blackRecipe[machineId]?.includes(recipeId)) {
-            recipeVarEntities[recipeId].type = 'integer';
+            recipeVarEntities[recipeId].type = "integer";
           }
           coeffs.push([recipeVarEntities[recipeId], 1]);
           hasMachineIntegerConstraints = true;
@@ -612,7 +612,7 @@ export class SimplexService {
       for (const obj of state.recipeObjectives) {
         if (obj.recipe.producers.includes(machineId)) {
           if (!blackRecipe[machineId]?.includes(obj.recipe.id)) {
-            recipeObjectiveVarEntities[obj.id].type = 'integer';
+            recipeObjectiveVarEntities[obj.id].type = "integer";
           }
           coeffs.push([recipeObjectiveVarEntities[obj.id], 1]);
           hasMachineIntegerConstraints = true;
@@ -631,7 +631,7 @@ export class SimplexService {
 
     // Add unproduceable vars to model
     for (const itemId of state.unproduceableIds) {
-      const obj = this.itemCost(itemId, 'unproduceable', state);
+      const obj = this.itemCost(itemId, "unproduceable", state);
       const config: VariableProperties = {
         obj,
         lb: 0,
@@ -642,7 +642,7 @@ export class SimplexService {
 
     // Add excluded vars to model
     for (const itemId of state.excludedIds) {
-      const obj = this.itemCost(itemId, 'excluded', state);
+      const obj = this.itemCost(itemId, "excluded", state);
       const config: VariableProperties = {
         obj,
         lb: 0,
@@ -653,7 +653,7 @@ export class SimplexService {
 
     // Add input/output vars to model
     for (const itemId of itemIds) {
-      const obj = this.itemCost(itemId, 'surplus', state);
+      const obj = this.itemCost(itemId, "surplus", state);
       const config: VariableProperties = {
         obj,
         lb: 0,
@@ -796,7 +796,7 @@ export class SimplexService {
     const recipes: Entities<Rational> = {};
     const cost = rational(m.value);
 
-    if (returnCode !== 'ok' || status !== 'optimal') {
+    if (returnCode !== "ok" || status !== "optimal") {
       let ray: Constraint | Variable | undefined;
       try {
         ray = m.ray;
@@ -907,7 +907,7 @@ export class SimplexService {
   ): [Simplex.ReturnCode | MIP.ReturnCode, Status] {
     let returnCode: Simplex.ReturnCode | MIP.ReturnCode =
       model.simplex(simplexConfig);
-    if (useIntopt && returnCode === 'ok') {
+    if (useIntopt && returnCode === "ok") {
       returnCode = model.intopt();
       return [returnCode, model.statusMIP];
     }
@@ -988,7 +988,7 @@ export class SimplexService {
       };
       if (values.out.gt(rational.zero)) {
         step.output = values.out;
-        step.parents = { '': step.output };
+        step.parents = { "": step.output };
       }
 
       steps.push(step);

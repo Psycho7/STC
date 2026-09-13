@@ -345,13 +345,17 @@ export function elideName(
               if (widthOf(headLen, winLen) > bucket) {
                 winLen = -1;
               } else {
-                for (let grewHead = true, grewWin = true; grewHead || grewWin; ) {
+                for (
+                  let grewHead = true, grewWin = true;
+                  grewHead || grewWin;
+                ) {
                   grewHead =
                     headLen < basePts.length &&
                     widthOf(headLen + 1, winLen) <= bucket;
                   if (grewHead) headLen++;
                   grewWin =
-                    winLen < seq.length && widthOf(headLen, winLen + 1) <= bucket;
+                    winLen < seq.length &&
+                    widthOf(headLen, winLen + 1) <= bucket;
                   if (grewWin) winLen++;
                 }
               }
@@ -359,7 +363,10 @@ export function elideName(
             if (winLen >= minWin) {
               const win = seq.slice(0, winLen);
               const windowStr = (fromEnd ? [...win].reverse() : win).join("");
-              const head = basePts.slice(0, headLen).join("").replace(/\s+$/, "");
+              const head = basePts
+                .slice(0, headLen)
+                .join("")
+                .replace(/\s+$/, "");
               if (codePoints(head).length >= minHead) {
                 out = head + ELLIPSIS + windowStr;
               }

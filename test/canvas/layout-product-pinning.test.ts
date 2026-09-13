@@ -128,15 +128,15 @@ describe("layout / product-unit ELK layer pinning", () => {
     const byId = new Map<string, (typeof elk.children)[number]>();
     for (const c of elk.children) byId.set(c.id, c);
 
-    expect(byId.get(aggregateUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY]).toBe(
-      ELK_LAYER_FIRST_SEPARATE,
-    );
-    expect(byId.get(inputUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY]).toBe(
-      ELK_LAYER_FIRST,
-    );
-    expect(byId.get(outputUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY]).toBe(
-      ELK_LAYER_LAST,
-    );
+    expect(
+      byId.get(aggregateUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY],
+    ).toBe(ELK_LAYER_FIRST_SEPARATE);
+    expect(
+      byId.get(inputUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY],
+    ).toBe(ELK_LAYER_FIRST);
+    expect(
+      byId.get(outputUnit.id)!.layoutOptions?.[ELK_LAYER_CONSTRAINT_KEY],
+    ).toBe(ELK_LAYER_LAST);
     // Container slices carry no layer constraint so ELK barycenters them
     // next to their consumers instead of pinning them beside the aggregate.
     expect(

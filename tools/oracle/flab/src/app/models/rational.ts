@@ -1,7 +1,7 @@
-import * as formula from '@sideway/formula';
+import * as formula from "@sideway/formula";
 
 const MAX_DENOM = 10000000;
-const DIVIDE_BY_ZERO = 'Cannot divide by zero';
+const DIVIDE_BY_ZERO = "Cannot divide by zero";
 const FLOAT_TOLERANCE = 1e-10;
 const DECIMALS_REGEX = new RegExp(/\d+(\.(\d+))?(e-(\d+))?/);
 
@@ -193,7 +193,7 @@ export class Rational {
         // If negative exponent found, add value
         if (match[4]) decimals += Number(match[4]);
       } else {
-        console.warn('Number did not match expected pattern', num);
+        console.warn("Number did not match expected pattern", num);
       }
 
       return decimals;
@@ -289,27 +289,27 @@ export function fromString(x: string): Rational {
   const cached = fromStringCache.get(x);
   if (cached) return cached;
 
-  if (x.length === 0) throw new Error('Empty string');
+  if (x.length === 0) throw new Error("Empty string");
 
   let result: Rational;
 
-  if (x.startsWith('=')) {
+  if (x.startsWith("=")) {
     // Full math support for equations
     const value = new formula.Parser(x.substring(1)).evaluate();
     result = rational(value);
-  } else if (!x.includes('/')) {
+  } else if (!x.includes("/")) {
     result = fromNumber(Number(x));
   } else {
-    const f = x.split('/');
-    if (f.length > 2) throw new Error('Too many /');
+    const f = x.split("/");
+    if (f.length > 2) throw new Error("Too many /");
 
-    if (!f[0].includes(' ')) {
+    if (!f[0].includes(" ")) {
       const p = Number(f[0]);
       const q = Number(f[1]);
       result = rational(p, q);
     } else {
-      const g = f[0].split(' ');
-      if (g.length > 2) throw new Error('Too many spaces');
+      const g = f[0].split(" ");
+      if (g.length > 2) throw new Error("Too many spaces");
 
       const n = Number(g[0]);
       const p = Number(g[1]);
@@ -342,11 +342,11 @@ export function rationalFn(
   }
 
   switch (typeof p) {
-    case 'bigint':
+    case "bigint":
       return new Rational(p);
-    case 'number':
+    case "number":
       return fromNumber(p);
-    case 'string':
+    case "string":
       return fromString(p);
   }
 }

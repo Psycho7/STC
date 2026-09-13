@@ -156,10 +156,7 @@ describe("multi-producer input of a split SCC member (assemble re-route)", () =>
   // Without the asymmetry the bounded-draw formulation makes the raw1 draw
   // optional and the split degenerate, and the test could silently stop
   // exercising the multi-producer path.
-  const mkPack = (
-    recipes: object[],
-    items: object[],
-  ): RecipePack =>
+  const mkPack = (recipes: object[], items: object[]): RecipePack =>
     ({
       recipes: recipes.map((r) => ({ producers: ["m"], ...r })),
       items: items.map((i) => ({ transportKind: "belt", ...i })),
@@ -393,7 +390,8 @@ describe("replica coverage of the LP solution", () => {
     for (const [recipeId, lpRate] of full.rates) {
       const sum = sums.get(recipeId) ?? zero;
       const diff = sum.sub(lpRate).abs();
-      const scale = lpRate.abs().compare(1) > 0 ? lpRate.abs() : new Fraction(1);
+      const scale =
+        lpRate.abs().compare(1) > 0 ? lpRate.abs() : new Fraction(1);
       expect(
         diff.div(scale).compare(relTol) <= 0,
         `recipe ${recipeId}: replica sum ${sum.toFraction()} != lp ${lpRate.toFraction()}`,
@@ -417,8 +415,12 @@ describe("LP-split target item through replicate and render", () => {
   // the declared draw is apportioned 1 : 4 by production share, so the target
   // output unit receives exactly 1/s from r_cheap and 4/s from r_dear.
   it("replicates both producers and feeds the target output the declared rate", () => {
-    const { pack: p, targets, itemOverrides, recipeCosts } =
-      splitTargetProducers;
+    const {
+      pack: p,
+      targets,
+      itemOverrides,
+      recipeCosts,
+    } = splitTargetProducers;
     const { full, plan } = solveForRender({
       targets,
       pack: p,
@@ -543,7 +545,10 @@ describe("co-product target items through replicate and render", () => {
     expect(inflowOf("u:out:b", "b").equals(1)).toBe(true);
     // The extra unit of b is free-disposal surplus.
     const surplusUnit = plan.units.find(
-      (u) => u.kind === "outputProduct" && u.itemId === "b" && u.flavor === "surplus",
+      (u) =>
+        u.kind === "outputProduct" &&
+        u.itemId === "b" &&
+        u.flavor === "surplus",
     );
     expect(surplusUnit).toBeDefined();
     expect(inflowOf(surplusUnit!.id, "b").equals(1)).toBe(true);
@@ -568,7 +573,9 @@ describe("co-product target items through replicate and render", () => {
     expect(violations).toEqual([]);
     const zero = new Fraction(0);
     const inflow = plan.edges
-      .filter((e) => e.toUnit === "u:out:liquid_sewage" && e.item === "liquid_sewage")
+      .filter(
+        (e) => e.toUnit === "u:out:liquid_sewage" && e.item === "liquid_sewage",
+      )
       .reduce((acc, e) => acc.add(e.rate), zero);
     expect(inflow.equals(1)).toBe(true);
   });

@@ -52,7 +52,9 @@ describe("splitConsumerDemand", () => {
       [edge("p1", "x"), edge("p2", "x")],
       new Fraction(8),
     );
-    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    const bySource = new Map(
+      result.map((r) => [r.edge.source, r.consumerRate]),
+    );
     // 8 split 3:1 -> 6 and 2; the bug sized each producer to the full 8.
     expect(bySource.get("p1")!.equals(new Fraction(6))).toBe(true);
     expect(bySource.get("p2")!.equals(new Fraction(2))).toBe(true);
@@ -78,7 +80,9 @@ describe("splitConsumerDemand", () => {
       [edge("p1", "x"), edge("p2", "x")],
       new Fraction(9),
     );
-    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    const bySource = new Map(
+      result.map((r) => [r.edge.source, r.consumerRate]),
+    );
     // Flow weights are 2 and 1 -> 9 split 2:1 -> 6 and 3.
     expect(bySource.get("p1")!.equals(new Fraction(6))).toBe(true);
     expect(bySource.get("p2")!.equals(new Fraction(3))).toBe(true);
@@ -148,7 +152,9 @@ describe("splitConsumerDemand", () => {
       new Fraction(8),
       new Map([["pTarget", new Map([["x", new Fraction(1)]])]]),
     );
-    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    const bySource = new Map(
+      result.map((r) => [r.edge.source, r.consumerRate]),
+    );
     expect(bySource.get("pTarget")!.equals(new Fraction(2))).toBe(true);
     expect(bySource.get("pSibling")!.equals(new Fraction(6))).toBe(true);
   });
@@ -158,10 +164,14 @@ describe("splitConsumerDemand", () => {
       ["consumer", recipe("consumer", [{ item: "x", qty: 1 }], [])],
       [
         "pTarget",
-        recipe("pTarget", [], [
-          { item: "y", qty: 1 },
-          { item: "x", qty: 1 },
-        ]),
+        recipe(
+          "pTarget",
+          [],
+          [
+            { item: "y", qty: 1 },
+            { item: "x", qty: 1 },
+          ],
+        ),
       ],
       ["pSibling", recipe("pSibling", [], [{ item: "x", qty: 1 }])],
     ]);
@@ -178,7 +188,9 @@ describe("splitConsumerDemand", () => {
       new Fraction(8),
       new Map([["pTarget", new Map([["y", new Fraction(2)]])]]),
     );
-    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    const bySource = new Map(
+      result.map((r) => [r.edge.source, r.consumerRate]),
+    );
     expect(bySource.get("pTarget")!.equals(new Fraction(4))).toBe(true);
     expect(bySource.get("pSibling")!.equals(new Fraction(4))).toBe(true);
   });
@@ -270,7 +282,9 @@ describe("splitConsumerDemand", () => {
       undefined,
       new Map([["x", new Fraction(1, 4)]]),
     );
-    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    const bySource = new Map(
+      result.map((r) => [r.edge.source, r.consumerRate]),
+    );
     expect(bySource.get("p1")!.equals(new Fraction(3, 4))).toBe(true);
     expect(bySource.get("p2")!.equals(new Fraction(1))).toBe(true);
   });
@@ -297,7 +311,9 @@ describe("splitConsumerDemand", () => {
       undefined,
       new Map([["x", new Fraction(1, 4)]]),
     );
-    const bySource = new Map(result.map((r) => [r.edge.source, r.consumerRate]));
+    const bySource = new Map(
+      result.map((r) => [r.edge.source, r.consumerRate]),
+    );
     expect(bySource.get("p1")!.equals(new Fraction(9, 16))).toBe(true);
     expect(bySource.get("p2")!.equals(new Fraction(3, 16))).toBe(true);
   });
@@ -366,15 +382,17 @@ describe("assignSplitRoles", () => {
     ).toBe(true);
     // The driver item's intra edge stays on the looper (driver keeps the
     // intra/cross split).
-    expect(decision.looperFilter.has(outgoingEdgeKey("poly", "xiranite_poly"))).toBe(
-      true,
-    );
+    expect(
+      decision.looperFilter.has(outgoingEdgeKey("poly", "xiranite_poly")),
+    ).toBe(true);
     // The non-driver secondary co-product (lowpoly) fans to EVERY live split
     // role. Here looperRate>0 and delivererRate>0, so lowpoly attaches to BOTH
     // the looper and the deliverer: each sibling physically co-produces it and
     // must carry a logical edge for its share.
     expect(
-      decision.delivererFilter.has(outgoingEdgeKey("lowpoly", "lowpoly_purifier")),
+      decision.delivererFilter.has(
+        outgoingEdgeKey("lowpoly", "lowpoly_purifier"),
+      ),
     ).toBe(true);
     expect(
       decision.looperFilter.has(outgoingEdgeKey("lowpoly", "lowpoly_purifier")),
@@ -479,15 +497,28 @@ describe("replicatePerConsumer: SCC-boundary byproduct supplier sharing", () => 
   it("emits the byproduct supplier once at full LP rate, not per byproduct frame", () => {
     const nodes: Recipe[] = [
       // SCC members forming a 2-cycle on `loopitem`. `m` also pulls `byp`.
-      recipe("m", [{ item: "loopitem", qty: 1 }, { item: "byp", qty: 1 }], [
-        { item: "mout", qty: 1 },
-      ]),
-      recipe("mloop", [{ item: "mout", qty: 1 }], [{ item: "loopitem", qty: 1 }]),
+      recipe(
+        "m",
+        [
+          { item: "loopitem", qty: 1 },
+          { item: "byp", qty: 1 },
+        ],
+        [{ item: "mout", qty: 1 }],
+      ),
+      recipe(
+        "mloop",
+        [{ item: "mout", qty: 1 }],
+        [{ item: "loopitem", qty: 1 }],
+      ),
       // Byproduct supplier: primary `prim`, secondary `byp`, input `raw`.
-      recipe("bp", [{ item: "raw", qty: 1 }], [
-        { item: "prim", qty: 1 },
-        { item: "byp", qty: 1 },
-      ]),
+      recipe(
+        "bp",
+        [{ item: "raw", qty: 1 }],
+        [
+          { item: "prim", qty: 1 },
+          { item: "byp", qty: 1 },
+        ],
+      ),
       // Non-member consumer of the primary output, so `bp` feeds outside the SCC.
       recipe("pc", [{ item: "prim", qty: 1 }], [{ item: "pcout", qty: 1 }]),
       // `bp`'s upstream input source.
@@ -559,7 +590,11 @@ describe("replicatePerConsumer: SCC intra supply nets the boundary demand", () =
   it("nets the external boundary demand by the intra-SCC supply", () => {
     const nodes: Recipe[] = [
       recipe("m", [{ item: "powder", qty: 1 }], [{ item: "shell", qty: 1 }]),
-      recipe("ploop", [{ item: "shell", qty: 1 }], [{ item: "powder", qty: 1 }]),
+      recipe(
+        "ploop",
+        [{ item: "shell", qty: 1 }],
+        [{ item: "powder", qty: 1 }],
+      ),
       recipe("pext", [{ item: "raw", qty: 1 }], [{ item: "powder", qty: 1 }]),
       recipe("sext", [{ item: "raw2", qty: 1 }], [{ item: "shell", qty: 1 }]),
       recipe("raw_src", [], [{ item: "raw", qty: 1 }]),
@@ -903,7 +938,11 @@ describe("replicatePerConsumer: duplicate target seeds", () => {
     // disturb the SCC path.
     const nodes: Recipe[] = [
       recipe("m", [{ item: "loopitem", qty: 1 }], [{ item: "mout", qty: 1 }]),
-      recipe("mloop", [{ item: "mout", qty: 1 }], [{ item: "loopitem", qty: 1 }]),
+      recipe(
+        "mloop",
+        [{ item: "mout", qty: 1 }],
+        [{ item: "loopitem", qty: 1 }],
+      ),
     ];
     const g = buildGraph(nodes, [
       { source: "mloop", item: "loopitem", target: "m" },
@@ -1172,10 +1211,14 @@ describe("replicatePerConsumer: supplyShares committed-flow recording", () => {
       supplyShares.get(supplyShareKey("ap", "t", "w"))!.equals(new Fraction(1)),
     ).toBe(true);
     expect(
-      supplyShares.get(supplyShareKey("ap", "px", "w"))!.equals(new Fraction(1)),
+      supplyShares
+        .get(supplyShareKey("ap", "px", "w"))!
+        .equals(new Fraction(1)),
     ).toBe(true);
     expect(
-      supplyShares.get(supplyShareKey("ap", "py", "w"))!.equals(new Fraction(1)),
+      supplyShares
+        .get(supplyShareKey("ap", "py", "w"))!
+        .equals(new Fraction(1)),
     ).toBe(true);
   });
 

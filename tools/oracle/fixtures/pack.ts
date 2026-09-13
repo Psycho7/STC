@@ -6,12 +6,7 @@
 // unmodified. Recipes carry integer in/out stoich + a `time`; items carry a
 // `raw` flag (the only field effectiveSupply consults beyond id).
 
-import type {
-  Item,
-  Recipe,
-  RecipePack,
-  Stoich,
-} from "@aef/schema";
+import type { Item, Recipe, RecipePack, Stoich } from "@aef/schema";
 
 export interface MicroRecipe {
   id: string;

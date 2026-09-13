@@ -63,11 +63,15 @@ describe("augmentGraphWithLpSupport", () => {
     expect(g.nodes.has("copper_bottle")).toBe(true);
     const inEdges = g.incoming.get("copper_bottle") ?? [];
     expect(
-      inEdges.some((e) => e.source === "copper_nugget" && e.item === "copper_nugget"),
+      inEdges.some(
+        (e) => e.source === "copper_nugget" && e.item === "copper_nugget",
+      ),
     ).toBe(true);
     // The new node's edges are registered on the producer side too.
     expect(
-      (g.outgoing.get("copper_nugget") ?? []).some((e) => e.target === "copper_bottle"),
+      (g.outgoing.get("copper_nugget") ?? []).some(
+        (e) => e.target === "copper_bottle",
+      ),
     ).toBe(true);
   });
 
@@ -110,7 +114,9 @@ describe("augmentGraphWithLpSupport", () => {
     ];
     const g = buildRecipeGraphMulti(targets, pack);
     expect(g.nodes.has(excluded!.id)).toBe(false);
-    const rates = new Map<RecipeId, Fraction>([[excluded!.id, new Fraction(1)]]);
+    const rates = new Map<RecipeId, Fraction>([
+      [excluded!.id, new Fraction(1)],
+    ]);
     const added = augmentGraphWithLpSupport(g, rates, pack);
     expect(added.size).toBe(0);
     expect(g.nodes.has(excluded!.id)).toBe(false);
@@ -122,16 +128,19 @@ describe("augmentGraphWithLpSupport", () => {
     ];
     const g = buildRecipeGraphMulti(targets, pack);
     const nodesBefore = g.nodes.size;
-    const edgesBefore = [...g.outgoing.values()].reduce((n, a) => n + a.length, 0);
+    const edgesBefore = [...g.outgoing.values()].reduce(
+      (n, a) => n + a.length,
+      0,
+    );
     const rates = new Map<RecipeId, Fraction>(
       [...g.nodes.keys()].map((id) => [id, new Fraction(1)]),
     );
     const added = augmentGraphWithLpSupport(g, rates, pack);
     expect(added.size).toBe(0);
     expect(g.nodes.size).toBe(nodesBefore);
-    expect(
-      [...g.outgoing.values()].reduce((n, a) => n + a.length, 0),
-    ).toBe(edgesBefore);
+    expect([...g.outgoing.values()].reduce((n, a) => n + a.length, 0)).toBe(
+      edgesBefore,
+    );
   });
 });
 

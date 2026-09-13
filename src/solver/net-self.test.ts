@@ -3,7 +3,9 @@ import type { Recipe, RecipePack } from "@aef/schema";
 import { pack } from "../data/load";
 import { netSelfConsumption } from "./net-self";
 
-function makeRecipe(overrides: Partial<Recipe> & Pick<Recipe, "id" | "in" | "out">): Recipe {
+function makeRecipe(
+  overrides: Partial<Recipe> & Pick<Recipe, "id" | "in" | "out">,
+): Recipe {
   return {
     name: overrides.id,
     category: "material",
@@ -22,7 +24,11 @@ function makePack(recipes: Recipe[]): RecipePack {
 describe("netSelfConsumption", () => {
   it("returns the same pack reference when no recipe self-consumes", () => {
     const clean = makePack([
-      makeRecipe({ id: "a", in: [{ item: "x", qty: 1 }], out: [{ item: "y", qty: 2 }] }),
+      makeRecipe({
+        id: "a",
+        in: [{ item: "x", qty: 1 }],
+        out: [{ item: "y", qty: 2 }],
+      }),
     ]);
     expect(netSelfConsumption(clean)).toBe(clean);
   });
@@ -86,8 +92,16 @@ describe("netSelfConsumption", () => {
   });
 
   it("keeps non-overlapping recipe objects by reference", () => {
-    const clean = makeRecipe({ id: "a", in: [{ item: "x", qty: 1 }], out: [{ item: "y", qty: 1 }] });
-    const dirty = makeRecipe({ id: "b", in: [{ item: "y", qty: 0.5 }], out: [{ item: "y", qty: 1 }] });
+    const clean = makeRecipe({
+      id: "a",
+      in: [{ item: "x", qty: 1 }],
+      out: [{ item: "y", qty: 1 }],
+    });
+    const dirty = makeRecipe({
+      id: "b",
+      in: [{ item: "y", qty: 0.5 }],
+      out: [{ item: "y", qty: 1 }],
+    });
     const netted = netSelfConsumption(makePack([clean, dirty]));
     expect(netted.recipes[0]).toBe(clean);
     expect(netted.recipes[1]).not.toBe(dirty);

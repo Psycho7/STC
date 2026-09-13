@@ -35,21 +35,21 @@ the text below, all because the STC solver changed since the prototype:
 
 ## 1. STC -> FactorioLab modeling map
 
-| STC concept | STC mechanism (`src/solver/lp.ts`) | FactorioLab mapping (adapter) |
-| --- | --- | --- |
-| Recipe execution variable `x_r` (executions/sec) | LP var `x_${r.id}` | Recipe variable, value = `machines` = `x_r * time`. Ratio between same-`time` recipes is preserved. |
-| Recipe net coefficient | `outQty - inQty` per execution | `AdjustedRecipe.output[item] = (out - in)/time` (via `finalizeRecipe`). |
-| Target (pin recipe >= rate) | `x_target >= rate/primary.qty` AND `demandByItem` adds `rate` to `recipe.out[0].item` | Item-**Output** objective on `recipe.out[0].item`, value = `ratePerSec`. Mirrors `demandByItem`; see non-equivalence #1. |
-| Raw / boundary item (free source) | `effectiveSupply === Infinity` -> item dropped from mass balance, unbounded | Item with NO producing recipe (`unproduceable`); FactorioLab supplies it freely at `costs.unproduceable`. |
-| `itemOverride { plan:true }` or bare boundary marker | `effectiveSupply === Infinity` | Same as raw: free no-recipe item. |
-| `itemOverride { ratePerSec: X }` (finite supply cap) | `effectiveSupply === Fraction(X)`, enters mass balance as a constant supply term | Item-**Input** objective, value = `X` -> a capped free input var (`ub = X`). |
-| `itemOverride { ratePerSec: 0 }` / non-raw, no producer | `Fraction(0)` -> built internally or surfaces as deficit | No objective; if genuinely unproduced it becomes `unproduceable` (FactorioLab) the same way STC leaves a deficit. |
-| Recipe cost weight | `recipeCostWeight`: normal=1, big-M (1e6) for `target-only` / `cost===-1` / `__domain_transfer` / extraction | `AdjustedRecipe.cost` comes from the same `recipeCostWeight` call, so the two cannot drift. Its extraction branch never fires here: extraction recipes are filtered out of the model first. |
-| Extraction recipe (empty `in`: the miners and pumps) | No `x_r` variable at all - `solveLp` filters them out, so no cost can make one run and a capped raw item reports a deficit instead | Absent from `adjustedRecipe` and both index maps (`modelRecipes` filter). Not a cost difference on either side: the recipe exists in neither model. |
-| Surplus penalty | `SURPLUS_WEIGHT = 1e-3` | `costs.surplus = 1/1000`. Also flips FactorioLab onto the `itemAvailableIoRecipeIds` net-balance path. |
-| Deficit penalty | `DEFICIT_WEIGHT = 1e9` | No direct analogue; FactorioLab has no deficit var. Unmet demand => infeasible solve instead (non-equivalence #4). |
-| Item id list / stack | `pack.items` | `data.itemIds`, `data.itemEntities[id].stack` (only `.stack` is read; `fluidCostRatio` flag left off so the value is inert). |
-| `domain_key_tundra` | ordinary raw item in the pack | Forced into `itemIds`/`itemEntities`/maps as a free no-recipe item (T1 hardcode, see #5). |
+| STC concept                                             | STC mechanism (`src/solver/lp.ts`)                                                                                                 | FactorioLab mapping (adapter)                                                                                                                                                               |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Recipe execution variable `x_r` (executions/sec)        | LP var `x_${r.id}`                                                                                                                 | Recipe variable, value = `machines` = `x_r * time`. Ratio between same-`time` recipes is preserved.                                                                                         |
+| Recipe net coefficient                                  | `outQty - inQty` per execution                                                                                                     | `AdjustedRecipe.output[item] = (out - in)/time` (via `finalizeRecipe`).                                                                                                                     |
+| Target (pin recipe >= rate)                             | `x_target >= rate/primary.qty` AND `demandByItem` adds `rate` to `recipe.out[0].item`                                              | Item-**Output** objective on `recipe.out[0].item`, value = `ratePerSec`. Mirrors `demandByItem`; see non-equivalence #1.                                                                    |
+| Raw / boundary item (free source)                       | `effectiveSupply === Infinity` -> item dropped from mass balance, unbounded                                                        | Item with NO producing recipe (`unproduceable`); FactorioLab supplies it freely at `costs.unproduceable`.                                                                                   |
+| `itemOverride { plan:true }` or bare boundary marker    | `effectiveSupply === Infinity`                                                                                                     | Same as raw: free no-recipe item.                                                                                                                                                           |
+| `itemOverride { ratePerSec: X }` (finite supply cap)    | `effectiveSupply === Fraction(X)`, enters mass balance as a constant supply term                                                   | Item-**Input** objective, value = `X` -> a capped free input var (`ub = X`).                                                                                                                |
+| `itemOverride { ratePerSec: 0 }` / non-raw, no producer | `Fraction(0)` -> built internally or surfaces as deficit                                                                           | No objective; if genuinely unproduced it becomes `unproduceable` (FactorioLab) the same way STC leaves a deficit.                                                                           |
+| Recipe cost weight                                      | `recipeCostWeight`: normal=1, big-M (1e6) for `target-only` / `cost===-1` / `__domain_transfer` / extraction                       | `AdjustedRecipe.cost` comes from the same `recipeCostWeight` call, so the two cannot drift. Its extraction branch never fires here: extraction recipes are filtered out of the model first. |
+| Extraction recipe (empty `in`: the miners and pumps)    | No `x_r` variable at all - `solveLp` filters them out, so no cost can make one run and a capped raw item reports a deficit instead | Absent from `adjustedRecipe` and both index maps (`modelRecipes` filter). Not a cost difference on either side: the recipe exists in neither model.                                         |
+| Surplus penalty                                         | `SURPLUS_WEIGHT = 1e-3`                                                                                                            | `costs.surplus = 1/1000`. Also flips FactorioLab onto the `itemAvailableIoRecipeIds` net-balance path.                                                                                      |
+| Deficit penalty                                         | `DEFICIT_WEIGHT = 1e9`                                                                                                             | No direct analogue; FactorioLab has no deficit var. Unmet demand => infeasible solve instead (non-equivalence #4).                                                                          |
+| Item id list / stack                                    | `pack.items`                                                                                                                       | `data.itemIds`, `data.itemEntities[id].stack` (only `.stack` is read; `fluidCostRatio` flag left off so the value is inert).                                                                |
+| `domain_key_tundra`                                     | ordinary raw item in the pack                                                                                                      | Forced into `itemIds`/`itemEntities`/maps as a free no-recipe item (T1 hardcode, see #5).                                                                                                   |
 
 ### Cost profile chosen (Tier-3 alignment, documented not asserted)
 
@@ -72,12 +72,12 @@ Headline plan: one target on `xiranite_enr_powder` at `6/60 = 0.1` enr_powder/se
 STC pins the two `liquid_xiranite_poly` producers to:
 
 - `liquid_xiranite_poly` (main) = `2/5` exec/sec
-- `liquid_xiranite_poly-purifier` = `1/10` exec/sec  -> 4:1 main:purifier.
+- `liquid_xiranite_poly-purifier` = `1/10` exec/sec -> 4:1 main:purifier.
 
 Both recipes have `time = 2`, so FactorioLab machine count = `exec/sec * time`:
 
 - main = `2/5 * 2 = 4/5` machines
-- purifier = `1/10 * 2 = 1/5` machines  -> 4:1, identical ratio.
+- purifier = `1/10 * 2 = 1/5` machines -> 4:1, identical ratio.
 
 The adapter test asserts BOTH the exact `4/5` and `1/5` machine counts and the
 `4:1` ratio, and they hold exactly in Rational arithmetic. The scenario also
@@ -101,7 +101,7 @@ etc.) modeling axes simultaneously.
    with multi-producer TARGET items must account for this.
 
 2. **Recipe variable units differ by `time`.** STC's variable is executions/sec;
-   FactorioLab's is machines (= exec/sec * recipe `time`). Rate equality
+   FactorioLab's is machines (= exec/sec \* recipe `time`). Rate equality
    assertions (Tier 2) must compare STC `x_r` against FactorioLab `machines / time`,
    NOT raw values. Ratios between recipes of equal `time` are unaffected (why the
    4:1 check works on raw machine counts). T4 closed-form fixtures must bake the

@@ -5,7 +5,10 @@ import { buildRecipeGraphMulti } from "./graph";
 import { tarjanScc } from "./scc";
 import { makePack } from "./closed-form-fixtures";
 import { netSelfConsumption } from "./net-self";
-import { isExcludedProducer, isExtractionRecipe } from "../data/recipe-category";
+import {
+  isExcludedProducer,
+  isExtractionRecipe,
+} from "../data/recipe-category";
 import type { ItemTarget } from "../data/targets";
 import type { ItemOverride } from "../data/plan";
 
@@ -131,7 +134,8 @@ function unprotectedCoProductFanouts(p: RecipePack): string[] {
   for (const r of p.recipes) {
     const consumedOuts = new Set<string>();
     for (const o of r.out) {
-      if ((consumersByItem.get(o.item) ?? []).length > 0) consumedOuts.add(o.item);
+      if ((consumersByItem.get(o.item) ?? []).length > 0)
+        consumedOuts.add(o.item);
     }
     if (consumedOuts.size < 2) continue;
 
@@ -339,9 +343,12 @@ describe("banned-recipe pack census", () => {
   });
 
   test("isExtractionRecipe agrees with the hand-spelled rule", () => {
-    expect(pack.recipes.filter(isExtractionRecipe).map((r) => r.id).sort()).toEqual(
-      BANNED,
-    );
+    expect(
+      pack.recipes
+        .filter(isExtractionRecipe)
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(BANNED);
   });
 });
 
@@ -372,10 +379,7 @@ describe("id grammar pack census", () => {
   const SEPARATORS = /[#~|:\0]/;
 
   const offenders = (p: RecipePack): string[] =>
-    [
-      ...p.recipes.map((r) => r.id),
-      ...p.items.map((i) => i.id),
-    ]
+    [...p.recipes.map((r) => r.id), ...p.items.map((i) => i.id)]
       .filter((id) => SEPARATORS.test(id))
       .sort();
 

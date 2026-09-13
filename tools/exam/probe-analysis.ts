@@ -103,7 +103,11 @@ export function parseCssColor(input: string): Rgba | null {
   const chan = (p: string): number =>
     p.endsWith("%") ? (Number(p.slice(0, -1)) * 255) / 100 : Number(p);
   const alpha = (p: string | undefined): number =>
-    p === undefined ? 1 : p.endsWith("%") ? Number(p.slice(0, -1)) / 100 : Number(p);
+    p === undefined
+      ? 1
+      : p.endsWith("%")
+        ? Number(p.slice(0, -1)) / 100
+        : Number(p);
   const rgba = {
     r: chan(parts[0]!),
     g: chan(parts[1]!),
@@ -120,7 +124,12 @@ export function over(top: Rgba, bottom: Rgba): Rgba {
   if (a === 0) return TRANSPARENT;
   const mix = (t: number, b: number): number =>
     (t * top.a + b * bottom.a * (1 - top.a)) / a;
-  return { r: mix(top.r, bottom.r), g: mix(top.g, bottom.g), b: mix(top.b, bottom.b), a };
+  return {
+    r: mix(top.r, bottom.r),
+    g: mix(top.g, bottom.g),
+    b: mix(top.b, bottom.b),
+    a,
+  };
 }
 
 // Fold an ancestor chain of background-colors (element first, documentElement
@@ -152,7 +161,11 @@ export function flattenBackdrop(stack: readonly string[]): {
 }
 
 // WCAG 2.1 relative luminance.
-export function relativeLuminance(c: { r: number; g: number; b: number }): number {
+export function relativeLuminance(c: {
+  r: number;
+  g: number;
+  b: number;
+}): number {
   const lin = (v: number): number => {
     const s = v / 255;
     return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
@@ -227,7 +240,8 @@ export function rawPaint(read: ColorRead): Rgba | null {
   raw ??= parseCssColor(read.color);
   if (raw === null) return null;
   const scale =
-    (Number.isFinite(opacity) ? opacity : 1) * (Number.isFinite(extra) ? extra : 1);
+    (Number.isFinite(opacity) ? opacity : 1) *
+    (Number.isFinite(extra) ? extra : 1);
   return { ...raw, a: raw.a * scale };
 }
 
@@ -321,9 +335,8 @@ export function measureContrast(read: ColorRead): ContrastMeasurement | null {
   const ancestor = flattenBackdrop(read.bgStack);
 
   const unreadable: string[] = [];
-  const layers: Array<{ source: string; color: Rgba; overlap: number | null }> = [
-    { source: "ancestors", color: ancestor.color, overlap: null },
-  ];
+  const layers: Array<{ source: string; color: Rgba; overlap: number | null }> =
+    [{ source: "ancestors", color: ancestor.color, overlap: null }];
   for (const surface of read.overlapping) {
     const parsed = parseCssColor(surface.color);
     if (parsed === null) {
@@ -358,7 +371,8 @@ export function measureContrast(read: ColorRead): ContrastMeasurement | null {
   const worst = backdrops
     .filter(
       (b) =>
-        b.overlapFraction === null || b.overlapFraction >= MIN_OVERLAP_FOR_WORST,
+        b.overlapFraction === null ||
+        b.overlapFraction >= MIN_OVERLAP_FOR_WORST,
     )
     .reduce(lower);
 
@@ -434,7 +448,11 @@ export function resolveEndpoints(
   const prefix = "Edge from ";
   if (!ariaLabel.startsWith(prefix)) return null;
   const body = ariaLabel.slice(prefix.length);
-  for (let i = body.indexOf(" to "); i !== -1; i = body.indexOf(" to ", i + 1)) {
+  for (
+    let i = body.indexOf(" to ");
+    i !== -1;
+    i = body.indexOf(" to ", i + 1)
+  ) {
     const source = body.slice(0, i);
     const target = body.slice(i + 4);
     if (nodeIds.has(source) && nodeIds.has(target)) return [source, target];
@@ -520,7 +538,11 @@ export function expectedDimmed(
 // actually took the pointer there, and the dim set at that instant.
 export type HoverSampleRead = {
   hoverActive: boolean;
-  hit: { kind: "edge" | "node" | "other"; id: string | null; topClass: string } | null;
+  hit: {
+    kind: "edge" | "node" | "other";
+    id: string | null;
+    topClass: string;
+  } | null;
   dimmed: string[];
 };
 
@@ -550,7 +572,11 @@ export function judgeHoverSample(
       : read.hit.id !== null
         ? `${read.hit.kind} "${read.hit.id}"`
         : `a non-graph element (${read.hit.topClass})`;
-  if (read.hit === null || read.hit.kind !== target.kind || read.hit.id !== target.id) {
+  if (
+    read.hit === null ||
+    read.hit.kind !== target.kind ||
+    read.hit.id !== target.id
+  ) {
     return {
       engaged: false,
       reason: read.hoverActive
@@ -593,8 +619,7 @@ export function hoverDecision(
 ): HoverDecision {
   const obs = new Set(observed);
   const exp = new Set(expected);
-  const differs =
-    obs.size !== exp.size || [...exp].some((id) => !obs.has(id));
+  const differs = obs.size !== exp.size || [...exp].some((id) => !obs.has(id));
   return {
     rule:
       "an empty observedDimmed against a non-empty expectedDimmed is a real 'hover produced no response'; " +
@@ -667,7 +692,10 @@ export type EvalPayload =
 // JSON with the cut flagged. Emitting the value untruncated would let one
 // evaluation bury the probe's own fields; emitting nothing would hide that
 // there was a result at all.
-export function evalPayload(value: unknown, limit = EVAL_JSON_LIMIT): EvalPayload {
+export function evalPayload(
+  value: unknown,
+  limit = EVAL_JSON_LIMIT,
+): EvalPayload {
   const json = JSON.stringify(value);
   if (json === undefined) return { truncated: false, value: null };
   if (json.length <= limit) return { truncated: false, value };

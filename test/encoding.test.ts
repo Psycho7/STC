@@ -132,10 +132,15 @@ describe("loadPlan envelope handling", () => {
   it("unrecognized envelope version surfaces the version number", async () => {
     const outcome = await loadPlan("#v99.AAA", pack);
     expect(outcome.kind).toBe("error");
-    if (outcome.kind === "error" && outcome.error.kind === "unrecognized-version") {
+    if (
+      outcome.kind === "error" &&
+      outcome.error.kind === "unrecognized-version"
+    ) {
       expect(outcome.error.got).toBe(99);
     } else {
-      throw new Error(`expected unrecognized-version, got ${JSON.stringify(outcome)}`);
+      throw new Error(
+        `expected unrecognized-version, got ${JSON.stringify(outcome)}`,
+      );
     }
   });
 
@@ -143,10 +148,15 @@ describe("loadPlan envelope handling", () => {
     const oversized = "#v1." + "A".repeat(MAX_HASH_PAYLOAD_LEN + 1);
     const outcome = await loadPlan(oversized, pack);
     expect(outcome.kind).toBe("error");
-    if (outcome.kind === "error" && outcome.error.kind === "payload-too-large") {
+    if (
+      outcome.kind === "error" &&
+      outcome.error.kind === "payload-too-large"
+    ) {
       expect(outcome.error.limit).toBe(MAX_HASH_PAYLOAD_LEN);
     } else {
-      throw new Error(`expected payload-too-large, got ${JSON.stringify(outcome)}`);
+      throw new Error(
+        `expected payload-too-large, got ${JSON.stringify(outcome)}`,
+      );
     }
   });
 

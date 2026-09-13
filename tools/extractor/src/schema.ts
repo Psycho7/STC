@@ -8,7 +8,11 @@ export const SCHEMA_VERSION = "0.2";
 // in without a type change.
 export type TransportKindId = string;
 
-export const TRANSPORT_KIND = { BELT: "belt", PIPE: "pipe", GAS: "gas" } as const;
+export const TRANSPORT_KIND = {
+  BELT: "belt",
+  PIPE: "pipe",
+  GAS: "gas",
+} as const;
 
 // Locales joined into the i18n sidecar. The order here is the order written to
 // the sidecar's `locales` array.

@@ -43,7 +43,11 @@ describe("closed-form fixtures - solveLp matches hand-derived truth", () => {
 describe("cyclic-target contract (STC-0005)", () => {
   it("reports unsatisfiable via a deficit on the demanded item F, not a met target", () => {
     const fx = CYCLIC_TARGET_FIXTURE;
-    const r = solveLp({ targets: fx.targets, pack: fx.pack, itemOverrides: [] });
+    const r = solveLp({
+      targets: fx.targets,
+      pack: fx.pack,
+      itemOverrides: [],
+    });
     expect(r.softFeasible).toBe(false);
     expect(r.deficit.has("F")).toBe(true);
   });

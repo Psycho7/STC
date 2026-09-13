@@ -85,13 +85,21 @@ function cutOverlay(region: Rect, overlay: Rect): Rect | null {
     candidates.push({ ...region, height: overlay.y - region.y });
   }
   if (overlay.y <= region.y + EPS) {
-    candidates.push({ ...region, y: overlayBottom, height: bottom - overlayBottom });
+    candidates.push({
+      ...region,
+      y: overlayBottom,
+      height: bottom - overlayBottom,
+    });
   }
   if (overlayRight >= right - EPS) {
     candidates.push({ ...region, width: overlay.x - region.x });
   }
   if (overlay.x <= region.x + EPS) {
-    candidates.push({ ...region, x: overlayRight, width: right - overlayRight });
+    candidates.push({
+      ...region,
+      x: overlayRight,
+      width: right - overlayRight,
+    });
   }
   return candidates.find((r) => r.width > EPS && r.height > EPS) ?? null;
 }
@@ -169,7 +177,9 @@ export function tileGrid(
     throw new RangeError("tileGrid: content rect must be finite");
   }
   if (!isFiniteRect(safe) || safe.width <= 0 || safe.height <= 0) {
-    throw new RangeError("tileGrid: safe rect must be finite and have positive extents");
+    throw new RangeError(
+      "tileGrid: safe rect must be finite and have positive extents",
+    );
   }
   if (!Number.isFinite(targetZoom) || targetZoom <= 0) {
     throw new RangeError("tileGrid: targetZoom must be finite and positive");
@@ -312,7 +322,9 @@ function isFiniteElement(element: CoverageElement): boolean {
 
 type Segment = { ax: number; ay: number; bx: number; by: number };
 
-function polylineSegments(points: ReadonlyArray<readonly [number, number]>): Segment[] {
+function polylineSegments(
+  points: ReadonlyArray<readonly [number, number]>,
+): Segment[] {
   if (points.length === 1) {
     const [x, y] = points[0]!;
     return [{ ax: x, ay: y, bx: x, by: y }];

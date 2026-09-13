@@ -81,12 +81,8 @@ describe("canvas/textWidth", () => {
       expect(estimateCharWidth(ch, font)).toBe(12);
     }
     // One em at any size, so budgets scale with the font.
-    expect(estimateCharWidth("\u6f22", { fontSize: 17, weight: 600 })).toBe(
-      17,
-    );
-    expect(estimateCharWidth("\u30ab", { fontSize: 11, weight: 500 })).toBe(
-      11,
-    );
+    expect(estimateCharWidth("\u6f22", { fontSize: 17, weight: 600 })).toBe(17);
+    expect(estimateCharWidth("\u30ab", { fontSize: 11, weight: 500 })).toBe(11);
   });
 
   it("scales linearly with font size and adds up per character", () => {

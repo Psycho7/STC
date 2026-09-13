@@ -104,9 +104,7 @@ test("pickActiveSection returns null when nothing intersects", () => {
 test("RECIPES chip counts distinct recipe ids, not logical nodes", async () => {
   const plan = {
     ...defaultPlan(pack),
-    targets: [
-      { itemId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } },
-    ],
+    targets: [{ itemId: "crystal_enr", ratePerSec: { num: "1", denom: "1" } }],
   };
   expect(validatePlan(plan, pack)).toBeNull();
   window.location.hash = "#" + (await encodePlan(plan));

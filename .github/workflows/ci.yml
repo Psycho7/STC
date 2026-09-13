@@ -34,6 +34,11 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      # Check only, never --write: a CI job must not rewrite the tree. The
+      # ignore list keeps the vendored snapshots and extractor output out.
+      - name: Format
+        run: bun run format
+
       - name: Typecheck
         run: bun run typecheck
 

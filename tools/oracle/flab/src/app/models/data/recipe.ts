@@ -1,20 +1,20 @@
-import { cloneEntities, spread, toRationalEntities } from '~/helpers';
+import { cloneEntities, spread, toRationalEntities } from "~/helpers";
 
-import { Quality } from '../enum/quality';
-import { Rational, rational } from '../rational';
-import { Entities } from '../utils';
-import { ModuleEffect } from './module';
+import { Quality } from "../enum/quality";
+import { Rational, rational } from "../rational";
+import { Entities } from "../utils";
+import { ModuleEffect } from "./module";
 
 export type RecipeFlag =
-  | 'mining'
-  | 'technology'
-  | 'burn'
-  | 'grow'
-  | 'recycling'
-  | 'locked'
-  | 'hideProducer'
-  | 'canProdUpgrade'
-  | 'forceShowLabel';
+  | "mining"
+  | "technology"
+  | "burn"
+  | "grow"
+  | "recycling"
+  | "locked"
+  | "hideProducer"
+  | "canProdUpgrade"
+  | "forceShowLabel";
 
 export interface RecipeJson {
   id: string;

@@ -94,9 +94,7 @@ const ALL_CHIP_IDS = [...BUS_CHIP_IDS, ...ITEM_CHIP_IDS];
 async function waitForChips(container: HTMLElement): Promise<void> {
   await waitFor(() => {
     for (const id of ALL_CHIP_IDS) {
-      expect(
-        container.querySelector(`[data-testid="${id}"]`),
-      ).not.toBeNull();
+      expect(container.querySelector(`[data-testid="${id}"]`)).not.toBeNull();
     }
   });
 }
@@ -125,7 +123,10 @@ function nodeEl(container: HTMLElement, id: string): HTMLElement {
   return el!;
 }
 
-async function edgeEl(container: HTMLElement, id: string): Promise<HTMLElement> {
+async function edgeEl(
+  container: HTMLElement,
+  id: string,
+): Promise<HTMLElement> {
   let el: HTMLElement | null = null;
   await waitFor(() => {
     el = container.querySelector<HTMLElement>(
@@ -281,9 +282,27 @@ function trunkMember(owner: boolean): Record<string, unknown> {
 }
 
 const TWO_MODE_EDGES: Edge[] = [
-  { id: "own", type: "bus", source: "a", target: "tb", data: trunkMember(true) },
-  { id: "br1", type: "bus", source: "a", target: "tc1", data: trunkMember(false) },
-  { id: "br2", type: "bus", source: "a", target: "tc2", data: trunkMember(false) },
+  {
+    id: "own",
+    type: "bus",
+    source: "a",
+    target: "tb",
+    data: trunkMember(true),
+  },
+  {
+    id: "br1",
+    type: "bus",
+    source: "a",
+    target: "tc1",
+    data: trunkMember(false),
+  },
+  {
+    id: "br2",
+    type: "bus",
+    source: "a",
+    target: "tc2",
+    data: trunkMember(false),
+  },
 ];
 
 function renderTwoMode() {
@@ -427,8 +446,20 @@ function braidData(item: string): Record<string, unknown> {
 }
 
 const BRAID_EDGES: Edge[] = [
-  { id: "x1", type: "item", source: "xa", target: "xb", data: braidData("Iron") },
-  { id: "x2", type: "item", source: "xa", target: "xb", data: braidData("Copper") },
+  {
+    id: "x1",
+    type: "item",
+    source: "xa",
+    target: "xb",
+    data: braidData("Iron"),
+  },
+  {
+    id: "x2",
+    type: "item",
+    source: "xa",
+    target: "xb",
+    data: braidData("Copper"),
+  },
 ];
 
 const BRAID_CHIP_IDS = ["item-edge-label-x1", "item-edge-label-x2"];

@@ -136,7 +136,14 @@ const LIGHT_STEP = 2;
 const SAT_CANDIDATES: readonly number[] = [35, 45, 55, 65, 75, 85, 95];
 const GRAY_SAT_CEILING = 34;
 const GRAY_CANDIDATES: readonly number[] = [
-  8, 12, 16, 20, 24, 28, 32, GRAY_SAT_CEILING,
+  8,
+  12,
+  16,
+  20,
+  24,
+  28,
+  32,
+  GRAY_SAT_CEILING,
 ];
 
 // Two-tier separation floor the repair pass enforces (measured 2026-09-07):
@@ -293,9 +300,7 @@ const CANVAS_BG_LUMINANCE: number = (() => {
 // colors are always lighter than the near-black canvas, so the background is
 // the darker term. Exported for the contrast test.
 export function contrastAgainstCanvas(h: number, s: number, l: number): number {
-  return (
-    (hslRelativeLuminance(h, s, l) + 0.05) / (CANVAS_BG_LUMINANCE + 0.05)
-  );
+  return (hslRelativeLuminance(h, s, l) + 0.05) / (CANVAS_BG_LUMINANCE + 0.05);
 }
 
 // Smallest integer lightness >= l that clears MIN_CONTRAST at this hue and
@@ -404,7 +409,9 @@ function pairFloor(a: PlacedItem, b: PlacedItem): number {
 // even when the step does not land on it (the gray band tops out at 34).
 function repairSaturationRungs(gray: boolean): number[] {
   const first = gray ? REPAIR_GRAY_SAT_MIN : SAT_CANDIDATES[0]!;
-  const cap = gray ? GRAY_SAT_CEILING : SAT_CANDIDATES[SAT_CANDIDATES.length - 1]!;
+  const cap = gray
+    ? GRAY_SAT_CEILING
+    : SAT_CANDIDATES[SAT_CANDIDATES.length - 1]!;
   const rungs: number[] = [];
   for (let s = first; s <= cap; s += REPAIR_SAT_STEP) {
     rungs.push(s);
@@ -591,7 +598,9 @@ export function itemColor(itemId: string): string {
   const iconHS = iconHSFor(itemId);
   if (iconHS !== undefined) {
     const [s, baseL] =
-      iconHS.s >= COLOR_SATURATION_MIN ? ([65, 60] as const) : ([12, 62] as const);
+      iconHS.s >= COLOR_SATURATION_MIN
+        ? ([65, 60] as const)
+        : ([12, 62] as const);
     return `hsl(${iconHS.h} ${s}% ${floorLightness(iconHS.h, s, baseL)}%)`;
   }
   const h = itemHue(itemId);

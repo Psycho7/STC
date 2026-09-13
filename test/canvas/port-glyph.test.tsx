@@ -308,9 +308,7 @@ describe("PortGlyph item color", () => {
     const { container } = render(
       <PortGlyph kind="pipe" side="left" top={10} item="copper_nugget" />,
     );
-    expect(
-      container.querySelector('[data-glyph="pipe"]'),
-    ).not.toBeNull();
+    expect(container.querySelector('[data-glyph="pipe"]')).not.toBeNull();
     expect(container.querySelector('[data-glyph="belt"]')).toBeNull();
   });
 });

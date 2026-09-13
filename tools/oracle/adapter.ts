@@ -235,7 +235,10 @@ export function buildAdapterInput(input: AdapterInput): AdapterOutput {
   const objectives: ObjectiveState[] = [];
   let oid = 0;
   for (const t of input.targets) {
-    const value = new Rational(BigInt(t.ratePerSec.num), BigInt(t.ratePerSec.denom));
+    const value = new Rational(
+      BigInt(t.ratePerSec.num),
+      BigInt(t.ratePerSec.denom),
+    );
     objectives.push({
       id: String(oid++),
       targetId: t.itemId,

@@ -28,10 +28,7 @@ async function gasPlanHash(): Promise<string> {
 }
 
 function normalizeDash(css: string): string {
-  return css
-    .replace(/px/g, "")
-    .replace(/,\s*/g, " ")
-    .trim();
+  return css.replace(/px/g, "").replace(/,\s*/g, " ").trim();
 }
 
 // A point that is on the stroke by construction. Parsing the `d` start point

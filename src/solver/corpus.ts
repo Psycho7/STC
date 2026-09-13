@@ -885,7 +885,10 @@ export const splitTargetProducers = {
   ),
   targets: [{ itemId: "gold", ratePerSec: rate("5", "1") }],
   itemOverrides: [
-    { itemId: "vein", ratePerSec: { num: "1", denom: "1" } } satisfies ItemOverride,
+    {
+      itemId: "vein",
+      ratePerSec: { num: "1", denom: "1" },
+    } satisfies ItemOverride,
   ],
   recipeCosts: new Map<RecipeId, number>([["r_cheap", 0.2]]),
 };

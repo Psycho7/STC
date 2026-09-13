@@ -111,8 +111,7 @@ describe("real-pack vendor-oracle sweep (v1.4, item targets)", () => {
       (r) => r.verdictAgree && r.stcTargetMet && r.glpkTargetMet,
     );
     const machOff = bothSat.filter(
-      (r) =>
-        r.machDelta > 1e-6 * Math.max(1, Math.abs(r.glpkMachines)),
+      (r) => r.machDelta > 1e-6 * Math.max(1, Math.abs(r.glpkMachines)),
     );
     const t2 = rows.filter((r) => r.tier2Eligible);
     const t2Miss = t2.filter((r) => r.ratesAgree === false);

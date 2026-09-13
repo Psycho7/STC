@@ -1,4 +1,4 @@
-import { Rational, rational } from '../rational';
+import { Rational, rational } from "../rational";
 
 export interface SiloJson {
   /** Number of rocket parts required */

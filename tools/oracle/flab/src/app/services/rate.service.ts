@@ -1,7 +1,7 @@
-import { Recipe } from '~/models/data/recipe';
-import { Dataset } from '~/models/dataset';
-import { rational } from '~/models/rational';
-import { Step } from '~/models/step';
+import { Recipe } from "~/models/data/recipe";
+import { Dataset } from "~/models/dataset";
+import { rational } from "~/models/rational";
+import { Step } from "~/models/step";
 
 export class RateService {
   adjustPowerPollution(step: Step, recipe: Recipe, data: Dataset): void {
@@ -13,7 +13,7 @@ export class RateService {
         // Calculate drain
         if (recipe.drain?.nonzero()) {
           let machines = step.machines.ceil();
-          if (data.flags.has('inactiveDrain')) {
+          if (data.flags.has("inactiveDrain")) {
             // In DSP drain is not cumulative; only add for inactive machines
             machines = machines.sub(step.machines);
           }
