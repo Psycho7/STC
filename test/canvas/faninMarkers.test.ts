@@ -15,11 +15,7 @@ import { drawnPortsOf } from "../../src/canvas/nodeGeometry";
 import { routeFanoutEdges } from "../../src/canvas/busRouting";
 import { measureRecipe } from "../../src/canvas/recipeGeometry";
 import type { RFAnyNode } from "../../src/canvas/layout";
-import {
-  mkRecipe,
-  recipeNode,
-  orderedRecipeNode,
-} from "./busRouting.testkit";
+import { mkRecipe, recipeNode, orderedRecipeNode } from "./busRouting.testkit";
 
 type FaninData = {
   labelDx?: number;

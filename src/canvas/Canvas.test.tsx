@@ -122,7 +122,11 @@ const HOVER_NODES: Node[] = [
     id: "g1",
     type: "group",
     position: { x: 0, y: 0 },
-    data: { containerKind: "loop-box", containerId: "loop:scc-1", memberCount: 1 },
+    data: {
+      containerKind: "loop-box",
+      containerId: "loop:scc-1",
+      memberCount: 1,
+    },
   },
 ];
 
@@ -206,19 +210,21 @@ test("status annotation reflects the status prop", () => {
       </ItemPackProvider>
     </LocaleProvider>,
   );
-  expect(container.querySelector(".canvas-annot.bottom-right")?.textContent).toBe(
-    "STATUS · SOLVING",
-  );
+  expect(
+    container.querySelector(".canvas-annot.bottom-right")?.textContent,
+  ).toBe("STATUS · SOLVING");
 });
 
 // The canvas is a pan surface, so an opaque screen-fixed control in a corner
 // hides whatever card or chip pans under it. The canvas carries no HUD controls
-// of its own; the only overlays left are the React Flow viewport panels
-// (Controls / MiniMap), which are React Flow's own children.
+// of its own; the only overlay left is the React Flow viewport panel
+// (Controls), which is React Flow's own child.
 test("canvas renders no HUD control overlay", () => {
   const { container } = renderCanvas([], []);
   const theme = container.querySelector(".ak-canvas-theme")!;
-  expect(theme.querySelector("button:not(.react-flow__controls-button)")).toBeNull();
+  expect(
+    theme.querySelector("button:not(.react-flow__controls-button)"),
+  ).toBeNull();
 });
 
 // The generic app-shell button rule also reaches the Controls cluster and

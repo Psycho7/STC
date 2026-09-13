@@ -8,7 +8,11 @@ afterEach(cleanup);
 
 test("groupCaption prefers an explicit label", () => {
   expect(
-    groupCaption({ label: "My Group", containerId: "loop:scc-1", memberCount: 3 }),
+    groupCaption({
+      label: "My Group",
+      containerId: "loop:scc-1",
+      memberCount: 3,
+    }),
   ).toBe("My Group");
 });
 
@@ -83,7 +87,11 @@ test("GroupNode captions from the member items when they are present", () => {
 // light-theme styles.
 test("GroupNode caption carries a class and no inline color", () => {
   const props = {
-    data: { containerKind: "loop-box", containerId: "loop:scc-1", memberCount: 2 },
+    data: {
+      containerKind: "loop-box",
+      containerId: "loop:scc-1",
+      memberCount: 2,
+    },
   } as unknown as ComponentProps<typeof GroupNode>;
   const { container } = render(<GroupNode {...props} />);
   const caption = container.querySelector(".rf-group-caption");

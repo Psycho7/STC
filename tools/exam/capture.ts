@@ -395,9 +395,9 @@ async function shoot(
   const safe = safeRegion(pane, overlayRects(scene), RIM_INSET);
 
   // Published against the safe region, not the raw pane. An element that only
-  // reaches the pane under the minimap or the zoom controls is in the image but
-  // not visible in it, and the evaluator indexes images by exactly these rects -
-  // it would be reading chrome and calling it an element.
+  // reaches the pane under the zoom controls or the attribution badge is in the
+  // image but not visible in it, and the evaluator indexes images by exactly
+  // these rects - it would be reading chrome and calling it an element.
   const elements: Record<string, Rect> = {};
   for (const el of scene.elements) {
     if (!intersects(el.clientRect, safe)) continue;
@@ -529,11 +529,13 @@ async function capture(opts: Options): Promise<number> {
       return 4;
     }
 
-    const contentRect = await page.evaluate(
-      () => window.__stcExam!.contentBounds(),
+    const contentRect = await page.evaluate(() =>
+      window.__stcExam!.contentBounds(),
     );
     if (contentRect === null) {
-      console.error(`error: ${opts.planId} has an empty graph (no content bounds)`);
+      console.error(
+        `error: ${opts.planId} has an empty graph (no content bounds)`,
+      );
       return 3;
     }
 

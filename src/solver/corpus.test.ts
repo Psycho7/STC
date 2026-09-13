@@ -90,9 +90,14 @@ describe("Scenario 1: acyclic single producer", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, acyclicSingleProducerGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      acyclicSingleProducerGolden.objectiveValue,
+    );
     // Both chain members must run; no alternative exists for either item.
-    expect(activeList(result)).toEqual(acyclicSingleProducerGolden.activeRecipes);
+    expect(activeList(result)).toEqual(
+      acyclicSingleProducerGolden.activeRecipes,
+    );
   });
 });
 
@@ -108,9 +113,14 @@ describe("Scenario 2: multi-producer cost choice", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, multiProducerCostChoiceGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      multiProducerCostChoiceGolden.objectiveValue,
+    );
     // "cheap" wins; "pricey" must stay inactive.
-    expect(activeList(result)).toEqual(multiProducerCostChoiceGolden.activeRecipes);
+    expect(activeList(result)).toEqual(
+      multiProducerCostChoiceGolden.activeRecipes,
+    );
     expect(activeList(result)).not.toContain("pricey");
   });
 
@@ -123,9 +133,14 @@ describe("Scenario 2: multi-producer cost choice", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, multiProducerCostChoiceWithOverrideGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      multiProducerCostChoiceWithOverrideGolden.objectiveValue,
+    );
     // Override forces "pricey" active; "cheap" must stay inactive.
-    expect(activeList(result)).toEqual(multiProducerCostChoiceWithOverrideGolden.activeRecipes);
+    expect(activeList(result)).toEqual(
+      multiProducerCostChoiceWithOverrideGolden.activeRecipes,
+    );
     expect(activeList(result)).not.toContain("cheap");
   });
 });
@@ -142,7 +157,10 @@ describe("Scenario 3: equal-cost tie-break", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, equalCostTieBreakGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      equalCostTieBreakGolden.objectiveValue,
+    );
     // "aaa_producer" wins (lex rank 0); "zzz_producer" stays inactive.
     expect(activeList(result)).toEqual(equalCostTieBreakGolden.activeRecipes);
     expect(activeList(result)).not.toContain("zzz_producer");
@@ -155,8 +173,14 @@ describe("Scenario 3: equal-cost tie-break", () => {
     // a non-deterministic sort or LP tie-break would flip aaa_producer /
     // zzz_producer across runs. acyclicSingleProducer has no tie-break
     // ambiguity, so it cannot detect that.
-    const r1 = solveLp({ targets: equalCostTieBreak.targets, pack: equalCostTieBreak.pack });
-    const r2 = solveLp({ targets: equalCostTieBreak.targets, pack: equalCostTieBreak.pack });
+    const r1 = solveLp({
+      targets: equalCostTieBreak.targets,
+      pack: equalCostTieBreak.pack,
+    });
+    const r2 = solveLp({
+      targets: equalCostTieBreak.targets,
+      pack: equalCostTieBreak.pack,
+    });
     assertObjective(r1.objectiveValue, r2.objectiveValue);
     expect(activeList(r1)).toEqual(activeList(r2));
   });
@@ -175,12 +199,17 @@ describe("Scenario 4: byproduct surplus", () => {
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
     // Objective = 2 recipe runs (cost 1 each) + surplus(byp)=1 * 1e-3 = 2.001.
-    assertObjective(result.objectiveValue, byproductSurplusGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      byproductSurplusGolden.objectiveValue,
+    );
     expect(activeList(result)).toEqual(byproductSurplusGolden.activeRecipes);
     // "byp" surplus = 1: r_main emits 2, r_finalize consumes 1, leaving 1 over.
     expect(result.surplus.has("byp")).toBe(true);
     const bypSurplus = result.surplus.get("byp")!;
-    expect(Math.abs(bypSurplus.valueOf() - byproductSurplusGolden.surplusByp)).toBeLessThan(1e-9);
+    expect(
+      Math.abs(bypSurplus.valueOf() - byproductSurplusGolden.surplusByp),
+    ).toBeLessThan(1e-9);
   });
 });
 
@@ -196,8 +225,13 @@ describe("Scenario 5: finite cap forces fallback", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, finiteCapForcingFallbackBaseline.objectiveValue);
-    expect(activeList(result)).toEqual(finiteCapForcingFallbackBaseline.activeRecipes);
+    assertObjective(
+      result.objectiveValue,
+      finiteCapForcingFallbackBaseline.objectiveValue,
+    );
+    expect(activeList(result)).toEqual(
+      finiteCapForcingFallbackBaseline.activeRecipes,
+    );
   });
 
   it("cap on raw_aprimary=0 forces z_fallback to cover all demand", () => {
@@ -218,9 +252,14 @@ describe("Scenario 5: finite cap forces fallback", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, finiteCapForcingFallbackGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      finiteCapForcingFallbackGolden.objectiveValue,
+    );
     // a_primary must be inactive; z_fallback is the active fallback.
-    expect(activeList(result)).toEqual(finiteCapForcingFallbackGolden.activeRecipes);
+    expect(activeList(result)).toEqual(
+      finiteCapForcingFallbackGolden.activeRecipes,
+    );
     expect(activeList(result)).not.toContain("a_primary");
     expect(activeList(result)).toContain("z_fallback");
   });
@@ -238,7 +277,10 @@ describe("Scenario 6: plan passthrough", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, planPassthroughBaseline.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      planPassthroughBaseline.objectiveValue,
+    );
     expect(activeList(result)).toEqual(planPassthroughBaseline.activeRecipes);
     expect(activeList(result)).toContain("r_make_mid");
   });
@@ -252,7 +294,10 @@ describe("Scenario 6: plan passthrough", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, planPassthroughGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      planPassthroughGolden.objectiveValue,
+    );
     expect(activeList(result)).toEqual(planPassthroughGolden.activeRecipes);
     // r_make_mid must NOT run: "mid" is supplied at the boundary.
     expect(activeList(result)).not.toContain("r_make_mid");
@@ -271,9 +316,14 @@ describe("Scenario 7: big-M cost signals exclude synthetic recipes", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, domainTransferExclusionGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      domainTransferExclusionGolden.objectiveValue,
+    );
     // r_normal (cost 1) satisfies the target; r_transfer (cost 1e6) must not run.
-    expect(activeList(result)).toEqual(domainTransferExclusionGolden.activeRecipes);
+    expect(activeList(result)).toEqual(
+      domainTransferExclusionGolden.activeRecipes,
+    );
     expect(activeList(result)).not.toContain("r_transfer");
   });
 
@@ -285,9 +335,14 @@ describe("Scenario 7: big-M cost signals exclude synthetic recipes", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, targetOnlyFlagExclusionGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      targetOnlyFlagExclusionGolden.objectiveValue,
+    );
     // r_targetonly (cost 1e6) must not run.
-    expect(activeList(result)).toEqual(targetOnlyFlagExclusionGolden.activeRecipes);
+    expect(activeList(result)).toEqual(
+      targetOnlyFlagExclusionGolden.activeRecipes,
+    );
     expect(activeList(result)).not.toContain("r_targetonly");
   });
 
@@ -299,9 +354,14 @@ describe("Scenario 7: big-M cost signals exclude synthetic recipes", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, costMinusOneSinkExclusionGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      costMinusOneSinkExclusionGolden.objectiveValue,
+    );
     // r_sink (cost 1e6) must not run.
-    expect(activeList(result)).toEqual(costMinusOneSinkExclusionGolden.activeRecipes);
+    expect(activeList(result)).toEqual(
+      costMinusOneSinkExclusionGolden.activeRecipes,
+    );
     expect(activeList(result)).not.toContain("r_sink");
   });
 });
@@ -318,7 +378,10 @@ describe("Scenario 7a: cyclic SCC -- net-export contract", () => {
 
     expect(result.status).toBe(domainTransferSccGolden.status);
     expect(result.softFeasible).toBe(domainTransferSccGolden.softFeasible);
-    assertObjective(result.objectiveValue, domainTransferSccGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      domainTransferSccGolden.objectiveValue,
+    );
     // The cycle recycles its own output, so it cannot create net export;
     // running it would only add recipe cost. Nothing runs.
     expect(activeList(result)).toEqual(domainTransferSccGolden.activeRecipes);
@@ -343,7 +406,10 @@ describe("Scenario 8: deficit (unmet demand)", () => {
     // The deficit var survives the >1e-12 filter.
     expect(result.softFeasible).toBe(deficitUnmetDemandGolden.softFeasible);
     // Deficit objective: 1e9 * 1 unit total, however the edge splits it.
-    assertObjective(result.objectiveValue, deficitUnmetDemandGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      deficitUnmetDemandGolden.objectiveValue,
+    );
     expect(activeList(result)).toEqual(deficitUnmetDemandGolden.activeRecipes);
     // The demanded item carries the bulk of the deficit, and the reported
     // split covers the demand exactly.
@@ -388,10 +454,15 @@ describe("Scenario 11: producer choice by cost", () => {
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, producerChoiceByCostGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      producerChoiceByCostGolden.objectiveValue,
+    );
     // z_cheap (cost 2) wins over a_pricey (cost 5, lex rank 0). A lex-only
     // tie-break would have picked a_pricey; cost drives the choice.
-    expect(activeList(result)).toEqual(producerChoiceByCostGolden.activeRecipes);
+    expect(activeList(result)).toEqual(
+      producerChoiceByCostGolden.activeRecipes,
+    );
     expect(activeList(result)).not.toContain("a_pricey");
   });
 });
@@ -409,13 +480,18 @@ describe("Scenario 12: byproduct-only item target", () => {
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
     // Objective = 1 recipe run + 1e-3 * surplus(primary)=1 = 1.001.
-    assertObjective(result.objectiveValue, byproductOnlyTargetGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      byproductOnlyTargetGolden.objectiveValue,
+    );
     expect(activeList(result)).toEqual(byproductOnlyTargetGolden.activeRecipes);
     // The unconsumed primary co-product lands in free-disposal surplus.
     expect(result.surplus.has("primary")).toBe(true);
     const primarySurplus = result.surplus.get("primary")!;
     expect(
-      Math.abs(primarySurplus.valueOf() - byproductOnlyTargetGolden.surplusPrimary),
+      Math.abs(
+        primarySurplus.valueOf() - byproductOnlyTargetGolden.surplusPrimary,
+      ),
     ).toBeLessThan(1e-9);
     // The targeted byproduct is fully consumed as net export: no surplus, no deficit.
     expect(result.deficit.has("byp")).toBe(false);
@@ -436,14 +512,21 @@ describe("Scenario 13: item target whose only producer is a miner", () => {
     // the demand has no boundary to fall back on, so it is not soft-feasible.
     expect(result.status).toBe(rawItemTargetViaMinerGolden.status);
     expect(result.softFeasible).toBe(rawItemTargetViaMinerGolden.softFeasible);
-    assertObjective(result.objectiveValue, rawItemTargetViaMinerGolden.objectiveValue);
-    expect(activeList(result)).toEqual(rawItemTargetViaMinerGolden.activeRecipes);
+    assertObjective(
+      result.objectiveValue,
+      rawItemTargetViaMinerGolden.objectiveValue,
+    );
+    expect(activeList(result)).toEqual(
+      rawItemTargetViaMinerGolden.activeRecipes,
+    );
     // Non-raw ore is not boundary-drawable and the miner is not in the model,
     // so the whole declared rate lands in the deficit.
     expect(result.draws.has("ore")).toBe(false);
     expect(result.rates.has("r_miner")).toBe(false);
     expect(
-      result.deficit.get("ore")!.equals(new Fraction(rawItemTargetViaMinerGolden.deficit)),
+      result.deficit
+        .get("ore")!
+        .equals(new Fraction(rawItemTargetViaMinerGolden.deficit)),
     ).toBe(true);
   });
 });
@@ -462,16 +545,30 @@ describe("Scenario 14: free-boundary item target", () => {
     // the solve is soft-feasible with no deficit.
     expect(result.status).toBe(freeBoundaryTargetGolden.status);
     expect(result.softFeasible).toBe(freeBoundaryTargetGolden.softFeasible);
-    assertObjective(result.objectiveValue, freeBoundaryTargetGolden.objectiveValue);
+    assertObjective(
+      result.objectiveValue,
+      freeBoundaryTargetGolden.objectiveValue,
+    );
     expect(activeList(result)).toEqual(freeBoundaryTargetGolden.activeRecipes);
     // The boundary draw covers the full declared rate.
     expect(result.draws.has("ore")).toBe(true);
-    expect(result.draws.get("ore")!.equals(new Fraction(freeBoundaryTargetGolden.drawOre))).toBe(true);
+    expect(
+      result.draws
+        .get("ore")!
+        .equals(new Fraction(freeBoundaryTargetGolden.drawOre)),
+    ).toBe(true);
     expect(result.deficit.size).toBe(0);
     // The checkers agree: demand met, mass balance holds.
-    expect(checkTargetsMet(result, freeBoundaryTarget.targets).violations).toEqual([]);
     expect(
-      checkMassBalance(result, freeBoundaryTarget.pack, freeBoundaryTarget.targets, []).violations,
+      checkTargetsMet(result, freeBoundaryTarget.targets).violations,
+    ).toEqual([]);
+    expect(
+      checkMassBalance(
+        result,
+        freeBoundaryTarget.pack,
+        freeBoundaryTarget.targets,
+        [],
+      ).violations,
     ).toEqual([]);
   });
 });
@@ -487,14 +584,23 @@ describe("Scenario 15: free-boundary target prefers the free draw over a miner",
     });
 
     expect(result.status).toBe(freeBoundaryTargetWithMinerGolden.status);
-    expect(result.softFeasible).toBe(freeBoundaryTargetWithMinerGolden.softFeasible);
-    assertObjective(result.objectiveValue, freeBoundaryTargetWithMinerGolden.objectiveValue);
-    expect(activeList(result)).toEqual(freeBoundaryTargetWithMinerGolden.activeRecipes);
+    expect(result.softFeasible).toBe(
+      freeBoundaryTargetWithMinerGolden.softFeasible,
+    );
+    assertObjective(
+      result.objectiveValue,
+      freeBoundaryTargetWithMinerGolden.objectiveValue,
+    );
+    expect(activeList(result)).toEqual(
+      freeBoundaryTargetWithMinerGolden.activeRecipes,
+    );
     // The free draw (cost 0) beats the miner (cost 1): the miner stays idle.
     expect(activeList(result)).not.toContain("r_mine");
     expect(result.draws.has("ore")).toBe(true);
     expect(
-      result.draws.get("ore")!.equals(new Fraction(freeBoundaryTargetWithMinerGolden.drawOre)),
+      result.draws
+        .get("ore")!
+        .equals(new Fraction(freeBoundaryTargetWithMinerGolden.drawOre)),
     ).toBe(true);
     expect(result.deficit.size).toBe(0);
   });
@@ -514,10 +620,17 @@ describe("Scenario 16: finite cap splits one target item across two producers", 
 
     expect(result.status).toBe("feasible");
     expect(result.softFeasible).toBe(true);
-    assertObjective(result.objectiveValue, splitTargetProducersGolden.objectiveValue);
-    expect(activeList(result)).toEqual(splitTargetProducersGolden.activeRecipes);
+    assertObjective(
+      result.objectiveValue,
+      splitTargetProducersGolden.objectiveValue,
+    );
+    expect(activeList(result)).toEqual(
+      splitTargetProducersGolden.activeRecipes,
+    );
     expect(
-      result.rates.get("r_cheap")!.equals(new Fraction(splitTargetProducersGolden.rateCheap)),
+      result.rates
+        .get("r_cheap")!
+        .equals(new Fraction(splitTargetProducersGolden.rateCheap)),
     ).toBe(true);
     expect(
       result.rates
@@ -530,7 +643,11 @@ describe("Scenario 16: finite cap splits one target item across two producers", 
         ),
     ).toBe(true);
     // The vein cap is saturated: draw = 1, and the point is exactly balanced.
-    expect(result.draws.get("vein")!.equals(new Fraction(splitTargetProducersGolden.drawVein))).toBe(true);
+    expect(
+      result.draws
+        .get("vein")!
+        .equals(new Fraction(splitTargetProducersGolden.drawVein)),
+    ).toBe(true);
     expect(result.surplus.size).toBe(0);
     expect(result.deficit.size).toBe(0);
   });

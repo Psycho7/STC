@@ -712,7 +712,12 @@ describe("routeFanoutEdges (6C)", () => {
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
     const p = [-dx, dx, -dy, dy];
-    const q = [a[0] - rect.left, rect.right - a[0], a[1] - rect.top, rect.bottom - a[1]];
+    const q = [
+      a[0] - rect.left,
+      rect.right - a[0],
+      a[1] - rect.top,
+      rect.bottom - a[1],
+    ];
     for (let i = 0; i < 4; i++) {
       if (p[i] === 0) {
         if (q[i]! < 0) return false;
@@ -1424,7 +1429,6 @@ describe("routeBusEdges trunk rise-chip slots", () => {
       expect(busChipXOf(out, id)).toBeGreaterThan(0);
     }
   });
-
 });
 
 // A far-apart product source and several product targets, so every source->target

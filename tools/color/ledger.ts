@@ -143,7 +143,8 @@ lines.push(`cross-band min: ${bandMin(false, true).toFixed(2)}`);
 const offenders = pairs.filter((p) => p.d < p.tier);
 lines.push(`pairs below their tier floor: ${offenders.length}`);
 for (const p of offenders) {
-  const band = p.a.gray && p.b.gray ? "gray" : p.a.gray !== p.b.gray ? "cross" : "sat";
+  const band =
+    p.a.gray && p.b.gray ? "gray" : p.a.gray !== p.b.gray ? "cross" : "sat";
   lines.push(
     `  ${p.a.id} vs ${p.b.id}: ${p.d.toFixed(2)} (${band}, floor ${p.tier})`,
   );

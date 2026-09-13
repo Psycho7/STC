@@ -60,9 +60,7 @@ function stcMassBalanceCloses(f: Fixture): boolean {
   );
   // demand per item from targets (targets are item-shaped: {itemId, rate}).
   const demand = new Map<string, number>();
-  const recipeById = new Map(
-    f.scenario.pack.recipes.map((r) => [r.id, r]),
-  );
+  const recipeById = new Map(f.scenario.pack.recipes.map((r) => [r.id, r]));
   for (const t of f.scenario.targets) {
     const rate = Number(t.ratePerSec.num) / Number(t.ratePerSec.denom);
     demand.set(t.itemId, (demand.get(t.itemId) ?? 0) + rate);
@@ -129,9 +127,14 @@ describe("Phase-0 validity gate (STC and GLPK each vs closed-form truth)", () =>
               ).toBe(true);
               // FactorioLab machines = exec/sec * time.
               const machines = glpk.machinesByRecipe.get(er.recipeId);
-              expect(machines, `GLPK machines for ${er.recipeId}`).toBeDefined();
               expect(
-                machines!.eq(new Rational(BigInt(er.machinesNum), BigInt(er.machinesDen))),
+                machines,
+                `GLPK machines for ${er.recipeId}`,
+              ).toBeDefined();
+              expect(
+                machines!.eq(
+                  new Rational(BigInt(er.machinesNum), BigInt(er.machinesDen)),
+                ),
               ).toBe(true);
               // exec/sec equality after the units fix.
               const glpkRate = glpk.ratesByRecipe.get(er.recipeId)!;
@@ -141,8 +144,12 @@ describe("Phase-0 validity gate (STC and GLPK each vs closed-form truth)", () =>
 
           it("active set agrees with the closed-form forced subgraph", () => {
             const r = compareScenario(f.scenario);
-            expect(r.stcActiveSet).toEqual(f.expected.activeSet!.slice().sort());
-            expect(r.glpkActiveSet).toEqual(f.expected.activeSet!.slice().sort());
+            expect(r.stcActiveSet).toEqual(
+              f.expected.activeSet!.slice().sort(),
+            );
+            expect(r.glpkActiveSet).toEqual(
+              f.expected.activeSet!.slice().sort(),
+            );
           });
 
           it("Tier-2 eligible (structural unique + perturbation stable)", () => {
@@ -162,9 +169,9 @@ describe("Phase-0 validity gate (STC and GLPK each vs closed-form truth)", () =>
             for (const exp of f.expected.surplus!) {
               const s = glpk.surplus.get(exp.itemId);
               expect(s, `surplus for ${exp.itemId}`).toBeDefined();
-              expect(s!.eq(new Rational(BigInt(exp.num), BigInt(exp.den)))).toBe(
-                true,
-              );
+              expect(
+                s!.eq(new Rational(BigInt(exp.num), BigInt(exp.den))),
+              ).toBe(true);
             }
           });
         }

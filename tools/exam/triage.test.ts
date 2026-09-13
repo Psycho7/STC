@@ -45,7 +45,11 @@ describe("corroborationsFor", () => {
   test("does not join when the rect sits 500 px away on the same element", () => {
     const far = finding({
       evidence: [
-        { image: TILE_A.file, rect: [790, 240, 60, 40], where: "on edge e:0:A->B:iron" },
+        {
+          image: TILE_A.file,
+          rect: [790, 240, 60, 40],
+          where: "on edge e:0:A->B:iron",
+        },
       ],
     });
     expect(corroborationsFor(far, [CHIP], TILES)).toEqual([]);
@@ -57,14 +61,22 @@ describe("corroborationsFor", () => {
   test("projects through the cited tile's transform only", () => {
     const citesB = finding({
       evidence: [
-        { image: TILE_B.file, rect: [290, 240, 60, 40], where: "left of centre" },
+        {
+          image: TILE_B.file,
+          rect: [290, 240, 60, 40],
+          where: "left of centre",
+        },
       ],
     });
     expect(corroborationsFor(citesB, [CHIP], TILES)).toEqual([]);
 
     const citesBWhereItIs = finding({
       evidence: [
-        { image: TILE_B.file, rect: [1090, 240, 60, 40], where: "right of centre" },
+        {
+          image: TILE_B.file,
+          rect: [1090, 240, 60, 40],
+          where: "right of centre",
+        },
       ],
     });
     expect(corroborationsFor(citesBWhereItIs, [CHIP], TILES)).toEqual([CHIP]);
@@ -72,7 +84,9 @@ describe("corroborationsFor", () => {
 
   test("does not join through a tile the capture never wrote", () => {
     const unknown = finding({
-      evidence: [{ image: "99-nope.png", rect: [290, 240, 60, 40], where: "middle" }],
+      evidence: [
+        { image: "99-nope.png", rect: [290, 240, 60, 40], where: "middle" },
+      ],
     });
     expect(corroborationsFor(unknown, [CHIP], TILES)).toEqual([]);
   });
@@ -87,10 +101,16 @@ describe("corroborationsFor", () => {
   test("does not join through the fit overview, whatever its transform", () => {
     const citesFit = finding({
       evidence: [
-        { image: TILE_FIT.file, rect: [290, 240, 60, 40], where: "the dense band" },
+        {
+          image: TILE_FIT.file,
+          rect: [290, 240, 60, 40],
+          where: "the dense band",
+        },
       ],
     });
-    expect(corroborationsFor(citesFit, [CHIP], [...TILES, TILE_FIT])).toEqual([]);
+    expect(corroborationsFor(citesFit, [CHIP], [...TILES, TILE_FIT])).toEqual(
+      [],
+    );
   });
 
   // The geometry audits measure what they measure; none of them can witness a
@@ -99,7 +119,9 @@ describe("corroborationsFor", () => {
   test.each(["interaction", "absence", "subjective"] as const)(
     "never corroborates a %s claim, however well the rect overlaps",
     (claimType) => {
-      expect(corroborationsFor(finding({ claimType }), [CHIP], TILES)).toEqual([]);
+      expect(corroborationsFor(finding({ claimType }), [CHIP], TILES)).toEqual(
+        [],
+      );
     },
   );
 
@@ -114,9 +136,14 @@ describe("corroborationsFor", () => {
     ["geometric-placement", CARD],
     ["geometric-routing", SEG],
     ["geometric-collision", XING],
-  ] as const)("joins a %s claim to its own tier's measurement", (claimType, m) => {
-    expect(corroborationsFor(finding({ claimType }), [m], TILES)).toEqual([m]);
-  });
+  ] as const)(
+    "joins a %s claim to its own tier's measurement",
+    (claimType, m) => {
+      expect(corroborationsFor(finding({ claimType }), [m], TILES)).toEqual([
+        m,
+      ]);
+    },
+  );
 
   test.each([
     ["geometric-placement", SEG],
@@ -140,9 +167,10 @@ describe("corroborationsFor", () => {
     expect(corroborationsFor(bogus, [CHIP], TILES)).toEqual([]);
   });
 
-  // An element reaching the pane only under the minimap or the zoom controls is
-  // in the image and outside the safe region, and the evaluator was told to read
-  // only the safe region. Support there is support for something nobody saw.
+  // An element reaching the pane only under the zoom controls or the
+  // attribution badge is in the image and outside the safe region, and the
+  // evaluator was told to read only the safe region. Support there is support
+  // for something nobody saw.
   test("does not join a footprint that projects outside the tile's safe region", () => {
     const occluded: TileFrame = {
       ...TILE_A,
@@ -186,9 +214,13 @@ describe("corroborationsFor", () => {
     [343, "3 px clear", false],
   ] as const)("a rect at x=%d (%s) joins: %s", (x, _label, joins) => {
     const marked = finding({
-      evidence: [{ image: TILE_A.file, rect: [x, 250, 60, 20], where: "right of it" }],
+      evidence: [
+        { image: TILE_A.file, rect: [x, 250, 60, 20], where: "right of it" },
+      ],
     });
-    expect(corroborationsFor(marked, [CHIP], TILES)).toEqual(joins ? [CHIP] : []);
+    expect(corroborationsFor(marked, [CHIP], TILES)).toEqual(
+      joins ? [CHIP] : [],
+    );
   });
 
   // A place, not a region. The rect below is a plausible mark round a node card
@@ -221,9 +253,13 @@ describe("corroborationsFor", () => {
     [145, false],
   ])("a %d px wide mark on a 40x20 footprint joins: %s", (width, joins) => {
     const marked = finding({
-      evidence: [{ image: TILE_A.file, rect: [290, 240, width, 40], where: "here" }],
+      evidence: [
+        { image: TILE_A.file, rect: [290, 240, width, 40], where: "here" },
+      ],
     });
-    expect(corroborationsFor(marked, [CHIP], TILES)).toEqual(joins ? [CHIP] : []);
+    expect(corroborationsFor(marked, [CHIP], TILES)).toEqual(
+      joins ? [CHIP] : [],
+    );
   });
 
   // A footprint of real size takes the ratio instead: 200x200 projected admits a
@@ -240,7 +276,9 @@ describe("corroborationsFor", () => {
     };
     const marked = finding({
       claimType: "geometric-routing",
-      evidence: [{ image: TILE_A.file, rect: [300, 250, width, 600], where: "here" }],
+      evidence: [
+        { image: TILE_A.file, rect: [300, 250, width, 600], where: "here" },
+      ],
     });
     expect(corroborationsFor(marked, [big], TILES)).toEqual(joins ? [big] : []);
   });
@@ -263,7 +301,9 @@ describe("corroborationsFor", () => {
       kind: "chip-vs-card",
       footprint: { x: 800, y: 800, width: 20, height: 10 },
     };
-    expect(corroborationsFor(finding(), [elsewhere, CHIP], TILES)).toEqual([CHIP]);
+    expect(corroborationsFor(finding(), [elsewhere, CHIP], TILES)).toEqual([
+      CHIP,
+    ]);
   });
 
   test("skips a malformed evidence rect instead of joining on NaN", () => {
@@ -279,9 +319,9 @@ describe("corroborationsFor", () => {
   // missing or unusable field costs a refutation; a TypeError here costs the
   // whole exam's triage.
   test("returns nothing rather than throwing when evidence is absent", () => {
-    expect(corroborationsFor(without(finding(), "evidence"), [CHIP], TILES)).toEqual(
-      [],
-    );
+    expect(
+      corroborationsFor(without(finding(), "evidence"), [CHIP], TILES),
+    ).toEqual([]);
   });
 
   test("ignores evidence entries that are not objects", () => {
@@ -296,7 +336,12 @@ describe("corroborationsFor", () => {
       evidence: [
         {
           image: TILE_A.file,
-          rect: { x: 290, y: 240 } as unknown as [number, number, number, number],
+          rect: { x: 290, y: 240 } as unknown as [
+            number,
+            number,
+            number,
+            number,
+          ],
           where: "somewhere",
         },
       ],
@@ -310,7 +355,9 @@ describe("corroborationsFor", () => {
   test.each(["constructor", "hasOwnProperty"] as const)(
     "treats the inherited property name %s as no claim type at all",
     (name) => {
-      const bogus = finding({ claimType: name as unknown as Finding["claimType"] });
+      const bogus = finding({
+        claimType: name as unknown as Finding["claimType"],
+      });
       expect(corroborationsFor(bogus, [CHIP], TILES)).toEqual([]);
       expect(validateFinding(bogus)).toContain(
         `claimType "${name}" is not a claim type`,
@@ -321,8 +368,12 @@ describe("corroborationsFor", () => {
 
 describe("routeFinding", () => {
   test("sends a corroborated minor or nit to CORROBORATED", () => {
-    expect(routeFinding(finding({ severity: "minor" }), [CHIP])).toBe("CORROBORATED");
-    expect(routeFinding(finding({ severity: "nit" }), [CHIP])).toBe("CORROBORATED");
+    expect(routeFinding(finding({ severity: "minor" }), [CHIP])).toBe(
+      "CORROBORATED",
+    );
+    expect(routeFinding(finding({ severity: "nit" }), [CHIP])).toBe(
+      "CORROBORATED",
+    );
   });
 
   // A footprint join says a compatible occurrence exists at the place marked,
@@ -336,7 +387,9 @@ describe("routeFinding", () => {
   });
 
   test("sends an uncorroborated minor to the batch refuter", () => {
-    expect(routeFinding(finding({ severity: "minor" }), [])).toBe("REFUTE_BATCH");
+    expect(routeFinding(finding({ severity: "minor" }), [])).toBe(
+      "REFUTE_BATCH",
+    );
     expect(routeFinding(finding({ severity: "nit" }), [])).toBe("REFUTE_BATCH");
   });
 
@@ -348,9 +401,9 @@ describe("routeFinding", () => {
   });
 
   test("sends an interaction claim to an individual refuter whatever its severity", () => {
-    expect(routeFinding(finding({ claimType: "interaction", severity: "nit" }), [])).toBe(
-      "REFUTE_INDIVIDUAL",
-    );
+    expect(
+      routeFinding(finding({ claimType: "interaction", severity: "nit" }), []),
+    ).toBe("REFUTE_INDIVIDUAL");
   });
 
   // An absence claim is unwitnessable by a footprint, so it always reaches a
@@ -358,15 +411,15 @@ describe("routeFinding", () => {
   // 2026-09-03 exam spent a 29-turn agent on a single nit. Severity sorts it
   // into the batch like any other uncorroborated claim.
   test("sends an absence claim to a refuter sized by its severity", () => {
-    expect(routeFinding(finding({ claimType: "absence", severity: "major" }), [])).toBe(
-      "REFUTE_INDIVIDUAL",
-    );
-    expect(routeFinding(finding({ claimType: "absence", severity: "minor" }), [])).toBe(
-      "REFUTE_BATCH",
-    );
-    expect(routeFinding(finding({ claimType: "absence", severity: "nit" }), [])).toBe(
-      "REFUTE_BATCH",
-    );
+    expect(
+      routeFinding(finding({ claimType: "absence", severity: "major" }), []),
+    ).toBe("REFUTE_INDIVIDUAL");
+    expect(
+      routeFinding(finding({ claimType: "absence", severity: "minor" }), []),
+    ).toBe("REFUTE_BATCH");
+    expect(
+      routeFinding(finding({ claimType: "absence", severity: "nit" }), []),
+    ).toBe("REFUTE_BATCH");
   });
 
   // A stated mechanism is a claim about the code, and no footprint can check it.
@@ -375,7 +428,8 @@ describe("routeFinding", () => {
   test("sends a finding with a mechanism hypothesis to an individual refuter", () => {
     const withMechanism = finding({
       severity: "nit",
-      mechanismHypothesis: "the chip anchor is stamped before the route is chamfered",
+      mechanismHypothesis:
+        "the chip anchor is stamped before the route is chamfered",
     });
     expect(routeFinding(withMechanism, [CHIP])).toBe("REFUTE_INDIVIDUAL");
   });
@@ -386,9 +440,9 @@ describe("routeFinding", () => {
     expect(routeFinding(finding({ claimType: "interaction" }), [CHIP])).toBe(
       "REFUTE_INDIVIDUAL",
     );
-    expect(routeFinding(finding({ claimType: "absence", severity: "nit" }), [CHIP])).toBe(
-      "REFUTE_BATCH",
-    );
+    expect(
+      routeFinding(finding({ claimType: "absence", severity: "nit" }), [CHIP]),
+    ).toBe("REFUTE_BATCH");
     const subjective = withoutFalsifier(finding({ claimType: "subjective" }));
     expect(routeFinding(subjective, [CHIP])).toBe("HUMAN_RULING");
   });
@@ -410,14 +464,13 @@ describe("validateFinding", () => {
     "geometric-collision",
     "interaction",
     "absence",
-  ] as const)(
-    "requires a falsifier for a %s claim",
-    (claimType) => {
-      const violations = validateFinding(withoutFalsifier(finding({ claimType })));
-      expect(violations).toHaveLength(1);
-      expect(violations[0]).toContain("falsifier");
-    },
-  );
+  ] as const)("requires a falsifier for a %s claim", (claimType) => {
+    const violations = validateFinding(
+      withoutFalsifier(finding({ claimType })),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("falsifier");
+  });
 
   test("requires a falsifier when a mechanism is hypothesised", () => {
     const subjective = withoutFalsifier(
@@ -444,7 +497,9 @@ describe("validateFinding", () => {
   });
 
   test("rejects empty evidence", () => {
-    expect(validateFinding(finding({ evidence: [] }))).toEqual(["evidence is empty"]);
+    expect(validateFinding(finding({ evidence: [] }))).toEqual([
+      "evidence is empty",
+    ]);
   });
 
   // An evidence entry that cannot be projected is not a cosmetic defect: it
@@ -459,7 +514,11 @@ describe("validateFinding", () => {
         // A flat rect. The schema promises a positive extent and the crop CLI
         // refuses to cut a zero-extent one, so an entry like this reaches the
         // end of the exam as a filed finding with no picture.
-        { image: TILE_A.file, rect: [10, 20, 0, 40], where: "a line, not a box" },
+        {
+          image: TILE_A.file,
+          rect: [10, 20, 0, 40],
+          where: "a line, not a box",
+        },
       ],
     });
     expect(validateFinding(broken)).toHaveLength(4);
@@ -537,28 +596,49 @@ describe("crystal dry-run regression: chip claim over segment grazes", () => {
   // them. The r0c0 rect over card u:class:q:4 sits below the projected
   // footprints.
   const filedEvidence: Finding["evidence"] = [
-    { image: tileRight.file, rect: [1004, 400, 80, 27], where: "over card u:out:crystal_enr" },
-    { image: tile.file, rect: [663, 400, 78, 27], where: "over card u:class:q:5" },
-    { image: tile.file, rect: [663, 458, 78, 28], where: "over card u:class:q:4" },
+    {
+      image: tileRight.file,
+      rect: [1004, 400, 80, 27],
+      where: "over card u:out:crystal_enr",
+    },
+    {
+      image: tile.file,
+      rect: [663, 400, 78, 27],
+      where: "over card u:class:q:5",
+    },
+    {
+      image: tile.file,
+      rect: [663, 458, 78, 28],
+      where: "over card u:class:q:4",
+    },
   ];
   const grazes: Measurement[] = [
     {
       kind: "segment-vs-card",
-      elementIds: ["e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3", "u:class:q:5"],
+      elementIds: [
+        "e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3",
+        "u:class:q:5",
+      ],
       footprint: { x: 345, y: 138, width: 23.5, height: 0 },
       detail:
         "edge e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3 segment (345.0,138.0)->(368.5,138.0) enters the padding of card u:class:q:5",
     },
     {
       kind: "segment-vs-card",
-      elementIds: ["e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3", "u:class:q:5"],
+      elementIds: [
+        "e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3",
+        "u:class:q:5",
+      ],
       footprint: { x: 368.5, y: 138, width: 3.5, height: 3.5 },
       detail:
         "edge e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3 segment (368.5,138.0)->(372.0,141.5) enters the padding of card u:class:q:5",
     },
     {
       kind: "segment-vs-card",
-      elementIds: ["e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3", "u:class:q:5"],
+      elementIds: [
+        "e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3",
+        "u:class:q:5",
+      ],
       footprint: { x: 372, y: 141.5, width: 0, height: 48.5 },
       detail:
         "edge e:7:u:class:q:7->u:class:q:4:plant_moss_seed_3 segment (372.0,141.5)->(372.0,294.5) enters the padding of card u:class:q:5",

@@ -156,9 +156,8 @@ test("an uncommitted edit is discarded when the plan is navigated away", async (
 
   await waitFor(() =>
     expect(
-      within(screen.getByTestId("targets-section")).getAllByTestId(
-        "target-row",
-      ).length,
+      within(screen.getByTestId("targets-section")).getAllByTestId("target-row")
+        .length,
     ).toBe(2),
   );
   const after = within(screen.getByTestId("targets-section")).getAllByLabelText(

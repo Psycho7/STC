@@ -12,10 +12,10 @@ The render-quality exam is a multi-agent visual audit of the STC canvas: an Opus
 writes Playwright and captures screenshots, an evaluator critiques them, the orchestrator
 verifies and files issues.
 
-| Run | Raw findings | Issues filed | Outcome |
-| --- | --- | --- | --- |
-| 2026-07-15 | ~25 | 12 (#10-#21) | all real, all eventually fixed |
-| 2026-07-18 | 32 | 9 (#24-#32) | #27 and #30 closed as invalid premises; #28 and #32b filed with wrong mechanisms, corrected mid-campaign |
+| Run        | Raw findings | Issues filed | Outcome                                                                                                  |
+| ---------- | ------------ | ------------ | -------------------------------------------------------------------------------------------------------- |
+| 2026-07-15 | ~25          | 12 (#10-#21) | all real, all eventually fixed                                                                           |
+| 2026-07-18 | 32           | 9 (#24-#32)  | #27 and #30 closed as invalid premises; #28 and #32b filed with wrong mechanisms, corrected mid-campaign |
 
 The 07-18 run spent a fix campaign's triage budget disproving its own findings:
 
@@ -88,12 +88,12 @@ the workflow begins at Evaluate.
 
 **`test/e2e/collect.ts`** (new). Two parts, and the split matters for estimation:
 
-- *Lifted verbatim:* `collectAudit` and `collectGeometry` move out of
+- _Lifted verbatim:_ `collectAudit` and `collectGeometry` move out of
   `geometry-audit.spec.ts` (defined at :115 and :561). Playwright serialises these
   function bodies, so the self-containment rule holds - helpers stay inlined inside each
   collector rather than becoming module-level shared functions (the spec notes this at
   :566). Behaviour-preserving for the audit spec.
-- *Genuinely new:* the existing collectors cover `.react-flow__edge-path` (id + `d`),
+- _Genuinely new:_ the existing collectors cover `.react-flow__edge-path` (id + `d`),
   `.react-flow__node` rects, and `.flow-chip` boxes. They do **not** inventory bus bands
   (`src/canvas/BusBands.tsx`), junction dots, port glyphs (`src/canvas/PortGlyph.tsx`),
   group and loop extents, or stable ids for any of those. `scene.json` needs a new
@@ -130,7 +130,7 @@ flowchart TD
 React Flow's zoom is d3-zoom on the pane; nothing is exposed on `window`, and writing the
 CSS transform directly desyncs React Flow's store (chips counter-scale off the store's
 zoom, so the LOD tier would lie). Wheel-only control has a harder limit: wheel zoom keeps
-the world point *under the cursor* fixed, so it cannot translate the view. A world point
+the world point _under the cursor_ fixed, so it cannot translate the view. A world point
 near the fit-view periphery can be kept visible but never framed - which is exactly what
 corrective tiling for a boundary element requires.
 
@@ -198,12 +198,12 @@ recorded for provenance.
 **Cost is real and is the price of D4.** Tile count scales as `(zt / fitZoom)^2`. Fit
 zooms are recorded in the `ItemEdge.tsx:137-147` calibration comment:
 
-| Plan | Fit zoom | Approx tiles at `zt` 0.75 |
-| --- | --- | --- |
-| default | ~0.76 | 1-2 |
-| crystal | ~0.46 | ~6 |
-| battery5-xiranite | ~0.28 | ~16 |
-| multi6 | ~0.17 | ~36 |
+| Plan              | Fit zoom | Approx tiles at `zt` 0.75 |
+| ----------------- | -------- | ------------------------- |
+| default           | ~0.76    | 1-2                       |
+| crystal           | ~0.46    | ~6                        |
+| battery5-xiranite | ~0.28    | ~16                       |
+| multi6            | ~0.17    | ~36                       |
 
 One evaluator reads a plan's whole set; at roughly 2.8k vision tokens per 1920x1080
 image, multi6 costs about 100k tokens of images. That is affordable for a single Opus
@@ -230,7 +230,7 @@ Point-like elements (chips, junction dots, port glyphs, node cards) must lie ful
 one tile's safe region.
 
 Extended elements (edge paths, bus bands, group slabs) can exceed a tile at `zt`, so they
-require their entirety to be covered by the *union* of safe regions, with a **seam margin
+require their entirety to be covered by the _union_ of safe regions, with a **seam margin
 of 64 CSS px**: a segment crossing a tile boundary must appear with at least that much
 context on one side in some tile, so no feature is bisected at every tile edge where it
 appears.
@@ -260,7 +260,7 @@ Therefore:
 
 - `scene.json` carries **measurements**; naming and framing say so.
 - **Machine findings come from the existing ratchets.** The skill runs `bun run test:e2e`
-  for `geometry-audit.spec.ts` and reports baseline *exceedances*. That machinery already
+  for `geometry-audit.spec.ts` and reports baseline _exceedances_. That machinery already
   encodes every ruling; duplicating its judgment in the exam would fork the rulings.
 - Measurements exist in the exam for two jobs only: corroborating an evaluator finding,
   and arming refuters.
@@ -316,15 +316,15 @@ bun tools/exam/probe.ts \
 
 Named operations cover the recurring questions, so a refuter usually writes no code:
 
-| op | answers |
-| --- | --- |
-| `hover-edge` / `hover-node` | does hover engage, and what dims |
-| `contrast` | WCAG ratio of an element's stroke or fill against its backdrop |
-| `delta-e` | perceptual distance between two items' colours |
-| `chip-binding` | distance from a chip to its own edge path, and to the nearest other path |
-| `rect` | an element's world and screen rects |
-| `computed-style` | resolved styles for an element |
-| `text-overflow` | whether an element's text is clipped or ellipsised |
+| op                          | answers                                                                  |
+| --------------------------- | ------------------------------------------------------------------------ |
+| `hover-edge` / `hover-node` | does hover engage, and what dims                                         |
+| `contrast`                  | WCAG ratio of an element's stroke or fill against its backdrop           |
+| `delta-e`                   | perceptual distance between two items' colours                           |
+| `chip-binding`              | distance from a chip to its own edge path, and to the nearest other path |
+| `rect`                      | an element's world and screen rects                                      |
+| `computed-style`            | resolved styles for an element                                           |
+| `text-overflow`             | whether an element's text is clipped or ellipsised                       |
 
 **`hover-edge`.** `hover-active` is not on the hovered edge: `Canvas.tsx:438` puts it on
 the `.ak-canvas-theme` container, and `dimmed` goes on the complement of the lit
@@ -377,11 +377,11 @@ rejected back to the evaluator.
 
 **JS triage** (no agents). Corroboration requires **both**:
 
-1. *Co-location* - the measurement's footprint, projected into the cited tile's image
+1. _Co-location_ - the measurement's footprint, projected into the cited tile's image
    space, intersects the evidence rect. Shared element id alone is not enough: a long edge
    can be measured at one end while the evaluator marks unrelated clutter hundreds of
    pixels away on the same edge.
-2. *Kind compatibility* - a `chip-off-own-path` measurement can corroborate "this chip
+2. _Kind compatibility_ - a `chip-off-own-path` measurement can corroborate "this chip
    floats free of its line"; it cannot corroborate "these two items are confusable
    colours". A fixed claim-kind to measurement-kind table encodes this.
 
@@ -454,18 +454,18 @@ sweeps. Inside the medium workflow guideline now that capture agents are gone.
 
 ## 12. Review dispositions (Codex, revision 1)
 
-| # | Finding | Disposition |
-| --- | --- | --- |
-| 1 | Raw audit output is not a defect inventory | Accepted, restructured. Measurements replace violations; machine findings come from the existing ratchets; crossings demoted to a census |
-| 2 | Element-id overlap is not corroboration | Accepted. Corroboration needs footprint co-location plus kind compatibility, and only `geometric` claims may skip refutation |
-| 3 | Fit-zoom inventory misses LOD-gated elements | Accepted. Bounds from `contentBounds()`, inventory unioned across tiles at target zoom, corrective pass to fixpoint |
-| 4 | Not a pure extraction | Accepted. Section 4 separates the verbatim lift from the new `collectScene` work |
-| 5 | Wheel-only camera cannot centre arbitrary points | Accepted. `window.__stcExam.setViewport` promoted to baseline; wheel convergence dropped |
-| 6 | Coordinate systems unspecified | Accepted. CSS px throughout, rects relative to `.react-flow`, screenshots at `scale: 'css'` |
-| 7 | Overlays occlude pixels; no seam margin | Accepted. Overlay masks measured and subtracted, safe region, 64px seam margin |
-| 8 | Hover contract contradicts the implementation | Accepted. `hover-active` is on `.ak-canvas-theme`; observed dim set compared against a graph-derived expected complement |
-| 9 | `REFUTED` cannot express "true symptom, false cause" | Accepted. Per-claim verdicts |
-| 9b | Falsifier should not be required on every finding | Accepted with modification. Required for geometric/interaction/absence/mechanism; forbidden for subjective, which routes to human ruling |
-| 10 | `--eval` reintroduces fragility | Partially accepted. Named ops are the default; `--eval` survives constrained, because #27's question was unanticipated by design |
-| 11 | Cap handling contradicts itself | Accepted. `status: "partial"`, exit 0, surfaced by the skill; smoke-test limitation stated |
-| 12 | LOD thresholds hardcoded | Accepted. Imported from `src/canvas/ItemEdge.tsx` |
+| #   | Finding                                              | Disposition                                                                                                                              |
+| --- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Raw audit output is not a defect inventory           | Accepted, restructured. Measurements replace violations; machine findings come from the existing ratchets; crossings demoted to a census |
+| 2   | Element-id overlap is not corroboration              | Accepted. Corroboration needs footprint co-location plus kind compatibility, and only `geometric` claims may skip refutation             |
+| 3   | Fit-zoom inventory misses LOD-gated elements         | Accepted. Bounds from `contentBounds()`, inventory unioned across tiles at target zoom, corrective pass to fixpoint                      |
+| 4   | Not a pure extraction                                | Accepted. Section 4 separates the verbatim lift from the new `collectScene` work                                                         |
+| 5   | Wheel-only camera cannot centre arbitrary points     | Accepted. `window.__stcExam.setViewport` promoted to baseline; wheel convergence dropped                                                 |
+| 6   | Coordinate systems unspecified                       | Accepted. CSS px throughout, rects relative to `.react-flow`, screenshots at `scale: 'css'`                                              |
+| 7   | Overlays occlude pixels; no seam margin              | Accepted. Overlay masks measured and subtracted, safe region, 64px seam margin                                                           |
+| 8   | Hover contract contradicts the implementation        | Accepted. `hover-active` is on `.ak-canvas-theme`; observed dim set compared against a graph-derived expected complement                 |
+| 9   | `REFUTED` cannot express "true symptom, false cause" | Accepted. Per-claim verdicts                                                                                                             |
+| 9b  | Falsifier should not be required on every finding    | Accepted with modification. Required for geometric/interaction/absence/mechanism; forbidden for subjective, which routes to human ruling |
+| 10  | `--eval` reintroduces fragility                      | Partially accepted. Named ops are the default; `--eval` survives constrained, because #27's question was unanticipated by design         |
+| 11  | Cap handling contradicts itself                      | Accepted. `status: "partial"`, exit 0, surfaced by the skill; smoke-test limitation stated                                               |
+| 12  | LOD thresholds hardcoded                             | Accepted. Imported from `src/canvas/ItemEdge.tsx`                                                                                        |

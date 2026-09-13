@@ -54,7 +54,10 @@ import type { Measurement } from "./scene";
 
 // From the repo root, which is Vitest's own root here; `import.meta.url` is not
 // a file URL under the jsdom environment this suite runs in.
-const WORKFLOW_PATH = resolve(process.cwd(), ".claude/workflows/render-quality-exam.js");
+const WORKFLOW_PATH = resolve(
+  process.cwd(),
+  ".claude/workflows/render-quality-exam.js",
+);
 
 // ---------------------------------------------------------------------------
 // The table. One plan per case, so a case's tiles and measurements are exactly
@@ -105,15 +108,23 @@ const TRIMMED = {
 const CASES: Case[] = [
   kase("rect over the projected footprint", finding()),
 
-  kase("measurement passed without elementIds, as the args trim it", finding(), {
-    measurements: [TRIMMED],
-  }),
+  kase(
+    "measurement passed without elementIds, as the args trim it",
+    finding(),
+    {
+      measurements: [TRIMMED],
+    },
+  ),
 
   kase(
     "rect 500 px away on the same element",
     finding({
       evidence: [
-        { image: TILE_A.file, rect: [790, 240, 60, 40], where: "on edge e:0:A->B:iron" },
+        {
+          image: TILE_A.file,
+          rect: [790, 240, 60, 40],
+          where: "on edge e:0:A->B:iron",
+        },
       ],
     }),
   ),
@@ -121,21 +132,35 @@ const CASES: Case[] = [
   kase(
     "cites tile B at the place the footprint occupies in tile A",
     finding({
-      evidence: [{ image: TILE_B.file, rect: [290, 240, 60, 40], where: "left of centre" }],
+      evidence: [
+        {
+          image: TILE_B.file,
+          rect: [290, 240, 60, 40],
+          where: "left of centre",
+        },
+      ],
     }),
   ),
 
   kase(
     "cites tile B where the footprint is in tile B",
     finding({
-      evidence: [{ image: TILE_B.file, rect: [1090, 240, 60, 40], where: "right of centre" }],
+      evidence: [
+        {
+          image: TILE_B.file,
+          rect: [1090, 240, 60, 40],
+          where: "right of centre",
+        },
+      ],
     }),
   ),
 
   kase(
     "cites an image no tile record names",
     finding({
-      evidence: [{ image: "99-nope.png", rect: [290, 240, 60, 40], where: "middle" }],
+      evidence: [
+        { image: "99-nope.png", rect: [290, 240, 60, 40], where: "middle" },
+      ],
     }),
   ),
 
@@ -144,13 +169,25 @@ const CASES: Case[] = [
   kase(
     "cites the fit overview, whose transform would otherwise join",
     finding({
-      evidence: [{ image: TILE_FIT.file, rect: [290, 240, 60, 40], where: "the dense band" }],
+      evidence: [
+        {
+          image: TILE_FIT.file,
+          rect: [290, 240, 60, 40],
+          where: "the dense band",
+        },
+      ],
     }),
     { tiles: [...TILES, TILE_FIT] },
   ),
 
-  kase("interaction claim over a perfect overlap", finding({ claimType: "interaction" })),
-  kase("absence claim over a perfect overlap", finding({ claimType: "absence" })),
+  kase(
+    "interaction claim over a perfect overlap",
+    finding({ claimType: "interaction" }),
+  ),
+  kase(
+    "absence claim over a perfect overlap",
+    finding({ claimType: "absence" }),
+  ),
   kase(
     "subjective claim over a perfect overlap",
     withoutFalsifier(finding({ claimType: "subjective" })),
@@ -158,21 +195,40 @@ const CASES: Case[] = [
 
   // The geometric family is split by tier, so a co-located measurement of
   // another tier must refuse the join in both copies.
-  kase("placement claim over a co-located segment measurement", finding({ claimType: "geometric-placement" }), {
-    measurements: [SEG],
-  }),
+  kase(
+    "placement claim over a co-located segment measurement",
+    finding({ claimType: "geometric-placement" }),
+    {
+      measurements: [SEG],
+    },
+  ),
   // The placement row's second kind, which no other case reaches: without it
   // either copy could drop `chip-vs-card` from that row and stay green.
-  kase("placement claim over its own tier's card-overlap measurement", finding({ claimType: "geometric-placement" }), {
-    measurements: [CARD],
-  }),
-  kase("routing claim over a co-located chip measurement", finding({ claimType: "geometric-routing" })),
-  kase("routing claim over its own tier's segment measurement", finding({ claimType: "geometric-routing" }), {
-    measurements: [SEG],
-  }),
-  kase("collision claim over its own tier's crossing", finding({ claimType: "geometric-collision" }), {
-    measurements: [XING],
-  }),
+  kase(
+    "placement claim over its own tier's card-overlap measurement",
+    finding({ claimType: "geometric-placement" }),
+    {
+      measurements: [CARD],
+    },
+  ),
+  kase(
+    "routing claim over a co-located chip measurement",
+    finding({ claimType: "geometric-routing" }),
+  ),
+  kase(
+    "routing claim over its own tier's segment measurement",
+    finding({ claimType: "geometric-routing" }),
+    {
+      measurements: [SEG],
+    },
+  ),
+  kase(
+    "collision claim over its own tier's crossing",
+    finding({ claimType: "geometric-collision" }),
+    {
+      measurements: [XING],
+    },
+  ),
   kase(
     "retired geometric claim type is rejected",
     finding({ claimType: "geometric" as Finding["claimType"] }),
@@ -194,14 +250,21 @@ const CASES: Case[] = [
     ),
   ),
 
-  // An element reaching the pane only under the minimap or the zoom controls is
-  // in the image and outside the region the evaluator was given to read.
+  // An element reaching the pane only under the zoom controls or the
+  // attribution badge is in the image and outside the region the evaluator was
+  // given to read.
   kase(
     "footprint projects below the tile's safe region",
     finding({
-      evidence: [{ image: TILE_A.file, rect: [290, 240, 60, 40], where: "bottom-left" }],
+      evidence: [
+        { image: TILE_A.file, rect: [290, 240, 60, 40], where: "bottom-left" },
+      ],
     }),
-    { tiles: [{ ...TILE_A, safeRegion: { x: 0, y: 0, width: 1920, height: 200 } }] },
+    {
+      tiles: [
+        { ...TILE_A, safeRegion: { x: 0, y: 0, width: 1920, height: 200 } },
+      ],
+    },
   ),
 
   // An orthogonal run has zero thickness in one axis; a strict area test would
@@ -210,7 +273,9 @@ const CASES: Case[] = [
     "zero-thickness segment footprint under a rect round the stroke",
     finding({
       claimType: "geometric-routing",
-      evidence: [{ image: TILE_A.file, rect: [310, 244, 20, 12], where: "over card B" }],
+      evidence: [
+        { image: TILE_A.file, rect: [310, 244, 20, 12], where: "over card B" },
+      ],
     }),
     {
       measurements: [
@@ -228,7 +293,9 @@ const CASES: Case[] = [
     "zero-extent footprint under a small mark on it",
     finding({
       claimType: "geometric-collision",
-      evidence: [{ image: TILE_A.file, rect: [298, 248, 10, 10], where: "the anchor" }],
+      evidence: [
+        { image: TILE_A.file, rect: [298, 248, 10, 10], where: "the anchor" },
+      ],
     }),
     { measurements: [POINT] },
   ),
@@ -237,7 +304,13 @@ const CASES: Case[] = [
     "zero-extent footprint with the mark elsewhere",
     finding({
       claimType: "geometric-collision",
-      evidence: [{ image: TILE_A.file, rect: [400, 248, 10, 10], where: "further right" }],
+      evidence: [
+        {
+          image: TILE_A.file,
+          rect: [400, 248, 10, 10],
+          where: "further right",
+        },
+      ],
     }),
     { measurements: [POINT] },
   ),
@@ -250,7 +323,9 @@ const CASES: Case[] = [
     kase(
       `rect ${x - 340} px clear of the projected footprint`,
       finding({
-        evidence: [{ image: TILE_A.file, rect: [x, 250, 60, 20], where: "right of it" }],
+        evidence: [
+          { image: TILE_A.file, rect: [x, 250, 60, 20], where: "right of it" },
+        ],
       }),
     ),
   ),
@@ -261,7 +336,9 @@ const CASES: Case[] = [
     kase(
       `${width} px wide mark on a 40x20 footprint`,
       finding({
-        evidence: [{ image: TILE_A.file, rect: [290, 240, width, 40], where: "here" }],
+        evidence: [
+          { image: TILE_A.file, rect: [290, 240, width, 40], where: "here" },
+        ],
       }),
     ),
   ),
@@ -273,7 +350,9 @@ const CASES: Case[] = [
       `${width} px wide mark on a 200x200 footprint`,
       finding({
         claimType: "geometric-routing",
-        evidence: [{ image: TILE_A.file, rect: [300, 250, width, 600], where: "here" }],
+        evidence: [
+          { image: TILE_A.file, rect: [300, 250, width, 600], where: "here" },
+        ],
       }),
       {
         measurements: [
@@ -291,7 +370,9 @@ const CASES: Case[] = [
     "a card-sized mark round a thin graze",
     finding({
       claimType: "geometric-routing",
-      evidence: [{ image: TILE_A.file, rect: [250, 200, 300, 200], where: "this card" }],
+      evidence: [
+        { image: TILE_A.file, rect: [250, 200, 300, 200], where: "this card" },
+      ],
     }),
     {
       measurements: [
@@ -317,7 +398,11 @@ const CASES: Case[] = [
 
   kase("keeps only the measurements that co-locate", finding(), {
     measurements: [
-      { ...CHIP, kind: "chip-vs-card", footprint: { x: 800, y: 800, width: 20, height: 10 } },
+      {
+        ...CHIP,
+        kind: "chip-vs-card",
+        footprint: { x: 800, y: 800, width: 20, height: 10 },
+      },
       CHIP,
     ],
   }),
@@ -325,7 +410,9 @@ const CASES: Case[] = [
   kase(
     "malformed evidence rect",
     finding({
-      evidence: [{ image: TILE_A.file, rect: [NaN, 240, 60, 40], where: "somewhere" }],
+      evidence: [
+        { image: TILE_A.file, rect: [NaN, 240, 60, 40], where: "somewhere" },
+      ],
     }),
   ),
 
@@ -336,13 +423,17 @@ const CASES: Case[] = [
   kase(
     "zero-extent evidence rect",
     finding({
-      evidence: [{ image: TILE_A.file, rect: [290, 240, 0, 40], where: "somewhere" }],
+      evidence: [
+        { image: TILE_A.file, rect: [290, 240, 0, 40], where: "somewhere" },
+      ],
     }),
   ),
 
   kase(
     "evidence entries that are not objects",
-    finding({ evidence: [null, "over there"] as unknown as Finding["evidence"] }),
+    finding({
+      evidence: [null, "over there"] as unknown as Finding["evidence"],
+    }),
   ),
 
   kase(
@@ -351,7 +442,12 @@ const CASES: Case[] = [
       evidence: [
         {
           image: TILE_A.file,
-          rect: { x: 290, y: 240 } as unknown as [number, number, number, number],
+          rect: { x: 290, y: 240 } as unknown as [
+            number,
+            number,
+            number,
+            number,
+          ],
           where: "somewhere",
         },
       ],
@@ -365,21 +461,26 @@ const CASES: Case[] = [
     "uncorroborated minor",
     finding({
       severity: "minor",
-      evidence: [{ image: TILE_A.file, rect: [790, 240, 60, 40], where: "away" }],
+      evidence: [
+        { image: TILE_A.file, rect: [790, 240, 60, 40], where: "away" },
+      ],
     }),
   ),
   kase(
     "uncorroborated nit",
     finding({
       severity: "nit",
-      evidence: [{ image: TILE_A.file, rect: [790, 240, 60, 40], where: "away" }],
+      evidence: [
+        { image: TILE_A.file, rect: [790, 240, 60, 40], where: "away" },
+      ],
     }),
   ),
   kase(
     "corroborated finding that also states a mechanism",
     finding({
       severity: "nit",
-      mechanismHypothesis: "the chip anchor is stamped before the route is chamfered",
+      mechanismHypothesis:
+        "the chip anchor is stamped before the route is chamfered",
     }),
   ),
   kase("corroborated minor", finding({ severity: "minor" })),
@@ -399,7 +500,10 @@ const CASES: Case[] = [
 
   // The validator, whose violations gate all of the above.
   kase("geometric claim with no falsifier", withoutFalsifier(finding())),
-  kase("subjective claim carrying a falsifier", finding({ claimType: "subjective" })),
+  kase(
+    "subjective claim carrying a falsifier",
+    finding({ claimType: "subjective" }),
+  ),
   kase(
     "subjective claim with a mechanism and no falsifier",
     withoutFalsifier(
@@ -528,7 +632,9 @@ type WorkflowRunner = (
 // One stub each, faithful to that. A stricter `parallel` that let a throw
 // escape would pass every test here while pinning behaviour the runtime does
 // not have, which is the failure mode a parity suite exists to avoid.
-const parallelStub = (tasks: Array<() => Promise<unknown>>): Promise<unknown[]> =>
+const parallelStub = (
+  tasks: Array<() => Promise<unknown>>,
+): Promise<unknown[]> =>
   Promise.all(
     tasks.map((task) =>
       Promise.resolve()
@@ -537,7 +643,10 @@ const parallelStub = (tasks: Array<() => Promise<unknown>>): Promise<unknown[]> 
     ),
   );
 
-const pipelineStub = (items: unknown[], ...stages: Stage[]): Promise<unknown[]> =>
+const pipelineStub = (
+  items: unknown[],
+  ...stages: Stage[]
+): Promise<unknown[]> =>
   Promise.all(
     items.map(async (item, index) => {
       let value: unknown = item;
@@ -559,11 +668,15 @@ function compileWorkflow(): WorkflowRunner {
   // cannot import, and that is the whole reason the rules are copied into it.
   const source = raw.replace("export const meta", "const meta");
   if (source === raw) {
-    throw new Error(`${WORKFLOW_PATH} no longer declares \`export const meta\``);
+    throw new Error(
+      `${WORKFLOW_PATH} no longer declares \`export const meta\``,
+    );
   }
   for (const keyword of ["export ", "import "]) {
     if (source.includes(keyword)) {
-      throw new Error(`${WORKFLOW_PATH} contains module syntax "${keyword.trim()}"`);
+      throw new Error(
+        `${WORKFLOW_PATH} contains module syntax "${keyword.trim()}"`,
+      );
     }
   }
   return new AsyncFunction(
@@ -606,7 +719,10 @@ const CONVENTIONS = [
 // contain the same suffix.
 const REPO_ROOT = "/srv/checkouts/stc";
 
-function workflowArgs(specs: PlanSpec[], locale = "en"): Record<string, unknown> {
+function workflowArgs(
+  specs: PlanSpec[],
+  locale = "en",
+): Record<string, unknown> {
   return {
     examDir: "/exam",
     repoRoot: REPO_ROOT,
@@ -615,7 +731,10 @@ function workflowArgs(specs: PlanSpec[], locale = "en"): Record<string, unknown>
       id: spec.id,
       dir: `/exam/${spec.id}/images`,
       url: "http://localhost:4174/?exam=1#v1.parity",
-      images: spec.tiles.map((t) => ({ file: t.file, what: "a tile of this plan" })),
+      images: spec.tiles.map((t) => ({
+        file: t.file,
+        what: "a tile of this plan",
+      })),
       tiles: spec.tiles,
       coverage: {
         targetZoom: 0.75,
@@ -627,7 +746,9 @@ function workflowArgs(specs: PlanSpec[], locale = "en"): Record<string, unknown>
       },
       locale,
     })),
-    measurements: Object.fromEntries(specs.map((spec) => [spec.id, spec.measurements])),
+    measurements: Object.fromEntries(
+      specs.map((spec) => [spec.id, spec.measurements]),
+    ),
   };
 }
 
@@ -653,7 +774,11 @@ async function runWorkflow(
   // finding is SENT, and a stubbed verdict would only exercise the coercion.
   refute: (label: string) => unknown = () => null,
   locale?: string,
-): Promise<{ result: WorkflowResult; logs: string[]; prompts: Map<string, string> }> {
+): Promise<{
+  result: WorkflowResult;
+  logs: string[];
+  prompts: Map<string, string>;
+}> {
   const args = workflowArgs(specs, locale);
 
   const evaluations = new Map(
@@ -675,7 +800,9 @@ async function runWorkflow(
     if (!options.label.startsWith("evaluate:")) {
       return Promise.resolve(refute(options.label));
     }
-    return Promise.resolve(evaluations.get(options.label.slice("evaluate:".length)) ?? null);
+    return Promise.resolve(
+      evaluations.get(options.label.slice("evaluate:".length)) ?? null,
+    );
   };
 
   const result = await compileWorkflow()(
@@ -709,7 +836,8 @@ describe("the workflow's inlined triage matches tools/exam/triage.ts", () => {
 
     const actual: Row[] = CASES.map((c, i) => {
       const row = byPlan.get(planIdOf(i));
-      if (row === undefined) throw new Error(`case "${c.name}" produced no triage row`);
+      if (row === undefined)
+        throw new Error(`case "${c.name}" produced no triage row`);
       const verdict = result.verdicts.find((v) => v.findingId === row.id);
       return {
         case: c.name,
@@ -746,7 +874,9 @@ describe("the workflow's inlined triage matches tools/exam/triage.ts", () => {
     expect(result.findings.map((f) => f.id)).toEqual(
       CASES.map((c, i) => `${planIdOf(i)}:${c.finding.id}`),
     );
-    expect(result.triage.map((row) => row.id)).toEqual(result.findings.map((f) => f.id));
+    expect(result.triage.map((row) => row.id)).toEqual(
+      result.findings.map((f) => f.id),
+    );
     const known = new Set(result.findings.map((f) => f.id));
     expect(result.verdicts.filter((v) => !known.has(v.findingId))).toEqual([]);
   });
@@ -883,8 +1013,11 @@ describe("the evaluator prompt is briefed from the conventions doc", () => {
       tiles: TILES,
     };
     const bare = workflowArgs([spec]);
-    for (const plan of bare.plans as Array<Record<string, unknown>>) delete plan.locale;
-    await expect(runArgs(bare)).rejects.toThrow(/render-quality-exam: plan bare .*locale/);
+    for (const plan of bare.plans as Array<Record<string, unknown>>)
+      delete plan.locale;
+    await expect(runArgs(bare)).rejects.toThrow(
+      /render-quality-exam: plan bare .*locale/,
+    );
   });
 
   test("refuses args carrying no conventions", async () => {
@@ -896,7 +1029,9 @@ describe("the evaluator prompt is briefed from the conventions doc", () => {
     };
     const bare = workflowArgs([spec]);
     delete bare.conventions;
-    await expect(runArgs(bare)).rejects.toThrow(/render-quality-exam: .*conventions/);
+    await expect(runArgs(bare)).rejects.toThrow(
+      /render-quality-exam: .*conventions/,
+    );
   });
 });
 
@@ -933,8 +1068,10 @@ describe("a plan runs through the exam without waiting for the others", () => {
     const prompts: string[] = [];
     const agent: AgentStub = (_prompt, options) => {
       prompts.push(options.label);
-      if (options.label === "evaluate:slow") return held.then(() => evaluationOf(specs[1]!));
-      if (options.label === "evaluate:fast") return Promise.resolve(evaluationOf(specs[0]!));
+      if (options.label === "evaluate:slow")
+        return held.then(() => evaluationOf(specs[1]!));
+      if (options.label === "evaluate:fast")
+        return Promise.resolve(evaluationOf(specs[0]!));
       return Promise.resolve(null);
     };
 
@@ -961,7 +1098,10 @@ describe("a plan runs through the exam without waiting for the others", () => {
       "fast:chip-adrift",
       "slow:chip-adrift",
     ]);
-    expect(result.findings.map((f) => f.id)).toEqual(["fast:chip-adrift", "slow:chip-adrift"]);
+    expect(result.findings.map((f) => f.id)).toEqual([
+      "fast:chip-adrift",
+      "slow:chip-adrift",
+    ]);
   });
 });
 
@@ -984,15 +1124,22 @@ describe("the refuter's probe command is absolute", () => {
   });
 
   test("refuses args carrying no repoRoot, and a relative one", async () => {
-    const spec: PlanSpec = { id: "bare", findings: [], measurements: [CHIP], tiles: TILES };
+    const spec: PlanSpec = {
+      id: "bare",
+      findings: [],
+      measurements: [CHIP],
+      tiles: TILES,
+    };
 
     const missing = workflowArgs([spec]);
     delete missing.repoRoot;
-    await expect(runArgs(missing)).rejects.toThrow(/render-quality-exam: .*repoRoot/);
-
-    await expect(runArgs({ ...workflowArgs([spec]), repoRoot: "STC" })).rejects.toThrow(
+    await expect(runArgs(missing)).rejects.toThrow(
       /render-quality-exam: .*repoRoot/,
     );
+
+    await expect(
+      runArgs({ ...workflowArgs([spec]), repoRoot: "STC" }),
+    ).rejects.toThrow(/render-quality-exam: .*repoRoot/);
   });
 });
 
@@ -1044,7 +1191,9 @@ describe("a refuter's answer is matched to the finding it answers", () => {
 
   test("an agent that returned nothing says so, in those words", async () => {
     const { result } = await runWorkflow([solo({})]);
-    expect(result.verdicts[0]?.coercions).toEqual(["the refuter returned nothing"]);
+    expect(result.verdicts[0]?.coercions).toEqual([
+      "the refuter returned nothing",
+    ]);
   });
 
   // The batch's failure mode: N answers, none of them matching, because the
@@ -1065,13 +1214,20 @@ describe("a refuter's answer is matched to the finding it answers", () => {
         ? {
             verdicts: [
               { findingId: "chip-a", observationVerdict: "REFUTED", ...CITED },
-              { findingId: "chip-b", observationVerdict: "CONFIRMED", ...CITED },
+              {
+                findingId: "chip-b",
+                observationVerdict: "CONFIRMED",
+                ...CITED,
+              },
             ],
           }
         : null,
     );
 
-    expect(result.verdicts.map((v) => v.findingId)).toEqual(["pair:chip-a", "pair:chip-b"]);
+    expect(result.verdicts.map((v) => v.findingId)).toEqual([
+      "pair:chip-a",
+      "pair:chip-b",
+    ]);
     for (const verdict of result.verdicts) {
       expect(verdict.observationVerdict).toBe("UNCERTAIN");
       expect(verdict.disposition).toBe("HUMAN_REVIEW");
@@ -1089,13 +1245,19 @@ describe("a refuter's answer is matched to the finding it answers", () => {
   // consumer can read one key without checking whether it exists.
   test("an answered finding comes back with every field of the verdict shape", async () => {
     const { result } = await runWorkflow(
-      [solo({ mechanismHypothesis: "the anchor is stamped before the route is chamfered" })],
+      [
+        solo({
+          mechanismHypothesis:
+            "the anchor is stamped before the route is chamfered",
+        }),
+      ],
       () => ({
         findingId: "solo:chip-adrift",
         observationVerdict: "CONFIRMED",
         mechanismVerdict: "REFUTED",
         ...CITED,
-        correctedObservation: "the chip is 84 units off its line, but the anchor is stamped last",
+        correctedObservation:
+          "the chip is 84 units off its line, but the anchor is stamped last",
       }),
     );
 
@@ -1110,7 +1272,8 @@ describe("a refuter's answer is matched to the finding it answers", () => {
       probeCommand: CITED.probeCommand,
       probeOutput: CITED.probeOutput,
       reasoning: CITED.reasoning,
-      correctedObservation: "the chip is 84 units off its line, but the anchor is stamped last",
+      correctedObservation:
+        "the chip is 84 units off its line, but the anchor is stamped last",
       coercions: [],
     });
   });
@@ -1217,6 +1380,8 @@ describe("a plan that produced nothing is named for the reason it produced nothi
 
     expect(result.verdicts).toEqual([]);
     expect(result.findings.map((f) => f.id)).toEqual(["solo:chip-adrift"]);
-    expect(logs).toContain("solo: 1 refuter task(s) threw, so their findings carry no verdict");
+    expect(logs).toContain(
+      "solo: 1 refuter task(s) threw, so their findings carry no verdict",
+    );
   });
 });

@@ -24,9 +24,9 @@ it", and a raw geometry count is not a defect.
 The exam reads a deployed preview; nothing is built locally unless the fallback below is
 needed. Every push deploys to the `stc-preview` Cloudflare project:
 
-| tip under exam | base URL |
-| --- | --- |
-| `develop` | `https://stc-preview.pages.dev` |
+| tip under exam  | base URL                                      |
+| --------------- | --------------------------------------------- |
+| `develop`       | `https://stc-preview.pages.dev`               |
 | a pushed branch | `https://<branch-slug>.stc-preview.pages.dev` |
 
 The slug is the branch lowercased, with every run of non-alphanumeric characters turned into
@@ -173,13 +173,13 @@ N+1 entries. The count in parentheses beside it says how many of the N were corr
 evaluator is handed `images/` and judges the pixels cold, so the ledger it must not read is not
 in the directory it can list. There is no smoke test, because capture fails fast by itself:
 
-| exit | what happened | what you do |
-| --- | --- | --- |
-| 0 | captured, `status` is `complete` or a labelled `partial` | keep it; a partial is a real capture, carry its blind spots forward |
-| 1 | harness failure | fix the invocation and rerun |
-| 2 | the base URL is not serving | back to step 1 |
-| 3 | the page never became examinable | drop that plan and report it |
-| 4 | the served build cannot name itself | redeploy or fix the build; do NOT drop the plan |
+| exit | what happened                                            | what you do                                                         |
+| ---- | -------------------------------------------------------- | ------------------------------------------------------------------- |
+| 0    | captured, `status` is `complete` or a labelled `partial` | keep it; a partial is a real capture, carry its blind spots forward |
+| 1    | harness failure                                          | fix the invocation and rerun                                        |
+| 2    | the base URL is not serving                              | back to step 1                                                      |
+| 3    | the page never became examinable                         | drop that plan and report it                                        |
+| 4    | the served build cannot name itself                      | redeploy or fix the build; do NOT drop the plan                     |
 
 Exits 3 and 4 pull opposite ways on purpose. A plan that never became examinable is a fact
 about that plan. A build with no provenance says nothing about any plan - every plan in the run
@@ -393,27 +393,27 @@ judges the observation and the mechanism SEPARATELY, so "symptom real, cause wro
 back as `observationVerdict: CONFIRMED` with `mechanismVerdict: REFUTED`, and its
 `disposition` says what to do with it:
 
-| disposition | what it means | what you do |
-| --- | --- | --- |
-| `FILE` | observation confirmed, mechanism (if any) confirmed | file it |
-| `FILE_SYMPTOM_ONLY` | symptom real, stated cause disproved | file the symptom; the struck-out cause is in `mechanismStripped` |
-| `HUMAN_REVIEW` | UNCERTAIN on some claim | you rule on it; never file it as-is |
-| `DROP` | observation disproved at runtime | do not file |
+| disposition         | what it means                                       | what you do                                                      |
+| ------------------- | --------------------------------------------------- | ---------------------------------------------------------------- |
+| `FILE`              | observation confirmed, mechanism (if any) confirmed | file it                                                          |
+| `FILE_SYMPTOM_ONLY` | symptom real, stated cause disproved                | file the symptom; the struck-out cause is in `mechanismStripped` |
+| `HUMAN_REVIEW`      | UNCERTAIN on some claim                             | you rule on it; never file it as-is                              |
+| `DROP`              | observation disproved at runtime                    | do not file                                                      |
 
 Every verdict carries the same keys whatever produced it, so one filter reads them all:
 
-| field | what it holds |
-| --- | --- |
-| `findingId`, `planId` | which finding this answers; the id is namespaced `<planId>:<slug>` |
-| `observationVerdict` | `CONFIRMED` / `REFUTED` / `UNCERTAIN` on the symptom |
-| `mechanismVerdict` | the same on the stated cause; `null` when the finding stated none |
-| `mechanismStripped` | the cause struck out; `null` unless `FILE_SYMPTOM_ONLY` |
-| `disposition` | the table above, derived from the two verdicts and nothing else |
-| `corroboratedBy` | the measurement ids (`<planId>#<index>:<kind>`) that carried the finding past refutation; `[]` for anything a refuter answered. Check that the measurement's KIND answers the claim: the join is by footprint, so a routing claim can be paired with a card-intrusion measurement at the same place, that is a place hit, not a corroboration, and the finding still needs a probe |
-| `probeCommand`, `probeOutput` | what was run and what it printed; `null` for a corroborated finding, which never reached an agent, and for a refuter that ran nothing |
-| `reasoning` | how that settles the claim; `null` when none was given |
-| `correctedObservation` | what is actually true, when the symptom is real but stated wrongly; `null` otherwise |
-| `coercions` | why a claim was forced to `UNCERTAIN`; `[]` when nothing was forced |
+| field                         | what it holds                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `findingId`, `planId`         | which finding this answers; the id is namespaced `<planId>:<slug>`                                                                                                                                                                                                                                                                                                                 |
+| `observationVerdict`          | `CONFIRMED` / `REFUTED` / `UNCERTAIN` on the symptom                                                                                                                                                                                                                                                                                                                               |
+| `mechanismVerdict`            | the same on the stated cause; `null` when the finding stated none                                                                                                                                                                                                                                                                                                                  |
+| `mechanismStripped`           | the cause struck out; `null` unless `FILE_SYMPTOM_ONLY`                                                                                                                                                                                                                                                                                                                            |
+| `disposition`                 | the table above, derived from the two verdicts and nothing else                                                                                                                                                                                                                                                                                                                    |
+| `corroboratedBy`              | the measurement ids (`<planId>#<index>:<kind>`) that carried the finding past refutation; `[]` for anything a refuter answered. Check that the measurement's KIND answers the claim: the join is by footprint, so a routing claim can be paired with a card-intrusion measurement at the same place, that is a place hit, not a corroboration, and the finding still needs a probe |
+| `probeCommand`, `probeOutput` | what was run and what it printed; `null` for a corroborated finding, which never reached an agent, and for a refuter that ran nothing                                                                                                                                                                                                                                              |
+| `reasoning`                   | how that settles the claim; `null` when none was given                                                                                                                                                                                                                                                                                                                             |
+| `correctedObservation`        | what is actually true, when the symptom is real but stated wrongly; `null` otherwise                                                                                                                                                                                                                                                                                               |
+| `coercions`                   | why a claim was forced to `UNCERTAIN`; `[]` when nothing was forced                                                                                                                                                                                                                                                                                                                |
 
 So `probeCommand: null` does not mean unsupported: check `corroboratedBy` before reading it
 that way.
@@ -573,21 +573,21 @@ A ledger of what was captured and measured, with no verdicts in it.
 
 ## Gotchas (each cost a debug round)
 
-| Trap | Rule |
-| --- | --- |
-| A plan captured at `status: "partial"` has blind spots | Report every id in `coverage.uncovered`; no evaluator finding and no issue may make an absence claim about one |
-| Capture exit 4 looks like a broken plan | It is a broken BUILD: the page could not name its commit. Redeploy or rebuild and capture again; dropping the plan hides a fault that affects all of them |
-| A rotating plan reported SKIPPED by the geometry audit | Read it as "hard checks passed". The zero-tolerance assertions all ran; the skip only says the ratchet tables pin no baseline for that id |
-| A `-dirty` commit stamp | The server is serving uncommitted work. Say so in the report; findings from it cannot be pinned to a commit anyone else can check out |
-| Raw geometry measurements are not defects | `geometry-audit.spec.ts` permits large nonzero per-scenario counts of every measurement kind behind written rulings; a machine finding is that spec failing, never a row of `scene.json` |
-| The exam's counts and the ratchet baselines are different numbers | Measurements are taken at `targetZoom`, baselines at the app's fit camera, and chips counter-scale; never compare the two, and never read a difference as a regression |
-| `hoverEngaged: false` is a capture miss, not a product defect | Read `engagedElsewhere` and `samples`, then re-probe `engagedElsewhere.id` through `--arg id=`, or reframe with `--zoom`/`--center`, or reach for `--eval`; the probe picks its own sample fractions and no flag names a point |
-| Only `decision.noResponse` is a hover defect | The probe emits its own rule in `decision.rule`: an empty `observedDimmed` against a non-empty `expectedDimmed` is a real "hover produced no response". A set DIFFERENCE between the two is NOT a defect - the app lights whole bus trunk groups while `expectedDimmed` is the graph's ego-network - so `decision.differs` is reported precisely so nobody files it |
-| `00-fit.png` is shot at the app's fit zoom, not `targetZoom` | Chips are LOD-hidden below `lodGates.labelMinZoom`; compare `fit.zoom` against `lodGates` before believing anything the fit overview does not show |
-| The exam runs `?exam=1`, query before fragment | Without it `window.__stcExam` is absent and both CLIs exit 3. The CLIs build the URL; a hand-written one is where this goes wrong |
-| Repo convention forbids committed binaries, and an exam pushes nothing | Captures, crops and issue drafts all stay under gitignored `.artifacts/`; the user decides what reaches the remote |
-| Every fenced block in this procedure is bash, and the interactive shell here is fish | `IFS=$'\t'`, `case`, `$(...)` assignment and `$'...'` are bash syntax; paste any of these blocks into bash rather than running them line by line in fish |
-| Step 4's `.claude/worktrees/exam-base` lands wherever you are standing | `git worktree add` takes a relative path against the CWD, so run from a branch worktree it nests the base checkout INSIDE the branch under exam. Address it through `$(git rev-parse --path-format=absolute --git-common-dir)/..`, which is the main checkout from either place, and resolve any `HEAD`-relative sha before the `git -C` |
+| Trap                                                                                 | Rule                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A plan captured at `status: "partial"` has blind spots                               | Report every id in `coverage.uncovered`; no evaluator finding and no issue may make an absence claim about one                                                                                                                                                                                                                                                      |
+| Capture exit 4 looks like a broken plan                                              | It is a broken BUILD: the page could not name its commit. Redeploy or rebuild and capture again; dropping the plan hides a fault that affects all of them                                                                                                                                                                                                           |
+| A rotating plan reported SKIPPED by the geometry audit                               | Read it as "hard checks passed". The zero-tolerance assertions all ran; the skip only says the ratchet tables pin no baseline for that id                                                                                                                                                                                                                           |
+| A `-dirty` commit stamp                                                              | The server is serving uncommitted work. Say so in the report; findings from it cannot be pinned to a commit anyone else can check out                                                                                                                                                                                                                               |
+| Raw geometry measurements are not defects                                            | `geometry-audit.spec.ts` permits large nonzero per-scenario counts of every measurement kind behind written rulings; a machine finding is that spec failing, never a row of `scene.json`                                                                                                                                                                            |
+| The exam's counts and the ratchet baselines are different numbers                    | Measurements are taken at `targetZoom`, baselines at the app's fit camera, and chips counter-scale; never compare the two, and never read a difference as a regression                                                                                                                                                                                              |
+| `hoverEngaged: false` is a capture miss, not a product defect                        | Read `engagedElsewhere` and `samples`, then re-probe `engagedElsewhere.id` through `--arg id=`, or reframe with `--zoom`/`--center`, or reach for `--eval`; the probe picks its own sample fractions and no flag names a point                                                                                                                                      |
+| Only `decision.noResponse` is a hover defect                                         | The probe emits its own rule in `decision.rule`: an empty `observedDimmed` against a non-empty `expectedDimmed` is a real "hover produced no response". A set DIFFERENCE between the two is NOT a defect - the app lights whole bus trunk groups while `expectedDimmed` is the graph's ego-network - so `decision.differs` is reported precisely so nobody files it |
+| `00-fit.png` is shot at the app's fit zoom, not `targetZoom`                         | Chips are LOD-hidden below `lodGates.labelMinZoom`; compare `fit.zoom` against `lodGates` before believing anything the fit overview does not show                                                                                                                                                                                                                  |
+| The exam runs `?exam=1`, query before fragment                                       | Without it `window.__stcExam` is absent and both CLIs exit 3. The CLIs build the URL; a hand-written one is where this goes wrong                                                                                                                                                                                                                                   |
+| Repo convention forbids committed binaries, and an exam pushes nothing               | Captures, crops and issue drafts all stay under gitignored `.artifacts/`; the user decides what reaches the remote                                                                                                                                                                                                                                                  |
+| Every fenced block in this procedure is bash, and the interactive shell here is fish | `IFS=$'\t'`, `case`, `$(...)` assignment and `$'...'` are bash syntax; paste any of these blocks into bash rather than running them line by line in fish                                                                                                                                                                                                            |
+| Step 4's `.claude/worktrees/exam-base` lands wherever you are standing               | `git worktree add` takes a relative path against the CWD, so run from a branch worktree it nests the base checkout INSIDE the branch under exam. Address it through `$(git rev-parse --path-format=absolute --git-common-dir)/..`, which is the main checkout from either place, and resolve any `HEAD`-relative sha before the `git -C`                            |
 
 ## When NOT to use
 

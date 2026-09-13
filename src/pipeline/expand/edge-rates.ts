@@ -81,7 +81,8 @@ export function computeEdgeRates(args: {
     string,
     { edges: typeof logical.edges; inQty: number }
   >();
-  const groupKey = (target: string, item: string): string => `${target}\0${item}`;
+  const groupKey = (target: string, item: string): string =>
+    `${target}\0${item}`;
   for (const e of logical.edges) {
     const item = itemFor(e.targetPort);
     const consumer = replicaByLogicalId.get(e.target);
@@ -99,7 +100,10 @@ export function computeEdgeRates(args: {
   // A producer stamp's production of an item: rate * out qty. The billing
   // capacity AND the default demand-split weight for a producer with no
   // recorded supply share.
-  const outputShare = (producer: Replica | undefined, item: string): Fraction => {
+  const outputShare = (
+    producer: Replica | undefined,
+    item: string,
+  ): Fraction => {
     if (!producer) return ZERO;
     const prodRecipe = recipeById.get(producer.recipeId);
     const outStoich = prodRecipe?.out.find((s) => s.item === item);
@@ -141,7 +145,10 @@ export function computeEdgeRates(args: {
         p.recipeId,
         (recipeShareSum.get(p.recipeId) ?? ZERO).add(shares[i]!),
       );
-      recipeEdgeCount.set(p.recipeId, (recipeEdgeCount.get(p.recipeId) ?? 0) + 1);
+      recipeEdgeCount.set(
+        p.recipeId,
+        (recipeEdgeCount.get(p.recipeId) ?? 0) + 1,
+      );
     }
 
     const weights = group.edges.map((_e, i) => {
@@ -151,13 +158,17 @@ export function computeEdgeRates(args: {
       if (!p) return ZERO;
       const flow =
         consumerRate !== undefined && consumerRate.compare(ZERO) > 0
-          ? supplyShares.get(supplyShareKey(p.recipeId, consumer.recipeId, item))
+          ? supplyShares.get(
+              supplyShareKey(p.recipeId, consumer.recipeId, item),
+            )
           : undefined;
       // No recorded share (per-consumer producer, or zero consumer rate): the
       // production share already equals committed supply.
       if (flow === undefined) return shares[i]!;
       // Recorded recipe-level flow scaled into this stamp's units.
-      const recordedStampFlow = flow.mul(consumer.executionRate).div(consumerRate!);
+      const recordedStampFlow = flow
+        .mul(consumer.executionRate)
+        .div(consumerRate!);
       const rShareSum = recipeShareSum.get(p.recipeId) ?? ZERO;
       if (rShareSum.compare(ZERO) > 0) {
         return recordedStampFlow.mul(shares[i]!).div(rShareSum);
@@ -317,7 +328,9 @@ export function capProducerInputOutflow(
     edgeKeyOf.set(e.edgeId, pk);
     capacityOf.set(pk, e.capacity);
     (edgesOfProducer.get(pk) ?? setDefault(edgesOfProducer, pk)).push(e);
-    (edgesOfGroup.get(e.groupKey) ?? setDefault(edgesOfGroup, e.groupKey)).push(e);
+    (edgesOfGroup.get(e.groupKey) ?? setDefault(edgesOfGroup, e.groupKey)).push(
+      e,
+    );
     billed.set(pk, (billed.get(pk) ?? ZERO).add(rate.get(e.edgeId) ?? ZERO));
   }
 
@@ -375,11 +388,15 @@ export function capProducerInputOutflow(
     const freedByGroup = new Map<string, Fraction>();
     for (const e of edgesOfProducer.get(worst) ?? []) {
       const old = rate.get(e.edgeId) ?? ZERO;
-      const scaled = billedWorst.compare(ZERO) > 0 ? old.mul(cap).div(billedWorst) : ZERO;
+      const scaled =
+        billedWorst.compare(ZERO) > 0 ? old.mul(cap).div(billedWorst) : ZERO;
       const freed = old.sub(scaled);
       setRate(e.edgeId, scaled);
       if (freed.compare(ZERO) > 0) {
-        freedByGroup.set(e.groupKey, (freedByGroup.get(e.groupKey) ?? ZERO).add(freed));
+        freedByGroup.set(
+          e.groupKey,
+          (freedByGroup.get(e.groupKey) ?? ZERO).add(freed),
+        );
       }
     }
     saturated.add(worst);

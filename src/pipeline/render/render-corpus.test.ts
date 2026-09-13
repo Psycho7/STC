@@ -18,10 +18,7 @@ import {
 import { solvePlanWithIntermediates } from "../../solver/index";
 import type { Target } from "../../data/targets";
 import { solveForRender, solveFromPlan } from "../solveForRender";
-import {
-  capProducerInputOutflow,
-  type CapEdge,
-} from "../expand/edge-rates";
+import { capProducerInputOutflow, type CapEdge } from "../expand/edge-rates";
 import {
   assertRenderInvariants,
   checkRenderPlan,
@@ -108,9 +105,7 @@ describe("render corpus: RF-1 regression", () => {
   it("reports no iron_nugget violation for the RF-1 hash (fixed)", async () => {
     const outcome = await loadPlan(RF1_HASH, pack);
     if (outcome.kind !== "loaded" && outcome.kind !== "seeded") {
-      throw new Error(
-        `failed to load RF-1 plan: ${JSON.stringify(outcome)}`,
-      );
+      throw new Error(`failed to load RF-1 plan: ${JSON.stringify(outcome)}`);
     }
     const { full, plan, targets, itemOverrides } = solveFromPlan(
       outcome.plan,
@@ -279,7 +274,6 @@ describe("render corpus: full-pack + multi-target regression sweep", () => {
       `${dirtyPlans.length} plan(s) failed the render sweep: ${dirtyPlans.join(", ")}\n${allFailures.join("\n")}`,
     ).toEqual([]);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -341,7 +335,9 @@ describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
     ];
     const { plan, violations } = renderClean(targets);
     expect(violations).toEqual([]);
-    expect(targetInflow(plan, "liquid_water").equals(new Fraction(1))).toBe(true);
+    expect(targetInflow(plan, "liquid_water").equals(new Fraction(1))).toBe(
+      true,
+    );
   });
 
   it("quartz_sand+bottled_food_1 renders clean and meets the sand export", () => {
@@ -351,7 +347,9 @@ describe("render corpus: raw-also-target boundary feed (1B regression)", () => {
     ];
     const { plan, violations } = renderClean(targets);
     expect(violations).toEqual([]);
-    expect(targetInflow(plan, "quartz_sand").equals(new Fraction(1))).toBe(true);
+    expect(targetInflow(plan, "quartz_sand").equals(new Fraction(1))).toBe(
+      true,
+    );
   });
 });
 
@@ -378,7 +376,9 @@ function machineCountGaps(targets: Target[], packArg = pack) {
   for (const [rid, lp] of full.rates) {
     const s = vtx.get(rid) ?? new Fraction(0);
     if (s.sub(lp).abs().compare(MC_TOL) > 0)
-      gaps.push(`${rid}: vtxSum ${s.toFraction()} != lpRate ${lp.toFraction()}`);
+      gaps.push(
+        `${rid}: vtxSum ${s.toFraction()} != lpRate ${lp.toFraction()}`,
+      );
   }
   const results = checkRenderPlan({
     plan: out.plan,
@@ -574,7 +574,10 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
       name: "P3",
       targets: [
         { itemId: "xiranite_poly", ratePerSec: { num: "1", denom: "1" } },
-        { itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "27" } },
+        {
+          itemId: "xiranite_enr_powder",
+          ratePerSec: { num: "1", denom: "27" },
+        },
       ],
     },
     {
@@ -592,7 +595,10 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
       name: "P5",
       targets: [
         { itemId: "proc_battery_5", ratePerSec: { num: "1", denom: "1" } },
-        { itemId: "liquid_xiranite_enr", ratePerSec: { num: "1", denom: "27" } },
+        {
+          itemId: "liquid_xiranite_enr",
+          ratePerSec: { num: "1", denom: "27" },
+        },
       ],
     },
   ];
@@ -614,7 +620,9 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
     });
     const enrUnitIds = new Set(
       plan.units
-        .filter((u) => u.kind === "recipe" && u.recipeId === "xiranite_enr_powder")
+        .filter(
+          (u) => u.kind === "recipe" && u.recipeId === "xiranite_enr_powder",
+        )
         .map((u) => u.id),
     );
     let inflow = new Fraction(0);
@@ -680,7 +688,9 @@ describe("torn-arc regression: intra-SCC demand apportionment", () => {
     }
     const enrUnitIds = new Set(
       plan.units
-        .filter((u) => u.kind === "recipe" && u.recipeId === "xiranite_enr_powder")
+        .filter(
+          (u) => u.kind === "recipe" && u.recipeId === "xiranite_enr_powder",
+        )
         .map((u) => u.id),
     );
     const byProducer = new Map<string, Fraction>();
@@ -775,7 +785,8 @@ describe("torn-arc coverage: back-edge tearing on witness plans", () => {
           if (e.item !== "liquid_xiranite_poly") continue;
           if (enrUnitIds.has(e.toUnit)) inflow = inflow.add(e.rate);
         }
-        const enrRate = full.rates.get("xiranite_enr_powder") ?? new Fraction(0);
+        const enrRate =
+          full.rates.get("xiranite_enr_powder") ?? new Fraction(0);
         expect(inflow.equals(enrRate.mul(5))).toBe(true);
       }
     });
@@ -850,7 +861,9 @@ describe("render corpus: co-product fans across sibling replicas (P6)", () => {
     const { full, plan } = solveP6();
     const polyUnitIds = new Set(
       plan.units
-        .filter((u) => u.kind === "recipe" && u.recipeId === "liquid_xiranite_poly")
+        .filter(
+          (u) => u.kind === "recipe" && u.recipeId === "liquid_xiranite_poly",
+        )
         .map((u) => u.id),
     );
     let shipped = new Fraction(0);
@@ -862,9 +875,9 @@ describe("render corpus: co-product fans across sibling replicas (P6)", () => {
     const lowpolyQty = recipe.out.find(
       (o) => o.item === "liquid_xiranite_lowpoly",
     )!.qty;
-    const production = (full.rates.get("liquid_xiranite_poly") ?? new Fraction(0)).mul(
-      new Fraction(lowpolyQty),
-    );
+    const production = (
+      full.rates.get("liquid_xiranite_poly") ?? new Fraction(0)
+    ).mul(new Fraction(lowpolyQty));
     expect(production.compare(0)).toBeGreaterThan(0);
     expect(shipped.equals(production)).toBe(true);
   });
@@ -943,7 +956,8 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
       let targetEdge = new Fraction(0);
       for (const e of plan.edges) {
         if (e.fromUnit !== u.id || e.item !== item) continue;
-        if (e.toUnit === targetOutputUnitId) targetEdge = targetEdge.add(e.rate);
+        if (e.toUnit === targetOutputUnitId)
+          targetEdge = targetEdge.add(e.rate);
         else if (!outputUnitIds.has(e.toUnit))
           consumerOut = consumerOut.add(e.rate);
       }
@@ -1105,8 +1119,14 @@ describe("render corpus: target-edge spare aggregates per render unit (Bug 3)", 
 // ---------------------------------------------------------------------------
 describe("render corpus: torn-arc returns fan across sibling stamps (Bug 2b)", () => {
   const WITNESSES: ReadonlyArray<{ name: string; recipeIds: string[] }> = [
-    { name: "xiranite_poly+xiranite_enr_powder", recipeIds: ["xiranite_poly", "xiranite_enr_powder"] },
-    { name: "proc_battery_5+xiranite_enr_powder", recipeIds: ["proc_battery_5", "xiranite_enr_powder"] },
+    {
+      name: "xiranite_poly+xiranite_enr_powder",
+      recipeIds: ["xiranite_poly", "xiranite_enr_powder"],
+    },
+    {
+      name: "proc_battery_5+xiranite_enr_powder",
+      recipeIds: ["proc_battery_5", "xiranite_enr_powder"],
+    },
   ];
 
   for (const w of WITNESSES) {
@@ -1431,7 +1451,10 @@ describe("render corpus: edge-rate bit-identity guard (copper_enr_cmpt)", () => 
     const { plan } = solveForRender({ targets, pack: legacyPack });
     const unitLabel = new Map<string, string>();
     for (const u of plan.units) {
-      unitLabel.set(u.id, u.kind === "recipe" ? u.recipeId : `${u.kind}:${u.id}`);
+      unitLabel.set(
+        u.id,
+        u.kind === "recipe" ? u.recipeId : `${u.kind}:${u.id}`,
+      );
     }
     const lines = plan.edges
       .map(

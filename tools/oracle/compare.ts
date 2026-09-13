@@ -132,7 +132,10 @@ export function runStc(s: Scenario): StcRun {
 // zeroing the free-source price.
 function buildInput(
   s: Scenario,
-  opts?: { recipeCostScale?: Map<string, number>; freeSourceCostZero?: boolean },
+  opts?: {
+    recipeCostScale?: Map<string, number>;
+    freeSourceCostZero?: boolean;
+  },
 ) {
   const ns = nettedScenario(s);
   const input: AdapterInput = {
@@ -201,7 +204,10 @@ function readGlpk(
 
 export function runGlpk(
   s: Scenario,
-  opts?: { recipeCostScale?: Map<string, number>; freeSourceCostZero?: boolean },
+  opts?: {
+    recipeCostScale?: Map<string, number>;
+    freeSourceCostZero?: boolean;
+  },
 ): GlpkRun {
   const { objectives, settings, data } = buildInput(s, opts);
   const result = new SimplexService().solve(objectives, settings, data, false);
@@ -361,7 +367,8 @@ export function structuralUnique(
 
   // (c) no surplus / free-disposal var active.
   for (const [itemId, v] of glpkSurplus) {
-    if (v.nonzero()) reasons.push(`surplus on item '${itemId}' (free disposal active)`);
+    if (v.nonzero())
+      reasons.push(`surplus on item '${itemId}' (free disposal active)`);
   }
 
   return { unique: reasons.length === 0, reasons };
@@ -534,7 +541,8 @@ export function compareScenario(s: Scenario): CompareRecord {
     stcMachineEstimate += rate.valueOf() * t;
   }
   let glpkMachineTotal = 0;
-  for (const m of glpk.machinesByRecipe.values()) glpkMachineTotal += m.toNumber();
+  for (const m of glpk.machinesByRecipe.values())
+    glpkMachineTotal += m.toNumber();
 
   return {
     name: s.name,

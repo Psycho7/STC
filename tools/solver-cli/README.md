@@ -16,11 +16,11 @@ Exactly one of `--plan` or `--hash` must be given.
 
 Comma-separated list of `itemId=rate` entries. Accepted rate forms:
 
-| Form        | Example       | Stored as          |
-|-------------|---------------|--------------------|
-| `num/denom` | `6/60`        | `{num:"6",denom:"60"}` |
-| integer     | `2`           | `{num:"2",denom:"1"}`  |
-| decimal     | `0.1`         | `{num:"1",denom:"10"}` |
+| Form        | Example | Stored as              |
+| ----------- | ------- | ---------------------- |
+| `num/denom` | `6/60`  | `{num:"6",denom:"60"}` |
+| integer     | `2`     | `{num:"2",denom:"1"}`  |
+| decimal     | `0.1`   | `{num:"1",denom:"10"}` |
 
 Both sides of `num/denom` must be non-negative integers and `denom` must not be `0`; otherwise the CLI exits nonzero with a parse error.
 

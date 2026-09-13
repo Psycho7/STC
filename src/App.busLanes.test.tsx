@@ -4,7 +4,13 @@
 // busLanesEnabled input through the solve path, persists to localStorage, and
 // never touches the plan hash (a view preference, not plan state).
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 vi.mock("./canvas/layout", async (importOriginal) => {
   const orig = await importOriginal<typeof import("./canvas/layout")>();

@@ -6,4 +6,4 @@ export interface Environment {
   gtag?: boolean;
 }
 
-export * from './environment';
+export * from "./environment";

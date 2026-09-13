@@ -15,7 +15,12 @@ import {
   type Transport,
   type TransportKindId,
 } from "./schema.ts";
-import type { UpstreamData, UpstreamI18n, UpstreamItem, UpstreamRecipe } from "./upstream.ts";
+import type {
+  UpstreamData,
+  UpstreamI18n,
+  UpstreamItem,
+  UpstreamRecipe,
+} from "./upstream.ts";
 
 // Curated synthetic-item substitutions. The collapse pass rewrites references
 // to these synthetic ids to their real counterparts, then drops the synthetic
@@ -52,7 +57,10 @@ const SYNTHETIC_GAS_TRANSPORT_NAMES: Record<Locale, string> = {
 // mark them with a machine-side cost === -1 skip sentinel, but dropped that
 // field in v1.5.3, so the set is pinned by hand here. Every recipe whose
 // producers are all in this set gets the world-node flag.
-export const WORLD_NODE_MACHINES: readonly string[] = ["liquid_clean_gate", "liquid_recycle_gate"];
+export const WORLD_NODE_MACHINES: readonly string[] = [
+  "liquid_clean_gate",
+  "liquid_recycle_gate",
+];
 
 // The waste sinks a plan must never fund on its own. Upstream used to put
 // cost === -1 on all three and now leaves that sentinel on only one of them,
@@ -93,7 +101,9 @@ export interface ExtractResult {
 async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
   const write = opts.write ?? true;
   const upstream = (await Bun.file(INPUT_PATH).json()) as UpstreamData;
-  const sourceMeta = (await Bun.file(resolve(REPO_ROOT, VENDOR_PATH, "SOURCE.json")).json()) as {
+  const sourceMeta = (await Bun.file(
+    resolve(REPO_ROOT, VENDOR_PATH, "SOURCE.json"),
+  ).json()) as {
     repo: string;
     commit: string;
   };
@@ -126,13 +136,26 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
         hideRate: u.machine.hideRate ?? false,
       };
       if (u.machine.size) m.size = [u.machine.size[0], u.machine.size[1]];
-      if (u.machine.locations && u.machine.locations.length > 0) m.locations = [...u.machine.locations];
+      if (u.machine.locations && u.machine.locations.length > 0)
+        m.locations = [...u.machine.locations];
       if (u.machine.totalRecipe != null) m.totalRecipe = u.machine.totalRecipe;
       machines.push(m);
     } else if (u.belt) {
-      transports.push({ id: u.id, kind: "belt", name: u.name, icon: u.icon, speed: u.belt.speed });
+      transports.push({
+        id: u.id,
+        kind: "belt",
+        name: u.name,
+        icon: u.icon,
+        speed: u.belt.speed,
+      });
     } else if (u.pipe) {
-      transports.push({ id: u.id, kind: "pipe", name: u.name, icon: u.icon, speed: u.pipe.speed });
+      transports.push({
+        id: u.id,
+        kind: "pipe",
+        name: u.name,
+        icon: u.icon,
+        speed: u.pipe.speed,
+      });
     } else {
       items.push(toItem(u));
     }
@@ -167,7 +190,10 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
   const dropped = {
     droppedMachines: collapsed.droppedMachines,
     droppedItems: new Set([...collapsed.droppedItems, ...droppedEvents.items]),
-    droppedRecipes: new Set([...collapsed.droppedRecipes, ...droppedEvents.recipes]),
+    droppedRecipes: new Set([
+      ...collapsed.droppedRecipes,
+      ...droppedEvents.recipes,
+    ]),
   };
 
   classifyRawItems(items, recipes);
@@ -185,8 +211,16 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
   const pack: RecipePack = {
     schemaVersion: SCHEMA_VERSION,
     source,
-    categories: upstream.categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon })),
-    locations: upstream.locations.map((l) => ({ id: l.id, name: l.name, icon: l.icon })),
+    categories: upstream.categories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      icon: c.icon,
+    })),
+    locations: upstream.locations.map((l) => ({
+      id: l.id,
+      name: l.name,
+      icon: l.icon,
+    })),
     items,
     machines,
     transports,
@@ -207,7 +241,9 @@ async function main(opts: { write?: boolean } = {}): Promise<ExtractResult> {
     );
     console.log(`wrote ${I18N_OUTPUT_PATH}`);
     console.log(`  locales=${i18n.locales.join(",")}`);
-    console.log(`  source: ${pack.source.name}@${sourceMeta.commit.slice(0, 12)} game=${gameVersion}`);
+    console.log(
+      `  source: ${pack.source.name}@${sourceMeta.commit.slice(0, 12)} game=${gameVersion}`,
+    );
   }
 
   return {
@@ -226,15 +262,25 @@ function dropRetiredEventRows(pack: { items: Item[]; recipes: Recipe[] }): {
   recipes: Set<string>;
 } {
   const items = new Set(
-    pack.items.filter((i) => i.id.startsWith(RETIRED_EVENT_PREFIX)).map((i) => i.id),
+    pack.items
+      .filter((i) => i.id.startsWith(RETIRED_EVENT_PREFIX))
+      .map((i) => i.id),
   );
   const recipes = new Set(
     pack.recipes
       .filter((r) => [...r.in, ...r.out].some((s) => items.has(s.item)))
       .map((r) => r.id),
   );
-  pack.items.splice(0, pack.items.length, ...pack.items.filter((i) => !items.has(i.id)));
-  pack.recipes.splice(0, pack.recipes.length, ...pack.recipes.filter((r) => !recipes.has(r.id)));
+  pack.items.splice(
+    0,
+    pack.items.length,
+    ...pack.items.filter((i) => !items.has(i.id)),
+  );
+  pack.recipes.splice(
+    0,
+    pack.recipes.length,
+    ...pack.recipes.filter((r) => !recipes.has(r.id)),
+  );
   return { items, recipes };
 }
 
@@ -279,7 +325,8 @@ function toRecipe(u: UpstreamRecipe): Recipe {
     out: toStoich(u.out),
     producers: [...u.producers],
   };
-  if (u.locations && u.locations.length > 0) recipe.locations = [...u.locations];
+  if (u.locations && u.locations.length > 0)
+    recipe.locations = [...u.locations];
   if (u.flags && u.flags.length > 0) recipe.flags = [...u.flags];
   if (u.usage != null) recipe.usage = u.usage;
   if (u.cost != null) recipe.cost = u.cost;
@@ -295,7 +342,10 @@ function toRecipe(u: UpstreamRecipe): Recipe {
 // upstream solver awards itself for consuming waste and which STC never reads.
 // On the shipped pack that is the two purification-node recipes (sewage-treat,
 // sewage-treat-export).
-function stampWorldNodes(recipes: Recipe[], skipMachines: ReadonlySet<string>): void {
+function stampWorldNodes(
+  recipes: Recipe[],
+  skipMachines: ReadonlySet<string>,
+): void {
   if (skipMachines.size === 0) return;
   for (const r of recipes) {
     if (r.producers.length === 0) continue;
@@ -462,7 +512,9 @@ export function validateReferentialIntegrity(pack: {
 
   for (const id of [...itemIds]) {
     if (machineIds.has(id) || transportIds.has(id)) {
-      throw new Error(`id ${id} appears as both an item and a machine/transport`);
+      throw new Error(
+        `id ${id} appears as both an item and a machine/transport`,
+      );
     }
   }
 
@@ -535,12 +587,18 @@ async function buildI18nSidecar(
     const path = resolve(I18N_DIR, `${locale}.json`);
     const raw = (await Bun.file(path).json()) as UpstreamI18n;
 
-    const split = splitLocale(raw, { itemIds, machineIds, transportIds, dropped });
+    const split = splitLocale(raw, {
+      itemIds,
+      machineIds,
+      transportIds,
+      dropped,
+    });
 
     // splitLocale can only route keys upstream actually ships, and upstream has
     // no key for the synthetic gas carrier, so its name is injected here before
     // the coverage assertion below demands one.
-    split.transports[SYNTHETIC_GAS_TRANSPORT.id] = SYNTHETIC_GAS_TRANSPORT_NAMES[locale];
+    split.transports[SYNTHETIC_GAS_TRANSPORT.id] =
+      SYNTHETIC_GAS_TRANSPORT_NAMES[locale];
 
     // The upstream recipe i18n includes entries for the identity recipes the
     // collapse dropped and for the retired event recipes; strip them so the
@@ -591,7 +649,11 @@ function splitLocale(
       droppedRecipes: Set<string>;
     };
   },
-): { items: Record<string, string>; machines: Record<string, string>; transports: Record<string, string> } {
+): {
+  items: Record<string, string>;
+  machines: Record<string, string>;
+  transports: Record<string, string>;
+} {
   const items: Record<string, string> = {};
   const machines: Record<string, string> = {};
   const transports: Record<string, string> = {};
@@ -599,12 +661,16 @@ function splitLocale(
     if (sets.machineIds.has(id)) machines[id] = name;
     else if (sets.transportIds.has(id)) transports[id] = name;
     else if (sets.itemIds.has(id)) items[id] = name;
-    else if (sets.dropped.droppedItems.has(id) || sets.dropped.droppedMachines.has(id)) {
+    else if (
+      sets.dropped.droppedItems.has(id) ||
+      sets.dropped.droppedMachines.has(id)
+    ) {
       // Upstream i18n carries a translation for an id the extractor dropped -
       // a collapsed synthetic item, its machine, or a retired event item. None
       // of them appear in the pack, so drop the orphan key silently.
       continue;
-    } else throw new Error(`i18n key items.${id} does not match any recipe-pack id`);
+    } else
+      throw new Error(`i18n key items.${id} does not match any recipe-pack id`);
   }
   return { items, machines, transports };
 }
@@ -616,10 +682,12 @@ function assertCoverage(
   got: Record<string, string>,
 ): void {
   for (const id of expected) {
-    if (!(id in got)) throw new Error(`i18n ${locale}.${kind} missing translation for ${id}`);
+    if (!(id in got))
+      throw new Error(`i18n ${locale}.${kind} missing translation for ${id}`);
   }
   for (const id of Object.keys(got)) {
-    if (!expected.has(id)) throw new Error(`i18n ${locale}.${kind} has orphan key ${id}`);
+    if (!expected.has(id))
+      throw new Error(`i18n ${locale}.${kind} has orphan key ${id}`);
   }
 }
 

@@ -28,8 +28,7 @@ export function planToSolverArgs(plan: Plan): SolverArgs {
   const recipeCosts = plan.recipeCosts
     ? new Map(
         [...plan.recipeCosts].map(
-          ([k, v]) =>
-            [k, Number(v.num) / Number(v.denom)] as [string, number],
+          ([k, v]) => [k, Number(v.num) / Number(v.denom)] as [string, number],
         ),
       )
     : undefined;

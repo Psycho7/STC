@@ -19,7 +19,10 @@ import {
 } from "./extract.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
-const TRANSPORT_CONFIG_PATH = resolve(REPO_ROOT, "data/aef/transport-config.json");
+const TRANSPORT_CONFIG_PATH = resolve(
+  REPO_ROOT,
+  "data/aef/transport-config.json",
+);
 
 let pack: RecipePack;
 let i18n: RecipePackI18n;
@@ -41,10 +44,14 @@ describe("schema and source provenance", () => {
 
   test("source has 40-char SHA, valid game version, ISO timestamp", () => {
     expect(pack.source.name).toBe("endfield-calc/factoriolab");
-    expect(pack.source.sourceRepo).toBe("https://github.com/endfield-calc/factoriolab");
+    expect(pack.source.sourceRepo).toBe(
+      "https://github.com/endfield-calc/factoriolab",
+    );
     expect(pack.source.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
     expect(pack.source.gameVersion).toMatch(/^v\d+\.\d+(\.\d+)?$/);
-    expect(pack.source.extractedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
+    expect(pack.source.extractedAt).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
+    );
   });
 });
 
@@ -76,7 +83,9 @@ describe("id-set disjointness and uniqueness", () => {
       expect(ids.has(row.id)).toBe(false);
       ids.add(row.id);
     }
-    expect(ids.size).toBe(pack.items.length + pack.machines.length + pack.transports.length);
+    expect(ids.size).toBe(
+      pack.items.length + pack.machines.length + pack.transports.length,
+    );
   });
 });
 
@@ -121,11 +130,16 @@ describe("invariants", () => {
       })
       .map((r) => r.id)
       .sort();
-    expect(offenders).toEqual(["phase_trans_1-liquid_xiranite", "phase_trans_2-gas_xiranite"]);
+    expect(offenders).toEqual([
+      "phase_trans_1-liquid_xiranite",
+      "phase_trans_2-gas_xiranite",
+    ]);
   });
 
   test("only liquid_*/gas_* items lack a stack size after synthetic collapse", () => {
-    const noStack = pack.items.filter((i) => i.stack === undefined).map((i) => i.id);
+    const noStack = pack.items
+      .filter((i) => i.stack === undefined)
+      .map((i) => i.id);
     expect(noStack).toHaveLength(19);
     for (const id of noStack) {
       expect(id.startsWith("liquid_") || id.startsWith("gas_")).toBe(true);
@@ -202,8 +216,20 @@ describe("known-good records", () => {
   test("transports include belt 0.5/s and pipe 2/s", () => {
     const belt = pack.transports.find((x) => x.id === "belt");
     const pipe = pack.transports.find((x) => x.id === "pipe");
-    expect(belt).toEqual({ id: "belt", kind: "belt", name: belt!.name, icon: "belt", speed: 0.5 });
-    expect(pipe).toEqual({ id: "pipe", kind: "pipe", name: pipe!.name, icon: "pipe", speed: 2 });
+    expect(belt).toEqual({
+      id: "belt",
+      kind: "belt",
+      name: belt!.name,
+      icon: "belt",
+      speed: 0.5,
+    });
+    expect(pipe).toEqual({
+      id: "pipe",
+      kind: "pipe",
+      name: pipe!.name,
+      icon: "pipe",
+      speed: 2,
+    });
   });
 });
 
@@ -224,8 +250,12 @@ describe("optional-field counts", () => {
     // v1.4 adds the four gas-system machines (gas_pump_1, gas_reactor_1,
     // phase_trans_1, phase_trans_2), all sized and jinlong-restricted.
     expect(pack.machines.filter((m) => m.size !== undefined)).toHaveLength(21);
-    expect(pack.machines.filter((m) => m.locations !== undefined)).toHaveLength(19);
-    expect(pack.machines.filter((m) => m.totalRecipe !== undefined)).toHaveLength(3);
+    expect(pack.machines.filter((m) => m.locations !== undefined)).toHaveLength(
+      19,
+    );
+    expect(
+      pack.machines.filter((m) => m.totalRecipe !== undefined),
+    ).toHaveLength(3);
   });
 
   test("exactly two burner machines (gas_pump_1, miner_4); all others electric", () => {
@@ -257,7 +287,9 @@ describe("synthetic-chain collapse", () => {
   });
 
   test("__miner_pump_1 machine is dropped", () => {
-    expect(pack.machines.find((m) => m.id === "__miner_pump_1")).toBeUndefined();
+    expect(
+      pack.machines.find((m) => m.id === "__miner_pump_1"),
+    ).toBeUndefined();
   });
 
   test("copper_ore-liquid_water input is rewritten to liquid_water", () => {
@@ -301,14 +333,18 @@ describe("raw classification", () => {
     const item = pack.items.find((i) => i.id === "domain_key_tundra");
     expect(item).toBeDefined();
     expect(item!.raw).toBe(true);
-    const producers = pack.recipes.filter((r) => r.out.some((s) => s.item === "domain_key_tundra"));
+    const producers = pack.recipes.filter((r) =>
+      r.out.some((s) => s.item === "domain_key_tundra"),
+    );
     expect(producers).toEqual([]);
   });
 });
 
 describe("recipe flags", () => {
   test("the mining flag stays exactly the 8 upstream extractor recipes", () => {
-    const mining = pack.recipes.filter((r) => r.flags?.includes("mining")).map((r) => r.id);
+    const mining = pack.recipes
+      .filter((r) => r.flags?.includes("mining"))
+      .map((r) => r.id);
     expect(mining.sort()).toEqual(
       [
         "copper_ore-liquid_water",
@@ -324,7 +360,9 @@ describe("recipe flags", () => {
   });
 
   test("world-node is stamped on exactly the two purification-node recipes", () => {
-    const worldNode = pack.recipes.filter((r) => r.flags?.includes("world-node")).map((r) => r.id);
+    const worldNode = pack.recipes
+      .filter((r) => r.flags?.includes("world-node"))
+      .map((r) => r.id);
     expect(worldNode.sort()).toEqual(["sewage-treat", "sewage-treat-export"]);
   });
 
@@ -433,7 +471,9 @@ describe("retired event rows", () => {
     for (const r of pack.recipes) {
       expect(r.id.startsWith("activity_"), r.id).toBe(false);
       for (const s of [...r.in, ...r.out]) {
-        expect(s.item.startsWith("activity_"), `${r.id} -> ${s.item}`).toBe(false);
+        expect(s.item.startsWith("activity_"), `${r.id} -> ${s.item}`).toBe(
+          false,
+        );
       }
     }
   });
@@ -447,7 +487,10 @@ describe("retired event rows", () => {
 
   test("the i18n sidecar carries no event key", () => {
     for (const locale of LOCALES) {
-      const buckets = Object.values(i18n.names[locale]) as Record<string, string>[];
+      const buckets = Object.values(i18n.names[locale]) as Record<
+        string,
+        string
+      >[];
       for (const bucket of buckets) {
         for (const id of Object.keys(bucket)) {
           expect(id.startsWith("activity_"), `${locale}: ${id}`).toBe(false);
@@ -509,7 +552,11 @@ describe("transport-kind classification", () => {
 
   test("every unstackable item splits cleanly between gas and pipe", () => {
     const unstackable = pack.items.filter((i) => i.stack === undefined);
-    const byKind = { gas: [] as string[], pipe: [] as string[], other: [] as string[] };
+    const byKind = {
+      gas: [] as string[],
+      pipe: [] as string[],
+      other: [] as string[],
+    };
     for (const i of unstackable) {
       if (i.transportKind === "gas") byKind.gas.push(i.id);
       else if (i.transportKind === "pipe") byKind.pipe.push(i.id);
@@ -529,7 +576,10 @@ describe("idempotence", () => {
     const second = await runExtractor({ write: false });
 
     const serialize = (v: unknown) =>
-      JSON.stringify(v, null, 2).replace(/"extractedAt":\s*"[^"]+"/, '"extractedAt":"<elided>"');
+      JSON.stringify(v, null, 2).replace(
+        /"extractedAt":\s*"[^"]+"/,
+        '"extractedAt":"<elided>"',
+      );
 
     expect(serialize(second.pack)).toBe(serialize(first.pack));
     expect(serialize(second.i18n)).toBe(serialize(first.i18n));
@@ -539,7 +589,10 @@ describe("idempotence", () => {
 describe("i18n sidecar", () => {
   test("every name is a non-empty string", () => {
     for (const locale of LOCALES) {
-      const buckets = Object.values(i18n.names[locale]) as Record<string, string>[];
+      const buckets = Object.values(i18n.names[locale]) as Record<
+        string,
+        string
+      >[];
       for (const bucket of buckets) {
         for (const [id, name] of Object.entries(bucket)) {
           expect(typeof name).toBe("string");
@@ -607,8 +660,15 @@ describe("collapseSyntheticChains guards", () => {
   test("throws when a __-prefix reference survives the substitution pass", () => {
     // The substitution map covers __miner_water but NOT __miner_acid, so the
     // recipe's __miner_acid input survives and trips the post-pass guard.
-    const items = [makeItem("__miner_water"), makeItem("liquid_water"), makeItem("acid_user_out")];
-    const machines = [makeMachine("__miner_pump_1"), makeMachine("acid_user_machine")];
+    const items = [
+      makeItem("__miner_water"),
+      makeItem("liquid_water"),
+      makeItem("acid_user_out"),
+    ];
+    const machines = [
+      makeMachine("__miner_pump_1"),
+      makeMachine("acid_user_machine"),
+    ];
     const recipes = [
       // Identity recipe backing the __miner_water synthetic chain (gets dropped).
       makeRecipe(
@@ -628,7 +688,9 @@ describe("collapseSyntheticChains guards", () => {
 
     const subs = { __miner_water: "liquid_water" };
 
-    expect(() => collapseSyntheticChains({ items, machines, recipes }, subs)).toThrow(
+    expect(() =>
+      collapseSyntheticChains({ items, machines, recipes }, subs),
+    ).toThrow(
       "recipe acid_user still references synthetic item __miner_acid after collapse",
     );
   });
@@ -642,7 +704,10 @@ describe("collapseSyntheticChains guards", () => {
       makeItem("liquid_water"),
       makeItem("mixed_out"),
     ];
-    const machines = [makeMachine("__miner_pump_1"), makeMachine("mixer_machine")];
+    const machines = [
+      makeMachine("__miner_pump_1"),
+      makeMachine("mixer_machine"),
+    ];
     const recipes = [
       // Identity recipe backing the __miner_water synthetic chain (gets dropped).
       makeRecipe(
@@ -665,7 +730,9 @@ describe("collapseSyntheticChains guards", () => {
 
     const subs = { __miner_water: "liquid_water" };
 
-    expect(() => collapseSyntheticChains({ items, machines, recipes }, subs)).toThrow(
+    expect(() =>
+      collapseSyntheticChains({ items, machines, recipes }, subs),
+    ).toThrow(
       "recipe mixer in collision: substituting __miner_water -> liquid_water would duplicate liquid_water",
     );
   });

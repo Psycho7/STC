@@ -239,7 +239,11 @@ describe("deconflictChipAnchors: crossing cues", () => {
       position: { x: 950, y: -50 },
       width: 200,
       height: 150,
-      data: { containerKind: "blueprint-group", containerId: "G", memberCount: 1 },
+      data: {
+        containerKind: "blueprint-group",
+        containerId: "G",
+        memberCount: 1,
+      },
     } as unknown as RFAnyNode;
     const A2 = {
       ...orderedRecipeNode("A2", 50, 50, ["s"]),
@@ -343,7 +347,12 @@ describe("deconflictChipAnchors: crossing cues", () => {
       type: "bus",
       source,
       target,
-      data: { item, rate: new Fraction(1), laneY, trunkKey: item + "|" + source },
+      data: {
+        item,
+        rate: new Fraction(1),
+        laneY,
+        trunkKey: item + "|" + source,
+      },
     });
     const e1 = "e:1:A->T1:iron";
     const e2 = "e:2:B->T2:copper";
@@ -451,7 +460,11 @@ describe("deconflictChipAnchors: crossing cues", () => {
       source: { x: 0, y: 0 },
       target: { x: 1400, y: 0 },
     };
-    const twoPartners: CrossingCue = { x: 10, y: 10, partners: [partner, second] };
+    const twoPartners: CrossingCue = {
+      x: 10,
+      y: 10,
+      partners: [partner, second],
+    };
     const secondEdge = { id: second.edgeId, source: "A1", target: "A3" };
     const bothEdges = [partnerEdge, secondEdge];
     const a3Still = { id: "A3", x: 1400, y: 0 };

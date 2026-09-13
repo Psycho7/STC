@@ -251,8 +251,16 @@ describe("replicatePerConsumer", () => {
           in: [{ item: "q_out", qty: 1 }],
           out: [{ item: "p_out", qty: 1 }],
         },
-        { id: "X", in: [{ item: "p_out", qty: 1 }], out: [{ item: "x_out", qty: 1 }] },
-        { id: "Y", in: [{ item: "p_out", qty: 1 }], out: [{ item: "y_out", qty: 1 }] },
+        {
+          id: "X",
+          in: [{ item: "p_out", qty: 1 }],
+          out: [{ item: "x_out", qty: 1 }],
+        },
+        {
+          id: "Y",
+          in: [{ item: "p_out", qty: 1 }],
+          out: [{ item: "y_out", qty: 1 }],
+        },
       ],
       [
         ["R", "Q", "raw"],

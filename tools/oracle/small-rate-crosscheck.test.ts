@@ -59,10 +59,9 @@ describe("small-rate disagreement cross-check (exact feasibility of GLPK solutio
       }
 
       const rawById = new Map(
-        ns.pack.items.map((i: { id: string; raw: boolean }): [string, boolean] => [
-          i.id,
-          i.raw,
-        ]),
+        ns.pack.items.map(
+          (i: { id: string; raw: boolean }): [string, boolean] => [i.id, i.raw],
+        ),
       );
       const net = new Map<string, Fraction>();
       const add = (id: string, f: Fraction) =>
@@ -81,7 +80,9 @@ describe("small-rate disagreement cross-check (exact feasibility of GLPK solutio
         if (rawById.get(id) === true) continue; // free boundary draw
         const needed = id === itemId ? demand : new Fraction(0);
         if (f.compare(needed) < 0) {
-          violations.push(`${id}: net=${f.toFraction()} < ${needed.toFraction()}`);
+          violations.push(
+            `${id}: net=${f.toFraction()} < ${needed.toFraction()}`,
+          );
         }
       }
       // The target may not appear in `net` at all if GLPK met it with free

@@ -2,7 +2,7 @@
 // (those settings files use the trimmed helpers and are never read by the
 // solver). The option/module/beacon fields are kept as `unknown[]` placeholders
 // so the Step/Objective type shape is preserved without dragging the deps.
-import { Rational } from '../rational';
+import { Rational } from "../rational";
 
 export interface RecipeState {
   machineId?: string;

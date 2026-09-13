@@ -1,5 +1,5 @@
-import { LabParams } from './lab-params';
-import { Entities } from './utils';
+import { LabParams } from "./lab-params";
+import { Entities } from "./utils";
 
 export interface Zip<T = string> {
   bare: T;

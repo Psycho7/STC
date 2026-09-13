@@ -1,4 +1,4 @@
-import { SelectItem } from 'primeng/api';
+import { SelectItem } from "primeng/api";
 
 export enum InserterCapacity {
   Capacity0 = 0,
@@ -8,15 +8,15 @@ export enum InserterCapacity {
 
 export const inserterCapacityOptions: SelectItem<InserterCapacity>[] = [
   {
-    label: 'options.inserterCapacity.capacity0',
+    label: "options.inserterCapacity.capacity0",
     value: InserterCapacity.Capacity0,
   },
   {
-    label: 'options.inserterCapacity.capacity2',
+    label: "options.inserterCapacity.capacity2",
     value: InserterCapacity.Capacity2,
   },
   {
-    label: 'options.inserterCapacity.capacity7',
+    label: "options.inserterCapacity.capacity7",
     value: InserterCapacity.Capacity7,
   },
 ];

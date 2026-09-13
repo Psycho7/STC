@@ -16,9 +16,7 @@ test("fractional multiplicities round half-up to two decimals", () => {
 // form: "x<0.01", marking the value as a positive amount below resolution.
 test("sub-1/200 multiplicities never display as x0.00", () => {
   expect(formatMultiplicityBadge({ num: "1", denom: "300" })).toBe("x<0.01");
-  expect(formatMultiplicityBadge({ num: "1", denom: "100000" })).toBe(
-    "x<0.01",
-  );
+  expect(formatMultiplicityBadge({ num: "1", denom: "100000" })).toBe("x<0.01");
 });
 
 test("near-1 multiplicities keep ordinary rounding", () => {

@@ -1,7 +1,7 @@
-import { MenuItem, SelectItem } from 'primeng/api';
+import { MenuItem, SelectItem } from "primeng/api";
 
-import { Rational } from './rational';
-import { Step } from './step';
+import { Rational } from "./rational";
+import { Step } from "./step";
 
 export interface StepOutput {
   inputs?: boolean;

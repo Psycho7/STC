@@ -71,8 +71,8 @@ derived from `rates` + `pack` + `targets` + `itemOverrides`.
    - target output only for a target item;
    - surplus output only when X has genuine net surplus
      (`production - consumption - demand > 0`) and X is disposable.
-   A product unit for an internally-balanced intermediate (net residual near 0,
-   not a target, not raw) is a violation. Catches RF-1's phantom surplus.
+     A product unit for an internally-balanced intermediate (net residual near 0,
+     not a target, not raw) is a violation. Catches RF-1's phantom surplus.
 
 2. `checkInternalFlowConservation`. For each item produced and consumed
    internally, the total rendered internal-edge flow of that item (edges whose

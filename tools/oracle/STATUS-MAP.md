@@ -23,14 +23,14 @@ the two solvers AGREE on the verdict for an unsatisfiable target.
 
 ## STC side (`LpResult.status` x `softFeasible`)
 
-| STC `status` | `softFeasible` | deficit present | Verdict          |
-| ------------ | -------------- | --------------- | ---------------- |
-| `feasible`   | true           | no              | `satisfiable`    |
-| `empty`      | true           | no              | `satisfiable`    |
-| `feasible`   | false          | yes (>1e-12)    | `unsatisfiable`  |
-| `empty`      | false          | yes             | `unsatisfiable`  |
-| `infeasible` | (any)          | (any)           | `infeasible-hard`|
-| `unbounded`  | (any)          | (any)           | `infeasible-hard`|
+| STC `status` | `softFeasible` | deficit present | Verdict           |
+| ------------ | -------------- | --------------- | ----------------- |
+| `feasible`   | true           | no              | `satisfiable`     |
+| `empty`      | true           | no              | `satisfiable`     |
+| `feasible`   | false          | yes (>1e-12)    | `unsatisfiable`   |
+| `empty`      | false          | yes             | `unsatisfiable`   |
+| `infeasible` | (any)          | (any)           | `infeasible-hard` |
+| `unbounded`  | (any)          | (any)           | `infeasible-hard` |
 
 `softFeasible` is `deficit.size === 0`; a surviving deficit entry means some
 item demand could not be met, so the target as stated is not satisfiable even
@@ -39,13 +39,13 @@ the behaviour the oracle is built to surface.)
 
 ## GLPK side (`MatrixResult.resultType` + `simplexStatus` + `returnCode`)
 
-| `resultType` | `simplexStatus` (GLPK)             | Verdict          |
-| ------------ | ---------------------------------- | ---------------- |
-| `solved`     | `optimal`                          | `satisfiable`    |
-| `failed`     | `unbounded`                        | `infeasible-hard`|
-| `failed`     | `infeasible` / `no_feasible` / etc | `unsatisfiable`  |
-| `skipped`    | (no objectives)                    | n/a (not used)   |
-| `paused`     | (paused flag)                      | n/a (not used)   |
+| `resultType` | `simplexStatus` (GLPK)             | Verdict           |
+| ------------ | ---------------------------------- | ----------------- |
+| `solved`     | `optimal`                          | `satisfiable`     |
+| `failed`     | `unbounded`                        | `infeasible-hard` |
+| `failed`     | `infeasible` / `no_feasible` / etc | `unsatisfiable`   |
+| `skipped`    | (no objectives)                    | n/a (not used)    |
+| `paused`     | (paused flag)                      | n/a (not used)    |
 
 `SimplexService.getSolution` returns `resultType = solved` only when GLPK's
 `returnCode === 'ok'` AND model `status === 'optimal'`; any other pair becomes
@@ -59,13 +59,14 @@ MIP return codes are out of scope.
 
 ## Cross-solver agreement (the comparison contract)
 
-| Closed-form truth         | STC                                   | GLPK                          | Verdict (both) |
-| ------------------------- | ------------------------------------- | ----------------------------- | -------------- |
-| target satisfiable        | `feasible`/`empty`, softFeasible=true | `solved`/`optimal`            | `satisfiable`  |
-| target unsatisfiable      | `feasible`, softFeasible=false, deficit | `failed`/`infeasible`       | `unsatisfiable`|
-| structurally unbounded    | `unbounded` (UNREACHABLE)             | `failed`/`unbounded` (UNREACHABLE) | `infeasible-hard` |
+| Closed-form truth      | STC                                     | GLPK                               | Verdict (both)    |
+| ---------------------- | --------------------------------------- | ---------------------------------- | ----------------- |
+| target satisfiable     | `feasible`/`empty`, softFeasible=true   | `solved`/`optimal`                 | `satisfiable`     |
+| target unsatisfiable   | `feasible`, softFeasible=false, deficit | `failed`/`infeasible`              | `unsatisfiable`   |
+| structurally unbounded | `unbounded` (UNREACHABLE)               | `failed`/`unbounded` (UNREACHABLE) | `infeasible-hard` |
 
 Validated members:
+
 - cyclic-target (axis 5): STC `feasible` + `softFeasible=false` + deficit on F;
   GLPK `failed` (not `solved`). Both -> `unsatisfiable`. AGREE, and STC matches
   the closed-form truth (a pure 2-cycle cannot net-produce its target).
@@ -78,6 +79,7 @@ Validated members:
 ## `unbounded` row: UNVERIFIED (not constructible)
 
 An unbounded LP cannot be built in this model:
+
 - STC minimizes a sum of variables with non-negative cost (recipe costs >= 0;
   surplus/deficit weights > 0), so the objective is bounded below by 0 for any
   feasible problem. `src/solver/lp.ts` documents unbounded as unreachable for a

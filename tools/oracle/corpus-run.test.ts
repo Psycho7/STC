@@ -104,7 +104,10 @@ function buildEntries(): Entry[] {
 
   // Scenario 1: acyclic single producer -> chain axis, single producer, unique.
   entries.push({
-    scenario: asScenario("corpus:acyclic-single-producer", corpus.acyclicSingleProducer),
+    scenario: asScenario(
+      "corpus:acyclic-single-producer",
+      corpus.acyclicSingleProducer,
+    ),
     axes: ["chain"],
     whitelisted: true,
   });
@@ -115,7 +118,10 @@ function buildEntries(): Entry[] {
   // cost+lex tie-break picks "cheap". GLPK item-Output on prod is free to pick
   // any "mid" producer. Whitelisted axis = multi-producer; Tier-2-ineligible.
   entries.push({
-    scenario: asScenario("corpus:multi-producer-cost-choice", corpus.multiProducerCostChoice),
+    scenario: asScenario(
+      "corpus:multi-producer-cost-choice",
+      corpus.multiProducerCostChoice,
+    ),
     axes: ["multi-producer", "chain"],
     whitelisted: true,
     expectMismatch: {
@@ -147,7 +153,10 @@ function buildEntries(): Entry[] {
   // Scenario 3: equal-cost tie-break. Two identical producers of "mid"; same
   // multi-producer-intermediate shape as scenario 2.
   entries.push({
-    scenario: asScenario("corpus:equal-cost-tie-break", corpus.equalCostTieBreak),
+    scenario: asScenario(
+      "corpus:equal-cost-tie-break",
+      corpus.equalCostTieBreak,
+    ),
     axes: ["multi-producer", "chain"],
     whitelisted: true,
     expectMismatch: {
@@ -183,7 +192,10 @@ function buildEntries(): Entry[] {
   // Scenario 5: finite cap forces fallback. ItemOverride caps raw_aprimary to 0
   // -> a_primary blocked, z_fallback forced. Single forced producer -> unique.
   entries.push({
-    scenario: asScenario("corpus:finite-cap-fallback", corpus.finiteCapForcingFallback),
+    scenario: asScenario(
+      "corpus:finite-cap-fallback",
+      corpus.finiteCapForcingFallback,
+    ),
     axes: ["multi-producer", "raw-draw", "chain"],
     whitelisted: true,
     expectMismatch: {
@@ -217,7 +229,10 @@ function buildEntries(): Entry[] {
   // __domain_transfer recipe (big-M cost in STC; in the adapter it is forced to
   // 0-consumption via the domain_key_tundra hardcode). Both exclude it.
   entries.push({
-    scenario: asScenario("corpus:domain-transfer-exclusion", corpus.domainTransferExclusion),
+    scenario: asScenario(
+      "corpus:domain-transfer-exclusion",
+      corpus.domainTransferExclusion,
+    ),
     axes: ["multi-producer", "raw-draw"],
     whitelisted: true,
     note: "big-M / __domain_transfer exclusion; both solvers keep r_transfer inactive.",
@@ -234,7 +249,10 @@ function buildEntries(): Entry[] {
 
   // Scenario 7b: target-only flag big-M exclusion. Same exclusion shape.
   entries.push({
-    scenario: asScenario("corpus:target-only-exclusion", corpus.targetOnlyFlagExclusion),
+    scenario: asScenario(
+      "corpus:target-only-exclusion",
+      corpus.targetOnlyFlagExclusion,
+    ),
     axes: ["multi-producer", "raw-draw"],
     whitelisted: true,
     note: "target-only flag => big-M; r_targetonly stays inactive in both.",
@@ -242,7 +260,10 @@ function buildEntries(): Entry[] {
 
   // Scenario 7c: cost=-1 sink big-M exclusion.
   entries.push({
-    scenario: asScenario("corpus:cost-minus-one-sink", corpus.costMinusOneSinkExclusion),
+    scenario: asScenario(
+      "corpus:cost-minus-one-sink",
+      corpus.costMinusOneSinkExclusion,
+    ),
     axes: ["multi-producer", "raw-draw"],
     whitelisted: true,
     note: "cost=-1 sink => big-M; r_sink stays inactive in both.",
@@ -253,7 +274,10 @@ function buildEntries(): Entry[] {
   // free as `unproduceable`, so a satisfiability disagreement is an
   // adapter-artifact, NOT an STC bug.
   entries.push({
-    scenario: asScenario("corpus:deficit-unmet-demand", corpus.deficitUnmetDemand),
+    scenario: asScenario(
+      "corpus:deficit-unmet-demand",
+      corpus.deficitUnmetDemand,
+    ),
     axes: ["INCONCLUSIVE(no-producer)"],
     whitelisted: false,
     expectMismatch: {
@@ -300,7 +324,12 @@ function buildEntries(): Entry[] {
     scenario: {
       name: "headline:xiranite-enr-powder",
       pack: realPack,
-      targets: [{ itemId: "xiranite_enr_powder", ratePerSec: { num: "1", denom: "10" } }],
+      targets: [
+        {
+          itemId: "xiranite_enr_powder",
+          ratePerSec: { num: "1", denom: "10" },
+        },
+      ],
     },
     axes: ["chain", "multi-producer", "byproduct", "raw-draw"],
     whitelisted: true,
@@ -362,7 +391,10 @@ function tier1Agree(r: CompareRecord): boolean {
   return r.verdictAgree && r.targetMetAgree;
 }
 
-function classifyRow(entry: Entry, r: CompareRecord): {
+function classifyRow(
+  entry: Entry,
+  r: CompareRecord,
+): {
   severity: Severity;
   evidence: string;
 } {
@@ -401,7 +433,9 @@ function classifyRow(entry: Entry, r: CompareRecord): {
   // payload. Flag it as a structural-formulation-flaw for the report to surface;
   // the prose verdict below states plainly whether any survive.
   return {
-    severity: entry.whitelisted ? "structural-formulation-flaw" : "adapter-artifact",
+    severity: entry.whitelisted
+      ? "structural-formulation-flaw"
+      : "adapter-artifact",
     evidence: `UNEXPECTED mismatch: ${detail}`,
   };
 }
@@ -432,7 +466,8 @@ function runEntry(entry: Entry): RowResult {
 
   // Trip-wire: any unbounded verdict (mapping is UNVERIFIED).
   const unboundedTripwire =
-    record.stcVerdict === "infeasible-hard" || record.glpkVerdict === "infeasible-hard"
+    record.stcVerdict === "infeasible-hard" ||
+    record.glpkVerdict === "infeasible-hard"
       ? // infeasible-hard collapses both infeasible and unbounded. Re-check the
         // raw GLPK to see if the cause was unbounded specifically.
         checkUnbounded(entry.scenario)
@@ -480,10 +515,16 @@ function buildReport(rows: RowResult[]): string {
   const total = rows.length;
   const tier1Agreements = rows.filter((r) => tier1Agree(r.record)).length;
   const inconclusive = rows.filter((r) => !r.entry.whitelisted).length;
-  const flaws = rows.filter((r) => r.severity === "structural-formulation-flaw");
+  const flaws = rows.filter(
+    (r) => r.severity === "structural-formulation-flaw",
+  );
   const tier2Eligible = rows.filter((r) => r.record.tier2Eligible);
-  const tier2Matches = tier2Eligible.filter((r) => r.record.ratesAgree === true);
-  const tier2Misses = tier2Eligible.filter((r) => r.record.ratesAgree === false);
+  const tier2Matches = tier2Eligible.filter(
+    (r) => r.record.ratesAgree === true,
+  );
+  const tier2Misses = tier2Eligible.filter(
+    (r) => r.record.ratesAgree === false,
+  );
   const tripwires = rows.filter((r) => r.unboundedTripwire);
 
   const stcTimes = rows.map((r) => r.stcMs);
@@ -557,7 +598,9 @@ function buildReport(rows: RowResult[]): string {
     );
     lines.push("");
     for (const m of mismatches) {
-      lines.push(`- **${m.entry.scenario.name}** [${m.severity}]: ${m.severityEvidence}`);
+      lines.push(
+        `- **${m.entry.scenario.name}** [${m.severity}]: ${m.severityEvidence}`,
+      );
     }
   }
   lines.push("");

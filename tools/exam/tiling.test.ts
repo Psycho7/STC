@@ -27,15 +27,15 @@ describe("safeRegion", () => {
     expect(safeRegion(PANE, [floating], 0)).toEqual(PANE);
   });
 
-  // The real React Flow chrome: controls bottom-left, minimap bottom-right,
-  // attribution bottom-right under the minimap. All three sit on the floor, so
-  // the safe region must keep its full width and only lose height.
+  // Chrome sitting on the floor must cost height only, never width: one
+  // horizontal cut clears the lot. (Of the real React Flow chrome only the
+  // attribution badge is corner-flush; the controls cluster floats on 15 px
+  // Panel margins and subtracts nothing, so these rects are synthetic.)
   test("keeps full width when the whole chrome row sits on the floor", () => {
     const controls: Rect = { x: 0, y: 1000, width: 40, height: 80 };
-    const minimap: Rect = { x: 1700, y: 880, width: 220, height: 200 };
     const attribution: Rect = { x: 1830, y: 1060, width: 90, height: 20 };
-    const safe = safeRegion(PANE, [controls, minimap, attribution], 0);
-    expect(safe).toEqual({ x: 0, y: 0, width: 1920, height: 880 });
+    const safe = safeRegion(PANE, [controls, attribution], 0);
+    expect(safe).toEqual({ x: 0, y: 0, width: 1920, height: 1000 });
   });
 
   test("cuts the side when a full-height overlay hugs the left edge", () => {
@@ -90,21 +90,36 @@ describe("tileGrid", () => {
   const safe: Rect = { x: 0, y: 0, width: 1000, height: 1000 };
 
   test("returns a single tile when content fits", () => {
-    const grid = tileGrid({ x: 0, y: 0, width: 100, height: 100 }, safe, 1, 0.15);
+    const grid = tileGrid(
+      { x: 0, y: 0, width: 100, height: 100 },
+      safe,
+      1,
+      0.15,
+    );
     expect(grid).toHaveLength(1);
     expect(grid[0]!.row).toBe(0);
     expect(grid[0]!.col).toBe(0);
   });
 
   test("tiles a plan four times wider than one tile", () => {
-    const grid = tileGrid({ x: 0, y: 0, width: 4000, height: 1000 }, safe, 1, 0.15);
+    const grid = tileGrid(
+      { x: 0, y: 0, width: 4000, height: 1000 },
+      safe,
+      1,
+      0.15,
+    );
     const cols = new Set(grid.map((t) => t.col));
     expect(cols.size).toBeGreaterThanOrEqual(4);
     expect(new Set(grid.map((t) => t.row)).size).toBe(1);
   });
 
   test("neighbouring tiles overlap by the requested fraction", () => {
-    const grid = tileGrid({ x: 0, y: 0, width: 4000, height: 1000 }, safe, 1, 0.15);
+    const grid = tileGrid(
+      { x: 0, y: 0, width: 4000, height: 1000 },
+      safe,
+      1,
+      0.15,
+    );
     const a = grid.find((t) => t.col === 0)!;
     const b = grid.find((t) => t.col === 1)!;
     const overlap = a.worldRect.x + a.worldRect.width - b.worldRect.x;
@@ -112,15 +127,30 @@ describe("tileGrid", () => {
   });
 
   test("tile world size scales inversely with target zoom", () => {
-    const at1 = tileGrid({ x: 0, y: 0, width: 10, height: 10 }, safe, 1, 0.15)[0]!;
-    const at05 = tileGrid({ x: 0, y: 0, width: 10, height: 10 }, safe, 0.5, 0.15)[0]!;
+    const at1 = tileGrid(
+      { x: 0, y: 0, width: 10, height: 10 },
+      safe,
+      1,
+      0.15,
+    )[0]!;
+    const at05 = tileGrid(
+      { x: 0, y: 0, width: 10, height: 10 },
+      safe,
+      0.5,
+      0.15,
+    )[0]!;
     expect(at05.worldRect.width).toBeCloseTo(at1.worldRect.width * 2, 6);
   });
 
   // The grid is centred on the content, so a plan smaller than one tile is
   // framed in the middle of the shot instead of pinned to its top-left corner.
   test("centres the tile band on the content", () => {
-    const grid = tileGrid({ x: 200, y: 300, width: 100, height: 100 }, safe, 1, 0.15);
+    const grid = tileGrid(
+      { x: 200, y: 300, width: 100, height: 100 },
+      safe,
+      1,
+      0.15,
+    );
     expect(grid[0]!.center.x).toBeCloseTo(250, 6);
     expect(grid[0]!.center.y).toBeCloseTo(350, 6);
   });
@@ -129,15 +159,20 @@ describe("tileGrid", () => {
     const content: Rect = { x: -500, y: -200, width: 4000, height: 2600 };
     const grid = tileGrid(content, safe, 1, 0.15);
     const left = Math.min(...grid.map((t) => t.worldRect.x));
-    const right = Math.max(...grid.map((t) => t.worldRect.x + t.worldRect.width));
+    const right = Math.max(
+      ...grid.map((t) => t.worldRect.x + t.worldRect.width),
+    );
     const top = Math.min(...grid.map((t) => t.worldRect.y));
-    const bottom = Math.max(...grid.map((t) => t.worldRect.y + t.worldRect.height));
+    const bottom = Math.max(
+      ...grid.map((t) => t.worldRect.y + t.worldRect.height),
+    );
     expect(left).toBeLessThanOrEqual(content.x);
     expect(right).toBeGreaterThanOrEqual(content.x + content.width);
     expect(top).toBeLessThanOrEqual(content.y);
     expect(bottom).toBeGreaterThanOrEqual(content.y + content.height);
     expect(grid).toHaveLength(
-      new Set(grid.map((t) => t.row)).size * new Set(grid.map((t) => t.col)).size,
+      new Set(grid.map((t) => t.row)).size *
+        new Set(grid.map((t) => t.col)).size,
     );
   });
 
@@ -158,10 +193,12 @@ describe("tileGrid", () => {
   });
 
   test("rejects non-finite content and safe rects", () => {
-    expect(() => tileGrid({ ...content, x: NaN }, safe, 1, 0.15)).toThrow(RangeError);
-    expect(() => tileGrid(content, { ...safe, width: Infinity }, 1, 0.15)).toThrow(
+    expect(() => tileGrid({ ...content, x: NaN }, safe, 1, 0.15)).toThrow(
       RangeError,
     );
+    expect(() =>
+      tileGrid(content, { ...safe, width: Infinity }, 1, 0.15),
+    ).toThrow(RangeError);
   });
 
   test("rejects a non-finite overlap", () => {
@@ -169,7 +206,9 @@ describe("tileGrid", () => {
   });
 
   test("still yields exactly one tile for empty content at a valid zoom", () => {
-    expect(tileGrid({ x: 0, y: 0, width: 0, height: 0 }, safe, 1, 0.15)).toHaveLength(1);
+    expect(
+      tileGrid({ x: 0, y: 0, width: 0, height: 0 }, safe, 1, 0.15),
+    ).toHaveLength(1);
   });
 });
 
@@ -178,7 +217,13 @@ describe("computeCoverage", () => {
 
   test("a point element fully inside one tile is covered", () => {
     const r = computeCoverage(
-      [{ id: "chip-1", kind: "point", worldRect: { x: 10, y: 10, width: 5, height: 5 } }],
+      [
+        {
+          id: "chip-1",
+          kind: "point",
+          worldRect: { x: 10, y: 10, width: 5, height: 5 },
+        },
+      ],
       [tile],
       0,
     );
@@ -188,7 +233,13 @@ describe("computeCoverage", () => {
 
   test("a point element straddling every tile boundary is uncovered", () => {
     const r = computeCoverage(
-      [{ id: "chip-2", kind: "point", worldRect: { x: 95, y: 10, width: 20, height: 5 } }],
+      [
+        {
+          id: "chip-2",
+          kind: "point",
+          worldRect: { x: 95, y: 10, width: 20, height: 5 },
+        },
+      ],
       [tile, { x: 100, y: 0, width: 100, height: 100 }],
       0,
     );
@@ -315,7 +366,13 @@ describe("computeCoverage", () => {
 
     test("a non-finite tile covers no point element", () => {
       const r = computeCoverage(
-        [{ id: "p:far", kind: "point", worldRect: { x: 1e6, y: 1e6, width: 5, height: 5 } }],
+        [
+          {
+            id: "p:far",
+            kind: "point",
+            worldRect: { x: 1e6, y: 1e6, width: 5, height: 5 },
+          },
+        ],
         [nanTile],
         0,
       );
@@ -354,7 +411,11 @@ describe("computeCoverage", () => {
               [Infinity, 10],
             ],
           },
-          { id: "p:nan", kind: "point", worldRect: { x: NaN, y: 10, width: 5, height: 5 } },
+          {
+            id: "p:nan",
+            kind: "point",
+            worldRect: { x: NaN, y: 10, width: 5, height: 5 },
+          },
         ],
         [{ x: -1e9, y: -1e9, width: 2e9, height: 2e9 }],
         0,
@@ -397,7 +458,8 @@ describe("computeCoverage", () => {
     };
     expect(computeCoverage([wide], [tile], 0).covered).toEqual([]);
     expect(
-      computeCoverage([wide], [{ x: 0, y: 0, width: 400, height: 100 }], 5).covered,
+      computeCoverage([wide], [{ x: 0, y: 0, width: 400, height: 100 }], 5)
+        .covered,
     ).toEqual(["e:norect"]);
   });
 });

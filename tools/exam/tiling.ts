@@ -42,7 +42,7 @@ const EPS = 1e-9;
 // middle would split the region in two, and the result has to stay a rectangle.
 // When an overlay touches several edges, prefer raising the floor or lowering
 // the ceiling over cutting a flank, because React Flow's chrome (controls,
-// minimap, attribution) all hugs the bottom - one horizontal cut clears the lot,
+// attribution) all hugs the bottom - one horizontal cut clears the lot,
 // whereas per-overlay side cuts would eat both flanks of the viewport. A cut
 // that would collapse the region is rejected in favour of the other axis, which
 // is what keeps a full-height sidebar from erasing everything.
@@ -85,13 +85,21 @@ function cutOverlay(region: Rect, overlay: Rect): Rect | null {
     candidates.push({ ...region, height: overlay.y - region.y });
   }
   if (overlay.y <= region.y + EPS) {
-    candidates.push({ ...region, y: overlayBottom, height: bottom - overlayBottom });
+    candidates.push({
+      ...region,
+      y: overlayBottom,
+      height: bottom - overlayBottom,
+    });
   }
   if (overlayRight >= right - EPS) {
     candidates.push({ ...region, width: overlay.x - region.x });
   }
   if (overlay.x <= region.x + EPS) {
-    candidates.push({ ...region, x: overlayRight, width: right - overlayRight });
+    candidates.push({
+      ...region,
+      x: overlayRight,
+      width: right - overlayRight,
+    });
   }
   return candidates.find((r) => r.width > EPS && r.height > EPS) ?? null;
 }
@@ -169,7 +177,9 @@ export function tileGrid(
     throw new RangeError("tileGrid: content rect must be finite");
   }
   if (!isFiniteRect(safe) || safe.width <= 0 || safe.height <= 0) {
-    throw new RangeError("tileGrid: safe rect must be finite and have positive extents");
+    throw new RangeError(
+      "tileGrid: safe rect must be finite and have positive extents",
+    );
   }
   if (!Number.isFinite(targetZoom) || targetZoom <= 0) {
     throw new RangeError("tileGrid: targetZoom must be finite and positive");
@@ -312,7 +322,9 @@ function isFiniteElement(element: CoverageElement): boolean {
 
 type Segment = { ax: number; ay: number; bx: number; by: number };
 
-function polylineSegments(points: ReadonlyArray<readonly [number, number]>): Segment[] {
+function polylineSegments(
+  points: ReadonlyArray<readonly [number, number]>,
+): Segment[] {
   if (points.length === 1) {
     const [x, y] = points[0]!;
     return [{ ax: x, ay: y, bx: x, by: y }];

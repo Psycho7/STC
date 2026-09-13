@@ -1,2 +1,7 @@
 # vendor/akedata/ is a byte-for-byte copy of the AKEData tables as served; formatting it would break the pin.
 vendor/akedata/
+# vendor/endfield-calc/ is a pinned snapshot of the upstream fork (see its SOURCE.json); same rule as akedata.
+vendor/endfield-calc/
+# The extractor writes these with JSON.stringify; formatting them by hand would drift back on the next run.
+data/aef/recipe-pack.json
+data/aef/recipe-pack.i18n.json

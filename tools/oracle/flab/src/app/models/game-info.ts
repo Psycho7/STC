@@ -1,6 +1,6 @@
-import { ARKNIGHTS_ENDFIELD_ID } from '~/models/constants';
+import { ARKNIGHTS_ENDFIELD_ID } from "~/models/constants";
 
-import { Game } from './enum/game';
+import { Game } from "./enum/game";
 
 /** Game information, nonconfigurable */
 export interface GameInfo {
@@ -13,51 +13,51 @@ export interface GameInfo {
 /** Game information data, nonconfigurable */
 export const gameInfo: Record<Game, GameInfo> = {
   [Game.ArknightsEndfield]: {
-    icon: 'ark-endfield',
+    icon: "ark-endfield",
     route: `/${ARKNIGHTS_ENDFIELD_ID}`,
-    label: 'options.game.arknightsEndfield',
+    label: "options.game.arknightsEndfield",
     modId: ARKNIGHTS_ENDFIELD_ID,
   },
   [Game.Factorio]: {
-    icon: 'factorio',
-    route: '/spa',
-    label: 'options.game.factorio',
-    modId: 'spa',
+    icon: "factorio",
+    route: "/spa",
+    label: "options.game.factorio",
+    modId: "spa",
   },
   [Game.DysonSphereProgram]: {
-    icon: 'dyson-sphere-program',
-    route: '/dsp',
-    label: 'options.game.dysonSphereProgram',
-    modId: 'dsp',
+    icon: "dyson-sphere-program",
+    route: "/dsp",
+    label: "options.game.dysonSphereProgram",
+    modId: "dsp",
   },
   [Game.Satisfactory]: {
-    icon: 'satisfactory',
-    route: '/sfy',
-    label: 'options.game.satisfactory',
-    modId: 'sfy',
+    icon: "satisfactory",
+    route: "/sfy",
+    label: "options.game.satisfactory",
+    modId: "sfy",
   },
   [Game.CaptainOfIndustry]: {
-    icon: 'captain-of-industry',
-    route: '/coi',
-    label: 'options.game.captainOfIndustry',
-    modId: 'coi',
+    icon: "captain-of-industry",
+    route: "/coi",
+    label: "options.game.captainOfIndustry",
+    modId: "coi",
   },
   [Game.FinalFactory]: {
-    icon: 'final-factory',
-    route: '/ffy',
-    label: 'options.game.finalFactory',
-    modId: 'ffy',
+    icon: "final-factory",
+    route: "/ffy",
+    label: "options.game.finalFactory",
+    modId: "ffy",
   },
   [Game.Techtonica]: {
-    icon: 'techtonica',
-    route: '/tta',
-    label: 'options.game.techtonica',
-    modId: 'tta',
+    icon: "techtonica",
+    route: "/tta",
+    label: "options.game.techtonica",
+    modId: "tta",
   },
   [Game.FactorY]: {
-    icon: 'factor-y',
-    route: '/fay',
-    label: 'options.game.factorY',
-    modId: 'fay',
+    icon: "factor-y",
+    route: "/fay",
+    label: "options.game.factorY",
+    modId: "fay",
   },
 };

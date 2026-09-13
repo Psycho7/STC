@@ -103,9 +103,7 @@ describe("validatePlan", () => {
     const realItem = pack.items[0]!.id;
     const plan: Plan = {
       ...freshPlan(),
-      itemOverrides: [
-        { itemId: realItem, plan: false as unknown as true },
-      ],
+      itemOverrides: [{ itemId: realItem, plan: false as unknown as true }],
     };
     const error = validatePlan(plan, pack);
     expect(error?.kind).toBe("invalid-item-override-plan-flag");

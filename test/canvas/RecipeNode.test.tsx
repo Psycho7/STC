@@ -221,8 +221,9 @@ describe("RecipeNode", () => {
     // Each handle is a DOM descendant of exactly the .rn-row at its slot, and
     // the anchor is the DOM row center (CSS top:50%), so no computed inline top
     // is stamped on the handle.
-    const inputRows =
-      container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input");
+    const inputRows = container.querySelectorAll<HTMLElement>(
+      ".rn-side.in .rn-row.input",
+    );
     const outputRows = container.querySelectorAll<HTMLElement>(
       ".rn-side.out .rn-row.output",
     );
@@ -250,8 +251,9 @@ describe("RecipeNode", () => {
       multiplier: 1,
       inputOrder: ["liquid_water", "copper_nugget"],
     });
-    const inputRows =
-      container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input");
+    const inputRows = container.querySelectorAll<HTMLElement>(
+      ".rn-side.in .rn-row.input",
+    );
     expect(inputRows.length).toBe(2);
     const expectedInIds = ["in:liquid_water", "in:copper_nugget"];
     // The handle inside each row (slot i) matches the resolved item at slot i.
@@ -355,17 +357,18 @@ describe("RecipeNode", () => {
       portTransportKinds,
     });
     // Per-side handle count is unchanged by the move.
-    expect(
-      container.querySelectorAll('[data-handlepos="left"]').length,
-    ).toBe(2);
-    expect(
-      container.querySelectorAll('[data-handlepos="right"]').length,
-    ).toBe(1);
+    expect(container.querySelectorAll('[data-handlepos="left"]').length).toBe(
+      2,
+    );
+    expect(container.querySelectorAll('[data-handlepos="right"]').length).toBe(
+      1,
+    );
 
     // Each input row owns exactly its handle and its glyph; declaration order
     // pairs row slot i with expectedInIds[i].
-    const inputRows =
-      container.querySelectorAll<HTMLElement>(".rn-side.in .rn-row.input");
+    const inputRows = container.querySelectorAll<HTMLElement>(
+      ".rn-side.in .rn-row.input",
+    );
     const expectedInIds = ["in:copper_nugget", "in:liquid_water"];
     inputRows.forEach((row, i) => {
       const handles = row.querySelectorAll<HTMLElement>("[data-handleid]");
@@ -472,9 +475,18 @@ describe("RecipeNode", () => {
           id: item,
           out: [{ item, qty: 1 }],
         }) as unknown as Recipe;
-      const first = renderEn({ recipe: syringe("bottled_rec_hp_4"), kind: "recipe" });
-      const second = renderEn({ recipe: syringe("bottled_rec_hp_5"), kind: "recipe" });
-      const [visA, visC] = [outputLabels(first.container)[0]!, outputLabels(second.container)[0]!];
+      const first = renderEn({
+        recipe: syringe("bottled_rec_hp_4"),
+        kind: "recipe",
+      });
+      const second = renderEn({
+        recipe: syringe("bottled_rec_hp_5"),
+        kind: "recipe",
+      });
+      const [visA, visC] = [
+        outputLabels(first.container)[0]!,
+        outputLabels(second.container)[0]!,
+      ];
       // Both elide head-first and end in their own bracket tail.
       expect(visA).toContain("\u2026");
       expect(visA.endsWith("[C]")).toBe(true);
@@ -494,12 +506,24 @@ describe("RecipeNode", () => {
         } as unknown as Recipe,
         kind: "recipe",
       });
-      const first = renderRecipe(gate("liquid_clean_gate"), makePackValue({
-        machines: [makeMachine("liquid_clean_gate"), makeMachine("liquid_recycle_gate")],
-      }));
-      const second = renderRecipe(gate("liquid_recycle_gate"), makePackValue({
-        machines: [makeMachine("liquid_clean_gate"), makeMachine("liquid_recycle_gate")],
-      }));
+      const first = renderRecipe(
+        gate("liquid_clean_gate"),
+        makePackValue({
+          machines: [
+            makeMachine("liquid_clean_gate"),
+            makeMachine("liquid_recycle_gate"),
+          ],
+        }),
+      );
+      const second = renderRecipe(
+        gate("liquid_recycle_gate"),
+        makePackValue({
+          machines: [
+            makeMachine("liquid_clean_gate"),
+            makeMachine("liquid_recycle_gate"),
+          ],
+        }),
+      );
       const t = (c: HTMLElement) =>
         c.querySelector(".machine-title .cn")?.textContent ?? "";
       const a = t(first.container as HTMLElement);
@@ -509,7 +533,9 @@ describe("RecipeNode", () => {
       expect(b.endsWith("(\u4ea7\u7269\u6392\u51fa\u53e3)")).toBe(true);
       // The full machine names stay on the title attributes.
       expect(
-        first.container.querySelector(".machine-title .cn")?.getAttribute("title"),
+        first.container
+          .querySelector(".machine-title .cn")
+          ?.getAttribute("title"),
       ).toBe("\u51c0\u6c34\u8282\u70b9(\u6c61\u6c34\u63a5\u5165\u53e3)");
     });
   });

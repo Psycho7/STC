@@ -1,13 +1,13 @@
-import { Quality } from '../enum/quality';
-import { Rational, rational } from '../rational';
-import { Beacon, BeaconJson, parseBeacon } from './beacon';
-import { Belt, BeltJson, parseBelt } from './belt';
-import { CargoWagon, CargoWagonJson, parseCargoWagon } from './cargo-wagon';
-import { FluidWagon, FluidWagonJson, parseFluidWagon } from './fluid-wagon';
-import { Fuel, FuelJson, parseFuel } from './fuel';
-import { Machine, MachineJson, parseMachine } from './machine';
-import { Module, ModuleJson, parseModule } from './module';
-import { Technology } from './technology';
+import { Quality } from "../enum/quality";
+import { Rational, rational } from "../rational";
+import { Beacon, BeaconJson, parseBeacon } from "./beacon";
+import { Belt, BeltJson, parseBelt } from "./belt";
+import { CargoWagon, CargoWagonJson, parseCargoWagon } from "./cargo-wagon";
+import { FluidWagon, FluidWagonJson, parseFluidWagon } from "./fluid-wagon";
+import { Fuel, FuelJson, parseFuel } from "./fuel";
+import { Machine, MachineJson, parseMachine } from "./machine";
+import { Module, ModuleJson, parseModule } from "./module";
+import { Technology } from "./technology";
 
 export interface ItemJson {
   id: string;

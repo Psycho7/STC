@@ -1,4 +1,4 @@
-import { Rational, rational } from '../rational';
+import { Rational, rational } from "../rational";
 
 export interface FuelJson {
   category: string;

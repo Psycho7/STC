@@ -1,4 +1,4 @@
-import { SelectItem } from 'primeng/api';
+import { SelectItem } from "primeng/api";
 
 export enum SankeyAlign {
   Justify = 0,
@@ -8,8 +8,8 @@ export enum SankeyAlign {
 }
 
 export const sankeyAlignOptions: SelectItem<SankeyAlign>[] = [
-  { label: 'options.sankeyAlign.justify', value: SankeyAlign.Justify },
-  { label: 'options.sankeyAlign.left', value: SankeyAlign.Left },
-  { label: 'options.sankeyAlign.right', value: SankeyAlign.Right },
-  { label: 'options.sankeyAlign.center', value: SankeyAlign.Center },
+  { label: "options.sankeyAlign.justify", value: SankeyAlign.Justify },
+  { label: "options.sankeyAlign.left", value: SankeyAlign.Left },
+  { label: "options.sankeyAlign.right", value: SankeyAlign.Right },
+  { label: "options.sankeyAlign.center", value: SankeyAlign.Center },
 ];

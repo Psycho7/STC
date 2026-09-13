@@ -2,7 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "AEF Transport Configuration",
   "type": "object",
-  "required": ["schemaVersion", "source", "lanesPerBlueprintGroup", "interGroupGapTiles", "carriers"],
+  "required": [
+    "schemaVersion",
+    "source",
+    "lanesPerBlueprintGroup",
+    "interGroupGapTiles",
+    "carriers"
+  ],
   "properties": {
     "schemaVersion": {
       "type": "string",

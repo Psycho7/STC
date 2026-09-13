@@ -112,13 +112,20 @@ describe("parseArgs", () => {
   });
 
   test("rejects an unknown flag", () => {
-    expect(parseArgs([...BASE, "--out", "x"])).toMatch(/unknown argument "--out"/);
+    expect(parseArgs([...BASE, "--out", "x"])).toMatch(
+      /unknown argument "--out"/,
+    );
   });
 });
 
 describe("parseCssColor", () => {
   test("reads what getComputedStyle serialises", () => {
-    expect(parseCssColor("rgb(15, 17, 20)")).toEqual({ r: 15, g: 17, b: 20, a: 1 });
+    expect(parseCssColor("rgb(15, 17, 20)")).toEqual({
+      r: 15,
+      g: 17,
+      b: 20,
+      a: 1,
+    });
     expect(parseCssColor("rgba(255, 0, 0, 0.5)")).toEqual({
       r: 255,
       g: 0,
@@ -194,7 +201,10 @@ describe("contrastRatio", () => {
     expect(contrastRatio(white, white)).toBeCloseTo(1, 10);
     // #777 on white is the published 4.48:1 borderline, which pins the transfer
     // function and the 0.05 offset rather than only the two endpoints.
-    expect(contrastRatio({ r: 119, g: 119, b: 119 }, white)).toBeCloseTo(4.48, 2);
+    expect(contrastRatio({ r: 119, g: 119, b: 119 }, white)).toBeCloseTo(
+      4.48,
+      2,
+    );
   });
 });
 
@@ -215,7 +225,6 @@ const svg = (over: Partial<ColorRead>): ColorRead => ({
 });
 
 describe("paintColor", () => {
-
   // Every edge in the app is a stroked path with fill `none`, and the canvas
   // background is the backdrop the item palette holds its 4.5:1 floor against.
   test("takes an SVG stroke over the canvas background", () => {
@@ -370,7 +379,9 @@ describe("measureContrast", () => {
   });
 
   test("returns null when the element paints nothing readable", () => {
-    expect(measureContrast(svg({ color: "color(display-p3 1 0 0)" }))).toBeNull();
+    expect(
+      measureContrast(svg({ color: "color(display-p3 1 0 0)" })),
+    ).toBeNull();
   });
 });
 
@@ -383,7 +394,11 @@ describe("paintSide", () => {
       svg({
         stroke: "rgb(124, 223, 252)",
         overlapping: [
-          { description: "div.recipe-node", color: "rgb(31, 33, 37)", overlapFraction: 1 },
+          {
+            description: "div.recipe-node",
+            color: "rgb(31, 33, 37)",
+            overlapFraction: 1,
+          },
         ],
         overlappingCount: 1,
       }),
@@ -401,7 +416,11 @@ describe("paintSide", () => {
         stroke: "rgb(255, 255, 255)",
         strokeOpacity: "0.5",
         overlapping: [
-          { description: "div.recipe-node", color: "rgb(31, 33, 37)", overlapFraction: 1 },
+          {
+            description: "div.recipe-node",
+            color: "rgb(31, 33, 37)",
+            overlapFraction: 1,
+          },
         ],
         overlappingCount: 1,
       }),
@@ -411,7 +430,9 @@ describe("paintSide", () => {
   });
 
   test("leaves a translucent paint with nothing over it measurable", () => {
-    const side = paintSide(svg({ stroke: "rgb(255, 255, 255)", strokeOpacity: "0.5" }))!;
+    const side = paintSide(
+      svg({ stroke: "rgb(255, 255, 255)", strokeOpacity: "0.5" }),
+    )!;
     expect(side.backdropSensitive).toBe(false);
   });
 });
@@ -446,16 +467,18 @@ describe("resolveEndpoints", () => {
   const ids = new Set(["u:in:copper", "u:out:copper", "a to b", "c"]);
 
   test("reads React Flow's default edge label", () => {
-    expect(resolveEndpoints("Edge from u:in:copper to u:out:copper", ids)).toEqual([
-      "u:in:copper",
-      "u:out:copper",
-    ]);
+    expect(
+      resolveEndpoints("Edge from u:in:copper to u:out:copper", ids),
+    ).toEqual(["u:in:copper", "u:out:copper"]);
   });
 
   // Splitting on the first " to " would name a node that does not exist; the
   // split is resolved against the ids the DOM actually rendered.
   test("splits where both halves are real node ids", () => {
-    expect(resolveEndpoints("Edge from a to b to c", ids)).toEqual(["a to b", "c"]);
+    expect(resolveEndpoints("Edge from a to b to c", ids)).toEqual([
+      "a to b",
+      "c",
+    ]);
   });
 
   test("returns null when the label is not the default one", () => {
@@ -557,7 +580,9 @@ describe("judgeHoverSample", () => {
       read({ hit: { kind: "edge", id: "e2", topClass: "x" } }),
     );
     expect(verdict.engaged).toBe(false);
-    expect(verdict.reason).toMatch(/hover engaged, but the pointer was over edge "e2"/);
+    expect(verdict.reason).toMatch(
+      /hover engaged, but the pointer was over edge "e2"/,
+    );
   });
 
   // A container's bounding-box centre is empty space over a CHILD node, and
@@ -610,7 +635,9 @@ describe("judgeHoverSample", () => {
       read({ hoverActive: false, hit: null }),
     );
     expect(verdict.engaged).toBe(false);
-    expect(verdict.reason).toMatch(/no hover, and the pointer was over nothing/);
+    expect(verdict.reason).toMatch(
+      /no hover, and the pointer was over nothing/,
+    );
   });
 });
 
@@ -656,11 +683,11 @@ describe("usableSamples", () => {
     ]);
   });
 
-  // A point under the minimap hovers the minimap. Counting it as a failed
-  // sample is how a working hover gets reported dead.
+  // A point under the zoom controls hovers the zoom controls. Counting it as a
+  // failed sample is how a working hover gets reported dead.
   test("rejects a point under a chrome overlay", () => {
-    const minimap = { x: 1700, y: 800, width: 200, height: 150 };
-    expect(usableSamples([point(1800, 920)], pane, [minimap])).toEqual([false]);
+    const controls = { x: 0, y: 940, width: 40, height: 140 };
+    expect(usableSamples([point(20, 1000)], pane, [controls])).toEqual([false]);
   });
 
   // Overlay rects arrive pane-relative and the points are in page coordinates:
@@ -696,7 +723,10 @@ describe("evalExpression", () => {
 
 describe("evalPayload", () => {
   test("passes a small result through", () => {
-    expect(evalPayload({ a: 1 })).toEqual({ truncated: false, value: { a: 1 } });
+    expect(evalPayload({ a: 1 })).toEqual({
+      truncated: false,
+      value: { a: 1 },
+    });
   });
 
   test("reports undefined as null rather than dropping the field", () => {

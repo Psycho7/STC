@@ -7,10 +7,7 @@ import { PortGlyph } from "./PortGlyph";
 import { formatRationalPerMin } from "../data/rate-format";
 import type { PortTransportKinds } from "./layout";
 import type { ItemId } from "../pipeline/types";
-import {
-  rationalFromString,
-  type RationalString,
-} from "../data/targets";
+import { rationalFromString, type RationalString } from "../data/targets";
 import { orderByItem } from "./orderByItem";
 import { formatMultiplicityBadge } from "./multiplicity-badge";
 import { useItemPack } from "./itemPackContext";
@@ -23,10 +20,7 @@ import {
   widthFnFor,
   type MeasuredFont,
 } from "./measureText";
-import {
-  RECIPE_HEAD_TITLE_COL,
-  RECIPE_HEAD_BLOCK_PAD_X,
-} from "./dimensions";
+import { RECIPE_HEAD_TITLE_COL, RECIPE_HEAD_BLOCK_PAD_X } from "./dimensions";
 
 // Row-label elision budget, from the constants that shape the row (see
 // .rn-row in canvas.css): half of the card body, minus the row's horizontal
@@ -77,12 +71,7 @@ function elideRowLabel(
 ): string {
   const budget =
     bodyWidth / 2 - ROW_PAD_X - (hasSprite ? ROW_SPRITE + ROW_GAP : 0);
-  return elideName(
-    name,
-    budget,
-    widthFnFor(ROW_LABEL_FONT),
-    "row-12",
-  );
+  return elideName(name, budget, widthFnFor(ROW_LABEL_FONT), "row-12");
 }
 
 // Looks up the sprite position by icon id and renders an <ico><spr> pair.
@@ -148,10 +137,7 @@ function rowRateText(
   speed: Fraction,
   scale: Fraction,
 ): string {
-  const perSec = new Fraction(stoich.qty)
-    .mul(speed)
-    .mul(scale)
-    .div(recipeTime);
+  const perSec = new Fraction(stoich.qty).mul(speed).mul(scale).div(recipeTime);
   return formatRationalPerMin({
     num: perSec.n.toString(),
     denom: perSec.d.toString(),
@@ -216,11 +202,7 @@ export default function RecipeNode({
   let badgeText: string | null = null;
   if (multiplicity) {
     badgeText = formatMultiplicityBadge(multiplicity);
-  } else if (
-    typeof multiplier === "number" &&
-    multiplier > 1 &&
-    !expanded
-  ) {
+  } else if (typeof multiplier === "number" && multiplier > 1 && !expanded) {
     badgeText = `x${multiplier}`;
   }
 
@@ -303,11 +285,7 @@ export default function RecipeNode({
                 className="rn-row input"
                 style={{ ["--row-accent" as string]: itemColor(p.item) }}
               >
-                <Handle
-                  id={handleId}
-                  type="target"
-                  position={Position.Left}
-                />
+                <Handle id={handleId} type="target" position={Position.Left} />
                 <PortGlyph
                   kind={portTransportKinds?.get(handleId)}
                   side="left"
@@ -348,11 +326,7 @@ export default function RecipeNode({
                 className="rn-row output"
                 style={{ ["--row-accent" as string]: itemColor(p.item) }}
               >
-                <Handle
-                  id={handleId}
-                  type="source"
-                  position={Position.Right}
-                />
+                <Handle id={handleId} type="source" position={Position.Right} />
                 <PortGlyph
                   kind={portTransportKinds?.get(handleId)}
                   side="right"

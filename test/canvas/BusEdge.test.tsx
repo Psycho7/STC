@@ -182,7 +182,9 @@ describe("canvas/BusEdge crossing cues", () => {
     // the crossing stays intact.
     const mask = cue!.closest("mask")!;
     expect(mask).not.toBeNull();
-    expect(path.closest("[mask]")!.getAttribute("mask")).toBe(`url(#${mask.id})`);
+    expect(path.closest("[mask]")!.getAttribute("mask")).toBe(
+      `url(#${mask.id})`,
+    );
   });
 
   it("draws no cue when the edge carries no crossings", async () => {
@@ -252,7 +254,9 @@ describe("canvas/BusEdge junctionRadius clamp", () => {
 describe("canvas/BusEdge trunk labels", () => {
   function chips(): HTMLElement[] {
     return Array.from(
-      document.querySelectorAll<HTMLElement>('[data-testid^="bus-edge-label-e1"]'),
+      document.querySelectorAll<HTMLElement>(
+        '[data-testid^="bus-edge-label-e1"]',
+      ),
     );
   }
 
@@ -577,7 +581,9 @@ describe("canvas/BusEdge trunk labels", () => {
     await findEdgePath();
     const labels = chips();
     expect(labels).toHaveLength(1);
-    expect(labels[0]!.getAttribute("data-testid")).toBe("bus-edge-label-e1-drop");
+    expect(labels[0]!.getAttribute("data-testid")).toBe(
+      "bus-edge-label-e1-drop",
+    );
     expect(labels[0]!.textContent).toBe("120/min");
   });
 
@@ -636,9 +642,7 @@ describe("canvas/BusEdge trunk labels", () => {
     );
     // Anchor check: the rise chip's x sits on the drawn rise column, one
     // busRiseBase inside the target port (the path's final point).
-    const end = path
-      .getAttribute("d")!
-      .match(/L\s*(-?[\d.]+),(-?[\d.]+)\s*$/);
+    const end = path.getAttribute("d")!.match(/L\s*(-?[\d.]+),(-?[\d.]+)\s*$/);
     const tx = Number(end![1]);
     const rise = labels.find(
       (l) => l.getAttribute("data-testid") === "bus-edge-label-e1-rise",
