@@ -548,6 +548,12 @@ function cloneNodes(nodes: ReadonlyArray<RFAnyNode>): WorkingNode[] {
 // keeps the parent-relative x it came in with when the whole container moves as
 // a unit -- and a container whose children straddle a widened gap grows by the
 // shift its rightmost child took relative to its leftmost.
+//
+// The walk is recursive, so a container nested inside another container passes
+// its children's shifts up its whole ancestor chain and every ancestor it
+// straddles grows. fromElkRenderLayout emits a single level of nesting today (a
+// container's children are units), so the recursion is what keeps the model
+// correct rather than silently wrong if deeper nesting ever arrives.
 function applyLayerShifts(
   working: WorkingNode[],
   layerByNodeId: ReadonlyMap<string, number>,
@@ -569,24 +575,34 @@ function applyLayerShifts(
     node.position = { x: node.position.x + delta, y: node.position.y };
   };
 
-  for (const node of working) {
-    if (node.parentId !== undefined) continue; // moves with its container
+  // Arrange one subtree's interior and report the shifts its own box owes: the
+  // move its left edge takes (its parent applies it) and the move its right
+  // edge takes. A leaf owes its layer's shift on both edges; a container owes
+  // its leftmost child's shift on the left and its rightmost content's on the
+  // right, and grows by the difference.
+  const arrange = (node: WorkingNode): { left: number; right: number } => {
     const kids = childrenByParent.get(node.id);
     if (kids === undefined) {
-      moveBy(node, shiftOf(node.id));
-      continue;
+      const shift = shiftOf(node.id);
+      return { left: shift, right: shift };
     }
-    const shifts = kids.map((kid) => shiftOf(kid.id));
-    const base = Math.min(...shifts);
-    moveBy(node, base);
+    const shifts = kids.map(arrange);
+    const base = Math.min(...shifts.map((s) => s.left));
     kids.forEach((kid, index) => {
-      moveBy(kid, shifts[index]! - base);
+      moveBy(kid, shifts[index]!.left - base);
     });
-    const growth = Math.max(...shifts) - base;
-    if (growth === 0) continue;
-    const width = (node.width ?? 0) + growth;
-    node.width = width;
-    node.style = { ...node.style, width };
+    const growth = Math.max(...shifts.map((s) => s.right)) - base;
+    if (growth > 0) {
+      const width = (node.width ?? 0) + growth;
+      node.width = width;
+      node.style = { ...node.style, width };
+    }
+    return { left: base, right: base + growth };
+  };
+
+  for (const node of working) {
+    if (node.parentId !== undefined) continue; // moves with its container
+    moveBy(node, arrange(node).left);
   }
 }
 

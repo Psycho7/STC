@@ -1789,9 +1789,10 @@ export function clampBackwardRails(
 //
 // It reads each edge's FINAL bendX (the leg starts at that column); which pass
 // settles it is the ROUTING_PASSES entry in layout.ts.
-// Only the normal forward step has a distinct final leg
-// to jog; the same-y straight line and small-dy diagonal are left to their own
-// branches, which do not read legY. Threads { legY } onto the affected edges;
+// Every forward edge is scanned, the same-y straight line and the small-dy
+// diagonal included: a trunk member demoted here because its straight run
+// crosses a card is exactly the edge whose ports share a row, and the drawer
+// consumes { legY } ahead of both shortcuts. Threads { legY } onto the affected edges;
 // every other edge passes through by reference. Pure and deterministic.
 export function jogForwardLegs(
   nodes: ReadonlyArray<RFAnyNode>,
@@ -1850,16 +1851,16 @@ export function jogForwardLegs(
     const ports = edgePortsModel(edge, byId);
     if (ports === null) return;
     const { sx, sy, tx, ty } = ports;
-    // Only the normal forward step draws a distinct final horizontal leg: the
-    // same-y case is a straight line and the small-dy case a single diagonal,
-    // neither of which reads legY. Mirror chamferStepPath's branch guards so a
-    // stamped hint is always one the drawer consumes. forwardStepGeometry is
-    // the drawer's own bend-column derivation, so the leg's start x matches the
-    // drawn path by construction.
+    // A same-y edge is drawn as a straight line and a small-dy edge as a single
+    // diagonal, but neither shape can dodge a card: a member the trunk router
+    // demoted BECAUSE its straight run crosses a card arrives here at its
+    // target's own row. So every forward edge is scanned, and the drawer
+    // consumes { legY } ahead of those two shortcuts -- an unblocked edge is
+    // still stamped with nothing and still drawn straight.
+    // forwardStepGeometry is the drawer's own bend-column derivation, so the
+    // leg's start x matches the drawn path by construction.
     const bendHint = (edge.data as ItemEdgeData | undefined)?.bendX;
-    const { chamfer, bx } = forwardStepGeometry(sx, tx, bendHint);
-    if (sy === ty) return;
-    if (Math.abs(ty - sy) <= 2 * chamfer) return;
+    const { bx } = forwardStepGeometry(sx, tx, bendHint);
     // The jog runs the long horizontal from its entry column to the descent
     // column, then descends into the target port. The descent's desired column
     // is the target's next free entry slot (see occupancy above).
@@ -1953,9 +1954,12 @@ export function jogForwardLegs(
     ): Jog | null => {
       const radius = relaxed ? Infinity : CLEAR_COLUMN_RADIUS;
       const spanning = cardSet.filter((o) => o.right > sx && o.left < tx);
+      // Nearest to ty first, ties broken by the row value itself: the rails are
+      // deduped numbers, so (distance, row) is a TOTAL order and the chosen
+      // rail no longer depends on the order the obstacles were handed in.
       const rails = [
         ...new Set(spanning.flatMap((o) => [o.top - pad, o.bottom + pad])),
-      ].sort((a, b) => Math.abs(a - ty) - Math.abs(b - ty));
+      ].sort((a, b) => Math.abs(a - ty) - Math.abs(b - ty) || a - b);
       const candidates = srcBlocked ? [ty, ...rails] : rails;
       for (const R of candidates) {
         // Entry column: the bend column when the source leg is clean, else a

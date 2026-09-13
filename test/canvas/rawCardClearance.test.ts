@@ -40,6 +40,7 @@ import {
 } from "../../src/canvas/chipSeating";
 import { chipSeatHalfW, rateChipText } from "../../src/canvas/chipMetrics";
 import { drawnPortsOf, nodeIndexOf } from "../../src/canvas/nodeGeometry";
+import { segmentEntersRect, segmentsOf } from "../e2e/geometry";
 import type { RFAnyNode, RFRecipeNode } from "../../src/canvas/layout";
 import {
   mkRecipe,
@@ -302,5 +303,108 @@ describe("a far member whose named run cannot hold its chip", () => {
         (run) => run.y === anchor.y && anchor.x >= run.lo && anchor.x <= run.hi,
       ),
     ).toBe(true);
+  });
+});
+
+describe("jogForwardLegs: a demoted member whose same-row leg crosses a card", () => {
+  // s feeds t1 at its OWN row and t2 below it. `blk` stands between s and t1 on
+  // that row, and `bridge` (far below, out of every run's way) overlaps s and
+  // blk, so the blocker joins the SOURCE layer: routeTrunkEdges demotes the
+  // same-row member to the far treatment, and the jog has to bend it around the
+  // card the straight line would cross.
+  const CARD = 100;
+  const fixture = (withBlocker: boolean) => {
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 0, CARD, CARD),
+      ...(withBlocker
+        ? [
+            productNode("blk", 150, 0, CARD, CARD),
+            productNode("bridge", 80, 300, CARD, CARD),
+          ]
+        : []),
+      productNode("t1", 400, 0, CARD, CARD),
+      productNode("t2", 400, 200, CARD, CARD),
+    ];
+    const edges = [edge("e:1", "s", "t1"), edge("e:2", "s", "t2")];
+    const widened = widenLayerGaps(nodes, edges);
+    const routed = routeTrunkEdges(widened.nodes, edges, {
+      gaps: widened.gaps,
+    });
+    return {
+      nodes: widened.nodes,
+      edges: jogForwardLegs(widened.nodes, routed, { gaps: widened.gaps }),
+    };
+  };
+
+  const drawnPts = (
+    out: { nodes: RFAnyNode[]; edges: Edge[] },
+    id: string,
+  ): Array<readonly [number, number]> => {
+    const byId = nodeIndexOf(out.nodes);
+    const laid = out.edges.find((e) => e.id === id)!;
+    const ports = drawnPortsOf(laid, byId)!;
+    return drawnEdge(ports, laid.type, laid.data).pts.map(
+      ([x, y]) => [x, y] as const,
+    );
+  };
+
+  it("jogs the same-row member clear of the card it would cross", () => {
+    const out = fixture(true);
+    const data = dataOf(out.edges, "e:1");
+    // Premise: the member really was demoted out of the bus, so its legs are
+    // jogForwardLegs' to move.
+    expect(typeOf(out.edges, "e:1")).toBe("item");
+    expect(data.fanout).toBeUndefined();
+
+    const byId = nodeIndexOf(out.nodes);
+    const ports = drawnPortsOf(out.edges.find((e) => e.id === "e:1")!, byId)!;
+    expect(ports.sourceY).toBe(ports.targetY);
+    expect(data.legY).toBeDefined();
+    expect(data.legY).not.toBe(ports.targetY);
+
+    const blk = byId.get("blk")!;
+    const rect = {
+      nodeId: "blk",
+      type: "product",
+      left: blk.position.x,
+      top: blk.position.y,
+      right: blk.position.x + (blk.width ?? 0),
+      bottom: blk.position.y + (blk.height ?? 0),
+    };
+    for (const [p0, p1] of segmentsOf(drawnPts(out, "e:1"))) {
+      expect(segmentEntersRect(p0, p1, rect, 0.5)).toBe(false);
+    }
+  });
+
+  it("leaves an unblocked same-row member straight", () => {
+    const out = fixture(false);
+    expect(dataOf(out.edges, "e:1").legY).toBeUndefined();
+    expect(dataOf(out.edges, "e:1").srcColX).toBeUndefined();
+    const pts = drawnPts(out, "e:1");
+    expect(pts.every(([, y]) => y === pts[0]![1])).toBe(true);
+  });
+});
+
+describe("jogForwardLegs: the rail-row candidate order is total", () => {
+  it("routes identically when the node array is reversed", () => {
+    // Two blockers whose padded rails sit the SAME distance from the target
+    // row, one above and one below: only a tie-break beyond the distance keeps
+    // the chosen rail independent of the array order.
+    const nodes: RFAnyNode[] = [
+      productNode("s", 0, 250, 100, 100),
+      productNode("b1", 400, 0, 100, 150),
+      productNode("b2", 600, 50, 100, 150),
+      productNode("tgt", 900, 50, 100, 100),
+    ];
+    const member: Edge = {
+      ...edge("e:1", "s", "tgt"),
+      data: { item: ITEM, rate: new Fraction(1), bendX: 200 },
+    };
+    const railOf = (arranged: RFAnyNode[]): EdgeData =>
+      dataOf(jogForwardLegs(arranged, [member]), "e:1");
+
+    const forward = railOf(nodes);
+    expect(forward.legY).toBeDefined();
+    expect(railOf([...nodes].reverse())).toEqual(forward);
   });
 });

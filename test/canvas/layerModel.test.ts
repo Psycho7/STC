@@ -292,6 +292,38 @@ describe("gap widening with containers", () => {
     expect(byId.get("l")!.position.x).toBe(0);
     expect(byId.get("r")!.position.x).toBe(LAYER_PITCH + delta);
   });
+
+  it("shifts a leaf two containers deep through its ancestor chain", () => {
+    // The same straddling fixture with one more level of nesting. The leaves
+    // belong to layers; the containers do not, so the inner box has to carry
+    // its right-hand child's shift and both ancestors have to grow with it.
+    // fromElkRenderLayout emits only one level today (a container's children
+    // are units), so this is the model staying correct if nesting arrives.
+    const nodes: RFAnyNode[] = [
+      containerNode("outer", 0, 0, 1000, 400),
+      inContainer(containerNode("inner", 0, 0, 1000, 400), "outer"),
+      inContainer(recipeNode("l", 0, 0, mkRecipe("l", [], ["s"])), "inner"),
+      inContainer(orderedRecipeNode("r", LAYER_PITCH, 0, ["s"]), "inner"),
+    ];
+    const edges = [mkEdge("e:0", "l", "r", "s")];
+    const delta = gapRequirements(nodes, edges)[0]!.required - ELK_GAP;
+    expect(delta).toBeGreaterThan(0);
+
+    const widened = widenLayerGaps(nodes, edges);
+    const byId = new Map(widened.nodes.map((n) => [n.id, n]));
+
+    expect(byId.get("l")!.position.x).toBe(0);
+    expect(byId.get("r")!.position.x).toBe(LAYER_PITCH + delta);
+    expect(byId.get("inner")!.position.x).toBe(0);
+    expect(byId.get("inner")!.width).toBe(1000 + delta);
+    expect(byId.get("outer")!.position.x).toBe(0);
+    expect(byId.get("outer")!.width).toBe(1000 + delta);
+    expect(byId.get("outer")!.style?.width).toBe(1000 + delta);
+    // The gap record and the moved target agree: the target's left edge is the
+    // right end of the widened gap.
+    const gap = widened.gaps[0]!;
+    expect(gap.right).toBe(LAYER_PITCH + delta);
+  });
 });
 
 describe("a backward edge's reserves", () => {

@@ -775,6 +775,25 @@ export function chamferStepPath(
   const { chamfer, bx: stepBx } = forwardStepGeometry(sx, tx, bendX);
   const bx = args.srcColX ?? stepBx;
 
+  // The jog: when a leg at the target y would cross an intervening card,
+  // jogForwardLegs stamps a clear legY: bend to it, run the long horizontal
+  // there (clear of the card), then descend / ascend to the target y in the
+  // target's entry gutter (descentX) before the final rightward stub. The bend
+  // column already sits in a node-free corridor, so its vertical is clear at any
+  // legY. The hint comes FIRST, before the straight-line and diagonal
+  // shortcuts: a same-row or small-dy edge cannot dodge a card in either of
+  // those shapes, and jogForwardLegs only stamps one it proved clear. Absent
+  // the hint the shapes below stand, byte-identical.
+  if (args.legY !== undefined) {
+    const descentX = args.jogDescentX ?? args.entryX ?? tx - PORT_STUB;
+    const jog =
+      `M ${r(sx)},${r(sy)}` +
+      chamferColumn(bx, sy, args.legY, chamfer) +
+      chamferColumn(descentX, args.legY, ty, chamfer) +
+      ` L ${r(tx)},${r(ty)}`;
+    return anchored(jog);
+  }
+
   // Same rail: a plain straight line, no vertical offset at all -- one long
   // horizontal run, which is also where its chip anchors.
   if (sy === ty) {
@@ -793,21 +812,6 @@ export function chamferStepPath(
   }
 
   // Normal forward step: H run, chamfer, V run, chamfer, H run into target.
-  // When the final leg at the target y would cross an intervening card,
-  // jogForwardLegs stamps a clear legY: bend to it, run the long horizontal
-  // there (clear of the card), then descend / ascend to the target y in the
-  // target's entry gutter (descentX) before the final rightward stub. The bend
-  // column already sits in a node-free corridor, so its vertical is clear at any
-  // legY. Absent the hint the leg runs straight at ty, byte-identical.
-  if (args.legY !== undefined) {
-    const descentX = args.jogDescentX ?? args.entryX ?? tx - PORT_STUB;
-    const jog =
-      `M ${r(sx)},${r(sy)}` +
-      chamferColumn(bx, sy, args.legY, chamfer) +
-      chamferColumn(descentX, args.legY, ty, chamfer) +
-      ` L ${r(tx)},${r(ty)}`;
-    return anchored(jog);
-  }
   // Enlarge the two corner bevels toward MAX_CHAMFER when the bend carries a
   // corridor budget (P6 PCB-style long chamfers). Cap by half the shorter
   // adjacent leg -- the source-side horizontal (bx - sx), the target-side

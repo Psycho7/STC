@@ -138,9 +138,11 @@ export const containerNode = (
   },
 });
 
-// Re-parent a laid-out leaf node into a container: the caller hands in the
+// Re-parent a laid-out node into a container: the caller hands in the
 // node's PARENT-RELATIVE position, the same frame ELK's children come back in.
-export const inContainer = <T extends RFRecipeNode | RFProductNode>(
+export const inContainer = <
+  T extends RFRecipeNode | RFProductNode | RFContainerNode,
+>(
   node: T,
   parentId: string,
 ): T => ({ ...node, parentId });
