@@ -147,6 +147,30 @@ export const DOT_KEEPOFF = 16;
 export const ENTRY_GUTTER_OVERHANG = 34;
 
 export const NODE_NODE_SPACING = 30;
+
+// How far an environment recipe card's FRAME reaches beyond its card box, per
+// side: the banner plates and haze RecipeNode draws on .rn-env (inset
+// -36px -8px -22px). The card box itself never grows -- measureRecipe and the
+// DOM stay card-sized -- but two things have to reserve the frame rectangle:
+// the ELK adapter hands ELK the grown box (so the default nodeNode spacing
+// keeps neighbours off the plates) and maps positions back to the frame's
+// inner rectangle, and the chip-seating obstacles grow by the same extents so
+// no chip seats on a plate. Both read this one constant.
+//
+//   +--------------------------+   ^
+//   | 36 (top plate + glyph)   |   |
+//   |   +------------------+   |   | frame
+//   | 8 |    card box      | 8 |   |
+//   |   +------------------+   |   |
+//   | 22 (bottom plate)        |   v
+//   +--------------------------+
+export const ENV_FRAME_EXTENTS = {
+  top: 36,
+  bottom: 22,
+  left: 8,
+  right: 8,
+} as const;
+
 // A generous column gap so each ItemEdge label chip (item icon + name + rate)
 // has room to breathe and doesn't overlap the source or target node. The earlier
 // 40px gap left labels jammed against the neighboring nodes and hard to read.
