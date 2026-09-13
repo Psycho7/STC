@@ -572,9 +572,12 @@ const CROSSING_BASELINE_ON: Record<string, number> = {
   "battery5-xiranite": 47, // 55 -> 47, Task 7
   crystal: 1,
   equip4: 1,
-  multi6: 205, // 415 -> 121, Task 7. 121 -> 137 at R10 (2026-09-04):
+  multi6: 214, // 415 -> 121, Task 7. 121 -> 137 at R10 (2026-09-04):
   // out-of-band rail strikes padded by the full gap, so multi6's dense
   // backward rails settle further out and cross more mid-graph corridors.
+  // RECIPE CARD TRIM (2026-09-13): 205 -> 214. The narrower card moves every
+  // column and corridor and multi6's mid-graph crossings follow it. UP move,
+  // listed for ruling in the trim's PR.
   tundra: 0,
   script43: 26, // 55 -> 26, Task 7
   "coupon-web": 13, // 14 -> 13, Task 7
@@ -765,7 +768,13 @@ const CHIP_SEGMENT_BASELINE_ON: Record<string, number> = {
   "battery5-xiranite": 16,
   crystal: 1,
   equip4: 1,
-  multi6: 3,
+  // RECIPE CARD TRIM (2026-09-13): 3 -> 40. The 240px card re-deals multi6's
+  // densest corridors: boundary-input pairs now share one horizontal band
+  // (gas_inert/gas_xiranite run 2 units apart) and the q:23..q:31 fan-out
+  // cluster packs one column, so corridor mates' strokes pierce each other's
+  // chips -- the R12 coincident-stroke class, too close for any box model to
+  // exclude. UP move, listed for ruling in the trim's PR.
+  multi6: 40,
   tundra: 0,
   script43: 12,
   "coupon-web": 5,
@@ -778,17 +787,20 @@ const CHIP_SEGMENT_BASELINE: Record<LaneMode, Record<string, number>> = {
   // R14: 15 -> 42. R16: 42 -> 43 (up move, same trade as the on arm).
   // FAN-OUT LEG SEAT: default 2 -> 3, the same e:12-on-e:8's-leg-row chip as
   // the on arm.
+  // RECIPE CARD TRIM (2026-09-13): multi6 0 -> 40 and gas-web 5 -> 8, the
+  // same coincident-corridor class as the on arm. UP moves, listed for
+  // ruling in the trim's PR.
   off: {
     default: 3,
     battery5: 10,
     "battery5-xiranite": 15,
     crystal: 1,
     equip4: 1,
-    multi6: 0,
+    multi6: 40,
     tundra: 0,
     script43: 10,
     "coupon-web": 5,
-    "gas-web": 5,
+    "gas-web": 8,
     "rot-bottled_food_3": 0,
     "rot-bottled_food_4": 2,
   },
@@ -860,26 +872,36 @@ const CHIP_OFFPATH_BASELINE_ON: Record<string, number> = {
   script43: 1,
   "coupon-web": 0,
   "gas-web": 0,
-  "rot-bottled_food_3": 0,
+  // RECIPE CARD TRIM (2026-09-13): 0 -> 1. The trim's row lift re-deals the
+  // corridor and one label chip takes a bounded sidestep seat (the class the
+  // battery5 ruling above describes). UP move, listed for ruling in the
+  // trim's PR.
+  "rot-bottled_food_3": 1,
   "rot-bottled_food_4": 2,
 };
 const CHIP_OFFPATH_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: CHIP_OFFPATH_BASELINE_ON,
   // R14: 0 -> 38, buying PORT_COVER 126 -> 0 and CARD_INTRUSION 79 -> 0.
   // R16: 38 -> 8.
+  // RECIPE CARD TRIM (2026-09-13): battery5 2 -> 3, multi6 0 -> 4,
+  // rot-bottled_food_3 0 -> 1, rot-bottled_food_4 0 -> 1. The trim's row
+  // lift and the 240px card re-deal every corridor; the new seats are the
+  // bounded-sidestep and least-bad-escape classes the table already records
+  // (mirrored per edge in the unit seating corpora of the same PR). UP
+  // moves, listed for ruling in the trim's PR.
   off: {
     default: 0,
-    battery5: 2,
+    battery5: 3,
     "battery5-xiranite": 4,
     crystal: 0,
     equip4: 0,
-    multi6: 0,
+    multi6: 4,
     tundra: 0,
     script43: 1,
     "coupon-web": 0,
     "gas-web": 1,
-    "rot-bottled_food_3": 0,
-    "rot-bottled_food_4": 0,
+    "rot-bottled_food_3": 1,
+    "rot-bottled_food_4": 1,
   },
 };
 
@@ -1804,29 +1826,36 @@ const SEAT_VALIDITY_BASELINE_ON: Record<string, number> = {
   "battery5-xiranite": 2,
   crystal: 0,
   equip4: 0,
-  multi6: 0,
+  // RECIPE CARD TRIM (2026-09-13): multi6 0 -> 1 (e:58 Amethyst Powder, the
+  // escape cascade seating its centre 44.2 off its own line) and
+  // rot-bottled_food_3 0 -> 1 (e:15 Ferrium Powder x1200/min, same 44.2
+  // cascade shape). UP moves, listed for ruling in the trim's PR.
+  multi6: 1,
   tundra: 0,
   script43: 1,
   "coupon-web": 0,
   "gas-web": 0,
-  "rot-bottled_food_3": 0,
+  "rot-bottled_food_3": 1,
   "rot-bottled_food_4": 0,
 };
 const SEAT_VALIDITY_BASELINE: Record<LaneMode, Record<string, number>> = {
   on: SEAT_VALIDITY_BASELINE_ON,
   // R14: 2 -> 35. R16: 35 -> 1.
+  // RECIPE CARD TRIM (2026-09-13): multi6 0 -> 1 and rot-bottled_food_3
+  // 0 -> 1, the same two escape-cascade seats as the on arm (44.2 off the
+  // line each). UP moves, listed for ruling in the trim's PR.
   off: {
     default: 0,
     battery5: 0,
     "battery5-xiranite": 1,
     crystal: 0,
     equip4: 0,
-    multi6: 0,
+    multi6: 1,
     tundra: 0,
     script43: 0,
     "coupon-web": 0,
     "gas-web": 0,
-    "rot-bottled_food_3": 0,
+    "rot-bottled_food_3": 1,
     "rot-bottled_food_4": 0,
   },
 };
@@ -2323,7 +2352,9 @@ const CENSUS_TOTALS: Record<
     // 6 -> 5 at the Task 8 branch-leg re-measure (multi6 1 -> 0).
     // R14: seatValidity 5 -> 36, cardIntrusion 77 -> 0, foreignStroke
     // 40 -> 59. R16: seatValidity 36 -> 3, foreignStroke 59 -> 54.
-    seatValidity: 3,
+    // RECIPE CARD TRIM (2026-09-13): 3 -> 5, tracking multi6 and
+    // rot-bottled_food_3 in the per-scenario table (escape-cascade seats).
+    seatValidity: 5,
     // 81 -> 77 at the Task 7 loop-return re-measure (battery5 4 -> 3,
     // battery5-xiranite 8 -> 7, multi6 23 -> 22, script43 12 -> 11). gas-web
     // measured 8 against its pin 7 and is LEFT AT 7 (STOP, see the Task 7 note
@@ -2350,7 +2381,9 @@ const CENSUS_TOTALS: Record<
   off: {
     // R14: seatValidity 2 -> 35, cardIntrusion 79 -> 0, foreignStroke
     // 32 -> 49. R16: seatValidity 35 -> 1, foreignStroke 49 -> 45.
-    seatValidity: 1,
+    // RECIPE CARD TRIM (2026-09-13): 1 -> 3, tracking multi6 and
+    // rot-bottled_food_3 in the per-scenario table (escape-cascade seats).
+    seatValidity: 3,
     cardIntrusion: 0,
     // SINGLE-BAND RE-MEASURE (eeda816): 45 -> 46 (default 1 -> 2).
     // FAN-OUT LEG SEAT: 46 -> 47 (default 2 -> 3).
