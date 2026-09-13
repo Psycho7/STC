@@ -4,52 +4,42 @@ Pinned snapshot of 14 AKEData `TableCfg` tables, stored byte for byte as the
 data host serves them. AKEData republishes the game's own TableCfg files per
 hotfix; this directory pins one hotfix so the extractor can read the tables
 offline and the pin moves visibly in version control. This is a pinned copy,
-not a git submodule and not a projection: no file here is generated,
-reformatted, or filtered.
+not a git submodule.
 
 ## Provenance
 
 The exact origin is recorded in `SOURCE.json`, which is the single source of
-truth for the snapshot's `version`, `gameVersion`, `hotfixVersion` and
-`snapshotDate`; it is never paraphrased here. The tables sit at
-`vendor/akedata/<gameVersion>/<hotfixVersion>/TableCfg/`, and the manifest's
-`tableCfgPath` is `public/` followed by that same relative path, so each file
-was fetched from `https://data.akedata.wiki/<tableCfgPath>/<Table>.json`.
+truth for the snapshot's `version`, `gameVersion`, `hotfixVersion`,
+`tableCfgPath` and `snapshotDate`; it is never paraphrased here. The tables
+sit at `<gameVersion>/<hotfixVersion>/TableCfg/` under this directory, which
+is `tableCfgPath` with its `public/` prefix removed; each file was fetched from
+`https://data.akedata.wiki/<tableCfgPath>/<Table>.json`.
 
 - Site: https://www.akedata.wiki
-- Data host: https://data.akedata.wiki
 - Code repo: https://github.com/NagiYume/AKEDatabase
 
 ## Contents
 
-`<gameVersion>/<hotfixVersion>/TableCfg/` holds the 14 tables:
+The versioned directory holds the 14 tables:
 
-- `ItemTable` - every game item: ids, localized name/description ids, icon
-  ids, stack counts. The item-id half of the join to the recipe pack.
-- `FactoryItemTable` - the factory subset of items with logistics fields:
-  buffer stack limits, transfer and lossless domains, item state.
-- `FactoryMachineCraftTable` - the recipes: per craft, machine, ingredients,
-  outcomes, duration, formula group, and the `gasEnv` environment
-  requirement the current vendor does not carry.
-- `FactoryMachineCraftGroupTable` - alternate crafts grouped by formula
-  group, with their buffer bindings and round time.
-- `FactoryBuildingTable` - building definitions: power draw, input and
-  output ports, place domains. The machine-id half of the join.
-- `FactoryEnvDisplayTable` - display rows for the environments (icon atlas
-  and effect per `GenEnv` id).
-- `FactoryVaporizerTable` - the vaporizer: consume bindings and range
-  extension.
-- `FactoryMinerTable` - ore miners: mineable position, round time, drone
-  mode.
-- `FactoryGasMinerTable` - the gas miner: mineable position and round time.
-- `FactoryFluidPumpInTable` - fluid pumps: pump positions and which liquids
-  each enables.
-- `FactoryFluidConsumeTable` - the fluid consumer: which liquid it consumes
-  and its round time.
-- `FactoryFuelItemTable` - fuel items: fuel energy and power provided.
-- `FactoryPowerStationTable` - the power station: power provided per round.
-- `WikiDefaultCraftTable` - the craft the site marks as default for each of
-  the 9 items with more than one craft.
+- `ItemTable` - every game item; the item-id half of the join to the recipe
+  pack.
+- `FactoryItemTable` - the factory subset of items with their logistics
+  fields.
+- `FactoryMachineCraftTable` - the recipes, including the `gasEnv`
+  environment requirement the current vendor does not carry.
+- `FactoryMachineCraftGroupTable` - alternate crafts grouped by formula group,
+  with the round time.
+- `FactoryBuildingTable` - building definitions; the machine-id half of the
+  join.
+- `FactoryEnvDisplayTable` - the environments by `GenEnv` id.
+- `FactoryVaporizerTable` - which gas produces each environment.
+- `FactoryMinerTable`, `FactoryGasMinerTable`, `FactoryFluidPumpInTable`,
+  `FactoryFluidConsumeTable` - the extraction machines and their round times.
+- `FactoryFuelItemTable`, `FactoryPowerStationTable` - fuel energy and power
+  generation.
+- `WikiDefaultCraftTable` - the craft the site marks as default for each item
+  with more than one source.
 
 The files are two-space JSON with LF endings and no trailing newline at EOF
 (git shows `\ No newline at end of file`); that is the served byte stream and
@@ -65,12 +55,10 @@ stay there).
 
 ## License and game content
 
-The AKEDatabase code repo declares AGPL-3.0 in its README while its LICENSE
-file carries GPLv3 text; see the top-level `NOTICE` for both statements.
-Either way the license covers the site code only. The vendored tables are
-the game's own TableCfg data and belong to their respective rights holders
-(Hypergryph / Gryphline / Yostar), covered by the game-content section of
-the `NOTICE`. Nothing from the repository's code is vendored.
+The AKEDatabase license covers the site code only, and none of that code is
+vendored here. The tables are Arknights: Endfield game data and belong to
+their respective rights holders. See the top-level `NOTICE` for the license
+statements and scope.
 
 ## Refreshing the snapshot
 
@@ -79,10 +67,8 @@ the `NOTICE`. Nothing from the repository's code is vendored.
    `tableCfgPath` and `publishedAt`.
 2. Fetch the 14 tables above from
    `https://data.akedata.wiki/<tableCfgPath>/<Table>.json`, byte for byte.
-3. Replace the versioned directory
-   `vendor/akedata/<gameVersion>/<hotfixVersion>/` with the new fetch; the
-   old versioned directory is removed in the same change so the diff shows
-   the two versions side by side.
+3. Add the new versioned directory and remove the old one in the same
+   change, so the diff shows both versions.
 4. Update `version`, `gameVersion`, `hotfixVersion`, `tableCfgPath`,
    `publishedAt` and `snapshotDate` in `SOURCE.json`.
 
